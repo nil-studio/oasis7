@@ -49,6 +49,20 @@ WantedBy=timers.target
     return {"oasis7-preview-update.service": service, "oasis7-preview-update.timer": timer}
 
 
+def prepare_lock_parent(lock):
+    import ecs_preview_update as updater
+    missing = []
+    parent = lock.parent
+    while not parent.exists() and not parent.is_symlink():
+        missing.append(parent)
+        parent = parent.parent
+    updater.trusted_path(parent)
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700)
+        updater.trusted_path(directory)
+    updater.trusted_path(lock.parent)
+
+
 def install(config, destination, unit_dir, python, enable=False):
     import ecs_preview_update as updater
     config, destination, unit_dir, python = map(Path, (config, destination, unit_dir, python))
@@ -58,7 +72,7 @@ def install(config, destination, unit_dir, python, enable=False):
         raise ValueError("configured Python interpreter is not executable")
     conf = updater.load_config(config)
     lock = Path(conf["lock_path"])
-    updater.trusted_path(lock.parent)
+    prepare_lock_parent(lock)
     with updater.module("package-ecs-skills").maintenance_lock(lock):
         return install_locked(conf, config, destination, unit_dir, python, enable)
 

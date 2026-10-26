@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Installer unit wiring and independent health evidence negative cases."""
 import copy
+import contextlib
+import io
+import json
+import sys
+import tempfile
 import subprocess
 from unittest.mock import patch
 import importlib.util
@@ -23,6 +28,27 @@ class InstallTests(unittest.TestCase):
         self.assertIn("OnUnitInactiveSec=60s", timer)
         self.assertNotIn("PartOf=", service)
         self.assertNotIn("initialize", service)
+
+    def test_lock_parent_created_private_only_below_trusted_ancestor(self):
+        import ecs_preview_update as updater
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lock = root / "private" / "updater" / "deploy.lock"
+            # Temporary roots are not root-owned on developer machines.
+            def trust(path):
+                if path.stat().st_mode & 0o022:
+                    raise ValueError("untrusted writable directory")
+            with patch.object(updater, "trusted_path", side_effect=trust):
+                installer.prepare_lock_parent(lock)
+                self.assertEqual(lock.parent.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(lock.parent.parent.stat().st_mode & 0o777, 0o700)
+                sticky = root / "shared"
+                sticky.mkdir()
+                sticky.chmod(0o1777)
+                with self.assertRaises(ValueError):
+                    installer.prepare_lock_parent(sticky / "child" / "deploy.lock")
+                self.assertFalse((sticky / "child").exists())
+                self.assertEqual(sticky.stat().st_mode & 0o7777, 0o1777)
 
     def test_systemd_command_injection_paths_rejected(self):
         for path in ("relative", "/tmp/a b", "/tmp/a%h", "/tmp/a\nExecStart=/bad"):
@@ -69,6 +95,18 @@ class SignedVerifierTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("verify", Path(__file__).with_name("ecs-preview-verify.py"))
         cls.verifier = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.verifier)
+
+    def test_cli_stdout_is_json_even_when_real_skill_helper_logs(self):
+        skills = self.verifier.module("package-ecs-skills")
+        def verification(*args):
+            # The real helper emits a success diagnostic even with no resources.
+            skills.verify({}, "https://preview.invalid")
+            return {"nonce": "fresh", "checks": {"skill": True}}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", ["verify", "--config", "/config", "--device", "/device"]), patch.object(sys, "stdin", io.StringIO("{}")), patch.object(self.verifier, "load_config", return_value={}), patch.object(self.verifier, "verify", side_effect=verification), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            self.verifier.main()
+        self.assertEqual(json.loads(stdout.getvalue()), {"nonce": "fresh", "checks": {"skill": True}})
+        self.assertIn("Public Skill", stderr.getvalue())
 
     def test_uses_real_signed_capabilities_entry_and_requires_tick(self):
         result = subprocess.CompletedProcess([], 0, '{"api_revision":1,"logical_tick":19}')

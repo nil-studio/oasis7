@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Observe existing Preview services and signed world reads for deployment health."""
 import argparse
+import contextlib
 import json
 import re
 from pathlib import Path
@@ -130,7 +131,9 @@ def main():
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--device", required=True, type=Path)
     args = parser.parse_args()
-    print(json.dumps(verify(json.load(sys.stdin), load_config(args.config), args.device)))
+    with contextlib.redirect_stdout(sys.stderr):
+        evidence = verify(json.load(sys.stdin), load_config(args.config), args.device)
+    print(json.dumps(evidence))
 
 
 if __name__ == "__main__":

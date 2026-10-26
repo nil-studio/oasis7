@@ -313,7 +313,7 @@ def main():
     parser.add_argument("--nginx-include", type=Path)
     parser.add_argument("--player-service")
     parser.add_argument("--lock-fd", type=int, help="inherited descriptor holding the exact maintenance lock")
-    parser.add_argument("--lock-file", type=Path, default=Path("/run/lock/oasis7-preview-deploy.lock"))
+    parser.add_argument("--lock-file", type=Path, default=Path("/var/lib/oasis7-preview-updater/deploy.lock"))
     args = parser.parse_args()
     args.release, public = checked_release(args.release, args.expected_source)
     if args.command == "verify":

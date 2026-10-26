@@ -6,7 +6,7 @@
   "channel_key": "oasis7-preview/channels/preview.json",
   "releases_dir": "/opt/oasis7-preview/releases",
   "state_dir": "/var/lib/oasis7-preview-updater",
-  "lock_path": "/run/lock/oasis7-preview-deploy.lock",
+  "lock_path": "/var/lib/oasis7-preview-updater/deploy.lock",
   "compatibility_file": "/etc/oasis7-preview/compatibility.json",
   "verifier_command": [
     "/opt/oasis7-preview-updater-venv/bin/python",
