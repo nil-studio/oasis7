@@ -418,7 +418,10 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(clock.now, 8)
 
     def test_chain_readiness_waits_for_trusted_same_pid_systemd_exec_handoff(self):
-        with tempfile.TemporaryDirectory() as temp:
+        # The fake executor must live beneath a non-writable ancestor. Linux
+        # commonly sets TMPDIR=/tmp (mode 01777), which production correctly
+        # rejects as an untrusted executable path.
+        with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
             engine, clock, process_state, runtime = self.make_executor_handoff_engine(temp)
             world_calls = []
             engine.probe_ns = {"read_world": lambda _probe: world_calls.append(True) or
@@ -441,9 +444,9 @@ class EngineTests(unittest.TestCase):
 
     def test_systemd_executor_handoff_rejects_untrusted_or_inconsistent_evidence(self):
         cases = ("wrong_type", "wrong_exec_path", "wrong_exec_pid", "untrusted_executor",
-                 "changed_unit")
+                 "writable_executor_ancestor", "changed_unit")
         for case in cases:
-            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp:
+            with self.subTest(case=case), tempfile.TemporaryDirectory(dir=Path.home()) as temp:
                 engine, clock, _process_state, runtime = self.make_executor_handoff_engine(temp)
                 if case == "wrong_type":
                     engine._systemctl = lambda *_args, **_kwargs: (
@@ -465,6 +468,12 @@ class EngineTests(unittest.TestCase):
                         f"stop_time=[n/a] ; pid=502 ; code=(null) ; status=0 }}\n").encode()
                 elif case == "untrusted_executor":
                     engine.systemd_executor_path.write_bytes(b"modified after exec")
+                elif case == "writable_executor_ancestor":
+                    self.assertEqual(engine.systemd_executor_path.stat().st_mode & 0o777, 0o755)
+                    engine.systemd_executor_path.parent.chmod(0o777)
+                    self.assertEqual(engine.systemd_executor_path.stat().st_mode & 0o777, 0o755)
+                    self.assertEqual(engine.systemd_executor_path.parent.stat().st_mode & 0o022,
+                                     0o022)
                 elif case == "changed_unit":
                     engine.units["chain.service"].write_bytes(b"[Service]\nExecStart=/other\n")
                 engine.probe_ns = {"read_world": lambda _probe: self.fail(
@@ -476,7 +485,8 @@ class EngineTests(unittest.TestCase):
 
     def test_systemd_executor_pid_or_starttime_change_fails_before_readiness(self):
         for changed_field in ("pid", "start_ticks"):
-            with self.subTest(changed_field=changed_field), tempfile.TemporaryDirectory() as temp:
+            with self.subTest(changed_field=changed_field), tempfile.TemporaryDirectory(
+                    dir=Path.home()) as temp:
                 engine, clock, process_state, _runtime = self.make_executor_handoff_engine(temp)
                 original_systemctl = engine._systemctl
                 show_calls = 0
@@ -498,7 +508,7 @@ class EngineTests(unittest.TestCase):
                 self.assertEqual(clock.now, 2)
 
     def test_systemd_exec_must_preserve_starttime_from_pending_executor(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
             engine, clock, process_state, runtime = self.make_executor_handoff_engine(temp)
             candidate_identity = {
                 **process_state, "name": "oasis7_chain_runtime", "start_ticks": 78,
@@ -513,7 +523,7 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(clock.now, 2)
 
     def test_systemd_executor_handoff_retries_only_until_readiness_deadline(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
             engine, clock, _process_state, _runtime = self.make_executor_handoff_engine(temp)
             engine.probe_ns = {"read_world": lambda _probe: self.fail(
                 "world read before candidate executable")}
@@ -523,7 +533,7 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(engine.pending_exec["chain.service"], (501, 77))
 
     def test_executor_handoff_is_not_retryable_after_first_process_observation(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
             engine, clock, process_state, runtime = self.make_executor_handoff_engine(temp)
             candidate_identity = {
                 **process_state, "name": "oasis7_chain_runtime",
