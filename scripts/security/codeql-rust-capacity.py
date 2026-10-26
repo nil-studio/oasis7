@@ -353,7 +353,7 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
         'scope':'within the unchanged job deadline and two minute capture step'}
     initial_locks=read_initial_locks(out,source,args.deadline)
     for name,operation in (
-        ('log_capture',lambda:evidence.collect_logs(args.database,out,capture_end-30)),
+        ('log_capture',lambda:evidence.collect_logs(args.database,out,capture_end-30,settle=True)),
         ('checkout',lambda:evidence.capture_identity(source,out,capture_end,SOURCE,prefix='capture',initial_locks=initial_locks)),
         ('resources',lambda:resources(env)),
     ):
