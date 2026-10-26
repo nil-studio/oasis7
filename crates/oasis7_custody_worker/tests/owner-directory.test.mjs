@@ -203,3 +203,21 @@ test('deployed Owner default entrypoint cannot call generated Rust management RP
   assert.equal((await call(mf, '/default-rpc', body)).status, 409);
   assert.equal((await ok(await call(mf, '/reserve', body))).phase, 'draft_initialized');
 }));
+
+
+test('persistent freeze cursor reaches healthy targets behind eight unconfirmable accounts', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const values = [];
+  for (let i = 0; i < 9; i++) values.push(await draft(mf, 'starvation-' + i));
+  values.sort((a, b) => a.entry.custody_account_id < b.entry.custody_account_id ? -1 : 1);
+  for (const value of values.slice(0, 8)) await account(mf, value.entry.custody_account_id, '/fixture/unknown-row');
+  const healthy = values[8].entry.custody_account_id;
+  const freeze = { manager_session: session(), request: { api_version: 1, operation_id: 'starvation-freeze' } };
+  const first = await ok(await call(mf, '/freeze-manager', freeze));
+  assert.equal(first.status, 'pending'); assert.equal(first.pending_accounts.length, 9);
+  mf = await restart();
+  const second = await ok(await call(mf, '/freeze-manager', freeze));
+  assert.equal(second.status, 'pending'); assert.equal(second.pending_accounts.length, 8);
+  assert.ok(!second.pending_accounts.includes(healthy), 'later healthy account must freeze while earlier unknown inventory stays pending');
+  const saved = await inspect(mf, healthy);
+  assert.ok(saved.records.some(row => row.id.includes('freeze')), 'healthy Account DO must persist its own freeze tombstone');
+}));

@@ -38,6 +38,8 @@ struct Snapshot {
     index: ManagerAccountIndex,
     drafts: BTreeMap<String, AccountDraftV1>,
     audit_sequence: DecimalU64,
+    #[serde(default)]
+    freeze_cursor: Option<String>,
 }
 fn decode(raw: &str) -> Result<Snapshot> {
     if raw.len() > MAX_BYTES {
@@ -59,6 +61,35 @@ fn decode(raw: &str) -> Result<Snapshot> {
     }
     Ok(s)
 }
+
+// Advance before awaiting I/O: unconfirmable targets stay pending without monopolizing retries.
+fn next_freeze_batch(s: &mut Snapshot) -> Vec<AccountFreezeTarget> {
+    let pending = s
+        .index
+        .pending_freeze_targets()
+        .cloned()
+        .collect::<Vec<_>>();
+    let start = pending
+        .iter()
+        .position(|target| {
+            s.freeze_cursor
+                .as_ref()
+                .is_none_or(|cursor| target.custody_account_id.as_str() > cursor.as_str())
+        })
+        .unwrap_or(0);
+    let selected = pending
+        .iter()
+        .skip(start)
+        .chain(pending.iter().take(start))
+        .take(FANOUT_BATCH)
+        .cloned()
+        .collect::<Vec<_>>();
+    if let Some(last) = selected.last() {
+        s.freeze_cursor = Some(last.custody_account_id.clone());
+    }
+    selected
+}
+
 fn encode(s: &Snapshot) -> Result<String> {
     let raw = serde_json::to_string(s)?;
     if raw.len() > MAX_BYTES {
@@ -129,6 +160,7 @@ impl ManagerAssociations {
                     .map_err(|_| denied())?,
                     drafts: BTreeMap::new(),
                     audit_sequence: DecimalU64(0),
+                    freeze_cursor: None,
                 };
                 initialize(&self.state, KEY, &encode(&s)?).map_err(|_| denied())?
             }
@@ -335,7 +367,8 @@ impl ManagerAssociations {
         }
         let principal = config.principal(&rpc.manager_session)?;
         self.snapshot(config, &rpc.manager_session, true)?;
-        let s = self.transaction(
+        let batch = std::cell::RefCell::new(Vec::new());
+        self.transaction(
             config,
             &rpc.manager_session,
             "manager_freeze_started",
@@ -357,15 +390,12 @@ impl ManagerAssociations {
                         source_credential_version: Some(rpc.manager_session.credential_version),
                     }
                 };
-                s.index.begin_revocation(notice).map_err(|_| denied())
+                s.index.begin_revocation(notice).map_err(|_| denied())?;
+                *batch.borrow_mut() = next_freeze_batch(s);
+                Ok(())
             },
         )?;
-        let targets = s
-            .index
-            .pending_freeze_targets()
-            .take(FANOUT_BATCH)
-            .cloned()
-            .collect::<Vec<_>>();
+        let targets = batch.into_inner();
         for target in targets {
             if let Ok(value) = self
                 .account("/internal/freeze", &target, &target.custody_account_id)
