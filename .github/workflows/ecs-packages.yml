@@ -190,7 +190,7 @@ jobs:
           python3 scripts/ci-ecs-cache.py stage "${args[@]}" \
             --cache "$RUNNER_TEMP/ecs-workspace-cache" --state "$RUNNER_TEMP/ecs-cache-state.json" \
             --report "$RUNNER_TEMP/ecs-cache-stage.json"
-      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         id: ecs-cache-save
         if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true'
         continue-on-error: true
