@@ -1150,7 +1150,7 @@ fn same_anchor(
     Ok(anchor_ref(first)? == anchor_ref(second)?)
 }
 
-fn parse_strict<T: DeserializeOwned>(body: &[u8]) -> Result<T, String> {
+pub(super) fn parse_strict<T: DeserializeOwned>(body: &[u8]) -> Result<T, String> {
     if body.is_empty() || body.len() > MAX_REQUEST_BODY {
         return Err("request body is empty or exceeds the 256 KiB bound".into());
     }
@@ -1176,6 +1176,6 @@ fn now_unix_ms() -> u64 {
 }
 
 #[path = "formal_live_service_http.rs"]
-mod http;
+pub(super) mod http;
 pub(crate) use http::FormalHttpServer;
 use http::*;

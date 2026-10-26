@@ -53,6 +53,40 @@ pub struct FormalBusinessResultTreeUpdateV1 {
     pub delta: BusinessIndexDeltaV1,
 }
 
+/// Exact inputs for a BFT successor result-tree update. The parent root and
+/// concrete World remain explicit so callers cannot update a tree from only
+/// a claimed root tuple.
+pub struct FormalBftResultSuccessorInputV1<'a> {
+    pub world: &'a World,
+    pub identity: &'a oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1,
+    pub height: u64,
+    pub parent_result_root: &'a str,
+    pub execution_state_root: &'a str,
+    pub previous: &'a FormalBusinessResultTreeV1,
+    pub new_results: &'a [CanonicalIntentResultV1],
+    pub reader: &'a dyn BusinessIndexNodeReader,
+}
+
+struct BusinessIndexReaderRef<'a>(&'a dyn BusinessIndexNodeReader);
+
+impl BusinessIndexNodeReader for BusinessIndexReaderRef<'_> {
+    fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+        self.0.prefetch_path(root, key)
+    }
+
+    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.0.read_node(digest)
+    }
+
+    fn read_cached_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.0.read_cached_node(digest)
+    }
+
+    fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
+        self.0.cache_content_node(digest, bytes)
+    }
+}
+
 impl FormalBusinessResultTreeV1 {
     /// Initial metadata has no record-ID dependency and is committed in the
     /// externally approved activation closure before the canonical ID exists.
@@ -109,7 +143,8 @@ impl FormalBusinessResultTreeV1 {
         new_results: &[CanonicalIntentResultV1],
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<FormalBusinessResultTreeUpdateV1, String> {
-        Self::extend_inner(world, record, previous, new_results, reader, Vec::new())
+        let metadata = metadata_for_world(world, record)?;
+        Self::extend_inner(world, metadata, previous, new_results, reader, Vec::new())
     }
     /// Profile 2 commits an immutable locator for the already-qualified parent.
     /// Its proof contains hashes of input artifacts, never recursive closures.
@@ -133,22 +168,70 @@ impl FormalBusinessResultTreeV1 {
             .and_then(|cut| cut.leaf()).map_err(|error| error.to_string())?;
         Self::extend_inner(
             world,
-            record,
+            metadata_for_world(world, record)?,
             Some(previous),
             new_results,
             reader,
             vec![cut],
         )
     }
+
+    /// Advance the existing sparse result tree at a verified BFT successor
+    /// boundary. This adapter authenticates the concrete World and exact
+    /// predecessor tree without inventing a controlled `CanonicalRecordV1`.
+    pub fn extend_bft_successor(
+        input: FormalBftResultSuccessorInputV1<'_>,
+    ) -> Result<FormalBusinessResultTreeUpdateV1, String> {
+        let FormalBftResultSuccessorInputV1 {
+            world,
+            identity,
+            height,
+            parent_result_root,
+            execution_state_root,
+            previous,
+            new_results,
+            reader,
+        } = input;
+        previous.validate()?;
+        let expected_height = previous
+            .metadata
+            .formal_position
+            .checked_add(1)
+            .ok_or("formal BFT result position overflow")?;
+        if height != expected_height
+            || previous.root()? != parent_result_root
+            || previous.metadata.world_id != identity.world_id
+            || previous.metadata.chain_id != identity.chain_id
+            || previous.metadata.genesis_digest != identity.genesis_digest
+        {
+            return Err("formal BFT result predecessor differs from exact parent".into());
+        }
+        let metadata = metadata_for_boundary(
+            world,
+            identity,
+            height,
+            execution_state_root,
+            &previous.metadata.governing_manifest_digest,
+        )?;
+        let reader = BusinessIndexReaderRef(reader);
+        Self::extend_inner(
+            world,
+            metadata,
+            Some(previous),
+            new_results,
+            &reader,
+            Vec::new(),
+        )
+    }
+
     fn extend_inner(
         world: &World,
-        record: &CanonicalRecordV1,
+        metadata: FormalBusinessCommitMetadataV1,
         previous: Option<&Self>,
         new_results: &[CanonicalIntentResultV1],
         reader: &impl BusinessIndexNodeReader,
         mut updates: Vec<BusinessIndexLeafV1>,
     ) -> Result<FormalBusinessResultTreeUpdateV1, String> {
-        let metadata = metadata_for_world(world, record)?;
         if let Some(previous) = previous {
             previous.validate()?;
             if previous.metadata.world_id != metadata.world_id

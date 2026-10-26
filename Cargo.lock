@@ -6331,6 +6331,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "oasis7_cas",
+ "oasis7_formal_protocol",
  "oasis7_proto",
  "serde",
  "serde_cbor",
@@ -6417,8 +6418,11 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "hex",
+ "oasis7_cas",
+ "oasis7_proto",
  "serde",
  "serde_cbor",
+ "serde_json",
 ]
 
 [[package]]

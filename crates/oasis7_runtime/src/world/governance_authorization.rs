@@ -42,9 +42,7 @@ impl World {
             .as_ref()
             .and_then(|history| history.parent.as_ref());
         if let Some(parent) = &self.bft_governance_parent {
-            if formal.is_some() {
-                return Err(invalid("ambiguous governance parent profiles"));
-            }
+            self.validate_formal_handoff_authorization_parent(parent)?;
             return Ok(AuthorizationParent {
                 world_id: parent.schedule.scope().world_id.clone(),
                 chain_id: parent.schedule.scope().chain_id.clone(),
