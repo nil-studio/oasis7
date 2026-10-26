@@ -34,7 +34,7 @@ sudo /opt/oasis7-preview-updater-venv/bin/python scripts/ecs-preview-install.py 
 
 安装前将候选受信 updater 工具放入固定 root 所有目录，并在配置中设置 `verifier_command` 为该目录的 `ecs-preview-verify.py --config <本配置> --device <已有设备配置>`（通过专用 Python 调用）。安装后可改为安装器打印的版本目录；不要指向会被游戏 release 切换的脚本。签名读设备配置沿用原 world/genesis/service key/agent 身份和 signer，不新建身份。内置验证器检查实际进程、公开准入 API、Web 全部资源、Skill 和四次签名 canonical tick；对 chain 写入兼容性返回 unknown，chain 更新失败必须按恢复流程核对，不自动回退未知写入。
 
-配置结构见 [配置示例](../../../config/ecs-preview-auto-update.example.json)。所有示例路径、身份和契约均须替换为本机实际值；配置不含密钥，签名读取使用现有本机身份。`verifier_command` 是 root 配置的固定命令，接收 stdin JSON、输出严格健康证据；接口见下节，不能从频道接收命令。安装 preflight 失败时不启用 timer、不初始化或替换世界。首次接管旧手工布局需先在维护锁内完成独立路径适配；不能让安装器猜测旧机器布局。
+配置结构见 [配置示例](../../../scripts/ecs-preview-config.example.json)。所有示例路径、身份和契约均须替换为本机实际值；配置不含密钥，签名读取使用现有本机身份。`verifier_command` 是 root 配置的固定命令，接收 stdin JSON、输出严格健康证据；接口见下节，不能从频道接收命令。安装 preflight 失败时不启用 timer、不初始化或替换世界。首次接管旧手工布局需先在维护锁内完成独立路径适配；不能让安装器猜测旧机器布局。
 
 `compatibility_file` 保存管理员独立审核的精确 from/to 组件 source、三个契约和非空依据；例如批准的版本差异/持久格式及身份格式兼容测试、允许的写入与回退条件。只写 `safe=true`、只复制远端 contract 或使用通配符均不构成许可。`rollback_allowed` 只允许已知兼容的程序回退；chain 已不兼容写入、迁移或写入未知时仍禁止普通回退。
 
