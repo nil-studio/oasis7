@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 P = Path(__file__).with_name('codeql-rust-cargo-check.py')
 spec = importlib.util.spec_from_file_location('single_check', P)
@@ -29,6 +30,46 @@ class SingleCheck(unittest.TestCase):
         cargo.write_text('#!' + sys.executable + '\n' + body)
         cargo.chmod(0o755)
         return str(cargo)
+
+    def test_native_preparation_stops_at_missing_pkgconfig_module(self):
+        calls=[]
+        def run(argv, *args, **kwargs):
+            calls.append(argv)
+            if argv[0] == 'pkg-config':
+                raise m.runtime.PhaseError({"failure_kind":"child_exit","exit":1})
+            return {"exit":0}
+        with patch.object(m.runtime, "run", side_effect=run):
+            with self.assertRaises(m.runtime.PhaseError):
+                m.prepare_native(self.source,self.out,time.monotonic()+800,dict(os.environ))
+        self.assertEqual(len(calls),4)
+        self.assertFalse(any("check" in x for x in calls))
+
+    def test_native_preparation_is_bounded_and_probes_original_missing_modules(self):
+        calls=[]
+        with patch.object(m.runtime, 'run', side_effect=lambda *a, **kw: calls.append((a,kw))):
+            m.prepare_native(self.source,self.out,time.monotonic()+800,dict(os.environ))
+        self.assertEqual(len(calls),4)
+        self.assertEqual(calls[0][0][0][:3],['sudo','-n','timeout'])
+        self.assertEqual(len({args[3] for args,_ in calls}),1)
+        self.assertLessEqual(calls[0][0][4],60)
+        self.assertLessEqual(calls[1][0][4],120)
+        for package in ('libgtk-3-dev','libwebkit2gtk-4.1-dev','libdbus-1-dev'):
+            self.assertIn(package,calls[1][0][0])
+        modules=calls[-1][0][0]
+        for module in ('gdk-3.0 >= 3.22','dbus-1 >= 1.6','javascriptcoregtk-4.1 >= 2.38'):
+            self.assertIn(module,modules)
+        self.assertTrue(all(kw['file_limit'] is None for _,kw in calls))
+
+    def test_native_observations_cannot_overrun_preparation_deadline(self):
+        calls=[]
+        def run(*args, **kwargs):
+            calls.append(args)
+        # After update and install, the shared preparation clock has expired.
+        with patch.object(m.time,'monotonic',side_effect=[100,100,100,281]), \
+                patch.object(m.runtime,'run',side_effect=run):
+            with self.assertRaisesRegex(RuntimeError,'native observation budget'):
+                m.prepare_native(self.source,self.out,1000,dict(os.environ))
+        self.assertEqual(len(calls),2)
 
     def test_reconstruction_matches_the_original_recorded_hash(self):
         args = m.check_argv(Path('/home/runner/work/oasis7/oasis7'),

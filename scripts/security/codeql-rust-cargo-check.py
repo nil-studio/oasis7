@@ -17,6 +17,36 @@ MANIFEST = 'tools/oasis7-command-center/Cargo.toml'
 CARGO_COMMIT = '5f94df4789f005f9a352888e8355ffc645b7ed0e'
 ORIGINAL_ARGV_SHA = 'ae8fc3d8d27bc6d0e9686f6ce5f9932442f35b7713d59fd503a7ffc8779750ed'
 CAP = 16 * 1024**2
+NATIVE_PACKAGES = ('pkg-config', 'libgtk-3-dev', 'libwebkit2gtk-4.1-dev', 'libdbus-1-dev')
+NATIVE_MODULES = ('gdk-3.0 >= 3.22', 'atk >= 2.28', 'dbus-1 >= 1.6',
+                  'glib-2.0 >= 2.70', 'cairo >= 1.14', 'gdk-pixbuf-2.0 >= 2.36.8',
+                  'pango >= 1.40', 'gobject-2.0 >= 2.70', 'gio-2.0 >= 2.70',
+                  'javascriptcoregtk-4.1 >= 2.38', 'libsoup-3.0 >= 3.0')
+
+
+def prepare_native(source, out, end, env):
+    """Repair the observed native prerequisites within the original job clock."""
+    preparation_end = min(end - 90, time.monotonic() + 180)
+    for name, args, limit in (
+            ('native-update', ['update'], 60),
+            ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], 120)):
+        remaining = min(limit, preparation_end - time.monotonic())
+        if remaining < 10:
+            raise RuntimeError('insufficient native preparation budget')
+        # The privileged timeout terminates its own apt children before our outer watchdog.
+        argv = ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=2s',
+                str(int(remaining) - 5), 'env', 'DEBIAN_FRONTEND=noninteractive',
+                'apt-get', '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20', *args]
+        runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
+                    remaining, out, env, file_limit=None)
+    for name, argv in (
+            ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *NATIVE_PACKAGES]),
+            ('native-modules', ['pkg-config', '--print-errors', '--modversion', *NATIVE_MODULES])):
+        remaining = min(10, preparation_end - time.monotonic())
+        if remaining < 1:
+            raise RuntimeError('insufficient native observation budget')
+        runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
+                    remaining, out, env, file_limit=None)
 
 
 def check_argv(source, work):
@@ -98,6 +128,8 @@ def main():
     terminal = {'status': 'PREPARATION_FAILED', 'source_sha': SOURCE,
                 'fixed_deadline': args.deadline, 'check_invocations': 0,
                 'production_capacity': 'UNKNOWN', 'rust_coverage': 'HOLD',
+                'native_prerequisites': 'NOT_REACHED',
+                'native_cleanup_scope': 'Unprivileged helper group observations do not certify the privileged apt subtree empty',
                 'scope': 'single fresh-runner check, not replay of the original shared target history',
                 'security_upload': False, 'database_upload': False}
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
@@ -126,6 +158,9 @@ def main():
                                Path('/home/runner/work/_temp/rust-capacity-databases/rust/working'))
         if hashlib.sha256(json.dumps(canonical).encode()).hexdigest() != ORIGINAL_ARGV_SHA:
             raise RuntimeError('recorded invocation reconstruction differs')
+        terminal['native_prerequisites'] = 'INCOMPLETE'
+        prepare_native(source, out, end, env)
+        terminal['native_prerequisites'] = 'PASS'
         single_check(source, work, out, end, env, observation=terminal)
         terminal['status'] = check_status(terminal['process'])
     except Exception as error:
