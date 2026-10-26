@@ -506,12 +506,12 @@ impl ViewerRuntimeLiveServer {
             });
             if canonical_chat.is_none() {
                 use oasis7_world_state::gameplay_capability::GameplaySubject;
-                player_gameplay.gameplay_capability = serde_json::to_value(
-                    runtime_state.gameplay_capability_query(
+                player_gameplay.gameplay_capability =
+                    serde_json::to_value(runtime_state.gameplay_capability_query(
                         GameplaySubject::resolve(None, snapshot_player_id.is_some()),
                         "current_industrial_capability",
-                    ),
-                ).ok();
+                    ))
+                    .ok();
             }
         } else {
             use oasis7_world_state::gameplay_capability::GameplaySubject;

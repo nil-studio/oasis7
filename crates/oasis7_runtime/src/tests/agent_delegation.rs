@@ -1025,7 +1025,6 @@ mod provider_commit_boundary;
 #[path = "agent_delegation/world_rule_budget.rs"]
 mod world_rule_budget;
 
-
 #[path = "agent_delegation/replacement.rs"]
 mod replacement;
 
@@ -1035,44 +1034,105 @@ fn capability_recovery_query_uses_current_quote_authority_and_resources() {
     let mut world = recipe_fixture();
     // Current line evidence belongs to the owner and selects a real builtin plan.
     let mut state = world.state().clone();
-    state.factories.get_mut("factory").unwrap().production.current_recipe_id = Some("recipe.smelter.iron_ingot".into());
+    state
+        .factories
+        .get_mut("factory")
+        .unwrap()
+        .production
+        .current_recipe_id = Some("recipe.smelter.iron_ingot".into());
     world = World::new_with_state(state);
-    world.bind_cognition_runtime(super::agent_cognition_runtime_hardening::WORLD_ID, "main", 0, None, "pending", 0).unwrap();
-    let subject = GameplaySubject::Personal { owner_agent_id: AGENT_ID.into() };
-    let query = |world: &World, actor| world.gameplay_capability_query(subject.clone(), "current_industrial_capability", actor);
-    assert_eq!(query(&world, Some(AGENT_ID)).recovery.last().unwrap().status, "unknown");
+    world
+        .bind_cognition_runtime(
+            super::agent_cognition_runtime_hardening::WORLD_ID,
+            "main",
+            0,
+            None,
+            "pending",
+            0,
+        )
+        .unwrap();
+    let subject = GameplaySubject::Personal {
+        owner_agent_id: AGENT_ID.into(),
+    };
+    let query = |world: &World, actor| {
+        world.gameplay_capability_query(subject.clone(), "current_industrial_capability", actor)
+    };
+    assert_eq!(
+        query(&world, Some(AGENT_ID))
+            .recovery
+            .last()
+            .unwrap()
+            .status,
+        "unknown"
+    );
     let mut allowance = grant();
     allowance.object_id = "factory".into();
     allowance.action_kinds = vec!["ScheduleRecipe".into()];
     allowance.limit_units = 12;
     world.install_agent_delegation_grant(allowance).unwrap();
     fn files(root: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
-        fn visit(root: &std::path::Path, at: &std::path::Path, result: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>) {
+        fn visit(
+            root: &std::path::Path,
+            at: &std::path::Path,
+            result: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+        ) {
             for entry in std::fs::read_dir(at).unwrap() {
                 let path = entry.unwrap().path();
-                if path.is_dir() { visit(root, &path, result); }
-                else { result.insert(path.strip_prefix(root).unwrap().to_owned(), std::fs::read(path).unwrap()); }
+                if path.is_dir() {
+                    visit(root, &path, result);
+                } else {
+                    result.insert(
+                        path.strip_prefix(root).unwrap().to_owned(),
+                        std::fs::read(path).unwrap(),
+                    );
+                }
             }
         }
-        let mut result = Default::default(); visit(root, root, &mut result); result
+        let mut result = Default::default();
+        visit(root, root, &mut result);
+        result
     }
-    let directory = std::env::temp_dir().join(format!("oasis7-capability-read-only-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let directory = std::env::temp_dir().join(format!(
+        "oasis7-capability-read-only-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
     world.save_to_dir(&directory).unwrap();
     let disk_before = files(&directory);
     let before = serde_json::to_value(world.snapshot()).unwrap();
     let journal_before = world.journal().clone();
-    let unsupported = world.gameplay_capability_query(subject.clone(), "unimplemented_goal", Some(AGENT_ID));
-    assert!(unsupported.recovery.iter().all(|item| item.status == "unknown" && item.reason_code == "unsupported_recovery_goal" && item.action.is_none()));
+    let unsupported =
+        world.gameplay_capability_query(subject.clone(), "unimplemented_goal", Some(AGENT_ID));
+    assert!(
+        unsupported
+            .recovery
+            .iter()
+            .all(|item| item.status == "unknown"
+                && item.reason_code == "unsupported_recovery_goal"
+                && item.action.is_none())
+    );
     let available = query(&world, Some(AGENT_ID));
     assert_eq!(available.recovery.last().unwrap().status, "available");
     assert!(available.recovery.last().unwrap().action.is_some());
     assert_eq!(available.recovery[0].status, "unknown");
-    assert_eq!(query(&world, None).recovery.last().unwrap().reason_code, "current_execution_authority_unavailable");
+    assert_eq!(
+        query(&world, None).recovery.last().unwrap().reason_code,
+        "current_execution_authority_unavailable"
+    );
     assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), before);
     assert_eq!(world.journal(), &journal_before);
-    assert_eq!(files(&directory), disk_before, "successful query must not write persistence, nonce or reservations");
+    assert_eq!(
+        files(&directory),
+        disk_before,
+        "successful query must not write persistence, nonce or reservations"
+    );
     let input = world.state().factories["factory"].input_ledger.clone();
-    world.set_ledger_material_balance(input, "iron_ore", 0).unwrap();
+    world
+        .set_ledger_material_balance(input, "iron_ore", 0)
+        .unwrap();
     world.save_to_dir(&directory).unwrap();
     let disk_before = files(&directory);
     let before = serde_json::to_value(world.snapshot()).unwrap();
@@ -1081,7 +1141,11 @@ fn capability_recovery_query_uses_current_quote_authority_and_resources() {
     assert_eq!(blocked.recovery.last().unwrap().status, "blocked");
     assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), before);
     assert_eq!(world.journal(), &journal_before);
-    assert_eq!(files(&directory), disk_before, "rejected query must not write persistence, nonce or reservations");
+    assert_eq!(
+        files(&directory),
+        disk_before,
+        "rejected query must not write persistence, nonce or reservations"
+    );
     std::fs::remove_dir_all(directory).unwrap();
     assert_eq!(blocked.goal_id, available.goal_id);
     assert_eq!(blocked.subject, available.subject);
