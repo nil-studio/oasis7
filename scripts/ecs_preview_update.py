@@ -218,8 +218,10 @@ class Updater:
             for name in manifest["components"]:
                 if not (root / self.c["components"][name]["relative_path"]).exists():
                     raise ValueError("missing component payload")
-            for name in manifest["components"]:
-                binary = root / self.c["components"][name]["relative_path"]
+            for name in ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_viewer_live", "oasis7_game_client"):
+                binary = root / "bin" / name
+                if not binary.is_file() or not os.access(binary, os.X_OK):
+                    raise ValueError("missing executable runtime component")
                 result = self.run(["ldd", str(binary)], capture_output=True, text=True)
                 if "not found" in result.stdout:
                     raise ValueError("missing runtime dependency")
@@ -231,6 +233,10 @@ class Updater:
             check(release)
             return release
         release.parent.mkdir(parents=True, exist_ok=True)
+        # Public release payloads must remain traversable by Nginx even though
+        # the updater state and its systemd process use a private 0077 umask.
+        for directory in (Path(self.c["releases_dir"]), release.parent):
+            directory.chmod(0o755)
         if shutil.disk_usage(release.parent).free < 528 * 1024**2:
             raise ValueError("insufficient download disk reserve")
         with tempfile.TemporaryDirectory(dir=release.parent, prefix=".stage-") as tmp:
@@ -270,6 +276,10 @@ class Updater:
                 if len(children) != 1 or not children[0].is_dir():
                     raise ValueError("invalid archive root")
                 root = children[0]
+            root.chmod(0o755)
+            for directory in root.rglob("*"):
+                if directory.is_dir():
+                    directory.chmod(0o755)
             check(root)
             os.rename(root, release)
         return release

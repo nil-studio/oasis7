@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -215,11 +216,15 @@ class UpdateTests(unittest.TestCase):
         root = self.root / "bundle"
         root.mkdir()
         files = {"manifest.json":json.dumps({"source":source,"platform":"linux-x64","profile":"ecs"}), "BUILDINFO": "source=" + source + "\nprofile=ecs\nplatform=linux-x64\n", "player":"launcher", "bin/oasis7_game_launcher":"launcher", "deployment/ecs-skill-release.py":Path(u.__file__).with_name("package-ecs-skills.py").read_text(), "web-dist/skills/index.html":"index", "web-dist/skills/oasis7-play/SKILL.md":"skill"}
+        for binary in ("oasis7_chain_runtime", "oasis7_viewer_live", "oasis7_game_client"):
+            files["bin/" + binary] = "runtime program"
         files["web-dist/skills/oasis7-play/manifest.json"] = json.dumps({"schema":1,"source":source,"canonical_path":"/skills/oasis7-play/SKILL.md","files":{"SKILL.md":{"sha256":hashlib.sha256(b"skill").hexdigest(),"bytes":5}}})
         for name, content in files.items():
             path = root / name
             path.parent.mkdir(parents=True,exist_ok=True)
             path.write_text(content)
+            if name.startswith("bin/"):
+                path.chmod(0o755)
         (root / "SHA256SUMS").write_text("".join(u.digest(root / name) + "  " + name + "\n" for name in sorted(files)))
         output = io.BytesIO()
         with tarfile.open(fileobj=output,mode="w:gz") as tar:
@@ -239,6 +244,30 @@ class UpdateTests(unittest.TestCase):
         (staged / "player").write_text("corrupt")
         with self.assertRaisesRegex(ValueError,"checksums"):
             self.updater.stage(manifest)
+
+    def test_staging_under_service_private_umask_remains_publicly_traversable(self):
+        manifest = self.bundle()
+        previous = os.umask(0o077)
+        try:
+            with patch.object(self.updater, "run", return_value=subprocess.CompletedProcess([], 0, stdout="libraries found")):
+                release = self.updater.stage(manifest)
+        finally:
+            os.umask(previous)
+        for directory in (release, release / "web-dist", release / "web-dist/skills"):
+            self.assertEqual(directory.stat().st_mode & 0o005, 0o005)
+        self.assertEqual((release / "web-dist/skills/index.html").stat().st_mode & 0o004, 0o004)
+
+    def test_missing_viewer_dependency_is_rejected_before_any_service_change(self):
+        manifest = self.bundle()
+        calls = []
+        def ldd(args, **kwargs):
+            calls.append(args)
+            output = "libviewer.so => not found" if args[-1].endswith("oasis7_viewer_live") else "all libraries found"
+            return subprocess.CompletedProcess(args, 0, stdout=output)
+        with patch.object(self.updater, "run", side_effect=ldd), self.assertRaisesRegex(ValueError, "dependency"):
+            self.updater.stage(manifest)
+        self.assertEqual((self.root / "player").resolve(), self.old / "player")
+        self.assertFalse(any(command[0] == "systemctl" for command in calls))
 
     def test_wrong_source_fails_before_switch(self):
         manifest = self.bundle(source="c" * 40)
