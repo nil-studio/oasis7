@@ -80,6 +80,122 @@ def tar_bytes(staged, manifest, first_header=None, ending=True):
     return output.getvalue()
 
 
+class UploadBoundTests(unittest.TestCase):
+    def test_observed_formal_archive_fits_the_existing_single_upload_limit(self):
+        # Hosted Formal run 40282222953 measured this inner archive length.
+        # Sparse contents are sufficient to reproduce outer tar byte accounting;
+        # this fixture does not claim to be the original compressed Cargo data.
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            checkout = base / 'checkout'
+            checkout.mkdir()
+            cache = base / 'cache'
+            cache.mkdir()
+            archive = cache / codec.COMPACT_ARCHIVE_NAME
+            with archive.open('wb') as output:
+                output.truncate(738_992_352)
+            with patch.dict(os.environ, GITHUB_WORKSPACE=str(checkout)):
+                report = codec.upload_bound(archive)
+            self.assertGreater(report['upload_bound_bytes'], archive.stat().st_size)
+            self.assertLessEqual(report['upload_bound_bytes'], 768 * 1024 ** 2)
+
+    @unittest.skipUnless(shutil.which('zstdmt'), 'actual action wrappers require zstdmt')
+    def test_bound_covers_real_zstd_and_gzip_wrappers_with_long_paths_and_random_payloads(self):
+        random_bytes = random.Random(20261026)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            checkout = base / 'checkout'
+            checkout.mkdir()
+            archive = base / ('long-' + 'a' * 100) / ('long-' + 'b' * 100) / codec.COMPACT_ARCHIVE_NAME
+            archive.parent.mkdir(parents=True)
+            manifest = base / 'manifest.txt'
+            manifest.write_text(os.path.relpath(archive, checkout) + '\n')
+            for size in (32_767, 32_768, 32_769, 4 * 1024 ** 2 + 1):
+                archive.write_bytes(random_bytes.randbytes(size))
+                with patch.dict(os.environ, GITHUB_WORKSPACE=str(checkout)):
+                    report = codec.upload_bound(archive)
+                for filename, compression in (('cache.tzst', ['--use-compress-program', 'zstdmt']),
+                                               ('cache.tgz', ['-z'])):
+                    with self.subTest(size=size, compression=filename):
+                        wrapped = base / filename
+                        subprocess.run(['tar', '--posix', '-cf', str(wrapped), '--exclude', filename,
+                                        '-P', '-C', str(checkout), '--files-from', str(manifest),
+                                        *compression], check=True, capture_output=True)
+                        self.assertGreater(wrapped.stat().st_size, 0)
+                        self.assertLessEqual(wrapped.stat().st_size, report['upload_bound_bytes'])
+
+    def test_non_gnu_gzip_and_custom_compression_options_are_rejected_before_reading_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / codec.COMPACT_ARCHIVE_NAME
+            archive.write_bytes(b'compressed cargo units')
+            def version(args, **kwargs):
+                return 'BusyBox gzip 1.36\n' if args == ['gzip', '--version'] else 'tar (GNU tar) 1.35\n'
+
+            with patch.object(codec.subprocess, 'check_output', side_effect=version), \
+                 patch.object(codec.subprocess, 'Popen', side_effect=AssertionError('unverified gzip read payload')) as tar, \
+                 self.assertRaisesRegex(ValueError, 'GNU gzip'):
+                codec.upload_bound(archive)
+            tar.assert_not_called()
+            for variable in ('TAR_OPTIONS', 'GZIP'):
+                with self.subTest(variable=variable), patch.dict(os.environ, {variable: '--unverified'}), \
+                     patch.object(codec.subprocess, 'Popen') as tar, self.assertRaises(ValueError):
+                    codec.upload_bound(archive)
+                tar.assert_not_called()
+
+    def test_changed_archive_identity_invalidates_the_measured_wrapper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            archive = base / codec.COMPACT_ARCHIVE_NAME
+            original = subprocess.Popen
+            change = 'size'
+
+            class ChangingTar:
+                def __init__(self, *args, **kwargs):
+                    self.process = original(*args, **kwargs)
+                    self.stdout = self.process.stdout
+
+                def __enter__(self):
+                    self.process.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self.process.__exit__(*args)
+
+                def wait(self):
+                    result = self.process.wait()
+                    # Change the file only after tar has read it successfully.
+                    if change == 'size':
+                        archive.write_bytes(b'larger replacement compressed cargo units')
+                    else:
+                        before = archive.stat()
+                        os.utime(archive, ns=(before.st_atime_ns, before.st_mtime_ns - 1_000_000_000))
+                    return result
+
+            def spawn(args, **kwargs):
+                return ChangingTar(args, **kwargs) if '--posix' in args else original(args, **kwargs)
+
+            for change in ('size', 'mtime'):
+                archive.write_bytes(b'compressed cargo units')
+                with self.subTest(change=change), patch.dict(os.environ, GITHUB_WORKSPACE=str(base)), \
+                     patch.object(codec.subprocess, 'Popen', side_effect=spawn), \
+                     self.assertRaisesRegex(ValueError, 'changed'):
+                    codec.upload_bound(archive)
+
+    def test_links_cannot_stand_in_for_the_single_uploaded_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            original = base / 'original'
+            original.write_bytes(b'compressed cargo units')
+            alias = base / codec.COMPACT_ARCHIVE_NAME
+            alias.symlink_to(original)
+            with self.assertRaisesRegex(ValueError, 'regular file'):
+                codec.upload_bound(alias)
+            alias.unlink()
+            os.link(original, alias)
+            with self.assertRaisesRegex(ValueError, 'regular file'):
+                codec.upload_bound(alias)
+
+
 @unittest.skipUnless(shutil.which('zstd'), 'compact cache archives require the runner zstd CLI')
 class CompactArchiveTests(unittest.TestCase):
     def test_compact_roundtrip_restores_only_original_hardlinks_and_uses_regular_members(self):
