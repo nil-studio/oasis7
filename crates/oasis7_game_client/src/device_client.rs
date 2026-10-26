@@ -2,6 +2,11 @@ use oasis7_client_api::world_service as authority;
 #[path = "device_client_build.rs"]
 mod client_build;
 pub use client_build::BuildQuoteOutcome;
+#[path = "device_client_lifecycle.rs"]
+mod client_lifecycle;
+pub use client_lifecycle::{
+    ContextTermination, OperationDisposition, OperationObservation, OriginalIdentity, OriginalKind,
+};
 
 use crate::operation_store::{ClientStateKind, ClientStateV1, OperationStore as PrivateGoalStore};
 use crate::private_key_file::read_private_key_file;
