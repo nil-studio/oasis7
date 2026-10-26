@@ -273,3 +273,6 @@ mod factory_authority_tests;
 
 #[cfg(test)]
 mod read_contract_tests;
+
+#[cfg(test)]
+mod cognition_read_tests;

@@ -24,11 +24,11 @@ Legacy Scheduler 的纯合同由 `oasis7_agent_api::{legacy_economy, legacy_sche
 
 
 <a id="cognition-projection-read-contract"></a>
-### Cognition 投影的只读解码边界（目标合同）
+### Cognition 投影的只读解码边界
 
 Trace ID: O7-REQ-b47433b0-57bd-4b7c-8f31-dc61bd93f8b4
 
-这是工程接口要求：同一持久值到服务投影的 schema 解释只有一个 owner，迁移不得改变读取范围、失败行为或已提交投影。产品承诺不变，不新增产品要求。当前 `projection/committed.rs` 仍直接反序列化 Runtime raw accessor 的返回值；下述 codec 接缝是待实现目标，不是已交付 typed Runtime API。
+这是工程接口要求：同一持久值到服务投影的 schema 解释只有一个 owner，迁移不得改变读取范围、失败行为或已提交投影。产品承诺不变，不新增产品要求。`projection/committed.rs` 调用 projection codec 解码 Runtime raw accessor 的返回值；这是一条具体投影 codec 接缝，不是新增 typed Runtime API。
 
 **最小 owner 选择。** `oasis7_world_projection::codec` 拥有这两条投影读取的具体 decoder，直接复用下层 `AgentContinuation` 和本包现有 `WorldServiceContinuationContext`；Service 消费 typed decoder 结果，只负责认证/筛选和组装响应；这些 raw accessor 不授权消费者另写一套投影解码政策。Runtime 仍拥有活 World 的取值、生命周期与恢复；保留 `cognition_continuations()` / `service_continuation_context(id)` 作为持久 JSON 边界。选择在现有 projection owner 封装 decoder，而非新增 Runtime 六字段 context 类型：当前 context 没有同形的下层持久类型，复制 DTO 会形成第二份 schema，Runtime 也不得反向依赖 Projection/Service/Game Client。此选择不要求新 crate、全仓 `Value` 清理或将 Runtime 内部逐字段检查改为完整解码。
 
