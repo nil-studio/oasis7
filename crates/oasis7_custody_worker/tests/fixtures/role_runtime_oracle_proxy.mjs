@@ -18,6 +18,21 @@ export class IdentityPermitProxy extends WorkerEntrypoint {
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
+    const defaultMethod = {
+      '/executor-default-generated':'ensure_role_key',
+      '/executor-default-named':'ensureKey',
+      '/executor-default-owner-permit':'owner_executor_key_permit',
+    }[path];
+    if (defaultMethod) {
+      try {
+        await env.EXECUTOR_DEFAULT[defaultMethod](await request.text());
+        return Response.json({missing_rpc:false});
+      } catch (error) {
+        const message = String(error);
+        const missing = message.includes(defaultMethod) && /does not implement|not a function|not implemented/i.test(message);
+        return Response.json({missing_rpc:missing}, {status:409});
+      }
+    }
     const target = path === '/identity-permit' ? env.IDENTITY_REAL : path === '/executor-permit' ? env.EXECUTOR_REAL : undefined;
     if (!target) return new Response(null, {status:404});
     try {

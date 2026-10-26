@@ -17,7 +17,7 @@ test('actual role factory rejects fixed-role and canonical-request-digest mismat
   });
 });
 
-test('fourth actual Account oracle read is rejected while the original permit remains fresh and unchanged', {timeout:120000}, async()=>withRoleRuntime('normal',async runtime=>{
+test('fourth actual Account oracle read cannot renew a permit and Executor default RPC remains unavailable', {timeout:120000}, async()=>withRoleRuntime('normal',async runtime=>{
   const ready=await runtime.drive('quota-drive');
   assert.equal(ready.stage,'role_keys_ready');
   const before=persistedRuntime(runtime.persist,runtime.account);
@@ -33,6 +33,12 @@ test('fourth actual Account oracle read is rejected while the original permit re
   assert.equal(original.expires_at,dispatch.expires_at,'failed reads cannot renew the original deadline');
   assert.equal(after.inspections,before.inspections,'quota failure cannot create a fresh source observation');
   assert.equal(runtime.nativeCalls(),2);
+  for(const kind of ['generated','named','owner-permit']) {
+    const response=await runtime.defaultExecutor(kind,dispatch.request);
+    assert.equal(response.status,409);
+    assert.equal((await response.json()).missing_rpc,true,'Executor default binding must not expose '+kind+' RPC');
+  }
+  assert.equal(runtime.nativeCalls(),2,'default-method probes must not reach the native authority');
 }));
 
 test('actual role runtime rechecks the independent fence after sealing and cannot publish a candidate', {timeout:120000}, async()=>withRoleRuntime('freeze-after-seal',async runtime=>{

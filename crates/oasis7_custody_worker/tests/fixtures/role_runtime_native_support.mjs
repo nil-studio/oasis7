@@ -50,7 +50,7 @@ function options(persist, data, bridge, mode) {
     name:'fence',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/provision_fence_fixture.mjs')}],
   },{
     name:'oracle-proxy',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/role_runtime_oracle_proxy.mjs')}],bindings:{FIXTURE_MODE:mode},
-    serviceBindings:{IDENTITY_REAL:{name:'owner',entrypoint:'IdentityKeyPermits'},EXECUTOR_REAL:{name:'owner',entrypoint:'ExecutorKeyPermits'},FENCE:'fence'},
+    serviceBindings:{IDENTITY_REAL:{name:'owner',entrypoint:'IdentityKeyPermits'},EXECUTOR_REAL:{name:'owner',entrypoint:'ExecutorKeyPermits'},EXECUTOR_DEFAULT:'executor',FENCE:'fence'},
   }]}),resourcePersistencePath:persist,unsafeDevRegistryPath:resolve(persist,'registry')};
 }
 async function authority(directory) {
@@ -101,6 +101,7 @@ export async function withRoleRuntime(mode, run) {
     await run({persist,account:original.entry.custody_account_id,restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
       drive:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();},
       oracle:async(role,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/'+role+'-permit',{method:'POST',body:JSON.stringify(body)}),
+      defaultExecutor:async(kind,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/executor-default-'+kind,{method:'POST',body:JSON.stringify(body)}),
       nativeCalls:()=>nativeVerifications});
   } finally {await mf?.dispose();await native?.close();rmSync(directory,{recursive:true,force:true});}
 }
