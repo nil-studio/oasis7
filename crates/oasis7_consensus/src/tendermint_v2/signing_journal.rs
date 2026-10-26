@@ -219,6 +219,21 @@ pub fn replay_bft_signing_journal_v2(
     replay_journal(journal, set, schedule, timeouts).map(|replay| replay.machine)
 }
 
+/// Replay a complete journal and return deterministic actions whose durable
+/// triggering events were recorded but whose effects may not have completed
+/// before a crash. Completed local votes are removed from this list during
+/// replay; an already reserved commit is left to the caller's exact
+/// `pending_commit` recovery path.
+pub fn replay_bft_signing_journal_with_effects_v2(
+    journal: &BftSigningJournalV2,
+    set: &BftValidatorSetV2,
+    schedule: &BftHeightProposerScheduleV2,
+    timeouts: BftTimeoutsV1,
+) -> Result<(BftConsensusMachineV2, Vec<BftConsensusActionV2>), String> {
+    let replay = replay_journal(journal, set, schedule, timeouts)?;
+    Ok((replay.machine, replay.unconsumed_effects))
+}
+
 /// Verify that an existing journal durably reserved this exact certificate
 /// and derive its successor schedule without constructing a journal for the
 /// previous signer identity. This is required when the committed transition
@@ -242,6 +257,7 @@ pub fn verify_reserved_bft_commit_transition_v2(
 struct JournalReplay {
     machine: BftConsensusMachineV2,
     outstanding_vote_intents: Vec<BftVoteIntentV2>,
+    unconsumed_effects: Vec<BftConsensusActionV2>,
 }
 
 fn replay_journal(
@@ -280,6 +296,7 @@ fn replay_journal(
     )?;
     let mut previous_time = journal.height_started_at_ms;
     let mut emitted_vote_intents = Vec::<BftVoteIntentV2>::new();
+    let mut unconsumed_effects = Vec::<BftConsensusActionV2>::new();
     let mut seen_events = HashSet::<[u8; 32]>::new();
 
     for (index, event) in journal.events.iter().enumerate() {
@@ -339,6 +356,9 @@ fn replay_journal(
                         );
                     }
                     emitted_vote_intents.retain(|intent| intent != &expected);
+                    unconsumed_effects.retain(|action| {
+                        !matches!(action, BftConsensusActionV2::SignVote(intent) if intent == &expected)
+                    });
                     machine.record_local_vote(vote.as_ref().clone(), *now_ms)?
                 } else {
                     machine.receive_vote(vote.as_ref().clone(), *now_ms)?
@@ -371,10 +391,31 @@ fn replay_journal(
                                 "BFT signing journal has too many unresolved vote intents".into()
                             );
                         }
-                        emitted_vote_intents.push(intent);
+                        emitted_vote_intents.push(intent.clone());
+                        unconsumed_effects.push(BftConsensusActionV2::SignVote(intent));
                     }
                 }
-                BftConsensusActionV2::Commit(_) => {}
+                BftConsensusActionV2::Commit(certificate) => {
+                    verify_commit_certificate_token_v2(schedule, &certificate)?;
+                    unconsumed_effects
+                        .retain(|effect| !matches!(effect, BftConsensusActionV2::SignVote(_)));
+                    if journal.pending_commit.is_none() {
+                        match unconsumed_effects.iter().find_map(|effect| match effect {
+                            BftConsensusActionV2::Commit(existing) => Some(existing),
+                            _ => None,
+                        }) {
+                            Some(existing) if existing != &certificate => {
+                                return Err(
+                                    "BFT journal replay produced conflicting commit effects".into(),
+                                );
+                            }
+                            Some(_) => {}
+                            None => {
+                                unconsumed_effects.push(BftConsensusActionV2::Commit(certificate))
+                            }
+                        }
+                    }
+                }
                 BftConsensusActionV2::RoundAdvanced { .. } => {}
             }
         }
@@ -399,13 +440,33 @@ fn replay_journal(
         if &expected != intent || !emitted_vote_intents.contains(intent) {
             return Err("pending BFT vote intent differs from deterministic replay".into());
         }
+        unconsumed_effects.retain(|action| {
+            !matches!(action, BftConsensusActionV2::SignVote(emitted) if emitted == intent)
+        });
     }
     if let Some(certificate) = journal.pending_commit.as_ref() {
         verify_commit_certificate_token_v2(schedule, certificate)?;
+        unconsumed_effects.clear();
     }
+    let commit_ready = unconsumed_effects
+        .iter()
+        .any(|action| matches!(action, BftConsensusActionV2::Commit(_)));
+    unconsumed_effects.retain(|action| match action {
+        BftConsensusActionV2::SignVote(intent) if !commit_ready => machine
+            .vote_intent(
+                intent.validator_id.clone(),
+                intent.phase,
+                intent.value.clone(),
+                intent.round,
+            )
+            .is_ok_and(|current| current.as_ref() == Some(intent)),
+        BftConsensusActionV2::Commit(_) => journal.pending_commit.is_none(),
+        BftConsensusActionV2::SignVote(_) | BftConsensusActionV2::RoundAdvanced { .. } => false,
+    });
     Ok(JournalReplay {
         machine,
         outstanding_vote_intents: emitted_vote_intents,
+        unconsumed_effects,
     })
 }
 

@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use oasis7_consensus::tendermint_v2::{
-    BftConsensusMachineV2, BftHeightProposerScheduleV2, BftSigningJournalV2, BftValidatorSetV2,
-    VerifiedBftCommitCertificateV2, replay_bft_signing_journal_v2,
-    verify_commit_certificate_token_v2,
+    BftConsensusActionV2, BftConsensusMachineV2, BftHeightProposerScheduleV2, BftSigningJournalV2,
+    BftValidatorSetV2, VerifiedBftCommitCertificateV2, replay_bft_signing_journal_v2,
+    replay_bft_signing_journal_with_effects_v2, verify_commit_certificate_token_v2,
 };
 use oasis7_distfs::protected_bft_v2::{
     BftLocalInstallEvidenceV2, BftSignerLeaseV2, BftSignerProviderV2,
@@ -148,7 +148,8 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     }
 
     let local_key = provisioned_active_key(&selected, &schedule);
-    let mut machine = restore_machine(&selected, &schedule, &checkpoint, protected_now)?;
+    let (mut machine, mut replay_effects) =
+        restore_machine_with_effects(&selected, &schedule, &checkpoint, protected_now)?;
 
     // A new validator joins only after the exact h+1 execution record exists.
     // Replaying the protected journal into the actual consensus machine comes
@@ -195,7 +196,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         checkpoint = lease
             .start_height_timer(checkpoint.state.revision)
             .map_err(|err| error(format!("start protected BFT V2 height timer: {err}")))?;
-        machine = replay_bft_signing_journal_v2(
+        (machine, replay_effects) = replay_bft_signing_journal_with_effects_v2(
             checkpoint
                 .state
                 .journal
@@ -214,6 +215,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         set: schedule.active_set().clone(),
         schedule,
         machine,
+        replay_effects,
         lease,
         checkpoint,
         local_key,
@@ -508,6 +510,16 @@ pub(super) fn restore_machine(
     checkpoint: &oasis7_distfs::protected_bft_v2::BftSignerCheckpointV2,
     protected_now: i64,
 ) -> Result<BftConsensusMachineV2, NodeError> {
+    restore_machine_with_effects(selected, schedule, checkpoint, protected_now)
+        .map(|(machine, _)| machine)
+}
+
+pub(super) fn restore_machine_with_effects(
+    selected: &SelectedNodeBftConfigV2,
+    schedule: &BftHeightProposerScheduleV2,
+    checkpoint: &oasis7_distfs::protected_bft_v2::BftSignerCheckpointV2,
+    protected_now: i64,
+) -> Result<(BftConsensusMachineV2, Vec<BftConsensusActionV2>), NodeError> {
     match (
         provisioned_active_key(selected, schedule),
         checkpoint.state.journal.as_ref(),
@@ -516,7 +528,7 @@ pub(super) fn restore_machine(
             if journal.local_validator_id() == selected.binding.local_validator_id
                 && journal.local_signing_public_key() == public_key =>
         {
-            replay_bft_signing_journal_v2(
+            replay_bft_signing_journal_with_effects_v2(
                 journal,
                 schedule.active_set(),
                 schedule,
@@ -524,13 +536,16 @@ pub(super) fn restore_machine(
             )
             .map_err(|reason| error(format!("restore protected BFT V2 machine: {reason}")))
         }
-        (None, None) => BftConsensusMachineV2::new(
-            schedule.clone(),
-            selected.binding.local_validator_id.clone(),
-            protected_now,
-            selected.binding.timeouts,
-        )
-        .map_err(error),
+        (None, None) => Ok((
+            BftConsensusMachineV2::new(
+                schedule.clone(),
+                selected.binding.local_validator_id.clone(),
+                protected_now,
+                selected.binding.timeouts,
+            )
+            .map_err(error)?,
+            Vec::new(),
+        )),
         _ => Err(error(
             "BFT V2 active identity and protected journal disagree",
         )),

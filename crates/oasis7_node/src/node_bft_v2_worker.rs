@@ -37,6 +37,7 @@ pub(super) struct WorkerSetup {
     pub set: BftValidatorSetV2,
     pub schedule: BftHeightProposerScheduleV2,
     pub machine: BftConsensusMachineV2,
+    pub replay_effects: Vec<BftConsensusActionV2>,
     pub lease: Box<dyn BftSignerLeaseV2>,
     pub checkpoint: BftSignerCheckpointV2,
     pub local_key: Option<String>,
@@ -73,9 +74,10 @@ impl Worker {
             .lease
             .protected_time_ms()
             .map_err(|err| error(format!("read protected BFT V2 time: {err}")))?;
+        let effects = std::mem::take(&mut setup.replay_effects).into();
         let mut this = Self {
             setup,
-            effects: VecDeque::new(),
+            effects,
             seen: HashSet::new(),
             clock_base: protected_now,
             last_broadcast: None,

@@ -1082,3 +1082,6 @@ mod late_install;
 
 #[path = "node_bft_v2_worker_transition_tests/proposal_evidence.rs"]
 mod proposal_evidence;
+
+#[path = "node_bft_v2_worker_transition_tests/commit_replay.rs"]
+mod commit_replay;
