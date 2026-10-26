@@ -217,6 +217,54 @@ class EngineTests(unittest.TestCase):
         engine.expected_viewer_count = 1
         return engine, clock
 
+    def make_executor_handoff_engine(self, base, clock=None):
+        base = Path(base)
+        release = base / "releases/candidate"
+        runtime = release / "bin/oasis7_chain_runtime"
+        runtime.parent.mkdir(parents=True)
+        runtime.write_bytes(b"candidate chain runtime")
+        runtime.chmod(0o755)
+        unit_dir = base / "units"
+        unit_dir.mkdir()
+        chain = "chain.service"
+        unit = unit_dir / chain
+        unit_bytes = f"[Service]\nType=simple\nExecStart={runtime} --serve\n".encode()
+        unit.write_bytes(unit_bytes)
+        executor = base / "trusted/systemd-executor"
+        executor.parent.mkdir(parents=True)
+        executor.write_bytes(b"trusted systemd executor")
+        executor.chmod(0o755)
+        executor = executor.resolve()
+        clock = clock or FakeClock()
+        engine = remote.Engine(monotonic=clock.monotonic, sleep=clock.sleep,
+                               enforce_root=False, systemd_executor_path=executor)
+        engine.config = {"chain_service": chain, "player_service": "player.service",
+                         "release_root": release.parent, "launcher_http_port": 4173,
+                         "probe": {"expected_world": {"world_id": WORLD["world_id"],
+                                                          "genesis_digest": WORLD["genesis_digest"]}}}
+        engine.release = release
+        engine.writer_boundary = True
+        engine.units = {chain: unit}
+        engine.new_units = {chain: unit_bytes}
+        engine.world_identity = dict(WORLD)
+        engine.service_public_key = WORLD["service_public_key"]
+        process_state = {"pid": 501, "start_ticks": 77, "name": "systemd-executor",
+                         "parent_pid": 1, "executable": str(executor),
+                         "sha256": hashlib.sha256(executor.read_bytes()).hexdigest()}
+
+        def show_properties(*_args, **_kwargs):
+            pid = process_state["pid"]
+            exec_start = (
+                f"{{ path={runtime} ; argv[]={runtime} --serve ; ignore_errors=no ; "
+                f"start_time=[n/a] ; stop_time=[n/a] ; pid={pid} ; code=(null) ; status=0 }}")
+            return (f"MainPID={pid}\nActiveState=active\nControlGroup=/fake/chain\n"
+                    f"Type=simple\nSubState=running\nExecStart={exec_start}\n").encode()
+
+        engine._systemctl = show_properties
+        engine._process_identity = lambda _pid: dict(process_state)
+        engine._cgroup_pids = lambda _service, _show=None: {process_state["pid"]}
+        return engine, clock, process_state, runtime
+
     def make_remote_backup_engine(self, base, archive_blob):
         operation_dir = Path(base) / "ops" / "deploy-42"
         operation_dir.mkdir(parents=True, mode=0o700)
@@ -369,8 +417,136 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(world_calls), 3)
         self.assertEqual(clock.now, 8)
 
+    def test_chain_readiness_waits_for_trusted_same_pid_systemd_exec_handoff(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine, clock, process_state, runtime = self.make_executor_handoff_engine(temp)
+            world_calls = []
+            engine.probe_ns = {"read_world": lambda _probe: world_calls.append(True) or
+                               {**WORLD, "logical_tick": 8}}
+            executor_identity = dict(process_state)
+            candidate_identity = {
+                **executor_identity, "name": "oasis7_chain_runtime",
+                "executable": str(runtime), "sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+            }
+            identities = iter((executor_identity, executor_identity, candidate_identity))
+            engine._process_identity = lambda _pid: dict(next(identities))
+
+            ready, world = engine._wait_for_chain_ready(180)
+            self.assertEqual(set(ready), {"chain.service:501"})
+            self.assertEqual(ready["chain.service:501"]["start_ticks"], 77)
+            self.assertEqual(world["logical_tick"], 8)
+            self.assertEqual(len(world_calls), 1)
+            self.assertEqual(clock.now, 4)
+            self.assertNotIn("chain.service", engine.pending_exec)
+
+    def test_systemd_executor_handoff_rejects_untrusted_or_inconsistent_evidence(self):
+        cases = ("wrong_type", "wrong_exec_path", "wrong_exec_pid", "untrusted_executor",
+                 "changed_unit")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp:
+                engine, clock, _process_state, runtime = self.make_executor_handoff_engine(temp)
+                if case == "wrong_type":
+                    engine._systemctl = lambda *_args, **_kwargs: (
+                        f"MainPID=501\nActiveState=active\nControlGroup=/fake/chain\n"
+                        f"Type=exec\nSubState=running\nExecStart={{ path={runtime} ; "
+                        f"argv[]={runtime} --serve ; ignore_errors=no ; start_time=[n/a] ; "
+                        f"stop_time=[n/a] ; pid=501 ; code=(null) ; status=0 }}\n").encode()
+                elif case == "wrong_exec_path":
+                    engine._systemctl = lambda *_args, **_kwargs: (
+                        f"MainPID=501\nActiveState=active\nControlGroup=/fake/chain\n"
+                        f"Type=simple\nSubState=running\nExecStart={{ path=/wrong/runtime ; "
+                        f"argv[]=/wrong/runtime ; ignore_errors=no ; start_time=[n/a] ; "
+                        f"stop_time=[n/a] ; pid=501 ; code=(null) ; status=0 }}\n").encode()
+                elif case == "wrong_exec_pid":
+                    engine._systemctl = lambda *_args, **_kwargs: (
+                        f"MainPID=501\nActiveState=active\nControlGroup=/fake/chain\n"
+                        f"Type=simple\nSubState=running\nExecStart={{ path={runtime} ; "
+                        f"argv[]={runtime} --serve ; ignore_errors=no ; start_time=[n/a] ; "
+                        f"stop_time=[n/a] ; pid=502 ; code=(null) ; status=0 }}\n").encode()
+                elif case == "untrusted_executor":
+                    engine.systemd_executor_path.write_bytes(b"modified after exec")
+                elif case == "changed_unit":
+                    engine.units["chain.service"].write_bytes(b"[Service]\nExecStart=/other\n")
+                engine.probe_ns = {"read_world": lambda _probe: self.fail(
+                    "invalid handoff reached world read")}
+                with self.assertRaisesRegex(remote.RemoteError, "process_binary_mismatch"):
+                    engine._wait_for_chain_ready(180)
+                self.assertEqual(clock.now, 0)
+                self.assertFalse(engine.pending_exec)
+
+    def test_systemd_executor_pid_or_starttime_change_fails_before_readiness(self):
+        for changed_field in ("pid", "start_ticks"):
+            with self.subTest(changed_field=changed_field), tempfile.TemporaryDirectory() as temp:
+                engine, clock, process_state, _runtime = self.make_executor_handoff_engine(temp)
+                original_systemctl = engine._systemctl
+                show_calls = 0
+
+                def replace_between_observations(*args, **kwargs):
+                    nonlocal show_calls
+                    if args[:2] == ("show", "chain.service"):
+                        show_calls += 1
+                        if show_calls == 3:
+                            process_state[changed_field] = 502 if changed_field == "pid" else 78
+                    return original_systemctl(*args, **kwargs)
+
+                engine._systemctl = replace_between_observations
+                engine._process_identity = lambda _pid: dict(process_state)
+                engine.probe_ns = {"read_world": lambda _probe: self.fail(
+                    "replacement reached world read")}
+                with self.assertRaisesRegex(remote.RemoteError, "service_identity_changed"):
+                    engine._wait_for_chain_ready(180)
+                self.assertEqual(clock.now, 2)
+
+    def test_systemd_exec_must_preserve_starttime_from_pending_executor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine, clock, process_state, runtime = self.make_executor_handoff_engine(temp)
+            candidate_identity = {
+                **process_state, "name": "oasis7_chain_runtime", "start_ticks": 78,
+                "executable": str(runtime), "sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+            }
+            identities = iter((dict(process_state), candidate_identity))
+            engine._process_identity = lambda _pid: dict(next(identities))
+            engine.probe_ns = {"read_world": lambda _probe: self.fail(
+                "replacement reached world read")}
+            with self.assertRaisesRegex(remote.RemoteError, "service_identity_changed"):
+                engine._wait_for_chain_ready(180)
+            self.assertEqual(clock.now, 2)
+
+    def test_systemd_executor_handoff_retries_only_until_readiness_deadline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine, clock, _process_state, _runtime = self.make_executor_handoff_engine(temp)
+            engine.probe_ns = {"read_world": lambda _probe: self.fail(
+                "world read before candidate executable")}
+            with self.assertRaisesRegex(remote.RemoteError, "chain_readiness_timeout"):
+                engine._wait_for_chain_ready(5)
+            self.assertEqual(clock.now, 5)
+            self.assertEqual(engine.pending_exec["chain.service"], (501, 77))
+
+    def test_executor_handoff_is_not_retryable_after_first_process_observation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine, clock, process_state, runtime = self.make_executor_handoff_engine(temp)
+            candidate_identity = {
+                **process_state, "name": "oasis7_chain_runtime",
+                "executable": str(runtime), "sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+            }
+            identities = iter((candidate_identity, dict(process_state)))
+            engine._process_identity = lambda _pid: dict(next(identities))
+            world_calls = 0
+
+            def read_world(_probe):
+                nonlocal world_calls
+                world_calls += 1
+                raise ProbeError("probe_http_timeout")
+
+            engine.probe_ns = {"read_world": read_world}
+            with self.assertRaisesRegex(remote.RemoteError, "service_exec_pending"):
+                engine._wait_for_chain_ready(180)
+            self.assertEqual(world_calls, 1)
+            self.assertEqual(clock.now, 2)
+
     def test_chain_readiness_fails_fast_on_wrong_process_hash_or_world_identity(self):
         for error_code, world in (
+            ("process_binary_mismatch", WORLD),
             ("process_hash_mismatch", WORLD),
             (None, {**WORLD, "world_id": "other-world"}),
             (None, {**WORLD, "signature_verified": False}),
@@ -509,8 +685,8 @@ class EngineTests(unittest.TestCase):
             chain, player = "chain.service", "player.service"
             paths = {chain: root / chain, player: root / player}
             before = {
-                chain: f"ExecStart={old_root}/bin/oasis7_chain_runtime\n".encode(),
-                player: f"ExecStart={old_root}/bin/oasis7_game_launcher\n".encode(),
+                chain: f"[Service]\nExecStart={old_root}/bin/oasis7_chain_runtime\n".encode(),
+                player: f"[Service]\nExecStart={old_root}/bin/oasis7_game_launcher\n".encode(),
             }
             for service, path in paths.items():
                 path.write_bytes(before[service])
@@ -566,6 +742,65 @@ class EngineTests(unittest.TestCase):
             self.assertLess(calls.index(("start", chain)), chain_index)
             self.assertLess(chain_index, calls.index(("start", player)))
             self.assertLess(calls.index(("start", player)), player_index)
+
+    def test_prepare_new_units_unsets_only_stale_viewer_binary_override(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            old_root = base / "old-release"
+            release = base / "candidate-release"
+            old_root.mkdir()
+            release.mkdir()
+            chain, player = "chain.service", "player.service"
+            chain_bytes = f"[Service]\nExecStart={old_root}/bin/oasis7_chain_runtime\n".encode()
+            player_bytes = (
+                f"[Unit]\nDescription=Preview player\n[Service]\n"
+                f"EnvironmentFile=/etc/oasis7-preview/player.env\n"
+                f"EnvironmentFile=/var/lib/oasis7-preview/world/private/viewer.env\n"
+                f"ExecStart={old_root}/bin/oasis7_game_launcher --serve\n"
+                "[Install]\nWantedBy=multi-user.target\n").encode()
+            engine = remote.Engine(enforce_root=False)
+            engine.config = {"chain_service": chain, "player_service": player}
+            engine.release = release
+            engine.units = {chain: base / chain, player: base / player}
+            engine.before_units = {chain: chain_bytes, player: player_bytes}
+            engine.old_roots = {chain: old_root, player: old_root}
+
+            engine._prepare_new_units()
+
+            chain_new = engine.new_units[chain]
+            player_new = engine.new_units[player]
+            self.assertIn(f"ExecStart={release}/bin/oasis7_chain_runtime".encode(), chain_new)
+            self.assertNotIn(b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN", chain_new)
+            self.assertIn(f"ExecStart={release}/bin/oasis7_game_launcher --serve".encode(), player_new)
+            self.assertIn(b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN", player_new)
+            self.assertLess(player_new.index(b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN"),
+                            player_new.index(b"[Install]"))
+            for external_config in (b"EnvironmentFile=/etc/oasis7-preview/player.env",
+                                    b"EnvironmentFile=/var/lib/oasis7-preview/world/private/viewer.env"):
+                self.assertIn(external_config, player_new)
+            self.assertEqual(player_bytes.count(b"OASIS7_VIEWER_LIVE_BIN"), 0)
+            self.assertEqual(player_bytes.count(b"EnvironmentFile="), 2)
+
+    def test_prepare_new_units_does_not_duplicate_existing_viewer_unset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            old_root = base / "old"
+            release = base / "candidate"
+            old_root.mkdir()
+            release.mkdir()
+            player = "player.service"
+            existing = (f"[Service]\nExecStart={old_root}/bin/oasis7_game_launcher\n"
+                        "UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN\n").encode()
+            engine = remote.Engine(enforce_root=False)
+            engine.config = {"chain_service": "chain.service", "player_service": player}
+            engine.release = release
+            engine.units = {player: base / player}
+            engine.before_units = {player: existing}
+            engine.old_roots = {player: old_root}
+
+            engine._prepare_new_units()
+
+            self.assertEqual(engine.new_units[player].count(b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN"), 1)
 
     def test_remote_compare_rejects_even_dangling_partial_path(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -882,8 +1117,8 @@ class EngineTests(unittest.TestCase):
             player = "player.service"
             paths = {chain: base / chain, player: base / player}
             before = {
-                chain: f"ExecStart={old_root}/bin/oasis7_chain_runtime\n".encode(),
-                player: f"ExecStart={old_root}/bin/oasis7_game_launcher\n".encode(),
+                chain: f"[Service]\nExecStart={old_root}/bin/oasis7_chain_runtime\n".encode(),
+                player: f"[Service]\nExecStart={old_root}/bin/oasis7_game_launcher\n".encode(),
             }
             for service, path in paths.items():
                 path.write_bytes(before[service])

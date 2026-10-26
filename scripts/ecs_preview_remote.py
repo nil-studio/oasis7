@@ -44,7 +44,9 @@ SERVICE_START_TIMEOUT_SECONDS = 15
 SERVICE_READINESS_TIMEOUT_SECONDS = 180
 SERVICE_READINESS_INTERVAL_SECONDS = 2
 LOOPBACK_READINESS_TIMEOUT_SECONDS = 3
-STARTUP_PROCESS_TRANSIENT_ERRORS = frozenset({"service_inactive", "process_identity_unavailable"})
+STARTUP_PROCESS_TRANSIENT_ERRORS = frozenset({
+    "service_inactive", "process_identity_unavailable", "service_exec_pending",
+})
 STARTUP_WORLD_TRANSIENT_ERRORS = frozenset({"probe_http_failed", "probe_http_timeout"})
 WORLD_READ_TIMEOUT_SECONDS = 15
 SKILL_TIMEOUT_SECONDS = 60
@@ -54,6 +56,7 @@ SERVICE_BINS = {
     "chain": "oasis7_chain_runtime",
     "player": "oasis7_game_launcher",
 }
+SYSTEMD_EXECUTOR_PATH = Path("/usr/lib/systemd/systemd-executor")
 PACKAGE_BINS = (
     "oasis7_chain_runtime",
     "oasis7_game_launcher",
@@ -432,6 +435,7 @@ class Engine:
         cgroup_root: Path = Path("/sys/fs/cgroup"),
         uid: Callable[[], int] = os.geteuid,
         enforce_root: bool = True,
+        systemd_executor_path: Path = SYSTEMD_EXECUTOR_PATH,
     ):
         self.stdin = stdin or sys.stdin.buffer
         self.stdout = stdout or sys.stdout.buffer
@@ -445,6 +449,7 @@ class Engine:
         self.cgroup_root = cgroup_root
         self.uid = uid
         self.enforce_root = enforce_root
+        self.systemd_executor_path = systemd_executor_path
         self.probe_ns: dict = {}
         self.config: dict | None = None
         self.source = ""
@@ -462,6 +467,7 @@ class Engine:
         self.unit_modes: dict[str, tuple[int, int, int]] = {}
         self.old_roots: dict[str, Path] = {}
         self.observed_cgroups: dict[str, Path] = {}
+        self.pending_exec: dict[str, tuple[int, int]] = {}
         self.old_processes: dict[str, dict] = {}
         self.candidate_processes: dict[str, dict] = {}
         self.service_public_key = ""
@@ -910,6 +916,119 @@ class Engine:
             return SERVICE_BINS["player"]
         raise RemoteError("service_invalid")
 
+    def _parse_exec_show(self, service: str) -> dict[str, str]:
+        properties = ("MainPID", "ActiveState", "ControlGroup", "Type", "SubState", "ExecStart")
+        raw = self._systemctl(
+            "show", service, *(part for value in properties for part in ("-p", value)))
+        try:
+            lines = raw.decode("utf-8", "strict").splitlines()
+        except UnicodeError:
+            raise RemoteError("process_binary_mismatch") from None
+        values: dict[str, str] = {}
+        for line in lines:
+            if "=" not in line:
+                raise RemoteError("process_binary_mismatch")
+            key, value = line.split("=", 1)
+            if key in properties:
+                if key in values:
+                    raise RemoteError("process_binary_mismatch")
+                values[key] = value
+        if set(values) != set(properties):
+            raise RemoteError("process_binary_mismatch")
+        return values
+
+    def _trusted_systemd_executor(self, identity: dict) -> bool:
+        path = self.systemd_executor_path
+        try:
+            if (not path.is_absolute() or Path(identity["executable"]) != path
+                    or path.resolve(strict=True) != path):
+                return False
+            current = path
+            while True:
+                metadata = current.lstat()
+                if stat.S_ISLNK(metadata.st_mode) or metadata.st_mode & 0o022:
+                    return False
+                if self.enforce_root and metadata.st_uid != 0:
+                    return False
+                if current == path:
+                    if not stat.S_ISREG(metadata.st_mode) or not metadata.st_mode & 0o111:
+                        return False
+                elif not stat.S_ISDIR(metadata.st_mode):
+                    return False
+                if current == current.parent:
+                    break
+                current = current.parent
+            return identity.get("sha256") == _sha256(path)
+        except (KeyError, OSError, RuntimeError, RemoteError):
+            return False
+
+    @staticmethod
+    def _exec_start_pid_and_path(value: str) -> tuple[str, int] | None:
+        # systemd prints one ExecStart invocation as a brace-delimited set of
+        # fields. Reject multiple invocations or ambiguous fields; this is a
+        # narrowly scoped pre-exec check, so unfamiliar output fails closed.
+        if value.count("{") != 1 or value.count("}") != 1:
+            return None
+        if not value.startswith("{") or not value.endswith("}"):
+            return None
+        fields: dict[str, str] = {}
+        for part in value[1:-1].strip().split(" ; "):
+            if "=" not in part:
+                return None
+            key, field_value = part.split("=", 1)
+            if key in fields:
+                return None
+            fields[key] = field_value
+        path = fields.get("path")
+        argv = fields.get("argv[]")
+        pid = fields.get("pid")
+        if (not isinstance(path, str) or not path or not isinstance(argv, str) or not argv
+                or not isinstance(pid, str) or not pid.isdecimal()):
+            return None
+        return path, int(pid)
+
+    def _is_candidate_exec_handoff(self, service: str, show: dict[str, str],
+                                   identity: dict, expected_root: Path | None) -> bool:
+        if (not self.writer_boundary or expected_root is None or expected_root != self.release
+                or service not in self.new_units or service not in self.units
+                or identity.get("name") != "systemd-executor"
+                or identity.get("parent_pid") != 1
+                or type(identity.get("pid")) is not int
+                or type(identity.get("start_ticks")) is not int
+                or identity["start_ticks"] <= 0
+                or not self._trusted_systemd_executor(identity)):
+            return False
+        try:
+            unit_path = self.units[service]
+            unit_metadata = unit_path.lstat()
+            if (not stat.S_ISREG(unit_metadata.st_mode) or unit_metadata.st_mode & 0o022
+                    or (self.enforce_root and unit_metadata.st_uid != 0)
+                    or unit_path.read_bytes() != self.new_units[service]):
+                return False
+            metadata = self._parse_exec_show(service)
+        except (OSError, RemoteError):
+            return False
+        main_pid = show.get("MainPID")
+        if (metadata["MainPID"] != main_pid or metadata["ActiveState"] != show.get("ActiveState")
+                or metadata["ControlGroup"] != show.get("ControlGroup")
+                or metadata["ActiveState"] != "active"
+                or metadata["Type"] != "simple"
+                or metadata["SubState"] not in ("start", "running")
+                or not main_pid or not main_pid.isdecimal()
+                or int(main_pid) != identity["pid"]):
+            return False
+        expected_path = expected_root / "bin" / self._service_expected(service)
+        exec_start = self._exec_start_pid_and_path(metadata["ExecStart"])
+        if exec_start != (str(expected_path), identity["pid"]):
+            return False
+        try:
+            for pid in self._cgroup_pids(service, show) - {identity["pid"]}:
+                if self._process_identity(pid)["name"] in CONTROLLED_PROCESS_NAMES:
+                    return False
+        except RemoteError:
+            return False
+        return True
+
     def _service_processes(self, service: str, expected_root: Path | None = None,
                            *, require_active: bool = True) -> tuple[dict, dict[str, dict]]:
         show = self._parse_show(service)
@@ -927,7 +1046,17 @@ class Engine:
         main = self._process_identity(main_pid)
         expected_name = self._service_expected(service)
         if main["name"] != expected_name:
+            if self._is_candidate_exec_handoff(service, show, main, expected_root):
+                observed = (main["pid"], main["start_ticks"])
+                pending = self.pending_exec.get(service)
+                if pending is not None and pending != observed:
+                    raise RemoteError("service_identity_changed")
+                self.pending_exec[service] = observed
+                raise RemoteError("service_exec_pending")
             raise RemoteError("process_binary_mismatch")
+        pending = self.pending_exec.get(service)
+        if pending is not None and pending != (main["pid"], main["start_ticks"]):
+            raise RemoteError("service_identity_changed")
         root = Path(main["executable"]).parent.parent
         try:
             root.relative_to(self.config["release_root"])
@@ -952,6 +1081,7 @@ class Engine:
             if not binary.is_file() or _sha256(binary) != identity["sha256"]:
                 raise RemoteError("process_hash_mismatch")
             identities[str(pid)] = identity
+        self.pending_exec.pop(service, None)
         return show, identities
 
     def _snapshot_services(self) -> None:
@@ -1475,7 +1605,36 @@ class Engine:
             target = before.replace(prefix, str(self.release).encode() + b"/")
             if target == before or prefix in target:
                 raise RemoteError("unit_release_mismatch")
+            if service == self.config["player_service"]:
+                target = self._unset_player_viewer_binary_override(target)
             self.new_units[service] = target
+
+    @staticmethod
+    def _unset_player_viewer_binary_override(unit: bytes) -> bytes:
+        """Make the packaged launcher's adjacent Viewer binary authoritative.
+
+        The launcher resolves OASIS7_VIEWER_LIVE_BIN before checking its own
+        release directory. EnvironmentFile values override Environment=, so
+        removing this one override at systemd's final environment step avoids
+        rewriting external files that may contain secrets or other settings.
+        """
+        lines = unit.splitlines(keepends=True)
+        service_sections = [index for index, line in enumerate(lines)
+                            if line.strip() == b"[Service]"]
+        if not service_sections:
+            raise RemoteError("unit_service_section_missing")
+        start = service_sections[-1]
+        end = next((index for index in range(start + 1, len(lines))
+                    if re.fullmatch(rb"\s*\[[^\]]+\]\s*(?:[#;].*)?(?:\r?\n)?", lines[index])),
+                   len(lines))
+        directive = b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN"
+        if any(line.strip() == directive for line in lines[start + 1:end]):
+            return unit
+        newline = b"\r\n" if b"\r\n" in unit else b"\n"
+        if end > start and lines[end - 1] and not lines[end - 1].endswith((b"\n", b"\r")):
+            lines[end - 1] += newline
+        lines.insert(end, directive + newline)
+        return b"".join(lines)
 
     def _switch(self) -> dict:
         if self.phase != "backup_verified" or not self.backup_verified:
@@ -1554,7 +1713,10 @@ class Engine:
             try:
                 processes = self._verify_service(service, self.release)
             except RemoteError as error:
-                if observed_processes is not None or error.code not in STARTUP_PROCESS_TRANSIENT_ERRORS:
+                pending_handoff = service in self.pending_exec
+                if (observed_processes is not None
+                        or error.code not in STARTUP_PROCESS_TRANSIENT_ERRORS
+                        or (pending_handoff and error.code != "service_exec_pending")):
                     raise
                 self._readiness_pause(deadline, "chain_readiness_timeout")
                 continue
@@ -1625,7 +1787,9 @@ class Engine:
             try:
                 current_player = self._verify_service(player_service, self.release)
             except RemoteError as error:
-                if observed_processes or error.code not in STARTUP_PROCESS_TRANSIENT_ERRORS:
+                pending_handoff = player_service in self.pending_exec
+                if (observed_processes or error.code not in STARTUP_PROCESS_TRANSIENT_ERRORS
+                        or (pending_handoff and error.code != "service_exec_pending")):
                     raise
                 previous_ready = None
                 self._readiness_pause(deadline, "player_readiness_timeout")

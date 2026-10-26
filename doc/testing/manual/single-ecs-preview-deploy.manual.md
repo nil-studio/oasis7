@@ -20,6 +20,8 @@ python3 scripts/deploy-ecs-preview.py \
 
 默认 `backup_mode=remote`：完整停机备份保存在目标机本轮 `ops_root` 部署目录（目录 0700，归档 0600），在原机运行 `tar --compare` 后才切换；本机 `local_backup_root` 保存备份身份和部署结果，不跨公网往返传输世界。预检在停服务前为完整备份、新版本和至少 528 MiB 余量保留空间；不足时应先在服务在线期间按后文轮换规则清理或迁移已验证的旧备份，或扩容。只有明确选择 `backup_mode=local` 才将完整备份传到本机并回传比对，该模式需承担两次整库网络传输的停机时间，不适合低带宽大世界。远端安装采用已在本地校验的归档流，避免同时占用压缩包和新版本的空间；仍保留至少 528 MiB 余量及原 release。新 chain 开始写入后失败或断连会隔离候选并保留历史，不能将旧程序直接指向可能变化的数据。成功输出 source、run、包/备份哈希和实际验收结果。该部署验收不代替后文的外部浏览器、真实登录及玩法验证。
 
+部署会在 player unit 中设置 `UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN`，避免外部环境文件将新 launcher 指向旧 Viewer；默认解析选择 launcher 同目录内已校验的候选二进制。其他环境值和含密钥的文件保持原样。
+
 启动有独立的 180 秒就绪期限，等待 chain 签名世界可读、launcher / Viewer 及 loopback admission 就绪，并确认连续两次进程身份稳定；随后另起完整 60 秒观察。停服务前重新读取签名 tick，恢复后不得低于该基线。只对暂时的连接失败等待，签名、世界身份、二进制哈希或已观察进程身份变化立即失败。
 
 Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；实现边界见[单命令部署设计](../../scripts/deployment/ecs-preview-deployment.design.md)。
