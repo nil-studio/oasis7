@@ -34,7 +34,7 @@ node crates/oasis7_custody_worker/scripts/contract.mjs write
 node crates/oasis7_custody_worker/scripts/contract.mjs check
 ```
 
-`check` compares generated content without rewriting committed files. Public HTTP DTOs reject unknown fields. State primitives reuse the existing Agent API `DecimalU64` serializer for full-width persistence; AAD uses Rust CBOR bytes with separate value/wrapping domains and role/account/environment/key/version bindings. Full-width state strings are verified through actual SQLite TEXT storage and restart. The narrow synchronous SQL adapter has a workerd rollback fixture covering state and audit writes; this does not prove an AccountAuthority admission/outbox transaction, which is not integrated. WebCrypto encryption and world signing remain unimplemented.
+`check` compares generated content without rewriting committed files. Public HTTP DTOs reject unknown fields. State primitives reuse the existing Agent API `DecimalU64` serializer for full-width persistence; AAD uses Rust CBOR bytes with separate value/wrapping domains and role/account/environment/key/version bindings. Full-width state strings are verified through actual SQLite TEXT storage and restart. The narrow synchronous SQL adapter has a workerd rollback fixture covering state and audit writes; this does not prove an AccountAuthority admission/outbox transaction, which is not integrated. The WebCrypto envelope component is described below; its production role-slot integration and world signing remain unimplemented.
 
 ## Owner approval handoff component
 
