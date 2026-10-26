@@ -1259,7 +1259,8 @@ class Engine:
         self._verify_admission("127.0.0.1", port, path, use_tls=False)
         self._verify_admission(urlsplit(self.config["public_origin"]).hostname,
                                urlsplit(self.config["public_origin"]).port or 443,
-                               path, use_tls=True, host=urlsplit(self.config["public_origin"]).netloc)
+                               path, use_tls=True,
+                               host_header=urlsplit(self.config["public_origin"]).netloc)
         status, body, _ = self._request_public("HEAD", path)
         if status != 200 or body:
             raise RemoteError("public_api_head_failed")

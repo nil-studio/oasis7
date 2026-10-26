@@ -180,6 +180,61 @@ class EngineTests(unittest.TestCase):
         with self.assertRaisesRegex(remote.RemoteError, "world_identity_mismatch"):
             engine._validate_world({**WORLD, "service_public_key": None})
 
+    def test_public_api_runs_actual_admission_checks_with_origin_host_header(self):
+        admission = json.dumps({
+            "ok": True,
+            "deployment_mode": "hosted_public_join",
+            "admission": {"runtime_probe_status": "ok"},
+        }).encode()
+        connections = []
+
+        class Response:
+            def __init__(self, status, body):
+                self.status = status
+                self.body = body
+
+            def read(self, _limit=-1):
+                return self.body
+
+            def getheaders(self):
+                return []
+
+        class Connection:
+            def __init__(self, host, port, **_kwargs):
+                self.host, self.port = host, port
+                connections.append(self)
+
+            def request(self, method, path, headers):
+                self.requested = (method, path, headers)
+
+            def getresponse(self):
+                method, path, headers = self.requested
+                if headers.get("Origin") == "https://invalid.example":
+                    return Response(403, b"")
+                if path.endswith("/admission") and method == "GET":
+                    return Response(200, admission)
+                if path.endswith("/admission") and method == "HEAD":
+                    return Response(200, b"")
+                if path.endswith("/admission") and method == "POST":
+                    return Response(405, b"")
+                return Response(404, b"")
+
+            def close(self):
+                pass
+
+        engine = remote.Engine(enforce_root=False)
+        engine.config = {"launcher_http_port": 4173, "public_origin": "https://preview.example.test:8443"}
+        with patch.object(remote.http.client, "HTTPConnection", Connection), \
+                patch.object(remote.http.client, "HTTPSConnection", Connection):
+            engine._verify_public_api()
+        public_admission = next(
+            item for item in connections
+            if item.host == "preview.example.test" and item.requested[0] == "GET"
+            and item.requested[1].endswith("/admission")
+        )
+        self.assertEqual(public_admission.port, 8443)
+        self.assertEqual(public_admission.requested[2]["Host"], "preview.example.test:8443")
+
     def test_profile_accepts_ancestor_backup_and_derives_controller_lock(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
