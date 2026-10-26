@@ -23,7 +23,7 @@ bash crates/oasis7_custody_worker/scripts/verify.sh --platform
 
 The first command runs host tests, core Wasm checking, four role checks and no-role/all-pair negative builds. The platform command also installs the pinned builder if needed, performs four real Worker builds, Wrangler dry-runs, checks generated HTTP contracts, typechecks the TS consumer and tests actual Wasm HTTP handlers in local workerd. No Cloudflare credentials, deployment, model invocation or world writes are used.
 
-`worker-build` fixes its staging path to `build/`; packaging is serialized by `.role-build-lock` and each complete result is copied to `artifacts/<role>/`. Concurrent packaging fails explicitly. Inspect any surviving lock before removing it after an interrupted build. Cargo's shared target is retained. Generated JS/Wasm and dry-run outputs are ignored local artifacts, not source or deployment evidence.
+`worker-build` fixes its staging path to `build/`; packaging is serialized by `.role-build-lock` and each complete result is copied to `artifacts/<role>/`. Concurrent packaging fails explicitly. Inspect any surviving lock before removing it after an interrupted build. Cargo uses the worktree-local target; wait for build locks without changing the target directory. Generated JS/Wasm and dry-run outputs are ignored local artifacts, not source or deployment evidence.
 
 ## Rust HTTP contract
 
@@ -36,9 +36,17 @@ node crates/oasis7_custody_worker/scripts/contract.mjs check
 
 `check` compares generated content without rewriting committed files. Public HTTP DTOs reject unknown fields. State primitives reuse the existing Agent API `DecimalU64` serializer for full-width persistence; AAD uses Rust CBOR bytes with separate value/wrapping domains and role/account/environment/key/version bindings. Full-width state strings are verified through actual SQLite TEXT storage and restart. The narrow synchronous SQL adapter has a workerd rollback fixture covering state and audit writes; this does not prove an AccountAuthority admission/outbox transaction, which is not integrated. WebCrypto encryption and world signing remain unimplemented.
 
+## Owner approval handoff component
+
+The Owner Rust-only component records a bounded approval handoff and historical one-time consumption. It binds the native proof, exact typed intent, pinned key, current manager/source versions, Owner-generated verification nonce, fence and deadlines. The synchronous SQLite transaction rechecks the current context and clock after asynchronous cryptography, and commits the original plus audit together. Retries preserve the original and never extend approval or source expiry. Record capacity is 256 with no nonce evidence eviction; a full book rejects new operations.
+
+Every signature must pass strict Ed25519 validation and actual Worker WebCrypto `Ed25519` verification over the Rust canonical bytes. The transaction cache compares the complete immutable check material. There is no public authorization boolean or deserializable verified cache.
+
+This component has no production fetch or RPC caller. Identity/Owner/Executor business routes remain disabled. Manager association/revocation directory and native authority forwarding must be established before approval enablement; a consumed historical record does not grant authority, create keys or dispatch. The `approval-harness` feature requires `owner` and exports a local-test-only class in a separate artifact with no Wrangler deployment configuration. The four production artifacts must not export that class. Test identities are public fixed fixtures, never operational credentials.
+
 ## Remaining integration
 
-Native identity approval/source/session metadata now exist behind explicit disabled-by-default configuration. The next slices must integrate those contracts with Owner, finish provisioning and role-local encryption; trusted host isolation, pairing/PoP and purpose credentials; Account DO transactional admission/outbox and independent Owner Stop/Revoke; native tools and management UI/Skill. Real Cloudflare IAM, AccountAuthority transactional admission/outbox, WebCrypto interoperability, restore/rotation and prepared-world CT-008 remain unverified. No fixture, metadata response or dry-run represents canonical world execution or Agent acceptance. dot remains blocked until a real trusted connector signing adapter and OAuth/MCP binding exist; there is no Bearer fallback.
+Native identity approval/source/session metadata now exist behind explicit disabled-by-default configuration. The next slices must integrate those contracts with Owner, finish provisioning and role-local encryption; trusted host isolation, pairing/PoP and purpose credentials; Account DO transactional admission/outbox and independent Owner Stop/Revoke; native tools and management UI/Skill. Real Cloudflare IAM, AccountAuthority transactional admission/outbox, WebCrypto encryption/world-signing interoperability, restore/rotation and prepared-world CT-008 remain unverified. No fixture, metadata response or dry-run represents canonical world execution or Agent acceptance. dot remains blocked until a real trusted connector signing adapter and OAuth/MCP binding exist; there is no Bearer fallback.
 
 These are REQ-CLOUD-CUSTODY-006 foundations with partial support for REQ-CLOUD-CUSTODY-003/004/005/007. Full AC-CLOUD-01–11 and CT-001–008 completion must be evaluated after the integrations, not inferred from these primitive tests. The Issue remains open and PRs use `Refs #5076`.
 

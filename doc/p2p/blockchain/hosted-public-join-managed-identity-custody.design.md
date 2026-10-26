@@ -232,6 +232,13 @@
 | Hosted custody | 本文 §11 明确正式 managed custody sign、self-custody 与冻结恢复缺口 | 新 Cloudflare 测试 lane 不补写为已有生产能力 |
 | 实现/验收 | 无本节服务、云端签名向量、故障恢复及真实受控账号证据 | PRD 七项要求均未实现；本次检查仅证明文档合同/关系 |
 
+
+当前实现边界：已有两包、四角色工件、纯状态原语、原生 Passkey 批准/来源核验/只读会话状态及独立 frozen fence 存储。以上不改变表中历史审读基线，也不表示七项要求整体验收完成；切片交付与后续验收进度见 [Issue #5076](https://github.com/nil-studio/oasis7/issues/5076)。
+
+Owner 批准 handoff 组件的范围：Rust 按固定公钥和 canonical bytes 验签，绑定 Owner 生成的核验 nonce，在同步 SQLite 事务中重新核对当前上下文、fence 与期限，一次保存消费历史及 audit，重试返回同一原件。签名检查同时经过严格 Ed25519 与实际 Worker WebCrypto，异步验签结果只允许按完整检查材料回用于事务。该组件没有生产 fetch/RPC 调用；专用 `approval-harness` 工件只供本地测试，无部署配置。消费历史不产生 grant、密钥操作或世界 dispatch。完整管理者关联目录、撤销确认和原生 authority 转发未接通前，Owner 业务批准继续关闭（§12.5）。
+
+CT-008 与 ST-02/03/04/06 尚无真实闭环验收证据。正式游戏 Skill 和现有 ordinary Unix broker 不能替代 custody host/transport、配对及 TestSession 收尾接线；组件 fixture、构建或历史 instruction-only 实验不能代签真实世界效果与收尾验收。具体实现缺口和实玩前置集中更新原 Issue。
+
 <a id="cloud-custody-boundaries"></a>
 ### 12.4 边界与结构
 

@@ -19,6 +19,10 @@ for first in identity owner executor recovery-fence; do
     grep -q 'requires exactly one role feature' "$scratch/multi-role"
   done
 done
+if env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features identity,approval-harness --locked >"$scratch/harness-without-owner" 2>&1; then
+  echo 'approval harness without Owner unexpectedly built' >&2; exit 1
+fi
+grep -q 'approval-harness requires owner' "$scratch/harness-without-owner"
 for role in identity owner executor recovery-fence; do
   env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features "$role" --locked
 done
@@ -33,6 +37,7 @@ case "${1:-}" in
       bash crates/oasis7_custody_worker/scripts/build-role.sh "$role"
       (cd crates/oasis7_custody_worker && npx --no-install wrangler deploy --dry-run --config "deploy/$role/wrangler.toml" --outdir "artifacts/$role/dry-run" --no-bundle)
     done
+    bash crates/oasis7_custody_worker/scripts/build-approval-harness.sh
     node crates/oasis7_custody_worker/scripts/contract.mjs check
     npm test --prefix crates/oasis7_custody_worker
     ;;
