@@ -133,7 +133,7 @@ jobs:
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
           shared-key: release-packages-web-wasm-trusted-v3
@@ -249,13 +249,13 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os == 'Linux'
         with:
           save-if: ${{ github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
           shared-key: oasis7-package-native-${{ runner.os }}-${{ matrix.target_triple }}-${{ inputs.build_profile }}-trusted-v2
           cache-on-failure: false
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os != 'Linux'
         with:
           save-if: false
