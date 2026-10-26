@@ -1,6 +1,11 @@
 use super::*;
 #[cfg(not(target_arch = "wasm32"))]
-use oasis7_client_api::{ProviderHealth, ProviderInfo, evaluate_provider_compatibility};
+use oasis7_client_api::{
+    ProviderHealth, ProviderInfo, evaluate_provider_compatibility,
+    provider::{
+        PROVIDER_WORLD_RESOURCE_DELTA_SCHEMA_V1, PROVIDER_WORLD_RESOURCE_MANIFEST_SCHEMA_V1,
+    },
+};
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::blocking::Client;
 #[cfg(not(target_arch = "wasm32"))]
@@ -102,7 +107,29 @@ pub(crate) fn check_provider_http_provider(
         .as_deref()
         .filter(|error| !error.trim().is_empty())
         .map(|_| "provider reported an error".to_string());
-    let fallback_reason = if compatibility.status == ProviderCompatibilityStatus::Degraded {
+    let fallback_reason = if !compatibility.resource_schema_errors.is_empty() {
+        let categories = compatibility
+            .resource_schema_errors
+            .iter()
+            .map(|error| match error.split('=').next() {
+                Some("world_resource_manifest_schema") => {
+                    "world_resource_manifest_schema=unsupported"
+                }
+                Some("world_resource_delta_schema") => "world_resource_delta_schema=unsupported",
+                Some("missing_world_resource_manifest_schema") => {
+                    "missing_world_resource_manifest_schema"
+                }
+                Some("missing_world_resource_delta_schema") => {
+                    "missing_world_resource_delta_schema"
+                }
+                _ => "unsupported_schema",
+            })
+            .collect::<Vec<_>>();
+        Some(format!(
+            "unsupported_world_resource_schema:{}",
+            categories.join(",")
+        ))
+    } else if compatibility.status == ProviderCompatibilityStatus::Degraded {
         Some(if last_error.is_some() {
             "provider_health_reported_error".to_string()
         } else if health.ok {
@@ -120,8 +147,14 @@ pub(crate) fn check_provider_http_provider(
         protocol_version: info
             .protocol_version
             .unwrap_or_else(|| "unknown".to_string()),
-        chain_resource_manifest_schema_version: info.chain_resource_manifest_schema_version,
-        chain_resource_delta_schema_version: info.chain_resource_delta_schema_version,
+        chain_resource_manifest_schema_version: safe_provider_schema_version(
+            info.chain_resource_manifest_schema_version,
+            PROVIDER_WORLD_RESOURCE_MANIFEST_SCHEMA_V1,
+        ),
+        chain_resource_delta_schema_version: safe_provider_schema_version(
+            info.chain_resource_delta_schema_version,
+            PROVIDER_WORLD_RESOURCE_DELTA_SCHEMA_V1,
+        ),
         capabilities: info.capabilities,
         supported_action_sets: info.supported_action_sets,
         compatibility_status: compatibility.status,
@@ -216,6 +249,19 @@ fn safe_provider_http_error(error: reqwest::Error) -> ProviderCheckError {
         "provider HTTP request failed"
     };
     ProviderCheckError::Unreachable(summary.into())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn safe_provider_schema_version(value: Option<String>, supported: &str) -> Option<String> {
+    value.map(|value| {
+        if value == supported {
+            value
+        } else if value.trim().is_empty() {
+            "missing".into()
+        } else {
+            "unsupported".into()
+        }
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]

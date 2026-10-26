@@ -162,3 +162,49 @@ fn native_provider_probe_invalid_configuration_does_not_echo_values() {
     app.check_local_provider();
     assert_safe_surfaces(&app, "timeout");
 }
+
+#[test]
+fn native_provider_probe_unsupported_schema_error_does_not_echo_remote_value() {
+    for (field, category) in [
+        (
+            "chain_resource_manifest_schema_version",
+            "world_resource_manifest_schema",
+        ),
+        (
+            "chain_resource_delta_schema_version",
+            "world_resource_delta_schema",
+        ),
+    ] {
+        for value in [Some(CANARY), Some(""), None] {
+            let mut info: serde_json::Value = serde_json::from_str(INFO).unwrap();
+            if let Some(value) = value {
+                info[field] = serde_json::json!(value);
+            } else {
+                info.as_object_mut().unwrap().remove(field);
+            }
+            let app = run_probe(
+                vec![
+                    (200, info.to_string()),
+                    (200, r#"{"ok":true,"status":"ready"}"#.into()),
+                ],
+                500,
+                false,
+            );
+            assert!(matches!(
+                app.provider_check_status,
+                ProviderCheckStatus::Incompatible(_)
+            ));
+            let detail = app.provider_check_status.detail().unwrap();
+            let diagnostic = if value == Some(CANARY) {
+                format!("{category}=unsupported")
+            } else {
+                format!("missing_{category}")
+            };
+            assert!(!detail.contains(CANARY), "{detail}");
+            assert!(detail.contains(&diagnostic), "{detail}");
+            let logs = app.logs.iter().cloned().collect::<Vec<_>>().join("\n");
+            assert!(!logs.contains(CANARY), "{logs}");
+            assert!(logs.contains(&diagnostic), "{logs}");
+        }
+    }
+}
