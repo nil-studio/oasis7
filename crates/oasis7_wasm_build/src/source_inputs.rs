@@ -363,7 +363,6 @@ pub fn compute_source_inputs(
     let mut closure = Closure {
         root: &root,
         package_files: files.clone(),
-        roots: &rust_roots,
         files,
         edges: &edges,
         build_roots: &build_roots,
@@ -373,7 +372,15 @@ pub fn compute_source_inputs(
         active: BTreeSet::new(),
     };
     for file in initial {
-        closure.walk(&file, rust_roots.contains(&file), None)?;
+        closure.walk(
+            &file,
+            if rust_roots.contains(&file) {
+                InputKind::RustRoot
+            } else {
+                InputKind::Data
+            },
+            None,
+        )?;
     }
     if closure.used != edges {
         return Err(unsupported(
@@ -454,27 +461,35 @@ fn put_string(hash: &mut Sha256, value: &str) {
     hash.update(value.as_bytes());
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum InputKind {
+    Data,
+    RustRoot,
+    RustModule,
+    RustInclude,
+}
+
 struct Closure<'a> {
     root: &'a Path,
     files: BTreeSet<PathBuf>,
     package_files: BTreeSet<PathBuf>,
-    roots: &'a BTreeSet<PathBuf>,
     edges: &'a BTreeSet<Edge>,
     build_roots: &'a BTreeMap<PathBuf, PathBuf>,
     used: BTreeSet<Edge>,
     actual_build_inputs: BTreeMap<String, BTreeSet<String>>,
-    visited: BTreeSet<(PathBuf, bool, Option<PathBuf>)>,
-    active: BTreeSet<(PathBuf, bool, Option<PathBuf>)>,
+    visited: BTreeSet<(PathBuf, InputKind, Option<PathBuf>)>,
+    active: BTreeSet<(PathBuf, InputKind, Option<PathBuf>)>,
 }
 impl Closure<'_> {
     fn walk(
         &mut self,
         file: &Path,
-        rust: bool,
+        kind: InputKind,
         build_script: Option<&Path>,
     ) -> Result<(), SourceHashError> {
+        let rust = kind != InputKind::Data;
         let script = if rust {
-            if self.build_roots.contains_key(file) {
+            if kind == InputKind::RustRoot && self.build_roots.contains_key(file) {
                 Some(file.to_path_buf())
             } else {
                 build_script.map(Path::to_path_buf)
@@ -482,7 +497,7 @@ impl Closure<'_> {
         } else {
             None
         };
-        let key = (file.to_path_buf(), rust, script.clone());
+        let key = (file.to_path_buf(), kind, script.clone());
         if self.active.contains(&key) {
             return Err(unsupported("include cycle"));
         }
@@ -500,11 +515,9 @@ impl Closure<'_> {
             let parent = file
                 .parent()
                 .ok_or_else(|| unsupported("Rust file lacks parent"))?;
-            let module_dir = if self.roots.contains(file)
-                || matches!(
-                    file.file_name().and_then(|v| v.to_str()),
-                    Some("lib.rs" | "main.rs" | "mod.rs" | "build.rs")
-                ) {
+            let module_dir = if kind == InputKind::RustRoot
+                || matches!(file.file_name().and_then(|v| v.to_str()), Some("mod.rs"))
+            {
                 parent.to_path_buf()
             } else {
                 parent.join(
@@ -523,6 +536,11 @@ impl Closure<'_> {
             scanner.visit_file(&syntax);
             if let Some(error) = scanner.error {
                 return Err(unsupported(error));
+            }
+            if kind == InputKind::RustInclude && !scanner.modules.is_empty() {
+                return Err(unsupported(
+                    "non-inline module inside include! is outside the supported literal-input lane",
+                ));
             }
             let from = label(self.root, file)?;
             let mut actual_reads = Vec::new();
@@ -564,7 +582,15 @@ impl Closure<'_> {
                     self.used.insert(edge);
                 }
                 self.files.insert(next.clone());
-                self.walk(&next, parse_rust, script.as_deref())?;
+                self.walk(
+                    &next,
+                    if parse_rust {
+                        InputKind::RustInclude
+                    } else {
+                        InputKind::Data
+                    },
+                    script.as_deref(),
+                )?;
             }
             for (directory, name) in scanner.modules {
                 let plain = directory.join(format!("{name}.rs"));
@@ -577,7 +603,7 @@ impl Closure<'_> {
                 if !self.package_files.contains(&next) {
                     return Err(unsupported("module outside supported source roots"));
                 }
-                self.walk(&next, true, script.as_deref())?;
+                self.walk(&next, InputKind::RustModule, script.as_deref())?;
             }
             for input in actual_reads {
                 self.files.insert(self.root.join(input));

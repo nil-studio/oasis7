@@ -959,3 +959,97 @@ fn macro_generated_modules_and_unknown_macro_owners_are_not_implicit_inputs() {
         assert!(f.inputs().is_err());
     }
 }
+
+#[test]
+fn include_mod_context_is_rejected_without_guessing_a_sibling_directory() {
+    let f = Fixture::new();
+    f.write("module/src/lib.rs","include!(\"header.rs\"); #[cfg(test)] mod tests {#[test] fn actual(){assert_eq!(super::value(),11);}}");
+    f.write(
+        "module/src/header.rs",
+        "mod sub; pub fn value()->u32{sub::VALUE}",
+    );
+    f.write(
+        "module/src/sub.rs",
+        "include!(\"../../templates/external.rs\");",
+    );
+    f.write("module/src/header/sub.rs", "pub const VALUE:u32=22;");
+    f.write("templates/external.rs", "pub const VALUE:u32=11;");
+    f.declare(vec![], BTreeMap::new());
+    let actual = Command::new("cargo")
+        .env_remove("RUSTC_WRAPPER")
+        .args(["test", "--offline", "--lib", "--manifest-path"])
+        .arg(f.0.join("module/Cargo.toml"))
+        .output()
+        .unwrap();
+    assert!(
+        actual.status.success(),
+        "actual include module resolution must compile and return 11: {}",
+        String::from_utf8_lossy(&actual.stderr)
+    );
+    assert!(
+        f.inputs().is_err(),
+        "included non-inline mod must not hash the inactive header/sub.rs instead of the active external input"
+    );
+    let ordinary = Fixture::new();
+    ordinary.write("module/src/lib.rs","mod header; #[cfg(test)] mod tests{#[test] fn actual(){assert_eq!(super::header::value(),22);}}");
+    ordinary.write(
+        "module/src/header.rs",
+        "mod sub; pub fn value()->u32{sub::VALUE}",
+    );
+    ordinary.write("module/src/header/sub.rs", "pub const VALUE:u32=22;");
+    ordinary.declare(vec![], BTreeMap::new());
+    ordinary.inputs().unwrap();
+    let actual = Command::new("cargo")
+        .env_remove("RUSTC_WRAPPER")
+        .args(["test", "--offline", "--lib", "--manifest-path"])
+        .arg(ordinary.0.join("module/Cargo.toml"))
+        .output()
+        .unwrap();
+    assert!(actual.status.success());
+}
+
+#[test]
+fn include_mod_context_is_not_skipped_after_an_ordinary_module_visit() {
+    let f = Fixture::new();
+    f.write("module/Cargo.toml","[package]\nname=\"fixture\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[[bin]]\nname=\"fixture_bin\"\npath=\"src/z_bin.rs\"\n");
+    f.write(
+        "module/src/lib.rs",
+        "mod header; pub fn ordinary()->u32{header::value()}",
+    );
+    f.write(
+        "module/src/z_bin.rs",
+        "include!(\"header.rs\"); fn main(){assert_eq!(value(),11);}",
+    );
+    f.write(
+        "module/src/header.rs",
+        "mod sub; pub fn value()->u32{sub::VALUE}",
+    );
+    f.write(
+        "module/src/sub.rs",
+        "include!(\"../../templates/external.rs\");",
+    );
+    f.write("module/src/header/sub.rs", "pub const VALUE:u32=22;");
+    f.write("templates/external.rs", "pub const VALUE:u32=11;");
+    f.declare(vec![], BTreeMap::new());
+    let actual = Command::new("cargo")
+        .env_remove("RUSTC_WRAPPER")
+        .args([
+            "run",
+            "--offline",
+            "--bin",
+            "fixture_bin",
+            "--manifest-path",
+        ])
+        .arg(f.0.join("module/Cargo.toml"))
+        .output()
+        .unwrap();
+    assert!(
+        actual.status.success(),
+        "real lib+bin shared module/include fixture: {}",
+        String::from_utf8_lossy(&actual.stderr)
+    );
+    assert!(
+        f.inputs().is_err(),
+        "ordinary module cache must not waive a later include! context check"
+    );
+}
