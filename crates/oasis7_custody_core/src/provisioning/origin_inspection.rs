@@ -360,7 +360,7 @@ impl AccountProvisionApprovalState {
         *self = next;
         Ok(result)
     }
-    fn validate_origin_response(
+    pub(super) fn validate_origin_response(
         &self,
         original: &ProvisionOriginInspectionV1,
         signed: &SignedApprovalVerificationV1,

@@ -90,7 +90,7 @@
       {
         "approval_id": "approval-one",
         "ceremony_id": "approval-one",
-        "intent_digest": "93a214dbccf62085206058902a377bd1921255e77bb85b05ec0dbc67111bd3c6",
+        "intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
         "operation_id": "approval-one",
         "response": {
           "type": "public-key"
@@ -115,7 +115,7 @@
             "expires_at": "31000",
             "identity_instance_epoch": "3",
             "identity_namespace": "identity:test",
-            "intent_digest": "93a214dbccf62085206058902a377bd1921255e77bb85b05ec0dbc67111bd3c6",
+            "intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
             "issued_at": "1000",
             "key_id": "key-one",
             "manager_account_id": "manager-one",
@@ -151,8 +151,10 @@
           "deadline": "100000",
           "kind": "managed_login",
           "login_key_ref": "login-one",
+          "login_request_id": "managed-login-one",
           "native_account_id": "native-one",
-          "native_identity_namespace": "identity:test"
+          "native_identity_namespace": "identity:test",
+          "transport_limit": "64"
         }
       },
       {
@@ -314,7 +316,7 @@
         "audience": "account-authority:test",
         "ceremony_expires_at": "121000",
         "ceremony_id": "approval-one",
-        "intent_digest": "93a214dbccf62085206058902a377bd1921255e77bb85b05ec0dbc67111bd3c6",
+        "intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
         "operation_id": "approval-one",
         "options": {
           "publicKey": {
@@ -341,7 +343,7 @@
             "expires_at": "31000",
             "identity_instance_epoch": "3",
             "identity_namespace": "identity:test",
-            "intent_digest": "93a214dbccf62085206058902a377bd1921255e77bb85b05ec0dbc67111bd3c6",
+            "intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
             "issued_at": "1000",
             "key_id": "key-one",
             "manager_account_id": "manager-one",
@@ -358,8 +360,8 @@
           "signature": "structural-fixture-only"
         },
         "expected_audience": "account-authority:test",
-        "expected_intent_digest": "93a214dbccf62085206058902a377bd1921255e77bb85b05ec0dbc67111bd3c6",
-        "proof_digest": "55b20062934e401d142e422f7ac96cf0b777cc3b65a695280bc54c2ef98f06d2",
+        "expected_intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
+        "proof_digest": "c7ac47830f69aad8c7313807aa66f59a2890737bce05e84b602dc970ca141883",
         "purpose": "consume_approval",
         "verify_nonce": "owner-nonce"
       }
@@ -378,6 +380,75 @@
         "security_version": "2",
         "server_time": "1000",
         "session_ref": "session-one"
+      }
+    ],
+    "ManagedLoginApprovalViewV1": [
+      {
+        "api_version": 1,
+        "custody_account_id": "custody-one",
+        "operation_id": "managed-login-approve-one",
+        "provision_id": "provision-one",
+        "stage": "approved"
+      }
+    ],
+    "ManagedLoginApproveRequestV1": [
+      {
+        "api_version": 1,
+        "input": {
+          "approval": {
+            "proof": {
+              "approval_id": "approval-one",
+              "approval_request_id": "request-one",
+              "context": {
+                "audience": "account-authority:test",
+                "custody_account_id": "custody-one",
+                "environment": "test",
+                "policy_version": "1",
+                "security_version": "2",
+                "service_epoch": "3"
+              },
+              "expires_at": "31000",
+              "identity_instance_epoch": "3",
+              "identity_namespace": "identity:test",
+              "intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
+              "issued_at": "1000",
+              "key_id": "key-one",
+              "manager_account_id": "manager-one",
+              "manager_policy_version": "1",
+              "manager_security_version": "2",
+              "manager_session_ref": "manager-session",
+              "nonce": "proof-nonce",
+              "origin_credential_id": "origin-one",
+              "origin_credential_version": "18446744073709551615",
+              "passkey_credential_id": "passkey-one",
+              "passkey_credential_version": "9007199254740993",
+              "version": 1
+            },
+            "signature": "structural-fixture-only"
+          },
+          "operation_id": "managed-login-approve-one",
+          "request": {
+            "approval_request_id": "request-one",
+            "context": {
+              "audience": "account-authority:test",
+              "custody_account_id": "custody-one",
+              "environment": "test",
+              "policy_version": "1",
+              "security_version": "2",
+              "service_epoch": "3"
+            },
+            "intent": {
+              "blocked_operation_ref": "blocked-one",
+              "deadline": "100000",
+              "kind": "managed_login",
+              "login_key_ref": "login-one",
+              "login_request_id": "managed-login-one",
+              "native_account_id": "native-one",
+              "native_identity_namespace": "identity:test",
+              "transport_limit": "64"
+            }
+          }
+        }
       }
     ],
     "ManagerClosureViewV1": [
@@ -551,14 +622,14 @@
           "credential_version": "9007199254740993",
           "identity_instance_epoch": "3",
           "identity_namespace": "identity:test",
-          "intent_digest": "93a214dbccf62085206058902a377bd1921255e77bb85b05ec0dbc67111bd3c6",
+          "intent_digest": "dd270a95faa1b4391794daeb801c89bf4b7790d80e4973b50acded58092e16c9",
           "key_id": "key-one",
           "manager_policy_version": "1",
           "manager_security_version": "2",
           "observed_at": "2000",
           "origin_credential_version": "18446744073709551615",
           "origin_state": "active",
-          "proof_digest": "55b20062934e401d142e422f7ac96cf0b777cc3b65a695280bc54c2ef98f06d2",
+          "proof_digest": "c7ac47830f69aad8c7313807aa66f59a2890737bce05e84b602dc970ca141883",
           "proof_expires_at": "31000",
           "proof_state": "active",
           "purpose": "consume_approval",
@@ -1384,11 +1455,17 @@
                 "login_key_ref": {
                   "type": "string"
                 },
+                "login_request_id": {
+                  "type": "string"
+                },
                 "native_account_id": {
                   "type": "string"
                 },
                 "native_identity_namespace": {
                   "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
                 }
               },
               "required": [
@@ -1397,6 +1474,8 @@
                 "login_key_ref",
                 "native_identity_namespace",
                 "blocked_operation_ref",
+                "login_request_id",
+                "transport_limit",
                 "deadline"
               ],
               "type": "object"
@@ -2030,6 +2109,897 @@
       "title": "CustodySessionStatusV1",
       "type": "object"
     },
+    "ManagedLoginApprovalViewV1": {
+      "$defs": {
+        "ManagedLoginStageV1": {
+          "enum": [
+            "approved",
+            "native_session_ready",
+            "explicit_login_required"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "custody_account_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "provision_id": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/ManagedLoginStageV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "provision_id",
+        "custody_account_id",
+        "operation_id",
+        "stage"
+      ],
+      "title": "ManagedLoginApprovalViewV1",
+      "type": "object"
+    },
+    "ManagedLoginApproveRequestV1": {
+      "$defs": {
+        "ApprovalAdmissionInput": {
+          "additionalProperties": false,
+          "properties": {
+            "approval": {
+              "$ref": "#/$defs/SignedCustodyApprovalV1"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ApprovalOptionsRequestV1"
+            }
+          },
+          "required": [
+            "operation_id",
+            "request",
+            "approval"
+          ],
+          "type": "object"
+        },
+        "ApprovalContextV1": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "environment",
+            "custody_account_id",
+            "audience",
+            "policy_version",
+            "security_version",
+            "service_epoch"
+          ],
+          "type": "object"
+        },
+        "ApprovalOptionsRequestV1": {
+          "additionalProperties": false,
+          "properties": {
+            "approval_request_id": {
+              "type": "string"
+            },
+            "context": {
+              "$ref": "#/$defs/ApprovalContextV1"
+            },
+            "intent": {
+              "$ref": "#/$defs/CustodyIntentV1"
+            }
+          },
+          "required": [
+            "approval_request_id",
+            "context",
+            "intent"
+          ],
+          "type": "object"
+        },
+        "ApprovedActionV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "position_cm": {
+                  "items": {
+                    "$ref": "#/$defs/DecimalI64"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "tool": {
+                  "const": "move",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "position_cm"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amount": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "distance_km": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "from": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "material": {
+                  "type": "string"
+                },
+                "priority": {
+                  "$ref": "#/$defs/MaterialTransitPriority"
+                },
+                "routing": {
+                  "$ref": "#/$defs/ApprovedRoutingV1"
+                },
+                "to": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "tool": {
+                  "const": "transfer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "from",
+                "to",
+                "material",
+                "amount",
+                "distance_km",
+                "priority",
+                "routing"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "factory": {
+                  "type": "string"
+                },
+                "factory_kind": {
+                  "type": "string"
+                },
+                "site": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "build",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "site",
+                "factory",
+                "factory_kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "batches": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "factory": {
+                  "type": "string"
+                },
+                "recipe": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "schedule",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "factory",
+                "recipe",
+                "batches"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedClientBindingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "client_key": {
+                  "type": "string"
+                },
+                "profile": {
+                  "const": "native-broker-custody-v1",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "client_key"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "client_key": {
+                  "type": "string"
+                },
+                "connector_key": {
+                  "type": "string"
+                },
+                "profile": {
+                  "const": "dot-mcp-custody-v1",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "client_key",
+                "connector_key"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedRoutingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "direct",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "routes",
+                  "type": "string"
+                },
+                "route_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kind",
+                "route_ids"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedWorldV1": {
+          "additionalProperties": false,
+          "description": "Full world pins and task fence are signed, not supplied as opaque client claims.",
+          "properties": {
+            "branch_id": {
+              "type": "string"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_public_key": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "service_public_key"
+          ],
+          "type": "object"
+        },
+        "ControlBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_transport": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport_hops": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "transport_per_hop": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport_per_hop",
+            "identity_transport",
+            "transport_hops"
+          ],
+          "type": "object"
+        },
+        "CustodyApprovalProofV1": {
+          "additionalProperties": false,
+          "properties": {
+            "approval_id": {
+              "type": "string"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "context": {
+              "$ref": "#/$defs/ApprovalContextV1"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_instance_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_namespace": {
+              "type": "string"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "key_id": {
+              "type": "string"
+            },
+            "manager_account_id": {
+              "type": "string"
+            },
+            "manager_policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "manager_security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "manager_session_ref": {
+              "type": "string"
+            },
+            "nonce": {
+              "type": "string"
+            },
+            "origin_credential_id": {
+              "type": "string"
+            },
+            "origin_credential_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "passkey_credential_id": {
+              "type": "string"
+            },
+            "passkey_credential_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "key_id",
+            "identity_namespace",
+            "approval_id",
+            "approval_request_id",
+            "context",
+            "intent_digest",
+            "manager_account_id",
+            "manager_session_ref",
+            "origin_credential_id",
+            "origin_credential_version",
+            "passkey_credential_id",
+            "passkey_credential_version",
+            "manager_policy_version",
+            "manager_security_version",
+            "identity_instance_epoch",
+            "nonce",
+            "issued_at",
+            "expires_at"
+          ],
+          "type": "object"
+        },
+        "CustodyIntentV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_config_version": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "identity_route": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "provision",
+                  "type": "string"
+                },
+                "login_request_id": {
+                  "type": "string"
+                },
+                "native_identity_namespace": {
+                  "type": "string"
+                },
+                "plan_digest": {
+                  "type": "string"
+                },
+                "provision_id": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "register_request_id": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "world_route": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "provision_id",
+                "purpose",
+                "plan_digest",
+                "bootstrap_config_version",
+                "world_identity",
+                "identity_route",
+                "world_route",
+                "native_identity_namespace",
+                "register_request_id",
+                "login_request_id",
+                "deadline",
+                "transport_limit"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "blocked_operation_ref": {
+                  "type": "string"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "kind": {
+                  "const": "managed_login",
+                  "type": "string"
+                },
+                "login_key_ref": {
+                  "type": "string"
+                },
+                "login_request_id": {
+                  "type": "string"
+                },
+                "native_account_id": {
+                  "type": "string"
+                },
+                "native_identity_namespace": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "native_account_id",
+                "login_key_ref",
+                "native_identity_namespace",
+                "blocked_operation_ref",
+                "login_request_id",
+                "transport_limit",
+                "deadline"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "actions": {
+                  "items": {
+                    "$ref": "#/$defs/ApprovedActionV1"
+                  },
+                  "type": "array"
+                },
+                "allowed_resource_refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "business_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "cleanup_budget": {
+                  "$ref": "#/$defs/PurposeBudgetV1"
+                },
+                "cleanup_until": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "client_binding": {
+                  "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "control_budget": {
+                  "$ref": "#/$defs/ControlBudgetV1"
+                },
+                "executor_key_ref": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "test_session",
+                  "type": "string"
+                },
+                "native_account_id": {
+                  "type": "string"
+                },
+                "read_budget": {
+                  "$ref": "#/$defs/PurposeBudgetV1"
+                },
+                "read_until": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "request_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "runtime_ref": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "skill_ref": {
+                  "type": "string"
+                },
+                "source_ref": {
+                  "type": "string"
+                },
+                "task_fence": {
+                  "$ref": "#/$defs/GameTaskFenceV1"
+                },
+                "termination_plan_digest": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "write_deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "session_id",
+                "native_account_id",
+                "world_identity",
+                "task_fence",
+                "executor_key_ref",
+                "client_binding",
+                "runtime_ref",
+                "skill_ref",
+                "source_ref",
+                "actions",
+                "allowed_resource_refs",
+                "read_budget",
+                "cleanup_budget",
+                "control_budget",
+                "write_deadline",
+                "read_until",
+                "cleanup_until",
+                "request_limit",
+                "transport_limit",
+                "business_limit",
+                "termination_plan_digest"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "DecimalI64": {
+          "maxLength": 20,
+          "pattern": "^(?:(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)|-(?!0$)(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7]|9223372036854775808))$",
+          "type": "string"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "GameExecutorBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "delegation_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_id": {
+              "type": "string"
+            },
+            "executor_public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "executor_id",
+            "executor_public_key",
+            "delegation_generation",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameGoalReferenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "activation_committed_height": {
+              "$ref": "#/$defs/DecimalU64",
+              "description": "A full commit root cannot be embedded in the state that it hashes."
+            },
+            "goal_ref": {
+              "type": "string"
+            },
+            "goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "prepare_operation_id": {
+              "type": "string"
+            },
+            "publish_operation_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "goal_revision",
+            "goal_ref",
+            "prepare_operation_id",
+            "publish_operation_id",
+            "activation_committed_height"
+          ],
+          "type": "object"
+        },
+        "GameTaskFenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "active_goal_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameGoalReferenceV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "executor_binding": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameExecutorBindingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "latest_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "owner_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_public_key": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "task_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_status": {
+              "$ref": "#/$defs/GameTaskStatusV1"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "agent_id",
+            "owner_binding",
+            "owner_generation",
+            "owner_public_key",
+            "task_id",
+            "task_revision",
+            "task_status",
+            "latest_goal_revision",
+            "active_goal_revision",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameTaskStatusV1": {
+          "enum": [
+            "suspended",
+            "active"
+          ],
+          "type": "string"
+        },
+        "MaterialLedgerId": {
+          "description": "Material ledger identifier used by M4 economy state.",
+          "type": "string"
+        },
+        "MaterialTransitPriority": {
+          "enum": [
+            "urgent",
+            "standard"
+          ],
+          "type": "string"
+        },
+        "PurposeBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "business": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport",
+            "business"
+          ],
+          "type": "object"
+        },
+        "SignedCustodyApprovalV1": {
+          "additionalProperties": false,
+          "properties": {
+            "proof": {
+              "$ref": "#/$defs/CustodyApprovalProofV1"
+            },
+            "signature": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof",
+            "signature"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A separately approved login; this never resumes the old Provision's login authority.",
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input": {
+          "$ref": "#/$defs/ApprovalAdmissionInput"
+        }
+      },
+      "required": [
+        "api_version",
+        "input"
+      ],
+      "title": "ManagedLoginApproveRequestV1",
+      "type": "object"
+    },
     "ManagerClosureViewV1": {
       "$defs": {
         "DecimalU64": {
@@ -2648,11 +3618,17 @@
                 "login_key_ref": {
                   "type": "string"
                 },
+                "login_request_id": {
+                  "type": "string"
+                },
                 "native_account_id": {
                   "type": "string"
                 },
                 "native_identity_namespace": {
                   "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
                 }
               },
               "required": [
@@ -2661,6 +3637,8 @@
                 "login_key_ref",
                 "native_identity_namespace",
                 "blocked_operation_ref",
+                "login_request_id",
+                "transport_limit",
                 "deadline"
               ],
               "type": "object"

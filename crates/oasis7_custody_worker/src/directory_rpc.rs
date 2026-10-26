@@ -34,6 +34,13 @@ pub(crate) struct ApproveRpc {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ManagedLoginApproveRpc {
+    pub manager_session: CustodySessionStatusV1,
+    pub provision_id: String,
+    pub request: ManagedLoginApproveRequestV1,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DriveRpc {
     pub manager_session: CustodySessionStatusV1,
     pub provision_id: String,
@@ -80,6 +87,16 @@ pub(crate) async fn request_text(request: &Request) -> Result<String> {
 #[cfg(feature = "identity")]
 #[wasm_bindgen(module = "/platform/directory_rpc.mjs")]
 extern "C" {
+    #[wasm_bindgen(catch, js_name = continueOwnerManagedLogin)]
+    pub(crate) async fn continue_managed_login_owner(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = approveOwnerManagedLogin)]
+    pub(crate) async fn approve_managed_login_owner(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = reserveOwnerDraft)]
     pub(crate) async fn reserve_owner(
         env: &Env,
@@ -105,4 +122,30 @@ extern "C" {
         env: &Env,
         raw: &str,
     ) -> std::result::Result<JsValue, JsValue>;
+}
+
+/// Immutable source reference for charged native inspection preflight only.
+/// It deliberately carries no observed-at timestamp or live-session assertion.
+#[cfg(feature = "owner")]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeInspectReference {
+    pub identity_namespace: String,
+    pub identity_instance_epoch: oasis7_custody_core::DecimalU64,
+    pub account_id: String,
+    pub session_ref: String,
+    pub credential_ref: String,
+    pub credential_version: oasis7_custody_core::DecimalU64,
+    pub security_version: oasis7_custody_core::DecimalU64,
+    pub policy_version: oasis7_custody_core::DecimalU64,
+    pub expires_at: oasis7_custody_core::DecimalU64,
+    pub idle_expires_at: oasis7_custody_core::DecimalU64,
+}
+#[cfg(feature = "owner")]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProvisionInspectGateRpc {
+    pub manager_reference: NativeInspectReference,
+    pub provision_id: String,
+    pub custody_account_id: String,
 }

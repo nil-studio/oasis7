@@ -679,3 +679,7 @@ pub(crate) fn registered_origin_checks(
     )?;
     Ok(checks)
 }
+
+#[path = "native_fact_checks.rs"]
+mod native_fact_checks;
+pub(crate) use native_fact_checks::*;

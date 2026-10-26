@@ -659,6 +659,145 @@ Owner 使用独立命名撤销入口验证固定原生签名，持久关闭目�
 
 目录缺失、版本不明或未收齐确认时不宣称 custody authorization closed，也不继续新增授权。该目录是 Owner 内的路由/撤销协调记录，不另设 grant/预算 authority。
 
+##### 原生托管反向绑定与首次会话
+
+反向绑定使用固定服务 pin 验证的签名事实，不采纳自报 native account、公钥或 manager registry。
+当前 native HTTP 持有 IdentityService/issuer 锁并同步处理请求；不能在锁内回调 Identity→Account 再进入 native 来源检查。
+采用分阶段 challenge/statement，native 只执行本地 crypto/SQL，Identity 在两次 native 请求之间调用固定 Owner RPC。
+这仍使用原 Account authority，不增加另一份 custody ACL/grant authority。
+
+1. Identity 先加密保存原 preauth Cookie/CSRF，再使用原计划派生的 registration operation 完成既有 machine registration。
+   native 从已提交的 machine_register receipt、ceremony、credential 和原 owner-context 推导账号/公钥/摘要，
+   保存 30 秒一次性 binding nonce，并以固定 pin 的 native authority 签发 SignedNativeBindingChallengeV1。
+   闭合字段为 api_version、challenge_id、nonce、identity_namespace、identity_instance_epoch、registration_operation_id、
+   registration_request_digest、registration_receipt_digest、native_account_id、native_credential_ref、login_public_key、
+   owner_context_ref、issued_at、expires_at。owner_context_ref 是 native 生成的摘要，不是 Cookie；调用者不能指定目标账号/key。
+   nonce 为 32 字节的 canonical lowercase hex；签名采用既有无 padding base64url 的 64 字节格式。
+   签名 domain 固定为 oasis7-custody-native-binding-challenge-v1，使用 Rust canonical bytes。
+   普通注册 JSON 回执没有因此获得跨 authority 签名权威。
+   options 只接原 registration_operation_id 与 Account 本次已登记的 binding_operation_id，后者成为 challenge_id。
+   同 attempt 返回原 nonce且不续期；新 attempt 可以为同账号/key 创建新 nonce，每原注册最多永久保留 16 个挑战。
+   达限只拒新增挑战，不能阻止普通 logout/revoke。固定只读 lookup 以原 preauth 核对并返回原 signed receipt 或 404，
+   即使原 statement/nonce 已过期也不丢原事实；Owner 只能接受与自己已登记 statement 匹配的原回执，不能据 lookup 新授权。
+   registration_request_digest 使用 namespace/epoch、原 operation、公钥、display_name 和原 audience 的共享 canonical public projection；
+   native 从原 ceremony 重构，Owner 从自己的原登记请求及固定配置计算，不使用 native 私有 HMAC request digest。
+   bootstrap v1 的 display_name 固定为 Oasis7 managed account，不接受模型/HTTP 请求改名；该常量由原 bootstrap version 绑定。
+   原 registration/login operation 从 environment、custody/provision、namespace/epoch、原 request ID 及 Identity 公钥稳定派生，
+   不直接使用调用者 ID，也不因未知结果重新派生身份或操作。
+   registration_receipt_digest 是 native 签名的原 receipt fact；Owner 验挑战后登记，不假称普通 JSON 可重建 native 内部回执。
+2. Account 仅从已批准 Provision、Identity role result、原注册请求及已验 native 签名挑战生成 OwnerNativeBindingStatementV1。
+   statement 嵌入完整 challenge，再绑定 environment、custody_account_id、provision_id、approved_plan_digest、login_key_ref、
+   binding_operation_id、permit_id、source_revision、account_authority_revision、service_epoch、service_identity、signer_key_id、
+   authority_observed_at 和自身 expires_at。Account key ref/请求摘要必须与 native 挑战完全匹配，不能签请求回显字段。
+   先持久预留/claim，核对真实来源、目录、独立 Fence 和最终时钟，保存原 bytes/digest/nonce/attempt 后才签发。
+   使用专用服务 key 和独立 domain oasis7-custody-native-binding-statement-v1，不扩大现 approval-verify secret。
+   最早真实来源/目录/Fence 观察为 authority_observed_at；截止最多其后 5 秒，且不越 challenge/plan/source 截止。
+   转发或重读不能续期；这仍是有界观察，不宣称分布式事务。
+3. native 只信独立配置并持久固定的 Owner 服务 key ID/public key、environment、service identity/epoch。
+   不信 statement 自带公钥、每账号 Owner role key 或普通管理者 key；pin 轮换单调推进，旧 pin 仅供历史核对。
+   接线缺省关闭，不创建/安装运维 key，不解除 Recovery Fence。
+   一个 native SQL 事务重验 nonce、注册 receipt/credential/key/owner-context、账号状态、namespace/epoch、签名和时钟，
+   complete 是闭合 NativeBindingCompleteV1，包含 signed statement 与 login_key_signature；fresh 持钥签名使用
+   oasis7-custody-native-binding-possession-v1 并绑定完整 statement digest，只能由该原 login key 生成，不提供任意字节签名。
+   消费 nonce并保存不可替换的 managed-native→custody/provision/login-key binding、receipt 和 audit。
+   native 以独立 domain oasis7-custody-native-binding-receipt-v1 签署回执，Account 精确验收后才推进。
+   冲突绑定拒绝；丢响应不换身份或覆盖原件；历史同 operation/body 只恢复原事实，不重新授权。
+
+Owner pin 的持久水位按 native namespace 固定，不能只随部署环境变量变更。
+首次仅在该 namespace 没有任何 managed challenge/binding/outcome/失效库存时，
+允许把显式配置的当前 pin 与 native root key/instance epoch 同 SQL 固定；
+旧 managed 库存缺水位时属于 unknown/pending，不能自动补为可用。
+同一 service epoch 只能精确使用原 pin；降代、同代换 key、重复启用已退役 key 均拒绝新准入。
+更高 epoch 需要独立 OwnerPinRotationManifestV1：绑定原 ledger digest、native namespace/instance epoch、
+原/新 pin、operation_id、issued_at/expires_at（最多五分钟），同时带已固定 native root 的专用域签名
+与新 Owner key 对完整 manifest digest 的持钥签名。manifest 只从固定运维配置读取，
+不接受普通管理批准、公开请求 bool 或 statement 自报的签名 key。
+同 SQL 验证并推进水位、保存旧 pin 指纹墓碑；旧 key 只可核对已存历史事实，不能再签发新准入。
+初版最多保留 256 次轮换墓碑，达到容量只拒绝后续轮换，不影响原生 logout/revoke。
+native root 或 instance epoch 变化不由该 key 轮换协议隐式激活，仍 pending，等待独立恢复合同。
+业务开关关闭时保留水位；重新加载同一当前 pin 不得清除任何既有 frozen/pending 或旧 key 墓碑。
+历史 receipt 查询不改 pin 或水位；pin 不匹配时不能签 custody active session status 或按托管登录原件发新 SID。
+服务 pin 轮换不等同于吊销底层 native credential；普通 native-key 登录仍遵循原有持钥协议，
+其 SID 不能据此恢复退役 binding 的 custody 活性或 grant。
+普通原生账号的独立 logout/revoke 不依赖该 pin 水位成功。
+
+managed binding 库存与 manager registry 分离。托管账号/credential/session 失效按可信 binding 关闭相应 custody 入口，
+不得路由成 manager-wide 目录，不影响普通非参与者。缺失、legacy、未知库存仍 pending；容量满只拒绝新增 custody 尝试，
+不能阻止原生 logout、撤销和失效事实持久化。业务关闭还需完整库存/在途原件及独立 Stop/Revoke，不能凭 binding 签 closed。
+
+注册、binding、初次 login 各用 Account 先登记的阶段原件，每次预留 64 transport，包含来源预检、固定角色许可/签名、
+native 往返和最终核对；真实接线不得越该上界。同原件不恢复发送权，unknown 不退款，新尝试另扣并恢复同一账号/key。
+Provision 总上限仍 400，旧批准不自动提高；不足保持 pending/recovery_required。
+Owner 只见非秘密引用/摘要/回执；preauth、CSRF、原请求和 session 由 Identity 私有 DO 加密，AAD 区分
+login-key/preauth/native-session/original-request，并绑定 environment、namespace/epoch、custody account、provision、record ID/version。
+
+首次 login 只消费原 Provision 明示的一次 operation；原 SID 先加密持久化，再核托管账号自己的 session-status，
+才上报非秘密 generation/status。complete 已提交但未保存原 Cookie 时只记 explicit_login_required，
+禁止重放领 Cookie或用旧计划新建登录；fresh Passkey ManagedLogin 批准须原子消费并登记新登录原件。
+恢复/heartbeat 不能扩大截止或预算；native/session-ready 不等同于 participant-bound 或世界可执行。
+status 的 generation 是 native 持久 binding 失效水位；Identity 私有 SID 槽代独立记录，不能混用或由请求自报。
+托管登录的原生 options 另带显式 managed_operation_id（规范的 32-byte base64url ID），
+作为已批准逻辑登录与 native ceremony 的同一永久操作标识；不把随机响应 ID 当作批准目标。
+该扩展仅在托管适配开启时用于 login，普通 native-key 客户端不带该字段仍由服务随机分配 ID，
+不改变 bind/reauth 或既有 operation_id 字段的行为。
+在 native pending 原件保留期内，同一托管 ID 的重试必须精确匹配原 preauth owner、Origin、
+namespace/instance epoch、public key 与用途，只返回原 challenge，不换 nonce、不延长截止；已过期即拒绝。
+未持钥证明的 pending 原件按既有 TTL 清理后，native 只能回答该 ID 当前 unknown，不能证明从未出现过。
+Account/Identity 仍永久保留原逻辑 ID、请求原件、截止与 claim，不能借 native 的 unknown
+重获旧 attempt 发送权、替换已存 options/complete 或视为已成功；新的 native challenge 本身不是 custody 授权。
+成功 complete 必须同 SQL 留永久已提交原件或墓碑，清理 ceremony 后也不得按该 ID 再发起登录。
+该提交原件不保存或重放 SID Cookie；same-complete 或 options 重放只能返回已提交事实/拒绝，
+不能领取旧 Cookie。未持钥证明的 pending options 保留既有期限和配额，不能据此制造永久成功墓碑。
+status/invalidation 的 service_epoch 指该绑定原 Owner statement 中的 custody service epoch，
+不使用 native RP 的 instance epoch 代填；后者继续单独核对 namespace、原账号、credential 与会话。
+
+Identity manifest 已存 complete 事实但 Account 未收到提交时，公开 continue 必须能够调用固定、纯只读的历史通道。
+该通道仅按 immutable environment/account/provision、原阶段与 logical operation、首次产生结果的 result_permit_id
+返回原 typed Root fact 和已存 SID 的非秘密 attestation；不发 GetPermit、不读 KEK/Cookie、不签名、不发 native 请求，
+也不初始化或修改 manifest。缺原件返回 unknown；旧记录无法唯一确定结果所属 attempt 时仍 pending。
+Account 独立强验 Root 签名、原 namespace/key/pin、已登记请求及已知 B1 statement，永久归档该原事实与原观察/截止。
+归档本身不推进 NativeSessionReady、不激活 epoch、不清除 frozen/cancel、不产生预算或恢复发送权。
+若原结果与原批准仍满足当下全部新鲜度/来源/目录/Fence/时钟约束，可经原最终 SQL 准入提交；
+不能拿原 claim 时间重验已过期的 RootStatus 并宣布当前可用。
+
+已存 SID 的当前状态恢复必须另有有界 SessionStatusRecovery 原件：只允许同一已登记 login 与该私有 SID generation，
+用独立 nonce、固定只读 native session-status 路径和新鲜来源/目录/Fence；不调用 options/complete、不再签登录。
+每个恢复原件先预扣 64 transport 和最多八次 oracle 读，不能续旧 permit；
+首次登录恢复从仍有效的原 Provision 预算扣除，ManagedLogin 恢复只从该次 fresh 批准尚余的预算扣除。
+原截止、当前权限或余额不足时只保留历史 pending/frozen，不自动加额或借旧 grant，须取得另一个适用的有效批准。
+SID 确实未保存时只记录 explicit_login_required；恢复或历史查询不能改为重新领取 Cookie。
+若该收紧结果到 Account 的提交丢失，固定 Identity history named capability 可另外返回 typed missing-session attestation，明确区别于 Root 签名事实。它只能来自已完成且持久保存 explicit_login_required 的 manifest，绑定原 scope、phase、native operation、原 permit/result permit 与稳定 intent digest；当前仅允许初始或 ManagedLogin 的原 permit，不猜测 legacy/recovery 归属。Account 仅对自己已 claimed 且尚无成功结果的精确原件记录 explicit_login_required，允许在到期、冻结或取消后收紧，但不得改 stage、epoch、预算、nonce、期限或解冻。该通道不能成为状态恢复或 Root 验签的替代，也不能覆盖已有成功会话事实。未知、歧义或损坏库存继续 pending。
+新 nonce 的 RootStatus 经真实验签和最终 SQL 当前准入后才可声明 NativeSessionReady；
+与归档的历史状态及独立 native binding 失效水位分开保存，失败不能复活旧状态或旧发送权。
+
+原生阶段必须先在 Account 本地预留固定核验原件、nonce 与预算，才可执行来源检查 I/O。
+首次 inspect 的目录预检查只读取已关联管理者的当前目录、冻结与独立 Fence；
+它可以定位已验签原批准保存的 immutable source refs，但不能把旧 server_time 改成新鲜活性证明。
+该只读历史预检查只能 claim 已预留的 inspect 原件，不能签发阶段许可、签名、密钥或业务发送权。
+inspect 返回当次 nonce 绑定的真实 native 签名后，必须再走正常新鲜管理会话检查、目录/Fence 与最终 SQL 重验，
+才可 claim 阶段或返回 oracle 许可。所有 oracle 均先本地耗用有界读信用，再执行远端检查。
+
+初始 Provision 的 target epoch 0 仅用于完整 bootstrap 原任务，不能扩展给 ManagedLogin 等其它 intent。
+绑定回执经真实验签及当前准入后，Account 同 SQL 保存 native target/key 关联与一次性 bootstrap 激活记录，
+将实际 custody target authority 从 0 单调推进到 1；这不是借用 native account 的 security epoch，两者独立。
+原 Provision 的来源核对仍验证已消费 proof 的完整原 context，但每次派发另外精确核对当前阶段的实际 target epoch。
+仅该原绑定结果允许记录 0→1 接续；撤销/冻结或其它升代都会使旧阶段许可失效，不能拿旧 proof 恢复旧代。
+新的 ManagedLogin 须对当前正数 target epoch 作 fresh 批准，精确绑定 native account、login key、namespace、
+blocked operation 和有界期限/预算；批准消费与新登录原件同事务，不复用原 Provision nonce或旧操作发送权。
+ManagedLogin intent 必签新的 login_request_id 和 transport_limit（64..400）；kind 本身限定 purpose，
+旧 proof 缺这些字段即拒绝，不从旧 Provision 借额度，不根据剩余 deadline 猜出额外预算。
+同一个 Account 对 ManagedLogin 批准的原 native nonce/proof 保留全局唯一消费关联，
+覆盖 pending 与 consumed 原件及恢复校验；更换未签署的 operation_id 不能重复消费同一批准或再次获得预算。
+相同 operation 的精确历史重试只返回原结果，不签发新操作，也不清除该唯一关联。
+管理 HTTP 使用相同 Origin/CSRF/Passkey 管理会话前置：
+`POST /v1/account-provisions/{id}/managed-logins/approve` 只消费本次 ManagedLogin 批准并登记新原件；
+`POST /v1/account-provisions/{id}/managed-logins/continue` 只选择该已批准 operation 执行一次登录。
+后者沿用只含 api_version/operation_id 的 continuation body，不允许传 session、key、native endpoint 或 current authority。
+原 Provision 的 continue 只按 Account 已存阶段接续开户、绑定和首次登录；
+Account 已提交结果而 RPC 丢响应时以原事实推进，unknown 同 attempt 不重发，不能创建第二次首次登录。
+这些原生业务入口另受默认关闭的 native provisioning 配置控制，不改变普通 metadata/默认 RPC 的关闭边界。
+Trace refs: O7-REQ-844f4b30-b7d5-4651-941e-17c21f37b4ac; O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945; O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3.
+
 ##### 分阶段提交与恢复
 
 AccountAuthority 持久保存 ProvisionRecord：provision_id、client_request_id/body digest、environment、manager principal/credential source、bootstrap config version、custody account ID、identity/world pins、批准 nonce/intent digest/截止/调用预算、各角色 key refs、native account ID、各阶段原 operation/correlation/receipt 与状态。它可以映射为现有 AccountRecord/Operation/Outbox/KeyEnvelope 记录，不强制为每个阶段新建表或 crate。

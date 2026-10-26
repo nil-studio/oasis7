@@ -15,3 +15,7 @@ pub mod recovery;
 pub mod source_revocation;
 
 pub mod role_key_slot;
+
+pub mod native_binding;
+
+pub mod native_history;

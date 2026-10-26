@@ -237,6 +237,30 @@ impl DurableObject for RoleKeyVault {
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
+        #[cfg(feature = "identity")]
+        if request.method() == Method::Post
+            && url.path() == "/internal/native-sign"
+            && url.scheme() == "https"
+            && url.host_str() == Some("role-key.internal")
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && request.headers().get("Content-Type")?.as_deref() == Some("application/json")
+        {
+            let raw = bounded_body(request.inner().as_ref(), MAX_BYTES as u32)
+                .await
+                .map_err(|_| denied())?;
+            let raw = Zeroizing::new(text(raw, MAX_BYTES)?);
+            return match crate::identity_native_runtime::sign_role_native(
+                self.state.clone(),
+                &self.env,
+                &raw,
+            )
+            .await
+            {
+                Ok(signature) => Response::ok(signature),
+                Err(_) => Response::error("native role signing rejected", 409),
+            };
+        }
         if request.method() != Method::Post
             || url.path() != "/internal/ensure"
             || url.query().is_some()

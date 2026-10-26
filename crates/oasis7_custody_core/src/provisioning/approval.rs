@@ -1,5 +1,6 @@
 //! Atomic approval/plan state. Role tasks are inert pending work, never key permits.
 use super::*;
+use crate::native_history::NativeHistoryEntryV1;
 use crate::{
     DecimalU64,
     approval::{ApprovedWorldV1, CustodyIntentV1, SignedApprovalVerificationV1},
@@ -12,6 +13,10 @@ use std::collections::BTreeMap;
 #[path = "origin_inspection.rs"]
 mod origin_inspection;
 pub use origin_inspection::*;
+
+#[path = "native_stages.rs"]
+mod native_stages;
+pub use native_stages::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionApprovalError {
@@ -97,6 +102,12 @@ pub struct AccountProvisionApprovalState {
     cancellation_operation_id: Option<String>,
     origin_inspections: BTreeMap<String, ProvisionOriginInspectionV1>,
     role_key_dispatches: BTreeMap<String, ProvisionRoleKeyDispatchV1>,
+    native_stages: BTreeMap<String, NativeStageOriginalV1>,
+    bootstrap_activation: Option<BootstrapActivationV1>,
+    managed_logins: BTreeMap<String, ManagedLoginApprovalV1>,
+    native_history: BTreeMap<String, NativeHistoryEntryV1>,
+    session_status_recoveries: BTreeMap<String, SessionStatusRecoveryOriginalV1>,
+    session_recovery_activation: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,6 +126,18 @@ struct RawAccountProvisionApprovalState {
     origin_inspections: BTreeMap<String, ProvisionOriginInspectionV1>,
     #[serde(default)]
     role_key_dispatches: BTreeMap<String, ProvisionRoleKeyDispatchV1>,
+    #[serde(default)]
+    native_stages: BTreeMap<String, NativeStageOriginalV1>,
+    #[serde(default)]
+    bootstrap_activation: Option<BootstrapActivationV1>,
+    #[serde(default)]
+    managed_logins: BTreeMap<String, ManagedLoginApprovalV1>,
+    #[serde(default)]
+    native_history: BTreeMap<String, NativeHistoryEntryV1>,
+    #[serde(default)]
+    session_status_recoveries: BTreeMap<String, SessionStatusRecoveryOriginalV1>,
+    #[serde(default)]
+    session_recovery_activation: Option<String>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -129,6 +152,12 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             cancellation_operation_id: raw.cancellation_operation_id,
             origin_inspections: raw.origin_inspections,
             role_key_dispatches: raw.role_key_dispatches,
+            native_stages: raw.native_stages,
+            bootstrap_activation: raw.bootstrap_activation,
+            managed_logins: raw.managed_logins,
+            native_history: raw.native_history,
+            session_status_recoveries: raw.session_status_recoveries,
+            session_recovery_activation: raw.session_recovery_activation,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -148,6 +177,12 @@ impl AccountProvisionApprovalState {
             cancellation_operation_id: None,
             origin_inspections: BTreeMap::new(),
             role_key_dispatches: BTreeMap::new(),
+            native_stages: BTreeMap::new(),
+            bootstrap_activation: None,
+            managed_logins: BTreeMap::new(),
+            native_history: BTreeMap::new(),
+            session_status_recoveries: BTreeMap::new(),
+            session_recovery_activation: None,
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -484,6 +519,8 @@ impl AccountProvisionApprovalState {
     }
     fn validate_persistence(&self) -> Result<()> {
         validate_draft(&self.draft)?;
+        self.validate_managed_login_persistence()?;
+        self.validate_history_persistence()?;
         for record in self.book.records() {
             binding(&self.draft, record.input())?;
         }
@@ -526,11 +563,24 @@ impl AccountProvisionApprovalState {
                 result.public_ref.clone(),
             ));
         }
+        let mut native_phases = self.native_phase_replay()?;
+        let recovered = self.session_recovery_phase_replay()?;
+        if !recovered.is_empty()
+            && native_phases
+                .iter()
+                .any(|v| v.0 == ProvisionStage::NativeSessionReady)
+        {
+            return Err(ProvisionApprovalError::InvalidPersistence);
+        }
+        native_phases.extend(recovered);
         self.provision.validate_approval_progress(
             &self.draft,
             nonce,
             &keys,
-            self.validate_attempt_persistence()?,
+            self.validate_attempt_persistence()?
+                + self.validate_native_stage_persistence()?
+                + self.validate_session_recovery_persistence()?,
+            &native_phases,
         )?;
         Ok(())
     }
