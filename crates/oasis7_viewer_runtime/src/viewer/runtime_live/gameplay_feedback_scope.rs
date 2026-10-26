@@ -284,6 +284,20 @@ impl ViewerRuntimeLiveServer {
         }
     }
 
+    /// Only a successfully verified signed registration establishes this
+    /// socket's private result-read identity; asserted reconnect IDs do not.
+    pub(super) fn bind_verified_gameplay_session(
+        &self,
+        session: &mut RuntimeLiveSession,
+        verified: &VerifiedPlayerAuth,
+    ) {
+        if let Some(owner) = self.gameplay_feedback_owner(&verified.player_id, &verified.public_key)
+        {
+            self.set_gameplay_feedback_session_player(session, verified.player_id.clone());
+            session.gameplay_feedback_owner = Some(owner);
+        }
+    }
+
     pub(super) fn gameplay_feedback_session_matches(
         &self,
         session: &RuntimeLiveSession,

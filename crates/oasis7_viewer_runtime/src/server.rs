@@ -322,6 +322,19 @@ impl<'a> ViewerSession<'a> {
                     },
                 )?;
             }
+            ViewerRequest::LookupGameplayAction { request } => {
+                send_response(
+                    writer,
+                    &ViewerResponse::GameplayActionResult {
+                        action_id: request.action_id,
+                        target_agent_id: request.target_agent_id,
+                        player_id: request.player_id,
+                        request_auth_nonce: request.auth.map(|auth| auth.nonce),
+                        status: "unavailable".into(),
+                        receipt: None,
+                    },
+                )?;
+            }
             ViewerRequest::GameplayAction { request } => {
                 send_response(
                     writer,

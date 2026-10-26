@@ -87,6 +87,7 @@ mod control_utils;
 mod decision_trace;
 mod fragment_refill_preview;
 mod gameplay_feedback_scope;
+mod gameplay_result_lookup;
 mod gameplay_snapshot;
 mod gameplay_snapshot_feedback;
 mod gameplay_snapshot_helpers;
@@ -192,6 +193,7 @@ pub struct ViewerRuntimeLiveServer {
     periodic_service_executor: Option<Arc<periodic_service_io::Executor>>,
     prepared_owner_read: Option<Box<owner_read::PreparedOwnerRead>>,
     prepared_safe_alternative: Option<Result<serde_json::Value, String>>,
+    prepared_gameplay_lookup: Option<gameplay_result_lookup::PreparedGameplayLookup>,
     prepared_world_service_submission: Option<chain_link::PreparedWorldServiceSubmission>,
     pending_world_service_gameplay: Vec<(
         oasis7_client_api::world_service::RequestCorrelation,
@@ -426,6 +428,7 @@ impl ViewerRuntimeLiveServer {
             periodic_service_executor: None,
             prepared_owner_read: None,
             prepared_safe_alternative: None,
+            prepared_gameplay_lookup: None,
             prepared_world_service_submission: None,
             pending_world_service_gameplay: Vec::new(),
             chain_observer_loader: Arc::new(Mutex::new(chain_link::ObserverLoader::default())),
@@ -749,8 +752,13 @@ impl ViewerRuntimeLiveServer {
                                     )?;
                                     let prepared_safe_alternative =
                                         Self::prepare_shared_safe_alternative(&shared, &request);
+                                    let prepared_gameplay_lookup =
+                                        Self::prepare_shared_gameplay_lookup(
+                                            &shared, &request, &session,
+                                        );
                                     handled = {
                                         let mut server = lock_shared_server(&shared)?;
+                                        server.prepared_gameplay_lookup = prepared_gameplay_lookup;
                                         server.prepared_safe_alternative =
                                             prepared_safe_alternative;
                                         server.prepared_owner_read =
@@ -766,6 +774,7 @@ impl ViewerRuntimeLiveServer {
                                         server.prepared_world_service_submission = None;
                                         server.prepared_owner_read = None;
                                         server.prepared_safe_alternative = None;
+                                        server.prepared_gameplay_lookup = None;
                                         agent_presence.observe(&mut server, &session);
                                         handled
                                     };

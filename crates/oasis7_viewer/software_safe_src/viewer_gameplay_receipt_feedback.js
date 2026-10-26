@@ -18,9 +18,14 @@ export function matchesGameplayReply(reply, feedback) {
   return reply?.action_id === feedback.action && reply?.target_agent_id === (feedback.targetAgentId || feedback.agentId)
     && (feedback.requestAuthNonce == null || reply.request_auth_nonce === feedback.requestAuthNonce);
 }
+const terminalResult = stage => ["committed", "applied", "completed_advanced", "rejected", "blocked", "expired"].includes(stage);
+const admissionResult = stage => ["received", "pending", "queued", "submitted"].includes(stage);
+
 export function adoptRuntimeGameplayFeedback(snapshot, feedback, clearTimer) {
   const authoritative = matchingRuntimeGameplayFeedback(snapshot?.player_gameplay, feedback);
   if (!authoritative) return;
+  // An older admission snapshot cannot undo an authenticated disposition read.
+  if (terminalResult(feedback.stage) && admissionResult(authoritative.stage)) return;
   clearTimer();
   feedback.stage = authoritative.stage;
   feedback.effect = authoritative.effect;
@@ -66,7 +71,8 @@ export function projectGameplayReceiptFeedback(gameplay, localFeedback, intentTa
         }
       : null;
     const sameRequest = matchingRuntimeGameplayFeedback(gameplay, localFeedback);
-    const recentFeedback = sameRequest && runtimeRecentFeedback
+    const preserveTerminal = terminalResult(localFeedback?.stage) && admissionResult(runtimeRecentFeedback?.stage);
+    const recentFeedback = sameRequest && runtimeRecentFeedback && !preserveTerminal
       ? runtimeRecentFeedback : localGameplayFeedback || runtimeRecentFeedback;
   return {runtimeRecentFeedback,localGameplayFeedback,recentFeedback};
 }

@@ -7487,6 +7487,13 @@ function TargetListWindow(props) {
 delegateEvents(["click"]);
 //#endregion
 //#region software_safe_src/viewer_gameplay_recovery_scope.js
+function gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch = false } = {}) {
+	if (!scope?.endpointId || !scope?.worldId) return null;
+	return JSON.stringify(Object.keys(scope).filter((key) => !(ignoreAuthorityEpoch && key === "authorityEpoch")).sort().map((key) => [key, scope[key]]));
+}
+function durableGameplayRecoveryScopeFingerprint(scope) {
+	return gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch: true });
+}
 function getGameplayRecoveryScope(state) {
 	const feed = state.worldFeed;
 	const epoch = feed?.reorgEpoch;
@@ -7510,6 +7517,181 @@ function getGameplayRecoveryScope(state) {
 }
 function gameplaySendContextCurrent(state, socket, captured) {
 	return socket === captured.socket && socket?.readyState === WebSocket.OPEN && JSON.stringify(getGameplayRecoveryScope(state)) === JSON.stringify(captured.scope) && isSessionContextCurrent(state, captured.session, authConnectionGeneration(), state.wsUrl);
+}
+//#endregion
+//#region software_safe_src/viewer_gameplay_receipt_feedback.js
+function settleGameplayOriginal(account, nonce, scope, state) {
+	const auth = state.auth;
+	return account.settleGameplayRequest(nonce, scope).catch((error) => {
+		if (state.auth === auth && JSON.stringify(getGameplayRecoveryScope(state)) === JSON.stringify(scope)) state.auth.error = String(error);
+		return false;
+	});
+}
+function recoverGameplayFeedback(snapshot, state, account, scope, clearTimer) {
+	account.restoreGameplayRequest(scope);
+	const result = adoptRuntimeGameplayFeedback(snapshot, state.lastGameplayActionFeedback, clearTimer);
+	if (result && [
+		"committed",
+		"applied",
+		"completed_advanced",
+		"rejected",
+		"blocked"
+	].includes(result.stage)) settleGameplayOriginal(account, result.request_auth_nonce, scope, state);
+}
+function matchesGameplayReply(reply, feedback) {
+	return reply?.action_id === feedback.action && reply?.target_agent_id === (feedback.targetAgentId || feedback.agentId) && (feedback.requestAuthNonce == null || reply.request_auth_nonce === feedback.requestAuthNonce);
+}
+var terminalResult = (stage) => [
+	"committed",
+	"applied",
+	"completed_advanced",
+	"rejected",
+	"blocked",
+	"expired"
+].includes(stage);
+var admissionResult = (stage) => [
+	"received",
+	"pending",
+	"queued",
+	"submitted"
+].includes(stage);
+function adoptRuntimeGameplayFeedback(snapshot, feedback, clearTimer) {
+	const authoritative = matchingRuntimeGameplayFeedback(snapshot?.player_gameplay, feedback);
+	if (!authoritative) return;
+	if (terminalResult(feedback.stage) && admissionResult(authoritative.stage)) return;
+	clearTimer();
+	feedback.stage = authoritative.stage;
+	feedback.effect = authoritative.effect;
+	feedback.reason = authoritative.reason || null;
+	feedback.ok = [
+		"committed",
+		"applied",
+		"completed_advanced"
+	].includes(authoritative.stage);
+	feedback.accepted = feedback.ok;
+	return authoritative;
+}
+function matchingRuntimeGameplayFeedback(gameplay, localFeedback) {
+	const feedback = gameplay?.recent_feedback;
+	return localFeedback?.requestAuthNonce != null && feedback?.request_auth_nonce === localFeedback.requestAuthNonce && (!feedback.target_agent_id || feedback.target_agent_id === (localFeedback.targetAgentId || localFeedback.agentId)) && (feedback.action === `gameplay_action:${localFeedback.action}` || feedback.action === localFeedback.action || feedback.action === "world_service_intent") ? feedback : null;
+}
+function projectGameplayReceiptFeedback(gameplay, localFeedback, intentTarget) {
+	const runtimeRecentFeedback = gameplay.recent_feedback && typeof gameplay.recent_feedback === "object" ? {
+		source: "runtime",
+		agentId: intentTarget,
+		action: gameplay.recent_feedback.action || null,
+		stage: gameplay.recent_feedback.stage || null,
+		effect: gameplay.recent_feedback.effect || null,
+		reason: gameplay.recent_feedback.reason || null,
+		hint: gameplay.recent_feedback.hint || null,
+		deltaLogicalTime: Number(gameplay.recent_feedback.delta_logical_time || 0),
+		deltaEventSeq: Number(gameplay.recent_feedback.delta_event_seq || 0)
+	} : null;
+	const localGameplayFeedback = localFeedback?.kind === "gameplay_action" ? {
+		source: "local_gameplay_action",
+		agentId: Object.hasOwn(localFeedback, "agentId") ? localFeedback.agentId : localFeedback.targetAgentId ?? null,
+		action: localFeedback.action || null,
+		stage: localFeedback.stage || null,
+		effect: localFeedback.effect || null,
+		reason: localFeedback.reason || null,
+		hint: localFeedback.response?.hint || null,
+		deltaLogicalTime: Number(localFeedback.deltaLogicalTime || 0),
+		deltaEventSeq: Number(localFeedback.deltaEventSeq || 0)
+	} : null;
+	const sameRequest = matchingRuntimeGameplayFeedback(gameplay, localFeedback);
+	const preserveTerminal = terminalResult(localFeedback?.stage) && admissionResult(runtimeRecentFeedback?.stage);
+	return {
+		runtimeRecentFeedback,
+		localGameplayFeedback,
+		recentFeedback: sameRequest && runtimeRecentFeedback && !preserveTerminal ? runtimeRecentFeedback : localGameplayFeedback || runtimeRecentFeedback
+	};
+}
+function firstClaimAwaitingOutcome(feedback) {
+	return String(feedback?.action || "").replace(/^gameplay_action:/, "") === "claim_first_agent" && [
+		"received",
+		"pending",
+		"unknown",
+		"committed",
+		"accepted",
+		"submitted",
+		"queued",
+		"ack",
+		"registering",
+		"signing",
+		"sent"
+	].includes(feedback.stage);
+}
+function gameplayExecutionStateLabel(state, locale, localeText) {
+	const labels = {
+		received: ["已收到请求", "Received"],
+		pending: ["等待权威结果", "Pending"],
+		unknown: ["结果待确认", "Result unknown"],
+		accepted: ["已接受", "Accepted"],
+		blocked: ["已阻塞", "Blocked"],
+		completed: ["已完成", "Completed"],
+		rejected: ["已拒绝", "Rejected"],
+		executing: ["执行中", "Executing"]
+	};
+	return localeText(locale, ...labels[state] || labels.executing);
+}
+//#endregion
+//#region software_safe_src/viewer_gameplay_result_recovery.js
+var scopeKey = (scope) => scope && JSON.stringify(Object.keys(scope).sort().map((key) => [key, scope[key]]));
+function originalFeedback(state, scope) {
+	const feedback = state.lastGameplayActionFeedback;
+	const request = feedback?.originalRequest;
+	if (!request?.auth || !durableGameplayRecoveryScopeFingerprint(scope) || durableGameplayRecoveryScopeFingerprint(scope) !== durableGameplayRecoveryScopeFingerprint(feedback.gameplayScope) || request.player_id !== state.auth.playerId || request.public_key !== state.auth.publicKey || request.auth.player_id !== request.player_id || request.auth.public_key !== request.public_key || request.auth.nonce !== feedback.requestAuthNonce) return null;
+	return feedback;
+}
+function requestGameplayResult(state, scope, send, now = Date.now()) {
+	const feedback = originalFeedback(state, scope);
+	if (!feedback || ![
+		"unknown",
+		"received",
+		"pending"
+	].includes(feedback.stage) || state.auth.registrationStatus !== "registered" || !state.viewerProtocol?.capabilities?.includes("gameplay_result_lookup_v1")) return false;
+	const previous = state.gameplayResultLookup;
+	if (previous?.feedback === feedback && previous.auth === state.auth && previous.scope === scopeKey(scope) && now - previous.sentAt < 1e4) return false;
+	try {
+		send({
+			type: "lookup_gameplay_action",
+			request: structuredClone(feedback.originalRequest)
+		});
+		state.gameplayResultLookup = {
+			feedback,
+			auth: state.auth,
+			scope: scopeKey(scope),
+			sentAt: now
+		};
+		return true;
+	} catch (_) {
+		return false;
+	}
+}
+function receiveGameplayResult(state, scope, account, result) {
+	const feedback = originalFeedback(state, scope);
+	const pending = state.gameplayResultLookup;
+	if (!feedback || ![
+		"unknown",
+		"received",
+		"pending"
+	].includes(feedback.stage) || pending?.feedback !== feedback || pending.auth !== state.auth || pending.scope !== scopeKey(scope) || result.player_id !== state.auth.playerId || result.request_auth_nonce !== feedback.requestAuthNonce || result.action_id !== feedback.originalRequest.action_id || result.target_agent_id !== feedback.originalRequest.target_agent_id) return false;
+	const terminal = [
+		"committed",
+		"rejected",
+		"expired"
+	].includes(result.status);
+	feedback.stage = terminal ? result.status : "unknown";
+	feedback.ok = result.status === "committed";
+	feedback.accepted = feedback.ok;
+	feedback.effect = terminal ? "Original request has an authoritative " + result.status + " result" : "Original request result is " + result.status + "; retain it and retry the original result query";
+	feedback.response = structuredClone(result);
+	feedback.reason = terminal ? null : "original_result_" + result.status;
+	if (terminal) {
+		state.gameplayResultLookup = null;
+		settleGameplayOriginal(account, feedback.requestAuthNonce, scope, state);
+	}
+	return true;
 }
 //#endregion
 //#region software_safe_src/viewer_feedback_actions.js
@@ -7564,105 +7746,6 @@ function normalizeGameplayActionRequest(action) {
 		actor_agent_id: action.actor_agent_id || action.actorAgentId || null,
 		disabled_reason: action.disabled_reason || action.disabledReason || null
 	};
-}
-//#endregion
-//#region software_safe_src/viewer_gameplay_receipt_feedback.js
-function settleGameplayOriginal(account, nonce, scope, state) {
-	const auth = state.auth;
-	return account.settleGameplayRequest(nonce, scope).catch((error) => {
-		if (state.auth === auth && JSON.stringify(getGameplayRecoveryScope(state)) === JSON.stringify(scope)) state.auth.error = String(error);
-		return false;
-	});
-}
-function recoverGameplayFeedback(snapshot, state, account, scope, clearTimer) {
-	account.restoreGameplayRequest(scope);
-	const result = adoptRuntimeGameplayFeedback(snapshot, state.lastGameplayActionFeedback, clearTimer);
-	if (result && [
-		"committed",
-		"applied",
-		"completed_advanced",
-		"rejected",
-		"blocked"
-	].includes(result.stage)) settleGameplayOriginal(account, result.request_auth_nonce, scope, state);
-}
-function matchesGameplayReply(reply, feedback) {
-	return reply?.action_id === feedback.action && reply?.target_agent_id === (feedback.targetAgentId || feedback.agentId) && (feedback.requestAuthNonce == null || reply.request_auth_nonce === feedback.requestAuthNonce);
-}
-function adoptRuntimeGameplayFeedback(snapshot, feedback, clearTimer) {
-	const authoritative = matchingRuntimeGameplayFeedback(snapshot?.player_gameplay, feedback);
-	if (!authoritative) return;
-	clearTimer();
-	feedback.stage = authoritative.stage;
-	feedback.effect = authoritative.effect;
-	feedback.reason = authoritative.reason || null;
-	feedback.ok = [
-		"committed",
-		"applied",
-		"completed_advanced"
-	].includes(authoritative.stage);
-	feedback.accepted = feedback.ok;
-	return authoritative;
-}
-function matchingRuntimeGameplayFeedback(gameplay, localFeedback) {
-	const feedback = gameplay?.recent_feedback;
-	return localFeedback?.requestAuthNonce != null && feedback?.request_auth_nonce === localFeedback.requestAuthNonce && (!feedback.target_agent_id || feedback.target_agent_id === (localFeedback.targetAgentId || localFeedback.agentId)) && (feedback.action === `gameplay_action:${localFeedback.action}` || feedback.action === localFeedback.action || feedback.action === "world_service_intent") ? feedback : null;
-}
-function projectGameplayReceiptFeedback(gameplay, localFeedback, intentTarget) {
-	const runtimeRecentFeedback = gameplay.recent_feedback && typeof gameplay.recent_feedback === "object" ? {
-		source: "runtime",
-		agentId: intentTarget,
-		action: gameplay.recent_feedback.action || null,
-		stage: gameplay.recent_feedback.stage || null,
-		effect: gameplay.recent_feedback.effect || null,
-		reason: gameplay.recent_feedback.reason || null,
-		hint: gameplay.recent_feedback.hint || null,
-		deltaLogicalTime: Number(gameplay.recent_feedback.delta_logical_time || 0),
-		deltaEventSeq: Number(gameplay.recent_feedback.delta_event_seq || 0)
-	} : null;
-	const localGameplayFeedback = localFeedback?.kind === "gameplay_action" ? {
-		source: "local_gameplay_action",
-		agentId: Object.hasOwn(localFeedback, "agentId") ? localFeedback.agentId : localFeedback.targetAgentId ?? null,
-		action: localFeedback.action || null,
-		stage: localFeedback.stage || null,
-		effect: localFeedback.effect || null,
-		reason: localFeedback.reason || null,
-		hint: localFeedback.response?.hint || null,
-		deltaLogicalTime: Number(localFeedback.deltaLogicalTime || 0),
-		deltaEventSeq: Number(localFeedback.deltaEventSeq || 0)
-	} : null;
-	return {
-		runtimeRecentFeedback,
-		localGameplayFeedback,
-		recentFeedback: matchingRuntimeGameplayFeedback(gameplay, localFeedback) && runtimeRecentFeedback ? runtimeRecentFeedback : localGameplayFeedback || runtimeRecentFeedback
-	};
-}
-function firstClaimAwaitingOutcome(feedback) {
-	return String(feedback?.action || "").replace(/^gameplay_action:/, "") === "claim_first_agent" && [
-		"received",
-		"pending",
-		"unknown",
-		"committed",
-		"accepted",
-		"submitted",
-		"queued",
-		"ack",
-		"registering",
-		"signing",
-		"sent"
-	].includes(feedback.stage);
-}
-function gameplayExecutionStateLabel(state, locale, localeText) {
-	const labels = {
-		received: ["已收到请求", "Received"],
-		pending: ["等待权威结果", "Pending"],
-		unknown: ["结果待确认", "Result unknown"],
-		accepted: ["已接受", "Accepted"],
-		blocked: ["已阻塞", "Blocked"],
-		completed: ["已完成", "Completed"],
-		rejected: ["已拒绝", "Rejected"],
-		executing: ["执行中", "Executing"]
-	};
-	return localeText(locale, ...labels[state] || labels.executing);
 }
 //#endregion
 //#region software_safe_src/viewer_quote_dependencies.js
@@ -9995,17 +10078,20 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		}
 	}
 	function scopeFingerprint(scope) {
-		if (!scope?.endpointId || !scope?.worldId) return null;
-		return JSON.stringify(Object.keys(scope).sort().map((key) => [key, scope[key]]));
+		return gameplayRecoveryScopeFingerprint(scope);
 	}
 	function sameScope(left, right) {
 		const value = scopeFingerprint(left);
 		return value != null && value === scopeFingerprint(right);
 	}
+	function sameDurableScope(left, right) {
+		const value = durableGameplayRecoveryScopeFingerprint(left);
+		return value != null && value === durableGameplayRecoveryScopeFingerprint(right);
+	}
 	function restoreCandidateGameplayRequest(candidate, scope) {
 		const request = candidate.gameplayRequest;
 		const currentFeedback = state.lastGameplayActionFeedback;
-		if (!sameScope(candidate.gameplayScope, scope)) {
+		if (!sameDurableScope(candidate.gameplayScope, scope)) {
 			if (currentFeedback?.recoveredFromCapsule) state.lastGameplayActionFeedback = null;
 			return;
 		}
@@ -10037,7 +10123,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		if (!current || current.auth !== state.auth || !current.candidate || request.public_key !== current.publicKey || request.auth?.public_key !== current.publicKey || request.player_id !== state.auth.playerId || request.auth?.player_id !== state.auth.playerId) throw new Error("world_recovery_context_changed");
 		if (pending && pending !== current.candidate) throw new Error("world_recovery_pending_control");
 		const existing = current.candidate.gameplayRequest;
-		if (current.settlingGameplay || existing && (!sameScope(current.candidate.gameplayScope, scope) || JSON.stringify(existing) !== JSON.stringify(request))) throw new Error("original_gameplay_outcome_pending");
+		if (current.settlingGameplay || existing && (!sameDurableScope(current.candidate.gameplayScope, scope) || JSON.stringify(existing) !== JSON.stringify(request))) throw new Error("original_gameplay_outcome_pending");
 		const existingScope = current.candidate.gameplayScope;
 		current.candidate.gameplayRequest = structuredClone(request);
 		current.candidate.gameplayScope = structuredClone(scope);
@@ -10053,7 +10139,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 	async function settleGameplayRequest(nonce, scope) {
 		if (state.auth.source !== "hosted_account_cookie") return false;
 		const current = active;
-		if (!current || current.auth !== state.auth || !sameScope(scope, getGameplayScope()) || !sameScope(current.candidate?.gameplayScope, scope) || current.candidate?.gameplayRequest?.auth?.nonce !== nonce) return false;
+		if (!current || current.auth !== state.auth || !sameScope(scope, getGameplayScope()) || !sameDurableScope(current.candidate?.gameplayScope, scope) || current.candidate?.gameplayRequest?.auth?.nonce !== nonce) return false;
 		if (current.settlingGameplay) return false;
 		const request = current.candidate.gameplayRequest;
 		const settled = structuredClone(current.candidate);
@@ -17126,6 +17212,7 @@ function handleSnapshot(snapshot) {
 	quoteProtocolFacade.invalidateSnapshotBoundQuotes(snapshot);
 	state.snapshot = snapshot;
 	recoverGameplayFeedback(snapshot, state, hostedWorldAccount, getGameplayRecoveryScope(state), clearPendingGameplayActionAckTimer);
+	requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
 	state.logicalTime = Math.max(state.logicalTime, Number(snapshot?.time || 0));
 	state.tick = state.logicalTime;
 	adoptCurrentPlayerBindingFromSnapshot(snapshot);
@@ -18411,6 +18498,13 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 	const protocolAction = String(action.protocol_action || "").trim();
 	if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") {
 		requestSnapshotSafe();
+		if (hostedWorldAccount.hasPendingGameplayRequest()) {
+			requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
+			return {
+				ok: true,
+				feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback)
+			};
+		}
 		state.lastGameplayActionFeedback = {
 			id: nextRequestId(),
 			kind: "gameplay_action",
@@ -18524,6 +18618,7 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 			if (request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey) throw new Error("gameplay identity changed during signing");
 			feedback.requestAuthNonce = request.auth.nonce;
 			feedback.originalRequest = clone(request);
+			feedback.gameplayScope = structuredClone(sendContext.scope);
 			await hostedWorldAccount.rememberGameplayRequest(request, sendContext.scope);
 			if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
 			if (!gameplaySendContextCurrent(state, socket, sendContext)) {
@@ -19009,6 +19104,13 @@ function handleViewerMessage(message, sourceSocket = null) {
 		case "agent_chat_error":
 			handleAgentChatError(message.error);
 			break;
+		case "gameplay_action_result":
+			if (receiveGameplayResult(state, getGameplayRecoveryScope(state), hostedWorldAccount, message)) {
+				clearPendingGameplayActionAckTimer();
+				requestSnapshotSafe();
+				render();
+			}
+			break;
 		case "gameplay_action_ack":
 			handleGameplayActionAck(message.ack);
 			break;
@@ -19046,6 +19148,7 @@ function attachSocket(ws) {
 			version: 2,
 			capabilities: [
 				PROMPT_CONTROL_RESULT_CAPABILITY,
+				"gameplay_result_lookup_v1",
 				"canonical_agent_chat_v1",
 				"world_view",
 				"world_view_pins_v1",

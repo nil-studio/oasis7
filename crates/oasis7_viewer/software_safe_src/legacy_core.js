@@ -1,3 +1,4 @@
+import { requestGameplayResult, receiveGameplayResult } from "./viewer_gameplay_result_recovery.js";
 import { getGameplayRecoveryScope, gameplaySendContextCurrent } from "./viewer_gameplay_recovery_scope.js";
 import { normalizeGameplayActionRequest } from "./viewer_feedback_actions.js";
 import { matchesGameplayReply, recoverGameplayFeedback, settleGameplayOriginal } from "./viewer_gameplay_receipt_feedback.js";
@@ -1357,6 +1358,7 @@ function handleSnapshot(snapshot) {
   clearInitialSnapshotRetryTimer(); quoteProtocolFacade.invalidateSnapshotBoundQuotes(snapshot);
   state.snapshot = snapshot;
   recoverGameplayFeedback(snapshot, state, hostedWorldAccount, getGameplayRecoveryScope(state), clearPendingGameplayActionAckTimer);
+  requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
   state.logicalTime = Math.max(state.logicalTime, Number(snapshot?.time || 0));
   state.tick = state.logicalTime;
   adoptCurrentPlayerBindingFromSnapshot(snapshot);
@@ -2842,6 +2844,10 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
   const protocolAction = String(action.protocol_action || "").trim();
   if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") {
     requestSnapshotSafe();
+    if (hostedWorldAccount.hasPendingGameplayRequest()) {
+      requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
+      return { ok: true, feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback) };
+    }
     state.lastGameplayActionFeedback = {
       id: nextRequestId(),
       kind: "gameplay_action",
@@ -2939,6 +2945,7 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
       if (request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey) throw new Error("gameplay identity changed during signing");
       feedback.requestAuthNonce = request.auth.nonce;
       feedback.originalRequest = clone(request);
+      feedback.gameplayScope = structuredClone(sendContext.scope);
       await hostedWorldAccount.rememberGameplayRequest(request, sendContext.scope);
       if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
       if (!gameplaySendContextCurrent(state, socket, sendContext)) {
@@ -3448,6 +3455,13 @@ function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket &&
     case "agent_chat_error":
       handleAgentChatError(message.error);
       break;
+    case "gameplay_action_result":
+      if (receiveGameplayResult(state, getGameplayRecoveryScope(state), hostedWorldAccount, message)) {
+        clearPendingGameplayActionAckTimer();
+        requestSnapshotSafe();
+        render();
+      }
+      break;
     case "gameplay_action_ack":
       handleGameplayActionAck(message.ack);
       break;
@@ -3484,7 +3498,7 @@ function attachSocket(ws) {
     initialSnapshotRetryCount = 0;
     clearHelloAckTimer();
     clearInitialSnapshotRetryTimer();
-    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
+    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, "gameplay_result_lookup_v1", "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
     scheduleHelloAckTimeout(ws);
     syncHostedSessionRefreshLoop();
     render();

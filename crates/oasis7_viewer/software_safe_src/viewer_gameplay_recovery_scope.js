@@ -1,5 +1,17 @@
 import { authConnectionGeneration, isSessionContextCurrent } from "./viewer_auth_session_module.js";
 // Stable read authority identity, never a transport generation or bearer token.
+export function gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch = false } = {}) {
+  if (!scope?.endpointId || !scope?.worldId) return null;
+  return JSON.stringify(Object.keys(scope).filter(key => !(ignoreAuthorityEpoch && key === "authorityEpoch")).sort().map(key => [key, scope[key]]));
+}
+
+// authorityEpoch belongs to a live Prompt runtime and can change when that
+// process restarts. It is retained in old capsules, but must not decide whether
+// the same endpoint/world/source fence can recover the original request.
+export function durableGameplayRecoveryScopeFingerprint(scope) {
+  return gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch: true });
+}
+
 export function getGameplayRecoveryScope(state) {
   const feed = state.worldFeed;
   const epoch = feed?.reorgEpoch;

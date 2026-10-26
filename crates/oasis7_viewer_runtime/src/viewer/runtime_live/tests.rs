@@ -430,3 +430,5 @@ fn register_runtime_session_with_options(
 }
 #[path = "tests/recipe_substitution_read.rs"]
 mod recipe_substitution_read;
+
+mod gameplay_result_lookup;

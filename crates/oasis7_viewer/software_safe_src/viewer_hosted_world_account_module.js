@@ -2,6 +2,7 @@ import { createPasskeyAccountClient, encodePasskeyBytes } from "./viewer_passkey
 import { installSession, updateRegistrationGrant, clearSession, authCredentials } from "./viewer_auth_session_module.js";
 
 import { createHostedWorldRecovery } from "./viewer_hosted_world_recovery.js";
+import { gameplayRecoveryScopeFingerprint, durableGameplayRecoveryScopeFingerprint } from "./viewer_gameplay_recovery_scope.js";
 
 export function createHostedWorldAccount({ state, generateKeypair, register, render, clearLegacy, recovery = createHostedWorldRecovery(), getGameplayScope = () => null }) {
   let recoveryLoaded = false;
@@ -92,14 +93,14 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
     }
   }
   function scopeFingerprint(scope) {
-    if (!scope?.endpointId || !scope?.worldId) return null;
-    return JSON.stringify(Object.keys(scope).sort().map(key => [key, scope[key]]));
+    return gameplayRecoveryScopeFingerprint(scope);
   }
   function sameScope(left, right) { const value = scopeFingerprint(left); return value != null && value === scopeFingerprint(right); }
+  function sameDurableScope(left, right) { const value = durableGameplayRecoveryScopeFingerprint(left); return value != null && value === durableGameplayRecoveryScopeFingerprint(right); }
   function restoreCandidateGameplayRequest(candidate, scope) {
     const request = candidate.gameplayRequest;
     const currentFeedback = state.lastGameplayActionFeedback;
-    if (!sameScope(candidate.gameplayScope, scope)) {
+    if (!sameDurableScope(candidate.gameplayScope, scope)) {
       if (currentFeedback?.recoveredFromCapsule) state.lastGameplayActionFeedback = null;
       return;
     }
@@ -125,7 +126,7 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
       throw new Error("world_recovery_context_changed");
     if (pending && pending !== current.candidate) throw new Error("world_recovery_pending_control");
     const existing = current.candidate.gameplayRequest;
-    if (current.settlingGameplay || (existing && (!sameScope(current.candidate.gameplayScope, scope) || JSON.stringify(existing) !== JSON.stringify(request)))) throw new Error("original_gameplay_outcome_pending");
+    if (current.settlingGameplay || (existing && (!sameDurableScope(current.candidate.gameplayScope, scope) || JSON.stringify(existing) !== JSON.stringify(request)))) throw new Error("original_gameplay_outcome_pending");
     const existingScope = current.candidate.gameplayScope;
     current.candidate.gameplayRequest = structuredClone(request);
     current.candidate.gameplayScope = structuredClone(scope);
@@ -140,7 +141,7 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
   async function settleGameplayRequest(nonce, scope) {
     if (state.auth.source !== "hosted_account_cookie") return false;
     const current = active;
-    if (!current || current.auth !== state.auth || !sameScope(scope, getGameplayScope()) || !sameScope(current.candidate?.gameplayScope, scope) || current.candidate?.gameplayRequest?.auth?.nonce !== nonce) return false;
+    if (!current || current.auth !== state.auth || !sameScope(scope, getGameplayScope()) || !sameDurableScope(current.candidate?.gameplayScope, scope) || current.candidate?.gameplayRequest?.auth?.nonce !== nonce) return false;
     if (current.settlingGameplay) return false;
     const request = current.candidate.gameplayRequest;
     const settled = structuredClone(current.candidate);

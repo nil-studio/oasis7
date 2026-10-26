@@ -106,6 +106,21 @@ Owner 为 `viewer_engineer` 与 `runtime_engineer`，`qa_engineer` 核对场景�
 
 内部上下文与缓存不加入 legacy 必填 wire 字段，不承担重启恢复。复用 [session policy](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/session_policy.rs)、[owner read 失效处理](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/owner_read.rs) 和 [world-service correlation](../../../crates/oasis7/src/world_service/correlation.rs)；未授权响应保留通用诊断，不附带其他玩家身份、私有 trace 或世界内部细节。
 
+<a id="gameplay-original-result-lookup"></a>
+### 浏览器与 Runtime 重启后的原请求回读
+
+Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6；O7-REQ-a15a1b8e-8b7f-4c6a-9cb5-2f949730496c。承接[个人反馈唯一声明](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-003)、[SC-9 唯一声明](../../product/player-entry-distribution/prd.md#sc-entry-009)及[反馈隔离](#gameplay-feedback-isolation)，不新增游戏动作或提交权。
+
+浏览器恢复加密胶囊中的原 `GameplayActionRequest` 后，不能只恢复 unknown 文案并等待已经丢失的 Runtime 内存队列。双方协商 `gameplay_result_lookup_v1` 后，浏览器发送只读 `lookup_gameplay_action`，携带原签名请求，不换 nonce、payload 或目标。按原请求和当前身份限频回读；旧 Runtime 未协商能力时保留未知，不发送不兼容帧。Runtime 的 `gameplay_action_result` 关联 player、action、target 与原 auth nonce，响应沿当前连接返回；查询不能进入 action submit 或消费原 action nonce。
+
+成功的、经过现有 nonce/授权校验的 signed `RegisterSession` 可为该 socket 建立当前 gameplay 读取身份；仅声明玩家 ID 的 `ReconnectSync` 仍清除该身份。查询前验证原请求签名、当前 session key/hosted 授权与当前 socket owner fence；锁外使用既有 WorldService verified lookup，回包前重查同一 fence。旧 key、撤销、跨玩家、world/branch/reorg 或绑定变化均不得借原请求扩大权限。
+
+原请求胶囊的持久恢复 scope 绑定 endpoint、world、source fence 与 reorg epoch；Runtime 本地 Prompt authority epoch 不属于该持久身份，兼容已保存的旧 epoch 胶囊。当前发送和在途查询仍核对完整实时 scope、当前身份与连接，旧 epoch 的迟到结果不能越过当前查询 fence。
+
+浏览器只采纳当前 scope、身份、原请求及当前查询匹配的结果。只有 committed、rejected 或 expired 的权威结果允许结束原胶囊；Unknown、HistoryUnavailable、限流、传输失败与查询权限失败均保留原请求及真实未知。查询错误不能冒充原操作 rejected。旧 received/pending 快照不能覆盖已查明终态。committed 只证明原请求处置，Agent 归属和后续玩法效果仍以当前 canonical 视图为准。此通道不自动重投 volatile Received 后丢失的原请求，不把查询 Unknown 当成可重领证明。
+
+验证覆盖浏览器胶囊重载、Runtime 空待查询队列、原 identity 回读与同一回执关联；signed registration 与 asserted reconnect 的边界；查询前及返回前的撤销/身份变化；查询始终零 submit；查询受阻不清胶囊及旧 admission 快照不降级终态。生产原请求是否仍有可查询历史与所需权限，须在实际环境另行核对，局部测试不代签真实试玩。
+
 <a id="gameplay-error-code-preservation"></a>
 ### HTTP adapter 保留 typed builder 错误
 
