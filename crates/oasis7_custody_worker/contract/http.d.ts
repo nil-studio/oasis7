@@ -389,6 +389,19 @@ export type ProvisionDraftViewV1 = {
   "security_epoch": DecimalU64;
   "world_identity": ApprovedWorldV1;
 };
+export type ProvisionDriveRequestV1 = {
+  "api_version": number;
+  "operation_id": string;
+};
+export type ProvisionProgressViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "pending_operations": Array<string>;
+  "provision_id": string;
+  "stage": ProvisionStage;
+  "transport_remaining": DecimalU64;
+};
 export type SignedApprovalVerificationV1 = {
   "signature": string;
   "verification": ApprovalVerificationV1;

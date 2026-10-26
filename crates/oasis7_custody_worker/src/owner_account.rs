@@ -220,7 +220,12 @@ impl DurableObject for AccountAuthority {
             || url.query().is_some()
             || !matches!(
                 url.path(),
-                "/internal/draft" | "/internal/freeze" | "/internal/approve"
+                "/internal/draft"
+                    | "/internal/freeze"
+                    | "/internal/approve"
+                    | "/internal/advance"
+                    | "/internal/provision-progress"
+                    | "/internal/role-permit"
             )
         {
             return Response::error("not found", 404);
@@ -241,6 +246,43 @@ impl DurableObject for AccountAuthority {
                 Ok(entry) => self.initialize_draft(entry),
                 Err(_) => Response::error("invalid request", 400),
             },
+            "/internal/advance" => {
+                let Some(env) = &self.env else {
+                    return Response::error("not ready", 503);
+                };
+                let Ok(rpc) = serde_json::from_str::<crate::directory_rpc::DriveRpc>(&body) else {
+                    return Response::error("invalid request", 400);
+                };
+                match crate::owner_provision::advance(&self.state, env, rpc).await {
+                    Ok(view) => Response::from_json(&view),
+                    Err(_) => Response::error("provision advance rejected or pending", 409),
+                }
+            }
+            "/internal/provision-progress" => {
+                let Some(env) = &self.env else {
+                    return Response::error("not ready", 503);
+                };
+                let Ok(rpc) = serde_json::from_str::<crate::directory_rpc::ReadRpc>(&body) else {
+                    return Response::error("invalid request", 400);
+                };
+                match crate::owner_provision::progress(&self.state, env, rpc) {
+                    Ok(view) => Response::from_json(&view),
+                    Err(_) => Response::error("progress unavailable", 409),
+                }
+            }
+            "/internal/role-permit" => {
+                let Some(env) = &self.env else {
+                    return Response::error("not ready", 503);
+                };
+                let Ok(rpc) = serde_json::from_str::<crate::directory_rpc::RolePermitRpc>(&body)
+                else {
+                    return Response::error("invalid request", 400);
+                };
+                match crate::owner_provision::verify_role_permit(&self.state, env, rpc).await {
+                    Ok(view) => Response::from_json(&view),
+                    Err(_) => Response::error("role permit unavailable", 409),
+                }
+            }
             "/internal/approve" => {
                 let Some(env) = &self.env else {
                     return Response::error("not ready", 503);

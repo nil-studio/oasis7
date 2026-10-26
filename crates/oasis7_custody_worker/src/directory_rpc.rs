@@ -1,5 +1,7 @@
 //! Private, fixed service-entrypoint DTOs. Identity supplies authenticated metadata.
-use oasis7_custody_core::{DecimalU64, approval::CustodySessionStatusV1, provisioning::*};
+#[cfg(feature = "owner")]
+use oasis7_custody_core::DecimalU64;
+use oasis7_custody_core::{approval::CustodySessionStatusV1, provisioning::*};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 #[cfg(feature = "identity")]
@@ -32,6 +34,21 @@ pub(crate) struct ApproveRpc {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct DriveRpc {
+    pub manager_session: CustodySessionStatusV1,
+    pub provision_id: String,
+    pub request: ProvisionDriveRequestV1,
+}
+#[cfg(feature = "owner")]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RolePermitRpc {
+    pub role: oasis7_custody_core::http::Role,
+    pub request: ProvisionRoleKeyRequestV1,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(feature = "owner")]
 pub(crate) struct ProvisionGateRpc {
     pub manager_session: CustodySessionStatusV1,
     pub provision_id: String,
@@ -39,6 +56,7 @@ pub(crate) struct ProvisionGateRpc {
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg(feature = "owner")]
 pub(crate) struct ProvisionGateView {
     pub api_version: u8,
     pub draft: AccountDraftV1,
@@ -74,6 +92,16 @@ extern "C" {
     -> std::result::Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = approveOwnerProvision)]
     pub(crate) async fn approve_owner(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = advanceOwnerProvision)]
+    pub(crate) async fn advance_owner(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = readOwnerProvisionProgress)]
+    pub(crate) async fn read_progress(
         env: &Env,
         raw: &str,
     ) -> std::result::Result<JsValue, JsValue>;

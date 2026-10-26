@@ -364,6 +364,8 @@ pub(super) fn export(directory: &std::path::Path) {
         "CustodySessionStatusV1":schemars::schema_for!(CustodySessionStatusV1),
         "ProvisionApproveRequestV1":schemars::schema_for!(ProvisionApproveRequestV1),
         "ProvisionApprovalViewV1":schemars::schema_for!(ProvisionApprovalViewV1),
+        "ProvisionDriveRequestV1":schemars::schema_for!(ProvisionDriveRequestV1),
+        "ProvisionProgressViewV1":schemars::schema_for!(ProvisionProgressViewV1),
         "ProvisionDraftRequestV1":schemars::schema_for!(ProvisionDraftRequestV1),
         "ProvisionDraftViewV1":schemars::schema_for!(ProvisionDraftViewV1),
         "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
@@ -377,7 +379,7 @@ pub(super) fn export(directory: &std::path::Path) {
         "SourceRevocationAckResultV1":[SourceRevocationAckResultV1{api_version:1,event_id:signed_source.event.event_id.clone(),event_digest:signed_source.digest().unwrap(),status:SourceClosureStateV1::Closed}],"metadata":([Role::Identity,Role::Owner,Role::Executor,Role::RecoveryFence].map(ServiceMetadata::disabled)),
         "error":([ErrorCode::NotFound,ErrorCode::NotReady,ErrorCode::MethodNotAllowed].map(ErrorResponse::new)),
         "ApprovalOptionsRequestV1":requests,"ApprovalOptionsResponseV1":[options_response],"ApprovalCompleteRequestV1":[complete],
-        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionApproveRequestV1":[provision_approve],"ProvisionApprovalViewV1":[provision_approved],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
+        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionApproveRequestV1":[provision_approve],"ProvisionApprovalViewV1":[provision_approved],"ProvisionDriveRequestV1":[ProvisionDriveRequestV1{api_version:1,operation_id:"prepare-keys-one".into()}],"ProvisionProgressViewV1":[ProvisionProgressViewV1{api_version:1,provision_id:"provision-one".into(),custody_account_id:"custody-one".into(),operation_id:"prepare-keys-one".into(),stage:ProvisionStage::Approved,pending_operations:vec![],transport_remaining:DecimalU64(128)}],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),

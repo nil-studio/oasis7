@@ -35,3 +35,32 @@ entrypoint = "IdentityNativeApproval"
 binding = "RECOVERY_FENCE"
 service = "oasis7-custody-recovery-fence-staging"
 entrypoint = "RecoveryFenceReader"
+
+# Role-local immutable key storage; activation and KEK are intentionally absent.
+[[durable_objects.bindings]]
+name = "ROLE_KEYS"
+class_name = "RoleKeyVault"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["RoleKeyVault"]
+
+[[services]]
+binding = "ACCOUNT_KEY_PERMITS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "OwnerKeyPermits"
+
+[[services]]
+binding = "IDENTITY_PROVISION_KEYS"
+service = "oasis7-custody-identity-staging"
+entrypoint = "RoleKeyProvision"
+
+[[services]]
+binding = "OWNER_PROVISION_KEYS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "RoleKeyProvision"
+
+[[services]]
+binding = "EXECUTOR_PROVISION_KEYS"
+service = "oasis7-custody-executor-staging"
+entrypoint = "RoleKeyProvision"

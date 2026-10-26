@@ -116,3 +116,34 @@ pub struct ProvisionApprovalViewV1 {
     pub operation_id: String,
     pub stage: super::ProvisionStage,
 }
+
+/// Explicitly starts or resumes the already approved bounded provisioning plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ProvisionDriveRequestV1 {
+    pub api_version: u8,
+    pub operation_id: String,
+}
+impl ProvisionDriveRequestV1 {
+    pub fn validate(&self) -> Result<(), super::ProvisionApprovalError> {
+        if self.api_version != 1 || !super::types::valid_id(&self.operation_id) {
+            return Err(super::ProvisionApprovalError::BindingMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// Non-secret bounded provisioning progress; pending references are not success.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ProvisionProgressViewV1 {
+    pub api_version: u8,
+    pub provision_id: String,
+    pub custody_account_id: String,
+    pub operation_id: String,
+    pub stage: super::ProvisionStage,
+    pub pending_operations: Vec<String>,
+    pub transport_remaining: DecimalU64,
+}

@@ -45,6 +45,11 @@ pub mod provision_approval_store;
     any(feature = "identity", feature = "owner", feature = "executor")
 ))]
 pub mod role_key_store;
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "identity", feature = "owner", feature = "executor")
+))]
+pub(crate) mod role_provision;
 
 #[cfg(target_arch = "wasm32")]
 mod platform;
@@ -73,7 +78,12 @@ mod directory_config;
 mod directory_rpc;
 #[cfg(all(
     target_arch = "wasm32",
-    any(feature = "identity", feature = "owner", feature = "recovery-fence")
+    any(
+        feature = "identity",
+        feature = "owner",
+        feature = "executor",
+        feature = "recovery-fence"
+    )
 ))]
 mod entrypoints;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]

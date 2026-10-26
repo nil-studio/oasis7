@@ -9,6 +9,9 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[path = "origin_inspection.rs"]
+mod origin_inspection;
+pub use origin_inspection::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionApprovalError {
@@ -92,6 +95,8 @@ pub struct AccountProvisionApprovalState {
     role_key_tasks: BTreeMap<String, ProvisionRoleKeyTaskV1>,
     role_key_results: BTreeMap<String, ProvisionRoleKeyResultV1>,
     cancellation_operation_id: Option<String>,
+    origin_inspections: BTreeMap<String, ProvisionOriginInspectionV1>,
+    role_key_dispatches: BTreeMap<String, ProvisionRoleKeyDispatchV1>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -106,6 +111,10 @@ struct RawAccountProvisionApprovalState {
     #[serde(default)]
     role_key_results: BTreeMap<String, ProvisionRoleKeyResultV1>,
     cancellation_operation_id: Option<String>,
+    #[serde(default)]
+    origin_inspections: BTreeMap<String, ProvisionOriginInspectionV1>,
+    #[serde(default)]
+    role_key_dispatches: BTreeMap<String, ProvisionRoleKeyDispatchV1>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -118,6 +127,8 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             role_key_tasks: raw.role_key_tasks,
             role_key_results: raw.role_key_results,
             cancellation_operation_id: raw.cancellation_operation_id,
+            origin_inspections: raw.origin_inspections,
+            role_key_dispatches: raw.role_key_dispatches,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -135,6 +146,8 @@ impl AccountProvisionApprovalState {
             role_key_tasks: BTreeMap::new(),
             role_key_results: BTreeMap::new(),
             cancellation_operation_id: None,
+            origin_inspections: BTreeMap::new(),
+            role_key_dispatches: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -513,8 +526,12 @@ impl AccountProvisionApprovalState {
                 result.public_ref.clone(),
             ));
         }
-        self.provision
-            .validate_approval_progress(&self.draft, nonce, &keys)?;
+        self.provision.validate_approval_progress(
+            &self.draft,
+            nonce,
+            &keys,
+            self.validate_attempt_persistence()?,
+        )?;
         Ok(())
     }
 }

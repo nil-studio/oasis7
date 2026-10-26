@@ -383,7 +383,7 @@ impl ApprovalOptionsRequestV1 {
                     && bootstrap_config_version.0 > 0
                     && deadline.0 > now
                     && deadline.0 <= now.saturating_add(1_800_000)
-                    && (1..=24).contains(&transport_limit.0)
+                    && (1..=400).contains(&transport_limit.0)
                     && register_request_id != login_request_id
             }
             CustodyIntentV1::ManagedLogin {
