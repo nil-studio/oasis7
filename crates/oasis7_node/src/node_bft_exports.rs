@@ -1,6 +1,19 @@
 //! Public types for the explicitly selected fixed-set engineering BFT path.
 
 pub use crate::execution_hook::{
+    NodeBftBuildContextV2, NodeBftExecutionCommitResultV2, NodeBftExecutionConfigV2,
+    NodeBftExecutionContextV2, NodeBftExecutionHeadV2,
+};
+pub use oasis7_consensus::tendermint_v2::{
+    BftHeightProposerScheduleV2, BftSchedulePolicyV2, BftValidatorSetV2,
+    VerifiedBftCommitCertificateV2, verify_commit_certificate_token_v2,
+};
+pub use oasis7_proto::distributed_bft::v2::{
+    BftBlockV2, BftCommitCertificateV2, BftMessageV2, BftProposalV2, BftScopeV2,
+    BftValidatorTransitionRefV2, BftValidatorTransitionV2, BftValidatorV2, BftVoteV2,
+};
+
+pub use crate::execution_hook::{
     BFT_MAX_COMMIT_HISTORY_PAGE_ENTRIES_V1, NodeBftBuildContextV1, NodeBftExecutionCommitResultV1,
     NodeBftExecutionConfigV1, NodeBftExecutionContextV1, NodeBftExecutionHeadV1,
     NodeExecutionBootstrap, NodeExecutionCheckpointBlob, NodeExecutionCheckpointBlobRef,
@@ -14,6 +27,7 @@ pub use crate::execution_hook::{
     validate_replicated_execution_input_actions,
 };
 pub use crate::node_bft_runtime::{NodeBftConfigV1, NodeBftStatusV1};
+pub use crate::node_bft_v2_runtime::NodeBftStatusV2;
 pub use oasis7_consensus::tendermint_v1::{
     BFT_MAX_ROUNDS_PER_HEIGHT_V1, BFT_MAX_VALIDATORS_V1, BftConsensusActionV1,
     BftConsensusMachineV1, BftHeightProposerScheduleV1, BftProposalIntentV1, BftProposerPriorityV1,

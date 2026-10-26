@@ -9,7 +9,7 @@ Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；历史审
 2026-10-12 以 e01e29064517f4bf375767a19a09802335828249 补充的
 `original-candidate-recovery-v1`、`formal-controlled-authority-v1` 与
 `controlled-epoch-takeover-v1` 是后继目标协议，明确新增目标类型和状态机。
-它们是正式规范；当前已有 native formal、受保护 signer 接口、原输入恢复、有界只读 full-sync 子范围，以及显式固定集合的 engineering BFT NodeRuntime 垂直实现，详见[持久节点手册](blockchain/persistent-world-node-lifecycle.runbook.md#正式合同层与准入边界)。文中的早期 planned 描述只保留其当时证据范围；不能整体推断当前无实现，也不能由本机接线推断真实故障域或全部消费者通过。正式 BFT profile、动态集合安装及长期 checkpoint 接续仍待实现和验收，既有 prerequisite 的拒绝边界及部署 hold 不变。
+它们是正式规范；当前已有 native formal、受保护 signer 接口、原输入恢复、有界只读 full-sync 子范围，以及显式固定集合 V1 与动态集合 V2 的 engineering BFT NodeRuntime 实现，详见[持久节点手册](blockchain/persistent-world-node-lifecycle.runbook.md#正式合同层与准入边界)。文中的早期 planned 描述只保留其当时证据范围；不能整体推断当前无实现，也不能由本机接线推断真实故障域或全部消费者通过。V2 已接入治理排程、h/h+1/h+2 集合边界与受保护 provider 安装确认；正式 BFT profile、长期 checkpoint 接续及真实 custody 仍待实现和验收，既有 prerequisite 的拒绝边界及部署 hold 不变。
 
 非目标：不以文档active/合并、local fixture、历史MIG或CLI可编译宣称正式 BFT、部署、SLA或release。剩余215-object required set及root SC1..10/full组合不变。
 
@@ -80,8 +80,8 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 
 | 对象 | 当前专业合同（冻结source） | 目标 / 差距 | 实现 / 执行证据 |
 | --- | --- | --- | --- |
-| 本专题现行规则 | 配对 PRD 与保留旧章节的有界接口/失败合同 | 固定集合 engineering NodeRuntime 已有 Alg1 状态机、签名前 WAL、QC 历史恢复和 UDP 接线；正式 authority profile、h+2 动态集合转换及部署接受仍缺。pending/lineage/manifest/consumer 字段及 DC5 structured attachment 仍外部未闭合。 | 本候选有本机 core 与 NodeRuntime 测试；具体候选/命令/退出码由 PR evidence 绑定，不代表完整组合接受 |
-| BFT/QC/治理恢复 | 旧 stake-threshold prototype 与新固定集合工程分支分离；工程分支保存 WAL 并逐高度重验 QC | 目标证书/round/recovery 局部实现；正式 profile、治理 transition 和外部可信 signer 尚未闭合 | 本机实现与测试不证明运行部署、反回滚或故障域独立 |
+| 本专题现行规则 | 配对 PRD 与保留旧章节的有界接口/失败合同 | engineering NodeRuntime 已有 Alg1 状态机、签名前 WAL、QC 历史恢复和 UDP 接线；V2 接入真实 World 治理执行、h+2 动态集合转换及安装恢复；正式 authority profile、checkpoint 消费者全链路及部署接受仍缺。pending/lineage/manifest/consumer 字段及 DC5 structured attachment 仍外部未闭合。 | 本候选有本机 core 与 NodeRuntime 测试；具体候选/命令/退出码由 PR evidence 绑定，不代表完整组合接受 |
+| BFT/QC/治理恢复 | 旧 stake-threshold prototype 与 V1/V2 工程分支分离；V2 保存受保护 journal 并逐高度重验 QC、执行与集合转换 | 证书/round/recovery 与治理 transition 已有工程接线；正式 profile、长期 checkpoint 和真实外部可信 signer 验收尚未闭合 | 本机实现与测试不证明运行部署、反回滚或故障域独立 |
 
 ## 4. 边界与结构
 
@@ -184,9 +184,15 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 
 首版一个 world 至多有一个 scheduled 尚未激活的转换；其他 approved 意图保持未排程，待前次激活后按当时 committed policy/set 重新验证。epoch 意图须由协议确定性映射到提交高度 h 和固定 activation_height=h+2；无法映射、已错过边界或旧 set hash 不符则不排程，不能由单机解释或延后。
 
-V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(epoch_length_ticks)`，`h = activation_height.checked_sub(2)`；溢出、h 不是合法正提交高度或在 h 之后才提交的 activation 均拒绝，首版不在 genesis 排程转换。epoch 长度及映射规则版本绑定到 V2 genesis 与转换链，首版拒绝在线改变该映射的策略更新。已有转换在 A₁ 激活时，下一转换的排程高度 A₂−2 必须不早于 A₁；这按实际边界拒绝重叠，不额外禁止长度为 1 的 epoch。V1 固定集合的历史、wire 和签名域保持自身版本，不按 V2 重解释。
+V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(epoch_length_ticks)`，`h = activation_height.checked_sub(2)`；溢出、h 不是合法正提交高度或在 h 之后才提交的 activation 均拒绝，首版不在 genesis 排程转换。epoch 长度及映射规则版本绑定到 V2 genesis 与转换链，首版拒绝在线改变该映射的策略更新。已有转换在 A₁ 激活时，下一转换的排程高度 A₂−2 必须不早于 A₁；这按实际边界拒绝重叠，不额外禁止长度为 1 的 epoch。V1 固定集合的历史、wire 和签名域保持自身版本，不按 V2 重解释。 治理可以在 h 之前提交目标 epoch 的签名 activation 意图；它只进入未来治理状态，不提前取得投票权，集合转换仍须在 h 从当时真实 World 重算并最终提交。已错过 h 的新 activation 不得留待下一边界自动生效；入队预检与候选执行均须拒绝迟到意图。
 
 治理集合的只读预演可以基于同一个已认证 committed World，显式解析指定未来 epoch 的 admissions 与 registry；结果必须同时保留来源 commit、真实 state root、已验证 profile、来源 epoch 和目标 epoch，不能把目标 epoch 伪装成当前 World 时间。预演复用治理选择、资格与 registry 校验，错误照常传播，不改变 World、当前集合或运行应用状态，也不构成本机安装 ACK。转换区块的最终集合仍必须从该候选真实执行后的 World 独立重算，不能直接信任调用者提交的预演结果。
+
+V2 的候选执行和 committed 读取分属不同证明阶段。候选在固定已验证 parent 上独立执行完整 canonical actions，再从真实执行后的 World 解析目标 epoch 集合；该阶段绑定 parent、治理 action 身份、原策略及 execution/state roots，不伪造尚不存在的本块 CommitRef。h 区块承诺完整转换材料及其摘要，不能把自身最终 QC CommitRef 放入自身 block ID；在 h 的 QC 验证成功后才派生对应的 committed 来源。h+1 的证明继续绑定同一转换，并从该高度真实执行后的 World 重算 activation epoch 的集合，必须仍与已提交的新集合 hash 相同；不能通过其他治理入口改写 pending 转换。安装只能消费这条从固定 genesis 延伸的合法证明链。
+
+BFT 治理动作复用既有完整动作签名域、controller 阈值、nonce 和父策略规则。其运行时 parent 上下文由真实 driver 已恢复的 opaque BFT cursor 与逐项匹配的 World root、time、manifest 和固定 epoch 映射建立；固定 genesis 信任仍由启动配置及 driver 独立检查，cursor 本身不认证任意调用者给定的 genesis。该上下文与受控模式的 qualified parent 分开，不能伪造 formal reader。执行前固定父 controller registry，显式开始对应 successor tick，在同一 detached World 上验证并执行批次，完成后结束阶段；上下文不进入 Snapshot。没有匹配 parent/tick 的普通 step 不得应用 admission 治理，新 controller policy 不能在同批次为自身或后续动作授权。
+
+受保护签名器的 V2 genesis 绑定固定初始集合、epoch 映射策略和本机不可导出 key 身份；运行中活动集合由逐高度证书与转换链导出，不允许普通 acquire 改写集合。集合安装原子推进持久 signer generation，隔离旧 owner，并返回绑定转换来源、激活高度、集合摘要、runtime 实例和新 generation 的真实安装确认。本机 consensus、WAL 与 provider 均完成安装并持久记录后才能报告本机 adopted；中途崩溃只能续完同一安装或停签。 V2 以 provider 的受保护 journal 作为签名前 WAL 的唯一持久权威，不再维护另一份可独立推进的 Node 日志。 启动必须先固定本机 driver 的模式／genesis 并取得其稳定载体上的 OS 生命周期锁，再执行远端 provider acquire；本机重复实例不能在本地锁失败之前推进远端租约代际、隔离原实例。节点必须从该 journal 与已验证 schedule 实际恢复目标高度的共识状态，并核对 driver 的持久执行记录，之后才签安装 ACK；WAL 安装摘要绑定同一 journal 和 schedule。重启须重做独立协议／执行重放并核对适用的持久安装回执，不能仅凭 DTO 摘要或旧 ACK 恢复投票；原请求恢复不得产生不同的安装证据。未被当前集合纳入、已被移除或尚未安装的 key 不得签名，但合法历史验证与只读追赶仍可继续。软件测试的安装确认不证明硬件不可回滚或真实故障域。
 
 | 权威边界 | 集合与证明规则 |
 | --- | --- |
@@ -194,7 +200,7 @@ V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(
 | h+1 | 仍由 S_old 签，header/证明绑定下一高度的 S_new hash 和 h 的转换承诺。新节点取得 h+1 的完整合法状态/证明，恢复签名水位并安装 S_new。 |
 | h+2 及以后 | 只以 S_new 验票；退出/旧 key 权重为零。未安装或未同步完成的节点停止签名，不能让全网边界等待本机 ACK，也不能临时沿用旧集合。 |
 
-排程和安装记录至少含治理决定 CommitRef、world/manifest、旧/新集合 hash、activation height、runtime 实例与 signer binding，安装 ACK 持久化后只报告对应的本机采用事实。ACK 引用的 head 须属于当前 verified head 的合法祖先链，且其 set/activation 与当前签名高度及受保护 signer 状态一致；旧实例、已被后继集合替代、部分安装和重启丢失 ACK 均不授予投票权，不要求每个新块重做同一集合安装。重复 validator/key、负权重、空集合和总权重溢出在 h 的有效性检查时拒绝。轮换、移除与 stake 改动同样适用；发现作恶不允许本地先改分母。
+排程和安装记录至少含治理决定 CommitRef、world/manifest、旧/新集合 hash、activation height、runtime 实例与 signer binding，安装 ACK 持久化后只报告对应的本机采用事实。迟到节点须从完整合法历史定位当前活动集合的 h+1 确认证书，重放至当前 head 后补做安装；不能要求 h+1 仍是当前 tip。安装意图分别固定转换确认 h+1 与实际已安装 head T，T 可以是 h+1 的合法后继；pending 意图保持同一请求和证据，不随重试改写。ACK 引用的 head 须属于当前 verified head 的合法祖先链，且其 set/activation 与当前签名高度及受保护 signer 状态一致；旧实例、已被后继集合替代、部分安装和重启丢失 ACK 均不授予投票权，不要求每个新块重做同一集合安装。重复 validator/key、负权重、空集合和总权重溢出在 h 的有效性检查时拒绝。轮换、移除与 stake 改动同样适用；发现作恶不允许本地先改分母。
 
 安全性沿旧集合最终提交的唯一历史传递到新集合，每个活动集合分别满足 Byzantine 权重限制；不要求把新旧票混合凑一个阈值，也不把独立治理批准当作共识证书。该规则与[单权威在 H 提交、BFT 从 H+1 开始](prd.md#p2p-authority-handoff)的 profile 交接不同。
 
@@ -223,6 +229,16 @@ NodeRuntime 的 BFT 分支使用 Algorithm 1 的 propose/prevote/precommit、val
 BFT gossip 使用与旧 PoS gossip 不同的消息变体。线上 envelope 外层使用 `kind: "bft"`，BFT payload 再以自己的 `kind` 与 `message` 字段编码，例如 `{"kind":"bft","message":{"kind":"history_request","message":{...}}}`；两个 tag 位于不同对象层，避免与旧 gossip 的 `kind` 冲突。在线追赶请求只是未签名的有界 cursor hint：响应端必须把 scope、validator-set hash 与请求的精确 `(height, block_id)` 和已验证本地历史核对，再至多返回一个完整 QC；请求本身不授权历史、投票、执行或状态安装。NodeRuntime 的 `raw_bft_commit_history_page` 只返回连续、范围受限的原始 QC 对象，不返回 verified token 或权威判断；`bft_status` 提供当前 phase/round、lock/valid 投影、拒绝计数和 transport 诊断。两者都是进程级观察接口：状态计数、last error 与 durable-event-count 不是受保护或可独立验证的持久证据；消费者仍须从固定 genesis 与配置重验完整 QC 链。worker 对请求与响应限速，收到的 QC 仍须完整重验、隔离预执行并通过唯一 commit hook。实际 gossip 是单 UDP datagram，不做 IP 分片或可靠传输；签名前按完整 JSON envelope 计算并拒绝超过 65,507 字节的消息。协议/CBOR 的 16 MiB 或历史 256 MiB 上限不代表它们可经此 UDP 路径传输，无法放入单 datagram 的证书或结果必须明确阻断，不能先签后发现无法广播。
 
 此切片不激活正式 `bft` authority profile，不实现 h/h+1/h+2 validator-set transition、治理成员生效、controlled-to-BFT authority handoff、跨故障域 signer custody 或部署 readiness；formal controlled profile 必须继续拒绝该工程模式。静态集合上的 NodeRuntime 正向闭环和对抗回归只能证明当前实现路径，不得写成正式链可用、主网安全或 BFT readiness。
+
+#### 动态集合 NodeRuntime V2 工程入口
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。动态集合使用独立的 `NodeRuntime::with_tendermint_v2` API、V2 wire/signing 域、QC 历史与 execution ledger；调用者提供固定 genesis 的 `BftSignerBindingV2`、带固定 trust 的 `RemoteBftSignerProviderV2` 和实际 execution hook。该入口直接运行 Node worker、gossip 与确定性提交；不是 `NodeConsensusMode` 状态字段或正式 profile 的选择器。V1/V2 不共用 ledger，也不从旧签名、旧 WAL 或旧证书推断新集合权限；混用、配置漂移或缺少材料均阻断，迁移不静默降级。 V2 journal 与 schedule 的 proposer priority 保留完整 checked i128 算术，线上使用规范十进制字符串；拒绝整数、正号、前导零、负零、空白、溢出及重复 key。该编码须通过实际 kind/body tagged command 的 canonical CBOR 往返验证，不能只验证裸 journal；V1 编码保持独立。
+
+`NodeRuntimeExecutionDriver` 从原始 V2 QC 链独立重放真实 World，复核治理 parent、动作认证和实际候选 roots，按本节 h/h+1/h+2 合同应用集合。Node 在释放新集合签名前，恢复 provider 的受保护 journal 并对照实际 driver 持久记录完成安装确认；迟到安装与原请求重试沿用前述祖先及 pending 合同。`raw_bft_v2_commit_history_page` 返回原始证书，`bft_v2_status` 只投影进程状态；消费者仍须独立验证完整链及自己的信任起点。历史响应只查询已经验证的连续历史，不在每个轮询请求中重复验证整个证书前缀。
+
+V2 工程 journal 持久保留当前未提交高度的已验签冲突 proposal header 对，追加证据不得改写待完成的签名决定，重启须恢复原证据。只有该高度的合法 QC 持久提交并转入已验证的后继高度后，才退役当前高度 journal；当前工程状态接口与 QC 历史不提供跨高度处罚证据归档或 slashing，不能据此宣称实现了历史处罚链路。
+
+对应验证入口见[动态集合 V2 工程路径](../../testing-manual.md#动态集合-noderuntime-bft-v2-工程路径)。Node 网络用例的确定性 test hook 与内存 signer backend 不证明实际 World、磁盘耐久性或硬件防回滚；真实 World/ledger 由 chain-runtime 用例另行验证。V2 工程入口仍不激活正式 `bft` authority profile，不完成 controlled-to-BFT H/H+1 权威交接、checkpoint/消费者全链路、跨故障域 custody 或部署 readiness；这些是 #4975 保留的后续实现与验收义务。
 
 ### des-p2p-target-recovery
 
@@ -771,8 +787,8 @@ target protected validators + public services；governed registry有效epoch/sta
 | [professional_acceptance: p2p-receipt-finality-boundary](prd.md#p2p-receipt-finality-boundary) | [des-p2p-receipt-finality](#des-p2p-receipt-finality) | receipt≠QC；同parent/manifest/actions独立重执行，缺artifact/fault/root拒绝vote/commit | [testing-manual.md](../../testing-manual.md)；S9A；全部活动validator+runtime相同输入/父状态/版本，逐一根不匹配及旧threshold1证据负例。target完整矩阵planned。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-target-bft](prd.md#p2p-target-bft) | [des-p2p-target-bft](#des-p2p-target-bft) | Propose/Prevote/Precommit仅verified >2/3 active stake cert生效；world/height/round/phase/roots/set和dedup签名绑定 | [testing-manual.md](../../testing-manual.md)；S9A full target场景：错误签名/阈值/集合/round 与缺证拒绝；矛盾票不重复计权，单个成员 equivocation 不阻断仍足额合法的证书，也不触发本地删 stake；锁定/解锁、timeout/new-round、transition、partition/heal/restart；prototype不能证明。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [BFT 证书闸门](prd.md#p2p-target-bft) | [轮次与锁定](#des-p2p-bft-round-lock-v1) | 足额真签、锁与 round 保持唯一历史；活性只在声明条件成立时验 | BFT-R1，固定集合状态机与本机 NodeRuntime integration 已实现；[S9A](../../testing-manual.md) full 同候选继续覆盖 q−1/q、三等权两签拒绝、mixed-value Any-q timeout 与 same-value decision、nil、错 proposer、伪 validRound、相互矛盾 proposal、乱序/分区/heal、旧 round 有效 cert；无网络进展与恢复同步分别判定 | 状态机规则/向量、签名集合/权重、消息调度、唯一 committed roots、模型反例或通过范围 | 本机与集成测试不等于形式化证明、正式 profile 或完整运行验收 |
-| [BFT 证书闸门](prd.md#p2p-target-bft) | [签名与恢复](#des-p2p-bft-signing-recovery-v1) | 决定/锁在签名前持久；原签名重发，冲突与回滚停签 | BFT-S1，本机 WAL 已实现，受保护 signer/provider 尚未接入；沿 [testing-manual.md](../../testing-manual.md) S9A 的同候选 full 边界继续检查 WAL/reserve/signature/fsync/广播 seam 中断，重启同槽同/异字节、nil→非 nil、旧盘/复制实例、WAL 缺失和 provider 不可用；固定同 key/世界与真实 custody 组合 | durable 决定、签名返回/广播顺序、受保护水位、零冲突签名及恢复 blocker | 普通进程重启不证明防回滚 provider；当前 WAL 不覆盖硬件/远程 signer custody |
-| [BFT 证书闸门](prd.md#p2p-target-bft) | [集合转换](#des-p2p-bft-validator-transition-v1) | h/h+1 旧集、h+2 新集；ACK 不改变全网边界 | BFT-M1，planned full integration；沿 [testing-manual.md](../../testing-manual.md) S9A 的同候选 full 边界新增添加/移除/轮换/stake 更新、重复 key/空集/溢出、第二 pending 排程、h/h+1/h+2 重启分区、错 set cert、迟到/丢失 ACK、旧 key 与过期恢复 checkpoint；固定同治理决定及链，现有手册不表示这些新场景已执行 | 决定 CommitRef、排程/安装 ACK、逐高度 set hash/权重、旧 key 拒绝、停签与恢复事实 | 治理 CLI 查询不等于安装；不代签 controlled→BFT 的独立交接 |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | [签名与恢复](#des-p2p-bft-signing-recovery-v1) | 决定/锁在签名前持久；原签名重发，冲突与回滚停签 | BFT-S1，V1/V2 已接入远端 signer/provider 与签名前 journal；真实 custody 与防回滚验收仍缺，沿 [testing-manual.md](../../testing-manual.md) S9A 的同候选 full 边界继续检查 WAL/reserve/signature/fsync/广播 seam 中断，重启同槽同/异字节、nil→非 nil、旧盘/复制实例、WAL 缺失和 provider 不可用；固定同 key/世界与真实 custody 组合 | durable 决定、签名返回/广播顺序、受保护水位、零冲突签名及恢复 blocker | 普通进程重启和内存 backend 不证明防回滚 provider；远端协议接线不代签真实硬件 custody |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | [集合转换](#des-p2p-bft-validator-transition-v1) | h/h+1 旧集、h+2 新集；ACK 不改变全网边界 | BFT-M1，V2 工程路径已提供本机 Node/Runtime/provider 集成回归；完整验收仍沿 [testing-manual.md](../../testing-manual.md) S9A 的同候选 full 边界新增添加/移除/轮换/stake 更新、重复 key/空集/溢出、第二 pending 排程、h/h+1/h+2 重启分区、错 set cert、迟到/丢失 ACK、旧 key 与过期恢复 checkpoint；固定同治理决定及链，现有手册不表示这些新场景已执行 | 决定 CommitRef、排程/安装 ACK、逐高度 set hash/权重、旧 key 拒绝、停签与恢复事实 | 治理 CLI 查询不等于安装；不代签 controlled→BFT 的独立交接 |
 | [professional_acceptance: p2p-target-recovery-trust-chain](prd.md#p2p-target-recovery-trust-chain) | [des-p2p-target-recovery](#des-p2p-target-recovery) | manifest/genesis→cert/header+set transition→hash snapshot→canonical replay→root→serve/vote；每环缺失/冲突/回退/异world停止 | [testing-manual.md](../../testing-manual.md)；S9A state-sync/full restore：逐环负例、snapshot/replay/state-sync/pruning/drill；同world+samecandidate+同窗口材料，readonly历史与writable闸门分判。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [完整同步只读资格](prd.md#p2p-full-sync-read-only) | [完整状态同步](#des-p2p-full-sync-read-only-v1) | 同 cut、minimum 和闭包完整后原子发布，不自授权限 | FS-R1，现有[有界 full-sync 测试](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_tests.rs)仅作为局部基线；planned 同候选 full 组合补错 C0/旧 minimum/缺 blob/坏 manifest/provider 切换/授权失效，核对原 head 保留与无 writer/vote；本次未运行 | 原/新 cut、页链与闭包校验、实际读权 verdict、只读状态和错误原因 | 本机有界测试不关闭长期容量或部署验收 |
 | [长期同步容量](prd.md#p2p-full-sync-capacity-checkpoint) | [checkpoint 与容量](#des-p2p-full-sync-checkpoint-capacity-v1) | 接续不换根、不回滚；容量触限保留 verified 历史 | FS-C1，planned full storage/restore；沿 [testing-manual.md](../../testing-manual.md) S9A 新增合法历史跨现有页/字节/树上限，跨 epoch/profile/manifest 接续，伪 checkpoint/缺旧 head/minimum、安装各 seam 崩溃、旧 pointer、archive 缺失/损坏、GC 前重建、换 provider 累计预算与冷重开 SLO；现有手册不表示这些新场景已执行 | 版本化规模、使用/上限、受保护最低记录、冷恢复 roots、archive 重建、重开耗时与 stale/blocked | 当前页链和 watch inline 不证明该目标；本次未运行这些场景 |

@@ -2,6 +2,9 @@ use super::*;
 use crate::service_admission::{ExecutionBinding, WorldIdentity};
 use crate::{GovernanceValidatorAdmissionStatus as Status, WorldState};
 
+#[path = "governance_candidate_projection_tests.rs"]
+mod candidate_projection;
+
 fn candidate(
     id: &str,
     status: Status,

@@ -106,7 +106,7 @@ pub(super) fn validate(envelope: &LocalConsensusActionPayloadEnvelope) -> Result
     Ok(false)
 }
 
-pub(super) fn validate_consensus_action_payload_auth(
+pub(crate) fn validate_consensus_action_payload_auth(
     config: &NodeConfig,
     payload_cbor: &[u8],
 ) -> Result<(), NodeError> {

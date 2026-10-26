@@ -37,17 +37,19 @@ use sha2::{Digest, Sha256};
 mod determinism;
 mod driver;
 mod driver_authoritative_recovery;
-mod retained_commit_time;
 #[cfg(all(unix, feature = "wasmtime"))]
 pub(super) mod driver_bft;
 #[cfg(all(unix, feature = "wasmtime"))]
 mod driver_bft_node_runtime;
+#[cfg(all(unix, feature = "wasmtime"))]
+mod driver_bft_v2;
 mod driver_checkpoint;
 mod driver_checkpoint_profile;
 mod driver_checkpoint_transaction;
 mod driver_compacted_checkpoint_recovery;
 mod driver_observability;
 mod driver_storage_profile;
+mod retained_commit_time;
 // The fixture helpers live behind `test_tier_required` in the external
 // `oasis7` library. Keep this binary-test module on the same feature boundary;
 // `cfg(test)` on the binary does not propagate to its library dependency.

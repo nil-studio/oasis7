@@ -1,5 +1,8 @@
 pub mod distributed;
 pub mod distributed_bft;
+pub mod distributed_bft_v2 {
+    pub use crate::distributed_bft::v2::*;
+}
 pub mod distributed_checkpoint_lineage;
 pub mod distributed_consensus;
 pub mod distributed_dht;

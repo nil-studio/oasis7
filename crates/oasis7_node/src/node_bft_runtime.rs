@@ -62,6 +62,11 @@ impl NodeRuntime {
                 reason: "Tendermint v1 configuration was already selected".into(),
             });
         }
+        if self.bft_v2_config.is_some() {
+            return Err(NodeError::InvalidConfig {
+                reason: "Tendermint v2 configuration was already selected".into(),
+            });
+        }
         self.validate_bft_pending_admission()?;
         self.bft_config = Some(SelectedNodeBftConfigV1 {
             consensus: config,

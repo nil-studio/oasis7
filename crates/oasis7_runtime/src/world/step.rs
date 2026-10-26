@@ -548,6 +548,7 @@ impl World {
         product_validation_checkpoint: &mut dyn FnMut(&World) -> Result<(), WorldError>,
     ) -> Result<(), WorldError> {
         let committed_height = context.height;
+        self.validate_bft_execution_step(context, resume_after_product_validation_intent)?;
         let formal_started = self.formal_execution_tick.as_ref() == Some(&(context.clone(), false));
         if self.formal_execution_tick.is_some()
             && (!formal_started || resume_after_product_validation_intent)
@@ -586,6 +587,7 @@ impl World {
         if formal_started {
             self.formal_execution_tick = Some((context.clone(), true));
         }
+        self.complete_bft_execution_step(context);
         Ok(())
     }
 
@@ -608,7 +610,7 @@ impl World {
         }
         if !resume_after_product_validation_intent {
             while let Some(envelope) = self.pending_actions.pop_front() {
-            self.validate_governance_action_authorization(&envelope)?;
+                self.validate_governance_action_authorization(&envelope)?;
                 if let Err(reason) = self.safe_alternative_action_guard(&envelope) {
                     self.append_action_accepted_event(&envelope)?;
                     let event_id = self.append_event(
@@ -693,7 +695,7 @@ impl World {
                     )?;
                     action_envelope = ActionEnvelope {
                         governance_authorization: None,
-            committed_recipe_origin: None,
+                        committed_recipe_origin: None,
                         id: envelope.id,
                         action: override_action,
                     };

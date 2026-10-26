@@ -13,6 +13,11 @@ impl World {
     }
 
     pub(super) fn reject_ordinary_step_during_formal_execution(&self) -> Result<(), WorldError> {
+        if self.bft_governance_execution_in_progress() {
+            return Err(invalid(
+                "BFT successor requires its exact committed context step",
+            ));
+        }
         if self.formal_execution_tick.is_some() {
             return Err(invalid(
                 "formal successor requires its exact committed context step",
@@ -24,6 +29,9 @@ impl World {
         &mut self,
         context: &RuntimeCommittedTickContext,
     ) -> Result<(), WorldError> {
+        if self.bft_governance_parent.is_some() {
+            return Err(invalid("formal execution cannot replace a BFT parent"));
+        }
         if context.node_block_hash.trim().is_empty() || context.action_root.trim().is_empty() {
             return Err(invalid(
                 "formal successor requires original committed node/action hashes",

@@ -4,6 +4,8 @@
 //! attestation, and commit wire types. A BFT certificate cannot be represented
 //! as a legacy commit message.
 
+pub mod v2;
+
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 

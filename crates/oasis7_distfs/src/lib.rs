@@ -20,6 +20,7 @@ pub mod controlled_authority;
 mod feedback;
 mod feedback_p2p;
 pub mod protected_bft;
+pub mod protected_bft_v2;
 mod replication;
 pub mod storage_inventory;
 

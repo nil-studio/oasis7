@@ -8,6 +8,10 @@ use oasis7_proto::distributed_bft::{BftBlockV1, BftCommitCertificateV1, BftScope
 
 use crate::NodeConsensusAction;
 
+#[path = "execution_hook_bft_v2.rs"]
+mod bft_v2;
+pub use bft_v2::*;
+
 /// Reserved consensus action identity for execution inputs that are authored
 /// by the block proposer and then replayed by every materializing node.
 ///
@@ -577,5 +581,68 @@ pub trait NodeExecutionHook: Send {
         _max_entries: usize,
     ) -> Result<Vec<BftCommitCertificateV1>, String> {
         Err("durable BFT commit history is unsupported by this execution hook".into())
+    }
+
+    /// Pin a distinct V2 execution ledger and replay it from its exact genesis.
+    fn configure_bft_v2_execution(
+        &mut self,
+        _config: &NodeBftExecutionConfigV2,
+    ) -> Result<Option<NodeBftExecutionHeadV2>, String> {
+        Err("dynamic-set BFT execution is unsupported by this hook".into())
+    }
+
+    /// Compare this protocol cursor with the driver's independently recovered
+    /// cursor before deriving any execution context from the canonical World.
+    fn current_bft_v2_execution_context(
+        &mut self,
+        _schedule: &oasis7_consensus::tendermint_v2::BftHeightProposerScheduleV2,
+    ) -> Result<NodeBftExecutionContextV2, String> {
+        Err("dynamic-set BFT context is unsupported by this hook".into())
+    }
+
+    fn build_bft_v2_candidate(
+        &mut self,
+        _context: NodeBftBuildContextV2,
+    ) -> Result<oasis7_proto::distributed_bft::v2::BftBlockV2, String> {
+        Err("dynamic-set BFT construction is unsupported by this hook".into())
+    }
+
+    /// Independently reexecute actions and recompute the complete transition.
+    fn preview_bft_v2_candidate(
+        &mut self,
+        _expected: &NodeBftExecutionContextV2,
+        _candidate: &oasis7_proto::distributed_bft::v2::BftBlockV2,
+    ) -> Result<(), String> {
+        Err("dynamic-set BFT preview is unsupported by this hook".into())
+    }
+
+    fn validate_bft_v2_action_payload(&mut self, _payload: &[u8]) -> Result<(), String> {
+        Err("dynamic-set BFT action admission is unsupported by this hook".into())
+    }
+
+    /// State-dependent admission uses the current committed parent policy;
+    /// received candidates must still pass independent execution preview.
+    fn validate_bft_v2_action_batch(
+        &mut self,
+        _schedule: &oasis7_consensus::tendermint_v2::BftHeightProposerScheduleV2,
+        _actions: &[NodeConsensusAction],
+    ) -> Result<(), String> {
+        Err("dynamic-set BFT batch admission is unsupported by this hook".into())
+    }
+
+    fn commit_bft_v2_certificate(
+        &mut self,
+        _certificate: oasis7_consensus::tendermint_v2::VerifiedBftCommitCertificateV2,
+    ) -> Result<NodeBftExecutionCommitResultV2, String> {
+        Err("dynamic-set BFT commit is unsupported by this hook".into())
+    }
+
+    fn load_bft_v2_commit_history_page(
+        &mut self,
+        _config: &NodeBftExecutionConfigV2,
+        _after_height: u64,
+        _max_entries: usize,
+    ) -> Result<Vec<oasis7_proto::distributed_bft::v2::BftCommitCertificateV2>, String> {
+        Err("dynamic-set BFT history is unsupported by this hook".into())
     }
 }

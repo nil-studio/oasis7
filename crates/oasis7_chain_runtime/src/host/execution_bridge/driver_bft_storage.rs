@@ -601,7 +601,11 @@ fn validate_hash(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn put_cas_durable(store: &LocalCasStore, bytes: &[u8], maximum: usize) -> Result<String, String> {
+pub(super) fn put_cas_durable(
+    store: &LocalCasStore,
+    bytes: &[u8],
+    maximum: usize,
+) -> Result<String, String> {
     if bytes.is_empty() || bytes.len() > maximum {
         return Err("BFT CAS object is empty or exceeds the byte bound".into());
     }
@@ -657,7 +661,7 @@ pub(super) fn read_cas_bounded(
     Ok(bytes)
 }
 
-fn read_optional_canonical<T: for<'de> Deserialize<'de> + Serialize>(
+pub(super) fn read_optional_canonical<T: for<'de> Deserialize<'de> + Serialize>(
     path: &Path,
     maximum: usize,
 ) -> Result<Option<T>, String> {
@@ -675,7 +679,7 @@ fn read_optional_canonical<T: for<'de> Deserialize<'de> + Serialize>(
     Ok(Some(value))
 }
 
-fn read_required_canonical<T: for<'de> Deserialize<'de> + Serialize>(
+pub(super) fn read_required_canonical<T: for<'de> Deserialize<'de> + Serialize>(
     path: &Path,
     maximum: usize,
 ) -> Result<T, String> {
@@ -683,7 +687,7 @@ fn read_required_canonical<T: for<'de> Deserialize<'de> + Serialize>(
         .ok_or_else(|| format!("required BFT record is missing: {}", path.display()))
 }
 
-fn read_optional_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>, String> {
+pub(super) fn read_optional_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>, String> {
     let mut options = OpenOptions::new();
     options
         .read(true)
@@ -713,7 +717,7 @@ fn read_optional_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>, S
     Ok(Some(bytes))
 }
 
-fn write_immutable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(super) fn write_immutable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("BFT file path has no parent")?;
     let mut options = OpenOptions::new();
     options
