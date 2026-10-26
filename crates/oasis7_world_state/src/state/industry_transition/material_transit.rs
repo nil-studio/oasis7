@@ -588,22 +588,18 @@ pub fn refresh_progress_stage(
         .values()
         .map(|factory| factory.production.completed_jobs)
         .sum::<u64>();
-    let mut next = IndustryStage::Bootstrap;
-    if state
+    let stable = state
         .factories
         .values()
-        .any(factory_has_canonical_stable_line)
-    {
-        next = IndustryStage::ScaleOut;
-    }
+        .any(factory_has_canonical_stable_line);
     let governance_enabled =
         state.gameplay_policy.electricity_tax_bps > 0 || state.gameplay_policy.data_tax_bps > 0;
-    if next == IndustryStage::ScaleOut
-        && governance_enabled
-        && (active_completed_jobs >= 6 || progress.completed_material_transits >= 3)
-    {
-        next = IndustryStage::Governance;
-    }
+    let next = industry_stage_for_progress(
+        stable,
+        active_completed_jobs,
+        progress.completed_material_transits,
+        governance_enabled,
+    );
     if next != current {
         progress.stage = next;
         progress.stage_updated_at = now;

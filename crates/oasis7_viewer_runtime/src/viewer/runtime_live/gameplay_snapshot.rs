@@ -720,13 +720,7 @@ pub(super) fn build_player_gameplay_snapshot(
         // Shared world maturity is not evidence that this player stabilized a
         // line or already made an expansion decision.
         let personal_stage = if player_scoped {
-            if primary_factory
-                .is_some_and(|factory| industry::has_current_stable_line(state, factory))
-            {
-                IndustryStage::ScaleOut
-            } else {
-                IndustryStage::Bootstrap
-            }
+            industry::personal_stage(state, primary_factory, controlled_agent_id)
         } else {
             industry_stage
         };
@@ -900,7 +894,7 @@ pub(super) fn build_player_gameplay_snapshot(
                     goal_kind: PlayerGameplayGoalKind::ChooseMidLoopPath,
                     goal_title: "Choose your mid-loop path".to_string(),
                     objective: "Your first sustainable industrial capability is online. Expand it into stable organizational momentum.".to_string(),
-                    progress_detail: "Stage progress: the first expansion tradeoff is behind you and wider mid-loop branches are now meaningful.".to_string(),
+                    progress_detail: "Stage progress: your stable production and subsequent completed work now support wider mid-loop choices.".to_string(),
                     progress_percent: 100,
                     blocker_kind: None,
                     blocker_detail: None,

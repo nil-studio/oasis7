@@ -126,7 +126,14 @@ fn personal_industry_uses_one_owned_canonical_window() {
     let mut other = factory("agent-b", "factory.other", 1);
     other.production.completed_jobs = 100;
     state.factories.insert("factory.other".into(), other);
-    assert_eq!(snapshot(&state).same_loop_repeat_count, 3);
+    // This owner has enough completed work for the next stage, but only
+    // factory.b supplies the required stable evidence. The other factory's
+    // high historical count cannot substitute for that evidence.
+    assert_eq!(
+        snapshot(&state).goal_id,
+        "post_onboarding.choose_midloop_path"
+    );
+    assert_eq!(snapshot(&state).progress_percent, 100);
     state.factories.remove("factory.b");
     assert_eq!(snapshot(&state).progress_percent, 80);
     let production = &mut state.factories.get_mut("factory.other").unwrap().production;
@@ -275,4 +282,33 @@ fn personal_industry_block_pause_and_recovery_use_canonical_window_reset() {
         .unwrap();
     assert_eq!(snapshot(&state).same_loop_repeat_count, 0);
     assert_eq!(snapshot(&state).progress_percent, 80);
+}
+
+#[test]
+fn personal_industry_midloop_requires_owned_work_not_shared_transits() {
+    let mut state = WorldState::default();
+    state.industry_progress.stage = IndustryStage::Governance;
+    state.gameplay_policy.electricity_tax_bps = 100;
+    state.industry_progress.completed_material_transits = 30;
+    state
+        .factories
+        .insert("factory.a".into(), factory("agent-a", "factory.a", 60));
+    state
+        .factories
+        .insert("factory.b".into(), factory("agent-b", "factory.b", 3));
+    assert_eq!(snapshot(&state).progress_percent, 92);
+    state
+        .factories
+        .insert("factory.b".into(), factory("agent-b", "factory.b", 6));
+    let gameplay = snapshot(&state);
+    assert_eq!(gameplay.goal_id, "post_onboarding.choose_midloop_path");
+    assert_eq!(gameplay.progress_percent, 100);
+    assert!(
+        gameplay
+            .progress_detail
+            .contains("subsequent completed work")
+    );
+    assert!(!gameplay.progress_detail.contains("tradeoff is behind you"));
+    state.factories.remove("factory.b");
+    assert!(snapshot(&state).progress_percent < 92);
 }

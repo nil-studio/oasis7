@@ -1,6 +1,7 @@
-use crate::runtime::{FactoryProductionStatus, FactoryState, WorldState};
+use crate::runtime::{FactoryProductionStatus, FactoryState, IndustryStage, WorldState};
 use oasis7_world_state::state::{
-    FactoryProductionSnapshot, industry_transition::factory_has_canonical_stable_line,
+    FactoryProductionSnapshot,
+    industry_transition::{factory_has_canonical_stable_line, industry_stage_for_progress},
 };
 
 // The canonical reducer owns the window and identity. Its completed window
@@ -65,4 +66,28 @@ pub(super) fn primary_personal_factory<'a>(
                 production.last_completed_at.unwrap_or(0),
             )
         })
+}
+
+pub(super) fn personal_stage(
+    state: &WorldState,
+    factory: Option<&FactoryState>,
+    agent_id: Option<&str>,
+) -> IndustryStage {
+    let Some(agent_id) = agent_id else {
+        return IndustryStage::Bootstrap;
+    };
+    let jobs = state
+        .factories
+        .values()
+        .filter(|factory| factory.builder_agent_id == agent_id)
+        .map(|factory| factory.production.completed_jobs)
+        .fold(0_u64, u64::saturating_add);
+    // The world transit counter has no durable per-player attribution. It
+    // cannot stand in for this player's subsequent industrial work.
+    industry_stage_for_progress(
+        factory.is_some_and(|factory| has_current_stable_line(state, factory)),
+        jobs,
+        0,
+        state.gameplay_policy.electricity_tax_bps > 0 || state.gameplay_policy.data_tax_bps > 0,
+    )
 }
