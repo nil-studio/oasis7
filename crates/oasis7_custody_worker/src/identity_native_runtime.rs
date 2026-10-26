@@ -1048,6 +1048,9 @@ impl DurableObject for NativeSession {
         if url.path() == "/internal/history" {
             return history::response(self.state.clone(), &self.env, &raw);
         }
+        if url.path() == "/internal/missing-session" {
+            return history::missing_response(self.state.clone(), &self.env, &raw);
+        }
         if self
             .env
             .var("CUSTODY_NATIVE_PROVISION_ENABLED")

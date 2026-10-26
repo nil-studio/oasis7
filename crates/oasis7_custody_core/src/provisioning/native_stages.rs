@@ -243,6 +243,8 @@ pub use status_recovery_types::*;
 
 #[path = "native_stages/history_archive.rs"]
 mod history_archive;
+#[path = "native_stages/missing_session.rs"]
+mod missing_session;
 
 #[path = "native_stages/status_recovery.rs"]
 mod status_recovery;

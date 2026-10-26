@@ -41,6 +41,7 @@ function options(persist, data, bridge, mode) {
       CUSTODY_REVOCATION_OWNER_KEY_ID:'owner-source-test',CUSTODY_REVOCATION_OWNER_SIGNING_KEY:Buffer.alloc(32,92).toString('hex'),
       CUSTODY_NATIVE_NAMESPACE:data.namespace,CUSTODY_NATIVE_INSTANCE_EPOCH:data.identity_instance_epoch,CUSTODY_NATIVE_ENVIRONMENT:'test',CUSTODY_POLICY_VERSION:'1',
       ...(mode==='native-lost-account-result'?{FIXTURE_DROP_NATIVE_RESULT:'true'}:{}),
+      ...(mode==='native-lost-missing-result'?{FIXTURE_DROP_MISSING_RESULT:'true'}:{}),
       CUSTODY_BOOTSTRAP_MANAGERS:JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:'a'},environments:['test']}]),
       CUSTODY_PROVISION_ROUTES:JSON.stringify(routes),CUSTODY_PROVISION_WORLD_IDENTITY:JSON.stringify(world),CUSTODY_PROVISION_APPROVAL_ENABLED:'true',...roleBindings('owner'),
       ...(native?{CUSTODY_NATIVE_PROVISION_ENABLED:'true',CUSTODY_NATIVE_ORIGIN:'https://localhost',
@@ -108,7 +109,7 @@ export async function withRoleRuntime(mode, run) {
         await response.arrayBuffer(); lostBindingReply=true;
         throw new Error('fixture lost binding response after native SQL commit');
       }
-      if(mode==='native-lost-login' && suffix==='/native-key/complete' && response.status===200 && !lostLoginReply) {
+      if(['native-lost-login','native-lost-missing-result'].includes(mode) && suffix==='/native-key/complete' && response.status===200 && !lostLoginReply) {
         await response.arrayBuffer(); lostLoginReply=true;
         throw new Error('fixture lost original login Cookie after native SQL commit');
       }
@@ -146,6 +147,8 @@ export async function withRoleRuntime(mode, run) {
       },
       continueManaged:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/managed-logins/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();},
       drive:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();},
+      driveResponse:async operation=>{identity=await mf.getWorker('identity');return identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});},
+      freezeFence:async()=>{const reply=await (await mf.getWorker('fence')).fetch('https://fixture.test/freeze');assert.equal(reply.status,200);},
       oracle:async(role,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/'+role+'-permit',{method:'POST',body:JSON.stringify(body)}),
       defaultExecutor:async(kind,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/executor-default-'+kind,{method:'POST',body:JSON.stringify(body)}),
       nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests})});

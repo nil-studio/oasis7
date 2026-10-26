@@ -12,6 +12,8 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(catch, js_name = readNativeHistory)]
     async fn read_history(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = readMissingNativeSession)]
+    async fn read_missing(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = recoverNativeStatus)]
     async fn recover_status(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
 }
@@ -67,6 +69,22 @@ pub(super) async fn reconcile(
     )?)
     .map_err(|_| denied())?;
     let Some(entry) = entry else {
+        let missing: Option<oasis7_custody_core::native_history::NativeMissingSessionV1> =
+            serde_json::from_str(&super::super::text(
+                read_missing(env, &raw).await.map_err(|_| denied())?,
+            )?)
+            .map_err(|_| denied())?;
+        if let Some(fact) = missing {
+            if fact.original_permit_id != call.operation_id()
+                || fact.scope.role_scope.context.identity.account_id != call.account_id()
+                || fact.scope.role_scope.provision_id != call.provision_id()
+            {
+                return Err(denied());
+            }
+            store
+                .tighten_fixed_identity_missing_session(&fact)
+                .map_err(|_| denied())?;
+        }
         return Ok(());
     };
     let entry = store

@@ -20,6 +20,17 @@ impl NativeHistoryVerificationContext {
     }
 }
 impl OwnerProvisionApprovalStore {
+    pub fn tighten_fixed_identity_missing_session(
+        &self,
+        fact: &oasis7_custody_core::native_history::NativeMissingSessionV1,
+    ) -> Result<()> {
+        self.tighten("native_missing_session_tightened", |state| {
+            state
+                .tighten_fixed_identity_missing_session(fact)
+                .map_err(|_| rejected())
+        })
+        .map(|_| ())
+    }
     pub fn native_history_entry(&self, digest: &str) -> Result<NativeHistoryEntryV1> {
         self.snapshot()?
             .state

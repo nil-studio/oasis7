@@ -527,11 +527,7 @@ fn challenge_capacity_is_per_registration_and_never_blocks_original_fact_or_revo
 fn binding_lookup_http_reports_absence_as_404_and_committed_expired_fact_as_200() {
     let (mut f, owner, op, context) = setup();
     let pre = URL_SAFE_NO_PAD.encode([75u8; 32]);
-    let csrf = digest(
-        &f.service.config.session_key,
-        "csrf",
-        &pre,
-    );
+    let csrf = digest(&f.service.config.session_key, "csrf", &pre);
     let headers = format!(
         "POST /api/public/hosted-account/v2/custody/managed-bindings/lookup HTTP/1.1\r\nOrigin: https://localhost\r\nContent-Type: application/json\r\nX-Oasis7-CSRF: {csrf}\r\nCookie: __Host-oasis7_pre={pre}\r\n\r\n"
     );

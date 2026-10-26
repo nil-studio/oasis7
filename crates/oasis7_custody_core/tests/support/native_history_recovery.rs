@@ -1,5 +1,51 @@
 use super::*;
 use oasis7_custody_core::native_history::*;
+#[test]
+fn missing_session_is_only_exact_claimed_identity_tightening_even_after_freeze() {
+    let (mut s, c, pin) = binding_ready();
+    let permit = claim(
+        &mut s,
+        &c,
+        &pin,
+        "missing-login",
+        "binding-one",
+        NativeStageKindV1::Login,
+        1420,
+    );
+    let scope = history_scope(&s, &pin);
+    let native_operation_id = permit.descriptor.login_request_id;
+    let fact = NativeMissingSessionV1 {
+        api_version: 1,
+        stable_intent_digest: stable_native_intent_digest(
+            &scope,
+            NativeHistoryPhaseV1::InitialLogin,
+            &native_operation_id,
+        )
+        .unwrap(),
+        scope,
+        phase: NativeHistoryPhaseV1::InitialLogin,
+        native_operation_id,
+        original_permit_id: "missing-login".into(),
+        result_permit_id: "missing-login".into(),
+    };
+    s.freeze(2).unwrap();
+    let before = s.clone();
+    let mut wrong = fact.clone();
+    wrong.result_permit_id = "another-operation".into();
+    assert!(s.tighten_fixed_identity_missing_session(&wrong).is_err());
+    assert_eq!(s, before);
+    s.tighten_fixed_identity_missing_session(&fact).unwrap();
+    assert_eq!(s.provision(), before.provision());
+    assert_eq!(
+        s.native_stages()["missing-login"].result,
+        Some(NativeStageResultV1::ExplicitLoginRequired)
+    );
+    assert!(s.frozen());
+    s.tighten_fixed_identity_missing_session(&fact).unwrap();
+    let restored: AccountProvisionApprovalState =
+        serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+    assert_eq!(restored, s);
+}
 fn history_scope(
     s: &AccountProvisionApprovalState,
     pin: &NativeBindingPinV1,

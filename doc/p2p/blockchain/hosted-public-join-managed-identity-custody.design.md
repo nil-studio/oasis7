@@ -766,6 +766,7 @@ Account 独立强验 Root 签名、原 namespace/key/pin、已登记请求及已
 首次登录恢复从仍有效的原 Provision 预算扣除，ManagedLogin 恢复只从该次 fresh 批准尚余的预算扣除。
 原截止、当前权限或余额不足时只保留历史 pending/frozen，不自动加额或借旧 grant，须取得另一个适用的有效批准。
 SID 确实未保存时只记录 explicit_login_required；恢复或历史查询不能改为重新领取 Cookie。
+若该收紧结果到 Account 的提交丢失，固定 Identity history named capability 可另外返回 typed missing-session attestation，明确区别于 Root 签名事实。它只能来自已完成且持久保存 explicit_login_required 的 manifest，绑定原 scope、phase、native operation、原 permit/result permit 与稳定 intent digest；当前仅允许初始或 ManagedLogin 的原 permit，不猜测 legacy/recovery 归属。Account 仅对自己已 claimed 且尚无成功结果的精确原件记录 explicit_login_required，允许在到期、冻结或取消后收紧，但不得改 stage、epoch、预算、nonce、期限或解冻。该通道不能成为状态恢复或 Root 验签的替代，也不能覆盖已有成功会话事实。未知、歧义或损坏库存继续 pending。
 新 nonce 的 RootStatus 经真实验签和最终 SQL 当前准入后才可声明 NativeSessionReady；
 与归档的历史状态及独立 native binding 失效水位分开保存，失败不能复活旧状态或旧发送权。
 

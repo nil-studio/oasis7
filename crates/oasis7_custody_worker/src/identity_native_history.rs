@@ -58,11 +58,11 @@ pub(super) fn entry(snapshot: NativeHistorySnapshot) -> Result<Option<NativeHist
     value.validate().map_err(|_| denied())?;
     Ok(Some(value))
 }
-pub(super) fn read_local(
+fn read_snapshot(
     state: JsValue,
     env: &Env,
     call: &NativeRuntimeCall,
-) -> Result<Option<NativeHistoryEntryV1>> {
+) -> Result<Option<NativeHistorySnapshot>> {
     if !call.validate() {
         return Err(denied());
     }
@@ -88,7 +88,66 @@ pub(super) fn read_local(
             native_operation_id,
         })
         .map_err(|_| denied())?;
-    snapshot.map(entry).transpose().map(Option::flatten)
+    Ok(snapshot)
+}
+pub(super) fn read_local(
+    state: JsValue,
+    env: &Env,
+    call: &NativeRuntimeCall,
+) -> Result<Option<NativeHistoryEntryV1>> {
+    read_snapshot(state, env, call)?
+        .map(entry)
+        .transpose()
+        .map(Option::flatten)
+}
+fn missing_local(
+    state: JsValue,
+    env: &Env,
+    call: &NativeRuntimeCall,
+) -> Result<Option<oasis7_custody_core::native_history::NativeMissingSessionV1>> {
+    use oasis7_custody_core::native_history::NativeMissingSessionV1;
+    let Some(s) = read_snapshot(state, env, call)? else {
+        return Ok(None);
+    };
+    if !matches!(s.result, NativeStageResultV1::ExplicitLoginRequired) {
+        return Ok(None);
+    }
+    if s.private_sid_generation.is_some() {
+        return Err(denied());
+    }
+    let fact = NativeMissingSessionV1 {
+        api_version: 1,
+        scope: s.scope,
+        phase: s.phase,
+        native_operation_id: s.native_operation_id,
+        original_permit_id: s.original_permit_id,
+        result_permit_id: s.result_permit_id,
+        stable_intent_digest: s.stable_intent_digest,
+    };
+    fact.validate().map_err(|_| denied())?;
+    Ok(Some(fact))
+}
+pub(super) fn missing_response(state: JsValue, env: &Env, raw: &str) -> Result<Response> {
+    let call: NativeRuntimeCall = serde_json::from_str(raw).map_err(|_| denied())?;
+    Response::from_json(&missing_local(state, env, &call)?)
+}
+pub(crate) async fn read_missing_native_session_raw(env: &Env, raw: &str) -> Result<String> {
+    if raw.len() > 32 * 1024 {
+        return Err(denied());
+    }
+    let call: NativeRuntimeCall = serde_json::from_str(raw).map_err(|_| denied())?;
+    if !call.validate() {
+        return Err(denied());
+    }
+    let result: Option<oasis7_custody_core::native_history::NativeMissingSessionV1> = actor(
+        env,
+        &manifest_name(env, &call)?,
+        "/internal/missing-session",
+        &call,
+    )
+    .await
+    .map_err(|_| denied())?;
+    serde_json::to_string(&result).map_err(|_| denied())
 }
 pub(super) fn response(state: JsValue, env: &Env, raw: &str) -> Result<Response> {
     let call: NativeRuntimeCall = serde_json::from_str(raw).map_err(|_| denied())?;

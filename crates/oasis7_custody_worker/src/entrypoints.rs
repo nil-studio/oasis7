@@ -28,6 +28,16 @@ pub async fn identity_recover_native_status(
         .await
         .map_err(|_| rejected())
 }
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_read_missing_native_session(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::history::read_missing_native_session_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
 #[cfg(feature = "owner")]
 #[path = "owner_provision_entrypoints.rs"]
 mod provisioning;

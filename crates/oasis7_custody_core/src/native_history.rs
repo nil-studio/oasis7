@@ -50,6 +50,38 @@ pub enum NativeHistoryPhaseV1 {
     InitialLogin,
     ManagedLogin,
 }
+/// A trusted fixed-Identity tightening fact, explicitly not a Root signature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeMissingSessionV1 {
+    pub api_version: u8,
+    pub scope: NativeHistoryScopeV1,
+    pub phase: NativeHistoryPhaseV1,
+    pub native_operation_id: String,
+    pub original_permit_id: String,
+    pub result_permit_id: String,
+    pub stable_intent_digest: String,
+}
+impl NativeMissingSessionV1 {
+    pub fn validate(&self) -> Result<()> {
+        self.scope.validate()?;
+        check(
+            self.api_version == 1
+                && matches!(
+                    self.phase,
+                    NativeHistoryPhaseV1::InitialLogin | NativeHistoryPhaseV1::ManagedLogin
+                )
+                && id(&self.original_permit_id)
+                && self.result_permit_id == self.original_permit_id
+                && self.stable_intent_digest
+                    == stable_native_intent_digest(
+                        &self.scope,
+                        self.phase,
+                        &self.native_operation_id,
+                    )?,
+        )
+    }
+}
 /// This tuple and field projection preserve the original Identity manifest byte contract.
 pub fn stable_native_intent_digest(
     scope: &NativeHistoryScopeV1,
