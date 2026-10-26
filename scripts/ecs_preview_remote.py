@@ -461,6 +461,7 @@ class Engine:
         self.new_units: dict[str, bytes] = {}
         self.unit_modes: dict[str, tuple[int, int, int]] = {}
         self.old_roots: dict[str, Path] = {}
+        self.observed_cgroups: dict[str, Path] = {}
         self.old_processes: dict[str, dict] = {}
         self.candidate_processes: dict[str, dict] = {}
         self.service_public_key = ""
@@ -834,20 +835,33 @@ class Engine:
             raise RemoteError("service_state_invalid")
         return values
 
-    def _cgroup_dir(self, service: str) -> Path:
-        values = self._parse_show(service)
+    def _cgroup_dir(self, service: str, show: dict[str, str] | None = None) -> Path | None:
+        values = show if show is not None else self._parse_show(service)
         group = values["ControlGroup"]
-        if not group.startswith("/") or ".." in Path(group).parts:
-            raise RemoteError("cgroup_invalid")
-        root = (self.cgroup_root / group.lstrip("/")).resolve()
+        if group == "":
+            main_pid = values["MainPID"]
+            if (not main_pid.isdecimal() or int(main_pid) != 0
+                    or values["ActiveState"] not in ("inactive", "failed")):
+                raise RemoteError("cgroup_invalid")
+            root = self.observed_cgroups.get(service)
+            if root is None:
+                return None
+        else:
+            if not group.startswith("/") or ".." in Path(group).parts:
+                raise RemoteError("cgroup_invalid")
+            root = (self.cgroup_root / group.lstrip("/")).resolve()
+            self.observed_cgroups[service] = root
         try:
+            root = root.resolve()
             root.relative_to(self.cgroup_root.resolve())
-        except ValueError:
+        except (OSError, RuntimeError, ValueError):
             raise RemoteError("cgroup_invalid") from None
         return root
 
-    def _cgroup_pids(self, service: str) -> set[int]:
-        root = self._cgroup_dir(service)
+    def _cgroup_pids(self, service: str, show: dict[str, str] | None = None) -> set[int]:
+        root = self._cgroup_dir(service, show)
+        if root is None:
+            return set()
         pids: set[int] = set()
         if not root.exists():
             return pids
@@ -924,7 +938,7 @@ class Engine:
         identities: dict[str, dict] = {str(main_pid): main}
         allowed_names = ({SERVICE_BINS["chain"]} if service == self.config["chain_service"]
                          else {SERVICE_BINS["player"], "oasis7_viewer_live"})
-        pids = set(self._cgroup_pids(service))
+        pids = set(self._cgroup_pids(service, show))
         pids.add(main_pid)
         for pid in sorted(pids):
             identity = identities.get(str(pid)) or self._process_identity(pid)
@@ -1414,7 +1428,9 @@ class Engine:
             show = self._parse_show(service)
             if show["MainPID"] != "0" or show["ActiveState"] not in ("inactive", "failed"):
                 raise RemoteError("writers_still_active")
-            root = self._cgroup_dir(service)
+            root = self._cgroup_dir(service, show)
+            if root is None:
+                continue
             if root.exists():
                 dirs = [root, *(path for path in root.rglob("*") if path.is_dir())]
                 for directory in dirs:
@@ -1938,7 +1954,7 @@ class Engine:
                 if saved_main and (saved_main["pid"] != main["pid"]
                                    or saved_main["start_ticks"] != main["start_ticks"]):
                     raise RemoteError("service_identity_changed")
-                for pid in self._cgroup_pids(service):
+                for pid in self._cgroup_pids(service, show):
                     identity = self._process_identity(pid)
                     if identity["name"] in CONTROLLED_PROCESS_NAMES:
                         if (identity["name"] not in {expected_name, "oasis7_viewer_live"}

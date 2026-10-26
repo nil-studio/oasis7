@@ -814,7 +814,7 @@ class EngineTests(unittest.TestCase):
                 def _process_identity(self, pid):
                     return identities[pid]
 
-                def _cgroup_pids(self, _service):
+                def _cgroup_pids(self, _service, _show=None):
                     return {102}
 
             engine = FakeEngine(enforce_root=False)
@@ -824,6 +824,52 @@ class EngineTests(unittest.TestCase):
             identities[102] = {**identities[102], "sha256": "0" * 64}
             with self.assertRaisesRegex(remote.RemoteError, "process_hash_mismatch"):
                 engine._service_processes("player.service", expected_root=root)
+
+    def test_empty_control_group_requires_stopped_state_and_zero_main_pid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cgroup_root = Path(temp)
+            for state, main_pid in (("active", "101"), ("inactive", "101"),
+                                    ("failed", "2"), ("activating", "0")):
+                with self.subTest(state=state, main_pid=main_pid):
+                    engine = remote.Engine(cgroup_root=cgroup_root, enforce_root=False)
+                    engine._parse_show = lambda _service, state=state, main_pid=main_pid: {
+                        "MainPID": main_pid, "ActiveState": state, "ControlGroup": ""}
+                    with self.assertRaisesRegex(remote.RemoteError, "cgroup_invalid"):
+                        engine._cgroup_dir("player.service")
+
+            for state in ("inactive", "failed"):
+                engine = remote.Engine(cgroup_root=cgroup_root, enforce_root=False)
+                engine._parse_show = lambda _service, state=state: {
+                    "MainPID": "0", "ActiveState": state, "ControlGroup": ""}
+                self.assertIsNone(engine._cgroup_dir("player.service"))
+                self.assertEqual(engine._cgroup_pids("player.service"), set())
+
+    def test_stopped_empty_control_group_still_scans_last_observed_cgroup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cgroup_root = Path(temp) / "cgroup"
+            player_cgroup = cgroup_root / "system.slice/player.service"
+            player_cgroup.mkdir(parents=True)
+            (player_cgroup / "cgroup.procs").write_text("901\n")
+            (player_cgroup / "cgroup.threads").write_text("901\n")
+            engine = remote.Engine(cgroup_root=cgroup_root, enforce_root=False)
+            active_show = {"MainPID": "101", "ActiveState": "active",
+                           "ControlGroup": "/system.slice/player.service"}
+            stopped_show = {"MainPID": "0", "ActiveState": "inactive", "ControlGroup": ""}
+            shows = {"player.service": active_show, "chain.service": stopped_show}
+            engine._parse_show = lambda service: shows[service]
+            engine.config = {"player_service": "player.service", "chain_service": "chain.service"}
+
+            self.assertEqual(engine._cgroup_dir("player.service", active_show), player_cgroup.resolve())
+            shows["player.service"] = stopped_show
+            self.assertEqual(engine._cgroup_pids("player.service"), {901})
+            with self.assertRaisesRegex(remote.RemoteError, "writers_still_active"):
+                engine._assert_stopped()
+
+            (player_cgroup / "cgroup.procs").write_text("")
+            with self.assertRaisesRegex(remote.RemoteError, "writers_still_active"):
+                engine._assert_stopped()
+            (player_cgroup / "cgroup.threads").write_text("")
+            engine._assert_stopped()
 
     def test_partial_unit_replacement_restores_old_units_and_services(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -921,7 +967,7 @@ class EngineTests(unittest.TestCase):
                 def _process_identity(self, pid):
                     return current[pid]
 
-                def _cgroup_pids(self, service):
+                def _cgroup_pids(self, service, _show=None):
                     return {201} if service == chain and state[service] else set()
 
                 def _assert_stopped(self):
@@ -972,7 +1018,7 @@ class EngineTests(unittest.TestCase):
                     return {"pid": 202, "start_ticks": 44, "name": "oasis7_chain_runtime",
                             "executable": str(base / "unrelated/bin/oasis7_chain_runtime"), "sha256": "c" * 64}
 
-                def _cgroup_pids(self, _service):
+                def _cgroup_pids(self, _service, _show=None):
                     return {202}
 
             engine = FakeEngine(enforce_root=False)
