@@ -624,7 +624,7 @@ class PackageTests(unittest.TestCase):
             root = Path(directory)
             scripts = root / "scripts"
             scripts.mkdir()
-            for name in ("package-ecs.py", "package-ecs-skills.py"):
+            for name in ("package-ecs.py", "package-ecs-skills.py", "ecs_preview_compatibility.py"):
                 shutil.copyfile(ROOT / "scripts" / name, scripts / name)
             env = dict(os.environ)
             env.pop("PYTHONDONTWRITEBYTECODE", None)
@@ -632,7 +632,7 @@ class PackageTests(unittest.TestCase):
                                     cwd=root, env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(set(path.name for path in scripts.iterdir()),
-                             {"package-ecs.py", "package-ecs-skills.py"})
+                             {"package-ecs.py", "package-ecs-skills.py", "ecs_preview_compatibility.py"})
 
     @unittest.skipUnless(sys.platform == "linux" and Path("/usr/bin/time").is_file(), "Linux ECS resource collection")
     def test_compile_step_preserves_build_status_and_stops_monitor(self):
@@ -693,7 +693,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(json.loads(original)["profile"], "ecs")
 
             def assemble(output):
-                with patch.object(ecs.skills, "source_files", return_value={name: (ROOT / "skills/oasis7-play" / name).read_bytes() for name in ("SKILL.md", "references/identity-entry.md")}), patch.object(subprocess, "check_output", return_value="a" * 40), patch.object(sys, "argv", ["ecs", "assemble", "--native", str(stage), "--web", str(web), "--out", str(output)]), patch.object(subprocess, "run", side_effect=AssertionError("assembly must not compile")):
+                with patch.object(ecs.compatibility, "source_evidence", return_value={"schema_version": 1, "source_sha": "a" * 40, "fixture": "proof independently tested by compatibility tests"}), patch.object(ecs.skills, "source_files", return_value={name: (ROOT / "skills/oasis7-play" / name).read_bytes() for name in ("SKILL.md", "references/identity-entry.md")}), patch.object(subprocess, "check_output", return_value="a" * 40), patch.object(sys, "argv", ["ecs", "assemble", "--native", str(stage), "--web", str(web), "--out", str(output)]), patch.object(subprocess, "run", side_effect=AssertionError("assembly must not compile")):
                     ecs.main()
 
             out = root / "bundle"
@@ -748,7 +748,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)
         for section in (text.split("  web:\n", 1)[1].split("  native:", 1)[0], text.split("  native:\n", 1)[1].split("  native-trusted:", 1)[0]):
             self.assertNotIn("needs:", section)
-        self.assertEqual(text.count("ref: ${{ github.sha }}"), 5)
+        self.assertEqual(text.count("ref: ${{ github.sha }}"), 6)
         maintenance = text.split("  cache-maintenance:\n", 1)[1].split("  build-metrics:\n", 1)[0]
         self.assertIn("needs: native-trusted", maintenance)
         self.assertIn("always() && !cancelled() && needs.native-trusted.result == 'success'", maintenance)
@@ -1047,6 +1047,35 @@ class SkillReleaseTests(unittest.TestCase):
                 ecs.skills.activate(args, public)
             run.assert_not_called()
         self.assertEqual(include.read_bytes(), b"old")
+
+
+class MaintenanceLockTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "flock requires POSIX")
+    def test_coordinator_passes_one_lock_without_unlocking_it(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "lock"
+            with ecs.skills.maintenance_lock(path) as fd:
+                with ecs.skills.maintenance_lock(path, fd):
+                    pass
+                with path.open("a") as other:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with ecs.skills.maintenance_lock(path):
+                pass
+
+    @unittest.skipUnless(os.name == "posix", "flock requires POSIX")
+    def test_unheld_or_different_descriptor_is_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "lock"
+            with path.open("a") as unheld:
+                with self.assertRaisesRegex(ValueError, "not held"):
+                    with ecs.skills.maintenance_lock(path, unheld.fileno()):
+                        self.fail("unheld lock accepted")
+            with ecs.skills.maintenance_lock(Path(root) / "other") as wrong:
+                with self.assertRaisesRegex(ValueError, "identity mismatch"):
+                    with ecs.skills.maintenance_lock(path, wrong):
+                        self.fail("wrong lock accepted")
 
 
 def load_tests(loader, tests, pattern):

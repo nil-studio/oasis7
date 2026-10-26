@@ -455,6 +455,10 @@ run_packaging_artifact_contract_tests() {
   run bash ./scripts/packaging-artifact-size-contract.test.sh
   run bash ./scripts/package-workflow-cache-reuse-contract.test.sh
   run python3 ./scripts/package-ecs.test.py
+  run python3 ./scripts/ecs-preview-release.test.py
+  run python3 ./scripts/ecs-preview-update.test.py
+  run python3 ./scripts/ecs-preview-install.test.py
+  run python3 ./scripts/ecs-preview-compatibility.test.py
   run python3 ./scripts/ci-ecs-cache.test.py
   run python3 ./scripts/package-ecs-resource-monitor.test.py
   run bash ./scripts/copy-viewer-web-dist.test.sh

@@ -2,7 +2,7 @@
 
 适用：一台已配置好 SSH、systemd、世界目录和身份配置的 Linux ECS，更新 Preview 的 chain、launcher / Viewer，保留现有世界。首次开机配置只做一次；新世界初始化另见 [初始化手册](fresh-world-preview-bootstrap.manual.md)。正式多节点网络使用 [测试网运行手册](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)。
 
-正常路径只有五步：**选版本 → 预检 → 部署 → 验证 → 保留回滚版本**。失败才排障或回滚，不为一次普通部署新增审批系统。
+日常兼容更新使用[自动更新流程](single-ecs-preview-auto-update.manual.md)：一次性接管后，触发可信 ECS 发包并启用 Preview 发布，由 CI 上传 OSS、主机自动校验/切换/验收。本页保留首次接管、接口核对和手工应急方法；不要逐次人工下载转传。失败才排障或恢复。
 
 ## 1. 选定一个可用版本
 
@@ -122,7 +122,7 @@ add_header Link '</skills/oasis7-play/SKILL.md>; rel="describedby"; type="text/m
 
 先备份站点配置，执行 `nginx -t` 和 reload，失败恢复原配置；此 bootstrap 只做一次。后续发布工具只修改该 include，不改主站点、API、服务环境、权限开关或世界。HTTPS `server` 的 `/skills/` 路由只归此 include 管理；不能被另一 location 或其他 include 遮蔽。
 
-切换服务并核对新进程后，释放外层维护锁，再执行随包工具（工具会非阻塞获取同一维护锁；不要在持有它的父进程中嵌套调用）：
+自动更新由同一协调者持有维护锁，调用受信安装的 Skill 工具并传递 `--lock-fd`；工具核对 descriptor 对应准确锁文件且已持独占锁，不释放外层锁。以下是独立手工 Skill 维护入口，调用前不得持有另一个不传 descriptor 的外层锁；完整组件切换和恢复应通过自动更新协调者执行：
 
 ```bash
 release=/opt/oasis7-preview/releases/<verified-release>

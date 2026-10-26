@@ -4,6 +4,18 @@ run-name: ECS Server Package (jobs=${{ inputs.native_build_jobs || '2' }}, ${{ g
 on:
   workflow_dispatch:
     inputs:
+      publish_preview:
+        description: Publish a qualified main bundle to the Preview channel
+        type: boolean
+        default: false
+      retained_release:
+        description: Existing OSS release ID to select without rebuilding (requires publish_preview)
+        type: string
+        default: ''
+      rollback_preview:
+        description: Explicit new rollback intent for retained_release
+        type: boolean
+        default: false
       native_build_jobs:
         description: Native Cargo jobs (1 for comparison)
         type: choice
@@ -35,6 +47,7 @@ env:
 
 jobs:
   web:
+    if: inputs.retained_release == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -77,7 +90,7 @@ jobs:
           if-no-files-found: error
 
   native:
-    if: github.ref != 'refs/heads/main' || github.workflow_sha != github.sha
+    if: inputs.retained_release == '' && (github.ref != 'refs/heads/main' || github.workflow_sha != github.sha)
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps: &native-steps
@@ -236,7 +249,7 @@ jobs:
     concurrency:
       group: ecs-workspace-cache-main-writer
       cancel-in-progress: false
-    if: github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
+    if: inputs.retained_release == '' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
     cache-mode: write
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -387,3 +400,69 @@ jobs:
             output/oasis7-ecs-linux-x64-*.tar.gz
             output/oasis7-ecs-linux-x64-*.tar.gz.sha256
           if-no-files-found: error
+
+  publish-preview:
+    needs: [package, native-trusted]
+    if: >-
+      always() && !cancelled() && inputs.publish_preview && !inputs.measure_builds &&
+      github.repository == 'nil-studio/oasis7' && github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      ((inputs.retained_release == '' && needs.package.result == 'success' && needs.native-trusted.result == 'success') ||
+       (inputs.retained_release != '' && needs.package.result == 'skipped' && needs.native-trusted.result == 'skipped'))
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    concurrency:
+      group: ecs-preview-channel-publisher
+      cancel-in-progress: false
+    environment: ecs-preview-publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.retained_release == ''
+        with:
+          name: oasis7-ecs-linux-x64
+          path: output/qualified
+      - name: Install pinned OSS transport
+        run: python3 -m pip install 'oss2==2.19.1'
+      - name: Obtain short-lived OSS publisher credentials
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.ECS_PREVIEW_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.ECS_PREVIEW_PUBLISH_ROLE_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 1800
+      - name: Publish immutable objects and advance channel last
+        env:
+          OSS_ENDPOINT: ${{ vars.ECS_PREVIEW_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ECS_PREVIEW_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ECS_PREVIEW_OSS_PREFIX }}
+          PROGRAM_CONTRACT: ${{ vars.ECS_PREVIEW_PROGRAM_CONTRACT }}
+          PERSISTENCE_CONTRACT: ${{ vars.ECS_PREVIEW_PERSISTENCE_CONTRACT }}
+          IDENTITY_CONTRACT: ${{ vars.ECS_PREVIEW_IDENTITY_CONTRACT }}
+          COMPONENTS: ${{ vars.ECS_PREVIEW_COMPONENTS }}
+          RETAINED_RELEASE: ${{ inputs.retained_release }}
+          ROLLBACK: ${{ inputs.rollback_preview }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--endpoint "$OSS_ENDPOINT" --bucket "$OSS_BUCKET" --prefix "$OSS_PREFIX")
+          if [[ -n "$RETAINED_RELEASE" ]]; then
+            args+=(--retained-release "$RETAINED_RELEASE")
+          else
+            archives=(output/qualified/*.tar.gz)
+            [[ ${#archives[@]} == 1 && -f "${archives[0]}" ]]
+            args+=(--archive "${archives[0]}" --program-contract "$PROGRAM_CONTRACT"
+                   --persistence-contract "$PERSISTENCE_CONTRACT" --identity-contract "$IDENTITY_CONTRACT"
+                   --components "${COMPONENTS:-player}")
+          fi
+          if [[ "$ROLLBACK" == true ]]; then args+=(--rollback); fi
+          python3 scripts/ecs-preview-release.py "${args[@]}"

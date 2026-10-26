@@ -503,6 +503,7 @@
         "scripts/ecs-preview-*",
         "scripts/test-ecs-preview-deploy.sh",
         "config/ecs-preview-deploy.example.json",
+        "config/ecs-preview-auto-update.example.json",
         "scripts/native-packaging*",
         "scripts/packaging-*",
         "scripts/release-packages-trunk*",
