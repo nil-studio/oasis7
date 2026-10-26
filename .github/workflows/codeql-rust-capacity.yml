@@ -95,7 +95,7 @@ jobs:
           echo "218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 rustup toolchain install 1.96.0 --profile minimal
       - id: init
-        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         timeout-minutes: 5
         with:
           languages: rust
@@ -125,7 +125,7 @@ jobs:
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: analyze
         name: Extraction and complete official default queries
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
