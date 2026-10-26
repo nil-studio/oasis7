@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {setTimeout as delay} from 'node:timers/promises';
 import {withRoleRuntime, persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+test('actual independently activated Fence admits the full native chain without giving Owner its control capability',{timeout:120000},async()=>{
+  await withRoleRuntime('native-real-fence',async runtime=>{
+    assert.equal((await runtime.drive('native-real-fence-one')).stage,'native_session_ready');
+    assert.equal(runtime.nativeRequests()['/native-key/complete'],1);
+    await runtime.restart('native-real-fence');
+    assert.equal((await runtime.drive('native-real-fence-one')).stage,'native_session_ready');
+    assert.equal(runtime.nativeRequests()['/native-key/complete'],1);
+  });
+});
 
 test('persisted Identity status survives Account submission loss without another login', {timeout:120000}, async () => {
   await withRoleRuntime('native-lost-account-result', async runtime => {
