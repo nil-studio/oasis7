@@ -210,6 +210,50 @@ impl BftConsensusMachineV2 {
             .map(|(first, second)| (first, second))
     }
 
+    /// Retain a verified conflicting header for a proposal already accepted
+    /// at this height and round. This records punishment evidence only; it
+    /// does not alter proposal, lock, vote, or commit state.
+    pub fn record_proposal_equivocation_evidence(
+        &mut self,
+        first: &BftProposalHeaderV2,
+        second: &BftProposalHeaderV2,
+    ) -> Result<bool, String> {
+        if first == second
+            || first.height != self.height
+            || second.height != self.height
+            || first.round != second.round
+            || first.proposer_id != second.proposer_id
+            || first.scope != *self.schedule.scope()
+            || second.scope != *self.schedule.scope()
+            || first.schedule_policy_hash != self.schedule.policy_hash()
+            || second.schedule_policy_hash != self.schedule.policy_hash()
+        {
+            return Err("BFT proposal equivocation evidence has mismatched headers".into());
+        }
+        for header in [first, second] {
+            self.set.validate_proposal_header(header)?;
+            if self.expected_proposer_for_round(header.round)? != header.proposer_id {
+                return Err("BFT proposal equivocation has a non-proposer signer".into());
+            }
+        }
+        let accepted = self.proposals.get(&first.round).ok_or_else(|| {
+            "BFT proposal equivocation lacks its accepted first header".to_string()
+        })?;
+        if accepted.header != *first {
+            return Err("BFT proposal equivocation first header was not accepted".into());
+        }
+        let key = (first.round, first.proposer_id.clone());
+        if self.proposal_equivocations.contains_key(&key) {
+            return Ok(false);
+        }
+        if self.proposal_equivocations.len() >= BFT_MAX_PROPOSAL_EQUIVOCATIONS_V2 {
+            return Err("BFT proposal equivocation evidence capacity exceeded".into());
+        }
+        self.proposal_equivocations
+            .insert(key, (first.clone(), second.clone()));
+        Ok(true)
+    }
+
     pub fn step_deadline_ms(&self) -> Option<i64> {
         self.step_deadline_ms
     }
@@ -458,16 +502,11 @@ impl BftConsensusMachineV2 {
         };
 
         if let Some(previous) = self.proposals.get(&proposal.header.round) {
-            if previous == &proposal {
+            if previous.header == proposal.header {
                 return Ok(output);
             }
-            if self.proposal_equivocations.len() >= BFT_MAX_PROPOSAL_EQUIVOCATIONS_V2 {
-                return Err("BFT proposal equivocation evidence capacity exceeded".into());
-            }
-            self.proposal_equivocations.insert(
-                (proposal.header.round, proposal.header.proposer_id.clone()),
-                (previous.header.clone(), proposal.header.clone()),
-            );
+            let first = previous.header.clone();
+            self.record_proposal_equivocation_evidence(&first, &proposal.header)?;
             return Err("BFT proposer equivocated within height/round".into());
         }
         if self

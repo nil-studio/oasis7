@@ -168,6 +168,199 @@ impl Fixture {
             precommits,
         }
     }
+
+    fn remote_proposal(&self, marker: u8, round: u64) -> BftProposalV2 {
+        let mut block = self.block();
+        block.actions_cbor = vec![0x80, marker];
+        block.action_root = format!("{marker:02x}").repeat(32);
+        let proposer_id = self
+            .schedule
+            .expected_proposer_for_round(round)
+            .expect("deterministic round proposer");
+        let proposer_key = self
+            .keys
+            .iter()
+            .find(|(id, _)| id == &proposer_id)
+            .expect("proposer key");
+        let header = BftProposalHeaderV2::sign(
+            block.scope.clone(),
+            block.height,
+            round,
+            self.set.set_hash().to_string(),
+            self.schedule.policy_hash().to_string(),
+            proposer_id,
+            block.block_id().expect("block id"),
+            None,
+            &proposer_key.1,
+        )
+        .expect("signed proposal header");
+        BftProposalV2 {
+            header,
+            block,
+            valid_round_evidence: None,
+        }
+    }
+}
+
+#[test]
+fn journal_retains_only_authenticated_proposal_equivocation_evidence() {
+    let fixture = Fixture::new();
+    let first = fixture.remote_proposal(1, 0);
+    let conflicting = fixture.remote_proposal(2, 0);
+    let inactive_key = SigningKey::from_bytes(&[99; 32]);
+    let mut started = fixture.journal("observer", &inactive_key);
+    started.height_started_at_ms = Some(100);
+    let mut accepted = started.clone();
+    accepted.events.push(BftSigningJournalEventV2::Proposal {
+        proposal: Box::new(first.clone()),
+        local: false,
+        now_ms: 101,
+    });
+    verify_bft_signing_journal_transition_v2(
+        &started,
+        &accepted,
+        &fixture.set,
+        &fixture.schedule,
+        TIMEOUTS,
+    )
+    .expect("the first signed proposal is a legal remote event");
+
+    let mut equivocation = accepted.clone();
+    equivocation
+        .events
+        .push(BftSigningJournalEventV2::ProposalEquivocation {
+            first: Box::new(first.header.clone()),
+            second: Box::new(conflicting.header.clone()),
+            now_ms: 102,
+        });
+    verify_bft_signing_journal_transition_v2(
+        &accepted,
+        &equivocation,
+        &fixture.set,
+        &fixture.schedule,
+        TIMEOUTS,
+    )
+    .expect("the authenticated pair appends as evidence without accepting a second proposal");
+    let restored =
+        replay_bft_signing_journal_v2(&equivocation, &fixture.set, &fixture.schedule, TIMEOUTS)
+            .expect("durable equivocation evidence replays");
+    assert_eq!(restored.proposal_equivocation_evidence().count(), 1);
+    assert_eq!(
+        restored.proposal_for_round(0).unwrap().header,
+        first.header,
+        "the conflicting proposal must not replace accepted proposal state"
+    );
+
+    let mut bad_signature = equivocation.clone();
+    if let BftSigningJournalEventV2::ProposalEquivocation { second, .. } =
+        bad_signature.events.last_mut().unwrap()
+    {
+        second.signature_hex = "00".into();
+    }
+    assert!(
+        replay_bft_signing_journal_v2(&bad_signature, &fixture.set, &fixture.schedule, TIMEOUTS,)
+            .is_err(),
+        "a durable evidence event cannot smuggle an unsigned header"
+    );
+
+    let mut unanchored = started.clone();
+    unanchored
+        .events
+        .push(BftSigningJournalEventV2::ProposalEquivocation {
+            first: Box::new(first.header.clone()),
+            second: Box::new(conflicting.header.clone()),
+            now_ms: 101,
+        });
+    assert!(
+        replay_bft_signing_journal_v2(&unanchored, &fixture.set, &fixture.schedule, TIMEOUTS)
+            .is_err()
+    );
+}
+
+#[test]
+fn journal_equivocation_evidence_preserves_pending_vote_across_reopen() {
+    let fixture = Fixture::new();
+    let proposer_id = fixture
+        .schedule
+        .expected_proposer_for_round(0)
+        .expect("proposer");
+    let (local_id, local_key) = fixture
+        .keys
+        .iter()
+        .find(|(id, _)| id != &proposer_id)
+        .expect("a non-proposer active validator");
+    let first = fixture.remote_proposal(1, 0);
+    let conflicting = fixture.remote_proposal(2, 0);
+    let mut started = fixture.journal(local_id, local_key);
+    started.height_started_at_ms = Some(100);
+
+    let mut accepted = started.clone();
+    accepted.events.push(BftSigningJournalEventV2::Proposal {
+        proposal: Box::new(first.clone()),
+        local: false,
+        now_ms: 101,
+    });
+    let machine =
+        replay_bft_signing_journal_v2(&accepted, &fixture.set, &fixture.schedule, TIMEOUTS)
+            .expect("the first proposal creates the deterministic prevote intent");
+    let pending_vote = machine
+        .vote_intent(
+            local_id.clone(),
+            BftVotePhaseV2::Prevote,
+            BftVoteValueV2::Block {
+                block_id: first.header.block_id.clone(),
+            },
+            0,
+        )
+        .expect("derive local prevote intent")
+        .expect("local active validator can vote");
+    verify_bft_signing_journal_transition_v2(
+        &started,
+        &accepted,
+        &fixture.set,
+        &fixture.schedule,
+        TIMEOUTS,
+    )
+    .expect("persist the first signed proposal");
+
+    let mut reserved = accepted.clone();
+    reserved.pending_vote_intent = Some(pending_vote.clone());
+    verify_bft_signing_journal_transition_v2(
+        &accepted,
+        &reserved,
+        &fixture.set,
+        &fixture.schedule,
+        TIMEOUTS,
+    )
+    .expect("reserve the exact prevote intent emitted by replay");
+
+    let mut with_evidence = reserved.clone();
+    with_evidence
+        .events
+        .push(BftSigningJournalEventV2::ProposalEquivocation {
+            first: Box::new(first.header.clone()),
+            second: Box::new(conflicting.header.clone()),
+            now_ms: 102,
+        });
+    verify_bft_signing_journal_transition_v2(
+        &reserved,
+        &with_evidence,
+        &fixture.set,
+        &fixture.schedule,
+        TIMEOUTS,
+    )
+    .expect("authenticated evidence may append without consuming a pending vote intent");
+
+    let bytes = oasis7_cas::to_canonical_cbor(&with_evidence)
+        .expect("encode durable journal after evidence append");
+    let reopened: BftSigningJournalV2 =
+        serde_cbor::from_slice(&bytes).expect("reopen canonical protected journal bytes");
+    let restored =
+        replay_bft_signing_journal_v2(&reopened, &fixture.set, &fixture.schedule, TIMEOUTS)
+            .expect("reopened journal preserves protocol state and evidence");
+    assert_eq!(reopened.pending_vote_intent(), Some(&pending_vote));
+    assert_eq!(restored.proposal_equivocation_evidence().count(), 1);
+    assert_eq!(restored.proposal_for_round(0).unwrap().header, first.header);
 }
 
 #[test]

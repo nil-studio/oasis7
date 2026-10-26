@@ -31,6 +31,8 @@ const AUTHORITY_EPOCH: u64 = 9;
 
 #[path = "driver_bft_v2_recovery.rs"]
 mod recovery;
+#[path = "driver_bft_v2_transition.rs"]
+mod transition;
 
 struct NodeTestSignerKey(SigningKey);
 

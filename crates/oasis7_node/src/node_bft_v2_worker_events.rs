@@ -13,7 +13,8 @@ impl Worker {
                 BftSigningJournalEventV2::Vote { vote, .. } => {
                     Some(BftMessageV2::Vote(vote.as_ref().clone()))
                 }
-                BftSigningJournalEventV2::Timeout { .. } => None,
+                BftSigningJournalEventV2::Timeout { .. }
+                | BftSigningJournalEventV2::ProposalEquivocation { .. } => None,
             };
             if let Some(message) = message {
                 self.seen.insert(message_digest(&message)?);
@@ -87,6 +88,7 @@ impl Worker {
                         effects
                     }
                     Err(reason) => {
+                        self.retain_proposal_equivocation(&next, digest, now)?;
                         self.reject_inbound(reason);
                         return Ok(());
                     }
@@ -122,6 +124,38 @@ impl Worker {
         Ok(())
     }
 
+    fn retain_proposal_equivocation(
+        &mut self,
+        observed: &BftConsensusMachineV2,
+        message_digest: [u8; 32],
+        now_ms: i64,
+    ) -> Result<(), NodeError> {
+        let evidence = observed
+            .proposal_equivocation_evidence()
+            .find_map(|(first, second)| {
+                let already_retained = self.setup.machine.proposal_equivocation_evidence().any(
+                    |(known_first, known_second)| known_first == first && known_second == second,
+                );
+                (!already_retained).then(|| (first.clone(), second.clone()))
+            });
+        let Some((first, second)) = evidence else {
+            return Ok(());
+        };
+
+        self.append_event(BftSigningJournalEventV2::ProposalEquivocation {
+            first: Box::new(first.clone()),
+            second: Box::new(second.clone()),
+            now_ms,
+        })?;
+        self.setup
+            .machine
+            .record_proposal_equivocation_evidence(&first, &second)
+            .map_err(error)?;
+        self.seen.insert(message_digest);
+        self.publish_status(None);
+        Ok(())
+    }
+
     pub(super) fn append_event(
         &mut self,
         event: BftSigningJournalEventV2,
@@ -129,9 +163,14 @@ impl Worker {
         let Some(previous) = self.setup.checkpoint.state.journal.as_ref() else {
             return Ok(());
         };
-        if previous.pending_proposal_intent().is_some()
-            || previous.pending_vote_intent().is_some()
-            || previous.pending_commit().is_some()
+        let evidence_only = matches!(
+            &event,
+            BftSigningJournalEventV2::ProposalEquivocation { .. }
+        );
+        if !evidence_only
+            && (previous.pending_proposal_intent().is_some()
+                || previous.pending_vote_intent().is_some()
+                || previous.pending_commit().is_some())
         {
             return Err(error("protected BFT V2 signer has an unresolved decision"));
         }

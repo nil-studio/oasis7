@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::io::{self, Write};
 
 use oasis7_proto::distributed_bft::v2::{
-    BftCommitCertificateV2, BftProposalV2, BftScopeV2, BftVoteV2,
+    BftCommitCertificateV2, BftProposalHeaderV2, BftProposalV2, BftScopeV2, BftVoteV2,
 };
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +60,11 @@ pub enum BftSigningJournalEventV2 {
         local: bool,
         now_ms: i64,
     },
+    ProposalEquivocation {
+        first: Box<BftProposalHeaderV2>,
+        second: Box<BftProposalHeaderV2>,
+        now_ms: i64,
+    },
     Vote {
         vote: Box<BftVoteV2>,
         local: bool,
@@ -74,6 +79,7 @@ impl BftSigningJournalEventV2 {
     pub fn event_time_ms(&self) -> i64 {
         match self {
             Self::Proposal { now_ms, .. }
+            | Self::ProposalEquivocation { now_ms, .. }
             | Self::Vote { now_ms, .. }
             | Self::Timeout { now_ms } => *now_ms,
         }
@@ -82,7 +88,7 @@ impl BftSigningJournalEventV2 {
     pub fn is_local(&self) -> bool {
         match self {
             Self::Proposal { local, .. } | Self::Vote { local, .. } => *local,
-            Self::Timeout { .. } => false,
+            Self::ProposalEquivocation { .. } | Self::Timeout { .. } => false,
         }
     }
 }
@@ -312,6 +318,10 @@ fn replay_journal(
                     }
                 }
                 machine.receive_proposal(proposal.as_ref().clone(), true, *now_ms)?
+            }
+            BftSigningJournalEventV2::ProposalEquivocation { first, second, .. } => {
+                machine.record_proposal_equivocation_evidence(first, second)?;
+                Vec::new()
             }
             BftSigningJournalEventV2::Vote {
                 vote,
@@ -551,6 +561,7 @@ pub fn verify_bft_signing_journal_transition_v2(
                 }
                 expected.pending_vote_intent = None;
             }
+            BftSigningJournalEventV2::ProposalEquivocation { .. } => {}
             BftSigningJournalEventV2::Proposal { local: false, .. }
             | BftSigningJournalEventV2::Vote { local: false, .. }
             | BftSigningJournalEventV2::Timeout { .. } => {

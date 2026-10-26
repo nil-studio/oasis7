@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use oasis7_consensus::tendermint_v2::BftHeightProposerScheduleV2;
 use oasis7_distfs::protected_bft_v2::{BftSignerBindingV2, RemoteBftSignerProviderV2};
-use oasis7_proto::distributed_bft::v2::BftCommitCertificateV2;
+use oasis7_proto::distributed_bft::v2::{BftCommitCertificateV2, BftProposalHeaderV2};
 use serde::Serialize;
 
 use crate::runtime_util::lock_state;
@@ -49,6 +49,7 @@ pub struct NodeBftStatusV2 {
     pub pending_transition_height: Option<u64>,
     pub local_validator_active: bool,
     pub durable_event_count: usize,
+    pub proposal_equivocation_evidence: Vec<(BftProposalHeaderV2, BftProposalHeaderV2)>,
     pub rejected_inbound_messages: u64,
     pub last_inbound_rejection: Option<String>,
     pub last_transport_error: Option<String>,

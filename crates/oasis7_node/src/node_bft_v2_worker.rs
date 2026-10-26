@@ -196,6 +196,12 @@ impl Worker {
             .map(|transition| transition.activation_height);
         status.local_validator_active = self.local_signer_enabled();
         status.durable_event_count = self.journal_event_count();
+        status.proposal_equivocation_evidence = self
+            .setup
+            .machine
+            .proposal_equivocation_evidence()
+            .map(|(first, second)| (first.clone(), second.clone()))
+            .collect();
         state.tick_count = state.tick_count.saturating_add(1);
         state.last_tick_unix_ms = Some(now_unix_ms());
 

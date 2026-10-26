@@ -1079,3 +1079,6 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
 
 #[path = "node_bft_v2_worker_transition_tests/late_install.rs"]
 mod late_install;
+
+#[path = "node_bft_v2_worker_transition_tests/proposal_evidence.rs"]
+mod proposal_evidence;
