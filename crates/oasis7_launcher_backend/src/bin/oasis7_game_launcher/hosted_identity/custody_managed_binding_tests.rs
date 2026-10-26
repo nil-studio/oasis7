@@ -246,7 +246,7 @@ fn binding_audit_failure_rolls_back_nonce_and_binding_then_original_retry_commit
                 .is_none()
             );
             assert!(
-                tx.get::<ChallengeRecord>(&"custody_managed_challenge:bind-1".to_owned())?
+                tx.get::<ChallengeRecord>("custody_managed_challenge:bind-1")?
                     .unwrap()
                     .value
                     .consumed_statement

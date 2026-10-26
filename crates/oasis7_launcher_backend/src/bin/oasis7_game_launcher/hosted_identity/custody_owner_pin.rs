@@ -299,14 +299,13 @@ pub(in super::super::super) fn guard_login(
     let fingerprint = guard(tx, root, config, now)?;
     if let Some(lookup) =
         tx.get::<CredentialLookup>(&super::super::super::native_key::lookup_key(key))?
-    {
-        if let Some(binding) = tx.get::<ManagedBindingRecord>(&format!(
+        && let Some(binding) = tx.get::<ManagedBindingRecord>(&format!(
             "custody_managed_binding:{}",
             lookup.value.account_id
-        ))? && !binding_is_current(tx, root, config, &binding.value)
-        {
-            return Err(reject("owner_pin_binding_retired_pending"));
-        }
+        ))?
+        && !binding_is_current(tx, root, config, &binding.value)
+    {
+        return Err(reject("owner_pin_binding_retired_pending"));
     }
     Ok(fingerprint)
 }
