@@ -316,3 +316,23 @@ fn windows_ambiguous_target_spellings_are_refused() {
     drop(guard);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_hardlinked_targets_and_anchors_are_refused() {
+    let _test_guard = super::tests::TEST_LOCK.lock().unwrap();
+    let root = std::env::temp_dir().join(format!("oasis7-lock-winlink-{}", new_lock_token()));
+    fs::create_dir_all(&root).unwrap();
+    let ledger = root.join("ledger");
+    fs::write(&ledger, b"original").unwrap();
+    fs::hard_link(&ledger, root.join("alias")).unwrap();
+    assert!(ExclusiveDirectoryProcessLock::try_acquire(&ledger).is_err());
+    assert!(ExclusiveDirectoryProcessLock::try_acquire(&root.join("alias")).is_err());
+    fs::remove_file(root.join("alias")).unwrap();
+    let guard = ExclusiveDirectoryProcessLock::try_acquire(&ledger).unwrap();
+    drop(guard);
+    fs::hard_link(root.join("ledger.lock.guard"), root.join("anchor-alias")).unwrap();
+    assert!(ExclusiveDirectoryProcessLock::try_acquire(&ledger).is_err());
+    assert_eq!(fs::read(&ledger).unwrap(), b"original");
+    fs::remove_dir_all(root).unwrap();
+}

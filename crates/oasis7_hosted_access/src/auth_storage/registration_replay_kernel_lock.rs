@@ -90,6 +90,18 @@ pub(super) fn normalized_target(path: &Path) -> Result<PathBuf, String> {
                 if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
                     return Err("registration replay lock target reparse point refused".into());
                 }
+                if metadata.is_file() {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+                    let file = OpenOptions::new()
+                        .read(true)
+                        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+                        .open(&target)
+                        .map_err(|err| {
+                            format!("open registration replay lock target failed: {err}")
+                        })?;
+                    verify_windows_file(&file)?;
+                }
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
@@ -197,6 +209,7 @@ fn verify_anchor(file: &File, path: &Path) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
+        verify_windows_file(file)?;
         use std::os::windows::fs::MetadataExt;
         use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
         if opened.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
@@ -204,6 +217,25 @@ fn verify_anchor(file: &File, path: &Path) -> Result<(), String> {
         {
             return Err("registration replay kernel lock reparse point refused".into());
         }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn verify_windows_file(file: &File) -> Result<(), String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, GetFileInformationByHandle,
+    };
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(format!(
+            "inspect registration replay file identity failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if info.nNumberOfLinks != 1 || info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err("registration replay lock requires a single-link non-reparse file".into());
     }
     Ok(())
 }
