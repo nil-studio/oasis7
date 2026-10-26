@@ -115,6 +115,8 @@ Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6；O7-REQ-a15a1b8e-8b7f-4
 
 成功的、经过现有 nonce/授权校验的 signed `RegisterSession` 可为该 socket 建立当前 gameplay 读取身份；仅声明玩家 ID 的 `ReconnectSync` 仍清除该身份。查询前验证原请求签名、当前 session key/hosted 授权与当前 socket owner fence；锁外使用既有 WorldService verified lookup，回包前重查同一 fence。旧 key、撤销、跨玩家、world/branch/reorg 或绑定变化均不得借原请求扩大权限。
 
+原请求胶囊的持久恢复 scope 绑定 endpoint、world、source fence 与 reorg epoch；Runtime 本地 Prompt authority epoch 不属于该持久身份，兼容已保存的旧 epoch 胶囊。当前发送和在途查询仍核对完整实时 scope、当前身份与连接，旧 epoch 的迟到结果不能越过当前查询 fence。
+
 浏览器只采纳当前 scope、身份、原请求及当前查询匹配的结果。只有 committed、rejected 或 expired 的权威结果允许结束原胶囊；Unknown、HistoryUnavailable、限流、传输失败与查询权限失败均保留原请求及真实未知。查询错误不能冒充原操作 rejected。旧 received/pending 快照不能覆盖已查明终态。committed 只证明原请求处置，Agent 归属和后续玩法效果仍以当前 canonical 视图为准。此通道不自动重投 volatile Received 后丢失的原请求，不把查询 Unknown 当成可重领证明。
 
 验证覆盖浏览器胶囊重载、Runtime 空待查询队列、原 identity 回读与同一回执关联；signed registration 与 asserted reconnect 的边界；查询前及返回前的撤销/身份变化；查询始终零 submit；查询受阻不清胶囊及旧 admission 快照不降级终态。生产原请求是否仍有可查询历史与所需权限，须在实际环境另行核对，局部测试不代签真实试玩。

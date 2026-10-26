@@ -36,13 +36,13 @@ const deferred = () => {
 };
 const instances = [];
 let storage;
-function fixture(initial = { available: false, source: "guest_only" }, recovery) {
+function fixture(initial = { available: false, source: "guest_only" }, recovery, getGameplayScope = () => gameplayScope) {
   const state = { auth: initial };
   const generateKeypair = vi.fn(async () => pair(1));
   const register = vi.fn(async () => {});
   const render = vi.fn();
   const clearLegacy = vi.fn();
-  const module = createHostedWorldAccount({ state, generateKeypair, register, render, clearLegacy, recovery, getGameplayScope: () => gameplayScope });
+  const module = createHostedWorldAccount({ state, generateKeypair, register, render, clearLegacy, recovery, getGameplayScope });
   instances.push(module);
   return { module, state, generateKeypair, register, render, clearLegacy };
 }
@@ -278,17 +278,17 @@ function persistentGameplayCapsule() {
   };
   return { store, recovery };
 }
-async function reloadGameplayCapsule(recovery) {
-  const first = fixture(undefined, recovery);
+async function reloadGameplayCapsule(recovery, firstScope = gameplayScope, secondScope = gameplayScope) {
+  const first = fixture(undefined, recovery, () => firstScope);
   await first.module.join(account);
   const original = signedGameplay();
-  await first.module.rememberGameplayRequest(original, gameplayScope);
+  await first.module.rememberGameplayRequest(original, firstScope);
   const originalCapsule = recovery.save.mock.calls.at(-1)[0];
   const originalAttempt = originalCapsule.attempt;
   expect(originalCapsule.gameplayRequest).toEqual(original);
   first.module.invalidate();
 
-  const second = fixture(undefined, recovery);
+  const second = fixture(undefined, recovery, () => secondScope);
   second.register.mockImplementation(async () => { second.state.auth.registrationStatus = "registered"; });
   await second.module.join(account);
   second.state.viewerProtocol = { capabilities: ["gameplay_result_lookup_v1"] };
@@ -341,6 +341,28 @@ it("looks up and settles the restored capsule original after account recreation"
   await expect(settle.mock.results[0].value).resolves.toBe(true);
   expect(store.capsule).not.toHaveProperty("gameplayRequest");
   expect(second.module.hasPendingGameplayRequest()).toBe(false);
+});
+
+it("restores and queries an original capsule across a Prompt runtime authority epoch change", async () => {
+  const { store, recovery } = persistentGameplayCapsule();
+  const beforeRestart = { ...gameplayScope, authorityEpoch: "runtime-before-restart" };
+  const afterRestart = { ...gameplayScope, authorityEpoch: "runtime-after-restart" };
+  const { second, original } = await reloadGameplayCapsule(recovery, beforeRestart, afterRestart);
+  expect(second.state.lastGameplayActionFeedback).toMatchObject({ stage: "unknown", originalRequest: original, gameplayScope: afterRestart });
+
+  const send = vi.fn();
+  expect(requestGameplayResult(second.state, afterRestart, send, 100)).toBe(true);
+  expect(send).toHaveBeenCalledExactlyOnceWith({ type: "lookup_gameplay_action", request: original });
+  expect(receiveGameplayResult(second.state, afterRestart, second.module, {
+    player_id: original.player_id,
+    action_id: original.action_id,
+    target_agent_id: original.target_agent_id,
+    request_auth_nonce: original.auth.nonce,
+    status: "committed",
+  })).toBe(true);
+  await Promise.resolve();
+  expect(second.module.hasPendingGameplayRequest()).toBe(false);
+  expect(store.capsule).not.toHaveProperty("gameplayRequest");
 });
 
 it("retains the restored capsule after a foreign result and an unavailable lookup result", async () => {

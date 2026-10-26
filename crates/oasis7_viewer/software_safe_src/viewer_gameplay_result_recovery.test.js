@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { adoptRuntimeGameplayFeedback } from "./viewer_gameplay_receipt_feedback.js";
 import { requestGameplayResult, receiveGameplayResult } from "./viewer_gameplay_result_recovery.js";
 
 const scope = { endpointId: "wss://same/runtime", worldId: "world" };
@@ -43,6 +44,25 @@ describe("original gameplay result recovery after both processes restart", () =>
     state.viewerProtocol.capabilities = [];
     expect(requestGameplayResult(state, scope, send, 100)).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+  it("keeps a terminal snapshot result when an earlier lookup finishes late", () => {
+    const { state, feedback } = fixture(); const account = { settleGameplayRequest: vi.fn() };
+    requestGameplayResult(state, scope, vi.fn(), 100);
+    adoptRuntimeGameplayFeedback({ player_gameplay: { recent_feedback: { action: "world_service_intent",
+      target_agent_id: "starter-agent-0", request_auth_nonce: 71, stage: "committed" } } }, feedback, vi.fn());
+    expect(receiveGameplayResult(state, scope, account, { player_id: "p", action_id: "claim_first_agent",
+      target_agent_id: "starter-agent-0", request_auth_nonce: 71, status: "unavailable" })).toBe(false);
+    expect(feedback.stage).toBe("committed");
+  });
+  it("queries retained feedback across runtime epochs but rejects an outstanding old-epoch reply", () => {
+    const { state, feedback } = fixture(); const send = vi.fn();
+    feedback.gameplayScope = { ...scope, authorityEpoch: "old" };
+    const current = { ...scope, authorityEpoch: "new" };
+    expect(requestGameplayResult(state, current, send, 100)).toBe(true);
+    expect(receiveGameplayResult(state, { ...current, authorityEpoch: "newer" }, {}, {
+      player_id: "p", action_id: "claim_first_agent", target_agent_id: "starter-agent-0",
+      request_auth_nonce: 71, status: "committed" })).toBe(false);
+    expect(feedback.stage).toBe("unknown");
   });
   it("bounds repeated snapshot queries and retries the same identity after the interval", () => {
     const { state } = fixture(); const send = vi.fn();

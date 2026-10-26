@@ -7487,6 +7487,13 @@ function TargetListWindow(props) {
 delegateEvents(["click"]);
 //#endregion
 //#region software_safe_src/viewer_gameplay_recovery_scope.js
+function gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch = false } = {}) {
+	if (!scope?.endpointId || !scope?.worldId) return null;
+	return JSON.stringify(Object.keys(scope).filter((key) => !(ignoreAuthorityEpoch && key === "authorityEpoch")).sort().map((key) => [key, scope[key]]));
+}
+function durableGameplayRecoveryScopeFingerprint(scope) {
+	return gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch: true });
+}
 function getGameplayRecoveryScope(state) {
 	const feed = state.worldFeed;
 	const epoch = feed?.reorgEpoch;
@@ -7534,19 +7541,24 @@ function recoverGameplayFeedback(snapshot, state, account, scope, clearTimer) {
 function matchesGameplayReply(reply, feedback) {
 	return reply?.action_id === feedback.action && reply?.target_agent_id === (feedback.targetAgentId || feedback.agentId) && (feedback.requestAuthNonce == null || reply.request_auth_nonce === feedback.requestAuthNonce);
 }
+var terminalResult = (stage) => [
+	"committed",
+	"applied",
+	"completed_advanced",
+	"rejected",
+	"blocked",
+	"expired"
+].includes(stage);
+var admissionResult = (stage) => [
+	"received",
+	"pending",
+	"queued",
+	"submitted"
+].includes(stage);
 function adoptRuntimeGameplayFeedback(snapshot, feedback, clearTimer) {
 	const authoritative = matchingRuntimeGameplayFeedback(snapshot?.player_gameplay, feedback);
 	if (!authoritative) return;
-	if ([
-		"committed",
-		"rejected",
-		"expired"
-	].includes(feedback.stage) && [
-		"received",
-		"pending",
-		"queued",
-		"submitted"
-	].includes(authoritative.stage)) return;
+	if (terminalResult(feedback.stage) && admissionResult(authoritative.stage)) return;
 	clearTimer();
 	feedback.stage = authoritative.stage;
 	feedback.effect = authoritative.effect;
@@ -7586,10 +7598,12 @@ function projectGameplayReceiptFeedback(gameplay, localFeedback, intentTarget) {
 		deltaLogicalTime: Number(localFeedback.deltaLogicalTime || 0),
 		deltaEventSeq: Number(localFeedback.deltaEventSeq || 0)
 	} : null;
+	const sameRequest = matchingRuntimeGameplayFeedback(gameplay, localFeedback);
+	const preserveTerminal = terminalResult(localFeedback?.stage) && admissionResult(runtimeRecentFeedback?.stage);
 	return {
 		runtimeRecentFeedback,
 		localGameplayFeedback,
-		recentFeedback: matchingRuntimeGameplayFeedback(gameplay, localFeedback) && runtimeRecentFeedback ? runtimeRecentFeedback : localGameplayFeedback || runtimeRecentFeedback
+		recentFeedback: sameRequest && runtimeRecentFeedback && !preserveTerminal ? runtimeRecentFeedback : localGameplayFeedback || runtimeRecentFeedback
 	};
 }
 function firstClaimAwaitingOutcome(feedback) {
@@ -7626,7 +7640,7 @@ var scopeKey = (scope) => scope && JSON.stringify(Object.keys(scope).sort().map(
 function originalFeedback(state, scope) {
 	const feedback = state.lastGameplayActionFeedback;
 	const request = feedback?.originalRequest;
-	if (!request?.auth || !scopeKey(scope) || scopeKey(scope) !== scopeKey(feedback.gameplayScope) || request.player_id !== state.auth.playerId || request.public_key !== state.auth.publicKey || request.auth.player_id !== request.player_id || request.auth.public_key !== request.public_key || request.auth.nonce !== feedback.requestAuthNonce) return null;
+	if (!request?.auth || !durableGameplayRecoveryScopeFingerprint(scope) || durableGameplayRecoveryScopeFingerprint(scope) !== durableGameplayRecoveryScopeFingerprint(feedback.gameplayScope) || request.player_id !== state.auth.playerId || request.public_key !== state.auth.publicKey || request.auth.player_id !== request.player_id || request.auth.public_key !== request.public_key || request.auth.nonce !== feedback.requestAuthNonce) return null;
 	return feedback;
 }
 function requestGameplayResult(state, scope, send, now = Date.now()) {
@@ -7637,7 +7651,7 @@ function requestGameplayResult(state, scope, send, now = Date.now()) {
 		"pending"
 	].includes(feedback.stage) || state.auth.registrationStatus !== "registered" || !state.viewerProtocol?.capabilities?.includes("gameplay_result_lookup_v1")) return false;
 	const previous = state.gameplayResultLookup;
-	if (previous?.feedback === feedback && previous.auth === state.auth && now - previous.sentAt < 1e4) return false;
+	if (previous?.feedback === feedback && previous.auth === state.auth && previous.scope === scopeKey(scope) && now - previous.sentAt < 1e4) return false;
 	try {
 		send({
 			type: "lookup_gameplay_action",
@@ -7657,7 +7671,11 @@ function requestGameplayResult(state, scope, send, now = Date.now()) {
 function receiveGameplayResult(state, scope, account, result) {
 	const feedback = originalFeedback(state, scope);
 	const pending = state.gameplayResultLookup;
-	if (!feedback || pending?.feedback !== feedback || pending.auth !== state.auth || pending.scope !== scopeKey(scope) || result.player_id !== state.auth.playerId || result.request_auth_nonce !== feedback.requestAuthNonce || result.action_id !== feedback.originalRequest.action_id || result.target_agent_id !== feedback.originalRequest.target_agent_id) return false;
+	if (!feedback || ![
+		"unknown",
+		"received",
+		"pending"
+	].includes(feedback.stage) || pending?.feedback !== feedback || pending.auth !== state.auth || pending.scope !== scopeKey(scope) || result.player_id !== state.auth.playerId || result.request_auth_nonce !== feedback.requestAuthNonce || result.action_id !== feedback.originalRequest.action_id || result.target_agent_id !== feedback.originalRequest.target_agent_id) return false;
 	const terminal = [
 		"committed",
 		"rejected",
@@ -10060,17 +10078,20 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		}
 	}
 	function scopeFingerprint(scope) {
-		if (!scope?.endpointId || !scope?.worldId) return null;
-		return JSON.stringify(Object.keys(scope).sort().map((key) => [key, scope[key]]));
+		return gameplayRecoveryScopeFingerprint(scope);
 	}
 	function sameScope(left, right) {
 		const value = scopeFingerprint(left);
 		return value != null && value === scopeFingerprint(right);
 	}
+	function sameDurableScope(left, right) {
+		const value = durableGameplayRecoveryScopeFingerprint(left);
+		return value != null && value === durableGameplayRecoveryScopeFingerprint(right);
+	}
 	function restoreCandidateGameplayRequest(candidate, scope) {
 		const request = candidate.gameplayRequest;
 		const currentFeedback = state.lastGameplayActionFeedback;
-		if (!sameScope(candidate.gameplayScope, scope)) {
+		if (!sameDurableScope(candidate.gameplayScope, scope)) {
 			if (currentFeedback?.recoveredFromCapsule) state.lastGameplayActionFeedback = null;
 			return;
 		}
@@ -10102,7 +10123,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		if (!current || current.auth !== state.auth || !current.candidate || request.public_key !== current.publicKey || request.auth?.public_key !== current.publicKey || request.player_id !== state.auth.playerId || request.auth?.player_id !== state.auth.playerId) throw new Error("world_recovery_context_changed");
 		if (pending && pending !== current.candidate) throw new Error("world_recovery_pending_control");
 		const existing = current.candidate.gameplayRequest;
-		if (current.settlingGameplay || existing && (!sameScope(current.candidate.gameplayScope, scope) || JSON.stringify(existing) !== JSON.stringify(request))) throw new Error("original_gameplay_outcome_pending");
+		if (current.settlingGameplay || existing && (!sameDurableScope(current.candidate.gameplayScope, scope) || JSON.stringify(existing) !== JSON.stringify(request))) throw new Error("original_gameplay_outcome_pending");
 		const existingScope = current.candidate.gameplayScope;
 		current.candidate.gameplayRequest = structuredClone(request);
 		current.candidate.gameplayScope = structuredClone(scope);
@@ -10118,7 +10139,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 	async function settleGameplayRequest(nonce, scope) {
 		if (state.auth.source !== "hosted_account_cookie") return false;
 		const current = active;
-		if (!current || current.auth !== state.auth || !sameScope(scope, getGameplayScope()) || !sameScope(current.candidate?.gameplayScope, scope) || current.candidate?.gameplayRequest?.auth?.nonce !== nonce) return false;
+		if (!current || current.auth !== state.auth || !sameScope(scope, getGameplayScope()) || !sameDurableScope(current.candidate?.gameplayScope, scope) || current.candidate?.gameplayRequest?.auth?.nonce !== nonce) return false;
 		if (current.settlingGameplay) return false;
 		const request = current.candidate.gameplayRequest;
 		const settled = structuredClone(current.candidate);

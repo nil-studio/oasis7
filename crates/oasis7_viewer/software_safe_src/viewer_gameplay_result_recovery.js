@@ -1,10 +1,11 @@
+import { durableGameplayRecoveryScopeFingerprint } from "./viewer_gameplay_recovery_scope.js";
 import { settleGameplayOriginal } from "./viewer_gameplay_receipt_feedback.js";
 
 const scopeKey = scope => scope && JSON.stringify(Object.keys(scope).sort().map(key => [key, scope[key]]));
 function originalFeedback(state, scope) {
   const feedback = state.lastGameplayActionFeedback;
   const request = feedback?.originalRequest;
-  if (!request?.auth || !scopeKey(scope) || scopeKey(scope) !== scopeKey(feedback.gameplayScope)
+  if (!request?.auth || !durableGameplayRecoveryScopeFingerprint(scope) || durableGameplayRecoveryScopeFingerprint(scope) !== durableGameplayRecoveryScopeFingerprint(feedback.gameplayScope)
     || request.player_id !== state.auth.playerId || request.public_key !== state.auth.publicKey
     || request.auth.player_id !== request.player_id || request.auth.public_key !== request.public_key
     || request.auth.nonce !== feedback.requestAuthNonce) return null;
@@ -17,7 +18,7 @@ export function requestGameplayResult(state, scope, send, now = Date.now()) {
     || state.auth.registrationStatus !== "registered"
     || !state.viewerProtocol?.capabilities?.includes("gameplay_result_lookup_v1")) return false;
   const previous = state.gameplayResultLookup;
-  if (previous?.feedback === feedback && previous.auth === state.auth && now - previous.sentAt < 10_000) return false;
+  if (previous?.feedback === feedback && previous.auth === state.auth && previous.scope === scopeKey(scope) && now - previous.sentAt < 10_000) return false;
   try {
     send({ type: "lookup_gameplay_action", request: structuredClone(feedback.originalRequest) });
     state.gameplayResultLookup = { feedback, auth: state.auth, scope: scopeKey(scope), sentAt: now };
@@ -28,7 +29,7 @@ export function requestGameplayResult(state, scope, send, now = Date.now()) {
 export function receiveGameplayResult(state, scope, account, result) {
   const feedback = originalFeedback(state, scope);
   const pending = state.gameplayResultLookup;
-  if (!feedback || pending?.feedback !== feedback || pending.auth !== state.auth || pending.scope !== scopeKey(scope)
+  if (!feedback || !["unknown", "received", "pending"].includes(feedback.stage) || pending?.feedback !== feedback || pending.auth !== state.auth || pending.scope !== scopeKey(scope)
     || result.player_id !== state.auth.playerId || result.request_auth_nonce !== feedback.requestAuthNonce
     || result.action_id !== feedback.originalRequest.action_id
     || result.target_agent_id !== feedback.originalRequest.target_agent_id) return false;
