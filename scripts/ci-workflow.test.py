@@ -1068,7 +1068,7 @@ run_cargo() {
         self.assertIsNotNone(revision)
         # Tar-before-reserve behavior was verified on this exact upstream
         # package. A pin upgrade must review/update the guard and this contract.
-        self.assertEqual(revision[1], '6323deb102c322ba6fcbdcafc7e3dddab59af2b6')
+        self.assertEqual(revision[1], 'd1527c8f67ef9af357290475d4af4b0fab8f12e0')
         ecs_text = (ROOT / '.github/workflows/ecs-packages.yml').read_text()
         ecs_jobs = workflow_jobs(ecs_text)
         lanes = ((JOBS['full-regression'], 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
@@ -1187,7 +1187,7 @@ run_cargo() {
                 self.assertIn('shared-key: ci-shared-native-trusted-v3',job)
                 self.assertIn('add-rust-environment-hash-key: true',job)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',job)
-                self.assertLess(job.index('rustup default'),job.index('uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2'))
+                self.assertLess(job.index('rustup default'),job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
         for name in ('launcher-web','full-regression'):
             job=JOBS[name]
             self.assertIn('uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',job)
