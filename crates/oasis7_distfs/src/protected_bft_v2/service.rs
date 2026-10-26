@@ -414,6 +414,12 @@ impl BftSignerServiceV2 {
         };
         let snapshot = match outcome {
             BftSignerAcquireOutcomeV2::Conflict(snapshot) => {
+                if snapshot.lease_token_digest == token_digest {
+                    runtime.poisoned = true;
+                    return Err(invalid(
+                        "BFT V2 acquire conflict installed the attempted token; provider poisoned",
+                    ));
+                }
                 if let Err(error) = validate_snapshot_shape(&snapshot, None, None) {
                     runtime.poisoned = true;
                     return Err(invalid(format!(

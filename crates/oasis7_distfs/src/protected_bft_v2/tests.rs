@@ -56,6 +56,7 @@ struct BackendState {
     snapshot: BftSignerBackendSnapshotV2,
     return_stale_snapshot_after_next_cas: bool,
     regress_time_on_next_acquire: bool,
+    install_attempt_token_but_report_conflict: bool,
 }
 
 impl SharedBackend {
@@ -133,6 +134,10 @@ impl BftSignerBackendV2 for SharedBackend {
             .checked_add(1)
             .ok_or_else(|| BftSignerErrorV2("generation overflow".into()))?;
         state.snapshot.lease_token_digest = new_lease_token_digest.to_string();
+        if state.install_attempt_token_but_report_conflict {
+            state.install_attempt_token_but_report_conflict = false;
+            return Ok(BftSignerAcquireOutcomeV2::Conflict(state.snapshot.clone()));
+        }
         let mut acquired = state.snapshot.clone();
         if state.regress_time_on_next_acquire {
             state.regress_time_on_next_acquire = false;
@@ -308,6 +313,7 @@ fn harness() -> Harness {
         },
         return_stale_snapshot_after_next_cas: false,
         regress_time_on_next_acquire: false,
+        install_attempt_token_but_report_conflict: false,
     })));
     let provider_handle = TestKey(provider.clone());
     let validator_handle = TestKey(validator.clone());

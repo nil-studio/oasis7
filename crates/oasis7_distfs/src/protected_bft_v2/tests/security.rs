@@ -809,13 +809,21 @@ fn append_removing_transition(
 
 #[test]
 fn acquired_snapshot_cannot_regress_the_observed_protected_time_floor() {
+    assert_acquire_fault_is_poisoned(true);
+}
+
+#[test]
+fn conflict_cannot_claim_that_the_attempted_lease_token_was_installed() {
+    assert_acquire_fault_is_poisoned(false);
+}
+
+fn assert_acquire_fault_is_poisoned(regress_time: bool) {
     let fixture = harness();
-    fixture
-        .backend
-        .0
-        .lock()
-        .unwrap()
-        .regress_time_on_next_acquire = true;
+    {
+        let mut backend = fixture.backend.0.lock().unwrap();
+        backend.regress_time_on_next_acquire = regress_time;
+        backend.install_attempt_token_but_report_conflict = !regress_time;
+    }
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let service = fixture.service.clone();
@@ -858,7 +866,7 @@ fn acquired_snapshot_cannot_regress_the_observed_protected_time_floor() {
     );
     assert!(
         matches!(acquired.body.result, BftSignerReplyKindV2::Rejected { .. }),
-        "regressed acquired snapshot must not release a lease credential"
+        "uncertain or regressed acquisition must be rejected without a lease credential"
     );
     assert!(acquired.body.lease_token.is_none());
     let (_, poisoned) = super::direct_exchange(
