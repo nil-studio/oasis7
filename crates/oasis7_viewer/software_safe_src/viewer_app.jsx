@@ -2043,6 +2043,7 @@ function WorldStageHero() {
           <div class="stage-hero__title">
             {gameplaySummary()?.goalTitle || tr(locale(), "进入世界，先看局势，再做动作", "Read the world first, then act.")}
           </div>
+          <Show when={gameplaySummary()?.personalSubjectDetail}><div class="stage-hero__lede">{gameplaySummary().personalSubjectDetail}</div></Show>
           <div class="stage-hero__lede">
             {gameplaySummary()?.nextStepHint
               || gameplaySummary()?.objective
@@ -2208,8 +2209,8 @@ function TargetsPanel() {
               {gameplayActionDisabledReason(action(), gameplaySummary(), locale())
                 || tr(
                   locale(),
-                  "当前是新用户空世界：先认领第一个 Agent，它会在链上提交并同步后出现在行动体列表。",
-                  "This is a new-user empty world: claim the first Agent first, then it will appear in the agent list after chain submission and sync.",
+                  "当前账户尚未绑定个人 Agent；可使用已发布的认领入口，提交并同步后核对个人归属。",
+                  "This account has no bound personal Agent. Use the published claim action, then verify personal ownership after submission and sync.",
                 )}
             </div>
             <Show when={firstAgentClaimWaiting()}>

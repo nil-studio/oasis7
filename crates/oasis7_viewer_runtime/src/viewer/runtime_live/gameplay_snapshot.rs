@@ -364,7 +364,7 @@ pub(super) fn build_player_gameplay_snapshot(
             can_reprioritize: false,
             goal_id: "first_session_loop.configure_llm_access".to_string(),
             goal_kind: PlayerGameplayGoalKind::CreateFirstWorldFeedback,
-            goal_title: "Configure LLM access before entering the world".to_string(),
+            goal_title: "Configure LLM access before gameplay execution".to_string(),
             objective:
                 "This world requires an active LLM provider before gameplay controls are allowed."
                     .to_string(),

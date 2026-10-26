@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createViewerFeedbackModule } from "./viewer_feedback_module.js";
 
-function createFeedbackModule(state) {
+function createFeedbackModule(state, visible = () => true) {
   return createViewerFeedbackModule({
     clone: (value) => (value == null ? value : JSON.parse(JSON.stringify(value))),
     feedbackBadgeClass: () => "feedback-badge",
     hostedActionPolicy: () => null,
-    isAgentVisibleToCurrentSession: () => true,
+    isAgentVisibleToCurrentSession: visible,
     isLocaleZh: (locale) => locale === "zh",
     localeText: (locale, zh, en) => (locale === "zh" ? zh : en),
     state,
@@ -14,6 +14,23 @@ function createFeedbackModule(state) {
 }
 
 describe("viewer feedback module", () => {
+  it.each(["spectator", "unavailable"])("keeps public entities separate from %s ownership", (kind) => {
+    const state = {uiLocale: "en", selectedKind: "agent", selectedId: "agent-1", snapshot: {
+      model: {agents: Object.fromEntries(Array.from({length: 5}, (_, i) => [`agent-${i}`, {id: `agent-${i}`} ])), locations: {base: {id: "base"}}},
+      player_gameplay: {blocker_kind: "llm_required", blocker_detail: "LLM required", gameplay_capability: {subject: {kind}}},
+    }};
+    const summary = createFeedbackModule(state, () => false).buildGameplaySummary();
+    expect(summary.blockerKind).toBe("llm_required");
+    expect(summary.blockerDetail).toBe("LLM required");
+    expect(summary.personalSubjectDetail).toMatch(/personal ownership|personal owner/);
+  });
+  it("retains real empty-world claim and bound sync behavior", () => {
+    const state = {uiLocale: "en", snapshot: {model: {agents: {}, locations: {}}, player_gameplay: {}}};
+    expect(createFeedbackModule(state).buildGameplaySummary().blockerKind).toBe("runtime_snapshot_empty_entities");
+    state.auth = {available: true, registrationStatus: "registered", boundAgentId: "agent-0"};
+    state.viewerProtocol = {capabilities: ["canonical_agent_chat_v1"]};
+    expect(createFeedbackModule(state).buildGameplaySummary().blockerKind).toBe("agent_owner_sync_pending");
+  });
   it.each(["agent-A", null])("keeps local receipt subject %s independent from a newer runtime intent", (agentId) => {
     const state = {uiLocale:"en",snapshot:{model:{agents:{"agent-A":{id:"agent-A"},"agent-B":{id:"agent-B"}},locations:{base:{id:"base"}}},player_gameplay:{intent_target:"agent-B",recent_feedback:{action:"build",stage:"completed"}}},lastGameplayActionFeedback:{kind:"gameplay_action",action:"build",stage:"completed",agentId}};
     const summary = createFeedbackModule(state).buildGameplaySummary();

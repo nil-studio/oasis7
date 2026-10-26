@@ -338,8 +338,13 @@ export function createViewerFeedbackModule({
       return null;
     }
     const modelAgents = state.snapshot?.model?.agents || {};
-    const agents = Object.keys(modelAgents)
-      .filter((agentId) => isAgentVisibleToCurrentSession?.(agentId) !== false);
+    const agents = Object.keys(modelAgents);
+    const subjectKind = gameplay.gameplay_capability?.subject?.kind;
+    const personalSubjectDetail = subjectKind === "spectator"
+      ? localeText(locale, "当前仅展示公开世界；尚未确定个人归属，选择目标不会赋予所有权。", "Showing the public world; personal ownership is not resolved. Selecting a target does not establish ownership.")
+      : subjectKind === "unavailable"
+        ? localeText(locale, "个人主体当前不可用；公开世界实体不代表已绑定的个人 Agent。", "The personal owner is unavailable; public world entities do not establish a bound personal Agent.")
+        : null;
     const locations = Object.keys(state.snapshot?.model?.locations || {});
     const missingAgents = agents.length === 0;
     const missingLocations = locations.length === 0;
@@ -641,7 +646,7 @@ export function createViewerFeedbackModule({
         const priority = (action) => {
           if (starterOcBlocksChat && action.executeKind === "claim_starter_oc") return -1;
           if (isRecoveryChoiceState) {
-            if (emptyEntityBlocker && action.executeKind === "claim_first_agent") return -1;
+            if (action.executeKind === "claim_first_agent") return -1;
             return {
               request_snapshot: wantsSnapshotProof ? 0 : 2,
               step: wantsAdvanceProof ? 0 : 1,
@@ -1093,6 +1098,7 @@ export function createViewerFeedbackModule({
     );
 
     return {
+      personalSubjectDetail,
       stageId: gameplay.stage_id || null,
       stageStatus: resolvedStageStatus,
       acceptedIntentId,

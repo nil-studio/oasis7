@@ -376,7 +376,7 @@ goal、action discovery、branch、lane 与 fallback 消费同一查询事实。
 
 实现边界：`WorldState::gameplay_capability_query` 统一 owner-bound 首产物、当前稳定线与派生进度；`World::gameplay_capability_query` 仅对已有当前配方复用只读 `builtin_recipe_quote`，以 `current_recipe_run` 表达实际配方候选，不将它改名为 repair。未开放的 repair/rebuild/pivot 保留 `unknown`。既有已鉴权 Service projection 在 `world_rule_status.gameplay_capability` 发布结果，`GameClient::industry` 沿既有签名 `/v1/world/view-json` 读取；Viewer 的 `player_gameplay.gameplay_capability` 适配同一查询。个人事实归属与执行资格分开：Service 仅在当前 caller key 匹配 owner 时评估 native 配方候选，委托读取不继承 owner 执行权；缺对应权限判断保留 unknown。查询的 subject/goal/source tick 与外层签名读取的 world/scope/read version 一起定位依据，旧 snapshot 缺字段不重建建议。现有签名与 formal projection 验证语义不变，条件报价也不是新的 canonical 授权或完整执行证明，提交仍重验。
 
-当前查询尚无赞助依赖判定，呈现为 `unverified`，不恢复旧 snapshot 的 sponsorship 标志。普通 step/play、快照观察和经济提示只描述推进、回读与操作指引；当前恢复路径使用 query 的状态/原因，不将旧 narrative 或 fallback label 当作可行性。已确认的生产 failure disposition 仍独立保留原损失与合法动作边界。
+当前查询尚无赞助依赖判定，呈现为 `unverified`，不恢复旧 snapshot 的 sponsorship 标志。普通 step/play、快照观察和经济提示只描述推进、回读与操作指引；当前恢复路径使用 query 的状态/原因，不将旧 narrative 或 fallback label 当作可行性。已确认的生产 failure disposition 仍独立保留原损失与合法动作边界。公开实体缺失仅依据公开 model 计数；个人归属说明来自 query 的 resolved subject，不从选中目标或个人可见性过滤推断世界为空。合法认领入口与已绑定同步规则保持独立。
 
 验证覆盖：query、当前资源/权限、旧字段缺失、持久化 roundtrip、真实签名 Client→Service projection→World 查询和 Viewer consumer 有自动回归；固定字节兼容样本保留旧版并新增当前格式。独立真实界面/玩法验收不由这些局部证据代签，按本节下述场景执行。
 
