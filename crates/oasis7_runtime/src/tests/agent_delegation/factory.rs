@@ -268,3 +268,31 @@ fn trusted_custom_factory_keeps_legacy_admission_without_native_grant() {
     world.step().unwrap();
     assert!(world.state().factories.contains_key("custom"));
 }
+
+#[test]
+fn builtin_factory_quote_ignores_revoked_history_and_uses_replacement() {
+    let mut world = build_fixture();
+    let mut old = allowance();
+    old.revoked = true;
+    old.revision = 2;
+    world.install_agent_delegation_grant(old).unwrap();
+    let mut current = allowance();
+    current.grant_id = "replacement".into();
+    world.install_agent_delegation_grant(current).unwrap();
+    let q = quote(&world).unwrap();
+    assert_eq!(q.authorization.grant.grant_id, "replacement");
+    let prepared = prepare(
+        &mut world,
+        "replacement-build",
+        q.action,
+        7,
+        Default::default(),
+    );
+    world
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    let rows = world.agent_delegation_authorizations(AGENT_ID).unwrap();
+    assert!(rows[0].grant.revoked);
+    assert_eq!(rows[0].spent_units, 0);
+    assert_eq!(rows[1].spent_units, 7);
+}

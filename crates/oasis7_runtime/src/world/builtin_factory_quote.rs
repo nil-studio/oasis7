@@ -25,19 +25,6 @@ impl World {
             site_id: site.into(),
             spec: spec.clone(),
         };
-        let mut grants = self
-            .agent_delegation_authorizations(agent)?
-            .into_iter()
-            .filter(|a| {
-                a.grant.object_id == factory
-                    && a.grant.action_kinds.iter().any(|v| v == "BuildFactory")
-            });
-        let mut authorization = grants
-            .next()
-            .ok_or_else(|| invalid("native factory grant required"))?;
-        if grants.next().is_some() {
-            return Err(invalid("native factory grant ambiguous"));
-        }
         let mut clone = self.clone();
         let request = "builtin-factory-read-only-preview";
         clone.bind_agent_causal_decision(
@@ -47,6 +34,9 @@ impl World {
             AgentDecisionCausalContextV1::default(),
         )?;
         clone.prepare_agent_delegation_commit(request, &action)?;
+        let mut authorization = clone
+            .bound_agent_delegation_authorization(request, &action)?
+            .ok_or_else(|| invalid("native factory grant required"))?;
         let body = clone.action_to_event(&ActionEnvelope {
             id: 0,
             action: action.clone(),

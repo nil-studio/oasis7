@@ -561,7 +561,7 @@ impl World {
     ) -> Result<(), WorldError> {
         let ledger = self.delegation_ledger()?;
         let scoped = action_scope(action);
-        let grants: Vec<_> = ledger
+        let mut grants: Vec<_> = ledger
             .grants
             .values()
             .filter(|g| {
@@ -571,6 +571,15 @@ impl World {
                     })
             })
             .collect();
+        // Revoked records remain in the ledger for audit and original-result
+        // recovery, but cannot compete with a newly authorized grant. Other
+        // eligibility checks remain in validate_delegation_decision; expiration
+        // or budget exhaustion must not silently select a different allowance.
+        let had_scoped_grants = !grants.is_empty();
+        grants.retain(|grant| !grant.revoked);
+        if had_scoped_grants && grants.is_empty() {
+            return Err(denied("grant_revoked"));
+        }
         if grants.len() > 1 {
             return Err(denied("grant_selection_ambiguous"));
         }
@@ -597,6 +606,21 @@ impl World {
             context,
         };
         self.bind_agent_delegation_decision(decision, action)
+    }
+
+    /// Quote consumers read the exact validated host binding rather than
+    /// independently selecting from the historical authorization read model.
+    pub(super) fn bound_agent_delegation_authorization(
+        &self,
+        request_id: &str,
+        action: &Action,
+    ) -> Result<Option<AgentDelegationAuthorizationV1>, WorldError> {
+        let ledger = self.delegation_ledger()?;
+        let decision = ledger
+            .decisions
+            .get(request_id)
+            .ok_or_else(|| denied("decision_binding_required"))?;
+        self.validate_delegation_decision(decision, action)
     }
 
     pub(super) fn prepare_agent_delegation_commit(
