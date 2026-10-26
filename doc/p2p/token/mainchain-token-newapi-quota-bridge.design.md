@@ -36,6 +36,7 @@
 | [PRD-P2P-TBRIDGE-002：稳定身份](mainchain-token-newapi-quota-bridge.prd.md#tbridge-002) | 在外部副作用前持久保存恢复身份，未知结果沿用原身份 | [首次绑定恢复](#bridge-identity-recovery) | runtime_engineer；bridge-core/store/provider | 保留身份不等于映射就绪，不假设跨服务事务 |
 | [PRD-P2P-TBRIDGE-002：完整发现与审计](mainchain-token-newapi-quota-bridge.prd.md#tbridge-002) | 完整消费相关分页，去重并区分未完成扫描 | [扫描完整性](#bridge-scan-completeness) | runtime_engineer；chain-watcher/Explorer | 不用头页计数证明完整，不启用账号池并发复用 |
 | [PRD-P2P-TBRIDGE-002：唯一订单与幂等对账](mainchain-token-newapi-quota-bridge.prd.md#tbridge-002) | 串行提交或 fencing 保护文件、内存和人工终态 | [有效处理权](#bridge-reconcile-ownership) | runtime_engineer；reconcile/store/operator | 并发处理权不代替跨重启恢复 |
+| [PRD-P2P-TBRIDGE-004：异常诊断](mainchain-token-newapi-quota-bridge.prd.md#tbridge-004) | 全部分支仅输出固定本地错误与受控元数据 | [安全错误投影](#letai-safe-error-projection) | adapter owner；local/newapi bridge | 不改变资金状态、重试或 receipt，不清理历史错误 |
 | [PRD-P2P-TBRIDGE-004：异常与验证快照](mainchain-token-newapi-quota-bridge.prd.md#tbridge-004) | 持久成功事实与尝试分离，receipt 驱动 verification-only | [持久业务阶段](#bridge-recovery-state) | runtime_engineer；ledger/reconcile/provider | 未知外部结果按原订单核对，不无条件跳过 topup |
 
 ## 3. 最小数据模型
@@ -194,6 +195,22 @@
     - `token_key` 只用于实际模型调用，不用于管理接口
     - `external_user_id` / `external_project_id` / `external_order_id` 必须稳定幂等
 
+<a id="letai-safe-error-projection"></a>
+### 5.1 LetAI adapter 的安全错误投影
+
+Trace ID: O7-REQ-7ed340db-8f3f-4543-9f6d-d00184875607
+
+本节是 adapter 错误出口的唯一工程合同，主责 `oasis7_letai_credit_adapter`；local bridge、newapi bridge 只消费安全结果，不各自猜测上游文本是否可信。细化 [PRD-P2P-TBRIDGE-004](mainchain-token-newapi-quota-bridge.prd.md#tbridge-004) 的异常诊断；产品适用性：N/A；reason=只约束受控额度桥的内部诊断数据，不新增玩家金融功能；scope=错误投影，不改变资金、价格或额度语义。目标要求由 [#5102](https://github.com/nil-studio/oasis7/issues/5102) 跟踪，不表示已实现或发生真实泄漏。
+
+- 所有失败出口均只返回本地固定 code、由该 code 选择的固定说明及有界 allowlist 元数据。保留现有 `letai_request_failed`、`letai_response_read_failed`、`letai_response_not_success`、`letai_response_decode_failed`、`letai_response_not_ok` 与字段缺失分类；业务分类和可重试性不从展示字符串反推。
+- 元数据仅允许本地操作枚举、HTTP 数字状态和有界数字计数；不保留供应商任意 `error_code`。将来确需供应商分类时，必须显式映射有限 allowlist 到本地枚举，未知值归固定 unknown，不携带原值。网络库/JSON decoder 的 `Display`、URL、header、响应 body 或嵌套错误文本同样不是安全说明，不能直接复制。
+- HTTP 成功但 `ok/success=false` 与非 2xx、传输/读取/解码/字段校验失败使用同一出口约束。`message/error/msg/detail/error_code` 均不进入 `LetaiAdapterError` 的诊断字段、Debug/Display、stderr/trace 或新持久化 `last_error`；先截断再传播不算脱敏。原始响应不能以 debug 附件或旁路日志保留。
+- 成功响应仍按既有结构化摘要/receipt 合同消费；本节不删除有效业务字段，也不把自由文本诊断提升为 receipt。`external_order_id`、幂等身份、reconcile 状态、人工复核、retry 分类与实际 topup 调用次数保持不变；错误投影不得新增调用或把 unknown 改为未入账。已有历史错误按既有隐私/保留合同处理，不自动改写、清空或重放账项。
+
+静态基线 `b9bc4b2a6df858e27f94754d227b0fdc23ae3639`：[adapter](../../../crates/oasis7_letai_credit_adapter/src/lib.rs) 的 semantic-error 分支仍拼接上游自由文本；[local diagnostic](../../../crates/oasis7_provider_local_bridge/src/bin/oasis7_provider_local_bridge/letai_direct_topup.rs) 仅截断；[reconcile](../../../crates/oasis7_newapi_bridge_service/src/bin/oasis7_newapi_bridge_service/service_letai.rs) 仍消费 message。现有非 2xx redaction 不能证明全部出口安全。
+
+验证要求：离线 mock 在上述五个上游字段逐个放入短敏感 canary，并覆盖 2xx semantic failure、非 2xx、坏 JSON、读取/传输失败与缺字段；断言 adapter、stderr/trace、新写入和重载 `last_error` 都无 canary，固定 code 与安全说明仍可区分。保留正常成功摘要、原订单/receipt、重试/人工复核及调用计数的前后对照。新增回归尚待实现执行，静态数据流不是泄漏或修复完成证据。
+
 ## 6. 编排顺序
 1. 当前代码生成 route 并返回 `deposit_account_id` 与短 `deposit_token`；目标态扩展为 route allocator 按 `bridge_user_binding.provider_id` 选择一个 active 收款账号池成员。
 2. 新 route 的 `deposit_token` 已由 explorer `message/memo` 透传并在 bridge reconcile 强校验；legacy route 缺少 token 时仍保留旧行为。账号池并发混单仍需后续 custody/allocator 任务明确唯一归因和去重策略。
@@ -304,6 +321,7 @@ A 成功提交 Reconciled 后 B 的延迟失败只能成为该过期尝试的诊
 | [PRD-P2P-TBRIDGE-002：稳定身份](mainchain-token-newapi-quota-bridge.prd.md#tbridge-002) | [首次绑定恢复](#bridge-identity-recovery) | §10 的丢回复、保存失败与重启；mock 远端项目数及未就绪消费分别断言 | [测试手册](../../../testing-manual.md)；下述 Bridge binary suite 的身份故障用例 | source、外部 ID、项目数、本地重载及命令退出码 | planned；现有创建前失败用例不能代签未知副作用 |
 | [PRD-P2P-TBRIDGE-002：完整发现与审计](mainchain-token-newapi-quota-bridge.prd.md#tbridge-002) | [扫描完整性](#bridge-scan-completeness) | §10 的 201/401 条、后页、转出占头页、新增头部、坏 cursor 与后页错误 | [测试手册](../../../testing-manual.md)；下述 Bridge binary suite 的真实分页 mock | source、请求 cursor、完整/未完成结果、去重账项和退出码 | planned；返回所有交易的单页 mock 不能代签分页 |
 | [PRD-P2P-TBRIDGE-002：唯一订单与幂等对账](mainchain-token-newapi-quota-bridge.prd.md#tbridge-002) | [有效处理权](#bridge-reconcile-ownership) | §10 的 barrier 固定双尝试、延迟失败、双成功与处理者退出 | [测试手册](../../../testing-manual.md)；下述 Bridge binary suite 的并发故障用例 | source、受控时序、内存/文件/重载终态、计数和退出码 | planned；部署支持的并发范围单独说明 |
+| [PRD-P2P-TBRIDGE-004：异常诊断](mainchain-token-newapi-quota-bridge.prd.md#tbridge-004) | [安全错误投影](#letai-safe-error-projection) | 所有错误出口短 canary 与固定分类；保持订单、receipt 和调用次数 | [回归方法](../../../testing-manual.md#regression-oracle)；adapter 离线测试入口 `../../../crates/oasis7_letai_credit_adapter/src/lib.rs`及待补 bridge 回归 | 同候选诊断、stderr/trace 与持久化负向断言，不保存真实凭据 | planned；未执行，不代签真实上游隐私或资金验收 |
 | [PRD-P2P-TBRIDGE-004：异常与验证快照](mainchain-token-newapi-quota-bridge.prd.md#tbridge-004) | [持久业务阶段](#bridge-recovery-state) | §10 的 Credited 后查询失败、重启与再次保存失败；保留真正未入账正例 | [测试手册](../../../testing-manual.md)；下述 Bridge binary suite 的持久阶段故障用例 | source、receipt/order、重载阶段、topup 调用数和退出码 | planned；并发回归不能代签跨重启恢复 |
 
 现有测试入口为 `crates/oasis7_newapi_bridge_service/src/bin/oasis7_newapi_bridge_service/tests.rs`，分页替身在同目录 `tests_support.rs`；在这些已有入口补充 §10 的故障语义，按 `env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service` 执行并记录实际结果。手册/测试入口存在不表示新增场景已实现或执行；本次文档不运行真实 topup、模型调用或 operator 部署，也不以测试计划代替四项独立验收。

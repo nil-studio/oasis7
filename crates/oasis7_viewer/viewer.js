@@ -7901,6 +7901,10 @@ function invalidateDependentQuote(state, kind, snapshot) {
 		error: null
 	};
 }
+function coordinateDependentQuotes(state) {
+	invalidateDependentQuote(state, "refine", state.snapshot);
+	invalidateDependentQuote(state, "product", state.snapshot);
+}
 // software_safe_src/viewer_safe_alternative_legacy.js
 function safeAlternativeMarkup(state, escape) {
 	const ui = state.safeAlternative || {};
@@ -15135,6 +15139,36 @@ function createViewerRenderHookRegistry() {
 		}
 	};
 }
+// software_safe_src/viewer_application.js
+function createViewerApplication({ coordinateState, bootstrap, onBootstrapError }) {
+	const views = createViewerRenderHookRegistry();
+	let bootstrapped = false;
+	let bootstrapPromise = null;
+	function publish(invalidation) {
+		views.invoke(invalidation);
+	}
+	function coordinateAndPublish(invalidation) {
+		coordinateState();
+		publish(invalidation);
+	}
+	function start() {
+		if (bootstrapped) return bootstrapPromise;
+		bootstrapped = true;
+		bootstrapPromise = bootstrap().catch((error) => {
+			onBootstrapError(error);
+			coordinateAndPublish();
+			throw error;
+		});
+		return bootstrapPromise;
+	}
+	return {
+		start,
+		publish,
+		coordinateAndPublish,
+		setView: (nextHook) => views.set(nextHook),
+		attachView: (nextHook) => views.subscribe(nextHook)
+	};
+}
 // software_safe_src/viewer_entity_list_renderer.js
 function resourceSummary$1(resources) {
 	if (!resources || typeof resources !== "object") return "-";
@@ -15992,9 +16026,15 @@ var pendingControlFeedback = /* @__PURE__ */ new Map();
 var pendingSemanticCommands = [];
 var pendingSessionRegisterWaiter = null;
 var elements = {};
-var renderHook = createViewerRenderHookRegistry();
-var bootstrapped = false;
-var bootstrapPromise = null;
+var application = createViewerApplication({
+	coordinateState: () => coordinateDependentQuotes(state),
+	bootstrap,
+	onBootstrapError(error) {
+		state.connectionStatus = "error";
+		state.auth.error = String(error);
+		state.lastError = String(error);
+	}
+});
 var worldFeedTransport = createWorldFeedTransport({
 	getSocket: () => socket,
 	getState: () => state,
@@ -16063,8 +16103,8 @@ function setSelectedSearch(value) {
 	state.selectedSearch = String(value || "");
 	render();
 }
-var setRenderHook = (nextHook) => renderHook.set(nextHook);
-var subscribeRenderHook = (nextHook) => renderHook.subscribe(nextHook);
+var setRenderHook = (nextHook) => application.setView(nextHook);
+var subscribeRenderHook = (nextHook) => application.attachView(nextHook);
 function getSearchParams() {
 	return new URLSearchParams(window.location.search || "");
 }
@@ -19716,9 +19756,7 @@ function bindEvents() {
 	});
 }
 function render(invalidation) {
-	invalidateDependentQuote(state, "refine", state.snapshot);
-	invalidateDependentQuote(state, "product", state.snapshot);
-	renderHook.invoke(invalidation);
+	application.coordinateAndPublish(invalidation);
 }
 function requestRender() {
 	render();
@@ -19813,16 +19851,7 @@ function updatePixelWorldRuntimeMeta(meta = {}) {
 	return getState();
 }
 function initializeSoftwareSafeCore() {
-	if (bootstrapped) return bootstrapPromise;
-	bootstrapped = true;
-	bootstrapPromise = bootstrap().catch((error) => {
-		state.connectionStatus = "error";
-		state.auth.error = String(error);
-		state.lastError = String(error);
-		render();
-		throw error;
-	});
-	return bootstrapPromise;
+	return application.start();
 }
 window.addEventListener("error", (event) => {
 	reportFatalError(event?.message || event?.error?.message || "window error", "window.error");

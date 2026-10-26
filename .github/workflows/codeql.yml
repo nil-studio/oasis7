@@ -189,7 +189,7 @@ jobs:
         if: matrix.language == 'rust'
         run: rustup toolchain install 1.96.0 --profile minimal
       - id: init
-        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4, official tag resolved 2026-10-01
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4, official tag resolved 2026-10-01
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
@@ -204,14 +204,14 @@ jobs:
               - .pm/**
       - id: analyze
         name: CodeQL extraction and queries
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           category: ${{ matrix.category }}
           output: ${{ runner.temp }}/codeql-results
           upload: never
       - id: upload
         name: CodeQL SARIF upload
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: ${{ runner.temp }}/codeql-results
           category: ${{ matrix.category }}

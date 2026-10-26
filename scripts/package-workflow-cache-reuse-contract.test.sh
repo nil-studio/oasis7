@@ -34,7 +34,7 @@ def package_native_body(workflow: str, path: Path) -> str:
 def cache_steps(workflow: str, path: Path) -> list[str]:
     body = package_native_body(workflow, path)
     steps = re.findall(
-        r"^      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2\n(?P<body>.*?)(?=^      - |\Z)",
+        r"^      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2\n(?P<body>.*?)(?=^      - |\Z)",
         body,
         re.MULTILINE | re.DOTALL,
     )
@@ -46,7 +46,7 @@ def cache_steps(workflow: str, path: Path) -> list[str]:
 
 def linux_cache_guard(workflow: str, path: Path) -> str:
     body = package_native_body(workflow, path)
-    cache_marker = "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2\n        if: runner.os == 'Linux'"
+    cache_marker = "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2\n        if: runner.os == 'Linux'"
     cache_offset = body.find(cache_marker)
     assert cache_offset >= 0, f"{path.name} must define a Linux package cache step"
     pre_cache = body[:cache_offset]

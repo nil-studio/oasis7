@@ -226,6 +226,7 @@ fn export_developer_admission_fixture() {
         .commit_checks("operation-one", &signed_verification, &context, 1100)
         .unwrap();
     StrictCrypto.verify(&checks).unwrap();
+    let (provision_draft, provision_input, provision_context) = provision_approval::fixture();
     let vector = json!({
         "fixture_label": "PUBLIC TEST ONLY - not a production identity or manager authority",
         "public_test_signing_seed_hex": "29".repeat(32),
@@ -237,6 +238,7 @@ fn export_developer_admission_fixture() {
         "sample_verify_request": record.native_verify_request().unwrap(),
         "sample_signed_verification": signed_verification,
         "sample_signature_checks": checks,
+        "provision": {"draft":provision_draft,"input":provision_input,"context":provision_context},
     });
     std::fs::write(path, serde_json::to_vec_pretty(&vector).unwrap()).unwrap();
 }
@@ -641,3 +643,6 @@ fn capacity_never_deletes_nonce_evidence_and_original_retries_still_work() {
         book
     );
 }
+
+#[path = "support/provision_approval.rs"]
+mod provision_approval;

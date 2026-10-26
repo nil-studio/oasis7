@@ -53,6 +53,130 @@ async function fixture(run) {
   finally { await mf.dispose(); rmSync(persist, { recursive: true, force: true }); }
 }
 
+async function provisionInput(mf, name, path = 'prepare') {
+  const result = await ok(mf, name, '/provision/' + path);
+  result.input.approval.signature = await sign(result.canonical_bytes);
+  return result.input;
+}
+async function provisionVerification(mf, name) {
+  const result = await ok(mf, name, '/provision/verification');
+  return { verification: result.verification, signature: await sign(result.canonical_bytes) };
+}
+test('provision proof consumption, approved plan and three fixed tasks commit once in actual Account SQLite', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const name = 'provision-atomic';
+  const input = await provisionInput(mf, name);
+  const [pending, concurrent] = await Promise.all([ok(mf, name, '/provision/begin', input), ok(mf, name, '/provision/begin', input)]);
+  assert.deepEqual(concurrent, pending, 'concurrent same-body begin keeps one stored nonce');
+  assert.deepEqual(await ok(mf, name, '/provision/begin', input), pending);
+  const signed = await provisionVerification(mf, name);
+  const results = await Promise.all([ok(mf, name, '/provision/commit', signed), ok(mf, name, '/provision/commit', signed)]);
+  assert.deepEqual(results[0], results[1]);
+  const saved = await ok(mf, name, '/provision/snapshot');
+  assert.equal(saved.audit_sequence, '2');
+  assert.equal(saved.state.provision.stage, 'approved');
+  assert.equal(saved.state.accepted_operation_id, 'operation-one');
+  assert.deepEqual(Object.keys(saved.state.role_key_tasks).sort(), ['executor', 'identity', 'owner']);
+  assert.ok(Object.values(saved.state.role_key_tasks).every(task => task.state === 'pending' && task.key_version === '1'));
+  const audit = await ok(mf, name, '/provision/audit');
+  assert.equal(audit.length, 3, 'one draft, one pending and one approved audit');
+  assert.doesNotMatch(JSON.stringify(audit), /signature|verify_nonce|native_session_ref/);
+  mf = await restart();
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), saved);
+  assert.deepEqual(await ok(mf, name, '/provision/commit', signed), results[0]);
+  assert.deepEqual(await ok(mf, name, '/provision/audit'), audit);
+  const cancelled = await ok(mf, name, '/provision/cancel');
+  assert.ok(Object.values(cancelled.state.role_key_tasks).every(task => task.state === 'cancelled'));
+  await ok(mf, name, '/provision/commit', signed);
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), cancelled, 'historical retry cannot restore cancelled work');
+}));
+test('real provision SQLite audit failure leaves proof pending, plan draft and outbox empty', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current(); const name = 'provision-rollback'; const input = await provisionInput(mf, name);
+  await ok(mf, name, '/provision/begin', input);
+  const signed = await provisionVerification(mf, name);
+  const before = await ok(mf, name, '/provision/snapshot');
+  const audit = await ok(mf, name, '/provision/audit');
+  await ok(mf, name, '/provision/fault');
+  assert.equal((await call(mf, name, '/provision/commit', signed)).status, 409);
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), before);
+  assert.deepEqual(await ok(mf, name, '/provision/audit'), audit);
+  assert.equal(before.state.provision.stage, 'draft');
+  assert.deepEqual(before.state.role_key_tasks, {});
+  await ok(mf, name, '/provision/clear-fault');
+  await ok(mf, name, '/provision/commit', signed);
+  assert.equal((await ok(mf, name, '/provision/snapshot')).state.provision.stage, 'approved');
+}));
+test('provision admission binds signed purpose and live policy; real freeze blocks final consumption', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current();
+  assert.equal((await call(mf, 'missing', '/provision/missing-draft')).status, 409);
+  const wrongPurpose = await provisionInput(mf, 'purpose', 'prepare-purpose');
+  assert.equal((await call(mf, 'purpose', '/provision/begin', wrongPurpose)).status, 409,
+    'a valid signature on another purpose cannot approve this draft');
+  const name = 'provision-freeze'; const input = await provisionInput(mf, name);
+  const empty = await ok(mf, name, '/provision/snapshot');
+  for (const path of ['begin-expired', 'begin-frozen', 'begin-policy', 'begin-allowlist', 'begin-clock']) {
+    assert.equal((await call(mf, name, '/provision/' + path, input)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/provision/snapshot'), empty);
+  }
+  await ok(mf, name, '/provision/begin', input);
+  const signed = await provisionVerification(mf, name);
+  const pending = await ok(mf, name, '/provision/snapshot');
+  for (const path of ['commit-expired', 'commit-frozen', 'commit-policy', 'commit-allowlist', 'commit-clock']) {
+    assert.equal((await call(mf, name, '/provision/' + path, signed)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/provision/snapshot'), pending);
+  }
+  const freeze = await ok(mf, name, '/provision/freeze');
+  assert.notEqual(freeze.status, 200, 'new inventory is still unknown to the production closer');
+  assert.equal((await call(mf, name, '/provision/commit', signed)).status, 409);
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), pending);
+}));
+
+test('actual Rust WebCrypto envelope authenticates identity and both layers; rewrap preserves protocol material', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current(); const name = 'envelope';
+  const identity = { environment: 'staging', account_id: 'synthetic-account', role: 'executor',
+    key_id: 'synthetic-protocol-key', key_version: '18446744073709551615' };
+  const plaintext = [...Buffer.from('公開 fixture / private key bytes \u0000', 'utf8')];
+  const invoke = (path, body) => ok(mf, name, '/envelope/' + path, { identity, ...body });
+  const first = (await invoke('seal', { plaintext })).envelope;
+  const second = (await invoke('seal', { plaintext })).envelope;
+  assert.notEqual(first.ciphertext, second.ciphertext);
+  assert.notEqual(first.value_nonce, first.wrap_nonce);
+  assert.notEqual(first.value_nonce, second.value_nonce);
+  assert.deepEqual((await invoke('open', { envelope: first })).plaintext, plaintext);
+  assert.doesNotMatch(JSON.stringify(first), /公開 fixture|private key bytes/);
+  const reject = async (envelope, changedIdentity = identity, key = 1) => {
+    assert.equal((await call(mf, name, '/envelope/open', { identity: changedIdentity, envelope, key })).status, 409);
+  };
+  await reject(first, identity, 2);
+  for (const [field, value] of [['environment', 'other'], ['account_id', 'other'], ['role', 'owner'],
+    ['key_id', 'other'], ['key_version', '1']]) {
+    // Supplying a different expected identity must fail even with an untouched envelope.
+    await reject(first, { ...identity, [field]: value });
+    const changed = structuredClone(first); changed.context.identity[field] = value;
+    await reject(changed, changed.context.identity);
+  }
+  for (const field of ['ciphertext', 'wrapped_dek', 'value_nonce', 'wrap_nonce']) {
+    const changed = structuredClone(first);
+    changed[field] = (changed[field][0] === '0' ? '1' : '0') + changed[field].slice(1);
+    await reject(changed);
+  }
+  for (const [field, value] of [['schema_version', 2], ['algorithm', 'unknown']]) {
+    await reject({ ...first, context: { ...first.context, [field]: value } });
+  }
+  await reject({ ...first, wrapping_key_version: '2' });
+  await reject({ ...first, ciphertext: 'A' + first.ciphertext.slice(1) });
+  await reject({ ...first, wrap_nonce: first.value_nonce });
+  const updated = (await invoke('rewrap', { envelope: first })).envelope;
+  assert.equal(updated.ciphertext, first.ciphertext);
+  assert.equal(updated.value_nonce, first.value_nonce);
+  assert.deepEqual(updated.context, first.context);
+  assert.equal(updated.wrapping_key_version, '2');
+  assert.notEqual(updated.wrapped_dek, first.wrapped_dek);
+  assert.deepEqual((await invoke('open', { envelope: updated, key: 2 })).plaintext, plaintext);
+  await reject(updated);
+  assert.equal((await call(mf, name, '/envelope/rewrap', { identity, envelope: updated, key: 2 })).status, 409,
+    'same wrapping version cannot silently replace a KEK slot');
+}));
+
 test('Owner actual Wasm SQLite keeps original nonce, one-time consumption and full-width values after restart', { timeout: 90000 }, async () => fixture(async (current, restart) => {
   let mf = current();
   const input = await prepare(mf, 'original');

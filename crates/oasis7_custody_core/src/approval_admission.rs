@@ -264,6 +264,34 @@ impl TryFrom<RawAdmissionBook> for ApprovalAdmissionBook {
 }
 impl ApprovalAdmissionBook {
     /// Original evidence lookup only; callers still enforce their read ACL.
+    pub(crate) fn records(&self) -> impl Iterator<Item = &ApprovalAdmissionRecord> {
+        self.records.values()
+    }
+    /// Checks for returning immutable consumed history only. No current authority
+    /// is asserted and callers must never use this path to mutate a plan.
+    pub(crate) fn consumed_checks(
+        &self,
+        id: &str,
+        verification: Option<&SignedApprovalVerificationV1>,
+    ) -> Result<ExactSignatureChecks> {
+        let record = self
+            .records
+            .get(id)
+            .ok_or(ApprovalAdmissionError::Missing)?;
+        let original = record
+            .verification
+            .as_ref()
+            .ok_or(ApprovalAdmissionError::Missing)?;
+        if verification.is_some_and(|v| v != original) {
+            return Err(ApprovalAdmissionError::Conflict);
+        }
+        signature_checks(
+            &record.input,
+            &record.verify_nonce,
+            &record.context,
+            Some(original),
+        )
+    }
     pub fn original(&self, id: &str) -> Option<&ApprovalAdmissionRecord> {
         self.records.get(id)
     }

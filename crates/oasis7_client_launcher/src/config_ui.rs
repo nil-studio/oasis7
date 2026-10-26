@@ -1001,7 +1001,7 @@ impl ClientLauncherApp {
                     }
                 };
                 self.append_log(format!(
-                    "provider check succeeded: provider_id={provider_id} version={version} base_url={base_url} execution_mode={} timeout_ms={timeout_ms} compatibility_status={} fallback_reason={}",
+                    "provider check succeeded: provider_id={provider_id} version={version} execution_mode={} timeout_ms={timeout_ms} compatibility_status={} fallback_reason={}",
                     canonical_provider_execution_mode(self.config.agent_execution_lane.as_str())
                         .unwrap_or(DEFAULT_AGENT_EXECUTION_LANE),
                     compatibility_status.as_str(),
@@ -1014,7 +1014,7 @@ impl ClientLauncherApp {
             }
             Err(ProviderCheckError::Unauthorized(detail)) => {
                 self.provider_check_status = ProviderCheckStatus::Unauthorized(detail.clone());
-                self.append_log(format!("provider check unauthorized: {base_url}"));
+                self.append_log(format!("provider check unauthorized: {detail}"));
             }
             Err(ProviderCheckError::Unreachable(detail)) => {
                 self.provider_check_status = ProviderCheckStatus::Unreachable(detail.clone());
@@ -1049,3 +1049,7 @@ impl ClientLauncherApp {
         }
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "config_ui_provider_probe_tests.rs"]
+mod provider_probe_tests;

@@ -57,6 +57,7 @@
 | [`PRD-GAME-014 AC-13`](../../game/gameplay/gameplay-indirect-control-agency-contract.prd.md#ac-13) Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376 | 单一语义因果链含 accepted intent、reason/evidence、stakes/expected consequence、alternative、correction/earliest effect 与结果/reason | [DES-WR-IA-007](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | gameplay / Agent / runtime / Viewer / QA | 复用领域结算 receipt；不新增第二套 receipt schema |
 | [`PRD-GAME-014 receipt scope`](../../game/gameplay/gameplay-indirect-control-agency-contract.prd.md#21-reusable-causal-decision-receipt) Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376 | receipt 覆盖通用 action intent/reason/stakes/alternative/correction/result 语义 | [DES-WR-IA-007](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | gameplay / Agent / runtime / QA | 不重新拥有 gameplay 字段裁决 |
 | [`PRD-GAME-014 SC-7`](../../game/gameplay/gameplay-indirect-control-agency-contract.prd.md#sc-7) Trace refs: O7-REQ-e3193bfb-799b-4a55-bb9d-c7fa59e90185; O7-REQ-ebb0248c-1dca-4d58-a283-8d198fb6cf63 | 工业 gather/refine/move/schedule 改道、裁剪、等待或拒绝时保留原 intent、替换/阻断原因、expected/actual consequence、成本/进度与恢复面 | [DES-WR-IA-007](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | gameplay / runtime / Agent / Viewer / QA | debug/probe 不构成玩家后果或正式样本 |
+| [`REQ-AGENT-AUTH-001`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | Runtime 唯一裁决本地 signed delegation，旧 nonce 只读匹配且不扩大 profile | [owner delegation result/replay](indirect-control-agency-execution-and-continuation.design.md#owner-delegation-result-replay-contract) | runtime / Viewer host authority | 不新增 canonical transport、组织授权或动作支持 |
 | [`REQ-AGENT-AUTH-001`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | 高后果授权明确 issuer/source、范围、期限与累计余额复核 | [DES-WR-IA-010](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010) | producer / gameplay / Agent / runtime / QA | 不新增组织治理规则或跨 grant 总额 |
 | [`AC-AGENT-AUTH-001`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#ac-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | 同一 grant/source/object/period 的累计额度不因拆分、并发、重试、重连或切换复制 | [DES-WR-IA-010](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010) | producer / gameplay / runtime / QA | 不从 Agent/WASM permission 推导授权 |
 | authority PRD §6.2 [`AC-1`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#ac-1) | 高自治与有界授权遵循同一世界、资源、权限和治理边界 | [DES-WR-IA-010](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010) | producer / Agent / runtime | 不新增系统权限 |
@@ -238,6 +239,58 @@ This contract consumes current governance grant and ownership-transfer sources; 
 | effect commit / DES-WR-IA-010/011 | runtime authority -> domain settlement + durable ledger | effect identity, validated authority revision, source/object/period budget key and domain receipt ref | one serialized commit binds world effect, one usage delta, intent outcome and receipt; duplicate identity returns original | committed once or durable not-applied/blocker; no partial world effect/debit | technical fields may be added to existing records; no second receipt/state machine |
 | attribution / DES-WR-IA-012 | Agent reason + owner/organization decision + runtime result -> receipt/projection | 既有意图、authority 来源与权威结果 | 与结果保持同一因果关联 | 区分异议、override、硬阻断和执行结果 | 遵守 DES-WR-IA-007/008 隐私边界 |
 
+
+<a id="owner-delegation-result-replay-contract"></a>
+### 6.0 本地 owner delegation 的结果、重试与 profile（目标接口）
+
+Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad；承接 [REQ-AGENT-AUTH-001](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) 及 DES-WR-IA-010 的同一授权/预算责任，不新增玩家权限或产品动作。本节只收敛 install/revoke 用例；memory correction、task fence、signer delegation、interrupt/override 的既有接口及 effect-time 重验不借此重构。
+
+**现状与 owner。** 当前 [`owner_control_admission.rs`](../../../crates/oasis7_runtime/src/world/owner_control_admission.rs) 的 signed mutation 返回 `Result<(), WorldError>`；Viewer 在 [`agent_memory_correction.rs`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/agent_memory_correction.rs) 自行构造 grant 并裁决新/旧 nonce 的历史匹配。下述 typed result/read 接缝尚待实现。目标由现有 Runtime owner-control 模块唯一拥有 command→grant、同 ID equality、scope reservation、revision transition 和 exact-replay matching；Viewer 只拥有入口 profile、transport、session/nonce/write-fence 及既有 JSON/error 映射。列表读取可用于显示，不得用于 Viewer 再裁决 mutation。无需新增 crate、服务、账本或通用 capability registry。
+
+| 目标进程内接口（名称示意） | 输入/返回 | 行为与权限 |
+| --- | --- | --- |
+| `apply_signed_delegation_control` | `&mut World`、完整 `AgencyControlRequest`、借用的 `OwnerControlHostAuthority`；`Result<DelegationControlOutcome, DelegationControlError>` | 仅新鲜 nonce 经宿主放行后调用；Runtime 重验签名与当前 owner/host authority，再作唯一业务裁决 |
+| `signed_delegation_control_replay` | `&World`、同一完整 signed request 与当前 host authority；`Result<DelegationReplayMatch, DelegationControlError>` | 只读；能返回 `ExactReplay(authorization)`、`IdentityConflict` 或 `NoMatch`，绝不安装/撤销、不落盘、不消费 nonce |
+| `DelegationControlOutcome` | operation=`Install/Revoke`，disposition=`Applied/ExactReplay`，本次对应的现有 authorization（含 grant ID/revision） | 是调用结果，不是授权 token；`Applied` 只指控制变更，不代表后续 Agent 行动完成或新增 finality |
+| `DelegationControlError` | 保留失败阶段（认证、读取、scope/identity/revision、应用/持久化）及原原因 | adapter 可保持原 error code/message；不得靠解析 Debug 字符串或重读历史重建领域裁决 |
+
+两条 Runtime 接口共享 grant 构造与历史匹配，不共享“旧 nonce 可 mutation”的入口。完整请求含签名覆盖的 request/player/key/Agent/world/reorg/command；host callback 必须读取真实当前注册 session key 与 Agent binding，不接受请求选择的 authority。每次调用仍核对当前 owner source，不能缓存上次成功为可复用权限。Runtime 验证不替代 Viewer 的当前 world/reorg/write-fence；effect commit 仍重验 grant/source/revision/时间/范围/预算。
+
+**同一领域判定与 nonce 分支。** Install 用当前 owner claim source 构造既有 grant：issuer/owner 为当前 owner、organization=None、revision=1、resource=electricity、revoked=false，其余条款来自 signed command。exact equality 包含全部既有字段和 action 顺序，不把 action 列表排序/集合化。Revoke 保留 `expected_revision.saturating_add(1)` 的既有边界，不在接口迁移中修改溢出语义。
+
+| 当前历史与命令（已通过入口身份/当前 authority 检查） | 新鲜 nonce mutation 结果 | 已消费/不新鲜 nonce 的只读匹配与既有响应 |
+| --- | --- | --- |
+| Install，无同 ID、无 reservation，底层 grant 校验及持久化成功 | `Applied`，既有安装一次 | `NoMatch` → `auth_nonce_replay`；不能借此新建 grant |
+| Install，同 ID 全字段相等 | `ExactReplay`，不重写 | `ExactReplay`；只返回该 authorization |
+| Install，同 ID 不同 terms（包括已撤销或 source 改变） | identity conflict → `grant_identity_conflict` | `IdentityConflict` → `grant_identity_conflict`，不是统一改成 nonce 错误 |
+| Install，无同 ID，但同 source、未撤销、同 object、action 有交集 | scope reservation → `grant_scope_already_reserved` | `NoMatch` → `auth_nonce_replay`，不新增 scope 查询裁决 |
+| Revoke，当前未撤销且 revision=expected | `Applied`，revision 按既有规则递增并 revoked=true | `NoMatch` → `auth_nonce_replay`；不能撤销 |
+| Revoke，已 revoked 且 revision=expected.saturating_add(1) | `ExactReplay` | `ExactReplay` |
+| Revoke，缺 ID / revision 不符 / 其他 revoked 状态 | 分别 `grant_not_found` / `grant_revision_stale` | `NoMatch` → `auth_nonce_replay` |
+| 授权列表读取失败 | `runtime_agency_read_failed` | 保留原分支的无匹配→`auth_nonce_replay`，内部可保留读取诊断；不得用错误结果放行 |
+| 新应用在底层 grant 校验或持久化失败 | `grant_install_rejected` / `grant_revoke_rejected`，不发布 candidate、不消耗 nonce | 不调用应用/持久化路径 |
+
+该表的 replay 是当前权威状态上的匹配，不是另建历史 receipt store；被撤销的 install 不恢复为原成功，新的 owner/source 不继承旧 grant。`ExactReplay` 不产生新 revision、usage debit、world action 或 receipt。
+
+**入口顺序和映射保持。** Viewer 继续按现有顺序检查：chain-linked local control 禁止 → request identity → recovery write fence → world/reorg → proof 存在/command 编码/签名 → session key → Agent access → current owner source → nonce。只有新鲜 nonce 才进入 install 的 scope/profile 校验和 mutation；旧 nonce 进入上述只读匹配，不挪入新请求 allowlist/校验来改变现有拒绝优先级。共享 matcher 不要求两分支完全相同的错误。
+
+新鲜 nonce 的 `Applied` 在原 candidate 成功发布后才消费 nonce；新鲜 nonce 的 `ExactReplay` 按原流程消费新 nonce；旧 nonce exact replay 不再消费。拒绝不能提前消耗 nonce，失败不能将候选 World 发布为成功；不借此调整现有 publication/nonce 次序或宣称新增跨 World/sidecar 原子事务。返回仍为：首次应用 `data.authorizations`（允许纯展示读取，保留现有读取失败 fallback），exact replay 为 `data.authorization` + `idempotent_replay:true`。新的内部类型不改变 signed wire、签名域、外部 code/message/shape；多条件同时错误时按原分支映射，不统一改成 `grant_*_rejected`。
+
+**能力 profile 不取并集。** 下列是不同层的既有范围，不是承诺每个入口支持所有底层动作：
+
+| Profile/层 | Install action 范围 | 限制 |
+| --- | --- | --- |
+| Local Viewer owner-control | `MoveAgent`、`TransferMaterial`、`ScheduleRecipe` | 不开放 `WorldRule`/`BuildFactory`；新鲜 install 的 unsupported 仍为 `grant_scope_invalid` |
+| Signed Runtime owner-control | 上述三项及 `WorldRule` | 仍不通过该签发入口开放 `BuildFactory` |
+| 底层 grant storage/validation | 上述四项及 `BuildFactory` | 值可接受不等于入口可签发或动作可执行；领域效果仍满足 §3.2 与原领域准入 |
+| Chain-linked Viewer local mutation | 无 | install/revoke/override/interrupt 仍返回 `canonical_agency_control_unavailable`；不包装成本地已接通 canonical capability |
+
+Profile 判定可保留为小型具名 policy，独立于 grant 业务身份/生命周期；不能将支持范围并集化，也不能因底层接受 `WorldRule` 就声明 native electricity lane 支持其效果。旧 nonce 只读查看已存在的精确结果不是新签发能力。
+
+**迁移和验收。** 先提供 Runtime typed outcome 与只读 matcher，并用现有 signed owner 测试覆盖完整签名、registry/current source；再把 Viewer 新鲜/旧 nonce 两条 delegation 分支改为消费它们，删去对应 grant 构造和历史状态机。需要时旧 unit-returning Rust API 可暂作包装；不改 persisted grant/budget key、revision/history、签名 payload 或数据 schema，回退无需 ledger migration。
+
+使用同一 signed vectors 对照 Runtime outcome 和 Viewer adapter，覆盖表中每行、新鲜及已消费 nonce、scope/profile 拒绝、owner/key/world/reorg 变化、签名篡改、恢复 fence、读取及持久化失败、同时多错误的优先级。保留 [`signed_owner.rs`](../../../crates/oasis7_runtime/src/tests/agent_delegation/signed_owner.rs) 与 [`agent_memory_correction_control.rs`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/agent_memory_correction_control.rs) 的 exact retry/nonce 不提前消费基线；补齐 delegation 向量及 snapshot/restore 后重试，对账 revision、余额、事件/receipt 数和 response/error 的新旧等价。验证实际受支持 local Viewer/API 组合路径；这不证明 chain-linked mutation、组织授权或完整经济转让已实现，也不阻塞独立的 grant selector/再授权业务修复。
+
 ### 6.1 实现落点与分片建议
 
 现有实现按以下三片绑定真实调用点；后续补齐继续复用 canonical intent、domain receipt 与 gameplay snapshot，不建立脱离入口的辅助状态或平行世界效果 receipt store。产品/玩法权限与资产结果仍由现有 authority 提供，字段名与 serializer 由 runtime 实现确定。
@@ -318,6 +371,7 @@ This contract consumes current governance grant and ownership-transfer sources; 
 | [`PRD-GAME-014 AC-13`](../../game/gameplay/gameplay-indirect-control-agency-contract.prd.md#ac-13) Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376 | [DES-WR-IA-007](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | 单链断言 intent、reason/evidence、stakes/expected、alternative、interrupt/correction+earliest effect、applied/not-applied domain receipt result 或 stale/ignored reason；accepted≠applied | 使用 [`agent_cognition_live_harness.rs`](../../../crates/oasis7/src/simulator/tests/agent_cognition_live_harness.rs) 的现有 lineage test 作基线并添加完整语义字段断言 | PR 验证记录 + review artifact | 当前测试仅证明部分 receipt linkage |
 | [`PRD-GAME-014 receipt scope`](../../game/gameplay/gameplay-indirect-control-agency-contract.prd.md#21-reusable-causal-decision-receipt) Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376 | [DES-WR-IA-007](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | 领域 settlement receipt 仍是 effect truth；shared read model 引用而不替换它 | 使用 [`agent_cognition_live_harness.rs`](../../../crates/oasis7/src/simulator/tests/agent_cognition_live_harness.rs) 检查 receipt reference 与 runtime commit marker 一致 | PR 验证记录 + review artifact | 每个受支持领域 action 的 coverage 逐项绑定 |
 | [`PRD-GAME-014 SC-7`](../../game/gameplay/gameplay-indirect-control-agency-contract.prd.md#sc-7) Trace refs: O7-REQ-e3193bfb-799b-4a55-bb9d-c7fa59e90185; O7-REQ-ebb0248c-1dca-4d58-a283-8d198fb6cf63 | [DES-WR-IA-007](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | Industrial gather/refine/move/schedule 改道、裁剪、等待、拒绝均保留原 intent、替换/阻断原因、expected/actual consequence、cost/progress 与 next recovery；debug/probe 不计玩家效果 | 使用 [`industry_history_publication_transaction_regressions.rs`](../../../crates/oasis7_runtime/src/tests/industry_history_publication_transaction_regressions.rs) 增加正式 receipt 与 debug exclusion cases | PR 验证记录 + full-tier artifact | 各动作只覆盖实际支持的领域 producer |
+| [`REQ-AGENT-AUTH-001`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | [owner delegation result/replay](indirect-control-agency-execution-and-continuation.design.md#owner-delegation-result-replay-contract) | Applied/ExactReplay 同源；旧 nonce 不能 mutation；response/error/nonce 顺序保持 | [回归方法](../../../testing-manual.md#regression-oracle)；以 `signed_owner.rs` `../../../crates/oasis7_runtime/src/tests/agent_delegation/signed_owner.rs` 与 `agent_memory_correction_control.rs` `../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/agent_memory_correction_control.rs` 为回归落点，补 Runtime outcome → Viewer adapter 同向量合同矩阵、restore 与失败注入；不表示这些新增场景已通过 | PR/CI 的实际结果及兼容对照 | 不证明 chain-linked mutation 或完整产品转让 |
 | [`REQ-AGENT-AUTH-001`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | [DES-WR-IA-010](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010) | 高后果授权显示/验证 issuer、source scope、目标、期限与同 grant/source/object/period 累计余量 | 使用 [`agent_cognition_live_command.rs`](../../../crates/oasis7_runtime/src/tests/agent_cognition_live_command.rs) 的 authority recheck 基线并接真实 grant view | PR 验证记录 + full-tier artifact | 不引入跨 grant aggregate |
 | [`AC-AGENT-AUTH-001`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#ac-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | [DES-WR-IA-010](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010) | 拆分/并发/重试/重连/切 owner 不复制额度；combined cost 超同 grant 剩余额时不得双效果或隐藏债务 | 使用 [`agent_cognition_live_command.rs`](../../../crates/oasis7_runtime/src/tests/agent_cognition_live_command.rs) 加并发 commit 与 retry-once cases | PR 验证记录 + full-tier artifact | 不跨独立 grant 合并预算 |
 | authority PRD §6.2 [`AC-1`](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#ac-1) | [DES-WR-IA-010](indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010) | 高自治/有界授权保持同一世界、资源、权限与治理边界 | 使用 [`agent_intent_v2.rs`](../../../crates/oasis7_runtime/src/tests/agent_intent_v2.rs) authority-context baseline 并添加 grant-boundary scenario | PR 验证记录 + `test_tier_required` artifact | 基线不单独证明 owner grants |

@@ -1024,3 +1024,7 @@ mod provider_commit_boundary;
 
 #[path = "agent_delegation/world_rule_budget.rs"]
 mod world_rule_budget;
+
+
+#[path = "agent_delegation/replacement.rs"]
+mod replacement;

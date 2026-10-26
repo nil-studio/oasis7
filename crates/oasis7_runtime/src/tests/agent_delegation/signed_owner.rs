@@ -282,3 +282,110 @@ fn signed_local_chat_preserves_registered_ordinary_agent_without_starter_claim()
             .is_replay()
     );
 }
+
+#[test]
+fn signed_replaced_recipe_grant_survives_restore_and_only_debits_replacement_once() {
+    let mut world = recipe_fixture();
+    // Publish the fixture resource changes before exercising snapshot recovery.
+    world.step().unwrap();
+    let host = registry();
+    let install_recipe = |id: &str| AgencyControlOperation::InstallDelegation {
+        grant_id: id.into(),
+        object_id: "factory".into(),
+        action_kinds: vec!["ScheduleRecipe".into()],
+        period_id: "period".into(),
+        valid_from_tick: 0,
+        valid_until_tick: 100,
+        limit_units: 12,
+    };
+    world
+        .apply_signed_delegation_control(&request(install_recipe("grant-a"), 1), &host)
+        .unwrap();
+    world
+        .apply_signed_delegation_control(
+            &request(
+                AgencyControlOperation::RevokeDelegation {
+                    grant_id: "grant-a".into(),
+                    expected_revision: 1,
+                },
+                2,
+            ),
+            &host,
+        )
+        .unwrap();
+    world
+        .apply_signed_delegation_control(&request(install_recipe("grant-b"), 3), &host)
+        .unwrap();
+    // Restore in the same world identity used by the signed owner and cognition
+    // request fixtures, rather than snapshot()'s generic fallback world ID.
+    let snapshot = world.snapshot_with_chain_resource_context(
+        ChainResourceDerivationContext {
+            world_id: WORLD_ID,
+            chain_id: "runtime-chain",
+            genesis_ref: None,
+            created_at_height: world.journal().len() as u64,
+            manifest_height: world.journal().len() as u64,
+            commit_block_hash: None,
+            tick: world.state().time,
+        },
+        world.current_manifest_hash().unwrap(),
+        world.current_manifest_hash().unwrap(),
+    );
+    world = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let before = serde_json::to_value(world.snapshot()).unwrap();
+    let quote = world
+        .builtin_recipe_quote(AGENT_ID, "factory", "recipe.smelter.iron_ingot", 1)
+        .unwrap();
+    assert_eq!(quote.authorization.grant.grant_id, "grant-b");
+    assert_eq!(quote.authorization.cost_units, 8);
+    assert!(quote.rejection.is_none());
+    assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), before);
+    let prepared = prepare(
+        &mut world,
+        "replacement-production",
+        quote.action,
+        8,
+        Default::default(),
+    );
+    world
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    let receipts = world.agent_causal_receipts(AGENT_ID).unwrap();
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].disposition, "applied");
+    assert_eq!(
+        receipts[0].authorization.as_ref().unwrap().grant.grant_id,
+        "grant-b"
+    );
+    let balances = world.state().material_ledgers.clone();
+    let electricity = world.state().agents[AGENT_ID].state.resources.clone();
+    world = World::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
+    world
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    assert_eq!(world.agent_causal_receipts(AGENT_ID).unwrap(), receipts);
+    assert_eq!(world.state().material_ledgers, balances);
+    assert_eq!(world.state().agents[AGENT_ID].state.resources, electricity);
+    let rows = world.agent_delegation_authorizations(AGENT_ID).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].grant.grant_id, "grant-a");
+    assert!(rows[0].grant.revoked);
+    assert_eq!(rows[0].grant.revision, 2);
+    assert_eq!(rows[0].spent_units, 0);
+    assert_eq!(rows[1].grant.grant_id, "grant-b");
+    assert!(!rows[1].grant.revoked);
+    assert_eq!(rows[1].spent_units, 8);
+    // A started recipe is not a completed product. Advance and check real output.
+    for _ in 0..12 {
+        world.step().unwrap();
+    }
+    let output = &world.state().factories["factory"].output_ledger;
+    assert_eq!(
+        world.state().material_ledgers[output].get("iron_ingot"),
+        Some(&3)
+    );
+    assert_eq!(
+        world.agent_delegation_authorizations(AGENT_ID).unwrap()[1].spent_units,
+        8
+    );
+}
