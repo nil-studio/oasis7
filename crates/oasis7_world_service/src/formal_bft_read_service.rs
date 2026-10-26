@@ -308,7 +308,7 @@ fn validate_committed_world(
         Some(identity.chain_id.as_str()),
     )
     .map_err(FormalReadError::Integrity)?;
-    if u64::try_from(world.state().time).ok() != Some(height) {
+    if world.state().time != height {
         return Err(FormalReadError::Integrity(
             "BFT publication World tick differs from certified height".into(),
         ));

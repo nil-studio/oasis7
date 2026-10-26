@@ -83,10 +83,7 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
     world.apply_proposal(proposal_id).unwrap();
 }
 
-// This file is instantiated by multiple sibling test modules with `#[path]`;
-// only the formal package tests use this helper in every instance.
-#[allow(dead_code)]
-pub(super) fn world_and_anchor() -> (World, VerifiedFormalReadAnchorV1) {
+pub(crate) fn world_and_anchor() -> (World, VerifiedFormalReadAnchorV1) {
     let (_, mut trust, old, _) = fixtures::actual_world_initial_fixture();
     let identity = &old.authority().definition().world;
     let world = prepared_wasm_world(identity, false);
@@ -127,7 +124,7 @@ pub(super) fn world_and_anchor() -> (World, VerifiedFormalReadAnchorV1) {
 
 /// A profile-2 activation fixture stages the empty retained-history index
 /// before publishing any World ticks, as required for a fresh approved World.
-pub(super) fn world_with_formal_history() -> World {
+pub(crate) fn world_with_formal_history() -> World {
     let (_, _, old, _) = fixtures::actual_world_initial_fixture();
     prepared_wasm_world(&old.authority().definition().world, true)
 }

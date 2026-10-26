@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod frozen_snapshot;
 #[cfg(test)]
 #[path = "formal_package_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 pub(super) use frozen_snapshot::VerifiedFrozenSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

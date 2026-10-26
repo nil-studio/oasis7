@@ -2,6 +2,7 @@
 use super::super::super::super::super::driver::NodeRuntimeExecutionDriver;
 use super::FormalBftReadExecutionV1;
 use super::formal_storage;
+use crate::execution_bridge_real_tests::real_execution_bridge::formal_package::tests::wasm_fixture;
 use crate::execution_bridge_real_tests::real_execution_bridge::{
     ExecutionBridgeState, formal_business_package, formal_executor, formal_initial, formal_package,
 };
@@ -16,7 +17,7 @@ use oasis7_distfs::controlled_authority::formal::endpoint::{
     FormalPrepareReceiptV1, FormalQueryOutcomeV1,
 };
 use oasis7_distfs::controlled_authority::formal::{
-    FormalError, FormalWorldIdentityV1,
+    FormalError,
     business_index::BusinessIndexNodeReader,
     coordinator::{FormalCoordinator, FormalDurabilityEndpoint},
     endpoint::FormalCandidateMaterialV1,
@@ -33,7 +34,7 @@ use oasis7_proto::distributed_bft::v2::{
 use oasis7_runtime::{
     Action, BlobStore, GovernanceMainTokenControllerRegistry, GovernanceThresholdSignerPolicy,
     ReleaseSecurityPolicy, RuntimeCommittedTickContext, VerifiedFormalRetainedHistoryParentV1,
-    World, World as RuntimeWorld, blake3_hex,
+    World as RuntimeWorld, blake3_hex,
 };
 use oasis7_wasm_abi::{ModuleCallFailure, ModuleCallRequest, ModuleOutput, ModuleSandbox};
 use std::{
@@ -49,9 +50,6 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-
-#[path = "formal_wasm_fixture.rs"]
-mod wasm_fixture;
 
 #[path = "driver_bft_v2_formal_profile_tests.rs"]
 mod profile_tests;

@@ -3,9 +3,6 @@
 use super::NodeRuntimeExecutionDriver;
 use std::path::Path;
 
-#[cfg(test)]
-pub(crate) use super::super::formal_initial;
-
 use oasis7_node::{
     BftBlockV1, BftCommitCertificateV1, BftValidatorSetV1, NodeBftBuildContextV1,
     NodeBftExecutionCommitResultV1, NodeBftExecutionConfigV1, NodeBftExecutionContextV1,

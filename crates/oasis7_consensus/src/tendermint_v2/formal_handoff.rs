@@ -267,7 +267,7 @@ impl VerifiedBftHandoffTargetV1 {
         // manifest is a distinct claim authenticated by caller replay and QC.
         validate_hash("replayed H World manifest", checked_parent_manifest_hash)?;
         let set = self.target.validator_set()?;
-        Ok(BftHeightProposerScheduleV2::from_formal_handoff_v1(
+        BftHeightProposerScheduleV2::from_formal_handoff_v1(
             set,
             self.target.schedule_policy.clone(),
             FormalHandoffScheduleAnchorV1 {
@@ -278,7 +278,7 @@ impl VerifiedBftHandoffTargetV1 {
                 parent_state_root: checked_parent_semantic_state_root.to_owned(),
                 parent_manifest_hash: checked_parent_manifest_hash.to_owned(),
             },
-        )?)
+        )
     }
 }
 
