@@ -494,12 +494,12 @@ impl BftConsensusMachineV2 {
         // proposer for an already accepted slot, retain a conflicting header
         // before checking candidate material that may be malformed. It never
         // installs the second proposal or produces consensus effects.
-        if let Some(previous) = self.accepted_proposal_headers.get(&proposal.header.round) {
-            if previous != &proposal.header {
-                let first = previous.clone();
-                self.record_proposal_equivocation_evidence(&first, &proposal.header)?;
-                return Err("BFT proposer equivocated within height/round".into());
-            }
+        if let Some(previous) = self.accepted_proposal_headers.get(&proposal.header.round)
+            && previous != &proposal.header
+        {
+            let first = previous.clone();
+            self.record_proposal_equivocation_evidence(&first, &proposal.header)?;
+            return Err("BFT proposer equivocated within height/round".into());
         }
 
         proposal.validate_binding()?;
@@ -524,10 +524,11 @@ impl BftConsensusMachineV2 {
             Vec::new()
         };
 
-        if self
-            .accepted_proposal_headers
-            .contains_key(&proposal.header.round)
-        {
+        // A proposal cached while its round was in the future is removed
+        // from the body cache immediately before promotion. Let that
+        // current-round replay process it, but do not resurrect an old body
+        // that was pruned after advancing past its round.
+        if proposal.header.round < self.round {
             return Ok(output);
         }
         if let Some(previous) = self.proposals.get(&proposal.header.round) {

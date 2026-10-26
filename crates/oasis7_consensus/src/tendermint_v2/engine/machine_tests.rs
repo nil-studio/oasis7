@@ -267,6 +267,66 @@ fn conflicting_signed_header_is_retained_when_its_block_fails_schedule_validatio
     );
 }
 
+#[test]
+fn accepted_future_proposal_is_promoted_when_its_round_becomes_current() {
+    let (scope, keys, set, schedule) = machine_fixture("future-proposal-promotion");
+    let local_id = schedule.expected_proposer_for_round(0).unwrap();
+    let mut machine =
+        BftConsensusMachineV2::new(schedule.clone(), local_id, 100, TIMEOUTS).unwrap();
+    let proposal = plain_proposal(
+        &scope,
+        &set,
+        &schedule,
+        &keys,
+        1,
+        fixture_block(&scope, &set, &schedule, 1),
+    );
+    let proposal_id = proposal.header.block_id.clone();
+
+    machine
+        .receive_proposal(proposal.clone(), true, 101)
+        .expect("a valid future-round proposal can be cached before advancement");
+    assert_eq!(machine.proposal_for_round(1), Some(&proposal));
+
+    let mut advancement_actions = Vec::new();
+    for (validator_id, key) in keys.iter().take(3) {
+        advancement_actions.extend(
+            machine
+                .receive_vote(
+                    fixture_vote(
+                        &schedule,
+                        validator_id,
+                        key,
+                        1,
+                        BftVotePhaseV2::Prevote,
+                        BftVoteValueV2::Nil,
+                    ),
+                    102,
+                )
+                .expect("a future-round quorum advances the machine"),
+        );
+    }
+
+    assert_eq!(machine.round(), 1);
+    assert_eq!(
+        machine.proposal_for_round(1),
+        Some(&proposal),
+        "promotion reinstalls the accepted proposal body for the current round"
+    );
+    assert!(
+        advancement_actions.iter().any(|action| matches!(
+            action,
+            BftConsensusActionV2::SignVote(intent)
+                if intent.phase == BftVotePhaseV2::Prevote
+                    && intent.value
+                        == (BftVoteValueV2::Block {
+                            block_id: proposal_id.clone(),
+                        })
+        )),
+        "promotion must process the cached proposal and request its local prevote"
+    );
+}
+
 fn signed_proposal_with_round_evidence(
     schedule: &BftHeightProposerScheduleV2,
     keys: &[(String, SigningKey)],
