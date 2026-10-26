@@ -737,7 +737,11 @@ mod tests {
             1,
             vec![BftValidatorV2 {
                 validator_id: format!("validator-{byte}"),
-                public_key_hex: hash(byte.wrapping_add(1)),
+                public_key_hex: hex::encode(
+                    ed25519_dalek::SigningKey::from_bytes(&[byte.wrapping_add(1); 32])
+                        .verifying_key()
+                        .to_bytes(),
+                ),
                 voting_power: 1,
             }],
             BftSchedulePolicyV2::new(1, "bft").unwrap(),
