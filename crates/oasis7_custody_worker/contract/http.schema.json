@@ -470,6 +470,105 @@
         }
       }
     ],
+    "SignedSourceClosureAckV1": [
+      {
+        "ack": {
+          "closed_at": "10",
+          "closure_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "environment": "test",
+          "event_digest": "ff70bedab080685fdb68d24ba1d452624a6b977af27f2303b47f6ab1f2bc76d9",
+          "event_id": "b61dd54d58ec1f6e1001f7e1d3aa38b7ba1ddd3b3fd221d869479fc3fb71d140",
+          "identity_instance_epoch": "3",
+          "identity_namespace": "identity:test",
+          "inventory_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "key_id": "owner-source-test",
+          "manager_account_id": "manager-one",
+          "owner_audience": "owner-test",
+          "status": "closed",
+          "version": 1
+        },
+        "signature": "fixture-signature"
+      }
+    ],
+    "SignedSourceRevocationEventV1": [
+      {
+        "event": {
+          "environment": "test",
+          "event_id": "b61dd54d58ec1f6e1001f7e1d3aa38b7ba1ddd3b3fd221d869479fc3fb71d140",
+          "identity_instance_epoch": "3",
+          "identity_namespace": "identity:test",
+          "key_id": "native-source-test",
+          "manager_account_id": "manager-one",
+          "manager_security_version": "2",
+          "observed_at": "1",
+          "owner_audience": "owner-test",
+          "source": {
+            "current": {
+              "policy_version": "2",
+              "security_version": "2",
+              "status": "frozen"
+            },
+            "kind": "account",
+            "previous": {
+              "policy_version": "1",
+              "security_version": "1",
+              "status": "active"
+            }
+          },
+          "version": 1
+        },
+        "signature": "fixture-signature"
+      }
+    ],
+    "SourceRevocationAckResultV1": [
+      {
+        "api_version": 1,
+        "event_digest": "ff70bedab080685fdb68d24ba1d452624a6b977af27f2303b47f6ab1f2bc76d9",
+        "event_id": "b61dd54d58ec1f6e1001f7e1d3aa38b7ba1ddd3b3fd221d869479fc3fb71d140",
+        "status": "closed"
+      }
+    ],
+    "SourceRevocationsPollRequestV1": [
+      {
+        "api_version": 1,
+        "limit": 8
+      }
+    ],
+    "SourceRevocationsPollResponseV1": [
+      {
+        "api_version": 1,
+        "events": [
+          {
+            "event": {
+              "environment": "test",
+              "event_id": "b61dd54d58ec1f6e1001f7e1d3aa38b7ba1ddd3b3fd221d869479fc3fb71d140",
+              "identity_instance_epoch": "3",
+              "identity_namespace": "identity:test",
+              "key_id": "native-source-test",
+              "manager_account_id": "manager-one",
+              "manager_security_version": "2",
+              "observed_at": "1",
+              "owner_audience": "owner-test",
+              "source": {
+                "current": {
+                  "policy_version": "2",
+                  "security_version": "2",
+                  "status": "frozen"
+                },
+                "kind": "account",
+                "previous": {
+                  "policy_version": "1",
+                  "security_version": "1",
+                  "status": "active"
+                }
+              },
+              "version": 1
+            },
+            "signature": "fixture-signature"
+          }
+        ]
+      }
+    ],
     "error": [
       {
         "code": "not_found",
@@ -509,7 +608,66 @@
         "role": "recovery-fence",
         "schema_revision": "custody-http-v1"
       }
-    ]
+    ],
+    "source_revocation": {
+      "events": [
+        {
+          "event": {
+            "environment": "test",
+            "event_id": "b61dd54d58ec1f6e1001f7e1d3aa38b7ba1ddd3b3fd221d869479fc3fb71d140",
+            "identity_instance_epoch": "3",
+            "identity_namespace": "identity:test",
+            "key_id": "native-source-test",
+            "manager_account_id": "manager-one",
+            "manager_security_version": "2",
+            "observed_at": "1",
+            "owner_audience": "owner-test",
+            "source": {
+              "current": {
+                "policy_version": "2",
+                "security_version": "2",
+                "status": "frozen"
+              },
+              "kind": "account",
+              "previous": {
+                "policy_version": "1",
+                "security_version": "1",
+                "status": "active"
+              }
+            },
+            "version": 1
+          },
+          "signing_bytes_hex": "8278236f61736973372e637573746f64792e736f757263652d7265766f636174696f6e2e7631ab666b65795f6964726e61746976652d736f757263652d7465737466736f75726365a3646b696e64676163636f756e746763757272656e74a3667374617475736666726f7a656e6e706f6c6963795f76657273696f6e61327073656375726974795f76657273696f6e61326870726576696f7573a366737461747573666163746976656e706f6c6963795f76657273696f6e61317073656375726974795f76657273696f6e61316776657273696f6e01686576656e745f69647840623631646435346435386563316636653130303166376531643361613338623762613164646433623366643232316438363934373966633366623731643134306b656e7669726f6e6d656e7464746573746b6f627365727665645f617461316e6f776e65725f61756469656e63656a6f776e65722d74657374726964656e746974795f6e616d6573706163656d6964656e746974793a74657374726d616e616765725f6163636f756e745f69646b6d616e616765722d6f6e65776964656e746974795f696e7374616e63655f65706f6368613378186d616e616765725f73656375726974795f76657273696f6e6132"
+        },
+        {
+          "event": {
+            "environment": "test",
+            "event_id": "a9728953990c4ec62927c4fc97f0160b3de1203a5655d79a8d68a7f87f67d138",
+            "identity_instance_epoch": "3",
+            "identity_namespace": "identity:test",
+            "key_id": "native-source-test",
+            "manager_account_id": "manager-one",
+            "manager_security_version": "2",
+            "observed_at": "1",
+            "owner_audience": "owner-test",
+            "source": {
+              "credential_ref": "passkey-one",
+              "current": {
+                "state": "revoked",
+                "version": "18446744073709551615"
+              },
+              "kind": "credential",
+              "previous": {
+                "state": "active",
+                "version": "9007199254740993"
+              }
+            },
+            "version": 1
+          },
+          "signing_bytes_hex": "8278236f61736973372e637573746f64792e736f757263652d7265766f636174696f6e2e7631ab666b65795f6964726e61746976652d736f757263652d7465737466736f75726365a4646b696e646a63726564656e7469616c6763757272656e74a2657374617465677265766f6b65646776657273696f6e7431383434363734343037333730393535313631356870726576696f7573a2657374617465666163746976656776657273696f6e70393030373139393235343734303939336e63726564656e7469616c5f7265666b706173736b65792d6f6e656776657273696f6e01686576656e745f69647840613937323839353339393063346563363239323763346663393766303136306233646531323033613536353564373961386436386137663837663637643133386b656e7669726f6e6d656e7464746573746b6f627365727665645f617461316e6f776e65725f61756469656e63656a6f776e65722d74657374726964656e746974795f6e616d6573706163656d6964656e746974793a74657374726d616e616765725f6163636f756e745f69646b6d616e616765722d6f6e65776964656e746974795f696e7374616e63655f65706f6368613378186d616e616765725f73656375726974795f76657273696f6e6132"
+        }
+      ]
+    }
   },
   "metadata": {
     "$defs": {
@@ -2219,6 +2377,422 @@
         "signature"
       ],
       "title": "SignedApprovalVerificationV1",
+      "type": "object"
+    },
+    "SignedSourceClosureAckV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "SourceClosureAckV1": {
+          "additionalProperties": false,
+          "properties": {
+            "closed_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "closure_digest": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "event_digest": {
+              "type": "string"
+            },
+            "event_id": {
+              "type": "string"
+            },
+            "identity_instance_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_namespace": {
+              "type": "string"
+            },
+            "inventory_digest": {
+              "type": "string"
+            },
+            "key_id": {
+              "type": "string"
+            },
+            "manager_account_id": {
+              "type": "string"
+            },
+            "owner_audience": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/SourceClosureStateV1"
+            },
+            "version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "key_id",
+            "event_id",
+            "event_digest",
+            "identity_namespace",
+            "environment",
+            "identity_instance_epoch",
+            "manager_account_id",
+            "owner_audience",
+            "closure_digest",
+            "inventory_digest",
+            "closed_at",
+            "status"
+          ],
+          "type": "object"
+        },
+        "SourceClosureStateV1": {
+          "enum": [
+            "closed"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "ack": {
+          "$ref": "#/$defs/SourceClosureAckV1"
+        },
+        "signature": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ack",
+        "signature"
+      ],
+      "title": "SignedSourceClosureAckV1",
+      "type": "object"
+    },
+    "SourceRevocationAckResultV1": {
+      "$defs": {
+        "SourceClosureStateV1": {
+          "enum": [
+            "closed"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event_digest": {
+          "type": "string"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SourceClosureStateV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "event_id",
+        "event_digest",
+        "status"
+      ],
+      "title": "SourceRevocationAckResultV1",
+      "type": "object"
+    },
+    "SourceRevocationsPollRequestV1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_version",
+        "limit"
+      ],
+      "title": "SourceRevocationsPollRequestV1",
+      "type": "object"
+    },
+    "SourceRevocationsPollResponseV1": {
+      "$defs": {
+        "AccountSecurityStateV1": {
+          "additionalProperties": false,
+          "properties": {
+            "policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "policy_version",
+            "security_version"
+          ],
+          "type": "object"
+        },
+        "CredentialSecurityStateV1": {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "version": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "state",
+            "version"
+          ],
+          "type": "object"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "RevokedSourceV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "$ref": "#/$defs/AccountSecurityStateV1"
+                },
+                "kind": {
+                  "const": "account",
+                  "type": "string"
+                },
+                "previous": {
+                  "$ref": "#/$defs/AccountSecurityStateV1"
+                }
+              },
+              "required": [
+                "kind",
+                "previous",
+                "current"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "credential_ref": {
+                  "type": "string"
+                },
+                "current": {
+                  "$ref": "#/$defs/CredentialSecurityStateV1"
+                },
+                "kind": {
+                  "const": "credential",
+                  "type": "string"
+                },
+                "previous": {
+                  "$ref": "#/$defs/CredentialSecurityStateV1"
+                }
+              },
+              "required": [
+                "kind",
+                "credential_ref",
+                "previous",
+                "current"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "$ref": "#/$defs/SessionSecurityStateV1"
+                },
+                "kind": {
+                  "const": "session",
+                  "type": "string"
+                },
+                "previous": {
+                  "$ref": "#/$defs/SessionSecurityStateV1"
+                },
+                "session_ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "session_ref",
+                "previous",
+                "current"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "SessionSecurityStateV1": {
+          "additionalProperties": false,
+          "properties": {
+            "auth_method": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_instance_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "idle_expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "issued_security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "origin_credential_ref": {
+              "type": "string"
+            },
+            "origin_credential_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "revoked_at": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "origin_credential_ref",
+            "origin_credential_version",
+            "issued_security_version",
+            "identity_instance_epoch",
+            "auth_method",
+            "expires_at",
+            "idle_expires_at"
+          ],
+          "type": "object"
+        },
+        "SignedSourceRevocationEventV1": {
+          "additionalProperties": false,
+          "properties": {
+            "event": {
+              "$ref": "#/$defs/SourceRevocationEventV1"
+            },
+            "signature": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "signature"
+          ],
+          "type": "object"
+        },
+        "SourceRevocationEventV1": {
+          "additionalProperties": false,
+          "properties": {
+            "environment": {
+              "type": "string"
+            },
+            "event_id": {
+              "type": "string"
+            },
+            "identity_instance_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_namespace": {
+              "type": "string"
+            },
+            "key_id": {
+              "type": "string"
+            },
+            "manager_account_id": {
+              "type": "string"
+            },
+            "manager_security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "observed_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_audience": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/RevokedSourceV1"
+            },
+            "version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "key_id",
+            "event_id",
+            "identity_namespace",
+            "environment",
+            "identity_instance_epoch",
+            "manager_account_id",
+            "manager_security_version",
+            "owner_audience",
+            "observed_at",
+            "source"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/SignedSourceRevocationEventV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "api_version",
+        "events"
+      ],
+      "title": "SourceRevocationsPollResponseV1",
       "type": "object"
     }
   }

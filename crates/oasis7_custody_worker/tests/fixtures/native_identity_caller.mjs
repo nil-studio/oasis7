@@ -2,6 +2,10 @@
 export default {
   async fetch(request, env) {
     const raw = await request.text();
+    if (new URL(request.url).pathname === '/pump') {
+      try { await env.PUMP.tick(); return new Response(null, { status: 204 }); }
+      catch { return new Response('scheduled delivery rejected', { status: 503 }); }
+    }
     if (new URL(request.url).pathname === '/default-verify') {
       try {
         await env.IDENTITY_DEFAULT.native_verify_approval(raw);

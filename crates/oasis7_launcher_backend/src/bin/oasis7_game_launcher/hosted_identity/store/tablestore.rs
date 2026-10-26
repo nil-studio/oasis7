@@ -324,6 +324,9 @@ impl RemoteTransaction {
             response.try_into().map_err(|_| protocol_error())?;
         decoded.row.map(decode_record).transpose()
     }
+    pub(super) fn record_kind(&self, key: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.get_record(key)?.map(|record| record.kind))
+    }
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<Versioned<T>>, StoreError> {
         self.get_record(key)?
             .map(|record| {

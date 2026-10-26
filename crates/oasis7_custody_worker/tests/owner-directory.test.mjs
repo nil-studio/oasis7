@@ -1,6 +1,7 @@
+import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,10 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { setTimeout as delay } from 'node:timers/promises';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const namespace = 'identity:test';
+const testKey = seed => createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.alloc(32, seed)]), format: 'der', type: 'pkcs8' });
+const sourceKey = testKey(91);
+const sourcePublic = createPublicKey(sourceKey).export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
+
 const manager = { identity_namespace: namespace, native_account_id: 'manager-one' };
 const world = { world_id: 'world-one', genesis_digest: 'genesis-one', branch_id: 'branch-one', reorg_epoch: '0', service_public_key: 'ab'.repeat(32) };
 const routes = { environment: 'test', identity_route: 'native-one', world_route: 'world-route-one', world_identity: world.world_id };
@@ -26,9 +31,10 @@ function options(persist) {
     { type: 'ESModule', path: resolve(root, 'artifacts/owner/index.js') },
     { type: 'CompiledWasm', path: resolve(root, 'artifacts/owner/index_bg.wasm') },
   ], modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
-    serviceBindings: { MANAGEMENT: { name: 'custody-owner-fixture', entrypoint: 'OwnerManagement' }, DEFAULT_OWNER: { name: 'custody-owner-deployed' } },
+    serviceBindings: { REVOCATIONS: { name: 'custody-owner-fixture', entrypoint: 'OwnerRevocations' }, MANAGEMENT: { name: 'custody-owner-fixture', entrypoint: 'OwnerManagement' }, DEFAULT_OWNER: { name: 'custody-owner-deployed' } },
     durableObjects: { ACCOUNTS: { className: 'AccountHarness', useSQLite: true }, MANAGER_ASSOCIATIONS: { className: 'ManagerAssociations', useSQLite: true } },
-    bindings: { CUSTODY_NATIVE_NAMESPACE: namespace, CUSTODY_NATIVE_INSTANCE_EPOCH: '3', CUSTODY_NATIVE_ENVIRONMENT: 'test',
+    bindings: { CUSTODY_NATIVE_APPROVAL_KEY_ID: 'native-source-test', CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY: sourcePublic, CUSTODY_NATIVE_AUDIENCE: 'owner-test',
+      CUSTODY_REVOCATION_OWNER_KEY_ID: 'owner-source-test', CUSTODY_REVOCATION_OWNER_SIGNING_KEY: Buffer.alloc(32, 92).toString('hex'), CUSTODY_NATIVE_NAMESPACE: namespace, CUSTODY_NATIVE_INSTANCE_EPOCH: '3', CUSTODY_NATIVE_ENVIRONMENT: 'test',
       CUSTODY_BOOTSTRAP_MANAGERS: JSON.stringify([{ principal: manager, environments: ['test'] }]),
       CUSTODY_PROVISION_ROUTES: JSON.stringify(routes), CUSTODY_PROVISION_WORLD_IDENTITY: JSON.stringify(world), CUSTODY_POLICY_VERSION: '1' },
   }, { name: 'custody-owner-deployed', modules: [
@@ -204,6 +210,52 @@ test('deployed Owner default entrypoint cannot call generated Rust management RP
   assert.equal((await ok(await call(mf, '/reserve', body))).phase, 'draft_initialized');
 }));
 
+function sourceEvent(index = 0) {
+  const fixture = JSON.parse(readFileSync(resolve(root, 'contract/http.schema.json'), 'utf8')).fixtures.source_revocation.events[index];
+  return { event: fixture.event, signature: sign(null, Buffer.from(fixture.signing_bytes_hex, 'hex'), sourceKey).toString('base64url') };
+}
+test('source revocation uses a private named entrypoint and persists exact per-event closure across restart', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const value = await draft(mf, 'source-closed'); const first = sourceEvent();
+  const defaultRpc = await call(mf, '/default-source-rpc', first);
+  assert.equal(defaultRpc.status, 409); assert.equal((await defaultRpc.json()).missing_rpc, true);
+  const bad = structuredClone(first); bad.signature = 'A'.repeat(86);
+  assert.equal((await call(mf, '/source-event', bad)).status, 409);
+  for (const field of ['identity_namespace', 'environment', 'owner_audience']) {
+    const changed = structuredClone(first); changed.event[field] = 'wrong';
+    assert.equal((await call(mf, '/source-event', changed)).status, 409);
+  }
+  const ack = await ok(await call(mf, '/source-event', first));
+  assert.equal(ack.ack.status, 'closed'); assert.equal(ack.ack.event_id, first.event.event_id);
+  assert.equal(ack.ack.manager_account_id, manager.native_account_id);
+  assert.equal((await ok(await call(mf, '/read', { manager_session: session(), provision_id: value.entry.provision_id }))).phase, 'frozen');
+  assert.deepEqual(await ok(await call(mf, '/source-event', first)), ack);
+  const next = await ok(await call(mf, '/source-event', sourceEvent(1)));
+  assert.equal(next.ack.status, 'closed'); assert.notEqual(next.ack.event_id, ack.ack.event_id);
+  assert.equal(next.ack.closure_digest, ack.ack.closure_digest);
+  mf = await restart(); assert.deepEqual(await ok(await call(mf, '/source-event', first)), ack);
+  assert.equal((await call(mf, '/reserve', { manager_session: session(), request: request('after-source') })).status, 409);
+}));
+test('missing or unrecognized inventory freezes without a false source closure acknowledgement', { timeout: 90000 }, async () => {
+  await fixture(async (current, restart) => {
+    let mf = current(); const event = sourceEvent();
+    assert.equal(await ok(await call(mf, '/source-event', event)), null);
+    assert.equal((await call(mf, '/reserve', { manager_session: session(), request: request('late-first') })).status, 409);
+    mf = await restart(); assert.equal(await ok(await call(mf, '/source-event', event)), null);
+  });
+  await fixture(async current => {
+    const mf = current(); const value = await draft(mf, 'source-unknown');
+    await account(mf, value.entry.custody_account_id, '/fixture/unknown-row');
+    assert.equal(await ok(await call(mf, '/source-event', sourceEvent())), null);
+    assert.equal((await call(mf, '/reserve', { manager_session: session(), request: request('unknown-late') })).status, 409);
+  });
+});
+test('source fan-out resumes a persisted batch before signing closed', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); for (let i = 0; i < 9; i++) await draft(mf, 'source-batch-' + i);
+  const event = sourceEvent(); assert.equal(await ok(await call(mf, '/source-event', event)), null);
+  mf = await restart(); const closed = await ok(await call(mf, '/source-event', event));
+  assert.equal(closed.ack.status, 'closed');
+  assert.deepEqual(await ok(await call(mf, '/source-event', event)), closed);
+}));
 
 test('persistent freeze cursor reaches healthy targets behind eight unconfirmable accounts', { timeout: 90000 }, async () => fixture(async (current, restart) => {
   let mf = current(); const values = [];
@@ -220,4 +272,18 @@ test('persistent freeze cursor reaches healthy targets behind eight unconfirmabl
   assert.ok(!second.pending_accounts.includes(healthy), 'later healthy account must freeze while earlier unknown inventory stays pending');
   const saved = await inspect(mf, healthy);
   assert.ok(saved.records.some(row => row.id.includes('freeze')), 'healthy Account DO must persist its own freeze tombstone');
+}));
+
+
+test('source-event retries rotate beyond eight unconfirmable accounts after restart', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const values = [];
+  for (let i = 0; i < 9; i++) values.push(await draft(mf, 'source-starvation-' + i));
+  values.sort((a, b) => a.entry.custody_account_id < b.entry.custody_account_id ? -1 : 1);
+  for (const value of values.slice(0, 8)) await account(mf, value.entry.custody_account_id, '/fixture/unknown-row');
+  const healthy = values[8].entry.custody_account_id; const event = sourceEvent();
+  assert.equal(await ok(await call(mf, '/source-event', event)), null);
+  assert.ok(!(await inspect(mf, healthy)).records.some(row => row.id.includes('freeze')));
+  mf = await restart();
+  assert.equal(await ok(await call(mf, '/source-event', event)), null);
+  assert.ok((await inspect(mf, healthy)).records.some(row => row.id.includes('freeze')), 'later healthy target must receive its freeze even while source closure stays pending');
 }));

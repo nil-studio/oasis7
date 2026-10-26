@@ -56,3 +56,21 @@ pub async fn owner_freeze_manager(env: Env, raw: String) -> std::result::Result<
         .await
         .map_err(|_| rejected())
 }
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_close_source_event(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_directory::source_revocation::call(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn native_pump_revocations(env: Env) -> std::result::Result<(), JsValue> {
+    crate::native_identity::source_revocation::pump(&env)
+        .await
+        .map_err(|_| rejected())
+}

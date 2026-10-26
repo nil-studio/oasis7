@@ -218,6 +218,73 @@ export type ApprovalVerificationV1 = {
 };
 export type OriginStateV1 = "active" | "revoked" | "unavailable";
 export type ProofStateV1 = "active" | "expired";
+export type SourceClosureAckV1 = {
+  "closed_at": DecimalU64;
+  "closure_digest": string;
+  "environment": string;
+  "event_digest": string;
+  "event_id": string;
+  "identity_instance_epoch": DecimalU64;
+  "identity_namespace": string;
+  "inventory_digest": string;
+  "key_id": string;
+  "manager_account_id": string;
+  "owner_audience": string;
+  "status": SourceClosureStateV1;
+  "version": number;
+};
+export type SourceClosureStateV1 = "closed";
+export type AccountSecurityStateV1 = {
+  "policy_version": DecimalU64;
+  "security_version": DecimalU64;
+  "status": string;
+};
+export type CredentialSecurityStateV1 = {
+  "state": string;
+  "version": DecimalU64;
+};
+export type RevokedSourceV1 = ({
+  "current": AccountSecurityStateV1;
+  "kind": "account";
+  "previous": AccountSecurityStateV1;
+} | {
+  "credential_ref": string;
+  "current": CredentialSecurityStateV1;
+  "kind": "credential";
+  "previous": CredentialSecurityStateV1;
+} | {
+  "current": SessionSecurityStateV1;
+  "kind": "session";
+  "previous": SessionSecurityStateV1;
+  "session_ref": string;
+});
+export type SessionSecurityStateV1 = {
+  "auth_method": string;
+  "expires_at": DecimalU64;
+  "identity_instance_epoch": DecimalU64;
+  "idle_expires_at": DecimalU64;
+  "issued_security_version": DecimalU64;
+  "origin_credential_ref": string;
+  "origin_credential_version": DecimalU64;
+  "revoked_at"?: (DecimalU64 | null);
+};
+export type SignedSourceRevocationEventV1 = {
+  "event": SourceRevocationEventV1;
+  "signature": string;
+};
+export type SourceRevocationEventV1 = {
+  "environment": string;
+  "event_id": string;
+  "identity_instance_epoch": DecimalU64;
+  "identity_namespace": string;
+  "key_id": string;
+  "manager_account_id": string;
+  "manager_security_version": DecimalU64;
+  "observed_at": DecimalU64;
+  "owner_audience": string;
+  "source": RevokedSourceV1;
+  "version": number;
+};
 export type ServiceMetadata = {
   "api_profile": string;
   "execution_enabled": boolean;
@@ -306,4 +373,22 @@ export type ProvisionDraftViewV1 = {
 export type SignedApprovalVerificationV1 = {
   "signature": string;
   "verification": ApprovalVerificationV1;
+};
+export type SignedSourceClosureAckV1 = {
+  "ack": SourceClosureAckV1;
+  "signature": string;
+};
+export type SourceRevocationAckResultV1 = {
+  "api_version": number;
+  "event_digest": string;
+  "event_id": string;
+  "status": SourceClosureStateV1;
+};
+export type SourceRevocationsPollRequestV1 = {
+  "api_version": number;
+  "limit": number;
+};
+export type SourceRevocationsPollResponseV1 = {
+  "api_version": number;
+  "events": Array<SignedSourceRevocationEventV1>;
 };

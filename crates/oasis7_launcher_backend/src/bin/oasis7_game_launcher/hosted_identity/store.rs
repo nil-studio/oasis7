@@ -56,11 +56,13 @@ pub struct IdentityStore {
     connection: Option<Connection>,
     remote: Option<tablestore::TablestoreStore>,
     namespace: String,
+    source_revocations: Option<super::custody::revocation::RevocationSigner>,
 }
 pub struct IdentityTransaction<'a> {
     transaction: Option<Transaction<'a>>,
     remote: Option<tablestore::RemoteTransaction>,
     namespace: String,
+    source_revocations: Option<super::custody::revocation::RevocationSigner>,
 }
 const SCHEMA: i64 = 2;
 const MAX_PAGE: usize = 1000;
@@ -68,6 +70,94 @@ fn sql_integer(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::Rejected("integer_out_of_range".into()))
 }
 impl IdentityStore {
+    pub(super) fn enable_source_revocations(
+        &mut self,
+        signer: super::custody::revocation::RevocationSigner,
+    ) -> Result<(), StoreError> {
+        if self.remote.is_some() {
+            return Err(StoreError::Rejected(
+                "custody_revocation_requires_sqlite".into(),
+            ));
+        }
+        let metadata = signer.metadata.clone();
+        self.transaction(|tx| {
+            for account in &metadata.participants {
+                if tx
+                    .get::<super::model::AccountRecord>(&format!("account:{account}"))?
+                    .is_none_or(|row| row.value.account_id != *account)
+                {
+                    return Err(StoreError::Rejected(
+                        "custody_participant_account_missing".into(),
+                    ));
+                }
+            }
+
+            let guarded = tx
+                .get::<serde_json::Value>("custody_revocation_bridge_guard")?
+                .is_some();
+            if let Some(stored) = tx.get::<super::custody::revocation::BridgeMetadata>(
+                "custody_revocation_bridge_meta",
+            )? {
+                if stored.value != metadata {
+                    return Err(StoreError::Rejected(
+                        "custody_revocation_pin_or_epoch_mismatch".into(),
+                    ));
+                }
+            } else {
+                if guarded || tx.count_kind("custody_source_revocation")? > 0 {
+                    return Err(StoreError::Corrupt);
+                }
+                tx.create(
+                    "custody_revocation_bridge_meta",
+                    "custody_revocation_bridge_meta",
+                    None,
+                    None,
+                    &metadata,
+                )?;
+            }
+            for (_, overflow) in tx.all::<super::custody::revocation::overflow::OverflowRecord>(
+                super::custody::revocation::overflow::KIND,
+                None,
+            )? {
+                super::custody::revocation::overflow::verify_checkpoint(
+                    &overflow.value,
+                    &metadata,
+                )?;
+            }
+            if !guarded {
+                tx.create(
+                    "custody_revocation_bridge_guard",
+                    "custody_revocation_bridge_guard",
+                    None,
+                    None,
+                    &serde_json::json!({"registered":true}),
+                )?;
+            }
+            Ok(())
+        })?;
+        self.source_revocations = Some(signer);
+        Ok(())
+    }
+    pub(super) fn require_revocation_configuration_if_registered(
+        &mut self,
+    ) -> Result<(), StoreError> {
+        if self.source_revocations.is_none()
+            && self.transaction(|tx| {
+                Ok(tx
+                    .get::<serde_json::Value>("custody_revocation_bridge_meta")?
+                    .is_some()
+                    || tx
+                        .get::<serde_json::Value>("custody_revocation_bridge_guard")?
+                        .is_some()
+                    || tx.count_kind("custody_source_revocation")? > 0)
+            })?
+        {
+            return Err(StoreError::Rejected(
+                "custody_revocation_configuration_required".into(),
+            ));
+        }
+        Ok(())
+    }
     pub fn open(
         path: &Path,
         namespace: IdentityNamespace,
@@ -166,6 +256,7 @@ impl IdentityStore {
             connection: Some(connection),
             remote: None,
             namespace: key,
+            source_revocations: None,
         })
     }
     /// Offline maintenance only. Callers must independently verify revocation history
@@ -199,6 +290,64 @@ impl IdentityStore {
         {
             return Err(StoreError::Rejected("invalid_epoch_advance".into()));
         }
+        let metadata_bytes:Option<Vec<u8>>=tx.query_row("SELECT payload FROM identity_records WHERE namespace=?1 AND record_key='custody_revocation_bridge_meta'",params![namespace.key()],|row|row.get(0)).optional()?;
+        let known: i64=tx.query_row("SELECT COUNT(*) FROM identity_records WHERE namespace=?1 AND (record_key='custody_revocation_bridge_guard' OR kind='custody_source_revocation' OR kind='custody_source_overflow')",params![namespace.key()],|row|row.get(0))?;
+        if metadata_bytes.is_none() && known > 0 {
+            return Err(StoreError::Rejected(
+                "custody_revocation_barrier_unavailable".into(),
+            ));
+        }
+        if let Some(metadata_bytes) = metadata_bytes {
+            let mut metadata: super::custody::revocation::BridgeMetadata =
+                serde_json::from_slice(&metadata_bytes).map_err(|_| StoreError::Corrupt)?;
+            if metadata.epoch != old.identity_instance_epoch
+                || metadata.namespace != namespace.key()
+            {
+                return Err(StoreError::Corrupt);
+            }
+            oasis7_custody_core::source_revocation::participant_registry_digest(
+                &metadata.namespace,
+                oasis7_custody_core::DecimalU64(metadata.epoch),
+                &metadata.participants,
+            )
+            .map_err(|_| StoreError::Corrupt)?;
+            let mut closed = std::collections::BTreeSet::new();
+            {
+                let mut statement=tx.prepare("SELECT payload FROM identity_records WHERE namespace=?1 AND kind='custody_source_revocation'")?;
+                let rows = statement
+                    .query_map(params![namespace.key()], |row| row.get::<_, Vec<u8>>(0))?;
+                for row in rows {
+                    let event: super::custody::revocation::SourceOutbox =
+                        serde_json::from_slice(&row?).map_err(|_| StoreError::Corrupt)?;
+                    closed.insert(super::custody::revocation::verify_barrier_ack(
+                        &event, &metadata,
+                    )?);
+                }
+            }
+            {
+                let mut statement=tx.prepare("SELECT payload FROM identity_records WHERE namespace=?1 AND kind='custody_source_overflow'")?;
+                let rows = statement
+                    .query_map(params![namespace.key()], |row| row.get::<_, Vec<u8>>(0))?;
+                for row in rows {
+                    let overflow: super::custody::revocation::overflow::OverflowRecord =
+                        serde_json::from_slice(&row?).map_err(|_| StoreError::Corrupt)?;
+                    super::custody::revocation::overflow::verify_checkpoint(&overflow, &metadata)?;
+                    closed.insert(super::custody::revocation::verify_barrier_ack(
+                        &overflow.trigger,
+                        &metadata,
+                    )?);
+                }
+            }
+            for account in &metadata.participants {
+                if !closed.contains(account) {
+                    return Err(StoreError::Rejected(
+                        "custody_revocation_account_barrier_pending".into(),
+                    ));
+                }
+            }
+            metadata.epoch = new_rp.identity_instance_epoch;
+            tx.execute("UPDATE identity_records SET payload=?1,row_version=row_version+1 WHERE namespace=?2 AND record_key='custody_revocation_bridge_meta'",params![serde_json::to_vec(&metadata).map_err(|_|StoreError::Corrupt)?,namespace.key()])?;
+        }
         old.identity_instance_epoch = new_rp.identity_instance_epoch;
         if &old != new_rp {
             return Err(StoreError::Rejected(
@@ -221,6 +370,7 @@ impl IdentityStore {
                 transaction: None,
                 remote: Some(remote.begin()?),
                 namespace: self.namespace.clone(),
+                source_revocations: self.source_revocations.clone(),
             }
         } else {
             let transaction = self
@@ -232,6 +382,7 @@ impl IdentityStore {
                 transaction: Some(transaction),
                 remote: None,
                 namespace: self.namespace.clone(),
+                source_revocations: self.source_revocations.clone(),
             }
         };
         let result = operation(&mut tx)?;
@@ -260,10 +411,24 @@ impl IdentityStore {
             connection: None,
             remote: Some(remote),
             namespace: key,
+            source_revocations: None,
         })
     }
     pub fn cleanup_expired(&mut self, now: u64) -> Result<usize, StoreError> {
-        self.transaction(|tx|{let rows=if let Some(remote)=&tx.remote{remote.expired(now,10)?}else{let mut stmt=tx.sqlite().prepare("SELECT record_key,row_version FROM identity_records WHERE namespace=?1 AND expires_at<=?2 ORDER BY expires_at,record_key LIMIT 100")?;let rows=stmt.query_map(params![tx.namespace,sql_integer(now)?],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?)))?;rows.map(|r|{let(key,v)=r?;Ok((key,u64::try_from(v).map_err(|_|StoreError::Corrupt)?))}).collect::<Result<Vec<_>,StoreError>>()?};let count=rows.len();for(key,v)in rows{tx.delete(&key,v)?;}Ok(count)})
+        self.transaction(|tx| {
+            let rows = if let Some(remote)=&tx.remote {remote.expired(now,10)?} else {
+                let participants = tx.source_revocations.as_ref().map(|s| s.metadata.participants.as_slice()).unwrap_or(&[]);
+                let mut bindings = vec![rusqlite::types::Value::Text(tx.namespace.clone()), rusqlite::types::Value::Integer(sql_integer(now)?)];
+                let exclusion = if participants.is_empty() { String::new() } else {
+                    bindings.extend(participants.iter().cloned().map(rusqlite::types::Value::Text));
+                    format!(" AND (kind NOT IN ('account','credential','session') OR account_id NOT IN ({}))", (0..participants.len()).map(|i| format!("?{}", i+3)).collect::<Vec<_>>().join(","))
+                };
+                let query=format!("SELECT record_key,row_version FROM identity_records WHERE namespace=?1 AND expires_at<=?2{exclusion} ORDER BY expires_at,record_key LIMIT 100");
+                let mut statement=tx.sqlite().prepare(&query)?;
+                statement.query_map(rusqlite::params_from_iter(bindings),|row|Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?)))?.map(|row| {let (key,version)=row?;Ok((key,u64::try_from(version).map_err(|_|StoreError::Corrupt)?))}).collect::<Result<Vec<_>,StoreError>>()?
+            };
+            let count=rows.len();for (key,version) in rows {tx.delete(&key,version)?;}Ok(count)
+        })
     }
     pub fn backup(&self, destination: &Path) -> Result<(), StoreError> {
         #[cfg(unix)]
@@ -313,6 +478,11 @@ impl IdentityTransaction<'_> {
         expires: Option<u64>,
         payload: &T,
     ) -> Result<(), StoreError> {
+        if kind == "custody_source_revocation"
+            && self.count_kind(kind)? >= super::custody::revocation::MAX_SOURCE_EVENTS
+        {
+            return Err(StoreError::Rejected("custody_source_event_capacity".into()));
+        }
         if let Some(remote) = &mut self.remote {
             return remote.create(key, kind, account_id, expires, payload);
         }
@@ -330,6 +500,30 @@ impl IdentityTransaction<'_> {
         )?;
         Ok(())
     }
+    pub(crate) fn count_kind(&self, kind: &str) -> Result<usize, StoreError> {
+        if self.remote.is_some() {
+            return Ok(self.all::<serde_json::Value>(kind, None)?.len());
+        }
+        let count: i64 = self.sqlite().query_row(
+            "SELECT COUNT(*) FROM identity_records WHERE namespace=?1 AND kind=?2",
+            params![self.namespace, kind],
+            |row| row.get(0),
+        )?;
+        usize::try_from(count).map_err(|_| StoreError::Corrupt)
+    }
+    fn record_kind(&self, key: &str) -> Result<Option<String>, StoreError> {
+        if let Some(remote) = &self.remote {
+            return remote.record_kind(key);
+        }
+        self.sqlite()
+            .query_row(
+                "SELECT kind FROM identity_records WHERE namespace=?1 AND record_key=?2",
+                params![self.namespace, key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(StoreError::from)
+    }
     pub fn replace<T: Serialize>(
         &mut self,
         key: &str,
@@ -340,16 +534,87 @@ impl IdentityTransaction<'_> {
         payload: &T,
     ) -> Result<(), StoreError> {
         let bytes = serde_json::to_vec(payload).map_err(|_| StoreError::Corrupt)?;
-        if let Some(remote) = &mut self.remote {
-            return remote.replace(key, expected_version, kind, account_id, expires, payload);
+        let signer = self.source_revocations.clone();
+        let old_kind = if signer.is_some() {
+            self.record_kind(key)?
+        } else {
+            None
+        };
+        let sensitive = |kind: &str| matches!(kind, "account" | "credential" | "session");
+        let participant = if let Some(signer) = &signer {
+            let old = self.get::<serde_json::Value>(key)?.map(|v| v.value);
+            old.as_ref()
+                .and_then(|v| v["account_id"].as_str())
+                .is_some_and(|id| signer.metadata.participants.iter().any(|p| p == id))
+                || account_id.is_some_and(|id| signer.metadata.participants.iter().any(|p| p == id))
+        } else {
+            false
+        };
+
+        if participant
+            && (old_kind.as_deref().is_some_and(sensitive) || sensitive(kind))
+            && old_kind.as_deref() != Some(kind)
+        {
+            return Err(StoreError::Rejected(
+                "custody_security_kind_immutable".into(),
+            ));
         }
-        let changed=self.sqlite().execute("UPDATE identity_records SET kind=?3,account_id=?4,row_version=row_version+1,expires_at=?5,payload=?6 WHERE namespace=?1 AND record_key=?2 AND row_version=?7",params![self.namespace,key,kind,account_id,expires.map(sql_integer).transpose()?,bytes,sql_integer(expected_version)?])?;
-        if changed != 1 {
-            return Err(StoreError::Conflict);
+        if participant
+            && ["account:", "credential:", "session:"]
+                .iter()
+                .any(|prefix| key.starts_with(prefix))
+            && old_kind.as_deref() != key.split_once(':').map(|v| v.0)
+        {
+            return Err(StoreError::Corrupt);
+        }
+        let previous = if old_kind.as_deref().is_some_and(sensitive) {
+            self.get::<serde_json::Value>(key)?.map(|v| v.value)
+        } else {
+            None
+        };
+        if let Some(remote) = &mut self.remote {
+            remote.replace(key, expected_version, kind, account_id, expires, payload)?;
+        } else {
+            let changed=self.sqlite().execute("UPDATE identity_records SET kind=?3,account_id=?4,row_version=row_version+1,expires_at=?5,payload=?6 WHERE namespace=?1 AND record_key=?2 AND row_version=?7",params![self.namespace,key,kind,account_id,expires.map(sql_integer).transpose()?,bytes,sql_integer(expected_version)?])?;
+            if changed != 1 {
+                return Err(StoreError::Conflict);
+            }
+        }
+        if let (Some(signer), Some(previous)) = (signer, previous) {
+            signer.record(
+                self,
+                key,
+                expected_version,
+                old_kind.as_deref().ok_or(StoreError::Corrupt)?,
+                &previous,
+                &serde_json::from_slice(&bytes).map_err(|_| StoreError::Corrupt)?,
+            )?;
         }
         Ok(())
     }
     pub fn delete(&mut self, key: &str, expected_version: u64) -> Result<(), StoreError> {
+        let participant = if let Some(signer) = &self.source_revocations {
+            self.get::<serde_json::Value>(key)?
+                .as_ref()
+                .and_then(|row| row.value["account_id"].as_str())
+                .is_some_and(|id| signer.metadata.participants.iter().any(|p| p == id))
+        } else {
+            false
+        };
+        if participant
+            && (self
+                .record_kind(key)?
+                .as_deref()
+                .is_some_and(|kind| matches!(kind, "account" | "credential" | "session"))
+                || ["account:", "credential:", "session:"]
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix)))
+        {
+            return Err(StoreError::Rejected(
+                "custody_security_delete_forbidden".into(),
+            ));
+        }
+
         if let Some(remote) = &mut self.remote {
             return remote.delete(key, expected_version);
         }

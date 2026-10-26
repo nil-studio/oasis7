@@ -305,6 +305,9 @@
     "oasis7_custody_worker": [
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_complete.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation_overflow.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation_tests.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_tests.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_native_http_fixture.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs",

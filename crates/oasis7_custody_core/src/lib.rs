@@ -11,3 +11,5 @@ pub mod lifecycle;
 pub mod operations;
 pub mod provisioning;
 pub mod recovery;
+
+pub mod source_revocation;
