@@ -119,8 +119,13 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
   }
   function check(record) {
     if (record === undefined) return null;
-    if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex
+    if (![1, 2].includes(record?.schema) || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex
       || !record.owner || typeof record.sent !== "boolean") fail("participant_storage_corrupt");
+    if (record.schema === 2 && record.registrationSendState !== undefined) {
+      if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState)
+        || (record.registrationSendState === "not_sent") !== (record.sent === false)
+        || (record.registrationSendState === "not_sent" && record.receiptRaw)) fail("participant_storage_corrupt");
+    }
     const r = record.owner.request;
     if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex
       || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest
@@ -210,6 +215,7 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     catch { fail("participant_response_unknown"); }
     return validate(kind, validationRequest, raw);
   }
+  const isUnsent = (record) => record?.schema === 2 && record.registrationSendState === "not_sent" && record.sent === false;
   async function registrationLookup(record) {
     const originalRaw = record.registrationRaw;
     if (!originalRaw) fail("participant_original_missing");
@@ -238,6 +244,7 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     active(); await discover(); active(); const record = await ensureOwner();
     if (record.agentId) canonicalAgentId = record.agentId;
     if (record.registrationRaw) {
+      if (isUnsent(record)) return { state: "unsent", code: "participant_original_not_sent", continuation: "participant" };
       try { await registrationLookup(record); }
       catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code }; throw error; }
     }
@@ -249,30 +256,48 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
       throw error;
     }
   }
-  async function registerParticipant(consent) {
+  async function registerParticipant(consent, continueUnsent = false) {
+    let created = false;
     if (consent !== true) fail("participant_consent_required");
-    active(); await discover(); let record = await ensureOwner(); active();
+    active(); await discover(); active();
+    // Continuation never calls ensureOwner: a deleted record cannot become a
+    // fresh owner/registration between two reads of local storage.
+    let record = continueUnsent ? await load() : await ensureOwner(); active();
+    if (continueUnsent && !record?.registrationRaw) fail("participant_original_missing");
     if (!record.registrationRaw) {
       const authorized = await authorize(record.owner);
       const payload = { kind: "game_participant_register", payload: { owner: record.owner, admission: authorized.admission } };
       const correlationRaw = build("correlation", { world: config.world, payload });
       const raw = `{"contract_version":1,"correlation":${correlationRaw},"deadline_unix_ms":null,"signed_payload":${json(payload)}}`;
-      let created = false;
-      record = await update((current) => { if (current.registrationRaw) return current; created = true; current.registrationRaw = raw; current.sent = true; return current; });
-      // Persist exact owner, admission, operation identity and request before send.
-      // A lost response is reconciled by lookup; it never creates another draft.
-      try { if (created) {
-        const response = await transport.gatewayCall("/participant/submit", null, { rawBody: record.registrationRaw, beforeSend: async () => active() });
-        verified("/v1/world/submit", record.registrationRaw, response, "intent", field(record.registrationRaw, ["correlation"]));
-      }
-      } catch { /* retain original and query it below */ }
+      record = await update((current) => { active(); if (current.registrationRaw) return current; created = true;
+        current.schema = 2; current.registrationRaw = raw; current.registrationSendState = "not_sent"; current.sent = false; return current; });
     }
+    // Only the creator or an explicit continuation may claim this original.
+    // A session GET failure leaves not_sent intact; the durable CAS happens at
+    // the actual POST boundary, and is never rolled back after a transport error.
+    if (created || (continueUnsent && isUnsent(record))) {
+      if (!created) await authorize(record.owner);
+      try {
+        const original = record.registrationRaw;
+        const response = await transport.gatewayCall("/participant/submit", null, { rawBody: original, beforeSend: async () => {
+          active(); await update((current) => {
+            active(); if (!current || current.registrationRaw !== original || !isUnsent(current)) fail("participant_original_conflict");
+            current.registrationSendState = "may_have_sent"; current.sent = true; return current;
+          }); active();
+        } });
+        verified("/v1/world/submit", original, response, "intent", field(original, ["correlation"]));
+      } catch { /* retain original; never infer non-execution from an error */ }
+    }
+    active(); record = await load();
+    if (!record?.registrationRaw) fail("participant_original_missing");
+    if (isUnsent(record)) fail("participant_original_not_sent");
     await registrationLookup(record); active();
     return proofs(await load(), await authorize(record.owner));
   }
   return {
     discover, inspect,
     registerParticipant,
+    continueOriginal: (consent) => registerParticipant(consent, true),
     gatewayCall: transport.gatewayCall,
     async prepare({ existingOnly = true, consent } = {}) {
       // The existing-only Game Client consumer cannot create a participant.

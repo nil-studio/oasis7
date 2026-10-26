@@ -230,3 +230,10 @@ describe("browser participant entry", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
+
+it("does not create an original from a continuation with nothing retained",async()=>{
+ const env=setup();
+ await expect(env.create().continueOriginal(true)).rejects.toMatchObject({code:"participant_original_missing"});
+ expect(env.calls.some(c=>c.path==="/participant/submit")).toBe(false);
+ expect(env.ownerSigner.sign).not.toHaveBeenCalled();
+});

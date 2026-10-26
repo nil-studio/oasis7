@@ -16,7 +16,7 @@ export function BrowserByokSurface(props) {
   let contextKey, entryKey, entryIdentityKey, entryController, previousAccount, unsubscribe, alive = true, entryGeneration = 0;
   const config = () => read(props.config);
   const goalBytes = () => new TextEncoder().encode(goal().trim()).byteLength;
-  const entryLabel = () => ({ needs_participant: tr("账号绑定待核对", "Account binding needs verification"), needs_task: tr("需要创建任务", "Task needs preparation"), needs_goal: tr("需要发布目标", "Goal needs publication"), ready: tr("账号任务已就绪", "Account task ready"), pending: tr("原件结果待确认", "Original result pending"), owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"), stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing") })[entryState()?.state] || "—";
+  const entryLabel = () => ({ needs_participant: tr("账号绑定待核对", "Account binding needs verification"), needs_task: tr("需要创建任务", "Task needs preparation"), needs_goal: tr("需要发布目标", "Goal needs publication"), ready: tr("账号任务已就绪", "Account task ready"), pending: tr("原件结果待确认", "Original result pending"), unsent: tr("保留原件确定尚未发送", "Retained original has not been sent"), owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"), stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing") })[entryState()?.state] || "—";
   const reason = (code) => {
     if (["participant_registration_rejected", "owner_operation_rejected"].includes(code)) return tr("世界拒绝了该登记或任务原件。请核对原账号玩家身份和任务权限；不会切换身份或替换原 Agent。", "The world rejected this registration or task original. Check the account's original owner identity and task authority; no identity or Agent is replaced.");
     if (code === "owner_goal_invalid") return tr("请输入不超过 8192 UTF-8 字节的任务目标。", "Enter a task goal of at most 8192 UTF-8 bytes.");
@@ -42,6 +42,7 @@ export function BrowserByokSurface(props) {
   const acceptEntry = (value, captured) => {
     if (!alive || captured !== entryKey) return;
     setEntryState(value);
+    if (value?.state === "unsent" && value.goal) setGoal(value.goal);
     if (value?.state === "ready" && value.agentId) setProjectionPending(props.onCanonicalAgent?.(value.agentId) === false);
   };
   function openEntry({ accountId, owner, trusted }, resetGoal = false) {
@@ -97,10 +98,10 @@ export function BrowserByokSurface(props) {
       setDriver(session); unsubscribe = session.subscribe(refresh); refresh();
     } catch { setError(reason("game_configuration_invalid")); }
   });
-  const prepareEntry = async () => {
+  const prepareEntry = async (continuation = false) => {
     if (!entryConsent() || entryBusy() || !entry() || goalBytes() > 8192) return;
     const captured = entryKey, ownerEntry = entry(); setEntryBusy(true); setEntryConsent(false); setError("");
-    try { acceptEntry(await ownerEntry.prepare({ goal: goal().trim(), consent: true }), captured); }
+    try { acceptEntry(await (continuation ? ownerEntry.continueOriginal({ goal: goal().trim(), consent: true }) : ownerEntry.prepare({ goal: goal().trim(), consent: true })), captured); }
     catch (failure) { if (alive && captured === entryKey) setError(reason(failure.code)); }
     finally { if (alive && captured === entryKey) setEntryBusy(false); }
   };
@@ -121,10 +122,14 @@ export function BrowserByokSurface(props) {
         <Show when={entryState()?.agentId}><p>{tr("实际绑定 Agent", "Canonical Agent")}: {entryState()?.agentId} · Task={entryState()?.taskId || "—"}</p></Show>
         <Show when={projectionPending()}><p role="status">{tr("世界已确认实际 Agent，Viewer 投影仍待同步；以下操作使用上方正式绑定。", "The world confirmed the canonical Agent; the Viewer projection is still syncing. Operations below use the confirmed binding above.")}</p></Show>
         <Show when={entry() && entryState()?.state !== "ready"}>
-          <label>{tr("任务目标", "Task goal")}<textarea aria-label={tr("任务目标", "Task goal")} value={goal()} maxlength="8192" disabled={entryBusy()} onInput={(event) => { setGoal(event.currentTarget.value); setEntryConsent(false); }} /></label>
+          <label>{tr("任务目标", "Task goal")}<textarea aria-label={tr("任务目标", "Task goal")} value={goal()} maxlength="8192" disabled={entryBusy() || Boolean(entryState()?.state === "unsent" && entryState()?.goal)} onInput={(event) => { setGoal(event.currentTarget.value); setEntryConsent(false); }} /></label>
           <p role="status">{tr("目标按 UTF-8 字节计量", "Goal size in UTF-8 bytes")}: {goalBytes()} / 8192</p>
           <label><input type="checkbox" checked={entryConsent()} disabled={entryBusy() || ["owner_mismatch", "pending"].includes(entryState()?.state)} onChange={(event) => setEntryConsent(event.currentTarget.checked)} />{tr("确认使用当前本机玩家身份登记或核对本账号原绑定，仅为缺失任务或目标使用上述目标；已有任务目标保持原状，原绑定不符时停止，不替换 Agent。", "Confirm registration or verification of this account's binding with the current browser owner identity and use this goal only for a missing Task or goal. Preserve an existing task goal. Stop on an owner mismatch; never replace the Agent.")}</label>
-          <button type="button" disabled={entryBusy() || !entryConsent() || !goal().trim() || goalBytes() > 8192 || ["owner_mismatch", "pending"].includes(entryState()?.state)} onClick={() => void prepareEntry()}>{tr("准备玩家、Agent 与任务", "Prepare player, Agent and Task")}</button>
+          <button type="button" disabled={entryBusy() || !entryConsent() || !goal().trim() || goalBytes() > 8192 || ["owner_mismatch", "pending", "unsent"].includes(entryState()?.state)} onClick={() => void prepareEntry()}>{tr("准备玩家、Agent 与任务", "Prepare player, Agent and Task")}</button>
+          <Show when={entryState()?.state === "unsent"}>
+            <p role="status">{tr("可靠本机记录证明此原件尚未进入发送边界。确认当前身份和目标后，可继续发送同一原件；只读核对不会发送。可能已发送的原件仍只能查询。", "A durable local record confirms this original has not reached the send boundary. Confirm the current identity and goal to continue with the same original. Read-only lookup never sends it; possibly sent originals remain lookup-only.")}</p>
+            <button type="button" disabled={entryBusy() || !entryConsent() || !goal().trim() || goalBytes() > 8192} onClick={() => void prepareEntry(true)}>{tr("继续发送保留的原件", "Continue sending the retained original")}</button>
+          </Show>
           <button type="button" disabled={entryBusy()} onClick={() => { const captured = entryKey; setEntryBusy(true); void entry().inspect().then((value) => acceptEntry(value, captured)).catch((failure) => { if (alive && captured === entryKey) setError(reason(failure.code)); }).finally(() => { if (alive && captured === entryKey) setEntryBusy(false); }); }}>{tr("只读核对账号入口原件", "Look up account entry originals")}</button>
         </Show>
       </Show>

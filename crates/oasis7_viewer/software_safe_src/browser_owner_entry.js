@@ -18,8 +18,13 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
  const decoded = JSON.parse;
  const freshId = (name) => `browser-${name}-${hex(cryptoImpl.getRandomValues(new Uint8Array(16)))}`;
  function check(record) {
-  if (record === undefined) return { schema: 1, key };
-  if (record?.schema !== 1 || record.key !== key || JSON.stringify(record).length > 262144) fail("owner_storage_corrupt");
+  if (record === undefined) return { schema: 2, key };
+  if (![1, 2].includes(record?.schema) || record.key !== key || JSON.stringify(record).length > 262144) fail("owner_storage_corrupt");
+  if (record.schema === 2) for (const slot of ["taskRaw", "publishRaw"]) {
+   const phase = record[`${slot}SendState`];
+   if (phase !== undefined && (!record[slot] || !["not_sent", "may_have_sent"].includes(phase)
+    || (phase === "not_sent" && record[`${slot}Receipt`]))) fail("owner_storage_corrupt");
+  }
   return record;
  }
  async function load() { try { return check(await database.get(key)); } catch (error) { if (error instanceof BrowserParticipantError) throw error; fail("owner_storage_failed"); } }
@@ -41,10 +46,10 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
   const read = await signed(VIEW, readRaw);
   return `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`;
  }
- async function ownerCall(kind, requestRaw, mutation = false) {
+ async function ownerCall(kind, requestRaw, mutation = false, beforeSend) {
   const accessRaw = await access(); active();
   const rawBody = `{"access":${accessRaw},"operation":{"kind":${JSON.stringify(kind)},"request":${requestRaw}}}`;
-  return participant.gatewayCall("/entry-owner/control", null, { rawBody, signal, beforeSend: mutation ? async () => active() : undefined });
+  return participant.gatewayCall("/entry-owner/control", null, { rawBody, signal, beforeSend: mutation ? async () => { active(); if (beforeSend) await beforeSend(); active(); } : undefined });
  }
  function verify(domain, requestRaw, reply, kind, validationRequest = requestRaw) {
   try { const raw = codec.verifyGatewayResponse(domain, requestRaw, reply, config.servicePublicKey); return codec.validate(kind, validationRequest, raw); }
@@ -69,15 +74,25 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
   const proof = await signed(domain, requestRaw), payload = `{"kind":${JSON.stringify(kind)},"payload":${proof}}`;
   const correlation = build("correlation", { world: config.world, payload_json: payload });
   const raw = `{"contract_version":1,"correlation":${correlation},"deadline_unix_ms":null,"signed_payload":${payload}}`;
-  record = await update((current) => { if (!current[slot]) current[slot] = raw; return current; });
+  record = await update((current) => { if (!current[slot]) { active(); current.schema = 2; current[slot] = raw; current[`${slot}SendState`] = "not_sent"; } return current; });
   if (record[slot] !== raw) fail("owner_original_conflict");
   return { raw, fresh: true };
  }
+ const isUnsent = (record, slot) => record.schema === 2 && record[`${slot}SendState`] === "not_sent";
+ const unsentStatus = (record, slot) => ({ state: "unsent", code: "owner_original_not_sent", continuation: slot,
+  ...(record.goalPrepareRaw ? { goal: decoded(field(record.goalPrepareRaw, ["request", "content", "goal_text"])) } : {}) });
  async function settleIntent(slot, original, send) {
   if (send) {
-   try { verify(SUBMIT, original, await ownerCall("submit", original, true), "intent", field(original, ["correlation"])); }
+   try { verify(SUBMIT, original, await ownerCall("submit", original, true, async () => {
+     await update((record) => { active();
+      if (record[slot] !== original || !isUnsent(record, slot)) fail("owner_original_conflict");
+      record[`${slot}SendState`] = "may_have_sent"; return record;
+     });
+    }), "intent", field(original, ["correlation"])); }
    catch { /* The persisted original owns any unknown effect. Never replace it. */ }
   }
+  active(); const current = await load();
+  if (isUnsent(current, slot)) fail("owner_original_not_sent");
   const receipt = await lookup(original);
   await update((record) => { record[`${slot}Receipt`] = receipt; return record; });
   return receipt;
@@ -89,6 +104,8 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
  async function inspect() {
   active(); const binding = await participant.inspect(); active();
   if (binding.state !== "bound") return binding;
+  const local = await load();
+  for (const slot of ["taskRaw", "publishRaw"]) if (local[slot] && !local[`${slot}Receipt`] && isUnsent(local, slot)) return { agentId: binding.agentId, ...unsentStatus(local, slot) };
   try { await reconcile(); }
   catch (error) { if (["owner_operation_pending", "owner_response_unknown"].includes(error.code)) return { state: "pending", code: error.code, agentId: binding.agentId }; throw error; }
   const refreshed = await participant.getParticipantProofs(); active(); const controlRaw = refreshed.ownerControl.rawJson;
@@ -98,16 +115,28 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
   const fence = decoded(build("fence", taskRaw));
   return { ...base, taskId: task.task_id, fence, state: task.active_goal_reference && task.active_goal_revision !== "0" ? "ready" : "needs_goal" };
  }
- async function prepare({ goal, consent } = {}) {
+ async function prepare({ goal, consent } = {}, continueUnsent = false) {
   if (consent !== true) fail("owner_consent_required");
   if (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192) fail("owner_goal_invalid");
   if (!locks?.request) fail("participant_locks_unavailable");
   return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
    active(); let status = await inspect();
-   if (status.state === "ready" || status.state === "pending") return status;
+   if (status.state === "ready" || status.state === "pending" || (continueUnsent && status.state !== "unsent")) return status;
+   if (status.state === "unsent") {
+    if (!continueUnsent) return status;
+    if (status.continuation === "participant") await participant.continueOriginal(true);
+    else {
+     const record = await load(), slot = status.continuation;
+     if (!["taskRaw", "publishRaw"].includes(slot)) fail("owner_original_conflict");
+     if (status.goal && status.goal !== goal.trim()) fail("owner_goal_original_conflict");
+     await settleIntent(slot, record[slot], true);
+    }
+    status = await inspect();
+   }
    if (status.state === "needs_participant") {
     try { await participant.registerParticipant(true); }
-    catch (error) { if (["participant_registration_pending", "participant_response_unknown"].includes(error.code)) return { state: "pending", code: error.code }; throw error; }
+    catch (error) { if (error.code === "participant_original_not_sent") return { state: "unsent", code: error.code, continuation: "participant" };
+     if (["participant_registration_pending", "participant_response_unknown"].includes(error.code)) return { state: "pending", code: error.code }; throw error; }
     status = await inspect();
    }
    if (status.state === "needs_task") {
@@ -138,10 +167,15 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
    const publish = await originalIntent("publishRaw", "game_goal_publish/v1", "game_goal_publish", publication);
    await settleIntent("publishRaw", publish.raw, publish.fresh);
    active(); return inspect();
-  }).catch((error) => {
+  }).catch(async (error) => {
+   if (error.code === "participant_original_not_sent") return { state: "unsent", code: error.code, continuation: "participant" };
+   if (error.code === "owner_original_not_sent") {
+    const record = await load();
+    for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && isUnsent(record, slot)) return unsentStatus(record, slot);
+   }
    if (["owner_operation_pending", "owner_response_unknown", "participant_response_unknown"].includes(error.code)) return { state: "pending", code: error.code };
    throw error;
   });
  }
- return { inspect, prepare, recover: inspect, dispose: () => { disposed = true; } };
+ return { inspect, prepare: (options) => prepare(options), continueOriginal: (options) => prepare(options, true), recover: inspect, dispose: () => { disposed = true; } };
 }
