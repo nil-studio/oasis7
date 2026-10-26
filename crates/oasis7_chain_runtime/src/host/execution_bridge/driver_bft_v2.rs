@@ -132,13 +132,13 @@ impl NodeRuntimeExecutionDriver {
         )?;
         self.install_bft_v2_genesis_world(genesis_world);
         self.bft_mode_required = true;
-        self.bft_execution_v2 = Some(BftExecutionStateV2 {
+        self.bft_execution_v2 = Some(Box::new(BftExecutionStateV2 {
             config: config.clone(),
             genesis_schedule: genesis_schedule.clone(),
             cursor_schedule: genesis_schedule,
             ledger,
             cursor_height: 0,
-        });
+        }));
         Ok(None)
     }
 

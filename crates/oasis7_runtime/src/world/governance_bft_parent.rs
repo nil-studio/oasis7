@@ -49,11 +49,11 @@ impl World {
             .cloned()
             .map(Self::validate_governance_main_token_controller_registry)
             .transpose()?;
-        self.bft_governance_parent = Some(BftGovernanceParentV2 {
+        self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
             schedule: schedule.clone(),
             controller_registry: registry,
             execution: None,
-        });
+        }));
         Ok(())
     }
 

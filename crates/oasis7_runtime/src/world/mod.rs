@@ -427,8 +427,9 @@ pub struct World {
     formal_history_reader: Option<formal_retention::AttachedFormalHistory>,
     /// Process-local BFT parent and execution phase, rebuilt from the driver's
     /// independently verified cursor; never restored from a Snapshot.
+    /// Heap allocation bounds World construction and clone stack frames.
     #[serde(skip, default)]
-    bft_governance_parent: Option<governance_bft_parent::BftGovernanceParentV2>,
+    bft_governance_parent: Option<Box<governance_bft_parent::BftGovernanceParentV2>>,
     journal: Journal,
     next_event_id: WorldEventId,
     #[serde(default)]
