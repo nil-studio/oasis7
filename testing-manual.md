@@ -179,6 +179,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - Viewer 的 `viewer-js-required`、`viewer-performance-report` 只恢复当前 Cargo.lock 版本的 wasm-bindgen CLI 目录；key 包含 OS、架构、Rust 版本和两个安装 helper 的 hash，不使用宽松恢复。精确命中必须验证目录内 binary，损坏命中直接失败；冷目录以 `--ensure-cache --print-bin` 安装并验证。普通 PR 不保存该工具缓存。
 - 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存身份为 `ci-shared-native-trusted-v3`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
+- fleet-health 的 Linux/Windows/macOS 原生分片执行 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access`，覆盖永久 OS 锁、双 stale 回收者、崩溃释放与 nonce 原件并发消费；仅适用于受信本地文件系统，不证明网络共享盘或多机互斥。该包的修改选中 fleet-health。
 - fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
 - CI 控制改动的 PR 仍由可信 base selector 选择全部适用组。候选 selector 的精确路由仅在合入后成为可信规则，required-gate 的组集合与失败判定保留。
 - 本地合同验证：`bash scripts/plan-wasm-determinism-scope.test.sh`、`bash scripts/ensure-wasm-bindgen-cli.test.sh`、`python3 scripts/ci-local-signer-tests.test.py`、`python3 scripts/plan-rust-required-scope.test.py`、`python3 scripts/ci-required-result.test.py`、`python3 scripts/ci-workflow.test.py`；前三项接入 workflow_governance。

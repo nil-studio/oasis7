@@ -1674,12 +1674,15 @@ jobs:
           TMPDIR: /private/tmp
         run: python3 scripts/ci-local-signer-tests.py --require-darwin
 
-      - name: Prepare context Rust toolchain on macOS
-        if: runner.os == 'macOS'
+      - name: Prepare native filesystem contract Rust toolchain
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
+
+      - name: Verify hosted access cross-process ownership on native host
+        shell: bash
+        run: env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access
 
       - name: Verify private context filesystem and caller on macOS
         if: runner.os == 'macOS'
