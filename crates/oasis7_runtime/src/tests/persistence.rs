@@ -15,6 +15,8 @@ mod recovery_exact_retry_tests;
 mod recovery_tests;
 #[path = "persistence_resource_tests.rs"]
 mod resource_tests;
+#[path = "persistence_retention_tests.rs"]
+mod retention_tests;
 
 fn temp_dir(prefix: &str) -> PathBuf {
     let unique = SystemTime::now()
