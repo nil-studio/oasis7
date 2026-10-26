@@ -477,6 +477,11 @@
     {
       "match": [
         "scripts/package-*",
+        "scripts/deploy-ecs-preview*",
+        "scripts/ecs_preview_*",
+        "scripts/ecs-preview-*",
+        "scripts/test-ecs-preview-deploy.sh",
+        "config/ecs-preview-deploy.example.json",
         "scripts/native-packaging*",
         "scripts/packaging-*",
         "scripts/release-packages-trunk*",
