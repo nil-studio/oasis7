@@ -2661,7 +2661,7 @@ function WorldSummaryPanel(props = {}) {
               <PanelSection
                 title={tr(locale(), "能力经济可读性", "Capability Economics")}
                 eyebrow={tr(locale(), "下一步会带来什么", "What The Next Move Changes")}
-                meta={tr(locale(), "把当前玩法拆成投入、产出、新用途、修复动作和下一步效果，帮助玩家判断现在该补资源、推进一步，还是换目标。", "Break the current loop into input, output, new use, repair move, and next effect so the player can choose whether to refill resources, advance one step, or switch targets.")}
+                meta={tr(locale(), "把当前玩法拆成投入、产出、新用途、操作指引和下一步效果，帮助玩家判断现在该补资源、推进一步，还是换目标。", "Break the current loop into input, output, new use, action guidance, and next effect so the player can choose whether to refill resources, advance one step, or switch targets.")}
               >
                 <div class="summary-grid">
                   <MetricCard
@@ -2677,7 +2677,7 @@ function WorldSummaryPanel(props = {}) {
                     value={gameplay().economicSurface?.unlockedValue || tr(locale(), "待发布", "not published")}
                   />
                   <MetricCard
-                    label={tr(locale(), "修复动作", "Repair Move")}
+                    label={tr(locale(), "下一步操作指引", "Next Action Guidance")}
                     value={gameplay().economicSurface?.repairAction || tr(locale(), "待发布", "not published")}
                     detail={gameplay().economicSurface?.blockerLabel
                       ? tr(locale(), `当前阻塞归类: ${gameplay().economicSurface.blockerLabel}`, `Current blocker class: ${gameplay().economicSurface.blockerLabel}`)

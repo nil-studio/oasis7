@@ -691,29 +691,29 @@ export function createViewerFeedbackModule({
       if (action.executeKind === "step") {
         return localeText(
           locale,
-          "推进一个 committed step，用它执行或验证恢复，再回看 blocker 和世界反馈。",
-          "Advance one committed step to apply or prove recovery, then re-check the blocker and world feedback.",
+          "推进一个 committed step，再检查提交结果及 blocker 是否变化。",
+          "Advance one committed step, then inspect the committed result and whether the blocker changed.",
         );
       }
       if (action.executeKind === "play") {
         return localeText(
           locale,
-          "在恢复前提已经就绪后恢复实时推进，并观察回执是否重新产生世界变化。",
-          "Resume live play after recovery prerequisites are ready, then watch whether feedback produces world change again.",
+          "恢复实时推进，再检查实际回执和当前世界状态。",
+          "Resume live progression, then inspect the actual receipts and current world state.",
         );
       }
       if (economicSurface?.repairAction) {
         return localeText(
           locale,
-          `修复路径：${economicSurface.repairAction}`,
-          `Recovery path: ${economicSurface.repairAction}`,
+          `下一步操作指引：${economicSurface.repairAction}`,
+          `Next action guidance: ${economicSurface.repairAction}`,
         );
       }
       return narrativeNextStep
         || localeText(
           locale,
-          "先完成恢复或证明动作，再继续提交新的玩法动作。",
-          "Finish the recovery or proof action before submitting more gameplay actions.",
+          "先读取当前指引并检查世界状态，再决定下一步。",
+          "Read the current guidance and inspect the world state before choosing the next action.",
         );
     };
     const acceptedIntentSummary = intentSummary
@@ -857,7 +857,9 @@ export function createViewerFeedbackModule({
         "P1 first win: prove the player action creates recoverable, reusable, or negotiable leverage, not just more output.",
       ),
     };
-    const dependencyStatus = gameplay.major_power_dependency_status || "unverified";
+    // The current domain query has no sponsorship evaluator. Legacy display
+    // flags cannot establish a current dependency or an independent path.
+    const dependencyStatus = "unverified";
     const fallbackTradeoffPreview = (
       Array.isArray(gameplay.fallback_tradeoff_preview)
         ? gameplay.fallback_tradeoff_preview
@@ -928,28 +930,18 @@ export function createViewerFeedbackModule({
 
       }))
       : [];
+    const canonicalRecoveryDescription = capabilityRecovery.length > 0
+      ? capabilityRecovery.map((option) => option.summary).join(" / ")
+      : localeText(locale, "恢复可行性未知：缺少当前权威证据", "Recovery feasibility unknown: current canonical evidence unavailable");
     const matureWorldContinuation = {
       dependencyStatus,
-      recoveryOptions: capabilityRecovery.length > 0
-        ? capabilityRecovery.map((option) => option.summary).join(" / ")
-        : localeText(locale, "恢复可行性未知：缺少当前权威证据", "Recovery feasibility unknown: current canonical evidence unavailable"),
+      recoveryOptions: canonicalRecoveryDescription,
       recoveryOptionComparisons,
       recoveryAssessments: capabilityRecovery.map(({kind, status, reasonCode}) => ({kind, status, reasonCode})),
-      recoveryPath: gameplay.recovery_path_detail
-        || gameplay.recovery_path_kind
-        || narrativeNextStep
-        || null,
-      summary: dependencyStatus === "forced"
-        ? localeText(
-          locale,
-          "P2 阻塞：继续路径被强制绑定到 major power，需要提供独立 repair/rebuild/pivot。",
-          "P2 blocker: continuation is forced into major power dependency; expose independent repair/rebuild/pivot.",
-        )
-        : localeText(
-          locale,
-          "P2 成熟世界承接：小玩家需要不依附大组织也能修复、重建或转向。",
-          "P2 mature-world continuation: small players need repair, rebuild, or pivot paths without forced major-power dependency.",
-        ),
+      recoveryPath: canonicalRecoveryDescription,
+      summary: localeText(locale,
+        "当前恢复选项依赖权威证据；未支持或未确认的选项保持未知。",
+        "Current recovery options require canonical evidence; unsupported or unconfirmed options remain unknown."),
     };
     const enabledGameplayActions = enrichedAvailableActions
       .filter((action) => !action.disabledReason && action.executeKind === "gameplay_action");
@@ -976,15 +968,15 @@ export function createViewerFeedbackModule({
     const attractionWaitingCost = attractionWaitingCostParts.length > 0
       ? attractionWaitingCostParts.join(" · ")
       : localeText(locale, "等待 / 未验证：尚未发布等待成本", "waiting/unverified: no waiting cost published");
-    const attractionRecovery = gameplay.recovery_path_detail
-      || gameplay.recovery_path_kind
-      || (capabilityRecovery.length > 0 ? capabilityRecovery.map((option) => option.summary).join(" / ") : null)
-      || localeText(locale, "等待恢复路径", "waiting for recovery path");
+    const attractionRecovery = capabilityRecovery.length > 0
+      ? canonicalRecoveryDescription
+      : localeText(locale, "等待恢复路径", "waiting for recovery path");
     const hasPlayerCausedWorldChange = Boolean(gameplay.player_action && gameplay.world_change_due_to_player);
     const hasNewOption = attractionNewOption !== localeText(locale, "等待新选择", "waiting for new option");
     const hasWhyContinue = attractionWhyContinue !== localeText(locale, "等待下一分支", "waiting for next branch");
     const hasAvailableRecovery = capabilityRecovery.some((option) => option.status === "available");
-    const hasRecoveryPath = Boolean(gameplay.recovery_path_detail || gameplay.recovery_path_kind || hasAvailableRecovery);
+    const hasRecoveryPath = hasAvailableRecovery || Boolean(factoryFailureRecoveryAction
+      && factoryFailureRecoveryAction.executeKind !== "none");
     const missingAttractionSignals = [
       !hasPlayerCausedWorldChange,
       !hasNewOption,

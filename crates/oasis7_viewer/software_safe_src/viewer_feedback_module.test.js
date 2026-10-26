@@ -981,3 +981,21 @@ describe("canonical capability recovery", () => {
     expect(summary("en")).not.toContain("Repair: available");
   });
 });
+
+
+describe("recovery guidance evidence boundaries", () => {
+  it.each(["forced", "independent_path_available"])("keeps legacy sponsorship %s unverified without canonical evidence", (dependency) => {
+    const summary = createFeedbackModule({uiLocale:"en",snapshot:{model:{agents:{},locations:{}},player_gameplay:{
+      goal_kind:"recover_capability", execution_state:"blocked", blocker_kind:"missing_material", blocker_detail:"Input is unavailable",
+      major_power_dependency_status:dependency, recovery_path_detail:"Repair is available after refreshing the snapshot",
+      fallback_action_label:"Refresh snapshot", available_actions:[
+        {action_id:"advance_step",label:"Advance one step",protocol_action:"live_control.step"},
+        {action_id:"resume_play",label:"Resume play",protocol_action:"live_control.play"},
+      ],
+    }}}).buildGameplaySummary();
+    expect(summary.matureWorldContinuation.dependencyStatus).toBe("unverified");
+    expect(summary.matureWorldContinuation.recoveryPath).toMatch(/unknown/i);
+    for(const action of summary.availableActions) expect(action.playerDetail).not.toMatch(/apply or prove recovery|after recovery prerequisites|Recovery path:/i);
+    expect(summary.economicSurface.repairAction).toMatch(/inspect the committed result/i);
+  });
+});

@@ -173,6 +173,26 @@ afterEach(() => {
 });
 
 describe("focused viewer UI contracts", () => {
+  it.each(["available", "blocked"])("renders canonical recipe %s without inheriting legacy recovery or sponsorship", async (status) => {
+    const { container } = await renderViewerApp({snapshot: sampleSnapshot({player_gameplay: {
+      ...sampleSnapshot().player_gameplay,
+      major_power_dependency_status: "forced",
+      repair_available: true,
+      recovery_path_detail: "legacy repair is available after a snapshot refresh",
+      gameplay_capability: {goal_id: "current_industrial_capability", recovery: [
+        {kind: "current_recipe_run", status,
+          reason_code: status === "available" ? "canonical_recipe_quote_available" : "canonical_recipe_admission_rejected",
+          action: {ScheduleRecipe: {factory_id: "factory-0"}}},
+        {kind: "repair", status: "unknown", reason_code: "unsupported_recovery_action", action: null},
+      ]},
+    }})});
+    const stagePanel = container.querySelector("#viewer-stage-panel");
+    expect(within(stagePanel).getAllByText(new RegExp(`Run the current recipe: ${status}`)).length).toBeGreaterThan(0);
+    expect(within(stagePanel).getAllByText(/Repair: unknown/).length).toBeGreaterThan(0);
+    expect(within(stagePanel).queryByText("forced")).not.toBeInTheDocument();
+    expect(within(stagePanel).queryByText("legacy repair is available after a snapshot refresh")).not.toBeInTheDocument();
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+
   it("keeps visible Prompt Overrides contained inside the Advanced disclosure", async () => {
     const { core } = await renderViewerApp({
       selection: { kind: "agent", id: "agent-0" },

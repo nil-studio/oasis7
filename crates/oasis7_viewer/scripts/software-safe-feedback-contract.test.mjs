@@ -144,8 +144,8 @@ function buildBoundTaskGame076ScenarioSnapshot(options) {
   assert.match(gameplaySummary.attractionProof.newOption, /repair_elasticity/i);
   assert.match(gameplaySummary.attractionProof.whyContinue, /Replenish upstream materials/i);
   assert.match(gameplaySummary.attractionProof.waitingCost, /iron input exhausted/i);
-  assert.match(gameplaySummary.attractionProof.recovery, /replenish iron/i);
-  assert.match(gameplaySummary.matureWorldContinuation.dependencyStatus, /independent_path_available/i);
+  assert.match(gameplaySummary.attractionProof.recovery, /waiting for recovery path/i);
+  assert.equal(gameplaySummary.matureWorldContinuation.dependencyStatus, "unverified");
   assert.match(gameplaySummary.matureWorldContinuation.recoveryOptions, /Recovery feasibility unknown/i);
   assert.deepEqual(gameplaySummary.matureWorldContinuation.recoveryAssessments, []);
   assert.match(gameplaySummary.shareReplay.snippet, /queued build_factory_smelter_mk1/i);
@@ -648,6 +648,19 @@ function buildBoundTaskGame076ScenarioSnapshot(options) {
   assert.equal(core.state.promptDraft.currentVersion, 4);
 }
 
+{
+  core.state.uiLocale = "en";
+  core.state.snapshot = buildBoundTaskGame076ScenarioSnapshot({overrides: {player_gameplay: {
+    fallback_action_label: "Refresh the snapshot",
+    available_actions: [{action_id:"build_factory_smelter_mk1", target_agent_id:"agent-0",
+      label:"Build smelter", protocol_action:"gameplay_action.submit", disabled_reason:null}],
+  }}});
+  const summary = core.buildGameplaySummary();
+  assert.match(summary.availableActions[0].playerDetail, /Next action guidance:/);
+  assert.doesNotMatch(summary.availableActions[0].playerDetail, /Recovery path:/);
+  assert.match(summary.matureWorldContinuation.recoveryPath, /unknown/i);
+}
+
 // Exercise the real legacy_core summary entry point. Presentation-era flags
 // cannot override a canonical assessment, including when locale/text changes.
 for (const status of ["available", "blocked"]) {
@@ -665,11 +678,13 @@ for (const status of ["available", "blocked"]) {
     core.state.uiLocale = locale;
     core.state.snapshot = buildBoundTaskGame076ScenarioSnapshot({overrides: {player_gameplay: {
       repair_available: true, rebuild_available: true, pivot_available: true,
+      major_power_dependency_status: "forced",
       blocker_detail: locale === "en" ? "only a sponsor must repair this" : "当前恢复证据",
       gameplay_capability: {goal_id: "current_industrial_capability", recovery},
     }}});
     const continuation = core.buildGameplaySummary().matureWorldContinuation;
     assert.deepEqual(continuation.recoveryAssessments, expected);
+    assert.equal(continuation.dependencyStatus, "unverified");
     assert.match(continuation.recoveryOptions, new RegExp(`Run the current recipe: ${status}`));
     assert.match(continuation.recoveryOptions, /Repair: unknown/);
     assert.match(continuation.recoveryOptions, /Rebuild: unknown/);
