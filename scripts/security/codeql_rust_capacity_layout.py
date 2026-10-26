@@ -14,6 +14,7 @@ import time
 
 TOOL_FILES = (
     'codeql-rust-capacity.py',
+    'codeql-rust-cargo-check.py',
     'codeql-plan.py',
     'codeql-rust-refactored-source.py',
     'codeql-rust-model-diagnostic.py',

@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 LAYOUT = 'codeql_rust_capacity_layout.py'
 FILES = (
     'codeql-rust-capacity.py',
+    'codeql-rust-cargo-check.py',
     'codeql-plan.py',
     'codeql-rust-refactored-source.py',
     'codeql-rust-model-diagnostic.py',
