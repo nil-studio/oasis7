@@ -61,6 +61,16 @@ fn serve_native_identity_http_fixture() {
         std::env::var_os("OASIS7_CUSTODY_NATIVE_HTTP_STOP").expect("explicit fixture stop path"),
     );
     let (mut fixture, key) = fixture();
+    let managed_binding = std::env::var("OASIS7_CUSTODY_NATIVE_HTTP_MANAGED_BINDING")
+        .ok()
+        .as_deref()
+        == Some("true");
+    if managed_binding {
+        fixture.service.custody.as_mut().unwrap().managed_binding =
+            Some(managed_binding::ManagedBindingConfig::native_http_fixture());
+        fixture.service.config.registration_enabled = true;
+        fixture.service.config.machine_registration_enabled = true;
+    }
     {
         let custody = fixture.service.custody.as_mut().unwrap();
         custody.revocation = Some(revocation::RevocationConfig::http_fixture(
@@ -96,6 +106,8 @@ fn serve_native_identity_http_fixture() {
     listener.set_nonblocking(true).unwrap();
     let data = json!({
         "fixture_label":"public developer data in isolated native SQLite; never deployment credentials",
+        "managed_binding_owner_pin": authority.managed_binding.as_ref().map(|c| c.fixture_pin()),
+        "managed_binding_fixture_seed_note": managed_binding.then_some("Public test-only Ed25519 seed [93;32]; isolated developer fixture, never deployment credentials"),
         "address": format!("http://{}", listener.local_addr().unwrap()),
         "cookie": format!("__Host-oasis7_sid={}", fixture.token),
         "revocation_poll_secret":hex::encode([83_u8;32]),
@@ -239,7 +251,15 @@ fn serve_native_identity_http_fixture() {
             )
         };
         let bytes = serde_json::to_vec(&reply.body).unwrap();
-        write!(stream, "HTTP/1.1 {} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", reply.status, bytes.len()).unwrap();
+        write!(stream, "HTTP/1.1 {} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n", reply.status, bytes.len()).unwrap();
+        for cookie in &reply.cookies {
+            assert!(
+                cookie.bytes().all(|byte| byte != b'\r' && byte != b'\n'),
+                "fixture cookie must be one header value"
+            );
+            write!(stream, "Set-Cookie: {cookie}\r\n").unwrap();
+        }
+        stream.write_all(b"\r\n").unwrap();
         stream.write_all(&bytes).unwrap();
     }
     std::fs::remove_file(ready).unwrap();

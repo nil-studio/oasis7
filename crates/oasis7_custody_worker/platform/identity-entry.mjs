@@ -1,5 +1,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import RustWorker from './index.js';
+export class IdentityNativeProvision extends WorkerEntrypoint {
+  async run(raw) { return new RustWorker(this.ctx, this.env).identity_run_native(this.env, raw); }
+}
 export { NativeSession, RoleKeyVault } from './index.js';
 // Fixed fetch/scheduled callbacks keep generated Rust RPC methods off the default entrypoint.
 export default {

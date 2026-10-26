@@ -1,9 +1,39 @@
 //! Fixed private service entrypoints. No caller-selected route or actor role.
 use wasm_bindgen::prelude::*;
 use worker::Env;
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_run_native(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::run_native_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
 #[cfg(feature = "owner")]
 #[path = "owner_provision_entrypoints.rs"]
 mod provisioning;
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_approve_managed_login(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::managed_login(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_continue_managed_login(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::managed_login_continue(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_call(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    provisioning::native(&env, &raw).await
+}
 
 #[cfg(feature = "owner")]
 #[wasm_bindgen]

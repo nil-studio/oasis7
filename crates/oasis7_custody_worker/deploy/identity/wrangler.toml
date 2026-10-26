@@ -23,6 +23,12 @@ binding = "OWNER_MANAGEMENT"
 service = "oasis7-custody-owner-staging"
 entrypoint = "OwnerManagement"
 
+# Native stage authority has a separate fixed capability; no default RPC export.
+[[services]]
+binding = "OWNER_NATIVE_PERMITS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "OwnerNativePermits"
+
 # The independent native-source channel has no browser or Executor binding.
 [[services]]
 binding = "OWNER_REVOCATIONS"

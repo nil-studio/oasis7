@@ -13,5 +13,6 @@
     "semantic_decision_owner": "blockchain_ops_engineer",
     "structural_owner": "blockchain_ops_engineer"
   },
-  "schema": "oasis7.document-corpus-object/v1"
+  "schema": "oasis7.document-corpus-object/v1",
+  "content_sha256": "3d33e3b9006a1f06f3848e7b68de6611f42cdfb34dd592a22daaa86e91b2836f"
 }

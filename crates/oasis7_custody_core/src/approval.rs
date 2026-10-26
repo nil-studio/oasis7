@@ -42,6 +42,8 @@ pub enum CustodyIntentV1 {
         login_key_ref: String,
         native_identity_namespace: String,
         blocked_operation_ref: String,
+        login_request_id: String,
+        transport_limit: DecimalU64,
         deadline: DecimalU64,
     },
     TestSession {
@@ -391,6 +393,8 @@ impl ApprovalOptionsRequestV1 {
                 login_key_ref,
                 native_identity_namespace,
                 blocked_operation_ref,
+                login_request_id,
+                transport_limit,
                 deadline,
             } => {
                 [
@@ -398,9 +402,11 @@ impl ApprovalOptionsRequestV1 {
                     login_key_ref,
                     native_identity_namespace,
                     blocked_operation_ref,
+                    login_request_id,
                 ]
                 .iter()
                 .all(|v| !v.is_empty() && v.len() <= 256)
+                    && (64..=400).contains(&transport_limit.0)
                     && deadline.0 > now
                     && deadline.0 <= now.saturating_add(300_000)
             }

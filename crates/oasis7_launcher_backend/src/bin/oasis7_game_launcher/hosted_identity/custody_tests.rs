@@ -20,6 +20,7 @@ pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
         key: SigningKey::from_bytes(&[51; 32]),
         key_id: "approval-test-1".into(),
         audience: "account-authority:test".into(),
+        managed_binding: None,
         adapter_secret: [52; 32],
     });
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
@@ -111,6 +112,8 @@ fn options(now: u64) -> Value {
             login_key_ref: "login-key-1".into(),
             native_identity_namespace: "native-test".into(),
             blocked_operation_ref: "blocked-one".into(),
+            login_request_id: "managed-login-request-1".into(),
+            transport_limit: DecimalU64(64),
             deadline: DecimalU64(now + 180_000),
         },
     })

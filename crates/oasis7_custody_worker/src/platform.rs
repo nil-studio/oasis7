@@ -1,4 +1,4 @@
-#[cfg(not(feature = "owner"))]
+#[cfg(any(feature = "executor", feature = "recovery-fence"))]
 use oasis7_custody_core::http::ErrorCode;
 use oasis7_custody_core::http::{self, ErrorResponse, Role, ServiceMetadata};
 use worker::*;
@@ -24,23 +24,6 @@ async fn main(request: Request, _env: Env, _ctx: Context) -> Result<Response> {
         Err((status, code)) => {
             Ok(Response::from_json(&ErrorResponse::new(code))?.with_status(status))
         }
-    }
-}
-
-// No grant/secret/network RPC is exported by these role-local storage classes.
-// In this foundation slice they reject all requests, including service bindings.
-#[cfg(feature = "identity")]
-#[durable_object]
-pub struct NativeSession {
-    _state: State,
-}
-#[cfg(feature = "identity")]
-impl DurableObject for NativeSession {
-    fn new(state: State, _env: Env) -> Self {
-        Self { _state: state }
-    }
-    async fn fetch(&self, _request: Request) -> Result<Response> {
-        unavailable()
     }
 }
 
@@ -95,7 +78,7 @@ impl DurableObject for RecoveryFence {
     }
 }
 
-#[cfg(not(feature = "owner"))]
+#[cfg(any(feature = "executor", feature = "recovery-fence"))]
 fn unavailable() -> Result<Response> {
     Ok(Response::from_json(&ErrorResponse::new(ErrorCode::NotReady))?.with_status(503))
 }

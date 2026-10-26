@@ -113,7 +113,18 @@ fn view(store: &OwnerProvisionApprovalStore, operation: &str) -> Result<Provisio
             .filter(|v| v.result.is_none())
             .map(|v| v.operation_id.clone()),
     );
+    pending_operations.extend(
+        state
+            .native_stages()
+            .values()
+            .filter(|v| {
+                v.result.is_none()
+                    || matches!(v.result, Some(NativeStageResultV1::ExplicitLoginRequired))
+            })
+            .map(|v| v.request.operation_id.clone()),
+    );
     pending_operations.sort();
+    pending_operations.dedup();
     Ok(ProvisionProgressViewV1 {
         api_version: 1,
         provision_id: draft.entry.provision_id.clone(),
@@ -178,6 +189,21 @@ pub(crate) async fn advance(
         || rpc.manager_session.session_ref != input.approval.proof.manager_session_ref
     {
         return Err(denied());
+    }
+    if matches!(
+        snapshot.state.provision().stage(),
+        ProvisionStage::RoleKeysReady
+            | ProvisionStage::NativeRegistered
+            | ProvisionStage::NativeSessionReady
+    ) {
+        super::native::continue_provision(
+            state,
+            env,
+            &rpc.manager_session,
+            &rpc.request.operation_id,
+        )
+        .await?;
+        return view(&store, &rpc.request.operation_id);
     }
     let inspection_id = attempt_id(
         "oasis7.custody.provision-inspection-attempt.v1",
@@ -270,6 +296,8 @@ pub(crate) async fn advance(
             )
             .map_err(|_| denied())?;
     }
+    super::native::continue_provision(state, env, &rpc.manager_session, &rpc.request.operation_id)
+        .await?;
     view(&store, &rpc.request.operation_id)
 }
 

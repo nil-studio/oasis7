@@ -13,6 +13,10 @@ use std::collections::BTreeMap;
 mod origin_inspection;
 pub use origin_inspection::*;
 
+#[path = "native_stages.rs"]
+mod native_stages;
+pub use native_stages::*;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionApprovalError {
     Admission(ApprovalAdmissionError),
@@ -97,6 +101,9 @@ pub struct AccountProvisionApprovalState {
     cancellation_operation_id: Option<String>,
     origin_inspections: BTreeMap<String, ProvisionOriginInspectionV1>,
     role_key_dispatches: BTreeMap<String, ProvisionRoleKeyDispatchV1>,
+    native_stages: BTreeMap<String, NativeStageOriginalV1>,
+    bootstrap_activation: Option<BootstrapActivationV1>,
+    managed_logins: BTreeMap<String, ManagedLoginApprovalV1>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,6 +122,12 @@ struct RawAccountProvisionApprovalState {
     origin_inspections: BTreeMap<String, ProvisionOriginInspectionV1>,
     #[serde(default)]
     role_key_dispatches: BTreeMap<String, ProvisionRoleKeyDispatchV1>,
+    #[serde(default)]
+    native_stages: BTreeMap<String, NativeStageOriginalV1>,
+    #[serde(default)]
+    bootstrap_activation: Option<BootstrapActivationV1>,
+    #[serde(default)]
+    managed_logins: BTreeMap<String, ManagedLoginApprovalV1>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -129,6 +142,9 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             cancellation_operation_id: raw.cancellation_operation_id,
             origin_inspections: raw.origin_inspections,
             role_key_dispatches: raw.role_key_dispatches,
+            native_stages: raw.native_stages,
+            bootstrap_activation: raw.bootstrap_activation,
+            managed_logins: raw.managed_logins,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -148,6 +164,9 @@ impl AccountProvisionApprovalState {
             cancellation_operation_id: None,
             origin_inspections: BTreeMap::new(),
             role_key_dispatches: BTreeMap::new(),
+            native_stages: BTreeMap::new(),
+            bootstrap_activation: None,
+            managed_logins: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -484,6 +503,7 @@ impl AccountProvisionApprovalState {
     }
     fn validate_persistence(&self) -> Result<()> {
         validate_draft(&self.draft)?;
+        self.validate_managed_login_persistence()?;
         for record in self.book.records() {
             binding(&self.draft, record.input())?;
         }
@@ -530,7 +550,8 @@ impl AccountProvisionApprovalState {
             &self.draft,
             nonce,
             &keys,
-            self.validate_attempt_persistence()?,
+            self.validate_attempt_persistence()? + self.validate_native_stage_persistence()?,
+            &self.native_phase_replay()?,
         )?;
         Ok(())
     }

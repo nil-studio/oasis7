@@ -15,6 +15,9 @@ use oasis7_custody_core::{DecimalU64, approval::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[path = "custody_managed_binding.rs"]
+pub(super) mod managed_binding;
+
 #[path = "custody_complete.rs"]
 mod complete;
 #[path = "custody_revocation.rs"]
@@ -25,6 +28,7 @@ pub(super) struct CustodyConfig {
     key_id: String,
     audience: String,
     adapter_secret: [u8; 32],
+    managed_binding: Option<managed_binding::ManagedBindingConfig>,
     pub(super) revocation: Option<revocation::RevocationConfig>,
 }
 impl CustodyConfig {
@@ -48,6 +52,14 @@ impl CustodyConfig {
             "OASIS7_CUSTODY_NATIVE_ADAPTER_SECRET",
         ];
         if names.iter().all(|name| std::env::var_os(name).is_none()) {
+            if std::env::vars_os().any(|(name, _)| {
+                name.to_string_lossy()
+                    .starts_with("OASIS7_CUSTODY_MANAGED_BINDING")
+            }) {
+                return Err(
+                    "custody root signing configuration required for managed bindings".into(),
+                );
+            }
             if std::env::vars_os().any(|(name, _)| {
                 name.to_string_lossy()
                     .starts_with("OASIS7_CUSTODY_REVOCATION_")
@@ -84,8 +96,14 @@ impl CustodyConfig {
             key_id: values[1].clone(),
             audience: values[2].clone(),
             adapter_secret,
+            managed_binding: managed_binding::ManagedBindingConfig::from_env()?,
             revocation: None,
         };
+        if config.managed_binding.as_ref().is_some_and(|binding| {
+            binding.owner_public_key() == hex::encode(config.key.verifying_key().to_bytes())
+        }) {
+            return Err("managed binding Owner signer must be independent from native root".into());
+        }
         config.revocation = revocation::RevocationConfig::from_env(&config, session_secret)?;
         Ok(Some(config))
     }

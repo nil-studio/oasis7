@@ -1087,3 +1087,6 @@ fn pending_nonce_window_does_not_extend_native_observation_or_role_permit_freshn
         state
     );
 }
+
+#[path="native_stages.rs"]
+mod native_stages;

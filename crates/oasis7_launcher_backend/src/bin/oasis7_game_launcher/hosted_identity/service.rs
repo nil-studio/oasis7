@@ -254,6 +254,22 @@ impl IdentityService {
         if writing && let Err(error) = self.validate_json_write(headers, &csrf) {
             return IdentityReply::error(error);
         }
+        if relative.starts_with("/custody/managed-bindings/") {
+            let origin = header(headers, "origin").unwrap_or("");
+            let result = match (method, relative) {
+                ("POST", "/custody/managed-bindings/session-status") => {
+                    self.managed_session_status(sid.as_deref(), &payload, now)
+                }
+                ("POST", "/custody/managed-bindings/invalidation") => {
+                    self.managed_invalidation(&owner, &payload, origin)
+                }
+                _ => self.managed_binding_route(method, relative, &owner, &payload, origin, now),
+            };
+            return match result {
+                Ok(value) => IdentityReply::ok(value),
+                Err(error) => IdentityReply::error(error),
+            };
+        }
         if relative.starts_with("/custody/") {
             return match self.custody_browser_route(
                 method,

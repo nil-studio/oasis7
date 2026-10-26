@@ -226,6 +226,9 @@ impl DurableObject for AccountAuthority {
                     | "/internal/advance"
                     | "/internal/provision-progress"
                     | "/internal/role-permit"
+                    | "/internal/native"
+                    | "/internal/managed-login-approve"
+                    | "/internal/managed-login-continue"
             )
         {
             return Response::error("not found", 404);
@@ -242,6 +245,63 @@ impl DurableObject for AccountAuthority {
             None => return Response::error("invalid or oversized body", 400),
         };
         match url.path() {
+            "/internal/managed-login-continue" => {
+                let Some(env) = &self.env else {
+                    return Response::error("native authority unavailable", 409);
+                };
+                let rpc = match serde_json::from_str::<crate::directory_rpc::DriveRpc>(&body) {
+                    Ok(value) if value.request.validate().is_ok() => value,
+                    _ => return Response::error("invalid request", 400),
+                };
+                match crate::owner_provision::native::continue_managed_login(
+                    &self.state,
+                    env,
+                    &rpc.manager_session,
+                    &rpc.provision_id,
+                    &rpc.request.operation_id,
+                )
+                .await
+                {
+                    Ok(view) => Response::from_json(&view),
+                    Err(_) => Response::error("managed login continuation rejected", 409),
+                }
+            }
+            "/internal/managed-login-approve" => {
+                let Some(env) = &self.env else {
+                    return Response::error("native authority unavailable", 409);
+                };
+                let rpc = match serde_json::from_str::<crate::directory_rpc::ManagedLoginApproveRpc>(
+                    &body,
+                ) {
+                    Ok(value) => value,
+                    Err(_) => return Response::error("invalid request", 400),
+                };
+                match crate::owner_provision::native::approve_managed_login(&self.state, env, rpc)
+                    .await
+                {
+                    Ok(view) => Response::from_json(&view),
+                    Err(_) => Response::error("managed login approval rejected", 409),
+                }
+            }
+            "/internal/native" => {
+                let Some(env) = &self.env else {
+                    return Response::error("native authority unavailable", 409);
+                };
+                let rpc = match serde_json::from_str::<crate::native_runtime_rpc::NativeRuntimeRpc>(
+                    &body,
+                ) {
+                    Ok(value) if value.call.validate() => value,
+                    _ => return Response::error("invalid native request", 400),
+                };
+                match crate::owner_provision::native::dispatch(&self.state, env, rpc).await {
+                    Ok(raw) => Ok(Response::ok(raw)?.with_headers({
+                        let headers = Headers::new();
+                        headers.set("Content-Type", "application/json")?;
+                        headers
+                    })),
+                    Err(_) => Response::error("native stage rejected or pending", 409),
+                }
+            }
             "/internal/draft" => match serde_json::from_str::<AccountDraftV1>(&body) {
                 Ok(entry) => self.initialize_draft(entry),
                 Err(_) => Response::error("invalid request", 400),

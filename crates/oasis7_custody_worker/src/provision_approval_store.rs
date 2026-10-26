@@ -1,5 +1,8 @@
 //! Private Account component: approval consumption and provision preparation share one SQL row.
 //! The fixed Account approval consumer is wired; no dispatch, key generation, or closure acknowledgement is installed.
+#[path = "provision_native_store.rs"]
+pub mod native;
+
 use crate::approval_store::{now, verify};
 use js_sys::Array;
 use oasis7_custody_core::{
