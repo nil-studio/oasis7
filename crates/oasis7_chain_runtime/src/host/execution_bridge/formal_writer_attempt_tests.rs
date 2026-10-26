@@ -88,6 +88,30 @@ fn published_attempt_reclamation_retries_independent_readback_and_partial_unlink
     }
     durable_transaction::write_private_file_durable(&publication_path, &to_cbor(&exact).unwrap())
         .unwrap();
+    // A separate consumer may have retained an original output since the
+    // publication became independently reconstructable. Reclamation must
+    // respect that pin rather than treating "duplicate" as deletion authority.
+    let attempt_store = oasis7_runtime::LocalCasStore::new(attempt.join("storage"));
+    attempt_store.pin(&outputs[0]).unwrap();
+    // Exercise the local retention gate with the modeled inventory identity;
+    // the production readback/reopen path is exercised below after unpinning.
+    let inventory =
+        super::super::super::formal_attempt_lifecycle::candidate_digest(&exact.candidate).unwrap();
+    let publication_digest = blake3::hash(&std::fs::read(&publication_path).unwrap())
+        .to_hex()
+        .to_string();
+    assert!(
+        !super::super::super::formal_attempt_lifecycle::reclaim(
+            &attempt,
+            &exact.candidate,
+            &publication_digest,
+            &[inventory.clone(), inventory]
+        )
+        .unwrap()
+    );
+    assert_eq!(summary().phase, "Reclaimable");
+    assert!(oasis7_runtime::BlobStore::has(&attempt_store, &outputs[0]).unwrap());
+    attempt_store.unpin(&outputs[0]).unwrap();
     // Retirement's original target is authenticated independently of the
     // writer's newer pending heartbeat. Tampered sidecars cannot move it.
     let target = root.join("retirement-target.cbor");

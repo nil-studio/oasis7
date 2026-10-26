@@ -7,7 +7,7 @@ Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；审读 so
 <a id="dh-local-index"></a>
 ### Local index integrity
 
-拒绝空/absolute/..路径；CAS→atomic files_index；delete可回收unreferenced且unpinned；if-match只在同进程当前hash匹配时操作，None兼容无precondition。不是分布式锁/跨进程线性化。audit缺blob/dangling pin/orphan集合保留。
+拒绝空/absolute/..路径；CAS→atomic files_index；delete可回收unreferenced且unpinned；if-match在同一CAS根的引用事务中核对当前hash后操作，None兼容无precondition。不是分布式锁或一般FileStore跨进程线性化承诺。audit缺blob/dangling pin/orphan集合保留。
 
 配对设计必须用该条款的独立条件建立承接/验证关系；本条不把文档合并解释为运行能力或组合通过。
 

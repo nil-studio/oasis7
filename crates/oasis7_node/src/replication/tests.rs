@@ -19,6 +19,30 @@ fn temp_dir(prefix: &str) -> PathBuf {
     std::env::temp_dir().join(format!("oasis7-replication-tests-{prefix}-{unique}"))
 }
 
+#[test]
+fn stale_corruption_observation_cannot_discard_a_valid_pinned_member() {
+    let dir = temp_dir("retention-corrupt-repair");
+    let config = NodeReplicationConfig::new(&dir).unwrap();
+    let runtime = ReplicationRuntime::new(&config, "node-a").unwrap();
+    let original = b"authenticated checkpoint material";
+    let hash = runtime.store.put_bytes(original).unwrap();
+    runtime.store.pin(&hash).unwrap();
+    assert!(!runtime.discard_blob_by_hash(&hash).unwrap());
+    assert_eq!(runtime.store.get_verified(&hash).unwrap(), original);
+    fs::write(
+        runtime.store.blobs_dir().join(format!("{hash}.blob")),
+        b"corrupt",
+    )
+    .unwrap();
+    assert!(runtime.discard_blob_by_hash(&hash).unwrap());
+    runtime.store.put(&hash, original).unwrap();
+    assert!(runtime.store.is_effectively_pinned(&hash).unwrap());
+    assert!(!runtime.discard_blob_by_hash(&hash).unwrap());
+    assert_eq!(runtime.store.get_verified(&hash).unwrap(), original);
+    drop(runtime);
+    fs::remove_dir_all(dir).unwrap();
+}
+
 fn deterministic_keypair_hex(seed: u8) -> (String, String) {
     let bytes = [seed; 32];
     let signing_key = SigningKey::from_bytes(&bytes);

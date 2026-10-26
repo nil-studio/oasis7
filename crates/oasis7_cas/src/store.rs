@@ -1,6 +1,37 @@
 use super::*;
 
 impl LocalCasStore {
+    pub(super) fn put_without_retention_lock(
+        &self,
+        content_hash: &str,
+        bytes: &[u8],
+    ) -> Result<(), WorldError> {
+        self.ensure_dirs()?;
+        let actual_hash = self.hash_hex(bytes);
+        if actual_hash != content_hash {
+            return Err(WorldError::BlobHashMismatch {
+                expected: content_hash.to_string(),
+                actual: actual_hash,
+            });
+        }
+        let path = self.blob_path(content_hash)?;
+        if path.exists() {
+            return Ok(());
+        }
+        let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;
+        write_bytes_atomic(&path, disk_bytes.as_slice())?;
+        Ok(())
+    }
+
+    pub(super) fn put_bytes_without_retention_lock(
+        &self,
+        bytes: &[u8],
+    ) -> Result<String, WorldError> {
+        let hash = self.hash_hex(bytes);
+        self.put_without_retention_lock(&hash, bytes)?;
+        Ok(hash)
+    }
+
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self::new_with_hash_algorithm(root, HashAlgorithm::Blake3)
     }
@@ -203,6 +234,7 @@ impl LocalCasStore {
     }
 
     pub fn prune_unpinned(&self, max_bytes: u64) -> Result<u64, WorldError> {
+        let _retention = self.lock_retention()?;
         self.ensure_dirs()?;
         let pins = self.load_effective_pins()?;
         let mut total_bytes = 0u64;
@@ -262,6 +294,7 @@ impl LocalCasStore {
         expected_content_hash: Option<&str>,
         bytes: &[u8],
     ) -> Result<FileMetadata, WorldError> {
+        let _retention = self.lock_retention()?;
         let normalized_path = normalize_file_path(path)?;
         let expected_content_hash = normalize_expected_content_hash(expected_content_hash)?;
         let mut file_index = self.load_file_index()?;
@@ -271,7 +304,7 @@ impl LocalCasStore {
             expected_content_hash.as_deref(),
         )?;
 
-        let content_hash = self.put_bytes(bytes)?;
+        let content_hash = self.put_bytes_without_retention_lock(bytes)?;
         let metadata = FileMetadata {
             path: normalized_path.clone(),
             content_hash,
@@ -300,6 +333,7 @@ impl LocalCasStore {
         path: &str,
         expected_content_hash: Option<&str>,
     ) -> Result<bool, WorldError> {
+        let _retention = self.lock_retention()?;
         let normalized_path = normalize_file_path(path)?;
         let expected_content_hash = normalize_expected_content_hash(expected_content_hash)?;
         let mut file_index = self.load_file_index()?;
@@ -322,6 +356,7 @@ impl LocalCasStore {
     }
 
     pub fn audit_file_index(&self) -> Result<FileIndexAuditReport, WorldError> {
+        let _retention = self.lock_retention()?;
         let references = self.load_blob_reference_sets()?;
 
         let missing_file_blob_hashes = references
@@ -356,6 +391,7 @@ impl LocalCasStore {
     }
 
     pub fn prune_orphan_blobs(&self) -> Result<u64, WorldError> {
+        let _retention = self.lock_retention()?;
         let references = self.load_blob_reference_sets()?;
         let mut freed = 0_u64;
         for orphan_hash in references.blob_hashes.iter().filter(|hash| {

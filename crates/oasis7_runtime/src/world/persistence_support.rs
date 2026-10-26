@@ -367,6 +367,7 @@ fn sweep_sidecar_orphan_blobs(
     index: &SidecarGenerationIndex,
 ) -> Result<SidecarGcResult, WorldError> {
     let store = LocalCasStore::new(store_root);
+    let _retention = store.acquire_retention_guard()?;
     let retained_blob_hashes = collect_sidecar_retained_blob_hashes(store_root, index)?;
     let orphan_blob_hashes = collect_sidecar_orphan_blob_hashes(&store, &retained_blob_hashes)?;
     let mut freed_blob_count = 0usize;

@@ -242,7 +242,35 @@ pub(super) fn reclaim(
     }
     let mut removed = 0usize;
     let mut read_bytes = 0u64;
+    let store = oasis7_runtime::LocalCasStore::new(path.join("storage"));
+    let retention = store
+        .acquire_retention_guard()
+        .map_err(|e| format!("{e:?}"))?;
+    // This private execution scope belongs to the fenced attempt. Once both
+    // destinations independently reproduce the qualified publication, release
+    // only the declared duplicate outputs from its own execution pins. Other
+    // consumers' scopes/global pins remain authoritative for local retention.
+    retention
+        .retire_pin_scope_references(
+            "execution_bridge_v1",
+            &attempt.duplicate_outputs.iter().cloned().collect(),
+        )
+        .map_err(|e| format!("retire attempt execution pins: {e:?}"))?;
+    let protected: std::collections::BTreeSet<_> = store
+        .list_effective_pins()
+        .map_err(|e| format!("{e:?}"))?
+        .into_iter()
+        .chain(
+            oasis7_distfs::FileStore::list_files(&store)
+                .map_err(|e| format!("{e:?}"))?
+                .into_iter()
+                .map(|file| file.content_hash),
+        )
+        .collect();
     for id in &attempt.duplicate_outputs {
+        if protected.contains(id) {
+            return Ok(false);
+        }
         if id.len() != 64
             || !id
                 .bytes()
@@ -267,7 +295,6 @@ pub(super) fn reclaim(
                 read_bytes += meta.len();
             }
         }
-        let store = oasis7_runtime::LocalCasStore::new(path.join("storage"));
         let bytes = store.get_verified(id).map_err(|e| format!("{e:?}"))?;
         if !redundant(candidate, id, &bytes)? {
             return Err("attempt duplicate changed before deletion".into());
