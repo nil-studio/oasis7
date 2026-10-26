@@ -2,11 +2,11 @@
   "record": {
     "authority_entry": "doc/scripts/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "7909bd0e6b3ed9f525f36409f358250292b32f11cbb54ee6fb312b1a77ef8edc",
+    "content_sha256": "342281aa5ad1c223e223f791333bd924b0fba8a5bbe14f2862affc247905cc3b",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "active_candidate",
     "object_kind": "design",
-    "path": "doc/scripts/ecs-preview-deployment.design.md",
+    "path": "doc/scripts/deployment/ecs-preview-deployment.design.md",
     "registry_type": "professional_domain",
     "routing_batch": "scripts-corpus-review",
     "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",

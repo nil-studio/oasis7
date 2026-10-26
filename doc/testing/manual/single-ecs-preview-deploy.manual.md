@@ -20,7 +20,7 @@ python3 scripts/deploy-ecs-preview.py \
 
 完整停机备份保存到配置的 `local_backup_root`（目录 0700，归档 0600），并传回目标 `tar --compare` 验证后才切换。远端安装采用已在本地校验的归档流，避免同时占用压缩包和新版本的空间；仍保留至少 528 MiB 余量及原 release。新 chain 开始写入后失败或断连会隔离候选并保留历史，不能将旧程序直接指向可能变化的数据。成功输出 source、run、包/备份哈希和实际验收结果。该部署验收不代替后文的外部浏览器、真实登录及玩法验证。
 
-Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；实现边界见[单命令部署设计](../../scripts/ecs-preview-deployment.design.md)。
+Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；实现边界见[单命令部署设计](../../scripts/deployment/ecs-preview-deployment.design.md)。
 
 
 ## 1. 选定一个可用版本

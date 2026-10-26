@@ -4,7 +4,7 @@
 The local controller embeds this source in one SSH ``python3 -c`` process.
 The first stdin line is a bootstrap object containing ``probe_source``; later
 JSON lines and bounded raw payloads implement the protocol in
-``doc/scripts/ecs-preview-deployment.design.md``.
+``doc/scripts/deployment/ecs-preview-deployment.design.md``.
 """
 
 from __future__ import annotations
