@@ -12,7 +12,7 @@
 | 已实现的地址绑定、治理 gate 与 treasury 分发语义在哪里？ | `mainchain-token-allocation-mechanism.prd.md` | 当前 runtime 内部 Token 分配 authority；不等于外部钱包、custody、公开分发或 release readiness。 |
 | 签名交易授权与托管/自托管边界在哪里？ | `../blockchain/p2p-mainnet-security-governance-readiness.prd.md` | 当前 signed transfer contract；生产 signer custody 的模块级边界仍回到 `doc/p2p/blockchain/README.md`。 |
 | 主链 Token 的 signed transaction metadata 与 Phase 2+ 边界是什么？ | `mainchain-token-ideal-transaction.prd.md` | 当前 Phase 1 metadata-only contract；不是实际 fee debit、sponsor 或 priority execution。 |
-| `OC -> LetAI Run OpenAPI` quota bridge 如何部署、演练与回滚？ | `mainchain-token-newapi-quota-bridge.prd.md`，再读同名 `.runbook.md` | 专题规格与 operator companion；不替代 world-runtime 服务运行手册。 |
+| `OC -> LetAI Run OpenAPI` quota bridge 如何部署、演练与回滚？ | `mainchain-token-newapi-quota-bridge.prd.md`，再读同名 `.runbook.md` | [后续开发 hold，非主开发路径](mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold)；保留既有规格与 operator companion，不替代服务运行手册或免除未决订单义务。 |
 
 ## 阅读与维护边界
 

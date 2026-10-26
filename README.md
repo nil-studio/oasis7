@@ -77,6 +77,8 @@ oasis7 是一款正在开发的开源 **AI Agent 文明模拟游戏**。你设�
 
 ## 本地预览
 
+LetAI 专属功能后续开发目前 **hold，不作为主要开发路径**；下列命令保留为既有本地示例，不表示继续扩展或作为新功能默认前置。范围、恢复条件及既有安全/订单义务见[LetAI 开发状态](./doc/p2p/token/mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold)。通用 Provider/BYOK 和其他供应商路径不受此暂停影响。
+
 先准备[仓库指定的 Rust 工具链](./rust-toolchain.toml)、Node.js/npm、Python 3 和 curl。当前手册的本地真实 LLM 路径使用 LetAI，需要自己的有效配置；配置方式见[首次运行准备](./doc/world-simulator/viewer/viewer-manual.manual.md#首次运行准备)。
 
 ```bash

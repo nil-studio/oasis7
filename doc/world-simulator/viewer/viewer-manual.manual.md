@@ -25,6 +25,8 @@
 
 ## 本地真实 LLM 游戏测试
 
+以下 LetAI 专属路径后续开发暂时 hold，非当前主开发路径；保留已有运行说明不表示恢复排期。具体范围与既有安全/订单义务见[LetAI 开发状态](../../p2p/token/mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold)。通用 Viewer/Provider 和其他供应商接入不因此暂停。
+
 以下为 Bash 下的源码启动路径，使用 LetAI provider 和本地 standalone world，不连接 formal/public testnet。首次构建与已有产物后的日常启动分开操作。
 
 ### 首次运行准备
