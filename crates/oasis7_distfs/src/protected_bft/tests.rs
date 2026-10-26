@@ -272,6 +272,7 @@ struct TcpServiceServer {
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     history_certificate_replays: Arc<AtomicUsize>,
+    completed_connections: Arc<AtomicUsize>,
 }
 
 impl TcpServiceServer {
@@ -286,6 +287,8 @@ impl TcpServiceServer {
         let history_certificate_replays = service.history_certificate_replay_counter();
         let thread_drop_reply = drop_next_reply.clone();
         let thread_shutdown = shutdown.clone();
+        let completed_connections = Arc::new(AtomicUsize::new(0));
+        let thread_completed = completed_connections.clone();
         let thread = thread::spawn(move || {
             let mut clients = Vec::new();
             while !thread_shutdown.load(Ordering::SeqCst) {
@@ -296,10 +299,13 @@ impl TcpServiceServer {
                             .expect("set accepted test stream to blocking mode");
                         let service = service.clone();
                         let drop_reply = thread_drop_reply.clone();
+                        let completed = thread_completed.clone();
                         clients.push(thread::spawn(move || {
                             if let Err(error) = serve_test_client(stream, service, drop_reply) {
                                 eprintln!("test BFT signer TCP service failed: {error}");
                             }
+                            // serve_connection returns only after its lease release validation.
+                            completed.fetch_add(1, Ordering::Release);
                         }));
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -318,6 +324,18 @@ impl TcpServiceServer {
             shutdown,
             thread: Some(thread),
             history_certificate_replays,
+            completed_connections,
+        }
+    }
+
+    fn wait_for_completed_connection_after(&self, before: usize) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while self.completed_connections.load(Ordering::Acquire) <= before {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "provider connection lease release validation did not complete"
+            );
+            thread::sleep(Duration::from_millis(2));
         }
     }
 
