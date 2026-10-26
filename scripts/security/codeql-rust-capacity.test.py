@@ -246,7 +246,10 @@ class Capacity(unittest.TestCase):
     def test_missing_independent_lock_stops_before_tool_or_graph_commands(self):
         self.research_prepare_case(missing_vendor=True)
 
-    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False):
+    def test_native_prerequisite_failure_stops_before_metadata_or_analysis(self):
+        self.research_prepare_case(native_failure=True)
+
+    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
@@ -264,6 +267,7 @@ class Capacity(unittest.TestCase):
             commands=[]
             def run(argv,cwd,output,*args,**kwargs):
                 commands.append(argv)
+                if native_failure and argv[0]=="pkg-config":raise RuntimeError("native prerequisite failed")
                 if create_lock and argv[0]=='cargo':(source/'Cargo.lock').write_text('created during metadata')
                 self.assertNotIn('compile',argv)
                 value={'version':m.BUNDLE} if 'version' in argv else ({'resolve':{'nodes':[1]}} if argv[0]=='cargo' else [str(query)])
@@ -292,6 +296,13 @@ class Capacity(unittest.TestCase):
                 rejected=json.loads((out/'independent-workspace-locks.json').read_text())
                 self.assertEqual(rejected['rejected_locks'],['vendor/Cargo.lock'])
                 return
+            if native_failure:
+                with self.assertRaisesRegex(RuntimeError,"native prerequisite failed"):m.main()
+                self.assertFalse(any(argv[0] in ("cargo",str(official/"codeql")) for argv in commands))
+                self.assertFalse((root/"outputs").exists())
+                terminal=json.loads((out/"capacity-prepare-terminal.json").read_text())
+                self.assertEqual(terminal["native_preparation"],"INCOMPLETE")
+                return
             if metadata_failure:
                 with self.assertRaisesRegex(RuntimeError,'original metadata failure'):m.main()
                 self.assertEqual(len([argv for argv in commands if argv[0]=='cargo']),1)
@@ -315,6 +326,11 @@ class Capacity(unittest.TestCase):
             self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
             self.assertEqual(terminal['production_capacity'],'UNKNOWN')
             self.assertGreater(terminal['analysis_minutes'],300)
+            self.assertEqual(terminal['native_preparation'],'PASS')
+            native_index=next(i for i,argv in enumerate(commands) if argv[0]=='pkg-config')
+            metadata_index=next(i for i,argv in enumerate(commands) if argv[0]=='cargo')
+            self.assertLess(native_index,metadata_index)
+            self.assertFalse(any('check' in argv for argv in commands))
 
     def test_research_finish_decodes_official_only_and_retains_gates(self):
         import contextlib
