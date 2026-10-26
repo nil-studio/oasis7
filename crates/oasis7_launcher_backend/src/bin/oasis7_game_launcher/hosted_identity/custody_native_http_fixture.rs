@@ -57,6 +57,20 @@ fn serve_native_identity_http_fixture() {
         std::env::var_os("OASIS7_CUSTODY_NATIVE_HTTP_STOP").expect("explicit fixture stop path"),
     );
     let (mut fixture, key) = fixture();
+    {
+        let custody = fixture.service.custody.as_mut().unwrap();
+        custody.revocation = Some(revocation::RevocationConfig::http_fixture(
+            custody.audience.clone(),
+        ));
+        custody
+            .attach_revocation(
+                &mut fixture.service.store,
+                fixture.service.config.namespace.key(),
+                fixture.service.config.namespace.environment_id.clone(),
+                fixture.service.config.rp.identity_instance_epoch,
+            )
+            .unwrap();
+    }
     let now = now_ms();
     let start = fixture
         .service
@@ -79,6 +93,10 @@ fn serve_native_identity_http_fixture() {
         "fixture_label":"public developer data in isolated native SQLite; never deployment credentials",
         "address": format!("http://{}", listener.local_addr().unwrap()),
         "cookie": format!("__Host-oasis7_sid={}", fixture.token),
+        "revocation_poll_secret":hex::encode([83_u8;32]),
+        "revocation_ack_secret":hex::encode([84_u8;32]),
+        "owner_source_key_id":"owner-source-test",
+        "owner_source_public_key":hex::encode(SigningKey::from_bytes(&[92;32]).verifying_key().to_bytes()),
         "csrf": digest(&fixture.service.config.session_key, "csrf", &fixture.token),
         "verify_request": request,
         "namespace": fixture.service.config.namespace.key(),
@@ -119,11 +137,39 @@ fn serve_native_identity_http_fixture() {
         } else {
             serde_json::from_slice(&body).unwrap()
         };
-        let reply = if method == "POST"
+        let reply = if method == "GET" && path == "/_fixture/revocation-status" {
+            let (pending, acknowledged) = fixture
+                .service
+                .store
+                .transaction(|tx| {
+                    let rows =
+                        tx.all::<revocation::SourceOutbox>("custody_source_revocation", None)?;
+                    Ok((
+                        rows.iter()
+                            .filter(|(_, r)| r.value.acknowledgement.is_none())
+                            .count(),
+                        rows.iter()
+                            .filter(|(_, r)| r.value.acknowledgement.is_some())
+                            .count(),
+                    ))
+                })
+                .unwrap();
+            crate::hosted_identity::service::IdentityReply::ok(
+                json!({"pending":pending,"acknowledged":acknowledged}),
+            )
+        } else if method == "POST" && path == "/_fixture/revoke-manager" {
+            crate::hosted_identity::service::IdentityReply::ok(
+                fixture
+                    .service
+                    .logout(Some(&fixture.token), now_ms())
+                    .unwrap(),
+            )
+        } else if method == "POST"
             && matches!(
                 path,
                 "/_fixture/expire" | "/_fixture/native-key" | "/_fixture/reset"
-            ) {
+            )
+        {
             let storage_key = session_key(&fixture.service.config.session_key, &fixture.token);
             fixture
                 .service

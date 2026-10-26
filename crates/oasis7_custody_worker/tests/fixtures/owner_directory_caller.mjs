@@ -1,7 +1,7 @@
 // Component-only caller: supplied sessions are synthetic trusted adapter input,
 // not evidence of browser/native authentication. No deployment imports this file.
-import { AccountAuthority, ManagerAssociations, OwnerManagement } from '../../artifacts/owner/entry.mjs';
-export { ManagerAssociations, OwnerManagement };
+import { AccountAuthority, ManagerAssociations, OwnerManagement, OwnerRevocations } from '../../artifacts/owner/entry.mjs';
+export { ManagerAssociations, OwnerManagement, OwnerRevocations };
 export class AccountHarness extends AccountAuthority {
   constructor(ctx, env) { super(ctx, env); this.ctx = ctx; }
   async fetch(request) {
@@ -54,7 +54,16 @@ export default {
     const raw = await request.text();
     try {
       let result;
-      if (url.pathname === '/default-rpc') result = await env.DEFAULT_OWNER.owner_reserve_draft(raw);
+      if (url.pathname === '/default-source-rpc') {
+        try { await env.DEFAULT_OWNER.owner_close_source_event(raw); return Response.json({ missing_rpc: false }); }
+        catch (error) {
+          const message = String(error);
+          const missing = message.includes('owner_close_source_event') && /does not implement|not a function|not implemented/i.test(message);
+          return Response.json({ missing_rpc: missing }, { status: 409 });
+        }
+      }
+      else if (url.pathname === '/source-event') result = await env.REVOCATIONS.closeSourceEvent(raw);
+      else if (url.pathname === '/default-rpc') result = await env.DEFAULT_OWNER.owner_reserve_draft(raw);
       else if (url.pathname === '/reserve') result = await env.MANAGEMENT.reserveDraft(raw);
       else if (url.pathname === '/read') result = await env.MANAGEMENT.getDraft(raw);
       else if (url.pathname === '/freeze-manager') result = await env.MANAGEMENT.freezeManager(raw);

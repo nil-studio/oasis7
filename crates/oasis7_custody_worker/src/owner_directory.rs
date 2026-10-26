@@ -10,6 +10,9 @@ use std::collections::BTreeMap;
 use wasm_bindgen::{JsCast, prelude::*};
 use worker::*;
 
+#[path = "owner_source_revocation.rs"]
+pub(crate) mod source_revocation;
+
 const KEY: &str = "manager-directory-v1";
 const MAX_BYTES: usize = 1024 * 1024;
 const FANOUT_BATCH: usize = 8;
@@ -40,13 +43,19 @@ struct Snapshot {
     audit_sequence: DecimalU64,
     #[serde(default)]
     freeze_cursor: Option<String>,
+    #[serde(default)]
+    inventory_complete: bool,
+    #[serde(default)]
+    source_closures:
+        BTreeMap<String, oasis7_custody_core::source_revocation::SignedSourceClosureAckV1>,
 }
 fn decode(raw: &str) -> Result<Snapshot> {
     if raw.len() > MAX_BYTES {
         return Err(denied());
     }
     let s: Snapshot = serde_json::from_str(raw).map_err(|_| denied())?;
-    if s.schema != 1 || s.index.entries().count() != s.drafts.len() {
+    if s.schema != 1 || s.index.entries().count() != s.drafts.len() || s.source_closures.len() > 256
+    {
         return Err(denied());
     }
     for entry in s.index.entries() {
@@ -126,6 +135,7 @@ impl DurableObject for ManagerAssociations {
             "/internal/reserve" => self.reserve(&raw, &config).await,
             "/internal/read" => self.view(&raw, &config),
             "/internal/freeze" => self.freeze(&raw, &config).await,
+            "/internal/source-freeze" => self.source_freeze(&raw, &config).await,
             _ => return Response::error("not found", 404),
         };
         match result {
@@ -142,12 +152,23 @@ impl ManagerAssociations {
         create: bool,
     ) -> Result<Snapshot> {
         let principal = config.principal(session)?;
+        self.snapshot_for(config, &principal, create, true)
+    }
+    fn snapshot_for(
+        &self,
+        config: &DirectoryConfig,
+        principal: &ManagerPrincipal,
+        create: bool,
+        require_allowlist: bool,
+    ) -> Result<Snapshot> {
         let raw = match read(&self.state, KEY) {
             Ok(v) => v,
             Err(_) if create => {
-                if !config.managers.iter().any(|m| {
-                    m.principal == principal && m.environments.contains(&config.environment)
-                }) {
+                if require_allowlist
+                    && !config.managers.iter().any(|m| {
+                        &m.principal == principal && m.environments.contains(&config.environment)
+                    })
+                {
                     return Err(denied());
                 }
                 let s = Snapshot {
@@ -161,6 +182,8 @@ impl ManagerAssociations {
                     drafts: BTreeMap::new(),
                     audit_sequence: DecimalU64(0),
                     freeze_cursor: None,
+                    inventory_complete: require_allowlist,
+                    source_closures: BTreeMap::new(),
                 };
                 initialize(&self.state, KEY, &encode(&s)?).map_err(|_| denied())?
             }
@@ -168,7 +191,7 @@ impl ManagerAssociations {
         };
         let s = decode(&raw)?;
         if s.identity_instance_epoch != config.epoch
-            || s.index.manager() != &principal
+            || s.index.manager() != principal
             || s.index.environment() != Some(config.environment.as_str())
         {
             return Err(denied());
@@ -182,12 +205,29 @@ impl ManagerAssociations {
         event: &str,
         mutate: impl Fn(&mut Snapshot) -> Result<()>,
     ) -> Result<Snapshot> {
+        let principal = config.principal(session)?;
+        self.transaction_for(
+            config,
+            &principal,
+            event,
+            || config.principal(session).map(|_| ()),
+            mutate,
+        )
+    }
+    fn transaction_for(
+        &self,
+        config: &DirectoryConfig,
+        principal: &ManagerPrincipal,
+        event: &str,
+        check: impl Fn() -> Result<()>,
+        mutate: impl Fn(&mut Snapshot) -> Result<()>,
+    ) -> Result<Snapshot> {
         let mut callback = |old: String| -> std::result::Result<Array, JsValue> {
             let action = || -> Result<Array> {
-                let principal = config.principal(session)?;
+                check()?;
                 let mut s = decode(&old)?;
                 if s.identity_instance_epoch != config.epoch
-                    || s.index.manager() != &principal
+                    || s.index.manager() != principal
                     || s.index.environment() != Some(config.environment.as_str())
                 {
                     return Err(denied());
@@ -270,6 +310,9 @@ impl ManagerAssociations {
         }
         self.snapshot(config, &rpc.manager_session, true)?;
         let s = self.transaction(config, &rpc.manager_session, "draft_reserved", |s| {
+            if !s.inventory_complete {
+                return Err(denied());
+            }
             let e = s
                 .index
                 .reserve(
@@ -417,7 +460,11 @@ impl ManagerAssociations {
         let current = self.snapshot(config, &rpc.manager_session, false)?;
         Ok(serde_json::to_value(ManagerClosureViewV1 {
             api_version: 1,
-            status: current.index.closure_status(),
+            status: if current.inventory_complete {
+                current.index.closure_status()
+            } else {
+                ManagerClosureStatus::Pending
+            },
             associated_accounts: DecimalU64(current.drafts.len() as u64),
             pending_accounts: current
                 .index

@@ -44,12 +44,14 @@ function bindings(data) {
     CUSTODY_NATIVE_ENVIRONMENT: 'test', CUSTODY_NATIVE_AUDIENCE: data.audience,
     CUSTODY_NATIVE_APPROVAL_KEY_ID: data.key_id, CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY: data.public_key,
     CUSTODY_NATIVE_ADAPTER_SECRET: data.adapter_secret,
+    ...(data.revocation_poll_secret ? { CUSTODY_NATIVE_REVOCATION_POLL_SECRET: data.revocation_poll_secret, CUSTODY_NATIVE_REVOCATION_ACK_SECRET: data.revocation_ack_secret } : {}),
   };
 }
 const world = { world_id: 'world-one', genesis_digest: 'genesis-one', branch_id: 'branch-one', reorg_epoch: '0', service_public_key: 'ab'.repeat(32) };
 const routes = { environment: 'test', identity_route: 'native-one', world_route: 'world-route-one', world_identity: world.world_id };
 function ownerBindings(data) {
-  return { CUSTODY_NATIVE_NAMESPACE: data.namespace, CUSTODY_NATIVE_INSTANCE_EPOCH: data.identity_instance_epoch,
+  return { CUSTODY_NATIVE_APPROVAL_KEY_ID: data.key_id, CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY: data.public_key, CUSTODY_NATIVE_AUDIENCE: data.audience,
+    CUSTODY_REVOCATION_OWNER_KEY_ID: 'owner-source-test', CUSTODY_REVOCATION_OWNER_SIGNING_KEY: Buffer.alloc(32, 92).toString('hex'), CUSTODY_NATIVE_NAMESPACE: data.namespace, CUSTODY_NATIVE_INSTANCE_EPOCH: data.identity_instance_epoch,
     CUSTODY_NATIVE_ENVIRONMENT: 'test', CUSTODY_POLICY_VERSION: '1',
     CUSTODY_BOOTSTRAP_MANAGERS: JSON.stringify([{ principal: { identity_namespace: data.namespace, native_account_id: 'a' }, environments: ['test'] }]),
     CUSTODY_PROVISION_ROUTES: JSON.stringify(routes), CUSTODY_PROVISION_WORLD_IDENTITY: JSON.stringify(world) };
@@ -58,14 +60,15 @@ function options(directory, data, bridge, overrides = {}) {
   return { ...convertV4MiniflareOptions({
     workers: [{ name: 'caller', modules: [{ type: 'ESModule', path: resolve(root, 'tests/fixtures/native_identity_caller.mjs') }],
       modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
-      serviceBindings: { IDENTITY: { name: 'identity', entrypoint: 'IdentityNativeApproval' }, IDENTITY_DEFAULT: 'identity' },
+      serviceBindings: { PUMP: { name: 'identity', entrypoint: 'ScheduledFixture' }, IDENTITY: { name: 'identity', entrypoint: 'IdentityNativeApproval' }, IDENTITY_DEFAULT: 'identity' },
     }, { name: 'identity', modules: [
+      { type: 'ESModule', path: resolve(root, 'tests/fixtures/native_revocation_scheduler.mjs') },
       { type: 'ESModule', path: resolve(root, 'artifacts/identity/entry.mjs') },
       { type: 'ESModule', path: resolve(root, 'artifacts/identity/index.js') },
       { type: 'CompiledWasm', path: resolve(root, 'artifacts/identity/index_bg.wasm') },
     ], modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
     bindings: { ...bindings(data), ...overrides }, outboundService: bridge,
-    serviceBindings: { OWNER_MANAGEMENT: { name: 'owner', entrypoint: 'OwnerManagement' } },
+    serviceBindings: { OWNER_REVOCATIONS: { name: 'owner', entrypoint: 'OwnerRevocations' }, OWNER_MANAGEMENT: { name: 'owner', entrypoint: 'OwnerManagement' } },
     durableObjects: { SESSIONS: { className: 'NativeSession', useSQLite: true } },
     }, { name: 'owner', modules: [
       { type: 'ESModule', path: resolve(root, 'artifacts/owner/entry.mjs') },
@@ -234,5 +237,57 @@ test('production Identity workerd consumes actual native HTTP/SQLite management 
       try { if (native) await native.close(); }
       finally { rmSync(directory, { recursive: true, force: true }); }
     }
+  }
+});
+
+// Actual native transaction/outbox, scheduled Identity handler, Owner SQLite closure,
+// and native acknowledgement. Only the HTTPS-to-loopback transport is a local bridge.
+test('revoked native manager reaches Owner closure without its revoked browser session', { timeout: 90000 }, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'oasis7-custody-native-revocation-'));
+  let native; let mf;
+  try {
+    native = await authority(directory); const calls = [];
+    const bridge = async request => {
+      const url = new URL(request.url); assert.equal(url.origin, 'https://localhost');
+      assert.ok(['management-session-status', 'revocations/poll', 'revocations/ack'].some(path => url.pathname === '/api/public/hosted-account/v2/custody/' + path));
+      if (url.pathname.includes('/revocations/')) { assert.equal(request.headers.has('cookie'), false); assert.equal(request.headers.has('origin'), false); }
+      calls.push(url.pathname);
+      const headers = new Headers(); for (const name of ['authorization', 'cookie', 'origin', 'sec-fetch-site', 'x-oasis7-csrf', 'content-type']) {
+        const value = request.headers.get(name); if (typeof value === 'string') headers.set(name, value);
+      }
+      const body = request.method === 'GET' ? undefined : Buffer.from(await request.arrayBuffer());
+      const result = await fetch(native.data.address + url.pathname, { method: request.method, headers, body, redirect: 'manual' });
+      return new MiniflareResponse(await result.text(), { status: result.status, headers: { 'Content-Type': 'application/json' } });
+    };
+    const create = () => new Miniflare(options(resolve(directory, 'workerd'), native.data, bridge));
+    mf = create(); let identity = await mf.getWorker('identity');
+    const headers = { Cookie: native.data.cookie, Origin: 'https://localhost', 'Content-Type': 'application/json', 'X-Oasis7-CSRF': native.data.csrf };
+    const draft = { api_version: 1, client_request_id: 'revocation-original', plan: { ...routes, purpose: 'native revocation integration', expires_at: String(Date.now() + 120000), transport_limit: '3' } };
+    const initialized = await identity.fetch('https://localhost/v1/account-provisions', { method: 'POST', headers, body: JSON.stringify(draft) });
+    assert.equal(initialized.status, 200); const view = await initialized.json(); assert.equal(view.phase, 'draft_initialized');
+    assert.equal((await fetch(native.data.address + '/_fixture/revoke-manager', { method: 'POST' })).status, 200);
+    assert.notEqual((await identity.fetch('https://localhost/v1/management/session-status', { headers: { Cookie: native.data.cookie } })).status, 200);
+    const poll = async () => {
+      const result = await fetch(native.data.address + '/api/public/hosted-account/v2/custody/revocations/poll', { method: 'POST',
+        headers: { Authorization: 'Bearer ' + native.data.revocation_poll_secret, 'Content-Type': 'application/json' }, body: JSON.stringify({ api_version: 1, limit: 8 }) });
+      assert.equal(result.status, 200); return result.json();
+    };
+    const pending = await poll(); assert.ok(pending.events.length > 0);
+    const outboxStatus = async () => (await fetch(native.data.address + '/_fixture/revocation-status')).json();
+    assert.ok((await outboxStatus()).pending > 0);
+    assert.equal((await mf.dispatchFetch('https://caller.test/pump', { method: 'POST' })).status, 204);
+    assert.deepEqual((await poll()).events, []);
+    const confirmed = await outboxStatus(); assert.equal(confirmed.pending, 0); assert.ok(confirmed.acknowledged > 0);
+    assert.ok(calls.some(path => path.endsWith('/revocations/ack')));
+    await mf.dispose(); mf = create(); identity = await mf.getWorker('identity');
+    assert.equal((await mf.dispatchFetch('https://caller.test/pump', { method: 'POST' })).status, 204);
+    assert.deepEqual((await poll()).events, []);
+    const accountBindings = await mf.getBindings('owner');
+    const account = accountBindings.ACCOUNTS.get(accountBindings.ACCOUNTS.idFromName(view.entry.custody_account_id));
+    const late = await account.fetch('https://account.test/internal/draft', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry: view.entry, plan: view.plan, world_identity: view.world_identity }) });
+    assert.equal(late.status, 409, 'confirmed source closure must preserve Account freeze across restart');
+  } finally {
+    try { if (mf) await mf.dispose(); } finally { try { if (native) await native.close(); } finally { rmSync(directory, { recursive: true, force: true }); } }
   }
 });

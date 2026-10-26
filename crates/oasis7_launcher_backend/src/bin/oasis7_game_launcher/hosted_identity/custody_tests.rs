@@ -11,9 +11,10 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use webauthn_rs_core::proto::*;
 
-fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
+pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
     let mut fixture = model_session_tests::fixture();
     fixture.service.custody = Some(CustodyConfig {
+        revocation: None,
         key: SigningKey::from_bytes(&[51; 32]),
         key_id: "approval-test-1".into(),
         audience: "account-authority:test".into(),

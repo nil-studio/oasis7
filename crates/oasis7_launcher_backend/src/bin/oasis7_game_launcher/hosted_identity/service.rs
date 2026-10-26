@@ -179,8 +179,22 @@ impl IdentityService {
                 "existing account store requires an explicit fenced migration snapshot".into(),
             );
         }
+        let custody = super::custody::CustodyConfig::from_env(&config.session_key)?;
+        if let Some(custody) = &custody {
+            custody
+                .attach_revocation(
+                    &mut store,
+                    config.namespace.key(),
+                    config.namespace.environment_id.clone(),
+                    config.rp.identity_instance_epoch,
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        store
+            .require_revocation_configuration_if_registered()
+            .map_err(|e| e.to_string())?;
         Ok(Self {
-            custody: super::custody::CustodyConfig::from_env(&config.session_key)?,
+            custody,
             participant_entry: super::participant_entry::ParticipantEntry::from_env()?,
             config,
             store,
@@ -216,6 +230,12 @@ impl IdentityService {
         let relative = path.strip_prefix(PREFIX).unwrap_or("");
         // Dedicated service-auth route, never a browser Cookie/CSRF exemption for
         // other endpoints. It exposes only original approval source verification.
+        if relative.starts_with("/custody/revocations/") {
+            return match self.custody_revocation_route(method, relative, headers, &payload, now) {
+                Ok(value) => IdentityReply::ok(value),
+                Err(error) => IdentityReply::error(error),
+            };
+        }
         if relative == "/custody/approvals/verify" {
             return match self.custody_verify_route(method, headers, &payload, source, now) {
                 Ok(value) => IdentityReply::ok(value),
@@ -749,7 +769,7 @@ impl IdentityService {
             )
         })
     }
-    fn logout(&mut self, sid: Option<&str>, now: u64) -> Result<Value, StoreError> {
+    pub(super) fn logout(&mut self, sid: Option<&str>, now: u64) -> Result<Value, StoreError> {
         if let Some(token) = sid {
             let key = session_key(&self.config.session_key, token);
             self.store.transaction(|tx| {

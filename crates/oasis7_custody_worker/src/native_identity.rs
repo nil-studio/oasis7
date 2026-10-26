@@ -1,4 +1,6 @@
-//! Fixed Identity-only native authority adapter. No caller chooses an upstream URL or headers.
+#[path = "native_source_revocation.rs"]
+pub(crate) mod source_revocation;
+// Fixed Identity-only native authority adapter. No caller chooses an upstream URL or headers.
 use oasis7_custody_core::{DecimalU64, approval::*};
 use serde::de::DeserializeOwned;
 use wasm_bindgen::JsCast;

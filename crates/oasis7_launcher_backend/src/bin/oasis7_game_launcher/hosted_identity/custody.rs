@@ -17,14 +17,29 @@ use serde_json::Value;
 
 #[path = "custody_complete.rs"]
 mod complete;
+#[path = "custody_revocation.rs"]
+pub(super) mod revocation;
 
 pub(super) struct CustodyConfig {
     key: SigningKey,
     key_id: String,
     audience: String,
     adapter_secret: [u8; 32],
+    pub(super) revocation: Option<revocation::RevocationConfig>,
 }
 impl CustodyConfig {
+    pub(super) fn attach_revocation(
+        &self,
+        store: &mut super::store::IdentityStore,
+        namespace: String,
+        environment: String,
+        epoch: u64,
+    ) -> Result<(), super::store::StoreError> {
+        if let Some(config) = &self.revocation {
+            store.enable_source_revocations(config.signer(self, namespace, environment, epoch))?;
+        }
+        Ok(())
+    }
     pub(super) fn from_env(session_secret: &[u8; 32]) -> Result<Option<Self>, String> {
         let names = [
             "OASIS7_CUSTODY_APPROVAL_SIGNING_KEY",
@@ -33,6 +48,12 @@ impl CustodyConfig {
             "OASIS7_CUSTODY_NATIVE_ADAPTER_SECRET",
         ];
         if names.iter().all(|name| std::env::var_os(name).is_none()) {
+            if std::env::vars_os().any(|(name, _)| {
+                name.to_string_lossy()
+                    .starts_with("OASIS7_CUSTODY_REVOCATION_")
+            }) {
+                return Err("custody signing configuration required for revocation bridge".into());
+            }
             return Ok(None);
         }
         let values = names
@@ -58,12 +79,15 @@ impl CustodyConfig {
         if &seed == session_secret || seed == adapter_secret || &adapter_secret == session_secret {
             return Err("custody signing, adapter and session secrets must be independent".into());
         }
-        Ok(Some(Self {
+        let mut config = Self {
             key: SigningKey::from_bytes(&seed),
             key_id: values[1].clone(),
             audience: values[2].clone(),
             adapter_secret,
-        }))
+            revocation: None,
+        };
+        config.revocation = revocation::RevocationConfig::from_env(&config, session_secret)?;
+        Ok(Some(config))
     }
 }
 

@@ -641,9 +641,15 @@ complete 丢响应时，客户端保留原 approval_request_id、ceremony 和 co
 
 稳定定位映射由服务端固定版本计算/存储；调用者不能以路径参数选择并初始化一个已存在的任意 Account DO。空 draft 的 ACL 仅限创建者读取/批准该草稿；native account 尚未建立，不能据此发 grant。allowlist 配置变化与当前管理凭证有效性在批准/派发前重验。
 
-管理认证适配复用原生固定 GET/POST `/api/public/hosted-account/v2/custody/management-session-status` 与 `CustodySessionStatusV1`。GET 只读；POST 空正文仍经过现有 Origin/CSRF 与 `management_session`。Identity 只转发当前唯一 SID 和原始精确 Origin/CSRF；Worker 须位于同一 HTTPS RP origin，不伪造跨域身份。Owner 的 `ManagerAssociations` DO 只协调关联与冻结，`AccountAuthority` 仍是账号权威。Identity→Owner 只配置 `OwnerManagement` 的固定命名方法；原生 proof verify 使用单独 `IdentityNativeApproval`。实际 builder 会把 Rust free function 挂到默认 entrypoint，因此部署使用仅 fetch 的 wrapper，不能把 raw 产物作为部署入口而额外开放默认 RPC。
+管理认证适配复用原生固定 GET/POST `/api/public/hosted-account/v2/custody/management-session-status` 与 `CustodySessionStatusV1`。GET 只读；POST 空正文仍经过现有 Origin/CSRF 与 `management_session`。Identity 只转发当前唯一 SID 和原始精确 Origin/CSRF；Worker 须位于同一 HTTPS RP origin，不伪造跨域身份。Owner 的 `ManagerAssociations` DO 只协调关联与冻结，`AccountAuthority` 仍是账号权威。管理请求的 Identity→Owner binding 只配置 `OwnerManagement` 的固定命名方法；原生 proof verify 使用单独 `IdentityNativeApproval`。实际 builder 会把 Rust free function 挂到默认 entrypoint，因此部署使用只暴露 fetch 与固定 scheduled 回调、没有生成 RPC 的 wrapper，不能把 raw 产物作为部署入口而额外开放默认 RPC。
 
-Owner 保留权威的 manager→custody account 关联目录，包括 pending provisioning。关联登记须先于任何 key 生成、native/world 副作用或可用 grant，并与稳定 provision identity 一起持久化；D1 只投影，不拿异步列表当全集。目录登记与 Account DO 初始化可分阶段幂等完成，不能假定跨 DO 原子提交。撤销处理先关闭该管理来源的新关联/批准，再对已登记全部 Account DO 执行冻结/升代并收齐确认。冻结 tombstone 可以先于账号初始化，迟到 provisioning 不得覆盖它。目录缺失、版本不明或未收齐确认时不宣称 custody authorization closed，也不继续新增授权。该目录是 Owner 内的路由/撤销协调记录，不另设 grant/预算 authority。
+Owner 保留权威的 manager→custody account 关联目录，包括 pending provisioning。关联登记须先于任何 key 生成、native/world 副作用或可用 grant，并与稳定 provision identity 一起持久化；D1 只投影，不拿异步列表当全集。目录登记与 Account DO 初始化可分阶段幂等完成，不能假定跨 DO 原子提交。撤销处理先关闭该管理来源的新关联/批准，再对已登记全部 Account DO 执行冻结/升代并收齐确认。冻结 tombstone 可以先于账号初始化，迟到 provisioning 不得覆盖它。
+
+自动原生撤销采用独立、窄权限的持久事件通道，不能要求已撤销的管理会话继续发请求，也不能扩大批准 `/verify` 的只读权限。首批事件桥仅支持真实 SQLite identity store；在 Tablestore 上启用必须拒绝，不能借通用 store 接口声称已有同等保证。持久注册后移除事件桥配置也必须拒绝启动。启用该通道时，原生账号状态/安全版本、凭证状态/版本和会话撤销或安全期限缩短的变更，在同一个 identity 事务中保存固定签名原件；普通使用时间或延长 idle 期限不构成撤销。事件原件按固定 namespace/environment/身份代、manager 和来源记录绑定；独立私有 poll/ack 凭据不得与批准核验、登录或签名秘密共用。未确认原件不可因投递、超时、维护清理或容量限制被丢弃；首批 SQLite namespace 总容量为 4096 个事件（含已确认原件），Owner 每个管理者最多保存 256 份来源确认，不自动删除历史或重置额度。原生容量耗尽使对应安全事务失败，不提交无事件的安全变更。
+
+Owner 使用独立命名撤销入口验证固定原生签名，持久关闭目录并接续有界 fan-out。多个来源事件分别绑定到同一永久 manager-wide 冻结，保留第一份不可替换的撤销 notice；后续事件不能因 operation ID 不同而丢失，也不能重开目录。无现存目录时也保存冻结 tombstone，阻止迟到初始化，但未知库存保持 pending；没有独立全集证据时不能把新建空目录当作零关联的证明。旧快照缺少本版本的库存完整标记时同样保持 pending，不能自动升级为已关闭；当前保守实现不提供 fresh login 自动解冻或新建关联。只有目录全集和全部账号确认、在途原件均可核清，才产生固定 Owner key 签发、绑定精确 source event digest 与实际 closure/inventory digest 的 closed 回执；原生 ack 必须核验该回执。未确认始终为 custody pending，identity revoked 单独成立；未知库存不能签 closed。离线身份代推进还须验证原代的全部事件关闭及 writer fence，缺少证据拒绝推进。该通道不获得世界 Stop/Revoke、管理批准、密钥生成或重新登录权限。
+
+目录缺失、版本不明或未收齐确认时不宣称 custody authorization closed，也不继续新增授权。该目录是 Owner 内的路由/撤销协调记录，不另设 grant/预算 authority。
 
 ##### 分阶段提交与恢复
 

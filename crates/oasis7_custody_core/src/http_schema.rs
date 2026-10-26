@@ -1,6 +1,6 @@
 //! Explicit developer export from real HTTP DTOs. No handler/build.rs invokes this.
 use super::*;
-use crate::{DecimalU64, approval::*, provisioning::*};
+use crate::{DecimalU64, approval::*, provisioning::*, source_revocation::*};
 use serde_json::{Value, json};
 
 fn context() -> ApprovalContextV1 {
@@ -240,7 +240,83 @@ pub(super) fn export(directory: &std::path::Path) {
         pending_accounts: vec![],
         pending_operations: vec![],
     };
+    let source_events = (0..2)
+        .map(|index| {
+            let source = if index == 0 {
+                RevokedSourceV1::Account {
+                    previous: AccountSecurityStateV1 {
+                        status: "active".into(),
+                        policy_version: DecimalU64(1),
+                        security_version: DecimalU64(1),
+                    },
+                    current: AccountSecurityStateV1 {
+                        status: "frozen".into(),
+                        policy_version: DecimalU64(2),
+                        security_version: DecimalU64(2),
+                    },
+                }
+            } else {
+                RevokedSourceV1::Credential {
+                    credential_ref: "passkey-one".into(),
+                    previous: CredentialSecurityStateV1 {
+                        state: "active".into(),
+                        version: DecimalU64(9_007_199_254_740_993),
+                    },
+                    current: CredentialSecurityStateV1 {
+                        state: "revoked".into(),
+                        version: DecimalU64(u64::MAX),
+                    },
+                }
+            };
+            SourceRevocationEventV1 {
+                version: 1,
+                key_id: "native-source-test".into(),
+                event_id: SourceRevocationEventV1::stable_id(
+                    "identity:test",
+                    3,
+                    "fixture-record",
+                    index + 1,
+                    &source,
+                )
+                .unwrap(),
+                identity_namespace: "identity:test".into(),
+                environment: "test".into(),
+                identity_instance_epoch: DecimalU64(3),
+                manager_account_id: "manager-one".into(),
+                manager_security_version: DecimalU64(2),
+                owner_audience: "owner-test".into(),
+                observed_at: DecimalU64(1),
+                source,
+            }
+        })
+        .collect::<Vec<_>>();
+    let signed_source = SignedSourceRevocationEventV1 {
+        event: source_events[0].clone(),
+        signature: "fixture-signature".into(),
+    };
+    let source_ack = SignedSourceClosureAckV1 {
+        ack: SourceClosureAckV1 {
+            version: 1,
+            key_id: "owner-source-test".into(),
+            event_id: signed_source.event.event_id.clone(),
+            event_digest: signed_source.digest().unwrap(),
+            identity_namespace: "identity:test".into(),
+            environment: "test".into(),
+            identity_instance_epoch: DecimalU64(3),
+            manager_account_id: "manager-one".into(),
+            owner_audience: "owner-test".into(),
+            closure_digest: "a".repeat(64),
+            inventory_digest: "b".repeat(64),
+            closed_at: DecimalU64(10),
+            status: SourceClosureStateV1::Closed,
+        },
+        signature: "fixture-signature".into(),
+    };
     let schemas = json!({
+        "SignedSourceClosureAckV1":schemars::schema_for!(SignedSourceClosureAckV1),
+        "SourceRevocationsPollRequestV1":schemars::schema_for!(SourceRevocationsPollRequestV1),
+        "SourceRevocationsPollResponseV1":schemars::schema_for!(SourceRevocationsPollResponseV1),
+        "SourceRevocationAckResultV1":schemars::schema_for!(SourceRevocationAckResultV1),
         "ApprovalOptionsRequestV1":schemars::schema_for!(ApprovalOptionsRequestV1),
         "ApprovalOptionsResponseV1":schemars::schema_for!(ApprovalOptionsResponseV1),
         "ApprovalCompleteRequestV1":schemars::schema_for!(ApprovalCompleteRequestV1),
@@ -253,7 +329,12 @@ pub(super) fn export(directory: &std::path::Path) {
         "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
         "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
     });
-    let fixtures = json!({"metadata":([Role::Identity,Role::Owner,Role::Executor,Role::RecoveryFence].map(ServiceMetadata::disabled)),
+    let fixtures = json!({
+        "source_revocation":{"events":source_events.iter().map(|event|json!({"event":event,"signing_bytes_hex":event.signing_bytes().unwrap().iter().map(|byte|format!("{byte:02x}")).collect::<String>()})).collect::<Vec<_>>()},
+        "SignedSourceRevocationEventV1":[signed_source.clone()],"SignedSourceClosureAckV1":[source_ack.clone()],
+        "SourceRevocationsPollRequestV1":[SourceRevocationsPollRequestV1{api_version:1,limit:8}],
+        "SourceRevocationsPollResponseV1":[SourceRevocationsPollResponseV1{api_version:1,events:vec![signed_source.clone()]}],
+        "SourceRevocationAckResultV1":[SourceRevocationAckResultV1{api_version:1,event_id:signed_source.event.event_id.clone(),event_digest:signed_source.digest().unwrap(),status:SourceClosureStateV1::Closed}],"metadata":([Role::Identity,Role::Owner,Role::Executor,Role::RecoveryFence].map(ServiceMetadata::disabled)),
         "error":([ErrorCode::NotFound,ErrorCode::NotReady,ErrorCode::MethodNotAllowed].map(ErrorResponse::new)),
         "ApprovalOptionsRequestV1":requests,"ApprovalOptionsResponseV1":[options_response],"ApprovalCompleteRequestV1":[complete],
         "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});

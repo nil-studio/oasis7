@@ -22,3 +22,12 @@ new_sqlite_classes = ["NativeSession"]
 binding = "OWNER_MANAGEMENT"
 service = "oasis7-custody-owner-staging"
 entrypoint = "OwnerManagement"
+
+# The independent native-source channel has no browser or Executor binding.
+[[services]]
+binding = "OWNER_REVOCATIONS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "OwnerRevocations"
+
+[triggers]
+crons = ["* * * * *"]
