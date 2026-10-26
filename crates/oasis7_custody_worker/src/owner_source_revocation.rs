@@ -107,7 +107,8 @@ impl ManagerAssociations {
             return Ok(serde_json::to_value(Some(saved))?);
         }
         // Every source event joins the first permanent closure, rather than replacing its notice.
-        let state = self.transaction_for(
+        let batch = std::cell::RefCell::new(Vec::new());
+        self.transaction_for(
             config,
             &principal,
             "source_revocation_received",
@@ -129,16 +130,11 @@ impl ManagerAssociations {
                         })
                         .map_err(|_| denied())?;
                 }
+                *batch.borrow_mut() = next_freeze_batch(s);
                 Ok(())
             },
         )?;
-        for target in state
-            .index
-            .pending_freeze_targets()
-            .take(FANOUT_BATCH)
-            .cloned()
-            .collect::<Vec<_>>()
-        {
+        for target in batch.into_inner() {
             if let Ok(value) = self
                 .account("/internal/freeze", &target, &target.custody_account_id)
                 .await
