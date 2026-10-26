@@ -23,6 +23,7 @@ pub const BFT_MAX_CACHED_VOTES_V2: usize =
     4 * BFT_MAX_VALIDATORS_V2 * (BFT_MAX_TRACKED_ROUNDS_V2 as usize + 1);
 pub const BFT_MAX_CACHED_PROPOSAL_BYTES_V2: usize = 16 * 1024 * 1024;
 pub const BFT_MAX_PROPOSAL_EQUIVOCATIONS_V2: usize = 4096;
+const BFT_MAX_ACCEPTED_PROPOSAL_HEADERS_V2: usize = BFT_MAX_ROUNDS_PER_HEIGHT_V2 as usize + 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BftStepV2 {
@@ -91,6 +92,7 @@ pub struct BftConsensusMachineV2 {
     proposer_priority: BftProposerPriorityV2,
     round_proposers: BTreeMap<u64, String>,
     proposals: BTreeMap<u64, BftProposalV2>,
+    accepted_proposal_headers: BTreeMap<u64, BftProposalHeaderV2>,
     votes: BTreeMap<(u64, BftVotePhaseV2), VoteTally>,
     future_round_voters: BTreeMap<u64, BTreeSet<String>>,
     local_votes: BTreeMap<(u64, BftVotePhaseV2), BftVoteV2>,
@@ -136,6 +138,7 @@ impl BftConsensusMachineV2 {
             proposer_priority,
             round_proposers: BTreeMap::from([(0, proposer.validator_id)]),
             proposals: BTreeMap::new(),
+            accepted_proposal_headers: BTreeMap::new(),
             votes: BTreeMap::new(),
             future_round_voters: BTreeMap::new(),
             local_votes: BTreeMap::new(),
@@ -211,8 +214,9 @@ impl BftConsensusMachineV2 {
     }
 
     /// Retain a verified conflicting header for a proposal already accepted
-    /// at this height and round. This records punishment evidence only; it
-    /// does not alter proposal, lock, vote, or commit state.
+    /// at this height and round. The signed-header anchor outlives the bounded
+    /// proposal-body cache until height commit. This records punishment
+    /// evidence only; it does not alter proposal, lock, vote, or commit state.
     pub fn record_proposal_equivocation_evidence(
         &mut self,
         first: &BftProposalHeaderV2,
@@ -236,10 +240,13 @@ impl BftConsensusMachineV2 {
                 return Err("BFT proposal equivocation has a non-proposer signer".into());
             }
         }
-        let accepted = self.proposals.get(&first.round).ok_or_else(|| {
-            "BFT proposal equivocation lacks its accepted first header".to_string()
-        })?;
-        if accepted.header != *first {
+        let accepted = self
+            .accepted_proposal_headers
+            .get(&first.round)
+            .ok_or_else(|| {
+                "BFT proposal equivocation lacks its accepted first header".to_string()
+            })?;
+        if accepted != first {
             return Err("BFT proposal equivocation first header was not accepted".into());
         }
         let key = (first.round, first.proposer_id.clone());
@@ -465,16 +472,11 @@ impl BftConsensusMachineV2 {
         locally_validated: bool,
         now_ms: i64,
     ) -> Result<Vec<BftConsensusActionV2>, String> {
-        proposal.validate_binding()?;
         self.set.validate_proposal_header(&proposal.header)?;
-        self.schedule.validate_for_commit(&proposal.block)?;
         if proposal.header.height != self.height {
             return Err("BFT proposal height is not current".into());
         }
-        if proposal.header.schedule_policy_hash != self.schedule.policy_hash()
-            || proposal.block.parent_commit_ref != self.schedule.parent_commit_ref()
-            || proposal.block.manifest_hash != self.schedule.parent_manifest_hash()
-        {
+        if proposal.header.schedule_policy_hash != self.schedule.policy_hash() {
             return Err("BFT V2 proposal differs from its current schedule".into());
         }
         if proposal.header.round > self.round
@@ -485,6 +487,27 @@ impl BftConsensusMachineV2 {
         let expected_proposer = self.expected_proposer_for_round(proposal.header.round)?;
         if expected_proposer != proposal.header.proposer_id {
             return Err("BFT proposal does not come from deterministic proposer".into());
+        }
+
+        // The signed header is independent of the block body and optional
+        // valid-round proof. Once it authenticates as the deterministic
+        // proposer for an already accepted slot, retain a conflicting header
+        // before checking candidate material that may be malformed. It never
+        // installs the second proposal or produces consensus effects.
+        if let Some(previous) = self.accepted_proposal_headers.get(&proposal.header.round) {
+            if previous != &proposal.header {
+                let first = previous.clone();
+                self.record_proposal_equivocation_evidence(&first, &proposal.header)?;
+                return Err("BFT proposer equivocated within height/round".into());
+            }
+        }
+
+        proposal.validate_binding()?;
+        self.schedule.validate_for_commit(&proposal.block)?;
+        if proposal.block.parent_commit_ref != self.schedule.parent_commit_ref()
+            || proposal.block.manifest_hash != self.schedule.parent_manifest_hash()
+        {
+            return Err("BFT V2 proposal differs from its current schedule".into());
         }
         self.validate_valid_round_evidence(&proposal)?;
         if !locally_validated {
@@ -501,13 +524,15 @@ impl BftConsensusMachineV2 {
             Vec::new()
         };
 
+        if self
+            .accepted_proposal_headers
+            .contains_key(&proposal.header.round)
+        {
+            return Ok(output);
+        }
         if let Some(previous) = self.proposals.get(&proposal.header.round) {
-            if previous.header == proposal.header {
-                return Ok(output);
-            }
-            let first = previous.header.clone();
-            self.record_proposal_equivocation_evidence(&first, &proposal.header)?;
-            return Err("BFT proposer equivocated within height/round".into());
+            debug_assert_eq!(previous.header, proposal.header);
+            return Ok(output);
         }
         if self
             .cached_proposal_bytes()?
@@ -516,8 +541,12 @@ impl BftConsensusMachineV2 {
         {
             return Err("BFT cached proposal byte capacity exceeded".into());
         }
+        if self.accepted_proposal_headers.len() >= BFT_MAX_ACCEPTED_PROPOSAL_HEADERS_V2 {
+            return Err("BFT accepted proposal header capacity exceeded".into());
+        }
         let proposal_round = proposal.header.round;
         let proposal_id = proposal.header.block_id.clone();
+        let proposal_header = proposal.header.clone();
         let valid_round = proposal.header.valid_round;
         let valid_round_proof = proposal.valid_round_evidence.clone();
         if valid_round.is_some_and(|round| round >= proposal_round) {
@@ -537,6 +566,8 @@ impl BftConsensusMachineV2 {
             if proposal_round == self.round {
                 output.extend(self.replay_round_tallies(proposal_round, now_ms)?);
             }
+            self.accepted_proposal_headers
+                .insert(proposal_round, proposal_header);
             return Ok(output);
         }
         let can_vote_for_value = self.locked_value.is_none()
@@ -562,6 +593,8 @@ impl BftConsensusMachineV2 {
             .map(BftConsensusActionV2::SignVote),
         );
         output.extend(self.replay_round_tallies(proposal_round, now_ms)?);
+        self.accepted_proposal_headers
+            .insert(proposal_round, proposal_header);
         Ok(output)
     }
 
@@ -937,6 +970,7 @@ impl BftConsensusMachineV2 {
         self.valid_round_proof = None;
         self.round_proposers.clear();
         self.proposals.clear();
+        self.accepted_proposal_headers.clear();
         self.votes.clear();
         self.future_round_voters.clear();
         self.local_votes.clear();

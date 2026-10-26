@@ -232,6 +232,41 @@ fn alternate_valid_round_proof_for_same_signed_header_is_not_equivocation() {
     assert_eq!(evidence.1, &conflicting.header);
 }
 
+#[test]
+fn conflicting_signed_header_is_retained_when_its_block_fails_schedule_validation() {
+    let (scope, keys, set, schedule) = machine_fixture("invalid-equivocation-block");
+    let proposer_id = schedule.expected_proposer_for_round(0).unwrap();
+    let mut machine =
+        BftConsensusMachineV2::new(schedule.clone(), proposer_id, 100, TIMEOUTS).unwrap();
+    let accepted = plain_proposal(
+        &scope,
+        &set,
+        &schedule,
+        &keys,
+        0,
+        fixture_block(&scope, &set, &schedule, 1),
+    );
+    machine
+        .receive_proposal(accepted.clone(), true, 101)
+        .unwrap();
+
+    let mut invalid_block = fixture_block(&scope, &set, &schedule, 2);
+    invalid_block.parent_commit_ref = "ff".repeat(32);
+    let conflicting = plain_proposal(&scope, &set, &schedule, &keys, 0, invalid_block);
+    assert_ne!(accepted.header, conflicting.header);
+    assert!(
+        machine
+            .receive_proposal(conflicting.clone(), true, 102)
+            .is_err()
+    );
+
+    assert_eq!(machine.proposal_for_round(0), Some(&accepted));
+    assert_eq!(
+        machine.proposal_equivocation_evidence().next(),
+        Some((&accepted.header, &conflicting.header))
+    );
+}
+
 fn signed_proposal_with_round_evidence(
     schedule: &BftHeightProposerScheduleV2,
     keys: &[(String, SigningKey)],

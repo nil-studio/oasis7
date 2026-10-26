@@ -278,6 +278,111 @@ fn journal_retains_only_authenticated_proposal_equivocation_evidence() {
 }
 
 #[test]
+fn pruned_proposal_body_keeps_a_bounded_header_anchor_for_late_equivocation_replay() {
+    let fixture = Fixture::new();
+    let first = fixture.remote_proposal(1, 0);
+    let proposer_id = first.header.proposer_id.clone();
+    let proposer_key = &fixture
+        .keys
+        .iter()
+        .find(|(id, _)| id == &proposer_id)
+        .expect("round zero proposer key")
+        .1;
+    let mut conflicting = fixture.remote_proposal(2, 0);
+    conflicting.block.parent_commit_ref = "fe".repeat(32);
+    conflicting.header = BftProposalHeaderV2::sign(
+        fixture.schedule.scope().clone(),
+        fixture.schedule.height(),
+        0,
+        fixture.set.set_hash().to_string(),
+        fixture.schedule.policy_hash().to_string(),
+        proposer_id.clone(),
+        conflicting.block.block_id().expect("conflicting block id"),
+        None,
+        proposer_key,
+    )
+    .expect("sign conflicting header over its malformed candidate");
+
+    let inactive_key = SigningKey::from_bytes(&[99; 32]);
+    let mut journal = fixture.journal("observer", &inactive_key);
+    journal.height_started_at_ms = Some(100);
+    journal.events.push(BftSigningJournalEventV2::Proposal {
+        proposal: Box::new(first.clone()),
+        local: false,
+        now_ms: 101,
+    });
+    let mut now_ms = 102;
+    for round in 1..=65 {
+        for (validator_id, key) in fixture.keys.iter().take(2) {
+            let vote = BftVoteV2::sign(
+                fixture.schedule.scope().clone(),
+                fixture.schedule.height(),
+                round,
+                BftVotePhaseV2::Prevote,
+                fixture.set.set_hash().to_string(),
+                fixture.schedule.policy_hash().to_string(),
+                BftVoteValueV2::Nil,
+                validator_id.clone(),
+                key,
+            )
+            .expect("sign a bounded future-round vote");
+            journal.events.push(BftSigningJournalEventV2::Vote {
+                vote: Box::new(vote),
+                local: false,
+                now_ms,
+            });
+            now_ms += 1;
+        }
+    }
+    let mut machine =
+        replay_bft_signing_journal_v2(&journal, &fixture.set, &fixture.schedule, TIMEOUTS)
+            .expect("replay accepted proposal and bounded future-round quorum history");
+    assert_eq!(machine.round(), 65);
+    assert!(
+        machine.proposal_for_round(0).is_none(),
+        "old proposal body is pruned"
+    );
+    assert_eq!(machine.proposer_for_round(0), Some(proposer_id.as_str()));
+
+    let conflict_time = now_ms;
+    assert!(
+        machine
+            .receive_proposal(conflicting.clone(), true, conflict_time)
+            .is_err()
+    );
+    assert_eq!(
+        machine.proposal_equivocation_evidence().next(),
+        Some((&first.header, &conflicting.header)),
+        "the accepted header anchor must survive proposal-body pruning"
+    );
+
+    let mut durable = journal.clone();
+    durable
+        .events
+        .push(BftSigningJournalEventV2::ProposalEquivocation {
+            first: Box::new(first.header.clone()),
+            second: Box::new(conflicting.header.clone()),
+            now_ms: conflict_time,
+        });
+    verify_bft_signing_journal_transition_v2(
+        &journal,
+        &durable,
+        &fixture.set,
+        &fixture.schedule,
+        TIMEOUTS,
+    )
+    .expect("retain late conflict as one bounded evidence-only event");
+    let reopened =
+        replay_bft_signing_journal_v2(&durable, &fixture.set, &fixture.schedule, TIMEOUTS)
+            .expect("replay the accepted header anchor and late evidence");
+    assert!(reopened.proposal_for_round(0).is_none());
+    assert_eq!(
+        reopened.proposal_equivocation_evidence().next(),
+        Some((&first.header, &conflicting.header))
+    );
+}
+
+#[test]
 fn journal_equivocation_evidence_preserves_pending_vote_across_reopen() {
     let fixture = Fixture::new();
     let proposer_id = fixture

@@ -44,28 +44,37 @@ fn worker_retains_conflicting_signed_proposal_evidence_across_restart() {
         .expect("first valid action");
     let second_action =
         NodeConsensusAction::from_payload(2, "player", payload).expect("second valid action");
-    let proposals = [first_action, second_action].map(|action| {
-        let block = hook
-            .make_block(&schedule, &[action])
-            .expect("build deterministic candidate");
-        let header = BftProposalHeaderV2::sign(
-            block.scope.clone(),
-            block.height,
-            0,
-            set.set_hash().to_string(),
-            schedule.policy_hash().to_string(),
-            proposer_id.clone(),
-            block.block_id().expect("candidate block id"),
-            None,
-            &proposer_key,
-        )
-        .expect("sign same-slot proposal header");
-        BftProposalV2 {
-            header,
-            block,
-            valid_round_evidence: None,
-        }
-    });
+    let proposals = [first_action, second_action]
+        .into_iter()
+        .enumerate()
+        .map(|(index, action)| {
+            let mut block = hook
+                .make_block(&schedule, &[action])
+                .expect("build deterministic candidate");
+            if index == 1 {
+                // Keep the second proposer header correctly signed for its block,
+                // but make the block fail the current schedule's parent check.
+                block.parent_commit_ref = hash_byte(0xfe);
+            }
+            let header = BftProposalHeaderV2::sign(
+                block.scope.clone(),
+                block.height,
+                0,
+                set.set_hash().to_string(),
+                schedule.policy_hash().to_string(),
+                proposer_id.clone(),
+                block.block_id().expect("candidate block id"),
+                None,
+                &proposer_key,
+            )
+            .expect("sign same-slot proposal header");
+            BftProposalV2 {
+                header,
+                block,
+                valid_round_evidence: None,
+            }
+        })
+        .collect::<Vec<_>>();
     assert_ne!(proposals[0].header, proposals[1].header);
 
     let sender = UdpSocket::bind("127.0.0.1:0").expect("bind proposal sender");
