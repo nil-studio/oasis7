@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { projectGameplayReceiptFeedback } from "./viewer_gameplay_receipt_feedback.js";
+import { projectGameplayReceiptFeedback, adoptRuntimeGameplayFeedback } from "./viewer_gameplay_receipt_feedback.js";
 describe("authoritative gameplay result reconciliation", () => {
+  it("does not regress a recovered disposition to an older admission snapshot", () => {
+    const local = { action: "claim_first_agent", targetAgentId: "a", stage: "committed", requestAuthNonce: 11 };
+    adoptRuntimeGameplayFeedback({ player_gameplay: { recent_feedback: { action: "world_service_intent",
+      target_agent_id: "a", request_auth_nonce: 11, stage: "received" } } }, local, () => {});
+    expect(local.stage).toBe("committed");
+  });
   for (const stage of ["executing", "completed_advanced", "rejected", "blocked"]) {
     it(`replaces temporary ack with exact request ${stage}`, () => {
       const local = { kind: "gameplay_action", action: "refine", agentId: "a", stage: "ack", requestAuthNonce: 11 };

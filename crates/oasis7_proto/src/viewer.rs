@@ -134,6 +134,10 @@ pub enum ViewerRequest {
     GameplayAction {
         request: GameplayActionRequest,
     },
+    /// Read the disposition of the exact signed original; never submit it.
+    LookupGameplayAction {
+        request: GameplayActionRequest,
+    },
     CollectData {
         command: CollectDataCommand,
     },
@@ -652,6 +656,15 @@ pub enum ViewerResponse<Snapshot, Event, DecisionTrace, Metrics, Time> {
     },
     GameplayActionError {
         error: GameplayActionError,
+    },
+    GameplayActionResult {
+        action_id: String,
+        target_agent_id: String,
+        player_id: String,
+        request_auth_nonce: Option<u64>,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<serde_json::Value>,
     },
     CollectDataPreflight {
         quote: CollectDataPreflight,

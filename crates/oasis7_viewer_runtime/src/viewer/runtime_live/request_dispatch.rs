@@ -164,6 +164,13 @@ impl ViewerRuntimeLiveServer {
                     if self.config.world_service.is_some()
                         && offered
                             .iter()
+                            .any(|value| value == "gameplay_result_lookup_v1")
+                    {
+                        selected.push("gameplay_result_lookup_v1".into());
+                    }
+                    if self.config.world_service.is_some()
+                        && offered
+                            .iter()
                             .any(|capability| capability == "canonical_agent_chat_v1")
                     {
                         selected.push("canonical_agent_chat_v1".into());
@@ -457,6 +464,9 @@ impl ViewerRuntimeLiveServer {
                     }
                 }
             }
+            ViewerRequest::LookupGameplayAction { request } => {
+                self.handle_gameplay_lookup(request, session, writer)?;
+            }
             ViewerRequest::GameplayAction { request } => {
                 let request_auth_nonce = request.auth.as_ref().map(|auth| auth.nonce);
                 let origin =
@@ -572,6 +582,14 @@ impl ViewerRuntimeLiveServer {
                 }
             }
             ViewerRequest::AuthoritativeRecovery { command } => {
+                let registration_auth = match &command {
+                    AuthoritativeRecoveryCommand::RegisterSession { request } => {
+                        request.auth.as_ref().and_then(|auth| {
+                            verify_session_register_auth_proof_for_recovery(request, auth).ok()
+                        })
+                    }
+                    _ => None,
+                };
                 match self.handle_authoritative_recovery_for_protocol(
                     command,
                     &session.negotiated_protocol,
@@ -594,6 +612,12 @@ impl ViewerRuntimeLiveServer {
                                     }
                                 }
                                 _ => session.current_player_id = Some(player_id.to_string()),
+                            }
+                            if ack_status == AuthoritativeRecoveryStatus::SessionRegistered
+                                && let Some(verified) = registration_auth.as_ref()
+                                && verified.player_id == player_id
+                            {
+                                self.bind_verified_gameplay_session(session, verified);
                             }
                         }
                         if emit_snapshot_after_ack {

@@ -19,6 +19,7 @@ vi.mock("./viewer_auth_crypto.js", async (original) => ({
 
 import { authCredentials, installSession, clearSession } from "./viewer_auth_session_module.js";
 import { createHostedWorldAccount } from "./viewer_hosted_world_account_module.js";
+import { requestGameplayResult, receiveGameplayResult } from "./viewer_gameplay_result_recovery.js";
 
 const account = { account_id: "account-a" };
 const gameplayScope = { endpointId: "ws://localhost/synthetic", worldId: "synthetic-world", authorityEpoch: "epoch-1" };
@@ -268,6 +269,32 @@ describe("hosted account world bridge contracts", () => {
 
 const signedGameplay = () => ({ action_id: "claim_first_agent", target_agent_id: "starter-agent-0", player_id: "hosted-player-a", public_key: pair(1).publicKey,
   auth: { player_id: "hosted-player-a", public_key: pair(1).publicKey, nonce: 1234, signature: "synthetic-signed-original" } });
+function persistentGameplayCapsule() {
+  const store = { capsule: null };
+  const recovery = {
+    load: vi.fn(async () => store.capsule && structuredClone(store.capsule)),
+    save: vi.fn(async value => { store.capsule = structuredClone(value); return true; }),
+    clear: vi.fn(async () => {}),
+  };
+  return { store, recovery };
+}
+async function reloadGameplayCapsule(recovery) {
+  const first = fixture(undefined, recovery);
+  await first.module.join(account);
+  const original = signedGameplay();
+  await first.module.rememberGameplayRequest(original, gameplayScope);
+  const originalCapsule = recovery.save.mock.calls.at(-1)[0];
+  const originalAttempt = originalCapsule.attempt;
+  expect(originalCapsule.gameplayRequest).toEqual(original);
+  first.module.invalidate();
+
+  const second = fixture(undefined, recovery);
+  second.register.mockImplementation(async () => { second.state.auth.registrationStatus = "registered"; });
+  await second.module.join(account);
+  second.state.viewerProtocol = { capabilities: ["gameplay_result_lookup_v1"] };
+  return { second, original, originalAttempt };
+}
+
 it("restores the encrypted-capsule original after reload without submitting or changing its nonce", async () => {
   let capsule = null;
   const recovery = { load: vi.fn(async () => capsule && structuredClone(capsule)), save: vi.fn(async value => { capsule = structuredClone(value); return true; }), clear: vi.fn(async () => {}) };
@@ -289,6 +316,63 @@ it("restores the encrypted-capsule original after reload without submitting or c
   expect(await second.module.settleGameplayRequest(1234, gameplayScope)).toBe(true);
   expect(capsule).not.toHaveProperty("gameplayRequest");
 });
+
+it("looks up and settles the restored capsule original after account recreation", async () => {
+  const { store, recovery } = persistentGameplayCapsule();
+  const { second, original, originalAttempt } = await reloadGameplayCapsule(recovery);
+  expect(seam.client.joinWorld).toHaveBeenLastCalledWith(expect.objectContaining({ join_attempt_id: originalAttempt }));
+  expect(second.state.lastGameplayActionFeedback).toMatchObject({
+    stage: "unknown", requestAuthNonce: original.auth.nonce, originalRequest: original,
+  });
+  expect(second.module.hasPendingGameplayRequest()).toBe(true);
+
+  const send = vi.fn();
+  expect(requestGameplayResult(second.state, gameplayScope, send, 100)).toBe(true);
+  expect(send).toHaveBeenCalledExactlyOnceWith({ type: "lookup_gameplay_action", request: original });
+  const settle = vi.spyOn(second.module, "settleGameplayRequest");
+  expect(receiveGameplayResult(second.state, gameplayScope, second.module, {
+    player_id: original.player_id,
+    action_id: original.action_id,
+    target_agent_id: original.target_agent_id,
+    request_auth_nonce: original.auth.nonce,
+    status: "committed",
+  })).toBe(true);
+  expect(settle).toHaveBeenCalledExactlyOnceWith(original.auth.nonce, gameplayScope);
+  await expect(settle.mock.results[0].value).resolves.toBe(true);
+  expect(store.capsule).not.toHaveProperty("gameplayRequest");
+  expect(second.module.hasPendingGameplayRequest()).toBe(false);
+});
+
+it("retains the restored capsule after a foreign result and an unavailable lookup result", async () => {
+  const { store, recovery } = persistentGameplayCapsule();
+  const { second, original } = await reloadGameplayCapsule(recovery);
+  const send = vi.fn();
+  expect(requestGameplayResult(second.state, gameplayScope, send, 100)).toBe(true);
+  expect(send).toHaveBeenCalledExactlyOnceWith({ type: "lookup_gameplay_action", request: original });
+  const settle = vi.spyOn(second.module, "settleGameplayRequest");
+
+  expect(receiveGameplayResult(second.state, gameplayScope, second.module, {
+    player_id: "foreign-player",
+    action_id: original.action_id,
+    target_agent_id: original.target_agent_id,
+    request_auth_nonce: original.auth.nonce,
+    status: "committed",
+  })).toBe(false);
+  expect(store.capsule.gameplayRequest).toEqual(original);
+
+  expect(receiveGameplayResult(second.state, gameplayScope, second.module, {
+    player_id: original.player_id,
+    action_id: original.action_id,
+    target_agent_id: original.target_agent_id,
+    request_auth_nonce: original.auth.nonce,
+    status: "unavailable",
+  })).toBe(true);
+  expect(settle).not.toHaveBeenCalled();
+  expect(second.module.hasPendingGameplayRequest()).toBe(true);
+  expect(second.state.lastGameplayActionFeedback).toMatchObject({ stage: "unknown", originalRequest: original });
+  expect(store.capsule.gameplayRequest).toEqual(original);
+});
+
 it("blocks hosted signed requests when encrypted persistence is unsupported or denied", async () => {
   const recovery = { load: vi.fn(async () => null), save: vi.fn(async () => true), clear: vi.fn(async () => {}) };
   const { module } = fixture(undefined, recovery);

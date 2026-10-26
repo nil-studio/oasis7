@@ -21,6 +21,9 @@ export function matchesGameplayReply(reply, feedback) {
 export function adoptRuntimeGameplayFeedback(snapshot, feedback, clearTimer) {
   const authoritative = matchingRuntimeGameplayFeedback(snapshot?.player_gameplay, feedback);
   if (!authoritative) return;
+  // An older admission snapshot cannot undo an authenticated disposition read.
+  if (["committed", "rejected", "expired"].includes(feedback.stage)
+    && ["received", "pending", "queued", "submitted"].includes(authoritative.stage)) return;
   clearTimer();
   feedback.stage = authoritative.stage;
   feedback.effect = authoritative.effect;
