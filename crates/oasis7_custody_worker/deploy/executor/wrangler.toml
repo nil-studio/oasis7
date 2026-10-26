@@ -1,0 +1,18 @@
+# Isolated staging artifact. Use a separate scoped publisher for this role.
+name = "oasis7-custody-executor-staging"
+main = "../../artifacts/executor/index.js"
+compatibility_date = "2026-10-25"
+workers_dev = false
+preview_urls = false
+
+[build]
+cwd = "."
+command = "bash scripts/build-role.sh executor"
+
+[[durable_objects.bindings]]
+name = "EXECUTOR_KEYS"
+class_name = "ExecutorKeys"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ExecutorKeys"]

@@ -1,6 +1,7 @@
 //! Hosted account authority. Account authentication never allocates a world slot.
 mod config;
 mod credentials;
+mod custody;
 mod email;
 mod entry_executor_control;
 mod entry_owner_control;

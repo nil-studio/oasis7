@@ -1,0 +1,22 @@
+[package]
+name = "oasis7_custody_core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.85"
+description = "Pure bounded test-account custody contracts and state transitions"
+
+[dependencies]
+oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+serde.workspace = true
+serde_json.workspace = true
+serde_cbor.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+oasis7_agent_api = { path = "../oasis7_agent_api", features = ["schema"] }
+schemars = "1.2"
+
+[lints]
+workspace = true

@@ -872,6 +872,33 @@ class Selection(unittest.TestCase):
                          {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health',
                           'workspace_support', 'workflow_governance'})
 
+    def test_custody_inputs_select_worker_platform_proof_and_core_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        core, worker = 'oasis7_custody_core', 'oasis7_custody_worker'
+        for package in (core, worker):
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in (core, worker)},
+                 {core: {worker}, worker: set()}, {})
+        cases = [(core, 'src/lib.rs'), (core, 'schema/custody.schema.json'),
+                 (worker, 'src/lib.rs'), (worker, 'wrangler.identity.jsonc'),
+                 (worker, 'platform-tests/isolation.test.ts'),
+                 (worker, 'scripts/verify.sh'), (worker, 'package.json')]
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for package, path in cases:
+                with self.subTest(package=package, path=path):
+                    self.write(f'crates/{package}/{path}', '// changed')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(set(plan['groups']),
+                                     {'baseline', 'rust_baseline', 'workspace_support'})
+                    self.assertEqual(set(plan['workspace_support_profiles']),
+                                     {core, worker} if package == core else {worker})
+                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
+                    base = head
+
     def test_agent_api_and_harness_route_through_support_and_oasis7_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')

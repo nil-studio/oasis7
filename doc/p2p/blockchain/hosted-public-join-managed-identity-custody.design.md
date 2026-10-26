@@ -433,7 +433,7 @@ dev/staging 使用独立 Cloudflare Worker、DO/D1/R2 namespace、身份域、se
 <a id="cloud-custody-rust"></a>
 ### 12.13 Rust 技术栈、包组织与实现边界
 
-本节承接 [REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006)。Rust 是首版服务业务和协议逻辑的实现语言；Cloudflare 入口目标为 `wasm32-unknown-unknown`，使用官方 [workers-rs](https://developers.cloudflare.com/workers/languages/rust/)。管理 UI 的浏览器 WebAuthn 调用与展示可用 TypeScript。以下是待实施目录和职责，当前 PR 不新增 crate、空入口或依赖锁定结果。
+本节承接 [REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006)。Rust 是首版服务业务和协议逻辑的实现语言；Cloudflare 入口目标为 `wasm32-unknown-unknown`，使用官方 [workers-rs](https://developers.cloudflare.com/workers/languages/rust/)。管理 UI 的浏览器 WebAuthn 调用与展示可用 TypeScript。以下目录与职责规定完整目标。当前[基础实现](../../../crates/oasis7_custody_worker/README.md)已建立两包、纯状态原语、四角色 Wasm 构建与禁用业务的 HTTP metadata/error 合同；原生身份批准/来源核验/会话 metadata、幂等开户纯状态与独立 frozen fence 存储已有实现；云端身份转发、事务授权、秘密适配、可信客户端与游戏执行仍待接通。基础工件不代表可用 custody 服务或部署/实玩验收。
 
 #### 包与依赖方向
 
@@ -594,7 +594,7 @@ ready 预检还需确认正常 session 到期不会早于 write_deadline/cleanup
 
 #### 原生批准与当前来源核验接口
 
-管理批准是原生 identity authority 新增的窄业务能力，不能把现有普通 reauth 成功文本当成已存在的 custody proof。固定以下 target API；这些路径当前不存在，属于后续 native Rust handler 的实现范围，使用 custody core 的真实 DTO。它们不修改 World Service wire，也不建立新凭证数据库。
+管理批准是原生 identity authority 新增的窄业务能力，不能把现有普通 reauth 成功文本当成已存在的 custody proof。固定以下 target API；原生 Rust handler 已使用 custody core 的真实 DTO 实现并默认关闭，实际配置和验证入口见[实现说明](../../../crates/oasis7_custody_worker/README.md#native-identity-authority-configuration)。Identity/Owner 的 Cloudflare 适配与完整自测仍待接通。它们不修改 World Service wire，也不建立新凭证数据库。
 
 共同前缀为 /api/public/hosted-account/v2/custody/approvals；管理 options/complete 仍须同一原生管理 session、精确 Origin/CSRF、大小限制、标准 WebAuthn UV/挑战校验与限流。管理 proof 与托管账号 session 分别存取/验证，不能用托管账号 native-key 登录来完成管理 Passkey 批准。
 

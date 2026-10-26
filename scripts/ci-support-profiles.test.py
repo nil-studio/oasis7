@@ -83,6 +83,24 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
                                str(ROOT / 'scripts'), profiles],
                               text=True, capture_output=True)
 
+    def test_custody_worker_runs_platform_proof_in_isolation(self):
+        result = self.invoke(json.dumps(['oasis7_custody_worker']))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('contract bash crates/oasis7_custody_worker/scripts/verify.sh --platform', result.stdout)
+        self.assertNotIn('cargo ', result.stdout)
+        self.assertNotIn('full-inventory', result.stdout)
+
+    def test_custody_core_retains_all_target_schema_tests(self):
+        result = self.invoke(json.dumps(['oasis7_custody_core']))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('cargo test -p oasis7_custody_core --all-targets --locked', result.stdout)
+        self.assertNotIn('verify.sh', result.stdout)
+
+    def test_custody_platform_failure_stops_profile_completion(self):
+        result = self.invoke(json.dumps(['oasis7_custody_worker']), fail_protocol=True)
+        self.assertEqual(result.returncode, 19, result.stderr)
+        self.assertNotIn('support profile completed', result.stdout)
+
     def test_harness_isolated_and_strict(self):
         result = self.invoke(json.dumps(['oasis7_agent_harness']))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -213,7 +231,8 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         # Independent old full entry is retained: profiles must cover every package
         # in it, not merely agree with their own inventory constant.
         self.assertEqual(set(module.SUPPORT_PROFILES),
-                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)))
+                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker'})
+        self.assertIn('run bash crates/oasis7_custody_worker/scripts/verify.sh --platform', legacy)
         plan = dict(groups=['workspace_support'], scope='full',
                     workspace_support_profile_version=1,
                     workspace_support_profiles=list(module.SUPPORT_PROFILES))

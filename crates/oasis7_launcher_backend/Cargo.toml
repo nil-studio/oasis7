@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_custody_core = { path = "../oasis7_custody_core" }
 oasis7_observability = { path = "../oasis7_observability" }
 oasis7_launcher_config = { version = "0.1.0", path = "../oasis7_launcher_config" }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
@@ -57,4 +58,5 @@ test_tier_required = []
 test_tier_full = ["test_tier_required"]
 
 [dev-dependencies]
+openssl = "0.10"
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }

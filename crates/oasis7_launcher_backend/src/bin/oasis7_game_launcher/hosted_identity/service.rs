@@ -15,6 +15,7 @@ pub(crate) struct IdentityReply {
     pub cookies: Vec<String>,
 }
 pub(crate) struct IdentityService {
+    pub(super) custody: Option<super::custody::CustodyConfig>,
     pub config: IdentityConfig,
     pub store: IdentityStore,
     pub webauthn: WebAuthnAdapter,
@@ -61,10 +62,12 @@ impl IdentityReply {
                     "registration_closed"
                     | "csrf_failed"
                     | "origin_rejected"
+                    | "passkey_management_session_required"
                     | "reauth_required" => 403,
+                    "custody_disabled" => 404,
                     "rate_limited" => 429,
-                    "ceremony_expired" => 410,
-                    "authentication_failed" | "session_expired" => 401,
+                    "ceremony_expired" | "approval_expired" | "intent_expired" => 410,
+                    "authentication_failed" | "session_expired" | "service_auth_failed" => 401,
                     _ => 409,
                 },
                 code,
@@ -177,6 +180,7 @@ impl IdentityService {
             );
         }
         Ok(Self {
+            custody: super::custody::CustodyConfig::from_env(&config.session_key)?,
             participant_entry: super::participant_entry::ParticipantEntry::from_env()?,
             config,
             store,
@@ -210,6 +214,14 @@ impl IdentityService {
             sid.as_deref().unwrap_or(&pre),
         );
         let relative = path.strip_prefix(PREFIX).unwrap_or("");
+        // Dedicated service-auth route, never a browser Cookie/CSRF exemption for
+        // other endpoints. It exposes only original approval source verification.
+        if relative == "/custody/approvals/verify" {
+            return match self.custody_verify_route(method, headers, &payload, source, now) {
+                Ok(value) => IdentityReply::ok(value),
+                Err(error) => IdentityReply::error(error),
+            };
+        }
         if let Some(context) = cookie_value(headers, "__Host-oasis7_recovery") {
             if !payload.is_object() {
                 payload = json!({});
@@ -221,6 +233,19 @@ impl IdentityService {
         let writing = method != "GET";
         if writing && let Err(error) = self.validate_json_write(headers, &csrf) {
             return IdentityReply::error(error);
+        }
+        if relative.starts_with("/custody/") {
+            return match self.custody_browser_route(
+                method,
+                relative,
+                sid.as_deref(),
+                &payload,
+                source,
+                now,
+            ) {
+                Ok(value) => IdentityReply::ok(value),
+                Err(error) => IdentityReply::error(error),
+            };
         }
         if relative == "/entry/discovery" {
             return match if method == "GET" {

@@ -1,0 +1,29 @@
+[package]
+name = "oasis7_custody_worker"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.85"
+description = "Isolated Cloudflare role adapters for bounded test-account custody"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+identity = []
+owner = []
+executor = []
+recovery-fence = []
+
+[dependencies]
+oasis7_custody_core = { path = "../oasis7_custody_core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = "=0.7.5"
+wasm-bindgen = "=0.2.127"
+
+[lints]
+workspace = true

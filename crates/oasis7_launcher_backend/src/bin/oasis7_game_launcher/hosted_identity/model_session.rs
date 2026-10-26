@@ -60,7 +60,7 @@ impl IdentityService {
 
 #[cfg(test)]
 #[path = "model_session_tests.rs"]
-mod model_session_tests;
+pub(super) mod model_session_tests;
 
 #[cfg(test)]
 impl IdentityService {

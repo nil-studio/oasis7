@@ -74,7 +74,8 @@
       "rust_toolchain",
       "node",
       "python",
-      "system_deps"
+      "system_deps",
+      "wasm_target"
     ],
     "scenario_regression": [
       "rust_toolchain",
@@ -132,6 +133,8 @@
     }
   ],
   "package_groups": {
+    "oasis7_custody_core": ["workspace_support"],
+    "oasis7_custody_worker": ["workspace_support"],
     "scenario_test_runner": ["oasis7_required"],
     "oasis7_world_state": ["oasis7_required", "launcher_web"],
     "oasis7_world_projection": ["oasis7_required"],

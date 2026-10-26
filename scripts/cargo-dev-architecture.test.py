@@ -235,6 +235,94 @@ class CargoBoundaries(unittest.TestCase):
                 self.write('root/Cargo.toml', root_manifest + f'[dependencies]\nbanned={{package="{forbidden["name"]}",path="../forbidden"}}\n')
                 self.assertTrue(self.violations(self.inspect()))
 
+    def test_custody_worker_sdk_featureless_tokio_is_legal(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text())['rules']
+        self.rule = next(r for r in rules if r['key'] == 'custody-worker')
+        self.rule['upstream'] = 'owner.md#boundary'
+        self.rule['profiles'] = [dict(id='wasm', target='wasm32-unknown-unknown',
+                                     default_features=False, features=[], mode='production')]
+        self.rule['required_profiles'] = ['wasm']
+        self.write('root/Cargo.toml',
+                   '[package]\nname="oasis7_custody_worker"\nversion="0.1.0"\nedition="2024"\n'
+                   '[dependencies]\nworker={path="../middle",default-features=false}\n')
+        self.write('middle/Cargo.toml',
+                   '[package]\nname="worker"\nversion="0.7.5"\nedition="2024"\n'
+                   '[dependencies]\ntokio={path="../forbidden",default-features=false,features=[]}\n')
+        self.write('forbidden/Cargo.toml',
+                   '[package]\nname="tokio"\nversion="1.0.0"\nedition="2024"\n[features]\ndefault=[]\n')
+        self.assertFalse(self.violations(self.inspect(builds=False)))
+        # The SDK exception does not weaken native HTTP/storage isolation.
+        for native in ('reqwest', 'oasis7_client_storage', 'oasis7_local_signer'):
+            with self.subTest(native=native):
+                self.package('other')
+                self.write('other/Cargo.toml',
+                           f'[package]\nname="{native}"\nversion="0.1.0"\nedition="2024"\n')
+                self.write('middle/Cargo.toml',
+                           '[package]\nname="worker"\nversion="0.7.5"\nedition="2024"\n'
+                           '[dependencies]\ntokio={path="../forbidden",default-features=false,features=[]}\n'
+                           f'native={{package="{native}",path="../other"}}\n')
+                failures = self.violations(self.inspect(builds=False))
+                self.assertTrue(any(r['view'] == 'closure' for r in failures))
+
+    def test_custody_js_and_native_storage_boundaries(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text())['rules']
+        bridges = ('wasm-bindgen', 'js-sys', 'web-sys')
+        native = ('oasis7_client_storage', 'oasis7_local_signer')
+        for key in ('custody-core', 'custody-worker'):
+            for dependency in bridges + native:
+                for indirect in (False, True):
+                    with self.subTest(key=key, dependency=dependency, indirect=indirect):
+                        self.rule = json.loads(json.dumps(next(r for r in rules if r['key'] == key)))
+                        self.rule['upstream'] = 'owner.md#boundary'
+                        self.rule['profiles'] = [
+                            dict(id=profile, target=target, default_features=False,
+                                 features=[], mode='production')
+                            for profile, target in (('host', 'host'), ('wasm', 'wasm32-unknown-unknown'))]
+                        self.rule['required_profiles'] = ['host', 'wasm']
+                        name = self.rule['roots'][0]['name']
+                        manifest = f'[package]\nname="{name}"\nversion="0.1.0"\nedition="2024"\n'
+                        edge = f'[dependencies]\naliased={{package="{dependency}",path="../forbidden"}}\n'
+                        self.write('root/Cargo.toml', manifest + (
+                            '[dependencies]\nmiddle={path="../middle"}\n' if indirect else edge))
+                        self.package('middle', edge if indirect else '')
+                        self.write('forbidden/Cargo.toml',
+                                   f'[package]\nname="{dependency}"\nversion="0.1.0"\nedition="2024"\n')
+                        failures = self.violations(self.inspect(builds=False))
+                        banned = key == 'custody-core' or dependency in native
+                        self.assertEqual(bool(failures), banned)
+                        if banned:
+                            self.assertEqual({r['profile']['id'] for r in failures if r['view'] == 'closure'},
+                                             {'host', 'wasm'})
+                            if not indirect:
+                                self.assertTrue(any(r['view'] == 'declaration' for r in failures))
+
+    def test_custody_roles_cover_wasm_and_reject_transitive_native_runtime(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text())['rules']
+        for key in ('custody-core', 'custody-worker'):
+            with self.subTest(key=key):
+                self.rule = next(r for r in rules if r['key'] == key)
+                self.rule['upstream'] = 'owner.md#boundary'
+                roles = ('identity', 'owner', 'executor', 'recovery-fence')
+                name = self.rule['roots'][0]['name']
+                manifest = (f'[package]\nname="{name}"\nversion="0.1.0"\nedition="2024"\n'
+                            '[features]\n' + ''.join(f'{role}=[]\n' for role in roles))
+                self.write('root/Cargo.toml', manifest)
+                report = self.inspect(builds=False)
+                self.assertFalse(self.violations(report))
+                targets = {r['profile']['id'] for r in report['results'] if r.get('view') == 'closure'}
+                expected = {'host', 'unit-tests'} | (
+                    {'wasm-' + role for role in roles} if key == 'custody-worker' else {'wasm'})
+                self.assertEqual(targets, expected)
+                self.write('root/Cargo.toml', manifest + '[dependencies]\nmiddle={path="../middle"}\n')
+                self.package('forbidden')
+                self.write('forbidden/Cargo.toml',
+                           '[package]\nname="oasis7_runtime"\nversion="0.1.0"\nedition="2024"\n')
+                self.package('middle', '[dependencies]\nnative={package="oasis7_runtime",path="../forbidden"}\n')
+                failures = self.violations(self.inspect(builds=False))
+                self.assertEqual({r['profile']['id'] for r in failures if r['view'] == 'closure'}, expected)
+                self.package('middle')
+                self.package('forbidden')
+
     def test_registered_game_client_profiles_reject_transitive_dev_backend(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
         self.rule = next(r for r in rules if r['key'] == 'game-client')

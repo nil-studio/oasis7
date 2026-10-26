@@ -17,6 +17,7 @@ fn commitment(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct GameExecutorBindingV1 {
     pub executor_id: String,
@@ -38,6 +39,7 @@ impl GameExecutorBindingV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct GameTaskFenceV1 {
     pub world_id: String,
