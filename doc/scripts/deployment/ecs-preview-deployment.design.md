@@ -4,12 +4,21 @@
 
 Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 部署入口](../prd.md#single-ecs-preview-deploy)。
 
+### 2.1 需求承接与分配表
+
+本次为部署工程入口，不改变玩家规则、产品范围或游戏 AC，因此产品层不适用；专业上游承接 scripts PRD 的单机部署要求。
+
+| 上游 requirement / professional acceptance | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖范围 |
+| --- | --- | --- | --- | --- |
+| [单机部署要求](../prd.md#single-ecs-preview-deploy) | 已初始化 Preview 通过一个命令及一个 SSH 会话完成同源包校验、一致备份、切换及验收；失败如实隔离 | [部署合同](ecs-preview-deployment.design.md#deployment-contract) | 运维提供完整备份路径、原世界身份、有效 SSH 与同源成功包 | 新机初始化、世界治理、云扩容；自动验收不代签真实玩法 |
+
 ## 范围与入口
 
 `scripts/deploy-ecs-preview.py --config <local-profile.json> --run <successful-ecs-run-id>` 是已初始化 Linux/systemd Preview 的推荐部署入口。配置一次 SSH target、release/backup 路径、现有 chain/player unit、公开 origin、只读世界身份与 reader key 文件位置。密钥只留在目标机；配置不含密码或 seed。沿用 OpenSSH agent/config/正常交互认证，只建立一个 SSH 进程，启用严格 HostKey 校验；认证失败立即结束，不自动重试。没有初始化世界、治理变更、云扩容或付费模型操作。
 
 控制器固定 GitHub run 的完整 source SHA，要求 ECS workflow/main 成功且同 SHA 的 required-gate 成功。下载同一 run 的最终 ECS artifact，先核对外部 SHA256、归档成员边界、BUILDINFO 和整包 SHA256SUMS。所有后续动作绑定该 SHA，不追逐移动中的 main，不覆盖已存在但不匹配的 release。
 
+<a id="deployment-contract"></a>
 ## 设计条款：执行顺序与失败
 
 一个 SSH stdio 会话承载有界 JSON 控制帧与有界二进制流：init → install → backup → compare → switch → verify → accept。控制器本地保存 0700 目录 / 0600 停机备份；接收端校验流长度与 SHA256，并将同一备份传回仍停机的目标，以 `tar --compare` 对照原文件。未比较成功不得切换。备份包含现有世界和身份、SQLite sidecars、两个 unit、部署配置与 Skill include；不会改写历史。安装流解压到独立 staging，只接受普通文件/目录、限制总展开长度、拒绝路径逃逸/链接/重复路径。安装前后均至少留 528 MiB，保留旧 release。
@@ -27,6 +36,12 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 ## 验证
 
 验证包括假 SSH 的完整调用顺序、单一认证/进程、精确包来源、低空间/篡改归档/半写 unit/备份不匹配/连接中断和 post-writer 隔离；真实部署另报告 host、source、run 与实际结果，fixture 通过不能代签线上完成。
+
+### 11.1 验证映射表
+
+| 上游 requirement / professional acceptance | 本设计条款 | 独立 obligation 与适用条件 | 准确验证方法、test/manual source、场景与环境 | evidence target | 未证明范围 |
+| --- | --- | --- | --- | --- | --- |
+| [单机部署要求](../prd.md#single-ecs-preview-deploy) | [部署合同](ecs-preview-deployment.design.md#deployment-contract) | 单会话、源校验、停机备份比较先于切换、写入后失败隔离 | [部署测试入口](../../../scripts/test-ecs-preview-deploy.sh) 运行 controller/remote/probe 回归；[部署手册](../../testing/manual/single-ecs-preview-deploy.manual.md#单命令更新) 在目标 Linux/systemd 主机对固定包执行并核对真实验收 | 当前 PR 的精确版本测试及部署结果 | fixture 不证明线上；自动探针不证明外部 Chrome 登录与玩法 |
 
 ## 决策与风险
 
