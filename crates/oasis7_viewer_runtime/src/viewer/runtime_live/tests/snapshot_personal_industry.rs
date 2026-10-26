@@ -312,3 +312,87 @@ fn personal_industry_midloop_requires_owned_work_not_shared_transits() {
     state.factories.remove("factory.b");
     assert!(snapshot(&state).progress_percent < 92);
 }
+
+#[test]
+fn capability_query_resolves_subject_and_separates_world_from_current_owner() {
+    use oasis7_world_state::gameplay_capability::GameplaySubject;
+    let mut state = WorldState::default();
+    state.industry_progress.stage = IndustryStage::Governance;
+    state
+        .factories
+        .insert("a".into(), factory("agent-a", "a", 6));
+    state
+        .factories
+        .insert("b".into(), factory("agent-b", "b", 1));
+    let query = |state: &WorldState, subject| {
+        state.gameplay_capability_query(subject, "current_industrial_capability")
+    };
+    let personal = || GameplaySubject::resolve(Some("agent-b"), true);
+    let first = query(&state, personal());
+    assert_eq!(first.world_stage, IndustryStage::Governance);
+    assert_eq!(first.personal_stage, Some(IndustryStage::Bootstrap));
+    assert_eq!(first.current_stable_line, Some(false));
+    assert!(first.first_settlement.is_none()); // no canonical settlement evidence
+    assert_eq!(
+        snapshot(&state).gameplay_capability.unwrap(),
+        serde_json::to_value(&first).unwrap()
+    );
+    for subject in [
+        GameplaySubject::Spectator,
+        GameplaySubject::resolve(None, true),
+    ] {
+        let result = query(&state, subject);
+        assert!(result.personal_stage.is_none());
+        assert!(result.current_stable_line.is_none());
+        assert!(result.first_settlement.is_none());
+        assert!(
+            result
+                .recovery
+                .iter()
+                .all(|item| item.status == "unknown" && item.action.is_none())
+        );
+    }
+    state
+        .factories
+        .insert("b".into(), factory("agent-b", "b", 6));
+    assert_eq!(
+        query(&state, personal()).personal_stage,
+        Some(IndustryStage::Governance)
+    );
+    state
+        .factories
+        .get_mut("b")
+        .unwrap()
+        .production
+        .current_recipe_id = Some("changed".into());
+    assert_eq!(query(&state, personal()).current_stable_line, Some(false));
+    state
+        .factories
+        .get_mut("b")
+        .unwrap()
+        .production
+        .current_recipe_id = None;
+    state.factories.get_mut("b").unwrap().production.status =
+        crate::runtime::FactoryProductionStatus::Paused;
+    assert_eq!(
+        query(&state, personal()).personal_stage,
+        Some(IndustryStage::Bootstrap)
+    );
+}
+
+#[test]
+fn capability_query_roundtrips_and_legacy_absence_remains_unknown() {
+    let gameplay = snapshot(&WorldState::default());
+    let mut encoded = serde_json::to_value(&gameplay).unwrap();
+    let restored: PlayerGameplaySnapshot = serde_json::from_value(encoded.clone()).unwrap();
+    assert_eq!(restored.gameplay_capability, gameplay.gameplay_capability);
+    encoded
+        .as_object_mut()
+        .unwrap()
+        .remove("gameplay_capability");
+    let legacy: PlayerGameplaySnapshot = serde_json::from_value(encoded).unwrap();
+    assert!(legacy.gameplay_capability.is_none());
+    assert!(legacy.repair_available.is_none());
+    assert!(legacy.rebuild_available.is_none());
+    assert!(legacy.pivot_available.is_none());
+}

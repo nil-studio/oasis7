@@ -907,48 +907,34 @@ export function createViewerFeedbackModule({
         requiredNextDecisionClass,
       }
       : null);
-    const recoveryOptionComparisons = (
-      Array.isArray(gameplay.recovery_options)
-        ? gameplay.recovery_options
-        : Array.isArray(gameplay.recoveryOptions)
-          ? gameplay.recoveryOptions
-          : []
-    )
-      .filter(isRecord)
-      .map((option) => {
-        const kind = displayableString(option.kind);
-        if (!kind) return null;
-        const timeClass = displayableString(option.estimated_time_class) || "unverified";
-        const resourceClass = displayableString(option.estimated_resource_class) || "unverified";
-        const riskClass = displayableString(option.risk_class) || "unverified";
-        const retainedBenefit = displayableString(option.retained_benefit) || "unverified";
-        const recommendationReason = displayableString(option.recommendation_reason) || "unverified";
-        return {
-          kind,
-          timeClass,
-          resourceClass,
-          riskClass,
-          retainedBenefit,
-          recommendationReason,
-          summary: `${kind}: time=${timeClass} · resources=${resourceClass} · risk=${riskClass} · retains=${retainedBenefit} · why=${recommendationReason}`,
-        };
-      })
-      .filter(Boolean);
-    const recoveryOptions = [
-      ["repair", gameplay.repair_available],
-      ["rebuild", gameplay.rebuild_available],
-      ["pivot", gameplay.pivot_available],
-    ]
-      .filter(([, value]) => value === true || value === false)
-      .map(([label, value]) => `${label}: ${availabilityLabel(value)}`);
+    // Legacy presentation flags/cost strings have no canonical action evidence.
+    // They cannot recover executable options after reconnect or version upgrade.
+    const recoveryOptionComparisons = [];
+    const capabilityRecovery = Array.isArray(gameplay.gameplay_capability?.recovery)
+      ? gameplay.gameplay_capability.recovery.filter(isRecord).map((option) => ({
+        kind: displayableString(option.kind) || "unknown",
+        status: displayableString(option.status) || "unknown",
+        reasonCode: displayableString(option.reason_code) || "evidence_unavailable",
+        summary: `${({repair: "Repair", rebuild: "Rebuild", pivot: "Pivot", current_recipe_run: "Run the current recipe"})[option.kind] || "Recovery"}: ${displayableString(option.status) || "unknown"} · ${({
+          unsupported_recovery_action: "This recovery action is not supported.",
+          spectator_has_no_personal_capability: "Select an owned Agent to inspect personal capability.",
+          personal_owner_unavailable: "The current owner could not be resolved.",
+          current_line_evidence_unavailable: "Current line evidence is unavailable.",
+          current_execution_authority_unavailable: "Current execution authority could not be verified.",
+          canonical_recipe_quote_unavailable: "A current recipe quote is unavailable.",
+          canonical_recipe_admission_rejected: "Current rules or resources block this recipe run.",
+          canonical_recipe_quote_available: "A current quote supports this run; submission will recheck it.",
+        })[option.reason_code] || "Current evidence is unavailable."}`,
+
+      }))
+      : [];
     const matureWorldContinuation = {
       dependencyStatus,
-      recoveryOptions: recoveryOptionComparisons.length > 0
-        ? recoveryOptionComparisons.map((option) => option.summary).join(" / ")
-        : recoveryOptions.length > 0
-        ? recoveryOptions.join(" / ")
-        : localeText(locale, "等待 repair / rebuild / pivot truth", "Waiting for repair / rebuild / pivot truth"),
+      recoveryOptions: capabilityRecovery.length > 0
+        ? capabilityRecovery.map((option) => option.summary).join(" / ")
+        : localeText(locale, "恢复可行性未知：缺少当前权威证据", "Recovery feasibility unknown: current canonical evidence unavailable"),
       recoveryOptionComparisons,
+      recoveryAssessments: capabilityRecovery.map(({kind, status, reasonCode}) => ({kind, status, reasonCode})),
       recoveryPath: gameplay.recovery_path_detail
         || gameplay.recovery_path_kind
         || narrativeNextStep
@@ -992,13 +978,12 @@ export function createViewerFeedbackModule({
       : localeText(locale, "等待 / 未验证：尚未发布等待成本", "waiting/unverified: no waiting cost published");
     const attractionRecovery = gameplay.recovery_path_detail
       || gameplay.recovery_path_kind
-      || (recoveryOptions.length > 0 ? recoveryOptions.join(" / ") : null)
+      || (capabilityRecovery.length > 0 ? capabilityRecovery.map((option) => option.summary).join(" / ") : null)
       || localeText(locale, "等待恢复路径", "waiting for recovery path");
     const hasPlayerCausedWorldChange = Boolean(gameplay.player_action && gameplay.world_change_due_to_player);
     const hasNewOption = attractionNewOption !== localeText(locale, "等待新选择", "waiting for new option");
     const hasWhyContinue = attractionWhyContinue !== localeText(locale, "等待下一分支", "waiting for next branch");
-    const hasAvailableRecovery = [gameplay.repair_available, gameplay.rebuild_available, gameplay.pivot_available]
-      .some((value) => value === true);
+    const hasAvailableRecovery = capabilityRecovery.some((option) => option.status === "available");
     const hasRecoveryPath = Boolean(gameplay.recovery_path_detail || gameplay.recovery_path_kind || hasAvailableRecovery);
     const missingAttractionSignals = [
       !hasPlayerCausedWorldChange,

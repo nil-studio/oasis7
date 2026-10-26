@@ -908,20 +908,8 @@ describe("viewer feedback module", () => {
 
     const continuation = createFeedbackModule(state).buildGameplaySummary().matureWorldContinuation;
 
-    expect(continuation.recoveryOptionComparisons).toEqual([
-      expect.objectContaining({
-        kind: "repair",
-        timeClass: "short",
-        resourceClass: "low",
-        riskClass: "low",
-        retainedBenefit: "<existing throughput>",
-        recommendationReason: "Fastest safe recovery",
-      }),
-      expect.objectContaining({ kind: "rebuild", timeClass: "medium", resourceClass: "high" }),
-    ]);
-    expect(continuation.recoveryOptions).toBe(
-      "repair: time=short · resources=low · risk=low · retains=<existing throughput> · why=Fastest safe recovery / rebuild: time=medium · resources=high · risk=medium · retains=new capacity · why=Restores a stronger line",
-    );
+    expect(continuation.recoveryOptionComparisons).toEqual([]);
+    expect(continuation.recoveryOptions).toContain("Recovery feasibility unknown");
   });
 
   it("keeps boolean recovery summaries when runtime recovery records are absent or invalid", () => {
@@ -941,7 +929,7 @@ describe("viewer feedback module", () => {
     const continuation = createFeedbackModule(state).buildGameplaySummary().matureWorldContinuation;
 
     expect(continuation.recoveryOptionComparisons).toEqual([]);
-    expect(continuation.recoveryOptions).toBe("repair: available / rebuild: unavailable");
+    expect(continuation.recoveryOptions).toContain("Recovery feasibility unknown");
   });
 });
 
@@ -971,5 +959,25 @@ describe("owned Agent claim convergence", () => {
     expect(summary.availableActions.some(action => action.actionId === "claim_first_agent")).toBe(false);
     expect(summary.blockerDetail).toMatch(/sync/i);
     expect(summary.nextStepHint).not.toMatch(/submit that claim first/i);
+  });
+});
+
+
+describe("canonical capability recovery", () => {
+  it("keeps canonical status and reasons invariant across locale and stale flags", () => {
+    const gameplay = {
+      repair_available: true,
+      gameplay_capability: {recovery: [
+        {kind: "repair", status: "unknown", reason_code: "unsupported_recovery_action", action: null},
+        {kind: "current_recipe_run", status: "blocked", reason_code: "canonical_recipe_admission_rejected", action: {ScheduleRecipe: {}}},
+      ]},
+    };
+    const summary = (locale) => createFeedbackModule({
+      uiLocale: locale, snapshot: {model:{agents:{},locations:{}}, player_gameplay:gameplay},
+    }).buildGameplaySummary().matureWorldContinuation.recoveryOptions;
+    expect(summary("en")).toBe(summary("zh"));
+    expect(summary("en")).toContain("Repair: unknown");
+    expect(summary("en")).toContain("Run the current recipe: blocked");
+    expect(summary("en")).not.toContain("Repair: available");
   });
 });

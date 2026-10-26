@@ -490,6 +490,62 @@ impl ViewerRuntimeLiveServer {
             snapshot_player_id.is_some(),
         );
         player_gameplay.canonical_agent_chat = canonical_chat.cloned();
+        // The chain projection was authenticated for this exact owner read.
+        // An absent/legacy field is retained as unknown, never reconstructed
+        // into executable recommendations from the public snapshot.
+        if self.chain_link_enabled() {
+            player_gameplay.gameplay_capability = canonical_chat.and_then(|chat| {
+                self.verified_world_view
+                    .as_ref()
+                    .and_then(|view| view.projection().world_rule_status.as_ref())
+                    .and_then(|status| status.get("gameplay_capability"))
+                    .filter(|query| {
+                        query["subject"]["owner_agent_id"].as_str() == Some(chat.agent_id.as_str())
+                    })
+                    .cloned()
+            });
+            if canonical_chat.is_none() {
+                use oasis7_world_state::gameplay_capability::GameplaySubject;
+                player_gameplay.gameplay_capability = serde_json::to_value(
+                    runtime_state.gameplay_capability_query(
+                        GameplaySubject::resolve(None, snapshot_player_id.is_some()),
+                        "current_industrial_capability",
+                    ),
+                ).ok();
+            }
+        } else {
+            use oasis7_world_state::gameplay_capability::GameplaySubject;
+            let subject =
+                GameplaySubject::resolve(snapshot_bound_agent_id, snapshot_player_id.is_some());
+            let execution_actor = snapshot_bound_agent_id.filter(|agent| {
+                snapshot_player_id.is_some_and(|player| {
+                    self.session_policy
+                        .active_session_public_key(player)
+                        .is_some_and(|key| {
+                            self.session_policy
+                                .validate_known_session_key(player, key)
+                                .is_ok()
+                                && self
+                                    .world
+                                    .state()
+                                    .starter_oc_claims
+                                    .get(*agent)
+                                    .is_some_and(|claim| {
+                                        claim.player_id == player
+                                            && claim.public_key.as_deref() == Some(key)
+                                    })
+                        })
+                })
+            });
+            player_gameplay.gameplay_capability =
+                serde_json::to_value(self.world.gameplay_capability_query(
+                    subject,
+                    "current_industrial_capability",
+                    execution_actor,
+                ))
+                .ok();
+        }
+
         if owner_sync_pending {
             player_gameplay.stage_status = crate::simulator::PlayerGameplayStageStatus::Blocked;
             player_gameplay.blocker_kind = Some("agent_owner_sync_pending".into());

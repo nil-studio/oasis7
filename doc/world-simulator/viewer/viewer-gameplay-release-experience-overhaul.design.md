@@ -349,7 +349,7 @@ unavailable 不可合并，当前 Recent Events/Feedback 名称保持不变。Fu
 验证时，`branch_commitment.rs` 内的 `regional_specialist_recommendations_keep_enabled_industrial_routes` 单元样例同时启用模块、工厂核心与合金，逐条核对承诺，再禁用模块候选检查过滤；下表的真实 Runtime 场景补充主指引与合金路线投影。两者组合，避免仅凭一条已启用路线推断所有分支文案均已覆盖。
 
 <a id="subject-capability-recovery-query"></a>
-### 7.1.1 主体能力与恢复查询（目标合同，实施与双入口验收未完成）
+### 7.1.1 主体能力与恢复查询（查询与适配已实现，双入口真实运行验收待完成）
 
 本节承接 [REQ-FIRST-INDUSTRIAL-006](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-006) 的真实阻塞/恢复，以及 [REQ-FIRST-INDUSTRIAL-007](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-007) 的双入口同义；Trace refs: O7-REQ-d0041aa9-1dfb-46a0-95e0-67417b39bfa3；O7-REQ-df0617cf-2ab6-40ca-934b-f050d6a66812。首产物与稳定能力仍遵守[首局产品完成边界](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#first-session-concrete-sample)，恢复比较复用[成熟世界专业合同](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#291-disruption-recovery-comparison)，不增加玩法规则。
 
@@ -374,7 +374,11 @@ goal、action discovery、branch、lane 与 fallback 消费同一查询事实。
 
 兼容迁移先引入内部 query，再迁移上述消费者，沿用现有 wire DTO adapter 与 UI 结构。旧 snapshot 缺 canonical settlement/line/recovery 证据保持未知，不从余额/计数重建首产物，不把缺省 optional 强转 true 或一概 false；必要时用既有缺省/原因展示表达未知，不能以兼容为名发布可执行承诺。保留 owner-bound 首产物投影及 canonical stable predicate，不加第二事实库，不更改全局阶段。API 与 Viewer 应适配同一事实合同，但共享 DTO 不证明真实路由已接线或端到端 parity。
 
-验证计划（未执行）：在 query 及真实消费者覆盖 A 一次产出/B 稳定世界、A 真正稳定、缺 owner/spectator、换配方/产线、暂停后历史首产物与当前能力分离；同 goal 改资源/权限产生对应 available/blocked，缺证据保持 unknown；同 canonical 状态只改文案/语言时 flags 不变；snapshot-only 不成为 repair、failure disposition 不被覆盖；旧 snapshot 与重连撤权保持边界。随后沿实际 API/Viewer 路由对账 subject、原因、action、证据与复查语义，按既有 S6 检查可见恢复入口；局部 query/DTO 测试不代签双入口运行、真实恢复效果或真人体验。
+实现边界：`WorldState::gameplay_capability_query` 统一 owner-bound 首产物、当前稳定线与派生进度；`World::gameplay_capability_query` 仅对已有当前配方复用只读 `builtin_recipe_quote`，以 `current_recipe_run` 表达实际配方候选，不将它改名为 repair。未开放的 repair/rebuild/pivot 保留 `unknown`。既有已鉴权 Service projection 在 `world_rule_status.gameplay_capability` 发布结果，`GameClient::industry` 沿既有签名 `/v1/world/view-json` 读取；Viewer 的 `player_gameplay.gameplay_capability` 适配同一查询。个人事实归属与执行资格分开：Service 仅在当前 caller key 匹配 owner 时评估 native 配方候选，委托读取不继承 owner 执行权；缺对应权限判断保留 unknown。查询的 subject/goal/source tick 与外层签名读取的 world/scope/read version 一起定位依据，旧 snapshot 缺字段不重建建议。现有签名与 formal projection 验证语义不变，条件报价也不是新的 canonical 授权或完整执行证明，提交仍重验。
+
+验证覆盖：query、当前资源/权限、旧字段缺失、持久化 roundtrip、真实签名 Client→Service projection→World 查询和 Viewer consumer 有自动回归；固定字节兼容样本保留旧版并新增当前格式。独立真实界面/玩法验收不由这些局部证据代签，按本节下述场景执行。
+
+验证计划：在 query 及真实消费者覆盖 A 一次产出/B 稳定世界、A 真正稳定、缺 owner/spectator、换配方/产线、暂停后历史首产物与当前能力分离；同 goal 改资源/权限产生对应 available/blocked，缺证据保持 unknown；同 canonical 状态只改文案/语言时 flags 不变；snapshot-only 不成为 repair、failure disposition 不被覆盖；旧 snapshot 与重连撤权保持边界。随后沿实际 API/Viewer 路由对账 subject、原因、action、证据与复查语义，按既有 S6 检查可见恢复入口；局部 query/DTO 测试不代签双入口运行、真实恢复效果或真人体验。
 
 <a id="fixture-rollback-window"></a>
 ### 7.2 吸引力样例的回退窗口

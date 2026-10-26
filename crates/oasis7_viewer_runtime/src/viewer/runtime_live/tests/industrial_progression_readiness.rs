@@ -843,17 +843,14 @@ fn runtime_gameplay_action_unlocks_first_expansion_tradeoff_after_scale_out() {
     assert!(!gameplay.grind_only_flag);
     assert_eq!(
         gameplay.major_power_dependency_status.as_deref(),
-        Some("independent_path_available")
+        Some("unverified")
     );
-    assert_eq!(
-        gameplay.recovery_path_kind.as_deref(),
-        Some("repair_rebuild_or_pivot")
-    );
+    assert_eq!(gameplay.recovery_path_kind.as_deref(), Some("unverified"));
     assert!(
         gameplay
             .recovery_path_detail
             .as_deref()
-            .is_some_and(|detail| detail.contains("repair"))
+            .is_some_and(|detail| detail.contains("unknown"))
     );
 }
 
