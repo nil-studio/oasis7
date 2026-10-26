@@ -6,7 +6,7 @@
 - 合同：[来源、安全与自动部署](../../engineering/workflow/package-source-security.md#ecs-preview-automatic-deployment)。
 - Trace refs: O7-REQ-5ef8b941-eaa3-4975-a020-59b4d74fba89。
 
-本流程替代[原单机手册](single-ecs-preview-deploy.manual.md)的日常人工下载、转传、切换和逐次 SSH；首次机器接管、世界初始化、授权、迁移与正式多节点部署仍由对应流程负责。代码上线不等于云资源已配置或真实更新已验收。现有部署暂停或环境限制仍适用。
+这是单机 Preview 日常部署的唯一操作入口：触发可信 ECS 发包并启用 Preview 发布，由 CI 上传 OSS、主机协调器完成下载、校验、组件切换和验收。首次世界初始化见[初始化手册](fresh-world-preview-bootstrap.manual.md)，正式多节点部署见[测试网运行手册](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)。代码上线不等于云资源已配置或真实更新已验收。现有部署暂停或环境限制仍适用。
 
 ## 一次配置云端
 
@@ -20,9 +20,9 @@ GitHub Preview environment / variables 的准确名称和动作参数以 [ECS �
 
 ## 一次接管已有主机
 
-1. 核对[原手册预检](single-ecs-preview-deploy.manual.md#2-部署前看四件事)、原世界与读身份、服务参数和当前组件。先备份现有配置，保留已校验的当前 ECS release。安装器不初始化世界，也不自动改写已有游戏 unit。
+1. 核对[主机接管预检](#主机接管预检)、原世界与读身份、服务参数和当前组件。先备份现有配置，保留已校验的当前 ECS release。安装器不初始化世界，也不自动改写已有游戏 unit。
 2. 为 chain、player、Web 和 Skill 分别建立独立的绝对 symlink；unit 的 ExecStart / Web 根目录分别消费相应路径。保持参数、数据/身份目录和私有环境不变。不要让组件共用一个可切换的 `current` 祖先路径。
-3. Nginx Skill include 及 HTTPS discovery header 按[同版本 Skill 发布](single-ecs-preview-deploy.manual.md#同版本发布游戏-skill)完成一次 bootstrap；更新器不扩大 API allowlist。
+3. Nginx Skill include 及 HTTPS discovery header 按[同版本 Skill 发布](#nginx-与-skill-首次接管)完成一次 bootstrap；更新器不扩大 API allowlist。
 4. 安装专用 Python 环境及固定 OSS SDK，更新器源码、配置、兼容许可、验证入口及所有父目录由 root 所有，不可被其他用户写入。不要从远端 manifest 下载执行脚本。
 
 ```bash
@@ -46,7 +46,7 @@ sudo /opt/oasis7-preview-updater-venv/bin/python scripts/ecs-preview-install.py 
   "permissions": [],
   "viewer_policy": {
     "schema_version": 1,
-    "allowed_inputs": ["crates/oasis7_viewer_runtime/src/viewer/render_hotspot_core.rs"],
+    "allowed_inputs": ["crates/pixel_world_bridge/src/render_hotspot_core.rs"],
     "evidence": "替换为独立审核结论及只读Viewer配置依据",
     "read_only_viewer": true
   }
@@ -70,7 +70,7 @@ timer 默认每次结束后 60 秒再运行独立 oneshot；它不随 player 重
 
 返回的 `identity` 必须与配置中的 world ID、genesis、服务公钥和签名读身份完全一致；`components` 必须与请求一致；`checks` 的 `api/web/skill/signed_world` 均为真实成功。返回 `samples` 至少包含基线和三次不同的有效世界推进，每项有严格递增 `timestamp`、不回退的 `world_tick`、原 `identity` 和 `signed_world:true`，覆盖完整 60 秒；需来自持续真实签名世界观察，不能用三次同一初始快照或定时 sleep 伪造。协调者同时校验调用实际墙钟窗口。`chain_write_status` 明确为 `unchanged`、`compatible`、`unknown` 或 `incompatible`；只有受信读取依据才能确定兼容写入，未知保持未知。
 
-公共 API 与[原手册](single-ecs-preview-deploy.manual.md#公网-api-路由核对)一致，Web 与 Skill 须与 player 同版本；HTTP 200、unit active 和 CI cold-entry 均不能单独代签部署。具体主机的签名世界读取、鉴权和私有参数通过一次性验证配置提供，不写入公共日志。
+公共 API 与[代理接管合同](#公网-api-路由核对)一致，Web 与 Skill 须与 player 同版本；HTTP 200、unit active 和 CI cold-entry 均不能单独代签部署。具体主机的签名世界读取、鉴权和私有参数通过一次性验证配置提供，不写入公共日志。
 
 ## 日常发包与观察
 
@@ -113,3 +113,128 @@ gh workflow run ecs-packages.yml --ref main \
 
 
 安装器中断后若只写入部分 updater unit，先确认 timer 未运行并暂停它，在相同维护锁内核对两个 unit 的内容/来源。只移除本次未完成安装生成的 `oasis7-preview-update.service` 和 `.timer`，执行 daemon-reload，再重跑安装；不删除游戏 unit、世界或 release。已有安装需要升级时先停 timer并保留旧 updater 版本与单位配置，同一锁内替换确认的 updater unit，然后安装新版本，失败恢复原单位配置。安装器不会覆盖未知已有 unit。
+
+
+## 主机接管预检
+
+- **服务**：确认本机实际的 chain、launcher / Viewer 服务名、启动路径和当前版本。launcher 可能启动 Viewer 子进程，不能只看 systemd MainPID。
+- **数据**：沿用现有世界目录、密钥、world ID、genesis 和服务公钥；确认已有可恢复的数据备份。更新 chain 前确认新旧程序对现有持久格式的兼容性；只更新 player 时，保持 chain 的二进制、参数和进程不变。
+- **回滚**：保留当前可用版本及其 unit / 配置 / 版本指针。不要在新版本验证前删除它。
+- **空间**：空间应覆盖包、解包临时文件、新版本和回滚副本，并留至少 528 MiB；复用已经校验过的安装版本时不重复上传或安装。
+
+以下命令在 ECS 上执行；占位符替换为实际值：
+
+```bash
+df -h /opt /var/lib
+systemctl show <player-service> -p ActiveState -p SubState -p MainPID
+systemctl show <chain-service> -p ActiveState -p SubState -p MainPID
+readlink -f <player-version-link>
+```
+
+不要把密钥、完整环境变量或含凭据的启动参数贴到日志。无需为每次部署生成多层签发收据；记录候选 SHA、包哈希、原版本和实际结果即可。适用的代码安全评审沿仓库正常流程完成。
+
+接管时暂停并停用原有日常部署 cron/timer、发布 webhook 或维护调度器，确认它们不再运行；只处理经核对属于旧部署流程的任务，不停用游戏 unit。已有人持有维护锁时先完成交接，不强制抢锁。新更新器安装并通过首次验收后，以其 timer 作为唯一日常更新调度器。旧工具/配置若仍被其他环境使用，保留其实际引用，不按名字批量删除主机文件。
+
+## 公网 API 路由核对
+
+沿用旧 Nginx 配置不代表白名单完整。首次接管时核对当前 Viewer 实际使用的公开接口与公网代理一致；接口以所部署提交的 [公开端点合同](../../../crates/oasis7_hosted_access/src/lib.rs)和 [HTTP 处理器](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/static_http.rs)为依据。端点合同用于核对，不是可直接全部放行的 Nginx 清单；各路径仍须按本机部署模式、认证和请求方法逐项配置。
+
+`hosted_public_join` Viewer 会查询 `/api/public/player-session/admission`。在现有 HTTPS `server` 内添加以下精确路由，替换本机实际的 launcher 静态 HTTP 监听端口（示例 `4173`）；该端口不是 Runtime WebSocket 或 chain status 端口。已有相同路由时核对并更新，不能重复添加：
+
+```nginx
+location = /api/public/player-session/admission {
+    if ($request_method !~ "^(GET|HEAD)$") { return 405; }
+    proxy_pass http://127.0.0.1:4173;
+    proxy_set_header Host $host;
+    proxy_set_header Origin $http_origin;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_cache off;
+    proxy_read_timeout 60s;
+}
+```
+
+该片段依赖现有站点的可信 Host、Origin 拒绝规则及安全响应头，不能作为独立安全配置使用。保留 `/api/` 的默认拒绝规则；不要用整个 `/api/` 或 `/api/public/` 的泛代理修复遗漏，不顺带开放 `issue`、`refresh` 或管理接口。准入查询返回席位、限流和 Runtime 探测状态，不签发凭据；查询会触发现有 presence 校准和过期席位清理。它也不代表世界 participant / owner / executor 授权已建立。
+
+修改前备份实际站点配置，在同一维护锁内修改，执行 `nginx -t` 成功后才 reload；语法检查、reload 或公网验证失败时恢复备份并重新检查 / reload。不重启世界服务来修复代理路由。
+
+首次接管在 ECS 上分别检查本机和公网，两个响应均须为 JSON，`ok=true`、`deployment_mode=hosted_public_join` 且 `admission.runtime_probe_status=ok`；动态计数和时间戳不要求逐字节相等：
+
+```bash
+curl --fail --silent --show-error --max-time 15 http://127.0.0.1:4173/api/public/player-session/admission
+curl --fail --silent --show-error --max-time 15 https://<public-host>/api/public/player-session/admission
+```
+
+| 公网检查 | 预期 |
+| --- | --- |
+| GET 准入查询 | 200，JSON 字段符合上述要求 |
+| HEAD 同一路径 | 200，空正文 |
+| POST 同一路径 | 405 |
+| GET 同一路径追加 `/unexpected` | 404 |
+| GET `/api/public/player-session/issue` | 404，保留既有默认拒绝 |
+| GET 准入查询，携带非本站 Origin | 403 |
+
+本机 200 而公网返回 Nginx HTML 404 时，先检查请求命中的 `server` 和精确 location / include；不是世界准入策略缺失的证据。本机也失败时，再检查 launcher 路由、监听端口和日志。公网返回 JSON 但 Runtime 探测非 `ok` 时，排查后端与 Runtime 的连接，不通过扩大代理白名单或关闭认证解决。刷新实际页面，核对该请求不再失败；首页 200、Skill 校验和本机接口成功均不能替代公网 API 验证。
+
+## Nginx 与 Skill 首次接管
+
+本节只配置一次 Nginx 托管 include 与发现头。之后 player 升级、Skill 发布及回退均由更新协调器在同一维护锁中完成，操作者不再逐次运行独立 activate 命令。不要保留另一提交的手工静态 Skill，也不要单独从 main 获取文档覆盖运行版本。
+
+首次接管 Nginx 时，在对应 HTTPS `server` 内加入一个明确的托管 include；路径可按本机约定选择，例如：
+
+```nginx
+include /etc/nginx/snippets/oasis7-skills.conf;
+```
+
+首次创建该普通文件为空（不要清空已有配置），移除先前手工维护的 `/skills/` 精确 location，避免重复路由。保留现有 Origin / 安全响应头 / API allowlist。在同一 `server` 的现有 `add_header` 层级增加发现头，避免在子 location 覆盖已有安全头：
+
+```nginx
+add_header Link '</skills/oasis7-play/SKILL.md>; rel="describedby"; type="text/markdown"' always;
+```
+
+先备份站点配置，执行 `nginx -t` 和 reload，失败恢复原配置；此 bootstrap 只做一次。后续发布工具只修改该 include，不改主站点、API、服务环境、权限开关或世界。HTTPS `server` 的 `/skills/` 路由只归此 include 管理；不能被另一 location 或其他 include 遮蔽。
+
+
+更新器在切换前先验证当前版本，所以不能把空 include 作为已完成接管。完成更新器安装、尚未启用 timer 时，仅对**原来正在运行且已核验的当前 release** 初始化一次 Skill alias；不选新包、不切换组件、不重启游戏。以下命令中的 `<updater>` 是安装器打印的受信工具目录；其余占位符取本机已核验值：
+
+```bash
+sudo bash -euc '
+  exec 9>>"$1"
+  flock -n 9
+  exec "$2" "$3/package-ecs-skills.py" activate \
+    --release "$4" --expected-source "$5" --origin "$6" \
+    --player-service "$7" --nginx-include "$8" \
+    --lock-file "$1" --lock-fd 9
+' bootstrap /run/lock/oasis7-preview-deploy.lock \
+  /opt/oasis7-preview-updater-venv/bin/python <updater> \
+  <existing-verified-release> <full-current-source-sha> https://<public-host> \
+  <player-service> /etc/nginx/snippets/oasis7-skills.conf
+```
+
+锁路径与更新器配置一致；shell 持有同一独占锁并将 fd 9 传入工具，不嵌套独立取锁。命令应直接运行，不能再套一个已持锁但未传 fd 的父进程。工具核对正在运行的 launcher 字节与此 release 一致，拒绝用待升级版本代替当前版本。初始化及公网校验成功后，才能启用 timer；失败时恢复首次接管前保存的站点配置/include，检查并 reload，保留原游戏版本且不启用 timer。这是一次性接管步骤，后续升级和回退不再单独调用 activate。
+
+工具将精确路径 alias 到此 release 的文件，稳定 URL 使用 `no-cache`；仅 GET / HEAD。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保留相对路径；`/skills/` 和 `/skills/oasis7-play/` 转至发现页，旧 `/skills/oasis7.md` 转至正式入口。它不开放任意文件目录或 API。写入使用原子替换，旧 include 保存在同目录 `.previous`；随后 `nginx -t`、reload 并从公网逐字节核对 Skill、全部引用、清单和发现页。reload 返回时旧 worker 可能仍在响应，因此激活验证最多等待 20 秒收敛；仅对版本字节不匹配或 HTTP 502 / 503 / 504 重试，每次重新验证整套文件，不能拼接多次局部成功。重定向、其他 HTTP 错误或 TLS / 连接错误立即失败，慢响应同样受总时限约束；独立 `verify` 命令仍单次严格校验。任一步失败都恢复旧 include、检查并 reload；回滚失败保留实际错误，不能宣称发布成功。失败期间不把旧 Skill 视为新游戏版本验收通过。
+
+后续每次自动升级由固定验证器检查公开准入接口、运行程序、Web/Skill 和真实签名世界推进。代理策略变更仍在相同维护锁内独立验证，不借部署扩大 API 白名单。
+
+Skill 文件由同 source 的 Git 对象组装到 `web-dist/skills/`，清单、发现页和文件哈希受整包 `SHA256SUMS` 约束。协调器调用受信安装的 Skill 工具并继承已持锁 fd，原子更新精确 GET/HEAD alias、检查 Nginx、reload 并核对公网文件，失败恢复原 include。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保持相对路径；旧 URL 的跳转只服务现有玩家链接，不构成旧部署入口。独立只读诊断可运行已安装工具的 `verify --release <已核验release> --expected-source <完整SHA> --origin <公开HTTPS源>`，不能用其成功代替完整部署验收。
+
+## 授权、身份与恢复边界
+
+DevLocal participant 的 prepare、身份快照、finalize、原 genesis 绑定、安装及历史验证统一见 [DevLocal participant 政策签发与安装](devlocal-participant-policy.manual.md)。自动更新不执行这些授权或世界初始化操作，也不开放注册、owner 或 executor 开关。
+
+显式 native executor task context 使用 revision 2，并将 native 授权根写入公共上下文身份及持久原件；旧 provider revision 1 的编码兼容不表示旧程序可读取新的 native 历史。首次接受 native 操作前保留一致的数据备份及适用 release；产生历史后，只能切换到理解该格式的程序，不能删除上下文、改写历史或恢复旧快照伪装普通回退。
+
+验收同时核对原稳定身份与配置。trace session ID 默认每次启动变化，只核对它属于当前 launcher PID/启动时间或与显式配置 trim 后一致，不要求重启前后相等。图形交互、账号或 Agent 功能按对应功能手册验收，部署健康检查不能代签真实试玩。
+
+## 打包与缓存诊断
+
+ECS 包保留同 source 的四个运行程序、Web、Skill、BUILDINFO、manifest、兼容输入证明和完整校验和，不包含世界、身份密钥或自动初始化操作。Actions artifact 作为构建诊断及来源证据保留，不再作为日常人工转包入口。`native_build_jobs=1/2` 与受控测量仅用于同 SHA 构建诊断，测量任务不推进频道。`ecs-native-timings` 记录 Cargo timing、耗时、CPU、RSS、主机/cgroup 内存及缓存观测；缺失指标保持未知，不能把最大单进程 RSS 当总内存峰值。
+
+Retain actual trusted main native producer and compatible consumer run/job links, requested/restored keys, cache-hit, Cargo unit Fresh/rebuilt, transfer durations, and raw/compressed bytes. Inspect cache reports in `ecs-native-timings`; a cache miss or rejection must still perform the full native build. Exercise added, removed and renamed source inputs for conservative invalidation. Limits are 6 GiB logical staging, 6 GiB remote main family and two compatible generations; inventory failures or exhausted limits skip saving.
+
+Inspect the live quota, configured and effective budgets, capacity basis, complete usage across all refs/families, measured archive bytes and conservative outer upload bound. A live positive integer quota is converted conservatively to decimal bytes. Only recognized quota-access denial without rate limiting may use an explicitly configured, independently verified repository budget; the report must still identify the live quota as unknown. Other quota failures, an absent verified fallback or insufficient capacity skip saving without changing settings or deleting caches. See the [capacity policy and configuration source](../ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache). Concurrent writers and later dependency-cache post-job saves can change capacity after this point-in-time guard, so it does not reserve space atomically.
+
+Candidate native jobs run archive/capacity preview with `save=false`. Confirm actual trusted main uploads through the separate `observe-save` report and a subsequent compatible consumer; preview, a successful action or local tests alone do not establish cross-run reuse. Record pending remote evidence explicitly.

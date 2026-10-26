@@ -77,7 +77,7 @@ ECS 使用独立 `ecs` profile（继承 release、opt-level 3、关闭跨 crate 
 
 ECS 组装同时从固定 source 的 Git 对象发布正式 `skills/oasis7-play/`，不能混入 dirty checkout、未跟踪文件或旧 Bridge Skill。源 Markdown、引用、版本清单与发现页一同进入 `web-dist/skills/`，受整包校验和约束。随包发布工具在部署侧核对实际 launcher 与所选 release、清单 source 和文件字节，生成仅含精确 GET / HEAD 路径的 Nginx include；公网逐字节校验失败恢复旧 include。每次升级 / 回滚均随游戏版本发布，操作见下述单机手册；这不新增部署凭据或 CI 自动安装权限。
 
-候选 ref 的工作流和原生 job 仅只读缓存。仅 main 且 workflow SHA 等于 source/event SHA 的原生 job 有缓存写权限，保存到独立 ECS 命名空间；失败不写缓存。Web 仅恢复既有可信缓存。汇合要求 Web 成功且恰好一个原生 lane 成功、另一个预期跳过；失败、取消或缺失不能生成最终包。默认入口保持内容读取和 artifact 上传；显式启用 Preview 发布时，仅通过下述独立受限发布 job 推进 OSS 频道。操作方法见[单机 ECS 手册](../../testing/manual/single-ecs-preview-deploy.manual.md)。
+候选 ref 的工作流和原生 job 仅只读缓存。仅 main 且 workflow SHA 等于 source/event SHA 的原生 job 有缓存写权限，保存到独立 ECS 命名空间；失败不写缓存。Web 仅恢复既有可信缓存。汇合要求 Web 成功且恰好一个原生 lane 成功、另一个预期跳过；失败、取消或缺失不能生成最终包。默认入口保持内容读取和 artifact 上传；显式启用 Preview 发布时，仅通过下述独立受限发布 job 推进 OSS 频道。操作方法见[单机自动更新手册](../../testing/manual/single-ecs-preview-auto-update.manual.md)。
 
 
 <a id="ecs-preview-automatic-deployment"></a>

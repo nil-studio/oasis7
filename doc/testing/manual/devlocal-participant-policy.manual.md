@@ -2,7 +2,7 @@
 
 适用：已有、可验证原始身份的隔离 DevLocal 世界，需要支持从新身份账号开始的 participant / owner / executor 接入。正式网络仍走治理授权；本流程不生成治理提案、finality 证明或 Runtime 验收。官方客户端和外部 Agent 使用同一接入协议。
 
-工具随相同源码版本的 `oasis7_chain_runtime` 和 `oasis7_game_launcher` 提供。发行包存在这些命令不表示某台 ECS 已配置或验收；[ECS 部署手册](single-ecs-preview-deploy.manual.md)负责切换、代理与上线验收。冷入场实际二进制集成见 [smoke 操作说明](../../../scripts/package-ecs-cold-entry-smoke.md)，该 fixture 只能用于新隔离目录，不能对已有世界运行初始化器。
+工具随相同源码版本的 `oasis7_chain_runtime` 和 `oasis7_game_launcher` 提供。发行包存在这些命令不表示某台 ECS 已配置或验收；[ECS 部署手册](single-ecs-preview-auto-update.manual.md)负责切换、代理与上线验收。冷入场实际二进制集成见 [smoke 操作说明](../../../scripts/package-ecs-cold-entry-smoke.md)，该 fixture 只能用于新隔离目录，不能对已有世界运行初始化器。
 
 ## 1. 固定信任配置并冻结两侧写入
 
@@ -135,7 +135,7 @@
 
 canonical 安装后，身份服务复用原 namespace / RP / epoch 和 SQLite，再配置实际值：`OASIS7_HOSTED_PARTICIPANT_ENTRY_ENABLED=1`、`OASIS7_HOSTED_OWNER_CONTROL_ENABLED=1`、`OASIS7_HOSTED_EXECUTOR_CONTROL_ENABLED=1`。机器注册还需已有 identity v2、account registration 与 `OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED=1`。`OASIS7_HOSTED_PARTICIPANT_ENTRY_TRUST` 是 `{endpoint, service_public_key, world:{world_id,genesis_digest}}`，endpoint 必须为实际 chain service 的精确 loopback HTTP origin（不能是公开站点或带路径 URL）；`OASIS7_HOSTED_PARTICIPANT_ISSUER_PRIVATE_KEY` 通过私密服务环境配置提供原 issuer seed 的 64hex，必须对应政策 issuer 公钥（与 finalize 的 raw32 文件为同一密钥的不同表示）。不要打印环境变量。
 
-现有 HTTPS 站点须逐条配置以下 **完整前缀 `/api/public/hosted-account/v2` + 后缀** 的精确 location，转发至实际 launcher 静态 HTTP listener；保留可信 Host / Origin、真实源地址与安全响应头、CSRF / Cookie 处理及默认 `/api/` 拒绝。沿用 [部署手册的代理头及拒绝检查](single-ecs-preview-deploy.manual.md#公网-api-路由核对)，不要放行整个 prefix，更不要公开 chain loopback `/v1/world/*`。
+现有 HTTPS 站点须逐条配置以下 **完整前缀 `/api/public/hosted-account/v2` + 后缀** 的精确 location，转发至实际 launcher 静态 HTTP listener；保留可信 Host / Origin、真实源地址与安全响应头、CSRF / Cookie 处理及默认 `/api/` 拒绝。沿用 [部署手册的代理头及拒绝检查](single-ecs-preview-auto-update.manual.md#公网-api-路由核对)，不要放行整个 prefix，更不要公开 chain loopback `/v1/world/*`。
 
 | 精确后缀 | 请求方法 | 用途 |
 | --- | --- | --- |
