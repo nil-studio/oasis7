@@ -81,6 +81,17 @@ class SignedVerifierTests(unittest.TestCase):
             with patch.object(self.verifier.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, body)), self.assertRaises(ValueError):
                 self.verifier.signed_sample(Path("/client"), Path("/device"), {})
 
+    def test_public_html_allows_only_the_real_launcher_runtime_injection(self):
+        source = b"<html><head></head><body>version A</body></html>"
+        node = b'<script id="oasis7-viewer-runtime-config" type="application/json">{"deploymentMode":"hosted_public_join","viewerWsEndpoint":"wss://preview.invalid/runtime"}</script>'
+        public = source.replace(b"</head>", node + b"</head>")
+        self.verifier.verify_web_bytes(Path("index.html"), source, public, {})
+        for bad in (public.replace(b"version A", b"version B"), public + node, public.replace(b"hosted_public_join", b"trusted_local_only")):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.verifier.verify_web_bytes(Path("index.html"), source, bad, {})
+        with self.assertRaises(ValueError):
+            self.verifier.verify_web_bytes(Path("client.js"), b"old", b"new", {})
+
     def test_signature_client_failure_cannot_be_turned_into_health(self):
         with patch.object(self.verifier.subprocess, "run", side_effect=subprocess.CalledProcessError(1, ["client"])), self.assertRaises(subprocess.CalledProcessError):
             self.verifier.signed_sample(Path("/client"), Path("/device"), {})

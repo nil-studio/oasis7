@@ -2,12 +2,45 @@
 """Observe existing Preview services and signed world reads for deployment health."""
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
 import time
 import urllib.request
 from ecs_preview_update import binding, digest, load_config, module, preflight, trusted_path
+
+
+def verify_web_bytes(path, expected, actual, identity):
+    if actual == expected:
+        return
+    if path.suffix != ".html":
+        raise ValueError("public Web bytes do not match selected release")
+    # static_http.rs injects this one data node into HTML. Compare the entire
+    # remaining document; never discard arbitrary scripts or versioned assets.
+    pattern = rb'<script id="oasis7-viewer-runtime-config" type="application/json">([^<]*)</script>'
+    matches = list(re.finditer(pattern, actual))
+    if len(matches) != 1:
+        raise ValueError("public HTML runtime configuration must be unique")
+    runtime = json.loads(matches[0].group(1))
+    if runtime.get("deploymentMode") != "hosted_public_join":
+        raise ValueError("public HTML deployment mode mismatch")
+    from urllib.parse import urlsplit
+    endpoint = urlsplit(runtime.get("viewerWsEndpoint", ""))
+    if endpoint.scheme != "wss" or not endpoint.hostname or endpoint.username or endpoint.password or endpoint.fragment:
+        raise ValueError("public HTML runtime endpoint is not secure")
+    browser = runtime.get("browserGameClient")
+    if browser is not None and (browser.get("servicePublicKey") != identity.get("service_public_key") or browser.get("world") != {"world_id": identity.get("world_id"), "genesis_digest": identity.get("genesis_hash")}):
+        raise ValueError("public HTML browser world trust differs from original identity")
+    if path.name == "index.html":
+        marker = expected.find(b".well-known/trunk/ws")
+        if marker >= 0:
+            start = expected.rfind(b"<script", 0, marker)
+            end = expected.find(b"</script>", marker)
+            if start >= 0 and end >= 0:
+                expected = expected[:start] + expected[end + len(b"</script>"):]
+    if re.sub(pattern, b"", actual) != expected:
+        raise ValueError("public HTML bytes differ beyond the launcher runtime data node")
 
 
 def signed_sample(client, device, identity):
@@ -73,8 +106,7 @@ def verify(request, config, device):
     for path in sorted(web.rglob("*")):
         if path.is_file() and "skills" not in path.relative_to(web).parts:
             url = "/" + urllib.parse.quote(path.relative_to(web).as_posix(), safe="/")
-            if fetch(url) != path.read_bytes():
-                raise ValueError("public Web bytes do not match selected release")
+            verify_web_bytes(path, path.read_bytes(), fetch(url), identity)
     _, public = skills.checked_release(player, components["player"]["source_sha"])
     skills.verify(public, origin)
     client = player / "bin/oasis7_game_client"
