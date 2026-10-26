@@ -42,3 +42,10 @@ export function invalidateDependentQuote(state, kind, snapshot) {
   state[quoteKey] = null;
   state[requestKey] = { ...request, status: "idle", error: null };
 }
+
+// Auth/owner changes also happen outside snapshot delivery. Call this at the
+// compatibility update boundary, after the owning mutation and before publish.
+export function coordinateDependentQuotes(state) {
+  invalidateDependentQuote(state, "refine", state.snapshot);
+  invalidateDependentQuote(state, "product", state.snapshot);
+}

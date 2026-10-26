@@ -83,6 +83,24 @@ software_safe_src/
 - service module 应优先暴露 factory 或小 public API，便于测试注入。
 - Browser global 和 localStorage key 只能集中在 owning module 或 shared constants 中。
 
+### 应用组合与状态发布
+
+`viewer_application.js` 负责组合状态协调、展示订阅和应用启动的窄 API，
+`legacy_core.js` 保留兼容 facade。transport/auth/quote/recovery 的状态、凭据与规则
+仍由各 owning module 管理，不集中成通用 session/store。
+
+- `publish` 自身只同步通知 registry，不写报价、回执或授权状态。订阅者仍可执行
+  scope 变化后的安全清屏、锁定和既有受权只读恢复，不要求回调具有传递纯性。
+- `coordinateAndPublish` 先调用领域协调再发布；旧 `render` / `requestRender`
+  委托此路径。报价依赖协调仍在 snapshot 绑定更新之后及非 snapshot 的 auth/owner
+  更新之后执行；snapshot 早期失效不能替代该路径。重复通知保持 fingerprint 幂等。
+- registry 同步调用 primary，随后复制 subscribers 并按 Set 次序迭代；解绑影响后续
+  调用，当前副本不变；允许同步重入，回调抛错直接传播并中止当前通知，不吞错或队列化。
+- 应用保持 singleton。pending、成功或失败后重复 start 均返回原 Promise；失败被缓存，
+  不重新 bootstrap。auth owner 既有 hello ACK 重试独立保留。
+- 展示解绑只移除订阅/展示资源，保留应用 session、pending/unknown 原件与恢复路径；
+  当前不提供 dispose、多 session 或由 presentation cleanup 发起的远程注销/release。
+
 ## Test 策略
 - 抽出的 pure helper 需要 narrow unit test。
 - 抽出的 component 需要 Solid UI test 或被现有 entry UI test 覆盖到 stable DOM anchor。
