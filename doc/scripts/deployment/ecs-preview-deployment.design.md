@@ -10,7 +10,7 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 
 | 上游 requirement / professional acceptance | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
-| [单机部署要求](../prd.md#single-ecs-preview-deploy) | 已初始化 Preview 通过一个命令及一个 SSH 会话完成同源包校验、一致备份、切换及验收；失败如实隔离 | [部署合同](ecs-preview-deployment.design.md#deployment-contract) | 运维提供完整备份路径、原世界身份、有效 SSH 与同源成功包 | 新机初始化、世界治理、云扩容；自动验收不代签真实玩法 |
+| [单机部署要求](../prd.md#single-ecs-preview-deploy) | 已初始化 Preview 通过一个命令及一个 SSH 会话完成同源包校验、一致备份、切换及验收；失败如实隔离 | [部署合同](ecs-preview-deployment.design.md#deployment-contract) | 运维提供完整备份路径、原世界身份、有效 SSH 与同源成功包 | 产品 N/A；reason=只编排现有运维操作，不改变玩家规则或产品承诺；scope=已初始化 Linux/systemd Preview。排除新机初始化、世界治理、云扩容；自动验收不代签真实玩法 |
 
 ## 范围与入口
 
@@ -41,7 +41,7 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 
 | 上游 requirement / professional acceptance | 本设计条款 | 独立 obligation 与适用条件 | 准确验证方法、test/manual source、场景与环境 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [单机部署要求](../prd.md#single-ecs-preview-deploy) | [部署合同](ecs-preview-deployment.design.md#deployment-contract) | 单会话、源校验、停机备份比较先于切换、写入后失败隔离 | [部署测试入口](../../../scripts/test-ecs-preview-deploy.sh) 运行 controller/remote/probe 回归；[部署手册](../../testing/manual/single-ecs-preview-deploy.manual.md#单命令更新) 在目标 Linux/systemd 主机对固定包执行并核对真实验收 | 当前 PR 的精确版本测试及部署结果 | fixture 不证明线上；自动探针不证明外部 Chrome 登录与玩法 |
+| [单机部署要求](../prd.md#single-ecs-preview-deploy) | [部署合同](ecs-preview-deployment.design.md#deployment-contract) | 单会话、源校验、停机备份比较先于切换、写入后失败隔离 | [部署测试入口](../../../scripts/test-ecs-preview-deploy.sh) 运行 controller/remote/probe 回归；目标 Linux/systemd 主机需另外对固定包执行真实验收 | 当前 PR 的精确版本测试；真实部署按[部署手册](../../testing/manual/single-ecs-preview-deploy.manual.md#单命令更新)记录结果 | fixture 不证明线上；自动探针不证明外部 Chrome 登录与玩法 |
 
 ## 决策与风险
 
