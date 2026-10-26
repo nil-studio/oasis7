@@ -81,6 +81,17 @@ impl IdentityStore {
         }
         let metadata = signer.metadata.clone();
         self.transaction(|tx| {
+            for account in &metadata.participants {
+                if tx
+                    .get::<super::model::AccountRecord>(&format!("account:{account}"))?
+                    .is_none_or(|row| row.value.account_id != *account)
+                {
+                    return Err(StoreError::Rejected(
+                        "custody_participant_account_missing".into(),
+                    ));
+                }
+            }
+
             let guarded = tx
                 .get::<serde_json::Value>("custody_revocation_bridge_guard")?
                 .is_some();
@@ -101,6 +112,15 @@ impl IdentityStore {
                     "custody_revocation_bridge_meta",
                     None,
                     None,
+                    &metadata,
+                )?;
+            }
+            for (_, overflow) in tx.all::<super::custody::revocation::overflow::OverflowRecord>(
+                super::custody::revocation::overflow::KIND,
+                None,
+            )? {
+                super::custody::revocation::overflow::verify_checkpoint(
+                    &overflow.value,
                     &metadata,
                 )?;
             }
@@ -271,7 +291,7 @@ impl IdentityStore {
             return Err(StoreError::Rejected("invalid_epoch_advance".into()));
         }
         let metadata_bytes:Option<Vec<u8>>=tx.query_row("SELECT payload FROM identity_records WHERE namespace=?1 AND record_key='custody_revocation_bridge_meta'",params![namespace.key()],|row|row.get(0)).optional()?;
-        let known: i64=tx.query_row("SELECT COUNT(*) FROM identity_records WHERE namespace=?1 AND (record_key='custody_revocation_bridge_guard' OR kind='custody_source_revocation')",params![namespace.key()],|row|row.get(0))?;
+        let known: i64=tx.query_row("SELECT COUNT(*) FROM identity_records WHERE namespace=?1 AND (record_key='custody_revocation_bridge_guard' OR kind='custody_source_revocation' OR kind='custody_source_overflow')",params![namespace.key()],|row|row.get(0))?;
         if metadata_bytes.is_none() && known > 0 {
             return Err(StoreError::Rejected(
                 "custody_revocation_barrier_unavailable".into(),
@@ -285,6 +305,12 @@ impl IdentityStore {
             {
                 return Err(StoreError::Corrupt);
             }
+            oasis7_custody_core::source_revocation::participant_registry_digest(
+                &metadata.namespace,
+                oasis7_custody_core::DecimalU64(metadata.epoch),
+                &metadata.participants,
+            )
+            .map_err(|_| StoreError::Corrupt)?;
             let mut closed = std::collections::BTreeSet::new();
             {
                 let mut statement=tx.prepare("SELECT payload FROM identity_records WHERE namespace=?1 AND kind='custody_source_revocation'")?;
@@ -299,17 +325,24 @@ impl IdentityStore {
                 }
             }
             {
-                let mut statement = tx.prepare(
-                    "SELECT account_id FROM identity_records WHERE namespace=?1 AND kind='account'",
-                )?;
-                let rows =
-                    statement.query_map(params![namespace.key()], |row| row.get::<_, String>(0))?;
-                for account in rows {
-                    if !closed.contains(&account?) {
-                        return Err(StoreError::Rejected(
-                            "custody_revocation_account_barrier_pending".into(),
-                        ));
-                    }
+                let mut statement=tx.prepare("SELECT payload FROM identity_records WHERE namespace=?1 AND kind='custody_source_overflow'")?;
+                let rows = statement
+                    .query_map(params![namespace.key()], |row| row.get::<_, Vec<u8>>(0))?;
+                for row in rows {
+                    let overflow: super::custody::revocation::overflow::OverflowRecord =
+                        serde_json::from_slice(&row?).map_err(|_| StoreError::Corrupt)?;
+                    super::custody::revocation::overflow::verify_checkpoint(&overflow, &metadata)?;
+                    closed.insert(super::custody::revocation::verify_barrier_ack(
+                        &overflow.trigger,
+                        &metadata,
+                    )?);
+                }
+            }
+            for account in &metadata.participants {
+                if !closed.contains(account) {
+                    return Err(StoreError::Rejected(
+                        "custody_revocation_account_barrier_pending".into(),
+                    ));
                 }
             }
             metadata.epoch = new_rp.identity_instance_epoch;
@@ -384,9 +417,15 @@ impl IdentityStore {
     pub fn cleanup_expired(&mut self, now: u64) -> Result<usize, StoreError> {
         self.transaction(|tx| {
             let rows = if let Some(remote)=&tx.remote {remote.expired(now,10)?} else {
-                let query=if tx.source_revocations.is_some() {"SELECT record_key,row_version FROM identity_records WHERE namespace=?1 AND expires_at<=?2 AND kind NOT IN ('account','credential','session') ORDER BY expires_at,record_key LIMIT 100"} else {"SELECT record_key,row_version FROM identity_records WHERE namespace=?1 AND expires_at<=?2 ORDER BY expires_at,record_key LIMIT 100"};
-                let mut statement=tx.sqlite().prepare(query)?;
-                statement.query_map(params![tx.namespace,sql_integer(now)?],|row|Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?)))?.map(|row| {let (key,version)=row?;Ok((key,u64::try_from(version).map_err(|_|StoreError::Corrupt)?))}).collect::<Result<Vec<_>,StoreError>>()?
+                let participants = tx.source_revocations.as_ref().map(|s| s.metadata.participants.as_slice()).unwrap_or(&[]);
+                let mut bindings = vec![rusqlite::types::Value::Text(tx.namespace.clone()), rusqlite::types::Value::Integer(sql_integer(now)?)];
+                let exclusion = if participants.is_empty() { String::new() } else {
+                    bindings.extend(participants.iter().cloned().map(rusqlite::types::Value::Text));
+                    format!(" AND (kind NOT IN ('account','credential','session') OR account_id NOT IN ({}))", (0..participants.len()).map(|i| format!("?{}", i+3)).collect::<Vec<_>>().join(","))
+                };
+                let query=format!("SELECT record_key,row_version FROM identity_records WHERE namespace=?1 AND expires_at<=?2{exclusion} ORDER BY expires_at,record_key LIMIT 100");
+                let mut statement=tx.sqlite().prepare(&query)?;
+                statement.query_map(rusqlite::params_from_iter(bindings),|row|Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?)))?.map(|row| {let (key,version)=row?;Ok((key,u64::try_from(version).map_err(|_|StoreError::Corrupt)?))}).collect::<Result<Vec<_>,StoreError>>()?
             };
             let count=rows.len();for (key,version) in rows {tx.delete(&key,version)?;}Ok(count)
         })
@@ -502,7 +541,17 @@ impl IdentityTransaction<'_> {
             None
         };
         let sensitive = |kind: &str| matches!(kind, "account" | "credential" | "session");
-        if signer.is_some()
+        let participant = if let Some(signer) = &signer {
+            let old = self.get::<serde_json::Value>(key)?.map(|v| v.value);
+            old.as_ref()
+                .and_then(|v| v["account_id"].as_str())
+                .is_some_and(|id| signer.metadata.participants.iter().any(|p| p == id))
+                || account_id.is_some_and(|id| signer.metadata.participants.iter().any(|p| p == id))
+        } else {
+            false
+        };
+
+        if participant
             && (old_kind.as_deref().is_some_and(sensitive) || sensitive(kind))
             && old_kind.as_deref() != Some(kind)
         {
@@ -510,7 +559,7 @@ impl IdentityTransaction<'_> {
                 "custody_security_kind_immutable".into(),
             ));
         }
-        if signer.is_some()
+        if participant
             && ["account:", "credential:", "session:"]
                 .iter()
                 .any(|prefix| key.starts_with(prefix))
@@ -544,7 +593,15 @@ impl IdentityTransaction<'_> {
         Ok(())
     }
     pub fn delete(&mut self, key: &str, expected_version: u64) -> Result<(), StoreError> {
-        if self.source_revocations.is_some()
+        let participant = if let Some(signer) = &self.source_revocations {
+            self.get::<serde_json::Value>(key)?
+                .as_ref()
+                .and_then(|row| row.value["account_id"].as_str())
+                .is_some_and(|id| signer.metadata.participants.iter().any(|p| p == id))
+        } else {
+            false
+        };
+        if participant
             && (self
                 .record_kind(key)?
                 .as_deref()

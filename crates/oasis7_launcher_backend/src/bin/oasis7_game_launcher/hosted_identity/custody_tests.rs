@@ -14,7 +14,9 @@ use webauthn_rs_core::proto::*;
 pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
     let mut fixture = model_session_tests::fixture();
     fixture.service.custody = Some(CustodyConfig {
-        revocation: None,
+        revocation: Some(revocation::RevocationConfig::http_fixture(
+            "account-authority:test".into(),
+        )),
         key: SigningKey::from_bytes(&[51; 32]),
         key_id: "approval-test-1".into(),
         audience: "account-authority:test".into(),
@@ -78,6 +80,18 @@ pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
                 },
             )
         })
+        .unwrap();
+    fixture
+        .service
+        .custody
+        .as_ref()
+        .unwrap()
+        .attach_revocation(
+            &mut fixture.service.store,
+            fixture.service.config.namespace.key(),
+            fixture.service.config.namespace.environment_id.clone(),
+            fixture.service.config.rp.identity_instance_epoch,
+        )
         .unwrap();
     (fixture, PKey::from_ec_key(ec).unwrap())
 }

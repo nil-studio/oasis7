@@ -281,6 +281,123 @@ pub struct SourceRevocationAckResultV1 {
     pub status: SourceClosureStateV1,
 }
 
+/// Signed, permanently fenced summary after the bounded full-event journal fills.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceCheckpointStateV1 {
+    PermanentFence,
+}
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceRevocationCheckpointV1 {
+    pub version: u8,
+    pub key_id: String,
+    pub identity_namespace: String,
+    pub environment: String,
+    pub identity_instance_epoch: DecimalU64,
+    pub manager_account_id: String,
+    pub owner_audience: String,
+    pub participant_registry_digest: String,
+    pub first_event_id: String,
+    pub first_event_digest: String,
+    pub previous_checkpoint_digest: String,
+    pub latest_event_digest: String,
+    pub watermark: DecimalU64,
+    pub chain_digest: String,
+    pub observed_at: DecimalU64,
+    pub state: SourceCheckpointStateV1,
+}
+impl SourceRevocationCheckpointV1 {
+    pub fn validate(&self) -> Result<(), InvalidSourceRevocation> {
+        if self.version != 1
+            || self.identity_instance_epoch.0 == 0
+            || self.watermark.0 == 0
+            || [
+                &self.key_id,
+                &self.identity_namespace,
+                &self.environment,
+                &self.manager_account_id,
+                &self.owner_audience,
+                &self.first_event_id,
+            ]
+            .iter()
+            .any(|v| !bounded(v))
+            || [
+                &self.participant_registry_digest,
+                &self.first_event_digest,
+                &self.previous_checkpoint_digest,
+                &self.latest_event_digest,
+                &self.chain_digest,
+            ]
+            .iter()
+            .any(|v| !hex(v))
+        {
+            return Err(InvalidSourceRevocation);
+        }
+        Ok(())
+    }
+    pub fn signing_bytes(&self) -> Result<Vec<u8>, InvalidSourceRevocation> {
+        self.validate()?;
+        canonical("oasis7.custody.source-revocation-checkpoint.v1", self)
+    }
+}
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignedSourceRevocationCheckpointV1 {
+    pub checkpoint: SourceRevocationCheckpointV1,
+    pub signature: String,
+}
+impl SignedSourceRevocationCheckpointV1 {
+    pub fn digest(&self) -> Result<String, InvalidSourceRevocation> {
+        self.checkpoint.validate()?;
+        canonical(
+            "oasis7.custody.signed-source-revocation-checkpoint.v1",
+            self,
+        )
+        .map(|v| bytes_digest(&v))
+    }
+}
+/// Registration is immutable within an identity epoch; callers pass sorted, unique IDs.
+pub fn participant_registry_digest(
+    namespace: &str,
+    epoch: DecimalU64,
+    participants: &[String],
+) -> Result<String, InvalidSourceRevocation> {
+    if !bounded(namespace)
+        || epoch.0 == 0
+        || participants.len() > 256
+        || participants.iter().any(|v| !bounded(v))
+        || participants.windows(2).any(|p| p[0] >= p[1])
+    {
+        return Err(InvalidSourceRevocation);
+    }
+    canonical(
+        "oasis7.custody.source-participants.v1",
+        &(namespace, epoch, participants),
+    )
+    .map(|v| bytes_digest(&v))
+}
+pub fn checkpoint_seed() -> String {
+    bytes_digest(b"oasis7.custody.source-checkpoint-seed.v1")
+}
+pub fn checkpoint_chain(
+    previous: &str,
+    watermark: DecimalU64,
+    event_digest: &str,
+) -> Result<String, InvalidSourceRevocation> {
+    if !hex(previous) || !hex(event_digest) || watermark.0 == 0 {
+        return Err(InvalidSourceRevocation);
+    }
+    canonical(
+        "oasis7.custody.source-checkpoint-chain.v1",
+        &(previous, watermark, event_digest),
+    )
+    .map(|v| bytes_digest(&v))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,6 +505,79 @@ mod tests {
                 }
                 .invalidates()
             );
+        }
+    }
+    #[test]
+    fn checkpoint_canonical_binding_is_closed_and_preserves_u64_limits() {
+        let registry =
+            participant_registry_digest("identity:test", DecimalU64(3), &["a".into(), "b".into()])
+                .unwrap();
+        assert!(
+            participant_registry_digest("identity:test", DecimalU64(3), &["b".into(), "a".into()])
+                .is_err()
+        );
+        assert!(
+            participant_registry_digest("identity:test", DecimalU64(3), &["a".into(), "a".into()])
+                .is_err()
+        );
+        let checkpoint = SourceRevocationCheckpointV1 {
+            version: 1,
+            key_id: "native".into(),
+            identity_namespace: "identity:test".into(),
+            environment: "test".into(),
+            identity_instance_epoch: DecimalU64(3),
+            manager_account_id: "a".into(),
+            owner_audience: "owner".into(),
+            participant_registry_digest: registry,
+            first_event_id: "first".into(),
+            first_event_digest: "a".repeat(64),
+            previous_checkpoint_digest: checkpoint_seed(),
+            latest_event_digest: "b".repeat(64),
+            watermark: DecimalU64(u64::MAX),
+            chain_digest: checkpoint_chain(
+                &checkpoint_seed(),
+                DecimalU64(u64::MAX),
+                &"b".repeat(64),
+            )
+            .unwrap(),
+            observed_at: DecimalU64(9007199254740993),
+            state: SourceCheckpointStateV1::PermanentFence,
+        };
+        let bytes = checkpoint.signing_bytes().unwrap();
+        let json = serde_json::to_value(&checkpoint).unwrap();
+        assert_eq!(json["watermark"], "18446744073709551615");
+        assert_eq!(
+            serde_json::from_value::<SourceRevocationCheckpointV1>(json.clone())
+                .unwrap()
+                .signing_bytes()
+                .unwrap(),
+            bytes
+        );
+        for field in [
+            "participant_registry_digest",
+            "first_event_digest",
+            "previous_checkpoint_digest",
+            "latest_event_digest",
+            "chain_digest",
+        ] {
+            let mut other = json.clone();
+            other[field] = serde_json::json!("c".repeat(64));
+            assert_ne!(
+                serde_json::from_value::<SourceRevocationCheckpointV1>(other)
+                    .unwrap()
+                    .signing_bytes()
+                    .unwrap(),
+                bytes
+            );
+        }
+        for (field, value) in [
+            ("state", serde_json::json!("active")),
+            ("watermark", serde_json::json!(18446744073709551615_u64)),
+            ("extra", serde_json::json!(true)),
+        ] {
+            let mut other = json.clone();
+            other[field] = value;
+            assert!(serde_json::from_value::<SourceRevocationCheckpointV1>(other).is_err());
         }
     }
 }

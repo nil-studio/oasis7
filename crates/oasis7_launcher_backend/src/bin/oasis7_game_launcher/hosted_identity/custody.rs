@@ -155,6 +155,7 @@ fn management_session(
     {
         return Err(reject("passkey_management_session_required"));
     }
+    revocation::overflow::require_participant(tx, &account.account_id)?;
     Ok((account, session))
 }
 
@@ -414,6 +415,7 @@ impl IdentityService {
         let epoch = self.config.rp.identity_instance_epoch;
         let result = self.store.transaction(|tx| {
             consume_quota(tx, "custody-verify", "adapter", now, 60_000, 300)?;
+            revocation::overflow::require_participant(tx, &proof.manager_account_id)?;
             let saved = tx
                 .get::<ApprovalRecord>(&approval_key(&proof.approval_id))?
                 .ok_or_else(|| reject("approval_history_unavailable"))?
