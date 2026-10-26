@@ -67,3 +67,42 @@ test('TypeScript converter handles closed unions and rejects unknown constructs'
     assert.throws(() => schemaType(schema));
   assert.throws(() => declarations({ Root: { $ref: '#/$defs/Missing' } }), /Unresolved/);
 });
+
+test('TypeScript converter reuses exact root definitions without dropping validation', () => {
+  const shape = { type: 'object', properties: { value: { type: 'string', minLength: 2, maxLength: 8 } }, required: ['value'], additionalProperties: false };
+  const roots = () => ({
+    Shared: { $schema: 'https://json-schema.org/draft/2020-12/schema', title: 'Public root', description: 'Root annotation', ...copy(shape),
+      $defs: { OnlyInRoot: { type: 'string', minLength: 3 } } },
+    Wrapper: { type: 'object', properties: { request: { $ref: '#/$defs/Shared' } }, required: ['request'], additionalProperties: false,
+      $defs: { Shared: { additionalProperties: false, required: ['value'], properties: copy(shape.properties), type: 'object', title: 'Nested definition' } } },
+  });
+  const ts = declarations(roots());
+  assert.equal((ts.match(/export type Shared =/g) ?? []).length, 1);
+  assert.match(ts, /export type OnlyInRoot = string/);
+  assert.match(ts, /"request": Shared/);
+  // These render the same TS but have different runtime constraints/shape.
+  for (const mutate of [
+    value => { value.Shared.properties.value.minLength = 1; },
+    value => { value.Shared.properties.value.pattern = '^safe$'; },
+    value => { value.Shared.required = []; },
+    value => { value.Shared.properties.extra = { type: 'string' }; },
+  ]) {
+    const value = roots(); mutate(value);
+    assert.throws(() => declarations(value), /collides|Conflicting/);
+  }
+  const unsupported = roots();
+  unsupported.Shared.$defs.Unused = { allOf: [{ type: 'string' }] };
+  assert.throws(() => declarations(unsupported), /Unsupported/);
+  const unresolved = roots();
+  unresolved.Shared.$defs.Unused = { $ref: '#/$defs/Missing' };
+  assert.throws(() => declarations(unresolved), /Unresolved/);
+  const nestedUnsupported = roots();
+  nestedUnsupported.Wrapper.$defs.Shared.$defs = { UnusedNested: { allOf: [{ type: 'string' }] } };
+  assert.throws(() => declarations(nestedUnsupported), /Unsupported/);
+  const nestedUnresolved = roots();
+  nestedUnresolved.Wrapper.$defs.Shared.$defs = { UnusedNested: { $ref: '#/$defs/Missing' } };
+  assert.throws(() => declarations(nestedUnresolved), /Unresolved/);
+  const conflict = roots();
+  conflict.Shared.$defs.Shared = { ...copy(shape), required: [] };
+  assert.throws(() => declarations(conflict), /Conflicting/);
+});

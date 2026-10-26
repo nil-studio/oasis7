@@ -18,6 +18,8 @@ extern "C" {
         initial: &str,
         callback: &js_sys::Function,
     ) -> std::result::Result<String, JsValue>;
+    #[wasm_bindgen(catch, js_name = readTextRecord)]
+    fn read_record(state: &JsValue, key: &str) -> std::result::Result<String, JsValue>;
     #[wasm_bindgen(catch, js_name = readBoundedText)]
     async fn bounded_body(request: &JsValue, limit: u32) -> std::result::Result<JsValue, JsValue>;
 }
@@ -96,6 +98,28 @@ fn valid_inventory(inventory: &Inventory) -> bool {
             )
         })
 }
+fn known_provision_draft_inventory(
+    state: &JsValue,
+    inventory: &Inventory,
+    draft: &AccountDraftV1,
+) -> bool {
+    inventory.records.len() == 2
+        && inventory
+            .records
+            .iter()
+            .all(|row| row.id == DRAFT || row.id == "custody-provision-approval-v1")
+        && crate::provision_approval_store::matches_persisted_draft(state, draft)
+        && inventory.table_names.iter().all(|name| {
+            matches!(
+                name.as_str(),
+                "table:custody_records"
+                    | "table:custody_audit"
+                    | "table:sqlite_sequence"
+                    | "table:_cf_METADATA"
+            )
+        })
+}
+
 fn validate_draft(draft: &AccountDraftV1) -> std::result::Result<(), JsValue> {
     let entry = &draft.entry;
     let world = &draft.world_identity;
@@ -141,6 +165,7 @@ fn known_empty_draft(value: &str, target: &AccountFreezeTarget) -> Option<DraftR
 #[durable_object]
 pub struct AccountAuthority {
     state: JsValue,
+    env: Option<Env>,
 }
 
 /// Match only the recognized, pristine draft payload. The caller must separately
@@ -159,26 +184,44 @@ pub(crate) fn matches_pristine_draft(value: &str, expected: &AccountDraftV1) -> 
     })
 }
 
+/// Read only the recognized same-Account draft; final mutation separately checks inventory/freeze.
+pub(crate) fn read_pristine_draft(state: &JsValue) -> std::result::Result<AccountDraftV1, JsValue> {
+    let raw = read_record(state, DRAFT)?;
+    if raw.len() > MAX_BYTES {
+        return Err(js_error());
+    }
+    let saved: DraftRecord = serde_json::from_str(&raw).map_err(|_| js_error())?;
+    let draft = saved.draft.as_ref().ok_or_else(js_error)?;
+    if !matches_pristine_draft(&raw, draft) {
+        return Err(js_error());
+    }
+    Ok(draft.clone())
+}
+
 #[cfg(feature = "approval-harness")]
 pub(crate) fn initialize_fixture(state: JsValue, draft: AccountDraftV1) -> Result<Response> {
-    AccountAuthority { state }.initialize_draft(draft)
+    AccountAuthority { state, env: None }.initialize_draft(draft)
 }
 
 #[cfg(feature = "approval-harness")]
 pub(crate) fn freeze_fixture(state: JsValue, target: AccountFreezeTarget) -> Result<Response> {
-    AccountAuthority { state }.freeze(target)
+    AccountAuthority { state, env: None }.freeze(target)
 }
 impl DurableObject for AccountAuthority {
-    fn new(state: State, _env: Env) -> Self {
+    fn new(state: State, env: Env) -> Self {
         Self {
             state: state._inner().into(),
+            env: Some(env),
         }
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
         if request.method() != Method::Post
             || url.query().is_some()
-            || !matches!(url.path(), "/internal/draft" | "/internal/freeze")
+            || !matches!(
+                url.path(),
+                "/internal/draft" | "/internal/freeze" | "/internal/approve"
+            )
         {
             return Response::error("not found", 404);
         }
@@ -198,6 +241,19 @@ impl DurableObject for AccountAuthority {
                 Ok(entry) => self.initialize_draft(entry),
                 Err(_) => Response::error("invalid request", 400),
             },
+            "/internal/approve" => {
+                let Some(env) = &self.env else {
+                    return Response::error("not ready", 503);
+                };
+                let Ok(rpc) = serde_json::from_str::<crate::directory_rpc::ApproveRpc>(&body)
+                else {
+                    return Response::error("invalid request", 400);
+                };
+                match crate::owner_provision::approve(&self.state, env, rpc).await {
+                    Ok(view) => Response::from_json(&view),
+                    Err(_) => Response::error("provision approval rejected or unavailable", 409),
+                }
+            }
             _ => match serde_json::from_str::<AccountFreezeTarget>(&body) {
                 Ok(target) => self.freeze(target),
                 Err(_) => Response::error("invalid request", 400),
@@ -224,7 +280,9 @@ impl AccountAuthority {
                             inventory: String|
          -> std::result::Result<Array, JsValue> {
             let inventory: Inventory = serde_json::from_str(&inventory).map_err(|_| js_error())?;
-            if !valid_inventory(&inventory) || inventory.records.iter().any(|row| row.id == FREEZE)
+            if !(valid_inventory(&inventory)
+                || known_provision_draft_inventory(&self.state, &inventory, &original_draft))
+                || inventory.records.iter().any(|row| row.id == FREEZE)
             {
                 return Err(js_error());
             }
@@ -233,6 +291,14 @@ impl AccountAuthority {
                 || draft.security_epoch.0 != 0
                 || !draft.authorizations.is_empty()
                 || !draft.outbox.is_empty()
+            {
+                return Err(js_error());
+            }
+            if inventory
+                .records
+                .iter()
+                .any(|row| row.id == "custody-provision-approval-v1")
+                && draft.draft.is_none()
             {
                 return Err(js_error());
             }

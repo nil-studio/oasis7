@@ -64,12 +64,17 @@ mod approval_harness;
 mod native_identity;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_account;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_provision;
 
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod directory_config;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod directory_rpc;
-#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "identity", feature = "owner", feature = "recovery-fence")
+))]
 mod entrypoints;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod management;

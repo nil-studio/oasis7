@@ -63,17 +63,42 @@ export function schemaType(schema) {
   }
 }
 
+// Compare validation structure, not the deliberately lossy TypeScript rendering.
+// Only top-level annotations/definition containers are removed: every root's
+// definitions are independently collected and validated below, even if unused.
+function sameSchema(first, second) {
+  const canonical = value => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object')
+      return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+    return value;
+  };
+  const validation = schema => schema && typeof schema === 'object' && !Array.isArray(schema)
+    ? Object.fromEntries(Object.entries(schema).filter(([key]) => !annotations.includes(key))) : schema;
+  return JSON.stringify(canonical(validation(first))) === JSON.stringify(canonical(validation(second)));
+}
+
 export function declarations(roots) {
   const definitions = new Map();
-  for (const schema of Object.values(roots)) {
+  const collect = schema => {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return;
     for (const [name, value] of Object.entries(schema.$defs ?? {})) {
-      if (definitions.has(name) && JSON.stringify(definitions.get(name)) !== JSON.stringify(value))
+      if (definitions.has(name) && !sameSchema(definitions.get(name), value))
         throw new Error('Conflicting schema definition: ' + name);
       definitions.set(name, value);
+      collect(value);
     }
-  }
+    // Follow schema positions only: defaults/examples/property names are data,
+    // not definition containers. Nested unused definitions must also be checked.
+    for (const value of Object.values(schema.properties ?? {})) collect(value);
+    for (const key of ['items', 'additionalProperties']) collect(schema[key]);
+    for (const key of ['oneOf', 'anyOf', 'prefixItems'])
+      if (Array.isArray(schema[key])) schema[key].forEach(collect);
+  };
+  Object.values(roots).forEach(collect);
   for (const [name, value] of Object.entries(roots)) {
-    if (definitions.has(name)) throw new Error('Root collides with definition: ' + name);
+    if (definitions.has(name) && !sameSchema(definitions.get(name), value))
+      throw new Error('Root collides with definition: ' + name);
     definitions.set(name, value);
   }
   // Traverse every definition, including otherwise unreferenced ones, so unsupported

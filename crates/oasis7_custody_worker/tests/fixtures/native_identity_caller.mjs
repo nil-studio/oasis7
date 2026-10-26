@@ -2,6 +2,17 @@
 export default {
   async fetch(request, env) {
     const raw = await request.text();
+    const path = new URL(request.url).pathname;
+    if (path === '/default-approve' || path === '/default-fence') {
+      const method = path === '/default-approve' ? 'owner_approve_provision' : 'read_recovery_fence';
+      try {
+        await (path === '/default-approve' ? env.OWNER_DEFAULT : env.FENCE_DEFAULT)[method](raw);
+        return Response.json({missing_rpc:false});
+      } catch(error) {
+        const message = String(error);
+        return Response.json({missing_rpc:message.includes(method) && /does not implement|not a function|not implemented/i.test(message)},{status:409});
+      }
+    }
     if (new URL(request.url).pathname === '/pump') {
       try { await env.PUMP.tick(); return new Response(null, { status: 204 }); }
       catch { return new Response('scheduled delivery rejected', { status: 503 }); }
