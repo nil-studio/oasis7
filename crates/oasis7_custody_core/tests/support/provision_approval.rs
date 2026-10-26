@@ -476,3 +476,142 @@ fn historical_consumption_is_not_a_cross_principal_or_epoch_replay() {
         );
     }
 }
+
+fn role_result(
+    state: &AccountProvisionApprovalState,
+    name: &str,
+    byte: &str,
+) -> ProvisionRoleKeyResultV1 {
+    let task = &state.role_key_tasks()[name];
+    ProvisionRoleKeyResultV1 {
+        scope: oasis7_custody_core::role_key_slot::RoleKeySlotScopeV1::from_task(task).unwrap(),
+        public_ref: PublicRoleKey {
+            key_id: task.key_id.clone(),
+            key_version: task.key_version,
+            public_key: byte.repeat(32),
+        },
+    }
+}
+
+#[test]
+fn role_results_require_three_exact_current_receipts_and_restore() {
+    let (mut state, context, _, _) = approved();
+    let policy = Policy::new(state.draft());
+    for (index, (role, byte)) in [("identity", "11"), ("owner", "22"), ("executor", "33")]
+        .into_iter()
+        .enumerate()
+    {
+        let result = role_result(&state, role, byte);
+        // The native handoff proof expired at 31000; current source and accepted plan remain valid.
+        state
+            .record_role_key_result(result.clone(), &policy.current(&context), 40_000)
+            .unwrap();
+        assert_eq!(
+            state.provision().stage(),
+            if index == 2 {
+                ProvisionStage::RoleKeysReady
+            } else {
+                ProvisionStage::Approved
+            }
+        );
+        let restored: AccountProvisionApprovalState =
+            serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+        assert_eq!(state, restored);
+        let before = state.clone();
+        state
+            .record_role_key_result(result, &policy.current(&context), 999_999)
+            .unwrap();
+        assert_eq!(state, before);
+    }
+    let mut missing = serde_json::to_value(&state).unwrap();
+    missing.as_object_mut().unwrap().remove("role_key_results");
+    assert!(serde_json::from_value::<AccountProvisionApprovalState>(missing).is_err());
+}
+
+#[test]
+fn role_results_reject_replacement_scope_alias_and_stale_source_atomically() {
+    let (mut state, context, _, _) = approved();
+    let policy = Policy::new(state.draft());
+    let identity = role_result(&state, "identity", "11");
+    state
+        .record_role_key_result(identity.clone(), &policy.current(&context), 1201)
+        .unwrap();
+    let before = state.clone();
+    let mut changed = identity.clone();
+    changed.public_ref.public_key = "44".repeat(32);
+    assert!(
+        state
+            .record_role_key_result(changed, &policy.current(&context), 1202)
+            .is_err()
+    );
+    let owner = role_result(&state, "owner", "11");
+    assert!(
+        state
+            .record_role_key_result(owner, &policy.current(&context), 1202)
+            .is_err()
+    );
+    let mut wrong = role_result(&state, "owner", "22");
+    wrong.scope.operation_id = "other-operation".into();
+    assert!(
+        state
+            .record_role_key_result(wrong, &policy.current(&context), 1202)
+            .is_err()
+    );
+    for kind in 0..5 {
+        let mut current = context.clone();
+        match kind {
+            0 => current.source.manager_security_version = DecimalU64(99),
+            1 => current.source.origin_credential_version = DecimalU64(99),
+            2 => current.source.passkey_credential_version = DecimalU64(99),
+            3 => current.fence = RecoveryFence::new(3, true),
+            _ => current.frozen = true,
+        }
+        let result = role_result(&state, "owner", "22");
+        assert!(
+            state
+                .record_role_key_result(result, &policy.current(&current), 1202)
+                .is_err()
+        );
+    }
+    assert_eq!(state, before);
+    state.freeze(1).unwrap();
+    let frozen = state.clone();
+    state
+        .record_role_key_result(identity, &policy.current(&context), 999_999)
+        .unwrap();
+    assert_eq!(state, frozen);
+    let result = role_result(&state, "owner", "22");
+    assert!(
+        state
+            .record_role_key_result(result, &policy.current(&context), 1202)
+            .is_err()
+    );
+    assert_eq!(state, frozen);
+    assert_eq!(
+        serde_json::from_value::<AccountProvisionApprovalState>(
+            serde_json::to_value(&state).unwrap()
+        )
+        .unwrap(),
+        state
+    );
+}
+
+#[test]
+fn legacy_approved_snapshot_defaults_only_empty_results() {
+    let (state, _, _, _) = approved();
+    let mut json = serde_json::to_value(&state).unwrap();
+    json.as_object_mut().unwrap().remove("role_key_results");
+    assert_eq!(
+        serde_json::from_value::<AccountProvisionApprovalState>(json).unwrap(),
+        state
+    );
+    let (_, input, _) = fixture();
+    let request = ProvisionApproveRequestV1 {
+        api_version: 1,
+        input,
+    };
+    request.validate().unwrap();
+    let mut json = serde_json::to_value(request).unwrap();
+    json["api_version"] = serde_json::json!(2);
+    assert!(serde_json::from_value::<ProvisionApproveRequestV1>(json).is_err());
+}

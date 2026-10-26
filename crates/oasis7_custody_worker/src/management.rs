@@ -23,11 +23,28 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
     let status_route = path == "/v1/management/session-status";
     let draft = path == "/v1/account-provisions";
     let freeze = path == "/v1/manager-revocations";
-    let get = path.strip_prefix("/v1/account-provisions/");
+    let provision_path = path.strip_prefix("/v1/account-provisions/");
+    let approve = provision_path.and_then(|id| id.strip_suffix("/approve"));
+    let get = provision_path.filter(|_| approve.is_none());
+    if let Some(id) = approve {
+        if id.is_empty() || id.len() > 128 || id.contains('/') {
+            return Response::error("not found", 404);
+        }
+    }
     if (status_route || get.is_some()) && request.method() != Method::Get
-        || (draft || freeze) && request.method() != Method::Post
+        || (draft || freeze || approve.is_some()) && request.method() != Method::Post
     {
         return Response::error("method not allowed", 405);
+    }
+    if approve.is_some()
+        && env
+            .var("CUSTODY_PROVISION_APPROVAL_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+    {
+        return unavailable();
     }
     let config = match NativeIdentityConfig::from_env(&env) {
         Ok(Some(v)) => v,
@@ -43,7 +60,25 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return Ok(response);
     }
     // The request never supplies a manager selector. Metadata remains inside this private hop.
-    let result = if draft {
+    let result = if let Some(id) = approve {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: ProvisionApproveRequestV1 = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        if value.validate().is_err() {
+            return Response::error("invalid request", 400);
+        }
+        let rpc = ApproveRpc {
+            manager_session: manager,
+            provision_id: id.into(),
+            request: value,
+        };
+        approve_owner(&env, &serde_json::to_string(&rpc)?).await
+    } else if draft {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
@@ -91,7 +126,12 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return unavailable();
     };
     // Validate the actual response DTO in Rust before passing its original JSON bytes.
-    if freeze {
+    if approve.is_some() {
+        let value: ProvisionApprovalViewV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1 || Some(value.provision_id.as_str()) != approve {
+            return unavailable();
+        }
+    } else if freeze {
         let _: ManagerClosureViewV1 = serde_json::from_str(&raw)?;
     } else {
         let _: ProvisionDraftViewV1 = serde_json::from_str(&raw)?;

@@ -18,4 +18,5 @@ cp -R build "artifacts/$role"
 
 case "$role" in
   identity|owner) cp "platform/$role-entry.mjs" "artifacts/$role/entry.mjs" ;;
+  recovery-fence) cp "platform/fence-entry.mjs" "artifacts/$role/entry.mjs" ;;
 esac

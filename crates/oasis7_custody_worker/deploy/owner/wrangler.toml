@@ -24,3 +24,14 @@ class_name = "ManagerAssociations"
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["ManagerAssociations"]
+
+# Narrow read/verify methods only; these bindings do not activate provisioning.
+[[services]]
+binding = "IDENTITY_NATIVE_APPROVAL"
+service = "oasis7-custody-identity-staging"
+entrypoint = "IdentityNativeApproval"
+
+[[services]]
+binding = "RECOVERY_FENCE"
+service = "oasis7-custody-recovery-fence-staging"
+entrypoint = "RecoveryFenceReader"

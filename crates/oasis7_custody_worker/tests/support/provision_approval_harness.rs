@@ -92,11 +92,15 @@ async fn run(state: JsValue, request: &mut Request) -> Result<Value> {
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(failure)?;
     let draft = store.snapshot().map_err(failure)?.state.draft().clone();
     if path == "/provision/fault" {
-        audit_constraint(&state, true)?;
+        audit_constraint(&state, true, false)?;
         return Ok(json!({"ok":true}));
     }
     if path == "/provision/clear-fault" {
-        audit_constraint(&state, false)?;
+        audit_constraint(&state, false, false)?;
+        return Ok(json!({"ok":true}));
+    }
+    if path == "/provision/role-fault" {
+        audit_constraint(&state, true, true)?;
         return Ok(json!({"ok":true}));
     }
     if path == "/provision/audit" {
@@ -153,6 +157,38 @@ async fn run(state: JsValue, request: &mut Request) -> Result<Value> {
             now
         })
     };
+    if path == "/provision/role-result" {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Input {
+            role: String,
+            public_key: String,
+        }
+        let input: Input = request.json().await?;
+        let snapshot = store.snapshot().map_err(failure)?;
+        let task = snapshot
+            .state
+            .role_key_tasks()
+            .get(&input.role)
+            .ok_or_else(|| failure("role"))?;
+        let result = ProvisionRoleKeyResultV1 {
+            scope: oasis7_custody_core::role_key_slot::RoleKeySlotScopeV1::from_task(task)
+                .map_err(failure)?,
+            public_ref: PublicRoleKey {
+                key_id: task.key_id.clone(),
+                key_version: task.key_version,
+                public_key: input.public_key,
+            },
+        };
+        // This test seam substitutes an authenticated static role reply only;
+        // no deployment configuration exposes a role-result request route.
+        return serde_json::to_value(
+            store
+                .record_role_key_result_with_clock(result, authority, clock)
+                .map_err(failure)?,
+        )
+        .map_err(failure);
+    }
     if path.starts_with("/provision/begin") {
         let input: ApprovalAdmissionInput = request.json().await?;
         return serde_json::to_value(
@@ -212,7 +248,7 @@ async fn run(state: JsValue, request: &mut Request) -> Result<Value> {
     Err(failure("unknown fixture path"))
 }
 
-fn audit_constraint(state: &JsValue, fail: bool) -> Result<()> {
+fn audit_constraint(state: &JsValue, fail: bool, role_result: bool) -> Result<()> {
     // Keep metadata recognized, preserve all prior audit rows, and cause the real
     // transaction's next approved audit INSERT to fail after the pure transition.
     super::sql(
@@ -221,7 +257,9 @@ fn audit_constraint(state: &JsValue, fail: bool) -> Result<()> {
     )?;
     super::sql(
         state,
-        if fail {
+        if fail && role_result {
+            "CREATE TABLE custody_audit (record_id TEXT NOT NULL, sequence TEXT NOT NULL, payload TEXT NOT NULL CHECK(payload NOT LIKE '%\"role_key_recorded\"%'), PRIMARY KEY(record_id,sequence))"
+        } else if fail {
             "CREATE TABLE custody_audit (record_id TEXT NOT NULL, sequence TEXT NOT NULL, payload TEXT NOT NULL CHECK(payload NOT LIKE '%\"approved\"%'), PRIMARY KEY(record_id,sequence))"
         } else {
             "CREATE TABLE custody_audit (record_id TEXT NOT NULL, sequence TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(record_id,sequence))"
