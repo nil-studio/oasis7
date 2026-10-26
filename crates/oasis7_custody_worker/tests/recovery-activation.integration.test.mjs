@@ -92,6 +92,20 @@ test('concurrent different signed operations against one current digest cannot b
     const after=await (await r.call('describe')).json();assert.equal(after.ledger.activations.length,1);assert.equal(after.ledger.fence.epoch,'1');
   });
 });
+test('full real activation history preserves the independent disable path',{timeout:180000},async()=>{
+  await runtime(async r=>{
+    for(let i=0;i<64;i++) {
+      const description=await (await r.call('describe')).json();
+      assert.equal((await r.call('activate',signed(description,`bounded-${i}`))).status,200);
+    }
+    const full=await (await r.call('describe')).json();
+    assert.equal(full.ledger.activations.length,64);
+    assert.equal((await r.call('activate',signed(full,'over-capacity'))).status,409);
+    const stopped=await r.call('disable');assert.equal(stopped.status,200);
+    const ledger=await stopped.json();assert.equal(ledger.fence.disabled,true);assert.equal(ledger.fence.epoch,'64');
+    assert.equal(ledger.frozen_epochs.length,65);
+  });
+});
 test('a low-order configured point cannot forge an independent quorum signature',{timeout:120000},async()=>{
   const weakPolicy=structuredClone(policy);
   weakPolicy.keys[0].public_key='01'+'00'.repeat(31);
