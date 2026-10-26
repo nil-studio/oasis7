@@ -142,6 +142,32 @@ fn known_empty_draft(value: &str, target: &AccountFreezeTarget) -> Option<DraftR
 pub struct AccountAuthority {
     state: JsValue,
 }
+
+/// Match only the recognized, pristine draft payload. The caller must separately
+/// check the complete Account inventory for a freeze row or unknown material.
+pub(crate) fn matches_pristine_draft(value: &str, expected: &AccountDraftV1) -> bool {
+    if value.len() > MAX_BYTES || validate_draft(expected).is_err() {
+        return false;
+    }
+    serde_json::from_str::<DraftRecord>(value).is_ok_and(|record| {
+        record.schema_version == 1
+            && record.security_epoch.0 == 0
+            && record.audit_sequence.0 > 0
+            && record.authorizations.is_empty()
+            && record.outbox.is_empty()
+            && record.draft.as_ref() == Some(expected)
+    })
+}
+
+#[cfg(feature = "approval-harness")]
+pub(crate) fn initialize_fixture(state: JsValue, draft: AccountDraftV1) -> Result<Response> {
+    AccountAuthority { state }.initialize_draft(draft)
+}
+
+#[cfg(feature = "approval-harness")]
+pub(crate) fn freeze_fixture(state: JsValue, target: AccountFreezeTarget) -> Result<Response> {
+    AccountAuthority { state }.freeze(target)
+}
 impl DurableObject for AccountAuthority {
     fn new(state: State, _env: Env) -> Self {
         Self {

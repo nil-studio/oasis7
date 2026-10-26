@@ -53,6 +53,83 @@ async function fixture(run) {
   finally { await mf.dispose(); rmSync(persist, { recursive: true, force: true }); }
 }
 
+async function provisionInput(mf, name, path = 'prepare') {
+  const result = await ok(mf, name, '/provision/' + path);
+  result.input.approval.signature = await sign(result.canonical_bytes);
+  return result.input;
+}
+async function provisionVerification(mf, name) {
+  const result = await ok(mf, name, '/provision/verification');
+  return { verification: result.verification, signature: await sign(result.canonical_bytes) };
+}
+test('provision proof consumption, approved plan and three fixed tasks commit once in actual Account SQLite', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const name = 'provision-atomic';
+  const input = await provisionInput(mf, name);
+  const [pending, concurrent] = await Promise.all([ok(mf, name, '/provision/begin', input), ok(mf, name, '/provision/begin', input)]);
+  assert.deepEqual(concurrent, pending, 'concurrent same-body begin keeps one stored nonce');
+  assert.deepEqual(await ok(mf, name, '/provision/begin', input), pending);
+  const signed = await provisionVerification(mf, name);
+  const results = await Promise.all([ok(mf, name, '/provision/commit', signed), ok(mf, name, '/provision/commit', signed)]);
+  assert.deepEqual(results[0], results[1]);
+  const saved = await ok(mf, name, '/provision/snapshot');
+  assert.equal(saved.audit_sequence, '2');
+  assert.equal(saved.state.provision.stage, 'approved');
+  assert.equal(saved.state.accepted_operation_id, 'operation-one');
+  assert.deepEqual(Object.keys(saved.state.role_key_tasks).sort(), ['executor', 'identity', 'owner']);
+  assert.ok(Object.values(saved.state.role_key_tasks).every(task => task.state === 'pending' && task.key_version === '1'));
+  const audit = await ok(mf, name, '/provision/audit');
+  assert.equal(audit.length, 3, 'one draft, one pending and one approved audit');
+  assert.doesNotMatch(JSON.stringify(audit), /signature|verify_nonce|native_session_ref/);
+  mf = await restart();
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), saved);
+  assert.deepEqual(await ok(mf, name, '/provision/commit', signed), results[0]);
+  assert.deepEqual(await ok(mf, name, '/provision/audit'), audit);
+  const cancelled = await ok(mf, name, '/provision/cancel');
+  assert.ok(Object.values(cancelled.state.role_key_tasks).every(task => task.state === 'cancelled'));
+  await ok(mf, name, '/provision/commit', signed);
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), cancelled, 'historical retry cannot restore cancelled work');
+}));
+test('real provision SQLite audit failure leaves proof pending, plan draft and outbox empty', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current(); const name = 'provision-rollback'; const input = await provisionInput(mf, name);
+  await ok(mf, name, '/provision/begin', input);
+  const signed = await provisionVerification(mf, name);
+  const before = await ok(mf, name, '/provision/snapshot');
+  const audit = await ok(mf, name, '/provision/audit');
+  await ok(mf, name, '/provision/fault');
+  assert.equal((await call(mf, name, '/provision/commit', signed)).status, 409);
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), before);
+  assert.deepEqual(await ok(mf, name, '/provision/audit'), audit);
+  assert.equal(before.state.provision.stage, 'draft');
+  assert.deepEqual(before.state.role_key_tasks, {});
+  await ok(mf, name, '/provision/clear-fault');
+  await ok(mf, name, '/provision/commit', signed);
+  assert.equal((await ok(mf, name, '/provision/snapshot')).state.provision.stage, 'approved');
+}));
+test('provision admission binds signed purpose and live policy; real freeze blocks final consumption', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current();
+  assert.equal((await call(mf, 'missing', '/provision/missing-draft')).status, 409);
+  const wrongPurpose = await provisionInput(mf, 'purpose', 'prepare-purpose');
+  assert.equal((await call(mf, 'purpose', '/provision/begin', wrongPurpose)).status, 409,
+    'a valid signature on another purpose cannot approve this draft');
+  const name = 'provision-freeze'; const input = await provisionInput(mf, name);
+  const empty = await ok(mf, name, '/provision/snapshot');
+  for (const path of ['begin-expired', 'begin-frozen', 'begin-policy', 'begin-allowlist', 'begin-clock']) {
+    assert.equal((await call(mf, name, '/provision/' + path, input)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/provision/snapshot'), empty);
+  }
+  await ok(mf, name, '/provision/begin', input);
+  const signed = await provisionVerification(mf, name);
+  const pending = await ok(mf, name, '/provision/snapshot');
+  for (const path of ['commit-expired', 'commit-frozen', 'commit-policy', 'commit-allowlist', 'commit-clock']) {
+    assert.equal((await call(mf, name, '/provision/' + path, signed)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/provision/snapshot'), pending);
+  }
+  const freeze = await ok(mf, name, '/provision/freeze');
+  assert.notEqual(freeze.status, 200, 'new inventory is still unknown to the production closer');
+  assert.equal((await call(mf, name, '/provision/commit', signed)).status, 409);
+  assert.deepEqual(await ok(mf, name, '/provision/snapshot'), pending);
+}));
+
 test('actual Rust WebCrypto envelope authenticates identity and both layers; rewrap preserves protocol material', { timeout: 90000 }, async () => fixture(async current => {
   const mf = current(); const name = 'envelope';
   const identity = { environment: 'staging', account_id: 'synthetic-account', role: 'executor',

@@ -8,6 +8,10 @@ use std::{
 };
 
 fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
+    // Accepted sockets can inherit the polling listener's nonblocking mode on
+    // Darwin. Reset it so a fragmented body waits within the existing timeout
+    // instead of panicking on WouldBlock and killing the fixture authority.
+    stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
