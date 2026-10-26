@@ -80,8 +80,9 @@ pub(crate) fn check_provider_http_provider(
     timeout_ms: u64,
     transport: &str,
 ) -> Result<ProviderSnapshot, ProviderCheckError> {
-    validate_provider_base_url_for_transport(base_url, transport)
-        .map_err(ProviderCheckError::InvalidConfig)?;
+    validate_provider_base_url_for_transport(base_url, transport).map_err(|_| {
+        ProviderCheckError::InvalidConfig("invalid provider URL or transport configuration".into())
+    })?;
     let client = ProviderProbeHttpClient::new(base_url, auth_token, timeout_ms, transport)?;
     let info_started_at = Instant::now();
     let info: ProviderInfo = client.get_json("/v1/provider/info")?;
@@ -93,9 +94,25 @@ pub(crate) fn check_provider_http_provider(
         .as_millis()
         .min(u64::MAX as u128) as u64;
     let compatibility = evaluate_provider_compatibility(&info, Some(&health));
-    let status = health
-        .status
-        .unwrap_or_else(|| if health.ok { "ok" } else { "not_ok" }.to_string());
+    // Compatibility consumes the actual response above. Only its diagnostic
+    // projection is restricted: provider free text is not a safe error message.
+    let status = safe_provider_health_status(health.status.as_deref(), health.ok);
+    let last_error = health
+        .last_error
+        .as_deref()
+        .filter(|error| !error.trim().is_empty())
+        .map(|_| "provider reported an error".to_string());
+    let fallback_reason = if compatibility.status == ProviderCompatibilityStatus::Degraded {
+        Some(if last_error.is_some() {
+            "provider_health_reported_error".to_string()
+        } else if health.ok {
+            format!("provider_health_status:{status}")
+        } else {
+            format!("provider_health_unhealthy:{status}")
+        })
+    } else {
+        compatibility.fallback_reason
+    };
     Ok(ProviderSnapshot {
         provider_id: info.provider_id,
         name: info.name.unwrap_or_else(|| "Provider".to_string()),
@@ -110,8 +127,8 @@ pub(crate) fn check_provider_http_provider(
         compatibility_status: compatibility.status,
         status,
         queue_depth: health.queue_depth,
-        last_error: health.last_error,
-        fallback_reason: compatibility.fallback_reason,
+        last_error,
+        fallback_reason,
         info_latency_ms,
         health_latency_ms,
         total_latency_ms: info_latency_ms.saturating_add(health_latency_ms),
@@ -133,15 +150,14 @@ impl ProviderProbeHttpClient {
         timeout_ms: u64,
         transport: &str,
     ) -> Result<Self, ProviderCheckError> {
-        let base_url = Url::parse(base_url.trim())
-            .map_err(|err| ProviderCheckError::InvalidConfig(err.to_string()))?;
+        let base_url = Url::parse(base_url.trim()).map_err(|_| {
+            ProviderCheckError::InvalidConfig("invalid provider URL configuration".into())
+        })?;
         let mut builder = Client::builder().timeout(Duration::from_millis(timeout_ms.max(1)));
         if transport.trim() == LOOPBACK_HTTP_PROVIDER_TRANSPORT {
             builder = builder.no_proxy();
         }
-        let http = builder
-            .build()
-            .map_err(|err| ProviderCheckError::Unreachable(err.to_string()))?;
+        let http = builder.build().map_err(safe_provider_http_error)?;
         Ok(Self {
             base_url,
             auth_token: auth_token
@@ -159,34 +175,69 @@ impl ProviderProbeHttpClient {
         let url = self
             .base_url
             .join(path.trim_start_matches('/'))
-            .map_err(|err| ProviderCheckError::InvalidConfig(err.to_string()))?;
+            .map_err(|_| {
+                ProviderCheckError::InvalidConfig("invalid provider URL configuration".into())
+            })?;
         let mut request = self.http.get(url);
         if let Some(token) = &self.auth_token {
             request = request.bearer_auth(token);
         }
-        let response = request
-            .send()
-            .map_err(|err| ProviderCheckError::Unreachable(err.to_string()))?;
+        let response = request.send().map_err(safe_provider_http_error)?;
         let status = response.status();
-        let body = response
-            .bytes()
-            .map_err(|err| ProviderCheckError::Unreachable(err.to_string()))?;
+        // Reject status failures without retaining or reflecting their body.
         if status == StatusCode::UNAUTHORIZED {
-            let detail = String::from_utf8_lossy(body.as_ref()).trim().to_string();
-            return Err(ProviderCheckError::Unauthorized(if detail.is_empty() {
-                "HTTP 401".to_string()
-            } else {
-                detail
-            }));
+            return Err(ProviderCheckError::Unauthorized("HTTP 401".into()));
         }
         if !status.is_success() {
-            return Err(ProviderCheckError::Unreachable(
-                String::from_utf8_lossy(body.as_ref()).trim().to_string(),
-            ));
+            return Err(ProviderCheckError::Unreachable(format!(
+                "HTTP {}",
+                status.as_u16()
+            )));
         }
+        let body = response.bytes().map_err(safe_provider_http_error)?;
         serde_json::from_slice(body.as_ref())
-            .map_err(|err| ProviderCheckError::Unreachable(err.to_string()))
+            .map_err(|_| ProviderCheckError::Unreachable("provider response decode failed".into()))
     }
+}
+
+// reqwest Display may include a private URL; serde Display may quote a remote
+// JSON value. Classify errors without formatting either untrusted source.
+#[cfg(not(target_arch = "wasm32"))]
+fn safe_provider_http_error(error: reqwest::Error) -> ProviderCheckError {
+    let summary = if error.is_timeout() {
+        "provider request timed out"
+    } else if error.is_connect() {
+        "provider connection failed"
+    } else if error.is_builder() {
+        "provider HTTP request configuration failed"
+    } else if error.is_body() {
+        "provider response read failed"
+    } else {
+        "provider HTTP request failed"
+    };
+    ProviderCheckError::Unreachable(summary.into())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn safe_provider_health_status(status: Option<&str>, ok: bool) -> String {
+    match status
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("ok") => "ok",
+        Some("ready") => "ready",
+        Some("not_ok") => "not_ok",
+        Some("degraded") => "degraded",
+        Some("unhealthy") => "unhealthy",
+        Some("error") => "error",
+        Some("starting") => "starting",
+        Some("busy") => "busy",
+        None | Some("") if ok => "ok",
+        None | Some("") => "not_ok",
+        Some(_) => "unknown",
+    }
+    .into()
 }
 
 pub(crate) fn normalize_host_for_connect(host: &str) -> String {
