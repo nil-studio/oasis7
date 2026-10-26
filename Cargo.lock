@@ -6802,6 +6802,7 @@ dependencies = [
  "oasis7_viewer_codec",
  "oasis7_wasm_abi",
  "oasis7_world_projection",
+ "oasis7_world_state",
  "reqwest 0.13.5",
  "serde",
  "serde_cbor",

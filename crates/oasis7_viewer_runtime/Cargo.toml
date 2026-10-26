@@ -28,6 +28,7 @@ unicode-normalization = "0.1"
 toml = "0.9.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_world_projection = { path = "../oasis7_world_projection" }
 getrandom = "0.4"
 tungstenite = "0.30.0"
