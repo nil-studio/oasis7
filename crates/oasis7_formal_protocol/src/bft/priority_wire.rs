@@ -9,7 +9,7 @@ use serde::de::{Error, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserializer, Serializer};
 
-pub(super) fn serialize<S: Serializer>(
+pub fn serialize<S: Serializer>(
     values: &BTreeMap<String, i128>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
@@ -20,7 +20,7 @@ pub(super) fn serialize<S: Serializer>(
     map.end()
 }
 
-pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+pub fn deserialize<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<BTreeMap<String, i128>, D::Error> {
     struct Priorities;

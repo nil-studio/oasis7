@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use oasis7_proto::distributed_bft::v2::{BftCommitCertificateV2, BftVotePhaseV2, BftVoteValueV2};
 
-use super::super::BFT_MAX_ROUNDS_PER_HEIGHT_V2;
-use super::super::verified_commit::BftHeightProposerScheduleV2;
+use super::BFT_MAX_ROUNDS_PER_HEIGHT_V2;
+use super::verified_commit::BftHeightProposerScheduleV2;
 
 /// Validate a complete V2 commit certificate against the exact height schedule.
 /// This checks protocol/QC lineage only; it does not validate Runtime execution.

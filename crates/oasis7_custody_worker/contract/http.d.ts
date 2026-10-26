@@ -93,7 +93,9 @@ export type CustodyIntentV1 = ({
   "kind": "provision";
   "login_request_id": string;
   "native_identity_namespace": string;
+  "plan_digest": string;
   "provision_id": string;
+  "purpose": string;
   "register_request_id": string;
   "transport_limit": DecimalU64;
   "world_identity": ApprovedWorldV1;

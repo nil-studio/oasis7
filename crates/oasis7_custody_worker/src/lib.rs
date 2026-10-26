@@ -38,6 +38,13 @@ pub mod approval_store;
     any(feature = "identity", feature = "owner", feature = "executor")
 ))]
 pub mod envelope_crypto;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+pub mod provision_approval_store;
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "identity", feature = "owner", feature = "executor")
+))]
+pub mod role_key_store;
 
 #[cfg(target_arch = "wasm32")]
 mod platform;

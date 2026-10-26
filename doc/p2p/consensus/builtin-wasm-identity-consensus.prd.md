@@ -6,6 +6,9 @@
 - 交付事实：Git、PR、实际 CI 与评审记录；Issue / Project 按需跟踪，遵循[开发流程规范](../../engineering/workflow/source-of-truth.md)。
 
 审计轮次: 5（原迁移记录，不代表本次运行验收）
+
+源码输入闭包的[版本化目标合同](../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-source-input-rule)由构建设计唯一拥有；identity 消费者的规则版本核验及 legacy receipt 处置仍待实现与验证。文档补齐不修改既有历史身份、WASM 字节校验或发布授权，也不代表本次已复算或重建工件。
+
 ## 1. Executive Summary
 - Problem Statement: 解决“不同宿主构建产物 hash 漂移导致门禁不稳定”的生产问题，同时保留节点本地可构建能力。
 - Proposed Solution: 将一致性目标从“跨平台产物字节 hash 必须一致”升级为“跨平台模块身份（identity）一致”。

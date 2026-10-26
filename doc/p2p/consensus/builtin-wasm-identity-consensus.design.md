@@ -29,6 +29,15 @@ DWE-004 只在可验证工件身份子范围由本设计承接：bootstrap 的 a
 
 `module_id`、`source_hash`、`build_manifest_hash` 与 `identity_hash` 区分源码、配方与模块身份，实际 wasm hash 另行校验。当前 source_hash 必须复用 `oasis7_wasm_build::compute_source_hash`，覆盖模块及本地 path dependency closure 和适用 Cargo.lock，不重实现旧的“仅模块 crate”算法。源码闭包还包含本地包所属 workspace 的 `Cargo.toml`，包括 package/dependency/lint 继承所在的虚拟根；由 Cargo 定位归属，按去重、稳定相对路径标签纳入原始字节摘要，不扫描整个仓库。已作为包 manifest 覆盖的同一文件不重复计入；查找、读取或归一化失败必须显式拒绝。这样根继承配置变化即使不改变本地包文件或 lock，也会使 source identity 失效。sync 工具读取 build receipt、hash manifest 和模块映射，生成/核对三套 m1/m4/m5 identity manifest；bootstrap 再写入 ModuleArtifactIdentity。
 
+<a id="builtin-source-input-version"></a>
+### 4.1 共享模板闭包与规则版本消费
+
+Trace refs: O7-REQ-6bf0b127-1fdf-4912-9106-48f146b9f867；唯一规则声明为 [WASM build 的版本化输入闭包](../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-source-input-rule)。本设计不另建模板表、编码规则或兼容矩阵；sync/check 必须调用该 owner 的同版本输入实现，核对 receipt 的规则版本、source/build identity 与独立 WASM hash。
+
+这是目标消费合同，不宣称当前 hasher 已覆盖包外模板。新规则身份生成遇到 legacy/未知版本、缺失输入或不支持的输入形态必须显式失败，不通过降级 hasher、补 receipt 字段或跳过 source check 继续。重建/更新按主合同及原发布授权进行；旧 receipt/manifest 保留原语义，不能静默重写历史 identity、重建历史或改变 governing version。仅 wasm hash 相同不能证明新 source closure 已验证。
+
+验证复用主合同的模板分类、实际依赖/不相关模块、传递输入和版本负例，在 sync consumer 额外断言拒绝发生于写入 identity 之前、失败不改 tracked manifest；与 builder/suite 使用同一测试向量。新增场景待实现执行，不借现有 path-dependency 单测声称模板或旧 receipt 迁移已通过。
+
 <a id="3-关键接口-入口"></a>
 ## 5. 主流程与拒绝路径
 
@@ -59,6 +68,7 @@ identity manifest 和 build receipt 是构建事实；`.distfs/builtin_wasm/modu
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | 消费同版本输入闭包，拒绝 legacy 冒充新规则，不改历史身份 | [版本消费](#builtin-source-input-version) | wasm_build owner；identity sync/check | 不重新定义编码或模板清单，不改变 governing version |
 | [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | 工件 identity 不得替代 canonical block 选版与 activation 证明。 | [工件与版本](#builtin-artifact-version-binding) | world-runtime / WASM build owner | 仅 artifact identity 子范围；完整 activation、历史 replay、工件长期可用与客户端组合未验证。 |
 | [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | 三套模块保留 source/build/identity 与实际 wasm hash 的完整性；bootstrap、fallback 遵循各自边界。 | [identity contract](#builtin-identity-contract) | build/sync owner / runtime / QA | 配对 PRD AC-1..6 的工件身份校验仅支撑 DWE-004 可验证工件子范围；不代签产品整体选版或发布。 |
 
@@ -68,8 +78,9 @@ identity manifest 和 build receipt 是构建事实；`.distfs/builtin_wasm/modu
 
 | 上游 requirement / acceptance | 本设计条款 | 验证目标 / oracle | 验证方法 / 精确来源 | 证据产物 | 未覆盖边界 / residual risk |
 | --- | --- | --- | --- | --- | --- |
+| [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | [版本消费](#builtin-source-input-version) | 模板变化、legacy/未知版本拒绝，失败不得写 identity | [回归方法](../../../testing-manual.md#regression-oracle)；sync 测试入口 `../../../crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs`补主合同向量与拒绝写入断言 | 同候选输入版本、错误分类与文件未变断言 | planned；新增场景未执行，不代签重建或发布 |
 | [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | [工件与版本](#builtin-artifact-version-binding) | 本地缓存/回退不能证明版本已激活；两个测试只验证 fetch miss compile/cache 和 cached hash 在 manifest mismatch 时复用，不证明远程 hash 或 identity 校验。 | 执行 `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib --features test_tier_full materializer_`；结合 [builtin materializer tests](../../../crates/oasis7_runtime/src/tests/builtin_wasm_materializer.rs) 的 fetch-miss/cache 用例核对工件获取子范围；完整版本激活需 QA 另按 DWE-004 组合验收。 | 对应候选的命令、退出码、断言输出与环境；本次未运行此技术验收。 | 仅 artifact identity 子范围；完整 activation、历史 replay、工件长期可用与客户端组合未验证。 |
-| [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | [identity contract](#builtin-identity-contract) | 依赖变化改变源码身份；receipt/manifest 错配失败；不漏适用模块。 | 依 [testing manual](../../../testing-manual.md) 的构建环境执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_wasm_build source_hash` 与 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity sync_source_hash_tracks_local_path_dependency_changes`；适用时分别运行 `./scripts/sync-m1-builtin-wasm-artifacts.sh --check`、`./scripts/sync-m4-builtin-wasm-artifacts.sh --check`、`./scripts/sync-m5-builtin-wasm-artifacts.sh --check`，记录实际选中范围。 | 对应候选的命令、退出码、断言输出与环境；本次未运行此技术验收。 | 配对 PRD AC-1..6 的工件身份校验仅支撑 DWE-004 可验证工件子范围；不代签产品整体选版或发布。 |
+| [REQ-DWE-004](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-004)；Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc | [identity contract](#builtin-identity-contract) | 依赖变化改变源码身份；receipt/manifest 错配失败；不漏适用模块。版本消费另按主合同新增模板/legacy负例，不能用下列已有依赖测试代签。 | 依 [testing manual](../../../testing-manual.md) 的构建环境执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_wasm_build source_hash` 与 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity sync_source_hash_tracks_local_path_dependency_changes`；适用时分别运行 `./scripts/sync-m1-builtin-wasm-artifacts.sh --check`、`./scripts/sync-m4-builtin-wasm-artifacts.sh --check`、`./scripts/sync-m5-builtin-wasm-artifacts.sh --check`，记录实际选中范围。 | 对应候选的命令、退出码、断言输出与环境；本次未运行此技术验收。 | 配对 PRD AC-1..6 的工件身份校验仅支撑 DWE-004 可验证工件子范围；不代签产品整体选版或发布。 |
 
 ## 精确源码与断言定位
 

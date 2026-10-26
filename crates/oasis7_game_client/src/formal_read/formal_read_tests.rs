@@ -16,6 +16,8 @@ use oasis7_formal_protocol::controlled_authority::{
 pub(super) use response_fixture::response;
 use serde::Serialize;
 
+#[path = "formal_bft_transport_tests.rs"]
+mod bft_transport_tests;
 #[path = "formal_read_durable_set_tests.rs"]
 mod durable_set_tests;
 #[path = "formal_read_historical_v2_tests.rs"]

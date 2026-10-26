@@ -505,6 +505,24 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib driver_bft_v2 -- -
 
 Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和网络接线，其 test hook/内存 backend 不证明磁盘耐久性、实际 World 或硬件隔离。`driver_bft_v2` 另用真实 Runtime World、OS 生命周期锁与持久 execution ledger 验证 build/preview/commit/replay；冷重启用例须核对原证书前缀和已安装记录字节不变，并通过真实 Node 再提交新高度。两类用例的证明范围分别记录，不能互相代签。正式 profile、H/H+1 权威交接、checkpoint 消费者、长期可信 checkpoint 与跨故障域 custody 的整体验收仍须单独完成，不能据这些工程回归宣称 #4975 完成。
 
+#### 正式 BFT 固定 H+1 读取交接
+
+合同见 [des-p2p-formal-bft-read-handoff-v1](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。本切片只验证由外部固定 H 与 H+1 block ID 选择的历史读取，不把工程 V2 历史或服务自报 head 升级为正式信任。
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib bft:: -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_world_service --lib formal_bft -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_read::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_dependencies::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_storage::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib bft_transport_tests -- --test-threads=1
+./scripts/ci-tests.sh required --group cargo_tooling_contracts --repo-root "$PWD"
+```
+
+过滤器必须实际选中测试。纯 BFT 证明由 `oasis7_formal_protocol::bft` 提供，consensus facade 与宿主继续共用同一类型；保留既有 CBOR 字节（包括 self-describe tag）和摘要向量，普通客户端依赖闭包不包含 CAS/World/Node/执行后端。验收核对 qualified H 的完整 Snapshot/Journal/执行材料与结果索引、实际 World tick 等于 H position、H+1 隔离执行与 QC 绑定的原始 Snapshot/semantic/projection/result roots、持久提交后重开回读，以及新读取路径到实际客户端的证明校验。负例覆盖错误 H 目标、父引用、manifest、根与投影，工程历史冒充正式历史，交接前 World 不符且不得重写 tick，旧 controlled 权威在 H 后追加，以及当前授权撤销后的私有读取拒绝。
+
+固定 cut 的读取证据不证明最新状态、自动追随、正式写入接线、完整 checkpoint/full-sync 消费者或真实 signer custody。缺少独立当前授权 World 时私有读取必须拒绝，不能使用历史 World 代替。#4975 的其余实施与验收义务保持独立。
+
 #### 本机身份发布回归（NIR bootstrap）
 
 针对普通启动 ensure 与专用身份 helper 的本机持久化修改，运行：

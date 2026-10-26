@@ -38,6 +38,9 @@ case "${1:-}" in
       (cd crates/oasis7_custody_worker && npx --no-install wrangler deploy --dry-run --config "deploy/$role/wrangler.toml" --outdir "artifacts/$role/dry-run" --no-bundle)
     done
     bash crates/oasis7_custody_worker/scripts/build-approval-harness.sh
+    # Execute native custody regressions, including the Provision bootstrap wire
+    # contract; compiling the HTTP fixture alone does not run these assertions.
+    env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher hosted_identity::custody::tests --locked
     bash crates/oasis7_custody_worker/scripts/build-native-fixture.sh
     node crates/oasis7_custody_worker/scripts/contract.mjs check
     npm test --prefix crates/oasis7_custody_worker

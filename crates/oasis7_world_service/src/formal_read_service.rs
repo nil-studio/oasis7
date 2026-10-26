@@ -11,6 +11,43 @@ use oasis7_client_api::world_service::*;
 use oasis7_formal_protocol::controlled_authority::formal::*;
 use oasis7_runtime::{World, blake3_hex};
 
+/// Check a reader against the World that currently governs access. Historical
+/// publications must call this with the current authorization World rather
+/// than authorizing from the historical cut they are serving.
+pub(crate) fn authorized_formal_agent_in_world<'a>(
+    world: &World,
+    scope: &'a str,
+    reader: &str,
+) -> FormalReadResult<Option<&'a str>> {
+    if scope == "public" {
+        return Ok(None);
+    }
+    let agent = scope
+        .strip_prefix("agent:")
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| {
+            FormalReadError::RequestRejected("unsupported formal visibility scope".into())
+        })?;
+    let generation = if agent_authority::owner_public_key(world, agent)
+        .map_err(FormalReadError::GrantRejected)?
+        == reader
+    {
+        0
+    } else {
+        world
+            .capability_revocation_state()
+            .agent_signer_delegations
+            .get(agent)
+            .ok_or_else(|| {
+                FormalReadError::GrantRejected("formal scope delegation unavailable".into())
+            })?
+            .generation
+    };
+    agent_authority::validate_agent_signer(world, agent, reader, generation)
+        .map_err(FormalReadError::GrantRejected)?;
+    Ok(Some(agent))
+}
+
 /// Private full-state source; only its authorized projection leaves this API.
 pub struct FormalReadPublication {
     anchor: VerifiedFormalReadAnchorV1,
@@ -121,33 +158,7 @@ impl FormalReadPublication {
         scope: &'a str,
         reader: &str,
     ) -> FormalReadResult<Option<&'a str>> {
-        if scope == "public" {
-            return Ok(None);
-        }
-        let agent = scope
-            .strip_prefix("agent:")
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| {
-                FormalReadError::RequestRejected("unsupported formal visibility scope".into())
-            })?;
-        let generation = if agent_authority::owner_public_key(&self.world, agent)
-            .map_err(FormalReadError::GrantRejected)?
-            == reader
-        {
-            0
-        } else {
-            self.world
-                .capability_revocation_state()
-                .agent_signer_delegations
-                .get(agent)
-                .ok_or_else(|| {
-                    FormalReadError::GrantRejected("formal scope delegation unavailable".into())
-                })?
-                .generation
-        };
-        agent_authority::validate_agent_signer(&self.world, agent, reader, generation)
-            .map_err(FormalReadError::GrantRejected)?;
-        Ok(Some(agent))
+        authorized_formal_agent_in_world(&self.world, scope, reader)
     }
     fn projection(&self, scope: &str, reader: &str) -> FormalReadResult<WorldServiceProjection> {
         let agent = self.authorized_agent(scope, reader)?;

@@ -39,6 +39,19 @@ pub(super) fn dispatch<'a>(mut args: impl Iterator<Item = &'a str>) -> Option<Re
             Some(super::node_lifecycle::legacy_migration::run_legacy(args))
         }
         CommandKind::DurableSetControl => Some(super::formal_durable_set_cli::run(args)),
+        CommandKind::BftRead => {
+            #[cfg(unix)]
+            {
+                Some(super::formal_bft_read_cli::run(args))
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = args;
+                Some(Err(
+                    "UNSUPPORTED_ROLE_OR_PROFILE: formal BFT read CLI requires Unix".into(),
+                ))
+            }
+        }
     }
 }
 

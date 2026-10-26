@@ -5,6 +5,20 @@
 
 审计轮次: 2
 
+<a id="letai-development-hold"></a>
+## 当前开发状态：LetAI 专属路径暂停推进
+
+自 2026-10-26 起，LetAI 专属功能的后续开发暂时 **hold，不作为主要开发路径**。范围包括本文的 OC/LetAI 额度桥、LetAI adapter、LetAI 专属快捷接入和本地试玩路径的新增能力与专项优化。本文及配对设计继续保留为既有功能、约束和历史证据的依据；其中“目标”“待实现”“后续”等表述不再表示当前排期或自动派工许可。该优先级决定不改变各模块原有业务权威。
+
+- 不因已有设计、未完成验收或已关闭任务而自动恢复开发；恢复时须先取得明确的继续安排，并重新核对当前范围、依赖和安全/兼容条件。
+- 本次不删除代码、配置、凭据或数据，不自动停止服务、禁用既有测试、重放操作或部署新版本。现有运行方式仍按适用版本与授权判断；保留可运行示例不等于推荐主线。
+- 已存在的充值/订单、未知结果、原幂等身份、对账、receipt、审计及资金/凭据保护义务不因 hold 消失；关闭开发待办不表示已修复缺陷、退款、完成结算或获得新操作权限。实际运行若出现安全事件或未决资金问题，仍按既有运维职责另行处置。
+- 通用 Provider、Game Client、BYOK 以及 DeepSeek/OpenRouter 等非 LetAI 专属能力不在此暂停范围；不把共享基础设施的修复一并暂停，也不声称其他供应商已经具备未经验证的替代能力。
+
+
+新增安全诊断细项的系统设计见[LetAI 错误安全投影](mainchain-token-newapi-quota-bridge.design.md#letai-safe-error-projection)：全分支错误由 adapter 输出可安全记录的受控信息。该细项待实现和消费者验证；不改变本页已有额度、订单、重试与对账语义，不因设计补齐升级部署或业务验收状态。
+
+
 ## 1. Executive Summary
 - Problem Statement（原设计基线）: 本专题最初提出时，`oasis7` 已经有 `OC`、`oc:pk:` 与签名化 transfer submit，但从链上 `OC` 到 LetAI Run 大模型可调用 `token_key` 的路径只做到了“入账后向一个 generic credit endpoint 发 POST”。这无法覆盖 LetAI Run OpenAPI 的真实对象模型，也无法保证每个用户/项目的 `token_key`、充值和审计查询闭环。
 - 当前源码范围：固定 main `b5476a616dd3d4dbc29f332ee42ed848903c1f60` 的 [service_letai.rs](https://github.com/nil-studio/oasis7/blob/b5476a616dd3d4dbc29f332ee42ed848903c1f60/crates/oasis7_newapi_bridge_service/src/bin/oasis7_newapi_bridge_service/service_letai.rs) 已包含 user upsert、project/token 确保与持久化、topup、user summary/project token summary/log 查询及 reconciled 写入编排；generic-only 不再是当前源码事实。源码存在不等于完整业务或部署验收。配对设计的 [首次绑定恢复](mainchain-token-newapi-quota-bridge.design.md#bridge-identity-recovery)、[扫描完整性](mainchain-token-newapi-quota-bridge.design.md#bridge-scan-completeness)、[有效处理权](mainchain-token-newapi-quota-bridge.design.md#bridge-reconcile-ownership)与[持久业务阶段](mainchain-token-newapi-quota-bridge.design.md#bridge-recovery-state)四项恢复验证仍为 planned，不因已有对象编排而关闭。

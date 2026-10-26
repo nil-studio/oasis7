@@ -183,6 +183,15 @@ class AdmissionTests(unittest.TestCase):
             self.assertNotIn('GH_TOKEN', git.call_args.kwargs['env'])
             self.assertNotIn('NODE_OPTIONS', git.call_args.kwargs['env'])
 
+    def test_node_preload_uses_the_reviewed_upstream_revision(self):
+        hook = Path(__file__).with_name('ci-rust-cache-admission-hook.cjs')
+        result = subprocess.run(['node', '-e',
+                                 "process.stdout.write(require(process.argv[1]).ACTION_REVISION || '')",
+                                 str(hook)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, admission.ACTION_REVISION,
+                         'upstream pin and reviewed Node bundle manifest must be upgraded together')
+
     def test_node_preload_checkpoint_contract(self):
         result = subprocess.run(['node', str(Path(__file__).with_suffix('.cjs'))],
                                 capture_output=True, text=True, timeout=30)

@@ -9,11 +9,13 @@ const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
 const {syncBuiltinESMExports} = require('node:module');
 
+// Upgrade this revision and the reviewed bundle hashes together.
+const ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0';
 const PINNED_HASHES = Object.freeze({
-  'restore.js': '34d34de914ff400c924c19fb62c534cf511d91d8cd13a5738b558b5da11d6119',
-  'save.js': 'b52287b4466b5c4f56b979d2a71c14739c77060a37affe97ff48947746e150e9',
-  'cleanup-BWEbZ6YT.js': '5d60857f7771c53656f9617f15c14cb3d8c97a4edc94e2bdf5e596d7f8dba5f6',
-  'cache-CTfQoCTL.js': 'c6bc453502e8b0fb30ab3772924558074808f03b5811f19a2e1fc0ca23e371ab',
+  'restore.js': 'fe663d7d2fa188abdba01be739acffc3fde7f66dfd579f9917a9e3e78c1e4e81',
+  'save.js': '7a067804c0f1f976cbb84d32cee9ceb5fffa6c5d4400c54ef378679f6fccff17',
+  'cleanup-e3M0pm4f.js': 'f7172929896dd424f825d9fd196013a5f3ce1b98b9aa3f5bd08697b03f8a5f03',
+  'cache-Dl81DHPs.js': '86ab541f44139ba8839857ff73407c447b2ab4da0e813865013c775fb8a3db44',
 });
 const ARCHIVES = new Set(['cache.tzst', 'cache.tgz']);
 
@@ -147,4 +149,4 @@ function installGuard(options = {}) {
   return {mode, restore() { fs.statSync = original; syncBuiltinESMExports(); }};
 }
 
-module.exports = {PINNED_HASHES, installGuard, inspectAction, archiveIdentity, checkWithPython};
+module.exports = {ACTION_REVISION, PINNED_HASHES, installGuard, inspectAction, archiveIdentity, checkWithPython};

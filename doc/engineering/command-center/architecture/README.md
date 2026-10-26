@@ -33,6 +33,21 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 - 要升级、回退或发布：[发布与运维](#cc-architecture-release)。
 - 要调整指挥面板技术路线、数据或执行能力：[指挥客户端](#cc-architecture-command-center)。
 
+<a id="cc-architecture-business-contracts"></a>
+
+## 业务链路的接口主责
+
+2026-10-26 设计局部核对：以下是现有模块内的目标接口收敛，不是新增运行服务、全仓拆包或实现完成声明。文档与源码核对基线为 `b9bc4b2a6df858e27f94754d227b0fdc23ae3639`；各项实施、真实入口及兼容验收仍待对应交付验证，不更新其他主题的部署基线。
+
+| 业务问题 | 唯一主责与下游边界 | 目标合同 |
+| --- | --- | --- |
+| 服务读取如何解释 cognition 历史 | Projection codec 解释现有只读值；Service 认证/裁剪，Runtime 保留执行、恢复与 raw 兼容取值 | [Cognition 读取](../../../world-runtime/design.md#cognition-projection-read-contract) |
+| 玩家撤销、重试和重新授权由谁裁决 | Runtime 拥有 delegation mutation/exact-replay；Viewer 保留 session/nonce/profile 并只映射结果 | [委托结果与重试](../../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#owner-delegation-result-replay-contract) |
+| 断线后如何继续同一原意图 | Game Client 拥有单操作 phase/disposition；Harness 保留全 run 扫描、预算与停止策略；查询不隐含重投 | [原操作生命周期](../../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port) |
+| 如何判断自己的能力与下一条恢复路径 | 只读领域查询分开个人能力、世界上下文与三态恢复；presentation 不从文案或目标标签制造可行性 | [能力与恢复查询](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#subject-capability-recovery-query) |
+
+配套技术边界由[网络失败语义](../../../p2p/network/readme-p1-network-production-hardening.design.md#typed-failure-contract)、[额度桥诊断](../../../p2p/token/mainchain-token-newapi-quota-bridge.design.md)、[Provider 探测](../../../world-simulator/llm/provider-loopback-http-contract.design.md)和[WASM 构建来源](../../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)分别拥有。不能因共享“恢复/错误/接口”词汇合并为万能状态机；既有可独立修复的业务缺陷不必等待全部架构迁移。
+
 ## 怎么读状态
 
 | 层面 | 本页表达什么 | 不由它推导什么 |

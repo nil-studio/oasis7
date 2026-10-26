@@ -34,6 +34,8 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 
 ## 4. 边界与结构
 
+本专题的 core 收敛针对 PoS/Node 推进；基于 `oasis7_proto` wire 类型的共享、纯、版本化 BFT 证明验证合同由 `oasis7_formal_protocol::bft` 承载，consensus 保留 machine、journal、持久化并重导出同一份协议 API，具体边界见 [P2P 结构](../design.md#4-边界与结构)。
+
 consensus node_pos拥有泛型attestation/pending/decision与状态adapter；node拥有runtime state、网络gossip/endpoint、复制/execution hook/snapshot接线及NodeError翻译；pos复用同core。依赖node→consensus，consensus内聚DHT/net abstraction，不能反依赖net。
 
 ### des-ccg-core-adapter

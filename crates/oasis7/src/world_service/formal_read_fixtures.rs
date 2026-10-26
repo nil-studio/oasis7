@@ -260,7 +260,19 @@ pub(crate) fn projection(world: &World) -> WorldServiceProjection {
 /// does not exercise the production executor or certify endpoint key custody.
 pub(crate) fn actual_world_successor_fixture(
     parent: &VerifiedFormalReadAnchorV1,
+    world: World,
+) -> (
+    World,
+    VerifiedFormalReadAnchorV1,
+    FormalQualifiedCommitProofV1,
+) {
+    actual_world_successor_fixture_with_handoff(parent, world, None)
+}
+
+pub(crate) fn actual_world_successor_fixture_with_handoff(
+    parent: &VerifiedFormalReadAnchorV1,
     mut world: World,
+    handoff: Option<ProfileHandoffV1>,
 ) -> (
     World,
     VerifiedFormalReadAnchorV1,
@@ -298,7 +310,7 @@ pub(crate) fn actual_world_successor_fixture(
         execution_policy_digest: parent.head().record().execution_policy_digest.clone(),
         pre_state_root: parent.head().record().after_state_root.clone(),
         frozen_material_digest: h(64),
-        handoff: None,
+        handoff: handoff.clone(),
     };
     let receipt = |role, binding: &EndpointSignerBindingV1, n| {
         let receipt = FormalFrozenReceiptBodyV1 {
@@ -327,6 +339,7 @@ pub(crate) fn actual_world_successor_fixture(
     record.request_digest = body.request_digest.clone();
     record.payload_digest = body.payload_digest.clone();
     record.frozen_reservation_id = Some(body.reservation_id().unwrap());
+    record.handoff = handoff;
     record.runtime_manifest_digest = body.runtime_manifest_digest.clone();
     record.before_state_root = body.pre_state_root;
     record.after_state_root = blake3_hex(&serde_cbor::to_vec(&world.snapshot()).unwrap());

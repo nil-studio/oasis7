@@ -134,7 +134,7 @@ jobs:
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
           shared-key: release-packages-web-wasm-trusted-v3
@@ -256,7 +256,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: python3 scripts/ci-rust-cache-admission.py install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os == 'Linux' && steps.dependency-cache-tools.outcome == 'success'
         env:
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
@@ -269,7 +269,7 @@ jobs:
           shared-key: oasis7-package-native-${{ runner.os }}-${{ matrix.target_triple }}-${{ inputs.build_profile }}-trusted-v2
           cache-provider: github
           cache-on-failure: false
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os != 'Linux'
         with:
           save-if: false

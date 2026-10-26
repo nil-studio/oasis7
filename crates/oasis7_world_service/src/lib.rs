@@ -9,6 +9,7 @@ pub mod correlation;
 pub use cognition_disposition::{
     AuthenticatedCognitionDisposition, ValidatedStaleCognitionRejection,
 };
+pub mod formal_bft_read_service;
 mod formal_governance;
 pub mod formal_projection;
 mod formal_projection_header;

@@ -29,7 +29,7 @@ _spec = importlib.util.spec_from_file_location('dependency_maintenance',
 maintenance = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(maintenance)
 policy = maintenance.policy
-ACTION_REVISION = '6323deb102c322ba6fcbdcafc7e3dddab59af2b6'
+ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0'
 DENIED = 78
 FAMILIES = {
     'shared-native': ('ci-shared-native-trusted-v3', '.github/workflows/rust.yml', 'full-regression'),

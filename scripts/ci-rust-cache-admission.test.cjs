@@ -43,7 +43,7 @@ test('only the fixed entry, provider and complete bundle chain are accepted', t 
     assert.throws(() => f.install(undefined, {entry}), /unknown action entry/);
   }
   assert.throws(() => f.install(undefined, {environment: {...f.environment, 'INPUT_CACHE-PROVIDER': 'other'}}), /provider/);
-  fs.appendFileSync(path.join(f.action, 'cache-CTfQoCTL.js'), 'changed');
+  fs.appendFileSync(path.join(f.action, 'cache-Dl81DHPs.js'), 'changed');
   assert.throws(() => f.install(), /bundle changed/);
 });
 
@@ -148,14 +148,14 @@ test('the real preload cannot silently become disabled on an unknown entry', () 
 
 // An optional local source argument exercises the actual fixed upstream save
 // implementations, without vendoring 1.8 MB or making normal CI need a network.
-// Fetch cache-CTfQoCTL.js from ACTION_REVISION, then pass its path to this test.
+// Fetch cache-Dl81DHPs.js from ACTION_REVISION, then pass its path to this test.
 // The fixed digest is verified before any upstream code is executed.
 const providerSource = process.argv[2];
 for (const version of ['V1', 'V2']) {
   test('fixed upstream ' + version + ' does not reserve or upload a rejected archive',
     {skip: !providerSource}, async t => {
       const source = fs.readFileSync(providerSource, 'utf8');
-      assert.equal(crypto.createHash('sha256').update(source).digest('hex'), guard.PINNED_HASHES['cache-CTfQoCTL.js']);
+      assert.equal(crypto.createHash('sha256').update(source).digest('hex'), guard.PINNED_HASHES['cache-Dl81DHPs.js']);
       function extract(name) {
         const start = source.indexOf('function ' + name + '(');
         assert.ok(start >= 0);

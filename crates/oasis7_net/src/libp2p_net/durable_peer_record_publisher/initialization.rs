@@ -21,6 +21,10 @@ pub(super) const INTENT_FILE_NAME: &str = "peer-record-publication-v2.initializi
 pub(super) const INTENT_TEMP_FILE_NAME: &str = "peer-record-publication-v2.initializing.cbor.tmp";
 const MAX_INTENT_BYTES: usize = 4096;
 
+#[cfg(test)]
+#[path = "initialization_test_hooks.rs"]
+pub(super) mod test_hooks;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InitializationIntentV2 {
@@ -37,8 +41,15 @@ pub(super) fn initialize(
     require_private_persistence_platform()?;
     let (_, expected_binding) = publisher_binding(template, keypair)?;
     ensure_private_directory(directory)?;
+    // The intent temp is unlinked on publication. Its inode lock alone cannot
+    // exclude a stale empty-path observer from creating a different temp inode.
+    // Lock the existing directory through final cleanup, without creating any
+    // permanent material before the durable intent or leaving a new lock file.
+    let _initialization_lock = acquire_initialization_lock(directory)?;
 
     let intent_lock = acquire_or_create_intent(directory, &expected_binding)?;
+    #[cfg(test)]
+    test_hooks::reach(test_hooks::Stage::IntentAcquired);
     let stable_lock = acquire_stable_lock(directory)?;
     finish_initialization(
         directory,
@@ -47,6 +58,44 @@ pub(super) fn initialize(
         &expected_binding,
         keypair,
     )
+}
+
+fn acquire_initialization_lock(directory: &Path) -> Result<File, WorldError> {
+    let lock = File::open(directory).map_err(|error| {
+        io_error(
+            "open publication initialization directory",
+            directory,
+            error,
+        )
+    })?;
+    lock.try_lock().map_err(|error| {
+        protocol_error(format!(
+            "publication initialization is already in use: {error:?}"
+        ))
+    })?;
+    ensure_not_symlink(directory)?;
+    let open_metadata = lock
+        .metadata()
+        .map_err(|error| io_error("inspect locked publication directory", directory, error))?;
+    let path_metadata = fs::symlink_metadata(directory)
+        .map_err(|error| io_error("inspect publication directory path", directory, error))?;
+    if !open_metadata.is_dir() || !path_metadata.is_dir() {
+        return Err(protocol_error(
+            "publication initialization requires a directory".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if open_metadata.dev() != path_metadata.dev() || open_metadata.ino() != path_metadata.ino()
+        {
+            return Err(protocol_error(
+                "locked publication directory no longer matches its path".into(),
+            ));
+        }
+        super::ensure_private_mode(open_metadata.mode(), "publication directory")?;
+    }
+    Ok(lock)
 }
 
 pub(super) fn ensure_no_incomplete_bootstrap(directory: &Path) -> Result<(), WorldError> {
@@ -114,6 +163,8 @@ fn acquire_or_create_intent(
     }
 
     ensure_no_permanent_material(directory)?;
+    #[cfg(test)]
+    test_hooks::reach(test_hooks::Stage::EmptyChecked);
     if path_exists(&temp_path)? {
         let mut temp = open_locked_path(&temp_path)?;
         ensure_no_permanent_material(directory)?;

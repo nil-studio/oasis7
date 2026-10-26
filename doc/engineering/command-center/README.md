@@ -100,6 +100,8 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 ### 2. 真实首产物、阻塞恢复与回访
 
+业务接口的目标设计集中见[业务链路主责导航](architecture/README.md#cc-architecture-business-contracts)：Runtime 裁决委托、Game Client 管理原操作恢复、领域查询产生能力与恢复事实，Viewer 只适配和呈现。该设计增量不证明实现、生产或回访验收完成，也不改变首产物与持续能力的独立判据。
+
 starter 候选、owner 目标持久化等前置已有代码；Web guest 启动/只读世界推进和 Hosted 修复分别已合入。
 同一候选、同一正式世界上的实际生产、授权纠偏、阻塞恢复与目标接续尚未组合验收。
 下一步核对实际 owner/Agent 入口与首产物链路；guest 启动不能代替 owner onboarding 或游戏操作。

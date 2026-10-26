@@ -2,7 +2,7 @@ import { requestGameplayResult, receiveGameplayResult } from "./viewer_gameplay_
 import { getGameplayRecoveryScope, gameplaySendContextCurrent } from "./viewer_gameplay_recovery_scope.js";
 import { normalizeGameplayActionRequest } from "./viewer_feedback_actions.js";
 import { matchesGameplayReply, recoverGameplayFeedback, settleGameplayOriginal } from "./viewer_gameplay_receipt_feedback.js";
-import { quoteDependencyFingerprint, invalidateDependentQuote } from "./viewer_quote_dependencies.js";
+import { quoteDependencyFingerprint, coordinateDependentQuotes } from "./viewer_quote_dependencies.js";
 import { safeAlternativeMarkup, bindSafeAlternativeLegacy } from "./viewer_safe_alternative_legacy.js";
 import { createSafeAlternativeModule } from "./viewer_safe_alternative_module.js";
 import { bindFeedbackScope } from "./viewer_feedback_scope.js";
@@ -39,7 +39,7 @@ import { createGovernanceVoteQuoteIntegration } from "./governance_vote_quote_in
 import { createWarDeclarationQuoteIntegration } from "./war_declaration_quote_integration.js";
 import { createMarketQuoteDecisionIntegration } from "./market_quote_decision_integration.js";
 import { createViewerQuoteProtocolFacade } from "./viewer_quote_protocol_facade.js";
-import { createViewerRenderHookRegistry } from "./viewer_render_hook_registry.js";
+import { createViewerApplication } from "./viewer_application.js";
 import { buildViewerEntityLists, renderViewerEntityList, resourceSummary } from "./viewer_entity_list_renderer.js";
 import {
   DEFAULT_WS_ADDR,
@@ -101,9 +101,16 @@ const pendingControlFeedback = new Map();
 const pendingSemanticCommands = [];
 let pendingSessionRegisterWaiter = null;
 const elements = {};
-const renderHook = createViewerRenderHookRegistry();
-let bootstrapped = false;
-let bootstrapPromise = null; const worldFeedTransport = createWorldFeedTransport({ getSocket: () => socket, getState: () => state, render, requestSnapshot: () => requestSnapshotSafe(), sendJson });
+const application = createViewerApplication({
+  coordinateState: () => coordinateDependentQuotes(state),
+  bootstrap,
+  onBootstrapError(error) {
+    state.connectionStatus = "error";
+    state.auth.error = String(error);
+    state.lastError = String(error);
+  },
+});
+const worldFeedTransport = createWorldFeedTransport({ getSocket: () => socket, getState: () => state, render, requestSnapshot: () => requestSnapshotSafe(), sendJson });
 export const requestWorldFeed = (...args) => worldFeedTransport.requestWorldFeed(...args); export const reloadWorldFeedFromAuthoritativeSnapshot = (...args) => worldFeedTransport.reloadWorldFeedFromAuthoritativeSnapshot(...args);
 const HELLO_ACK_TIMEOUT_MS = 2000; const INITIAL_SNAPSHOT_RETRY_DELAY_MS = 1000; const INITIAL_SNAPSHOT_SLOW_RETRY_AFTER = 5;
 const INITIAL_SNAPSHOT_SLOW_RETRY_DELAY_MS = 5000; const EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS = 2500;
@@ -163,8 +170,8 @@ export function setSelectedSearch(value) {
   state.selectedSearch = String(value || "");
   render();
 }
-export const setRenderHook = (nextHook) => renderHook.set(nextHook);
-export const subscribeRenderHook = (nextHook) => renderHook.subscribe(nextHook);
+export const setRenderHook = (nextHook) => application.setView(nextHook);
+export const subscribeRenderHook = (nextHook) => application.attachView(nextHook);
 function getSearchParams() {
   return new URLSearchParams(window.location.search || "");
 }
@@ -4185,9 +4192,9 @@ function bindEvents() {
 }
 
 function render(invalidation) {
-  invalidateDependentQuote(state, "refine", state.snapshot);
-  invalidateDependentQuote(state, "product", state.snapshot);
-  renderHook.invoke(invalidation);
+  // Compatibility facade: every existing owner mutation still converges quote
+  // dependencies before views observe it, including post-snapshot binding changes.
+  application.coordinateAndPublish(invalidation);
 }
 
 function requestRender() {
@@ -4325,10 +4332,7 @@ function updatePixelWorldRuntimeMeta(meta = {}) {
 }
 
 export function initializeSoftwareSafeCore() {
-  if (bootstrapped) return bootstrapPromise;
-  bootstrapped = true;
-  bootstrapPromise = bootstrap().catch((error) => { state.connectionStatus = "error"; state.auth.error = String(error); state.lastError = String(error); render(); throw error; });
-  return bootstrapPromise;
+  return application.start();
 }
 
 window.addEventListener("error", (event) => {

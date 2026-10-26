@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7_cas = { version = "0.1.0", path = "../oasis7_cas" }
+oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol" }
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
