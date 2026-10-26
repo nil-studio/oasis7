@@ -180,20 +180,13 @@ fn repeated_protected_time_reads_do_not_reload_or_replay_nonempty_history() {
         .lock()
         .expect("test ledger")
         .lease_generation;
+    let completed_before_release = fixture.server.completed_connections.load(Ordering::Acquire);
     drop(lease);
-    for _ in 0..100 {
-        if fixture
-            .backend
-            .0
-            .lock()
-            .expect("test ledger")
-            .lease_generation
-            > generation_before_release
-        {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
+    // Completion includes backend publication and release-time history validation.
+    // Observe both before checking the generation and sampling reacquisition work.
+    fixture
+        .server
+        .wait_for_completed_connection_after(completed_before_release);
     assert!(
         fixture
             .backend

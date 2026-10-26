@@ -932,9 +932,18 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
     late_node
         .stop()
         .expect("stop late validator after catch-up");
-    let histories = identities
+    let stopped_states = identities
         .iter()
-        .map(|identity| identity.provider.backend.snapshot().state.history)
+        .map(|identity| identity.provider.backend.snapshot().state)
+        .collect::<Vec<_>>();
+    let stopped_signing_height = stopped_states
+        .iter()
+        .filter_map(|state| state.journal.as_ref().map(|journal| journal.height))
+        .max()
+        .unwrap_or(0);
+    let histories = stopped_states
+        .into_iter()
+        .map(|state| state.history)
         .collect::<Vec<_>>();
     let (tip_index, tip_history) = histories
         .iter()
@@ -1005,7 +1014,13 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
         "restart exactly two old and both new active validators"
     );
     assert!(restart_indices.contains(&tip_index));
-    let next_height = tip_height.checked_add(1).expect("test height bound");
+    // A stopped member's signed, uncommitted vote may be replayed by a peer.
+    // Require a height beyond every protected journal, so the four restarted
+    // members must supply fresh votes, including both newly installed members.
+    let next_height = tip_height
+        .max(stopped_signing_height)
+        .checked_add(1)
+        .expect("test height bound");
     let next_height_index = usize::try_from(next_height).expect("test height fits usize");
     assert!(
         histories
