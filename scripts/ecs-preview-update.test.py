@@ -269,6 +269,19 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual((self.root / "player").resolve(), self.old / "player")
         self.assertFalse(any(command[0] == "systemctl" for command in calls))
 
+    def test_reused_bundle_rejects_a_symbolic_viewer_even_when_bytes_match(self):
+        manifest = self.bundle()
+        with patch.object(self.updater, "run", return_value=subprocess.CompletedProcess([], 0, stdout="libraries found")):
+            release = self.updater.stage(manifest)
+            viewer = release / "bin/oasis7_viewer_live"
+            outside = self.root / "outside-viewer"
+            outside.write_bytes(viewer.read_bytes())
+            outside.chmod(0o755)
+            viewer.unlink()
+            viewer.symlink_to(outside)
+            with self.assertRaisesRegex(ValueError, "symbolic"):
+                self.updater.stage(manifest)
+
     def test_wrong_source_fails_before_switch(self):
         manifest = self.bundle(source="c" * 40)
         with self.assertRaisesRegex(ValueError,"BUILDINFO"):

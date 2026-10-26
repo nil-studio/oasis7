@@ -199,6 +199,8 @@ class Updater:
     def stage(self, manifest):
         release = Path(self.c["releases_dir"]) / manifest["release_id"]
         def check(root):
+            if root.is_symlink() or any(p.is_symlink() or not (p.is_dir() or p.is_file()) for p in root.rglob("*")):
+                raise ValueError("symbolic or non-regular installed release payload")
             sums = {}
             for line in (root / "SHA256SUMS").read_text().splitlines():
                 sha, name = line.split("  ", 1)
