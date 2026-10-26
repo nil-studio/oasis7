@@ -45,6 +45,15 @@ def verify_web_bytes(path, expected, actual, identity):
         raise ValueError("public HTML bytes differ beyond the launcher runtime data node")
 
 
+def public_web_resource(path):
+    # These are package metadata, generated declarations, transport sidecars
+    # and dedicated self-test pages; the public proxy deliberately excludes them.
+    return ("skills" not in path.parts and path.name != ".oasis7-viewer-dist-manifest.json"
+            and not path.name.endswith((".d.ts", ".gz"))
+            and path.name not in {"viewer_first_agent_claim_evidence.html",
+                                  "software_safe_first_agent_claim_evidence.html"})
+
+
 def signed_sample(client, device, identity):
     result = subprocess.run([str(client), "--config", str(device), "capabilities"],
                             check=True, timeout=15, text=True, capture_output=True)
@@ -105,7 +114,7 @@ def verify(request, config, device):
     # credentials or allowlist is accepted from the remote release manifest.
     web = Path(components["web"]["path"])
     for path in sorted(web.rglob("*")):
-        if path.is_file() and "skills" not in path.relative_to(web).parts:
+        if path.is_file() and public_web_resource(path.relative_to(web)):
             url = "/" + urllib.parse.quote(path.relative_to(web).as_posix(), safe="/")
             verify_web_bytes(path, path.read_bytes(), fetch(url), identity)
     _, public = skills.checked_release(player, components["player"]["source_sha"])

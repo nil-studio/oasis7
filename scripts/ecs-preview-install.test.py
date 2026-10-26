@@ -115,6 +115,8 @@ class SignedVerifierTests(unittest.TestCase):
             web = root / "web-dist"
             web.mkdir()
             (web / "asset with space.js").write_bytes(b"release bytes")
+            for internal in (".oasis7-viewer-dist-manifest.json", "module.d.ts", "asset with space.js.gz", "viewer_first_agent_claim_evidence.html", "software_safe_first_agent_claim_evidence.html"):
+                (web / internal).write_bytes(b"not a public URL")
             device = root / "device.json"
             identity = {"world_id": "world", "genesis_hash": "genesis", "service_public_key": "key", "identity": "reader"}
             device.write_text(json.dumps({"world_id": "world", "genesis_digest": "genesis", "service_public_key": "key", "agent_id": "reader"}))
@@ -123,7 +125,9 @@ class SignedVerifierTests(unittest.TestCase):
             skills = self.verifier.module("package-ecs-skills")
             helper = SimpleNamespace(public_origin=skills.public_origin, NoRedirect=skills.NoRedirect,
                 checked_release=lambda *args: (None, {}), verify=skills.verify)
+            fetched = []
             def fetch(url, **kwargs):
+                fetched.append(url)
                 if url.endswith("/admission"):
                     return io.BytesIO(b'{"ok":true,"deployment_mode":"hosted_public_join","admission":{"runtime_probe_status":"ok"}}')
                 self.assertEqual(url, "https://preview.invalid/asset%20with%20space.js")
@@ -131,6 +135,7 @@ class SignedVerifierTests(unittest.TestCase):
             samples = [{"timestamp": n * 20, "world_tick": n + 10, "identity": identity, "signed_world": True} for n in range(4)]
             with patch.object(self.verifier, "trusted_path"), patch.object(self.verifier, "preflight") as preflight, patch.object(self.verifier, "binding", side_effect=lambda path: components[path]), patch.object(self.verifier.subprocess, "check_output", return_value="123"), patch.object(self.verifier, "digest", return_value="hash"), patch.object(self.verifier, "descendants", return_value={123}), patch.object(Path, "exists", return_value=True), patch.object(self.verifier, "module", return_value=helper), patch.object(self.verifier.urllib.request, "build_opener", return_value=SimpleNamespace(open=fetch)), patch.object(self.verifier, "signed_sample", side_effect=samples), patch.object(self.verifier.time, "sleep"), patch.object(self.verifier.time, "monotonic", return_value=0):
                 evidence = self.verifier.verify({"nonce": "fresh", "identity": identity, "components": components}, config, device)
+            self.assertEqual(fetched, ["https://preview.invalid/api/public/player-session/admission", "https://preview.invalid/asset%20with%20space.js"])
             self.assertEqual(evidence["samples"], samples)
             self.assertTrue(all(evidence["checks"].values()))
             self.assertEqual(preflight.call_count, 2)
