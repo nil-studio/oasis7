@@ -28,6 +28,8 @@ fn options() -> Vec<ApprovalOptionsRequestV1> {
     let provision = ApprovalOptionsRequestV1 {
         intent: CustodyIntentV1::Provision {
             provision_id: "provision-one".into(),
+            purpose: "controlled-test-account".into(),
+            plan_digest: "ab".repeat(32),
             bootstrap_config_version: DecimalU64(1),
             world_identity: ApprovedWorldV1 {
                 world_id: "world-one".into(),

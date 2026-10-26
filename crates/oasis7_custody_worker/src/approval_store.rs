@@ -50,7 +50,7 @@ fn encode(value: &ApprovalSnapshot) -> Result<String> {
     }
     Ok(value)
 }
-fn now() -> Result<u64> {
+pub(crate) fn now() -> Result<u64> {
     let value = js_sys::Date::now();
     if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > 9_007_199_254_740_991.0
     {
@@ -58,7 +58,12 @@ fn now() -> Result<u64> {
     }
     Ok(value as u64)
 }
-struct ExactCache(ExactSignatureChecks);
+pub(crate) struct ExactCache(ExactSignatureChecks);
+impl ExactCache {
+    pub(crate) fn verify_nonce(&self) -> &str {
+        self.0.verify_nonce()
+    }
+}
 impl ApprovalSignatureVerifier for ExactCache {
     fn verify(
         &mut self,
@@ -71,7 +76,7 @@ impl ApprovalSignatureVerifier for ExactCache {
         }
     }
 }
-async fn verify(checks: ExactSignatureChecks) -> Result<ExactCache> {
+pub(crate) async fn verify(checks: ExactSignatureChecks) -> Result<ExactCache> {
     for check in checks.checks() {
         verify_ed25519(
             check.public_key_hex(),

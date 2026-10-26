@@ -69,6 +69,26 @@ impl ProvisionRecord {
             transport,
         })
     }
+    pub(super) fn frozen(&self) -> bool {
+        self.frozen
+    }
+    pub(super) fn validate_approval_only(
+        &self,
+        draft: &super::AccountDraftV1,
+        nonce: Option<&str>,
+    ) -> Result<(), ProvisionError> {
+        let mut expected = Self::draft(draft.entry.clone(), draft.plan.clone())?;
+        if let Some(nonce) = nonce {
+            expected.approve(&draft.entry.plan_digest, nonce, 0, 0)?;
+        }
+        if self.frozen {
+            expected.freeze(self.security_epoch.0)?;
+        }
+        if self != &expected {
+            return Err(ProvisionError::Invalid);
+        }
+        Ok(())
+    }
     pub fn stage(&self) -> ProvisionStage {
         self.stage
     }

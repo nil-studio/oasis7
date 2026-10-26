@@ -25,6 +25,8 @@ pub struct ApprovalContextV1 {
 pub enum CustodyIntentV1 {
     Provision {
         provision_id: String,
+        purpose: String,
+        plan_digest: String,
         bootstrap_config_version: DecimalU64,
         world_identity: ApprovedWorldV1,
         identity_route: String,
@@ -79,7 +81,7 @@ pub struct ApprovedWorldV1 {
     pub service_public_key: String,
 }
 impl ApprovedWorldV1 {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         [&self.world_id, &self.genesis_digest, &self.branch_id]
             .iter()
             .all(|v| bounded(v))
@@ -344,7 +346,8 @@ impl ApprovalOptionsRequestV1 {
         ];
         if required.iter().any(|v| v.is_empty() || v.len() > 256)
             || self.context.policy_version.0 == 0
-            || self.context.security_version.0 == 0
+            || (self.context.security_version.0 == 0
+                && !matches!(&self.intent, CustodyIntentV1::Provision { .. }))
             || self.context.service_epoch.0 == 0
         {
             return Err("invalid approval context".into());
@@ -352,6 +355,8 @@ impl ApprovalOptionsRequestV1 {
         let valid = match &self.intent {
             CustodyIntentV1::Provision {
                 provision_id,
+                purpose,
+                plan_digest,
                 bootstrap_config_version,
                 world_identity,
                 identity_route,
@@ -363,6 +368,8 @@ impl ApprovalOptionsRequestV1 {
                 transport_limit,
             } => {
                 world_identity.valid()
+                    && bounded(purpose)
+                    && hex_digest(plan_digest)
                     && [
                         provision_id,
                         identity_route,

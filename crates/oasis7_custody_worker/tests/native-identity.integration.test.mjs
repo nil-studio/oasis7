@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { connect } from 'node:net';
 import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -17,8 +18,19 @@ async function authority(directory) {
   const child = spawn(binary, ['serve_native_identity_http_fixture', '--ignored', '--nocapture'], {
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('OASIS7_'))),
       OASIS7_CUSTODY_NATIVE_HTTP_READY: ready, OASIS7_CUSTODY_NATIVE_HTTP_STOP: stop },
-    stdio: ['ignore', 'ignore', 'ignore'],
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  const processDiagnostic = { panic: false, ioKind: undefined };
+  // Never retain or print native stderr: it may contain credentials on a future
+  // failure path. Extract only a fixed panic bit and closed IO-kind vocabulary.
+  child.stderr.on('data', chunk => {
+    const text = String(chunk);
+    if (text.includes('panicked')) processDiagnostic.panic = true;
+    for (const kind of ['UnexpectedEof', 'WouldBlock', 'ConnectionReset', 'BrokenPipe', 'TimedOut', 'InvalidData', 'Interrupted', 'ConnectionAborted']) {
+      if (text.includes(kind)) processDiagnostic.ioKind = kind;
+    }
+  });
+  const diagnostics = () => ({ ...processDiagnostic, exitCode: child.exitCode, signalCode: child.signalCode });
   let exited = false;
   const exit = once(child, 'exit').then(([code]) => { exited = true; return code; });
   const close = async () => {
@@ -29,7 +41,7 @@ async function authority(directory) {
   for (let attempt = 0; attempt < 300; attempt++) {
     if (exited) throw new Error('isolated native authority fixture exited before ready');
     if (existsSync(ready)) {
-      try { return { data: JSON.parse(readFileSync(ready, 'utf8')), close }; }
+      try { return { data: JSON.parse(readFileSync(ready, 'utf8')), close, diagnostics }; }
       catch { /* Writer may still be completing its bounded local fixture file. */ }
     }
     await delay(20);
@@ -37,6 +49,38 @@ async function authority(directory) {
   await close();
   throw new Error('isolated native authority fixture did not become ready');
 }
+
+test('native HTTP fixture waits for fragmented request bytes without exiting', { timeout: 30000 }, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'oasis7-custody-native-fragment-'));
+  let native;
+  let socket;
+  try {
+    native = await authority(directory);
+    const address = new URL(native.data.address);
+    socket = connect(Number(address.port), address.hostname);
+    const reply = new Promise(resolve => {
+      const chunks = [];
+      socket.on('data', bytes => chunks.push(bytes));
+      socket.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      socket.on('error', () => resolve('transport-error'));
+      socket.setTimeout(2000, () => { socket.destroy(); resolve('transport-timeout'); });
+    });
+    await once(socket, 'connect');
+    socket.write('GET /_fixture/revocation-status HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{');
+    // Deliberately require a second read on an accepted connection. Darwin may
+    // inherit O_NONBLOCK from the polling listener; the fixture must reset it.
+    await delay(50);
+    socket.write('}');
+    const response = await reply;
+    await delay(20);
+    assert.equal(native.diagnostics().panic, false, JSON.stringify(native.diagnostics()));
+    assert.match(response, /^HTTP\/1\.1 200 /);
+  } finally {
+    socket?.destroy();
+    await native?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 function bindings(data) {
   return {
     CUSTODY_NATIVE_ORIGIN: 'https://localhost', CUSTODY_NATIVE_RP_ID: 'localhost',
@@ -91,10 +135,23 @@ test('production Identity workerd consumes actual native HTTP/SQLite management 
     native = await authority(directory);
     let fault;
     let nativeStatus;
+    let bridgeStage;
+    let bridgeFailure;
+    const track = async (stage, operation) => {
+      bridgeStage = stage;
+      try { return await operation(); }
+      catch (error) {
+        const code = value => ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_SOCKET', 'UND_ERR_ABORTED', 'ERR_INVALID_STATE', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_DESTROYED', 'ABORT_ERR'].includes(value) ? value : 'Other';
+        bridgeFailure = { name: ['TypeError', 'Error', 'AbortError', 'TimeoutError', 'AssertionError'].includes(error?.name) ? error.name : 'Other', code: code(error?.code), cause: code(error?.cause?.code) };
+        throw error;
+      }
+    };
+    const diagnostics = () => JSON.stringify({ native: native.diagnostics(), bridgeStage, bridgeFailure, nativeStatus });
     let foreignAttempts = 0;
     const calls = [];
     const bridge = async request => {
       nativeStatus = undefined;
+      bridgeStage = 'start'; bridgeFailure = undefined;
       const url = new URL(request.url);
       if (url.origin !== 'https://localhost') foreignAttempts++;
       assert.equal(url.origin, 'https://localhost');
@@ -103,18 +160,20 @@ test('production Identity workerd consumes actual native HTTP/SQLite management 
       calls.push({ path: url.pathname, method: request.method, cookie: request.headers.has('cookie'), origin: request.headers.has('origin') });
       if (fault === 'redirect') return new MiniflareResponse(null, { status: 302, headers: { Location: 'https://other.invalid/steal' } });
       if (fault === 'oversize') return new MiniflareResponse(' '.repeat(32769), { headers: { 'Content-Type': 'application/json' } });
-      const body = request.method === 'GET' ? undefined : Buffer.from(await request.arrayBuffer());
+      const body = request.method === 'GET' ? undefined : Buffer.from(await track('request_body', () => request.arrayBuffer()));
       // Rebuild only native semantic headers. The workerd stream is now bytes;
       // Node owns its loopback Host, Content-Length and other transport metadata.
       const nativeHeaders = new Headers();
+      bridgeStage = 'native_headers';
       for (const name of ['authorization', 'cookie', 'origin', 'sec-fetch-site', 'x-oasis7-csrf', 'content-type']) {
         const value = request.headers.get(name);
         if (typeof value === 'string') nativeHeaders.set(name, value);
       }
-      const response = await fetch(native.data.address + url.pathname, { method: request.method,
-        headers: nativeHeaders, body, redirect: 'manual' });
-      const text = await response.text();
+      const response = await track('native_fetch', () => fetch(native.data.address + url.pathname, { method: request.method,
+        headers: nativeHeaders, body, redirect: 'manual' }));
+      const text = await track('native_body', () => response.text());
       nativeStatus = response.status;
+      bridgeStage = 'complete';
       if (fault === 'unknown' || fault === 'identity' || fault === 'signature' || fault === 'correlation') {
         const value = JSON.parse(text);
         if (fault === 'unknown') value.unknown = true;
@@ -129,7 +188,7 @@ test('production Identity workerd consumes actual native HTTP/SQLite management 
     const identity = await mf.getWorker('identity');
     const headers = { Cookie: 'unrelated=must-stay-local; ' + native.data.cookie };
     let status = await identity.fetch('https://localhost/v1/management/session-status', { headers });
-    assert.equal(status.status, 200, 'management native status=' + nativeStatus);
+    assert.equal(status.status, 200, 'management ' + diagnostics());
     const original = await status.json();
     assert.equal(original.account_id, 'a');
     assert.equal(original.identity_namespace, native.data.namespace);
@@ -151,7 +210,7 @@ test('production Identity workerd consumes actual native HTTP/SQLite management 
     assert.equal(foreignAttempts, 0, 'manual redirects must never attempt another origin');
     const before = calls.length;
     let verify = await mf.dispatchFetch('https://caller.test/', { method: 'POST', body: JSON.stringify(native.data.verify_request) });
-    assert.equal(verify.status, 200, 'private verification native dispatches=' + (calls.length - before) + ', status=' + nativeStatus);
+    assert.equal(verify.status, 200, 'private verification native dispatches=' + (calls.length - before) + ', ' + diagnostics());
     const signed = await verify.json();
     const dispatchCount = calls.length;
     const defaultRpc = await mf.dispatchFetch('https://caller.test/default-verify', { method: 'POST', body: JSON.stringify(native.data.verify_request) });
@@ -190,7 +249,7 @@ test('production Identity workerd consumes actual native HTTP/SQLite management 
       { ...writeHeaders, Origin: 'https://other.invalid' },
     ]) assert.notEqual((await identity.fetch('https://localhost/v1/account-provisions', { method: 'POST', headers: invalid, body: JSON.stringify(draft) })).status, 200);
     const initialized = await identity.fetch('https://localhost/v1/account-provisions', { method: 'POST', headers: writeHeaders, body: JSON.stringify(draft) });
-    assert.equal(initialized.status, 200);
+    assert.equal(initialized.status, 200, 'draft initialization ' + diagnostics());
     const view = await initialized.json();
     assert.equal(view.phase, 'draft_initialized');
     assert.deepEqual(view.entry.manager, { identity_namespace: native.data.namespace, native_account_id: 'a' });

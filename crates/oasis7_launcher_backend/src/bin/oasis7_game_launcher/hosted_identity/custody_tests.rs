@@ -116,6 +116,75 @@ fn options(now: u64) -> Value {
     })
     .unwrap()
 }
+
+#[test]
+fn provision_bootstrap_zero_target_epoch_requires_complete_signed_scope() {
+    let (mut f, key) = fixture();
+    let now = now_ms();
+    let mut request = options(now);
+    request["context"]["security_version"] = json!("0");
+    assert!(
+        f.service
+            .custody_options(Some(&f.token), &request, "source", now)
+            .is_err(),
+        "ManagedLogin must still reject target epoch zero"
+    );
+    request["intent"] = json!({
+        "kind":"provision", "provision_id":"provision-bootstrap", "purpose":"controlled-test-account",
+        "plan_digest":"ab".repeat(32), "bootstrap_config_version":"1",
+        "world_identity": {"world_id":"test-world", "genesis_digest":"test-genesis", "branch_id":"test-branch", "reorg_epoch":"0", "service_public_key":"cd".repeat(32)},
+        "identity_route":"native-main", "world_route":"world-main",
+        "native_identity_namespace":f.service.config.namespace.key(),
+        "register_request_id":"register-original", "login_request_id":"login-original",
+        "deadline":(now+120_000).to_string(), "transport_limit":"24"
+    });
+    for field in ["purpose", "plan_digest"] {
+        let mut legacy = request.clone();
+        legacy["intent"].as_object_mut().unwrap().remove(field);
+        assert!(
+            f.service
+                .custody_options(Some(&f.token), &legacy, "source", now)
+                .is_err()
+        );
+    }
+    let start = f
+        .service
+        .custody_options(Some(&f.token), &request, "source", now)
+        .unwrap();
+    let result = f
+        .service
+        .custody_complete(
+            Some(&f.token),
+            &complete_payload(&start, &key, 0x05),
+            "source",
+            now + 1,
+        )
+        .unwrap();
+    let verify = verify_request(&result);
+    assert_eq!(
+        verify.approval.proof.context.security_version,
+        DecimalU64(0)
+    );
+    let original: ApprovalOptionsRequestV1 = serde_json::from_value(request).unwrap();
+    assert_eq!(
+        verify.approval.proof.intent_digest,
+        original.intent_digest().unwrap()
+    );
+    let signed: SignedApprovalVerificationV1 =
+        serde_json::from_value(f.service.verify_approval(&verify, now + 2).unwrap()).unwrap();
+    assert!(signed.verification.manager_security_version.0 > 0);
+    assert!(signed.verification.credential_version.0 > 0);
+    let signature =
+        Signature::from_slice(&URL_SAFE_NO_PAD.decode(&signed.signature).unwrap()).unwrap();
+    f.service
+        .custody
+        .as_ref()
+        .unwrap()
+        .key
+        .verifying_key()
+        .verify_strict(&signed.verification.signing_bytes().unwrap(), &signature)
+        .unwrap();
+}
 fn assertion(options: &Value, key: &PKey<Private>, flags: u8) -> Value {
     let client = serde_json::to_vec(
         &json!({"type":"webauthn.get","challenge":options["options"]["publicKey"]["challenge"],

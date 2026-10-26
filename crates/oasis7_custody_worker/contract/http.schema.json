@@ -172,7 +172,9 @@
           "kind": "provision",
           "login_request_id": "login-one",
           "native_identity_namespace": "identity:test",
+          "plan_digest": "abababababababababababababababababababababababababababababababab",
           "provision_id": "provision-one",
+          "purpose": "controlled-test-account",
           "register_request_id": "register-one",
           "transport_limit": "24",
           "world_identity": {
@@ -1230,7 +1232,13 @@
                 "native_identity_namespace": {
                   "type": "string"
                 },
+                "plan_digest": {
+                  "type": "string"
+                },
                 "provision_id": {
+                  "type": "string"
+                },
+                "purpose": {
                   "type": "string"
                 },
                 "register_request_id": {
@@ -1249,6 +1257,8 @@
               "required": [
                 "kind",
                 "provision_id",
+                "purpose",
+                "plan_digest",
                 "bootstrap_config_version",
                 "world_identity",
                 "identity_route",
