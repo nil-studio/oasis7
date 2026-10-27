@@ -13,7 +13,7 @@ PATH = "codeql/rust/internal/PathResolution.qll"
 PATH_SHA = "c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d"
 STAGES = "codeql/rust/internal/CachedStages.qll"
 STAGES_SHA = "e9ec32dedd08185b23787efb12879032dc7a7c0cc59db2b48dd49202d54b5754"
-COMPILE_PROBES = ("trait-scope-plan", "successor-partition-plan")
+COMPILE_PROBES = ("trait-scope-plan", "successor-consumer-plan")
 OLD = b"""module TraitIsVisible<relevantTraitVisibleSig/2 relevantTraitVisible> {
   private newtype TNode =
     TTrait(Trait t) { relevantTraitVisible(_, t) } or
@@ -51,7 +51,7 @@ def patched_source(data):
 
 
 def successor_sources(data, stages):
-    candidate, stage_candidate = partition.partition_sources(data, stages, PATH_SHA, STAGES_SHA)
+    candidate, stage_candidate = partition.consumer_sources(data, stages, PATH_SHA, STAGES_SHA)
     return {PATH: candidate, STAGES: stage_candidate}
 
 
@@ -94,11 +94,11 @@ def execute(args, env, closure, verify_library):
     runtime.save(out / "official-before.json", before, out)
     primary = None
     try:
-        if probe == "successor-partition-plan":
+        if probe == "successor-consumer-plan":
             boundary = partition.check_extension_boundary(closure, args.deadline - 90)
             runtime.save(out / "extension-boundary.json", boundary, out)
         sources = (successor_sources((official / PATH).read_bytes(), (official / STAGES).read_bytes())
-            if probe == "successor-partition-plan" else {PATH: patched_source((official / PATH).read_bytes())})
+            if probe == "successor-consumer-plan" else {PATH: patched_source((official / PATH).read_bytes())})
         copy = work / "isolated-rust-all"
         copy.mkdir(exist_ok=False)
         copied, omitted = {}, []

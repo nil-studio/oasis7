@@ -186,6 +186,33 @@ private predicate crateDependencyEdge(SourceFileItemNode file, string name, Crat
   not hasDeclOrDep(file, name)
 }
 """
+    path += b"""
+  pragma[nomagic]
+  ItemNode getASuccessor(string name) {
+    result = this.getASuccessor(name, _, _)
+  }
+pragma[nomagic]
+private ItemNode getASuccessor(
+  ItemNode pred, string name, Namespace ns, SuccessorKind kind, UseOption useOpt
+) {
+  result = pred.getASuccessor(name, kind, useOpt) and ns = result.getNamespace()
+}
+private predicate traitStep(Trait t1, ItemNode i2) {
+  t1 = i2.getASuccessor(_, _, _)
+}
+private predicate macroUseEdge(
+  ItemNode i, string name, SuccessorKind kind, UseOption useOpt, MacroItemNode macro
+) {
+  exists(ItemNode m |
+    m = i.getASuccessor(_, _, useOpt) and
+    m.hasAttr("macro_use")
+  |
+    macro = m.(ModuleItemNode).getASuccessor(name, kind, _)
+    or
+    macro = m.(ExternCrateItemNode).getASuccessor(_, _, _).getASuccessor(name, kind, _)
+  )
+}
+"""
     stages = b"""predicate ref() { 1 = 1 }
 predicate backref() { 1 = 1 or exists(any(ItemNode i).getASuccessor(_, _, _)) }
 """

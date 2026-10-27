@@ -12,6 +12,47 @@ INLINE_DEPENDENCY = b"pragma[inline]\nprivate predicate crateDependencyEdge("
 OLD_BACKREF = b"exists(any(ItemNode i).getASuccessor(_, _, _))"
 NEW_BACKREF = b"exists(any(ItemNode i).getASuccessorNonCrate(_, _, _))"
 NAMES = ("getASuccessorNonCrate", "getASuccessorCrate")
+MACRO_OLD = b"""private predicate macroUseEdge(
+  ItemNode i, string name, SuccessorKind kind, UseOption useOpt, MacroItemNode macro
+) {
+  exists(ItemNode m |
+    m = i.getASuccessor(_, _, useOpt) and
+    m.hasAttr("macro_use")
+  |
+    macro = m.(ModuleItemNode).getASuccessor(name, kind, _)
+    or
+    macro = m.(ExternCrateItemNode).getASuccessor(_, _, _).getASuccessor(name, kind, _)
+  )
+}
+"""
+MACRO_NEW = b"""private predicate macroUseEdge(
+  ItemNode i, string name, SuccessorKind kind, UseOption useOpt, MacroItemNode macro
+) {
+  exists(ItemNode m |
+    m = i.getASuccessorNonCrate(_, _, useOpt) and
+    m.hasAttr("macro_use")
+  |
+    macro = m.(ModuleItemNode).getASuccessorNonCrate(name, kind, _)
+    or
+    exists(ItemNode imported |
+      (
+        imported = m.(ExternCrateItemNode).getASuccessorNonCrate(_, _, _)
+        or
+        imported = m.(ExternCrateItemNode).getASuccessorCrate(_, _, _)
+      ) and
+      macro = imported.getASuccessorNonCrate(name, kind, _)
+    )
+  )
+}
+"""
+CONSUMER_PATCHES = (
+    (b"t1 = i2.getASuccessor(_, _, _)", b"t1 = i2.getASuccessorNonCrate(_, _, _)"),
+    (b"pragma[nomagic]\nprivate ItemNode getASuccessor(\n  ItemNode pred, string name, Namespace ns, SuccessorKind kind, UseOption useOpt",
+     b"private ItemNode getASuccessor(\n  ItemNode pred, string name, Namespace ns, SuccessorKind kind, UseOption useOpt"),
+    (b"  pragma[nomagic]\n  ItemNode getASuccessor(string name) {",
+     b"  ItemNode getASuccessor(string name) {"),
+    (MACRO_OLD, MACRO_NEW),
+)
 
 
 def once(data, old, new):
@@ -98,6 +139,19 @@ def partition_sources(data, stages, path_sha, stages_sha):
         raise RuntimeError("partition patch is not exactly reversible")
     if once(stage_candidate, NEW_BACKREF, OLD_BACKREF) != stages:
         raise RuntimeError("partition stage patch is not exactly reversible")
+    return candidate, stage_candidate
+
+
+def consumer_sources(data, stages, path_sha, stages_sha):
+    base, stage_candidate = partition_sources(data, stages, path_sha, stages_sha)
+    candidate = base
+    for old, new in CONSUMER_PATCHES:
+        candidate = once(candidate, old, new)
+    restored = candidate
+    for old, new in reversed(CONSUMER_PATCHES):
+        restored = once(restored, new, old)
+    if restored != base:
+        raise RuntimeError("consumer patch is not exactly reversible")
     return candidate, stage_candidate
 
 

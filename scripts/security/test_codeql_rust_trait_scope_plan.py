@@ -164,7 +164,7 @@ class ScopePlan(unittest.TestCase):
                 self.assertEqual((official / m.PATH).read_bytes(), source)
                 self.assertEqual((official / m.STAGES).read_bytes(), stages)
                 changed = json.loads((out / "isolated-source.json").read_text())["changed_files"]
-                self.assertEqual(set(changed), {m.PATH, m.STAGES} if probe == "successor-partition-plan" else {m.PATH})
+                self.assertEqual(set(changed), {m.PATH, m.STAGES} if probe == "successor-consumer-plan" else {m.PATH})
                 self.assertEqual(json.loads((out / "official-after.json").read_text()),
                     json.loads((out / "official-before.json").read_text()))
                 if fail:
@@ -219,8 +219,8 @@ class ScopePlan(unittest.TestCase):
         for probe in m.COMPILE_PROBES:
             self.assertIn(probe, text.split("permissions:", 1)[0])
         self.assertIn("MODEL_PROBE: ${{ inputs.model_probe }}", job)
-        self.assertIn('trait-scope-plan|successor-partition-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
-        self.assertIn('trait-scope-plan|successor-partition-plan) ;;', job)
+        self.assertIn('trait-scope-plan|successor-consumer-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
+        self.assertIn('trait-scope-plan|successor-consumer-plan) ;;', job)
         self.assertIn("timeout-minutes: 20", job)
         self.assertIn(" + 1080 ", job)
         self.assertIn("64 * 1024**2", job)
