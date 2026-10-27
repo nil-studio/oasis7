@@ -107,6 +107,8 @@ Rust 的 CodeQL、容量及 CFG 诊断入口仅精确忽略 `tools/oasis7-comman
 
 `model_probe=trait-scope-plan` 仅在完整官方 2.27.3 上做隔离库编译计划实验：将 trait 可见性图的 ItemNode 域限制为目标点所属作用域及其完整反向外层闭包，保留原作用域跳转、图边和相关 trait/element 配对。有限图差分和路径等价证明不代替实际 Rust 语义验收。入口先核固定官方文件摘要，仅在私有副本中替换一处；两版分别编译公共 localFlow 与 getStaticTarget 查询，使用独立冷编译缓存、同一 360 秒共享编译预算及原 1080 秒/20 分钟总门。没有数据库、提取或求值，不读取业务源码，不上传 SARIF，不安装无需使用的 Rust 工具链。完整 RA 必须独立复核作用域约束是否进入图边构造，以及是否只是把工作移到 relevantItemNode/getADescendant；无有效减算证据时淘汰或记 INCONCLUSIVE，runtime_go 始终为 false，不能因编译成功自动启动后续求值。官方包原件及其他诊断模式保持不变。
 
+`model_probe=successor-demand-plan` 复用上述编译预算、冷缓存、只读权限和零数据库边界，独立于 trait 作用域候选。仅在摘要固定的官方 PathResolution 与 CachedStages 私有副本中解除 successor 的 `cached`、恒真 stage ref/backref 接线及 crateDependencyEdge 的 `nomagic`；保留全部依赖 fallback、版本/声明检查和递归解析规则。候选假设是让调用点的 name/result 约束先于文件与 crate 的组合生效，不承诺优化成立。独立复核完整 RA 时须检查未修改的 resolvePathIgnoreVariableShadowing/getASelfPath 阶段入口；全域 Cartesian/successor 物化仍存在、换名或只转移同规模工作时即淘汰或记 INCONCLUSIVE，不追加求值。取消缓存也可能增加重复计算，编译成功不能证明净省时或语义验收通过；runtime_go 仍为 false。
+
 ## 生产资源容量评估
 
 `.github/workflows/codeql-rust-capacity.yml` 是独立的手动入口，`execute` 默认为 false；只有明确授权并确认 true 才执行。它固定 `rust-repo/default`，不接受扩展档或旧单探针替代完整工作负载。派发前冻结评估源码 main SHA、诊断实现 SHA、官方完整 bundle 和公共见证锚点，读回唯一 run 后沿同一身份观察；一次完成或失败即停止，不自动重跑。
