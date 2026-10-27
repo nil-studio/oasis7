@@ -374,3 +374,97 @@ test('direct authenticated client admission keeps Host charge when native source
     }
   });
 });
+
+function publicClientProof(basis,runtime,{tail,body,requestId,tag,token='',nonce=null,nonceUntil=null,purpose='execution'}){
+  const path=`/v1/account-provisions/${runtime.provisionId}/accounts/${runtime.account}/client/${tail}`;
+  const target=origin+path,raw=JSON.stringify(body),created=Math.floor(Date.now()/1000);
+  const rootUntil=BigInt(basis.termination.cleanup_until)+(purpose==='reconcile_read'?20000n:-20000n);
+  const bound=nonceUntil===null?rootUntil:BigInt(nonceUntil)<rootUntil?BigInt(nonceUntil):rootUntil;
+  const expires=Math.min(created+29,Number(bound/1000n));
+  assert.ok(expires*1000-Date.now()>1000,'the original signed root/nonce must retain a valid proof window');
+  const sha=value=>createHash('sha256').update(value).digest('base64');
+  const fields=['@method','@target-uri','content-type','content-digest','oasis7-token-digest','oasis7-test-session','oasis7-request-id'];
+  const params=`(${fields.map(name=>JSON.stringify(name)).join(' ')});created=${created};expires=${expires}${nonce===null?'':`;nonce="${nonce}"`};alg="ed25519";keyid="${basis.client_pairing.client_key_id}";tag="${tag}"`;
+  const headers={'content-type':'application/json','content-digest':`sha-256=:${sha(raw)}:`,'oasis7-token-digest':`:${sha(token)}:`,'oasis7-test-session':basis.session_id,'oasis7-request-id':requestId};
+  const values={'@method':'POST','@target-uri':target,...headers};
+  const base=fields.map(name=>`"${name}": ${values[name]}`).concat(`"@signature-params": ${params}`).join('\n');
+  headers['signature-input']=`oasis7=${params}`;headers.signature=`oasis7=:${sign(null,Buffer.from(base),key).toString('base64')}:`;
+  if(token)headers['oasis7-capability']=token;
+  return {path,init:{method:'POST',headers,body:raw},expires};
+}
+function publicClientCounters(runtime,id){
+  return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+out=None
+def remaining(v):return int(v['limit'])-int(v['spent'])-sum(map(int,v['reservations'].values()))
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+  if not row:continue
+  state=json.loads(row[0])['state']
+  if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+  s=state['test_sessions'][sys.argv[3]]
+  out={'requests':remaining(s['control']['requests']),'host':remaining(s['control']['transport']),'native':remaining(s['identity_transport']),'sources':len(s['sources']),'roots':{p:remaining(r['budgets']['transport']) for p,r in s['roots'].items()}}
+ except sqlite3.OperationalError:continue
+ finally:
+  if 'db' in locals():db.close()
+assert out is not None
+print(json.dumps(out,separators=(',',':')))
+`,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+}
+async function clientJson(response){assert.equal(response.status,200,'actual public client lane must succeed');return response.json();}
+test('public scoped client claims credentials and heartbeats without borrowing purpose budgets',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis)=>{
+    const initial=publicClientCounters(runtime,basis.session_id);
+    const challengePath='proof-challenges';
+    const claim={api_version:1,enrollment_id:basis.client_pairing.enrollment_id,test_session_id:basis.session_id,request_id:'public-claim',purposes:['execute','read'],replace:false,expected_generation:null};
+    const claimChallenge={api_version:1,session_id:basis.session_id,request_id:'public-claim-challenge',purpose:'execution',kind:{kind:'credential_claim'},logical_request_id:claim.request_id,operation_request_digest:digest('oasis7.custody.test-session-claim.v1',claim)};
+    async function authorized(proof){
+      const before=runtime.nativeRequests();
+      const reply=await clientJson(await runtime.publicClientFetch(proof.path,proof.init));
+      const after=runtime.nativeRequests();
+      const delta=path=>(after[path]??0)-(before[path]??0);
+      assert.equal(delta('/custody/approvals/verify'),1,'each authorized public HTTP has one actual source inspection');
+      assert.equal(delta('/custody/managed-bindings/session-lifetime'),1,'each authorized public HTTP has one actual Root lifetime');
+      const total=Object.values(after).reduce((a,b)=>a+b,0)-Object.values(before).reduce((a,b)=>a+b,0);
+      assert.equal(total,2,'public HTTP must not create hidden extra native calls');
+      return reply;
+    }
+    const challenge=await authorized(publicClientProof(basis,runtime,{tail:challengePath,body:claimChallenge,requestId:claimChallenge.request_id,tag:'oasis7-custody-challenge-v1'}));
+    assert.equal(typeof challenge.nonce,'string');
+    const claimProof=publicClientProof(basis,runtime,{tail:`client-enrollments/${claim.enrollment_id}/claim`,body:claim,requestId:claim.request_id,tag:'oasis7-custody-enroll-v1',nonce:challenge.nonce,nonceUntil:challenge.expires_at});
+    const claimed=await authorized(claimProof);
+    assert.equal(claimed.status,'claimed');assert.equal(claimed.credentials.length,2);
+    const credentials=new Map();
+    for(const item of claimed.credentials){assert.equal(typeof item.token,'string');assert.ok(item.token.length>=32);assert.equal(item.generation,'1');credentials.set(item.purpose,item.token);}
+    assert.ok(credentials.has('execution')&&credentials.has('reconcile_read'));
+    assert.ok(claimProof.expires*1000-Date.now()>1000,'exact consumed-nonce proof must still be fresh for historical retry');
+    const historical=await authorized(claimProof);
+    assert.equal(historical.status,'historical');assert.equal(historical.credentials.length,2);
+    for(const item of historical.credentials){assert.deepEqual(Object.keys(item).sort(),['generation','purpose']);assert.equal(item.generation,'1');}
+    const heartbeat={api_version:1,session_id:basis.session_id,request_id:'public-heartbeat',kind:'heartbeat'};
+    const heartbeatChallenge={api_version:1,session_id:basis.session_id,request_id:'public-heartbeat-challenge',purpose:'execution',kind:{kind:'control',control:'heartbeat'},logical_request_id:heartbeat.request_id,operation_request_digest:digest('oasis7.custody.test-session-control-request.v1',heartbeat)};
+    const heartbeatNonce=await authorized(publicClientProof(basis,runtime,{tail:challengePath,body:heartbeatChallenge,requestId:heartbeatChallenge.request_id,tag:'oasis7-custody-challenge-v1',token:credentials.get('execution')}));
+    const heartbeatProof=publicClientProof(basis,runtime,{tail:`test-sessions/${basis.session_id}/heartbeat`,body:heartbeat,requestId:heartbeat.request_id,tag:'oasis7-custody-client-v1',token:credentials.get('execution'),nonce:heartbeatNonce.nonce,nonceUntil:heartbeatNonce.expires_at});
+    const ack=await authorized(heartbeatProof);
+    assert.equal(ack.kind,'heartbeat');assert.ok(BigInt(ack.lease_until)<=BigInt(basis.termination.cleanup_until)-20000n);
+    assert.ok(heartbeatProof.expires*1000-Date.now()>1000,'the exact heartbeat retry must still be live');
+    const repeated=await authorized(heartbeatProof);
+    assert.equal(repeated.acknowledged_at,ack.acknowledged_at);assert.equal(repeated.lease_until,ack.lease_until,'same logical ack must never extend the lease');
+    const paid=publicClientCounters(runtime,basis.session_id);
+    assert.equal(paid.host,initial.host-6);assert.equal(paid.native,initial.native-12);assert.equal(paid.requests,initial.requests-2,'challenge and operation share one logical request');assert.deepEqual(paid.roots,initial.roots,'control traffic must not borrow Execute/Read/Termination transport');
+    const negativeBody={...heartbeatChallenge,request_id:'wrong-token-challenge',logical_request_id:'wrong-token-logical'};
+    const wrongPurpose=publicClientProof(basis,runtime,{tail:challengePath,body:negativeBody,requestId:negativeBody.request_id,tag:'oasis7-custody-challenge-v1',token:credentials.get('reconcile_read')});
+    const wrongBody=publicClientProof(basis,runtime,{tail:challengePath,body:{...negativeBody,request_id:'wrong-body-challenge'},requestId:'wrong-body-challenge',tag:'oasis7-custody-challenge-v1',token:credentials.get('execution')});
+    wrongBody.init.body=JSON.stringify({...negativeBody,request_id:'mutated-after-signature'});
+    const wrongHost=publicClientProof(basis,runtime,{tail:challengePath,body:{...negativeBody,request_id:'wrong-host-challenge'},requestId:'wrong-host-challenge',tag:'oasis7-custody-challenge-v1',token:credentials.get('execution')});wrongHost.init.headers.Host='wrong.example';
+    for(const proof of [wrongPurpose,wrongBody,wrongHost]){
+      const before=runtime.nativeRequests(),counter=publicClientCounters(runtime,basis.session_id);
+      const rejected=await runtime.publicClientFetch(proof.path,proof.init);
+      assert.ok(rejected.status>=400,'invalid public proof must be rejected');
+      assert.deepEqual(runtime.nativeRequests(),before);assert.deepEqual(publicClientCounters(runtime,basis.session_id),counter,'invalid proof never charges a session or creates a source');
+    }
+  });
+});

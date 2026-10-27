@@ -12,6 +12,15 @@ export default {async fetch(request,env,ctx){
             return new Response(result,{headers:{'content-type':'application/json'}});
         } catch {return new Response('private metadata rejected',{status:409});}
     }
+    if(/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/.test(url.pathname)) {
+        const headers=new Headers(request.headers);
+        headers.set('CF-Connecting-IP','192.0.2.29');
+        // A literal wrong Host negative must reach the real validator unchanged.
+        // Loopback dispatch transport otherwise receives the same trusted Host fix
+        // as the established public Enrollment fixture.
+        if(headers.get('Host')!=='wrong.example')headers.set('Host',url.host);
+        request=new Request(request,{headers,cf:{colo:'TEST'}});
+    }
     if(url.pathname.startsWith('/v1/client-enrollments')) {
         const headers=new Headers(request.headers);
         headers.set('CF-Connecting-IP','192.0.2.29');
