@@ -41,9 +41,9 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUST_TOOLCHAIN: 1.96.0
-  # Verified at /nil-studio/oasis7/actions/caches on 2026-10-21: 10 GB.
-  # An explicit conservative budget, never a fabricated live API response.
-  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '10000000000'
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '20000000000'
 
 jobs:
   web:
@@ -231,7 +231,6 @@ jobs:
           if-no-files-found: error
       - name: Upload native Cargo timings
         if: always()
-        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ecs-native-timings
