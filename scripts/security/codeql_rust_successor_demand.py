@@ -10,6 +10,9 @@ import codeql_rust_successor_partition as partition
 PARAMS = partition.PARAMS
 C_HEADER = b"  final ItemNode getASuccessorCrate" + PARAMS + b" {\n"
 END = b"  /** Gets an _external_ successor named `name`, if any. */"
+STAGES_PATH = "codeql/rust/internal/CachedStages.qll"
+STAGES_SOURCE_SHA = "e9ec32dedd08185b23787efb12879032dc7a7c0cc59db2b48dd49202d54b5754"
+STAGES_CANDIDATE_SHA = "70e9bfea85a37cdf4029334a2c74e9b0afbf813aa59d75e72cce5854d9eec0b1"
 NEW_NAMES = ("getASuccessorCrateQualified", "getASuccessorCrateRequested",
     "getASuccessorQualified", "getASuccessorUnqualified", "crateInternalDemand",
     "requestedCrateDependencyEdge", "getASuccessorCrateEnumerated",
@@ -26,6 +29,8 @@ class BoundaryError(RuntimeError):
     def __init__(self, message, context):
         super().__init__(message)
         self.context = context
+
+
 NAMESPACE = b"""private ItemNode getASuccessor(
   ItemNode pred, string name, Namespace ns, SuccessorKind kind, UseOption useOpt
 ) {
@@ -221,6 +226,27 @@ def arity(code, start):
     raise RuntimeError("unterminated successor expression")
 
 
+def reviewed_stage_rewrite(pack, relative, raw, call_start):
+    """Classify one reviewed call site, never the whole file or an API name."""
+    if pack != "codeql/rust-all" or relative != STAGES_PATH:
+        return None
+    source_sha = hashlib.sha256(raw).hexdigest()
+    if source_sha != STAGES_SOURCE_SHA or raw.count(partition.OLD_BACKREF) != 1:
+        return None
+    text = raw.decode("utf-8")
+    anchor = text.index(partition.OLD_BACKREF.decode())
+    if call_start != text.index("getASuccessor", anchor):
+        return None
+    patched = partition.once(raw, partition.OLD_BACKREF, partition.NEW_BACKREF)
+    target_sha = hashlib.sha256(patched).hexdigest()
+    if target_sha != STAGES_CANDIDATE_SHA:
+        return None
+    return {"pack": pack, "path": relative, "source_sha256": source_sha,
+        "candidate_sha256": target_sha, "line": text.count("\n", 0, call_start) + 1,
+        "old_backref": partition.OLD_BACKREF.decode(),
+        "new_backref": partition.NEW_BACKREF.decode()}
+
+
 def boundary(closure, deadline):
     result = partition.check_extension_boundary(closure, deadline)
     official = Path(closure["codeql/rust-all"]["root"])
@@ -230,7 +256,7 @@ def boundary(closure, deadline):
         if actual != expected:
             raise RuntimeError("keyed schema identity differs: " + path)
         identities[path] = actual
-    calls = []
+    calls, rewrites = [], []
     for name, pack in closure.items():
         root = Path(pack["root"])
         for path in sorted(root.rglob("*")):
@@ -267,7 +293,13 @@ def boundary(closure, deadline):
                 if len(calls) > 4096:
                     raise BoundaryError("outside-file successor expression cap exceeded", context)
                 if count == 3:
-                    raise BoundaryError("unclassified outside-file three-argument successor call", context)
+                    rewrite = reviewed_stage_rewrite(name, str(path.relative_to(root)), raw, match.start())
+                    if rewrite is None:
+                        raise BoundaryError("unclassified outside-file three-argument successor call", context)
+                    calls[-1]["classification"] = "reviewed_stage_backref_rewrite"
+                    rewrites.append(rewrite)
     return {**result, "keyed_schema": identities, "outside_file_successor_expressions": calls,
-        "outside_file_three_argument_calls": 0, "guard_scope": "selected closure only; conservative arity, not receiver types",
+        "outside_file_three_argument_calls": sum(c["arity"] == 3 for c in calls),
+        "unclassified_outside_file_three_argument_calls": 0, "reviewed_call_rewrites": rewrites,
+        "guard_scope": "selected closure only; exact planned rewrite plus conservative arity, not receiver types",
         "recursive_negation": "no new negative rule; original complete AST/dependency negatives retained; actual QL compiler stratification still required"}

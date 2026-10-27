@@ -121,6 +121,12 @@ def execute(args, env, closure, verify_library):
         for path, patched in sources.items():
             (copy / path).write_bytes(patched)
             copied[path] = hashlib.sha256(patched).hexdigest()
+        if probe == "successor-keyed-plan":
+            for rewrite in boundary.get("reviewed_call_rewrites", []):
+                path = rewrite["path"]
+                if (path not in sources or copied[path] != rewrite["candidate_sha256"] or
+                    before.get(rewrite["pack"] + "/" + path) != rewrite["source_sha256"]):
+                    raise RuntimeError("reviewed boundary rewrite differs from copied candidate")
         expected = {name.removeprefix("codeql/rust-all/"): value for name, value in before.items()
             if name.startswith("codeql/rust-all/") and not omitted_cache(Path(name.removeprefix("codeql/rust-all/")))}
         expected.update({path: copied[path] for path in sources})

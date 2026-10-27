@@ -208,6 +208,29 @@ class ScopePlan(unittest.TestCase):
             self.assertEqual((out / "official-before.json").read_bytes(), (out / "official-after.json").read_bytes())
             self.assertFalse((out / "compile-help.log").exists())
 
+    def test_reviewed_stage_fingerprint_must_match_copy_before_any_compiler(self):
+        for bad_field in ("source_sha256", "candidate_sha256"):
+            with self.subTest(field=bad_field), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); official, out, work = root / "official", root / "out", root / "work"
+                source, stages = official_fixture()
+                (official / m.PATH).parent.mkdir(parents=True)
+                (official / m.PATH).write_bytes(source); (official / m.STAGES).write_bytes(stages)
+                out.mkdir(); work.mkdir()
+                changed = stages + b"\n// candidate stage fixture"
+                rewrite = {"pack": "codeql/rust-all", "path": m.STAGES,
+                    "source_sha256": hashlib.sha256(stages).hexdigest(),
+                    "candidate_sha256": hashlib.sha256(changed).hexdigest()}
+                rewrite[bad_field] = "0" * 64
+                args = SimpleNamespace(probe="successor-keyed-plan", bundle_version="2.27.3", output=out,
+                    work=work, deadline=time.monotonic() + 600)
+                with patch.object(m.demand, "boundary", return_value={"reviewed_call_rewrites": [rewrite]}), \
+                        patch.object(m, "successor_sources", return_value={m.PATH: source, m.STAGES: changed}), \
+                        patch.object(m.runtime, "run") as run:
+                    with self.assertRaisesRegex(RuntimeError, "reviewed boundary rewrite"):
+                        m.execute(args, {}, {"codeql/rust-all": {"root": str(official)}}, None)
+                run.assert_not_called()
+                self.assertEqual((out / "official-before.json").read_bytes(), (out / "official-after.json").read_bytes())
+
     def test_unknown_candidate_never_spawns(self):
         with patch.object(m.runtime, "run") as run:
             with self.assertRaisesRegex(RuntimeError, "unknown compile-only"):

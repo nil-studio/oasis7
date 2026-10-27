@@ -258,6 +258,43 @@ class BoundaryTests(unittest.TestCase):
                     self.assertEqual(context["arity"], count)
                     self.assertEqual(context["source_sha256"], hashlib.sha256(p.read_bytes()).hexdigest())
 
+    def test_reviewed_stage_rewrite_is_exact_not_a_whole_file_exception(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); closure, schema = self.setup_closure(root)
+            p = root / candidate.STAGES_PATH
+            p.parent.mkdir(parents=True, exist_ok=True)
+            raw = b"module Stage {\n" + candidate.partition.OLD_BACKREF + b"\n}\n"
+            patched = raw.replace(candidate.partition.OLD_BACKREF, candidate.partition.NEW_BACKREF)
+            p.write_bytes(raw)
+            with patch.object(candidate, "SCHEMA", schema), \
+                    patch.object(candidate, "STAGES_SOURCE_SHA", hashlib.sha256(raw).hexdigest()), \
+                    patch.object(candidate, "STAGES_CANDIDATE_SHA", hashlib.sha256(patched).hexdigest()):
+                result = candidate.boundary(closure, time.monotonic() + 10)
+                self.assertEqual(result["outside_file_three_argument_calls"], 1)
+                self.assertEqual(result["unclassified_outside_file_three_argument_calls"], 0)
+                self.assertEqual(len(result["reviewed_call_rewrites"]), 1)
+                self.assertEqual(result["reviewed_call_rewrites"][0]["candidate_sha256"], hashlib.sha256(patched).hexdigest())
+                other = root / "unreviewed.qll"; other.write_bytes(raw)
+                with self.assertRaises(candidate.BoundaryError):
+                    candidate.boundary(closure, time.monotonic() + 10)
+                other.unlink()
+                p.write_bytes(b"// different source\n" + raw)
+                with self.assertRaises(candidate.BoundaryError):
+                    candidate.boundary(closure, time.monotonic() + 10)
+                p.write_bytes(raw)
+                with patch.object(candidate, "STAGES_CANDIDATE_SHA", "0" * 64):
+                    with self.assertRaises(candidate.BoundaryError):
+                        candidate.boundary(closure, time.monotonic() + 10)
+                extra = raw + b"other.getASuccessor(a, b, c);\n"
+                p.write_bytes(extra)
+                # Even a future reviewed source fingerprint must not exempt
+                # a second call outside the unique replacement anchor.
+                with patch.object(candidate, "STAGES_SOURCE_SHA", hashlib.sha256(extra).hexdigest()), \
+                        patch.object(candidate, "STAGES_CANDIDATE_SHA", hashlib.sha256(extra.replace(candidate.partition.OLD_BACKREF, candidate.partition.NEW_BACKREF)).hexdigest()):
+                    with self.assertRaises(candidate.BoundaryError) as failed:
+                        candidate.boundary(closure, time.monotonic() + 10)
+                    self.assertEqual(failed.exception.context["line"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
