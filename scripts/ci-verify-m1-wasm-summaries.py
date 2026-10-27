@@ -50,6 +50,8 @@ def load_summary(path: pathlib.Path) -> dict:
 
     required_keys = {
         "schema_version",
+        "purpose",
+        "baseline_sha256",
         "module_set",
         "runner",
         "current_platform",
@@ -69,6 +71,10 @@ def load_summary(path: pathlib.Path) -> dict:
 
 
 def verify_summary_shape(path: pathlib.Path, payload: dict, module_set: str) -> None:
+    purpose = payload.get("purpose")
+    digest = payload.get("baseline_sha256")
+    if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest))):
+        fail(f"summary {path} unknown/malformed baseline purpose")
     if payload["schema_version"] != 1:
         fail(f"summary {path} schema_version must be 1")
 
@@ -250,6 +256,8 @@ def main() -> None:
 
     for runner in sorted(found_runners):
         payload = summaries_by_runner[runner]
+        if (payload["purpose"], payload["baseline_sha256"]) != (baseline["purpose"], baseline["baseline_sha256"]):
+            fail("mixed candidate/release baseline summaries")
         module_keys = set(payload["module_hashes"].keys())
         if module_keys != baseline_module_keys:
             fail(

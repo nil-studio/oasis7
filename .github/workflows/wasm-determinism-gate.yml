@@ -111,7 +111,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
       - name: Collect ${{ matrix.module_set }} summary on ${{ matrix.runner_label }}
         run: |
-          ./scripts/ci-m1-wasm-summary.sh \
+          ./scripts/ci-m1-wasm-summary.sh --baseline-kind candidate-build \
             --module-set "${{ matrix.module_set }}" \
             --runner-label "${{ matrix.runner_label }}" \
             --out "output/ci/${{ matrix.module_set }}-wasm-summary/${{ matrix.runner_label }}.json"

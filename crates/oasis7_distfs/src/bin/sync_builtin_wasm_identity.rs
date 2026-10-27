@@ -20,6 +20,7 @@ struct Options {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BuildRecipe {
     profile: String,
     wasm_toolchain: String,
@@ -651,7 +652,17 @@ fn diff_manifest(expected: &IdentityManifest, actual: &IdentityManifest) -> Stri
     "unknown mismatch".to_string()
 }
 
+#[path = "sync_builtin_wasm_identity/candidate.rs"]
+mod candidate;
+
 fn run() -> Result<(), String> {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    if args
+        .first()
+        .is_some_and(|arg| arg.starts_with("--candidate-baseline-"))
+    {
+        return candidate::run(&args);
+    }
     let options = parse_args()?;
     let expected = sort_manifest(expected_manifest(&options)?);
 

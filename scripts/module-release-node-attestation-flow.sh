@@ -391,6 +391,8 @@ summary_file_index: dict[str, dict[str, dict[str, str]]] = {}
 
 canonical_summary_keys = (
     "schema_version",
+    "purpose",
+    "baseline_sha256",
     "module_set",
     "runner",
     "host_platform",
@@ -411,6 +413,8 @@ for module_dir in sorted(path for path in staged_root.iterdir() if path.is_dir()
     runner_index: dict[str, dict[str, str]] = {}
     for summary_path in sorted(module_dir.glob("*.json")):
       payload = json.loads(summary_path.read_text())
+      if payload.get("purpose") != "release-build" or payload.get("baseline_sha256") != "":
+          raise SystemExit("error: candidate/unknown build baseline cannot authorize a release proof")
       canonical_payload = {
           key: payload[key]
           for key in canonical_summary_keys

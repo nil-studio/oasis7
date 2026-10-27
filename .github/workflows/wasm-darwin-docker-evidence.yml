@@ -114,7 +114,7 @@ jobs:
           OASIS7_WASM_BUILDER_ALLOW_IMAGE_ID_MISMATCH: "1"
         run: |
           mkdir -p "${EVIDENCE_ROOT}"
-          ./scripts/package-wasm-summary-bundle.sh \
+          ./scripts/package-wasm-summary-bundle.sh --baseline-kind candidate-build \
             --out-dir "${EVIDENCE_ROOT}/bundle" \
             --archive "${EVIDENCE_ROOT}/darwin-arm64-wasm-summary-bundle.tar.gz" \
             --module-sets "${MODULE_SETS}" \
@@ -164,7 +164,7 @@ jobs:
           for module_set in "${module_sets[@]}"; do
             module_set="$(echo "$module_set" | xargs)"
             [[ -n "$module_set" ]] || continue
-            ./scripts/ci-m1-wasm-summary.sh \
+            ./scripts/ci-m1-wasm-summary.sh --baseline-kind candidate-build \
               --module-set "$module_set" \
               --runner-label linux-x86_64 \
               --out "${EVIDENCE_ROOT}/linux/${module_set}/linux-x86_64.json"

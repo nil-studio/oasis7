@@ -13,18 +13,22 @@ const SYNC_M1: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifa
 const SYNC_TEST: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifacts.test.sh");
 const SYNC_M4: &str = include_str!("../../../scripts/sync-m4-builtin-wasm-artifacts.sh");
 const SYNC_M5: &str = include_str!("../../../scripts/sync-m5-builtin-wasm-artifacts.sh");
+const PACKAGE_SUMMARY: &str = include_str!("../../../scripts/package-wasm-summary-bundle.sh");
+const STAGE_SUMMARY: &str = include_str!("../../../scripts/stage-wasm-summary-imports.sh");
 const VERIFY_SUMMARY: &str = include_str!("../../../scripts/ci-verify-m1-wasm-summaries.py");
 
 #[test]
 fn summary_verifier_requires_current_input_evidence_for_every_module_set() {
     assert_compiled_input("scripts/ci-verify-m1-wasm-summaries.py", VERIFY_SUMMARY);
+    assert_compiled_input("scripts/package-wasm-summary-bundle.sh", PACKAGE_SUMMARY);
+    assert_compiled_input("scripts/stage-wasm-summary-imports.sh", STAGE_SUMMARY);
     let scratch = Scratch::new();
     assert_success(Command::new("python3").args(["-c", r#"
 import copy, json, pathlib, subprocess, sys
 repo, root = map(pathlib.Path, sys.argv[1:])
 script = repo / 'scripts/ci-verify-m1-wasm-summaries.py'
 def summary(module, runner):
-    return dict(schema_version=1, module_set=module, runner=runner,
+    return dict(schema_version=1, purpose='candidate-build', baseline_sha256='0'*64, module_set=module, runner=runner,
         current_platform='linux-x86_64', host_platform=runner, canonical_platform='linux-x86_64', module_count=1,
         module_hashes={module+'.module':'wasm'}, manifest_platform_hashes={module+'.module':'wasm'},
         identity_hashes={module+'.module':'identity'},
@@ -40,6 +44,11 @@ for module in ('m1','m4','m5'):
         (directory/(runner+'.json')).write_text(json.dumps(summary(module,runner)))
     result=run(module,directory); assert result.returncode==0,result.stderr
 original=summary('m1','linux-x86_64')
+for purpose,digest in [('unknown','0'*64),('candidate-build',''),('release-build','')]:
+    changed=summary('m1','linux-x86_64'); changed['purpose']=purpose; changed['baseline_sha256']=digest
+    (root/'m1/linux-x86_64.json').write_text(json.dumps(changed))
+    assert run('m1',root/'m1').returncode!=0,'unknown/mixed purpose'
+
 for mutation in ('legacy','unknown','missing-details','invalid-path','invalid-digest'):
     candidate=copy.deepcopy(original); evidence=candidate['receipt_evidence']['m1.module']
     if mutation=='legacy': del evidence['source_input_rule_version']
@@ -49,6 +58,19 @@ for mutation in ('legacy','unknown','missing-details','invalid-path','invalid-di
     else: evidence['source_inputs'][0]['sha256']='not-a-digest'
     (root/'m1/linux-x86_64.json').write_text(json.dumps(candidate))
     result=run('m1',root/'m1'); assert result.returncode!=0,mutation
+for module in ('m1','m4','m5'):
+    (root/module/'linux-x86_64.json').write_text(json.dumps(summary(module,'linux-x86_64')))
+bundle=root/'bundle'
+result=subprocess.run(['bash',str(repo/'scripts/package-wasm-summary-bundle.sh'),'--out-dir',str(bundle),'--runner-label','darwin-arm64','--source-summary-root',str(root)],capture_output=True,text=True)
+assert result.returncode==0,result.stderr
+for mixed in (False,True):
+    local=root/'local'; local.mkdir(exist_ok=True)
+    payload=summary('m1','linux-x86_64')
+    if mixed: payload['purpose']='release-build'; payload['baseline_sha256']=''
+    (local/'linux-x86_64.json').write_text(json.dumps(payload))
+    result=subprocess.run(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(local),'--out-dir',str(root/('mixed' if mixed else 'staged')),'--external-summary-bundle',str(bundle)],capture_output=True,text=True)
+    assert (result.returncode!=0)==mixed,result.stderr
+
 "#]).arg(repo_root()).arg(&scratch.0).output().expect("run actual summary verifier positive/negative vectors"));
 }
 

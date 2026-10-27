@@ -248,6 +248,11 @@ if not summary_path.is_file():
     raise SystemExit(f"error: bundle summary file missing: {summary_path}")
 
 payload = json.loads(summary_path.read_text())
+purpose = payload.get("purpose")
+digest = payload.get("baseline_sha256")
+if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest))):
+    raise SystemExit("error: unknown/malformed summary baseline purpose")
+
 if payload.get("module_set") != module_set:
     raise SystemExit(
         f"error: external summary module_set mismatch expected={module_set} actual={payload.get('module_set')}"
@@ -286,6 +291,10 @@ if build_recipe.get("container_platform") != summary_canonical_platform:
         )
     )
 
+for local_path in out_dir.glob("*.json"):
+    local = json.loads(local_path.read_text())
+    if (local.get("purpose"), local.get("baseline_sha256")) != (purpose, digest):
+        raise SystemExit("error: mixed imported/local summary baseline purposes")
 target_path = out_dir / f"{runner_label}.json"
 shutil.copyfile(summary_path, target_path)
 print(target_path)

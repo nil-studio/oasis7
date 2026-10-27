@@ -6,6 +6,7 @@ cd "$repo_root"
 
 metadata_dir="$repo_root/.tmp/builtin-wasm-sync-modules"
 module_set="m1"
+baseline_kind="release-build"
 sync_script_path=""
 hash_manifest_path=""
 identity_manifest_path=""
@@ -101,6 +102,11 @@ while [[ $# -gt 0 ]]; do
       out_path="$2"
       shift 2
       ;;
+    --baseline-kind)
+      [[ $# -ge 2 ]] || exit 2
+      baseline_kind="$2"
+      shift 2
+      ;;
     --module-set)
       [[ $# -ge 2 ]] || { echo "error: --module-set requires a value" >&2; exit 2; }
       module_set="$2"
@@ -141,11 +147,21 @@ if [[ -z "$runner_label" ]]; then
   runner_label="$host_platform"
 fi
 
-"$sync_script_path" --check
+case "$baseline_kind" in
+  release-build) "$sync_script_path" --check --out-dir "$metadata_dir" ;;
+  candidate-build)
+    hash_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/${module_set}_builtin_modules.source-rule2-candidate.sha256"
+    identity_manifest_path="${hash_manifest_path%.sha256}.identity.json"
+    "$sync_script_path" --check --out-dir "$metadata_dir" --hash-path "$hash_manifest_path" --identity-path "$identity_manifest_path"
+    env -u RUSTC_WRAPPER cargo run --quiet -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity -- --candidate-baseline-check "$repo_root" "$metadata_dir" "$module_set"
+    ;;
+  *) echo "error: unknown baseline kind" >&2; exit 2 ;;
+esac
 
 mkdir -p "$(dirname "$out_path")"
 
-python3 - "$module_set" "$metadata_dir" "$hash_manifest_path" "$identity_manifest_path" "$out_path" "$runner_label" "$host_platform" "$canonical_platform" <<'PY'
+python3 - "$module_set" "$metadata_dir" "$hash_manifest_path" "$identity_manifest_path" "$out_path" "$runner_label" "$host_platform" "$canonical_platform" "$baseline_kind" "$repo_root" <<'PY'
+import hashlib
 import datetime as dt
 import glob
 import json
@@ -370,7 +386,11 @@ for module_id, receipt in sorted(receipt_evidence.items()):
             f"error: build receipt canonicalizer version mismatch for module {module_id} receipt={receipt['canonicalizer_version']} recipe={build_recipe_canonicalizer_version}"
         )
 
+purpose = sys.argv[9]
+baseline_sha256 = hashlib.sha256((pathlib.Path(sys.argv[10]) / "crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json").read_bytes()).hexdigest() if purpose == "candidate-build" else ""
 summary = {
+    "purpose": purpose,
+    "baseline_sha256": baseline_sha256,
     "schema_version": 1,
     "module_set": module_set,
     "runner": runner_label,
