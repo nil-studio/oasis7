@@ -515,6 +515,15 @@ impl NodePrivateStore {
 }
 
 fn read_slot(path: &Path) -> Result<Option<Slot>, String> {
+    let parent = path.parent().ok_or("private Node record parent missing")?;
+    match fs::symlink_metadata(parent) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("inspect private Node record directory".into()),
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err("invalid private Node record directory".into());
+        }
+        Ok(_) => {}
+    }
     let intent = path.with_extension("intent.cbor");
     let reservation = path.with_extension("reservation.cbor");
     let record: Option<Data> = common_storage::read_optional_canonical(path, MAX_RECORD)
