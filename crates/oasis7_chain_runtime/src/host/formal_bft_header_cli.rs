@@ -1,28 +1,28 @@
-//! Explicit offline execution preview. No ledger, canonical publication, service
-//! listener or validator signer is created by this command.
+//! Explicit offline previews and private durable imports. No canonical
+//! publication, service listener or validator signer is created.
+#[path = "formal_bft_header_ledger_cli.rs"]
+mod ledger;
+
 #[cfg(not(test))]
-use super::execution_bridge::FormalBftHeaderExecutionV3;
+use super::execution_bridge::{
+    FormalBftHeaderExecutionV3, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+};
 #[cfg(test)]
-use super::execution_bridge_real_tests::real_execution_bridge::FormalBftHeaderExecutionV3;
+use super::execution_bridge_real_tests::real_execution_bridge::{
+    FormalBftHeaderExecutionV3, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+};
 use super::formal_bft_read_cli::{
     CasBusinessIndexReader, load_qualified_handoff_anchor, read_qualified_handoff_material,
     require_existing_directory,
 };
-use oasis7_formal_protocol::bft::{BftProfileTargetV2, FormalBftCertifiedHeaderV3};
+use oasis7_formal_protocol::bft::BftProfileTargetV2;
 use oasis7_proto::distributed_bft::{BFT_MAX_ACTIONS_CBOR_BYTES_V1, v3::BftBlockHeaderV3};
 use oasis7_runtime::LocalCasStore;
-use serde::{
-    Deserialize, Deserializer, Serialize,
-    de::{self, SeqAccess, Visitor},
-};
+use serde::{Deserialize, Serialize};
 use std::{
-    fmt,
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-const HISTORY_MAX_BYTES: u64 = 32 * 1024 * 1024;
-const HISTORY_MAX_HEIGHTS: usize = 64;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,20 +32,6 @@ struct Config {
     target: BftProfileTargetV2,
     handoff_material_path: PathBuf,
     cas_directory: PathBuf,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct History {
-    schema_version: u32,
-    #[serde(deserialize_with = "bounded_entries")]
-    entries: Vec<HistoryEntry>,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct HistoryEntry {
-    certificate: FormalBftCertifiedHeaderV3,
-    #[serde(deserialize_with = "bounded_actions")]
-    actions_cbor: Vec<u8>,
 }
 #[derive(Serialize)]
 pub(super) struct Preview {
@@ -59,6 +45,9 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     if matches!(action, "--help" | "-h") {
         println!("{}", help());
         return Ok(());
+    }
+    if matches!(action, "install" | "verify") {
+        return ledger::run(action, args);
     }
     if action != "preview" {
         return Err(help());
@@ -123,7 +112,10 @@ pub(super) fn preview_from_paths(
         .map_err(|_| "formal header preview H material rejected".to_string())?;
     let private_actions = read_private(actions_path, BFT_MAX_ACTIONS_CBOR_BYTES_V1 as u64)?;
     let history = history_path
-        .map(|path| read_private(path, HISTORY_MAX_BYTES).and_then(|bytes| decode_history(&bytes)))
+        .map(|path| {
+            read_private(path, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3 as u64)
+                .and_then(|bytes| PrivateHeaderPrefixV3::decode_private_canonical(&bytes))
+        })
         .transpose()?;
     let source = Arc::new(CasBusinessIndexReader {
         store: LocalCasStore::new(cas),
@@ -138,7 +130,7 @@ pub(super) fn preview_from_paths(
     )
     .map_err(|_| "formal header preview could not restore the qualified H".to_string())?;
     if let Some(history) = history {
-        for entry in history.entries {
+        for entry in history.entries() {
             execution
                 .replay_next(&entry.certificate, &entry.actions_cbor)
                 .map_err(|_| {
@@ -163,66 +155,8 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_live_config::require_private_owned(path, false)?;
     super::controlled_history_cli::read_bounded(path, maximum)
 }
-fn decode_history(bytes: &[u8]) -> Result<History, String> {
-    if bytes.len() as u64 > HISTORY_MAX_BYTES {
-        return Err("formal header history exceeds byte bound".into());
-    }
-    let history: History = serde_cbor::from_slice(bytes)
-        .map_err(|_| "invalid bounded formal header history".to_string())?;
-    if history.schema_version != 1 {
-        return Err("unsupported formal header history schema".into());
-    }
-    let canonical = oasis7_wasm_abi::encode_canonical_cbor(&history)
-        .map_err(|_| "encode formal header history".to_string())?;
-    if canonical != bytes {
-        return Err("noncanonical formal header history".into());
-    }
-    Ok(history)
-}
-fn bounded_sequence<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-    maximum: usize,
-) -> Result<Vec<T>, D::Error> {
-    struct Bounded<T> {
-        maximum: usize,
-        marker: std::marker::PhantomData<T>,
-    }
-    impl<'de, T: Deserialize<'de>> Visitor<'de> for Bounded<T> {
-        type Value = Vec<T>;
-        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("a bounded private history sequence")
-        }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-            if seq.size_hint().is_some_and(|size| size > self.maximum) {
-                return Err(de::Error::custom(
-                    "formal header history count exceeds bound",
-                ));
-            }
-            let mut values = Vec::new();
-            while let Some(value) = seq.next_element()? {
-                if values.len() == self.maximum {
-                    return Err(de::Error::custom(
-                        "formal header history count exceeds bound",
-                    ));
-                }
-                values.push(value);
-            }
-            Ok(values)
-        }
-    }
-    deserializer.deserialize_seq(Bounded {
-        maximum,
-        marker: std::marker::PhantomData,
-    })
-}
-fn bounded_entries<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<HistoryEntry>, D::Error> {
-    bounded_sequence(d, HISTORY_MAX_HEIGHTS)
-}
-fn bounded_actions<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-    bounded_sequence(d, BFT_MAX_ACTIONS_CBOR_BYTES_V1)
-}
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Output is public header/commitment only; no durable receipt, canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header install --config ABS --history ABS; bft-header verify --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]
@@ -247,19 +181,17 @@ mod tests {
         assert!(help().contains("no durable receipt"));
     }
     #[test]
-    fn history_rejects_oversized_declared_sequence_before_entries() {
-        #[derive(Deserialize)]
-        struct Entries(#[serde(deserialize_with = "bounded_entries")] Vec<HistoryEntry>);
-        let error = serde_cbor::from_slice::<Entries>(&[0x98, 65])
-            .err()
-            .unwrap();
-        assert!(error.to_string().contains("count exceeds bound"));
+    fn preview_history_uses_the_shared_private_codec() {
+        let bytes = oasis7_wasm_abi::encode_canonical_cbor(
+            &serde_json::json!({"schema_version":1,"entries":[]}),
+        )
+        .unwrap();
         assert!(
-            serde_cbor::from_slice::<Entries>(&[0x80])
+            PrivateHeaderPrefixV3::decode_private_canonical(&bytes)
                 .unwrap()
-                .0
+                .entries()
                 .is_empty()
         );
-        assert!(decode_history(&[0x80]).is_err());
+        assert!(PrivateHeaderPrefixV3::decode_private_canonical(&[0x80]).is_err());
     }
 }

@@ -171,6 +171,9 @@ pub(super) struct FormalBftReadCandidateV1<'a> {
 
 impl FormalBftReadLedgerV1 {
     pub(super) fn required_material_exists(records_dir: &Path) -> Result<bool, String> {
+        if common_storage::has_formal_header_prefix_material(records_dir)? {
+            return Ok(true);
+        }
         let dir = records_dir.join(LEDGER_DIR);
         let ledger_present = match fs::symlink_metadata(dir.as_path()) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
@@ -248,7 +251,9 @@ impl FormalBftReadLedgerV1 {
         }
         pin.validate()?;
         let format_lock = common_storage::lock_format(records_dir)?;
-        if super::formal_prefix_storage::Ledger::exists(records_dir)? {
+        if common_storage::has_formal_header_prefix_material(records_dir)?
+            || super::formal_prefix_storage::Ledger::exists(records_dir)?
+        {
             return Err("old H+1 format refuses a multiheight prefix ledger".into());
         }
         if common_storage::BftExecutionLedger::required_material_exists(records_dir)?
