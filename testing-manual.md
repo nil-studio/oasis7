@@ -542,6 +542,8 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix -- -
 
 协议前缀逐条核对从 qualified H 接续的 QC 与正式 execution preimage，覆盖缺高、重排、重复、有效 QC 搭配错误 parent semantic root、64 高度与 16 MiB 累计边界，以及集合 h/h+1 使用旧 key、h+2 才切新 key。实际 World 用例从真实 H+1 持久 cut 派生并执行隔离 H+2，保留 H 的冷历史 reader，拒绝父状态漂移、未提交队列和用旧 H restore 认证后继 Snapshot。父策略替换用例中的重新签名 World 只是协议/Runtime 策略 fixture；须同时观察实际 H+1 driver 拒绝它，不能把该 fixture 当作独立重执行或生产提交证据。
 
+完整前缀重放用例从同一 qualified H 顺序执行三个实际高度，核对 tip Snapshot、Journal、全部 commitment 和结果树，且 H World 与旧 ledger 均不变。外部精确目标高度/ID 不符必须在执行前拒绝；合法 QC 签署伪造结果树根时，先确认协议验证通过，再确认完整重放拒绝。该用例不使用 provider 提供的后继 Snapshot 恢复世界。
+
 这些候选执行证据不增加固定 H+1 ledger 或 `/v2/world/read` 的范围，也不证明多高度持久前缀、后继读取版本、正式 signer/provider/Node 写入接线或部署 readiness。候选 World 不得被包装为未持久化的 committed cut。
 
 #### 本机身份发布回归（NIR bootstrap）
