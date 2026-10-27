@@ -181,7 +181,7 @@ pub(super) fn finish_prepared_world_transition(
         runtime_actions,
     } = request;
     let tick_context = RuntimeCommittedTickContext {
-        height: height,
+        height,
         slot: height.saturating_sub(1),
         epoch: authority_epoch,
         node_block_hash: input_hash.to_owned(),
