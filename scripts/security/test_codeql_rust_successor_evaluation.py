@@ -43,8 +43,9 @@ class ComparisonTests(unittest.TestCase):
 
     def experiment(self, clean, broken_summary=False, spawned=True):
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d); db=p/'db';db.mkdir();self.database(db)
-            out=p/'out';out.mkdir();work=p/'work';work.mkdir()
+            p=Path(d);work=p/'work';work.mkdir()
+            db=work/'candidate-db';db.mkdir();self.database(db)
+            out=p/'out';out.mkdir()
             args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),
                 business_source=p,deadline=time.monotonic()+1000)
             calls=[]
@@ -93,8 +94,9 @@ class ComparisonTests(unittest.TestCase):
 
     def resolution_experiment(self, copy_delay=0):
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d);db=p/'db';db.mkdir();self.database(db)
-            out=p/'out';out.mkdir();work=p/'work';work.mkdir()
+            p=Path(d);work=p/'work';work.mkdir()
+            db=work/'candidate-db';db.mkdir();self.database(db)
+            out=p/'out';out.mkdir()
             clock=[100.0]; windows=[]
             args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),
                 business_source=p,deadline=1100.0)

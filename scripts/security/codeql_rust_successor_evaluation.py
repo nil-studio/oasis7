@@ -73,8 +73,14 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
     before = plan.inventory(closure, args.deadline-90)
     isolated = plan.prepare_copy(args, closure, before, "successor-keyed-plan")
     copies = {}
+    copies_root = work / "comparison-databases"
+    copies_root.mkdir(exist_ok=False)
+    state = {label: {"status": "NOT_REACHED"} for label in ("original", "candidate")}
+    runtime.save(out / "comparison-terminal.json", state, out)
     for label in ("original", "candidate"):
-        target = work / (label + "-db")
+        target = copies_root / label
+        if target.resolve() == database.resolve():
+            raise RuntimeError("comparison copy aliases extraction database")
         target.mkdir(exist_ok=False)
         for name in baseline:
             plan.check_time(args.deadline-90)
@@ -85,8 +91,6 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
             raise RuntimeError("copied database facts differ")
         copies[label] = target
     arms = {}
-    state = {label: {"status": "NOT_REACHED"} for label in copies}
-    runtime.save(out / "comparison-terminal.json", state, out)
     for label, db in copies.items():
         if facts(database)[0] != baseline or facts(db)[0] != baseline:
             raise RuntimeError("database facts changed before arm")
