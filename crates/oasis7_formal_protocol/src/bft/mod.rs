@@ -39,3 +39,9 @@ pub use validator_set::{
 pub use verified_commit::{
     BftHeightProposerScheduleV2, VerifiedBftCommitCertificateV2, verify_commit_certificate_token_v2,
 };
+
+mod header_prefix;
+pub use header_prefix::{
+    BFT_FORMAL_HEADER_PREFIX_MAX_BYTES_V3, BFT_FORMAL_HEADER_PREFIX_MAX_HEIGHTS_V3,
+    FormalBftCertifiedHeaderPrefixV3, VerifiedFormalBftHeaderPrefixV3,
+};
