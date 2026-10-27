@@ -60,6 +60,10 @@ mod node_bft_v2_runtime;
 #[cfg(all(test, unix))]
 mod node_bft_v2_test_provider;
 mod node_bft_v2_transport;
+mod node_bft_v3_peer_transport;
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use node_bft_v3_peer_transport::NodeBftLibp2pPeerTransportV3;
+pub use node_bft_v3_peer_transport::{NodeBftPeerTransportV3, NodeBftReceivedPublicV3};
 mod node_bft_v3_runtime;
 mod node_bft_wal;
 mod node_engine_core;
@@ -115,6 +119,7 @@ use consensus_support::{
     verify_commit_message_signature, verify_proposal_message_signature,
 };
 pub use error::NodeError;
+pub use execution_hook::NodeBftPrivateCandidatePackageV3;
 use gossip_udp::{
     GossipAttestationMessage, GossipCommitMessage, GossipEndpoint, GossipMessage,
     GossipProposalMessage,

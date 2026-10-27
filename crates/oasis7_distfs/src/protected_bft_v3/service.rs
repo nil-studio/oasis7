@@ -28,7 +28,9 @@ use super::wire::{
     SignedBftSignerRequestV3, encode_frame, request_digest, validate_request,
 };
 
+mod candidate_read;
 mod operations;
+pub use candidate_read::BftCandidateReadPolicyV3;
 
 pub(super) const BFT_SIGNER_CHECKPOINT_DOMAIN_V3: &str =
     "oasis7.bft.protected-signer.v3.checkpoint";
@@ -38,6 +40,7 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 /// Backends must supply atomic generation fencing and durable monotonic time;
 /// this service makes no hardware or nonrollback claim about an implementation.
 pub struct BftSignerServiceV3 {
+    candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
     pub(super) validator_keys: BTreeMap<String, Box<dyn BftSigningKeyHandleV3>>,
@@ -45,6 +48,7 @@ pub struct BftSignerServiceV3 {
 }
 
 pub(super) struct BftSignerServiceRuntimeV3 {
+    read_window: Option<(i64, u16)>,
     pub(super) backend: Box<dyn BftSignerBackendV3>,
     pub(super) poisoned: bool,
     pub(super) verified: Option<VerifiedBftSignerStateV3>,
@@ -64,6 +68,7 @@ pub(super) struct BftSignerSessionV3 {
     pub(super) prepared: Option<PreparedAcquireV3>,
     pub(super) lease: Option<BftSignerLeaseCredentialV3>,
     pub(super) operations: u64,
+    read_proofs: u32,
     pub(super) challenges: BTreeSet<String>,
 }
 
@@ -133,10 +138,12 @@ impl BftSignerServiceV3 {
             return Err(invalid("BFT V3 provisioned backend snapshot is invalid"));
         }
         Ok(Self {
+            candidate_read_policy: None,
             binding,
             provider_key,
             validator_keys: keys_by_public,
             runtime: Mutex::new(BftSignerServiceRuntimeV3 {
+                read_window: None,
                 backend,
                 poisoned: false,
                 verified: Some(verified),
@@ -565,7 +572,7 @@ impl BftSignerServiceV3 {
     fn process_leased_command(
         &self,
         runtime: &mut BftSignerServiceRuntimeV3,
-        _session: &mut BftSignerSessionV3,
+        session: &mut BftSignerSessionV3,
         request: &SignedBftSignerRequestV3,
         request_digest: &str,
         credential: BftSignerLeaseCredentialV3,
@@ -582,7 +589,8 @@ impl BftSignerServiceV3 {
         if state.pending_driver_apply.is_some()
             && !matches!(
                 command,
-                BftSignerCommandV3::Checkpoint
+                BftSignerCommandV3::SignCandidateRead { .. }
+                    | BftSignerCommandV3::Checkpoint
                     | BftSignerCommandV3::ConfirmApplied { .. }
                     | BftSignerCommandV3::SignProposal { .. }
                     | BftSignerCommandV3::SignVote { .. }
@@ -593,6 +601,16 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
+            BftSignerCommandV3::SignCandidateRead { body } => self.sign_candidate_read(
+                runtime,
+                session,
+                &credential,
+                token_digest,
+                snapshot,
+                body,
+                request,
+                request_digest,
+            ),
             BftSignerCommandV3::Checkpoint => self.state_reply(
                 snapshot,
                 request,

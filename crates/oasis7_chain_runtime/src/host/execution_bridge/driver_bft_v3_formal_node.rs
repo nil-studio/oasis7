@@ -7,7 +7,8 @@ use oasis7_consensus::tendermint_v3::BftHeaderValueV3;
 use oasis7_distfs::protected_bft_v3::BftSignerBindingV3;
 use oasis7_node::{
     NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
-    NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3, NodeExecutionHook,
+    NodeBftExecutionHeadV3, NodeBftPrivateCandidatePackageV3, NodeBftPrivateCandidateV3,
+    NodeExecutionHook,
 };
 
 #[path = "driver_bft_v3_node_private_store.rs"]
@@ -253,7 +254,7 @@ impl FormalBftHeaderNodeDriverV3 {
             .validate_binding()
             .map_err(|_| "Node public candidate binding rejected")?;
         let height = value.execution_commitment.height;
-        let candidate = if let Some(candidate) = self.private.candidate(height)? {
+        let candidate = if let Some(candidate) = self.private.candidate_for_value(value)? {
             candidate
         } else {
             let input = self
@@ -358,6 +359,50 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         self.private.retain(candidate, &nodes, &mut |bytes| {
             self.execution.ledger.reserve_external_material(bytes)
         })
+    }
+    fn export_bft_v3_private_candidate(
+        &mut self,
+        value: &BftHeaderValueV3,
+    ) -> Result<NodeBftPrivateCandidatePackageV3, String> {
+        self.require_configured()?;
+        let (candidate, dependency_nodes) = self.private.export(value)?;
+        Ok(NodeBftPrivateCandidatePackageV3 {
+            candidate,
+            dependency_nodes,
+        })
+    }
+    fn retain_received_bft_v3_private_candidate(
+        &mut self,
+        expected: &NodeBftExecutionContextV3,
+        package: &NodeBftPrivateCandidatePackageV3,
+    ) -> Result<String, String> {
+        if package.dependency_nodes.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES
+            || !package.dependency_nodes.windows(2).all(|w| w[0].0 < w[1].0)
+        {
+            return Err("received Node dependency order/count differs".into());
+        }
+        let mut total = 0usize;
+        for (digest, bytes) in &package.dependency_nodes {
+            formal_dependencies::validate_node(digest, bytes)?;
+            total = total
+                .checked_add(bytes.len())
+                .filter(|n| *n <= formal_dependencies::MAX_RETAINED_INDEX_TOTAL_BYTES)
+                .ok_or("received Node dependency byte capacity")?;
+        }
+        let supplied: std::collections::BTreeMap<_, _> =
+            package.dependency_nodes.iter().cloned().collect();
+        formal_dependencies::validate_nodes(&supplied)?;
+        // Never seed the strict parent with untrusted network material. The
+        // actual transition must independently reproduce this exact closure.
+        self.validate_candidate(expected, &package.candidate)?;
+        let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
+        if nodes != supplied {
+            return Err("received Node dependencies differ from actual original transition".into());
+        }
+        self.private
+            .retain_received(&package.candidate, &nodes, &mut |bytes| {
+                self.execution.ledger.reserve_external_material(bytes)
+            })
     }
     fn load_bft_v3_private_candidate(
         &mut self,

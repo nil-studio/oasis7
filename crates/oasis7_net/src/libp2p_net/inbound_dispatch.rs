@@ -34,6 +34,7 @@ pub(super) struct PreCryptoAdmissionBudget {
     window_started_at_ms: i64,
     global: u16,
     peers: HashMap<PeerId, u16>,
+    authenticated: super::authenticated_requests::Budget,
 }
 
 impl PreCryptoAdmissionBudget {
@@ -176,7 +177,26 @@ pub(super) fn dispatch_inbound_request(
             );
             return;
         }
-        let handler = match admit_inbound_handler(registration, request.payload.as_slice()) {
+        let selected = if let Some(auth) = &registration.authenticated {
+            if request.payload.len() > auth.max_bytes {
+                Err(super::authenticated_requests::rejected(
+                    "authenticated request exceeds byte bound",
+                ))
+            } else {
+                admission_budget.authenticated.admit(peer).and_then(|()| (auth.admission)(&peer, &request.payload)).map(|()| {
+                    let auth = Arc::clone(auth);
+                    Arc::new(move |base: &oasis7_proto::distributed_net::NetworkRequestContext, payload: &[u8]| {
+                        let context = super::authenticated_requests::AuthenticatedPeerRequestContext::new(base.clone(), peer);
+                        let reply = (auth.handler)(&context, payload)?;
+                        if reply.len() > super::authenticated_requests::AUTHENTICATED_RESPONSE_MAX_BYTES { return Err(super::authenticated_requests::rejected("authenticated response exceeds hard byte bound")); }
+                        Ok(reply)
+                    }) as Handler
+                })
+            }
+        } else {
+            admit_inbound_handler(registration, request.payload.as_slice())
+        };
+        let handler = match selected {
             Ok(handler) => handler,
             Err(reply) => {
                 response_workers.send_immediate(

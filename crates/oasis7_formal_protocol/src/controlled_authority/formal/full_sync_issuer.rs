@@ -34,11 +34,13 @@ const MAX_LEDGER_RECORDS: usize = MAX_FULL_SYNC_ISSUER_LEDGER_RECORDS_V2;
 const MAX_TARGETS: usize = 1_024;
 const MAX_GRANT_MILLIS: u64 = 30 * 24 * 60 * 60 * 1000;
 
-/// Read roles understood by this V2 management ledger.
+/// Purpose discriminator shared by V2/V3 DTOs. V2 admits only its original two roles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum FullSyncReadRoleV2 {
     StateSync,
     FullReadOnly,
+    /// Explicit V3 issuer purpose; never a legacy node-read grant.
+    BftPendingCandidateV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +88,9 @@ impl FullSyncIssuerPolicyBodyV2 {
         }
         if self.allowed_roles.is_empty()
             || self.allowed_roles.len() > 2
+            || self
+                .allowed_roles
+                .contains(&FullSyncReadRoleV2::BftPendingCandidateV1)
             || self.allowed_roles.windows(2).any(|pair| pair[0] >= pair[1])
         {
             return Err(invalid(
@@ -319,6 +324,9 @@ pub struct FullSyncIssuerCommandBodyV2 {
 
 impl FullSyncIssuerCommandBodyV2 {
     fn validate(&self) -> Result<(), FormalError> {
+        if self.target.role == FullSyncReadRoleV2::BftPendingCandidateV1 {
+            return Err(invalid("V2 issuer does not authorize pending candidates"));
+        }
         self.world.validate()?;
         self.target.validate()?;
         self.expected_head.validate()?;

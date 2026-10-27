@@ -37,6 +37,15 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    /// Typed key-possession proof only, never read permission or voting install.
+    fn sign_candidate_read_request(
+        &mut self,
+        _body: &oasis7_proto::distributed_bft::v3::BftCandidateReadBodyV3,
+    ) -> Result<oasis7_proto::distributed_bft::v3::BftCandidateReadProofV3, BftSignerErrorV3> {
+        Err(invalid(
+            "candidate read key proofs are unsupported by this lease",
+        ))
+    }
     fn checkpoint(&mut self) -> Result<BftSignerCheckpointV3, BftSignerErrorV3>;
     fn protected_time_ms(&mut self) -> Result<i64, BftSignerErrorV3>;
     fn start_height_timer(
@@ -347,6 +356,28 @@ impl RemoteBftSignerLeaseV3 {
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn sign_candidate_read_request(
+        &mut self,
+        body: &oasis7_proto::distributed_bft::v3::BftCandidateReadBodyV3,
+    ) -> Result<oasis7_proto::distributed_bft::v3::BftCandidateReadProofV3, BftSignerErrorV3> {
+        body.validate().map_err(invalid)?;
+        let (request, reply) = self.command(BftSignerCommandV3::SignCandidateRead {
+            body: Box::new(body.clone()),
+        })?;
+        let BftSignerReplyKindV3::CandidateReadSigned { proof } =
+            RemoteBftSignerProviderV3::checked_result(&reply)?
+        else {
+            return Err(invalid("candidate read signature reply has wrong kind"));
+        };
+        self.result_checkpoint(&request, &reply, |kind| {
+            matches!(kind, BftSignerReplyKindV3::CandidateReadSigned { .. })
+        })?;
+        proof
+            .verify_for(body, &body.validator_public_key_hex)
+            .map_err(invalid)?;
+        Ok(proof.as_ref().clone())
+    }
+
     fn checkpoint(&mut self) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
         let (request, reply) = self.command(BftSignerCommandV3::Checkpoint)?;
         self.result_checkpoint(&request, &reply, |kind| {

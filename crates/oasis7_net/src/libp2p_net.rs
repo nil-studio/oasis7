@@ -2,6 +2,11 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
+mod authenticated_requests;
+pub use authenticated_requests::{
+    AUTHENTICATED_REQUEST_MAX_BYTES, AUTHENTICATED_RESPONSE_MAX_BYTES, AuthenticatedPeerAdmission,
+    AuthenticatedPeerHandler, AuthenticatedPeerRequestContext,
+};
 mod api;
 pub use api::Libp2pNetwork;
 mod config;

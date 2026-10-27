@@ -23,6 +23,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "driver_bft_v3_node_multivalue_tests.rs"]
+mod node_multivalue_tests;
 #[path = "driver_bft_v3_node_batch_tests.rs"]
 mod node_batch_tests;
 #[path = "driver_bft_v3_node_cli_tests.rs"]

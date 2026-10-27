@@ -6570,6 +6570,7 @@ dependencies = [
 name = "oasis7_node"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "ed25519-dalek",
  "futures",
  "hex",

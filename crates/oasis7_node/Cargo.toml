@@ -17,6 +17,7 @@ oasis7_net = { version = "0.1.0", path = "../oasis7_net", default-features = fal
 oasis7_consensus = { version = "0.1.0", path = "../oasis7_consensus" }
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
+blake3 = "1"
 ed25519-dalek = "3"
 futures = { version = "0.3", optional = true }
 hex = "0.4"

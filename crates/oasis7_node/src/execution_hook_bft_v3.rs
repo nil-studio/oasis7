@@ -80,6 +80,21 @@ impl std::fmt::Debug for NodeBftBuildContextV3 {
     }
 }
 
+/// Private transport material, never a schedule or execution authority. Only
+/// the original retained candidate and its bounded recorded dependencies.
+#[derive(Clone, PartialEq, Eq)]
+pub struct NodeBftPrivateCandidatePackageV3 {
+    pub candidate: NodeBftPrivateCandidateV3,
+    pub dependency_nodes: Vec<(String, Vec<u8>)>,
+}
+impl std::fmt::Debug for NodeBftPrivateCandidatePackageV3 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeBftPrivateCandidatePackageV3")
+            .field("public_value", &self.candidate.public_value)
+            .finish_non_exhaustive()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
