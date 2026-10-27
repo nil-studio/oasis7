@@ -167,7 +167,7 @@ impl NodeExecutionHook for TestHook {
         &mut self,
         b: &BftSignerBindingV3,
     ) -> Result<Option<NodeBftExecutionHeadV3>, String> {
-        if b.digest()? != self.0.lock().unwrap().binding_digest {
+        if b.digest().map_err(|e| e.to_string())? != self.0.lock().unwrap().binding_digest {
             return Err("test binding mismatch".into());
         }
         Ok(None)
