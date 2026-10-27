@@ -11,7 +11,7 @@ pub enum Libp2pAvailabilityClass {
 }
 
 pub(super) fn error_response_from_world_error(err: &WorldError) -> ErrorResponse {
-    match err {
+    match err.diagnostic_source() {
         WorldError::NetworkRequestFailed {
             code,
             message,
@@ -46,6 +46,7 @@ pub(super) fn error_response_from_world_error(err: &WorldError) -> ErrorResponse
             DistributedErrorCode::ErrUnauthorized,
             "invalid signature key",
         ),
+        WorldError::NetworkFailure { .. } => unreachable!("diagnostic source is unwrapped"),
         WorldError::Io(message) => {
             ErrorResponse::from_code(DistributedErrorCode::ErrNotAvailable, message.clone())
         }
@@ -67,41 +68,16 @@ fn protocol_unavailable_code(protocol: &str) -> DistributedErrorCode {
 }
 
 pub fn classify_world_error_availability(err: &WorldError) -> Libp2pAvailabilityClass {
-    match err {
-        WorldError::NetworkProtocolUnavailable { protocol } => {
-            classify_protocol_unavailable(protocol)
-        }
-        WorldError::NetworkRequestFailed {
-            code,
-            message,
-            retryable: _,
-        } => {
-            let classified = classify_protocol_unavailable(message);
-            if matches!(classified, Libp2pAvailabilityClass::RetryableGap) {
-                return classified;
-            }
-            match code {
-                DistributedErrorCode::ErrOverloaded | DistributedErrorCode::ErrRateLimited => {
-                    Libp2pAvailabilityClass::Overloaded
-                }
-                DistributedErrorCode::ErrBadRequest
-                    if matches!(classified, Libp2pAvailabilityClass::BadRequest) =>
-                {
-                    Libp2pAvailabilityClass::BadRequest
-                }
-                DistributedErrorCode::ErrUnsupported
-                    if matches!(classified, Libp2pAvailabilityClass::MissingHandler) =>
-                {
-                    Libp2pAvailabilityClass::MissingHandler
-                }
-                DistributedErrorCode::ErrNotAvailable
-                    if matches!(classified, Libp2pAvailabilityClass::RetryableGap) =>
-                {
-                    Libp2pAvailabilityClass::RetryableGap
-                }
-                _ => Libp2pAvailabilityClass::Other,
-            }
-        }
+    use oasis7_proto::network_failure::FailureCause;
+    let facts = err.network_failure(None);
+    if facts.is_connection_gap() {
+        return Libp2pAvailabilityClass::RetryableGap;
+    }
+    match facts.cause {
+        FailureCause::MissingHandler => Libp2pAvailabilityClass::MissingHandler,
+
+        FailureCause::RateLimited | FailureCause::Busy => Libp2pAvailabilityClass::Overloaded,
+        FailureCause::Validation => Libp2pAvailabilityClass::BadRequest,
         _ => Libp2pAvailabilityClass::Other,
     }
 }
@@ -121,11 +97,7 @@ pub fn world_error_is_missing_handler(err: &WorldError) -> bool {
 }
 
 pub fn world_error_is_publish_failure(err: &WorldError) -> bool {
-    matches!(
-        err,
-        WorldError::NetworkProtocolUnavailable { protocol }
-            if protocol.starts_with("libp2p publish failed topic=")
-    )
+    err.network_failure(None).origin == oasis7_proto::network_failure::FailureOrigin::Publish
 }
 
 fn classify_protocol_unavailable(protocol: &str) -> Libp2pAvailabilityClass {
@@ -163,6 +135,25 @@ fn protocol_unavailable_is_retryable_gap(protocol: &str) -> bool {
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    #[test]
+    fn denial_code_cannot_claim_a_retryable_connection_gap_in_its_message() {
+        for code in [
+            DistributedErrorCode::ErrUnauthorized,
+            DistributedErrorCode::ErrBadRequest,
+            DistributedErrorCode::ErrStateMismatch,
+            DistributedErrorCode::ErrInvalidHash,
+        ] {
+            let err = WorldError::NetworkRequestFailed {
+                code,
+                message: "request failed: Timeout protocol=/aw/node/replication/get-head/1.0.0"
+                    .into(),
+                retryable: true,
+            };
+            assert!(!world_error_is_retryable_connection_gap(&err), "{code:?}");
+            assert_eq!(error_response_from_world_error(&err).code, code);
+        }
+    }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
     #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
