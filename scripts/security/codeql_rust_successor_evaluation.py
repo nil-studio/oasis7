@@ -1,4 +1,4 @@
-"""One fixed-context, same-facts A/B experiment; never security/SARIF acceptance."""
+"""Fixed-context inventory diagnostics and A/B; never security/SARIF acceptance."""
 from collections import Counter
 import csv
 import hashlib
@@ -13,6 +13,8 @@ import codeql_rust_trait_scope_plan as plan
 
 ARM_SECONDS = 180
 MAX_DATABASE_BYTES = 2 * 1024**3
+MAX_INVENTORY_MAP_BYTES = 4 * 1024**2
+AFTER_MAP_RESERVE = 2 * MAX_INVENTORY_MAP_BYTES + 4 * runtime.MAX_PROCESS_RECEIPT
 OMIT = {"results", "working", "log", "logs", ".cache", "query-cache", "common-cache", "compilation-cache"}
 
 
@@ -50,7 +52,34 @@ def same_results(original, candidate):
     return differences
 
 
-def after_facts(source, arm, baseline):
+def inventory_bytes(value):
+    encoded = (json.dumps(value,indent=2)+'\n').encode()
+    if len(encoded) > MAX_INVENTORY_MAP_BYTES:
+        raise RuntimeError("complete database inventory exceeds 4MiB bound")
+    return encoded
+
+
+def reserve_after_maps(output, baseline):
+    """Constrain query output while leaving both complete after maps writable."""
+    original = runtime.WRITE_CAP
+    limit = original-AFTER_MAP_RESERVE
+    current = runtime.output_bytes(output)
+    if limit-current < 1024**2:
+        raise RuntimeError("NOT_REACHED insufficient reserved inventory/query evidence space")
+    runtime.save(output/'inventory-space-reservation.json', {
+        "baseline_inventory_bytes": len(inventory_bytes(baseline)),
+        "maximum_after_map_bytes_each": MAX_INVENTORY_MAP_BYTES,
+        "after_maps_and_four_process_receipts_bytes": AFTER_MAP_RESERVE,
+        "query_write_cap_bytes": limit,
+        "final_receipts_reserved_bytes": runtime.CAP-original,
+        "query_output_remaining_before_this_receipt_bytes": limit-current},output)
+    if limit-runtime.output_bytes(output) < 1024**2:
+        raise RuntimeError("NOT_REACHED insufficient query evidence after reservation receipt")
+    runtime.WRITE_CAP = limit
+    return original
+
+
+def after_facts(source, arm, baseline, output=None, prefix="after"):
     """Report both inventories even if one changed; do not waive any difference."""
     details = {}
     for label, database in (("source", source), ("arm", arm)):
@@ -70,6 +99,10 @@ def after_facts(source, arm, baseline):
                     "before_sha256": baseline.get(n), "after_sha256": current.get(n)} for n in names[:4]]
                 if len(names)>4 or any(len(n)>256 for n in names):
                     record["details_complete"] = False
+            if output is not None:
+                inventory_path = output / (prefix+"-"+label+"-inventory.json")
+                runtime.evidence_write(inventory_path,inventory_bytes(current),output)
+                record["inventory_file"] = inventory_path.name
             details[label] = record
         except Exception as exc:
             details[label] = {"status": "UNKNOWN", "error": repr(exc)[:1024], "details_complete": False}
@@ -87,24 +120,30 @@ def clean_query_timeout(exc):
         isinstance(value.get("elapsed"), (int, float)) and value["elapsed"] > 0)
 
 
-def execute(args, env, closure, verify_library, database, texts, libp2p_root, wanted, model):
+def execute(args, env, closure, verify_library, database, texts, libp2p_root, wanted, model, files_only=False):
     out, work = args.output, args.work
     cli = str(args.codeql)
+    if files_only and tuple(texts) != ("Files",):
+        raise RuntimeError("Files inventory mode requires exactly one Files query")
     baseline, size = facts(database)
     if shutil.disk_usage(work).free < max(4 * 1024**3, size*3 + 1024**3):
         raise RuntimeError("insufficient space for two independent database copies")
-    if args.deadline-time.monotonic() < 540+20*len(texts):
+    initial_required = 335 if files_only else 540+20*len(texts)
+    if args.deadline-time.monotonic() < initial_required:
         raise RuntimeError("NOT_REACHED insufficient two-arm and terminal budget")
     runtime.save(out / "database-facts.json", {"sha256": baseline, "bytes": size,
         "source": model.SOURCE, "extractions": 1, "omitted_mutable_paths": sorted(OMIT | {"db-rust/default/cache"})}, out)
-    before = plan.inventory(closure, args.deadline-90)
-    isolated = plan.prepare_copy(args, closure, before, "successor-keyed-plan")
+    isolated = None
+    if not files_only:
+        before = plan.inventory(closure, args.deadline-90)
+        isolated = plan.prepare_copy(args, closure, before, "successor-keyed-plan")
     copies = {}
     copies_root = work / "comparison-databases"
     copies_root.mkdir(exist_ok=False)
-    state = {label: {"status": "NOT_REACHED"} for label in ("original", "candidate")}
+    labels = ("original",) if files_only else ("original", "candidate")
+    state = {label: {"status": "NOT_REACHED"} for label in labels}
     runtime.save(out / "comparison-terminal.json", state, out)
-    for label in ("original", "candidate"):
+    for label in labels:
         target = copies_root / label
         if target.resolve() == database.resolve():
             raise RuntimeError("comparison copy aliases extraction database")
@@ -119,7 +158,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         copies[label] = target
     arms = {}
     for label, db in copies.items():
-        intact, before_detail = after_facts(database, db, baseline)
+        intact, before_detail = after_facts(database, db, baseline, out if files_only else None, "before")
         if not intact:
             state[label] = {"status": "FAILED_PREFLIGHT_FACTS", "facts_before": before_detail}
             runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
@@ -136,7 +175,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         state[label] = {"status": "RUNNING", "shared_budget_seconds": ARM_SECONDS, "facts_before": before_detail,
             "cache_start": "empty independent DB/results/compilation/common caches; intra-arm reuse",
             "queries": {n: "NOT_REACHED" for n in texts}}
-        failure, pending_summaries = None, []
+        failure, pending_summaries, original_write_cap = None, [], None
         try:
             for name in texts:
                 query = out / "queries" / (name+".ql")
@@ -145,9 +184,11 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                     "--additional-packs="+packs],work,resolved,args.deadline-315,20,out,env)
                 verify_library(json.loads(resolved.read_text()),query.parent,name,selected)
             required = (2*(ARM_SECONDS+45)+90+20*len(texts)
-                if label == "original" else ARM_SECONDS+135)
+                if label == "original" and not files_only else ARM_SECONDS+135)
             if args.deadline-time.monotonic() < required:
                 raise RuntimeError("NOT_REACHED insufficient full arm and final reserve")
+            if files_only:
+                original_write_cap = reserve_after_maps(out,baseline)
             end = time.monotonic()+ARM_SECONDS
             for name, text in texts.items():
                 state[label]["queries"][name] = "RUNNING"
@@ -177,7 +218,8 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 decoded = out/(label+"-"+name+".csv")
                 runtime.run([cli,"bqrs","decode",str(bqrs),"--format=csv"],work,decoded,
                     end,20,out,env)
-                table = list(csv.reader(decoded.open()))
+                with decoded.open() as stream:
+                    table = list(csv.reader(stream))
                 if not table:
                     raise RuntimeError("empty decoded table")
                 if name == "Files":
@@ -193,9 +235,10 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                     completed[name] = model.validate_partition(name,text,table[1:])
                 tables[name] = table
                 state[label]["queries"][name] = "DECODED_VALIDATED"
-            model.complete_union(completed)
+            if not files_only:
+                model.complete_union(completed)
             arms[label] = tables
-            state[label]["status"] = "COMPLETE_VALIDATED"
+            state[label]["status"] = "FILES_VALIDATED" if files_only else "COMPLETE_VALIDATED"
         except BaseException as exc:
             failure = exc
             clean = clean_query_timeout(exc)
@@ -216,7 +259,9 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 except BaseException as exc:
                     post_error = exc
                     state[label].update(status="FAILED_POSTPROCESSING",postprocessing_error=repr(exc)[:2048])
-            intact, detail = after_facts(database, db, baseline)
+            if original_write_cap is not None:
+                runtime.WRITE_CAP = original_write_cap
+            intact, detail = after_facts(database, db, baseline, out if files_only else None, "after")
             state[label]["facts_unchanged"] = intact
             state[label]["facts_after"] = detail
             if not intact:
@@ -225,6 +270,10 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
             runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
             if not intact: raise RuntimeError("database facts changed after arm") from failure
             if post_error is not None: raise post_error
+    if files_only:
+        runtime.save(out/"files-inventory-result.json", {"status": state["original"]["status"],
+            "full_rust_coverage": "HOLD", "candidate_queries": 0, "model_comparison": "NOT_PLANNED"}, out, terminal=True)
+        return
     result = {"status":"INCOMPLETE_EQUALITY_UNKNOWN","full_rust_coverage":"HOLD",
         "runtime_performance":"NOT_ESTABLISHED", "relation_counts":"inspect raw evaluator and official summaries; absent is UNKNOWN"}
     if set(arms)=={"original","candidate"}:

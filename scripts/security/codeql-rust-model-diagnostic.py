@@ -82,13 +82,13 @@ def main():
     parser.add_argument('--codeql', type=Path, required=True)
     parser.add_argument('--bundle-version', choices=BUNDLES, default='2.27.2')
     parser.add_argument('--business-source', type=Path, required=True)
-    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan', 'successor-keyed-plan', 'successor-keyed-eval'), default='node-only')
+    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan', 'successor-keyed-plan', 'successor-keyed-eval', 'files-inventory'), default='node-only')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True, help='fixed first-preparation Unix deadline, at most1080s ahead')
     args = parser.parse_args()
     compile_only = args.probe in ("trait-scope-plan", "successor-keyed-plan")
-    if (compile_only or args.probe == "successor-keyed-eval") and args.bundle_version != "2.27.3":
+    if (compile_only or args.probe in ("successor-keyed-eval", "files-inventory")) and args.bundle_version != "2.27.3":
         parser.error("isolated library probes require complete official 2.27.3")
     remaining = args.deadline - time.time()
     if not 0 < remaining <= 1080:
@@ -123,12 +123,13 @@ def main():
                             args.output / ('rustc-' + toolchain + '.log'), args.deadline-90, 20, args.output, env)
             spec = importlib.util.spec_from_file_location('refactored', Path(__file__).with_name('codeql-rust-refactored-source.py'))
             model = importlib.util.module_from_spec(spec); spec.loader.exec_module(model)
-            if args.probe == 'successor-keyed-eval':
+            if args.probe in ('successor-keyed-eval', 'files-inventory'):
                 import codeql_rust_successor_evaluation as comparison
-                args.probe = 'full'
+                files_only = args.probe == 'files-inventory'
+                args.probe = 'files-inventory' if files_only else 'full'
                 model.execute(args, env, closure, verify_library_path,
-                    comparison=lambda *values: comparison.execute(*values, model))
-                terminal['status'] = 'COMPARISON_RECORDED_REQUIRES_REVIEW'
+                    comparison=lambda *values: comparison.execute(*values, model, files_only=files_only))
+                terminal['status'] = 'FILES_INVENTORY_RECORDED' if files_only else 'COMPARISON_RECORDED_REQUIRES_REVIEW'
             else:
                 model.execute(args, env, closure, verify_library_path)
                 terminal['status'] = 'SELECTED_PROBE_COMPLETED'

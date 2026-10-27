@@ -167,5 +167,90 @@ class ComparisonTests(unittest.TestCase):
     def test_copy_cost_cannot_consume_candidate_reserve_before_original_starts(self):
         self.resolution_experiment(copy_delay=300)
 
+    def files_inventory(self, mutate):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);work=p/'work';work.mkdir();db=work/'candidate-db';db.mkdir();self.database(db)
+            out=p/'out';out.mkdir();clock=time.monotonic()
+            args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),business_source=p,deadline=clock+800)
+            calls=[];seen_rows=[];initial_write_cap=m.runtime.WRITE_CAP
+            def check(rows,wanted):
+                self.assertEqual(rows,[[str(p/'source.rs'),'source.rs']])
+                self.assertEqual(wanted,{str(p/'source.rs')});seen_rows.extend(rows)
+            model=SimpleNamespace(SOURCE='fixed',check_files=check,complete_union=lambda *a:self.fail('Files is not full semantic coverage'))
+            def run(argv,cwd,output,*rest):
+                if argv[1:3]==['resolve','library-path']:
+                    output.write_text('{}');return
+                if argv[1:3]==['database','run-queries']:
+                    self.assertEqual(m.runtime.WRITE_CAP,initial_write_cap-m.AFTER_MAP_RESERVE)
+                    calls.append(argv)
+                    self.assertTrue(argv[4].endswith('/Files.ql'))
+                    queried=Path(argv[3]);results=queried/'results';results.mkdir()
+                    (results/'Files.bqrs').write_bytes(b'complete bounded fixture')
+                    (out/'original-Files-evaluator.jsonl').write_text('{}\n')
+                    if mutate:(queried/'derived-index').write_text('derived')
+                    return
+                self.assertEqual(argv[1:3],['bqrs','decode'])
+                output.write_text('"col0","col1"\n"'+str(p/'source.rs')+'","source.rs"\n')
+            summary={k:'GENERATED_NOT_EVALUATION_COMPLETION' for k in ('overall','predicates')}
+            with patch.object(m.plan,'prepare_copy',side_effect=AssertionError('no candidate library')),patch.object(m.runtime,'run',side_effect=run),patch.object(m.runtime,'official_summaries',return_value=summary):
+                if mutate:
+                    with self.assertRaisesRegex(RuntimeError,'facts changed after arm'):
+                        m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,db,{'Files':'fixed query'},p,{str(p/'source.rs')},model,files_only=True)
+                else:
+                    m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,db,{'Files':'fixed query'},p,{str(p/'source.rs')},model,files_only=True)
+                    result=json.loads((out/'files-inventory-result.json').read_text())
+                    self.assertEqual(result['status'],'FILES_VALIDATED')
+                    self.assertEqual(result['candidate_queries'],0)
+            self.assertEqual(len(calls),1)
+            self.assertEqual(m.runtime.WRITE_CAP,initial_write_cap)
+            self.assertEqual(len(seen_rows),1)
+            before=json.loads((out/'before-source-inventory.json').read_text())
+            self.assertEqual(before,json.loads((out/'before-arm-inventory.json').read_text()))
+            self.assertEqual(before,json.loads((out/'after-source-inventory.json').read_text()))
+            after=json.loads((out/'after-arm-inventory.json').read_text())
+            self.assertEqual('derived-index' in after,mutate)
+            self.assertFalse((work/'comparison-databases/candidate').exists())
+
+    def test_files_mode_uses_one_official_query_and_complete_dual_snapshots(self):
+        self.files_inventory(False)
+
+    def test_files_mode_records_real_change_and_stops_without_candidate(self):
+        self.files_inventory(True)
+
+    def test_files_mode_rejects_extra_model_query_before_any_cli(self):
+        args=SimpleNamespace(output=Path('/unused'),work=Path('/unused'),codeql=Path('/unused'))
+        with self.assertRaisesRegex(RuntimeError,'exactly one Files'):
+            m.execute(args,{}, {},None,None,{'Files':'query','PeerDf':'query'},None,None,None,files_only=True)
+
+    def test_insufficient_snapshot_reserve_rejects_query_without_changing_cap(self):
+        with tempfile.TemporaryDirectory() as d:
+            old=m.runtime.WRITE_CAP
+            with patch.object(m.runtime,'output_bytes',return_value=old-m.AFTER_MAP_RESERVE-100):
+                with self.assertRaisesRegex(RuntimeError,'NOT_REACHED'):
+                    m.reserve_after_maps(Path(d),{})
+            self.assertEqual(m.runtime.WRITE_CAP,old)
+
+    def test_full_query_allowance_and_terminal_receipts_leave_both_after_maps_writable(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);old=m.runtime.WRITE_CAP
+            try:
+                m.reserve_after_maps(root,{})
+                remaining=m.runtime.WRITE_CAP-m.runtime.output_bytes(root)
+                with (root/'query.log').open('wb') as stream:stream.truncate(remaining)
+                for i in range(4):
+                    m.runtime.evidence_write(root/('receipt-'+str(i)),b'x'*m.runtime.MAX_PROCESS_RECEIPT,root,terminal=True)
+                m.runtime.WRITE_CAP=old
+                for i in range(2):
+                    m.runtime.evidence_write(root/('after-map-'+str(i)),b'x'*m.MAX_INVENTORY_MAP_BYTES,root)
+                self.assertEqual(m.runtime.output_bytes(root),old)
+                m.runtime.save(root/"terminal-result.json",{"status":"captured"},root,terminal=True)
+                self.assertLess(m.runtime.output_bytes(root),m.runtime.CAP)
+            finally:m.runtime.WRITE_CAP=old
+
+    def test_oversized_full_inventory_is_explicitly_rejected(self):
+        with patch.object(m,'MAX_INVENTORY_MAP_BYTES',8):
+            with self.assertRaisesRegex(RuntimeError,'inventory exceeds'):
+                m.inventory_bytes({'file':'a'*64})
+
 
 if __name__=='__main__': unittest.main()
