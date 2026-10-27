@@ -583,7 +583,7 @@ env -u RUSTC_WRAPPER cargo test --locked -p oasis7_consensus --lib tendermint_v3
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_distfs --lib protected_bft_v3 -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_node --lib bft_v3 -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read_node_private -- --test-threads=1
-env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib wire3_formal_read_actual_node -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib node_execution_tests -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
 ```
 
