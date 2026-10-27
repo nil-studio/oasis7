@@ -1,10 +1,11 @@
+import { browserGameDiagnostic, gatewayFailureDiagnostic } from "./browser_game_diagnostics.js";
 import { createBrowserGameDatabase, browserIdentityScope } from "./browser_game_identity.js";
 import { deliveryPhases, operationObservation, terminalDisposition } from "./browser_operation_lifecycle.js";
 
 export class BrowserParticipantError extends Error {
-  constructor(code) { super(code); this.name = "BrowserParticipantError"; this.code = code; }
+  constructor(code, diagnostic) { const safe = browserGameDiagnostic({ code, diagnostic }, "participant"); super(code); this.name = "BrowserParticipantError"; this.code = code; this.diagnostic = safe; }
 }
-const fail = (code) => { throw new BrowserParticipantError(code); };
+const fail = (code, diagnostic) => { throw new BrowserParticipantError(code, diagnostic); };
 const json = JSON.stringify;
 const clone = (value) => JSON.parse(json(value));
 const hex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
@@ -31,6 +32,7 @@ async function boundedText(response, maximum) {
 export function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
   if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail("participant_configuration_invalid");
   async function request(path, options = {}, deadline = Date.now() + 30000, callSignal) {
+    const stage = ({ "/entry/discovery": "participant_discovery", "/session": "participant_session", "/participant/authorize": "participant_authorize", "/participant/owner-view": "participant_owner_view", "/participant/submit": "participant_submit", "/participant/lookup": "participant_lookup", "/entry-owner/control": "owner_control", "/entry-executor/control": "executor_control" })[path];
     const signals = [signal, callSignal].filter(Boolean);
     if (signals.some((item) => item.aborted)) fail("participant_stopped");
     if (Date.now() >= deadline) fail("participant_request_timeout");
@@ -55,20 +57,26 @@ export function createBrowserParticipantGateway({ config, accountId, fetchImpl =
         const { beforeSend, ...fetchOptions } = options;
         if (beforeSend) { await beforeSend(); stopped(); }
         if (Date.now() >= deadline) fail("participant_request_timeout");
-        const response = await fetchImpl(`${config.endpoint}${path}`, { credentials: "same-origin", mode: "same-origin",
-          cache: "no-store", redirect: "error", referrerPolicy: "no-referrer", ...fetchOptions, signal: controller.signal });
+        let response;
+        try { response = await fetchImpl(`${config.endpoint}${path}`, { credentials: "same-origin", mode: "same-origin",
+          cache: "no-store", redirect: "error", referrerPolicy: "no-referrer", ...fetchOptions, signal: controller.signal }); }
+        catch { stopped(); fail("participant_network_failed", { stage }); }
         stopped();
-        if (!response.ok) fail("participant_request_failed");
+        if (!response.ok) {
+          let value;
+          try { value = JSON.parse(await boundedText(response, 4096)); } catch { /* Only status survives malformed or oversized errors. */ }
+          stopped(); fail("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
+        }
         const declared = response.headers?.get?.("content-length");
         if (declared !== null && declared !== undefined && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail("participant_response_limit");
         const raw = await boundedText(response, maximum);
         stopped();
         const status = JSON.parse(raw);
-        if (status.api_version !== 2 || status.ok !== true) fail("participant_request_failed");
+        if (status.api_version !== 2 || status.ok !== true) fail("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
         return raw;
       })();
       return await Promise.race([operation, cancelled]);
-    } catch (error) { if (error instanceof BrowserParticipantError) throw error; fail("participant_response_unknown"); }
+    } catch (error) { if (error instanceof BrowserParticipantError) { if (error.diagnostic.stage === "participant") error.diagnostic = browserGameDiagnostic({ code: error.code, diagnostic: { ...error.diagnostic, stage } }); throw error; } fail("participant_response_unknown", { stage }); }
     finally { clearTimeout(timer); for (const remove of removers) remove(); }
   }
   return {
@@ -252,8 +260,8 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
       ? verified("/v1/world/lookup", lookupRaw, winner.registrationTerminalReply, "lookup", correlationRaw) : candidate;
     const state = decoded(field(raw, ["outcome", "status"]));
     if (state !== "committed") {
-      if (["rejected", "expired"].includes(state)) fail("participant_registration_rejected");
-      fail("participant_registration_pending");
+      if (["rejected", "expired"].includes(state)) fail(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
+      fail("participant_registration_pending", { outcome: state, stage: "participant_lookup" });
     }
     validate("participant_receipt", record.owner.request, raw);
     const receipt = decoded(field(raw, ["outcome", "receipt"]));
@@ -270,13 +278,13 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     if (record.agentId) canonicalAgentId = record.agentId;
     if (record.registrationRaw) {
       try { await registrationLookup(record); }
-      catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code, operation: (await load())?.registrationObservation }; throw error; }
+      catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code, diagnostic: error.diagnostic, operation: (await load())?.registrationObservation }; throw error; }
     }
     try {
       const result = await proofs(record, await authorize(record.owner));
       return { state: "bound", agentId: canonicalAgentId, ...result };
     } catch (error) {
-      if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown") return { state: "needs_participant", code: "participant_binding_unverified" };
+      if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown" || error.code === "participant_network_failed") return { state: "needs_participant", code: error.code === "participant_binding_required" ? "participant_binding_unverified" : error.code, diagnostic: error.diagnostic };
       throw error;
     }
   }

@@ -1,3 +1,4 @@
+import { browserGameDiagnostic } from "./browser_game_diagnostics.js";
 import { loadBrowserGameProtocol } from "./browser_game_protocol.js";
 import { createBrowserExecutorIdentity } from "./browser_game_identity.js";
 import { createBrowserGameRecovery } from "./browser_game_recovery.js";
@@ -25,7 +26,7 @@ export function createBrowserGameSession({ config, accountId, agentId, ownerSign
   let preparing = false, starting = null, disposed = false, generation = 0;
   let lastWall = now();
   const notify = () => { for (const listener of listeners) listener(); };
-  const publish = (value) => { status = { ...status, ...value }; notify(); };
+  const publish = (value) => { status = { ...status, ...(Object.hasOwn(value, "code") ? { diagnostic: undefined } : {}), ...value }; notify(); };
   const unsubscribe = modelSession.subscribe(() => {
     if (runGeneration === generation && credential && credentialRevision !== undefined) {
       let current;
@@ -156,7 +157,7 @@ export function createBrowserGameSession({ config, accountId, agentId, ownerSign
       return { ...status };
     } catch (error) {
       controller.abort();
-      if (generation === expected) publish({ phase: "blocked", ready: false, code: error.code || "game_request_failed" });
+      if (generation === expected) { const diagnostic = browserGameDiagnostic(error, "executor_prepare"); publish({ phase: "blocked", ready: false, code: diagnostic.code, diagnostic }); }
       throw error;
     } finally { if (expected === generation) preparing = false; }
   }
