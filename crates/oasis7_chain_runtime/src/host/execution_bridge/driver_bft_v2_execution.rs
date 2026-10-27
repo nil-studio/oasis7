@@ -130,12 +130,62 @@ pub(super) fn execute_world_transition(
             .attach_bft_governance_parent_v2(schedule)
             .map_err(|error| format!("attach BFT V2 governance execution parent: {error:?}"))?;
     }
-    let tick_context = RuntimeCommittedTickContext {
+    finish_prepared_world_transition(PreparedWorldTransition {
+        parent,
+        next_world,
+        scope,
+        authority_epoch,
+        schedule,
         height: block.height,
-        slot: block.height.saturating_sub(1),
-        epoch: block.authority_epoch,
+        input_hash,
+        action_root: &block.action_root,
+        tick_authority,
+        commit_context,
+        actions,
+        runtime_actions,
+    })
+}
+
+pub(super) struct PreparedWorldTransition<'a> {
+    pub(super) parent: &'a RuntimeWorld,
+    pub(super) next_world: RuntimeWorld,
+    pub(super) scope: &'a BftScopeV2,
+    pub(super) authority_epoch: u64,
+    pub(super) schedule: &'a dyn super::schedule::ExecutionSchedule,
+    pub(super) height: u64,
+    pub(super) input_hash: &'a str,
+    pub(super) action_root: &'a str,
+    pub(super) tick_authority: &'a str,
+    pub(super) commit_context: NodeExecutionCommitContext,
+    pub(super) actions: Vec<NodeConsensusAction>,
+    pub(super) runtime_actions: Vec<super::ClosedRuntimeAction>,
+}
+
+/// The caller has attached the actual parent through its version-specific API.
+/// No schedule view can grant or manufacture that execution authority.
+pub(super) fn finish_prepared_world_transition(
+    request: PreparedWorldTransition<'_>,
+) -> Result<ExecutedWorldTransition, String> {
+    let PreparedWorldTransition {
+        parent,
+        mut next_world,
+        scope,
+        authority_epoch,
+        schedule,
+        height,
+        input_hash,
+        action_root,
+        tick_authority,
+        commit_context,
+        actions,
+        runtime_actions,
+    } = request;
+    let tick_context = RuntimeCommittedTickContext {
+        height: height,
+        slot: height.saturating_sub(1),
+        epoch: authority_epoch,
         node_block_hash: input_hash.to_owned(),
-        action_root: block.action_root.clone(),
+        action_root: action_root.to_owned(),
         authority_node_id: tick_authority.to_owned(),
         committed_at_unix_ms: 0,
     };
@@ -176,7 +226,7 @@ pub(super) fn execute_world_transition(
         chain_id: scope.chain_id.as_str(),
         genesis_ref: Some(scope.genesis_hash.as_str()),
         created_at_height: manifest.created_at_height,
-        manifest_height: block.height,
+        manifest_height: height,
         commit_block_hash: Some(input_hash),
         tick: next_world.state().time,
     };
@@ -191,7 +241,7 @@ pub(super) fn execute_world_transition(
             next_world.journal().clone(),
         )
         .map_err(|error| format!("install BFT V2 derived chain-resource context: {error:?}"))?;
-    if next_world.state().time != block.height {
+    if next_world.state().time != height {
         return Err("BFT V2 execution World tick does not equal block height".into());
     }
 

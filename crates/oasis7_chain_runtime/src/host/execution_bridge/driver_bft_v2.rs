@@ -1,4 +1,7 @@
 //! Dynamic validator-set BFT execution, isolated from the V1 ledger/schema.
+#[path = "driver_bft_schedule.rs"]
+mod schedule;
+
 use super::*;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -34,7 +37,7 @@ mod formal_read;
 mod governance;
 #[path = "driver_bft_v2_storage.rs"]
 mod storage;
-pub(crate) use formal_read::{FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
+pub(crate) use formal_read::{FormalBftPrefixExecutionV1, FormalBftReadExecutionV1};
 use governance::{
     has_validator_set_change_action_v2, transition_metadata_for_schedule,
     validate_set_change_actions_have_registry_v2, validate_validator_transition_action_schedule_v2,

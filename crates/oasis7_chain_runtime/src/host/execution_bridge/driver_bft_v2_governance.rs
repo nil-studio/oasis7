@@ -1,11 +1,12 @@
 use super::ClosedRuntimeAction;
-use oasis7_consensus::tendermint_v2::{BftHeightProposerScheduleV2, BftValidatorSetV2};
+use super::schedule::ExecutionSchedule;
+use oasis7_consensus::tendermint_v2::BftValidatorSetV2;
 use oasis7_node::{BftValidatorTransitionV2, BftValidatorV2, NodeConsensusAction};
 use oasis7_proto::distributed_bft::v2::BftValidatorTransitionRefV2;
 use oasis7_runtime::World as RuntimeWorld;
 
 pub(super) fn transition_metadata_for_schedule(
-    schedule: &BftHeightProposerScheduleV2,
+    schedule: &(impl ExecutionSchedule + ?Sized),
     actions: &[NodeConsensusAction],
     has_set_change_action: bool,
     candidate_world: Option<&RuntimeWorld>,
@@ -120,7 +121,7 @@ pub(super) fn validate_set_change_actions_have_registry_v2(
 }
 
 fn validate_pending_transition_projection_v2(
-    schedule: &BftHeightProposerScheduleV2,
+    schedule: &(impl ExecutionSchedule + ?Sized),
     reference: &BftValidatorTransitionRefV2,
     candidate_world: &RuntimeWorld,
 ) -> Result<(), String> {
@@ -164,7 +165,7 @@ fn validate_pending_transition_projection_v2(
 /// so a validly signed but late action cannot be silently delayed to a later
 /// epoch boundary.
 pub(super) fn validate_validator_transition_action_schedule_v2(
-    schedule: &BftHeightProposerScheduleV2,
+    schedule: &(impl ExecutionSchedule + ?Sized),
     actions: &[ClosedRuntimeAction],
 ) -> Result<(), String> {
     let epoch_length = schedule.policy().epoch_length_ticks;
