@@ -964,6 +964,49 @@ class Selection(unittest.TestCase):
             Path(paths[1]).unlink()
             self.assertEqual(selector.select(config, base, self.commit())['workspace_support_profiles'], [worker])
 
+    @staticmethod
+    def owner_setup_inputs():
+        return [
+            'crates/oasis7_agent_api/src/game/goal.rs',
+            'crates/oasis7_agent_api/src/game/task.rs',
+            'crates/oasis7_agent_api/src/game/goal_prepare.rs',
+            'crates/oasis7_agent_api/src/game/goal_publish.rs',
+            'crates/oasis7_agent_api/src/game/executor.rs',
+            'crates/oasis7_client_api/src/world_service/entry_control.rs',
+            'crates/oasis7_client_api/src/world_service/private_goal_read.rs',
+            'crates/oasis7_client_api/src/world_service/owner_setup_observation.rs',
+            'crates/oasis7_client_api/src/world_service_wire.rs',
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs',
+            'crates/oasis7_chain_runtime/src/host/world_service_private_goal.rs',
+        ]
+
+    def test_owner_setup_inputs_select_worker_profile_with_real_package_ownership(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        worker = 'oasis7_custody_worker'
+        paths = self.owner_setup_inputs()
+        packages = {path.split('/')[1] for path in paths} | {worker}
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in packages}, {p: set() for p in packages}, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '// fixed owner setup protocol input')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn(worker, plan['workspace_support_profiles'])
+                    self.assertIn(path.split('/')[1], plan['architecture']['packages'])
+                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
+                    base = head
+            self.git('mv', paths[0], paths[0] + '.retired')
+            head = self.commit()
+            self.assertIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
+            base = head
+            Path(paths[1]).unlink()
+            self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
+
     def test_participant_sdk_and_world_inputs_add_actual_worker_platform_profile(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         worker = 'oasis7_custody_worker'
@@ -975,7 +1018,8 @@ class Selection(unittest.TestCase):
         graph = ({p: (f'crates/{p}', {}) for p in packages},
                  {p: set() for p in packages}, {})
         paths = [path for path in config['workspace_support_profile_paths'][worker]
-                 if path.startswith(('crates/oasis7_client_api/', 'crates/oasis7_chain_runtime/'))]
+                 if path.startswith(('crates/oasis7_client_api/', 'crates/oasis7_chain_runtime/'))
+                 and path not in self.owner_setup_inputs()]
         self.assertEqual(len(paths), 12)
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for path in paths:
