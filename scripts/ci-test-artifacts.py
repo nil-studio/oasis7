@@ -480,6 +480,100 @@ def _cache_relative(state, path):
     return name
 
 
+def _cache_defer_unhashed_library(state, message, package, filenames):
+    """Local dylib/cdylib outputs do not carry Cargo's unit hash."""
+    kinds = set(message['target']['kind'])
+    if (message['profile']['test'] is not False or not kinds <= CACHE_LIBRARY_KINDS
+            or not kinds.intersection(('dylib', 'cdylib'))):
+        return False
+    name = message['target']['name'].replace('-', '_')
+    pattern = re.compile(r'(?:lib)?' + re.escape(name) + r'\.(?:rlib|rmeta|so|dylib|dll|dll\.lib|dll\.a|lib|a|pdb)')
+    paths = [Path(filename) for filename in filenames]
+    profiles = {p.parent.parent if p.parent.name == 'deps' else p.parent for p in paths}
+    if len(profiles) != 1 or any(not pattern.fullmatch(p.name) for p in paths):
+        raise ValueError('unsupported unhashed library output layout: ' + package + '/' + name)
+    profile = profiles.pop()
+    # Cargo replaces these outputs and their package-scoped fingerprint when
+    # subsequent feature variants run. Retain the last observation, not a
+    # union of incompatible versions of the same public filenames.
+    key = (profile / name).as_posix()
+    pending = state.setdefault('unhashed_libraries', {})
+    entry = dict(package=package, name=name, profile=profile.as_posix(),
+                 filenames=filenames, features=message['features'],
+                 manifest_path=message['manifest_path'])
+    if key in pending and (pending[key]['manifest_path'] != entry['manifest_path']
+                           or pending[key]['package'] != package):
+        raise ValueError('unhashed library output collision: ' + package + '/' + name)
+    pending[key] = entry
+    return True
+
+
+def _cache_finish_unhashed_libraries(state):
+    """Resolve complete fingerprints only after Cargo has finished writing them."""
+    target = Path(state['target'])
+    selected, directories = [], []
+    for entry in state.get('unhashed_libraries', {}).values():
+        package, name, profile = entry['package'], entry['name'], Path(entry['profile'])
+        owner = package + '/' + name
+        fingerprint_root = _cache_path(target, (profile / '.fingerprint').as_posix())
+        marker = 'lib-' + name
+        candidates = []
+        for candidate in fingerprint_root.iterdir():
+            if not re.fullmatch(re.escape(package) + r'-[0-9a-f]{16}', candidate.name):
+                continue
+            relative = candidate.relative_to(target).as_posix()
+            candidate = _cache_path(target, relative)
+            if not candidate.is_dir():
+                continue
+            # Test/build-script fingerprints are not this library's owner.
+            if not _cache_path(target, relative + '/' + marker).exists():
+                continue
+            unit_hash = candidate.name.rsplit('-', 1)[-1]
+            # Check-mode and other hashed library units can coexist in the
+            # dependency cache. Their concrete outputs identify them, so they
+            # must not be assigned to this unhashed artifact.
+            deps = _cache_path(target, (profile / 'deps').as_posix())
+            hashed = re.compile(r'(?:lib)?' + re.escape(name) + '-' + unit_hash + r'(?:\..+)?')
+            if any(hashed.fullmatch(p.name) for p in deps.iterdir()):
+                continue
+            candidates.append(relative)
+        if len(candidates) != 1:
+            raise ValueError('cannot identify a unique unhashed Cargo library unit: ' + owner)
+        directory = candidates[0]
+        for suffix in (marker, marker + '.json', 'dep-' + marker, 'invoked.timestamp'):
+            path = _cache_path(target, directory + '/' + suffix)
+            if not path.is_file():
+                raise ValueError('incomplete unhashed Cargo library fingerprint: ' + owner)
+        metadata = json.loads(_cache_path(target, directory + '/' + marker + '.json').read_text())
+        features = metadata.get('features') if isinstance(metadata, dict) else None
+        if not isinstance(features, str) or json.loads(features) != entry['features']:
+            raise ValueError('unhashed Cargo library features changed: ' + owner)
+        for filename in entry['filenames']:
+            output = _cache_path(target, filename)
+            if not output.is_file():
+                raise ValueError('missing unhashed Cargo library output: ' + filename)
+            selected.append(filename)
+            # JSON may report the uplifted path. Preserve the concrete deps
+            # output as well, but only when Cargo's hard link proves ownership.
+            concrete = profile / 'deps' / output.name
+            if Path(filename) != concrete:
+                path = _cache_path(target, concrete.as_posix())
+                if not path.is_file() or not os.path.samefile(output, path):
+                    raise ValueError('unbound unhashed Cargo library output: ' + filename)
+                selected.append(concrete.as_posix())
+            public_dep = output.with_suffix('.d')
+            if output.parent.name != 'deps' and public_dep.exists():
+                selected.append(_cache_relative(state, public_dep))
+        dep_info = (profile / 'deps' / (name + '.d')).as_posix()
+        if not _cache_path(target, dep_info).is_file():
+            raise ValueError('missing unhashed Cargo library dep-info: ' + owner)
+        selected.append(dep_info)
+        directories.append(directory)
+    # No partial set is committed if any pending unit failed validation.
+    state['files'].extend(selected)
+    state['directories'].extend(directories)
+
+
 def cache_record(state, message):
     """Select concrete Cargo units, including both build-script unit hashes."""
     reason = message.get('reason')
@@ -525,8 +619,10 @@ def cache_record(state, message):
                     match = pattern.fullmatch(candidate.name)
                     if match and candidate.is_file() and os.path.samefile(public, candidate):
                         hashed.append((profile, match.group(1)))
+            if not hashed and _cache_defer_unhashed_library(state, message, package, filenames):
+                return
             if len(set(hashed)) != 1:
-                raise ValueError('cannot identify a unique local Cargo output unit')
+                raise ValueError('cannot identify a unique local Cargo output unit: ' + package + '/' + target_name)
             profile, unit_hash = hashed[0]
             for candidate in (target_root / profile / 'deps').iterdir():
                 if any(candidate.name == prefix or candidate.name.startswith(prefix + '.')
@@ -550,8 +646,10 @@ def cache_record(state, message):
 
 
 def cache_finish(state):
+    state['complete'] = False
     if _cache_inputs(Path(state['checkout'])) != state['inputs']:
         raise ValueError('source inputs changed during the build')
+    _cache_finish_unhashed_libraries(state)
     state['files'] = sorted(set(state['files']))
     state['directories'] = sorted(set(state['directories']))
     state['complete'] = True

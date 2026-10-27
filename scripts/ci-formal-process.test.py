@@ -506,14 +506,14 @@ class WorkspaceCache(unittest.TestCase):
         if self.dependencies.exists():
             shutil.copytree(self.dependencies, self.root / 'target', copy_function=shutil.copy2)
 
-    def cargo(self, state=None, success=True, extra_env=None):
+    def cargo(self, state=None, success=True, extra_env=None, extra_args=()):
         env = dict(os.environ, CARGO_INCREMENTAL='0', CACHE_FIXTURE_ENV='original')
         env.pop('RUSTC_WRAPPER', None)
         env.update(extra_env or {})
         messages = []
         with tempfile.TemporaryFile(mode='w+') as errors:
             with subprocess.Popen(['cargo', 'build', '--workspace', '--offline', '--locked',
-                                   '--message-format=json'], cwd=self.root, env=env,
+                                   '--message-format=json', *extra_args], cwd=self.root, env=env,
                                   stdout=subprocess.PIPE, stderr=errors, text=True) as process:
                 for line in process.stdout:
                     if line.startswith('{'):
@@ -700,6 +700,232 @@ class WorkspaceCache(unittest.TestCase):
         report = artifacts.cache_stage(state, self.cache)
         self.assertFalse(report['save'], report)
         self.assertFalse((self.cache / 'manifest.json').exists())
+
+
+class UnhashedLibraryCache(unittest.TestCase):
+    """Model Cargo's path-library layout, including delayed fingerprints."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.root = self.base / 'checkout'
+        self.root.mkdir()
+        self.target = self.root / 'target'
+        self.cache = self.base / 'cache'
+        self.manifest = self.root / 'Cargo.toml'
+        self.manifest.write_text('[package]\nname="mixed-lib"\nversion="0.1.0"\n')
+        self.fingerprint = 'debug/.fingerprint/mixed-lib-' + 'a' * 16
+        self.filenames = ['debug/deps/libmixed_lib.so', 'debug/deps/libmixed_lib.rlib']
+        for name in [*self.filenames, 'debug/deps/mixed_lib.d']:
+            self.write(name)
+        self.message = dict(reason='compiler-artifact', manifest_path=str(self.manifest),
+            package_id='mixed-lib', filenames=[str(self.target / name) for name in self.filenames],
+            target=dict(name='mixed_lib', kind=['cdylib', 'lib']),
+            profile=dict(test=False), features=[], fresh=False)
+
+    def write(self, name, text=None):
+        path = self.target / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(name if text is None else text)
+        return path
+
+    def fingerprint_files(self, directory=None, features=()):
+        directory = directory or self.fingerprint
+        for name in ('lib-mixed_lib', 'dep-lib-mixed_lib', 'invoked.timestamp'):
+            self.write(directory + '/' + name)
+        self.write(directory + '/lib-mixed_lib.json', json.dumps(dict(features=json.dumps(list(features)))))
+
+    def finish(self, state):
+        artifacts.cache_finish(state)
+        self.assertTrue(state['complete'])
+        return artifacts.cache_stage(state, self.cache)
+
+    def test_deferred_complete_units_roundtrip_for_both_selections(self):
+        for selection in ('libraries', 'all'):
+            with self.subTest(selection=selection):
+                if (self.target / 'debug/.fingerprint').exists():
+                    shutil.rmtree(self.target / 'debug/.fingerprint')
+                state = artifacts.cache_begin(self.root, selection=selection)
+                artifacts.cache_record(state, self.message)
+                self.assertFalse(state['complete'])
+                self.assertFalse(artifacts.cache_stage(state, self.cache)['save'])
+                self.fingerprint_files()
+                # A valid timestamp marker need not contain payload bytes.
+                self.write(self.fingerprint + '/invoked.timestamp', '')
+                report = self.finish(state)
+                self.assertTrue(report['save'], report)
+                manifest = json.loads((self.cache / 'manifest.json').read_text())
+                self.assertTrue(set(self.filenames) <= set(manifest['files']))
+                self.assertIn('debug/deps/mixed_lib.d', manifest['files'])
+                self.assertIn(self.fingerprint, manifest['directories'])
+                shutil.rmtree(self.target)
+                restored = artifacts.cache_restore(self.root, self.cache)
+                self.assertTrue(restored['restored'], restored)
+                for name in self.filenames:
+                    self.assertEqual((self.target / name).read_text(), name)
+
+    def test_uplifted_library_preserves_proven_concrete_outputs(self):
+        self.fingerprint_files()
+        message = copy.deepcopy(self.message)
+        public_names = []
+        for name in self.filenames:
+            public = self.target / 'debug' / Path(name).name
+            os.link(self.target / name, public)
+            public_names.append(str(public))
+        message['filenames'] = public_names
+        self.write('debug/libmixed_lib.d')
+        state = artifacts.cache_begin(self.root)
+        artifacts.cache_record(state, message)
+        self.assertTrue(self.finish(state)['save'])
+        manifest = json.loads((self.cache / 'manifest.json').read_text())
+        for name in self.filenames:
+            public = Path('debug') / Path(name).name
+            self.assertIn(public.as_posix(), manifest['files'])
+            self.assertTrue(os.path.samefile(self.cache / 'target' / name, self.cache / 'target' / public))
+        self.assertIn('debug/libmixed_lib.d', manifest['files'])
+
+    def test_hashed_check_and_test_units_do_not_own_unhashed_library(self):
+        self.fingerprint_files()
+        other = 'debug/.fingerprint/mixed-lib-' + 'b' * 16
+        self.fingerprint_files(other)
+        self.write('debug/deps/libmixed_lib-' + 'b' * 16 + '.rmeta')
+        self.write('debug/.fingerprint/mixed-lib-' + 'c' * 16 + '/test-lib-mixed_lib')
+        state = artifacts.cache_begin(self.root)
+        artifacts.cache_record(state, self.message)
+        self.assertTrue(self.finish(state)['save'])
+        self.assertEqual(state['directories'], [self.fingerprint])
+        self.assertFalse(any('b' * 16 in name for name in state['files']))
+
+    def test_last_feature_variant_owns_the_shared_output_names(self):
+        state = artifacts.cache_begin(self.root)
+        first = dict(self.message, features=['alternate'])
+        artifacts.cache_record(state, first)
+        artifacts.cache_record(state, self.message)
+        self.fingerprint_files()
+        self.assertTrue(self.finish(state)['save'])
+        self.assertEqual(len(state['unhashed_libraries']), 1)
+        self.assertEqual(next(iter(state['unhashed_libraries'].values()))['features'], [])
+
+    def test_ambiguous_fingerprint_is_not_selected_by_timestamp(self):
+        self.fingerprint_files()
+        self.fingerprint_files('debug/.fingerprint/mixed-lib-' + 'b' * 16)
+        state = artifacts.cache_begin(self.root)
+        artifacts.cache_record(state, self.message)
+        with self.assertRaisesRegex(ValueError, 'unique unhashed.*mixed-lib/mixed_lib'):
+            artifacts.cache_finish(state)
+        self.assertFalse(state['complete'])
+        self.assertEqual(state['files'], [])
+        self.assertFalse(artifacts.cache_stage(state, self.cache)['save'])
+
+    def test_missing_fingerprint_members_are_rejected(self):
+        for name in ('lib-mixed_lib', 'lib-mixed_lib.json', 'dep-lib-mixed_lib', 'invoked.timestamp'):
+            with self.subTest(missing=name):
+                self.fingerprint_files()
+                (self.target / self.fingerprint / name).unlink()
+                state = artifacts.cache_begin(self.root)
+                artifacts.cache_record(state, self.message)
+                with self.assertRaises(ValueError):
+                    artifacts.cache_finish(state)
+                self.assertFalse(state['complete'])
+                self.assertFalse(artifacts.cache_stage(state, self.cache)['save'])
+
+    def test_missing_outputs_and_dep_info_are_rejected(self):
+        self.fingerprint_files()
+        for name in [*self.filenames, 'debug/deps/mixed_lib.d']:
+            with self.subTest(missing=name):
+                state = artifacts.cache_begin(self.root)
+                artifacts.cache_record(state, self.message)
+                (self.target / name).unlink()
+                with self.assertRaisesRegex(ValueError, 'missing unhashed'):
+                    artifacts.cache_finish(state)
+                self.assertFalse(state['complete'])
+                self.write(name)
+
+    def test_fingerprint_features_and_json_must_match(self):
+        for text in ('{', '{}', '[]', json.dumps(dict(features='["other"]'))):
+            with self.subTest(metadata=text):
+                self.fingerprint_files()
+                self.write(self.fingerprint + '/lib-mixed_lib.json', text)
+                state = artifacts.cache_begin(self.root)
+                artifacts.cache_record(state, self.message)
+                with self.assertRaises(ValueError):
+                    artifacts.cache_finish(state)
+                self.assertFalse(state['complete'])
+
+    def test_symlinked_fingerprint_is_rejected(self):
+        self.fingerprint_files()
+        path = self.target / self.fingerprint
+        moved = self.base / 'elsewhere'
+        path.rename(moved)
+        path.symlink_to(moved, target_is_directory=True)
+        state = artifacts.cache_begin(self.root)
+        artifacts.cache_record(state, self.message)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_finish(state)
+        self.assertFalse(state['complete'])
+
+    def test_unbound_public_copy_is_not_treated_as_a_cargo_hardlink(self):
+        self.fingerprint_files()
+        public = self.write('debug/libmixed_lib.so', self.filenames[0])
+        message = copy.deepcopy(self.message)
+        message['filenames'][0] = str(public)
+        state = artifacts.cache_begin(self.root)
+        artifacts.cache_record(state, message)
+        with self.assertRaisesRegex(ValueError, 'unbound unhashed'):
+            artifacts.cache_finish(state)
+        self.assertFalse(state['complete'])
+
+    def test_different_package_cannot_claim_the_same_output_namespace(self):
+        other = self.root / 'other/Cargo.toml'
+        other.parent.mkdir()
+        other.write_text('[package]\nname="another-package"\nversion="0.1.0"\n')
+        state = artifacts.cache_begin(self.root)
+        artifacts.cache_record(state, self.message)
+        message = dict(self.message, manifest_path=str(other), package_id='another-package')
+        with self.assertRaisesRegex(ValueError, 'output collision'):
+            artifacts.cache_record(state, message)
+
+    def test_unknown_unhashed_binary_still_fails(self):
+        message = copy.deepcopy(self.message)
+        message['target']['kind'] = ['bin']
+        state = artifacts.cache_begin(self.root)
+        with self.assertRaisesRegex(ValueError, 'unique local Cargo output unit'):
+            artifacts.cache_record(state, message)
+
+
+class MixedLibraryWorkspaceCache(WorkspaceCache):
+    """Run the existing real cold/restore/change/corruption cases with cdylib+lib."""
+
+    def setUp(self):
+        super().setUp()
+        self.sources['support/Cargo.toml'] += '\n[lib]\ncrate-type=["cdylib", "lib"]\n[features]\nalternate=[]\n'
+        self.checkout()
+
+    def test_dependency_only_mixed_library_is_fresh_after_restore(self):
+        self.sources['Cargo.toml'] = self.sources['Cargo.toml'].replace(
+            'members=["support", "app"]', 'members=["app"]\nexclude=["support"]')
+        self.checkout()
+        state = self.seed()
+        self.assertTrue(state['unhashed_libraries'])
+        self.checkout()
+        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
+        units, value = self.cargo()
+        self.assertTrue(all(unit['fresh'] for unit in units), units)
+        self.assertEqual(value, 'alpha:outside:one:one')
+
+    def test_repeated_mixed_library_variants_restore_the_final_features(self):
+        self.seed()
+        state = artifacts.cache_begin(self.root)
+        self.cargo(state, extra_args=['--features', 'cache_support/alternate'])
+        self.cargo(state)
+        self.assertTrue(artifacts.cache_stage(state, self.cache)['save'])
+        self.checkout()
+        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
+        units, value = self.cargo()
+        local = [unit for unit in units if Path(unit['manifest_path']).is_relative_to(self.root)]
+        self.assertTrue(all(unit['fresh'] for unit in local), local)
+        self.assertEqual(value, 'alpha:outside:one:one')
 
 
 class Process(unittest.TestCase):
