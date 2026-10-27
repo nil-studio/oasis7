@@ -276,9 +276,12 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     .unwrap();
     let address = server.address;
 
+    // This functional fixture reads and verifies all 257 cold sparse-tree nodes.
+    // Give debug-build I/O bounded headroom; this is not a product latency budget.
+    // The server transport and cleanup deadlines remain unchanged.
     let mut client = super::super::super::super::transport::RemoteFormalEndpoint::new(
         address,
-        Duration::from_secs(3),
+        Duration::from_secs(15),
         fixture.authority.clone(),
         EndpointRole::Primary,
         key(4),

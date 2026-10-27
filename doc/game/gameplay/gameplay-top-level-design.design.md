@@ -413,7 +413,7 @@ P降20%却使补库时间翻倍，不能按产量同比线性估恢复。Q是库
 
 这是另行供足资源的合成压力初态，不是132电/60矿starter能触达的默认路线，也不把500当仓储容量或通用admission cap。源代码明确启动时input/power已sink；后续validator拒绝没有production settlement，不能许诺自动退款或产出501。普通step本身失败的staged rollback与这个已经成功记录的生产blocked不是同一情况。
 
-候选首选在提交前对已知有效validator作有来源的可读预检，呈现每个output及副产物的限制与最小超额，而不是盲目调高所有产率/降低能耗。预检缺validator、版本漂移或无法证明最终执行结果时保持未知，不承诺规避拒绝；适用规则改动仍归对应authority。对166/167分别验收启动、验证、sink与receipt，重复重试不能复制产物或恢复已消耗资源。该预检尚未实现，当前结论仅为源码条件与算术风险。
+已采纳的目标是[已知超限的 quote/admission 提前拒绝](../../world-simulator/m4/industrial-resource-flow-contract.design.md#known-product-stack-admission)：当前可信且有效的 validator 已能确定某主/副产物 stack 超限时，在投入/slot 前拒绝，不自动拆 stack、减批或提高上限。上表仍描述旧实现风险，不是目标允许先扣再拒绝。缺可信限制时保留未知与现有完成验证，不能一律关闭所有生产，也不保证最终成功。对166/167分别验收 quote、准入、sink与receipt，重复重试不能复制产物或恢复已消耗资源；该提前准入尚未实现，当前算术不代签运行验收。
 
 ### 7.7.22 数值方案的收敛顺序与反证
 

@@ -28,6 +28,10 @@ mod challenge_scheduler;
 mod compressed_range_cache;
 mod manifest;
 mod pin_store;
+mod retention;
+pub use retention::CasRetentionGuard;
+#[cfg(test)]
+mod retention_tests;
 mod segmentation;
 
 pub use challenge::*;
@@ -137,21 +141,8 @@ fn read_range(
 
 impl BlobStore for LocalCasStore {
     fn put(&self, content_hash: &str, bytes: &[u8]) -> Result<(), WorldError> {
-        self.ensure_dirs()?;
-        let actual_hash = self.hash_hex(bytes);
-        if actual_hash != content_hash {
-            return Err(WorldError::BlobHashMismatch {
-                expected: content_hash.to_string(),
-                actual: actual_hash,
-            });
-        }
-        let path = self.blob_path(content_hash)?;
-        if path.exists() {
-            return Ok(());
-        }
-        let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;
-        write_bytes_atomic(&path, disk_bytes.as_slice())?;
-        Ok(())
+        let _retention = self.lock_retention()?;
+        self.put_without_retention_lock(content_hash, bytes)
     }
 
     fn put_bytes(&self, bytes: &[u8]) -> Result<String, WorldError> {
@@ -179,8 +170,9 @@ impl BlobStore for LocalCasStore {
 
 impl FileStore for LocalCasStore {
     fn write_file(&self, path: &str, bytes: &[u8]) -> Result<FileMetadata, WorldError> {
+        let _retention = self.lock_retention()?;
         let normalized_path = normalize_file_path(path)?;
-        let content_hash = self.put_bytes(bytes)?;
+        let content_hash = self.put_bytes_without_retention_lock(bytes)?;
         let metadata = FileMetadata {
             path: normalized_path.clone(),
             content_hash,
@@ -217,6 +209,7 @@ impl FileStore for LocalCasStore {
     }
 
     fn delete_file(&self, path: &str) -> Result<bool, WorldError> {
+        let _retention = self.lock_retention()?;
         let normalized_path = normalize_file_path(path)?;
         let mut file_index = self.load_file_index()?;
         let removed_hash = file_index

@@ -535,11 +535,12 @@ impl IdentityTransaction<'_> {
     ) -> Result<(), StoreError> {
         let bytes = serde_json::to_vec(payload).map_err(|_| StoreError::Corrupt)?;
         let signer = self.source_revocations.clone();
-        let old_kind = if signer.is_some() {
-            self.record_kind(key)?
-        } else {
-            None
-        };
+        let old_kind = self.record_kind(key)?;
+        if old_kind.as_deref() == Some("custody_managed_binding") {
+            return Err(StoreError::Rejected(
+                "custody_managed_binding_immutable".into(),
+            ));
+        }
         let sensitive = |kind: &str| matches!(kind, "account" | "credential" | "session");
         let participant = if let Some(signer) = &signer {
             let old = self.get::<serde_json::Value>(key)?.map(|v| v.value);
@@ -572,6 +573,15 @@ impl IdentityTransaction<'_> {
         } else {
             None
         };
+        if let Some(previous) = &previous {
+            super::custody::managed_binding::record_change(
+                self,
+                key,
+                old_kind.as_deref().ok_or(StoreError::Corrupt)?,
+                previous,
+                Some(&serde_json::from_slice(&bytes).map_err(|_| StoreError::Corrupt)?),
+            )?;
+        }
         if let Some(remote) = &mut self.remote {
             remote.replace(key, expected_version, kind, account_id, expires, payload)?;
         } else {
@@ -593,6 +603,33 @@ impl IdentityTransaction<'_> {
         Ok(())
     }
     pub fn delete(&mut self, key: &str, expected_version: u64) -> Result<(), StoreError> {
+        let kind = self.record_kind(key)?;
+        if kind.as_deref().is_some_and(|k| {
+            matches!(
+                k,
+                "custody_managed_binding"
+                    | "custody_managed_invalidation"
+                    | "custody_managed_challenge"
+                    | "custody_managed_challenge_index"
+            )
+        }) {
+            return Err(StoreError::Rejected(
+                "custody_managed_security_delete_forbidden".into(),
+            ));
+        }
+        if kind
+            .as_deref()
+            .is_some_and(|k| matches!(k, "account" | "credential" | "session"))
+            && let Some(old) = self.get::<serde_json::Value>(key)?
+        {
+            super::custody::managed_binding::record_change(
+                self,
+                key,
+                kind.as_deref().ok_or(StoreError::Corrupt)?,
+                &old.value,
+                None,
+            )?;
+        }
         let participant = if let Some(signer) = &self.source_revocations {
             self.get::<serde_json::Value>(key)?
                 .as_ref()

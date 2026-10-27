@@ -137,6 +137,7 @@ impl DurableObject for ManagerAssociations {
             "/internal/freeze" => self.freeze(&raw, &config).await,
             "/internal/source-freeze" => self.source_freeze(&raw, &config).await,
             "/internal/provision-gate" => self.provision_gate(&raw, &config),
+            "/internal/provision-inspect-gate" => self.provision_inspect_gate(&raw, &config),
             _ => return Response::error("not found", 404),
         };
         match result {
@@ -376,16 +377,45 @@ impl ManagerAssociations {
         let rpc: ProvisionGateRpc = serde_json::from_str(raw).map_err(|_| denied())?;
         let principal = config.principal(&rpc.manager_session)?;
         let s = self.snapshot(config, &rpc.manager_session, false)?;
+        self.provision_gate_view(
+            config,
+            &principal,
+            &rpc.provision_id,
+            &rpc.custody_account_id,
+            s,
+        )
+    }
+    fn provision_inspect_gate(
+        &self,
+        raw: &str,
+        config: &DirectoryConfig,
+    ) -> Result<serde_json::Value> {
+        let rpc: ProvisionInspectGateRpc = serde_json::from_str(raw).map_err(|_| denied())?;
+        let principal = config.inspection_reference_principal(&rpc.manager_reference)?;
+        let s = self.snapshot_for(config, &principal, false, true)?;
+        self.provision_gate_view(
+            config,
+            &principal,
+            &rpc.provision_id,
+            &rpc.custody_account_id,
+            s,
+        )
+    }
+    fn provision_gate_view(
+        &self,
+        config: &DirectoryConfig,
+        principal: &ManagerPrincipal,
+        provision_id: &str,
+        custody_account_id: &str,
+        s: Snapshot,
+    ) -> Result<serde_json::Value> {
         if !s.inventory_complete || s.index.is_frozen() {
             return Err(denied());
         }
-        let draft = s.drafts.get(&rpc.custody_account_id).ok_or_else(denied)?;
-        let account = s
-            .index
-            .account(&rpc.custody_account_id)
-            .ok_or_else(denied)?;
-        if draft.entry.provision_id != rpc.provision_id
-            || draft.entry.manager != principal
+        let draft = s.drafts.get(custody_account_id).ok_or_else(denied)?;
+        let account = s.index.account(custody_account_id).ok_or_else(denied)?;
+        if draft.entry.provision_id != provision_id
+            || &draft.entry.manager != principal
             || draft.entry.environment != config.environment
             || draft.entry.bootstrap_config_version != config.version
             || draft.world_identity != config.world
@@ -393,7 +423,7 @@ impl ManagerAssociations {
             || !config
                 .managers
                 .iter()
-                .any(|m| m.principal == principal && m.environments.contains(&config.environment))
+                .any(|m| &m.principal == principal && m.environments.contains(&config.environment))
         {
             return Err(denied());
         }
@@ -633,6 +663,39 @@ pub(crate) async fn call_directory(
     let response = stub
         .fetch_with_request(Request::new_with_init(
             &format!("https://directory.internal{path}"),
+            &init,
+        )?)
+        .await?;
+    if response.status_code() != 200 {
+        return Err(denied());
+    }
+    read_response(response).await
+}
+
+/// Fixed readonly charged-inspection preflight. It returns association/freeze facts only.
+pub(crate) async fn call_inspection_directory(
+    env: &Env,
+    rpc: &ProvisionInspectGateRpc,
+) -> Result<String> {
+    let config = DirectoryConfig::from_env(env)?.ok_or_else(denied)?;
+    let principal = config.inspection_reference_principal(&rpc.manager_reference)?;
+    let name = digest(
+        "oasis7.custody.manager-directory.v1",
+        &(&config.environment, &principal),
+    )?;
+    let stub = env
+        .durable_object("MANAGER_ASSOCIATIONS")?
+        .id_from_name(&name)?
+        .get_stub()?;
+    let raw = serde_json::to_string(rpc)?;
+    if raw.len() > 32768 {
+        return Err(denied());
+    }
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_body(Some(raw.into()));
+    let response = stub
+        .fetch_with_request(Request::new_with_init(
+            "https://directory.internal/internal/provision-inspect-gate",
             &init,
         )?)
         .await?;

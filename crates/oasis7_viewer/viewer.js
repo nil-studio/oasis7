@@ -2673,6 +2673,55 @@ function createBrowserGameRecovery({ scope, indexedDB, storage, locks = globalTh
 	};
 	return api;
 }
+// software_safe_src/browser_operation_lifecycle.js
+var deliveryPhases = /* @__PURE__ */ new Set([
+	"prepared_unsent",
+	"dispatch_may_have_started",
+	"unknown"
+]);
+var terminalDisposition = (status) => [
+	"committed",
+	"rejected",
+	"expired"
+].includes(status);
+function nextOperationAction(input) {
+	if (!input.original_present || !input.scope_current) return "retain";
+	if (input.proof_verified && terminalDisposition(input.disposition)) return "read_terminal";
+	if (input.intent === "continue_authorized_entry" && !input.stopped && input.write_allowed) {
+		if (input.policy === "entry_first_send" && input.phase === "prepared_unsent" || input.policy === "private_preparation_replay") return "continue_original";
+	}
+	return input.read_allowed ? "query_original" : "retain";
+}
+function operationObservation({ phase = "unknown", status = "unknown", verified = false, intent = "query_only", policy = "entry_first_send", stopped = false, scopeCurrent = true, readAllowed = true, writeAllowed = false } = {}) {
+	const known = [
+		"received",
+		"pending",
+		"unknown",
+		"history_unavailable",
+		"committed",
+		"rejected",
+		"expired"
+	].includes(status);
+	const disposition = verified && known ? status : "unknown";
+	const deliveryPhase = deliveryPhases.has(phase) ? phase : "unknown";
+	return {
+		deliveryPhase,
+		disposition,
+		verified: verified && known,
+		nextAction: nextOperationAction({
+			intent,
+			policy,
+			phase: deliveryPhase,
+			disposition,
+			proof_verified: verified && known,
+			original_present: true,
+			scope_current: scopeCurrent,
+			read_allowed: readAllowed,
+			write_allowed: writeAllowed,
+			stopped
+		})
+	};
+}
 // software_safe_src/browser_participant_entry.js
 var BrowserParticipantError = class extends Error {
 	constructor(code) {
@@ -2862,6 +2911,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$5("participant_storage_corrupt");
 		const r = record.owner.request;
 		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$5("participant_storage_corrupt");
+		if (record.registrationPhase !== void 0 && !deliveryPhases.has(record.registrationPhase)) fail$5("participant_storage_corrupt");
 		return record;
 	}
 	async function update(mutate) {
@@ -3013,16 +3063,53 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 		return validate(kind, validationRequest, raw);
 	}
-	async function registrationLookup(record) {
+	function registrationMaterial(record) {
 		const originalRaw = record.registrationRaw;
 		if (!originalRaw) fail$5("participant_original_missing");
 		const payloadRaw = field(originalRaw, ["signed_payload"]);
+		if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail$5("participant_original_conflict");
 		const correlationRaw = build("correlation", {
 			world: config.world,
 			payload_json: payloadRaw
 		});
-		const lookupRaw = `{"request":{"contract_version":1,"key":${field(correlationRaw, ["key"])}},"original":${payloadRaw}}`;
-		const raw = verified("/v1/world/lookup", lookupRaw, await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw }), "lookup", correlationRaw);
+		if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail$5("participant_original_conflict");
+		return {
+			originalRaw,
+			correlationRaw,
+			lookupRaw: `{"request":{"contract_version":1,"key":${field(correlationRaw, ["key"])}},"original":${payloadRaw}}`
+		};
+	}
+	function terminalStatus(record) {
+		if (!record.registrationTerminalReply) return "unknown";
+		const { lookupRaw, correlationRaw } = registrationMaterial(record);
+		const raw = verified("/v1/world/lookup", lookupRaw, record.registrationTerminalReply, "lookup", correlationRaw);
+		const status = decoded(field(raw, ["outcome", "status"]));
+		if (!terminalDisposition(status)) fail$5("participant_storage_corrupt");
+		return status;
+	}
+	async function registrationLookup(record) {
+		const { originalRaw, correlationRaw, lookupRaw } = registrationMaterial(record);
+		const response = await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw });
+		const candidate = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
+		const winner = await update((current) => {
+			if (!current || current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			const raw = current.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, current.registrationTerminalReply, "lookup", correlationRaw) : candidate;
+			const state = decoded(field(raw, ["outcome", "status"]));
+			if (current.registrationTerminalReply && !terminalDisposition(state)) fail$5("participant_storage_corrupt");
+			if (!current.registrationTerminalReply && terminalDisposition(state)) current.registrationTerminalReply = response;
+			current.registrationObservation = {
+				logicalOperation: current.owner.request.client_operation_id,
+				originalKind: "participant_registration",
+				correlation: decoded(correlationRaw),
+				...operationObservation({
+					phase: current.registrationPhase,
+					status: state,
+					verified: true
+				})
+			};
+			return current;
+		});
+		const raw = winner.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, winner.registrationTerminalReply, "lookup", correlationRaw) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
 			if (["rejected", "expired"].includes(state)) fail$5("participant_registration_rejected");
@@ -3051,7 +3138,8 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		} catch (error) {
 			if (error.code === "participant_registration_pending") return {
 				state: "pending",
-				code: error.code
+				code: error.code,
+				operation: (await load())?.registrationObservation
 			};
 			throw error;
 		}
@@ -3070,12 +3158,13 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			throw error;
 		}
 	}
-	async function registerParticipant(consent) {
+	async function registerParticipant(consent, { continueOriginal = false } = {}) {
 		if (consent !== true) fail$5("participant_consent_required");
 		active();
 		await discover();
 		let record = await ensureOwner();
 		active();
+		let created = false;
 		if (!record.registrationRaw) {
 			const authorized = await authorize(record.owner);
 			const payload = {
@@ -3089,24 +3178,39 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 				world: config.world,
 				payload
 			})},"deadline_unix_ms":null,"signed_payload":${json$1(payload)}}`;
-			let created = false;
 			record = await update((current) => {
 				if (current.registrationRaw) return current;
 				created = true;
 				current.registrationRaw = raw;
 				current.sent = true;
+				current.registrationPhase = "prepared_unsent";
 				return current;
 			});
-			try {
-				if (created) {
-					const response = await transport.gatewayCall("/participant/submit", null, {
-						rawBody: record.registrationRaw,
-						beforeSend: async () => active()
-					});
-					verified("/v1/world/submit", record.registrationRaw, response, "intent", field(record.registrationRaw, ["correlation"]));
-				}
-			} catch {}
 		}
+		registrationMaterial(record);
+		const terminal = terminalStatus(record);
+		if (operationObservation({
+			phase: record.registrationPhase,
+			status: terminal,
+			verified: terminalDisposition(terminal),
+			intent: created || continueOriginal ? "continue_authorized_entry" : "query_only",
+			writeAllowed: true
+		}).nextAction === "continue_original") try {
+			const originalRaw = record.registrationRaw;
+			verified("/v1/world/submit", originalRaw, await transport.gatewayCall("/participant/submit", null, {
+				rawBody: originalRaw,
+				beforeSend: async () => {
+					active();
+					await update((current) => {
+						if (!current || current.registrationRaw !== originalRaw || current.registrationPhase !== "prepared_unsent" || current.registrationTerminalReply) fail$5("participant_original_conflict");
+						current.registrationPhase = "dispatch_may_have_started";
+						return current;
+					});
+					active();
+				}
+			}), "intent", field(originalRaw, ["correlation"]));
+		} catch {}
+		record = await load();
 		await registrationLookup(record);
 		active();
 		return proofs(await load(), await authorize(record.owner));
@@ -3115,6 +3219,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		discover,
 		inspect,
 		registerParticipant,
+		continueOriginal: (consent) => registerParticipant(consent, { continueOriginal: true }),
 		gatewayCall: transport.gatewayCall,
 		async prepare({ existingOnly = true, consent } = {}) {
 			if (!existingOnly) return registerParticipant(consent);
@@ -5474,6 +5579,11 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			key
 		};
 		if (record?.schema !== 1 || record.key !== key || JSON.stringify(record).length > 262144) fail$1("owner_storage_corrupt");
+		for (const slot of [
+			"taskRaw",
+			"publishRaw",
+			"goalPrepareRaw"
+		]) if (record[`${slot}Phase`] !== void 0 && !deliveryPhases.has(record[`${slot}Phase`])) fail$1("owner_storage_corrupt");
 		return record;
 	}
 	async function load() {
@@ -5487,7 +5597,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 	async function update(mutate) {
 		if (!locks?.request) fail$1("participant_locks_unavailable");
 		try {
-			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => mutate(check(record))));
+			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => check(mutate(check(record)))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
 			fail$1("owner_storage_failed");
@@ -5522,16 +5632,23 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			fixed_commit: null,
 			deadline_unix_ms: null
 		}));
-		return `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`;
+		return {
+			raw: `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`,
+			controlRaw: proofs.ownerControl.rawJson
+		};
 	}
-	async function ownerCall(kind, requestRaw, mutation = false) {
-		const accessRaw = await access();
+	async function ownerCall(kind, requestRaw, mutation = false, beforeDispatch) {
+		const accessView = await access();
 		active();
-		const rawBody = `{"access":${accessRaw},"operation":{"kind":${JSON.stringify(kind)},"request":${requestRaw}}}`;
+		const rawBody = `{"access":${accessView.raw},"operation":{"kind":${JSON.stringify(kind)},"request":${requestRaw}}}`;
 		return participant.gatewayCall("/entry-owner/control", null, {
 			rawBody,
 			signal,
-			beforeSend: mutation ? async () => active() : void 0
+			beforeSend: mutation ? async () => {
+				active();
+				await beforeDispatch?.(accessView.controlRaw);
+				active();
+			} : void 0
 		});
 	}
 	function verify(domain, requestRaw, reply, kind, validationRequest = requestRaw) {
@@ -5542,15 +5659,48 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			fail$1("owner_response_unknown");
 		}
 	}
-	async function lookup(originalRaw) {
+	function lookupMaterial(originalRaw, slot) {
+		if (decoded(field(originalRaw, ["signed_payload", "kind"])) !== {
+			taskRaw: "game_task_create",
+			publishRaw: "game_goal_publish"
+		}[slot]) fail$1("owner_original_conflict");
 		const payload = field(originalRaw, ["signed_payload"]), correlation = field(originalRaw, ["correlation"]);
 		const expected = build("correlation", {
 			world: config.world,
 			payload_json: payload
 		});
 		if (field(expected, []) !== field(correlation, [])) fail$1("owner_original_conflict");
-		const request = `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`;
-		const raw = verify(LOOKUP, request, await ownerCall("lookup", request), "lookup", correlation);
+		return {
+			request: `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`,
+			correlation
+		};
+	}
+	function terminalStatus(slot, record) {
+		if (!record[`${slot}TerminalReply`]) return "unknown";
+		const { request, correlation } = lookupMaterial(record[slot], slot);
+		const raw = verify(LOOKUP, request, record[`${slot}TerminalReply`], "lookup", correlation);
+		const status = decoded(field(raw, ["outcome", "status"]));
+		if (!terminalDisposition(status)) fail$1("owner_storage_corrupt");
+		return status;
+	}
+	async function lookup(originalRaw, slot) {
+		const { request, correlation } = lookupMaterial(originalRaw, slot);
+		const reply = await ownerCall("lookup", request);
+		const candidate = verify(LOOKUP, request, reply, "lookup", correlation);
+		const winner = await update((current) => {
+			if (current[slot] !== originalRaw) fail$1("owner_original_conflict");
+			const raw = current[`${slot}TerminalReply`] ? verify(LOOKUP, request, current[`${slot}TerminalReply`], "lookup", correlation) : candidate;
+			const state = decoded(field(raw, ["outcome", "status"]));
+			if (current[`${slot}TerminalReply`] && !terminalDisposition(state)) fail$1("owner_storage_corrupt");
+			if (!current[`${slot}TerminalReply`] && terminalDisposition(state)) current[`${slot}TerminalReply`] = reply;
+			current[`${slot}Observation`] = operationObservation({
+				phase: current[`${slot}Phase`],
+				status: state,
+				verified: true
+			});
+			return current;
+		});
+		const raw = winner[`${slot}TerminalReply`] ? verify(LOOKUP, request, winner[`${slot}TerminalReply`], "lookup", correlation) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
 			if (["rejected", "expired"].includes(state)) fail$1("owner_operation_rejected");
@@ -5558,7 +5708,22 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		}
 		return raw;
 	}
-	async function originalIntent(slot, domain, kind, requestRaw) {
+	function scopeStamp(slot, controlRaw) {
+		const owner = [
+			"agent_id",
+			"player_id",
+			"public_key",
+			"world_id",
+			"reorg_epoch",
+			"canonical_authority"
+		].map((name) => field(controlRaw, [
+			"view",
+			"canonical_agent_owner",
+			name
+		]));
+		return JSON.stringify([owner, field(controlRaw, ["view", "game_task_control"])]);
+	}
+	async function originalIntent(slot, domain, kind, requestRaw, controlRaw) {
 		let record = await load();
 		if (record[slot]) return {
 			raw: record[slot],
@@ -5569,30 +5734,77 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			world: config.world,
 			payload_json: payload
 		})},"deadline_unix_ms":null,"signed_payload":${payload}}`;
+		let fresh = false;
 		record = await update((current) => {
-			if (!current[slot]) current[slot] = raw;
+			if (!current[slot]) {
+				current[slot] = raw;
+				current[`${slot}Phase`] = "prepared_unsent";
+				current[`${slot}Scope`] = scopeStamp(slot, controlRaw);
+				fresh = true;
+			}
 			return current;
 		});
 		if (record[slot] !== raw) fail$1("owner_original_conflict");
 		return {
 			raw,
-			fresh: true
+			fresh
 		};
 	}
-	async function settleIntent(slot, original, send) {
-		if (send) try {
-			verify(SUBMIT, original, await ownerCall("submit", original, true), "intent", field(original, ["correlation"]));
-		} catch {}
-		const receipt = await lookup(original);
+	async function claimDispatch(slot, original, controlRaw, replay = false) {
+		active();
 		await update((record) => {
-			record[`${slot}Receipt`] = receipt;
+			if (replay) {
+				const expected = build("goal_prepare", {
+					task_json: field(controlRaw, ["view", "game_task_control"]),
+					client_operation_id: decoded(field(original, ["request", "client_operation_id"])),
+					client_nonce: decoded(field(original, ["request", "client_nonce"])),
+					content: decoded(field(original, ["request", "content"]))
+				});
+				if (field(expected, []) !== field(original, ["request"])) fail$1("owner_original_scope_changed");
+			} else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail$1("owner_original_scope_changed");
+			if (record[slot] !== original || record[`${slot}TerminalReply`] || !replay && record[`${slot}Phase`] !== "prepared_unsent") fail$1("owner_original_conflict");
+			record[`${slot}Phase`] = "dispatch_may_have_started";
 			return record;
 		});
-		return receipt;
+		active();
+	}
+	async function settleIntent(slot, original, send) {
+		const record = await load();
+		if (record[slot] !== original) fail$1("owner_original_conflict");
+		lookupMaterial(original, slot);
+		const terminal = terminalStatus(slot, record);
+		if (operationObservation({
+			phase: record[`${slot}Phase`],
+			status: terminal,
+			verified: terminalDisposition(terminal),
+			intent: send ? "continue_authorized_entry" : "query_only",
+			writeAllowed: true
+		}).nextAction === "continue_original") try {
+			verify(SUBMIT, original, await ownerCall("submit", original, true, (controlRaw) => claimDispatch(slot, original, controlRaw)), "intent", field(original, ["correlation"]));
+		} catch {}
+		return lookup(original, slot);
 	}
 	async function reconcile() {
 		const record = await load();
-		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !record[`${slot}Receipt`]) await settleIntent(slot, record[slot], false);
+		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !settled(slot, record)) await settleIntent(slot, record[slot], false);
+	}
+	function settled(slot, record) {
+		return !!record[`${slot}Receipt`] || terminalStatus(slot, record) === "committed";
+	}
+	function pendingOperation(record) {
+		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !settled(slot, record)) return {
+			cacheSlot: slot,
+			logicalOperation: decoded(field(record[slot], [
+				"signed_payload",
+				"payload",
+				"request",
+				"client_operation_id"
+			])),
+			originalKind: decoded(field(record[slot], ["signed_payload", "kind"])),
+			correlation: decoded(field(record[slot], ["correlation"])),
+			...record[`${slot}Observation`] ?? operationObservation({ phase: record[`${slot}Phase`] })
+		};
+		return null;
 	}
 	async function inspect() {
 		active();
@@ -5605,7 +5817,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			if (["owner_operation_pending", "owner_response_unknown"].includes(error.code)) return {
 				state: "pending",
 				code: error.code,
-				agentId: binding.agentId
+				agentId: binding.agentId,
+				operation: pendingOperation(await load())
 			};
 			throw error;
 		}
@@ -5653,7 +5866,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				const original = await originalIntent("taskRaw", "game_task_create", "game_task_create", build("task_create", {
 					owner_control_json: status.ownerControl.rawJson,
 					client_operation_id: freshId("task")
-				}));
+				}), status.ownerControl.rawJson);
 				await settleIntent("taskRaw", original.raw, original.fresh);
 				status = await inspect();
 			}
@@ -5676,13 +5889,22 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					content
 				}));
 				record = await update((current) => {
-					if (!current.goalPrepareRaw) current.goalPrepareRaw = original;
+					if (!current.goalPrepareRaw) {
+						current.goalPrepareRaw = original;
+						current.goalPrepareRawPhase = "prepared_unsent";
+					}
 					return current;
 				});
 				if (record.goalPrepareRaw !== original) fail$1("owner_original_conflict");
 			}
 			if (!record.goalReceiptRaw) {
-				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true), "goal_prepared", original);
+				if (operationObservation({
+					phase: record.goalPrepareRawPhase,
+					policy: "private_preparation_replay",
+					intent: "continue_authorized_entry",
+					writeAllowed: true
+				}).nextAction !== "continue_original") fail$1("owner_original_retained");
+				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true, (controlRaw) => claimDispatch("goalPrepareRaw", original, controlRaw, true)), "goal_prepared", original);
 				record = await update((current) => {
 					current.goalReceiptRaw = receipt;
 					return current;
@@ -5692,25 +5914,40 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				original_json: original,
 				receipt_json: record.goalReceiptRaw,
 				client_operation_id: freshId("publish")
-			}));
+			}), status.ownerControl.rawJson);
 			await settleIntent("publishRaw", publish.raw, publish.fresh);
 			active();
 			return inspect();
-		}).catch((error) => {
+		}).catch(async (error) => {
 			if ([
 				"owner_operation_pending",
 				"owner_response_unknown",
 				"participant_response_unknown"
 			].includes(error.code)) return {
 				state: "pending",
-				code: error.code
+				code: error.code,
+				operation: pendingOperation(await load())
 			};
 			throw error;
+		});
+	}
+	async function continueOriginal({ consent } = {}) {
+		if (consent !== true) fail$1("owner_consent_required");
+		if (!locks?.request) fail$1("participant_locks_unavailable");
+		return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
+			active();
+			const binding = await participant.inspect();
+			active();
+			if (binding.state !== "bound") return binding;
+			const record = await load();
+			for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !settled(slot, record)) await settleIntent(slot, record[slot], true);
+			return inspect();
 		});
 	}
 	return {
 		inspect,
 		prepare,
+		continueOriginal,
 		recover: inspect,
 		dispose: () => {
 			disposed = true;

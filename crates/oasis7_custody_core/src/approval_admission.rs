@@ -180,6 +180,9 @@ impl ApprovalAdmissionRecord {
     pub fn verify_nonce(&self) -> &str {
         &self.verify_nonce
     }
+    pub fn consumed_at(&self) -> Option<u64> {
+        self.consumed_at.map(|v| v.0)
+    }
     pub fn handoff_until(&self) -> u64 {
         self.handoff_until.0
     }
@@ -657,3 +660,26 @@ fn signature_checks(
         checks,
     })
 }
+
+/// Internal factory for an already consumed, registered approval source. It does
+/// not validate freshness or authorize dispatch; the provisioning state binds
+/// the exact persisted inspection and checks the verification before use.
+pub(crate) fn registered_origin_checks(
+    input: &ApprovalAdmissionInput,
+    operation_id: &str,
+    nonce: &str,
+    context: &ApprovalAdmissionContext,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<ExactSignatureChecks> {
+    let mut checks = signature_checks(input, nonce, context, Some(signed))?;
+    checks.operation_id = operation_id.into();
+    checks.body_digest = canonical_digest(
+        "oasis7.custody.registered-origin-inspection.v1",
+        &(operation_id, nonce, input),
+    )?;
+    Ok(checks)
+}
+
+#[path = "native_fact_checks.rs"]
+mod native_fact_checks;
+pub(crate) use native_fact_checks::*;

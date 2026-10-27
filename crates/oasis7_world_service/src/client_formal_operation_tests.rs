@@ -24,6 +24,9 @@ use std::{
 use crate::formal_read_fixtures as fixtures;
 use fixtures::*;
 
+#[path = "client_formal_lifecycle_tests.rs"]
+mod lifecycle;
+
 fn delegation_request(world: WorldIdentity) -> SubmitIntentRequest<WorldServicePayloadV1> {
     let payload = WorldServicePayloadV1::Delegation(
         authority::sign_read_request(
