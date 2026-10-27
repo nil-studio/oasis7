@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "0303c42cb2eee7e0f8a4aa24669c592058892d211733f2f93442687faad76756",
+    "content_sha256": "1304459f0776cac4810dc40224652f3ed9a2202d8f8f1c060979a02ff89e6b8c",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "Reviewed the merged workflow text for integration of the language and writing requirements with the preserved five-type Issue lifecycle, handoff, authorization, and validation rules. Confirmed one writing authority, incremental review without style gates, ten entry references, and all five Issue forms retaining the main-branch fields and permissions. This review covers this document and the changed entry references and forms; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior.",
+    "note": "Reviewed the merged workflow text for minimal complete changes and evidence-based review alongside the preserved language and writing requirements and five-type Issue lifecycle. Reuse respects responsibility boundaries; simplification preserves required behavior and validation. Writing guidance remains one incremental authority without style gates; non-blocking advice adds no approval or evidence chain. Classification remains separate from execution permission. Unchanged sections retain existing authority. This review covers the integrated workflow text and AGENTS navigation; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior.",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
