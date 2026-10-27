@@ -403,10 +403,7 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
         .compat_snapshot_for_session(&mut owner)
         .player_gameplay
         .unwrap();
-    assert_eq!(
-        pending.blocker_kind.as_deref(),
-        Some("llm_required")
-    );
+    assert_eq!(pending.blocker_kind.as_deref(), Some("llm_required"));
     assert!(pending.canonical_agent_chat.is_none());
     assert_eq!(pending.progress_percent, 0);
     assert!(
@@ -667,14 +664,6 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     fs::remove_dir_all(dir).unwrap();
 }
 
-fn verified_fixture_assertion(
-    response: oasis7_client_api::world_service::ReadWorldViewResponse<
-        oasis7_world_projection::WorldServiceProjection,
-    >,
-    request: &oasis7_client_api::world_service::ReadWorldViewRequest,
-) -> crate::world_service::verified_view::VerifiedWorldView {
-    verified_fixture_assertion_with_reader(response, request, &hex::encode([7; 32]))
-}
 fn verified_fixture_assertion_with_reader(
     response: oasis7_client_api::world_service::ReadWorldViewResponse<
         oasis7_world_projection::WorldServiceProjection,
@@ -913,6 +902,7 @@ fn canonical_capability_rejects_stale_foreign_rotated_and_legacy_sources() {
 fn assert_no_personal_capability(query: Option<&serde_json::Value>) {
     if let Some(query) = query {
         assert_ne!(query["subject"]["kind"], "personal");
+        assert!(query["subject"]["owner_agent_id"].is_null());
         for field in [
             "personal_stage",
             "first_settlement",
