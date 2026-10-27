@@ -683,3 +683,7 @@ pub(crate) fn registered_origin_checks(
 #[path = "native_fact_checks.rs"]
 mod native_fact_checks;
 pub(crate) use native_fact_checks::*;
+
+#[path = "participant_signature_checks.rs"]
+mod participant_signature_checks;
+pub(crate) use participant_signature_checks::*;

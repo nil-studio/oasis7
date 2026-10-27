@@ -77,6 +77,41 @@ fn serve_native_identity_http_fixture() {
         fixture.service.config.registration_enabled = true;
         fixture.service.config.machine_registration_enabled = true;
     }
+    if let Ok(raw) = std::env::var("OASIS7_CUSTODY_NATIVE_WORLD_TRUST") {
+        assert!(
+            managed_binding,
+            "participant fixture requires real managed binding"
+        );
+        assert!(raw.len() <= 65536);
+        let trusted: Value = serde_json::from_str(&raw).unwrap();
+        let world: oasis7_client_api::world_service::WorldIdentity =
+            serde_json::from_value(trusted["world"].clone()).unwrap();
+        let namespace = oasis7_agent_api::game::GameIdentityNamespaceV1 {
+            service_id: fixture.service.config.namespace.identity_service_id.clone(),
+            environment_id: fixture.service.config.namespace.environment_id.clone(),
+            instance_epoch: oasis7_agent_api::game::DecimalU64(
+                fixture.service.config.rp.identity_instance_epoch,
+            ),
+        };
+        assert_eq!(
+            serde_json::to_value(&namespace).unwrap(),
+            trusted["identity_namespace"]
+        );
+        fixture.service.participant_entry = Some(
+            crate::hosted_identity::participant_entry::ParticipantEntry::new(
+                crate::hosted_identity::participant_entry::EntryTrust {
+                    endpoint: trusted["endpoint"].as_str().unwrap().into(),
+                    service_public_key: trusted["world"]["service_public_key"]
+                        .as_str()
+                        .unwrap()
+                        .into(),
+                    world,
+                },
+                zeroize::Zeroizing::new(hex::encode([95; 32])),
+            )
+            .unwrap(),
+        );
+    }
     {
         let custody = fixture.service.custody.as_mut().unwrap();
         custody.revocation = Some(revocation::RevocationConfig::http_fixture(

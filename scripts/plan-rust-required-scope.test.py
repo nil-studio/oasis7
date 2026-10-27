@@ -908,7 +908,8 @@ class Selection(unittest.TestCase):
         base = self.commit()
         graph = ({p: (f'crates/{p}', {}) for p in (backend, worker)},
                  {backend: set(), worker: set()}, {})
-        paths = config['workspace_support_profile_paths'][worker]
+        paths = [path for path in config['workspace_support_profile_paths'][worker]
+                 if path.startswith(f'crates/{backend}/')]
         self.assertIn('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs', paths)
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for path in paths:
@@ -934,6 +935,37 @@ class Selection(unittest.TestCase):
             base = head
             Path(paths[1]).unlink()
             self.assertEqual(selector.select(config, base, self.commit())['workspace_support_profiles'], [worker])
+
+    def test_participant_sdk_and_world_inputs_add_actual_worker_platform_profile(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        worker = 'oasis7_custody_worker'
+        packages = ('oasis7_client_api', 'oasis7_chain_runtime', worker)
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in packages},
+                 {p: set() for p in packages}, {})
+        paths = [path for path in config['workspace_support_profile_paths'][worker]
+                 if path.startswith(('crates/oasis7_client_api/', 'crates/oasis7_chain_runtime/'))]
+        self.assertEqual(len(paths), 12)
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '// participant canonical protocol input')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn(worker, plan['workspace_support_profiles'])
+                    self.assertIn(path.split('/')[1], plan['architecture']['packages'])
+                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
+                    base = head
+            self.git('mv', paths[0], paths[0] + '.retired')
+            head = self.commit()
+            self.assertIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
+            base = head
+            Path(paths[1]).unlink()
+            self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
 
     def test_profile_path_mapping_is_additive_and_does_not_bypass_full_or_ownership(self):
         config = json.loads(json.dumps(self.config))

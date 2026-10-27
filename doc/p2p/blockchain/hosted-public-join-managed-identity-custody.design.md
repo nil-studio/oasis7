@@ -584,6 +584,8 @@ Identity 通过专用窄 binding 向 AccountAuthority 核对许可引用与其�
 
 每次经上述角色 forwarding 派发 participant/owner/executor 调用前，Identity 使用该托管账号自己的当前 session 核验 /session 返回的 account_id，再按现有合同取得/使用 CSRF；验证当前 AccountAuthority 许可及 Recovery Fence，固定 HTTPS origin、identity namespace/audience 和对应 native 路径，拒绝重定向。Cookie/Origin/CSRF 由适配器构造，payload 由 Rust 从原 bytes 解析校验或原样发送，不经过 JS Number 或 stringify 重编码。Native gateway 的账号、session、owner/executor 与 world fence 检查继续生效。初次机器注册/native-key login 则走既有 preauth/challenge 合同及有效 provision/managed_login 许可，不要求尚未建立的托管 session，也不把该例外开放给角色 forwarding。
 
+policy 原件只证明固定 World 对该 nonce 关联请求的策略观察，不是托管账号或 session 存活的跨 authority 签名，也不构成 participant admission、canonical receipt 或执行许可。Account 必须将原件绑定到自己预先登记并计费的唯一 nonce、当前 native→custody 关联和观察窗口；Owner 仍须单独检查当前来源、独立 Fence、真实 session 转发及后续 admission/receipt/current owner，不能把 native issuer 对只读请求的签名当成管理者批准或账号存活证明。
+
 session 核验、Account DO、Recovery Fence 与 native HTTP 不组成分布式事务。claim 后可能发送的请求仍按在途处理；冻结/撤销不能追回已离开 bytes。Identity 的 HTTP 成功不结算业务状态：它只返回有界原响应及传输状态，Owner/Executor 验证 service signature、world pin、correlation 与原请求后，才调用 AccountAuthority settle。传输中断保留原 operation/预算，后续按原查询/查重合同核对。
 
 #### 登录、失效与重新登录
@@ -821,6 +823,18 @@ AccountAuthority 持久保存 ProvisionRecord：provision_id、client_request_id
 每一步派发前都重验原 plan 截止/调用预算、管理来源安全版本、Account DO 状态与 Recovery Fence。30 秒是批准证明的消费窗口；已经消费的 provision 计划仍只能在其明确的动作范围/截止内推进，不构成无限授权。provision 使用普通 owner 工作容量，不占用 Stop/Revoke 的独立安全控制槽。
 
 开户计划的 `transport_limit` 首版显式限制为 1–400，完整签入批准；它与 TestSession 的 execute/read/cleanup 预算分开，不能互相借用。旧已批准计划不自动扩大额度。派发前对固定调用图保守预留：一次来源检查原件 claim 扣 8 个传输额度，一次角色密钥派发 claim 扣 32 个，覆盖该步骤的目录、Fence、native 核验或角色/oracle/DO 路由等有限调用；未发出或 unknown 的已 claim 尝试不自动退回。该上界不能作为无限内部重试许可，每个角色 permit 最多允许三次当前 oracle 核验（factory、角色存储前、加密后），恢复使用同一 task/key/version/vault 身份，新传输 attempt 另行预留。三角色首轮至少需要 104 个额度，额度不足明确拒绝或保留 pending，不能静默提升原计划或换新身份；后续注册、登录和 participant 阶段仍须从同一开户余额预留各自固定调用图，不挪用独立收尾槽。
+
+首批 participant 冷路径使用单一、预先持久登记的 104 额度 attempt，最多 8 次付费当前 oracle 读取，不能直接复用会为每个 route 重解 Cookie 的普通 driver。固定调用图保守按来源检查 8、8 次角色到 Owner/Account 与目录/Fence 核对 40、角色独立 Fence 读取 16、5 个固定 native 动作各自的 session/native/World 转发 15、policy/admission/final 三次当前原件回调 15、私有 actor 读取 4、Owner signer/vault 2、固定入口 3，合计 103；余 1 是容量余量，不是重试许可。Identity 在一个有界流程内私读原 SID/CSRF，不重复创建或写入秘密；每次出站仍须重新核对当前 permit、scope、截止和真实 session，所有异步间隔后的 5 秒当前观察要求不变。实际调用图超界时明确拒绝，不能删掉核验来迁就预算。
+
+第 8 次 oracle 的固定 final-read 许可同时登记一次 lookup 和一次 owner-view 的原件/只读 claim。真实 World submit 可能先返回 pending；此时仅允许在原截止内作一次至多 250 毫秒的有界等待，再查询这份已登记的 AuthenticatedLookup，不能循环或重发 submit。每个实际 native 读取前仍取得并强验新的固定 Root session 状态。只有对应 Submit 或 Lookup 签名域、原 request digest 与同一 correlation 均匹配的 committed 结果，才继续已登记的 owner-view；lookup 仍 pending 或传输未知就保留 pending。已在同 attempt 内预留的这一次 lookup 属于上述 5 个动作；后续新的查询尝试仍须另行预付，不能把此例外变成无限恢复或新的发送许可。
+
+Owner signer 的最后一次 oracle 核对同时提交固定 bundle 候选：先在本地生成双签名，再消费该次读取信用，由 Account 重读当前来源/目录/Fence、严格验双签名并原子登记完整原件；Vault 只在该精确提交成功后返回同一原件。这一次属于上述 8 次读取池，不另设未计费的第四原件回调；不因签名已本地生成就允许出站。Identity 的两个秘密可以在一次有界私读过程中解密，持久 envelope 在前后各读核对，中间每个 await 后核验原 scope/时钟，全部解密后再完成真实当前 oracle/Fence 核对，未通过前不输出秘密或派发。
+
+仅此 participant 冷路径的每次 native 动作前置 session 核验使用固定 `/custody/managed-bindings/session-status`：Account 为该步骤登记独立 nonce，Identity 以原 SID/CSRF 请求，严格验证固定 Root key、当前绑定/账号/credential、nonce、service epoch、5 秒时限以及 active 且非 frozen/pending。该 route 自身在 native 同一事务核对真实 session 和绑定，不接受调用者自报活性；它替代该次普通 `/session` 读取而不增加权限。policy/admission/final 回调携带这份签名状态与既有非秘密 SID generation 引用，由 Account 独立核验，不能把绑定 generation 与 Identity 私有 SID generation 混用。其他 forwarding 仍遵循原 `/session` 前置合同，不扩大此例外。
+
+Account 先登记 policy nonce、owner-view nonce、精确 native 绑定/SID 非秘密引用、固定 World service pin、原 native 账号与三个角色 public reference；当前目标 security epoch 为真实绑定后的 1，原 Provision source proof 的 0 不改写。策略原件强验后，只允许 Owner vault 生成一个固定 bundle：既有 GameParticipantRegisterV1 域的注册原件，以及 VIEW_JSON_PATH 域、OwnerControlV1 profile 所用的只读请求原件。二者分别使用已登记 nonce/operation，并由 Account 固定角色、固定域、精确 payload 核准；不接受原始 bytes 通用签名。此冷路径仅支持新建 native 账号的首次 fresh binding；只读 agent 固定为既有 World account-key 规则派生的 participant agent，owner generation 必须为 1。imported、已有不同 agent/owner 或不一致 receipt 只保留 pending，不能根据响应换 reader 或重签注册。
+
+Account 在任何 native/World 派发前持久保留完整 owner/admission/submit 原件及一次性 send claim；policy、admission、canonical result 和当前 owner 的回调均强验固定签名、nonce、业务摘要、世界/namespace/branch/reorg 与原关联，再在同一 SQL 事务重读当前来源、独立 Fence、时钟、冻结、库存、预算与原件。只有 canonical receipt 与独立当前 OwnerControlV1 都匹配同一新 agent/owner，才推进 participant_bound；HTTP 200、native admission 或缓存阶段均不能代签。响应未知或丢失不重发 submit，不释放或退回原 attempt；后续仅可用另行预付的 lookup-only attempt 查询同一原件。余额不足或原授权失效保持 pending，不能借 ManagedLogin/TestSession 的余额，也不能以新 operation 重建注册绕过未知结果。明确的新批准和 lookup 恢复合同未满足前，不宣称该 pending 已恢复。
 
 来源检查只能针对 Account 已登记并消费的原批准，在任何远端预检前本地预留额度并持久保存独立 `inspect_origin` nonce，真实目录/Fence 预检后才原子登记原请求 bytes 和发送 claim；重复已预留原件不再次取得预检或发送权。nonce 原件最多 pending 30 秒且不越原计划/来源截止，独立于签名观察的五秒新鲜度。原 proof 的 30 秒消费窗口过期后可报告来源，但当前 origin、原来源版本、计划截止和 service fence 仍须有效，签名响应必须绑定本次 nonce/purpose/原 proof digest 且观察不超过五秒；角色 permit 截止还须限制在该 native 观察时刻加五秒内，不能按后续 oracle 响应时间续期。角色许可从已保存的精确 task、typed 请求原 bytes/digest、attempt、已认证来源检查和安全代计算，角色通过自己的窄静态 Account oracle 核对，不接受请求自报的 active 状态或摘要回显；oracle 先本地耗用有界读信用，再执行远端核验，预留信用本身不返回任何授权。加密前后重读许可/Fence，最终本地 SQL 重验完整绑定与时钟；无远端 timestamp 时，新鲜度从 RPC 发出前保守计时，慢响应不能更新观察年龄。跨角色已发布密钥保持不可替换；unknown 收据保持原件和预算占用，不因撤销删除或重造密钥。
 

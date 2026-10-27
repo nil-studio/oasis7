@@ -147,6 +147,10 @@ fn policy_original_preserves_caller_nonce_and_independently_verifiable_world_sig
         .unwrap()
         .trust
         .service_public_key;
+    let original: ParticipantPolicyOriginalV1 = serde_json::from_value(value).unwrap();
+    original
+        .verify_strict(&nonce, &request.request.expected_world, pin)
+        .unwrap();
     verify_service_response(
         PARTICIPANT_POLICY_PATH,
         &request_digest(PARTICIPANT_POLICY_PATH, &request).unwrap(),
@@ -170,7 +174,7 @@ fn policy_original_preserves_caller_nonce_and_independently_verifiable_world_sig
         json!({"observation_nonce":nonce.to_uppercase()}),
         json!({"observation_nonce":nonce,"world_id":"caller-world"}),
     ] {
-        assert!(
+        assert!(matches!(
             f.service
                 .participant_route(
                     "POST",
@@ -179,11 +183,11 @@ fn policy_original_preserves_caller_nonce_and_independently_verifiable_world_sig
                     &payload,
                     now_ms()
                 )
-                .unwrap()
-                .is_err()
-        );
+                .unwrap(),
+            Err(StoreError::Rejected(code)) if code == "invalid_request"
+        ));
     }
-    assert!(
+    assert!(matches!(
         f.service
             .participant_route(
                 "POST",
@@ -192,9 +196,9 @@ fn policy_original_preserves_caller_nonce_and_independently_verifiable_world_sig
                 &json!({"observation_nonce":nonce}),
                 now_ms()
             )
-            .unwrap()
-            .is_err()
-    );
+            .unwrap(),
+        Err(StoreError::Rejected(code)) if code == "session_expired"
+    ));
 }
 #[test]
 fn current_account_grant_is_separate_from_owner_signature_and_original_binding_survives_restart() {

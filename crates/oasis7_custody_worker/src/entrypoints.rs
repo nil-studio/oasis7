@@ -41,6 +41,39 @@ pub async fn identity_read_missing_native_session(
 #[cfg(feature = "owner")]
 #[path = "owner_provision_entrypoints.rs"]
 mod provisioning;
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_run_participant(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::participant::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_participant_identity_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::participant(&env, &raw, oasis7_custody_core::http::Role::Identity).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_participant_key_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::participant(&env, &raw, oasis7_custody_core::http::Role::Owner).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_sign_participant(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    crate::owner_participant_signing::sign(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
 #[cfg(feature = "owner")]
 #[wasm_bindgen]
 pub async fn owner_approve_managed_login(

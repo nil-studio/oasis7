@@ -49,6 +49,7 @@ case "${1:-}" in
     # contract; compiling the HTTP fixture alone does not run these assertions.
     env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher hosted_identity::custody::tests --locked
     bash crates/oasis7_custody_worker/scripts/build-native-fixture.sh
+    bash crates/oasis7_custody_worker/scripts/build-world-fixture.sh
     node crates/oasis7_custody_worker/scripts/contract.mjs check
     npm test --prefix crates/oasis7_custody_worker
     ;;

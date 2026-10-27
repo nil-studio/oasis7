@@ -15,6 +15,18 @@ pub(super) fn install(
     generation: u64,
     enabled: bool,
 ) {
+    let mut current_namespace = namespace();
+    current_namespace.instance_epoch = DecimalU64(generation);
+    install_for_identity(world, identity, generation, enabled, current_namespace, 71);
+}
+pub(super) fn install_for_identity(
+    world: &mut RuntimeWorld,
+    identity: &WorldIdentity,
+    generation: u64,
+    enabled: bool,
+    current_namespace: GameIdentityNamespaceV1,
+    issuer_seed: u8,
+) {
     if generation == 1 {
         for (index, node) in GOVERNORS.iter().enumerate() {
             world
@@ -39,14 +51,12 @@ pub(super) fn install(
             })
             .unwrap();
     }
-    let mut current_namespace = namespace();
-    current_namespace.instance_epoch = DecimalU64(generation);
     let policy = ParticipantEntryPolicyV1 {
         api_rev: 1,
         world_id: identity.world_id.clone(),
         genesis_digest: identity.genesis_digest.clone(),
         identity_namespace: current_namespace.clone(),
-        issuer_public_key: sign_read_request("fixture", (), &hex::encode([71; 32]))
+        issuer_public_key: sign_read_request("fixture", (), &hex::encode([issuer_seed; 32]))
             .unwrap()
             .subject_public_key,
         generation,
@@ -75,7 +85,7 @@ pub(super) fn install(
     let manifest = sign_read_request(
         PARTICIPANT_MIGRATION_MANIFEST_DOMAIN,
         manifest,
-        &hex::encode([71; 32]),
+        &hex::encode([issuer_seed; 32]),
     )
     .unwrap();
     let proposal=world.propose_manifest_update(Manifest {version:world.manifest().version+1,content:serde_json::json!({"participant_policy_authorization":policy_proposal_commitment(&policy,&manifest).unwrap()})},"private-fixture").unwrap();

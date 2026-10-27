@@ -21,6 +21,8 @@ mod starter;
 mod owner_view;
 #[path = "participant_transport.rs"]
 mod transport;
+#[path = "participant_http_fixture.rs"]
+mod custody_fixture;
 fn namespace() -> GameIdentityNamespaceV1 {
     GameIdentityNamespaceV1 {
         service_id: "private-fixture-identity".into(),

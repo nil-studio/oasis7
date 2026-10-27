@@ -8,6 +8,49 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(catch, js_name = runNativeStage)]
     async fn run_native(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = runParticipantWorkflow)]
+    async fn run_participant(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
+}
+async fn continue_participant(
+    state: &JsValue,
+    env: &Env,
+    manager: &CustodySessionStatusV1,
+) -> Result<()> {
+    if env
+        .var("CUSTODY_PARTICIPANT_PROVISION_ENABLED")
+        .ok()
+        .map(|v| v.to_string())
+        .as_deref()
+        != Some("true")
+    {
+        return Ok(());
+    }
+    let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
+    let saved = store.snapshot().map_err(|_| denied())?;
+    let approved = saved.state.accepted_approval().map_err(|_| denied())?;
+    check_manager(env, &saved, manager, approved.input())?;
+    if saved.state.provision().stage() != ProvisionStage::NativeSessionReady {
+        return Ok(());
+    }
+    let draft = saved.state.draft();
+    let operation_id = crate::directory_config::digest(
+        "oasis7.custody.first-participant-operation.v1",
+        &(&draft.entry.custody_account_id, &draft.entry.provision_id),
+    )?;
+    if saved.state.participant_original(&operation_id).is_some() {
+        return Ok(());
+    }
+    let request = ParticipantProvisionRequestV1 {
+        api_version: 1,
+        custody_account_id: draft.entry.custody_account_id.clone(),
+        provision_id: draft.entry.provision_id.clone(),
+        operation_id,
+    };
+    super::participant::start_participant_workflow(state, env, request.clone()).await?;
+    // The workflow claim is permanent. Unknown replies cannot re-enter this send
+    // under the same or another management ID; Account originals remain pending.
+    let _reply = run_participant(env, &serde_json::to_string(&request)?).await;
+    Ok(())
 }
 fn enabled(env: &Env) -> bool {
     env.var("CUSTODY_NATIVE_PROVISION_ENABLED")
@@ -121,6 +164,9 @@ pub(super) async fn continue_provision(
                     )?,
                 )
             }
+            ProvisionStage::NativeSessionReady => {
+                return continue_participant(state, env, manager).await;
+            }
             _ => return Ok(()),
         };
         let binding_id = if stage == NativeStageKindV1::Login {
@@ -179,7 +225,7 @@ pub(super) async fn continue_provision(
             return Ok(());
         }
     }
-    Ok(())
+    continue_participant(state, env, manager).await
 }
 fn managed_view(saved: &ProvisionApprovalSnapshot, id: &str) -> Result<ManagedLoginApprovalViewV1> {
     let task = saved.state.managed_login_task(id).ok_or_else(denied)?;

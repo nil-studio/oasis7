@@ -17,6 +17,9 @@ pub use origin_inspection::*;
 #[path = "native_stages.rs"]
 mod native_stages;
 pub use native_stages::*;
+#[path = "participant.rs"]
+mod participant;
+pub use participant::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionApprovalError {
@@ -108,6 +111,7 @@ pub struct AccountProvisionApprovalState {
     native_history: BTreeMap<String, NativeHistoryEntryV1>,
     session_status_recoveries: BTreeMap<String, SessionStatusRecoveryOriginalV1>,
     session_recovery_activation: Option<String>,
+    participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,6 +142,8 @@ struct RawAccountProvisionApprovalState {
     session_status_recoveries: BTreeMap<String, SessionStatusRecoveryOriginalV1>,
     #[serde(default)]
     session_recovery_activation: Option<String>,
+    #[serde(default)]
+    participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -158,6 +164,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             native_history: raw.native_history,
             session_status_recoveries: raw.session_status_recoveries,
             session_recovery_activation: raw.session_recovery_activation,
+            participant_provisions: raw.participant_provisions,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -183,6 +190,7 @@ impl AccountProvisionApprovalState {
             native_history: BTreeMap::new(),
             session_status_recoveries: BTreeMap::new(),
             session_recovery_activation: None,
+            participant_provisions: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -573,13 +581,15 @@ impl AccountProvisionApprovalState {
             return Err(ProvisionApprovalError::InvalidPersistence);
         }
         native_phases.extend(recovered);
+        native_phases.extend(self.participant_phase_replay()?);
         self.provision.validate_approval_progress(
             &self.draft,
             nonce,
             &keys,
             self.validate_attempt_persistence()?
                 + self.validate_native_stage_persistence()?
-                + self.validate_session_recovery_persistence()?,
+                + self.validate_session_recovery_persistence()?
+                + self.validate_participant_persistence()?,
             &native_phases,
         )?;
         Ok(())

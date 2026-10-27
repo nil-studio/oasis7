@@ -253,7 +253,18 @@ fn binding_ready_with_response_loss(
     NativeBindingPinV1,
     SignedNativeBindingReceiptV1,
 ) {
-    let (mut s, mut c) = ready_full_budget();
+    binding_ready_from(ready_full_budget(), lose)
+}
+fn binding_ready_from(
+    ready: (AccountProvisionApprovalState, ApprovalAdmissionContext),
+    lose: bool,
+) -> (
+    AccountProvisionApprovalState,
+    ApprovalAdmissionContext,
+    NativeBindingPinV1,
+    SignedNativeBindingReceiptV1,
+) {
+    let (mut s, mut c) = ready;
     let pin = owner_pin();
     let permit = claim(
         &mut s,
@@ -504,3 +515,6 @@ fn reserved_native_read_credit_precedes_io_and_never_authorizes_unclaimed_origin
 
 #[path = "native_history_recovery.rs"]
 mod native_history_recovery;
+
+#[path = "participant_provision.rs"]
+mod participant_provision;

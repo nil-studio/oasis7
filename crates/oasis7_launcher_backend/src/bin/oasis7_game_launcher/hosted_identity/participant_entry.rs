@@ -160,8 +160,15 @@ impl ParticipantEntry {
         if bytes.len() > 65536 {
             return Err(reject("participant_unavailable"));
         }
-        let response: SignedServiceResponse<Value> =
+        let original: Value =
             parse_request(&bytes).map_err(|_| reject("participant_unavailable"))?;
+        let response: SignedServiceResponse<Value> = serde_json::from_value(original.clone())
+            .map_err(|_| reject("participant_unavailable"))?;
+        if serde_json::to_value(&response).map_err(|_| reject("participant_unavailable"))?
+            != original
+        {
+            return Err(reject("participant_unavailable"));
+        }
         verify_service_response(
             PARTICIPANT_POLICY_PATH,
             &request_digest(PARTICIPANT_POLICY_PATH, &request)
@@ -409,7 +416,8 @@ impl IdentityService {
                     )
                     .map(|_| ())
                 })?;
-                return Ok(json!({"request":request,"response":response}));
+                return serde_json::to_value(ParticipantPolicyOriginalV1 { request, response })
+                    .map_err(|_| reject("participant_unavailable"));
             }
             if path == "/participant/owner-view" || path == "/participant/starter-eligibility" {
                 let request: ParticipantOwnerViewRequestV1 = parse_request(
