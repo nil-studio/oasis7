@@ -27,7 +27,6 @@ pub(crate) struct FormalBftHeaderExecutionV3 {
     parent_world: RuntimeWorld,
     parent_result_tree: FormalBusinessResultTreeV1,
     business_reader: formal_business_package::SharedBusinessReader,
-    retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
     tip: Option<VerifiedBftHeaderCertificateV3>,
 }
 
@@ -36,9 +35,6 @@ pub(crate) struct FormalBftHeaderExecutionV3 {
 pub(crate) struct ExecutedFormalHeaderV3 {
     pub(crate) candidate: FormalBftHeaderCandidateV3,
     pub(crate) world: RuntimeWorld,
-    pub(crate) snapshot_bytes: Vec<u8>,
-    pub(crate) journal_bytes: Vec<u8>,
-    pub(crate) new_results: Vec<CanonicalIntentResultV1>,
     pub(crate) result_tree: FormalBusinessResultTreeV1,
     pub(crate) result_delta:
         oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexDeltaV1,
@@ -85,17 +81,15 @@ impl FormalBftHeaderExecutionV3 {
             parent_world: restored.world,
             parent_result_tree: restored.result_tree,
             business_reader,
-            retained_nodes,
             tip: None,
         })
     }
 
-    pub(crate) fn handoff(&self) -> &VerifiedBftHandoffTargetV2 {
-        &self.handoff
-    }
+    #[cfg(test)]
     pub(crate) fn schedule(&self) -> &BftHeaderHeightScheduleV3 {
         &self.schedule
     }
+    #[cfg(test)]
     pub(crate) fn parent_world(&self) -> &RuntimeWorld {
         &self.parent_world
     }
@@ -266,9 +260,6 @@ impl FormalBftHeaderExecutionV3 {
         Ok(ExecutedFormalHeaderV3 {
             candidate: FormalBftHeaderCandidateV3 { header, commitment },
             world: executed.world,
-            snapshot_bytes: executed.snapshot_bytes,
-            journal_bytes: executed.journal_bytes,
-            new_results,
             result_tree: result_update.tree,
             result_delta: result_update.delta,
         })

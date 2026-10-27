@@ -2,6 +2,7 @@
 use super::super::super::formal_header::FormalBftHeaderExecutionV3;
 use super::execution_tests::{certify, private_actions};
 use super::*;
+use oasis7_runtime::LocalCasStore;
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

@@ -143,7 +143,7 @@ fn actual_execution_case() {
     assert!(result.world.state().agents.contains_key(EXECUTION_CANARY));
     assert_eq!(result.world.state().time, h_tick + 1);
     assert_eq!(
-        blake3_hex(&result.snapshot_bytes),
+        blake3_hex(&oasis7_world_state::codec::snapshot_cbor(&result.world.snapshot()).unwrap()),
         candidate.commitment.execution_state_root
     );
     assert_eq!(execution.schedule().parent_commit_ref(), first_id);
