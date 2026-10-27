@@ -136,3 +136,56 @@ it("explains that missing server migration policy requires the deployment operat
  expect(view.getByRole("alert").textContent).toContain("unknown original result");
  expect(view.getByRole("alert").textContent).toContain("legacy_migration_required");
 });
+
+it("requires a separate explicit continuation for a reliably unsent original", async () => {
+ const continueOriginal=vi.fn(async()=>({state:"ready",agentId:"agent",taskId:"task"}));
+ const entry={inspect:vi.fn(async()=>({state:"unsent",continuation:"publishRaw",goal:"Retained goal"})),prepare:vi.fn(),continueOriginal};
+ const createSession=vi.fn(()=>({snapshot:()=>({phase:"unprepared",ready:false}),subscribe:()=>()=>{},dispose:vi.fn(),modelSession:{subscribe:()=>()=>{},snapshot:()=>({hasKey:false})}}));
+ const view=render(()=><BrowserByokSurface config={{servicePublicKey:"key"}} accountId="account" ownerSigner={{publicKey:"owner",sign:vi.fn()}} locale="en" protocolLoader={async()=>({})} createOwnerEntry={()=>entry} createSession={createSession}/>);
+ await waitFor(()=>expect(view.getByRole("button",{name:"Continue sending the retained original"})).toBeTruthy());
+ const button=view.getByRole("button",{name:"Continue sending the retained original"});
+ expect(button.disabled).toBe(true);
+ expect(view.getByLabelText("Task goal").value).toBe("Retained goal");
+ fireEvent.click(view.getByLabelText(/Confirm registration or verification/));
+ fireEvent.click(button);
+ await waitFor(()=>expect(continueOriginal).toHaveBeenCalledWith({goal:"Retained goal",consent:true}));
+ await waitFor(()=>expect(createSession).toHaveBeenCalledOnce());
+ expect(entry.prepare).not.toHaveBeenCalled();
+ expect(view.container.textContent).toContain("Account task ready");
+ expect(view.getByRole("button",{name:"Inspect current task"}).disabled).toBe(false);
+});
+
+it.each(["owner","world"])("isolates a late explicit continuation after %s switches",async change=>{
+ let finish,oldSignal,count=0;
+ const first={inspect:async()=>({state:"unsent",continuation:"publishRaw",goal:"Retained goal"}),continueOriginal:()=>new Promise(resolve=>{finish=resolve;}),dispose:vi.fn()};
+ const second={inspect:async()=>({state:"owner_mismatch"}),dispose:vi.fn()};
+ const [owner,setOwner]=createSignal({publicKey:"owner-a",sign:vi.fn()});
+ const [config,setConfig]=createSignal({servicePublicKey:"key",world:{world_id:"world-a"}});
+ const createSession=vi.fn(),onCanonicalAgent=vi.fn();
+ const view=render(()=><BrowserByokSurface config={config} accountId="account" ownerSigner={owner} locale="en" protocolLoader={async()=>({})} createOwnerEntry={({signal})=>{count++;if(count===1){oldSignal=signal;return first;}return second;}} createSession={createSession} onCanonicalAgent={onCanonicalAgent}/>);
+ await waitFor(()=>expect(view.getByRole("button",{name:"Continue sending the retained original"})).toBeTruthy());
+ fireEvent.click(view.getByLabelText(/Confirm registration or verification/));
+ fireEvent.click(view.getByRole("button",{name:"Continue sending the retained original"}));
+ await waitFor(()=>expect(finish).toBeTypeOf("function"));
+ if(change==="owner")setOwner({publicKey:"owner-b",sign:vi.fn()});else setConfig({servicePublicKey:"key",world:{world_id:"world-b"}});
+ await waitFor(()=>expect(view.container.textContent).toContain("Owner identity mismatch"));
+ expect(oldSignal.aborted).toBe(true);expect(first.dispose).toHaveBeenCalledOnce();
+ finish({state:"ready",agentId:"late-agent",taskId:"late-task"});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ expect(createSession).not.toHaveBeenCalled();expect(onCanonicalAgent).not.toHaveBeenCalled();
+ expect(view.queryByText(/late-agent/)).toBeNull();
+});
+
+it("clears prior consent when read-only inspection restores a different retained goal", async () => {
+ const entry = { inspect: vi.fn().mockResolvedValueOnce({ state: "needs_goal" }).mockResolvedValue({ state: "unsent", continuation: "publishRaw", goal: "Retained goal Y" }), prepare: vi.fn(), continueOriginal: vi.fn() };
+ const view = render(() => <BrowserByokSurface config={{ servicePublicKey: "key" }} accountId="account" ownerSigner={{ publicKey: "owner", sign: vi.fn() }} locale="en" protocolLoader={async () => ({})} createOwnerEntry={() => entry} />);
+ await waitFor(() => expect(view.container.textContent).toContain("Goal needs publication"));
+ fireEvent.input(view.getByLabelText("Task goal"), { target: { value: "Entered goal X" } });
+ const consent = view.getByLabelText(/Confirm registration or verification/);
+ fireEvent.click(consent); expect(consent.checked).toBe(true);
+ fireEvent.click(view.getByRole("button", { name: "Look up account entry originals" }));
+ await waitFor(() => expect(view.getByLabelText("Task goal").value).toBe("Retained goal Y"));
+ expect(consent.checked).toBe(false);
+ expect(view.getByRole("button", { name: "Continue sending the retained original" }).disabled).toBe(true);
+ expect(entry.prepare).not.toHaveBeenCalled(); expect(entry.continueOriginal).not.toHaveBeenCalled();
+});
