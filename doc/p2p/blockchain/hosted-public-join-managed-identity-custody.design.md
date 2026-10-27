@@ -1030,6 +1030,8 @@ Enrollment metadata 入口按可信 provider 提供的实际 IP 与固定 public
 
 初次批准另列同一 TestSession 内的控制预算：配对后 claim/替换、MCP initialize/tools-list、heartbeat 和客户端请求关闭共用最多 80 次不同逻辑控制请求；每个已批准 transport hop 各最多 240 次控制 HTTP 尝试，包含 challenge、调用、失败及同 ID 重试。原生为 host→custody 一份；dot 为 connector→host、host→custody 各一份。Identity 的控制来源核验另有最多 160 次 native HTTP 尝试；内部 DO/binding 调用每逻辑步骤有固定上限，不隐含无界重试。预算是三目的之外的传输/连接成本，不发行第四种业务权限；DO 保存初批总额，host inbox 保存第一跳计数并向 DO 对账。未认证流量仅受入口滥用限额，不凭伪造 ID 扣合法 session 预算；通过认证后的失败/重试计尝试成本。控制额度耗尽触发 closing，但本地拒绝写的状态更新和已预留 Owner cleanup 不依赖该额度；不会把 80 个逻辑请求误算成只够 40 次 challenge+heartbeat。执行/原件读取的挑战分别计入对应 transport 上限，所有额度可缩小、不可由模型提高。
 
+首版客户端控制调用图对 challenge 与后续调用分别取得新的来源观察和独立 Root lifetime，每个 HTTP 请求实际消耗 2 次 Identity→native HTTP，同一 logical 的 challenge+调用共消耗 4 次；两次请求共用 logical reservation，但各自预扣 HTTP 与 native 尝试，失败不退款。预检已消耗 8 次后，剩余 152 次 native 预算最多支持 38 个此类完整控制往返；80 是独立 logical 硬上限，不是可完成次数承诺。不能借其他目的预算、提高 160 上限，或通过客户端回显旧观察减少核验。若后续减少调用次数，必须先定义可信持久观察槽的真实来源、独立 Current/DFRF 和原 5 秒期限复验，不能缓存授权或延长观察寿命。
+
 `GET /v1/test-sessions/{id}` 返回当前获准主体的非秘密 purpose 截止/余额、write_closed、Stop/Revoke 原件状态和 pending 引用。执行写期限后，登记客户端只能用独立 read 凭据做本次原件/close 查询，以及只会缩权的 finish/abort；普通工具包括 task/industry/context/quote/outcome 全部停止，不新读私有目标。只读 root 的读取上限是 100 次/300 次传输，Owner 查询不扣 execute 预算；预批 cleanup 原件由内部计划生成，客户端读凭据不能请求任意 Owner 签名。
 
 一次关闭依次记录 `closing`、`write_closed`、各自 stop_status/revoke_status、pending 原件核对和自有资源回收；不是第二套世界状态机。仅当 Stop/Revoke 已按当前权威证明、可能派发的 canonical 原件已核清、私有准备/纯读取按 §12.17 明确分类、业务预留已结算/有明确终态、客户端及本轮自有资源回收已记录，才标 `closed`。可能有世界效果而未核清的原件保持 `closing/recovery_required/cleanup_blocked`，保留原件/预留并报告下一步；不能要求 Owner 读取其协议不允许的私有准备结果才能关闭。未关闭测试阻止同账号再次起测；人工处理可以继续独立获准核对/收尾，不能清空记录开新会话。正常 closed 可保留剩余期限内的只读证据访问；显式全会话/账号/身份撤销则连读取也关闭。

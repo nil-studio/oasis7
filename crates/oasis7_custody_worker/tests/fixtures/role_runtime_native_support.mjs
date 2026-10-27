@@ -159,7 +159,7 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         await response.arrayBuffer(); lostBindingReply=true;
         throw new Error('fixture lost binding response after native SQL commit');
       }
-      if(['native-lost-login','native-lost-missing-result'].includes(mode) && suffix==='/native-key/complete' && response.status===200 && !lostLoginReply) {
+      if((['native-lost-login','native-lost-missing-result'].includes(mode)||mode==='native-participant-owner-setup-real-fence-test-session-lost-initial') && suffix==='/native-key/complete' && response.status===200 && !lostLoginReply) {
         await response.arrayBuffer(); lostLoginReply=true;
         throw new Error('fixture lost original login Cookie after native SQL commit');
       }
@@ -230,6 +230,8 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
     await run({persist,account:original.entry.custody_account_id,provisionId:original.entry.provision_id,
       publicEnrollmentFetch:async(path,init)=>{assert.match(path,/^\/v1\/client-enrollments(?:\/[A-Za-z0-9._~-]+\/prove)?$/);const incoming=new Headers(init.headers);for(const key of ['cookie','authorization','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public enrollment never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
       readAccountRestoreCallbacks:async()=>{const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/internal/performance/account-restore-observed',{method:'POST'});const raw=await response.text();assert.equal(response.status,200,'actual Account diagnostic callback port unavailable');return JSON.parse(raw);},
+      attestTestSession:async material=>{identity=await mf.getWorker('identity');return identity.fetch('https://localhost/fixture/test-session-attestation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(material)});},
+      readPrivateNativeHistory:async call=>{identity=await mf.getWorker('identity');return identity.fetch('https://localhost/fixture/native-history',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(call)});},
       managementFetch:async(suffix,body)=>{identity=await mf.getWorker('identity');return identity.fetch(base+suffix,{method:'POST',headers,body:JSON.stringify(body)});},
       approveIntent:async request=>{const response=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});const raw=await response.text();assert.equal(response.status,200,raw);const proof=JSON.parse(raw);assert.ok(proof.approval,'actual native fixture must issue UV evidence');return proof.approval;},planExpires:Number(draft.plan.expires_at),restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
       reconcileBasis:async(setup_id,stage)=>{
@@ -275,16 +277,17 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         identity=await mf.getWorker('identity');
         return identity.fetch(base+'/owner-setups/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,custody_account_id:original.entry.custody_account_id,provision_id:original.entry.provision_id,setup_id})});
       },
-      approveManaged:async(blocked,limit='64')=>{
+      approveManaged:async(blocked,limit='64',label='one')=>{
+        assert.match(label,/^[a-z0-9-]{1,32}$/);
         const saved=persistedRuntime(persist,original.entry.custody_account_id);
         assert.ok(saved.native_binding);
-        const request={approval_request_id:'fresh-managed-approval-one',context:{...completed.approval.proof.context,security_version:'1'},
+        const request={approval_request_id:'fresh-managed-approval-'+label,context:{...completed.approval.proof.context,security_version:'1'},
           intent:{kind:'managed_login',native_account_id:saved.native_binding.native_account_id,login_key_ref:saved.native_binding.login_key_ref,
-            native_identity_namespace:saved.native_binding.identity_namespace,blocked_operation_ref:blocked,login_request_id:'fresh-managed-login-one',transport_limit:limit,deadline:String(Date.now()+60000)}};
+            native_identity_namespace:saved.native_binding.identity_namespace,blocked_operation_ref:blocked,login_request_id:'fresh-managed-login-'+label,transport_limit:limit,deadline:String(Date.now()+60000)}};
         const proofReply=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
         assert.equal(proofReply.status,200);const proof=await proofReply.json();assert.ok(proof.approval);
         identity=await mf.getWorker('identity');
-        const reply=await identity.fetch(base+'/managed-logins/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'fresh-managed-operation-one',request,approval:proof.approval}})});
+        const reply=await identity.fetch(base+'/managed-logins/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'fresh-managed-operation-'+label,request,approval:proof.approval}})});
         assert.equal(reply.status,200);return reply.json();
       },
       continueManaged:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/managed-logins/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();},

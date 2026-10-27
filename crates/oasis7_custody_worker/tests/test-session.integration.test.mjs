@@ -20,6 +20,7 @@ const descriptor={api_version:1,environment:'test',transport_profile:'native-bro
 const descriptorDigest=digest('oasis7.custody.host-deployment-descriptor.v1',descriptor);
 let ownerDiagnosticActive=false;
 let identityDiagnosticActive=false;
+let identitySecretsDisabled=false;
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
   let configuredRoles=0;
@@ -45,6 +46,10 @@ function configureOptions(options){
     }
     worker.bindings={...worker.bindings,CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
     worker.durableObjects={...worker.durableObjects,CLIENT_ENROLLMENTS:{className:'ClientEnrollmentAuthority',useSQLite:true,...(worker.name==='owner'?{scriptName:'identity'}:{})}};
+    if(worker.name==='identity') {
+      worker.serviceBindings={...worker.serviceBindings,TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'},TEST_SESSION_NATIVE_HISTORY:{name:'identity',entrypoint:'NativeProvisionHistory'}};
+      if(identitySecretsDisabled){delete worker.bindings.CUSTODY_NATIVE_PRIVATE_KEK;delete worker.bindings.CUSTODY_ROLE_KEY_KEK;}
+    }
     if(worker.name==='identity')worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_runtime.mjs')},...worker.modules.filter(m=>!m.path.endsWith('/native_revocation_scheduler.mjs'))];
     else worker.serviceBindings={...worker.serviceBindings,IDENTITY_TEST_SESSIONS:{name:'identity',entrypoint:'IdentityTestSessions'},TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'}};
     if(worker.name==='identity' && identityDiagnosticActive && process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true') {
@@ -90,10 +95,20 @@ assert result is not None
 print(json.dumps(result,separators=(',',':')))
 `,runtime.persist,runtime.account,id],{encoding:'utf8'}));}
 
-test('real fresh MFA consumes control-only authority before isolated Host preflight activates three independent roots',{timeout:300000},async()=>{
-  ownerDiagnosticActive=false;identityDiagnosticActive=false;
-  await withRoleRuntime(mode,async runtime=>{
-    assert.equal((await runtime.drive('session-participant')).stage,'participant_bound');
+async function withActiveSession(run,{lostInitial=false}={}){
+  const selectedMode=lostInitial?mode+'-lost-initial':mode;
+  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;
+  await withRoleRuntime(selectedMode,async runtime=>{
+    let blocked=null;
+    const initial=await runtime.drive('session-participant');
+    if(lostInitial){
+      assert.equal(initial.stage,'native_registered');
+      assert.equal(initial.pending_operations.length,1);
+      blocked=initial.pending_operations[0];
+      await runtime.approveManaged(blocked);
+      await runtime.continueManaged('fresh-managed-operation-one');
+      assert.equal((await runtime.drive('session-participant-recovered')).stage,'participant_bound');
+    }else assert.equal(initial.stage,'participant_bound');
     const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
     const setupProgress=await json(await runtime.continueSetup(setup.setup_id));
     if(setupProgress.stage!=='prepared') {
@@ -107,7 +122,7 @@ test('real fresh MFA consumes control-only authority before isolated Host prefli
       // Preserve the actual production Account/SQLite; only target operations use diagnostic Wasm.
       ownerDiagnosticActive=process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true';
       identityDiagnosticActive=process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true';
-      await runtime.restart(mode);
+      await runtime.restart(selectedMode);
     }
     const invite=await json(await runtime.managementFetch('/test-sessions/invite',{api_version:1,request_id:'session-invite',transport_profile:'native-broker-custody-v1',tool_profile:'custody-native-v1'}));
     const target={custody_account_id:runtime.account,provision_id:runtime.provisionId,invite_id:invite.invite_id,invite_digest:digest('oasis7.custody.pairing-invite.v1',invite)};
@@ -123,7 +138,7 @@ test('real fresh MFA consumes control-only authority before isolated Host prefli
     const consumed=await json(await runtime.managementFetch('/test-sessions/approve',{api_version:1,input:{operation_id:basis.session_id,request,approval},plan}));
     assert.equal(consumed.stage,'consumed_pending_preflight');assert.deepEqual(consumed.purposes,[]);assert.equal(consumed.identity_control_http_remaining,'159');
     await runtime.suspend();const beforeState=stored(runtime,basis.session_id);assert.equal(beforeState.consumed,true);assert.deepEqual(beforeState.roots,[]);assert.equal(beforeState.approved,false);
-    await runtime.restart(mode);
+    await runtime.restart(selectedMode);
     const before=runtime.nativeRequests();
     const active=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));
     assert.equal(active.stage,'active');assert.equal(active.write_closed,false);assert.deepEqual(active.pending_operations,[]);
@@ -134,6 +149,138 @@ test('real fresh MFA consumes control-only authority before isolated Host prefli
     const after=runtime.nativeRequests(),delta=path=>(after[path]??0)-(before[path]??0);
     assert.equal(delta('/participant/policy-original'),1);assert.equal(delta('/participant/authorize'),1);assert.equal(delta('/custody/managed-bindings/session-status'),2,'FreshAccess pair includes two actual Root status HTTP calls');assert.equal(delta('/custody/managed-bindings/session-lifetime'),1);assert.equal(delta('/participant/owner-view'),1);assert.equal(delta('/custody/approvals/verify'),1,'preflight has its own real source inspection');assert.equal(active.identity_control_http_remaining,'152');
     await runtime.suspend();const finalState=stored(runtime,basis.session_id);assert.deepEqual(finalState.roots,['execution','reconcile_read','termination_plan']);assert.equal(finalState.credentials,0);assert.equal(finalState.terminations,0);assert.equal(finalState.reads,5);assert.deepEqual(finalState.source_reads,[7]);assert.deepEqual(finalState.steps,['fresh_access_pair','lifetime','owner_read']);
-    await runtime.restart(mode);const count=runtime.nativeRequests();const retry=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));assert.equal(retry.stage,'active');assert.deepEqual(runtime.nativeRequests(),{...count,'/custody/management-session-status':(count['/custody/management-session-status']??0)+1},'history does not repeat source or preflight business HTTP');
+    await runtime.restart(selectedMode);const count=runtime.nativeRequests();const retry=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));assert.equal(retry.stage,'active');assert.deepEqual(runtime.nativeRequests(),{...count,'/custody/management-session-status':(count['/custody/management-session-status']??0)+1},'history does not repeat source or preflight business HTTP');
+    await run(runtime,basis,selectedMode,blocked);
   },{configureOptions});
+}
+
+// Private signed facts and manifest originals flow through Node pipes/memory only.
+// Errors deliberately discard child output; assertions never dump these objects.
+function privateMetadata(runtime,operation,sessionId='',payload=null){
+  const script=`
+import hashlib,json,sqlite3,sys
+from pathlib import Path
+operation=sys.argv[3]
+private=json.load(sys.stdin) if operation=='manifest_write' else None
+found=[];records=[];audits=0
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ db=None
+ try:
+  db=sqlite3.connect(p.as_uri()+('?mode=rw' if operation=='manifest_write' else '?mode=ro'),uri=True)
+  if operation=='stamp':
+   rows=db.execute('SELECT id,payload FROM custody_records ORDER BY id').fetchall()
+   for record,payload in rows:records.append((str(p.relative_to(Path(sys.argv[1]))),record,payload))
+   try:audits+=db.execute('SELECT count(*) FROM custody_audit').fetchone()[0]
+   except sqlite3.OperationalError:pass
+   continue
+  key='custody-provision-approval-v1' if operation=='session' else 'custody-native-manifest-v1'
+  row=db.execute('SELECT payload FROM custody_records WHERE id=?',(key,)).fetchone()
+  if not row:continue
+  value=json.loads(row[0])
+  if operation=='session':
+   state=value['state']
+   if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+   session=state['test_sessions'][sys.argv[4]]
+   ref=session['session']
+   if ref['phase']=='managed_login':
+    call={'kind':'managed_login','custody_account_id':sys.argv[2],'provision_id':state['draft']['entry']['provision_id'],'operation_id':ref['source_permit_id']}
+   else:
+    original=state['native_stages'][ref['source_permit_id']]['request']
+    call={'kind':'provision','request':original}
+   found.append({'request':{'session':ref,'lifetime':session['preflight_lifetime']},'history_call':call})
+  elif value['scope']['role_scope']['context']['identity']['account_id']==sys.argv[2]:
+   if operation=='manifest_read':found.append({'raw':row[0],'generation':value['private_session_generation']})
+   elif operation=='manifest_write':
+    db.execute('UPDATE custody_records SET payload=? WHERE id=?',(private['raw'],key));db.commit();found.append({'changed':1})
+ except sqlite3.OperationalError:continue
+ finally:
+  if db is not None:db.close()
+if operation=='stamp':
+ assert records
+ digest=hashlib.sha256()
+ for value in sorted(records):digest.update(json.dumps(value,separators=(',',':')).encode())
+ result={'record_count':len(records),'audit_count':audits,'payload_digest':digest.hexdigest()}
+else:
+ assert len(found)==1
+ result=found[0]
+sys.stdout.write(json.dumps(result,separators=(',',':')))
+`;
+  try{return JSON.parse(execFileSync('python3',['-c',script,runtime.persist,runtime.account,operation,sessionId],{encoding:'utf8',input:operation==='manifest_write'?JSON.stringify(payload):undefined,stdio:['pipe','pipe','ignore'],maxBuffer:2*1024*1024}));}
+  catch{throw new Error('private fixture metadata operation failed');}
+}
+async function assertGetterNoEffects(runtime,request,{accepted=true}={}){
+  const before=privateMetadata(runtime,'stamp'),native=runtime.nativeRequests();
+  const reply=await runtime.attestTestSession(request);
+  if(accepted){
+    assert.equal(reply.status,200,'fixed private metadata attestation should succeed');
+    const result=await reply.json();
+    assert.equal(result.session_ref,request.session.session_ref);
+    assert.equal(result.private_sid_generation,request.session.private_sid_generation);
+    assert.match(result.lifetime_digest,/^[0-9a-f]{64}$/);
+  }else{await reply.text();assert.equal(reply.status,409,'invalid private metadata selector must be rejected');}
+  assert.deepEqual(privateMetadata(runtime,'stamp'),before,'getter must not mutate custody records or audits');
+  assert.deepEqual(runtime.nativeRequests(),native,'getter must not issue native HTTP');
+}
+
+test('real fresh MFA activates three roots and the private lifetime getter is readonly without KEKs',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    await runtime.suspend();
+    const material=privateMetadata(runtime,'session',basis.session_id);
+    const manifest=privateMetadata(runtime,'manifest_read');assert.equal(manifest.generation,'1');
+    await runtime.restart(selectedMode);
+    await assertGetterNoEffects(runtime,material.request);
+    for(const mutate of [
+      value=>{value.session.scope.identity_namespace='wrong-namespace';},
+      value=>{value.session.session_ref='wrong-session-ref';},
+      value=>{value.session.source_permit_id='wrong-permit';},
+      value=>{value.lifetime.lifetime.status.receipt.native_account_id='wrong-receipt-account';},
+    ]){
+      const invalid=structuredClone(material.request);mutate(invalid);
+      await assertGetterNoEffects(runtime,invalid,{accepted:false});
+    }
+    // Root signatures remain historical facts. Reading one past its live status
+    // window does not renew it or create business authority.
+    const wait=Math.max(0,Number(material.request.lifetime.lifetime.status.expires_at)-Date.now()+10);
+    if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait));
+    assert.ok(Date.now()>=Number(material.request.lifetime.lifetime.status.expires_at));
+    await assertGetterNoEffects(runtime,material.request);
+    identitySecretsDisabled=true;
+    await runtime.restart(selectedMode);
+    await assertGetterNoEffects(runtime,material.request);
+    identitySecretsDisabled=false;
+    await runtime.suspend();
+    const corrupt=JSON.parse(manifest.raw);corrupt.schema_version=0;
+    assert.equal(privateMetadata(runtime,'manifest_write','',{raw:JSON.stringify(corrupt)}).changed,1);
+    await runtime.restart(selectedMode);
+    await assertGetterNoEffects(runtime,material.request,{accepted:false});
+    await runtime.suspend();
+    assert.equal(privateMetadata(runtime,'manifest_write','',{raw:manifest.raw}).changed,1);
+    await runtime.restart(selectedMode);
+    await assertGetterNoEffects(runtime,material.request);
+  });
+});
+
+test('a real second fresh ManagedLogin raises the private manifest floor without erasing gen1 history',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode,blocked)=>{
+    assert.ok(blocked,'the actual lost initial Cookie must remain an explicit-login-required original');
+    await runtime.suspend();const material=privateMetadata(runtime,'session',basis.session_id);
+    assert.equal(privateMetadata(runtime,'manifest_read').generation,'1');
+    await runtime.restart(selectedMode);
+    // Establish that this exact signed historical Lifetime is accepted at gen1
+    // after its live observation window; expiry cannot explain the later denial.
+    const wait=Math.max(0,Number(material.request.lifetime.lifetime.status.expires_at)-Date.now()+10);
+    if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait));
+    await assertGetterNoEffects(runtime,material.request);
+    await runtime.approveManaged(blocked,'64','two');
+    await runtime.continueManaged('fresh-managed-operation-two');
+    await runtime.suspend();assert.equal(privateMetadata(runtime,'manifest_read').generation,'2');
+    await runtime.restart(selectedMode);
+    const before=privateMetadata(runtime,'stamp'),native=runtime.nativeRequests();
+    const history=await runtime.readPrivateNativeHistory(material.history_call);
+    assert.equal(history.status,200,'the old completed history must remain readable in a valid gen2 manifest');
+    const fact=await history.json();assert.equal(fact.session_attestation.private_sid_generation,'1');
+    assert.deepEqual(privateMetadata(runtime,'stamp'),before);
+    assert.deepEqual(runtime.nativeRequests(),native);
+    await assertGetterNoEffects(runtime,material.request,{accepted:false});
+  },{lostInitial:true});
 });
