@@ -2,6 +2,7 @@
 name = "oasis7-custody-owner-staging"
 main = "../../artifacts/owner/entry.mjs"
 compatibility_date = "2026-10-25"
+
 workers_dev = false
 preview_urls = false
 
@@ -24,3 +25,58 @@ class_name = "ManagerAssociations"
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["ManagerAssociations"]
+
+# Narrow read/verify methods only; these bindings do not activate provisioning.
+[[services]]
+binding = "IDENTITY_NATIVE_APPROVAL"
+service = "oasis7-custody-identity-staging"
+entrypoint = "IdentityNativeApproval"
+
+[[services]]
+binding = "RECOVERY_FENCE"
+service = "oasis7-custody-recovery-fence-staging"
+entrypoint = "RecoveryFenceReader"
+
+# Role-local immutable key storage; activation and KEK are intentionally absent.
+[[durable_objects.bindings]]
+name = "ROLE_KEYS"
+class_name = "RoleKeyVault"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["RoleKeyVault"]
+
+[[services]]
+binding = "ACCOUNT_KEY_PERMITS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "OwnerKeyPermits"
+
+[[services]]
+binding = "IDENTITY_PROVISION_KEYS"
+service = "oasis7-custody-identity-staging"
+entrypoint = "RoleKeyProvision"
+
+[[services]]
+binding = "OWNER_PROVISION_KEYS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "RoleKeyProvision"
+
+[[services]]
+binding = "EXECUTOR_PROVISION_KEYS"
+service = "oasis7-custody-executor-staging"
+entrypoint = "RoleKeyProvision"
+
+[[services]]
+binding = "IDENTITY_NATIVE_PROVISION"
+service = "oasis7-custody-identity-staging"
+entrypoint = "IdentityNativeProvision"
+
+[[services]]
+binding = "IDENTITY_NATIVE_HISTORY"
+service = "oasis7-custody-identity-staging"
+entrypoint = "NativeProvisionHistory"
+
+[[services]]
+binding = "IDENTITY_NATIVE_STATUS_RECOVERY"
+service = "oasis7-custody-identity-staging"
+entrypoint = "NativeProvisionRecovery"

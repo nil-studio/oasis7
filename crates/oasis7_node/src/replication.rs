@@ -27,6 +27,7 @@ pub(crate) const REPLICATION_FETCH_COMMIT_PROTOCOL: &str =
 pub(crate) const REPLICATION_FETCH_BLOB_PROTOCOL: &str = "/aw/node/replication/fetch-blob/1.0.0";
 pub(crate) const REPLICATION_GET_HEAD_PROTOCOL: &str =
     "/aw/node/replication/fetch-commit/head/1.0.0";
+mod cas_retention;
 #[path = "replication/checkpoint_lineage_runtime.rs"]
 mod checkpoint_lineage_runtime;
 #[path = "replication/checkpoint_probe_receipt.rs"]
@@ -884,77 +885,6 @@ impl ReplicationRuntime {
         Ok(())
     }
 
-    fn prune_store_orphans(&self) -> Result<u64, NodeError> {
-        let mut referenced_hashes = BTreeSet::new();
-        for metadata in self
-            .store
-            .list_files()
-            .map_err(distfs_error_to_node_error)?
-        {
-            referenced_hashes.insert(metadata.content_hash);
-        }
-        for pinned_hash in self
-            .store
-            .list_effective_pins()
-            .map_err(distfs_error_to_node_error)?
-        {
-            referenced_hashes.insert(pinned_hash);
-        }
-        let cold_index = load_commit_message_cold_index_from_root(self.config.root_dir.as_path())?;
-        referenced_hashes.extend(
-            cold_index
-                .by_height
-                .values()
-                .filter_map(|entry| match entry {
-                    CommitMessageColdEntry::LegacyContentHash(content_hash) => {
-                        Some(content_hash.to_string())
-                    }
-                    CommitMessageColdEntry::PackRef(_) => None,
-                }),
-        );
-
-        let blobs_dir = self.config.root_dir.join("store").join("blobs");
-        if !blobs_dir.exists() {
-            return Ok(0);
-        }
-
-        let mut freed = 0u64;
-        for entry in fs::read_dir(&blobs_dir).map_err(|err| NodeError::Replication {
-            reason: format!("read_dir {} failed: {}", blobs_dir.display(), err),
-        })? {
-            let entry = entry.map_err(|err| NodeError::Replication {
-                reason: format!("read_dir {} entry failed: {}", blobs_dir.display(), err),
-            })?;
-            if !entry
-                .file_type()
-                .map_err(|err| NodeError::Replication {
-                    reason: format!("stat {} failed: {}", entry.path().display(), err),
-                })?
-                .is_file()
-            {
-                continue;
-            }
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("blob") {
-                continue;
-            }
-            let Some(content_hash) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                return Err(NodeError::Replication {
-                    reason: format!("invalid blob file name: {}", path.display()),
-                });
-            };
-            if referenced_hashes.contains(content_hash) {
-                continue;
-            }
-            let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
-            fs::remove_file(&path).map_err(|err| NodeError::Replication {
-                reason: format!("remove {} failed: {}", path.display(), err),
-            })?;
-            freed = freed.saturating_add(size);
-        }
-        Ok(freed)
-    }
-
     pub(crate) fn latest_persisted_commit_height(&self, world_id: &str) -> Result<u64, NodeError> {
         // A head query needs height metadata, not checkpoint-retention planning:
         // the latter reads and deserializes every historical hot payload.
@@ -997,28 +927,6 @@ impl ReplicationRuntime {
         self.store
             .put(content_hash, blob)
             .map_err(distfs_error_to_node_error)
-    }
-
-    pub(crate) fn discard_blob_by_hash(&self, content_hash: &str) -> Result<bool, NodeError> {
-        // A corrupt CAS member must be removed before a verified refetch: the
-        // store intentionally treats an existing path as immutable, so put()
-        // would otherwise leave the corrupt bytes in place.  Validate the
-        // hash through the store API before constructing the exact blob path.
-        if !self
-            .store
-            .has(content_hash)
-            .map_err(distfs_error_to_node_error)?
-        {
-            return Ok(false);
-        }
-        let path = self.store.blobs_dir().join(format!("{content_hash}.blob"));
-        match fs::remove_file(&path) {
-            Ok(()) => Ok(true),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(err) => Err(NodeError::Replication {
-                reason: format!("discard corrupt blob {} failed: {}", path.display(), err),
-            }),
-        }
     }
 
     pub(crate) fn build_fetch_commit_request(

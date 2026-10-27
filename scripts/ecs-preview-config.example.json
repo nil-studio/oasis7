@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "endpoint": "https://oss-cn-hangzhou-internal.aliyuncs.com",
+  "bucket": "replace-preview-bucket",
+  "prefix": "oasis7-preview",
+  "channel_key": "oasis7-preview/channels/preview.json",
+  "releases_dir": "/opt/oasis7-preview/releases",
+  "state_dir": "/var/lib/oasis7-preview-updater",
+  "lock_path": "/var/lib/oasis7-preview-updater/deploy.lock",
+  "compatibility_file": "/etc/oasis7-preview/compatibility.json",
+  "verifier_command": [
+    "/opt/oasis7-preview-updater-venv/bin/python",
+    "/opt/oasis7-preview-updater/REPLACE_INSTALLED_VERSION/ecs-preview-verify.py",
+    "--config",
+    "/etc/oasis7-preview/updater.json",
+    "--device",
+    "/etc/oasis7-preview/existing-device.json"
+  ],
+  "world_identity": {
+    "world_id": "REPLACE_EXISTING_WORLD_ID",
+    "genesis_hash": "REPLACE_EXISTING_GENESIS",
+    "service_public_key": "REPLACE_ORIGINAL_SERVICE_PUBLIC_KEY",
+    "identity": "REPLACE_EXISTING_SIGNED_READ_IDENTITY"
+  },
+  "components": {
+    "chain": {
+      "path": "/opt/oasis7-preview/components/chain",
+      "relative_path": "bin/oasis7_chain_runtime",
+      "service": "oasis7-preview-chain.service"
+    },
+    "player": {
+      "path": "/opt/oasis7-preview/components/player",
+      "relative_path": "bin/oasis7_game_launcher",
+      "service": "oasis7-preview-player.service"
+    },
+    "web": {
+      "path": "/opt/oasis7-preview/components/web",
+      "relative_path": "web-dist"
+    },
+    "skill": {
+      "path": "/opt/oasis7-preview/components/skill",
+      "relative_path": "web-dist/skills"
+    }
+  },
+  "skill": {
+    "origin": "https://preview.example.invalid",
+    "nginx_include": "/etc/nginx/snippets/oasis7-skills.conf",
+    "player_service": "oasis7-preview-player.service"
+  }
+}

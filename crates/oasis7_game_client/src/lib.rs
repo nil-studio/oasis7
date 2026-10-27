@@ -9,6 +9,7 @@ pub mod executor_gateway;
 mod identity_cli;
 #[cfg(unix)]
 pub mod identity_client;
+pub mod operation_lifecycle;
 #[cfg(unix)]
 mod participant_cli;
 pub use cooldown::WorldServiceQueryState;

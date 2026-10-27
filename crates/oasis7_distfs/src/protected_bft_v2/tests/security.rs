@@ -63,7 +63,7 @@ fn acquire_direct(
     (credential, *checkpoint)
 }
 
-fn wait_for_released_generation(fixture: &Harness, generation: u64) {
+pub(super) fn wait_for_released_generation(fixture: &Harness, generation: u64) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         let snapshot = fixture.backend.snapshot();

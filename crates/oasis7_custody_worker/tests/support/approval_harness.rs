@@ -5,6 +5,9 @@ use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue};
 use worker::*;
 
+#[path = "native_login_input_harness.rs"]
+mod native_login_input_harness;
+
 #[path = "envelope_harness.rs"]
 mod envelope_harness;
 #[path = "provision_approval_harness.rs"]
@@ -67,6 +70,9 @@ impl DurableObject for TestApprovalAuthority {
     }
     async fn fetch(&self, mut request: Request) -> Result<Response> {
         let path = request.path();
+        if path == "/native/fresh-managed-login-input" {
+            return native_login_input_harness::handle(request).await;
+        }
         if path.starts_with("/role-key/") {
             return role_key_harness::handle(self.state.clone(), request).await;
         }

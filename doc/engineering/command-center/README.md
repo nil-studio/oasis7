@@ -136,7 +136,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 自主入场局部核对（2026-10-21）：[身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)及已合入的 [#4954](https://github.com/nil-studio/oasis7/pull/4954) 承接机器身份、canonical participant 唯一绑定/迁移、独立 owner/executor、starter、任务目标与原件恢复。本地工具代理按资源隔离配置、状态和预算；实际 Runtime 沙箱与费用须由获准 profile 约束。来源与剩余验收见 [#4946](https://github.com/nil-studio/oasis7/issues/4946)；完整 OpenClaw/Codex 冷入场仍未验收，本次未刷新线上开放范围。
 
-准入职责拆分（2026-10-21 局部设计核对）：[准入合同](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)明确官方与外部客户端共用接入协议；DevLocal 的显式本地运营者授权与正式网络治理授权分别验证，不以缺治理历史要求重建现有世界。实现候选通过独立历史、恢复前上下文和节点写锁内提交承接；配置见 [ECS 手册](../../testing/manual/single-ecs-preview-deploy.manual.md#devlocal-世界的参与者准入授权)。候选尚待验证与合入，不表示已部署、已开放完整玩法或完成受限 Runtime 实玩。
+准入职责拆分（2026-10-21 局部设计核对）：[准入合同](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)明确官方与外部客户端共用接入协议；DevLocal 的显式本地运营者授权与正式网络治理授权分别验证，不以缺治理历史要求重建现有世界。实现候选通过独立历史、恢复前上下文和节点写锁内提交承接；配置见 [ECS 手册](../../testing/manual/devlocal-participant-policy.manual.md)。候选尚待验证与合入，不表示已部署、已开放完整玩法或完成受限 Runtime 实玩。
 
 世界舞台局部更新（2026-10-17）：主体绑定、Web 恢复及探索切片已在 [PR #4825](https://github.com/nil-studio/oasis7/pull/4825) 合入；远端来源、设施/路线及视口索引已在 [PR #4834](https://github.com/nil-studio/oasis7/pull/4834) 合入。本轮继续补齐增量/删除通知、工业聚合和显式事件锚点，当前尚未合入。功能状态为已实现，待完整测试；正式独立试玩仍缺私有世界/GameClient 配置，原生容器和容量实测未完成。用户已要求保留试玩缺口推进合入，不表示整体验收或部署完成。范围见[产品摘要](../../product/agents-world-simulation/player-readable-world-stage.prd.md#stage-implementation-status)，不刷新其他核验时点。
 
@@ -239,3 +239,5 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 文件清单支持按已读文件头显式文档 ID 检索；原声明/源行与有限重复诊断沿[文档树设计](document-tree.design.md)展示。同 ID 文件不合并，重复范围限同次已读候选，不代表仓库全量唯一或实现验收；旧清单需刷新。明确正文承接表可按行查看两侧链接、原行样本和同版本章节；仅覆盖精确标题/列名，超限与歧义有诊断，不证明语义承接完整。目录层级支持按路径逐层/分页浏览 PRD、设计与结构入口，搜索保留祖先，文件详情复用同版本来源；不推断语义归属。产品树从四域入口表与根 PRD 活跃专题展开，专业系统树从工程模块矩阵与明确模块导航展开；多父入口保留，匹配按文件去重，未归属与断链/未读/循环诊断可见，详情仍沿同版本章节。导航不提升为配对或主责，两树支持按需展开、键盘操作及独立个人阅读恢复；支持范围见[显式导航投影](document-tree.design.md#显式产品与专业导航投影)。独立树快照及固定提交基线仍待补齐，完整验收范围归专题设计。
 
 2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。
+
+2026-10-26 单机 Preview 自动部署局部核对：[来源与恢复合同](../workflow/package-source-security.md#ecs-preview-automatic-deployment)及[新操作流程](../../testing/manual/single-ecs-preview-auto-update.manual.md)承接 [#5126](https://github.com/nil-studio/oasis7/issues/5126)，替代日常人工转包/切换。云资源配置和真实现有世界更新仍待分别验收；本条不宣称代码已合入或机器已切换，也不改变 #4671 的整体实玩验收与正式网络暂停。

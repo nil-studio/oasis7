@@ -104,6 +104,7 @@ jobs:
               - node_modules/**
               - dist/**
               - .pm/**
+              - tools/oasis7-command-center/src-tauri/src/generated_context.rs
       - id: prepare
         name: Freeze source, Cargo inputs, native prerequisites and resources
         timeout-minutes: 8

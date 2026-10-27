@@ -17,6 +17,7 @@ enum Fault {
     WrongSignature,
     CooldownOnce,
     Overloaded,
+    Status(&'static str),
 }
 struct Probe {
     client: Client,
@@ -90,6 +91,9 @@ fn committed(original: &SubmitIntentRequest<WorldServicePayloadV1>) -> IntentRes
 }
 impl Probe {
     fn new(fault: Fault) -> Self {
+        Self::new_kind(fault, OriginalKind::Prefix)
+    }
+    fn new_kind(fault: Fault, kind: OriginalKind) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let config = crate::tests::config(format!("http://{}", listener.local_addr().unwrap()));
@@ -120,11 +124,12 @@ impl Probe {
             "context_commitment":format!("blake3:{}","22".repeat(32)),"provider_invocation_commitment":format!("blake3:{}","33".repeat(32)),
             "valid_until_tick":"16"}))
         .unwrap();
-        let binding = serde_json::from_value(json!({"world_id":"world","branch_id":"main",
-            "finality_epoch":0,"finality_block_hash":null,"finality_status":"finalized",
+        let binding: oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1 =
+            serde_json::from_value(json!({"world_id":"world","branch_id":"main",
+            "finality_epoch":0,"finality_block_hash":null,"finality_status":"pending",
             "base_tick":0,"base_world_hash":format!("blake3:{}","1".repeat(64)),
             "reorg_epoch":0,"runtime_manifest_hash":format!("blake3:{}","2".repeat(64))}))
-        .unwrap();
+            .unwrap();
         let payload = WorldServicePayloadV1::Scheduler(
             authority::sign_read_request(
                 "scheduler",
@@ -133,13 +138,27 @@ impl Probe {
                     agent_id: "a".into(),
                     request_id: "retained-original".into(),
                     delegation_generation: 1,
-                    captured_base_binding: binding,
-                    operation: SchedulerOperationV1::TaskProviderPrefix { context },
+                    captured_base_binding: binding.clone(),
+                    operation: SchedulerOperationV1::TaskProviderPrefix {
+                        context: context.clone(),
+                    },
                 },
                 &hex::encode([7; 32]),
             )
             .unwrap(),
         );
+        let payload = match kind {
+            OriginalKind::Prefix => payload,
+            OriginalKind::Outcome => WorldServicePayloadV1::Scheduler(
+                authority::sign_read_request(
+                    "scheduler",
+                    public_outcome_intent(&context, binding, "executor_aborted").unwrap(),
+                    &hex::encode([7; 32]),
+                )
+                .unwrap(),
+            ),
+            OriginalKind::Action => lifecycle::action_payload(&context, binding),
+        };
         let original = SubmitIntentRequest {
             contract_version: 1,
             correlation: derive_correlation(config.expected_world.clone(), &payload).unwrap(),
@@ -216,7 +235,12 @@ impl Probe {
                             }
                             (
                                 authority::request_digest(LOOKUP_PATH, &lookup).unwrap(),
-                                committed(&expected),
+                                match fault {
+                                    Fault::Status(status) => {
+                                        lifecycle::status_response(&expected, status)
+                                    }
+                                    _ => committed(&expected),
+                                },
                                 if matches!(fault, Fault::WrongSignature) {
                                     [8; 32]
                                 } else {
@@ -401,3 +425,6 @@ fn query_only_original_assurance_failure_stops_without_submission() {
     assert_eq!(probe.submits.load(Ordering::SeqCst), 0);
     assert_eq!(probe.lookups.load(Ordering::SeqCst), 1);
 }
+
+#[path = "device_client_lifecycle_tests.rs"]
+mod lifecycle;

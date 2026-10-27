@@ -27,6 +27,7 @@
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | 同参数预览/提交与实际消费口径属于同一工业因果链。 | [方案绑定](#starter-quote-submit-binding) | gameplay 参数；M4 报价；Runtime settlement；Viewer/Agent 消费。 | 不新建 Plan/receipt 协议，不开放未接线动作。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | 方案适用性与查询身份分开，事实漂移和迟到响应不替换当前方案。 | [方案绑定](#starter-quote-submit-binding) | M4 报价；Runtime 重验；Viewer/Agent 查询关联。 | 不用客户端估算或旧 allowed 代替当前准入。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | 结果未知保留原请求核对，重试、回放和换向不复制或误归因既有结果。 | [恢复映射](#request-outcome-observation-separation) | Runtime identity/settlement；Viewer/Agent 恢复。 | 不从缺回执推导未生效，不新增恢复权限。 |
+| [合法执行单位与 partial recipe](../../product/world-rules-core-gameplay/prd.md#root-sc21-quantum) Trace refs: O7-REQ-baa1e6b2-1a46-47a3-b75c-a0e9cf8b154c | 当前可证明的主/副产物单 stack 超限在 quote/admission 拒绝，首个 sink/slot 前重验。 | [已知超限准入](#known-product-stack-admission) | M4/Product authority 提供限制与版本；Runtime 准入/完成验证；Viewer/Agent 同义投影。 | 不实现任意 validator 预言、自动拆分或保证未来结算。 |
 
 ## 3. 关键接口 / 入口
 
@@ -133,6 +134,20 @@ Runtime 物流 quote 的 path binding 与可执行性分开投影：空 binding 
 
 已结算范围保留原 owner/intent/action/job/receipt 因果，未结算范围按当前授权和前置条件决定继续、重评或终止；当前权限决定可读范围与新执行资格，不追溯改写历史结果。刷新到新 snapshot 不是核对原请求。换向后旧结果迟到仍归原目标，不能用“最近结果”覆盖新意图，也不能重复扣料、产出、里程碑或庆祝。自然离场与回访读取这些已有事实，不由客户端生成离线收益或复活旧授权。
 
+<a id="known-product-stack-admission"></a>
+### 6.7 已知产物 stack 超限的报价与准入（目标，未实现）
+
+Trace refs: O7-REQ-baa1e6b2-1a46-47a3-b75c-a0e9cf8b154c；承接[合法执行单位](../../product/world-rules-core-gameplay/prd.md#root-sc21-quantum)在 SC-21 中的已知超限子范围。
+
+- 检查对象是实际 `RecipeExecutionPlan.produce` 与 `byproducts` 的**每个输出 stack**，不是累计库存、仓储容量，也不将同 kind 的多个合法 stack 擅自合并。零/负量、溢出、配方与其他准入检查继续适用；本轮不改变配比或引入自动 stack splitting、自动减批。
+- 限制必须来自当前有效、实际适用于该 kind 的 product validator 的可信规则/版本绑定。内置常量或 material profile 仅在能证明与该 active validator 的实际规则一致时可用；模块名称、目录提示、旧缓存、其他版本或同 kind 默认值均不足。只对可证明的限制作确定拒绝，缺 validator、任意自定义逻辑或无法证明规则的情况保留“该项未验证”的边界和原有执行/完成验证路径，不全局 fail closed 或谎称安全。
+- 当前 [`builtin_recipe_quote`](../../../crates/oasis7_runtime/src/world/builtin_recipe_quote.rs) 走克隆 World 的 `action_to_event`，不拥有 sandbox；本合同不要求报价任意执行 WASM，也不将有副作用的 validator 调用改称只读。实现应共用无副作用的有界检查，绑定实际选择的规则身份、版本与计划；若现有接口无法提供可信限制，先补专业 authority 接线，不凭 DTO 推断验证成功。
+- 报价解释超限产物、请求数量、适用上限及可重报的方向；提交必须重新解析当时 active validator/规则并检查同一计划。已知超限在 `RecipeStarted` 及其材料/电力 sink、执行 slot 占用前拒绝；不得先扣后补偿、先建 job 再让其阻塞。报价/提交共用判断不等于报价保留版本；规则漂移后按当前事实拒绝或重新报价。经 native 或 module 排产进入同一生产路径时均须覆盖，不用客户端批数裁剪替代权威准入。
+- 到期逐 stack 的 product validation、attempt/receipt、`FactoryProductionBlocked` 与 settlement 仍保留：其他谓词、运行中规则变化或未来状态可能使已接受任务失败，预检不是最终 validation receipt。未安装适用 validator 的 native 路径不套用示例上限；既有 blocked/WIP 继续原处置，不自动拆分、退款、重启或生成产物。
+- 迁移仅作用于启用新准入规则后的新提交；历史 `RecipeStarted`、input/power sink、validation receipt 与 blocked 事件保持原义。恢复/replay 重建原任务和结果，不用当前上限重判历史准入、不重新运行 validator 或复制 sink/产物。实现若需新规则元数据/版本，须沿既有治理激活与历史版本合同接入；本文不新增 schema 或热替换已安装 artifact 的授权。
+
+验证目标（尚未执行）：在资源充分且安装匹配内置铁 validator 的压力初态下，166 批对应 498 铁，不因 500 单 stack 上限拒绝；167 批对应 501 铁，quote 与实际 submit 均拒绝，input/power/slot/job 无新增变化。498 正例仍须满足所有其他主/副产物规则。另测副产物独立超限、恰好等于上限、同 kind 多个 stack、不适用/缺失/自定义 validator、报价后版本漂移、模块与 native 排产入口；比较拒绝审计与业务无变化，不要求整个 tick 静止。成功任务仍完成一次验证/结算；旧 WIP/blocked 的 snapshot restore/replay 不重新准入或补偿。Viewer/API/Agent 应表达同一 blocker 和未知边界。
+
 ## 11. 验证设计与可追溯性
 
 ### 11.1 验证映射表
@@ -145,3 +160,4 @@ Runtime 物流 quote 的 path binding 与可执行性分开投影：空 binding 
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | [方案绑定](#starter-quote-submit-binding) | 预览、实际提交参数与有效消费账本保持一致；承接 AC-FIRST-INDUSTRIAL-001 的工业因果链。 | 待执行：扩展 [材料报价 fixtures](../../../crates/oasis7_runtime/src/tests/market_quote_decision_preview.rs) 的 §6.2 账本对照，并沿 §6.5 的真实 quote/submit 消费者捕获同参数正例、有效投入及产出；绑定实际 candidate/runtime 与有效授权，字段缺失记录 blocked。 | 实施 PR 的 request/quote/submit、authority、账本差异与 receipt；消费者证据独立记录。 | 领域单测不证明实际 GUI、真实 Agent 自主试玩或真人理解。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | [方案绑定](#starter-quote-submit-binding) | 事实漂移、查询失效与响应乱序不导致旧参数提交；承接 AC-FIRST-INDUSTRIAL-003。 | 待执行：按 [测试手册](../../../testing-manual.md) 在当前 candidate 的 Viewer quote/submit 消费者中执行参数/对象变化、snapshot 更新、查询在途失效、权限失效及旧响应迟到，核对 §6.5 的请求归属和重验；记录未覆盖入口。 | 实施 PR 的查询时序、适用状态、实际提交参数及消费者 captures。 | 固定消息回归不代签 GUI、真实 Agent 自主试玩或真人理解。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | [恢复映射](#request-outcome-observation-separation) | 原请求未知不等于未生效；已结算和待决范围分开，恢复不产生重复效果；承接 AC-FIRST-INDUSTRIAL-003。 | 待执行：以 [snapshot_progress.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/snapshot_progress.rs) 为投影回归落点，配合 Runtime `agent_intent_v2.rs` 与 `economy_factory_lifecycle/receipts.rs` 扩展已生效但响应丢失、仍未知、部分结算、换向后旧结果迟到四例；绑定实际 candidate/runtime，恢复入口缺失记录 blocked。 | 实施 PR 的原请求 identity/digest、各范围 disposition/receipt、账本前后值及 Viewer/Agent 各自观察。 | 投影与领域回归不证明全部恢复入口、真实自主试玩或真人理解。 |
+| [合法执行单位](../../product/world-rules-core-gameplay/prd.md#root-sc21-quantum) Trace refs: O7-REQ-baa1e6b2-1a46-47a3-b75c-a0e9cf8b154c | [已知超限准入](#known-product-stack-admission) | 已知主/副产物超限在首个 sink/slot 前拒绝，未知与历史结果不被伪造。 | 待扩展 [Product validation fixtures](../../../crates/oasis7_runtime/src/tests/economy_module_validation_tests.rs) 与实际 quote/submit 集成测试，按 §6.7 正负例及 restore/replay 核对。 | 同 snapshot 的计划、规则版本、quote/rejection、材料/电力/slot/job 前后值和历史 receipt。 | 未运行业务测试；任意 validator 的未来成功与全量 SC-21 不由本条证明。 |

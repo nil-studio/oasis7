@@ -136,6 +136,8 @@ impl DurableObject for ManagerAssociations {
             "/internal/read" => self.view(&raw, &config),
             "/internal/freeze" => self.freeze(&raw, &config).await,
             "/internal/source-freeze" => self.source_freeze(&raw, &config).await,
+            "/internal/provision-gate" => self.provision_gate(&raw, &config),
+            "/internal/provision-inspect-gate" => self.provision_inspect_gate(&raw, &config),
             _ => return Response::error("not found", 404),
         };
         match result {
@@ -371,6 +373,78 @@ impl ManagerAssociations {
         let rpc: ReadRpc = serde_json::from_str(raw).map_err(|_| denied())?;
         self.view_entry(config, &rpc.manager_session, &rpc.provision_id)
     }
+    fn provision_gate(&self, raw: &str, config: &DirectoryConfig) -> Result<serde_json::Value> {
+        let rpc: ProvisionGateRpc = serde_json::from_str(raw).map_err(|_| denied())?;
+        let principal = config.principal(&rpc.manager_session)?;
+        let s = self.snapshot(config, &rpc.manager_session, false)?;
+        self.provision_gate_view(
+            config,
+            &principal,
+            &rpc.provision_id,
+            &rpc.custody_account_id,
+            s,
+        )
+    }
+    fn provision_inspect_gate(
+        &self,
+        raw: &str,
+        config: &DirectoryConfig,
+    ) -> Result<serde_json::Value> {
+        let rpc: ProvisionInspectGateRpc = serde_json::from_str(raw).map_err(|_| denied())?;
+        let principal = config.inspection_reference_principal(&rpc.manager_reference)?;
+        let s = self.snapshot_for(config, &principal, false, true)?;
+        self.provision_gate_view(
+            config,
+            &principal,
+            &rpc.provision_id,
+            &rpc.custody_account_id,
+            s,
+        )
+    }
+    fn provision_gate_view(
+        &self,
+        config: &DirectoryConfig,
+        principal: &ManagerPrincipal,
+        provision_id: &str,
+        custody_account_id: &str,
+        s: Snapshot,
+    ) -> Result<serde_json::Value> {
+        if !s.inventory_complete || s.index.is_frozen() {
+            return Err(denied());
+        }
+        let draft = s.drafts.get(custody_account_id).ok_or_else(denied)?;
+        let account = s.index.account(custody_account_id).ok_or_else(denied)?;
+        if draft.entry.provision_id != provision_id
+            || &draft.entry.manager != principal
+            || draft.entry.environment != config.environment
+            || draft.entry.bootstrap_config_version != config.version
+            || draft.world_identity != config.world
+            || account.phase() != AssociationPhase::Initialized
+            || !config
+                .managers
+                .iter()
+                .any(|m| &m.principal == principal && m.environments.contains(&config.environment))
+        {
+            return Err(denied());
+        }
+        if draft.plan.environment != config.routes.environment
+            || draft.plan.identity_route != config.routes.identity_route
+            || draft.plan.world_route != config.routes.world_route
+            || draft.plan.world_identity != config.routes.world_identity
+        {
+            return Err(denied());
+        }
+        Ok(serde_json::to_value(ProvisionGateView {
+            api_version: 1,
+            draft: draft.clone(),
+            security_epoch: DecimalU64(account.security_epoch()),
+            observed_at: DecimalU64(clock()?),
+            directory_revision: digest(
+                "oasis7.custody.provision-directory-gate.v1",
+                &(&s.index, s.audit_sequence, &draft.entry),
+            )?,
+        })?)
+    }
     fn view_entry(
         &self,
         config: &DirectoryConfig,
@@ -479,7 +553,7 @@ impl ManagerAssociations {
         })?)
     }
 }
-async fn read_response(response: Response) -> Result<String> {
+pub(crate) async fn read_response(response: Response) -> Result<String> {
     // Internal DO responses are bounded by the same streaming transport adapter.
     #[wasm_bindgen(module = "/platform/sql.mjs")]
     extern "C" {
@@ -492,6 +566,77 @@ async fn read_response(response: Response) -> Result<String> {
         .map_err(|_| denied())?
         .as_string()
         .ok_or_else(denied)
+}
+
+pub(crate) async fn approve_provision(env: &Env, raw: &str) -> Result<String> {
+    if env
+        .var("CUSTODY_PROVISION_APPROVAL_ENABLED")
+        .map(|v| v.to_string())
+        .ok()
+        .as_deref()
+        != Some("true")
+    {
+        return Err(denied());
+    }
+    let rpc: ApproveRpc = serde_json::from_str(raw).map_err(|_| denied())?;
+    rpc.request.validate().map_err(|_| denied())?;
+    let config = DirectoryConfig::from_env(env)?.ok_or_else(denied)?;
+    let view = call_directory(
+        env,
+        "/internal/read",
+        &serde_json::to_string(&ReadRpc {
+            manager_session: rpc.manager_session.clone(),
+            provision_id: rpc.provision_id.clone(),
+        })?,
+        &rpc.manager_session,
+    )
+    .await?;
+    let view: ProvisionDraftViewV1 = serde_json::from_str(&view).map_err(|_| denied())?;
+    if view.entry.provision_id != rpc.provision_id
+        || view.entry.manager != config.principal(&rpc.manager_session)?
+    {
+        return Err(denied());
+    }
+    let gate_rpc = ProvisionGateRpc {
+        manager_session: rpc.manager_session.clone(),
+        provision_id: rpc.provision_id.clone(),
+        custody_account_id: view.entry.custody_account_id.clone(),
+    };
+    let gate = call_directory(
+        env,
+        "/internal/provision-gate",
+        &serde_json::to_string(&gate_rpc)?,
+        &rpc.manager_session,
+    )
+    .await?;
+    let gate: ProvisionGateView = serde_json::from_str(&gate).map_err(|_| denied())?;
+    if gate.draft.entry != view.entry {
+        return Err(denied());
+    }
+    let stub = env
+        .durable_object("ACCOUNTS")?
+        .id_from_name(&gate.draft.entry.custody_account_id)?
+        .get_stub()?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_body(Some(raw.into()));
+    let mut request = Request::new_with_init("https://account.internal/internal/approve", &init)?;
+    request
+        .headers_mut()?
+        .set("Content-Type", "application/json")?;
+    let response = stub.fetch_with_request(request).await?;
+    if response.status_code() != 200 {
+        return Err(denied());
+    }
+    let text = read_response(response).await?;
+    let result: ProvisionApprovalViewV1 = serde_json::from_str(&text).map_err(|_| denied())?;
+    if result.api_version != 1
+        || result.provision_id != rpc.provision_id
+        || result.custody_account_id != view.entry.custody_account_id
+        || result.operation_id != rpc.request.input.operation_id
+    {
+        return Err(denied());
+    }
+    Ok(text)
 }
 
 pub(crate) async fn call_directory(
@@ -518,6 +663,39 @@ pub(crate) async fn call_directory(
     let response = stub
         .fetch_with_request(Request::new_with_init(
             &format!("https://directory.internal{path}"),
+            &init,
+        )?)
+        .await?;
+    if response.status_code() != 200 {
+        return Err(denied());
+    }
+    read_response(response).await
+}
+
+/// Fixed readonly charged-inspection preflight. It returns association/freeze facts only.
+pub(crate) async fn call_inspection_directory(
+    env: &Env,
+    rpc: &ProvisionInspectGateRpc,
+) -> Result<String> {
+    let config = DirectoryConfig::from_env(env)?.ok_or_else(denied)?;
+    let principal = config.inspection_reference_principal(&rpc.manager_reference)?;
+    let name = digest(
+        "oasis7.custody.manager-directory.v1",
+        &(&config.environment, &principal),
+    )?;
+    let stub = env
+        .durable_object("MANAGER_ASSOCIATIONS")?
+        .id_from_name(&name)?
+        .get_stub()?;
+    let raw = serde_json::to_string(rpc)?;
+    if raw.len() > 32768 {
+        return Err(denied());
+    }
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_body(Some(raw.into()));
+    let response = stub
+        .fetch_with_request(Request::new_with_init(
+            "https://directory.internal/internal/provision-inspect-gate",
             &init,
         )?)
         .await?;

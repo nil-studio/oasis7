@@ -711,3 +711,30 @@ fn prune_orphan_blobs_removes_only_unreferenced_data() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn legacy_zstd_0133_frame_verified_and_range_reads() {
+    let raw: Vec<u8> = (0..65536)
+        .map(|i| ((i % 251) ^ ((i / 4096) % 17)) as u8)
+        .collect();
+    let hash = "0f227458a96cb2b18610d9624d5750390613bf9e84107e46ff48902b5b31be88";
+    assert_eq!(blake3_hex(&raw), hash);
+    let dir = temp_dir("legacy-zstd");
+    let store = LocalCasStore::new(&dir);
+    store.ensure_dirs().unwrap();
+    let mut encoded = COMPRESSED_BLOB_MAGIC.to_vec();
+    encoded.extend_from_slice(&(raw.len() as u64).to_le_bytes());
+    encoded.extend_from_slice(hash.as_bytes());
+    encoded.extend_from_slice(include_bytes!(
+        "../tests/fixtures/zstd-0.13.3-level3-stream.zst"
+    ));
+    fs::write(store.blob_path(hash).unwrap(), encoded).unwrap();
+    // Reopen the store so this cannot pass through a current-version write cache.
+    let store = LocalCasStore::new(&dir);
+    assert_eq!(store.get_verified(hash).unwrap(), raw);
+    for (offset, limit) in [(0, 1), (4090, 64), (65520, 64), (65536, 1)] {
+        let (bytes, _) = store.get_range(hash, offset as u64, limit).unwrap();
+        assert_eq!(bytes, raw[offset..raw.len().min(offset + limit)]);
+    }
+    fs::remove_dir_all(dir).unwrap();
+}

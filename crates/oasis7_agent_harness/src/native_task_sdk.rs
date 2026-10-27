@@ -1,9 +1,8 @@
 use super::*;
 use oasis7_agent_api::world_action::{Action, GeoPos, MaterialLedgerId, MaterialTransitPriority};
 use oasis7_client_api::world_service::{IntentOutcome, IntentResponse};
-use oasis7_game_client::{
-    device_client::{BuildQuoteOutcome, Client},
-    operation_store::ClientStateKind,
+use oasis7_game_client::device_client::{
+    BuildQuoteOutcome, Client, ContextTermination, OperationDisposition,
 };
 use serde_json::json;
 
@@ -49,31 +48,19 @@ fn state(response: &IntentResponse<Value>) -> NativeTaskRecovery {
         _ => NativeTaskRecovery::Pending,
     }
 }
-fn outcome_state(reason: &str, response: &IntentResponse<Value>) -> NativeTaskRecovery {
-    recovered_outcome(reason, state(response))
-}
-fn recovered_outcome(reason: &str, recovered: NativeTaskRecovery) -> NativeTaskRecovery {
-    match recovered {
-        NativeTaskRecovery::Settled if reason == "context_expired" => {
+fn lifecycle_state(disposition: OperationDisposition) -> NativeTaskRecovery {
+    match disposition {
+        OperationDisposition::Vacant => NativeTaskRecovery::Vacant,
+        OperationDisposition::ContextReady => NativeTaskRecovery::Ready,
+        OperationDisposition::ActionCommitted => NativeTaskRecovery::Settled,
+        OperationDisposition::ContextTerminated { reason } if reason == "context_expired" => {
             NativeTaskRecovery::ContextRetired
         }
-        NativeTaskRecovery::Settled => NativeTaskRecovery::Aborted,
-        other => other,
+        OperationDisposition::ContextTerminated { .. } => NativeTaskRecovery::Aborted,
+        OperationDisposition::Rejected { .. } => NativeTaskRecovery::Rejected,
+        OperationDisposition::Expired => NativeTaskRecovery::Expired,
+        _ => NativeTaskRecovery::Pending,
     }
-}
-fn original_outcome_reason(
-    request: &oasis7_client_api::world_service::SubmitIntentRequest<
-        oasis7_client_api::world_service_wire::WorldServicePayloadV1,
-    >,
-) -> Result<&str, String> {
-    use oasis7_client_api::world_service_wire::{SchedulerOperationV1, WorldServicePayloadV1};
-    let WorldServicePayloadV1::Scheduler(signed) = &request.signed_payload else {
-        return Err("invalid original context outcome".into());
-    };
-    let SchedulerOperationV1::TaskProviderFailure { reason, .. } = &signed.request.operation else {
-        return Err("invalid original context outcome".into());
-    };
-    Ok(reason)
 }
 impl NativeTaskHost for SdkNativeTaskHost {
     fn initialize_run(&self, config: &NativeTaskRunConfig) -> Result<u32, String> {
@@ -110,38 +97,9 @@ impl NativeTaskHost for SdkNativeTaskHost {
         )
     }
     fn recover(&self, operation: &str) -> Result<NativeTaskRecovery, String> {
-        // Never read a new Context or quote before scanning both possible
-        // terminal originals and the existing prefix under this operation ID.
-        let action = self
-            .client
-            .cached_intent(ClientStateKind::Action, operation)?;
-        let outcome = self
-            .client
-            .cached_intent(ClientStateKind::Outcome, operation)?;
-        let prefix = self
-            .client
-            .cached_intent(ClientStateKind::Prefix, operation)?;
-        if action.is_some() && outcome.is_some() {
-            return Err("context has conflicting original action and outcome; retain both".into());
-        }
-        if let Some(original) = action {
-            return Ok(state(&self.client.poll_original(&original)?));
-        }
-        if let Some(original) = outcome {
-            return Ok(outcome_state(
-                original_outcome_reason(&original)?,
-                &self.client.poll_original(&original)?,
-            ));
-        }
-        if let Some(original) = prefix {
-            let result = state(&self.client.poll_original(&original)?);
-            return Ok(if result == NativeTaskRecovery::Settled {
-                NativeTaskRecovery::Ready
-            } else {
-                result
-            });
-        }
-        Ok(NativeTaskRecovery::Vacant)
+        Ok(lifecycle_state(
+            self.client.recover_operation(operation)?.disposition,
+        ))
     }
     fn known_rejection_feedback(
         &self,
@@ -150,102 +108,33 @@ impl NativeTaskHost for SdkNativeTaskHost {
         self.client.known_stale_rejection(operation)
     }
     fn settle_exhausted_context(&self, operation: &str) -> Result<NativeTaskRecovery, String> {
-        // An already signed action keeps its terminal lane; budget cleanup must
-        // never create a competing outcome or replace an unknown operation.
-        if self
+        let observed = self
             .client
-            .cached_intent(ClientStateKind::Action, operation)?
-            .is_some()
-        {
-            return Err("context has an original action; recover that result instead".into());
-        }
-        if let Some(original) = self
-            .client
-            .cached_intent(ClientStateKind::Outcome, operation)?
-        {
-            return Ok(state(&self.client.poll_original(&original)?));
-        }
-        let prefix = self
-            .client
-            .cached_intent(ClientStateKind::Prefix, operation)?
-            .ok_or("original context prefix unavailable")?;
-        let oasis7_client_api::world_service_wire::WorldServicePayloadV1::Scheduler(signed) =
-            prefix.signed_payload
-        else {
-            return Err("invalid original context prefix".into());
-        };
-        let oasis7_client_api::world_service_wire::SchedulerOperationV1::TaskProviderPrefix {
-            context,
-        } = signed.request.operation
-        else {
-            return Err("invalid original context prefix".into());
-        };
-        let current = self.current_control()?;
-        if current.fence != self.initial_fence()?
-            || current.fence != context.fence
-            || current.fence.task_status != GameTaskStatusV1::Active
-        {
-            return Err("task control changed before context termination".into());
-        }
-        // Client persists this one original failure before its first submission,
-        // applies the existing expiry/base checks, and never advances world time.
-        Ok(state(
-            &self.client.outcome(operation, "transport_exhausted")?,
-        ))
+            .terminate_context(
+                operation,
+                &self.initial_fence()?,
+                ContextTermination::BudgetExhausted,
+            )?
+            .ok_or("original context outcome unavailable")?;
+        // Budget cleanup remains a no-effect settlement for the runner's
+        // existing BudgetExhausted report, never a completed action/turn.
+        Ok(match observed.disposition {
+            OperationDisposition::ContextTerminated { .. } => NativeTaskRecovery::Settled,
+            other => lifecycle_state(other),
+        })
     }
     fn retire_expired_context(
         &self,
         operation: &str,
     ) -> Result<Option<NativeTaskRecovery>, String> {
-        // Recheck immutable terminal lanes after the complete recovery scan.
-        // No competing cleanup may replace an action or another original outcome.
-        if self
+        Ok(self
             .client
-            .cached_intent(ClientStateKind::Action, operation)?
-            .is_some()
-        {
-            return Err("context has an original action; recover that result instead".into());
-        }
-        if let Some(original) = self
-            .client
-            .cached_intent(ClientStateKind::Outcome, operation)?
-        {
-            return Ok(Some(outcome_state(
-                original_outcome_reason(&original)?,
-                &self.client.poll_original(&original)?,
-            )));
-        }
-        let prefix = self
-            .client
-            .cached_intent(ClientStateKind::Prefix, operation)?
-            .ok_or("original context prefix unavailable")?;
-        let result = state(&self.client.poll_original(&prefix)?);
-        if result != NativeTaskRecovery::Settled {
-            return Ok(Some(result));
-        }
-        use oasis7_client_api::world_service_wire::{SchedulerOperationV1, WorldServicePayloadV1};
-        let WorldServicePayloadV1::Scheduler(signed) = prefix.signed_payload else {
-            return Err("invalid original context prefix".into());
-        };
-        let SchedulerOperationV1::TaskProviderPrefix { context } = signed.request.operation else {
-            return Err("invalid original context prefix".into());
-        };
-        let current = self.current_control()?;
-        if current.fence != self.initial_fence()?
-            || current.fence != context.fence
-            || current.fence.task_status != GameTaskStatusV1::Active
-        {
-            return Err("task control changed before expired context retirement".into());
-        }
-        if current.logical_tick <= context.valid_until_tick.0 {
-            return Ok(None);
-        }
-        // Client signs from the original public prefix and current public base;
-        // this path never decrypts/reads the expired private context body.
-        Ok(Some(outcome_state(
-            "context_expired",
-            &self.client.outcome(operation, "context_expired")?,
-        )))
+            .terminate_context(
+                operation,
+                &self.initial_fence()?,
+                ContextTermination::RetireExpired,
+            )?
+            .map(|observed| lifecycle_state(observed.disposition)))
     }
     fn prepare(&self, operation: &str) -> Result<NativeTaskContext, String> {
         if self.current_control()?.fence != self.initial_fence()? {
@@ -465,9 +354,21 @@ impl NativeTaskHost for SdkNativeTaskHost {
                 serde_json::to_value(result).map_err(|_| "native result encoding failed")?
             }
             NativeTaskTool::Abort(_) => {
-                let result = self.client.outcome(operation, "executor_aborted")?;
-                effect = Some(state(&result));
-                serde_json::to_value(result).map_err(|_| "native result encoding failed")?
+                let observed = self
+                    .client
+                    .terminate_context(
+                        operation,
+                        &self.initial_fence()?,
+                        ContextTermination::Abort,
+                    )?
+                    .ok_or("original context outcome unavailable")?;
+                effect = Some(lifecycle_state(observed.disposition));
+                serde_json::to_value(
+                    observed
+                        .response
+                        .ok_or("original context outcome unavailable")?,
+                )
+                .map_err(|_| "native result encoding failed")?
             }
         };
         Ok(NativeTaskToolResult {
@@ -484,7 +385,9 @@ mod expiry_tests {
     #[test]
     fn only_committed_fixed_expiry_outcome_is_skippable_on_restart() {
         assert_eq!(
-            recovered_outcome("context_expired", NativeTaskRecovery::Settled),
+            lifecycle_state(OperationDisposition::ContextTerminated {
+                reason: "context_expired".into()
+            }),
             NativeTaskRecovery::ContextRetired
         );
         for reason in [
@@ -494,7 +397,9 @@ mod expiry_tests {
             "unknown",
         ] {
             assert_eq!(
-                recovered_outcome(reason, NativeTaskRecovery::Settled),
+                lifecycle_state(OperationDisposition::ContextTerminated {
+                    reason: reason.into()
+                }),
                 NativeTaskRecovery::Aborted
             );
         }
@@ -503,7 +408,21 @@ mod expiry_tests {
             NativeTaskRecovery::Rejected,
             NativeTaskRecovery::Expired,
         ] {
-            assert_eq!(recovered_outcome("context_expired", state), state);
+            assert_eq!(
+                lifecycle_state(match state {
+                    NativeTaskRecovery::Pending => OperationDisposition::Unknown,
+                    NativeTaskRecovery::Rejected => OperationDisposition::Rejected {
+                        reason: oasis7_client_api::world_service::WorldServiceErrorKind::Conflict
+                    },
+                    NativeTaskRecovery::Expired => OperationDisposition::Expired,
+                    _ => unreachable!(),
+                }),
+                state
+            );
         }
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "native_task_sdk_abort_tests.rs"]
+mod abort_tests;

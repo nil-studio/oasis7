@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { connect } from 'node:net';
 import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -100,30 +100,417 @@ function ownerBindings(data) {
     CUSTODY_BOOTSTRAP_MANAGERS: JSON.stringify([{ principal: { identity_namespace: data.namespace, native_account_id: 'a' }, environments: ['test'] }]),
     CUSTODY_PROVISION_ROUTES: JSON.stringify(routes), CUSTODY_PROVISION_WORLD_IDENTITY: JSON.stringify(world) };
 }
-function options(directory, data, bridge, overrides = {}) {
+function keyBindings(role) {
+  return {CUSTODY_PROVISION_KEYS_ENABLED:'true',CUSTODY_ROLE_KEY_ENVIRONMENT:'test',CUSTODY_SERVICE_EPOCH:'1',CUSTODY_ROLE_WRAPPING_KEY_VERSION:'1',CUSTODY_ROLE_KEY_KEK:Buffer.alloc(32,{identity:61,owner:62,executor:63}[role]).toString('hex')};
+}
+function options(directory, data, bridge, overrides = {}, approval = undefined, keys = false) {
   return { ...convertV4MiniflareOptions({
     workers: [{ name: 'caller', modules: [{ type: 'ESModule', path: resolve(root, 'tests/fixtures/native_identity_caller.mjs') }],
       modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
-      serviceBindings: { PUMP: { name: 'identity', entrypoint: 'ScheduledFixture' }, IDENTITY: { name: 'identity', entrypoint: 'IdentityNativeApproval' }, IDENTITY_DEFAULT: 'identity' },
+      serviceBindings: { PUMP: { name: 'identity', entrypoint: 'ScheduledFixture' }, IDENTITY: { name: 'identity', entrypoint: 'IdentityNativeApproval' }, IDENTITY_DEFAULT: 'identity', OWNER_DEFAULT:'owner', ...(approval ? {FENCE_DEFAULT:'fence'} : {}) },
     }, { name: 'identity', modules: [
       { type: 'ESModule', path: resolve(root, 'tests/fixtures/native_revocation_scheduler.mjs') },
       { type: 'ESModule', path: resolve(root, 'artifacts/identity/entry.mjs') },
       { type: 'ESModule', path: resolve(root, 'artifacts/identity/index.js') },
       { type: 'CompiledWasm', path: resolve(root, 'artifacts/identity/index_bg.wasm') },
     ], modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
-    bindings: { ...bindings(data), ...overrides }, outboundService: bridge,
-    serviceBindings: { OWNER_REVOCATIONS: { name: 'owner', entrypoint: 'OwnerRevocations' }, OWNER_MANAGEMENT: { name: 'owner', entrypoint: 'OwnerManagement' } },
-    durableObjects: { SESSIONS: { className: 'NativeSession', useSQLite: true } },
+    bindings: { ...bindings(data), ...(approval ? {CUSTODY_PROVISION_APPROVAL_ENABLED:'true'} : {}), ...(keys ? keyBindings('identity') : {}), ...(keys === 'lost' ? {FIXTURE_DROP_ROLE_RESPONSE:'true'} : {}), ...overrides }, outboundService: bridge,
+    serviceBindings: { OWNER_REVOCATIONS: { name: 'owner', entrypoint: 'OwnerRevocations' }, OWNER_MANAGEMENT: { name: 'owner', entrypoint: 'OwnerManagement' }, ...(keys ? {ACCOUNT_KEY_PERMITS:{name:'owner',entrypoint:'IdentityKeyPermits'},RECOVERY_FENCE:{name:'fence',entrypoint:'RecoveryFenceReader'}} : {}) },
+    durableObjects: { SESSIONS: { className: 'NativeSession', useSQLite: true }, ...(keys ? {ROLE_KEYS:{className:'RoleKeyVault',useSQLite:true}} : {}) },
     }, { name: 'owner', modules: [
       { type: 'ESModule', path: resolve(root, 'artifacts/owner/entry.mjs') },
       { type: 'ESModule', path: resolve(root, 'artifacts/owner/index.js') },
       { type: 'CompiledWasm', path: resolve(root, 'artifacts/owner/index_bg.wasm') },
     ], modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
-      bindings: ownerBindings(data),
-      durableObjects: { ACCOUNTS: { className: 'AccountAuthority', useSQLite: true }, MANAGER_ASSOCIATIONS: { className: 'ManagerAssociations', useSQLite: true } },
-    }],
+      bindings: {...ownerBindings(data), ...(approval ? {CUSTODY_PROVISION_APPROVAL_ENABLED:'true',CUSTODY_SERVICE_EPOCH:'1'} : {}), ...(keys ? keyBindings('owner') : {})},
+      serviceBindings: {...(approval ? {IDENTITY_NATIVE_APPROVAL:{name:'identity',entrypoint:'IdentityNativeApproval'},RECOVERY_FENCE:{name:'fence',entrypoint:'RecoveryFenceReader'}} : {}), ...(keys ? {ACCOUNT_KEY_PERMITS:{name:'owner',entrypoint:'OwnerKeyPermits'},IDENTITY_PROVISION_KEYS:{name:'identity',entrypoint:'RoleKeyProvision'},OWNER_PROVISION_KEYS:{name:'owner',entrypoint:'RoleKeyProvision'},EXECUTOR_PROVISION_KEYS:{name:'executor',entrypoint:'RoleKeyProvision'}} : {})},
+      durableObjects: { ACCOUNTS: { className: 'AccountAuthority', useSQLite: true }, MANAGER_ASSOCIATIONS: { className: 'ManagerAssociations', useSQLite: true }, ...(keys ? {ROLE_KEYS:{className:'RoleKeyVault',useSQLite:true}} : {}) },
+    }, ...(keys ? [{name:'executor',modules:[{type:'ESModule',path:resolve(root,'artifacts/executor/entry.mjs')},{type:'ESModule',path:resolve(root,'artifacts/executor/index.js')},{type:'CompiledWasm',path:resolve(root,'artifacts/executor/index_bg.wasm')}],modulesRoot:root,compatibilityDate:'2026-10-25',cf:false,bindings:keyBindings('executor'),serviceBindings:{ACCOUNT_KEY_PERMITS:{name:'owner',entrypoint:'ExecutorKeyPermits'},RECOVERY_FENCE:{name:'fence',entrypoint:'RecoveryFenceReader'}},durableObjects:{ROLE_KEYS:{className:'RoleKeyVault',useSQLite:true}}}] : []), ...(approval ? [approval.startsWith('isolated-positive-fixture') ? {
+      name:'fence',modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/provision_fence_fixture.mjs')}],modulesRoot:root,compatibilityDate:'2026-10-25',cf:false,
+    } : {
+      name:'fence', modules:[{type:'ESModule',path:resolve(root,'artifacts/recovery-fence/entry.mjs')},{type:'ESModule',path:resolve(root,'artifacts/recovery-fence/index.js')},{type:'CompiledWasm',path:resolve(root,'artifacts/recovery-fence/index_bg.wasm')}],
+      modulesRoot:root,compatibilityDate:'2026-10-25',cf:false,bindings:{CUSTODY_INITIAL_SERVICE_EPOCH:'1'},durableObjects:{FENCES:{className:'RecoveryFence',useSQLite:true}},
+    }] : [])],
   }), resourcePersistencePath: directory, unsafeDevRegistryPath: resolve(directory, 'registry') };
 }
+
+function persistedRolePublics(persist,account) {
+  return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+found=[]
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-role-key-slot-v1'").fetchone()
+  if row:
+   slot=json.loads(row[0])['slot']
+   if slot and slot['scope']['context']['identity']['account_id']==sys.argv[2]:
+    found.append({'role':slot['scope']['context']['identity']['role'],'public_key':slot['public_ref']['public_key'],'ciphertext_length':len(slot['envelope']['ciphertext'])})
+  db.close()
+ except sqlite3.Error: pass
+print(json.dumps(found))
+`,persist,account],{encoding:'utf8'}));}
+
+test('real three-role vault dispatch spends persisted attempts, survives restart and never regenerates keys', {timeout:120000}, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(),'oasis7-real-role-provision-'));
+  let native; let mf;
+  try {
+    native = await authority(directory);
+    let nativeVerifications = 0;
+    const bridge = async request => {
+      const url = new URL(request.url); assert.equal(url.origin,'https://localhost');
+      assert.ok(['/api/public/hosted-account/v2/custody/management-session-status','/api/public/hosted-account/v2/custody/approvals/verify'].includes(url.pathname));
+      if (url.pathname.endsWith('/verify')) nativeVerifications++;
+      const headers = new Headers();
+      for (const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) { const value=request.headers.get(name); if(value!==null) headers.set(name,value); }
+      const response = await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      return new MiniflareResponse(await response.text(),{status:response.status,headers:{'Content-Type':'application/json'}});
+    };
+    const persist = resolve(directory,'workerd');
+    mf = new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    let identity = await mf.getWorker('identity');
+    const headers = {Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
+    const draft = {api_version:1,client_request_id:'actual-three-roles',plan:{...routes,purpose:'actual isolated key preparation',expires_at:String(Date.now()+180000),transport_limit:'128'}};
+    const response = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+    assert.equal(response.status,200); const original=await response.json();
+    const request = {approval_request_id:'actual-role-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world,identity_route:routes.identity_route,world_route:routes.world_route,native_identity_namespace:native.data.namespace,register_request_id:'actual-register',login_request_id:'actual-login',deadline:draft.plan.expires_at,transport_limit:'128'}};
+    const completed=await (await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).json();
+    assert.ok(completed.approval,'real UV fixture must approve the explicit 128 transport plan');
+    const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
+    const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'actual-role-approval-operation',request,approval:completed.approval}})});
+    assert.equal(accepted.status,200);
+    const before=await (await identity.fetch(base+'/progress',{headers})).json();
+    assert.equal(before.stage,'approved'); assert.equal(before.transport_remaining,'128');
+    const drive={api_version:1,operation_id:'actual-role-drive'};
+    const advanced=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(advanced.status,200,'actual role dispatch chain must return progress');
+    const ready=await advanced.json();
+    assert.equal(ready.stage,'role_keys_ready','all three actual vaults must commit before readiness');
+    assert.deepEqual(ready.pending_operations,[]);
+    assert.equal(ready.transport_remaining,'24','one 8-hop inspection and three 32-hop reservations');
+    assert.equal(nativeVerifications,2,'one approval consume and one registered origin inspect');
+    assert.doesNotMatch(JSON.stringify(ready),/cookie|signature|verify_nonce|ciphertext|wrapped_dek|session_ref/);
+    const publics=persistedRolePublics(persist,original.entry.custody_account_id);
+    assert.deepEqual(publics.map(v=>v.role).sort(),['executor','identity','owner']);
+    assert.equal(new Set(publics.map(v=>v.public_key)).size,3);
+    assert.ok(publics.every(v=>v.ciphertext_length===96));
+    await mf.dispose(); mf=new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    identity=await mf.getWorker('identity');
+    const retried=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(retried.status,200); assert.deepEqual(await retried.json(),ready);
+    assert.equal(nativeVerifications,2,'restart/history cannot renew an inspect or dispatch');
+  } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('old signed low budget cannot dispatch a role or acquire the new maximum automatically', {timeout:120000}, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(),'oasis7-real-role-provision-'));
+  let native; let mf;
+  try {
+    native = await authority(directory);
+    let nativeVerifications = 0;
+    const bridge = async request => {
+      const url = new URL(request.url); assert.equal(url.origin,'https://localhost');
+      assert.ok(['/api/public/hosted-account/v2/custody/management-session-status','/api/public/hosted-account/v2/custody/approvals/verify'].includes(url.pathname));
+      if (url.pathname.endsWith('/verify')) nativeVerifications++;
+      const headers = new Headers();
+      for (const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) { const value=request.headers.get(name); if(value!==null) headers.set(name,value); }
+      const response = await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      return new MiniflareResponse(await response.text(),{status:response.status,headers:{'Content-Type':'application/json'}});
+    };
+    const persist = resolve(directory,'workerd');
+    mf = new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    let identity = await mf.getWorker('identity');
+    const headers = {Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
+    const draft = {api_version:1,client_request_id:'actual-three-roles',plan:{...routes,purpose:'actual isolated key preparation',expires_at:String(Date.now()+180000),transport_limit:'24'}};
+    const response = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+    assert.equal(response.status,200); const original=await response.json();
+    const request = {approval_request_id:'actual-role-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world,identity_route:routes.identity_route,world_route:routes.world_route,native_identity_namespace:native.data.namespace,register_request_id:'actual-register',login_request_id:'actual-login',deadline:draft.plan.expires_at,transport_limit:'24'}};
+    const completed=await (await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).json();
+    assert.ok(completed.approval,'real UV fixture must approve the explicit 128 transport plan');
+    const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
+    const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'actual-role-approval-operation',request,approval:completed.approval}})});
+    assert.equal(accepted.status,200);
+    const before=await (await identity.fetch(base+'/progress',{headers})).json();
+    assert.equal(before.stage,'approved'); assert.equal(before.transport_remaining,'24');
+    const drive={api_version:1,operation_id:'actual-role-drive'};
+    const advanced=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.notEqual(advanced.status,200,'insufficient signed budget must refuse dispatch');
+    const progressResponse=await identity.fetch(base+'/progress',{headers});
+    assert.equal(progressResponse.status,200);
+    const progress=await progressResponse.json();
+    assert.equal(progress.stage,'approved');
+    assert.equal(progress.transport_remaining,'16','only the source inspection reservation was affordable');
+    assert.deepEqual(persistedRolePublics(persist,original.entry.custody_account_id),[]);
+    assert.equal(nativeVerifications,2);
+    const retried=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(retried.status,200);
+    assert.equal((await retried.json()).transport_remaining,'16');
+    assert.equal(nativeVerifications,2,'history cannot retry spending or top up budget');
+  } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('slow Fence response cannot renew the five-second authority window', {timeout:120000}, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(),'oasis7-real-role-provision-'));
+  let native; let mf;
+  try {
+    native = await authority(directory);
+    let nativeVerifications = 0;
+    const bridge = async request => {
+      const url = new URL(request.url); assert.equal(url.origin,'https://localhost');
+      assert.ok(['/api/public/hosted-account/v2/custody/management-session-status','/api/public/hosted-account/v2/custody/approvals/verify'].includes(url.pathname));
+      if (url.pathname.endsWith('/verify')) nativeVerifications++;
+      const headers = new Headers();
+      for (const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) { const value=request.headers.get(name); if(value!==null) headers.set(name,value); }
+      const response = await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      return new MiniflareResponse(await response.text(),{status:response.status,headers:{'Content-Type':'application/json'}});
+    };
+    const persist = resolve(directory,'workerd');
+    mf = new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    let identity = await mf.getWorker('identity');
+    const headers = {Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
+    const draft = {api_version:1,client_request_id:'actual-three-roles',plan:{...routes,purpose:'actual isolated key preparation',expires_at:String(Date.now()+180000),transport_limit:'128'}};
+    const response = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+    assert.equal(response.status,200); const original=await response.json();
+    const request = {approval_request_id:'actual-role-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world,identity_route:routes.identity_route,world_route:routes.world_route,native_identity_namespace:native.data.namespace,register_request_id:'actual-register',login_request_id:'actual-login',deadline:draft.plan.expires_at,transport_limit:'128'}};
+    const completed=await (await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).json();
+    assert.ok(completed.approval,'real UV fixture must approve the explicit 128 transport plan');
+    const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
+    const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'actual-role-approval-operation',request,approval:completed.approval}})});
+    assert.equal(accepted.status,200);
+    const before=await (await identity.fetch(base+'/progress',{headers})).json();
+    assert.equal(before.stage,'approved'); assert.equal(before.transport_remaining,'128');
+    const fence=await mf.getWorker('fence');
+    await fence.fetch('https://fixture.test/slow-once');
+    const drive={api_version:1,operation_id:'actual-role-drive'};
+    const advanced=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.notEqual(advanced.status,200,'a slow successful Fence response cannot restore freshness');
+    assert.deepEqual(persistedRolePublics(persist,original.entry.custody_account_id),[]);
+    assert.equal(nativeVerifications,1,'stale authority must fail before native inspection is dispatched');
+    const progress=await (await identity.fetch(base+'/progress',{headers})).json();
+    assert.equal(progress.transport_remaining,'120','failed remote observations retain their reservation');
+    assert.equal(progress.pending_operations.length,1,'reserved but unclaimed inspection must remain visible');
+    const history=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(history.status,200);
+    const originalHistory=await history.json();
+    assert.deepEqual(originalHistory.pending_operations,progress.pending_operations);
+    assert.equal(originalHistory.transport_remaining,'120');
+    assert.equal(nativeVerifications,1,'same failed precheck cannot regain send permission');
+  } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('directory freeze after native inspection prevents actual role dispatch', {timeout:120000}, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(),'oasis7-real-role-provision-'));
+  let native; let mf;
+  try {
+    native = await authority(directory);
+    let nativeVerifications = 0;
+    const bridge = async request => {
+      const url = new URL(request.url); assert.equal(url.origin,'https://localhost');
+      assert.ok(['/api/public/hosted-account/v2/custody/management-session-status','/api/public/hosted-account/v2/custody/approvals/verify'].includes(url.pathname));
+      if (url.pathname.endsWith('/verify')) nativeVerifications++;
+      const headers = new Headers();
+      for (const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) { const value=request.headers.get(name); if(value!==null) headers.set(name,value); }
+      const response = await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      const responseText=await response.text();
+      if(url.pathname.endsWith('/verify') && nativeVerifications===2) {
+        const liveIdentity=await mf.getWorker('identity');
+        const frozen=await liveIdentity.fetch('https://localhost/v1/manager-revocations',{method:'POST',headers:{Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf},body:JSON.stringify({api_version:1,operation_id:'freeze-after-native-inspection'})});
+        assert.equal(frozen.status,200,'real directory revocation must commit before native response returns');
+      }
+      return new MiniflareResponse(responseText,{status:response.status,headers:{'Content-Type':'application/json'}});
+    };
+    const persist = resolve(directory,'workerd');
+    mf = new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    let identity = await mf.getWorker('identity');
+    const headers = {Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
+    const draft = {api_version:1,client_request_id:'actual-three-roles',plan:{...routes,purpose:'actual isolated key preparation',expires_at:String(Date.now()+180000),transport_limit:'128'}};
+    const response = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+    assert.equal(response.status,200); const original=await response.json();
+    const request = {approval_request_id:'actual-role-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world,identity_route:routes.identity_route,world_route:routes.world_route,native_identity_namespace:native.data.namespace,register_request_id:'actual-register',login_request_id:'actual-login',deadline:draft.plan.expires_at,transport_limit:'128'}};
+    const completed=await (await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).json();
+    assert.ok(completed.approval,'real UV fixture must approve the explicit 128 transport plan');
+    const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
+    const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'actual-role-approval-operation',request,approval:completed.approval}})});
+    assert.equal(accepted.status,200);
+    const before=await (await identity.fetch(base+'/progress',{headers})).json();
+    assert.equal(before.stage,'approved'); assert.equal(before.transport_remaining,'128');
+    const drive={api_version:1,operation_id:'actual-role-drive'};
+    const advanced=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.notEqual(advanced.status,200,'freeze must win over a successful native inspection');
+    assert.deepEqual(persistedRolePublics(persist,original.entry.custody_account_id),[]);
+    assert.equal(nativeVerifications,2);
+  } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('lost committed role response cannot resend after restart and fresh attempt recovers the same key', {timeout:120000}, async () => {
+  const directory = mkdtempSync(resolve(tmpdir(),'oasis7-real-role-provision-'));
+  let native; let mf;
+  try {
+    native = await authority(directory);
+    let nativeVerifications = 0;
+    const bridge = async request => {
+      const url = new URL(request.url); assert.equal(url.origin,'https://localhost');
+      assert.ok(['/api/public/hosted-account/v2/custody/management-session-status','/api/public/hosted-account/v2/custody/approvals/verify'].includes(url.pathname));
+      if (url.pathname.endsWith('/verify')) nativeVerifications++;
+      const headers = new Headers();
+      for (const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) { const value=request.headers.get(name); if(value!==null) headers.set(name,value); }
+      const response = await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      return new MiniflareResponse(await response.text(),{status:response.status,headers:{'Content-Type':'application/json'}});
+    };
+    const persist = resolve(directory,'workerd');
+    mf = new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture','lost'));
+    let identity = await mf.getWorker('identity');
+    const headers = {Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
+    const draft = {api_version:1,client_request_id:'actual-three-roles',plan:{...routes,purpose:'actual isolated key preparation',expires_at:String(Date.now()+180000),transport_limit:'256'}};
+    const response = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+    assert.equal(response.status,200); const original=await response.json();
+    const request = {approval_request_id:'actual-role-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world,identity_route:routes.identity_route,world_route:routes.world_route,native_identity_namespace:native.data.namespace,register_request_id:'actual-register',login_request_id:'actual-login',deadline:draft.plan.expires_at,transport_limit:'256'}};
+    const completed=await (await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).json();
+    assert.ok(completed.approval,'real UV fixture must approve the explicit 128 transport plan');
+    const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
+    const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'actual-role-approval-operation',request,approval:completed.approval}})});
+    assert.equal(accepted.status,200);
+    const before=await (await identity.fetch(base+'/progress',{headers})).json();
+    assert.equal(before.stage,'approved'); assert.equal(before.transport_remaining,'256');
+    const drive={api_version:1,operation_id:'actual-role-drive'};
+    const advanced=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(advanced.status,200,'actual role dispatch chain must return progress');
+    const pending=await advanced.json();
+    assert.equal(pending.stage,'approved');
+    assert.equal(pending.transport_remaining,'216');
+    assert.equal(pending.pending_operations.length,1);
+    const committedBeforeLoss=persistedRolePublics(persist,original.entry.custody_account_id);
+    assert.equal(committedBeforeLoss.length,1);
+    assert.equal(committedBeforeLoss[0].role,'identity');
+    assert.equal(nativeVerifications,2);
+    await mf.dispose(); mf=new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    identity=await mf.getWorker('identity');
+    const history=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(history.status,200); assert.deepEqual(await history.json(),pending);
+    assert.equal(nativeVerifications,2,'claimed unknown attempt must never regain send permission');
+    const recovered=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({...drive,operation_id:'fresh-recovery-drive'})});
+    assert.equal(recovered.status,200);
+    const ready=await recovered.json();
+    assert.equal(ready.stage,'role_keys_ready','all three actual vaults must commit before readiness');
+    assert.equal(ready.pending_operations.length,1,'unknown original stays visible after a new attempt succeeds');
+    assert.equal(ready.transport_remaining,'112','one 8-hop inspection and three 32-hop reservations');
+    assert.equal(nativeVerifications,3,'fresh attempt pays for a new source inspection');
+    assert.doesNotMatch(JSON.stringify(ready),/cookie|signature|verify_nonce|ciphertext|wrapped_dek|session_ref/);
+    const publics=persistedRolePublics(persist,original.entry.custody_account_id);
+    assert.deepEqual(publics.map(v=>v.role).sort(),['executor','identity','owner']);
+    assert.equal(publics.find(v=>v.role==='identity').public_key,committedBeforeLoss[0].public_key,'fresh attempt must return the original committed public key');
+    assert.equal(new Set(publics.map(v=>v.public_key)).size,3);
+    assert.ok(publics.every(v=>v.ciphertext_length===96));
+    await mf.dispose(); mf=new Miniflare(options(persist,native.data,bridge,{},'isolated-positive-fixture',true));
+    identity=await mf.getWorker('identity');
+    const retried=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({...drive,operation_id:'fresh-recovery-drive'})});
+    assert.equal(retried.status,200); assert.deepEqual(await retried.json(),ready);
+    assert.equal(nativeVerifications,3,'restart/history cannot renew an inspect or dispatch');
+  } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('actual provisioning approval uses native UV proof and Account SQL; independent production fence stays frozen', { timeout: 120000 }, async () => {
+  for (const profile of ['production-frozen', 'isolated-positive-fixture', 'isolated-positive-fixture-freeze-during-verify']) {
+    const directory = mkdtempSync(resolve(tmpdir(), 'oasis7-provision-approval-chain-'));
+    let native; let mf;
+    try {
+      native = await authority(directory);
+      let verifies = 0;
+      const bridge = async request => {
+        const url = new URL(request.url);
+        assert.equal(url.origin, 'https://localhost');
+        assert.ok(['/api/public/hosted-account/v2/custody/management-session-status', '/api/public/hosted-account/v2/custody/approvals/verify'].includes(url.pathname));
+        if (url.pathname.endsWith('/verify')) verifies++;
+        const headers = new Headers();
+        for (const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) {
+          const value = request.headers.get(name); if (value !== null) headers.set(name,value);
+        }
+        const response = await fetch(native.data.address + url.pathname, {method:request.method, headers,
+          ...(request.method === 'GET' ? {} : {body:Buffer.from(await request.arrayBuffer())}), redirect:'manual'});
+        const text = await response.text();
+        if (url.pathname.endsWith('/verify') && profile.endsWith('-freeze-during-verify')) {
+          const identity = await mf.getWorker('identity');
+          await identity.fetch('https://localhost/v1/manager-revocations',{method:'POST',headers:{Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf},body:JSON.stringify({api_version:1,operation_id:'freeze-during-verification'})});
+        }
+        return new MiniflareResponse(text, {status:response.status, headers:{'Content-Type':'application/json'}});
+      };
+      mf = new Miniflare(options(resolve(directory,'workerd'),native.data,bridge,{},profile));
+      const identity = await mf.getWorker('identity');
+      const headers = {Cookie:native.data.cookie, Origin:'https://localhost', 'Content-Type':'application/json', 'X-Oasis7-CSRF':native.data.csrf};
+      const draft = {api_version:1,client_request_id:'approved-chain',plan:{...routes,purpose:'isolated approval chain',expires_at:String(Date.now()+120000),transport_limit:'3'}};
+      const response = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+      assert.equal(response.status,200, 'actual draft must initialize');
+      const view = await response.json();
+      const request = {approval_request_id:'chain-approval',context:{environment:'test',custody_account_id:view.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},
+        intent:{kind:'provision',provision_id:view.entry.provision_id,purpose:draft.plan.purpose,plan_digest:view.entry.plan_digest,bootstrap_config_version:'1',world_identity:world,
+          identity_route:routes.identity_route,world_route:routes.world_route,native_identity_namespace:native.data.namespace,register_request_id:'register-chain-original',login_request_id:'login-chain-original',deadline:draft.plan.expires_at,transport_limit:draft.plan.transport_limit}};
+      const proofResponse = await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+      const completed = await proofResponse.json();
+      assert.ok(completed.approval, 'real fixture UV completion must produce a native proof; status=' + proofResponse.status + ', code=' + (typeof completed.error_code === 'string' ? completed.error_code : 'unavailable'));
+      const body = {api_version:1,input:{operation_id:'approve-chain-original',request,approval:completed.approval}};
+      const url = 'https://localhost/v1/account-provisions/'+view.entry.provision_id+'/approve';
+      const approve = value => identity.fetch(url,{method:'POST',headers,body:JSON.stringify(value)});
+      for (const path of ['/default-approve','/default-fence']) {
+        const denied = await mf.dispatchFetch('https://caller.test'+path,{method:'POST',body:JSON.stringify(body)});
+        assert.equal(denied.status,409);
+        assert.equal((await denied.json()).missing_rpc,true,'default binding must not expose '+path);
+      }
+      if (profile === 'production-frozen') {
+        assert.notEqual((await approve(body)).status,200, 'real independently frozen fence must block consumption');
+        assert.equal(verifies,0, 'frozen service cannot begin native consumption');
+        const fence = await mf.getWorker('fence');
+        assert.equal((await fence.fetch('https://fence.test/internal/recovery-fence')).status,404, 'default ingress cannot proxy private fence reads');
+        continue;
+      }
+      if (profile.endsWith('-freeze-during-verify')) {
+        assert.notEqual((await approve(body)).status,200,'a real directory freeze during native verification must block final consumption');
+        assert.equal(verifies,1);
+        // Read only the isolated workerd SQLite files. Return non-secret state,
+        // never the proof, session context, signatures or original private bytes.
+        const state = JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+found=[]
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+  if row:
+   value=json.loads(row[0]); state=value['state']
+   if state['draft']['entry']['custody_account_id']==sys.argv[2]:
+    found.append({'stage':state['provision']['stage'],'accepted':state['accepted_operation_id'],'tasks':len(state['role_key_tasks']),'fenced':bool(db.execute("SELECT 1 FROM custody_records WHERE id='custody-account-freeze-v1'").fetchone())})
+  db.close()
+ except sqlite3.Error: pass
+print(json.dumps(found))
+`,resolve(directory,'workerd'),view.entry.custody_account_id],{encoding:'utf8'}));
+        assert.deepEqual(state,[{stage:'draft',accepted:null,tasks:0,fenced:true}]);
+        continue;
+      }
+      const badOrigin = await identity.fetch(url,{method:'POST',headers:{...headers,Origin:'https://other.invalid'},body:JSON.stringify(body)});
+      assert.notEqual(badOrigin.status,200);
+      const bad = structuredClone(body); bad.input.request.intent.purpose = 'not-approved';
+      assert.notEqual((await approve(bad)).status,200);
+      const accepted = await approve(body);
+      assert.equal(accepted.status,200, 'complete actual approval chain with explicitly isolated fixture fence');
+      const result = await accepted.json();
+      assert.deepEqual(result,{api_version:1,provision_id:view.entry.provision_id,custody_account_id:view.entry.custody_account_id,operation_id:body.input.operation_id,stage:'approved'});
+      assert.doesNotMatch(JSON.stringify(result),/proof|signature|session_ref|nonce|cookie/);
+      assert.equal(verifies,1);
+      assert.deepEqual(await (await approve(body)).json(),result, 'lost-response retry returns the original');
+      assert.equal(verifies,1,'consumed retry cannot repeat native consumption');
+      const repeated = await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
+      assert.equal(repeated.status,200); assert.deepEqual(await repeated.json(),view,'draft retry preserves original after approval');
+      const conflict = structuredClone(body); conflict.input.operation_id = 'another-operation';
+      assert.notEqual((await approve(conflict)).status,200);
+      assert.equal(verifies,1,'same proof cannot authorize another operation');
+      const fence = await mf.getWorker('fence'); await fence.fetch('https://fixture.test/freeze');
+      assert.notEqual((await approve(body)).status,200,'a frozen service cannot use retry as fresh authority');
+      await fetch(native.data.address+'/_fixture/revoke-manager',{method:'POST'});
+      assert.notEqual((await approve(body)).status,200,'a revoked native manager cannot enter approval');
+    } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
+  }
+});
 
 // The bridge maps only the fixture's pinned HTTPS authority to loopback HTTP.
 // It does not alter the production HTTPS-only configuration or emulate the native authority.
