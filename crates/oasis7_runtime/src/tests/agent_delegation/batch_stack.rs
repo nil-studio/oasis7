@@ -311,12 +311,33 @@ fn known_product_stack_limit_166_batch_receipt_matches_quote_once_with_real_vali
     world
         .finalize_cognition_commit(&prepared.commit_id)
         .unwrap();
+    assert_eq!(
+        world.pending_recipe_jobs_len(),
+        1,
+        "native start must create exactly one job; outcomes={:?}",
+        world
+            .journal()
+            .events
+            .iter()
+            .rev()
+            .take(5)
+            .map(|event| &event.body)
+            .collect::<Vec<_>>()
+    );
     let mut wasm =
         oasis7_wasm_executor::WasmExecutor::new(crate::tests::test_wasm_executor_config()).unwrap();
-    world.step_with_modules(&mut wasm).unwrap();
+    for _ in 0..preview.duration_ticks.saturating_add(2) {
+        if world.pending_recipe_jobs_len() == 0 {
+            break;
+        }
+        world.step_with_modules(&mut wasm).unwrap();
+    }
     assert_eq!(
         world.ledger_material_balance(&preview.output_ledger, "iron_ingot"),
-        498
+        498,
+        "actual completion must match quote; pending={:?} receipts={:?}",
+        world.state().pending_recipe_jobs,
+        world.state().product_validation_receipts
     );
     assert_eq!(
         world.ledger_material_balance(&preview.output_ledger, "slag"),
