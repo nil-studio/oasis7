@@ -34,9 +34,11 @@ upstream revision and unchanged Rust source hashes are recorded in
 Validate the Linux implementation with
 `env -u RUSTC_WRAPPER cargo check --locked --manifest-path ./vendor-if-watch-3.2.2/Cargo.toml --target-dir ./target --target x86_64-unknown-linux-gnu --all-features`.
 On Linux, run
-`env -u RUSTC_WRAPPER cargo test --locked --manifest-path ./vendor-if-watch-3.2.2/Cargo.toml --target-dir ./target --all-features`
-to exercise actual interface enumeration. The latter is a platform runtime
-check and cannot be replaced by cross-compilation on macOS. Existing
+`env -u RUSTC_WRAPPER cargo test --locked --manifest-path ./vendor-if-watch-3.2.2/Cargo.toml --target-dir ./target --all-features --lib`
+to exercise actual interface enumeration. Restrict the standalone run to unit
+tests: the upstream cdylib emits an un-hashed `libif_watch.rlib`, which otherwise
+collides with the root workspace dependency build when sharing `target/`. These
+runtime tests cannot be replaced by cross-compilation on macOS. Existing
 `oasis7_net` TCP/QUIC tests continue to cover the libp2p integration.
 
 Remove this patch when a maintained if-watch release carries compatible
