@@ -27,6 +27,7 @@ pub(crate) struct FormalBftHeaderExecutionV3 {
     parent_world: RuntimeWorld,
     parent_result_tree: FormalBusinessResultTreeV1,
     business_reader: formal_business_package::SharedBusinessReader,
+    retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
     tip: Option<VerifiedBftHeaderCertificateV3>,
 }
 
@@ -35,6 +36,8 @@ pub(crate) struct FormalBftHeaderExecutionV3 {
 pub(crate) struct ExecutedFormalHeaderV3 {
     pub(crate) candidate: FormalBftHeaderCandidateV3,
     pub(crate) world: RuntimeWorld,
+    pub(crate) snapshot_bytes: Vec<u8>,
+    pub(crate) journal_bytes: Vec<u8>,
     pub(crate) result_tree: FormalBusinessResultTreeV1,
     pub(crate) result_delta:
         oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexDeltaV1,
@@ -81,6 +84,7 @@ impl FormalBftHeaderExecutionV3 {
             parent_world: restored.world,
             parent_result_tree: restored.result_tree,
             business_reader,
+            retained_nodes,
             tip: None,
         })
     }
@@ -260,6 +264,8 @@ impl FormalBftHeaderExecutionV3 {
         Ok(ExecutedFormalHeaderV3 {
             candidate: FormalBftHeaderCandidateV3 { header, commitment },
             world: executed.world,
+            snapshot_bytes: executed.snapshot_bytes,
+            journal_bytes: executed.journal_bytes,
             result_tree: result_update.tree,
             result_delta: result_update.delta,
         })
@@ -291,3 +297,16 @@ fn execution_input_hash(
         |error| format!("encode wire 3 execution input: {error}"),
     )?))
 }
+
+#[path = "driver_bft_v3_formal_private.rs"]
+mod private;
+pub(crate) use private::{
+    PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderEntryV3, PrivateHeaderPrefixV3,
+};
+
+#[path = "driver_bft_v3_formal_storage.rs"]
+mod storage;
+
+#[path = "driver_bft_v3_formal_prefix.rs"]
+mod prefix;
+pub(crate) use prefix::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderPrefixCutV3};

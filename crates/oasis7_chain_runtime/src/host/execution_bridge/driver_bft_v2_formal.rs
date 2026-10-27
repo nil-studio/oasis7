@@ -124,16 +124,19 @@ mod formal_storage;
 
 #[path = "driver_bft_v3_formal.rs"]
 mod formal_header;
-pub(crate) use formal_header::FormalBftHeaderExecutionV3;
+pub(crate) use formal_header::{
+    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
+    PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+};
 
+#[path = "driver_bft_formal_ledger.rs"]
+mod formal_ledger;
 #[path = "driver_bft_v2_formal_origin.rs"]
 mod formal_origin;
 #[path = "driver_bft_v2_formal_prefix.rs"]
 mod formal_prefix;
 #[path = "driver_bft_v2_formal_prefix_files.rs"]
 mod formal_prefix_files;
-#[path = "driver_bft_formal_ledger.rs"]
-mod formal_ledger;
 #[path = "driver_bft_v2_formal_prefix_storage.rs"]
 mod formal_prefix_storage;
 pub(crate) use formal_prefix::FormalBftPrefixExecutionV1;
