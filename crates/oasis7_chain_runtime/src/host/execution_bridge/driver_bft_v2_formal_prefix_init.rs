@@ -3,16 +3,14 @@
 //! The intent is the durable identity reservation. An origin without its
 //! intent is accepted only after both format markers prove initialization
 //! completed; an intent may be resumed only for its exact original H/target.
-use super::{
-    DOWNGRADE_FENCE, LEGACY_MARKER, Ledger, MARKER, MARKER_BYTES, OriginPin, common_storage, files,
-};
+use super::{Format, GenericLedger, LEGACY_MARKER, OriginContract, common_storage, files};
 use std::path::Path;
 
 const ORIGIN_FILE: &str = "origin.cbor";
 const INIT_INTENT_FILE: &str = "init-intent.cbor";
 const ORIGIN_MAX_BYTES: usize = 4096;
 
-impl Ledger {
+impl<F: Format> GenericLedger<F> {
     /// Load an immutable origin or its exact interrupted initialization.
     ///
     /// A clean, marker-free directory is new only when initialization is
@@ -22,22 +20,22 @@ impl Ledger {
         dir: &Path,
         root: &Path,
         initialize: bool,
-    ) -> Result<(Option<OriginPin>, bool), String> {
+    ) -> Result<(Option<F::Origin>, bool), String> {
         let origin_path = dir.join(ORIGIN_FILE);
         let intent_path = dir.join(INIT_INTENT_FILE);
 
         // The new protocol never writes origin through a private temp file:
         // origin is hard-linked from the already durable init intent. Refuse
         // legacy/direct-origin stages instead of silently replacing identity.
-        if files::staged_value::<OriginPin>(&origin_path, ORIGIN_MAX_BYTES)?.is_some() {
+        if files::staged_value::<F::Origin>(&origin_path, ORIGIN_MAX_BYTES)?.is_some() {
             return Err(
                 "formal prefix origin staging has no verified initialization intent".into(),
             );
         }
-        let staged_intent = files::staged_value::<OriginPin>(&intent_path, ORIGIN_MAX_BYTES)?;
-        let origin: Option<OriginPin> =
+        let staged_intent = files::staged_value::<F::Origin>(&intent_path, ORIGIN_MAX_BYTES)?;
+        let origin: Option<F::Origin> =
             common_storage::read_optional_canonical(&origin_path, ORIGIN_MAX_BYTES)?;
-        let intent: Option<OriginPin> =
+        let intent: Option<F::Origin> =
             common_storage::read_optional_canonical(&intent_path, ORIGIN_MAX_BYTES)?;
 
         if let Some(pin) = &origin {
@@ -56,10 +54,10 @@ impl Ledger {
             (false, false) => {}
         }
 
-        let legacy_marker = read_marker(root, LEGACY_MARKER, DOWNGRADE_FENCE)?;
-        let prefix_marker = read_marker(root, MARKER, MARKER_BYTES)?;
+        let legacy_marker = read_marker(root, LEGACY_MARKER, F::DOWNGRADE_FENCE)?;
+        let prefix_marker = read_marker(root, F::MARKER, F::MARKER_BYTES)?;
         let legacy_stages = files::stages(&root.join(LEGACY_MARKER))?;
-        let prefix_stages = files::stages(&root.join(MARKER))?;
+        let prefix_stages = files::stages(&root.join(F::MARKER))?;
 
         match (origin.as_ref(), intent.as_ref(), staged_intent.as_ref()) {
             (Some(origin), Some(intent), staged) => {
@@ -137,12 +135,14 @@ impl Ledger {
         first_height: u64,
     ) -> Result<(), String> {
         self.verify_carriers()?;
-        super::hash(material_pin_digest)?;
+        super::canonical_hash(material_pin_digest)?;
 
         if !self.init_pending
             && let Some(pin) = &self.pin
         {
-            if pin.material_pin_digest != material_pin_digest || pin.first_height != first_height {
+            if pin.material_pin_digest() != material_pin_digest
+                || pin.first_height() != first_height
+            {
                 return Err("formal prefix origin differs from qualified H/target/material".into());
             }
             return Ok(());
@@ -153,15 +153,13 @@ impl Ledger {
             None if self.initialize => {
                 let mut random = [0u8; 32];
                 getrandom::fill(&mut random).map_err(|error| error.to_string())?;
-                let pin = OriginPin {
-                    schema_version: 1,
-                    domain: "oasis7.formal.bft.prefix.origin.v1".into(),
-                    ledger_id: hex::encode(random),
-                    material_pin_digest: material_pin_digest.into(),
+                let pin = F::new_origin(
+                    material_pin_digest,
                     first_height,
-                    format_lock: common_storage::lock_carrier_identity(&self._format_lock)?,
-                    writer_lock: common_storage::lock_carrier_identity(&self._lock)?,
-                };
+                    hex::encode(random),
+                    common_storage::lock_carrier_identity(&self._format_lock)?,
+                    common_storage::lock_carrier_identity(&self._lock)?,
+                );
                 pin.validate()?;
                 // Retain this identity in memory even if publication returns
                 // an uncertain error and the same handle is retried.
@@ -171,7 +169,7 @@ impl Ledger {
             }
             None => return Err("formal prefix origin is absent".into()),
         };
-        if pin.material_pin_digest != material_pin_digest || pin.first_height != first_height {
+        if pin.material_pin_digest() != material_pin_digest || pin.first_height() != first_height {
             return Err(
                 "formal prefix pending initialization differs from qualified H/target".into(),
             );
@@ -188,7 +186,7 @@ impl Ledger {
             // reject the legitimate two-link pending state, so verify and
             // resume that exact pair instead.
             files::same_pair(&origin_path, &intent_path)?;
-            let staged = files::staged_value::<OriginPin>(&intent_path, ORIGIN_MAX_BYTES)?;
+            let staged = files::staged_value::<F::Origin>(&intent_path, ORIGIN_MAX_BYTES)?;
             if staged.as_ref().is_some_and(|staged| staged != &pin) {
                 return Err("formal prefix init stages differ from the durable origin".into());
             }
@@ -201,9 +199,9 @@ impl Ledger {
         self.verify_carriers()?;
         files::link_record(&origin_path, &intent_path, &bytes)?;
         self.verify_carriers()?;
-        files::publish(&self.root.join(LEGACY_MARKER), DOWNGRADE_FENCE)?;
+        files::publish(&self.root.join(LEGACY_MARKER), F::DOWNGRADE_FENCE)?;
         self.verify_carriers()?;
-        files::publish(&self.root.join(MARKER), MARKER_BYTES)?;
+        files::publish(&self.root.join(F::MARKER), F::MARKER_BYTES)?;
         self.verify_carriers()?;
         files::finish(&origin_path, &intent_path, &bytes)?;
         self.init_pending = false;
