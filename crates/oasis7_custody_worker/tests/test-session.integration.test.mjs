@@ -108,6 +108,46 @@ assert result is not None
 print(json.dumps(result,separators=(',',':')))
 `,runtime.persist,runtime.account,id],{encoding:'utf8'}));}
 
+// Failure-only diagnostics: fixed stage names, booleans, counts and timestamps.
+// This never returns a source original, signature, nonce, public key or payload hash.
+function continueFailureState(runtime,id){
+  try{return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+out={'available':False}
+def stamp(v):
+ if isinstance(v,str) and v.isascii() and v.isdigit() and len(v)<=20 and int(v)<=18446744073709551615:return v
+ if type(v) is int and 0<=v<=18446744073709551615:return str(v)
+ return None
+def obj(v):return v if isinstance(v,dict) else {}
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+  if not row:continue
+  state=json.loads(row[0])['state']
+  if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+  session=state.get('test_sessions',{}).get(sys.argv[3])
+  if not isinstance(session,dict):out={'available':True,'session_found':False};continue
+  steps=obj(session.get('preflight_steps'))
+  sources=obj(session.get('sources'))
+  source_rows=[]
+  for source in list(sources.values())[:8]:
+   source=obj(source);verification=obj(obj(source.get('verification')).get('verification'))
+   source_rows.append({'claimed':source.get('claimed_at') is not None,'verified':source.get('verification') is not None,'created_at':stamp(source.get('created_at')),'expires_at':stamp(source.get('expires_at')),'claimed_at':stamp(source.get('claimed_at')),'verified_at':stamp(source.get('verified_at')),'native_observed_at':stamp(verification.get('observed_at')),'native_source_session_expires_at':stamp(verification.get('source_session_expires_at')),'native_source_idle_expires_at':stamp(verification.get('source_session_idle_expires_at'))})
+  closing=session.get('closing');reason=closing[0] if isinstance(closing,list) and len(closing)==2 else None
+  reasons={'finished','aborted','deadline','lease_expired','budget_exhausted','revoked'}
+  stage=obj(state.get('provision')).get('stage')
+  stages={'draft','approved','role_keys_ready','native_registered','native_session_ready','participant_bound','ready_for_setup','prepared','frozen','cancelled'}
+  lifetime=obj(obj(session.get('preflight_lifetime')).get('lifetime'));status=obj(lifetime.get('status'))
+  out={'available':True,'session_found':True,'provision_stage':stage if stage in stages else 'unknown','closing_reason':reason if reason in reasons else None,'consumed':session.get('consumed_at') is not None,'approved':session.get('approved_at') is not None,'preflight_claimed':session.get('preflight_claimed_at') is not None,'consumed_at':stamp(session.get('consumed_at')),'preflight_claimed_at':stamp(session.get('preflight_claimed_at')),'oracle_reads':session.get('preflight_oracle_reads') if type(session.get('preflight_oracle_reads')) is int else None,'steps':{name:stamp(steps[name]) for name in ['fresh_access_pair','lifetime','owner_read'] if name in steps},'has_access':session.get('preflight_access') is not None,'has_published_read':session.get('preflight_read') is not None,'has_lifetime':session.get('preflight_lifetime') is not None,'lifetime_observed_at':stamp(status.get('observed_at')),'lifetime_status_expires_at':stamp(status.get('expires_at')),'lifetime_session_expires_at':stamp(lifetime.get('session_expires_at')),'sources_count':len(sources),'source_read_counts':[v for v in obj(session.get('source_oracle_reads')).values() if type(v) is int],'sources':source_rows}
+ except (sqlite3.OperationalError,ValueError,KeyError,TypeError):continue
+ finally:
+  if 'db' in locals():db.close()
+print(json.dumps(out,separators=(',',':')))
+`,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
+  catch{return {available:false,diagnostic_unavailable:true};}
+}
 async function withActiveSession(run,{lostInitial=false,approvalFault=null}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
   ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;
@@ -154,7 +194,19 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null}={}){
     await runtime.suspend();const beforeState=stored(runtime,basis.session_id);assert.equal(beforeState.consumed,true);assert.deepEqual(beforeState.roots,[]);assert.equal(beforeState.approved,false);
     await runtime.restart(selectedMode);
     const before=runtime.nativeRequests();
-    const active=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));
+    const activeResponse=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+    if(activeResponse.status!==200){
+      const status=activeResponse.status;
+      try{await activeResponse.arrayBuffer();}catch{} // Discard without printing body or errors.
+      const failedNative=runtime.nativeRequests();
+      const paths=['/custody/management-session-status','/custody/approvals/verify','/participant/policy-original','/participant/authorize','/custody/managed-bindings/session-status','/custody/managed-bindings/session-lifetime','/participant/owner-view'];
+      const native_request_deltas=Object.fromEntries(paths.map(path=>[path,(failedNative[path]??0)-(before[path]??0)]));
+      const diagnostic_started_at=Date.now();
+      await runtime.suspend();
+      console.error(JSON.stringify({test_session_continue_failure:{status,diagnostic_started_at,...continueFailureState(runtime,basis.session_id),native_request_deltas}}));
+      assert.equal(status,200,'actual TestSession continue must succeed; fixed safe stage diagnostics are above');
+    }
+    const active=await json(activeResponse);
     assert.equal(active.stage,'active');assert.equal(active.write_closed,false);assert.deepEqual(active.pending_operations,[]);
     assert.deepEqual(active.purposes.map(p=>p.purpose).sort(),['execution','reconcile_read','termination_plan']);
     const roots=Object.fromEntries(active.purposes.map(p=>[p.purpose,p]));
