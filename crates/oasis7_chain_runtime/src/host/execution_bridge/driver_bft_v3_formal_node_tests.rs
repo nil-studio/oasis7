@@ -23,10 +23,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[path = "driver_bft_v3_node_identity_tests.rs"]
-mod node_identity_tests;
 #[path = "driver_bft_v3_node_cli_tests.rs"]
 mod node_cli_tests;
+#[path = "driver_bft_v3_node_identity_tests.rs"]
+mod node_identity_tests;
 #[path = "driver_bft_v3_node_publication_failure_tests.rs"]
 mod node_publication_failure_tests;
 #[path = "driver_bft_v3_provider_retry_tests.rs"]
