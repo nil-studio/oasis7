@@ -356,6 +356,7 @@ pub(crate) async fn fact(
 pub(crate) enum AbuseKind {
     Create,
     Prove,
+    ClientHttp,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -381,6 +382,8 @@ struct AbuseState {
     last_observed: u64,
     creates: u32,
     proves: u32,
+    #[serde(default)]
+    client_requests: u32,
 }
 pub(crate) fn charge_abuse(
     state: &JsValue,
@@ -389,7 +392,7 @@ pub(crate) fn charge_abuse(
     realm: &str,
     r: &AbuseRequest,
 ) -> Result<(), JsValue> {
-    let c = Config::enabled(env)?;
+    let c = abuse_config(env, r.kind)?;
     let expected = env
         .durable_object(BINDING)
         .map_err(|_| denied())?
@@ -402,7 +405,7 @@ pub(crate) fn charge_abuse(
     let mut callback = |old: JsValue, inv: String| -> Result<String, JsValue> {
         let old = optional(old)?;
         inventory(&inv, ABUSE, old.as_deref())?;
-        let c = Config::enabled(env)?;
+        let c = abuse_config(env, r.kind)?;
         if c.realm != realm {
             return Err(denied());
         }
@@ -430,18 +433,22 @@ pub(crate) fn charge_abuse(
                 last_observed: time,
                 creates: 0,
                 proves: 0,
+                client_requests: 0,
             }
         };
         if s.window != window {
             s.window = window;
             s.creates = 0;
             s.proves = 0;
+            s.client_requests = 0;
         }
         let (used, max) = match (r.kind, r.scope) {
             (AbuseKind::Create, AbuseScope::Provider) => (&mut s.creates, 8),
             (AbuseKind::Prove, AbuseScope::Provider) => (&mut s.proves, 32),
             (AbuseKind::Create, AbuseScope::Realm) => (&mut s.creates, 256),
             (AbuseKind::Prove, AbuseScope::Realm) => (&mut s.proves, 1024),
+            (AbuseKind::ClientHttp, AbuseScope::Provider) => (&mut s.client_requests, 32),
+            (AbuseKind::ClientHttp, AbuseScope::Realm) => (&mut s.client_requests, 1024),
         };
         if *used >= max {
             return Err(denied());
@@ -461,4 +468,11 @@ fn diagnostic(stage: &str, error: JsValue) -> JsValue {
     #[cfg(not(feature = "native-runtime-harness"))]
     let _ = stage;
     error
+}
+
+fn abuse_config(env: &Env, kind: AbuseKind) -> Result<Config, JsValue> {
+    match kind {
+        AbuseKind::ClientHttp => Config::load(env),
+        AbuseKind::Create | AbuseKind::Prove => Config::enabled(env),
+    }
 }

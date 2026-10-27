@@ -16,6 +16,8 @@ pub(crate) mod setup;
 pub(crate) mod setup_reconcile;
 #[path = "identity_test_session_runtime.rs"]
 pub(crate) mod test_session;
+#[path = "identity_test_session_client_runtime.rs"]
+pub(crate) mod client;
 use crate::{
     envelope_crypto,
     native_identity::provision_transport::NativeProvisionTransport,
@@ -1081,6 +1083,9 @@ impl DurableObject for NativeSession {
         }
         if url.path() == "/internal/test-session-preflight" {
             return test_session::response(self.state.clone(), &self.env, &raw).await;
+        }
+        if client::operation(url.path()).is_some() {
+            return client::response(self.state.clone(), &self.env, url.path(), &raw).await;
         }
         if url.path() == "/internal/participant" {
             return participant::response(self.state.clone(), &self.env, &raw).await;

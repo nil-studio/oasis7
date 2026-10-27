@@ -242,6 +242,23 @@ impl DurableObject for AccountAuthority {
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
         #[cfg(feature = "approval-harness")]
+        if crate::owner_test_session_client_entry::diagnostic_path(url.path()) {
+            return crate::owner_test_session_client_entry::diagnostic(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
+        if crate::owner_test_session_client_entry::operation(url.path()).is_some() {
+            return crate::owner_test_session_client_entry::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
+        #[cfg(feature = "approval-harness")]
         if url.path() == "/internal/performance/account-restore-observed" {
             if request.method() != Method::Post
                 || url.scheme() != "https"

@@ -488,3 +488,82 @@ fn http_pop_closed_targets_bounds_and_after_async_expiry_reject() {
         HttpPopError::Time
     );
 }
+
+#[test]
+fn nonce_lookup_hint_is_bounded_singleton_and_never_accepts_alternate_nonce_grammar() {
+    let extract = |headers: &[OwnedHttpHeader], representation| {
+        let raw = headers
+            .iter()
+            .map(|h| HttpHeader {
+                name: &h.name,
+                value: &h.value,
+            })
+            .collect::<Vec<_>>();
+        http_pop_nonce_hint(&raw, representation)
+    };
+    let f = Fixture::new(
+        HttpPopProfileV1::CredentialClaim,
+        HttpPopRoute::EnrollmentClaim("enrollment-one".into()),
+    );
+    for representation in [
+        HttpHeaderRepresentation::RawInstances,
+        HttpHeaderRepresentation::WorkerMergedSingletons,
+    ] {
+        assert_eq!(
+            extract(&f.headers, representation).unwrap().as_deref(),
+            Some(NONCE)
+        );
+        let challenge = Fixture::new(
+            HttpPopProfileV1::ClaimChallenge,
+            HttpPopRoute::ProofChallenges,
+        );
+        assert_eq!(extract(&challenge.headers, representation).unwrap(), None);
+        for mutation in 0..7 {
+            let mut bad = f.headers.clone();
+            let input = bad
+                .iter_mut()
+                .find(|h| h.name == "signature-input")
+                .unwrap();
+            input.value = match mutation {
+                0 => input
+                    .value
+                    .replace(";alg=", &format!(";nonce=\"{NONCE}\";alg=")),
+                1 => format!("{},other=(\"@method\")", input.value),
+                2 => input.value.replace(NONCE, &format!("{NONCE}=")),
+                3 => input.value.replace(NONCE, "invalid"),
+                4 => input.value.replace("oasis7=", "other="),
+                5 => input.value.replace("nonce=", "Nonce="),
+                _ => "a".repeat(MAX_HTTP_HEADER_VALUE_BYTES + 1),
+            };
+            assert!(
+                extract(&bad, representation).is_err(),
+                "mutation {mutation}"
+            );
+        }
+        let mut duplicate = f.headers.clone();
+        let mut input = duplicate
+            .iter()
+            .find(|h| h.name == "signature-input")
+            .unwrap()
+            .clone();
+        input.name = "SIGNATURE-INPUT".into();
+        duplicate.push(input);
+        assert!(extract(&duplicate, representation).is_err());
+        let mut too_many = f.headers.clone();
+        for n in 0..MAX_HTTP_HEADER_INSTANCES {
+            too_many.push(OwnedHttpHeader {
+                name: format!("x-bound-{n}"),
+                value: "x".into(),
+            });
+        }
+        assert!(extract(&too_many, representation).is_err());
+        let mut total = f.headers.clone();
+        for n in 0..8 {
+            total.push(OwnedHttpHeader {
+                name: format!("x-size-{n}"),
+                value: "x".repeat(1100),
+            });
+        }
+        assert!(extract(&total, representation).is_err());
+    }
+}

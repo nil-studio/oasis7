@@ -499,6 +499,35 @@ pub async fn owner_test_session_identity_call(
     .await
 }
 
+macro_rules! client_entrypoint {
+    ($name:ident, $path:literal) => {
+        #[cfg(feature = "owner")]
+        #[wasm_bindgen]
+        pub async fn $name(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+            crate::owner_test_session_client_entry::forward(&env, &raw, $path).await
+        }
+    };
+}
+client_entrypoint!(
+    owner_client_challenge,
+    "/internal/test-session-client-challenge"
+);
+client_entrypoint!(owner_client_claim, "/internal/test-session-client-claim");
+client_entrypoint!(
+    owner_client_initialize,
+    "/internal/test-session-client-initialize"
+);
+client_entrypoint!(
+    owner_client_tools_list,
+    "/internal/test-session-client-tools-list"
+);
+client_entrypoint!(
+    owner_client_heartbeat,
+    "/internal/test-session-client-heartbeat"
+);
+client_entrypoint!(owner_client_finish, "/internal/test-session-client-finish");
+client_entrypoint!(owner_client_abort, "/internal/test-session-client-abort");
+
 #[cfg(feature = "owner")]
 #[wasm_bindgen]
 pub async fn owner_test_session_key_call(

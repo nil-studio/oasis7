@@ -12,7 +12,7 @@ fn diagnostic(stage: &str) {
     #[cfg(not(feature = "approval-harness"))]
     let _ = stage;
 }
-async fn fetch_account(
+pub(crate) async fn fetch_account(
     env: &Env,
     account: &str,
     path: &'static str,

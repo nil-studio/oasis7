@@ -497,3 +497,7 @@ pub(crate) fn enrollment_evidence_checks(
     verify_ed25519(&p)?;
     p.signature_checks()
 }
+
+#[path = "http_pop_nonce_hint.rs"]
+mod nonce_hint;
+pub use nonce_hint::http_pop_nonce_hint;

@@ -71,6 +71,20 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
+        let actual_headers = request
+            .headers
+            .iter()
+            .map(|h| HttpHeader {
+                name: &h.name,
+                value: &h.value,
+            })
+            .collect::<Vec<_>>();
+        if crate::http_pop::http_pop_nonce_hint(&actual_headers, context.representation)
+            .map_err(|_| invalid())?
+            != request.nonce_hint
+        {
+            return Err(invalid());
+        }
         let s = self
             .test_sessions
             .get(&request.session_id)

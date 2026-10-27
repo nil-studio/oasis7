@@ -824,3 +824,5 @@ pub mod setup_reconcile;
 
 #[path = "test_session_store.rs"]
 pub(crate) mod test_session;
+#[path = "test_session_client_store.rs"]
+pub(crate) mod client;

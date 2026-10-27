@@ -172,20 +172,24 @@ async fn abuse(
         .map_err(|_| denied())?
         .ok_or_else(denied)?;
     let ip: std::net::IpAddr = ip.parse().map_err(|_| denied())?;
+    let (realm_domain, provider_domain) = match kind {
+        AbuseKind::ClientHttp => (
+            "oasis7.custody.client-http-abuse-global.v1",
+            "oasis7.custody.client-http-abuse-provider.v1",
+        ),
+        AbuseKind::Create | AbuseKind::Prove => (
+            "oasis7.custody.enrollment-abuse-global.v1",
+            "oasis7.custody.enrollment-abuse-provider.v1",
+        ),
+    };
     for (scope, key) in [
         (
             AbuseScope::Realm,
-            hash(
-                "oasis7.custody.enrollment-abuse-global.v1",
-                &(&c.realm, &c.origin),
-            )?,
+            hash(realm_domain, &(&c.realm, &c.origin))?,
         ),
         (
             AbuseScope::Provider,
-            hash(
-                "oasis7.custody.enrollment-abuse-provider.v1",
-                &(&c.realm, &c.origin, ip.to_string()),
-            )?,
+            hash(provider_domain, &(&c.realm, &c.origin, ip.to_string()))?,
         ),
     ] {
         call(
@@ -278,4 +282,17 @@ fn json_response(raw: String) -> Result<Response> {
         .headers_mut()
         .set("Content-Type", "application/json")?;
     Ok(response)
+}
+
+/// Independent provider-level ingress limiting; this cannot consume session authority.
+pub(crate) async fn limit_client_http(
+    env: &Env,
+    request: &Request,
+) -> std::result::Result<(), JsValue> {
+    let config = Config::load(env)?;
+    let url = request.url().map_err(|_| denied())?;
+    if url.origin().ascii_serialization() != config.origin {
+        return Err(denied());
+    }
+    abuse(env, request, &config, AbuseKind::ClientHttp).await
 }

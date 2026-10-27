@@ -1,6 +1,13 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import RustWorker from './index.js';
 export class OwnerNativePermits extends WorkerEntrypoint {
+  async clientChallenge(raw) { return new RustWorker(this.ctx,this.env).owner_client_challenge(this.env,raw); }
+  async clientClaim(raw) { return new RustWorker(this.ctx,this.env).owner_client_claim(this.env,raw); }
+  async clientInitialize(raw) { return new RustWorker(this.ctx,this.env).owner_client_initialize(this.env,raw); }
+  async clientToolsList(raw) { return new RustWorker(this.ctx,this.env).owner_client_tools_list(this.env,raw); }
+  async clientHeartbeat(raw) { return new RustWorker(this.ctx,this.env).owner_client_heartbeat(this.env,raw); }
+  async clientFinish(raw) { return new RustWorker(this.ctx,this.env).owner_client_finish(this.env,raw); }
+  async clientAbort(raw) { return new RustWorker(this.ctx,this.env).owner_client_abort(this.env,raw); }
   async signTestSessionPreflight(raw) { return new RustWorker(this.ctx,this.env).owner_sign_test_session_preflight(this.env,raw); }
   async testSession(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_identity_call(this.env,raw); }
   async call(raw) { return new RustWorker(this.ctx, this.env).owner_native_call(this.env, raw); }
