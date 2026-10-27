@@ -17,6 +17,36 @@ fn run_cli() -> Result<(), String> {
     };
 
     match command.as_str() {
+        "producer-recipe" => {
+            let args = args.collect::<Vec<_>>();
+            if args.len() != 2 {
+                return Err("producer-recipe requires <workspace-root> <output-json>".into());
+            }
+            let recipe = oasis7_wasm_build::compute_builder_recipe(std::path::Path::new(&args[0]))
+                .map_err(|e| e.to_string())?;
+            let encoded = serde_json::to_vec_pretty(&recipe).map_err(|e| e.to_string())?;
+            std::fs::write(&args[1], encoded).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        "candidate-builder-evidence" => {
+            let args = args.collect::<Vec<_>>();
+            if args.len() != 3 {
+                return Err("candidate-builder-evidence requires <recipe-json> <docker-inspect-json> <output-json>".into());
+            }
+            let recipe: oasis7_wasm_build::BuilderRecipe =
+                serde_json::from_slice(&std::fs::read(&args[0]).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            let inspected: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&args[1]).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            let evidence = oasis7_wasm_build::candidate_builder_evidence(recipe, &inspected)?;
+            std::fs::write(
+                &args[2],
+                serde_json::to_vec_pretty(&evidence).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        }
         "build" => {
             let request = parse_build_args(args.collect())?;
             let output = run_build(&request).map_err(|err| err.to_string())?;
@@ -116,6 +146,9 @@ fn print_build_output(output: &BuildOutput) {
     if output.dry_run {
         println!("mode=dry-run");
     } else {
+        if let Some(rule) = output.source_input_rule_version {
+            println!("source_input_rule_version={rule}");
+        }
         if let Some(source_hash) = &output.source_hash {
             println!("source_hash={source_hash}");
         }

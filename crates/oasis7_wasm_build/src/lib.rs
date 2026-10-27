@@ -12,6 +12,7 @@ pub const DEFAULT_WASM_TARGET: &str = "wasm32-unknown-unknown";
 #[derive(Debug)]
 pub enum SourceHashError {
     InvalidManifestPath(String),
+    UnsupportedInput(String),
     MetadataCommand {
         manifest_path: PathBuf,
         stderr: String,
@@ -40,7 +41,8 @@ pub enum SourceHashError {
 impl fmt::Display for SourceHashError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SourceHashError::InvalidManifestPath(detail) => write!(f, "{detail}"),
+            SourceHashError::InvalidManifestPath(detail)
+            | SourceHashError::UnsupportedInput(detail) => write!(f, "{detail}"),
             SourceHashError::MetadataCommand {
                 manifest_path,
                 stderr,
@@ -102,104 +104,21 @@ impl fmt::Display for SourceHashError {
 
 impl std::error::Error for SourceHashError {}
 
+mod producer_recipe;
+pub use producer_recipe::{
+    BuilderExecution, BuilderRecipe, CandidateBuilderEvidence, candidate_builder_evidence,
+    compute_builder_recipe, verify_image_producer_recipe,
+};
+mod build_manifest;
+mod source_inputs;
+pub use build_manifest::{BuildManifest, compute_build_manifest_hash};
+pub use source_inputs::{
+    SOURCE_INPUT_RULE_VERSION, SourceInputRecord, SourceInputs, compute_source_inputs,
+    validate_source_evidence,
+};
+
 pub fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String, SourceHashError> {
-    let manifest_path = canonical_or_original(manifest_path);
-    let Some(module_dir) = manifest_path.parent() else {
-        return Err(SourceHashError::InvalidManifestPath(format!(
-            "manifest has no parent: {}",
-            manifest_path.display()
-        )));
-    };
-    let source_manifest_rel = manifest_path
-        .strip_prefix(module_dir)
-        .unwrap_or(manifest_path.as_path())
-        .to_string_lossy()
-        .to_string();
-    let metadata = read_cargo_metadata(&manifest_path, target)?;
-    let package_dirs = collect_local_package_dirs(&metadata, &manifest_path)?;
-    let workspace_manifests = collect_owning_workspace_manifests(&package_dirs)?;
-    let mut input_dirs = package_dirs.clone();
-    input_dirs.extend(
-        workspace_manifests
-            .iter()
-            .filter_map(|path| path.parent().map(Path::to_path_buf)),
-    );
-    let workspace_root = workspace_root(&metadata, &manifest_path, &input_dirs);
-    let mut hasher = Sha256::new();
-    hasher.update(format!("source_manifest_rel={source_manifest_rel}\n").as_bytes());
-    if let Some(lockfile) = find_lockfile_for_metadata(&manifest_path) {
-        hash_metadata_lockfile(&mut hasher, &workspace_root, lockfile.as_path())?;
-    }
-
-    for manifest in workspace_manifests {
-        let rel = manifest.strip_prefix(&workspace_root).map_err(|_| {
-            SourceHashError::PathOutsideWorkspace {
-                workspace_root: workspace_root.clone(),
-                path: manifest.clone(),
-            }
-        })?;
-        let bytes = fs::read(&manifest).map_err(|source| SourceHashError::Io {
-            path: Some(manifest.clone()),
-            source,
-        })?;
-        hasher.update(
-            format!(
-                "workspace_manifest:{}:{}\n",
-                portable_label(rel),
-                sha256_hex(&bytes)
-            )
-            .as_bytes(),
-        );
-    }
-
-    for package_dir in package_dirs {
-        let package_manifest = package_dir.join("Cargo.toml");
-        let manifest_rel = package_manifest
-            .strip_prefix(&workspace_root)
-            .map_err(|_| SourceHashError::PathOutsideWorkspace {
-                workspace_root: workspace_root.clone(),
-                path: package_dir.join("Cargo.toml"),
-            })?;
-        let manifest_rel = portable_label(manifest_rel);
-        hasher.update(format!("package_manifest_rel={manifest_rel}\n").as_bytes());
-        let files = collect_source_files_for_hash(&package_dir)?;
-        for file in files {
-            let rel = file
-                .strip_prefix(&package_dir)
-                .map_err(|_| SourceHashError::Io {
-                    path: Some(file.clone()),
-                    source: io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!(
-                            "failed to strip package dir prefix {}",
-                            package_dir.display()
-                        ),
-                    ),
-                })?;
-            let bytes = fs::read(&file).map_err(|source| SourceHashError::Io {
-                path: Some(file.clone()),
-                source,
-            })?;
-            hasher.update(
-                format!(
-                    "package_file:{}:{}:{}\n",
-                    manifest_rel,
-                    portable_label(rel),
-                    sha256_hex(&bytes)
-                )
-                .as_bytes(),
-            );
-        }
-    }
-
-    Ok(hex::encode(hasher.finalize()))
-}
-
-fn portable_label(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
+    Ok(compute_source_inputs(manifest_path, target)?.source_hash)
 }
 
 fn collect_owning_workspace_manifests(
@@ -251,44 +170,17 @@ fn collect_owning_workspace_manifests(
     Ok(manifests)
 }
 
-fn hash_metadata_lockfile(
-    hasher: &mut Sha256,
-    workspace_root: &Path,
-    lockfile: &Path,
-) -> Result<(), SourceHashError> {
-    if !lockfile.is_file() {
-        return Ok(());
-    }
-    let canonical_lockfile = canonical_or_original(lockfile);
-    let label = stable_lockfile_label(workspace_root, canonical_lockfile.as_path());
-    let bytes = fs::read(canonical_lockfile.as_path()).map_err(|source| SourceHashError::Io {
-        path: Some(canonical_lockfile.clone()),
-        source,
-    })?;
-    hasher.update(format!("metadata_lockfile:{label}:{}\n", sha256_hex(&bytes)).as_bytes());
-    Ok(())
-}
-
-fn stable_lockfile_label(workspace_root: &Path, lockfile: &Path) -> String {
-    let workspace_root = canonical_or_original(workspace_root);
-    if let Ok(rel) = lockfile.strip_prefix(workspace_root.as_path()) {
-        return portable_label(rel);
-    }
-    let paths = [workspace_root, lockfile.to_path_buf()];
-    if let Some(anchor) = common_ancestor(&paths)
-        && let Ok(rel) = lockfile.strip_prefix(anchor.as_path())
-    {
-        return portable_label(rel);
-    }
-    lockfile
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "Cargo.lock".to_string())
-}
-
 fn read_cargo_metadata(
     manifest_path: &Path,
     target: &str,
+) -> Result<CargoMetadata, SourceHashError> {
+    read_cargo_metadata_from(manifest_path, target, None)
+}
+
+fn read_cargo_metadata_from(
+    manifest_path: &Path,
+    target: &str,
+    directory: Option<&Path>,
 ) -> Result<CargoMetadata, SourceHashError> {
     let mut args = vec![
         "metadata".to_string(),
@@ -306,6 +198,9 @@ fn read_cargo_metadata(
 
     let mut command = Command::new("cargo");
     command.env_remove("RUSTC_WRAPPER");
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
     command.args(&args);
     let output = command
         .output()
@@ -358,6 +253,28 @@ fn collect_local_package_dirs(
     metadata: &CargoMetadata,
     manifest_path: &Path,
 ) -> Result<Vec<PathBuf>, SourceHashError> {
+    let mut directories = Vec::new();
+    for package in collect_reachable_packages(metadata, manifest_path)? {
+        if package.source.is_none() {
+            let manifest = canonical_or_original(Path::new(&package.manifest_path));
+            directories.push(
+                manifest
+                    .parent()
+                    .ok_or_else(|| {
+                        SourceHashError::InvalidManifestPath("package manifest lacks parent".into())
+                    })?
+                    .to_path_buf(),
+            );
+        }
+    }
+    sort_dedup_paths(&mut directories);
+    Ok(directories)
+}
+
+fn collect_reachable_packages<'a>(
+    metadata: &'a CargoMetadata,
+    manifest_path: &Path,
+) -> Result<Vec<&'a CargoPackage>, SourceHashError> {
     let canonical_manifest = canonical_or_original(manifest_path);
     let root_package = metadata
         .packages
@@ -381,7 +298,7 @@ fn collect_local_package_dirs(
         .map(|node| (node.id.clone(), node))
         .collect::<BTreeMap<_, _>>();
     let mut visited = BTreeSet::new();
-    let mut ordered_dirs = Vec::new();
+    let mut ordered_packages = Vec::new();
     let mut queue = VecDeque::from([root_package.id.clone()]);
 
     while let Some(package_id) = queue.pop_front() {
@@ -392,16 +309,7 @@ fn collect_local_package_dirs(
             .get(&package_id)
             .copied()
             .ok_or_else(|| SourceHashError::MissingPackageNode(package_id.clone()))?;
-        if package.source.is_none() {
-            let manifest_path = canonical_or_original(Path::new(package.manifest_path.as_str()));
-            let package_dir = manifest_path.parent().ok_or_else(|| {
-                SourceHashError::InvalidManifestPath(format!(
-                    "package manifest has no parent: {}",
-                    manifest_path.display()
-                ))
-            })?;
-            ordered_dirs.push(package_dir.to_path_buf());
-        }
+        ordered_packages.push(package);
         if let Some(node) = node_by_id.get(&package_id) {
             for dep in &node.dependencies {
                 queue.push_back(dep.clone());
@@ -409,8 +317,7 @@ fn collect_local_package_dirs(
         }
     }
 
-    sort_dedup_paths(&mut ordered_dirs);
-    Ok(ordered_dirs)
+    Ok(ordered_packages)
 }
 
 fn collect_source_files_for_hash(package_dir: &Path) -> Result<Vec<PathBuf>, SourceHashError> {
@@ -463,6 +370,23 @@ fn common_ancestor(paths: &[PathBuf]) -> Option<PathBuf> {
 }
 
 fn collect_files_recursively(dir: &Path, output: &mut Vec<PathBuf>) -> Result<(), SourceHashError> {
+    match fs::symlink_metadata(dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(SourceHashError::UnsupportedInput(format!(
+                "unsupported-input: symlink directory {}",
+                dir.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(SourceHashError::Io {
+                path: Some(dir.into()),
+                source,
+            });
+        }
+    }
+
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -483,6 +407,12 @@ fn collect_files_recursively(dir: &Path, output: &mut Vec<PathBuf>) -> Result<()
             path: Some(path.clone()),
             source,
         })?;
+        if file_type.is_symlink() {
+            return Err(SourceHashError::UnsupportedInput(format!(
+                "unsupported-input: symlink {}",
+                path.display()
+            )));
+        }
         if file_type.is_dir() {
             collect_files_recursively(path.as_path(), output)?;
             continue;
@@ -513,9 +443,31 @@ struct CargoMetadata {
 #[derive(Debug, Deserialize)]
 struct CargoPackage {
     id: String,
+    name: String,
+    #[serde(default)]
+    version: String,
     manifest_path: String,
     #[serde(default)]
     source: Option<String>,
+    #[serde(default)]
+    targets: Vec<CargoTarget>,
+    #[serde(default)]
+    dependencies: Vec<CargoDependency>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoDependency {
+    kind: Option<String>,
+    name: String,
+    rename: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoTarget {
+    kind: Vec<String>,
+    src_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -596,6 +548,43 @@ mod tests {
             "pub fn value() -> u32 { 1 }\n",
         );
         root.join("module/Cargo.toml")
+    }
+
+    #[test]
+    fn declared_external_template_changes_source_hash() {
+        let root = unique_temp_dir("oasis7-external-template");
+        let manifest = write_fixture_workspace(&root, "pub fn value() -> u32 { 1 }", None);
+        write_file(
+            &root.join("module/src/lib.rs"),
+            "include!(\"../../templates/value.rs\");",
+        );
+        write_file(
+            &root.join("templates/value.rs"),
+            "pub fn value() -> u32 { 1 }",
+        );
+        let manifest_text = fs::read_to_string(&manifest).unwrap();
+        write_file(
+            &manifest,
+            &format!(
+                "{manifest_text}
+[package.metadata.oasis7_source_inputs]
+rule_version=2
+includes=[{{from=\"module/src/lib.rs\",to=\"templates/value.rs\"}}]
+build_inputs={{}}
+"
+            ),
+        );
+        let before = compute_source_hash(&manifest, DEFAULT_WASM_TARGET).unwrap();
+        write_file(
+            &root.join("templates/value.rs"),
+            "pub fn value() -> u32 { 2 }",
+        );
+        let after = compute_source_hash(&manifest, DEFAULT_WASM_TARGET).unwrap();
+        assert_ne!(
+            before, after,
+            "actual included template must invalidate source identity"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn write_fixture_workspace_lockfile(root: &Path, note: &str) {

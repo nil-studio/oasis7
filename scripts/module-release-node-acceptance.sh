@@ -178,6 +178,8 @@ identity_hash = 'sha256:' + ('e' * 64)
 canonicalizer_version = 'strip-custom-sections-v1'
 
 base = {
+    'purpose': 'release-build',
+    'baseline_sha256': '',
     'schema_version': 1,
     'module_set': 'm1',
     'current_platform': 'linux-x86_64',
@@ -193,6 +195,8 @@ base = {
     },
     'receipt_evidence': {
         'm1_demo': {
+            'source_input_rule_version': 2,
+            'source_inputs': [{'kind': 'source-file', 'path': 'module/src/lib.rs', 'sha256': '0' * 64}],
             'source_hash': source_hash,
             'build_manifest_hash': build_manifest_hash,
             'wasm_hash': wasm_hash,

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/.tmp/builtin-wasm"
 PROFILE="release"
+CANDIDATE_BUILD=0
 DRY_RUN=0
 LIST_ONLY=0
 MODULE_IDS_PATH="$ROOT_DIR/crates/oasis7_runtime/src/world/artifacts/m1_builtin_module_ids.txt"
@@ -26,6 +27,7 @@ Options:
                      Default: crates/.../builtin_module_manifest_map.txt
   --out-dir <dir>    Output directory. Default: .tmp/builtin-wasm
   --profile <name>   Cargo profile for wasm build suite. Default: release
+  --candidate-build  Build candidate receipt4 with content recipe and actual image ID
   --dry-run          Resolve paths only, do not execute cargo build
   --list             Print known builtin module ids and exit
   -h, --help         Show this help message
@@ -60,6 +62,10 @@ manifest_path_for_module() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --candidate-build)
+      CANDIDATE_BUILD=1
+      shift
+      ;;
     --module-id)
       [[ $# -ge 2 ]] || { echo "error: --module-id requires a value" >&2; exit 2; }
       REQUESTED_MODULE_IDS+=("$2")
@@ -145,6 +151,9 @@ for module_id in "${REQUESTED_MODULE_IDS[@]}"; do
     --out-dir "$OUT_DIR"
     --profile "$PROFILE"
   )
+  if [[ "$CANDIDATE_BUILD" -eq 1 ]]; then
+    cmd+=(--candidate-build)
+  fi
   if [[ "$DRY_RUN" -eq 1 ]]; then
     cmd+=(--dry-run)
   fi

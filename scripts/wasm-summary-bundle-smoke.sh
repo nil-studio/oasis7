@@ -26,6 +26,8 @@ target = pathlib.Path(sys.argv[1])
 module_set, runner, host_platform, canonical_platform = sys.argv[2:]
 
 summary = {
+    "purpose": "release-build",
+    "baseline_sha256": "",
     "schema_version": 1,
     "module_set": module_set,
     "runner": runner,

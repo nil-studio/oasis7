@@ -15,3 +15,10 @@ oasis7_wasm_sdk = { version = "0.1.0", path = "../../oasis7_wasm_sdk", features 
 serde = { version = "1", features = ["derive"] }
 serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 serde_json = "1"
+
+[package.metadata.oasis7_source_inputs]
+rule_version = 2
+includes = [
+    { from = "crates/oasis7_builtin_wasm_modules/m4_product_infrastructure_factory_core/src/lib.rs", to = "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs" },
+]
+build_inputs = {}

@@ -154,3 +154,34 @@ fn wasm_env_value_or_default_rejects_removed_old_brand_prefix() {
 fn removed_old_brand_wasm_env(suffix: &str) -> String {
     ["AGENT", "WORLD", "WASM", suffix].join("_")
 }
+
+#[test]
+fn candidate_recipe_requires_the_actual_fixed_guest_job_environment() {
+    const CHILD: &str = "OASIS7_TEST_CANDIDATE_JOBS_CHILD";
+    if env::var_os(CHILD).is_some() {
+        let request = BuildRequest::with_defaults("fixture.module", "unused/Cargo.toml");
+        let error = read_candidate_builder(&request).unwrap_err();
+        assert!(error.to_string().contains("CARGO_BUILD_JOBS=2"), "{error}");
+        return;
+    }
+    for jobs in [None, Some("7")] {
+        let mut command = std::process::Command::new(env::current_exe().unwrap());
+        command.args(["--exact", "env_prefix_tests::candidate_recipe_requires_the_actual_fixed_guest_job_environment", "--nocapture"])
+            .env(CHILD, "1")
+            .env("OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE", "/missing-candidate-evidence.json")
+            .env_remove("OASIS7_WASM_BUILDER_IMAGE_REF")
+            .env_remove("OASIS7_WASM_BUILDER_IMAGE_DIGEST");
+        if let Some(jobs) = jobs {
+            command.env("CARGO_BUILD_JOBS", jobs);
+        } else {
+            command.env_remove("CARGO_BUILD_JOBS");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

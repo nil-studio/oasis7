@@ -30,6 +30,8 @@
 
 2026-10-24 Rust 工程契约局部核对：[#5026](https://github.com/nil-studio/oasis7/pull/5026)、[#5027](https://github.com/nil-studio/oasis7/pull/5027)、[#5028](https://github.com/nil-studio/oasis7/pull/5028) 已合入首批 6 成员继承、9 条架构规则/37 个 profile 与 signed-read 五 GET 的 TS/schema 生成消费；API revision 1 / read schema revision 5。[现行设计](../rust-governance/rust-engineering-contracts.design.md)保留原专业 owner 与开发期工具边界。[#5036](https://github.com/nil-studio/oasis7/issues/5036) 承接 path/status 回归、dev 范围及可信局部编译选择，尚待 PR 评审；不据此宣称部署、完整世界 schema 或全平台验收。
 
+2026-10-27 业务接口实现局部核对：cognition 投影解码 [#5140](https://github.com/nil-studio/oasis7/pull/5140)、Game Client 原操作生命周期 [#5146](https://github.com/nil-studio/oasis7/pull/5146)、网络失败类型合同 [#5147](https://github.com/nil-studio/oasis7/pull/5147) 和 Runtime 委托结果/只读重试 [#5149](https://github.com/nil-studio/oasis7/pull/5149) 已合入。验证和兼容边界见各 PR，不代表部署或新增完整玩法验收。WASM 输入闭包 [#5148](https://github.com/nil-studio/oasis7/pull/5148) 仍在实现与构建验证；个人能力/恢复查询 [#5150](https://github.com/nil-studio/oasis7/pull/5150) 的当前源码检查通过，但真实界面验收因受支持入口和 Owner 身份映射前置未满足而阻塞，仍为草稿。其他主题和部署基线不变。
+
 Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
