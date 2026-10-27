@@ -619,17 +619,15 @@ impl World {
                     decision: decision.clone(),
                     failure_detail: failure_detail.clone(),
                 };
-                let validation_event = self.action_to_event(&ActionEnvelope {
-                    governance_authorization: None,
-            committed_recipe_origin: None,
-                    id: job.job_id,
-                    action: Action::ValidateProduct {
-                        requester_agent_id: job.requester_agent_id.clone(),
-                        module_id: module_id.clone(),
-                        stack: stack.clone(),
-                        decision,
-                    },
-                })?;
+                // A due job consumes its bound module result, not another
+                // externally delegated action from the production Agent.
+                let validation_event = self.product_validation_result_to_event(
+                    job.job_id,
+                    &job.requester_agent_id,
+                    &module_id,
+                    stack,
+                    &decision,
+                );
                 let rejected = matches!(
                     validation_event,
                     WorldEventBody::Domain(DomainEvent::ActionRejected { .. })

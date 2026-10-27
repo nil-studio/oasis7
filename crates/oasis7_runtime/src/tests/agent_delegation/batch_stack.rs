@@ -434,3 +434,98 @@ fn known_product_stack_limit_module_plan_rejects_before_sinks() {
     assert!(world.journal().events[start..].iter().any(|event| matches!(&event.body,
         WorldEventBody::Domain(DomainEvent::ActionRejected { reason: RejectReason::RuleDenied { notes }, .. }) if notes.iter().any(|note| note.contains("stack limit") && note.contains("501")))));
 }
+
+#[test]
+fn known_product_stack_limit_native_grant_does_not_reauthorize_internal_validator_result() {
+    let mut world = batch_world();
+    let bytes = b"fixture product result; separate actual WASM integration exists";
+    let hash = crate::util::sha256_hex(bytes);
+    world.register_module_artifact(hash.clone(), bytes).unwrap();
+    activate_product(
+        &mut world,
+        M4_PRODUCT_IRON_INGOT_MODULE_ID,
+        "mock-result",
+        &hash,
+    );
+    let quote = world
+        .builtin_recipe_quote(AGENT_ID, "factory", "recipe.smelter.iron_ingot", 166)
+        .unwrap();
+    let preview = quote.preview.clone().unwrap();
+    let prepared = prepare(
+        &mut world,
+        "internal-validator-result",
+        quote.action,
+        1328,
+        Default::default(),
+    );
+    world
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    assert_eq!(world.pending_recipe_jobs_len(), 1);
+    let mut sandbox = oasis7_wasm_executor::FixedSandbox::succeed(oasis7_wasm_abi::ModuleOutput {
+        new_state: None,
+        effects: vec![],
+        emits: vec![oasis7_wasm_abi::ModuleEmit {
+            kind: "economy.product_validation".into(),
+            payload: serde_json::to_value(ProductValidationDecision::accepted(
+                "iron_ingot",
+                500,
+                true,
+                vec![],
+            ))
+            .unwrap(),
+        }],
+        tick_lifecycle: None,
+        output_bytes: 512,
+    });
+    for _ in 0..preview.duration_ticks.saturating_add(2) {
+        if world.pending_recipe_jobs_len() == 0 {
+            break;
+        }
+        world.step_with_modules(&mut sandbox).unwrap();
+    }
+    assert_eq!(
+        world.ledger_material_balance(&preview.output_ledger, "iron_ingot"),
+        498,
+        "a valid internal product result must settle an already authorized native job"
+    );
+    assert_eq!(world.state().recipe_completion_receipts.len(), 1);
+    assert!(
+        world
+            .state()
+            .factory_production_failure_dispositions
+            .is_empty()
+    );
+    let granted = world.agent_delegation_authorizations(AGENT_ID).unwrap();
+    assert_eq!(granted[0].spent_units, 1328);
+    let settled = serde_json::to_value(world.snapshot()).unwrap();
+    world
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), settled);
+}
+
+#[test]
+fn known_product_stack_limit_external_validation_keeps_delegation_admission() {
+    let mut world = batch_world();
+    let before = world.state().clone();
+    let start = world.journal().events.len();
+    world.submit_action(Action::ValidateProduct {
+        requester_agent_id: AGENT_ID.into(),
+        module_id: M4_PRODUCT_IRON_INGOT_MODULE_ID.into(),
+        stack: MaterialStack::new("iron_ingot", 498),
+        decision: ProductValidationDecision::accepted("iron_ingot", 500, true, vec![]),
+    });
+    world.step().unwrap();
+    assert_eq!(world.state().material_ledgers, before.material_ledgers);
+    assert_eq!(world.state().industry_progress, before.industry_progress);
+    assert!(world.state().product_validation_receipts.is_empty());
+    assert!(world.journal().events[start..].iter().any(|event| matches!(&event.body,
+        WorldEventBody::Domain(DomainEvent::ActionRejected { reason: RejectReason::RuleDenied { notes }, .. }) if notes.iter().any(|note| note.contains("decision_binding_required")))));
+    assert!(
+        !world.journal().events[start..].iter().any(|event| matches!(
+            &event.body,
+            WorldEventBody::Domain(DomainEvent::ProductValidated { .. })
+        ))
+    );
+}

@@ -1,3 +1,6 @@
+#[path = "product_validation_result.rs"]
+mod product_validation_result;
+
 use super::super::super::{FactoryProductionStatus, MaterialMarketQuote};
 use super::super::logistics::{logistics_path_id, normalize_logistics_route_kind};
 use super::*;
@@ -881,75 +884,13 @@ impl World {
                 module_id,
                 stack,
                 decision,
-            } => {
-                if !self.state.agents.contains_key(requester_agent_id) {
-                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::AgentNotFound {
-                            agent_id: requester_agent_id.clone(),
-                        },
-                    }));
-                }
-                if module_id.trim().is_empty() {
-                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::RuleDenied {
-                            notes: vec!["product module_id cannot be empty".to_string()],
-                        },
-                    }));
-                }
-                if !decision.accepted {
-                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::RuleDenied {
-                            notes: if decision.notes.is_empty() {
-                                vec!["product validation rejected".to_string()]
-                            } else {
-                                decision.notes.clone()
-                            },
-                        },
-                    }));
-                }
-                if decision.product_id != stack.kind {
-                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::RuleDenied {
-                            notes: vec![format!(
-                                "validated product mismatch expected={} got={}",
-                                stack.kind, decision.product_id
-                            )],
-                        },
-                    }));
-                }
-                if stack.amount <= 0 {
-                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::RuleDenied {
-                            notes: vec!["product stack amount must be > 0".to_string()],
-                        },
-                    }));
-                }
-                if stack.amount > decision.stack_limit as i64 {
-                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::RuleDenied {
-                            notes: vec![format!(
-                                "product stack exceeds limit amount={} limit={}",
-                                stack.amount, decision.stack_limit
-                            )],
-                        },
-                    }));
-                }
-                Ok(WorldEventBody::Domain(DomainEvent::ProductValidated {
-                    requester_agent_id: requester_agent_id.clone(),
-                    module_id: module_id.clone(),
-                    stack: stack.clone(),
-                    stack_limit: decision.stack_limit,
-                    tradable: decision.tradable,
-                    quality_levels: decision.quality_levels.clone(),
-                    notes: decision.notes.clone(),
-                }))
-            }
+            } => Ok(self.product_validation_result_to_event(
+                action_id,
+                requester_agent_id,
+                module_id,
+                stack,
+                decision,
+            )),
             Action::ValidateProductWithModule { .. } => {
                 Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
                     action_id,
@@ -977,7 +918,7 @@ pub(crate) use action_to_event_economy_support::build_material_market_quotes;
 use action_to_event_economy_support::{
     compute_local_scarcity_delay_ticks, industry_stage_label,
     merge_recipe_consume_with_maintenance_sink, product_unlock_stage_allowed,
- resolve_recipe_bottleneck_tags,
+    resolve_recipe_bottleneck_tags,
 };
 
 pub(crate) fn ensure_profile_field_whitelist<T: serde::Serialize>(
@@ -992,4 +933,6 @@ pub(crate) fn ensure_profile_field_whitelist<T: serde::Serialize>(
     )
 }
 
-pub(crate) use action_to_event_economy_support::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};
+pub(crate) use action_to_event_economy_support::{
+    recipe_preferred_tags_compatible, recipe_stage_gate_allowed,
+};
