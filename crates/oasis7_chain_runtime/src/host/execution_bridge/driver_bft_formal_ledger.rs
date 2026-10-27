@@ -52,6 +52,7 @@ pub(super) trait Format {
     const SCOPE: &'static str;
     const OTHER_DIRECTORY: &'static str;
     const OTHER_MARKER: &'static str;
+    const EXTRA_PRIVATE_DIRECTORY: Option<&'static str> = None;
     fn new_origin(
         material_pin_digest: &str,
         first_height: u64,
@@ -126,6 +127,7 @@ pub(super) struct GenericLedger<F: Format> {
     init_pending: bool,
     proof_bytes: usize,
     origin_bytes: usize,
+    external_material_bytes: usize,
     #[cfg(test)]
     fault: Option<(u64, PublicationFault)>,
     #[cfg(test)]
@@ -252,6 +254,7 @@ impl<F: Format> GenericLedger<F> {
             init_pending,
             proof_bytes: 0,
             origin_bytes,
+            external_material_bytes: 0,
             #[cfg(test)]
             fault: None,
             #[cfg(test)]
@@ -279,7 +282,7 @@ impl<F: Format> GenericLedger<F> {
             .map_err(|e| e.to_string())?
             .enumerate()
         {
-            if count > 3 * F::MAX_HEIGHTS + 4 {
+            if count > 3 * F::MAX_HEIGHTS + 4 + usize::from(F::EXTRA_PRIVATE_DIRECTORY.is_some()) {
                 return Err("formal prefix directory capacity exceeded".into());
             }
             let entry = entry.map_err(|e| e.to_string())?;
@@ -287,6 +290,21 @@ impl<F: Format> GenericLedger<F> {
                 .file_name()
                 .into_string()
                 .map_err(|_| "formal prefix non-UTF8 filename")?;
+            if F::EXTRA_PRIVATE_DIRECTORY == Some(name.as_str()) {
+                let metadata = fs::symlink_metadata(entry.path())
+                    .map_err(|_| "inspect private Node directory")?;
+                if !metadata.is_dir()
+                    || metadata.file_type().is_symlink()
+                    || self.pin.is_none()
+                    || self.init_pending
+                {
+                    return Err(
+                        "private Node storage has no completed original prefix identity".into(),
+                    );
+                }
+                crate::controlled_live_config::require_private_owned(&entry.path(), true)?;
+                continue;
+            }
             if name == "writer.lock" || name == "origin.cbor" || name == "init-intent.cbor" {
                 continue;
             }
@@ -312,7 +330,10 @@ impl<F: Format> GenericLedger<F> {
         if (self.pin.is_none() || self.init_pending) && !heights.is_empty() {
             return Err("formal prefix records exist without original origin".into());
         }
-        let mut metadata_bytes = self.origin_bytes;
+        let mut metadata_bytes = self
+            .origin_bytes
+            .checked_add(self.external_material_bytes)
+            .ok_or("private Node cumulative metadata capacity")?;
         let mut slots = BTreeMap::new();
         let mut previous = self.pin.as_ref().map(OriginContract::digest).transpose()?;
         for height in heights {
@@ -452,6 +473,17 @@ impl<F: Format> GenericLedger<F> {
             files::single_link(&self.root.join(LEGACY_MARKER))?;
         }
         self.slots = slots;
+        Ok(())
+    }
+
+    /// Extra private Node records share this ledger lifetime budget. Successful
+    /// reservations are never refunded by a retry or a durable reread.
+    pub(super) fn reserve_external_material(&mut self, bytes: usize) -> Result<(), String> {
+        if bytes < self.external_material_bytes {
+            return Err("private Node retention inventory regressed".into());
+        }
+        self.capacity.charge(bytes - self.external_material_bytes)?;
+        self.external_material_bytes = bytes;
         Ok(())
     }
 

@@ -66,8 +66,9 @@ pub(crate) use state::{ExecutionResourceIdentity, NodeRuntimeExecutionDriver};
 mod bft_execution;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 pub(crate) use bft_execution::{
-    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftPrefixExecutionV1,
-    FormalBftReadExecutionV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    FormalBftPrefixExecutionV1, FormalBftReadExecutionV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
+    PrivateHeaderPrefixV3,
 };
 #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
 #[path = "driver_bft_unsupported.rs"]
