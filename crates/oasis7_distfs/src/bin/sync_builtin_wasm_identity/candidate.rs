@@ -275,8 +275,45 @@ fn check(root: &Path, metadata: &Path, set: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn ci_active(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "no" | "off"
+        )
+    })
+}
+
+fn validate_staging_output(output: &Path) -> Result<(), String> {
+    let absolute = std::path::absolute(output).map_err(|e| e.to_string())?;
+    if absolute
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err("candidate staging path must not escape through parent traversal".into());
+    }
+    for ancestor in absolute.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("candidate staging ancestor is a symlink".into());
+            }
+            Ok(metadata) if ancestor != absolute && !metadata.is_dir() => {
+                return Err("candidate staging ancestor is not a directory".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    if fs::symlink_metadata(&absolute).is_ok() {
+        return Err("candidate staging output already exists".into());
+    }
+    Ok(())
+}
+
 fn prepare(root: &Path, metadata: &Path, output: &Path) -> Result<(), String> {
-    if env::var("CI").as_deref() == Ok("true")
+    if ci_active(env::var("CI").ok().as_deref())
+        || ci_active(env::var("GITHUB_ACTIONS").ok().as_deref())
         || env::var("OASIS7_WASM_SYNC_WRITE_ALLOW").as_deref() != Ok("local-dev")
     {
         return Err("candidate prepare requires explicit local-dev opt-in outside CI".into());
@@ -287,6 +324,8 @@ fn prepare(root: &Path, metadata: &Path, output: &Path) -> Result<(), String> {
         return Err("candidate staging output already exists".into());
     }
     let stage = output.with_extension(format!("prepare-{}", std::process::id()));
+    validate_staging_output(output)?;
+    validate_staging_output(&stage)?;
     fs::create_dir(&stage).map_err(|e| e.to_string())?;
     let result = (|| {
         let mut sets = BTreeMap::new();
@@ -371,7 +410,14 @@ mod tests {
     use super::*;
 
     fn fixture() -> (PathBuf, Descriptor) {
-        let dir = env::temp_dir().join(format!("candidate-baseline-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dir = env::temp_dir().join(format!(
+            "candidate-baseline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -413,6 +459,31 @@ mod tests {
             module_sets,
         };
         (dir, descriptor)
+    }
+
+    #[test]
+    fn ci_truthy_markers_and_staging_ancestors_fail_before_writes() {
+        for value in ["true", "1", "YES", "on", "unknown"] {
+            assert!(ci_active(Some(value)));
+        }
+        for value in ["false", "0", "off", ""] {
+            assert!(!ci_active(Some(value)));
+        }
+        assert!(!ci_active(None));
+        let (dir, _) = fixture();
+        let outside = dir.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("marker"), b"unchanged").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, dir.join("link")).unwrap();
+            assert!(validate_staging_output(&dir.join("link/new-output")).is_err());
+            assert!(!outside.join("new-output").exists());
+        }
+        assert!(validate_staging_output(&dir.join("outside/../escaped")).is_err());
+        assert_eq!(fs::read(outside.join("marker")).unwrap(), b"unchanged");
+        assert!(validate_staging_output(&dir.join("safe-new-output")).is_ok());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

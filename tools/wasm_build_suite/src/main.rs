@@ -17,6 +17,17 @@ fn run_cli() -> Result<(), String> {
     };
 
     match command.as_str() {
+        "producer-recipe" => {
+            let args = args.collect::<Vec<_>>();
+            if args.len() != 2 {
+                return Err("producer-recipe requires <workspace-root> <output-json>".into());
+            }
+            let recipe = oasis7_wasm_build::compute_builder_recipe(std::path::Path::new(&args[0]))
+                .map_err(|e| e.to_string())?;
+            let encoded = serde_json::to_vec_pretty(&recipe).map_err(|e| e.to_string())?;
+            std::fs::write(&args[1], encoded).map_err(|e| e.to_string())?;
+            Ok(())
+        }
         "build" => {
             let request = parse_build_args(args.collect())?;
             let output = run_build(&request).map_err(|err| err.to_string())?;

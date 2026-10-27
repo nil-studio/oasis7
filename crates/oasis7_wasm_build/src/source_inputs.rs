@@ -73,7 +73,7 @@ fn declared_path(root: &Path, value: &str) -> Result<PathBuf, SourceHashError> {
     validate_file(root, &path)?;
     Ok(path)
 }
-fn validate_file(root: &Path, path: &Path) -> Result<(), SourceHashError> {
+pub(super) fn validate_file(root: &Path, path: &Path) -> Result<(), SourceHashError> {
     label(root, path)?;
     let rel = path
         .strip_prefix(root)
@@ -97,7 +97,11 @@ fn validate_file(root: &Path, path: &Path) -> Result<(), SourceHashError> {
     }
     Ok(())
 }
-fn include_path(root: &Path, from: &Path, value: &str) -> Result<PathBuf, SourceHashError> {
+pub(super) fn include_path(
+    root: &Path,
+    from: &Path,
+    value: &str,
+) -> Result<PathBuf, SourceHashError> {
     if Path::new(value).is_absolute() || value.contains('\\') {
         return Err(unsupported("absolute/ambiguous include path"));
     }
@@ -168,30 +172,19 @@ pub fn validate_source_evidence(
     Ok(())
 }
 
-pub fn compute_source_inputs(
-    manifest_path: &Path,
-    target: &str,
-) -> Result<SourceInputs, SourceHashError> {
-    if fs::symlink_metadata(manifest_path)
-        .map_err(unsupported)?
-        .file_type()
-        .is_symlink()
-    {
-        return Err(unsupported("symlink manifest"));
-    }
-    let original_manifest = std::path::absolute(manifest_path).map_err(unsupported)?;
-    if original_manifest
-        .components()
-        .any(|part| matches!(part, Component::ParentDir))
-    {
-        return Err(unsupported(
-            "manifest path must not contain parent traversal",
-        ));
-    }
-    let manifest = fs::canonicalize(manifest_path).map_err(unsupported)?;
-    let metadata = read_cargo_metadata(&manifest, target)?;
-    let packages = collect_local_package_dirs(&metadata, &manifest)?;
-    for package in collect_reachable_packages(&metadata, &manifest)? {
+pub(super) fn validate_macro_owners(
+    metadata: &CargoMetadata,
+    manifest: &Path,
+) -> Result<(), SourceHashError> {
+    validate_macro_owners_with_procedural(metadata, manifest, &["serde_derive"])
+}
+
+pub(super) fn validate_macro_owners_with_procedural(
+    metadata: &CargoMetadata,
+    manifest: &Path,
+    procedural: &[&str],
+) -> Result<(), SourceHashError> {
+    for package in collect_reachable_packages(metadata, manifest)? {
         let crates_io = package.source.as_deref()
             == Some("registry+https://github.com/rust-lang/crates.io-index");
         if matches!(package.name.as_str(), "serde" | "serde_json") && !crates_io {
@@ -228,7 +221,7 @@ pub fn compute_source_inputs(
             .targets
             .iter()
             .any(|target| target.kind.iter().any(|kind| kind == "proc-macro"))
-            && !(package.name == "serde_derive"
+            && !(procedural.contains(&package.name.as_str())
                 && package.source.as_deref()
                     == Some("registry+https://github.com/rust-lang/crates.io-index"))
         {
@@ -238,6 +231,34 @@ pub fn compute_source_inputs(
             )));
         }
     }
+
+    Ok(())
+}
+
+pub fn compute_source_inputs(
+    manifest_path: &Path,
+    target: &str,
+) -> Result<SourceInputs, SourceHashError> {
+    if fs::symlink_metadata(manifest_path)
+        .map_err(unsupported)?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(unsupported("symlink manifest"));
+    }
+    let original_manifest = std::path::absolute(manifest_path).map_err(unsupported)?;
+    if original_manifest
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(unsupported(
+            "manifest path must not contain parent traversal",
+        ));
+    }
+    let manifest = fs::canonicalize(manifest_path).map_err(unsupported)?;
+    let metadata = read_cargo_metadata(&manifest, target)?;
+    let packages = collect_local_package_dirs(&metadata, &manifest)?;
+    validate_macro_owners(&metadata, &manifest)?;
 
     let owners = collect_owning_workspace_manifests(&packages)?;
     let mut dirs = packages.clone();
@@ -456,7 +477,7 @@ fn hash_declaration(declaration: &Declaration) -> String {
     hex::encode(hash.finalize())
 }
 
-fn put_string(hash: &mut Sha256, value: &str) {
+pub(super) fn put_string(hash: &mut Sha256, value: &str) {
     hash.update((value.len() as u64).to_be_bytes());
     hash.update(value.as_bytes());
 }
@@ -615,7 +636,7 @@ impl Closure<'_> {
 }
 
 #[path = "source_input_scan.rs"]
-mod scan;
+pub(super) mod scan;
 use scan::Scanner;
 
 #[cfg(test)]

@@ -104,6 +104,11 @@ impl fmt::Display for SourceHashError {
 
 impl std::error::Error for SourceHashError {}
 
+mod producer_recipe;
+pub use producer_recipe::{
+    BuilderExecution, BuilderRecipe, CandidateBuilderEvidence, compute_builder_recipe,
+    verify_image_producer_recipe,
+};
 mod build_manifest;
 mod source_inputs;
 pub use build_manifest::{BuildManifest, compute_build_manifest_hash};
@@ -169,6 +174,14 @@ fn read_cargo_metadata(
     manifest_path: &Path,
     target: &str,
 ) -> Result<CargoMetadata, SourceHashError> {
+    read_cargo_metadata_from(manifest_path, target, None)
+}
+
+fn read_cargo_metadata_from(
+    manifest_path: &Path,
+    target: &str,
+    directory: Option<&Path>,
+) -> Result<CargoMetadata, SourceHashError> {
     let mut args = vec![
         "metadata".to_string(),
         "--manifest-path".to_string(),
@@ -185,6 +198,9 @@ fn read_cargo_metadata(
 
     let mut command = Command::new("cargo");
     command.env_remove("RUSTC_WRAPPER");
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
     command.args(&args);
     let output = command
         .output()

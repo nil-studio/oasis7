@@ -2,13 +2,13 @@
 use std::path::PathBuf;
 use syn::visit::Visit;
 
-fn reserved_namespace(name: &str) -> bool {
+pub(crate) fn reserved_namespace(name: &str) -> bool {
     matches!(
         name.trim_start_matches("r#"),
         "std" | "core" | "alloc" | "serde_json" | "serde" | "oasis7_wasm_sdk"
     )
 }
-fn known_macro_path(path: &syn::Path) -> bool {
+pub(crate) fn known_macro_path(path: &syn::Path) -> bool {
     let parts = path
         .segments
         .iter()
@@ -24,7 +24,7 @@ fn known_macro_path(path: &syn::Path) -> bool {
         _ => false,
     }
 }
-fn unsafe_macro_import(tree: &syn::UseTree, owner: Option<&str>) -> bool {
+pub(crate) fn unsafe_macro_import(tree: &syn::UseTree, owner: Option<&str>) -> bool {
     match tree {
         syn::UseTree::Path(path) => {
             unsafe_macro_import(&path.tree, owner.or(Some(&path.ident.to_string())))
@@ -52,7 +52,7 @@ fn unsafe_macro_import(tree: &syn::UseTree, owner: Option<&str>) -> bool {
     }
 }
 
-fn known_macro(name: &str) -> bool {
+pub(crate) fn known_macro(name: &str) -> bool {
     matches!(
         name,
         "include"
@@ -268,7 +268,7 @@ fn token_has_identifier(tokens: proc_macro2::TokenStream, names: &[&str]) -> boo
         _ => false,
     })
 }
-fn contains_input_tokens(tokens: proc_macro2::TokenStream) -> bool {
+pub(crate) fn contains_input_tokens(tokens: proc_macro2::TokenStream) -> bool {
     if token_has_identifier(
         tokens.clone(),
         &[
@@ -301,7 +301,7 @@ fn contains_input_tokens(tokens: proc_macro2::TokenStream) -> bool {
     }
     tokens.into_iter().any(|token|matches!(token,proc_macro2::TokenTree::Group(group) if contains_input_tokens(group.stream())))
 }
-fn known_attribute(meta: &syn::Meta) -> bool {
+pub(crate) fn known_attribute(meta: &syn::Meta) -> bool {
     use syn::parse::Parser;
     let path = meta.path();
     if path

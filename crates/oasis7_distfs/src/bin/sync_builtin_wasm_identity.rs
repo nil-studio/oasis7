@@ -343,9 +343,11 @@ fn receipt_build_manifest_hash(receipt: &BuildReceipt) -> Result<String, String>
         wasm_deterministic_guard: receipt.wasm_deterministic_guard.clone(),
         canonicalizer_version: receipt.canonicalizer_version.clone(),
         container_platform: receipt.container_platform.clone(),
-        builder_image_ref: receipt.builder_image_ref.clone(),
-        builder_image_digest: receipt.builder_image_digest.clone(),
+        builder_image_ref: Some(receipt.builder_image_ref.clone()),
+        builder_image_digest: Some(receipt.builder_image_digest.clone()),
         build_suite_version: receipt.build_suite_version.clone(),
+        build_manifest_schema_version: None,
+        builder_recipe: None,
     };
     oasis7_wasm_build::compute_build_manifest_hash(&manifest).map_err(|error| error.to_string())
 }

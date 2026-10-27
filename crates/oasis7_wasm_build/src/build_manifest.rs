@@ -15,9 +15,15 @@ pub struct BuildManifest {
     pub wasm_deterministic_guard: String,
     pub canonicalizer_version: String,
     pub container_platform: String,
-    pub builder_image_ref: String,
-    pub builder_image_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_image_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_image_digest: Option<String>,
     pub build_suite_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_manifest_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_recipe: Option<crate::BuilderRecipe>,
 }
 
 pub fn compute_build_manifest_hash(manifest: &BuildManifest) -> Result<String, SourceHashError> {
@@ -25,6 +31,20 @@ pub fn compute_build_manifest_hash(manifest: &BuildManifest) -> Result<String, S
         return Err(SourceHashError::UnsupportedInput(
             "unsupported build manifest source input rule version".into(),
         ));
+    }
+    match (
+        manifest.build_manifest_schema_version,
+        &manifest.builder_recipe,
+        &manifest.builder_image_ref,
+        &manifest.builder_image_digest,
+    ) {
+        (None, None, Some(_), Some(_)) => {}
+        (Some(3), Some(recipe), None, None) => recipe.validate()?,
+        _ => {
+            return Err(SourceHashError::UnsupportedInput(
+                "unknown/mixed build manifest identity".into(),
+            ));
+        }
     }
     let bytes = serde_json::to_vec(manifest).map_err(|error| {
         SourceHashError::UnsupportedInput(format!("serialize build manifest: {error}"))
@@ -48,9 +68,11 @@ mod tests {
             wasm_deterministic_guard: "1".into(),
             canonicalizer_version: "fixture".into(),
             container_platform: "linux-x86_64".into(),
-            builder_image_ref: "fixture".into(),
-            builder_image_digest: "fixture".into(),
+            builder_image_ref: Some("fixture".into()),
+            builder_image_digest: Some("fixture".into()),
             build_suite_version: "fixture".into(),
+            build_manifest_schema_version: None,
+            builder_recipe: None,
         };
         // Independent Python hashlib vectors preserve the frozen v1 field order.
         assert_eq!(
