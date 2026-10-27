@@ -51,6 +51,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "driver_bft_v2_formal_header_identity_tests.rs"]
+mod header_identity_tests;
 #[path = "driver_bft_v2_formal_profile_tests.rs"]
 mod profile_tests;
 
