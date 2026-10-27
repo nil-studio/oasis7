@@ -460,10 +460,10 @@ test('public scoped client claims credentials and heartbeats without borrowing p
     const wrongBody=publicClientProof(basis,runtime,{tail:challengePath,body:{...negativeBody,request_id:'wrong-body-challenge'},requestId:'wrong-body-challenge',tag:'oasis7-custody-challenge-v1',token:credentials.get('execution')});
     wrongBody.init.body=JSON.stringify({...negativeBody,request_id:'mutated-after-signature'});
     const wrongHost=publicClientProof(basis,runtime,{tail:challengePath,body:{...negativeBody,request_id:'wrong-host-challenge'},requestId:'wrong-host-challenge',tag:'oasis7-custody-challenge-v1',token:credentials.get('execution')});wrongHost.init.headers.Host='wrong.example';
-    for(const proof of [wrongPurpose,wrongBody,wrongHost]){
+    for(const [name,proof] of [['wrong-purpose-token',wrongPurpose],['body-after-signature',wrongBody],['literal-host-fault',wrongHost]]){
       const before=runtime.nativeRequests(),counter=publicClientCounters(runtime,basis.session_id);
-      const rejected=await runtime.publicClientFetch(proof.path,proof.init);
-      assert.ok(rejected.status>=400,'invalid public proof must be rejected');
+      const rejected=await (name==='literal-host-fault'?runtime.publicClientHostFault(proof.path,proof.init):runtime.publicClientFetch(proof.path,proof.init));
+      assert.ok(rejected.status>=400,`${name}: invalid public proof must be rejected`);
       assert.deepEqual(runtime.nativeRequests(),before);assert.deepEqual(publicClientCounters(runtime,basis.session_id),counter,'invalid proof never charges a session or creates a source');
     }
   });

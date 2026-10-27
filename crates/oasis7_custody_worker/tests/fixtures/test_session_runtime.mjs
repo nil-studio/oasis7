@@ -3,6 +3,17 @@ import deployed from '../../artifacts/identity/entry.mjs';
 export * from '../../artifacts/identity/entry.mjs';
 export default {async fetch(request,env,ctx){
     const url=new URL(request.url);
+    const hostFaultPrefix='/fixture/client-wrong-host';
+    if(url.pathname.startsWith(hostFaultPrefix)) {
+        const actualPath=url.pathname.slice(hostFaultPrefix.length);
+        if(request.method!=='POST'||url.search||!/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/.test(actualPath))return new Response('invalid fixed fault',{status:400});
+        const headers=new Headers(request.headers);
+        headers.set('CF-Connecting-IP','192.0.2.29');headers.set('Host','wrong.example');
+        // Inject after Miniflare ingress normalization. The signed actual target,
+        // body and proof are unchanged; real Rust must reject this literal Host.
+        const actual=new Request(new URL(actualPath,url.origin),{method:'POST',headers,body:request.body,cf:{colo:'TEST'},duplex:'half'});
+        return deployed.fetch(actual,env,ctx);
+    }
     if(request.method==='POST' && ['/fixture/test-session-attestation','/fixture/native-history'].includes(url.pathname)) {
         try {
             const raw=await request.text();
