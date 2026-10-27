@@ -24,7 +24,7 @@ def remove_empty_branches(body, target):
     # This split uses the exact frozen source's top-level indentation, not a
     # general QL parser. QL rejects statically empty terms instead of retaining
     # them as false disjuncts (even when the declared return type is ItemNode).
-    clauses = body.split(b"    or\n")
+    clauses = re.split(rb"(?m)^    or\n", body)
     if target == b"getASuccessorNonCrate":
         kept = [c for c in clauses if b"externCrateEdge(this, name, kind, result)" not in c]
         if len(clauses) - len(kept) != 1:

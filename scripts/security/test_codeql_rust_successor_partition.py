@@ -144,7 +144,13 @@ def official_fixture():
     or
     macroUseEdge(this, name, kind, useOpt, result)
     or
-    this = any(TraitItemNodeImpl trait | result = trait.getAssocItem(name))
+    this =
+      any(TraitItemNodeImpl trait |
+        result = trait.getAssocItem(name)
+        or
+        not trait.hasAssocItem(name) and
+        result = trait.resolveABoundCand().getASuccessor(name).(AssocItemNode)
+      ) and kind.isExternal()
     or
     typeImplEdge(this, _, name, result)
     or
@@ -213,7 +219,7 @@ class PartitionPatch(unittest.TestCase):
             hashlib.sha256(data).hexdigest(), hashlib.sha256(stages).hexdigest())
         crate = result.split(b"  final ItemNode getASuccessorCrate", 1)[1].split(candidate.METHOD_END, 1)[0]
         for impossible in (b"macroExportEdge", b"macroUseEdge", b"any(TraitItemNodeImpl", b"typeImplEdge",
-                b"TypeParamItemNodeImpl", b"ImplTraitTypeReprItemNodeImpl", b'name = "super"', b"getImmediateParentModule"):
+                b"TypeParamItemNodeImpl", b"ImplTraitTypeReprItemNodeImpl", b'name = "super"', b"getImmediateParentModule", b"trait.hasAssocItem", b"trait.resolveABoundCand"):
             self.assertNotIn(impossible, crate)
         for required in (b"implEdge", b"resolveAliasCand", b"crateDependencyEdge", b"externCrateEdge", b"useImportEdge", b"preludeEdge"):
             self.assertIn(required, crate)
