@@ -711,8 +711,9 @@ impl World {
                     if matches!(
                         outcome,
                         WorldEventBody::Domain(DomainEvent::ActionRejected { .. })
-                    ) {
-                        decision.cost = movement_rejection_cost.unwrap_or_default();
+                    ) && let Some(rejection_cost) = movement_rejection_cost
+                    {
+                        decision.cost = rejection_cost;
                     }
                     Some(outcome)
                 } else {
