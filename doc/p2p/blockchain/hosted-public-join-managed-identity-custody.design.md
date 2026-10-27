@@ -883,6 +883,9 @@ setup 当前观察使用显式 `OwnerSetupV1` response profile，不改变已有
 
 阶段来源的五秒时限是真实授权边界；即使 World 已处理请求，过期也只能归档原件事实，不能用旧 claim 时间完成当前准入。原 Submit/Lookup 每类只保存一条 immutable 原件，因此 Received/Pending 不能覆盖为后来 Committed。后续恢复使用独立 `OwnerSetupReconcile` 正数 fresh-MFA 批准及独立账本，不延长原 setup，不重发写请求，不借 Provision、ManagedLogin 或 TestSession 余额。
 
+Account 存储适配器可在单个 store 实例内复用一份已完整严格恢复的历史快照，但每次读取和 SQL 回调仍须读取实际当前原始字节；只有整串字节完全相同时才能克隆已验快照，任何字节变化都重新执行完整恢复校验。该复用只省去相同持久化输入的重复解析与历史校验，不复用当前授权、时钟、Fence、外部验签或 transition 结果；SQL 库存校验、当前检查、状态变更校验和最终原子提交照常执行。快照不跨 store 实例共享，不以 audit sequence 或摘要代替原始字节相等。
+
+
 批准闭合绑定 reconcile ID、setup/provision、唯一阶段、原 setup plan digest、原请求与 correlation digest、固定 World、Owner/Executor key refs、原 deadline、此次 deadline（不晚于原 deadline）、attempt limit 1..3 与独立 transport limit。来源先预留 8，每 attempt 在任何外部 I/O 前另预留 104；上限仍为 400，固定最多 3 次（预算分别为 112、216、320），首次至少 112。每 attempt 独立 nonce、五票角色矩阵与一次 lookup claim；失败或 unknown 不返还。原 setup 已预留阶段不重新扣费或 refund，未预留后续写阶段仍只能使用原 setup 的剩余预算及原期限，新 reconcile 余额不资助后续写。
 
 每 attempt 重建当前来源检查、Directory/Fence、私有会话及 fresh policy/admission，Owner 只能签已登记的固定只读 observation。实际 lookup 必须发送原阶段已存 authenticated lookup bytes，不能重新编码替换 correlation。新的签名 lookup response 存入该 attempt 自己的 immutable 槽，不覆盖原 Submit/Lookup。冷调用图从阶段 95/96 图去掉 effect submit，保留来源、五 oracle、私有 actor、fresh access、预检 Owner 读取、一次 lookup、事实归档及当前结果回调，基础保守 91；新增 ClaimResult 的独立当前核验与 Account 往返共 5 跳，不能用旧 permit 替代；归档后重新读取 post-state 的独立 Root status/native/World 共 3 跳，Result permit 返回后独立 Fence 共 2 跳，完整保守图为 101/104，三跳余量不构成重试许可。Result 回调容量在 post-state 网络读取前本地一次 claim，返回已绑定独立 post-state nonce 的新只读 permit；lookup 前状态与 post-state 状态使用不同 nonce，Completion 同时携带并分别强验两份 Root 状态，不以同 nonce 重新观察续期。

@@ -80,6 +80,12 @@ Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；[上游要求](../../p
 
 浏览器首次使用须有合法的 owner → canonical participant → Task → goal 接线，不能假定普通网页认领或导入账号认证密钥已经建立规范任务。已绑定账号先读取原参与者，owner 不匹配时停止，不新建替代 Agent 或自动换权。未绑定的新账号可在模型 Key 表单之前，明确确认创建规范参与者，再使用同一已安装网页 owner signer 签名创建 Task 与发布目标；每个世界写入先持久原件、提交后按原件查询，未知时不更换 operation。该准备动作不调用模型、不自动登记 executor 或启动运行；准备后展示世界、Agent、Task 和目标，由玩家分别确认 executor 与收费运行。刷新使用同一 owner 会话恢复材料，丢失 owner 身份不以账号 cookie 冒充所有权。
 
+Participant 登记、Task 创建与 goal publication 的持久原件必须区分 `not_sent`（可靠记录证明尚未进入实际 POST 边界）与 `may_have_sent`。新原件与 `not_sent` 一次持久化；完成当前登录/CSRF 和 owner 授权核对后，在实际 POST 前以本原件的原子条件更新持久化为 `may_have_sent`，写入失败不得发送。标记后即使 Stop 或传输失败也保持可能已发；旧 schema 或缺可靠标记的原件保守归为可能已发，不能从 Unknown、无 receipt 或近期快照倒推出未发。所有槽位分别记录阶段；同账号跨页竞争只能有一个原子更新成功，失败者只核对原件。
+
+schema 2 的发送许可与共用操作生命周期保持同一事务：`not_sent` 对应 `prepared_unsent`，实际 POST 前同时推进为 `may_have_sent` 与 `dispatch_may_have_started`。旧 schema、任一可靠许可标记缺失或未保留原件创建时的 owner/task scope 时，只读查询，不补造发送许可；新 Task/goal 原件的首发还须在发送边界核对当前 canonical owner、任务与 fence。已验证 terminal 回执以原件为键保留，迟到查询不能降级它，旧终态记录也不能因阶段标记变化而重发。私有目标准备仍按其独立的同 proof 回放策略处理。
+
+只有可靠 `not_sent` 原件可显示“继续发送保留的原件”。刷新、inspect、重连及 Stop 后重开只读，不自动发送；玩家须在当前账号/world/owner 授权仍有效时另行明确继续，复用完全相同的签名字节、operation/nonce 与绑定。Task/goal 的后续准备仍使用原有明确同意和原目标，不自动登记 executor 或开始模型。`may_have_sent` 只按原件查询，不重新提交或换号；迟到旧账号/世界/停止代的回调不能取得发送资格。此切片不改变 private goal preparation 的同原件回放合同，也不将 hosted action 纳入已完成范围。
+
 浏览器 Game Client 的协议校验由独立 Rust/WASM 桥复用 `oasis7_client_api` 的 canonical CBOR、BLAKE3、Ed25519 与 typed validator，不复用渲染 WASM 的信任或以 JS 数值重编码替代签名原文。请求/响应原文在桥中校验后才投影为页面状态。服务公钥和 world/genesis pin 来自部署端唯一注入的 runtime config，不能从 URL、模型建议或未认证快照安装。独立 executor 的非可导出 CryptoKey 与原签名操作/恢复索引存于按账号、世界、Agent 隔离的 IndexedDB；模型 Key 仍只存 localStorage。owner 通过现有 Delegation 与 GameExecutorControl Bind 显式登记 executor，登录身份不直接冒充 executor。
 
 浏览器复用固定同源 `/api/public/hosted-account/v2` 的 participant、entry-owner/control 与 entry-executor/control 网关；部署将 World Service、world/genesis、服务公钥、identity namespace 和 participant issuer 公钥固定注入 runtime config。网关沿用登录 Cookie、CSRF、owner/admission/read 授权与路由白名单，不接收模型凭证；浏览器保留原签名、核验 typed 世界回执，登录本身不授予 executor 权限。请求和响应受大小、总期限和取消限制。启用前核对三类既有网关能力，缺失时禁用；CSP 仅在启用浏览器 BYOK 时精确增加供应商域名。部署显式设置 `OASIS7_BROWSER_BYOK_ENABLED=1`；默认关闭，开启要求 participant-entry、owner-control、executor-control 三个既有启用标记均为 1，以及完整的既有 participant trust、issuer 与 identity namespace/epoch 配置。关闭标记后不注入浏览器信任配置，也不增加模型 CSP 域名。

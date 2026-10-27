@@ -107,6 +107,7 @@ fn decode(value: &str) -> Result<ProvisionApprovalSnapshot> {
 }
 // Keep the validated immutable comparison baseline from the same SQL callback
 // bytes. Re-decoding those identical bytes cannot observe a newer SQL state.
+#[cfg(feature = "approval-harness")]
 fn transition_snapshot(
     value: &str,
 ) -> Result<(ProvisionApprovalSnapshot, AccountProvisionApprovalState)> {
@@ -167,8 +168,34 @@ fn unchanged(raw: &str) -> Array {
     result
 }
 
+#[derive(Default)]
+struct SnapshotReader(std::cell::RefCell<Option<(String, ProvisionApprovalSnapshot)>>);
+impl SnapshotReader {
+    fn restore(&self, raw: &str) -> Result<ProvisionApprovalSnapshot> {
+        if let Some((previous, snapshot)) = self.0.borrow().as_ref()
+            && previous == raw
+        {
+            return Ok(snapshot.clone());
+        }
+        let snapshot = decode(raw)?;
+        self.0.replace(Some((raw.to_owned(), snapshot.clone())));
+        Ok(snapshot)
+    }
+    fn transition(
+        &self,
+        raw: &str,
+    ) -> Result<(ProvisionApprovalSnapshot, AccountProvisionApprovalState)> {
+        let snapshot = self.restore(raw)?;
+        let previous = snapshot.state.clone();
+        Ok((snapshot, previous))
+    }
+}
+
 pub struct OwnerProvisionApprovalStore {
     state: JsValue,
+    // Historical restore only. Every use still reads SQL and every transition
+    // obtains current authority, clock and inventory independently.
+    reader: SnapshotReader,
 }
 impl OwnerProvisionApprovalStore {
     /// The exact draft must already exist in this Account's SQL storage.
@@ -193,7 +220,10 @@ impl OwnerProvisionApprovalStore {
         let closure = Closure::borrow_mut(&mut callback);
         update(&state, KEY, &initial, closure.as_ref().unchecked_ref())?;
         drop(closure);
-        Ok(Self { state })
+        Ok(Self {
+            state,
+            reader: SnapshotReader::default(),
+        })
     }
     /// Reopen only an existing component record; never inserts an empty approval authority.
     pub fn open(state: JsValue) -> Result<Self> {
@@ -209,10 +239,13 @@ impl OwnerProvisionApprovalStore {
         let closure = Closure::borrow_mut(&mut callback);
         update(&state, KEY, &original, closure.as_ref().unchecked_ref())?;
         drop(closure);
-        Ok(Self { state })
+        Ok(Self {
+            state,
+            reader: SnapshotReader(std::cell::RefCell::new(Some((original, saved)))),
+        })
     }
     pub fn snapshot(&self) -> Result<ProvisionApprovalSnapshot> {
-        decode(&read(&self.state, KEY)?)
+        self.reader.restore(&read(&self.state, KEY)?)
     }
     // Budget/nonce reservations only. This port cannot return a send or key permit.
     fn local_reservation<R, T>(&self, event: &str, reference: &str, mut transition: T) -> Result<R>
@@ -224,7 +257,7 @@ impl OwnerProvisionApprovalStore {
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
             let _performance = performance::callback(event, &old);
-            let (mut next, previous) = transition_snapshot(&old)?;
+            let (mut next, previous) = self.reader.transition(&old)?;
             validate_inventory(&inventory, next.state.draft(), true)?;
             let result = transition(&mut next.state, now()?)?;
             let array = if next.state == previous {
@@ -328,7 +361,7 @@ impl OwnerProvisionApprovalStore {
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
             let _performance = performance::callback(event, &old);
-            let (mut next, previous) = transition_snapshot(&old)?;
+            let (mut next, previous) = self.reader.transition(&old)?;
             let trusted = current()?;
             let result = transition(&mut next.state, &trusted.as_core(), now()?)?;
             let array = if next.state == previous {

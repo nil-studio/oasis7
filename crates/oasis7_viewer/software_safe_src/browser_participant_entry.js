@@ -128,8 +128,14 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
   }
   function check(record) {
     if (record === undefined) return null;
-    if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex
+    if (![1, 2].includes(record?.schema) || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex
       || !record.owner || typeof record.sent !== "boolean") fail("participant_storage_corrupt");
+    if (record.schema === 2 && record.registrationSendState !== undefined) {
+      if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState)
+        || (record.registrationSendState === "not_sent") !== (record.sent === false)
+        || (record.registrationSendState === "not_sent" && (record.receiptRaw || record.registrationTerminalReply
+          || (record.registrationPhase !== undefined && record.registrationPhase !== "prepared_unsent")))) fail("participant_storage_corrupt");
+    }
     const r = record.owner.request;
     if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex
       || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest
@@ -220,6 +226,8 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     catch { fail("participant_response_unknown"); }
     return validate(kind, validationRequest, raw);
   }
+  const isUnsent = (record) => record?.schema === 2 && record.registrationSendState === "not_sent"
+    && record.sent === false && record.registrationPhase === "prepared_unsent" && !record.registrationTerminalReply;
   function registrationMaterial(record) {
     const originalRaw = record.registrationRaw;
     if (!originalRaw) fail("participant_original_missing");
@@ -277,6 +285,8 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     active(); await discover(); active(); const record = await ensureOwner();
     if (record.agentId) canonicalAgentId = record.agentId;
     if (record.registrationRaw) {
+      if (isUnsent(record)) return { state: "unsent", code: "participant_original_not_sent", continuation: "participant",
+        operation: { ...operationObservation({ phase: record.registrationPhase }), originalKind: "participant_registration" } };
       try { await registrationLookup(record); }
       catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code, diagnostic: error.diagnostic, operation: (await load())?.registrationObservation }; throw error; }
     }
@@ -290,7 +300,10 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
   }
   async function registerParticipant(consent, { continueOriginal = false } = {}) {
     if (consent !== true) fail("participant_consent_required");
-    active(); await discover(); let record = await ensureOwner(); active();
+    active(); await discover();
+    // A continuation never synthesizes a replacement owner/original after deletion.
+    let record = continueOriginal ? await load() : await ensureOwner(); active();
+    if (continueOriginal && !record?.registrationRaw) fail("participant_original_missing");
     let created = false;
     if (!record.registrationRaw) {
       const authorized = await authorize(record.owner);
@@ -299,22 +312,25 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
       const raw = `{"contract_version":1,"correlation":${correlationRaw},"deadline_unix_ms":null,"signed_payload":${json(payload)}}`;
       record = await update((current) => {
         if (current.registrationRaw) return current;
-        created = true; current.registrationRaw = raw; current.sent = true;
+        created = true; current.schema = 2; current.registrationRaw = raw; current.sent = false;
+        current.registrationSendState = "not_sent";
         current.registrationPhase = "prepared_unsent"; return current;
       });
     }
     registrationMaterial(record);
     const terminal = terminalStatus(record);
     const advice = operationObservation({ phase: record.registrationPhase, status: terminal, verified: terminalDisposition(terminal),
-      intent: created || continueOriginal ? "continue_authorized_entry" : "query_only", writeAllowed: true });
+      intent: created || continueOriginal ? "continue_authorized_entry" : "query_only", writeAllowed: isUnsent(record) });
     if (advice.nextAction === "continue_original") {
+      if (!created) await authorize(record.owner);
       try {
         const originalRaw = record.registrationRaw;
         const response = await transport.gatewayCall("/participant/submit", null, { rawBody: originalRaw,
           beforeSend: async () => {
             active();
             await update((current) => {
-              if (!current || current.registrationRaw !== originalRaw || current.registrationPhase !== "prepared_unsent" || current.registrationTerminalReply) fail("participant_original_conflict");
+              if (!current || current.registrationRaw !== originalRaw || !isUnsent(current)) fail("participant_original_conflict");
+              current.registrationSendState = "may_have_sent"; current.sent = true;
               current.registrationPhase = "dispatch_may_have_started"; return current;
             });
             active();
@@ -322,7 +338,9 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
         verified("/v1/world/submit", originalRaw, response, "intent", field(originalRaw, ["correlation"]));
       } catch { /* Durable phase and original are retained; recovery only queries. */ }
     }
-    record = await load();
+    active(); record = await load();
+    if (!record?.registrationRaw) fail("participant_original_missing");
+    if (isUnsent(record)) fail("participant_original_not_sent");
     await registrationLookup(record); active();
     return proofs(await load(), await authorize(record.owner));
   }
