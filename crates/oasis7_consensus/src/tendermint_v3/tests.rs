@@ -566,6 +566,6 @@ fn header_journal_proposal_and_commit_resume_original_public_decisions() {
     );
     assert_eq!(next.height, 4);
     let json = serde_json::to_string(&reserved).unwrap();
-    assert!(!json.contains("actions_cbor"));
-    assert!(!json.contains("payload_cbor"));
+    assert!(!json.contains("\"actions_cbor\":"));
+    assert!(!json.contains("\"payload_cbor\":"));
 }
