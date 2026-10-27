@@ -19,6 +19,8 @@ cache-mode: write
 
 env:
   CARGO_TERM_COLOR: always
+  # Shared repository budget; GitHub capacity and billing must also permit 20 GB.
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -48,6 +50,32 @@ jobs:
         env:
           REQUESTED_REF: ${{ inputs.tag || github.ref }}
         run: python3 scripts/package-source-plan.py --release
+
+  cache-bootstrap-maintenance:
+    needs: plan
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' &&
+      needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha
+    cache-mode: none
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: ci-cache-maintenance-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Recover dependency and workspace cache rotation headroom
+        env:
+          CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+          CACHE_MAINTENANCE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: python3 scripts/ci-cache-maintenance.py --recover --apply
 
   release_gate_runtime_core:
     cache-mode: read
@@ -433,7 +461,13 @@ jobs:
           fi
 
   build-web-dist:
-    needs: [plan, release_gate]
+    needs: [plan, release_gate, cache-bootstrap-maintenance]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      needs.release_gate.result == 'success'
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -467,11 +501,26 @@ jobs:
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
+      - name: Install Release cache admission
+        id: dependency-cache-tools
+        if: hashFiles('scripts/ci-rust-cache-admission.cjs') != ''
+        continue-on-error: true
+        shell: bash
+        run: python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: release-packages-web-wasm-trusted-v3
-          save-if: ${{ github.ref == 'refs/heads/main' && needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha }}
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha }}
+          cache-provider: github
           cache-on-failure: false
       - name: Restore pinned Trunk release archive
         id: trunk-cache
@@ -521,6 +570,12 @@ jobs:
 
   package-native:
     needs: [plan, build-web-dist]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      needs.build-web-dist.result == 'success'
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -556,7 +611,8 @@ jobs:
           set -euo pipefail
           cache_write=false
           live_head="$(git rev-parse HEAD)"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" && "${live_head}" == "${GITHUB_SHA}" ]]; then
+          if [[ "${GITHUB_REF}" == "refs/heads/main" && "${live_head}" == "${GITHUB_SHA}" &&
+                "${GITHUB_WORKFLOW_SHA}" == "${GITHUB_SHA}" && "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
             cache_write=true
           fi
           echo "save=${cache_write}" >> "${GITHUB_OUTPUT}"
@@ -584,17 +640,42 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Install Release cache admission
+        id: dependency-cache-tools
+        if: hashFiles('scripts/ci-rust-cache-admission.cjs') != ''
+        continue-on-error: true
+        shell: bash
+        run: python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os == 'Linux'
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: release-linux
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: oasis7-package-native-${{ runner.os }}-${{ matrix.target_triple }}-packaging-trusted-v2
           cache-on-failure: false
-          save-if: ${{ steps.linux-package-cache-write.outputs.save == 'true' }}
+          cache-provider: github
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && steps.linux-package-cache-write.outputs.save == 'true' && needs.plan.outputs.checkoutSha == github.sha }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os != 'Linux'
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ runner.os == 'Windows' && 'release-windows' || 'release-macos' }}
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: release-packages-package-native-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2
-          cache-on-failure: true
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha }}
+          cache-provider: github
+          cache-on-failure: false
       - name: Download web dist artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -713,8 +794,38 @@ jobs:
           path: output/release/assets/oasis7-${{ matrix.platform }}-ops-tools.tar.gz
           if-no-files-found: error
 
+  cache-maintenance:
+    needs: [plan, build-web-dist, package-native]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      (needs.build-web-dist.result == 'success' || needs.package-native.result == 'success') &&
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' &&
+      needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha
+    cache-mode: none
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: ci-cache-maintenance-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Recover cache rotation after optional Release saves
+        env:
+          CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+          CACHE_MAINTENANCE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: python3 scripts/ci-cache-maintenance.py --recover --apply
+
   publish-release:
     needs: [plan, package-native]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      needs.package-native.result == 'success'
     cache-mode: none
     runs-on: ubuntu-24.04
     permissions:

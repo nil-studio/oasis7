@@ -141,7 +141,7 @@ for path in workflow_paths:
     assert 'live_head="$(git rev-parse HEAD)"' in guard
     assert (
         '[[ "${GITHUB_REF}" == "refs/heads/main" && '
-        '"${live_head}" == "${GITHUB_SHA}" ]]'
+        '"${live_head}" == "${GITHUB_SHA}"'
     ) in guard, (
         f"{path.name} must reject main-dispatch builds checked out at a tag/SHA"
     )
@@ -162,8 +162,8 @@ for path in workflow_paths:
     assert "GITHUB_REF_NAME" not in linux_key.group("key")
     assert "cache-on-failure: false" in linux[0], f"{path.name} Linux cache must save successful jobs only"
     expected_save = {
-        "release-packages.yml": "save-if: ${{ steps.linux-package-cache-write.outputs.save == 'true' }}",
-        "testnet-packages.yml": "save-if: ${{ github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}",
+        "release-packages.yml": "save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && steps.linux-package-cache-write.outputs.save == 'true' && needs.plan.outputs.checkoutSha == github.sha }}",
+        "testnet-packages.yml": "save-if: ${{ job.status == 'success' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}",
         "mainnet-packages.yml": "save-if: false",
     }
     assert expected_save[path.name] in linux[0], (
@@ -173,9 +173,8 @@ for path in workflow_paths:
     non_linux_key = re.search(r"^          shared-key: (?P<key>.+)$", non_linux[0], re.MULTILINE)
     assert non_linux_key, f"{path.name} non-Linux cache must declare shared-key"
     observed_non_linux_keys.add(non_linux_key.group("key"))
-    assert "cache-on-failure: true" in non_linux[0], (
-        f"{path.name} non-Linux cache behavior must remain unchanged"
-    )
+    expected_failure = "false" if path.name == "release-packages.yml" else "true"
+    assert "cache-on-failure: " + expected_failure in non_linux[0]
     if path.name != "release-packages.yml":
         assert "save-if: false" in non_linux[0]
 
@@ -186,12 +185,17 @@ for path in workflow_paths:
         git = fixture / "git"
         git.write_text('#!/bin/sh\nprintf "%s\\n" "$TEST_HEAD"\n')
         git.chmod(0o755)
-        for ref, head, expected in (("refs/heads/main", "event", "true"),
-                                    ("refs/heads/main", "candidate", "false"),
-                                    ("refs/heads/other", "event", "false")):
+        contexts = [("refs/heads/main", "event", "event", "workflow_dispatch", "true"),
+                    ("refs/heads/main", "candidate", "event", "workflow_dispatch", "false"),
+                    ("refs/heads/other", "event", "event", "workflow_dispatch", "false")]
+        if path.name == "release-packages.yml":
+            contexts += [("refs/heads/main", "event", "stale-workflow", "workflow_dispatch", "false"),
+                         ("refs/heads/main", "event", "event", "push", "false")]
+        for ref, head, workflow_sha, event, expected in contexts:
             output = fixture / "output"
             env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"],
-                       GITHUB_REF=ref, GITHUB_SHA="event", TEST_HEAD=head, GITHUB_OUTPUT=str(output))
+                       GITHUB_REF=ref, GITHUB_SHA="event", TEST_HEAD=head, GITHUB_OUTPUT=str(output),
+                       GITHUB_WORKFLOW_SHA=workflow_sha, GITHUB_EVENT_NAME=event)
             subprocess.run(["bash", "-e", "-o", "pipefail", "-c", shell], env=env, check=True)
             assert output.read_text() == "save=" + expected + "\n"
             output.unlink()
@@ -278,6 +282,97 @@ mainnet = workflow_paths[1].read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
 bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
 ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
+
+# Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
+# One repository pool, not a separate allowance for each producer. This is a
+# contract for the checked-in block-style env declarations, not a YAML parser.
+repository_budget = '20000000000'
+budget_entries = {
+    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+    'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
+    'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+}
+budget_assignment = re.compile(
+    r'^( +)((?:CI|ECS)_CACHE_REPOSITORY_BUDGET_BYTES|'
+    r'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES):[ \t]*([^\n]+)$', re.M)
+
+
+def check_repository_cache_budgets(workflows):
+    declared = {name for name, text in workflows.items() if budget_assignment.search(text)}
+    assert declared == set(budget_entries), ('unregistered or missing budget entrypoints', declared)
+    for name, (variable, dependency_steps) in budget_entries.items():
+        text = workflows[name]
+        header = text.split('\njobs:\n', 1)[0]
+        assert declared_env(header, 0).get(variable) == repository_budget, (name, 'repository budget')
+        reference = '${{ env.' + variable + ' }}'
+        expected = [(2, variable, repository_budget)]
+        expected += [(10, 'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES', reference)] * dependency_steps
+        if name == 'ecs-packages.yml':
+            expected.append((10, 'CI_CACHE_REPOSITORY_BUDGET_BYTES', reference))
+            maintenance = job_body(text, 'cache-maintenance')
+            assert 'CI_CACHE_REPOSITORY_BUDGET_BYTES: ' + reference in maintenance
+        actual = [(len(indent), key, value.strip().strip("\"'"))
+                  for indent, key, value in budget_assignment.findall(text)]
+        assert sorted(actual) == sorted(expected), (name, 'budget override or broken forwarding', actual)
+        assert '--repository-budget-bytes' not in text, (name, 'CLI must not override the workflow budget')
+        assert not re.search(r'\b(?:CI|ECS)_CACHE_REPOSITORY_BUDGET_BYTES=', text), \
+            (name, 'shell must not override the workflow budget')
+
+
+# Scan all entrypoints, so a new budget-bearing workflow cannot silently escape
+# the inventory. Read-only consumers without budgets need no artificial writer.
+budget_workflows = {path.name: path.read_text(encoding='utf-8')
+                    for suffix in ('*.yml', '*.yaml')
+                    for path in (root / '.github/workflows').glob(suffix)}
+check_repository_cache_budgets(budget_workflows)
+budget_negative_cases = 0
+
+
+def reject_budget_mutation(workflows, label):
+    global budget_negative_cases
+    try:
+        check_repository_cache_budgets(workflows)
+    except AssertionError:
+        budget_negative_cases += 1
+    else:
+        raise AssertionError(('budget regression was not detected', label))
+
+
+for name, (variable, _) in budget_entries.items():
+    text = budget_workflows[name]
+    declaration = re.search(rf'^  {variable}: [^\n]+\n', text, re.M)[0]
+    for label, replacement in (
+        ('old 10 GB', declaration.replace(repository_budget, '10000000000')),
+        ('20 GiB instead of decimal GB', declaration.replace(repository_budget, '21474836480')),
+        ('missing declaration', ''),
+        ('duplicate declaration', declaration + declaration),
+    ):
+        reject_budget_mutation(budget_workflows | {name: text.replace(declaration, replacement, 1)},
+                               (name, label))
+    shadow = ('\njobs:\n  budget-shadow-fixture:\n    runs-on: ubuntu-24.04\n'
+              f'    env:\n      {variable}: "10000000000"\n'
+              '    steps:\n      - run: "true"\n')
+    reject_budget_mutation(budget_workflows | {name: text.replace('\njobs:\n', shadow, 1)},
+                           (name, 'job override'))
+    forwarded = re.search(r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)[0]
+    for label, replacement in (
+        ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
+        ('missing upload budget', ''),
+    ):
+        reject_budget_mutation(budget_workflows | {name: text.replace(forwarded, replacement, 1)},
+                               (name, label))
+reject_budget_mutation({name: text.replace(repository_budget, '10000000000')
+                        for name, text in budget_workflows.items()}, 'all entrypoints consistently wrong')
+reject_budget_mutation(budget_workflows | {
+    'ecs-packages.yml': budget_workflows['ecs-packages.yml'].replace(
+        'CI_CACHE_REPOSITORY_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}',
+        'CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"')}, 'stale ECS maintenance bridge')
+reject_budget_mutation(budget_workflows | {
+    'unregistered-budget.yml': 'env:\n  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"\n'},
+    'new budget-bearing workflow')
+print(f'ok: four repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
+
 assert "\ncache-mode: read\n" in mainnet
 native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
                 "release_gate_runtime_sync", "release_gate_soak")
@@ -318,10 +413,101 @@ for ref, source, workflow_sha, expected in (
 ):
     expression = save_expression
     context = {"github.ref": ref, "needs.plan.outputs.checkoutSha": source,
-               "github.workflow_sha": workflow_sha, "github.sha": "event"}
+               "github.workflow_sha": workflow_sha, "github.sha": "event",
+               "github.event_name": "workflow_dispatch", "job.status": "success",
+               "steps.dependency-cache-tools.outputs.guard_ready": "true"}
     for key in sorted(context, key=len, reverse=True):
         expression = expression.replace(key, repr(context[key]))
     assert eval(expression.replace("&&", " and "), {"__builtins__": {}}) == expected
+
+# Maintenance is optional to packaging and never an artifact/publish gate.
+# Its bounded recovery runs under the same mutex before the first writer and
+# after both writers' post actions. Tags and older planned sources stay read-only.
+def release_condition(name):
+    body = job_body(release, name)
+    match = re.search(r"^    if: >-\n(.*?)(?=^    \S)", body, re.M | re.S)
+    assert match, (name, "explicit status propagation is required")
+    return " ".join(match[1].split())
+
+def evaluate(predicate, context, cancelled=False):
+    predicate = predicate.replace("always()", "True").replace("!cancelled()", str(not cancelled))
+    for key in sorted(context, key=len, reverse=True):
+        predicate = predicate.replace(key, repr(context[key]))
+    return eval(predicate.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}})
+
+base_context = {"github.ref": "refs/heads/main", "github.event_name": "workflow_dispatch",
+                "github.workflow_sha": "event", "github.sha": "event",
+                "needs.plan.outputs.checkoutSha": "event", "needs.plan.result": "success",
+                "needs.build-web-dist.result": "success", "needs.package-native.result": "success",
+                "needs.release_gate.result": "success"}
+for name in ("cache-bootstrap-maintenance", "cache-maintenance"):
+    body = job_body(release, name)
+    assert "    cache-mode: none\n" in body
+    assert "      contents: read\n      actions: write\n" in body
+    assert "      group: ci-cache-maintenance-main\n      cancel-in-progress: false\n" in body
+    assert "run: python3 scripts/ci-cache-maintenance.py --recover --apply" in body
+    assert "CACHE_MAINTENANCE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}" in body
+    assert "ref: ${{ github.sha }}" in body and "persist-credentials: false" in body
+    assert "--current" not in body and "--bootstrap" not in body
+    predicate = release_condition(name)
+    assert evaluate(predicate, base_context)
+    assert not evaluate(predicate, base_context, cancelled=True)
+    for change in ({"github.ref": "refs/tags/v1"}, {"github.ref": "refs/heads/candidate"},
+                   {"github.event_name": "push"}, {"github.workflow_sha": "stale"},
+                   {"needs.plan.outputs.checkoutSha": "old-tag"}, {"needs.plan.result": "failure"}):
+        assert not evaluate(predicate, base_context | change), (name, change)
+assert "    needs: plan\n" in job_body(release, "cache-bootstrap-maintenance")
+assert "    needs: [plan, build-web-dist, package-native]\n" in job_body(release, "cache-maintenance")
+for web, native in itertools.product(("success", "failure", "skipped", "cancelled"), repeat=2):
+    actual = evaluate(release_condition("cache-maintenance"), base_context |
+        {"needs.build-web-dist.result": web, "needs.package-native.result": native})
+    assert actual == ("success" in (web, native)), (web, native)
+assert "    needs: [plan, release_gate, cache-bootstrap-maintenance]\n" in web_writer
+for name, required in (("build-web-dist", "release_gate"),
+                       ("package-native", "build-web-dist"), ("publish-release", "package-native")):
+    body = job_body(release, name)
+    assert "cache-maintenance" not in body
+    for plan, producer, maintenance in itertools.product(("success", "failure", "skipped"), repeat=3):
+        context = base_context | {"needs.plan.result": plan, "needs." + required + ".result": producer,
+                                  "needs.cache-bootstrap-maintenance.result": maintenance}
+        expected = plan == producer == "success"
+        assert evaluate(release_condition(name), context) == expected, (name, context)
+        assert not evaluate(release_condition(name), context, cancelled=True)
+
+# All Release writers use the cross-platform final-archive hook. Admission
+# failure can only skip optional caching, while original compile gates survive.
+assert "NODE_OPTIONS:" not in release.split("\njobs:\n", 1)[0]
+for name in ("build-web-dist", "package-native"):
+    body = job_body(release, name)
+    assert "      contents: read\n      actions: read\n" in body
+    assert "actions: write" not in body
+    assert "python3 scripts/ci-rust-cache-admission.py install-release" in body
+    for step in re.findall(r"^      - (.*?)(?=^      - |\Z)", body, re.M | re.S):
+        if "Swatinem/rust-cache@" not in step:
+            if "continue-on-error: true" in step:
+                assert step.startswith("name: Install Release cache admission")
+            continue
+        for required in ("continue-on-error: true", "cache-provider: github", "cache-on-failure: false",
+                         "NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}",
+                         "OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}",
+                         "OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}",
+                         "OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}"):
+            assert required in step, (name, required)
+        save = re.search(r"^          save-if: \$\{\{ (.*) \}\}$", step, re.M)[1]
+        context = base_context | {"job.status": "success",
+                  "steps.dependency-cache-tools.outputs.guard_ready": "true",
+                  "steps.linux-package-cache-write.outputs.save": "true"}
+        assert evaluate(save, context)
+        for change in ({"job.status": "failure"}, {"job.status": "cancelled"},
+                       {"steps.dependency-cache-tools.outputs.guard_ready": ""},
+                       {"steps.dependency-cache-tools.outputs.guard_ready": "false"},
+                       {"needs.plan.outputs.checkoutSha": "old-tag"}):
+            assert not evaluate(save, context | change), (name, change)
+testnet_linux = next(step for step in cache_steps(testnet, workflow_paths[0]) if "if: runner.os == 'Linux'" in step)
+assert "steps.dependency-cache-tools.outcome == 'success'" in testnet_linux
+assert "PATH: ${{ steps.dependency-cache-tools.outputs.path }}" in testnet_linux
+assert "OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux" in testnet_linux
+assert "cache-provider: github" in testnet_linux
 
 # An older planned tag may not contain the normalizer. Both the normalizer and
 # its new cache step must then be skipped while the original cold build remains.
