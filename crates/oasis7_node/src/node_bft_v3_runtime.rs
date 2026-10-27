@@ -45,7 +45,7 @@ impl NodeRuntime {
             return Err(error("another consensus profile is already selected"));
         }
         let selected = SelectedNodeBftConfigV3 { binding, provider };
-        startup::validate_runtime(self, &selected)?;
+        startup::validate_runtime(&self, &selected)?;
         self.bft_v3_config = Some(selected);
         Ok(self)
     }

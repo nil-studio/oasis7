@@ -22,6 +22,7 @@ pub(crate) struct FormalBftHeaderNodeDriverV3 {
     material_identity: String,
     configured_binding: Option<String>,
     cursor_height: u64,
+    installed_world: RuntimeWorld,
 }
 impl FormalBftHeaderNodeDriverV3 {
     pub(crate) fn open_from_handoff(
@@ -73,7 +74,9 @@ impl FormalBftHeaderNodeDriverV3 {
         execution
             .ledger
             .reserve_external_material(private.usage()?)?;
+        let installed_world = execution.origin.parent_world.clone();
         Ok(Self {
+            installed_world,
             execution,
             private,
             initial_schedule,
@@ -92,7 +95,7 @@ impl FormalBftHeaderNodeDriverV3 {
         &self.material_identity
     }
     pub(crate) fn world(&self) -> &RuntimeWorld {
-        &self.execution.origin.parent_world
+        &self.installed_world
     }
 
     fn check_binding(&self, binding: &BftSignerBindingV3) -> Result<String, String> {
@@ -319,9 +322,9 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             oasis7::consensus_action_payload::decode_consensus_action_payload_envelope(payload)
                 .map_err(|_| "Node action payload encoding rejected")?;
         match envelope.body {
-            oasis7::consensus_action_payload::ConsensusActionPayloadBody::RuntimeAction(_) => {
-                Ok(())
-            }
+            oasis7::consensus_action_payload::ConsensusActionPayloadBody::RuntimeAction {
+                ..
+            } => Ok(()),
             _ => Err("formal header Node requires a closed RuntimeAction payload".into()),
         }
     }
@@ -449,6 +452,7 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             ))
             .map_err(|_| "encode exact Node canonical install")?,
         );
+        self.installed_world = cut.world().clone();
         self.cursor_height = height;
         Ok(NodeBftExecutionCommitResultV3 {
             height,

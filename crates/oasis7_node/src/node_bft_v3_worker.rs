@@ -79,7 +79,9 @@ impl Worker {
                 .protected_time_ms()
                 .map_err(|_| error("wire-3 protected clock unavailable"))?;
             let mut next = self.machine.clone();
-            let effects = next.on_timeout(now).map_err(error)?;
+            let effects = next
+                .on_timeout(now, &self.selected.binding.local_validator_id)
+                .map_err(error)?;
             if !effects.is_empty() {
                 let mut journal = self.journal()?;
                 journal

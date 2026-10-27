@@ -135,6 +135,9 @@ impl NodePrivateStore {
         let dir = records
             .join(storage::DIRECTORY)
             .join(storage::NODE_PRIVATE_DIRECTORY);
+        if fs::symlink_metadata(&dir).is_ok() {
+            crate::controlled_live_config::require_private_owned(&dir, true)?;
+        }
         let origin = read_slot(&dir.join("origin.cbor"))?;
         let mut nodes = BTreeMap::new();
         let pending_references = match &origin {
@@ -146,9 +149,11 @@ impl NodePrivateStore {
                 if slot.complete && marker.as_deref() != Some(MARKER) {
                     return Err("completed Node origin lost its original marker".into());
                 }
-                if slot.complete {
+                let retention_required = retention_required(&dir.join("origin.cbor"))?;
+                if retention_required {
                     verify_material(&store, &slot.data)?;
                 }
+                let mut retained_bytes = 0usize;
                 for reference in &slot.data.references {
                     match common_storage::read_cas_bounded(
                         &store,
@@ -156,9 +161,16 @@ impl NodePrivateStore {
                         formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
                     ) {
                         Ok(bytes) => {
+                            retained_bytes = retained_bytes
+                                .checked_add(bytes.len())
+                                .ok_or("Node H dependency byte capacity")?;
+                            if retained_bytes > formal_dependencies::MAX_RETAINED_INDEX_TOTAL_BYTES
+                            {
+                                return Err("Node H dependency byte capacity".into());
+                            }
                             nodes.insert(reference.clone(), bytes);
                         }
-                        Err(_) if !slot.complete => {}
+                        Err(_) if !retention_required => {}
                         Err(_) => return Err("original Node H dependency is missing".into()),
                     }
                 }
@@ -306,7 +318,7 @@ impl NodePrivateStore {
             {
                 return Err("private Node candidate differs from original H identity".into());
             }
-            if slot.complete {
+            if retention_required(&self.candidate_path(height))? {
                 verify_material(&self.store, &slot.data)?;
             }
             self.candidates.insert(height, slot);
@@ -331,8 +343,14 @@ impl NodePrivateStore {
         Ok(())
     }
     pub(super) fn origin_nodes(&self) -> Result<Vec<(String, Vec<u8>)>, String> {
-        let origin = &self.origin.as_ref().ok_or("Node origin unavailable")?.data;
-        verify_material(&self.store, origin)?;
+        let slot = self.origin.as_ref().ok_or("Node origin unavailable")?;
+        verify_original_slot(&self.store, &self.dir.join("origin.cbor"), slot)?;
+        if common_storage::read_optional_bytes(&self.dir.join("ready"), MARKER.len())?.as_deref()
+            != Some(MARKER)
+        {
+            return Err("original Node ready marker is missing or changed".into());
+        }
+        let origin = &slot.data;
         origin
             .references
             .iter()
@@ -353,9 +371,7 @@ impl NodePrivateStore {
         let Some(slot) = self.candidates.get(&height) else {
             return Ok(None);
         };
-        if slot.complete {
-            verify_material(&self.store, &slot.data)?;
-        }
+        verify_original_slot(&self.store, &self.candidate_path(height), slot)?;
         Ok(Some(NodeBftPrivateCandidateV3 {
             public_value: slot
                 .data
@@ -400,6 +416,9 @@ impl NodePrivateStore {
             return Err(
                 "Node height already retains a different original private candidate".into(),
             );
+        }
+        if let Some(slot) = self.candidates.get(&height) {
+            verify_original_slot(&self.store, &self.candidate_path(height), slot)?;
         }
         let complete = self
             .candidates
@@ -534,6 +553,16 @@ fn read_slot(path: &Path) -> Result<Option<Slot>, String> {
         complete: record.is_some() && pending.is_none(),
     }))
 }
+fn verify_original_slot(store: &LocalCasStore, path: &Path, expected: &Slot) -> Result<(), String> {
+    let actual = read_slot(path)?.ok_or("original private Node metadata is missing")?;
+    if actual.data != expected.data || (expected.complete && !actual.complete) {
+        return Err("original private Node metadata changed or regressed".into());
+    }
+    if retention_required(path)? {
+        verify_material(store, &actual.data)?;
+    }
+    Ok(())
+}
 fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
     store
         .verify_pin_scope_shard(SCOPE, &data.shard(), &data.retained()?)
@@ -550,6 +579,14 @@ fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
     }
     Ok(())
 }
+fn retention_required(path: &Path) -> Result<bool, String> {
+    let intent = path.with_extension("intent.cbor");
+    Ok(
+        common_storage::read_optional_bytes(path, MAX_RECORD)?.is_some()
+            || common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_some()
+            || !files::stages(&intent)?.is_empty(),
+    )
+}
 fn publish(
     store: &LocalCasStore,
     path: &Path,
@@ -560,6 +597,12 @@ fn publish(
 ) -> Result<(), String> {
     if complete {
         return verify_material(store, data);
+    }
+    // An intent or record can exist only after original retention succeeded.
+    // Its loss cannot authorize a new pin publication, even before finish.
+    let already_retained = retention_required(path)?;
+    if already_retained {
+        verify_material(store, data)?;
     }
     let bytes = data.bytes()?;
     let intent = path.with_extension("intent.cbor");
@@ -576,6 +619,9 @@ fn publish(
     if has_pins {
         verify_material(store, data)?;
     } else {
+        if already_retained {
+            return Err("original Node retention receipt is missing".into());
+        }
         common_storage::put_cas_durable(store, &bytes, MAX_RECORD)?;
         for reference in &data.references {
             if let Some(bytes) = nodes.get(reference) {
@@ -652,4 +698,67 @@ fn bounded_references<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Stri
         }
     }
     d.deserialize_seq(Refs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn data() -> Data {
+        Data {
+            schema_version: 3,
+            domain: DOMAIN.into(),
+            origin: true,
+            ledger_origin_digest: "a".repeat(64),
+            material_identity: "b".repeat(64),
+            height: 3,
+            value: None,
+            actions_cbor: Vec::new(),
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn formal_read_node_private_intent_and_link_cannot_republish_lost_pins() {
+        for linked in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let store = LocalCasStore::new(root.path().join("cas"));
+            let path = root.path().join("origin.cbor");
+            let intent = path.with_extension("intent.cbor");
+            let original = data();
+            let bytes = original.bytes().unwrap();
+            files::publish(&intent, &bytes).unwrap();
+            if linked {
+                files::link_record(&path, &intent, &bytes).unwrap();
+            }
+            common_storage::put_cas_durable(&store, &bytes, MAX_RECORD).unwrap();
+            store
+                .replace_pin_scope_shard(SCOPE, &original.shard(), &original.retained().unwrap())
+                .unwrap();
+            store
+                .remove_pin_scope_shard(SCOPE, &original.shard())
+                .unwrap();
+            assert!(publish(&store, &path, &original, &BTreeMap::new(), false, true).is_err());
+            assert_eq!(fs::read(&intent).unwrap(), bytes);
+            assert_eq!(path.exists(), linked);
+            assert!(!path.parent().unwrap().join("ready").exists());
+            assert!(store.list_pin_scope_shards(SCOPE).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn formal_read_node_private_live_metadata_loss_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let store = LocalCasStore::new(root.path().join("cas"));
+        let path = root.path().join("origin.cbor");
+        let original = data();
+        publish(&store, &path, &original, &BTreeMap::new(), false, true).unwrap();
+        let slot = read_slot(&path).unwrap().unwrap();
+        assert!(slot.complete);
+        verify_original_slot(&store, &path, &slot).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(verify_original_slot(&store, &path, &slot).is_err());
+        assert!(!path.exists());
+        verify_material(&store, &original).unwrap();
+    }
 }
