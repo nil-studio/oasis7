@@ -131,7 +131,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 ### 5. BFT 与同世界交接
 
 顶层合同允许 BFT 与受控单权威路径并行研发，先验证同一历史，再按 H/H+1 交接转移写权。2026-10-21 局部设计补齐[轮次与锁定](../../p2p/design.md#des-p2p-bft-round-lock-v1)、[崩溃后签名安全](../../p2p/design.md#des-p2p-bft-signing-recovery-v1)和[BFT 成员生效](../../p2p/design.md#des-p2p-bft-validator-transition-v1)；BFT 内部的 h+2 成员应用与 profile 间 H/H+1 交接分别成立。
-2026-10-26 局部核对：已有显式固定集合 NodeRuntime、完整 QC 的实际执行与冷恢复，以及独立 provider 的[受保护签名工程接口](../../p2p/design.md#des-p2p-bft-protected-signer-v1)。实现状态、当前受控测试范围和剩余义务回链 [DCS-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004)；真实硬件与防回滚 provider、治理集合转换、同世界权威交接及完整组合仍未验收，当前 PoS 原型也不因此取得正式 BFT 保证。该目标不自动成为已满足条件的受控单权威试玩前置。
+2026-10-27 局部核对：已有独立 NodeRuntime、QC 执行恢复与[受保护签名工程接口](../../p2p/design.md#des-p2p-bft-protected-signer-v1)。[H 锚定前缀](../../p2p/design.md#des-p2p-formal-bft-read-handoff-v1)的协议验证、逐高度 World 重放、独立账本及导入／重开已随 [#5170](https://github.com/nil-studio/oasis7/pull/5170)交付；固定历史 cut 不产生正式投票、当前可服务或 Node producer 写权。原动作不能借公开 QC／投影证明越权释放。正式 signer/provider 安装、治理集合实际生效、producer 交接、checkpoint 时效及完整消费者／故障域组合仍未验收，状态与余项以 [DCS-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004)为准，[#4975](https://github.com/nil-studio/oasis7/issues/4975)保持打开。本次没有新的部署或硬件证据，也不把目标 BFT 升为受控试玩前置。
 来源：[基础设施路线图](../../product/world-infrastructure/prd.md#4-路线图)、[#4363 历史记录](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
 
 ### 6. 外部游戏 Runtime 的 owner 目标控制前置
