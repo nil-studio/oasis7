@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import time
 import json
+import shutil
 
 import codeql_rust_successor_evaluation as m
 
@@ -41,7 +42,29 @@ class ComparisonTests(unittest.TestCase):
     def test_incomplete_domains_cannot_pass_difference(self):
         with self.assertRaisesRegex(RuntimeError,'incomplete'):m.same_results({'Flow':[]},{})
 
-    def experiment(self, clean, broken_summary=False, spawned=True):
+    def test_source_inventory_failure_does_not_skip_arm_difference(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);source=p/'source';source.mkdir();self.database(source)
+            baseline=m.facts(source)[0];arm=p/'arm';shutil.copytree(source,arm)
+            (source/'bad-link').symlink_to('/etc/passwd')
+            (arm/'db-rust/default/facts').write_text('changed')
+            intact,details=m.after_facts(source,arm,baseline)
+            self.assertFalse(intact)
+            self.assertEqual(details['source']['status'],'UNKNOWN')
+            self.assertEqual(details['arm']['changed'][0]['path'],'db-rust/default/facts')
+
+    def test_difference_details_are_bounded_without_losing_total_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);source=p/'source';source.mkdir();self.database(source)
+            baseline=m.facts(source)[0];arm=p/'arm';shutil.copytree(source,arm)
+            for i in range(20):(arm/('new-'+str(i))).write_text('derived')
+            intact,details=m.after_facts(source,arm,baseline)
+            self.assertFalse(intact)
+            self.assertEqual(details['arm']['added_count'],20)
+            self.assertEqual(len(details['arm']['added']),4)
+            self.assertFalse(details['arm']['details_complete'])
+
+    def experiment(self, clean, broken_summary=False, spawned=True, mutate=False):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);work=p/'work';work.mkdir()
             db=work/'candidate-db';db.mkdir();self.database(db)
@@ -54,6 +77,8 @@ class ComparisonTests(unittest.TestCase):
                     output.write_text('{}');return
                 self.assertEqual(argv[1:3],['database','run-queries'])
                 calls.append(argv[3])
+                if mutate:
+                    (Path(argv[3])/"new-derived-marker").write_text("new")
                 if broken_summary:
                     (out/('original-Files-evaluator.jsonl')).write_text('{}\n')
                 raise m.runtime.PhaseError({'argv':argv,'failure_kind':'timeout',
@@ -61,7 +86,20 @@ class ComparisonTests(unittest.TestCase):
                     'pid':123 if spawned else None,'pgid':123 if spawned else None,
                     'exit':-15 if spawned else None,'started_wall':time.time(),'elapsed':180.0})
             with patch.object(m.plan,'inventory',return_value={}),patch.object(m.plan,'prepare_copy',return_value=p/'private'),patch.object(m.runtime,'run',side_effect=run),patch.object(m.runtime,'official_summaries',return_value={'overall':{'status':'UNKNOWN'}}):
-                if broken_summary:
+                if mutate:
+                    with self.assertRaisesRegex(RuntimeError,'facts changed'):
+                        m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
+                            db,{'Files':'query'},p,set(),SimpleNamespace(SOURCE='fixed'))
+                    terminal=json.loads((out/'comparison-terminal.json').read_text())
+                    self.assertEqual(terminal['original']['status'],'FAILED_FACTS_AFTER')
+                    self.assertEqual(terminal['original']['pre_fact_status'],'CLEAN_QUERY_TIMEOUT')
+                    details=terminal['original']['facts_after']
+                    self.assertEqual(details['source']['status'],'UNCHANGED')
+                    self.assertEqual(details['arm']['status'],'CHANGED')
+                    self.assertEqual(details['arm']['added'][0]['path'],'new-derived-marker')
+                    self.assertEqual(terminal['candidate']['status'],'NOT_REACHED')
+                    self.assertEqual(len(calls),1)
+                elif broken_summary:
                     with self.assertRaisesRegex(RuntimeError,'summary incomplete'):
                         m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
                             db,{'Files':'query'},p,set(),SimpleNamespace(SOURCE='fixed'))
@@ -82,6 +120,9 @@ class ComparisonTests(unittest.TestCase):
 
     def test_clean_query_timeout_still_measures_candidate_without_claiming_equality(self):
         self.experiment(True)
+
+    def test_changed_arm_records_exact_difference_and_checks_source_too(self):
+        self.experiment(True, mutate=True)
 
     def test_failed_summary_prevents_candidate_even_after_clean_query_timeout(self):
         self.experiment(True, broken_summary=True)

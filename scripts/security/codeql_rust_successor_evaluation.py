@@ -1,6 +1,7 @@
 """One fixed-context, same-facts A/B experiment; never security/SARIF acceptance."""
 from collections import Counter
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -49,6 +50,32 @@ def same_results(original, candidate):
     return differences
 
 
+def after_facts(source, arm, baseline):
+    """Report both inventories even if one changed; do not waive any difference."""
+    details = {}
+    for label, database in (("source", source), ("arm", arm)):
+        try:
+            current, size = facts(database)
+            added = sorted(set(current)-set(baseline))
+            removed = sorted(set(baseline)-set(current))
+            changed = sorted(n for n in set(current)&set(baseline) if current[n] != baseline[n])
+            record = {"status": "UNCHANGED" if current == baseline else "CHANGED",
+                "files": len(current), "bytes": size,
+                "inventory_sha256": hashlib.sha256(json.dumps(current,sort_keys=True).encode()).hexdigest(),
+                "added_count": len(added), "removed_count": len(removed), "changed_count": len(changed),
+                "details_complete": True}
+            for category, names in (("added", added), ("removed", removed), ("changed", changed)):
+                record[category] = [{"path": n[:256],
+                    "path_sha256": hashlib.sha256(n.encode()).hexdigest(),
+                    "before_sha256": baseline.get(n), "after_sha256": current.get(n)} for n in names[:4]]
+                if len(names)>4 or any(len(n)>256 for n in names):
+                    record["details_complete"] = False
+            details[label] = record
+        except Exception as exc:
+            details[label] = {"status": "UNKNOWN", "error": repr(exc)[:1024], "details_complete": False}
+    return all(v["status"] == "UNCHANGED" for v in details.values()), details
+
+
 def clean_query_timeout(exc):
     if not isinstance(exc, runtime.PhaseError) or not exc.clean_timeout:
         return False
@@ -92,7 +119,10 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         copies[label] = target
     arms = {}
     for label, db in copies.items():
-        if facts(database)[0] != baseline or facts(db)[0] != baseline:
+        intact, before_detail = after_facts(database, db, baseline)
+        if not intact:
+            state[label] = {"status": "FAILED_PREFLIGHT_FACTS", "facts_before": before_detail}
+            runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
             raise RuntimeError("database facts changed before arm")
         selected = {k: dict(v) for k,v in closure.items()}
         if label == "candidate":
@@ -103,7 +133,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         options = ["--additional-packs="+packs, "--compilation-cache="+str(cache),
             "--no-default-compilation-cache", "--common-caches="+str(common), "--threads=2", "--ram=3072"]
         completed, tables = {}, {}
-        state[label] = {"status": "RUNNING", "shared_budget_seconds": ARM_SECONDS,
+        state[label] = {"status": "RUNNING", "shared_budget_seconds": ARM_SECONDS, "facts_before": before_detail,
             "cache_start": "empty independent DB/results/compilation/common caches; intra-arm reuse",
             "queries": {n: "NOT_REACHED" for n in texts}}
         failure, pending_summaries = None, []
@@ -186,8 +216,12 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 except BaseException as exc:
                     post_error = exc
                     state[label].update(status="FAILED_POSTPROCESSING",postprocessing_error=repr(exc)[:2048])
-            intact = facts(db)[0] == baseline and facts(database)[0] == baseline
+            intact, detail = after_facts(database, db, baseline)
             state[label]["facts_unchanged"] = intact
+            state[label]["facts_after"] = detail
+            if not intact:
+                state[label]["pre_fact_status"] = state[label]["status"]
+                state[label]["status"] = "FAILED_FACTS_AFTER"
             runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
             if not intact: raise RuntimeError("database facts changed after arm") from failure
             if post_error is not None: raise post_error
