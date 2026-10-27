@@ -34,7 +34,8 @@ cache-mode: read
 
 env:
   CARGO_TERM_COLOR: always
-  CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"
+  # Shared repository budget; GitHub capacity and billing must also permit 20 GB.
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse

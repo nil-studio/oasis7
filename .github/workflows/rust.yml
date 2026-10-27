@@ -43,8 +43,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   PYTHONDONTWRITEBYTECODE: "1"
-  # Verified repository eviction limit: 10 GB (2026-10-21 Actions cache settings).
-  CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -653,8 +654,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
-      (github.event_name == 'push' || github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+        (github.event_name == 'push' || github.event_name == 'schedule' ||
+         (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps: *formal-build-steps
 
