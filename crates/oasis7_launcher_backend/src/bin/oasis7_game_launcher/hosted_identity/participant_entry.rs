@@ -33,6 +33,9 @@ struct PolicyOriginalRequest {
 }
 
 #[cfg(test)]
+#[path = "participant_read_diagnostics_tests.rs"]
+mod read_diagnostics_tests;
+#[cfg(test)]
 #[path = "participant_entry_tests.rs"]
 mod tests;
 pub(super) struct ParticipantEntry {
@@ -199,11 +202,11 @@ impl ParticipantEntry {
                 )?;
                 let response: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
                     serde_json::from_value(reply["world_response"].clone())
-                        .map_err(|_| StoreError::OutcomeUnknown)?;
+                        .map_err(|_| reject("participant_read_response_schema"))?;
                 response
                     .payload
                     .validate(request)
-                    .map_err(|_| StoreError::OutcomeUnknown)?;
+                    .map_err(|_| reject("participant_read_response_context"))?;
                 Ok(reply)
             }
             Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) => {
@@ -215,11 +218,11 @@ impl ParticipantEntry {
                 )?;
                 let response: SignedServiceResponse<OwnerSetupObservationV1> =
                     serde_json::from_value(reply["world_response"].clone())
-                        .map_err(|_| StoreError::OutcomeUnknown)?;
+                        .map_err(|_| reject("participant_read_response_schema"))?;
                 response
                     .payload
                     .validate(request)
-                    .map_err(|_| StoreError::OutcomeUnknown)?;
+                    .map_err(|_| reject("participant_read_response_context"))?;
                 Ok(reply)
             }
         }
@@ -247,6 +250,15 @@ impl ParticipantEntry {
         response_request: &R,
         maximum: usize,
     ) -> Result<Value, StoreError> {
+        // Only this read-only path may expose a fixed failure stage. Mutation
+        // and original-lookup transport failures keep their unknown outcome.
+        let failure = |code| {
+            if path == PARTICIPANT_OWNER_VIEW_PATH {
+                reject(code)
+            } else {
+                StoreError::OutcomeUnknown
+            }
+        };
         let bytes = serde_json::to_vec(request).map_err(|_| reject("invalid_request"))?;
         if bytes.len() > 65536 {
             return Err(reject("invalid_request"));
@@ -257,14 +269,23 @@ impl ParticipantEntry {
             .header("Content-Type", "application/json")
             .body(bytes)
             .send()
-            .map_err(|_| StoreError::OutcomeUnknown)?;
+            .map_err(|error| {
+                failure(if error.is_timeout() {
+                    "participant_read_timeout"
+                } else {
+                    "participant_read_transport"
+                })
+            })?;
         if response.status().as_u16() != 200 {
             let status = response.status().as_u16();
+            if path == PARTICIPANT_OWNER_VIEW_PATH {
+                return Err(failure("participant_read_http_status"));
+            }
             let mut error = Vec::new();
             response
                 .take(4097)
                 .read_to_end(&mut error)
-                .map_err(|_| StoreError::OutcomeUnknown)?;
+                .map_err(|_| failure("participant_read_response_read"))?;
             if error.len() <= 4096
                 && status == 409
                 && let Ok(value) = parse_request::<Value>(&error)
@@ -282,29 +303,32 @@ impl ParticipantEntry {
                     );
                 }
             }
-            return Err(StoreError::OutcomeUnknown);
+            return Err(failure("participant_read_http_status"));
         }
         let mut bytes = Vec::new();
         response
             .take(maximum as u64 + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| StoreError::OutcomeUnknown)?;
+            .map_err(|_| failure("participant_read_response_read"))?;
         if bytes.len() > maximum {
-            return Err(StoreError::OutcomeUnknown);
+            return Err(failure("participant_read_response_limit"));
         }
         let digest = request_digest(response_path, response_request)
             .map_err(|_| reject("invalid_request"))?;
         macro_rules! verified {
             ($kind:ty) => {{
-                let original: Value =
-                    parse_bounded_json(&bytes, maximum).map_err(|_| StoreError::OutcomeUnknown)?;
+                let original: Value = parse_bounded_json(&bytes, maximum)
+                    .map_err(|_| failure("participant_read_response_decode"))?;
                 let response: SignedServiceResponse<$kind> =
                     serde_json::from_value(original.clone())
-                        .map_err(|_| StoreError::OutcomeUnknown)?;
-                let wire =
-                    serde_json::to_value(&response).map_err(|_| StoreError::OutcomeUnknown)?;
+                        .map_err(|_| failure("participant_read_response_schema"))?;
+                let wire = serde_json::to_value(&response)
+                    .map_err(|_| failure("participant_read_response_shape"))?;
                 if wire != original {
-                    return Err(StoreError::OutcomeUnknown);
+                    return Err(failure("participant_read_response_shape"));
+                }
+                if response.request_digest != digest {
+                    return Err(failure("participant_read_response_context"));
                 }
                 verify_service_response(
                     response_path,
@@ -312,7 +336,7 @@ impl ParticipantEntry {
                     &response,
                     &self.trust.service_public_key,
                 )
-                .map_err(|_| StoreError::OutcomeUnknown)?;
+                .map_err(|_| failure("participant_read_response_signature"))?;
                 wire
             }};
         }
