@@ -480,11 +480,7 @@ fn revoked_owner_observation(
         .unwrap();
     done.send(()).unwrap();
     server.join().unwrap();
-    if wrong_context {
-        assert!(
-            matches!(result, Err(StoreError::Rejected(code)) if code == "participant_read_response_context")
-        );
-    } else if wrong_domain || wrong_wrapper {
+    if wrong_context || wrong_domain || wrong_wrapper {
         assert!(
             matches!(result, Err(StoreError::Rejected(code)) if code == "participant_read_response_context")
         );
