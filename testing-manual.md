@@ -506,6 +506,13 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib driver_bft_v2 -- -
 
 Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和网络接线，其 test hook/内存 backend 不证明磁盘耐久性、实际 World 或硬件隔离。`driver_bft_v2` 另用真实 Runtime World、OS 生命周期锁与持久 execution ledger 验证 build/preview/commit/replay；冷重启用例须核对原证书前缀和已安装记录字节不变，并通过真实 Node 再提交新高度。两类用例的证明范围分别记录，不能互相代签。正式 profile、H/H+1 权威交接、checkpoint 消费者、长期可信 checkpoint 与跨故障域 custody 的整体验收仍须单独完成，不能据这些工程回归宣称 #4975 完成。
 
+
+#### 公开 header V3 身份与私有载荷基础
+
+合同见 [des-p2p-bft-header-identity-v3](doc/p2p/design.md#des-p2p-bft-header-identity-v3)。运行 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_proto --lib distributed_bft::v3 -- --test-threads=1` 和 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_consensus --lib formal_bft_payload_v3 -- --test-threads=1`。核对独立身份域、公开编码不携带原始输入、精确原始字节摘要、1 MiB 边界、canonical header、版本拒绝和动作数组声明超限前置拒绝。确定性 hash 不提供隐藏性；这些测试不能证明低熵输入不可推断。
+
+实际 World 非空动作回归另由 `driver_bft_v2_formal_header_identity_tests` 验证：已有 V2 execution preimage 绑定新 header 后，动作摘要、action root 与执行承诺任一不符必须拒绝。新类型不签名、不生产 QC、不改变 Node 或旧 wire=2 handoff；不能据此解除现有读取发布限制或宣布正式 profile ready。
+
 #### 本地 CAS retention 与 GC 协调
 
 合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。

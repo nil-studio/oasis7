@@ -5,6 +5,7 @@
 //! as a legacy commit message.
 
 pub mod v2;
+pub mod v3;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};

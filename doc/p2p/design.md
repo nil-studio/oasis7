@@ -113,6 +113,17 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。首版采用下述完�
 
 `valid(v)` 由同一 committed parent、manifest、确定有序输入和可验证执行闭包定义；每名活动验证者在隔离候选状态重执行并核对全部 roots，投票前不发布世界效果、不重新调用 LLM。仅在证书验证与适用持久条件成立后安装 canonical 状态；复制、checkpoint、普通消费者和冷恢复使用同一 verifier，不接受 receipt、传输成功或本地 stake 计数替代。
 
+
+#### des-p2p-bft-header-identity-v3
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；唯一要求声明：[REQ-DCS-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004)。本次只建立普通动作隐私证明所需的身份与载荷绑定基础，不授予正式生产或消费资格。
+
+V2 block ID 包含原始动作，不能在保留旧签名时删去私有输入。独立的 V3 public header 只包含版本 3、既有 FormalBftExecutionCommitmentV1 的 canonical digest 与私有 actions CBOR 的域隔离 digest；header ID 使用独立 oasis7.bft.header_id.v3.hash 域。执行 preimage 继续承诺世界、父提交、高度、tick、激活、集合、策略、manifest、动作根及投影根。动作字节 digest 使用 oasis7.bft.actions_cbor.v3.hash，按大端 u64 域长度、域、u64 字节长度、原始字节流式哈希，最多 1 MiB；header canonical CBOR 解码最多 4096 字节并要求精确重编码。
+
+BoundFormalBftHeaderV3 只证明 header 与公开 preimage 自洽。确定性摘要不是 hiding commitment：低熵输入可能被候选枚举；这里只保证公开编码不直接携带原始动作，不能宣称输入不可推断。私有载荷验证还必须检查精确字节 digest、最多 1024 个动作、canonical typed CBOR、原有严格有序 action ID、每条载荷 hash 及既有 action root。错误与 Debug 不输出原始动作或私有字段。二者均不代表 QC、世界执行、当前权限、freshness 或 handoff admission，也不能转换为 V2 verified certificate。
+
+后续必须以新版本签名、protected provider、正式 handoff target、持久 QC 与消费者验证闭环承接此身份；旧 wire=2 target 不授权 V3，现有 V2/V3 read 的 actions_cbor=[0x80] 发布限制保持生效。未完成上述接线前，不发布普通动作链的公开证明，不宣称 Issue #4975 或正式 profile ready。
+
 #### des-p2p-bft-round-lock-v1
 
 规范算法为 Buchman、Kwon、Milosevic [The latest gossip on BFT consensus, v3，Algorithm 1](https://arxiv.org/abs/1807.04938v3)；其 `n` 按 voting power 计。固定高度内 Byzantine power 须小于 `W/3`；安全性不依赖及时到达，活性依赖最终同步和可用的足额正确节点。proposer 选择采用 [CometBFT weighted round-robin 规范](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/spec/consensus/proposer-selection.md)的优先级更新、归一化与成员变更规则；oasis7 将相同优先级的 tie-break 固定为 consensus 公钥原始字节升序。优先级属于确定性持久状态，每个 `height/round` 只有一个合法 proposer。slot 仅 pacing，不替代 round。初始化、一次触发规则、nil、未来 round 跳转和三类 timeout 完整按算法实现，不混入旧 prototype 的同高替换或其他共识的解锁规则；采用的参考规范内容随协议版本冻结，上游文档变化不自动改变已激活规则。
