@@ -1,0 +1,11 @@
+{
+  "record": {
+    "content_sha256": "8db0997c738d9befde6c34daafcb92a6e3c236e8220a4a76a08b0ba78aef83e1",
+    "current_authority": "doc/engineering/workflow/source-of-truth.md",
+    "decision_owner": "repository_health_engineer",
+    "disposition": "retain_current_authority",
+    "note": "Scoped semantic review of five Issue types and evidence-preserving transitions with a single engineering requirement declaration. Classification is separate from execution permission; closed issues remain historical references. Forms and dot/TPM consumers reference this authority. Online labels, historical migration and recurring execution are not claimed enabled. Unchanged sections retain existing authority.",
+    "path": "doc/engineering/workflow/source-of-truth.md"
+  },
+  "schema": "oasis7.document-semantic-entry/v1"
+}
