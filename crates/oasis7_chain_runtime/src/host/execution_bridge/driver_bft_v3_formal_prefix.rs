@@ -92,7 +92,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
             &material,
             source.clone(),
             seed,
-            !initialize && !ledger.empty(),
+            !initialize,
         )?;
         let pin = material_pin_digest(&origin, &material)?;
         ledger.bind_retained(&pin, handoff.activation_height()?, |origin, pending| {

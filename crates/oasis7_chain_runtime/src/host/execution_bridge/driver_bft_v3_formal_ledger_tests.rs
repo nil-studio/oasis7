@@ -8,6 +8,7 @@ use super::*;
 use oasis7_runtime::LocalCasStore;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::time::{Duration, Instant};
 
 #[test]
 fn wire3_formal_read_durable_private_prefix_reopens_after_gc_and_pins_exact_cut() {
@@ -20,6 +21,10 @@ fn wire3_formal_read_durable_private_prefix_recovers_original_publication_intent
 #[test]
 fn wire3_formal_read_durable_private_prefix_refuses_missing_original_h_receipt() {
     run(missing_origin);
+}
+#[test]
+fn wire3_formal_read_durable_private_prefix_survives_real_process_kill() {
+    run(process_kill);
 }
 fn run(case: fn()) {
     std::thread::Builder::new()
@@ -73,7 +78,11 @@ fn open(
         h.anchor.clone(),
         h.target.clone(),
         h.material.clone(),
-        h.reader.clone(),
+        if initialize {
+            h.reader.clone()
+        } else {
+            Arc::new(EmptyIndexReader)
+        },
         initialize,
     )
 }
@@ -192,4 +201,144 @@ fn missing_origin_case(populated: bool) {
         "install must not heal lost original retention"
     );
     assert!(store.list_pin_scope_shards(scope).unwrap().is_empty());
+}
+
+fn process_kill() {
+    use std::os::unix::process::ExitStatusExt;
+    let h = qualified_handoff_v3();
+    let input = fixture(&h);
+    let (height, id) = target(&input);
+    for phase in ["init-stage", "reservation-stage", "pins", "intent", "link"] {
+        let root = Scratch::new();
+        let store = cas(root.path());
+        for (digest, bytes) in &h.reader.0 {
+            assert_eq!(store.put_bytes(bytes).unwrap(), *digest);
+        }
+        for (name, bytes) in [
+            ("trust.json", serde_json::to_vec(&h.trust).unwrap()),
+            ("target.json", serde_json::to_vec(&h.target).unwrap()),
+            (
+                "H.cbor",
+                oasis7_wasm_abi::encode_canonical_cbor(&h.material).unwrap(),
+            ),
+            ("history.cbor", input.canonical_private_bytes().unwrap()),
+        ] {
+            let path = root.path().join(name);
+            fs::write(&path, bytes).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["wire3_formal_read_durable_process_child", "--nocapture"])
+            .env("OASIS7_TEST_HEADER_LEDGER_ROOT", root.path())
+            .env("OASIS7_TEST_HEADER_LEDGER_PHASE", phase)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let _control = child.stdin.take().unwrap();
+        let ready = root.path().join("ledger/prefix-test-publication-ready");
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !ready.exists() {
+            if child.try_wait().unwrap().is_some() {
+                let out = child.wait_with_output().unwrap();
+                panic!(
+                    "wire3 {phase} child exited: {} {}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                let out = child.wait_with_output().unwrap();
+                panic!(
+                    "wire3 {phase} child missed durable seam: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            open(&h, root.path(), &store, true).is_err(),
+            "live process holds the format lock"
+        );
+        child.kill().unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert_eq!(out.status.signal(), Some(libc::SIGKILL));
+        let directory = root.path().join("ledger/formal-bft-header-prefix-v1");
+        let protected = match phase {
+            "init-stage" => None,
+            "reservation-stage" => None,
+            "pins" => Some(directory.join(format!(
+                "reservation-{first:020}.cbor",
+                first = input.entries()[0].certificate.execution_commitment.height
+            ))),
+            _ => Some(directory.join(format!(
+                "intent-{first:020}.cbor",
+                first = input.entries()[0].certificate.execution_commitment.height
+            ))),
+        };
+        let before = protected.as_ref().map(|path| fs::read(path).unwrap());
+        let cut = open(&h, root.path(), &store, true)
+            .unwrap()
+            .install_prefix(&input, height, &id)
+            .unwrap_or_else(|e| panic!("recover SIGKILL {phase}: {e}"));
+        assert_eq!(cut.certified_prefix().entries.len(), 3);
+        if let Some(before) = before {
+            let first = input.entries()[0].certificate.execution_commitment.height;
+            assert_eq!(
+                fs::read(directory.join(format!("record-{first:020}.cbor"))).unwrap(),
+                before
+            );
+        }
+        drop(cut);
+        let mut reopened = open(&h, root.path(), &store, false).unwrap();
+        assert_eq!(
+            reopened
+                .verified_cut(height, &id)
+                .unwrap()
+                .certified_prefix()
+                .entries
+                .len(),
+            3
+        );
+    }
+}
+
+#[test]
+fn wire3_formal_read_durable_process_child() {
+    let Ok(root) = std::env::var("OASIS7_TEST_HEADER_LEDGER_ROOT") else {
+        return;
+    };
+    std::thread::Builder::new().stack_size(32 * 1024 * 1024).spawn(move || {
+        let root = PathBuf::from(root);
+        let phase = std::env::var("OASIS7_TEST_HEADER_LEDGER_PHASE").unwrap();
+        let records = root.join("ledger");
+        let ready = records.join("prefix-test-publication-ready");
+        if phase == "init-stage" {
+            crate::execution_bridge_real_tests::real_execution_bridge::durable_transaction::set_private_publication_pause(
+                records.join("formal-bft-header-prefix-v1/init-intent.cbor"), ready.clone(),
+            );
+        }
+        let anchor = crate::formal_bft_read_cli::load_qualified_handoff_anchor(&root.join("trust.json")).unwrap();
+        let header_target: BftProfileTargetV2 = serde_json::from_slice(&fs::read(root.join("target.json")).unwrap()).unwrap();
+        let material = crate::formal_bft_read_cli::read_qualified_handoff_material(&root.join("H.cbor")).unwrap();
+        let store = LocalCasStore::new(root.join("cas"));
+        let source = Arc::new(crate::formal_bft_read_cli::CasBusinessIndexReader {store:store.clone()});
+        let mut ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
+            &records, store, anchor, header_target, material, source, true,
+        ).unwrap();
+        let input = PrivateHeaderPrefixV3::decode_private_canonical(&fs::read(root.join("history.cbor")).unwrap()).unwrap();
+        let first = input.entries()[0].certificate.execution_commitment.height;
+        if phase == "reservation-stage" {
+            crate::execution_bridge_real_tests::real_execution_bridge::durable_transaction::set_private_publication_pause(
+                records.join(format!("formal-bft-header-prefix-v1/reservation-{first:020}.cbor")), ready,
+            );
+        } else if phase != "init-stage" {
+            ledger.inject_publication_failure(first, &phase, true).unwrap();
+        }
+        let (height, id) = target(&input);
+        ledger.install_prefix(&input, height, &id).unwrap();
+        panic!("wire3 child reached a cut instead of its durable seam");
+    }).unwrap().join().unwrap();
 }
