@@ -865,14 +865,18 @@ impl eframe::App for ClientLauncherApp {
         color.to_normalized_gamma_f32()
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_process();
         self.poll_chain_process();
         self.maybe_auto_start_chain();
         self.update_chain_runtime_status();
         #[cfg(target_arch = "wasm32")]
         launcher_test_hook_web::sync_launcher_test_hook(self);
+        ctx.request_repaint_after(Duration::from_millis(120));
+    }
 
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         let game_required_issues = collect_required_config_issues(&self.config);
         let chain_required_issues = collect_chain_required_config_issues(&self.config);
         let game_running = matches!(self.status, LauncherStatus::Running);
@@ -911,7 +915,7 @@ impl eframe::App for ClientLauncherApp {
                     .fill(Self::dashboard_bg())
                     .inner_margin(egui::Margin::same(8)),
             )
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 self.render_launcher_header(ui);
                 ui.add_space(6.0);
                 #[cfg(not(target_arch = "wasm32"))]
@@ -990,24 +994,23 @@ impl eframe::App for ClientLauncherApp {
             });
 
         if !rendered_screenshot_modal_preview {
-            self.show_config_window(ctx, &game_required_issues, &chain_required_issues);
+            self.show_config_window(&ctx, &game_required_issues, &chain_required_issues);
             self.show_onboarding_window(
-                ctx,
+                &ctx,
                 &game_required_issues,
                 &chain_required_issues,
                 game_running,
                 chain_running,
             );
-            self.show_guidance_insights_window(ctx);
-            self.show_startup_guide_window(ctx, &game_required_issues, &chain_required_issues);
+            self.show_guidance_insights_window(&ctx);
+            self.show_startup_guide_window(&ctx, &game_required_issues, &chain_required_issues);
             self.llm_settings_panel
-                .show(ctx, self.ui_language, &mut self.config);
-            self.show_feedback_window(ctx);
-            self.show_transfer_window(ctx);
-            self.show_peer_details_window(ctx);
-            self.show_explorer_window(ctx);
+                .show(&ctx, self.ui_language, &mut self.config);
+            self.show_feedback_window(&ctx);
+            self.show_transfer_window(&ctx);
+            self.show_peer_details_window(&ctx);
+            self.show_explorer_window(&ctx);
         }
-        ctx.request_repaint_after(Duration::from_millis(120));
     }
 }
 

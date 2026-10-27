@@ -280,15 +280,11 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 <a id="ci-advisory-baseline-design"></a>
 ## 10. RustSec 语义解析与例外生命周期
 
-本节承接[RustSec 基线要求](ci-tiered-execution.prd.md#ci-advisory-baseline)。当前值由 `deny.toml` 和 `scripts/rustsec-ignore-direct-dependency-baseline.json` 拥有；本设计不更新日期、advisory、依赖或批准范围。
+本节承接[RustSec 基线要求](ci-tiered-execution.prd.md#ci-advisory-baseline)。当前策略由 `deny.toml` 拥有：空 `advisories.ignore`，以及对原三个停止维护包的无版本限制禁止项。没有实际例外时不再维护日期或直接依赖名单。
 
-检查流程为：读取配置并以标准 TOML 解析器取得完整 `advisories.ignore` -> 验证集合类型、每个 ID 和重复项 -> 从受支持的注释布局提取元数据并建立唯一对应 -> 对照批准集合和 direct manifest 基线 -> 日历日期及有效期校验 -> 执行原依赖路径验证 -> 通过或带定位信息失败。不能先从正则抓到的 ID 子集推断真实 ignore 集合。
+[配置检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 使用标准 TOML 解析器读取完整配置，要求 ignore 是空数组，并核对每个禁止包都有无条件 `bans.deny` 条目。版本限制、wrapper 豁免、缺失条目和错误类型均拒绝。解析失败沿既有治理入口传播；合法 TOML 中的非空 ignore 仍拒绝。注释中的 advisory 不算启用项，字符串和表名的合法写法不影响语义判断。
 
-TOML 中单引号字符串、引号表名和同行元素均以解析后语义为准；注释里的 ID 不进入启用集合。元数据仍可限制为现有清晰布局，但存在多个候选对应、同一元数据覆盖多个条目、缺/重复元数据或不支持布局时明确拒绝。解析成功与治理批准是两步：合法 TOML 中新增未批准 advisory 仍拒绝。集合相等检查不能先去重而丢掉重复条目诊断。
-
-使用日期类型解析所有参与比较的日期，包括测试用 today；拒绝不存在的月/日及不合法闰日，保留现有到期日比较包含关系。`reviewed_at` 与期限先验证合法，再作原有策略检查，不以格式正则或字典序替代日历合法性。测试分别覆盖到期当天与次日，不把修复校验器当作续期。
-
-每项例外到期前的处理记录须明确：当前依赖路径及批准 manifest 是否变化、是否有可行移除/替代、保留理由、负责 owner、实际验证和有界下次期限。仅更改日期、复制旧 cargo tree 或扩大 direct manifest 列表不构成续验；无法取得所需证据时保持未完成并按原检查结果处理。已删除例外不因模板、解析重写或历史测试样本重新进入生产 allowlist。
+随后由既有 Rust 基线入口执行 `cargo deny --locked --all-features check advisories bans`，按解析后的真实 package 名称检查依赖图，涵盖别名和传递路径。锁文件必须与 manifest 一致；配置检查器同时扫描仓库内受版本管理或新加入的全部 Cargo.lock，按 package.name 拒绝三个旧包，涵盖独立 WASM 模块及新旧网络兼容 fixture；锁文件扫描不能代替真实构建和平台运行。既有直接依赖基线随最后三个例外删除，避免保留无实际消费者的期限与允许名单。未来重新引入例外或禁止包需要显式策略变更和独立安全评审。网络组在 Linux 上运行本地 if-watch 补丁的全部 feature 测试，直接验证接口枚举；macOS 交叉编译不能代替这一运行验证。
 
 ## 11. 验证
 
@@ -307,7 +303,7 @@ TOML 中单引号字符串、引号表名和同行元素均以解析后语义为
 | [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | [apt 评估](#ci-install-apt-design) | 量测后选定参数；实施时验证总预算、分类重试、超时/取消无受控遗留进程 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 实际 apt 观察及后续 helper 的 fixture 输出 | 当前未实现，不推断宿主或部署机适用性 |
 | [量测与判定](ci-tiered-execution.prd.md#ci-install-measurement) | [耗时证据](#ci-install-measurement-design) | 相同工具/平台下分冷暖计入准备与缓存成本，保留失败样本 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 原始耗时、样本窗口/数量和条件差异 | 不以本地测试宣称 hosted 性能收益 |
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | [执行清单与结果](#ci-real-coverage-design) | 漏项/错误传播、真实 WASM 消费者、wrapper 退出及 Windows 锁边界 | [测试手册](../../../testing-manual.md)；实际 CI driver、构建/wrapper 回归和原生平台运行 | source、计划清单、命令与真实结果 | fake 工具和计划存在不代签执行；CodeQL 启用另验 |
-| [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | [例外检查](#ci-advisory-baseline-design) | 完整 ignore、元数据对应、日历/期限与 direct manifest 漂移 | [基线回归](../../../scripts/check-rustsec-ignore-baseline.test.sh)及真实依赖查询 | 正反例、当前依赖路径与逐条例外处理 | 文档不续期；fixture 不证明实际依赖已移除 |
+| [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | [例外检查](#ci-advisory-baseline-design) | 空 ignore、无条件禁止包和真实依赖图 | [基线回归](../../../scripts/check-rustsec-ignore-baseline.test.sh)及真实依赖查询 | 配置正反例、cargo-deny 真实依赖图 | fixture 不证明实际依赖已移除 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | [进程调度](#ci-formal-process-design) | 独立分片、精确清单、同源产物、旧基线扩大、错误与超时传播 | [分片核验](../../../testing-manual.md#ci-formal-process-validation) | 当前 PR 的真实 runner、测试与评审结果 | fixture 不代签完整产物消费；未完成 hosted 验证保持未证明 |
 | [共享产物中的缓存容量](ci-tiered-execution.prd.md#ci-formal-process) | [容量治理](#ci-cache-budget-design) | 已确认 current 或稳定兼容锚点回收、轮换空间、族/ref/version 与压缩预算、分页及并发/访问保护、失败不影响必要 CI | [容量治理回归](../../../scripts/ci-cache-maintenance.test.py) | 当前 PR 的回归输出、准确 source、hosted 保存/回收和库存记录 | 本地 fixture 不证明实际释放空间或缓存收益 |
 

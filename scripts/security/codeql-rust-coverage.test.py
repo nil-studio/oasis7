@@ -10,7 +10,7 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PATCH = "vendor-egui-winit-0.33.3"
+PATCH = "vendor-if-watch-3.2.2"
 
 
 class RustCoverageTests(unittest.TestCase):
@@ -20,8 +20,8 @@ class RustCoverageTests(unittest.TestCase):
             (root / "Cargo.toml").write_text(
                 '[workspace]\nmembers = ["app"]\nresolver = "2"\n'
                 + "exclude = " + json.dumps(exclusions) + "\n"
-                + '[patch.crates-io]\negui-winit = { path = "' + PATCH + '" }\n')
-            for folder, name in (("app", "app"), (PATCH, "egui-winit")):
+                + '[patch.crates-io]\nif-watch = { path = "' + PATCH + '" }\n')
+            for folder, name in (("app", "app"), (PATCH, "if-watch")):
                 package = root / folder
                 (package / "src").mkdir(parents=True)
                 (package / "Cargo.toml").write_text(
@@ -39,12 +39,12 @@ class RustCoverageTests(unittest.TestCase):
 
     def test_existing_nonmember_patch_loads_with_repository_exclusion(self):
         config = tomllib.loads((ROOT / "Cargo.toml").read_text())
-        self.assertEqual(config["patch"]["crates-io"]["egui-winit"]["path"], PATCH)
+        self.assertEqual(config["patch"]["crates-io"]["if-watch"]["path"], PATCH)
         self.assertNotIn(PATCH, config["workspace"]["members"])
         result = self.metadata(config["workspace"].get("exclude", []))
         self.assertEqual(result.returncode, 0, result.stderr)
         graph = json.loads(result.stdout)
-        self.assertEqual([p["name"] for p in graph["packages"]], ["egui-winit"])
+        self.assertEqual([p["name"] for p in graph["packages"]], ["if-watch"])
 
     def test_missing_exclusion_reproduces_workspace_identity_error(self):
         result = self.metadata([])

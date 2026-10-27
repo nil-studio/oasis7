@@ -115,13 +115,11 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 <a id="ci-advisory-baseline"></a>
 ## RustSec 例外基线与到期处置
 
-依赖例外不是永久批准。`deny.toml` 与 [直接依赖基线](../../../scripts/rustsec-ignore-direct-dependency-baseline.json) 继续保存实际条目、owner、依赖范围、理由、验证方法及有效期；文档不得自动刷新日期、增加 advisory 或放宽直接依赖名单。每项到期前独立完成移除、替代或有明确证据和有限新期限的续验；不能被 CodeQL 或其他 CI 子项的排期推迟，也不能以相关文档合入视为续验完成。
+当前 RustSec 例外集合为空。`deny.toml` 的 `advisories.ignore` 必须保持空数组，`serde_cbor`、`paste`、`ttf-parser` 三个已移除的包在 `bans.deny` 中按包名禁止重新进入依赖图，包括通过 Cargo 依赖别名或传递依赖进入的情况。既有到期直接依赖基线随例外移除，不保留无实际例外的续期义务。
 
-[基线检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 必须检查 TOML 语义中完整的 `advisories.ignore` 集合，而非正则偶然识别的部分文本。所有实际启用的 advisory 与批准集合、元数据一一对应；未批准项、重复项、缺元数据/多余元数据以及无效类型/语法均被拒绝。单引号、引号表名、同行多个元素及注释不能导致条目漏检或将注释中的 ID 算作启用项。不支持的元数据布局可明确报错，但不能静默跳过相应 ignore。
+[基线检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 用标准 TOML 解析器检查完整的 ignore 集合与禁止包配置。非空 ignore、无效类型/语法、缺失的禁止项以及为禁止项设置版本或豁免范围均被拒绝；单引号、引号表名、同行元素和注释按 TOML 语义处理。任何未来例外或重新引入这些包都必须作为明确的策略变更独立评审，不能靠过期基线或依赖别名绕过。
 
-`reviewed_at`、`expires`、每条 expiry 和测试注入日期须以真实日历日期解析，再作现有有效期比较；匹配 `YYYY-MM-DD` 字符串不等于日期有效。保留既有到期日包含关系，不通过解析修复隐式提前或延后有效期。续验应重新核对实际依赖路径和 direct manifest 范围，不仅替换日期。
-
-验收必须覆盖不存在的日期、闰年边界、到期日及次日、各合法 TOML 字符串/表名形态、同行重复或隐藏未批准项、注释中的 advisory、空/坏配置和依赖范围漂移。解析/校验失败沿现有治理检查传播；不新设独立审批系统，也不将 report-only 扫描自动升级为另一项 required gate。
+Rust 基线检查执行 `cargo deny --locked --all-features check advisories bans`，由 cargo-deny 检查真实 Cargo 依赖图中的 advisory 及禁止包；基线检查器另扫描全部仓库 Cargo.lock 的 package.name，防止独立模块和兼容 fixture 残留旧包。配置 fixture 只验证配置策略，不能代替真实依赖图检查；验收须同时覆盖空例外正例、隐藏/重复的 advisory、坏配置、禁止项移除或缩小、依赖别名与传递依赖的实际包身份。
 
 <a id="ci-formal-process"></a>
 ## 真实进程验收与共享产物

@@ -1,0 +1,17 @@
+{
+  "crate": "if-watch",
+  "version": "3.2.2",
+  "registry": "https://crates.io/crates/if-watch/3.2.2",
+  "crate_archive_sha256": "71c02a5161c313f0cbdbadc511611893584a10a7b6153cb554bdf83ddce99ec2",
+  "upstream_repository": "https://github.com/libp2p/if-watch",
+  "upstream_revision": "f6271229b3505bb1e245aad3d078bf571bb4e20e",
+  "dependency_upgrade_reference": "https://github.com/libp2p/if-watch/pull/55",
+  "dependency_upgrade_reference_head": "b30a9c1a43a1553710ca247fa5707d28ab9dd179",
+  "unchanged_source_sha256": {
+    "src/apple.rs": "c385aa71d041cbc0dc383d53eff755746018850fb6a5642780b97af71e0bf334",
+    "src/fallback.rs": "54cf1620569630b47935e2397ae8b2d8b23e7db90227307321014b4e6c1b67b8",
+    "src/lib.rs": "b18fea260f51202bf766c57de9fabb9fbf99db2a29d10e0eabf1bc8d73ee4a48",
+    "src/linux.rs": "c734139969c8b8d971db69ca9e004e483f96f89ad8fb48f6443b0a2b796ff7e8",
+    "src/win.rs": "617c4cbf46c7852b46c2509ba460670303d7be6342565a85543f3b5be06d654a"
+  }
+}

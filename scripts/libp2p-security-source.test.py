@@ -39,12 +39,55 @@ class NetworkSourceContract(unittest.TestCase):
         root = tomllib.loads((ROOT / "Cargo.toml").read_text())
         docker = (ROOT / "docker/wasm-builder/Dockerfile").read_text().splitlines()
         context_policy = (ROOT / ".dockerignore").read_text().splitlines()
-        for name in ("libp2p-swarm", "libp2p-rendezvous"):
-            patch = root["patch"][URL][name]["path"]
+        paths = [root["patch"][URL][name]["path"]
+                 for name in ("libp2p-swarm", "libp2p-rendezvous")]
+        paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
+        for patch in paths:
             self.assertIn(f"COPY {patch} /opt/oasis7/{patch}", docker)
             self.assertTrue((ROOT / patch / "Cargo.toml").is_file())
             self.assertIn(f"!{patch}/", context_policy)
             self.assertIn(f"!{patch}/**", context_policy)
+
+    def test_if_watch_patch_preserves_sources_and_removes_paste(self):
+        vendor = ROOT / "vendor-if-watch-3.2.2"
+        provenance = json.loads((vendor / "upstream-source-sha256.json").read_text())
+        actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in (vendor / "src").rglob("*.rs")}
+        self.assertEqual(actual, provenance["unchanged_source_sha256"])
+        self.assertEqual(provenance["crate_archive_sha256"],
+                         "71c02a5161c313f0cbdbadc511611893584a10a7b6153cb554bdf83ddce99ec2")
+        manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
+        deps = manifest["target"]['cfg(target_os = "linux")']["dependencies"]
+        expected = {"netlink-sys": "0.9.0", "netlink-packet-core": "0.9.0",
+                    "netlink-packet-route": "0.33.0", "netlink-proto": "0.13.0",
+                    "rtnetlink": "0.23.0"}
+        for name, version in expected.items():
+            self.assertEqual(deps[name]["version"], version)
+            self.assertFalse(deps[name]["default-features"])
+        lock = tomllib.loads((ROOT / "Cargo.lock").read_text())["package"]
+        watchers = [p for p in lock if p["name"] == "if-watch"]
+        self.assertEqual(len(watchers), 1)
+        self.assertNotIn("source", watchers[0])
+        self.assertFalse(any(p["name"] == "paste" for p in lock))
+        core = [p for p in lock if p["name"] == "netlink-packet-core"]
+        self.assertEqual([p["version"] for p in core], ["0.9.0"])
+
+    def test_compat_fixtures_share_only_the_interface_watcher_patch(self):
+        for mode in ("legacy", "candidate"):
+            fixture = ROOT / "tests/libp2p-compat" / mode
+            manifest = tomllib.loads((fixture / "Cargo.toml").read_text())
+            self.assertEqual(manifest["patch"]["crates-io"]["if-watch"]["path"],
+                             "../../../vendor-if-watch-3.2.2")
+            dep = manifest["dependencies"]["libp2p"]
+            if mode == "legacy":
+                self.assertEqual(dep["version"], "=0.56.0")
+            else:
+                self.assertEqual((dep["git"], dep["rev"]), (URL, REVISION))
+            packages = tomllib.loads((fixture / "Cargo.lock").read_text())["package"]
+            self.assertFalse(any(p["name"] == "paste" for p in packages))
+            watcher = [p for p in packages if p["name"] == "if-watch"]
+            self.assertEqual(len(watcher), 1)
+            self.assertNotIn("source", watcher[0])
 
     def test_rendezvous_has_only_the_reviewed_client_patch(self):
         vendor = ROOT / "vendor-libp2p-rendezvous-0.18.1"
