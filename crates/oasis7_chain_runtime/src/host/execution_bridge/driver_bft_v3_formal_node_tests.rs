@@ -27,6 +27,8 @@ use std::time::{Duration, Instant};
 mod node_identity_tests;
 #[path = "driver_bft_v3_node_cli_tests.rs"]
 mod node_cli_tests;
+#[path = "driver_bft_v3_node_publication_failure_tests.rs"]
+mod node_publication_failure_tests;
 #[path = "driver_bft_v3_provider_retry_tests.rs"]
 mod provider_retry_tests;
 

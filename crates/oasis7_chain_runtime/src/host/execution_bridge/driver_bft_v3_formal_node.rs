@@ -86,6 +86,15 @@ impl FormalBftHeaderNodeDriverV3 {
             cursor_height,
         })
     }
+    #[cfg(test)]
+    pub(crate) fn inject_publication_failure(
+        &mut self,
+        height: u64,
+        phase: &str,
+    ) -> Result<(), String> {
+        self.execution
+            .inject_publication_failure(height, phase, false)
+    }
     pub(crate) fn handoff(&self) -> &VerifiedBftHandoffTargetV2 {
         &self.execution.origin.handoff
     }
