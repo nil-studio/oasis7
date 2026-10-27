@@ -158,6 +158,29 @@ impl FormalBftHeaderNodeDriverV3 {
             let id = record.input().certificate.header.block_id()?;
             self.execution.verified_cut(self.cursor_height, &id)?;
         }
+        // Historical replay is read-only: it must reject an unrecorded node.
+        // Live execution may derive new nodes, but all parent reads must still
+        // resolve solely through this verified strict overlay.
+        let verified_parent = self.execution.origin.retained_nodes.clone();
+        let seed = verified_parent.recorded_nodes()?;
+        let mut live = FormalBftHeaderExecutionV3::from_handoff(
+            self.execution.inputs.anchor.clone(),
+            self.execution.inputs.target.clone(),
+            &self.execution.inputs.material,
+            verified_parent,
+            seed,
+            false,
+        )?;
+        for record in self
+            .execution
+            .ledger
+            .records()
+            .filter(|record| record.height() <= self.cursor_height)
+        {
+            let entry = record.input();
+            live.replay_next(&entry.certificate, &entry.actions_cbor)?;
+        }
+        self.execution.origin = live;
         Ok(())
     }
     fn expected(&self) -> NodeBftExecutionContextV3 {
