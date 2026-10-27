@@ -316,6 +316,10 @@ pub(super) fn validate_membership_snapshot(
         });
     }
 
+    let requires_authentication = policy.require_signature
+        || policy.require_signature_key_id
+        || !policy.accepted_signature_key_ids.is_empty()
+        || accepted_signature_signer_public_keys.is_some();
     let has_signature = snapshot.signature.is_some();
     if !has_signature && snapshot.signature_key_id.is_some() {
         return Err(WorldError::DistributedValidationFailed {
@@ -323,7 +327,7 @@ pub(super) fn validate_membership_snapshot(
         });
     }
 
-    if policy.require_signature && !has_signature {
+    if requires_authentication && !has_signature {
         return Err(WorldError::DistributedValidationFailed {
             reason: format!(
                 "membership snapshot missing signature for requester {}",
@@ -415,10 +419,7 @@ pub(super) fn validate_membership_snapshot(
             keyring.verify_snapshot(snapshot)?;
         } else if let Some(signer) = signer {
             signer.verify_snapshot(snapshot)?;
-        } else if policy.require_signature
-            || policy.require_signature_key_id
-            || !policy.accepted_signature_key_ids.is_empty()
-        {
+        } else if requires_authentication {
             return Err(WorldError::DistributedValidationFailed {
                 reason: "membership snapshot verification requires signer or keyring".to_string(),
             });

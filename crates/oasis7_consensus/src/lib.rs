@@ -246,3 +246,6 @@ mod tests {
         let _ = std::any::type_name::<MembershipRevocationSyncReport>();
     }
 }
+
+#[cfg(test)]
+mod membership_restore_auth_tests;
