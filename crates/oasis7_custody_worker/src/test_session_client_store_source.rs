@@ -192,7 +192,7 @@ impl OwnerProvisionApprovalStore {
                         },
                         time,
                     )
-                    .map_err(|_| rejected())?;
+                    .map_err(|_| client_diagnostic("host_charge", rejected()))?;
                 match operation {
                     SessionClientOperation::Challenge => {
                         let request: SessionChallengeRequestV1 =

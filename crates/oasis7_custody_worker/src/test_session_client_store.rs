@@ -76,28 +76,33 @@ impl OwnerProvisionApprovalStore {
             &mut crate::approval_store::ExactCache,
         ) -> Result<R>,
     {
-        let initial = self.snapshot()?;
+        let initial = self
+            .snapshot()
+            .map_err(|e| client_diagnostic("snapshot", e))?;
         selector(&initial.state, rpc)?;
         let configuration = ClientHttpConfiguration::load(env)?;
-        let prepared = configuration.prepare(
-            &initial.state,
-            &rpc.http.original,
-            operation,
-            UnixMillis::new(now()?),
-        )?;
-        let mut cache = verify(prepared.signature_checks().map_err(|_| rejected())?).await?;
-        self.local_reservation(event, &rpc.http.selector.session_id, |state, time| {
-            selector(state, rpc)?;
-            let prepared = ClientHttpConfiguration::load(env)?.prepare(
-                state,
+        let prepared = configuration
+            .prepare(
+                &initial.state,
                 &rpc.http.original,
                 operation,
-                UnixMillis::new(time),
-            )?;
+                UnixMillis::new(now()?),
+            )
+            .map_err(|e| client_diagnostic("prepare", e))?;
+        let mut cache = verify(prepared.signature_checks().map_err(|_| rejected())?)
+            .await
+            .map_err(|e| client_diagnostic("async_crypto", e))?;
+        self.local_reservation(event, &rpc.http.selector.session_id, |state, time| {
+            selector(state, rpc)?;
+            let prepared = ClientHttpConfiguration::load(env)?
+                .prepare(state, &rpc.http.original, operation, UnixMillis::new(time))
+                .map_err(|e| client_diagnostic("final_prepare", e))?;
             let proof = verify_http_possession(prepared, UnixMillis::new(time), &mut cache)
-                .map_err(|_| rejected())?;
+                .map_err(|_| client_diagnostic("final_crypto", rejected()))?;
             transition(state, &proof, UnixMillis::new(time), &mut cache)
+                .map_err(|e| client_diagnostic("transition", e))
         })
+        .map_err(|e| client_diagnostic("sql_commit", e))
     }
     /// All Source/Root signature jobs and this same raw HTTP signature are
     /// verified asynchronously, then re-derived from the final Account SQL row.
@@ -178,6 +183,8 @@ impl OwnerProvisionApprovalStore {
         // The second transaction repeats exact HTTP preparation and verifies
         // this same paid ingress binding before reserving any source.
         self.revalidate_client_http(env, rpc, operation).await?;
+        #[cfg(feature = "approval-harness")]
+        worker::console_warn!("client.host.committed");
         let source_id = client_source_operation_id(rpc)?;
         let candidate_nonce =
             crate::approval_crypto::verification_nonce().map_err(|_| rejected())?;
@@ -428,3 +435,11 @@ mod client_harness;
 #[path = "test_session_client_store_source.rs"]
 mod client_source;
 pub(crate) use client_source::client_source_operation_id;
+
+fn client_diagnostic(stage: &'static str, error: JsValue) -> JsValue {
+    #[cfg(feature = "approval-harness")]
+    worker::console_warn!("client.proof.{}", stage);
+    #[cfg(not(feature = "approval-harness"))]
+    let _ = stage;
+    error
+}

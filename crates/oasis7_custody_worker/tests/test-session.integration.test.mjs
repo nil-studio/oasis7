@@ -291,9 +291,18 @@ function clientClaimChallenge(basis,runtime){
   const requestId='source-exhausted-claim-challenge';
   const body=JSON.stringify({api_version:1,session_id:basis.session_id,request_id:requestId,purpose:'execution',kind:{kind:'credential_claim'},logical_request_id:'source-exhausted-claim',operation_request_digest:'61'.repeat(32)});
   const target=`${origin}/v1/account-provisions/${runtime.provisionId}/accounts/${runtime.account}/client/proof-challenges`;
-  const created=Math.floor(Date.now()/1000),sha=value=>createHash('sha256').update(value).digest('base64');
+  const now=Date.now(),created=Math.floor(now/1000),sha=value=>createHash('sha256').update(value).digest('base64');
+  // The original fixture Plan fixes write_deadline=cleanup_until-20000.
+  // Respect that same signed root bound rather than minting a 29s proof past it.
+  const cleanup=BigInt(basis.termination.cleanup_until),writeDeadline=cleanup-20000n;
+  const rootFloor=Number(writeDeadline/1000n);
+  assert.ok(Number.isSafeInteger(rootFloor)&&rootFloor>created,'original root retains a positive whole-second proof window');
+  const expires=Math.min(created+29,rootFloor);
+  const positiveMargin=expires*1000-now>2000;
+  console.log(JSON.stringify({client_proof_bounds:{unclamped_exceeds_root:BigInt(created+29)*1000n>writeDeadline,clamped_within_root:BigInt(expires)*1000n<=writeDeadline,positive_margin:positiveMargin}}));
+  assert.ok(positiveMargin,'original root must retain at least 2s for real proof verification; do not renew it');
   const fields=['@method','@target-uri','content-type','content-digest','oasis7-token-digest','oasis7-test-session','oasis7-request-id'];
-  const params=`(${fields.map(name=>JSON.stringify(name)).join(' ')});created=${created};expires=${created+29};alg="ed25519";keyid="${basis.client_pairing.client_key_id}";tag="oasis7-custody-challenge-v1"`;
+  const params=`(${fields.map(name=>JSON.stringify(name)).join(' ')});created=${created};expires=${expires};alg="ed25519";keyid="${basis.client_pairing.client_key_id}";tag="oasis7-custody-challenge-v1"`;
   const headers={'content-type':'application/json','content-digest':`sha-256=:${sha(body)}:`,'oasis7-token-digest':`:${sha('')}:`,'oasis7-test-session':basis.session_id,'oasis7-request-id':requestId};
   const values={'@method':'POST','@target-uri':target,...headers};
   const base=fields.map(name=>`"${name}": ${values[name]}`).concat(`"@signature-params": ${params}`).join('\n');
@@ -339,12 +348,26 @@ test('direct authenticated client admission keeps Host charge when native source
       const admission=clientClaimChallenge(basis,runtime);
       const rejected=await runtime.testClientAdmission('direct_admit',admission);
       assert.ok(rejected.status>=400,'source reservation must fail closed');
+      const afterFirst=await (await runtime.testClientAdmission('drain',{session_id:basis.session_id})).json();
+      assert.equal(afterFirst.host_remaining,summary.host_remaining-1,'the first authenticated rejected source attempt stays paid');
+      const signedExpiry=Number(/;expires=([0-9]+);/.exec(admission.http.original.headers.find(h=>h.name==='signature-input').value)[1])*1000;
+      assert.ok(signedExpiry-Date.now()>1000,'the exact signed proof must still be valid before callback replay');
+      const callbackRetry=await runtime.testClientAdmission('direct_admit',admission);
+      assert.ok(callbackRetry.status>=400,'same paid callback cannot create a source after budget exhaustion');
+      const afterCallback=await (await runtime.testClientAdmission('drain',{session_id:basis.session_id})).json();
+      assert.equal(afterCallback.host_remaining,afterFirst.host_remaining,'same ingress and exact proof are not charged twice');
+      assert.ok(signedExpiry-Date.now()>1000,'the unchanged signed proof must remain valid for a new actual ingress');
+      const nextIngress=structuredClone(admission);nextIngress.ingress_attempt_id='source-exhausted-next-actual-ingress';
+      const nextRejected=await runtime.testClientAdmission('direct_admit',nextIngress);
+      assert.ok(nextRejected.status>=400,'a distinct ingress also cannot create a source after exhaustion');
+      const afterNext=await (await runtime.testClientAdmission('drain',{session_id:basis.session_id})).json();
+      assert.equal(afterNext.host_remaining,afterCallback.host_remaining-1,'a distinct trusted ingress pays once for the exact same signed proof');
       // No public-driver revalidation runs here: this is the real local Store
       // method, actual Rust+WebCrypto signature path and final SQL transaction.
       assert.deepEqual(runtime.nativeRequests(),nativeBefore);
       await runtime.suspend();const after=clientAdmissionCounters(runtime,basis.session_id);
       assert.equal(after.sources,before.sources,'failed source reservation creates no source');
-      assert.equal(after.host_admissions,before.host_admissions+1,'authenticated Host ingress remains charged after source failure');
+      assert.equal(after.host_admissions,before.host_admissions+2,'both distinct authenticated ingress attempts remain paid and the same-ingress callback is idempotent');
     } finally {
       ownerDiagnosticActive=false;
       if(previous===undefined)delete process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC;else process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC=previous;
