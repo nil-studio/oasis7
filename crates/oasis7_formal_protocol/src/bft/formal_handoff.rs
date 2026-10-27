@@ -82,20 +82,12 @@ impl BftProfileTargetV1 {
         {
             return Err("unsupported formal BFT V1 target configuration".into());
         }
-        self.scope.validate()?;
-        self.schedule_policy.validate()?;
-        if self.schedule_policy.profile_id != self.profile {
-            return Err("formal BFT schedule policy must use the target profile id".into());
-        }
-        if self
-            .initial_validators
-            .windows(2)
-            .any(|pair| pair[0].validator_id >= pair[1].validator_id)
-        {
-            return Err("formal BFT target validators must be sorted and unique".into());
-        }
-        self.validator_set()?;
-        Ok(())
+        validate_target_configuration(
+            &self.scope,
+            &self.initial_validators,
+            &self.schedule_policy,
+            &self.profile,
+        )
     }
 
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, String> {
@@ -166,6 +158,27 @@ impl BftProfileTargetV1 {
     fn validator_set(&self) -> Result<BftValidatorSetV2, String> {
         BftValidatorSetV2::new(self.scope.clone(), self.initial_validators.clone())
     }
+}
+
+pub(super) fn validate_target_configuration(
+    scope: &BftScopeV2,
+    validators: &[BftValidatorV2],
+    policy: &BftSchedulePolicyV2,
+    profile: &str,
+) -> Result<(), String> {
+    scope.validate()?;
+    policy.validate()?;
+    if policy.profile_id != profile {
+        return Err("formal BFT schedule policy must use the target profile id".into());
+    }
+    if validators
+        .windows(2)
+        .any(|pair| pair[0].validator_id >= pair[1].validator_id)
+    {
+        return Err("formal BFT target validators must be sorted and unique".into());
+    }
+    BftValidatorSetV2::new(scope.clone(), validators.to_vec())?;
+    Ok(())
 }
 
 /// Opaque proof that a qualified formal H committed to this exact static
@@ -298,14 +311,59 @@ pub fn verify_formal_bft_handoff_v1(
 ) -> Result<VerifiedBftHandoffTargetV1, String> {
     target.validate()?;
     let target_digest = target.target_digest()?;
+    let fields = verify_handoff_fields(
+        anchor,
+        &target.scope,
+        &target.profile,
+        target.profile_version,
+        &target_digest,
+    )?;
+    let activation_digest = activation_digest(
+        &target_digest,
+        &fields.head,
+        &fields.world,
+        &fields.raw_snapshot_root,
+        &fields.governing_manifest_digest,
+        &fields.finalizing_authority_id,
+    )?;
+    Ok(VerifiedBftHandoffTargetV1 {
+        initial_validator_set_hash: target.initial_validator_set_hash()?,
+        schedule_policy_hash: target.schedule_policy_hash()?,
+        target,
+        target_digest,
+        activation_digest,
+        handoff_head: fields.head,
+        raw_snapshot_root: fields.raw_snapshot_root,
+        governing_manifest_digest: fields.governing_manifest_digest,
+        finalizing_authority_id: fields.finalizing_authority_id,
+    })
+}
+
+pub(super) struct QualifiedBftHandoffFields {
+    pub(super) head: FormalHeadRefV1,
+    pub(super) world: FormalWorldIdentityV1,
+    pub(super) raw_snapshot_root: String,
+    pub(super) governing_manifest_digest: String,
+    pub(super) finalizing_authority_id: String,
+}
+
+/// Common controlled-H authentication, parameterized by an already validated
+/// version-specific target. This does not choose an activation or wire version.
+pub(super) fn verify_handoff_fields(
+    anchor: &VerifiedFormalReadAnchorV1,
+    scope: &BftScopeV2,
+    profile: &str,
+    profile_version: u32,
+    target_digest: &str,
+) -> Result<QualifiedBftHandoffFields, String> {
     let commit = anchor.head();
     let record = commit.record();
     record.validate().map_err(|error| error.to_string())?;
     if record.kind != FormalRecordKindV1::Execution
         || record.world != anchor.authority().definition().world
-        || record.world.world_id != target.scope.world_id
-        || record.world.chain_id != target.scope.chain_id
-        || record.world.genesis_digest != target.scope.genesis_hash
+        || record.world.world_id != scope.world_id
+        || record.world.chain_id != scope.chain_id
+        || record.world.genesis_digest != scope.genesis_hash
         || anchor.authority().definition().profile != FORMAL_PROFILE
         || record.activation_ref != anchor.authority().activation_ref()
     {
@@ -318,8 +376,8 @@ pub fn verify_formal_bft_handoff_v1(
     handoff
         .validate(record.position)
         .map_err(|error| error.to_string())?;
-    if handoff.next_profile != target.profile
-        || handoff.next_profile_version != target.profile_version
+    if handoff.next_profile != profile
+        || handoff.next_profile_version != profile_version
         || handoff.next_authority_digest != target_digest
     {
         return Err("formal H handoff does not bind the supplied BFT target".into());
@@ -328,21 +386,9 @@ pub fn verify_formal_bft_handoff_v1(
     let raw_snapshot_root = record.after_state_root.clone();
     let governing_manifest_digest = record.governing_manifest_digest.clone();
     let finalizing_authority_id = commit.finalizing_authority_id().to_owned();
-    let activation_digest = activation_digest(
-        &target_digest,
-        &handoff_head,
-        &record.world,
-        &raw_snapshot_root,
-        &governing_manifest_digest,
-        &finalizing_authority_id,
-    )?;
-    Ok(VerifiedBftHandoffTargetV1 {
-        initial_validator_set_hash: target.initial_validator_set_hash()?,
-        schedule_policy_hash: target.schedule_policy_hash()?,
-        target,
-        target_digest,
-        activation_digest,
-        handoff_head,
+    Ok(QualifiedBftHandoffFields {
+        head: handoff_head,
+        world: record.world.clone(),
         raw_snapshot_root,
         governing_manifest_digest,
         finalizing_authority_id,
@@ -598,7 +644,7 @@ fn activation_digest(
     Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 
-fn validate_hash(name: &str, value: &str) -> Result<(), String> {
+pub(super) fn validate_hash(name: &str, value: &str) -> Result<(), String> {
     if value.len() != 64
         || !value
             .bytes()
@@ -609,7 +655,7 @@ fn validate_hash(name: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn canonical_bytes<T: Serialize>(
+pub(super) fn canonical_bytes<T: Serialize>(
     value: &T,
     maximum: usize,
     context: &str,
@@ -638,7 +684,7 @@ fn canonical_cbor_with_self_describe<T: Serialize>(value: &T) -> Result<Vec<u8>,
     Ok(bytes)
 }
 
-fn decode_canonical<T: Serialize + DeserializeOwned>(
+pub(super) fn decode_canonical<T: Serialize + DeserializeOwned>(
     bytes: &[u8],
     maximum: usize,
     context: &str,
@@ -654,7 +700,7 @@ fn decode_canonical<T: Serialize + DeserializeOwned>(
     Ok(value)
 }
 
-fn domain_digest(domain: &str, bytes: &[u8]) -> String {
+pub(super) fn domain_digest(domain: &str, bytes: &[u8]) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&(domain.len() as u64).to_be_bytes());
     hasher.update(domain.as_bytes());

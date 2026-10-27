@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{BFT_MAX_ACTIONS_CBOR_BYTES_V1, domain_framed, hash_hex};
 
+mod signatures;
+pub use signatures::*;
+
+pub const BFT_PROTOCOL_VERSION_V3: u16 = 3;
 pub const BFT_HEADER_ID_DOMAIN_V3: &str = "oasis7.bft.header_id.v3.hash";
 pub const BFT_ACTIONS_DIGEST_DOMAIN_V3: &str = "oasis7.bft.actions_cbor.v3.hash";
 pub const BFT_HEADER_MAX_BYTES_V3: usize = 4096;
@@ -19,7 +23,7 @@ pub struct BftBlockHeaderV3 {
 
 impl BftBlockHeaderV3 {
     pub fn validate(&self) -> Result<(), String> {
-        if self.protocol_version != 3 {
+        if self.protocol_version != BFT_PROTOCOL_VERSION_V3 {
             return Err("unsupported BFT public header version".into());
         }
         hash_hex("execution commitment", &self.execution_commitment_hash)?;
@@ -80,7 +84,7 @@ mod tests {
     fn public_header_binds_private_bytes_without_disclosing_them() {
         let secret = b"private-action-canary-4975";
         let header = BftBlockHeaderV3 {
-            protocol_version: 3,
+            protocol_version: BFT_PROTOCOL_VERSION_V3,
             execution_commitment_hash: "11".repeat(32),
             actions_cbor_digest: actions_cbor_digest_v3(secret).unwrap(),
         };
