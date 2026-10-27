@@ -218,11 +218,12 @@ impl Drop for ExactOwnerCleanup {
 #[test]
 fn original_commit_diagnostic_rejects_remote_endpoint_without_exposing_credentials() {
     let config = oasis7::world_service::client::WorldServiceClientConfig {
+        formal_read_trust: None,
         endpoint: "http://192.0.2.1:1234".into(),
         trusted_service_public_key: "private-test-service-identity".into(),
         expected_world: oasis7_client_api::world_service::WorldIdentity {
             world_id: "diagnostic-world".into(),
-            chain_id: "diagnostic-chain".into(),
+            genesis_digest: "ab".repeat(32),
         },
         scope_id: "owner".into(),
         read_private_key_hex: "private-test-credential".into(),
