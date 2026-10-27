@@ -574,6 +574,24 @@ The actual shipping case installs a real nonempty-action three-height private le
 
 The independent current-authorization fixture verifies delegated read success, busy/unavailable 503, journalled revocation 403, owner success and a lock held across reply construction/signing/socket release. The CLI supplies no current authority and returns 503 for private scopes. Reuse the existing bounded HTTP writer tests for responses above the old 8 MiB limit, absolute write deadlines and oversized-body rejection before any header. These are local historical-read and authorization-boundary results; they do not prove current Node readiness, checkpoint freshness, protected provider installation or physical fault domains.
 
+#### Wire-3 singleton Node and protected-provider integration
+
+Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39`. Contract: [des-p2p-bft-header-node-v3](doc/p2p/design.md#des-p2p-bft-header-node-v3).
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_consensus --lib tendermint_v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_distfs --lib protected_bft_v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read_node_private -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib wire3_formal_read_actual_node -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+```
+
+The Node case must submit nonempty RuntimeAction payloads through NodeRuntime, obtain native TCP provider signatures, and check the committed batch against the actual installed World, exact canonical ledger record and provider applied receipt. Recreate Node, driver, service and remote-client objects, prune a known unretained CAS canary, then require a second successful nonempty action and read-contract-4 client consumption of the resulting history. The backend in this case is explicitly a test-only in-memory double; object restart does not establish physical backend durability or production key custody.
+
+Native retry checks retain the original completed proposal and vote signatures across height advancement and cold service reopen; changing an old intent must fail without changing state. Timer checks must reject attempts to set or erase the height origin through generic Advance, while the protected StartHeightTimer path remains usable. Private-store checks remove original pins after intent/link publication and remove completed metadata while CAS/pins remain; both must fail without recreating original resources.
+
+The one-shot consumer is `bft-header node --config ABS --actions ABS`. Its separate schema-1 configuration requires qualified-H trust/material, schema-2 target, disjoint existing private CAS/records/replication directories, validator/player/operator identities, provisioned public signing-key identities, timeouts, explicit provider endpoint and pinned V3 trust, and an existing requester authentication key. The actions file is canonical private action CBOR for that player. Public output contains only applied height/header/action-root/count receipts. This command admits one validator without transitions or peer gossip and supplies no software substitute for a production protected backend. An input submitted again is a new submission; a public receipt is not a global idempotency key.
+
 #### 本地 CAS retention 与 GC 协调
 
 合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。

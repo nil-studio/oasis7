@@ -12,6 +12,7 @@ use oasis7_consensus::tendermint_v3::{
     VerifiedBftHeaderCertificateV3,
 };
 use oasis7_distfs::protected_bft_v3::*;
+use oasis7_runtime::LocalCasStore;
 use oasis7_node::{
     NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
     NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3, NodeConfig, NodeExecutionHook,
