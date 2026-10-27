@@ -53,9 +53,25 @@ for case in ('closed','pending','mismatch'):
 #[test]
 fn registered_manual_bundle_smoke_executes_its_real_local_fixtures() {
     assert_compiled_input("scripts/wasm-summary-bundle-smoke.sh", BUNDLE_SMOKE);
+    let scratch = Scratch::new();
+    let tools = scratch.0.join("no-ripgrep");
+    fs::create_dir(&tools).expect("create sentinel tools directory");
+    let sentinel = tools.join("rg");
+    fs::write(
+        &sentinel,
+        "#!/bin/sh\necho ripgrep-sentinel-invoked >&2\nexit 127\n",
+    )
+    .expect("write failing rg sentinel");
+    fs::set_permissions(&sentinel, fs::Permissions::from_mode(0o755))
+        .expect("make sentinel executable");
+    let path = std::env::join_paths(std::iter::once(tools).chain(std::env::split_paths(
+        &std::env::var_os("PATH").expect("test PATH"),
+    )))
+    .expect("sentinel PATH");
     let stdout = assert_success(
         Command::new("bash")
             .arg(repo_root().join("scripts/wasm-summary-bundle-smoke.sh"))
+            .env("PATH", path)
             .current_dir(repo_root())
             .output()
             .expect("execute actual local bundle smoke"),
