@@ -29,7 +29,10 @@ pub(super) enum MovementRulePhase {
 
 impl MovementRulePhase {
     fn includes(self, module_id: &str) -> bool {
-        let pricing = matches!(module_id, "m1.rule.move" | "m1.mobility.basic" | "m1.power.storage");
+        let pricing = matches!(
+            module_id,
+            "m1.rule.move" | "m1.mobility.basic" | "m1.power.storage"
+        );
         match self {
             Self::All => true,
             Self::General => !pricing,
@@ -177,8 +180,14 @@ impl World {
         sandbox: &mut dyn ModuleSandbox,
     ) -> Result<usize, WorldError> {
         let mut staged = TrustedCommandStage::new(self)?;
-        let routed =
-            self.route_action_to_staged(&mut staged, envelope, stage, result_event, MovementRulePhase::All, sandbox);
+        let routed = self.route_action_to_staged(
+            &mut staged,
+            envelope,
+            stage,
+            result_event,
+            MovementRulePhase::All,
+            sandbox,
+        );
         self.finalize_prepared_module_route(staged.prepare_route(routed))
     }
 
@@ -190,7 +199,12 @@ impl World {
     ) -> Result<usize, WorldError> {
         let mut staged = TrustedCommandStage::new(self)?;
         let routed = self.route_action_to_staged(
-            &mut staged, envelope, ModuleSubscriptionStage::PreAction, None, phase, sandbox,
+            &mut staged,
+            envelope,
+            ModuleSubscriptionStage::PreAction,
+            None,
+            phase,
+            sandbox,
         );
         self.finalize_prepared_module_route(staged.prepare_route(routed))
     }
