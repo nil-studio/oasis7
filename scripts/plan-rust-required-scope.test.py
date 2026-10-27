@@ -32,6 +32,26 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_wasm_consumer_exact_paths_select_real_suite_and_domain_groups(self):
+        config = json.loads((HERE / "ci-required-scope.json").read_text())
+        graph = ({}, {}, {})
+        cases = {
+            "scripts/module-release-node-attestation-flow.sh": {"operational_contracts", "formal_process", "workspace_support"},
+            "scripts/stage-wasm-summary-imports.sh": {"packaging_contracts", "workspace_support"},
+        }
+        with patch.object(selector, "cargo_graph", return_value=graph):
+            for path, required in cases.items():
+                self.write(path, "# exact existing consumer\n")
+                head = self.commit()
+                plan = selector.select(config, self.base, head)
+                self.assertTrue(required.issubset(plan["groups"]))
+                self.assertEqual(plan["workspace_support_profiles"], ["wasm_build_suite"])
+                self.base = head
+            for path in ("scripts/module-release-node-attestation-flow-future.sh", "scripts/stage-wasm-summary-imports-future.sh"):
+                self.write(path, "# not registered\n")
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, self.base, self.commit())
+
     def test_architecture_inputs_have_trusted_owner_and_select_execution(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         for path in ('scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json',

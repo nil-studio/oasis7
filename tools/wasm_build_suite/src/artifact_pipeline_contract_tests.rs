@@ -13,6 +13,39 @@ const SYNC_M1: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifa
 const SYNC_TEST: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifacts.test.sh");
 const SYNC_M4: &str = include_str!("../../../scripts/sync-m4-builtin-wasm-artifacts.sh");
 const SYNC_M5: &str = include_str!("../../../scripts/sync-m5-builtin-wasm-artifacts.sh");
+const IMPORT_SUMMARIES: &str = include_str!("../../../scripts/stage-wasm-summary-imports.sh");
+const ATTESTATION_FLOW: &str =
+    include_str!("../../../scripts/module-release-node-attestation-flow.sh");
+
+#[test]
+fn registered_wasm_consumers_execute_import_and_offline_request_contracts() {
+    assert_compiled_input("scripts/stage-wasm-summary-imports.sh", IMPORT_SUMMARIES);
+    assert_compiled_input(
+        "scripts/module-release-node-attestation-flow.sh",
+        ATTESTATION_FLOW,
+    );
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+bundle=root/'bundle'; bundle.mkdir()
+summary=dict(schema_version=1,module_set='m1',runner='darwin-arm64',host_platform='darwin-arm64',canonical_platform='linux-x86_64',identity_build_recipe=dict(container_platform='linux-x86_64'))
+(bundle/'summary.json').write_text(json.dumps(summary))
+(bundle/'bundle_manifest.json').write_text(json.dumps(dict(schema_version=1,runner_label='darwin-arm64',host_platform='darwin-arm64',canonical_platforms=['linux-x86_64'],summary_files=dict(m1='summary.json'))))
+local=root/'local';local.mkdir();(local/'linux-x86_64.json').write_text('{}')
+def stage(out):
+    return subprocess.run(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(local),'--out-dir',str(out),'--external-summary-bundle',str(bundle)],capture_output=True,text=True)
+result=stage(root/'valid');assert result.returncode==0,result.stderr
+assert json.loads((root/'valid/darwin-arm64.json').read_text())==summary
+summary['host_platform']='linux-x86_64';(bundle/'summary.json').write_text(json.dumps(summary))
+result=stage(root/'invalid');assert result.returncode!=0 and 'host_platform mismatch' in result.stderr,result.stderr
+flow=['bash',str(repo/'scripts/module-release-node-attestation-flow.sh'),'--out-dir',str(root/'flow'),'--module-sets','m1','--skip-local-collect','--summary-import-dir',str(root/'missing-imports')]
+for key,value in [('request-id','1'),('operator-agent-id','1'),('signer-node-id','fixture'),('build-manifest-hash','build'),('source-hash','source'),('wasm-hash','wasm'),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:flow += ['--'+key,value]
+result=subprocess.run(flow,capture_output=True,text=True)
+assert result.returncode!=0 and 'summary import dir not found' in result.stderr,result.stderr
+assert not list((root/'flow').rglob('proof_payload.json')) and not list((root/'flow').rglob('submit_request.json')), 'invalid imports must not be packaged or submitted'
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("execute registered consumer contracts without signing or network"));
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

@@ -302,6 +302,10 @@
     ]
   },
   "workspace_support_profile_paths": {
+    "wasm_build_suite": [
+      "scripts/module-release-node-attestation-flow.sh",
+      "scripts/stage-wasm-summary-imports.sh"
+    ],
     "oasis7_custody_worker": [
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_complete.rs",
@@ -721,6 +725,25 @@
         "workspace_support"
       ],
       "reason": "signed_read_handler_conformance"
+    },
+    {
+      "match": [
+        "scripts/module-release-node-attestation-flow.sh"
+      ],
+      "groups": [
+        "operational_contracts",
+        "formal_process"
+      ],
+      "reason": "wasm_release_attestation_consumer"
+    },
+    {
+      "match": [
+        "scripts/stage-wasm-summary-imports.sh"
+      ],
+      "groups": [
+        "packaging_contracts"
+      ],
+      "reason": "wasm_summary_import_consumer"
     }
   ]
 }
