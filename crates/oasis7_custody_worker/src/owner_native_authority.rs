@@ -224,6 +224,10 @@ fn build_current(
         oasis7_custody_core::approval::CustodyIntentV1::ManagedLogin { deadline, .. } => {
             deadline.0.min(proof.expires_at.0)
         }
+        // The book independently bounds initial proof consumption. A consumed
+        // fixed setup plan retains its signed deadline; every stage still needs
+        // its own fresh origin inspection and current Directory/Fence evidence.
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetup { deadline, .. } => deadline.0,
         oasis7_custody_core::approval::CustodyIntentV1::Provision { .. } => draft.plan.expires_at.0,
         _ => return Err(denied()),
     };

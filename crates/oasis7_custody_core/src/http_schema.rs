@@ -2,6 +2,8 @@
 use super::*;
 use crate::{DecimalU64, approval::*, provisioning::*, source_revocation::*};
 use serde_json::{Value, json};
+#[path = "http_schema_owner_setup.rs"]
+mod owner_setup;
 
 fn context() -> ApprovalContextV1 {
     ApprovalContextV1 {
@@ -362,6 +364,13 @@ pub(super) fn export(directory: &std::path::Path) {
         signature: "fixture-signature".into(),
     };
     let schemas = json!({
+        "OwnerSetupApproveRequestV1":schemars::schema_for!(OwnerSetupApproveRequestV1),
+        "OwnerSetupDriveRequestV1":schemars::schema_for!(OwnerSetupDriveRequestV1),
+        "OwnerSetupProgressV1":schemars::schema_for!(OwnerSetupProgressV1),
+        "OwnerSetupBasisRequestV1":schemars::schema_for!(OwnerSetupBasisRequestV1),
+        "OwnerSetupBasisV1":schemars::schema_for!(OwnerSetupBasisV1),
+        "OwnerSetupPrepareRequestV1":schemars::schema_for!(OwnerSetupPrepareRequestV1),
+        "OwnerSetupPrepareResponseV1":schemars::schema_for!(OwnerSetupPrepareResponseV1),
         "SignedSourceClosureAckV1":schemars::schema_for!(SignedSourceClosureAckV1),
         "SourceRevocationsPollRequestV1":schemars::schema_for!(SourceRevocationsPollRequestV1),
         "SourceRevocationsPollResponseV1":schemars::schema_for!(SourceRevocationsPollResponseV1),
@@ -384,7 +393,7 @@ pub(super) fn export(directory: &std::path::Path) {
         "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
         "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
     });
-    let fixtures = json!({
+    let mut fixtures = json!({
         "ManagedLoginApproveRequestV1":[managed_login_approve],
         "ManagedLoginApprovalViewV1":[ManagedLoginApprovalViewV1{api_version:1,provision_id:"provision-one".into(),custody_account_id:"custody-one".into(),operation_id:"managed-login-approve-one".into(),stage:ManagedLoginStageV1::Approved}],
         "source_revocation":{"events":source_events.iter().map(|event|json!({"event":event,"signing_bytes_hex":event.signing_bytes().unwrap().iter().map(|byte|format!("{byte:02x}")).collect::<String>()})).collect::<Vec<_>>()},
@@ -395,6 +404,10 @@ pub(super) fn export(directory: &std::path::Path) {
         "error":([ErrorCode::NotFound,ErrorCode::NotReady,ErrorCode::MethodNotAllowed].map(ErrorResponse::new)),
         "ApprovalOptionsRequestV1":requests,"ApprovalOptionsResponseV1":[options_response],"ApprovalCompleteRequestV1":[complete],
         "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionApproveRequestV1":[provision_approve],"ProvisionApprovalViewV1":[provision_approved],"ProvisionDriveRequestV1":[ProvisionDriveRequestV1{api_version:1,operation_id:"prepare-keys-one".into()}],"ProvisionProgressViewV1":[ProvisionProgressViewV1{api_version:1,provision_id:"provision-one".into(),custody_account_id:"custody-one".into(),operation_id:"prepare-keys-one".into(),stage:ProvisionStage::Approved,pending_operations:vec![],transport_remaining:DecimalU64(128)}],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
+    fixtures
+        .as_object_mut()
+        .unwrap()
+        .extend(owner_setup::fixture(&approval).as_object().unwrap().clone());
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),

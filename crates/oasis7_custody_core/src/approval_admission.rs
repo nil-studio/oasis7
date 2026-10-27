@@ -65,7 +65,7 @@ type Result<T> = std::result::Result<T, ApprovalAdmissionError>;
 
 /// Immutable material for a trusted crypto adapter. No public constructor or
 /// Deserialize implementation permits a request to supply "verified" jobs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct SignatureCheck {
     key_id: String,
     public_key_hex: String,
@@ -87,7 +87,7 @@ impl SignatureCheck {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ExactSignatureChecks {
     operation_id: String,
     body_digest: String,
@@ -174,6 +174,12 @@ impl TryFrom<RawAdmissionRecord> for ApprovalAdmissionRecord {
     }
 }
 impl ApprovalAdmissionRecord {
+    pub(crate) fn recorded_context(&self) -> &ApprovalAdmissionContext {
+        &self.context
+    }
+    pub(crate) fn check_recorded_context(&self, current: &ApprovalAdmissionContext) -> Result<()> {
+        check_current_context(&self.context, current)
+    }
     pub fn input(&self) -> &ApprovalAdmissionInput {
         &self.input
     }
@@ -466,6 +472,7 @@ fn check_current_context(
 fn deadline(input: &ApprovalAdmissionInput, context: &ApprovalAdmissionContext) -> u64 {
     let plan_deadline = match &input.request.intent {
         CustodyIntentV1::Provision { deadline, .. }
+        | CustodyIntentV1::OwnerSetup { deadline, .. }
         | CustodyIntentV1::ManagedLogin { deadline, .. } => deadline.0,
         CustodyIntentV1::TestSession { write_deadline, .. } => write_deadline.0,
     };
@@ -687,3 +694,48 @@ pub(crate) use native_fact_checks::*;
 #[path = "participant_signature_checks.rs"]
 mod participant_signature_checks;
 pub(crate) use participant_signature_checks::*;
+
+#[path = "owner_setup_signature_checks.rs"]
+mod owner_setup_signature_checks;
+pub(crate) use owner_setup_signature_checks::*;
+
+impl core::fmt::Debug for SignatureCheck {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SignatureCheck(<signed-bytes>)")
+    }
+}
+impl core::fmt::Debug for ExactSignatureChecks {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ExactSignatureChecks(<private-checks>)")
+    }
+}
+#[cfg(test)]
+mod private_debug_tests {
+    use super::*;
+    #[test]
+    fn signature_jobs_do_not_debug_private_proposals() {
+        let check = SignatureCheck {
+            key_id: "private-goal-domain".into(),
+            public_key_hex: "11".repeat(32),
+            signature_base64url: "signature".into(),
+            canonical_bytes: b"private goal raw content".to_vec(),
+        };
+        assert_eq!(format!("{check:?}"), "SignatureCheck(<signed-bytes>)");
+        let checks = ExactSignatureChecks {
+            operation_id: "private operation".into(),
+            body_digest: "enumerable-private-digest".into(),
+            context_digest: "context".into(),
+            verify_nonce: "nonce".into(),
+            verification_digest: None,
+            checks: vec![check],
+        };
+        assert_eq!(
+            format!("{checks:?}"),
+            "ExactSignatureChecks(<private-checks>)"
+        );
+        assert_eq!(
+            checks.checks()[0].canonical_bytes(),
+            b"private goal raw content"
+        );
+    }
+}

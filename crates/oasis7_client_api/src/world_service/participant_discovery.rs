@@ -48,7 +48,12 @@ impl ParticipantPolicyRequestV1 {
 #[serde(rename_all = "snake_case")]
 pub enum ParticipantOwnerViewProfileV1 {
     OwnerControlV1,
+    OwnerSetupV1,
 }
+
+#[path = "owner_setup_observation.rs"]
+mod owner_setup_observation;
+pub use owner_setup_observation::OwnerSetupObservationV1;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParticipantOwnerControlViewV1 {

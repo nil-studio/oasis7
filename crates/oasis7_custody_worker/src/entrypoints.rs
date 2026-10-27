@@ -41,6 +41,65 @@ pub async fn identity_read_missing_native_session(
 #[cfg(feature = "owner")]
 #[path = "owner_provision_entrypoints.rs"]
 mod provisioning;
+#[cfg(feature = "owner")]
+#[path = "owner_setup_entrypoints.rs"]
+mod setup;
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_approve_owner_setup(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup::approve(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_continue_owner_setup(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup::advance(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_identity_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup::runtime(&env, &raw, oasis7_custody_core::http::Role::Identity).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_key_call(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    setup::runtime(&env, &raw, oasis7_custody_core::http::Role::Owner).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_basis(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    setup::basis(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_prepare(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    setup::prepare(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_sign_owner_setup(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    crate::owner_setup_signing::sign(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_run_owner_setup(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::setup::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
 #[cfg(feature = "identity")]
 #[wasm_bindgen]
 pub async fn identity_run_participant(

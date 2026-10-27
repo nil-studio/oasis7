@@ -248,6 +248,120 @@ impl DurableObject for AccountAuthority {
             None => return Response::error("invalid or oversized body", 400),
         };
         match url.path() {
+            "/internal/owner-setup-approve"
+            | "/internal/owner-setup-basis"
+            | "/internal/owner-setup-prepare"
+            | "/internal/owner-setup-continue"
+            | "/internal/owner-setup-identity"
+            | "/internal/owner-setup-owner" => {
+                if url.scheme() != "https"
+                    || url.host_str() != Some("account.internal")
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Response::error("not found", 404);
+                }
+                let Some(env) = &self.env else {
+                    return Response::error("owner setup unavailable", 409);
+                };
+                let result = match url.path() {
+                    "/internal/owner-setup-basis" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupBasisRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::basis_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-prepare" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupPrepareRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::prepare_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-approve" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupApproveRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::approve_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-continue" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupContinueRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::continue_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    _ => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupRuntimeRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        let role = if url.path() == "/internal/owner-setup-owner" {
+                            Role::Owner
+                        } else {
+                            Role::Identity
+                        };
+                        crate::owner_provision::native::setup::dispatch_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                            role,
+                        )
+                        .await
+                    }
+                };
+                match result {
+                    Ok(raw) => {
+                        let mut response = Response::ok(raw)?;
+                        response
+                            .headers_mut()
+                            .set("Content-Type", "application/json")?;
+                        Ok(response)
+                    }
+                    Err(_) => Response::error("owner setup rejected or pending", 409),
+                }
+            }
             "/internal/participant-identity" | "/internal/participant-owner" => {
                 if url.scheme() != "https"
                     || url.host_str() != Some("account.internal")

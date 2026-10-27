@@ -87,6 +87,26 @@ pub(crate) async fn request_text(request: &Request) -> Result<String> {
 #[cfg(feature = "identity")]
 #[wasm_bindgen(module = "/platform/directory_rpc.mjs")]
 extern "C" {
+    #[wasm_bindgen(catch, js_name = approveOwnerSetup)]
+    pub(crate) async fn approve_owner_setup(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = continueOwnerSetup)]
+    pub(crate) async fn continue_owner_setup(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = ownerSetupBasis)]
+    pub(crate) async fn owner_setup_basis(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = prepareOwnerSetup)]
+    pub(crate) async fn prepare_owner_setup(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = continueOwnerManagedLogin)]
     pub(crate) async fn continue_managed_login_owner(
         env: &Env,

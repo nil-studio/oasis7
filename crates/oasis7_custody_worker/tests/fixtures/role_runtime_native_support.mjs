@@ -13,6 +13,7 @@ import {worldAuthority} from './world_runtime_support.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const defaultWorld={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
 const defaultRoutes={environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:defaultWorld.world_id};
+const realFenceMode=mode=>mode==='native-real-fence'||mode.startsWith('native-participant-real-fence')||mode.startsWith('native-participant-owner-setup-real-fence');
 function roleBindings(role, wrongKek=false) {
   return {CUSTODY_PROVISION_KEYS_ENABLED:'true',CUSTODY_ROLE_KEY_ENVIRONMENT:'test',CUSTODY_SERVICE_EPOCH:'1',CUSTODY_ROLE_WRAPPING_KEY_VERSION:'1',
     CUSTODY_ROLE_KEY_KEK:Buffer.alloc(32,wrongKek?64:{identity:61,owner:62,executor:63}[role]).toString('hex')};
@@ -21,8 +22,9 @@ function options(persist, data, bridge, mode) {
   const native = mode.startsWith('native-');
   const world=data.world??defaultWorld;
   const routes={...defaultRoutes,world_identity:world.world_id};
-  const realFence = mode==='native-real-fence'||mode.startsWith('native-participant-real-fence');
+  const realFence = realFenceMode(mode);
   const nativeBindings = native ? {CUSTODY_NATIVE_PROVISION_ENABLED:'true',
+    ...(mode.startsWith('native-participant-owner-setup')?{CUSTODY_OWNER_SETUP_ENABLED:'true'}:{}),
     ...(mode.startsWith('native-participant')?{CUSTODY_PARTICIPANT_PROVISION_ENABLED:'true'}:{}),
     CUSTODY_NATIVE_PRIVATE_KEK:Buffer.alloc(32,94).toString('hex'),CUSTODY_NATIVE_PRIVATE_WRAPPING_KEY_VERSION:'1'} : {};
   const moduleOptions={modulesRoot:root,compatibilityDate:'2026-10-25',cf:false};
@@ -52,6 +54,7 @@ function options(persist, data, bridge, mode) {
       CUSTODY_BOOTSTRAP_MANAGERS:JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:'a'},environments:['test']}]),
       CUSTODY_PROVISION_ROUTES:JSON.stringify(routes),CUSTODY_PROVISION_WORLD_IDENTITY:JSON.stringify(world),CUSTODY_PROVISION_APPROVAL_ENABLED:'true',...roleBindings('owner'),
       ...(mode.startsWith('native-participant')?{CUSTODY_PARTICIPANT_PROVISION_ENABLED:'true'}:{}),
+      ...(mode.startsWith('native-participant-owner-setup')?{CUSTODY_OWNER_SETUP_ENABLED:'true'}:{}),
       ...(native?{CUSTODY_NATIVE_PROVISION_ENABLED:'true',CUSTODY_NATIVE_ORIGIN:'https://localhost',
         CUSTODY_NATIVE_BINDING_OWNER_PIN:JSON.stringify(data.managed_binding_owner_pin),CUSTODY_NATIVE_BINDING_SIGNING_SEED:Buffer.alloc(32,93).toString('hex')}:{})},
     ...(mode.startsWith('native-stage-gap-')?{outboundService:bridge}:{}),
@@ -97,7 +100,7 @@ export async function withRoleRuntime(mode, run) {
   try {
     const nativeMode=mode.startsWith('native-');
     if(mode.startsWith('native-participant')) worldProcess=await worldAuthority(directory);
-    native=await authority(directory,nativeMode,worldProcess?.data);
+    native=await authority(directory,nativeMode,worldProcess?{...worldProcess.data,owner_setup:mode.startsWith('native-participant-owner-setup')}:undefined);
     const world=worldProcess?.data.world??defaultWorld;
     const routes={...defaultRoutes,world_identity:world.world_id};
     if(worldProcess) native.data.world=world;
@@ -124,7 +127,7 @@ export async function withRoleRuntime(mode, run) {
       const management=['/custody/management-session-status','/custody/approvals/verify'].includes(suffix);
       assert.ok(management || nativeMode && ['/capabilities','/machine-registration/options','/machine-registration/complete','/native-key/options','/native-key/complete',
         '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup','/custody/managed-bindings/session-status',
-        ...(worldProcess?['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view']:[])].includes(suffix));
+        ...(worldProcess?['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view',...(mode.startsWith('native-participant-owner-setup')?['/entry-owner/control']:[])]:[])].includes(suffix));
       nativeRequests[suffix]=(nativeRequests[suffix]??0)+1;
       if(!management) {
         assert.equal(request.headers.get('authorization'),null,'ordinary native transport has no approval adapter credential');
@@ -183,7 +186,7 @@ export async function withRoleRuntime(mode, run) {
     };
     const restart=async nextMode=>{await mf?.dispose();mf=new Miniflare(options(persist,native.data,bridge,nextMode));};
     await restart(mode);
-    if(mode==='native-real-fence'||mode.startsWith('native-participant-real-fence')) {
+    if(realFenceMode(mode)) {
       const controller=await mf.getWorker('fence-controller');
       const description=await (await controller.fetch('https://fixture.test/describe',{method:'POST'})).json();
       const activation=await controller.fetch('https://fixture.test/activate',{method:'POST',body:JSON.stringify(signFixtureRecoveryActivation(description,'native-fixture-bootstrap'))});
@@ -203,6 +206,24 @@ export async function withRoleRuntime(mode, run) {
     const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'negative-runtime-approval-operation',request,approval:completed.approval}})});
     assert.equal(accepted.status,200);
     await run({persist,account:original.entry.custody_account_id,planExpires:Number(draft.plan.expires_at),restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
+      setupBasis:async()=>{
+        identity=await mf.getWorker('identity');
+        const reply=await identity.fetch(base+'/owner-setups/basis',{method:'POST',headers,body:JSON.stringify({api_version:1})});
+        const body=await reply.text();assert.equal(reply.status,200,body);return JSON.parse(body);
+      },
+      approveSetup:async plan=>{
+        identity=await mf.getWorker('identity');
+        const prepared=await identity.fetch(base+'/owner-setups/prepare',{method:'POST',headers,body:JSON.stringify({api_version:1,approval_request_id:'owner-setup-approval-one',plan})});
+        const raw=await prepared.text();assert.equal(prepared.status,200,raw);const request=JSON.parse(raw);
+        const proofReply=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+        const proofRaw=await proofReply.text();assert.equal(proofReply.status,200,proofRaw);const proof=JSON.parse(proofRaw);assert.ok(proof.approval);
+        const reply=await identity.fetch(base+'/owner-setups/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,plan,input:{operation_id:plan.setup_id,request,approval:proof.approval}})});
+        const body=await reply.text();assert.equal(reply.status,200,JSON.stringify({status:reply.status,body,requests:nativeRequests}));return JSON.parse(body);
+      },
+      continueSetup:async setup_id=>{
+        identity=await mf.getWorker('identity');
+        return identity.fetch(base+'/owner-setups/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,custody_account_id:original.entry.custody_account_id,provision_id:original.entry.provision_id,setup_id})});
+      },
       approveManaged:async(blocked,limit='64')=>{
         const saved=persistedRuntime(persist,original.entry.custody_account_id);
         assert.ok(saved.native_binding);
@@ -233,7 +254,7 @@ export function persistedRuntime(persist, account, corruptIdentity=false) {
   return JSON.parse(execFileSync('python3',['-c',`
 import hashlib,json,sqlite3,sys
 from pathlib import Path
-result={'slots':[],'dispatches':[],'inspections':0,'native_results':[],'native_reads':[],'native_binding':None,'cipher_records':0,'history_count':0,'status_recoveries':[],'participants':[]}
+result={'slots':[],'dispatches':[],'inspections':0,'native_results':[],'native_reads':[],'native_binding':None,'cipher_records':0,'history_count':0,'status_recoveries':[],'participants':[],'setups':[]}
 for p in Path(sys.argv[1]).rglob('*.sqlite'):
  try:
   db=sqlite3.connect(p.as_uri()+('' if sys.argv[3]=='yes' else '?mode=ro'),uri=True)
@@ -261,6 +282,7 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
     ledger=state['provision']['transport'];result['transport_remaining']=str(int(ledger['limit'])-int(ledger['spent'])-sum(int(v) for v in ledger['reservations'].values()))
     result['participants']=[{'reads':v['oracle_reads'],'claims':sorted(v['claims']),'callbacks':sorted(v['callbacks']),'has_result':v['result'] is not None,'submit_digest':hashlib.sha256((v.get('submit_bytes') or '').encode()).hexdigest()} for v in state.get('participant_provisions',{}).values()]
     result['status_recoveries']=[{'reads':v['reads'],'has_result':v['result'] is not None,'nonce':v['nonce']} for v in state.get('session_status_recoveries',{}).values()]
+    result['setups']=[{'stages':[{'stage':stage,'reads':entry['oracle_reads'],'has_result':entry['result'] is not None,'archived_sources':sorted(entry.get('canonical_history',{}))} for stage,entry in setup['stages'].items()]} for setup in state.get('owner_setups',{}).values()]
     for v in state.get('native_stages',{}).values():
      if (v.get('result') or {}).get('kind')=='binding_receipt':
       receipt=v['result']['result']['receipt'];result['native_binding']={k:receipt[k] for k in ('native_account_id','login_key_ref','identity_namespace')}

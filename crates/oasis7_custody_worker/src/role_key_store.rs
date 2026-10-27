@@ -26,6 +26,11 @@ mod participant_signing;
 pub(crate) use participant_signing::{
     ParticipantSigningCurrent, ParticipantSigningKey, participant_bundle_digest,
 };
+#[cfg(feature = "owner")]
+#[path = "role_key_setup_signing.rs"]
+mod setup_signing;
+#[cfg(feature = "owner")]
+pub(crate) use setup_signing::{SetupSigningCurrent, setup_bundle_digest};
 
 #[cfg(feature = "identity")]
 const COMPILED_ROLE: Role = Role::Identity;

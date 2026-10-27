@@ -28,6 +28,8 @@ mod authority;
 mod dispatch;
 #[path = "owner_participant.rs"]
 mod participant;
+#[path = "owner_setup.rs"]
+pub(crate) mod setup;
 #[path = "owner_native_reconcile.rs"]
 mod reconcile;
 #[path = "owner_native_recovery.rs"]

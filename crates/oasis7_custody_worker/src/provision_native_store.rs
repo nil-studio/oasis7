@@ -4,6 +4,8 @@ use super::*;
 pub mod history;
 #[path = "provision_participant_store.rs"]
 pub mod participant;
+#[path = "owner_setup_store.rs"]
+pub mod owner_setup;
 #[path = "provision_native_recovery_store.rs"]
 pub mod recovery;
 use crate::approval_store::ExactCache;

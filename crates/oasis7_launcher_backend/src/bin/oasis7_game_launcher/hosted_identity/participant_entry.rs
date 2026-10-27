@@ -206,6 +206,22 @@ impl ParticipantEntry {
                     .map_err(|_| StoreError::OutcomeUnknown)?;
                 Ok(reply)
             }
+            Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) => {
+                let reply = self.forward_bound(
+                    PARTICIPANT_OWNER_VIEW_PATH,
+                    PARTICIPANT_OWNER_VIEW_PATH,
+                    request,
+                    request,
+                )?;
+                let response: SignedServiceResponse<OwnerSetupObservationV1> =
+                    serde_json::from_value(reply["world_response"].clone())
+                        .map_err(|_| StoreError::OutcomeUnknown)?;
+                response
+                    .payload
+                    .validate(request)
+                    .map_err(|_| StoreError::OutcomeUnknown)?;
+                Ok(reply)
+            }
         }
     }
     fn forward<Q: Serialize>(&self, path: &str, request: &Q) -> Result<Value, StoreError> {
