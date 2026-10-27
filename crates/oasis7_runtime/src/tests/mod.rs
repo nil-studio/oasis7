@@ -172,3 +172,5 @@ mod war_declaration_quote;
 
 mod participant_policy;
 mod world_state_extraction;
+
+mod cognition_material_source;
