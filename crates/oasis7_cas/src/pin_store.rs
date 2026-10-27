@@ -148,6 +148,63 @@ impl LocalCasStore {
         write_json_atomic(&PinFile { pins: pins.clone() }, path.as_path())
     }
 
+    /// Require the already published shard's exact references. This never
+    /// creates or repairs a pin: durable record readers must detect a missing
+    /// retention receipt instead of silently healing it during restart.
+    pub fn verify_pin_scope_shard(
+        &self,
+        scope: &str,
+        shard: &str,
+        expected: &BTreeSet<String>,
+    ) -> Result<(), WorldError> {
+        use std::io::Read;
+        let _retention = self.lock_retention()?;
+        let invalid = || WorldError::DistributedValidationFailed {
+            reason: "published CAS pin shard is missing, malformed or differs from its record"
+                .into(),
+        };
+        for reference in expected {
+            validate_hash(reference)?;
+        }
+        let maximum = expected
+            .len()
+            .checked_mul(67)
+            .and_then(|bytes| bytes.checked_add(128))
+            .ok_or_else(invalid)?;
+        let path = self.pin_scope_shard_path(scope, shard)?;
+        let metadata = fs::symlink_metadata(&path).map_err(|_| invalid())?;
+        if !metadata.file_type().is_file() || metadata.len() > maximum as u64 {
+            return Err(invalid());
+        }
+        let file = fs::File::open(&path)?;
+        let opened = file.metadata()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if opened.dev() != metadata.dev()
+                || opened.ino() != metadata.ino()
+                || opened.nlink() != 1
+            {
+                return Err(invalid());
+            }
+        }
+        let mut bytes = Vec::new();
+        file.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > maximum {
+            return Err(invalid());
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct PublishedPins {
+            pins: BTreeSet<String>,
+        }
+        let actual: PublishedPins = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        if actual.pins != *expected {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
     pub fn remove_pin_scope_shard(&self, scope: &str, shard: &str) -> Result<bool, WorldError> {
         let _retention = self.lock_retention()?;
         let path = self.pin_scope_shard_path(scope, shard)?;
@@ -190,3 +247,7 @@ impl LocalCasStore {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "pin_store_tests.rs"]
+mod tests;
