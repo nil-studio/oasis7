@@ -470,15 +470,15 @@ fn session_mutations_roll_back_in_memory_when_recovery_persistence_fails() {
 #[cfg(unix)]
 #[test]
 fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retryable() {
-    use std::os::unix::fs::PermissionsExt;
-
     let _guard = lock_test_llm_env();
     let replay_dir = runtime_live_temp_dir("hosted-grant-persist-failure");
     std::fs::create_dir_all(&replay_dir).expect("create replay directory");
     let replay_ledger = replay_dir.join("registration-replay.json");
     std::fs::write(&replay_ledger, b"[]").expect("seed readable replay ledger");
-    std::fs::set_permissions(&replay_dir, std::fs::Permissions::from_mode(0o500))
-        .expect("make replay directory unwritable");
+    // Keep lock acquisition/read preflight valid, then fail the atomic ledger
+    // write after registration has tentatively installed the binding.
+    let write_blocker = replay_dir.join(format!(".registration-replay-{}.tmp", std::process::id()));
+    std::fs::create_dir(&write_blocker).expect("block ledger staging file creation");
 
     let issuer_private_key = hex::encode([94_u8; 32]);
     let issuer_public_key =
@@ -541,7 +541,9 @@ fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retrya
         })
         .expect_err("replay-ledger persistence must fail");
     assert!(
-        error.message.contains("registration replay ledger"),
+        error
+            .message
+            .starts_with("create registration replay ledger failed:"),
         "unexpected error: {error:?}"
     );
     assert_eq!(
@@ -565,13 +567,15 @@ fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retrya
         "failed registration must not consume the request auth nonce"
     );
 
-    std::fs::set_permissions(&replay_dir, std::fs::Permissions::from_mode(0o700))
-        .expect("restore replay directory permissions");
-    let _ = std::fs::remove_file(&replay_ledger);
-    std::fs::write(&replay_ledger, b"[]").expect("restore writable replay ledger");
+    assert_eq!(
+        std::fs::read(&replay_ledger).expect("read original ledger"),
+        b"[]",
+        "failed persistence must preserve the original nonce ledger"
+    );
+    std::fs::remove_dir(&write_blocker).expect("unblock ledger staging file creation");
     let (ack, _) = server
         .handle_authoritative_recovery(AuthoritativeRecoveryCommand::RegisterSession {
-            request: request(2),
+            request: request(1),
         })
         .expect("the same grant must remain retryable after rollback");
     assert_eq!(ack.status, AuthoritativeRecoveryStatus::SessionRegistered);
