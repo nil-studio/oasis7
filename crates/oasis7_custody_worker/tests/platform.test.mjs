@@ -16,7 +16,7 @@ const roles = { identity: 'NativeSession', owner: 'AccountAuthority', executor: 
 for (const [role, ownClass] of Object.entries(roles)) {
   test(role + ': real Wasm exports and HTTP contract stay isolated', { timeout: 60_000 }, async () => {
     const index = resolve(root, 'artifacts', role, 'index.js');
-    const entry = ['identity', 'owner', 'recovery-fence'].includes(role) ? resolve(root, 'artifacts', role, 'entry.mjs') : index;
+    const entry = resolve(root, 'artifacts', role, 'entry.mjs');
     const source = readFileSync(index, 'utf8');
     assert.doesNotMatch(source, /\bTestApprovalAuthority\b/);
     // worker-build bundles only the selected Rust DO class into this ES module.

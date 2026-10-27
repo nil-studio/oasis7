@@ -74,6 +74,102 @@ for mixed in (False,True):
 "#]).arg(repo_root()).arg(&scratch.0).output().expect("run actual summary verifier positive/negative vectors"));
 }
 
+const IMPORT_SUMMARIES: &str = include_str!("../../../scripts/stage-wasm-summary-imports.sh");
+const ATTESTATION_FLOW: &str =
+    include_str!("../../../scripts/module-release-node-attestation-flow.sh");
+const EVIDENCE_REPORT: &str = include_str!("../../../scripts/wasm-release-evidence-report.sh");
+const BUNDLE_SMOKE: &str = include_str!("../../../scripts/wasm-summary-bundle-smoke.sh");
+
+#[test]
+fn registered_evidence_report_executes_full_pending_and_mismatch_contracts() {
+    assert_compiled_input("scripts/wasm-release-evidence-report.sh", EVIDENCE_REPORT);
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+def summary(runner):
+    return dict(schema_version=1,module_set='m1',runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',module_count=1,
+      module_hashes={'m1.module':'wasm'},manifest_platform_hashes={'m1.module':'wasm'},identity_hashes={'m1.module':'identity'},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={'m1.module':dict(source_hash='source',build_manifest_hash='build',wasm_hash='wasm',builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+for case in ('closed','pending','mismatch'):
+    imports=root/case/'imports'; imports.mkdir(parents=True)
+    for runner in (('linux-x86_64',) if case=='pending' else ('linux-x86_64','darwin-arm64')):
+        value=summary(runner)
+        if case=='mismatch' and runner=='darwin-arm64': value['module_hashes']['m1.module']='different-wasm'
+        (imports/(runner+'.json')).write_text(json.dumps(value))
+    out=root/case/'report'
+    result=subprocess.run(['bash',str(repo/'scripts/wasm-release-evidence-report.sh'),'--out-dir',str(out),'--module-sets','m1','--runner-label','linux-x86_64','--skip-collect','--summary-import-dir',str(imports),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64'],capture_output=True,text=True)
+    files=list(out.glob('*/summary.json'));assert len(files)==1,result.stderr
+    report=json.loads(files[0].read_text())
+    expected={'closed':'cross-host-closed','pending':'conditional-go','mismatch':'no-go'}[case]
+    assert report['gate_result']==expected,(report,result.stderr)
+    assert report['cross_host_closed']==(case=='closed'),(case,report,result.stdout,result.stderr)
+    assert report['cross_host_evidence_pending']==(case=='pending'),(case,report,result.stdout,result.stderr)
+    assert result.returncode==0,(case,result.stderr) # report generation succeeds; the recorded gate is authoritative
+    assert report['module_sets'][0]['verify_status']==('failed' if case=='mismatch' else 'passed')
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("execute actual offline evidence report matrix"));
+}
+
+#[test]
+fn registered_manual_bundle_smoke_executes_its_real_local_fixtures() {
+    assert_compiled_input("scripts/wasm-summary-bundle-smoke.sh", BUNDLE_SMOKE);
+    let scratch = Scratch::new();
+    let tools = scratch.0.join("no-ripgrep");
+    fs::create_dir(&tools).expect("create sentinel tools directory");
+    let sentinel = tools.join("rg");
+    fs::write(
+        &sentinel,
+        "#!/bin/sh\necho ripgrep-sentinel-invoked >&2\nexit 127\n",
+    )
+    .expect("write failing rg sentinel");
+    fs::set_permissions(&sentinel, fs::Permissions::from_mode(0o755))
+        .expect("make sentinel executable");
+    let path = std::env::join_paths(std::iter::once(tools).chain(std::env::split_paths(
+        &std::env::var_os("PATH").expect("test PATH"),
+    )))
+    .expect("sentinel PATH");
+    let stdout = assert_success(
+        Command::new("bash")
+            .arg(repo_root().join("scripts/wasm-summary-bundle-smoke.sh"))
+            .env("PATH", path)
+            .current_dir(repo_root())
+            .output()
+            .expect("execute actual local bundle smoke"),
+    );
+    assert!(stdout.contains("wasm summary bundle smoke: OK"));
+}
+
+#[test]
+fn registered_wasm_consumers_execute_import_and_offline_request_contracts() {
+    assert_compiled_input("scripts/stage-wasm-summary-imports.sh", IMPORT_SUMMARIES);
+    assert_compiled_input(
+        "scripts/module-release-node-attestation-flow.sh",
+        ATTESTATION_FLOW,
+    );
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+bundle=root/'bundle'; bundle.mkdir()
+summary=dict(schema_version=1,module_set='m1',runner='darwin-arm64',host_platform='darwin-arm64',canonical_platform='linux-x86_64',identity_build_recipe=dict(container_platform='linux-x86_64'))
+(bundle/'summary.json').write_text(json.dumps(summary))
+(bundle/'bundle_manifest.json').write_text(json.dumps(dict(schema_version=1,runner_label='darwin-arm64',host_platform='darwin-arm64',canonical_platforms=['linux-x86_64'],summary_files=dict(m1='summary.json'))))
+local=root/'local';local.mkdir();(local/'linux-x86_64.json').write_text('{}')
+def stage(out):
+    return subprocess.run(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(local),'--out-dir',str(out),'--external-summary-bundle',str(bundle)],capture_output=True,text=True)
+result=stage(root/'valid');assert result.returncode==0,result.stderr
+assert json.loads((root/'valid/darwin-arm64.json').read_text())==summary
+summary['host_platform']='linux-x86_64';(bundle/'summary.json').write_text(json.dumps(summary))
+result=stage(root/'invalid');assert result.returncode!=0 and 'host_platform mismatch' in result.stderr,result.stderr
+flow=['bash',str(repo/'scripts/module-release-node-attestation-flow.sh'),'--out-dir',str(root/'flow'),'--module-sets','m1','--skip-local-collect','--summary-import-dir',str(root/'missing-imports')]
+for key,value in [('request-id','1'),('operator-agent-id','1'),('signer-node-id','fixture'),('build-manifest-hash','build'),('source-hash','source'),('wasm-hash','wasm'),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:flow += ['--'+key,value]
+result=subprocess.run(flow,capture_output=True,text=True)
+assert result.returncode!=0 and 'summary import dir not found' in result.stderr,result.stderr
+assert not list((root/'flow').rglob('proof_payload.json')) and not list((root/'flow').rglob('submit_request.json')), 'invalid imports must not be packaged or submitted'
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("execute registered consumer contracts without signing or network"));
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }

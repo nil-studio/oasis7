@@ -14,6 +14,10 @@ pub enum NodeError {
     Gossip {
         reason: String,
     },
+    ReplicationNetwork {
+        reason: String,
+        failure: Box<oasis7_proto::network_failure::NetworkFailure>,
+    },
     Replication {
         reason: String,
     },
@@ -48,7 +52,9 @@ impl fmt::Display for NodeError {
             NodeError::InvalidConfig { reason } => write!(f, "invalid node config: {}", reason),
             NodeError::Consensus { reason } => write!(f, "node consensus error: {}", reason),
             NodeError::Gossip { reason } => write!(f, "node gossip error: {}", reason),
-            NodeError::Replication { reason } => write!(f, "node replication error: {}", reason),
+            NodeError::Replication { reason } | NodeError::ReplicationNetwork { reason, .. } => {
+                write!(f, "node replication error: {}", reason)
+            }
             NodeError::ExecutionMismatchRollbackUnavailable {
                 payload_height,
                 rollback_height,
@@ -76,6 +82,13 @@ impl fmt::Display for NodeError {
 impl std::error::Error for NodeError {}
 
 impl NodeError {
+    pub(crate) fn replication_reason(&self) -> Option<&str> {
+        match self {
+            Self::Replication { reason } | Self::ReplicationNetwork { reason, .. } => Some(reason),
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_fresh_observer_checkpoint_fallback_eligible(&self) -> bool {
         matches!(self, Self::ExecutionMismatchRollbackUnavailable { .. })
     }

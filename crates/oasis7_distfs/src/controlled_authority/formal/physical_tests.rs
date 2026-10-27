@@ -363,3 +363,41 @@ fn parsed_recipe_cache_rechecks_current_bytes_and_touched_frames_after_same_inod
     fs::write(frame, bytes).unwrap();
     assert!(read_object(&fixture.0.join(&values[0].0), &values[0].0, false).is_err());
 }
+
+#[test]
+fn legacy_zstd_0133_recipe_frame_and_hash_checks_survive_reads() {
+    let fixture = Fixture::new();
+    let raw: Vec<u8> = (0..65536)
+        .map(|i| ((i % 251) ^ ((i / 4096) % 17)) as u8)
+        .collect();
+    let id = "0f227458a96cb2b18610d9624d5750390613bf9e84107e46ff48902b5b31be88";
+    let stored = "7436b6db87568eb99f55de4c9aa7eb79af33f6825126299f096a992850dbe65c";
+    let frame = include_bytes!("../../../tests/fixtures/zstd-0.13.3-level3-bulk.zst");
+    let descriptor = include_bytes!("../../../tests/fixtures/zstd-0.13.3-recipe-v1.cbor");
+    assert_eq!(blake3::hash(&raw).to_hex().as_str(), id);
+    assert_eq!(blake3::hash(frame).to_hex().as_str(), stored);
+    let frame_path = fixture.0.join(FRAMES).join(stored);
+    let selector_path = fixture.0.join(SELECTORS).join(id);
+    fs::write(&frame_path, frame).unwrap();
+    fs::write(&selector_path, descriptor).unwrap();
+    let path = fixture.0.join(id);
+    assert_eq!(read_object(&path, id, true).unwrap().unwrap(), raw);
+    for (offset, limit) in [(0, 1), (4090, 64), (65520, 64), (65536, 1)] {
+        let (total, bytes) = read_range(&path, id, offset as u64, limit as u32)
+            .unwrap()
+            .unwrap();
+        assert_eq!(total, raw.len() as u64);
+        assert_eq!(bytes, raw[offset..raw.len().min(offset + limit)]);
+    }
+    let mut corrupt = frame.to_vec();
+    corrupt[10] ^= 1;
+    fs::write(&frame_path, corrupt).unwrap();
+    let error = read_object(&path, id, true).unwrap_err();
+    assert!(format!("{error:?}").contains("physical stored checksum"));
+    fs::write(&frame_path, frame).unwrap();
+    let mut recipe = decode_recipe(descriptor).unwrap();
+    recipe.frames[0].original = "0".repeat(64);
+    fs::write(&selector_path, encode_recipe(&recipe).unwrap()).unwrap();
+    let error = read_object(&path, id, true).unwrap_err();
+    assert!(format!("{error:?}").contains("physical decoded length/checksum"));
+}

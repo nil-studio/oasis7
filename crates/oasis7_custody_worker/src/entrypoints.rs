@@ -1,8 +1,160 @@
 //! Fixed private service entrypoints. No caller-selected route or actor role.
 use wasm_bindgen::prelude::*;
 use worker::Env;
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_run_native(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::run_native_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_read_native_history(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::history::read_native_history_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_recover_native_status(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::recovery::recover_native_status_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_read_missing_native_session(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::history::read_missing_native_session_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[path = "owner_provision_entrypoints.rs"]
+mod provisioning;
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_run_participant(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::participant::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_participant_identity_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::participant(&env, &raw, oasis7_custody_core::http::Role::Identity).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_participant_key_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::participant(&env, &raw, oasis7_custody_core::http::Role::Owner).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_sign_participant(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    crate::owner_participant_signing::sign(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_approve_managed_login(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::managed_login(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_continue_managed_login(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::managed_login_continue(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_call(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    provisioning::native(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_recovery_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::native_recovery(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_advance_provision(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::management(&env, &raw, true).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_read_provision_progress(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::management(&env, &raw, false).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_identity_key_permit(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::permit(&env, &raw, oasis7_custody_core::http::Role::Identity).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_owner_key_permit(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    provisioning::permit(&env, &raw, oasis7_custody_core::http::Role::Owner).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_executor_key_permit(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::permit(&env, &raw, oasis7_custody_core::http::Role::Executor).await
+}
 fn rejected() -> JsValue {
     JsValue::from_str("custody service request rejected")
+}
+#[cfg(any(feature = "identity", feature = "owner", feature = "executor"))]
+#[wasm_bindgen]
+pub async fn ensure_role_key(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    if raw.len() > 32768 {
+        return Err(rejected());
+    }
+    crate::role_provision::ensure_role_key(&env, &raw)
+        .await
+        .map_err(|_| rejected())
 }
 #[cfg(feature = "recovery-fence")]
 #[wasm_bindgen]

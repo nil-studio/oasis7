@@ -1,5 +1,5 @@
-//! Role-local encrypted immutable slot component. No production caller or authority is installed.
-//! A trusted reader must establish real source, approval and fence state before integration.
+//! Role-local encrypted immutable slots. The runtime supplies fixed Account permit
+//! and independent Fence observations; this store itself does not authenticate callers.
 use crate::envelope_crypto;
 use ed25519_dalek::SigningKey;
 use js_sys::{Array, Reflect};
@@ -10,6 +10,7 @@ use oasis7_custody_core::{
     role_key_slot::{RoleKeySlotScopeV1, RoleKeySlotV1},
 };
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use wasm_bindgen::{JsCast, prelude::*};
 use web_sys::Crypto;
 use zeroize::Zeroizing;
@@ -17,6 +18,14 @@ use zeroize::Zeroizing;
 const KEY: &str = "custody-role-key-slot-v1";
 const MAX_BYTES: usize = 32 * 1024;
 type Result<T> = std::result::Result<T, JsValue>;
+
+#[cfg(feature = "owner")]
+#[path = "role_key_participant_signing.rs"]
+mod participant_signing;
+#[cfg(feature = "owner")]
+pub(crate) use participant_signing::{
+    ParticipantSigningCurrent, ParticipantSigningKey, participant_bundle_digest,
+};
 
 #[cfg(feature = "identity")]
 const COMPILED_ROLE: Role = Role::Identity;
@@ -26,7 +35,7 @@ const COMPILED_ROLE: Role = Role::Owner;
 const COMPILED_ROLE: Role = Role::Executor;
 
 /// Trusted Rust-only current reads. This is not a deserializable grant or a
-/// substitute for the production source/ACL/fence readers, which are not wired.
+/// substitute for the runtime's source/ACL/fence readers.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RoleKeyCurrent {
     pub scope: RoleKeySlotScopeV1,
@@ -163,6 +172,10 @@ extern "C" {
 pub struct RoleKeyStore {
     state: JsValue,
 }
+struct RefreshPolicy<R> {
+    refresh: R,
+    attempts: usize,
+}
 impl RoleKeyStore {
     /// This component's DO is permanently dedicated to one exact role/task scope.
     /// Construction performs no SQL writes and reads no production KEK.
@@ -194,6 +207,63 @@ impl RoleKeyStore {
         F: Fn() -> Result<RoleKeyCurrent>,
         C: Fn() -> Result<u64>,
     {
+        self.ensure_with_clock_and_refresh(
+            scope,
+            wrapping_version,
+            kek,
+            current,
+            clock,
+            RefreshPolicy {
+                refresh: || async { Ok(()) },
+                attempts: 3,
+            },
+        )
+        .await
+    }
+    /// The role integration refreshes its fixed Account/Fence observations
+    /// after cryptography and before entering the final synchronous transaction.
+    /// The reader still rechecks freshness and exact authority inside SQL.
+    pub(crate) async fn ensure_with_refresh<F, R, U>(
+        &self,
+        scope: RoleKeySlotScopeV1,
+        wrapping_version: DecimalU64,
+        kek: &[u8; 32],
+        current: F,
+        refresh: R,
+    ) -> Result<PublicRoleKey>
+    where
+        F: Fn() -> Result<RoleKeyCurrent>,
+        R: Fn() -> U,
+        U: Future<Output = Result<()>>,
+    {
+        self.ensure_with_clock_and_refresh(
+            scope,
+            wrapping_version,
+            kek,
+            current,
+            now,
+            RefreshPolicy {
+                refresh,
+                attempts: 1,
+            },
+        )
+        .await
+    }
+    async fn ensure_with_clock_and_refresh<F, C, R, U>(
+        &self,
+        scope: RoleKeySlotScopeV1,
+        wrapping_version: DecimalU64,
+        kek: &[u8; 32],
+        current: F,
+        clock: C,
+        policy: RefreshPolicy<R>,
+    ) -> Result<PublicRoleKey>
+    where
+        F: Fn() -> Result<RoleKeyCurrent>,
+        C: Fn() -> Result<u64>,
+        R: Fn() -> U,
+        U: Future<Output = Result<()>>,
+    {
         if wrapping_version.0 == 0 {
             return Err(rejected());
         }
@@ -203,7 +273,7 @@ impl RoleKeyStore {
             audit_sequence: DecimalU64(0),
         })?;
         // A losing candidate must authenticate the winning original before returning it.
-        for _ in 0..3 {
+        for _ in 0..policy.attempts {
             let before = current()?;
             before.check(&scope, clock()?)?;
             let observed = match read(&self.state, KEY) {
@@ -237,6 +307,7 @@ impl RoleKeyStore {
                         .map_err(|_| rejected())?;
                 RoleKeySlotV1::new(scope.clone(), public_ref, envelope).map_err(|_| rejected())?
             };
+            (policy.refresh)().await?;
             let mut returned = None;
             let mut retry = false;
             let mut callback = |old: String, raw_inventory: String| -> Result<Array> {
@@ -294,5 +365,143 @@ impl RoleKeyStore {
             }
         }
         Err(rejected())
+    }
+}
+
+#[cfg(feature = "identity")]
+pub(crate) struct NativeSigningKey<'a> {
+    pub scope: &'a RoleKeySlotScopeV1,
+    pub wrapping_version: DecimalU64,
+    pub kek: &'a [u8; 32],
+}
+/// Stage-specific current authority is supplied only by the fixed Account adapter.
+/// The digest identifies the complete canonical challenge/statement preimage; a
+/// generic ensure-key permit cannot be used by these signing methods.
+#[cfg(feature = "identity")]
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct NativeSigningCurrent {
+    pub role: RoleKeyCurrent,
+    pub signing_digest: String,
+    pub native_stage_permit_id: String,
+}
+#[cfg(feature = "identity")]
+impl RoleKeyStore {
+    pub(crate) async fn sign_native_challenge<F, R, U>(
+        &self,
+        key: NativeSigningKey<'_>,
+        challenge: &crate::native_provision_challenge::NativeProvisionChallenge,
+        expected: &crate::native_provision_challenge::NativeChallengeScope,
+        current: F,
+        refresh: R,
+    ) -> Result<String>
+    where
+        F: Fn() -> Result<NativeSigningCurrent>,
+        R: Fn() -> U,
+        U: Future<Output = Result<()>>,
+    {
+        let bytes = challenge.signing_bytes(expected, now()?)?;
+        self.sign_native_existing(
+            key,
+            &bytes,
+            current,
+            refresh,
+            Some(expected.public_key.as_str()),
+            challenge.expires_at,
+        )
+        .await
+    }
+    pub(crate) async fn sign_binding_possession<F, R, U>(
+        &self,
+        key: NativeSigningKey<'_>,
+        statement: &oasis7_custody_core::native_binding::OwnerNativeBindingStatementV1,
+        expected: &oasis7_custody_core::native_binding::NativeBindingScopeV1,
+        current: F,
+        refresh: R,
+    ) -> Result<String>
+    where
+        F: Fn() -> Result<NativeSigningCurrent>,
+        R: Fn() -> U,
+        U: Future<Output = Result<()>>,
+    {
+        let scope = key.scope;
+        statement
+            .validate_for(expected, now()?)
+            .map_err(|_| rejected())?;
+        if expected.provision_id != scope.provision_id
+            || expected.environment != scope.context.identity.environment
+            || expected.custody_account_id != scope.context.identity.account_id
+            || expected.login_key.key_id != scope.context.identity.key_id
+            || expected.login_key.key_version != scope.context.identity.key_version
+        {
+            return Err(rejected());
+        }
+        let bytes = statement
+            .possession_signing_bytes()
+            .map_err(|_| rejected())?;
+        self.sign_native_existing(
+            key,
+            &bytes,
+            current,
+            refresh,
+            Some(expected.login_key.public_key.as_str()),
+            statement.expires_at.0,
+        )
+        .await
+    }
+    // This arbitrary-bytes helper is private: the only callers above recompute
+    // canonical closed Register/Login/BindingPossession domains.
+    async fn sign_native_existing<F, R, U>(
+        &self,
+        key: NativeSigningKey<'_>,
+        bytes: &[u8],
+        current: F,
+        refresh: R,
+        expected_public: Option<&str>,
+        signing_expires_at: u64,
+    ) -> Result<String>
+    where
+        F: Fn() -> Result<NativeSigningCurrent>,
+        R: Fn() -> U,
+        U: Future<Output = Result<()>>,
+    {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        use ed25519_dalek::Signer;
+        let NativeSigningKey {
+            scope,
+            wrapping_version,
+            kek,
+        } = key;
+        let digest = oasis7_custody_core::approval::bytes_digest(bytes);
+        let before = current()?;
+        before.role.check(scope, now()?)?;
+        if before.signing_digest != digest
+            || before.native_stage_permit_id.is_empty()
+            || before.native_stage_permit_id.len() > 256
+        {
+            return Err(rejected());
+        }
+        let original = read(&self.state, KEY)?;
+        let slot = decode(&original)?.slot.ok_or_else(rejected)?;
+        slot.validate_for(scope).map_err(|_| rejected())?;
+        if slot.envelope.wrapping_key_version != wrapping_version
+            || expected_public != Some(slot.public_ref.public_key.as_str())
+        {
+            return Err(rejected());
+        }
+        let seed = envelope_crypto::open(&slot.envelope, &scope.context, kek)
+            .await
+            .map_err(|_| rejected())?;
+        if public(seed.as_bytes())? != slot.public_ref.public_key {
+            return Err(rejected());
+        }
+        refresh().await?;
+        let after = current()?;
+        after.role.check(scope, now()?)?;
+        if before != after || read(&self.state, KEY)? != original || now()? >= signing_expires_at {
+            return Err(rejected());
+        }
+        let seed: &[u8; 32] = seed.as_bytes().try_into().map_err(|_| rejected())?;
+        let key = SigningKey::from_bytes(seed);
+        Ok(URL_SAFE_NO_PAD.encode(key.sign(bytes).to_bytes()))
     }
 }

@@ -22,6 +22,8 @@ fn options() -> Vec<ApprovalOptionsRequestV1> {
             login_key_ref: "login-one".into(),
             native_identity_namespace: "identity:test".into(),
             blocked_operation_ref: "blocked-one".into(),
+            login_request_id: "managed-login-one".into(),
+            transport_limit: DecimalU64(64),
             deadline: DecimalU64(100_000),
         },
     };
@@ -260,6 +262,15 @@ pub(super) fn export(directory: &std::path::Path) {
         },
     };
     provision_approve.validate().unwrap();
+    let managed_login_approve = ManagedLoginApproveRequestV1 {
+        api_version: 1,
+        input: crate::approval_admission::ApprovalAdmissionInput {
+            operation_id: "managed-login-approve-one".into(),
+            request: requests[0].clone(),
+            approval: approval.clone(),
+        },
+    };
+    managed_login_approve.validate().unwrap();
     let provision_approved = ProvisionApprovalViewV1 {
         api_version: 1,
         provision_id: draft_view.entry.provision_id.clone(),
@@ -364,12 +375,18 @@ pub(super) fn export(directory: &std::path::Path) {
         "CustodySessionStatusV1":schemars::schema_for!(CustodySessionStatusV1),
         "ProvisionApproveRequestV1":schemars::schema_for!(ProvisionApproveRequestV1),
         "ProvisionApprovalViewV1":schemars::schema_for!(ProvisionApprovalViewV1),
+        "ManagedLoginApproveRequestV1":schemars::schema_for!(ManagedLoginApproveRequestV1),
+        "ManagedLoginApprovalViewV1":schemars::schema_for!(ManagedLoginApprovalViewV1),
+        "ProvisionDriveRequestV1":schemars::schema_for!(ProvisionDriveRequestV1),
+        "ProvisionProgressViewV1":schemars::schema_for!(ProvisionProgressViewV1),
         "ProvisionDraftRequestV1":schemars::schema_for!(ProvisionDraftRequestV1),
         "ProvisionDraftViewV1":schemars::schema_for!(ProvisionDraftViewV1),
         "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
         "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
     });
     let fixtures = json!({
+        "ManagedLoginApproveRequestV1":[managed_login_approve],
+        "ManagedLoginApprovalViewV1":[ManagedLoginApprovalViewV1{api_version:1,provision_id:"provision-one".into(),custody_account_id:"custody-one".into(),operation_id:"managed-login-approve-one".into(),stage:ManagedLoginStageV1::Approved}],
         "source_revocation":{"events":source_events.iter().map(|event|json!({"event":event,"signing_bytes_hex":event.signing_bytes().unwrap().iter().map(|byte|format!("{byte:02x}")).collect::<String>()})).collect::<Vec<_>>()},
         "SignedSourceRevocationEventV1":[signed_source.clone()],"SignedSourceClosureAckV1":[source_ack.clone()],
         "SourceRevocationsPollRequestV1":[SourceRevocationsPollRequestV1{api_version:1,limit:8}],
@@ -377,7 +394,7 @@ pub(super) fn export(directory: &std::path::Path) {
         "SourceRevocationAckResultV1":[SourceRevocationAckResultV1{api_version:1,event_id:signed_source.event.event_id.clone(),event_digest:signed_source.digest().unwrap(),status:SourceClosureStateV1::Closed}],"metadata":([Role::Identity,Role::Owner,Role::Executor,Role::RecoveryFence].map(ServiceMetadata::disabled)),
         "error":([ErrorCode::NotFound,ErrorCode::NotReady,ErrorCode::MethodNotAllowed].map(ErrorResponse::new)),
         "ApprovalOptionsRequestV1":requests,"ApprovalOptionsResponseV1":[options_response],"ApprovalCompleteRequestV1":[complete],
-        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionApproveRequestV1":[provision_approve],"ProvisionApprovalViewV1":[provision_approved],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
+        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionApproveRequestV1":[provision_approve],"ProvisionApprovalViewV1":[provision_approved],"ProvisionDriveRequestV1":[ProvisionDriveRequestV1{api_version:1,operation_id:"prepare-keys-one".into()}],"ProvisionProgressViewV1":[ProvisionProgressViewV1{api_version:1,provision_id:"provision-one".into(),custody_account_id:"custody-one".into(),operation_id:"prepare-keys-one".into(),stage:ProvisionStage::Approved,pending_operations:vec![],transport_remaining:DecimalU64(128)}],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),

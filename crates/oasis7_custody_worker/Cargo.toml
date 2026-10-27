@@ -17,6 +17,8 @@ executor = []
 recovery-fence = []
 # Component verification only. Never enabled by any deployment role/configuration.
 approval-harness = []
+# Identity manifest fixtures only; never enabled by deployment role builds.
+native-runtime-harness = []
 
 [dependencies]
 oasis7_custody_core = { path = "../oasis7_custody_core" }
@@ -25,6 +27,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+oasis7_client_api = { path = "../oasis7_client_api" }
 worker = "=0.7.5"
 wasm-bindgen = "=0.2.127"
 wasm-bindgen-futures = "=0.4.77"

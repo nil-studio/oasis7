@@ -30,6 +30,9 @@ mod acquire_race_tests;
 mod cas_poison_tests;
 #[path = "protected_time_cache_tests.rs"]
 mod protected_time_cache_tests;
+#[path = "tcp_service_fixture.rs"]
+mod tcp_service_fixture;
+use tcp_service_fixture::TcpServiceServer;
 
 struct MemoryLedger {
     state: BftSignerStateV1,
@@ -264,87 +267,6 @@ impl BftSignerBackendV1 for MemoryBackend {
         }
         Ok(snapshot)
     }
-}
-
-struct TcpServiceServer {
-    address: SocketAddr,
-    drop_next_reply: Arc<AtomicBool>,
-    shutdown: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
-    history_certificate_replays: Arc<AtomicUsize>,
-}
-
-impl TcpServiceServer {
-    fn start(service: Arc<BftSignerServiceV1>) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test provider");
-        listener
-            .set_nonblocking(true)
-            .expect("nonblocking test listener");
-        let address = listener.local_addr().expect("test provider address");
-        let drop_next_reply = Arc::new(AtomicBool::new(false));
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let history_certificate_replays = service.history_certificate_replay_counter();
-        let thread_drop_reply = drop_next_reply.clone();
-        let thread_shutdown = shutdown.clone();
-        let thread = thread::spawn(move || {
-            let mut clients = Vec::new();
-            while !thread_shutdown.load(Ordering::SeqCst) {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        stream
-                            .set_nonblocking(false)
-                            .expect("set accepted test stream to blocking mode");
-                        let service = service.clone();
-                        let drop_reply = thread_drop_reply.clone();
-                        clients.push(thread::spawn(move || {
-                            if let Err(error) = serve_test_client(stream, service, drop_reply) {
-                                eprintln!("test BFT signer TCP service failed: {error}");
-                            }
-                        }));
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(2));
-                    }
-                    Err(_) => break,
-                }
-            }
-            for client in clients {
-                let _ = client.join();
-            }
-        });
-        Self {
-            address,
-            drop_next_reply,
-            shutdown,
-            thread: Some(thread),
-            history_certificate_replays,
-        }
-    }
-
-    fn drop_next_reply(&self) {
-        self.drop_next_reply.store(true, Ordering::SeqCst);
-    }
-}
-
-impl Drop for TcpServiceServer {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-fn serve_test_client(
-    stream: TcpStream,
-    service: Arc<BftSignerServiceV1>,
-    drop_next_reply: Arc<AtomicBool>,
-) -> Result<(), BftSignerError> {
-    let mut transport = DropReplyTransport {
-        stream,
-        drop_next_reply,
-    };
-    service.serve_connection(&mut transport)
 }
 
 fn raw_signed_request(

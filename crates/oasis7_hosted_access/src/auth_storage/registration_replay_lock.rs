@@ -11,12 +11,16 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::atomic_file::sync_parent_directory;
 
 const LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
-const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(5);
+pub(super) const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(5);
 #[cfg(test)]
 const INCOMPLETE_LOCK_GRACE: Duration = Duration::from_secs(1);
 static LOCK_TOKEN_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static FAIL_NEXT_LOCK_PARENT_SYNC: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static FAIL_NEXT_OWNER_WRITE: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static FAIL_NEXT_QUARANTINE_REMOVE: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static PAUSE_NEXT_OWNER_PUBLICATION: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
@@ -33,9 +37,13 @@ struct RegistrationReplayLockOwner {
 pub(super) struct RegistrationReplayProcessLock {
     lock_dir: PathBuf,
     token: String,
+    pid: u32,
+    // Close only: explicit unlock would release a fork parent's shared flock.
+    _kernel_lock: std::fs::File,
 }
 
-/// Cross-process exclusive guard using the repository's `<path>.lock/owner.json` protocol.
+/// Same-host exclusive guard. The permanent `<path>.lock.guard` must never be removed.
+/// Requires trusted local storage and quiescing old directory-only writers on upgrade.
 pub struct ExclusiveDirectoryProcessLock {
     _guard: RegistrationReplayProcessLock,
 }
@@ -53,12 +61,12 @@ impl RegistrationReplayProcessLock {
     }
 
     fn acquire_with_wait(ledger_path: &Path, wait: bool) -> Result<Self, String> {
-        let lock_dir = replay_lock_dir(ledger_path);
+        let target = super::registration_replay_kernel_lock::normalized_target(ledger_path)?;
+        let lock_dir = replay_lock_dir(&target);
         let parent = lock_dir.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).map_err(|err| {
-            format!("create registration replay ledger lock parent failed: {err}")
-        })?;
         let deadline = Instant::now() + LOCK_WAIT_TIMEOUT;
+        let kernel_lock =
+            super::registration_replay_kernel_lock::acquire(&lock_dir, deadline, wait)?;
         loop {
             if lock_dir.exists() {
                 handle_existing_lock(&lock_dir, deadline, wait)?;
@@ -78,6 +86,8 @@ impl RegistrationReplayProcessLock {
                     let guard = Self {
                         lock_dir: lock_dir.clone(),
                         token,
+                        pid: std::process::id(),
+                        _kernel_lock: kernel_lock,
                     };
                     if let Err(err) = sync_lock_parent_directory(parent) {
                         drop(guard);
@@ -135,6 +145,9 @@ fn sync_lock_parent_directory(parent: &Path) -> std::io::Result<()> {
 
 impl Drop for RegistrationReplayProcessLock {
     fn drop(&mut self) {
+        if self.pid != std::process::id() {
+            return;
+        }
         let owner_path = self.lock_dir.join("owner.json");
         let owns_lock = fs::read(owner_path)
             .ok()
@@ -181,13 +194,27 @@ fn write_lock_owner(lock_dir: &Path, token: &str) -> Result<(), String> {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
+    #[cfg(test)]
+    if FAIL_NEXT_OWNER_WRITE.swap(false, Ordering::SeqCst) {
+        return Err("injected owner persistence failure".into());
+    }
     file.write_all(&bytes)
         .and_then(|_| file.sync_all())
         .map_err(|err| format!("persist registration replay ledger lock owner failed: {err}"))
 }
 
 fn reclaim_stale_lock(lock_dir: &Path) -> Result<bool, String> {
+    let metadata = fs::symlink_metadata(lock_dir)
+        .map_err(|err| format!("inspect registration replay lock directory failed: {err}"))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("registration replay lock directory is not a real directory".into());
+    }
     let owner_path = lock_dir.join("owner.json");
+    if let Ok(metadata) = fs::symlink_metadata(&owner_path)
+        && (!metadata.is_file() || metadata.file_type().is_symlink())
+    {
+        return Err("registration replay lock owner is not a regular file".into());
+    }
     let owner = match fs::read(&owner_path) {
         Ok(bytes) => serde_json::from_slice::<RegistrationReplayLockOwner>(&bytes).ok(),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
@@ -197,10 +224,12 @@ fn reclaim_stale_lock(lock_dir: &Path) -> Result<bool, String> {
             ));
         }
     };
-    let stale = owner.is_some_and(|owner| !process_is_alive(owner.pid));
+    let stale = owner.is_some_and(|owner| !owner.token.is_empty() && !process_is_alive(owner.pid));
     if !stale {
         return Ok(false);
     }
+    #[cfg(test)]
+    stale_reclaimer_barrier();
     let quarantine = lock_dir.with_extension(format!(
         "stale-{}-{}",
         std::process::id(),
@@ -208,6 +237,10 @@ fn reclaim_stale_lock(lock_dir: &Path) -> Result<bool, String> {
     ));
     match fs::rename(lock_dir, &quarantine) {
         Ok(()) => {
+            #[cfg(test)]
+            if FAIL_NEXT_QUARANTINE_REMOVE.swap(false, Ordering::SeqCst) {
+                return Err("injected quarantine cleanup failure".into());
+            }
             fs::remove_dir_all(&quarantine).map_err(|err| {
                 format!("remove stale registration replay ledger lock failed: {err}")
             })?;
@@ -242,8 +275,11 @@ fn process_is_alive(pid: u32) -> bool {
         fn kill(pid: i32, signal: i32) -> i32;
     }
     let Ok(pid) = i32::try_from(pid) else {
-        return false;
+        return true; // An invalid/unrepresentable identity is not proof of death.
     };
+    if pid <= 0 {
+        return true;
+    }
     if unsafe { kill(pid, 0) == 0 } {
         return true;
     }
@@ -257,7 +293,11 @@ fn unix_process_lookup_error_is_alive(raw_os_error: Option<i32>) -> bool {
 
 #[cfg(windows)]
 fn process_is_alive(pid: u32) -> bool {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return true;
+    }
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
     #[link(name = "Kernel32")]
     unsafe extern "system" {
         fn OpenProcess(
@@ -267,14 +307,19 @@ fn process_is_alive(pid: u32) -> bool {
         ) -> *mut std::ffi::c_void;
         fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
         fn GetLastError() -> u32;
+        fn WaitForSingleObject(handle: *mut std::ffi::c_void, milliseconds: u32) -> u32;
     }
 
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
     if handle.is_null() {
         return unsafe { GetLastError() } != 87;
     }
+    // An exited process can still be opened while another process retains a
+    // handle. Only a signaled process object proves termination; timeout or
+    // WAIT_FAILED remains unknown/live and therefore cannot authorize reclaim.
+    let status = unsafe { WaitForSingleObject(handle, 0) };
     unsafe { CloseHandle(handle) };
-    true
+    status != 0 // WAIT_OBJECT_0
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -286,7 +331,7 @@ fn process_is_alive(_pid: u32) -> bool {
 mod tests {
     use super::*;
 
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(super) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[cfg(unix)]
     #[test]
@@ -333,38 +378,28 @@ mod tests {
                 .send(RegistrationReplayProcessLock::acquire(&second_ledger))
                 .expect("send second acquisition result");
         });
-        let second_guard = second_rx
-            .recv_timeout(INCOMPLETE_LOCK_GRACE + Duration::from_secs(2))
-            .expect("second claimant should make progress")
-            .expect("second claimant should acquire while first publication is private");
-
-        RELEASE_OWNER_PUBLICATION.store(true, Ordering::SeqCst);
-        let first_while_second_is_held = first_rx.recv_timeout(Duration::from_millis(250));
-        let guards_overlapped = !matches!(
-            &first_while_second_is_held,
+        assert!(matches!(
+            second_rx.recv_timeout(INCOMPLETE_LOCK_GRACE),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-        );
+        ));
+        RELEASE_OWNER_PUBLICATION.store(true, Ordering::SeqCst);
+        let first_guard = first_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            second_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        drop(first_guard);
+        let second_guard = second_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
         drop(second_guard);
-        let first_after_second_releases = match first_while_second_is_held {
-            Ok(result) => Some(result),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Some(
-                first_rx
-                    .recv_timeout(Duration::from_secs(2))
-                    .expect("first claimant should acquire after second releases"),
-            ),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
-        };
-        if let Some(Ok(guard)) = first_after_second_releases {
-            drop(guard);
-        }
-        first.join().expect("join first claimant");
-        second.join().expect("join second claimant");
-        let _ = fs::remove_dir_all(root);
-
-        assert!(
-            !guards_overlapped,
-            "a partially published first lock must not be reclaimed so both claimants return guards concurrently"
-        );
+        first.join().unwrap();
+        second.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -408,7 +443,7 @@ mod tests {
         let lock_dir = replay_lock_dir(&ledger);
         fs::create_dir_all(&lock_dir).expect("create stale lock");
         let stale = RegistrationReplayLockOwner {
-            pid: u32::MAX,
+            pid: process_tests::dead_pid(),
             token: "dead-owner".to_string(),
         };
         fs::write(
@@ -424,3 +459,20 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 }
+
+#[cfg(test)]
+fn stale_reclaimer_barrier() {
+    let Some(root) = std::env::var_os("OASIS7_TEST_STALE_BARRIER").map(PathBuf::from) else {
+        return;
+    };
+    fs::write(root.join("observed"), b"ready").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !root.join("release").exists() {
+        assert!(Instant::now() < deadline, "stale barrier timeout");
+        std::thread::sleep(LOCK_RETRY_INTERVAL);
+    }
+}
+
+#[cfg(test)]
+#[path = "registration_replay_lock_process_tests.rs"]
+mod process_tests;

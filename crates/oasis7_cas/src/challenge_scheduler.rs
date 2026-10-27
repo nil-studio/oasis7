@@ -457,6 +457,7 @@ fn increment_reason(map: &mut BTreeMap<String, u64>, key: &str) {
 
 fn classify_world_error_reason(error: &WorldError) -> StorageChallengeFailureReason {
     match error {
+        WorldError::NetworkFailure { source, .. } => classify_world_error_reason(source),
         WorldError::BlobNotFound { .. } => StorageChallengeFailureReason::MissingSample,
         WorldError::BlobHashMismatch { .. } | WorldError::BlobHashInvalid { .. } => {
             StorageChallengeFailureReason::HashMismatch

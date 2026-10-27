@@ -1,6 +1,7 @@
 use super::durable_peer_record_publisher::LocalPeerRecordPublisher;
 use super::peer_discovery_observations::DiscoveryObservations;
 use super::peer_record_cache::PeerRecordCache;
+use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -10,7 +11,6 @@ use libp2p::kad::{self, Quorum, RecordKey};
 use libp2p::request_response;
 use libp2p::swarm::Swarm;
 use libp2p::{Multiaddr, PeerId};
-use oasis7_proto::distributed::DistributedErrorCode;
 use oasis7_proto::distributed_net::NetworkRequestContext;
 
 use super::peer_manager::{
@@ -52,51 +52,6 @@ pub(super) enum CommandOutcome {
 pub(super) struct PendingResponse {
     pub protocol: String,
     pub response: CommandResponseSender<Vec<u8>>,
-}
-
-pub(super) fn fail_pending_request(
-    pending_response: PendingResponse,
-    peer: PeerId,
-    error: request_response::OutboundFailure,
-    event_errors: &Arc<Mutex<Vec<String>>>,
-    max_error_messages: usize,
-) {
-    let protocol = pending_response.protocol;
-    let message = format!("request failed: {error:?} protocol={protocol} peer={peer}");
-    push_bounded_clone(
-        event_errors,
-        message.clone(),
-        max_error_messages,
-        "lock errors",
-    );
-    let _ = pending_response
-        .response
-        .send(Err(request_failure_world_error(error, message)));
-}
-
-pub(super) fn request_failure_world_error(
-    error: request_response::OutboundFailure,
-    message: String,
-) -> WorldError {
-    let failure_detail = format!("{error:?}");
-    let retryable = match error {
-        request_response::OutboundFailure::ConnectionClosed
-        | request_response::OutboundFailure::DialFailure
-        | request_response::OutboundFailure::Timeout => true,
-        request_response::OutboundFailure::Io(error) => {
-            error.kind() == std::io::ErrorKind::UnexpectedEof
-        }
-        request_response::OutboundFailure::UnsupportedProtocols => false,
-    };
-    if retryable {
-        WorldError::NetworkRequestFailed {
-            code: DistributedErrorCode::ErrNotAvailable,
-            message: format!("{message}: {failure_detail}"),
-            retryable: true,
-        }
-    } else {
-        WorldError::NetworkProtocolUnavailable { protocol: message }
-    }
 }
 
 pub(super) struct CommandContext<'a> {
@@ -672,7 +627,12 @@ pub(super) fn handle_command(
                 Err(err) => {
                     let error = WorldError::NetworkProtocolUnavailable {
                         protocol: format!("libp2p publish failed topic={topic}: {err}"),
-                    };
+                    }
+                    .with_network_failure(NetworkFailure::observed(
+                        FailureOrigin::Publish,
+                        FailureCause::Unknown,
+                        None,
+                    ));
                     push_bounded_clone(
                         ctx.event_errors,
                         format!("libp2p publish failed topic={topic}: {err}"),
@@ -758,13 +718,24 @@ pub(super) fn handle_command(
                         };
                         let _ = response.send(result);
                     } else {
-                        let _ =
-                            response.send(Err(WorldError::NetworkProtocolUnavailable { protocol }));
+                        let _ = response.send(Err(WorldError::NetworkProtocolUnavailable {
+                            protocol: protocol.clone(),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::LocalTransport,
+                            FailureCause::MissingHandler,
+                            Some(&protocol),
+                        ))));
                     }
                 } else {
                     let _ = response.send(Err(WorldError::NetworkProtocolUnavailable {
                         protocol: format!("no connected providers for protocol {protocol}"),
-                    }));
+                    }
+                    .with_network_failure(NetworkFailure::observed(
+                        FailureOrigin::ProviderRouting,
+                        FailureCause::ConnectionGap,
+                        Some(&protocol),
+                    ))));
                 }
                 return CommandOutcome::Continue;
             }
@@ -781,7 +752,12 @@ pub(super) fn handle_command(
                 if candidate_peers.is_empty() {
                     let _ = response.send(Err(WorldError::NetworkProtocolUnavailable {
                         protocol: format!("no connected providers for protocol {protocol}"),
-                    }));
+                    }
+                    .with_network_failure(NetworkFailure::observed(
+                        FailureOrigin::ProviderRouting,
+                        FailureCause::ConnectionGap,
+                        Some(&protocol),
+                    ))));
                     return CommandOutcome::Continue;
                 }
             } else {
@@ -800,7 +776,12 @@ pub(super) fn handle_command(
                     } else {
                         format!("no healthy provider for protocol {protocol}")
                     },
-                }));
+                }
+                .with_network_failure(NetworkFailure::observed(
+                    FailureOrigin::ProviderRouting,
+                    FailureCause::ConnectionGap,
+                    Some(&protocol),
+                ))));
                 return CommandOutcome::Continue;
             }
             let peer = candidate_peers[0];
@@ -835,7 +816,12 @@ pub(super) fn handle_command(
             ) {
                 let _ = response.send(Err(WorldError::NetworkProtocolUnavailable {
                     protocol: format!("peer {peer} is not connected for protocol {protocol}"),
-                }));
+                }
+                .with_network_failure(NetworkFailure::observed(
+                    FailureOrigin::LocalTransport,
+                    FailureCause::ConnectionGap,
+                    Some(&protocol),
+                ))));
                 return CommandOutcome::Continue;
             }
             let payload_len = payload.len();
@@ -1167,31 +1153,5 @@ pub(super) fn handle_command(
             CommandOutcome::Continue
         }
         Some(Command::Shutdown) | None => CommandOutcome::Break,
-    }
-}
-
-#[cfg(test)]
-mod request_failure_tests {
-    use super::*;
-
-    #[test]
-    fn cancelled_response_and_unexpected_eof_are_retryable_transport_failures() {
-        for failure in [
-            request_response::OutboundFailure::ConnectionClosed,
-            request_response::OutboundFailure::Io(std::io::Error::from(
-                std::io::ErrorKind::UnexpectedEof,
-            )),
-        ] {
-            let error = request_failure_world_error(failure, "request failed".to_string());
-            assert!(super::super::error_mapping::world_error_is_retryable_connection_gap(&error));
-            assert!(matches!(
-                error,
-                WorldError::NetworkRequestFailed {
-                    code: DistributedErrorCode::ErrNotAvailable,
-                    retryable: true,
-                    ..
-                }
-            ));
-        }
     }
 }

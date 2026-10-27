@@ -78,6 +78,8 @@ impl ProvisionRecord {
         draft: &super::AccountDraftV1,
         nonce: Option<&str>,
         keys: &[(Role, PublicRoleKey)],
+        claimed_transports: u64,
+        native_phases: &[(ProvisionStage, PhaseOriginal, Option<String>)],
     ) -> Result<(), ProvisionError> {
         let mut expected = Self::draft(draft.entry.clone(), draft.plan.clone())?;
         if let Some(nonce) = nonce {
@@ -86,12 +88,73 @@ impl ProvisionRecord {
         for (role, key) in keys {
             expected.record_key(*role, key.clone(), 0, 0)?;
         }
+        for _ in 0..claimed_transports {
+            expected.charge_transport(0, 0)?;
+        }
+        for (phase, original, native_account) in native_phases {
+            let epoch = expected.security_epoch.0;
+            let mut pending = original.clone();
+            let digest = pending
+                .receipt_digest
+                .take()
+                .ok_or(ProvisionError::Invalid)?;
+            expected.save_original(*phase, pending, epoch, 0)?;
+            expected.confirm_phase(
+                *phase,
+                &original.operation_id,
+                &digest,
+                native_account.as_deref(),
+                epoch,
+                0,
+            )?;
+            if *phase == ProvisionStage::NativeRegistered {
+                expected.activate_native_binding()?;
+            }
+        }
         if self.frozen {
             expected.freeze(self.security_epoch.0)?;
         }
         if self != &expected {
             return Err(ProvisionError::Invalid);
         }
+        Ok(())
+    }
+    pub(super) fn confirm_managed_session(
+        &mut self,
+        original: PhaseOriginal,
+    ) -> Result<(), ProvisionError> {
+        if self.frozen
+            || self.security_epoch.0 != 1
+            || self.stage != ProvisionStage::NativeRegistered
+            || !valid_id(&original.operation_id)
+            || original.body_digest.is_empty()
+            || original.receipt_digest.is_none()
+        {
+            return Err(ProvisionError::InvalidTransition);
+        }
+        if self.originals.contains_key("login") {
+            return Err(ProvisionError::Conflict);
+        }
+        self.originals.insert("login".into(), original);
+        self.stage = ProvisionStage::NativeSessionReady;
+        Ok(())
+    }
+    pub fn transport_remaining(&self) -> Result<u64, ProvisionError> {
+        self.transport
+            .remaining()
+            .map_err(|_| ProvisionError::Exhausted)
+    }
+    pub fn security_epoch(&self) -> DecimalU64 {
+        self.security_epoch
+    }
+    pub(super) fn activate_native_binding(&mut self) -> Result<(), ProvisionError> {
+        if self.frozen
+            || self.stage != ProvisionStage::NativeRegistered
+            || self.security_epoch.0 != 0
+        {
+            return Err(ProvisionError::Conflict);
+        }
+        self.security_epoch = DecimalU64(1);
         Ok(())
     }
     pub fn stage(&self) -> ProvisionStage {

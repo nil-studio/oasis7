@@ -45,7 +45,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -53,6 +53,9 @@ use std::{
 
 #[path = "driver_bft_v2_formal_profile_tests.rs"]
 mod profile_tests;
+
+#[path = "driver_bft_v2_formal_prefix_tests.rs"]
+mod prefix_tests;
 
 #[derive(Clone, Default)]
 struct IndexReader(BTreeMap<String, Vec<u8>>);
@@ -83,6 +86,8 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock after epoch")
@@ -91,7 +96,7 @@ impl Scratch {
             .canonicalize()
             .expect("canonical temp directory")
             .join(format!(
-                "oasis7-formal-bft-cut-{}-{nonce}",
+                "oasis7-formal-bft-cut-{}-{nonce}-{sequence}",
                 std::process::id()
             ));
         fs::create_dir(&path).expect("create private test root");

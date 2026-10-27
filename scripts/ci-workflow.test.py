@@ -1399,11 +1399,18 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
     def test_private_context_macos_uses_fixed_toolchain_and_declared_resource(self):
         fleet = JOBS['fleet-health']
         self.assertIn('rust_toolchain', CONFIG['resources']['fleet_health'])
-        prepare = fleet.index('name: Prepare context Rust toolchain on macOS')
+        prepare = fleet.index('name: Prepare native filesystem contract Rust toolchain')
         verify = fleet.index('name: Verify private context filesystem and caller on macOS')
         self.assertLess(prepare, verify)
-        preparation = fleet[prepare:verify]
-        self.assertIn("if: runner.os == 'macOS'", preparation)
+        hosted = fleet.index('name: Verify hosted access cross-process ownership on native host')
+        self.assertLess(prepare, hosted)
+        self.assertLess(hosted, verify)
+        preparation = fleet[prepare:hosted]
+        self.assertNotIn('if:', preparation)
+        hosted_validation = fleet[hosted:verify]
+        self.assertNotIn('if:', hosted_validation)
+        self.assertIn('cargo test --locked -p oasis7_hosted_access', hosted_validation)
+        self.assertIn('fleet_health', CONFIG['package_groups']['oasis7_hosted_access'])
         self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN"', preparation)
         self.assertIn('rustup default "$RUST_TOOLCHAIN"', preparation)
         self.assertTrue((ROOT / 'rust-toolchain.toml').is_file())

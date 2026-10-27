@@ -2,9 +2,6 @@ use oasis7_proto::distributed::DistributedErrorCode;
 use oasis7_proto::world_error::WorldError;
 
 use crate::NodeError;
-use crate::network_bridge::{
-    REPLICATION_NETWORK_AVAILABILITY_GAP_PREFIX, REPLICATION_NETWORK_ROUTE_UNAVAILABLE_PREFIX,
-};
 
 pub(crate) fn replication_network_error_kind_label(code: DistributedErrorCode) -> &'static str {
     match code {
@@ -22,97 +19,68 @@ pub(crate) fn replication_network_error_kind_label(code: DistributedErrorCode) -
     }
 }
 
+use oasis7_proto::network_failure::{FailureCause, NetworkFailure};
+
+pub(crate) fn replication_network_failure(err: &NodeError) -> NetworkFailure {
+    if let NodeError::ReplicationNetwork { failure, .. } = err {
+        return (**failure).clone().conservative();
+    }
+    crate::network_error_legacy::interpret_node_diagnostic(err).conservative()
+}
+
 pub(crate) fn replication_network_error_is_availability_gap(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    reason.starts_with(REPLICATION_NETWORK_AVAILABILITY_GAP_PREFIX)
+    replication_network_failure(err).is_connection_gap()
 }
-
 pub(crate) fn replication_network_error_is_route_unavailable(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    reason.starts_with(REPLICATION_NETWORK_ROUTE_UNAVAILABLE_PREFIX)
+    matches!(
+        replication_network_failure(err).cause,
+        FailureCause::MissingHandler
+            | FailureCause::ProviderExhausted
+            | FailureCause::ProtocolUnavailable
+    )
 }
-
 pub(crate) fn replication_network_error_mentions_protocol(err: &NodeError, protocol: &str) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    reason.contains(protocol)
+    replication_network_failure(err).matches_protocol(protocol)
 }
-
 pub(crate) fn replication_network_error_is_not_found(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    network_request_reason_has_kind(reason, "not_found")
-        || (reason.contains("NetworkRequestFailed") && reason.contains("ErrNotFound"))
+    replication_network_failure(err).cause == FailureCause::NotFound
 }
-
 pub(crate) fn replication_network_error_is_unsupported_protocol(
     err: &NodeError,
     protocol: &str,
 ) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    (network_request_reason_has_kind(reason, "unsupported")
-        && network_request_reason_detail_mentions_protocol(reason, protocol))
-        || (reason.contains("NetworkRequestFailed")
-            && reason.contains("ErrUnsupported")
-            && reason.contains(protocol))
+    let facts = replication_network_failure(err);
+    matches!(
+        facts.cause,
+        FailureCause::MissingHandler | FailureCause::ProtocolUnavailable
+    ) && facts.matches_protocol(protocol)
 }
-
 pub(crate) fn replication_network_error_is_protocol_unavailable(
     err: &NodeError,
     protocol: &str,
 ) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    (reason.starts_with(REPLICATION_NETWORK_ROUTE_UNAVAILABLE_PREFIX) && reason.contains(protocol))
-        || reason.contains("NetworkProtocolUnavailable")
-            && (reason.contains("handler missing") || reason.contains(protocol))
+    replication_network_error_is_unsupported_protocol(err, protocol)
 }
-
 pub(crate) fn replication_network_error_is_timeout_protocol(
     err: &NodeError,
     protocol: &str,
 ) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    reason.contains(protocol)
-        && (network_request_reason_has_kind(reason, "timeout")
-            || reason.contains("request failed: Timeout")
-            || reason.contains("timed out"))
+    let facts = replication_network_failure(err);
+    facts.cause == FailureCause::Timeout && facts.matches_protocol(protocol)
 }
-
 pub(crate) fn replication_network_error_is_rate_limited_protocol(
     err: &NodeError,
     protocol: &str,
 ) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    (network_request_reason_has_kind(reason, "rate_limited")
-        && network_request_reason_has_protocol(reason, protocol))
-        || (reason.contains("NetworkRequestFailed")
-            && reason.contains("ErrRateLimited")
-            && reason.contains(protocol))
+    let facts = replication_network_failure(err);
+    facts.cause == FailureCause::RateLimited && facts.matches_protocol(protocol)
 }
-
 pub(crate) fn replication_network_error_should_keep_timeout_over_provider_gap(
     current: Option<&NodeError>,
     candidate: &NodeError,
     protocol: &str,
 ) -> bool {
-    let Some(current) = current else {
-        return false;
-    };
-    replication_network_error_is_timeout_protocol(current, protocol)
+    current.is_some_and(|current| replication_network_error_is_timeout_protocol(current, protocol))
         && (replication_network_error_is_protocol_unavailable(candidate, protocol)
             || replication_network_error_is_availability_gap(candidate))
 }
@@ -135,24 +103,6 @@ pub(crate) fn network_world_error_is_publish_failure(err: &WorldError) -> bool {
 #[cfg(not(all(feature = "libp2p", not(target_arch = "wasm32"))))]
 pub(crate) fn network_world_error_is_publish_failure(_err: &WorldError) -> bool {
     false
-}
-
-fn network_request_reason_has_kind(reason: &str, kind: &str) -> bool {
-    reason
-        .split_whitespace()
-        .any(|field| field.strip_prefix("kind=") == Some(kind))
-}
-
-fn network_request_reason_detail_mentions_protocol(reason: &str, protocol: &str) -> bool {
-    reason
-        .split_once(" detail=")
-        .is_some_and(|(_, detail)| detail.contains(protocol))
-}
-
-fn network_request_reason_has_protocol(reason: &str, protocol: &str) -> bool {
-    reason
-        .split_whitespace()
-        .any(|field| field.strip_prefix("protocol=") == Some(protocol))
 }
 
 #[cfg(test)]
@@ -186,4 +136,13 @@ mod tests {
             &err, protocol
         ));
     }
+}
+
+/// Persist facts inside the existing diagnostic string field, without changing snapshots.
+pub(crate) fn persisted_network_reason(context: String, err: &NodeError) -> String {
+    let facts = replication_network_failure(err);
+    format!(
+        "{context} [network-failure-v1={}]",
+        serde_json::to_string(&facts).expect("network facts serialize")
+    )
 }

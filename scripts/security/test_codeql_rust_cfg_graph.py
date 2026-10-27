@@ -26,6 +26,13 @@ class GraphTests(unittest.TestCase):
                 cfg.runtime.run(argv,root,evidence/"decode",time.monotonic()+10,10,evidence,os.environ.copy(),file_limit=decode_limit)
             self.assertLessEqual((root/"decoded").stat().st_size,64*1024**2)
 
+    def test_context_exclusion_requires_negative_and_positive_database_witnesses(self):
+        paths=cfg.CONTEXT_PATHS
+        good=[[paths[0],0,0],[paths[1],50,10],[paths[2],70,20]]
+        self.assertEqual(cfg.validate_context_exclusion(good)["status"],"EXCLUSION_AST_VERIFIED")
+        for bad in (good[:2],good+[good[0]],[[paths[0],1,1],*good[1:]],[[paths[0],0,0],[paths[1],0,0],good[2]],[["other.rs",0,0],*good[1:]],[[paths[0],False,0],*good[1:]]):
+            with self.assertRaises(RuntimeError):cfg.validate_context_exclusion(bad)
+
     def test_digest_exception_preserves_primary_error(self):
         terminal={'status':'DIAGNOSTIC_COMPLETED','error':'original query failure'}
         with tempfile.TemporaryDirectory() as tmp:

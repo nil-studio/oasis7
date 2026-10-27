@@ -661,6 +661,7 @@ fn classify_receipt_failure_reason(
 
 fn classify_world_error_failure_reason(error: &WorldError) -> StorageChallengeFailureReason {
     match error {
+        WorldError::NetworkFailure { source, .. } => classify_world_error_failure_reason(source),
         WorldError::BlobNotFound { .. } => StorageChallengeFailureReason::MissingSample,
         WorldError::BlobHashMismatch { .. } | WorldError::BlobHashInvalid { .. } => {
             StorageChallengeFailureReason::HashMismatch

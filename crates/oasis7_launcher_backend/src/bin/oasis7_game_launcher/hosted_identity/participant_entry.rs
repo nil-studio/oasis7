@@ -26,6 +26,12 @@ pub(super) struct EntryTrust {
     pub world: WorldIdentity,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyOriginalRequest {
+    observation_nonce: String,
+}
+
 #[cfg(test)]
 #[path = "participant_entry_tests.rs"]
 mod tests;
@@ -107,13 +113,32 @@ impl ParticipantEntry {
     fn policy(&self) -> Result<Value, StoreError> {
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce).map_err(|_| reject("participant_unavailable"))?;
+        Ok(self.policy_original(hex::encode(nonce))?.1.payload)
+    }
+    fn policy_original(
+        &self,
+        observation_nonce: String,
+    ) -> Result<
+        (
+            SignedReadRequest<ParticipantPolicyRequestV1>,
+            SignedServiceResponse<Value>,
+        ),
+        StoreError,
+    > {
+        if observation_nonce.len() != 64
+            || !observation_nonce
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(reject("invalid_request"));
+        }
         let request = sign_read_request(
             PARTICIPANT_POLICY_PATH,
             ParticipantPolicyRequestV1 {
                 contract_version: 1,
                 expected_world: self.trust.world.clone(),
                 trust_config_ref: self.trust.service_public_key.clone(),
-                observation_nonce: hex::encode(nonce),
+                observation_nonce,
             },
             &self.issuer_key,
         )
@@ -135,8 +160,15 @@ impl ParticipantEntry {
         if bytes.len() > 65536 {
             return Err(reject("participant_unavailable"));
         }
-        let response: SignedServiceResponse<Value> =
+        let original: Value =
             parse_request(&bytes).map_err(|_| reject("participant_unavailable"))?;
+        let response: SignedServiceResponse<Value> = serde_json::from_value(original.clone())
+            .map_err(|_| reject("participant_unavailable"))?;
+        if serde_json::to_value(&response).map_err(|_| reject("participant_unavailable"))?
+            != original
+        {
+            return Err(reject("participant_unavailable"));
+        }
         verify_service_response(
             PARTICIPANT_POLICY_PATH,
             &request_digest(PARTICIPANT_POLICY_PATH, &request)
@@ -145,7 +177,7 @@ impl ParticipantEntry {
             &self.trust.service_public_key,
         )
         .map_err(|_| reject("participant_unavailable"))?;
-        Ok(response.payload)
+        Ok((request, response))
     }
     pub(super) fn forward_owner_view(
         &self,
@@ -336,6 +368,7 @@ impl IdentityService {
         now: u64,
     ) -> Option<Result<Value, StoreError>> {
         if ![
+            "/participant/policy-original",
             "/participant/authorize",
             "/participant/submit",
             "/participant/lookup",
@@ -365,6 +398,27 @@ impl IdentityService {
                 .participant_entry
                 .as_ref()
                 .ok_or_else(|| reject("participant_unavailable"))?;
+            if path == "/participant/policy-original" {
+                let request: PolicyOriginalRequest = parse_request(
+                    &serde_json::to_vec(payload).map_err(|_| reject("invalid_request"))?,
+                )
+                .map_err(|_| reject("invalid_request"))?;
+                let (request, response) = entry.policy_original(request.observation_nonce)?;
+                self.store.transaction(|tx| {
+                    valid_session(
+                        tx,
+                        &session_key(
+                            &self.config.session_key,
+                            sid.ok_or_else(|| reject("session_expired"))?,
+                        ),
+                        self.config.rp.identity_instance_epoch,
+                        super::now_ms(),
+                    )
+                    .map(|_| ())
+                })?;
+                return serde_json::to_value(ParticipantPolicyOriginalV1 { request, response })
+                    .map_err(|_| reject("participant_unavailable"));
+            }
             if path == "/participant/owner-view" || path == "/participant/starter-eligibility" {
                 let request: ParticipantOwnerViewRequestV1 = parse_request(
                     &serde_json::to_vec(payload).map_err(|_| reject("invalid_request"))?,
