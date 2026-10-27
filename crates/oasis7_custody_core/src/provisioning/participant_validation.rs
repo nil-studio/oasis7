@@ -4,15 +4,17 @@ use oasis7_client_api::world_service::{
     participant_discovery::PARTICIPANT_OWNER_VIEW_PATH, private_goal::verify_owner_signature_strict,
 };
 pub(super) fn policy(o: &ParticipantOriginalV1, p: &ParticipantPolicyOriginalV1) -> Result<()> {
-    p.verify_strict(
-        &o.descriptor.policy_nonce,
-        &world(&o.descriptor),
-        &o.descriptor.world.service_public_key,
-    )
-    .map_err(|_| bad())?;
+    policy_for_descriptor(&o.descriptor, &o.descriptor.policy_nonce, p)
+}
+pub(in crate::provisioning) fn policy_for_descriptor(
+    d: &ParticipantDescriptorV1,
+    nonce: &str,
+    p: &ParticipantPolicyOriginalV1,
+) -> Result<()> {
+    p.verify_strict(nonce, &world(d), &d.world.service_public_key)
+        .map_err(|_| bad())?;
     let v = &p.response.payload;
     let policy = &v["policy"];
-    let d = &o.descriptor;
     let namespace: oasis7_agent_api::game::GameIdentityNamespaceV1 =
         serde_json::from_value(policy["identity_namespace"].clone()).map_err(|_| bad())?;
     if v["world_id"] != d.world.world_id
@@ -68,8 +70,16 @@ pub(super) fn admission(
     o: &ParticipantOriginalV1,
     a: &SignedReadRequest<GameParticipantAdmissionV1>,
 ) -> Result<()> {
-    let policy = o.policy.as_ref().ok_or_else(bad)?;
-    let d = &o.descriptor;
+    admission_for_descriptor(&o.descriptor, o.policy.as_ref().ok_or_else(bad)?, a)
+}
+pub(in crate::provisioning) fn admission_for_descriptor(
+    d: &ParticipantDescriptorV1,
+    policy: &ParticipantPolicyOriginalV1,
+    a: &SignedReadRequest<GameParticipantAdmissionV1>,
+) -> Result<()> {
+    let issuer = policy.response.payload["policy"]["issuer_public_key"]
+        .as_str()
+        .ok_or_else(bad)?;
     let r = &a.request;
     if r.api_rev != 1
         || r.identity_namespace != d.register.identity_namespace
@@ -89,14 +99,14 @@ pub(super) fn admission(
         || r.valid_until_tick.0 <= r.valid_from_tick.0
         || r.valid_until_tick.0 - r.valid_from_tick.0
             > amount(&policy.response.payload["policy"]["max_grant_ticks"]).ok_or_else(bad)?
-        || a.subject_public_key != issuer(o)?
+        || a.subject_public_key != issuer
     {
         return Err(bad());
     }
     verify_owner_signature_strict(
         GAME_PARTICIPANT_ADMISSION_DOMAIN,
         r,
-        issuer(o)?,
+        issuer,
         &a.signature_hex,
     )
     .map_err(|_| bad())?;

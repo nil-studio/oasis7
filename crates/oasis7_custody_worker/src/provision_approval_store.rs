@@ -3,6 +3,9 @@
 #[path = "provision_native_store.rs"]
 pub mod native;
 
+#[cfg(feature = "approval-harness")]
+#[path = "account_restore_perf.rs"]
+pub(crate) mod performance;
 use crate::approval_store::{now, verify};
 use js_sys::Array;
 use oasis7_custody_core::{
@@ -91,6 +94,8 @@ fn rejected() -> JsValue {
     JsValue::from_str("provision approval rejected")
 }
 fn decode(value: &str) -> Result<ProvisionApprovalSnapshot> {
+    #[cfg(feature = "approval-harness")]
+    let _decode = performance::decode();
     if value.len() > MAX_BYTES {
         return Err(rejected());
     }
@@ -99,6 +104,15 @@ fn decode(value: &str) -> Result<ProvisionApprovalSnapshot> {
         return Err(rejected());
     }
     Ok(value)
+}
+// Keep the validated immutable comparison baseline from the same SQL callback
+// bytes. Re-decoding those identical bytes cannot observe a newer SQL state.
+fn transition_snapshot(
+    value: &str,
+) -> Result<(ProvisionApprovalSnapshot, AccountProvisionApprovalState)> {
+    let snapshot = decode(value)?;
+    let previous = snapshot.state.clone();
+    Ok((snapshot, previous))
 }
 /// Recognize private persisted approval state solely for exact historical draft retry.
 pub(crate) fn matches_persisted_draft(state: &JsValue, draft: &AccountDraftV1) -> bool {
@@ -208,10 +222,12 @@ impl OwnerProvisionApprovalStore {
         let initial = read(&self.state, KEY)?;
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
-            let mut next = decode(&old)?;
+            #[cfg(feature = "approval-harness")]
+            let _performance = performance::callback(event, &old);
+            let (mut next, previous) = transition_snapshot(&old)?;
             validate_inventory(&inventory, next.state.draft(), true)?;
             let result = transition(&mut next.state, now()?)?;
-            let array = if next.state == decode(&old)?.state {
+            let array = if next.state == previous {
                 unchanged(&old)
             } else {
                 next.audit_sequence =
@@ -310,10 +326,12 @@ impl OwnerProvisionApprovalStore {
         let initial = read(&self.state, KEY)?;
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
-            let mut next = decode(&old)?;
+            #[cfg(feature = "approval-harness")]
+            let _performance = performance::callback(event, &old);
+            let (mut next, previous) = transition_snapshot(&old)?;
             let trusted = current()?;
             let result = transition(&mut next.state, &trusted.as_core(), now()?)?;
-            let array = if next.state == decode(&old)?.state {
+            let array = if next.state == previous {
                 validate_inventory(&inventory, next.state.draft(), false)?;
                 unchanged(&old)
             } else {

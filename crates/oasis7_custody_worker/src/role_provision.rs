@@ -239,7 +239,12 @@ impl DurableObject for RoleKeyVault {
         let url = request.url()?;
         #[cfg(feature = "owner")]
         if request.method() == Method::Post
-            && url.path() == "/internal/participant-sign"
+            && matches!(
+                url.path(),
+                "/internal/participant-sign"
+                    | "/internal/owner-setup-sign"
+                    | "/internal/owner-setup-reconcile-sign"
+            )
             && url.scheme() == "https"
             && url.host_str() == Some("role-key.internal")
             && url.query().is_none()
@@ -252,13 +257,20 @@ impl DurableObject for RoleKeyVault {
                     .map_err(|_| denied())?,
                 4096,
             )?);
-            return match crate::owner_participant_signing::sign_in_vault(
-                self.state.clone(),
-                &self.env,
-                &raw,
-            )
-            .await
-            {
+            let result = if url.path() == "/internal/owner-setup-reconcile-sign" {
+                crate::owner_setup_reconcile_signing::sign_in_vault(
+                    self.state.clone(),
+                    &self.env,
+                    &raw,
+                )
+                .await
+            } else if url.path() == "/internal/owner-setup-sign" {
+                crate::owner_setup_signing::sign_in_vault(self.state.clone(), &self.env, &raw).await
+            } else {
+                crate::owner_participant_signing::sign_in_vault(self.state.clone(), &self.env, &raw)
+                    .await
+            };
+            return match result {
                 Ok(value) => Ok(value),
                 Err(_) => Response::error("participant owner signing rejected", 409),
             };

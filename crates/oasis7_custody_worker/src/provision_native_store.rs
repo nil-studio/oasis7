@@ -2,6 +2,8 @@
 use super::*;
 #[path = "provision_native_history_store.rs"]
 pub mod history;
+#[path = "owner_setup_store.rs"]
+pub mod owner_setup;
 #[path = "provision_participant_store.rs"]
 pub mod participant;
 #[path = "provision_native_recovery_store.rs"]
@@ -221,7 +223,9 @@ impl OwnerProvisionApprovalStore {
         let initial = read(&self.state, KEY)?;
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
-            let mut next = decode(&old)?;
+            #[cfg(feature = "approval-harness")]
+            let _performance = super::performance::callback(event, &old);
+            let (mut next, previous) = super::transition_snapshot(&old)?;
             let trusted = current()?;
             let time = now()?;
             let result = transition(
@@ -230,7 +234,7 @@ impl OwnerProvisionApprovalStore {
                 &trusted.provision.as_core(),
                 time,
             )?;
-            let array = if next.state == decode(&old)?.state {
+            let array = if next.state == previous {
                 validate_inventory(&inventory, next.state.draft(), false)?;
                 unchanged(&old)
             } else {
@@ -814,3 +818,6 @@ impl OwnerProvisionApprovalStore {
         .await
     }
 }
+
+#[path = "owner_setup_reconcile_store.rs"]
+pub mod setup_reconcile;

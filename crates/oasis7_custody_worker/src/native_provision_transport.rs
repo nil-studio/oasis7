@@ -23,6 +23,7 @@ pub(crate) enum NativePrivateRoute {
     ParticipantSubmit,
     ParticipantLookup,
     ParticipantOwnerView,
+    OwnerControl,
 }
 impl NativePrivateRoute {
     fn path(self) -> &'static str {
@@ -41,6 +42,7 @@ impl NativePrivateRoute {
             Self::ParticipantSubmit => "/participant/submit",
             Self::ParticipantLookup => "/participant/lookup",
             Self::ParticipantOwnerView => "/participant/owner-view",
+            Self::OwnerControl => "/entry-owner/control",
         }
     }
     fn participant(self) -> bool {
@@ -51,6 +53,7 @@ impl NativePrivateRoute {
                 | Self::ParticipantSubmit
                 | Self::ParticipantLookup
                 | Self::ParticipantOwnerView
+                | Self::OwnerControl
         )
     }
 }
@@ -144,7 +147,16 @@ impl NativeProvisionTransport {
         cookie: Option<&PrivateCookie>,
         original_csrf: Option<&str>,
     ) -> Result<NativePrivateReply<T>> {
-        checked(original_body.len() <= MAX_REQUEST)?;
+        // The fixed owner gateway already bounds complete private goal requests
+        // at 64 KiB. Other native protocols retain their existing smaller cap.
+        checked(
+            original_body.len()
+                <= if route == NativePrivateRoute::OwnerControl {
+                    65_536
+                } else {
+                    MAX_REQUEST
+                },
+        )?;
         let get = route == NativePrivateRoute::Capabilities;
         checked(if get {
             original_body.is_empty() && original_csrf.is_none()

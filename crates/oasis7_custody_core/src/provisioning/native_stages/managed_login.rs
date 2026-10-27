@@ -109,7 +109,11 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
     fn check_managed_proof_unique(&self, input: &ApprovalAdmissionInput) -> Result<()> {
-        for record in self.book.records() {
+        for record in self
+            .book
+            .records()
+            .chain(self.owner_setup_approval_records())
+        {
             if same_approval_proof_identity(record.input(), input) {
                 return Err(ApprovalAdmissionError::NonceReused.into());
             }

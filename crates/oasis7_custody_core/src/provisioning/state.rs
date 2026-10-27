@@ -18,6 +18,7 @@ pub enum ProvisionStage {
     Prepared,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicRoleKey {
@@ -98,6 +99,14 @@ impl ProvisionRecord {
                 .receipt_digest
                 .take()
                 .ok_or(ProvisionError::Invalid)?;
+            if *phase == ProvisionStage::ReadyForSetup {
+                expected.confirm_owner_setup_ready(original.clone())?;
+                continue;
+            }
+            if *phase == ProvisionStage::Prepared {
+                expected.confirm_owner_setup(original.clone())?;
+                continue;
+            }
             expected.save_original(*phase, pending, epoch, 0)?;
             expected.confirm_phase(
                 *phase,
@@ -137,6 +146,44 @@ impl ProvisionRecord {
         }
         self.originals.insert("login".into(), original);
         self.stage = ProvisionStage::NativeSessionReady;
+        Ok(())
+    }
+    /// Only the setup ledger's strong fresh Create admission may enter this phase.
+    pub(super) fn confirm_owner_setup_ready(
+        &mut self,
+        original: PhaseOriginal,
+    ) -> Result<(), ProvisionError> {
+        if self.frozen
+            || self.security_epoch.0 == 0
+            || self.stage != ProvisionStage::ParticipantBound
+            || !valid_id(&original.operation_id)
+            || original.body_digest.is_empty()
+            || original.receipt_digest.is_none()
+            || self.originals.contains_key("owner-confirmation")
+        {
+            return Err(ProvisionError::InvalidTransition);
+        }
+        self.originals.insert("owner-confirmation".into(), original);
+        self.stage = ProvisionStage::ReadyForSetup;
+        Ok(())
+    }
+    /// Account setup ledger validates exact signed originals and all final facts.
+    pub(super) fn confirm_owner_setup(
+        &mut self,
+        original: PhaseOriginal,
+    ) -> Result<(), ProvisionError> {
+        if self.frozen
+            || self.security_epoch.0 == 0
+            || self.stage != ProvisionStage::ReadyForSetup
+            || !valid_id(&original.operation_id)
+            || original.body_digest.is_empty()
+            || original.receipt_digest.is_none()
+            || self.originals.contains_key("setup")
+        {
+            return Err(ProvisionError::InvalidTransition);
+        }
+        self.originals.insert("setup".into(), original);
+        self.stage = ProvisionStage::Prepared;
         Ok(())
     }
     pub fn transport_remaining(&self) -> Result<u64, ProvisionError> {

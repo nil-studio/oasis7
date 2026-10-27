@@ -239,7 +239,7 @@ mod restore;
 #[path = "participant_source.rs"]
 mod source;
 #[path = "participant_validation.rs"]
-mod validation;
+pub(in crate::provisioning) mod validation;
 
 /// A reserved read credit and the fixed workflow step it observes. This is not authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

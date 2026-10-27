@@ -37,6 +37,23 @@ pub enum CustodyIntentV1 {
         deadline: DecimalU64,
         transport_limit: DecimalU64,
     },
+    OwnerSetup {
+        setup_id: String,
+        provision_id: String,
+        participant_receipt_digest: String,
+        world_identity: Box<ApprovedWorldV1>,
+        owner_key_ref: String,
+        executor_key_ref: String,
+        setup_plan_digest: String,
+        bootstrap_config_version: DecimalU64,
+        deadline: DecimalU64,
+        request_limit: DecimalU64,
+        transport_limit: DecimalU64,
+        write_limit: DecimalU64,
+    },
+    OwnerSetupReconcile {
+        plan: Box<crate::provisioning::OwnerSetupReconcilePlanV1>,
+    },
     ManagedLogin {
         native_account_id: String,
         login_key_ref: String,
@@ -387,6 +404,39 @@ impl ApprovalOptionsRequestV1 {
                     && deadline.0 <= now.saturating_add(1_800_000)
                     && (1..=400).contains(&transport_limit.0)
                     && register_request_id != login_request_id
+            }
+            CustodyIntentV1::OwnerSetup {
+                setup_id,
+                provision_id,
+                participant_receipt_digest,
+                world_identity,
+                owner_key_ref,
+                executor_key_ref,
+                setup_plan_digest,
+                bootstrap_config_version,
+                deadline,
+                request_limit,
+                transport_limit,
+                write_limit,
+            } => {
+                [setup_id, provision_id, owner_key_ref, executor_key_ref]
+                    .iter()
+                    .all(|v| bounded(v))
+                    && hex_digest(participant_receipt_digest)
+                    && hex_digest(setup_plan_digest)
+                    && world_identity.valid()
+                    && bootstrap_config_version.0 > 0
+                    && deadline.0 > now
+                    && deadline.0 <= now.saturating_add(1_800_000)
+                    && (1..=6).contains(&request_limit.0)
+                    && (584..=600).contains(&transport_limit.0)
+                    && (1..=4).contains(&write_limit.0)
+            }
+            CustodyIntentV1::OwnerSetupReconcile { plan } => {
+                plan.validate().is_ok()
+                    && plan.world_identity.valid()
+                    && plan.deadline.0 > now
+                    && plan.deadline.0 <= now.saturating_add(1_800_000)
             }
             CustodyIntentV1::ManagedLogin {
                 native_account_id,
