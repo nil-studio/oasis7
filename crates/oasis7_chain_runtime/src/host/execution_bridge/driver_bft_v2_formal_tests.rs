@@ -51,6 +51,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "driver_bft_v3_header_certificate_tests.rs"]
+mod header_certificate_v3_tests;
 #[path = "driver_bft_v2_formal_header_identity_tests.rs"]
 mod header_identity_tests;
 #[path = "driver_bft_v2_formal_profile_tests.rs"]
@@ -229,11 +231,11 @@ impl FormalDurabilityEndpoint for FreezeEndpoint {
     }
 }
 
-struct QualifiedH {
+struct QualifiedH<T = BftProfileTargetV1> {
     anchor: VerifiedFormalReadAnchorV1,
     trust: FormalReadTrustConfigV1,
     material: ClosedRecord,
-    target: BftProfileTargetV1,
+    target: T,
     world: RuntimeWorld,
     reader: Arc<IndexReader>,
 }
@@ -250,225 +252,30 @@ fn qualified_handoff_with_setup(
     controller_seed: u8,
     setup: impl FnOnce(&mut RuntimeWorld),
 ) -> QualifiedH {
-    let (_, mut trust, template, _) = fixtures::actual_world_initial_fixture();
-    let identity = template.authority().definition().world.clone();
-    let mut world = wasm_fixture::world_with_formal_history();
-    let controller = fixtures::key(controller_seed);
-    world
-        .set_governance_main_token_controller_registry(GovernanceMainTokenControllerRegistry {
-            genesis_controller_account_id: "formal-bft-controller".into(),
-            controller_signer_policies: BTreeMap::from([(
-                "formal-bft-controller".into(),
-                GovernanceThresholdSignerPolicy {
-                    threshold: 1,
-                    allowed_public_keys: [hex::encode(controller.verifying_key().to_bytes())]
-                        .into(),
-                },
-            )]),
-            ..Default::default()
-        })
-        .expect("set the H-committed governance controller registry");
-    setup(&mut world);
-    if world.state().time == 0 {
-        world.step().expect("prepare nonzero formal H boundary");
-    }
-    assert_eq!(world.state().time, 1);
-
-    let release = ReleaseSecurityPolicy::default();
-    let bootstrap_snapshot = serde_cbor::to_vec(&world.snapshot()).unwrap();
-    let bootstrap = formal_initial::InitialNodeBootstrapV1 {
-        height: world.state().time,
-        consensus_block_hash: fixtures::h(81),
-        execution_block_hash: fixtures::h(82),
-        execution_state_root: blake3_hex(&bootstrap_snapshot),
-    };
-    let closure = formal_initial::InitialWorldClosure::from_existing_world_with_node_bootstrap(
-        &world, &identity, &release, bootstrap,
+    header_certificate_v3_tests::qualified_handoff_with_target_and_setup(
+        controller_seed,
+        setup,
+        |scope, policy| {
+            let validator_key = fixtures::key(101);
+            let target = BftProfileTargetV1::new(
+                scope,
+                1,
+                vec![BftValidatorV2 {
+                    validator_id: "validator-1".into(),
+                    public_key_hex: hex::encode(validator_key.verifying_key().to_bytes()),
+                    voting_power: 1,
+                }],
+                policy,
+            )?;
+            let handoff = ProfileHandoffV1 {
+                next_profile: target.profile().into(),
+                next_profile_version: target.profile_version(),
+                next_authority_digest: target.target_digest()?,
+                valid_from_position: 3,
+            };
+            Ok((target, handoff))
+        },
     )
-    .expect("prepare profile-v2 activation at tick one");
-    let mut definition = template.authority().definition().clone();
-    definition.profile_version = 2;
-    let policy = template.authority().policy().clone();
-    let body = closure
-        .activation_body(definition, policy.clone())
-        .expect("profile-v2 activation body");
-    trust.world = identity.clone();
-    trust.initial_state_root = body.initial_state_root.clone();
-    trust.governing_manifest_digest = body.governing_manifest_digest.clone();
-    trust.recovery_policy_digest = policy.digest().unwrap();
-    let certificate = SignedInitialActivationV1 {
-        signature_hex: fixtures::sign(initial_activation_signing_bytes(&body).unwrap(), 9),
-        body,
-    };
-    let writer = fixtures::key(4);
-    let (authority, initial) = closure
-        .authorize(&certificate, &trust, &writer)
-        .expect("authorize real profile-v2 initial closure");
-    let initial_proof = fixtures::qualified_proof(
-        initial.candidate.record.clone(),
-        None,
-        &authority,
-        None,
-        None,
-        4,
-        5,
-        6,
-    );
-    let initial_anchor =
-        VerifiedFormalReadAnchorV1::from_initial(&certificate, &trust, &initial_proof).unwrap();
-    let initial_tree =
-        FormalBusinessResultTreeV1::for_initial_world(&world, &identity, &EmptyIndexReader)
-            .expect("initial formal business tree");
-    assert_eq!(
-        initial_tree.tree.root().unwrap(),
-        initial.candidate.record.result_root
-    );
-    let reader = Arc::new(IndexReader(
-        initial_tree
-            .delta
-            .node_writes
-            .iter()
-            .map(|write| (write.digest.clone(), write.bytes.clone()))
-            .collect(),
-    ));
-    let snapshot = world.snapshot();
-    let snapshot_bytes = serde_cbor::to_vec(&snapshot).unwrap();
-    let retained = VerifiedFormalRetainedHistoryParentV1::verify(&initial_anchor, &snapshot_bytes)
-        .expect("qualified profile-v2 retained history");
-    world = RuntimeWorld::from_verified_formal_snapshot(
-        snapshot,
-        world.journal().clone(),
-        retained,
-        reader.clone(),
-    )
-    .unwrap()
-    .with_release_security_policy(release.clone());
-
-    let scope = BftScopeV2 {
-        world_id: identity.world_id.clone(),
-        chain_id: identity.chain_id.clone(),
-        genesis_hash: identity.genesis_digest.clone(),
-    };
-    let validator_key = fixtures::key(101);
-    let target = BftProfileTargetV1::new(
-        scope,
-        1,
-        vec![BftValidatorV2 {
-            validator_id: "validator-1".into(),
-            public_key_hex: hex::encode(validator_key.verifying_key().to_bytes()),
-            voting_power: 1,
-        }],
-        BftSchedulePolicyV2::new(
-            world.governance_execution_policy().epoch_length_ticks,
-            "bft",
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let handoff = ProfileHandoffV1 {
-        next_profile: target.profile().into(),
-        next_profile_version: target.profile_version(),
-        next_authority_digest: target.target_digest().unwrap(),
-        valid_from_position: 3,
-    };
-    let continuation = continuation(&world, &initial_anchor);
-    let (mut frozen_body, frozen_material) = formal_package::freeze_material_from_parent(
-        &authority,
-        initial_anchor.head(),
-        &continuation,
-        &world,
-        &release,
-        initial_tree.tree,
-        initial_proof.clone(),
-        None,
-        &initial.material,
-    )
-    .expect("freeze H execution closure");
-    frozen_body.handoff = Some(handoff);
-    let frozen = SignedFormalFrozenV1 {
-        signature_hex: fixtures::sign(frozen_signing_bytes(&frozen_body).unwrap(), 4),
-        body: frozen_body,
-    };
-    let endpoint = |role| FreezeEndpoint {
-        authority: authority.clone(),
-        parent: initial_anchor.head().clone(),
-        role,
-    };
-    let mut coordinator = FormalCoordinator::new(
-        endpoint(EndpointRole::Primary),
-        endpoint(EndpointRole::Replica),
-        authority.clone(),
-        authority.clone(),
-        None,
-        Some(initial_anchor.head().clone()),
-    )
-    .unwrap();
-    let executable = coordinator.freeze(frozen, frozen_material).unwrap();
-    let scratch = Scratch::new();
-    let shared_reader = formal_business_package::SharedBusinessReader(reader.clone());
-    let candidate = formal_executor::execute_normal_with_business_reader(
-        &executable,
-        &authority,
-        initial_anchor.head(),
-        scratch.path(),
-        &writer,
-        Some(&shared_reader),
-        Some(&initial_anchor),
-    )
-    .expect("execute H against the actual World");
-    verify_formal_candidate(
-        &candidate.candidate,
-        candidate.frozen.as_ref(),
-        &authority,
-        Some(initial_anchor.head()),
-        None,
-        FormalCompletionBranchV1::Normal,
-    )
-    .unwrap();
-    let h_proof = fixtures::qualified_proof(
-        candidate.candidate.record.clone(),
-        candidate.frozen.clone(),
-        &authority,
-        Some(initial_anchor.head()),
-        None,
-        4,
-        5,
-        6,
-    );
-    let committed =
-        verify_formal_qualified(&h_proof, &authority, Some(initial_anchor.head()), None).unwrap();
-    let anchor = initial_anchor
-        .after_verified_commit(authority, committed)
-        .unwrap();
-    assert_eq!(anchor.head().record().position, 2);
-    assert!(anchor.head().record().handoff.is_some());
-
-    let envelope = formal_business_package::envelope(&candidate.material, true)
-        .unwrap()
-        .unwrap();
-    let mut nodes = reader.0.clone();
-    nodes.extend(
-        envelope
-            .delta
-            .node_writes
-            .iter()
-            .map(|write| (write.digest.clone(), write.bytes.clone())),
-    );
-    let reader = Arc::new(IndexReader(nodes));
-    let checkpoint = anchor.checkpoint();
-    let read_trust = FormalReadTrustConfigV1 {
-        initial_trust: trust,
-        checkpoint_digest: checkpoint.digest().unwrap(),
-        checkpoint,
-    };
-    QualifiedH {
-        anchor,
-        trust: read_trust,
-        material: candidate.material,
-        target,
-        world,
-        reader,
-    }
 }
 
 fn continuation(

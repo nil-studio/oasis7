@@ -124,6 +124,17 @@ BoundFormalBftHeaderV3 只证明 header 与公开 preimage 自洽。确定性摘
 
 后续必须以新版本签名、protected provider、正式 handoff target、持久 QC 与消费者验证闭环承接此身份；旧 wire=2 target 不授权 V3，现有 V2/V3 read 的 actions_cbor=[0x80] 发布限制保持生效。未完成上述接线前，不发布普通动作链的公开证明，不宣称 Issue #4975 或正式 profile ready。
 
+
+#### des-p2p-bft-header-certificates-v3
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39。承接上述 header 身份及既有独立 H/H+1 交接合同，建立可验证的公开 QC 链，不把独立 verifier 当作完整生产链路交付。
+
+Wire 3 使用独立 proposal/vote 签名域 oasis7.bft.proposal.v3.sign、oasis7.bft.vote.v3.sign。公开 certificate 只携带签名 proposal header、可选 valid-round 证据和 precommits；正式 wrapper 另携 BftBlockHeaderV3 与公开 execution preimage，禁止携带原始 actions。单份 proto certificate 最多 2 MiB、每个 prevote/precommit 数组最多 256 项；正式 wrapper schema_version=1、最多 3 MiB，执行 preimage 沿用 256 KiB 上限。所有签名、height/round/phase/value、scope、active set、固定 schedule policy、确定 proposer 与去重权重均完整校验；valid-round 内层 proposal 及每张票采用同一上下文。block ID 必须由公开 header 重算，执行声明必须由 BoundFormalBftHeaderV3 精确绑定，不构造伪空 V2 block 复用验证。
+
+BftProfileTargetV2 固定 schema_version=2、wire_version=3，target digest 使用 oasis7.formal.bft.profile_target.v2；activation 使用 oasis7.formal.bft.handoff_activation.v2 的 schema 2 canonical preimage，绑定独立 qualified H、原始 Snapshot root、治理 manifest 与 finalizing authority。逻辑 profile=bft/profile_version=1、正式执行 preimage V1 及 tick 映射保持原义；wire 和 target schema 的显式变化由 H 中的新 target digest 承诺，不由旧 wire=2 target 或旧签名自动授权。V3 初始 schedule 只能来自此新交接 token；它仍不证明实际 World 已恢复，driver 必须独立重放 H。
+
+V2/V3 仅共享经过各版本绑定验证后的内部字段视图、整数权重与 proposer priority/集合后继算法；V3 保持独立不透明 schedule/QC token，不提供从 V2 verified token 或工程 genesis 的转换。集合转换继续按 h/h+1 旧集、h+2 新集与单 pending 规则验证。可验证 QC 仍不代表动作已执行或已持久提交；private payload、World 重执行、受保护 signer 安装、Node canonical 生产、持久恢复及普通消费者接线须继续完成，现有 actions=[0x80] 读取发布限制在闭环完成前不解除。
+
 #### des-p2p-bft-round-lock-v1
 
 规范算法为 Buchman、Kwon、Milosevic [The latest gossip on BFT consensus, v3，Algorithm 1](https://arxiv.org/abs/1807.04938v3)；其 `n` 按 voting power 计。固定高度内 Byzantine power 须小于 `W/3`；安全性不依赖及时到达，活性依赖最终同步和可用的足额正确节点。proposer 选择采用 [CometBFT weighted round-robin 规范](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/spec/consensus/proposer-selection.md)的优先级更新、归一化与成员变更规则；oasis7 将相同优先级的 tie-break 固定为 consensus 公钥原始字节升序。优先级属于确定性持久状态，每个 `height/round` 只有一个合法 proposer。slot 仅 pacing，不替代 round。初始化、一次触发规则、nil、未来 round 跳转和三类 timeout 完整按算法实现，不混入旧 prototype 的同高替换或其他共识的解锁规则；采用的参考规范内容随协议版本冻结，上游文档变化不自动改变已激活规则。

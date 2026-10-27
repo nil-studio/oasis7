@@ -5,6 +5,8 @@
 
 mod certificate;
 mod formal_handoff;
+mod header_certificate;
+mod header_handoff;
 mod header_identity;
 pub mod priority_wire;
 mod proposer;
@@ -18,6 +20,14 @@ pub use formal_handoff::{
     BFT_FORMAL_PROFILE_VERSION_V1, BFT_FORMAL_TICK_MAPPING_RULESET_V1, BftProfileTargetV1,
     FormalBftCertifiedEntryV1, FormalBftCertifiedPrefixV1, FormalBftExecutionCommitmentV1,
     VerifiedBftHandoffTargetV1, VerifiedFormalBftPrefixV1, verify_formal_bft_handoff_v1,
+};
+pub use header_certificate::{
+    BFT_FORMAL_HEADER_CERTIFICATE_MAX_BYTES_V3, BftHeaderHeightScheduleV3,
+    FormalBftCertifiedHeaderV3, VerifiedBftHeaderCertificateV3,
+    verify_formal_bft_header_certificate_v3,
+};
+pub use header_handoff::{
+    BftProfileTargetV2, VerifiedBftHandoffTargetV2, verify_formal_bft_handoff_v2,
 };
 pub use header_identity::BoundFormalBftHeaderV3;
 pub use proposer::{BftProposerPriorityV2, BftProposerV2};

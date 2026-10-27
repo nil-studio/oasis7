@@ -513,6 +513,20 @@ Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和�
 
 实际 World 非空动作回归另由 `driver_bft_v2_formal_header_identity_tests` 验证：已有 V2 execution preimage 绑定新 header 后，动作摘要、action root 与执行承诺任一不符必须拒绝。新类型不签名、不生产 QC、不改变 Node 或旧 wire=2 handoff；不能据此解除现有读取发布限制或宣布正式 profile ready。
 
+
+#### Wire 3 公开 header QC 与独立 H 准入
+
+合同见 [des-p2p-bft-header-certificates-v3](doc/p2p/design.md#des-p2p-bft-header-certificates-v3)。执行以下 canonical 命令，过滤器必须实际选中测试：
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_proto --lib distributed_bft::v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_formal_protocol --lib header_handoff -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib header_certificate_v3_tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+```
+
+H fixture 在冻结与签名前选择并嵌入真实 target schema 2/wire 3 摘要，验证 qualified H 承诺的精确目标，拒绝旧 wire 2 target。后继 commitment 的根和集合转换是明确的协议向量：核对三高度 QC/valid-round、h/h+1 旧集与 h+2 新 key/成员、权重不足/重复/错 key/策略/轮次/phase、父 semantic root/activation/header ID、旧域签名移植，以及声明超限的 validator/vote 数组前置拒绝。它们不证明 V3 World 重执行、实际治理转换、Node canonical 提交、protected provider 安装或生产私有权限；这些接线与原始动作读取发布限制仍待后续闭环。旧 `formal_read` 回归同时核对重用 H fixture 与共享 schedule 数学未改变 V2 路径。
+
 #### 本地 CAS retention 与 GC 协调
 
 合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。
