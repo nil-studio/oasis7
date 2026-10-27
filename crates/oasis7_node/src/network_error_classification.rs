@@ -105,6 +105,15 @@ pub(crate) fn network_world_error_is_publish_failure(_err: &WorldError) -> bool 
     false
 }
 
+/// Persist facts inside the existing diagnostic string field, without changing snapshots.
+pub(crate) fn persisted_network_reason(context: String, err: &NodeError) -> String {
+    let facts = replication_network_failure(err);
+    format!(
+        "{context} [network-failure-v1={}]",
+        serde_json::to_string(&facts).expect("network facts serialize")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,13 +145,4 @@ mod tests {
             &err, protocol
         ));
     }
-}
-
-/// Persist facts inside the existing diagnostic string field, without changing snapshots.
-pub(crate) fn persisted_network_reason(context: String, err: &NodeError) -> String {
-    let facts = replication_network_failure(err);
-    format!(
-        "{context} [network-failure-v1={}]",
-        serde_json::to_string(&facts).expect("network facts serialize")
-    )
 }
