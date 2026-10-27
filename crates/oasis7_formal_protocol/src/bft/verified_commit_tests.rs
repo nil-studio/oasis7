@@ -1,8 +1,8 @@
 use ed25519_dalek::SigningKey;
 use oasis7_proto::distributed_bft::v2::{
     BFT_PROTOCOL_VERSION_V2, BftBlockV2, BftCommitCertificateV2, BftProposalHeaderV2,
-    BftProposalV2, BftScopeV2, BftValidatorTransitionRefV2, BftValidatorTransitionV2,
-    BftValidatorV2, BftVotePhaseV2, BftVoteV2, BftVoteValueV2,
+    BftProposalV2, BftScopeV2, BftValidRoundEvidenceV2, BftValidatorTransitionRefV2,
+    BftValidatorTransitionV2, BftValidatorV2, BftVotePhaseV2, BftVoteV2, BftVoteValueV2,
 };
 
 use super::*;
@@ -167,6 +167,57 @@ fn hash_digit(value: u8) -> String {
     format!("{:x}", value % 16).repeat(64)
 }
 
+fn alternate_policy_hash(fixture: &Fixture) -> String {
+    let policy = BftSchedulePolicyV2::new(
+        fixture.policy.epoch_length_ticks + 1,
+        fixture.policy.profile_id.clone(),
+    )
+    .expect("alternate valid policy");
+    let hash = policy.hash().expect("alternate policy hash");
+    assert_ne!(hash, fixture.policy.hash().expect("fixture policy hash"));
+    hash
+}
+
+fn quorum_votes(
+    fixture: &Fixture,
+    schedule: &BftHeightProposerScheduleV2,
+    block_id: &str,
+    round: u64,
+    phase: BftVotePhaseV2,
+    policy_hash: &str,
+) -> Vec<BftVoteV2> {
+    let value = BftVoteValueV2::Block {
+        block_id: block_id.to_string(),
+    };
+    let mut votes = Vec::new();
+    let mut power = 0u64;
+    for (validator_id, key) in &fixture.keys {
+        let Some(voting_power) = schedule.active_set().voting_power(validator_id) else {
+            continue;
+        };
+        votes.push(
+            BftVoteV2::sign(
+                schedule.scope().clone(),
+                schedule.height(),
+                round,
+                phase,
+                schedule.active_set().set_hash().to_string(),
+                policy_hash.to_string(),
+                value.clone(),
+                validator_id.clone(),
+                key,
+            )
+            .expect("valid validator signature"),
+        );
+        power += voting_power;
+        if power >= schedule.active_set().quorum_voting_power() {
+            break;
+        }
+    }
+    assert!(power >= schedule.active_set().quorum_voting_power());
+    votes
+}
+
 fn transition_for(
     schedule: &BftHeightProposerScheduleV2,
     new_validators: Vec<BftValidatorV2>,
@@ -321,4 +372,183 @@ fn weighted_key_rotation_activates_only_after_h_plus_one_qc_and_verifies_new_set
     let new_set_token = verify_commit_certificate_token_v2(h_plus_two, &new_set_qc)
         .expect("new rotated key set can form the activation-height QC");
     assert_eq!(new_set_token.block().height, 8);
+}
+
+#[test]
+fn certificate_rejects_validly_signed_precommits_from_another_schedule_policy() {
+    let fixture = Fixture::new(16);
+    let schedule = fixture.genesis();
+    let block = fixture.block(&schedule, None, None, 21);
+    let valid = fixture.certificate(&schedule, block, &fixture.keys, 0);
+    assert!(verify_commit_certificate_token_v2(&schedule, &valid).is_ok());
+
+    let other_policy_hash = alternate_policy_hash(&fixture);
+    let mut wrong_policy = valid.clone();
+    wrong_policy.precommits = valid
+        .precommits
+        .iter()
+        .map(|vote| {
+            let key = fixture
+                .keys
+                .iter()
+                .find(|(id, _)| id == &vote.validator_id)
+                .expect("certificate signer key");
+            BftVoteV2::sign(
+                vote.scope.clone(),
+                vote.height,
+                vote.round,
+                vote.phase,
+                vote.active_validator_set_hash.clone(),
+                other_policy_hash.clone(),
+                vote.value.clone(),
+                vote.validator_id.clone(),
+                &key.1,
+            )
+            .expect("re-sign precommit under another valid policy hash")
+        })
+        .collect();
+
+    assert_eq!(
+        wrong_policy.proposal.block.block_id(),
+        valid.proposal.block.block_id()
+    );
+    for vote in &wrong_policy.precommits {
+        assert_eq!(vote.schedule_policy_hash, other_policy_hash);
+        vote.verify_signature()
+            .expect("wrong-policy vote remains cryptographically valid");
+        fixture
+            .set
+            .validate_vote(vote)
+            .expect("wrong-policy vote still has an authorized active signer");
+    }
+    assert!(
+        verify_commit_certificate_token_v2(&schedule, &wrong_policy).is_err(),
+        "the QC must reject valid signatures bound to a different schedule policy"
+    );
+}
+
+#[test]
+fn valid_round_evidence_rejects_validly_signed_wrong_policy_headers_and_prevotes() {
+    let fixture = Fixture::new(16);
+    let schedule = fixture.genesis();
+    let block = fixture.block(&schedule, None, None, 22);
+    let block_id = block.block_id().expect("block identity");
+    let old_round_certificate = fixture.certificate(&schedule, block.clone(), &fixture.keys, 0);
+    let old_round_proposal = old_round_certificate.proposal.header.clone();
+    let valid_prevotes = quorum_votes(
+        &fixture,
+        &schedule,
+        &block_id,
+        0,
+        BftVotePhaseV2::Prevote,
+        schedule.policy_hash(),
+    );
+
+    let round_one_proposer = schedule
+        .expected_proposer_for_round(1)
+        .expect("round-one proposer");
+    let round_one_key = fixture
+        .keys
+        .iter()
+        .find(|(id, _)| id == &round_one_proposer)
+        .expect("round-one proposer key");
+    let round_one_header = BftProposalHeaderV2::sign(
+        block.scope.clone(),
+        block.height,
+        1,
+        schedule.active_set().set_hash().to_string(),
+        schedule.policy_hash().to_string(),
+        round_one_proposer,
+        block_id.clone(),
+        Some(0),
+        &round_one_key.1,
+    )
+    .expect("round-one proposal with valid-round zero");
+    let valid_certificate = BftCommitCertificateV2 {
+        proposal: Box::new(BftProposalV2 {
+            header: round_one_header,
+            block: block.clone(),
+            valid_round_evidence: Some(BftValidRoundEvidenceV2 {
+                proposal: old_round_proposal.clone(),
+                prevotes: valid_prevotes.clone(),
+            }),
+        }),
+        precommits: quorum_votes(
+            &fixture,
+            &schedule,
+            &block_id,
+            1,
+            BftVotePhaseV2::Precommit,
+            schedule.policy_hash(),
+        ),
+    };
+    assert!(verify_commit_certificate_token_v2(&schedule, &valid_certificate).is_ok());
+
+    let other_policy_hash = alternate_policy_hash(&fixture);
+    let old_proposer_key = fixture
+        .keys
+        .iter()
+        .find(|(id, _)| id == &old_round_proposal.proposer_id)
+        .expect("valid-round proposer key");
+    let wrong_policy_old_proposal = BftProposalHeaderV2::sign(
+        old_round_proposal.scope.clone(),
+        old_round_proposal.height,
+        old_round_proposal.round,
+        old_round_proposal.active_validator_set_hash.clone(),
+        other_policy_hash.clone(),
+        old_round_proposal.proposer_id.clone(),
+        old_round_proposal.block_id.clone(),
+        old_round_proposal.valid_round,
+        &old_proposer_key.1,
+    )
+    .expect("re-sign valid-round proposal under another valid policy hash");
+    assert_eq!(wrong_policy_old_proposal.block_id, block_id);
+    wrong_policy_old_proposal
+        .verify_signature()
+        .expect("wrong-policy valid-round proposal remains cryptographically valid");
+    fixture
+        .set
+        .validate_proposal_header(&wrong_policy_old_proposal)
+        .expect("wrong-policy header has an authorized proposer key");
+
+    let mut wrong_proposal_policy = valid_certificate.clone();
+    wrong_proposal_policy
+        .proposal
+        .valid_round_evidence
+        .as_mut()
+        .expect("valid-round evidence")
+        .proposal = wrong_policy_old_proposal;
+    assert!(
+        verify_commit_certificate_token_v2(&schedule, &wrong_proposal_policy).is_err(),
+        "valid-round proposal signatures must bind the current schedule policy"
+    );
+
+    let wrong_policy_prevotes = quorum_votes(
+        &fixture,
+        &schedule,
+        &block_id,
+        0,
+        BftVotePhaseV2::Prevote,
+        &other_policy_hash,
+    );
+    for vote in &wrong_policy_prevotes {
+        assert_eq!(vote.schedule_policy_hash, other_policy_hash);
+        vote.verify_signature()
+            .expect("wrong-policy prevote remains cryptographically valid");
+        fixture
+            .set
+            .validate_vote(vote)
+            .expect("wrong-policy prevote still has an authorized active signer");
+    }
+    let mut wrong_prevote_policy = valid_certificate;
+    wrong_prevote_policy
+        .proposal
+        .valid_round_evidence
+        .as_mut()
+        .expect("valid-round evidence")
+        .prevotes = wrong_policy_prevotes;
+    assert!(
+        verify_commit_certificate_token_v2(&schedule, &wrong_prevote_policy).is_err(),
+        "valid-round prevotes must bind the current schedule policy"
+    );
 }
