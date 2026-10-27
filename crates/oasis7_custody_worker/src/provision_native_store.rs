@@ -225,7 +225,7 @@ impl OwnerProvisionApprovalStore {
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
             let _performance = super::performance::callback(event, &old);
-            let (mut next, previous) = super::transition_snapshot(&old)?;
+            let (mut next, previous) = self.reader.transition(&old)?;
             let trusted = current()?;
             let time = now()?;
             let result = transition(
