@@ -20,6 +20,8 @@ pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
         key: SigningKey::from_bytes(&[51; 32]),
         key_id: "approval-test-1".into(),
         audience: "account-authority:test".into(),
+        managed_binding: None,
+        managed_binding_state: managed_binding::ManagedBindingConfigState::Disabled,
         adapter_secret: [52; 32],
     });
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
@@ -111,6 +113,8 @@ fn options(now: u64) -> Value {
             login_key_ref: "login-key-1".into(),
             native_identity_namespace: "native-test".into(),
             blocked_operation_ref: "blocked-one".into(),
+            login_request_id: "managed-login-request-1".into(),
+            transport_limit: DecimalU64(64),
             deadline: DecimalU64(now + 180_000),
         },
     })
@@ -186,6 +190,9 @@ fn provision_bootstrap_zero_target_epoch_requires_complete_signed_scope() {
         .unwrap();
 }
 fn assertion(options: &Value, key: &PKey<Private>, flags: u8) -> Value {
+    assertion_with_counter(options, key, flags, 1)
+}
+fn assertion_with_counter(options: &Value, key: &PKey<Private>, flags: u8, counter: u32) -> Value {
     let client = serde_json::to_vec(
         &json!({"type":"webauthn.get","challenge":options["options"]["publicKey"]["challenge"],
         "origin":"https://localhost","crossOrigin":false}),
@@ -193,7 +200,7 @@ fn assertion(options: &Value, key: &PKey<Private>, flags: u8) -> Value {
     .unwrap();
     let mut auth = Sha256::digest(b"localhost").to_vec();
     auth.push(flags);
-    auth.extend_from_slice(&1_u32.to_be_bytes());
+    auth.extend_from_slice(&counter.to_be_bytes());
     let mut bytes = auth.clone();
     bytes.extend_from_slice(&Sha256::digest(&client));
     let mut signer = openssl::sign::Signer::new(MessageDigest::sha256(), key).unwrap();

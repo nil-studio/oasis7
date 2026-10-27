@@ -105,8 +105,10 @@ export type CustodyIntentV1 = ({
   "deadline": DecimalU64;
   "kind": "managed_login";
   "login_key_ref": string;
+  "login_request_id": string;
   "native_account_id": string;
   "native_identity_namespace": string;
+  "transport_limit": DecimalU64;
 } | {
   "actions": Array<ApprovedActionV1>;
   "allowed_resource_refs": Array<string>;
@@ -172,7 +174,19 @@ export type PurposeBudgetV1 = {
   "transport": DecimalU64;
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
+export type ManagedLoginStageV1 = "approved" | "native_session_ready" | "explicit_login_required";
+export type ApprovalAdmissionInput = {
+  "approval": SignedCustodyApprovalV1;
+  "operation_id": string;
+  "request": ApprovalOptionsRequestV1;
+};
+export type ApprovalOptionsRequestV1 = {
+  "approval_request_id": string;
+  "context": ApprovalContextV1;
+  "intent": CustodyIntentV1;
+};
 export type ManagerClosureStatus = "open" | "pending" | "closed";
+export type ProvisionStage = "draft" | "approved" | "role_keys_ready" | "native_registered" | "native_session_ready" | "participant_bound" | "ready_for_setup" | "prepared";
 export type ProvisionPlan = {
   "environment": string;
   "expires_at": DecimalU64;
@@ -310,11 +324,6 @@ export type ApprovalCompleteResponseV1 = {
   "phase": ApprovalPhaseV1;
   "proof_bytes": string;
 };
-export type ApprovalOptionsRequestV1 = {
-  "approval_request_id": string;
-  "context": ApprovalContextV1;
-  "intent": CustodyIntentV1;
-};
 export type ApprovalOptionsResponseV1 = {
   "api_version": number;
   "approval_id": string;
@@ -348,6 +357,17 @@ export type CustodySessionStatusV1 = {
   "server_time": DecimalU64;
   "session_ref": string;
 };
+export type ManagedLoginApprovalViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "provision_id": string;
+  "stage": ManagedLoginStageV1;
+};
+export type ManagedLoginApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
+};
 export type ManagerClosureViewV1 = {
   "api_version": number;
   "associated_accounts": DecimalU64;
@@ -358,6 +378,17 @@ export type ManagerClosureViewV1 = {
 export type ManagerFreezeRequestV1 = {
   "api_version": number;
   "operation_id": string;
+};
+export type ProvisionApprovalViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "provision_id": string;
+  "stage": ProvisionStage;
+};
+export type ProvisionApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
 };
 export type ProvisionDraftRequestV1 = {
   "api_version": number;
@@ -371,6 +402,19 @@ export type ProvisionDraftViewV1 = {
   "plan": ProvisionPlan;
   "security_epoch": DecimalU64;
   "world_identity": ApprovedWorldV1;
+};
+export type ProvisionDriveRequestV1 = {
+  "api_version": number;
+  "operation_id": string;
+};
+export type ProvisionProgressViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "pending_operations": Array<string>;
+  "provision_id": string;
+  "stage": ProvisionStage;
+  "transport_remaining": DecimalU64;
 };
 export type SignedApprovalVerificationV1 = {
   "signature": string;

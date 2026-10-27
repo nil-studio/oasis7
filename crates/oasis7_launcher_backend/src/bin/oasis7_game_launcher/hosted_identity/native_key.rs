@@ -5,6 +5,8 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde_json::{Value, json};
 #[path = "native_key_complete.rs"]
 mod complete;
+#[path = "native_managed_operation.rs"]
+mod managed;
 #[cfg(test)]
 #[path = "native_key_tests.rs"]
 mod tests;
@@ -163,7 +165,42 @@ impl IdentityService {
             )
         };
         let account = session.as_ref().map(|(a, _)| a.account_id.clone());
-        let id = random_token();
+        let managed_id = managed::requested(self, p, purpose)?.map(str::to_owned);
+        let native_config = &self.config;
+        let root = self.custody.as_ref();
+        let managed_scope = managed_id
+            .as_ref()
+            .map(|_| {
+                let root = root.ok_or_else(|| reject("custody_disabled"))?;
+                let fingerprint =
+                    super::custody::managed_binding::owner_pin::configured_fingerprint(
+                        root,
+                        native_config,
+                    )?;
+                Ok::<_, StoreError>(managed::scope(
+                    native_config,
+                    owner,
+                    origin,
+                    &key,
+                    &fingerprint,
+                ))
+            })
+            .transpose()?;
+        if let (Some(id), Some(scope)) = (&managed_id, &managed_scope)
+            && let Some(original) = self.store.transaction(|tx| {
+                super::custody::managed_binding::owner_pin::guard_login(
+                    tx,
+                    root.ok_or_else(|| reject("custody_disabled"))?,
+                    native_config,
+                    &key,
+                    now,
+                )?;
+                managed::options_original(tx, id, scope, owner, now)
+            })?
+        {
+            return Ok(original);
+        }
+        let id = managed_id.clone().unwrap_or_else(random_token);
         let nonce = random_token();
         let expires = now + 120_000;
         let bytes = message(
@@ -182,12 +219,16 @@ impl IdentityService {
         let options = json!({"identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id,"audience":origin,"purpose":purpose,"account_context":account.as_deref().unwrap_or(""),"operation_id":id,"public_key":p["public_key"].as_str().unwrap().to_ascii_lowercase(),"nonce":nonce,"issued_at":now,"expires_at":expires,"signed_bytes":URL_SAFE_NO_PAD.encode(bytes)});
         let ceremony = CeremonyRecord {
             ceremony_id: id.clone(),
-            kind: format!("native_{purpose}"),
+            kind: if managed_id.is_some() {
+                "native_managed_login".into()
+            } else {
+                format!("native_{purpose}")
+            },
             namespace: self.config.namespace.clone(),
             rp_config_version: self.config.rp.version,
             owner_context_digest: owner.into(),
             target_account_id: account.clone(),
-            target_digest: action_id.clone(),
+            target_digest: managed_scope.clone().or_else(|| action_id.clone()),
             expires_at: expires,
             failed_attempts: 0,
             status: "pending".into(),
@@ -195,7 +236,16 @@ impl IdentityService {
             result_ref: None,
         };
         let secret = self.config.session_key;
-        self.store.transaction(|tx| {
+        let existing = self.store.transaction(|tx| {
+            if managed_id.is_some() {
+                super::custody::managed_binding::owner_pin::guard_login(
+                    tx,
+                    root.ok_or_else(|| reject("custody_disabled"))?,
+                    native_config,
+                    &key,
+                    now,
+                )?;
+            }
             consume_quota(
                 tx,
                 if purpose == "bind" {
@@ -231,14 +281,23 @@ impl IdentityService {
                     pending_action(tx, action_id, a, s, now)?;
                 }
             }
+            if let Some(scope) = &managed_scope
+                && let Some(original) = managed::options_original(tx, &id, scope, owner, now)?
+            {
+                return Ok(Some(original));
+            }
             tx.create(
                 &format!("ceremony:{id}"),
                 "ceremony",
                 account.as_deref(),
                 Some(ceremony_storage_expiry(&ceremony)),
                 &ceremony,
-            )
+            )?;
+            Ok(None)
         })?;
+        if let Some(original) = existing {
+            return Ok(original);
+        }
         Ok(
             json!({"api_version":2,"ok":true,"ceremony_id":id,"operation_id":id,"options":options,"expires_at":expires}),
         )

@@ -202,6 +202,7 @@ jobs:
               - node_modules/**
               - dist/**
               - .pm/**
+              - tools/oasis7-command-center/src-tauri/src/generated_context.rs
       - id: analyze
         name: CodeQL extraction and queries
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4

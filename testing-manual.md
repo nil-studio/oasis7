@@ -506,6 +506,12 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib driver_bft_v2 -- -
 
 Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和网络接线，其 test hook/内存 backend 不证明磁盘耐久性、实际 World 或硬件隔离。`driver_bft_v2` 另用真实 Runtime World、OS 生命周期锁与持久 execution ledger 验证 build/preview/commit/replay；冷重启用例须核对原证书前缀和已安装记录字节不变，并通过真实 Node 再提交新高度。两类用例的证明范围分别记录，不能互相代签。正式 profile、H/H+1 权威交接、checkpoint 消费者、长期可信 checkpoint 与跨故障域 custody 的整体验收仍须单独完成，不能据这些工程回归宣称 #4975 完成。
 
+#### 本地 CAS retention 与 GC 协调
+
+合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。
+
+同步验证 `oasis7_node` 的 `replication::tests`、Runtime sidecar 回收以及正式 writer 的 `published_attempt_reclamation_retries_independent_readback_and_partial_unlink`：损坏修复不删已正确且 pinned 的对象，引用中的 attempt 输出不进入 Reclaimed，释放 pin 后原操作继续回收。仅本地合作进程/文件系统证据，不证明完整历史 GC 资格、远端故障域或掉电耐久性。
+
 #### 正式 BFT 固定 H+1 读取交接
 
 合同见 [des-p2p-formal-bft-read-handoff-v1](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。本切片只验证由外部固定 H 与 H+1 block ID 选择的历史读取，不把工程 V2 历史或服务自报 head 升级为正式信任。

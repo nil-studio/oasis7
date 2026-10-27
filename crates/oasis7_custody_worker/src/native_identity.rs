@@ -1,3 +1,5 @@
+#[path = "native_provision_transport.rs"]
+pub(crate) mod provision_transport;
 #[path = "native_source_revocation.rs"]
 pub(crate) mod source_revocation;
 // Fixed Identity-only native authority adapter. No caller chooses an upstream URL or headers.
@@ -288,6 +290,12 @@ impl NativeIdentityConfig {
 
 /// Manual redirect and bounded streaming body apply to both fixed routes.
 async fn read_native<T: DeserializeOwned>(request: Request) -> Result<T> {
+    read_native_body(send_native(request).await?).await
+}
+async fn send_native(request: Request) -> Result<worker::Response> {
+    send_native_status(request, false).await
+}
+async fn send_native_status(request: Request, allow_not_found: bool) -> Result<worker::Response> {
     let constructor =
         js_sys::Reflect::get(&js_sys::global(), &"AbortSignal".into()).map_err(|_| rejected())?;
     let timeout: js_sys::Function = js_sys::Reflect::get(&constructor, &"timeout".into())
@@ -304,13 +312,16 @@ async fn read_native<T: DeserializeOwned>(request: Request) -> Result<T> {
         .await
         .map_err(|_| rejected())?;
     checked(
-        response.status_code() == 200
+        (response.status_code() == 200 || (allow_not_found && response.status_code() == 404))
             && response.headers().get("Content-Type")?.is_some_and(|v| {
                 v.split(';')
                     .next()
                     .is_some_and(|v| v.eq_ignore_ascii_case("application/json"))
             }),
     )?;
+    Ok(response)
+}
+async fn read_native_body<T: DeserializeOwned>(response: worker::Response) -> Result<T> {
     let response: web_sys::Response = response.into();
     let body = response.body().ok_or_else(rejected)?;
     let reader_fn: js_sys::Function = js_sys::Reflect::get(body.as_ref(), &"getReader".into())
@@ -322,7 +333,7 @@ async fn read_native<T: DeserializeOwned>(request: Request) -> Result<T> {
         .map_err(|_| rejected())?
         .dyn_into()
         .map_err(|_| rejected())?;
-    let mut bytes = Vec::new();
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
     loop {
         let promise: js_sys::Promise = read
             .call0(&reader)
@@ -351,7 +362,9 @@ async fn read_native<T: DeserializeOwned>(request: Request) -> Result<T> {
             }
             return Err(rejected());
         }
-        bytes.extend_from_slice(&value.to_vec());
+        let part_bytes = zeroize::Zeroizing::new(value.to_vec());
+        bytes.extend_from_slice(part_bytes.as_slice());
+        value.fill(0, 0, value.length());
     }
     serde_json::from_slice(&bytes).map_err(|_| rejected())
 }

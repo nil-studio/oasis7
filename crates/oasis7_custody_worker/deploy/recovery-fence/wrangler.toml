@@ -1,6 +1,6 @@
 # Isolated staging artifact. Use a separate scoped publisher for this role.
 name = "oasis7-custody-recovery-fence-staging"
-main = "../../artifacts/recovery-fence/index.js"
+main = "../../artifacts/recovery-fence/entry.mjs"
 compatibility_date = "2026-10-25"
 workers_dev = false
 preview_urls = false

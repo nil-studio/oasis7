@@ -164,6 +164,30 @@ test('real provision SQLite audit failure leaves proof pending, plan draft and o
   await ok(mf, name, '/provision/commit', signed);
   assert.equal((await ok(mf, name, '/provision/snapshot')).state.provision.stage, 'approved');
 }));
+test('Account commits three exact role results atomically, rejects replacement and retains history after cancellation', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const name = 'provision-three-role-results';
+  const input = await provisionInput(mf,name); await ok(mf,name,'/provision/begin',input);
+  await ok(mf,name,'/provision/commit',await provisionVerification(mf,name));
+  const before = await ok(mf,name,'/provision/snapshot');
+  await ok(mf,name,'/provision/role-fault');
+  const identity = {role:'identity',public_key:'12'.repeat(32)};
+  assert.equal((await call(mf,name,'/provision/role-result',identity)).status,409);
+  assert.deepEqual(await ok(mf,name,'/provision/snapshot'),before,'role receipt and stage must roll back with audit');
+  await ok(mf,name,'/provision/clear-fault');
+  const first = await ok(mf,name,'/provision/role-result',identity);
+  assert.deepEqual(await ok(mf,name,'/provision/role-result',identity),first);
+  assert.equal((await call(mf,name,'/provision/role-result',{...identity,public_key:'13'.repeat(32)})).status,409);
+  assert.equal((await call(mf,name,'/provision/role-result',{role:'owner',public_key:identity.public_key})).status,409,'distinct roles cannot reuse a public key');
+  await ok(mf,name,'/provision/role-result',{role:'owner',public_key:'14'.repeat(32)});
+  assert.equal((await ok(mf,name,'/provision/snapshot')).state.provision.stage,'approved');
+  await ok(mf,name,'/provision/role-result',{role:'executor',public_key:'15'.repeat(32)});
+  const ready = await ok(mf,name,'/provision/snapshot'); assert.equal(ready.state.provision.stage,'role_keys_ready');
+  assert.equal(ready.audit_sequence,'5');
+  mf = await restart(); assert.deepEqual(await ok(mf,name,'/provision/snapshot'),ready);
+  const cancelled = await ok(mf,name,'/provision/cancel');
+  assert.deepEqual(await ok(mf,name,'/provision/role-result',identity),first,'same historical receipt does not gain new authority');
+  assert.deepEqual(await ok(mf,name,'/provision/snapshot'),cancelled);
+}));
 test('provision admission binds signed purpose and live policy; real freeze blocks final consumption', { timeout: 90000 }, async () => fixture(async current => {
   const mf = current();
   assert.equal((await call(mf, 'missing', '/provision/missing-draft')).status, 409);

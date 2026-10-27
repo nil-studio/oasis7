@@ -79,6 +79,7 @@ impl ProvisionPlan {
             || self.purpose.is_empty()
             || self.purpose.len() > 256
             || self.transport_limit.0 == 0
+            || self.transport_limit.0 > 400
         {
             return Err(ProvisionError::Invalid);
         }

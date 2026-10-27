@@ -1,6 +1,6 @@
 # Isolated staging artifact. Use a separate scoped publisher for this role.
 name = "oasis7-custody-executor-staging"
-main = "../../artifacts/executor/index.js"
+main = "../../artifacts/executor/entry.mjs"
 compatibility_date = "2026-10-25"
 workers_dev = false
 preview_urls = false
@@ -16,3 +16,22 @@ class_name = "ExecutorKeys"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ExecutorKeys"]
+
+# Role-local immutable key storage; activation and KEK are intentionally absent.
+[[durable_objects.bindings]]
+name = "ROLE_KEYS"
+class_name = "RoleKeyVault"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RoleKeyVault"]
+
+[[services]]
+binding = "ACCOUNT_KEY_PERMITS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "ExecutorKeyPermits"
+
+[[services]]
+binding = "RECOVERY_FENCE"
+service = "oasis7-custody-recovery-fence-staging"
+entrypoint = "RecoveryFenceReader"

@@ -64,6 +64,18 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
+    def test_native_custody_protocol_inputs_retain_real_platform_coverage(self):
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
+        prefix = 'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/'
+        for name in ('custody_managed_binding.rs', 'custody_managed_binding_tests.rs',
+                     'custody_owner_pin.rs', 'custody_owner_pin_tests.rs',
+                     'native_managed_operation.rs', 'native_managed_operation_tests.rs',
+                     'native_key.rs', 'native_key_complete.rs', 'native_key_tests.rs',
+                     'machine_registration.rs', 'machine_registration_tests.rs'):
+            with self.subTest(path=name):
+                self.assertIn(prefix + name, paths)
+
     def invoke(self, profiles, fail=False, fail_protocol=False):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"

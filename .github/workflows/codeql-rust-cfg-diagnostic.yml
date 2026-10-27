@@ -104,6 +104,7 @@ jobs:
               - node_modules/**
               - dist/**
               - .pm/**
+              - tools/oasis7-command-center/src-tauri/src/generated_context.rs
       - id: prepare
         name: Freeze source, Cargo inputs, native prerequisites and resources
         timeout-minutes: 8
@@ -128,8 +129,9 @@ jobs:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
           python3 - <<'PYCODE'
-          import importlib.util,os,pathlib,time
+          import importlib.util,os,pathlib,sys,time
           tools=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-helper'
+          sys.path.insert(0,str(tools))
           spec=importlib.util.spec_from_file_location('capacity',tools/'codeql-rust-capacity.py')
           m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
           out=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-evidence'
@@ -158,8 +160,9 @@ jobs:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
           python3 - <<'PYCODE'
-          import importlib.util,os,pathlib,time
+          import importlib.util,os,pathlib,sys,time
           tools=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-helper'
+          sys.path.insert(0,str(tools))
           spec=importlib.util.spec_from_file_location('capacity',tools/'codeql-rust-capacity.py')
           m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
           m.runtime.CAP=m.CAP;m.runtime.WRITE_CAP=m.CAP-8*1024**2
