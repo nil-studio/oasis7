@@ -303,6 +303,12 @@
     ]
   },
   "workspace_support_profile_paths": {
+    "wasm_build_suite": [
+      "scripts/module-release-node-attestation-flow.sh",
+      "scripts/stage-wasm-summary-imports.sh",
+      "scripts/wasm-release-evidence-report.sh",
+      "scripts/wasm-summary-bundle-smoke.sh"
+    ],
     "oasis7_custody_worker": [
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry_tests.rs",
@@ -746,6 +752,35 @@
         "workspace_support"
       ],
       "reason": "signed_read_handler_conformance"
+    },
+    {
+      "match": [
+        "scripts/module-release-node-attestation-flow.sh"
+      ],
+      "groups": [
+        "operational_contracts",
+        "formal_process"
+      ],
+      "reason": "wasm_release_attestation_consumer"
+    },
+    {
+      "match": [
+        "scripts/stage-wasm-summary-imports.sh"
+      ],
+      "groups": [
+        "packaging_contracts"
+      ],
+      "reason": "wasm_summary_import_consumer"
+    },
+    {
+      "match": ["scripts/wasm-release-evidence-report.sh"],
+      "groups": ["operational_contracts", "packaging_contracts"],
+      "reason": "wasm_release_evidence_report_consumer"
+    },
+    {
+      "match": ["scripts/wasm-summary-bundle-smoke.sh"],
+      "groups": ["packaging_contracts"],
+      "reason": "wasm_summary_bundle_fixture_consumer"
     }
   ]
 }
