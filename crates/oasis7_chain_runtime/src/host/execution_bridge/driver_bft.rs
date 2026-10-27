@@ -28,7 +28,7 @@ pub(super) fn has_formal_bft_material(records_dir: &std::path::Path) -> Result<b
 mod storage;
 #[path = "driver_bft_v2.rs"]
 mod v2;
-pub(crate) use v2::{BftExecutionStateV2, FormalBftReadExecutionV1};
+pub(crate) use v2::{BftExecutionStateV2, FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
 
 const BFT_EXECUTION_TICK_AUTHORITY: &str = "system:bft-execution-v1";
 const BFT_EXECUTION_HASH_DOMAIN_V1: &str = "oasis7.bft.execution.v1";

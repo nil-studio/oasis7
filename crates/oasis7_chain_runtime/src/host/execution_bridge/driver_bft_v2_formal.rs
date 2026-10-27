@@ -124,6 +124,13 @@ mod formal_storage;
 
 #[path = "driver_bft_v2_formal_origin.rs"]
 mod formal_origin;
+#[path = "driver_bft_v2_formal_prefix.rs"]
+mod formal_prefix;
+#[path = "driver_bft_v2_formal_prefix_files.rs"]
+mod formal_prefix_files;
+#[path = "driver_bft_v2_formal_prefix_storage.rs"]
+mod formal_prefix_storage;
+pub(crate) use formal_prefix::FormalBftPrefixExecutionV1;
 
 #[path = "driver_bft_v2_formal_replay.rs"]
 mod formal_replay;
@@ -168,6 +175,9 @@ impl NodeRuntimeExecutionDriver {
 
 impl FormalBftReadExecutionV1 {
     pub(super) fn has_required_material(records_dir: &Path) -> Result<bool, String> {
+        if formal_prefix_storage::Ledger::exists(records_dir)? {
+            return Ok(true);
+        }
         formal_storage::FormalBftReadLedgerV1::required_material_exists(records_dir)
     }
 

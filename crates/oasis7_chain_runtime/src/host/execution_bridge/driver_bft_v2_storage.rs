@@ -87,6 +87,7 @@ pub(super) struct BftV2ExecutionRecord {
 pub(super) struct BftV2ExecutionLedger {
     dir: PathBuf,
     _lock: File,
+    _format_lock: File,
     config: NodeBftExecutionConfigV2,
     genesis: BftV2Genesis,
     tip_height: u64,
@@ -137,6 +138,12 @@ impl BftV2ExecutionLedger {
             return Err("durable BFT V2 execution is unsupported on this platform".into());
         }
         let configured_schedule = config.validate()?;
+        let format_lock = common_storage::lock_format(records_dir)?;
+        if super::has_formal_bft_material(records_dir)?
+            || common_storage::BftExecutionLedger::required_material_exists(records_dir)?
+        {
+            return Err("BFT V2 refuses another pinned ledger format".into());
+        }
         if &configured_schedule != initial_schedule {
             return Err("BFT V2 config schedule differs from the pinned schedule".into());
         }
@@ -232,6 +239,7 @@ impl BftV2ExecutionLedger {
         let mut ledger = Self {
             dir,
             _lock: lock,
+            _format_lock: format_lock,
             config: config.clone(),
             genesis,
             tip_height: 0,
