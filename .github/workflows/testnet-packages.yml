@@ -34,6 +34,7 @@ cache-mode: read
 
 env:
   CARGO_TERM_COLOR: always
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -249,11 +250,24 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Install native dependency cache admission
+        id: dependency-cache-tools
+        if: runner.os == 'Linux' && hashFiles('scripts/ci-rust-cache-admission.py') != ''
+        continue-on-error: true
+        shell: bash
+        run: python3 scripts/ci-rust-cache-admission.py install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.dependency-cache-tools.outcome == 'success'
+        env:
+          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
-          save-if: ${{ github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
+          save-if: ${{ job.status == 'success' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
           shared-key: oasis7-package-native-${{ runner.os }}-${{ matrix.target_triple }}-${{ inputs.build_profile }}-trusted-v2
+          cache-provider: github
           cache-on-failure: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: runner.os != 'Linux'
@@ -307,6 +321,9 @@ jobs:
 
   package-native-trusted:
     cache-mode: write
+    permissions:
+      contents: read
+      actions: read
     name: compile-trusted-${{ matrix.platform }}
     needs:
       - plan
