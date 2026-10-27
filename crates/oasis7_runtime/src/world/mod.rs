@@ -168,6 +168,7 @@ pub use persistence::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use persistence::{ObserverLoadControl, ObserverLoadError, ObserverReadLimits};
 mod policy;
+mod product_stack_admission;
 mod product_validation_quote;
 pub use product_validation_quote::ProductValidationQuote;
 mod release_manifest;
