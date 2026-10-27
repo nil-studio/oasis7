@@ -1,3 +1,4 @@
+// Generated canonical Viewer bundle; source truth lives in ./software_safe_src/.
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
 var __exportAll = (all, no_symbols) => {
