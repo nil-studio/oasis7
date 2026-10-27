@@ -241,3 +241,5 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。
 
 2026-10-26 单机 Preview 自动部署局部核对：[来源与恢复合同](../workflow/package-source-security.md#ecs-preview-automatic-deployment)及[新操作流程](../../testing/manual/single-ecs-preview-auto-update.manual.md)承接 [#5126](https://github.com/nil-studio/oasis7/issues/5126)，替代日常人工转包/切换。云资源配置和真实现有世界更新仍待分别验收；本条不宣称代码已合入或机器已切换，也不改变 #4671 的整体实玩验收与正式网络暂停。
+
+常规 player/Web/Skill 的兼容准入可由本机显式批准的无迁移兼容族承接，见[自动部署合同](../workflow/package-source-security.md#ecs-preview-automatic-deployment)。旧、新可信发布清单及本机契约须一致，chain 保持原绑定；来源和完整性校验继续执行。策略默认关闭，跨契约、迁移和明确回退仍需独立许可；配置存在不表示主机已启用或部署验收完成。
