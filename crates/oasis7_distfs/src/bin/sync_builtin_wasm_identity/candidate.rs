@@ -1,6 +1,9 @@
 //! Engineering expectations only. This module never selects a Runtime/release identity.
 use super::*;
 
+#[path = "candidate_partial.rs"]
+mod partial;
+
 const ARTIFACTS: &str = "crates/oasis7_runtime/src/world/artifacts";
 const DESCRIPTOR: &str = "builtin_wasm_candidate_baseline.v1.json";
 const PURPOSE: &str = "candidate-build";
@@ -484,11 +487,16 @@ fn prepare(root: &Path, metadata: &Path, output: &Path) -> Result<(), String> {
 }
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
-    if args.len() != 4 {
-        return Err(
+    let partial = args
+        .first()
+        .is_some_and(|mode| mode == "--candidate-baseline-update-module");
+    if args.len() != if partial { 5 } else { 4 } {
+        return Err(if partial {
+            "candidate partial mode requires <workspace-root> <metadata-dir> <module-id> <new-staging-dir>".into()
+        } else {
             "candidate mode requires <workspace-root> <metadata-dir> <set-or-new-staging-dir>"
-                .into(),
-        );
+                .into()
+        });
     }
     for path in [&args[1], &args[2]] {
         if Path::new(path)
@@ -505,6 +513,9 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     match args[0].as_str() {
         "--candidate-baseline-check" => check(&root, &metadata, &args[3]),
         "--candidate-baseline-prepare" => prepare(&root, &metadata, Path::new(&args[3])),
+        "--candidate-baseline-update-module" => {
+            partial::prepare(&root, &metadata, &args[3], Path::new(&args[4]))
+        }
         _ => Err("unknown candidate mode".into()),
     }
 }
