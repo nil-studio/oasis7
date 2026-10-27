@@ -26,6 +26,19 @@ impl RuntimeWorkerSpawner {
 }
 
 impl NodeRuntime {
+    pub fn start(&mut self) -> Result<(), NodeError> {
+        if self.bft_v3_config.is_some() {
+            return crate::node_bft_v3_runtime::start(self);
+        }
+        if self.bft_v2_config.is_some() {
+            return crate::node_bft_v2_runtime::start(self);
+        }
+        if self.bft_config.is_some() {
+            return crate::node_bft_runtime::start(self);
+        }
+        self.start_pos()
+    }
+
     pub(super) fn start_consensus_progress_observer_dispatcher(&mut self) -> Result<(), NodeError> {
         if self.consensus_progress_observer_dispatcher.is_some() {
             return Ok(());

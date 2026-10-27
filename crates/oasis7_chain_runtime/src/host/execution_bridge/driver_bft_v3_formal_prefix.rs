@@ -8,6 +8,10 @@ use oasis7_formal_protocol::bft::{
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+#[path = "driver_bft_v3_formal_node.rs"]
+mod node_execution;
+pub(crate) use node_execution::FormalBftHeaderNodeDriverV3;
+
 const MAX_H_BYTES: usize = 64 * 1024 * 1024;
 const ORIGIN_PIN_SCOPE: &str = "formal-bft-header-prefix-origin-v1";
 
@@ -54,6 +58,28 @@ impl FormalBftHeaderPrefixCutV3 {
 
 impl FormalBftHeaderLedgerExecutionV3 {
     pub(crate) fn open_from_handoff(
+        records: &Path,
+        store: LocalCasStore,
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: ClosedRecord,
+        source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+        initialize: bool,
+    ) -> Result<Self, String> {
+        if initialize
+            && records
+                .join(storage::DIRECTORY)
+                .join(storage::NODE_PRIVATE_DIRECTORY)
+                .exists()
+        {
+            return Err(
+                "Node-owned header history can only be appended by the original Node".into(),
+            );
+        }
+        Self::open_for_node(records, store, anchor, target, material, source, initialize)
+    }
+
+    fn open_for_node(
         records: &Path,
         store: LocalCasStore,
         anchor: VerifiedFormalReadAnchorV1,

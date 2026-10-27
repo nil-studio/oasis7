@@ -81,6 +81,22 @@ impl BftHeaderHeightScheduleV3 {
         self.inner.expected_proposer_for_round(round)
     }
 
+    /// Validate a public execution commitment against this already admitted
+    /// height. This verifies protocol binding, not private World execution.
+    pub fn validate_commitment(
+        &self,
+        commitment: &FormalBftExecutionCommitmentV1,
+    ) -> Result<(), String> {
+        commitment.validate()?;
+        if commitment.activation_digest != self.activation_digest
+            || commitment.parent_tick != self.parent_tick()
+            || commitment.parent_semantic_state_root != self.parent_state_root()
+        {
+            return Err("BFT header certificate does not extend its admitted parent".into());
+        }
+        self.inner.validate_commit_fields(commit_fields(commitment))
+    }
+
     pub fn digest(&self) -> Result<String, String> {
         Ok(domain_digest(
             "oasis7.bft.header_height_schedule.v3.digest",
@@ -196,15 +212,7 @@ pub fn verify_formal_bft_header_certificate_v3(
 ) -> Result<VerifiedBftHeaderCertificateV3, String> {
     let bound = entry.validate_binding()?;
     let commitment = bound.commitment();
-    if commitment.activation_digest != schedule.activation_digest
-        || commitment.parent_tick != schedule.parent_tick()
-        || commitment.parent_semantic_state_root != schedule.parent_state_root()
-    {
-        return Err("BFT header certificate does not extend its admitted parent".into());
-    }
-    schedule
-        .inner
-        .validate_commit_fields(commit_fields(commitment))?;
+    schedule.validate_commitment(commitment)?;
     let certificate = &entry.certificate;
     let set = schedule.active_set();
     verify_proposal(schedule, &certificate.proposal)?;
