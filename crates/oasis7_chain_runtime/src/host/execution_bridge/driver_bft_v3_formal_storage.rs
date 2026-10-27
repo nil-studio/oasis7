@@ -225,3 +225,103 @@ fn validate_hash(value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod initialization_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct Root(std::path::PathBuf);
+    impl Drop for Root {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn retained_origin_pending_callback_resumes_original_bytes_before_finish() {
+        let mut nonce = [0u8; 16];
+        getrandom::fill(&mut nonce).unwrap();
+        let root = Root(
+            std::env::temp_dir()
+                .canonicalize()
+                .unwrap()
+                .join(format!("oasis7-wire3-init-retained-{}", hex::encode(nonce))),
+        );
+        fs::create_dir(&root.0).unwrap();
+        fs::set_permissions(&root.0, fs::Permissions::from_mode(0o700)).unwrap();
+        let records = root.0.join("ledger");
+        let store = LocalCasStore::new(root.0.join("cas"));
+        let bytes = b"unit retention callback material";
+        let reference = blake3_hex(bytes);
+        let expected = BTreeSet::from([reference.clone()]);
+        let pin = blake3_hex(b"unit exact material binding");
+        let mut ledger = Ledger::open(&records, true, bytes.len()).unwrap();
+        assert!(
+            ledger
+                .bind_retained(&pin, 4, |origin, pending| {
+                    assert!(pending);
+                    assert_eq!(store.put_bytes(bytes).unwrap(), reference);
+                    store
+                        .replace_pin_scope_shard("wire3-init-test", &origin.digest()?, &expected)
+                        .unwrap();
+                    Err("injected after retention publication, before init finish".into())
+                })
+                .is_err()
+        );
+        let shard = ledger.origin_digest().unwrap();
+        let intent = records.join(DIRECTORY).join("init-intent.cbor");
+        let original = fs::read(&intent).unwrap();
+        drop(ledger);
+        let mut resumed = Ledger::open(&records, false, bytes.len()).unwrap();
+        assert!(
+            resumed
+                .bind_retained(&blake3_hex(b"different H"), 4, |_, _| {
+                    panic!("foreign material cannot reach retention callback")
+                })
+                .is_err()
+        );
+        assert_eq!(fs::read(&intent).unwrap(), original);
+        resumed
+            .bind_retained(&pin, 4, |origin, pending| {
+                assert!(pending);
+                assert_eq!(origin.digest()?, shard);
+                store
+                    .verify_pin_scope_shard("wire3-init-test", &shard, &expected)
+                    .unwrap();
+                assert_eq!(store.get_verified(&reference).unwrap(), bytes);
+                Ok(())
+            })
+            .unwrap();
+        assert!(!intent.exists());
+        assert_eq!(
+            fs::read(records.join(DIRECTORY).join("origin.cbor")).unwrap(),
+            original
+        );
+        drop(resumed);
+        store
+            .remove_pin_scope_shard("wire3-init-test", &shard)
+            .unwrap();
+        let mut completed = Ledger::open(&records, true, bytes.len()).unwrap();
+        assert!(
+            completed
+                .bind_retained(&pin, 4, |_, pending| {
+                    assert!(
+                        !pending,
+                        "completed empty origin cannot publish its missing original pin"
+                    );
+                    store
+                        .verify_pin_scope_shard("wire3-init-test", &shard, &expected)
+                        .map_err(|_| "original retention receipt lost".into())
+                })
+                .is_err()
+        );
+        assert!(
+            store
+                .list_pin_scope_shards("wire3-init-test")
+                .unwrap()
+                .is_empty()
+        );
+    }
+}

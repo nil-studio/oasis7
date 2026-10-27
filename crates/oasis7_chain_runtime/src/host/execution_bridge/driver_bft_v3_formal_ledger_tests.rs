@@ -1,9 +1,9 @@
 //! Actual private durable import, recovery and retained-material boundaries.
 use super::super::super::formal_header::{
-    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, PrivateHeaderEntryV3,
-    PrivateHeaderPrefixV3,
+    FormalBftHeaderCandidateV3, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
+    PrivateHeaderEntryV3, PrivateHeaderPrefixV3,
 };
-use super::execution_tests::{certify, private_actions};
+use super::execution_tests::{certify, certify_at_round, private_actions};
 use super::*;
 use oasis7_runtime::LocalCasStore;
 use std::fs;
@@ -25,6 +25,10 @@ fn wire3_formal_read_durable_private_prefix_refuses_missing_original_h_receipt()
 #[test]
 fn wire3_formal_read_durable_private_prefix_survives_real_process_kill() {
     run(process_kill);
+}
+#[test]
+fn wire3_formal_read_durable_private_prefix_refuses_lost_pin_or_corrupt_snapshot() {
+    run(lost_record_material);
 }
 fn run(case: fn()) {
     std::thread::Builder::new()
@@ -137,6 +141,19 @@ fn recovery() {
         )
         .unwrap();
     assert_eq!(old.certified_prefix().entries.len(), 1);
+    assert_eq!(old.world().state().time, first.execution_commitment.height);
+    assert_ne!(old.world().state().time, cut.world().state().time);
+    assert_eq!(
+        old.world()
+            .execution_state_identity()
+            .unwrap()
+            .state_root_hash,
+        first.execution_commitment.state_root
+    );
+    assert_eq!(
+        old.result_tree().root().unwrap(),
+        first.execution_commitment.result_root
+    );
     assert!(
         old.world()
             .state()
@@ -155,6 +172,39 @@ fn publication_recovery() {
     let h = qualified_handoff_v3();
     let input = fixture(&h);
     let (height, id) = target(&input);
+    let schedule_owner = FormalBftHeaderExecutionV3::from_handoff(
+        h.anchor.clone(),
+        h.target.clone(),
+        &h.material,
+        h.reader.clone(),
+        Vec::new(),
+        false,
+    )
+    .unwrap();
+    let mut changed = input.entries().to_vec();
+    let first = &changed[0].certificate;
+    changed[0].certificate = certify_at_round(
+        schedule_owner.schedule(),
+        &FormalBftHeaderCandidateV3 {
+            header: first.header.clone(),
+            commitment: first.execution_commitment.clone(),
+        },
+        1,
+    );
+    let alternate = PrivateHeaderPrefixV3::from_entries(changed).unwrap();
+    assert!(
+        alternate
+            .public_prefix()
+            .unwrap()
+            .verify(
+                &oasis7_formal_protocol::bft::verify_formal_bft_handoff_v2(
+                    &h.anchor,
+                    h.target.clone()
+                )
+                .unwrap()
+            )
+            .is_ok()
+    );
     for phase in ["pins", "intent", "link"] {
         let root = Scratch::new();
         let store = cas(root.path());
@@ -167,6 +217,13 @@ fn publication_recovery() {
             )
             .unwrap();
         assert!(ledger.install_prefix(&input, height, &id).is_err());
+        assert!(
+            open(&h, root.path(), &store, true)
+                .unwrap()
+                .install_prefix(&alternate, height, &id)
+                .is_err(),
+            "must preserve original QC round at {phase}"
+        );
         let cut = open(&h, root.path(), &store, true)
             .unwrap()
             .install_prefix(&input, height, &id)
@@ -201,6 +258,51 @@ fn missing_origin_case(populated: bool) {
         "install must not heal lost original retention"
     );
     assert!(store.list_pin_scope_shards(scope).unwrap().is_empty());
+}
+
+fn lost_record_material() {
+    let h = qualified_handoff_v3();
+    let input = fixture(&h);
+    let (height, id) = target(&input);
+    for fault in ["pin", "snapshot"] {
+        let root = Scratch::new();
+        let store = cas(root.path());
+        open(&h, root.path(), &store, true)
+            .unwrap()
+            .install_prefix(&input, height, &id)
+            .unwrap();
+        if fault == "pin" {
+            store
+                .clear_pin_scope("formal-bft-header-prefix-v1")
+                .unwrap();
+        } else {
+            let reference = &input.entries()[0]
+                .certificate
+                .execution_commitment
+                .execution_state_root;
+            fs::write(
+                store.blobs_dir().join(format!("{reference}.blob")),
+                b"corrupt original Snapshot",
+            )
+            .unwrap();
+        }
+        assert!(
+            open(&h, root.path(), &store, false).is_err(),
+            "verification must reject lost {fault}"
+        );
+        assert!(
+            open(&h, root.path(), &store, true).is_err(),
+            "import must not repair lost original {fault}"
+        );
+        if fault == "pin" {
+            assert!(
+                store
+                    .list_pin_scope_shards("formal-bft-header-prefix-v1")
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
 }
 
 fn process_kill() {

@@ -56,12 +56,20 @@ pub(super) fn certify(
     schedule: &BftHeaderHeightScheduleV3,
     candidate: &FormalBftHeaderCandidateV3,
 ) -> FormalBftCertifiedHeaderV3 {
+    certify_at_round(schedule, candidate, 0)
+}
+
+pub(super) fn certify_at_round(
+    schedule: &BftHeaderHeightScheduleV3,
+    candidate: &FormalBftHeaderCandidateV3,
+    round: u64,
+) -> FormalBftCertifiedHeaderV3 {
     let block_id = candidate.header.block_id().unwrap();
-    let proposer = schedule.expected_proposer_for_round(0).unwrap();
+    let proposer = schedule.expected_proposer_for_round(round).unwrap();
     let proposal = BftProposalHeaderV3::sign(
         schedule.scope().clone(),
         schedule.height(),
-        0,
+        round,
         schedule.active_set().set_hash().to_owned(),
         schedule.policy_hash().to_owned(),
         proposer.clone(),
@@ -79,7 +87,7 @@ pub(super) fn certify(
                 &candidate.commitment,
                 &block_id,
                 &id,
-                0,
+                round,
                 BftVotePhaseV3::Precommit,
                 &key_for_id(&id),
             )
