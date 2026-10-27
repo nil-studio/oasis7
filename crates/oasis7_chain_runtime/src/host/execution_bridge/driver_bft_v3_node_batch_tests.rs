@@ -10,7 +10,15 @@ fn wire3_formal_read_actual_node_splits_1025_prequeued_actions_without_loss() {
         .unwrap();
 }
 fn batch_case() {
-    let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
+    const AGENT: &str = "wire3-batch-fixed-agent";
+    let h = qualified_handoff_v3_with_count_and_setup(1, |world| {
+        world.submit_action(Action::RegisterAgent {
+            agent_id: AGENT.into(),
+            pos: oasis7::geometry::GeoPos::new(4, 5, 6),
+        });
+        world.step().unwrap();
+        assert!(world.state().agents.contains_key(AGENT));
+    });
     let root = Scratch::new();
     let store = cas(root.path());
     let actual = driver(&h, root.path(), &store);
@@ -28,12 +36,20 @@ fn batch_case() {
     }));
     let (address, server) = tcp(service(&binding, snapshot.clone()));
     let mut node = runtime(root.path(), actual.clone(), &binding, address);
+    let initial_world = actual.lock().unwrap().world().clone();
+    let initial_agent_count = initial_world.state().agents.len();
+    let initial_tick = initial_world.state().time;
+    let query = oasis7::consensus_action_payload::encode_consensus_action_payload(
+        &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
+            Action::QueryObservation {
+                agent_id: AGENT.into(),
+            },
+        ),
+    )
+    .unwrap();
     for id in 1..=1025 {
-        node.submit_consensus_action_payload(
-            10_000 + id,
-            payload(&format!("wire3-batch-agent-{id:04}")),
-        )
-        .unwrap();
+        node.submit_consensus_action_payload(10_000 + id, query.clone())
+            .unwrap();
     }
     node.start().unwrap();
     let deadline = Instant::now() + Duration::from_secs(300);
@@ -75,14 +91,9 @@ fn batch_case() {
     assert!(heights.len() >= 2);
     assert_eq!(seen.len(), 1025);
     let world = actual.lock().unwrap().world().clone();
-    for id in 1..=1025 {
-        assert!(
-            world
-                .state()
-                .agents
-                .contains_key(&format!("wire3-batch-agent-{id:04}"))
-        );
-    }
+    assert!(world.state().agents.contains_key(AGENT));
+    assert_eq!(world.state().agents.len(), initial_agent_count);
+    assert!(world.state().time > initial_tick);
     let protected = snapshot.lock().unwrap();
     assert!(protected.state.pending_driver_apply.is_none());
     assert_eq!(
