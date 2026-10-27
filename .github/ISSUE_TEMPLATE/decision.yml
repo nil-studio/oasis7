@@ -5,7 +5,9 @@ labels: ["type:decision"]
 body:
   - type: markdown
     attributes:
-      value: "先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。"
+      value: |
+        先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
+        描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
   - type: dropdown
     id: issue_type
     attributes:
