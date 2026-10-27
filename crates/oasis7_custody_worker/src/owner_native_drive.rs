@@ -28,7 +28,7 @@ async fn continue_participant(
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let saved = store.snapshot().map_err(|_| denied())?;
     let approved = saved.state.accepted_approval().map_err(|_| denied())?;
-    check_manager(env, &saved, manager, approved.input())?;
+    check_manager_reference(env, &saved, manager, approved.input())?;
     if saved.state.provision().stage() != ProvisionStage::NativeSessionReady {
         return Ok(());
     }
@@ -72,8 +72,38 @@ fn check_manager(
     input: &oasis7_custody_core::approval_admission::ApprovalAdmissionInput,
 ) -> Result<()> {
     let config = super::super::Config::load(env)?;
+    if config.directory.principal(manager)? != saved.state.draft().entry.manager {
+        return Err(denied());
+    }
+    check_manager_reference(env, saved, manager, input)
+}
+// Entry authentication already checked the actual HTTP observation. Long
+// workflows retain only its exact source identity; each new grant independently
+// performs a fresh signed native inspection and current Directory/Fence checks.
+fn check_manager_reference(
+    env: &Env,
+    saved: &ProvisionApprovalSnapshot,
+    manager: &CustodySessionStatusV1,
+    input: &oasis7_custody_core::approval_admission::ApprovalAdmissionInput,
+) -> Result<()> {
+    let config = super::super::Config::load(env)?;
     let proof = &input.approval.proof;
-    if config.directory.principal(manager)? != saved.state.draft().entry.manager
+    let reference = crate::directory_rpc::NativeInspectReference {
+        identity_namespace: manager.identity_namespace.clone(),
+        identity_instance_epoch: manager.identity_instance_epoch,
+        account_id: manager.account_id.clone(),
+        session_ref: manager.session_ref.clone(),
+        credential_ref: manager.credential_ref.clone(),
+        credential_version: manager.credential_version,
+        security_version: manager.security_version,
+        policy_version: manager.policy_version,
+        expires_at: manager.expires_at,
+        idle_expires_at: manager.idle_expires_at,
+    };
+    if config
+        .directory
+        .inspection_reference_principal(&reference)?
+        != saved.state.draft().entry.manager
         || manager.account_id != proof.manager_account_id
         || manager.session_ref != proof.manager_session_ref
         || manager.credential_ref != proof.origin_credential_id
@@ -104,7 +134,7 @@ pub(super) async fn continue_provision(
             .accepted_approval()
             .map_err(|_| denied())?
             .input();
-        check_manager(env, &saved, manager, input)?;
+        check_manager_reference(env, &saved, manager, input)?;
         let draft = saved.state.draft();
         let binding_id = operation(
             management_operation,

@@ -48,11 +48,13 @@ function options(persist, data, bridge, mode) {
       CUSTODY_NATIVE_NAMESPACE:data.namespace,CUSTODY_NATIVE_INSTANCE_EPOCH:data.identity_instance_epoch,CUSTODY_NATIVE_ENVIRONMENT:'test',CUSTODY_POLICY_VERSION:'1',
       ...(mode==='native-lost-account-result'?{FIXTURE_DROP_NATIVE_RESULT:'true'}:{}),
       ...(mode==='native-lost-missing-result'?{FIXTURE_DROP_MISSING_RESULT:'true'}:{}),
+      ...(mode.startsWith('native-stage-gap-')?{FIXTURE_STAGE_GAP:'true'}:{}),
       CUSTODY_BOOTSTRAP_MANAGERS:JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:'a'},environments:['test']}]),
       CUSTODY_PROVISION_ROUTES:JSON.stringify(routes),CUSTODY_PROVISION_WORLD_IDENTITY:JSON.stringify(world),CUSTODY_PROVISION_APPROVAL_ENABLED:'true',...roleBindings('owner'),
       ...(mode.startsWith('native-participant')?{CUSTODY_PARTICIPANT_PROVISION_ENABLED:'true'}:{}),
       ...(native?{CUSTODY_NATIVE_PROVISION_ENABLED:'true',CUSTODY_NATIVE_ORIGIN:'https://localhost',
         CUSTODY_NATIVE_BINDING_OWNER_PIN:JSON.stringify(data.managed_binding_owner_pin),CUSTODY_NATIVE_BINDING_SIGNING_SEED:Buffer.alloc(32,93).toString('hex')}:{})},
+    ...(mode.startsWith('native-stage-gap-')?{outboundService:bridge}:{}),
     serviceBindings:{...(mode==='native-participant-role-capability'?{PARTICIPANT_IDENTITY_REAL:{name:'owner',entrypoint:'ParticipantIdentityReal'}}:{}),IDENTITY_NATIVE_APPROVAL:{name:'identity',entrypoint:'IdentityNativeApproval'},RECOVERY_FENCE:{name:'fence',entrypoint:'RecoveryFenceReader'},
       ACCOUNT_KEY_PERMITS:{name:'owner',entrypoint:'OwnerKeyPermits'},IDENTITY_PROVISION_KEYS:{name:'identity',entrypoint:'RoleKeyProvision'},
       OWNER_PROVISION_KEYS:{name:'owner',entrypoint:'RoleKeyProvision'},EXECUTOR_PROVISION_KEYS:{name:'executor',entrypoint:'RoleKeyProvision'},
@@ -107,7 +109,17 @@ export async function withRoleRuntime(mode, run) {
     let lostLoginReply=false;
     let lostParticipantReply=false;
     const bridge=async request=>{
-      const url=new URL(request.url);assert.equal(url.origin,'https://localhost');
+      const url=new URL(request.url);
+      if(mode.startsWith('native-stage-gap-') && url.href==='https://fixture.test/_after-binding-commit') {
+        if(mode==='native-stage-gap-revoke'||mode==='native-stage-gap-expire') {
+          const path=mode==='native-stage-gap-revoke'?'revoke-manager':'expire';
+          const invalidated=await fetch(native.data.address+'/_fixture/'+path,{method:'POST'});
+          assert.equal(invalidated.status,200);
+        }
+        await new Promise(resolve=>setTimeout(resolve,5200));
+        return new MiniflareResponse(null,{status:204});
+      }
+      assert.equal(url.origin,'https://localhost');
       const suffix=url.pathname.replace('/api/public/hosted-account/v2','');
       const management=['/custody/management-session-status','/custody/approvals/verify'].includes(suffix);
       assert.ok(management || nativeMode && ['/capabilities','/machine-registration/options','/machine-registration/complete','/native-key/options','/native-key/complete',
@@ -136,6 +148,9 @@ export async function withRoleRuntime(mode, run) {
       const outputHeaders=new Headers({'Content-Type':'application/json'});
       if(nativeMode) for(const cookie of response.headers.getSetCookie()) outputHeaders.append('Set-Cookie',cookie);
       let body=await response.text();
+      if(mode==='native-stage-gap-stale-entry' && suffix==='/custody/management-session-status' && nativeRequests[suffix]>=3 && response.status===200) {
+        const status=JSON.parse(body);status.server_time=String(Date.now()-5001);body=JSON.stringify(status);
+      }
       if(suffix.startsWith('/participant/')) {
         try {const value=JSON.parse(body);worldResults.push({path:suffix,http:response.status,
           outcome:value.world_response?.payload?.outcome??value.payload?.outcome??null,error:value.error??null});} catch {worldResults.push({path:suffix,http:response.status,error:'invalid_json'});}

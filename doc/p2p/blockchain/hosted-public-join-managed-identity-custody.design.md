@@ -802,6 +802,10 @@ ManagedLogin intent 必签新的 login_request_id 和 transport_limit（64..400�
 后者沿用只含 api_version/operation_id 的 continuation body，不允许传 session、key、native endpoint 或 current authority。
 原 Provision 的 continue 只按 Account 已存阶段接续开户、绑定和首次登录；
 Account 已提交结果而 RPC 丢响应时以原事实推进，unknown 同 attempt 不重发，不能创建第二次首次登录。
+HTTP 入口仍要求 Identity 本次真实管理会话观察不超过五秒；该观察用于鉴别这次调用，不能充当长流程后来阶段的 grant 证据。
+长 provisioning 循环与其 participant 接续只用该已认证来源的精确 account/session/credential/version/security/policy 引用和绝对 expiry 核对原批准，
+不改写旧 server_time 或签名。每个新阶段仍先登记独立 nonce，通过真实 native inspect、当前 Directory/Fence 和最终 SQL 才授予许可；
+跨阶段超过五秒本身不撤销已提交事实，也不免除下一阶段自己的五秒 live gate。独立 ManagedLogin continue 的入口仍核新鲜管理观察。
 这些原生业务入口另受默认关闭的 native provisioning 配置控制，不改变普通 metadata/默认 RPC 的关闭边界。
 Trace refs: O7-REQ-844f4b30-b7d5-4651-941e-17c21f37b4ac; O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945; O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3.
 
