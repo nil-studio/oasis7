@@ -29,6 +29,83 @@ fn wire3_formal_read_v4_shipping_cli_http_reads_nonempty_actual_world_prefix() {
         .unwrap();
 }
 
+#[test]
+fn wire3_formal_read_v4_signed_execution_lie_cannot_start_listener() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(signed_lie_case)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn signed_lie_case() {
+    use super::super::super::formal_header::{
+        FormalBftHeaderExecutionV3, PrivateHeaderEntryV3, PrivateHeaderPrefixV3,
+    };
+    let h = qualified_handoff_v3();
+    let execution = FormalBftHeaderExecutionV3::from_handoff(
+        h.anchor.clone(),
+        h.target.clone(),
+        &h.material,
+        h.reader.clone(),
+        Vec::new(),
+        false,
+    )
+    .unwrap();
+    let actions = super::execution_tests::private_actions();
+    let mut candidate = execution.build_candidate(&actions).unwrap();
+    candidate.commitment.state_root = hash("authenticated-read4-false-execution");
+    candidate.header.execution_commitment_hash = candidate.commitment.digest().unwrap();
+    let certificate = super::execution_tests::certify(execution.schedule(), &candidate);
+    let height = certificate.execution_commitment.height;
+    let id = certificate.header.block_id().unwrap();
+    let input = PrivateHeaderPrefixV3::from_entries(vec![PrivateHeaderEntryV3 {
+        certificate,
+        actions_cbor: actions,
+    }])
+    .unwrap();
+    let handoff =
+        oasis7_formal_protocol::bft::verify_formal_bft_handoff_v2(&h.anchor, h.target.clone())
+            .unwrap();
+    input
+        .public_prefix()
+        .unwrap()
+        .verify(&handoff)
+        .expect("the real quorum authenticated this self-consistent execution lie");
+    let (root, config, history) = cli_files(&h, &input, height, &id);
+    let key = root.path().join("service.hex");
+    private_file(&key, hex::encode(fixtures::key(118).to_bytes()).as_bytes());
+    let bind = address();
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+    value["bind"] = serde_json::json!(bind.to_string());
+    value["service_signing_key_path"] = serde_json::json!(key);
+    private_file(&config, &serde_json::to_vec(&value).unwrap());
+    assert!(
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "install",
+                "--config",
+                config.to_str().unwrap(),
+                "--history",
+                history.to_str().unwrap(),
+            ]
+            .into_iter()
+        )
+        .unwrap()
+        .is_err()
+    );
+    assert!(
+        crate::formal_bft_header_cli::run_with_shutdown(
+            ["serve", "--config", config.to_str().unwrap()].into_iter(),
+            Some(Arc::new(AtomicBool::new(true))),
+        )
+        .is_err()
+    );
+    assert!(std::net::TcpStream::connect_timeout(&bind, Duration::from_millis(100)).is_err());
+}
+
 struct Server {
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<Result<(), String>>>,
@@ -158,7 +235,11 @@ fn read_case() {
     .unwrap()
     .unwrap();
     let store = LocalCasStore::new(root.path().join("cas"));
-    store.prune_orphan_blobs().unwrap();
+    let garbage = store
+        .put_bytes(b"header-read-v4-unretained-gc-canary")
+        .unwrap();
+    assert!(store.prune_orphan_blobs().unwrap() > 0);
+    assert!(store.get_verified(&garbage).is_err());
     let public_client = client(&h, bind, &service, &reader, exact.clone(), "public");
     let mut server = Server::start(&config);
     let page = server.read(&public_client);
@@ -247,6 +328,13 @@ fn read_case() {
     forged.certified_prefix_cbor_hex = hex::encode(reordered.canonical_bytes().unwrap());
     assert!(verifier.verify_response(&signed, forged).is_err());
 
+    let mut forged = response.clone();
+    forged.projection.audience.reader_public_key =
+        Some(hex::encode(reader.verifying_key().to_bytes()));
+    assert!(verifier.verify_response(&signed, forged).is_err());
+    let mut forged = response.clone();
+    forged.projection.audience.scope_id = "agent:another-reader".into();
+    assert!(verifier.verify_response(&signed, forged).is_err());
     let mut forged = response.clone();
     forged.view = serde_json::json!({"forged":true});
     assert!(verifier.verify_response(&signed, forged).is_err());

@@ -27,6 +27,9 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const HTTP_STACK_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SIGNED_RESPONSE_BYTES: usize =
     oasis7_client_api::world_service::MAX_FORMAL_BFT_HEADER_READ_RESPONSE_BYTES_V4;
+// The shared writer retains its existing contract-3 40 MiB budget.
+const _: [(); MAX_SIGNED_RESPONSE_BYTES] =
+    [(); oasis7_client_api::world_service::MAX_FORMAL_BFT_READ_RESPONSE_BYTES_V3];
 
 /// The owner must construct the publication from the execution driver's
 /// verified durable cut. A current authorization World is optional only for
