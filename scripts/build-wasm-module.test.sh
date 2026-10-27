@@ -171,7 +171,7 @@ class BuilderLifecycleTest(unittest.TestCase):
         for legacy in ("0", "1"):
             for wrong_inspect in ("0", "1"):
                 out = self.root / ("candidate-" + legacy + wrong_inspect)
-                result = subprocess.run(["bash", str(self.script), "--candidate-build", "--manifest-path", str(self.manifest), "--out-dir", str(out), "--module-id", "fixture.module"], cwd=self.root, env=self.env(FIXTURE_LEGACY=legacy, FIXTURE_WRONG_INSPECT=wrong_inspect), capture_output=True, text=True, timeout=15)
+                result = subprocess.run(["bash", str(self.script), "--candidate-build", "--manifest-path", str(self.manifest), "--out-dir", str(out), "--module-id", "fixture.module"], cwd=self.root, env=self.env(FIXTURE_LEGACY=legacy, FIXTURE_WRONG_INSPECT=wrong_inspect, CARGO_BUILD_JOBS="7"), capture_output=True, text=True, timeout=15)
                 if wrong_inspect == "1":
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("inspection changed", result.stderr)
@@ -181,6 +181,7 @@ class BuilderLifecycleTest(unittest.TestCase):
                     self.assertEqual(run["image"], REBUILT)
                     self.assertNotIn("OASIS7_WASM_BUILDER_IMAGE_DIGEST", run["env"])
                     self.assertIn("OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE", run["env"])
+                    self.assertEqual(run["env"].get("CARGO_BUILD_JOBS"), "2")
                 self.assertEqual(list(out.glob(".candidate-builder.*")), [])
 
     def test_candidate_output_symlink_is_rejected_before_any_external_write(self):

@@ -301,6 +301,11 @@ fn read_candidate_builder(
         return Ok(None);
     };
     let invalid = |value: String| BuildError::MetadataInvalid(value);
+    if std::env::var("CARGO_BUILD_JOBS").as_deref() != Ok("2") {
+        return Err(invalid(
+            "candidate recipe requires actual guest CARGO_BUILD_JOBS=2".into(),
+        ));
+    }
     if request.profile != "release"
         || request.target != DEFAULT_TARGET
         || std::env::var_os("OASIS7_WASM_BUILDER_IMAGE_REF").is_some()

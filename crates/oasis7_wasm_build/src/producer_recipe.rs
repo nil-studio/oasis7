@@ -61,6 +61,7 @@ fn invalid(reason: impl std::fmt::Display) -> SourceHashError {
 }
 fn arguments() -> Vec<RecipeArgument> {
     [
+        ("GUEST_CARGO_BUILD_JOBS", "2"),
         ("WASM_TARGET", "wasm32-unknown-unknown"),
         ("WASM_TOOLCHAIN", "nightly-2025-12-11"),
         ("platform", "linux/amd64"),
@@ -480,6 +481,34 @@ mod tests {
         };
         value.producer_recipe_hash = digest(&value).unwrap();
         value
+    }
+
+    #[test]
+    fn candidate_recipe_binary_vector_binds_fixed_guest_jobs() {
+        // Independent SHA-256 vector: fixed domain, u64 BE lengths/counts,
+        // five literal arguments, Cargo.lock path and 32 zero digest bytes.
+        let original = recipe();
+        assert_eq!(
+            original.producer_recipe_hash,
+            "463c5a28768b490eaeeacad9d012693eebce991a383aef27f060285e99badec1"
+        );
+        let mut changed = original.clone();
+        changed.arguments[0].value = "7".into();
+        changed.producer_recipe_hash = digest(&changed).unwrap();
+        assert!(
+            changed.validate().is_err(),
+            "a recomputed digest cannot authorize a different guest scheduling policy"
+        );
+        changed = original;
+        changed.arguments.push(RecipeArgument {
+            name: "UNKNOWN_RESOURCE".into(),
+            value: "2".into(),
+        });
+        changed.producer_recipe_hash = digest(&changed).unwrap();
+        assert!(
+            changed.validate().is_err(),
+            "unknown recipe arguments must fail closed"
+        );
     }
 
     #[test]

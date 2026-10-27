@@ -43,7 +43,7 @@ def summary(module, runner):
             source_inputs=[dict(kind='source-file',path='module/src/lib.rs',sha256='0'*64)],
             source_hash='source',build_manifest_hash='build',wasm_hash='wasm',builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
     recipe=dict(recipe_schema_version=1,kind='producer-content',producer_recipe_hash='0'*64,
-        arguments=[dict(name=k,value=v) for k,v in [('WASM_TARGET','wasm32-unknown-unknown'),('WASM_TOOLCHAIN','nightly-2025-12-11'),('platform','linux/amd64'),('purpose','candidate-build')]],
+        arguments=[dict(name=k,value=v) for k,v in [('GUEST_CARGO_BUILD_JOBS','2'),('WASM_TARGET','wasm32-unknown-unknown'),('WASM_TOOLCHAIN','nightly-2025-12-11'),('platform','linux/amd64'),('purpose','candidate-build')]],
         inputs=[dict(kind='source-file',path='Cargo.lock',sha256='0'*64)])
     payload['identity_build_recipe'].pop('builder_image_digest')
     payload['identity_build_recipe'].update(build_manifest_schema_version=3,builder_recipe=recipe)

@@ -46,7 +46,7 @@ def candidate_builder(evidence, recipe, path):
     if not isinstance(recipe, dict) or set(recipe) != {"recipe_schema_version", "kind", "producer_recipe_hash", "arguments", "inputs"}:
         fail(f"summary {path} unknown candidate producer recipe fields")
     expected_arguments = [{"name": name, "value": value} for name, value in [
-        ("WASM_TARGET", "wasm32-unknown-unknown"), ("WASM_TOOLCHAIN", "nightly-2025-12-11"),
+        ("GUEST_CARGO_BUILD_JOBS", "2"), ("WASM_TARGET", "wasm32-unknown-unknown"), ("WASM_TOOLCHAIN", "nightly-2025-12-11"),
         ("platform", "linux/amd64"), ("purpose", "candidate-build")]]
     digest = recipe.get("producer_recipe_hash")
     if type(recipe["recipe_schema_version"]) is not int or recipe["recipe_schema_version"] != 1 or recipe["kind"] != "producer-content" or recipe["arguments"] != expected_arguments or not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
