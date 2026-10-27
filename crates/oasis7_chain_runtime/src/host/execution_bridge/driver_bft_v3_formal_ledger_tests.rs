@@ -103,6 +103,14 @@ fn recovery() {
     let root = Scratch::new();
     let store = cas(root.path());
     let (height, id) = target(&input);
+    let truncated = PrivateHeaderPrefixV3::from_entries(input.entries()[..1].to_vec()).unwrap();
+    assert!(
+        open(&h, root.path(), &store, true)
+            .unwrap()
+            .install_prefix(&truncated, height, &id)
+            .is_err(),
+        "a valid short prefix cannot satisfy a pinned later cut"
+    );
     let cut = open(&h, root.path(), &store, true)
         .unwrap()
         .install_prefix(&input, height, &id)
@@ -217,6 +225,16 @@ fn publication_recovery() {
             )
             .unwrap();
         assert!(ledger.install_prefix(&input, height, &id).is_err());
+        let first = input.entries()[0].certificate.execution_commitment.height;
+        let name = if phase == "pins" {
+            "reservation"
+        } else {
+            "intent"
+        };
+        let original_path = root.path().join(format!(
+            "ledger/formal-bft-header-prefix-v1/{name}-{first:020}.cbor"
+        ));
+        let original_bytes = fs::read(&original_path).unwrap();
         assert!(
             open(&h, root.path(), &store, true)
                 .unwrap()
@@ -224,6 +242,7 @@ fn publication_recovery() {
                 .is_err(),
             "must preserve original QC round at {phase}"
         );
+        assert_eq!(fs::read(&original_path).unwrap(), original_bytes);
         let cut = open(&h, root.path(), &store, true)
             .unwrap()
             .install_prefix(&input, height, &id)
@@ -300,6 +319,15 @@ fn lost_record_material() {
                     .list_pin_scope_shards("formal-bft-header-prefix-v1")
                     .unwrap()
                     .is_empty()
+            );
+        } else {
+            let reference = &input.entries()[0]
+                .certificate
+                .execution_commitment
+                .execution_state_root;
+            assert_eq!(
+                fs::read(store.blobs_dir().join(format!("{reference}.blob"))).unwrap(),
+                b"corrupt original Snapshot"
             );
         }
     }
