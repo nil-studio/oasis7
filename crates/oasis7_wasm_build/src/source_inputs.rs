@@ -179,6 +179,50 @@ pub(super) fn validate_macro_owners(
     validate_macro_owners_with_procedural(metadata, manifest, &["serde_derive"])
 }
 
+// Audited AST-only registry derives. Cargo verifies the checksums in the hashed lockfile.
+// 0.8.56: f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1
+// 0.8.63: 863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f
+fn supported_procedural_owner(
+    name: &str,
+    version: &str,
+    crates_io: bool,
+    procedural: &[&str],
+) -> bool {
+    crates_io
+        && (procedural.contains(&name)
+            || (name == "zerocopy-derive" && matches!(version, "0.8.56" | "0.8.63")))
+}
+
+#[test]
+fn audited_zerocopy_derive_owner_is_exact() {
+    for version in ["0.8.56", "0.8.63"] {
+        assert!(supported_procedural_owner(
+            "zerocopy-derive",
+            version,
+            true,
+            &[]
+        ));
+        assert!(!supported_procedural_owner(
+            "zerocopy-derive",
+            version,
+            false,
+            &[]
+        ));
+    }
+    assert!(!supported_procedural_owner(
+        "zerocopy-derive",
+        "0.8.62",
+        true,
+        &[]
+    ));
+    assert!(!supported_procedural_owner(
+        "unknown-derive",
+        "0.8.63",
+        true,
+        &[]
+    ));
+}
+
 pub(super) fn validate_macro_owners_with_procedural(
     metadata: &CargoMetadata,
     manifest: &Path,
@@ -221,9 +265,7 @@ pub(super) fn validate_macro_owners_with_procedural(
             .targets
             .iter()
             .any(|target| target.kind.iter().any(|kind| kind == "proc-macro"))
-            && !(procedural.contains(&package.name.as_str())
-                && package.source.as_deref()
-                    == Some("registry+https://github.com/rust-lang/crates.io-index"))
+            && !supported_procedural_owner(&package.name, &package.version, crates_io, procedural)
         {
             return Err(unsupported(format!(
                 "unknown procedural-macro input lane: {}",

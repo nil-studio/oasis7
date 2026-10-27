@@ -150,7 +150,7 @@ candidate receipt4/metadata 显式携带 purpose、manifest3、`builder_recipe`�
 
 当前 lane 使用 Rust token/语法解析接受字面量 include。标准无外部文件输入宏与 SDK export 的有界集合受检查，未知宏、嵌套输入宏、环境路径与 `#[path]` 不支持。build 脚本只支持明确声明的字面量、完全限定 `std::fs` 文件读取及受检查的日志/assert 表达式；imports、extern crate、local module、build dependencies、任意辅助调用、其他方法、未知宏或生成输出不属于该 lane，不以同名 `fs`/日志别名假定标准库行为。文件读取相对于 Cargo build script 的 package 工作目录，整个 literal include 图的读取汇总到该脚本的声明；遍历身份包含脚本上下文，同一 helper 的普通库访问不能覆盖 build 检查，不同 package 脚本也分别核对。没有外部读取仍须显式声明空列表。路径解析在消去 `..` 前拒绝 symlink/非目录组件，manifest 原始路径也核对 source-root 内的祖先路径。新增支持形式须扩充同一规则实现与回归，不能省略检查后继续生成 receipt。
 
-源码可达依赖中的 procedural macro target 仅支持当前 SDK 使用、来自 crates.io 的 `serde_derive`；本地或未知来源/种类拒绝，不扫描无关 workspace member。标准/serde attribute 和 derive 使用有界集合，`cfg_attr` 中隐藏的 path/include/env 与未知生成属性同样拒绝。macro_rules 的嵌套输入、未知宏调用和 path 属性不能因未展开而漏过。build stdout 只支持无插值的普通静态诊断，任何 Cargo 指令（包括 linker search/lib/arg/flags、response file 或未知生成指令）以及动态 stdout 都标为 unsupported；stderr 日志表达式仍受相同文件读取检查。此限制不解析任意宏或 linker 输入，也不宣称支持这些未覆盖的构建形式。
+源码可达依赖中的 procedural macro target 仅支持当前 SDK 使用、来自 crates.io 的 `serde_derive`，以及维护版 CBOR 经 half 引入的精确 `zerocopy-derive` 0.8.56/0.8.63（已审计生产宏只处理 AST，Cargo 校验已纳入源码身份的 lockfile checksum）；本地或未知来源/种类拒绝，不扫描无关 workspace member。标准/serde attribute 和 derive 使用有界集合，`cfg_attr` 中隐藏的 path/include/env 与未知生成属性同样拒绝。macro_rules 的嵌套输入、未知宏调用和 path 属性不能因未展开而漏过。build stdout 只支持无插值的普通静态诊断，任何 Cargo 指令（包括 linker search/lib/arg/flags、response file 或未知生成指令）以及动态 stdout 都标为 unsupported；stderr 日志表达式仍受相同文件读取检查。此限制不解析任意宏或 linker 输入，也不宣称支持这些未覆盖的构建形式。
 
 标准宏、serde_json 与本地 SDK export 的已知绑定不能被仅有相同末端名字的宏、依赖 alias 或 module/import shadow 替代；宏 token 中生成 module/import 的形式同样不在支持集合。包内白名单根目录自身及其递归 entry 都在枚举前拒绝 symlink。
 

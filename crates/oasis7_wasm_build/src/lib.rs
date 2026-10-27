@@ -444,6 +444,8 @@ struct CargoMetadata {
 struct CargoPackage {
     id: String,
     name: String,
+    #[serde(default)]
+    version: String,
     manifest_path: String,
     #[serde(default)]
     source: Option<String>,
