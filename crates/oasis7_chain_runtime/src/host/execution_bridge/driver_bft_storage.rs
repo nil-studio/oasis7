@@ -765,18 +765,21 @@ fn parse_record_name(name: &str) -> Result<Option<u64>, String> {
     Ok(Some(height))
 }
 
+pub(super) const FORMAL_PREFIX_DOWNGRADE_FENCE: &[u8] =
+    b"oasis7.formal.bft.prefix.requires-new-format/v1\n";
+
 /// All current BFT formats claim this carrier before inspecting or creating
 /// their format directory. Per-format locks alone cannot serialize migration.
 pub(super) fn lock_format(records_dir: &Path) -> Result<File, String> {
     super::super::super::durable_transaction::ensure_dir_all_durable(records_dir)?;
     let carrier = records_dir.join("bft-format.lock");
-    let mut prefix_started = false;
-    for marker in ["formal-bft-prefix-required-v1"] {
-        match fs::symlink_metadata(records_dir.join(marker)) {
-            Ok(_) => prefix_started = true,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
+    let mut prefix_started =
+        read_optional_bytes(&records_dir.join("formal-bft-read-required-v1"), 128)?.as_deref()
+            == Some(FORMAL_PREFIX_DOWNGRADE_FENCE);
+    match fs::symlink_metadata(records_dir.join("formal-bft-prefix-required-v1")) {
+        Ok(_) => prefix_started = true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
     }
     // Do not upgrade an empty replacement over a durable prefix identity.
     match fs::read_dir(records_dir.join("formal-bft-prefix-v1")) {

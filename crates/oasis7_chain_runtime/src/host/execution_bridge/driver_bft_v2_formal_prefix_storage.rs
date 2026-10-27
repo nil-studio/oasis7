@@ -15,7 +15,7 @@ pub(super) const DIRECTORY: &str = "formal-bft-prefix-v1";
 const MARKER: &str = "formal-bft-prefix-required-v1";
 const MARKER_BYTES: &[u8] = b"oasis7.formal.bft.prefix.required/v1\n";
 const LEGACY_MARKER: &str = "formal-bft-read-required-v1";
-const DOWNGRADE_FENCE: &[u8] = b"oasis7.formal.bft.prefix.requires-new-format/v1\n";
+const DOWNGRADE_FENCE: &[u8] = common_storage::FORMAL_PREFIX_DOWNGRADE_FENCE;
 const SCOPE: &str = "formal-bft-prefix-v1";
 const MAX_RECORD: usize = 8 * 1024 * 1024;
 const MAX_MATERIAL: usize = 512 * 1024 * 1024;
@@ -922,6 +922,20 @@ mod capacity_tests {
             fs::rename(&original, &carrier).unwrap();
             drop(Ledger::open(&root.0, false, 0).unwrap());
         }
+        // Even if this fence is the only remaining durable prefix identity,
+        // a current engineering-mode attempt must preserve the damaged lock.
+        fs::remove_file(root.0.join(DIRECTORY).join("origin.cbor")).unwrap();
+        fs::remove_file(root.0.join(MARKER)).unwrap();
+        assert_eq!(
+            fs::read(root.0.join(LEGACY_MARKER)).unwrap(),
+            DOWNGRADE_FENCE
+        );
+        let carrier = root.0.join("bft-format.lock");
+        fs::write(&carrier, []).unwrap();
+        assert!(common_storage::lock_format(&root.0).is_err());
+        assert!(fs::read(&carrier).unwrap().is_empty());
+        assert!(Ledger::open(&root.0, true, 0).is_err());
+        assert!(fs::read(&carrier).unwrap().is_empty());
     }
     #[test]
     fn failed_material_reservation_cannot_make_a_retry_skip_the_limit() {
