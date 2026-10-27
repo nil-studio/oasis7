@@ -16,6 +16,52 @@ const SYNC_M5: &str = include_str!("../../../scripts/sync-m5-builtin-wasm-artifa
 const IMPORT_SUMMARIES: &str = include_str!("../../../scripts/stage-wasm-summary-imports.sh");
 const ATTESTATION_FLOW: &str =
     include_str!("../../../scripts/module-release-node-attestation-flow.sh");
+const EVIDENCE_REPORT: &str = include_str!("../../../scripts/wasm-release-evidence-report.sh");
+const BUNDLE_SMOKE: &str = include_str!("../../../scripts/wasm-summary-bundle-smoke.sh");
+
+#[test]
+fn registered_evidence_report_executes_full_pending_and_mismatch_contracts() {
+    assert_compiled_input("scripts/wasm-release-evidence-report.sh", EVIDENCE_REPORT);
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+def summary(runner):
+    return dict(schema_version=1,module_set='m1',runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',module_count=1,
+      module_hashes={'m1.module':'wasm'},manifest_platform_hashes={'m1.module':'wasm'},identity_hashes={'m1.module':'identity'},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={'m1.module':dict(source_hash='source',build_manifest_hash='build',wasm_hash='wasm',builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+for case in ('closed','pending','mismatch'):
+    imports=root/case/'imports'; imports.mkdir(parents=True)
+    for runner in (('linux-x86_64',) if case=='pending' else ('linux-x86_64','darwin-arm64')):
+        value=summary(runner)
+        if case=='mismatch' and runner=='darwin-arm64': value['module_hashes']['m1.module']='different-wasm'
+        (imports/(runner+'.json')).write_text(json.dumps(value))
+    out=root/case/'report'
+    result=subprocess.run(['bash',str(repo/'scripts/wasm-release-evidence-report.sh'),'--out-dir',str(out),'--module-sets','m1','--runner-label','linux-x86_64','--skip-collect','--summary-import-dir',str(imports),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64'],capture_output=True,text=True)
+    files=list(out.glob('*/summary.json'));assert len(files)==1,result.stderr
+    report=json.loads(files[0].read_text())
+    expected={'closed':'cross-host-closed','pending':'conditional-go','mismatch':'no-go'}[case]
+    assert report['gate_result']==expected,(report,result.stderr)
+    assert report['cross_host_closed']==(case=='closed'),(case,report,result.stdout,result.stderr)
+    assert report['cross_host_evidence_pending']==(case=='pending'),(case,report,result.stdout,result.stderr)
+    assert result.returncode==0,(case,result.stderr) # report generation succeeds; the recorded gate is authoritative
+    assert report['module_sets'][0]['verify_status']==('failed' if case=='mismatch' else 'passed')
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("execute actual offline evidence report matrix"));
+}
+
+#[test]
+fn registered_manual_bundle_smoke_executes_its_real_local_fixtures() {
+    assert_compiled_input("scripts/wasm-summary-bundle-smoke.sh", BUNDLE_SMOKE);
+    let stdout = assert_success(
+        Command::new("bash")
+            .arg(repo_root().join("scripts/wasm-summary-bundle-smoke.sh"))
+            .current_dir(repo_root())
+            .output()
+            .expect("execute actual local bundle smoke"),
+    );
+    assert!(stdout.contains("wasm summary bundle smoke: OK"));
+}
 
 #[test]
 fn registered_wasm_consumers_execute_import_and_offline_request_contracts() {

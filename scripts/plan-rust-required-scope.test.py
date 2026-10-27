@@ -38,6 +38,8 @@ class Selection(unittest.TestCase):
         cases = {
             "scripts/module-release-node-attestation-flow.sh": {"operational_contracts", "formal_process", "workspace_support"},
             "scripts/stage-wasm-summary-imports.sh": {"packaging_contracts", "workspace_support"},
+            "scripts/wasm-release-evidence-report.sh": {"operational_contracts", "packaging_contracts", "workspace_support"},
+            "scripts/wasm-summary-bundle-smoke.sh": {"packaging_contracts", "workspace_support"},
         }
         with patch.object(selector, "cargo_graph", return_value=graph):
             for path, required in cases.items():
@@ -47,10 +49,12 @@ class Selection(unittest.TestCase):
                 self.assertTrue(required.issubset(plan["groups"]))
                 self.assertEqual(plan["workspace_support_profiles"], ["wasm_build_suite"])
                 self.base = head
-            for path in ("scripts/module-release-node-attestation-flow-future.sh", "scripts/stage-wasm-summary-imports-future.sh"):
+            for path in ("scripts/module-release-node-attestation-flow-future.sh", "scripts/stage-wasm-summary-imports-future.sh", "scripts/wasm-release-evidence-report-future.sh", "scripts/wasm-summary-bundle-smoke-future.sh"):
                 self.write(path, "# not registered\n")
+                head = self.commit()
                 with self.assertRaises(selector.UnknownInputsError):
-                    selector.select(config, self.base, self.commit())
+                    selector.select(config, self.base, head)
+                self.base = head
 
     def test_architecture_inputs_have_trusted_owner_and_select_execution(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
