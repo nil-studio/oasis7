@@ -20,6 +20,24 @@ use super::module_runtime_labels::{
     subscription_stage_label,
 };
 
+#[derive(Clone, Copy)]
+pub(super) enum MovementRulePhase {
+    All,
+    General,
+    Pricing,
+}
+
+impl MovementRulePhase {
+    fn includes(self, module_id: &str) -> bool {
+        let pricing = matches!(module_id, "m1.rule.move" | "m1.mobility.basic" | "m1.power.storage");
+        match self {
+            Self::All => true,
+            Self::General => !pricing,
+            Self::Pricing => pricing,
+        }
+    }
+}
+
 impl World {
     pub fn route_event_to_modules(
         &mut self,
@@ -160,7 +178,20 @@ impl World {
     ) -> Result<usize, WorldError> {
         let mut staged = TrustedCommandStage::new(self)?;
         let routed =
-            self.route_action_to_staged(&mut staged, envelope, stage, result_event, sandbox);
+            self.route_action_to_staged(&mut staged, envelope, stage, result_event, MovementRulePhase::All, sandbox);
+        self.finalize_prepared_module_route(staged.prepare_route(routed))
+    }
+
+    pub(super) fn route_movement_preaction_phase(
+        &mut self,
+        envelope: &ActionEnvelope,
+        phase: MovementRulePhase,
+        sandbox: &mut dyn ModuleSandbox,
+    ) -> Result<usize, WorldError> {
+        let mut staged = TrustedCommandStage::new(self)?;
+        let routed = self.route_action_to_staged(
+            &mut staged, envelope, ModuleSubscriptionStage::PreAction, None, phase, sandbox,
+        );
         self.finalize_prepared_module_route(staged.prepare_route(routed))
     }
 
@@ -170,6 +201,7 @@ impl World {
         envelope: &ActionEnvelope,
         stage: ModuleSubscriptionStage,
         result_event: Option<&WorldEvent>,
+        phase: MovementRulePhase,
         sandbox: &mut dyn ModuleSandbox,
     ) -> Result<usize, WorldError> {
         let action_kind = action_kind_label(&envelope.action);
@@ -184,6 +216,9 @@ impl World {
             let manifest = invocation.manifest;
             let module_id = invocation.module_id;
             let instance_id = invocation.instance_id;
+            if !phase.includes(&module_id) {
+                continue;
+            }
             let prepared = prepare_subscriptions(&manifest.subscriptions, &manifest.module_id)
                 .map_err(|reason| WorldError::ModuleChangeInvalid { reason })?;
             let subscribed = prepared_module_subscribes_to_action(

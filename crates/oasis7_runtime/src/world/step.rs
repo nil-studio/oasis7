@@ -681,7 +681,7 @@ impl World {
                     }
                 }
 
-                let decision = self.evaluate_rule_decisions(&action_envelope, sandbox)?;
+                let mut decision = self.evaluate_rule_decisions(&action_envelope, sandbox)?;
                 if decision.verdict == RuleVerdict::Modify
                     && let Some(override_action) = decision.override_action.clone()
                 {
@@ -700,6 +700,20 @@ impl World {
                         action: override_action,
                     };
                 }
+
+                // A preliminary rule allow does not authorize distance settlement.
+                // Resolve the final move before any movement-specific rule debit.
+                let movement_outcome = if decision.verdict != RuleVerdict::Deny
+                    && matches!(action_envelope.action, Action::MoveAgent { .. })
+                {
+                    let outcome = self.action_to_event(&action_envelope)?;
+                    if matches!(outcome, WorldEventBody::Domain(DomainEvent::ActionRejected { .. })) {
+                        decision.cost = Default::default();
+                    }
+                    Some(outcome)
+                } else {
+                    None
+                };
 
                 if decision.verdict == RuleVerdict::Deny {
                     self.append_action_accepted_event(&envelope)?;
@@ -731,7 +745,10 @@ impl World {
                                 if !self.try_apply_runtime_module_action(&action_envelope)? {
                                     let followup_context =
                                         self.factory_production_followup_context(&envelope);
-                                    let event_body = self.action_to_event(&action_envelope)?;
+                                    let event_body = match movement_outcome {
+                                        Some(outcome) => outcome,
+                                        None => self.action_to_event(&action_envelope)?,
+                                    };
                                     self.preflight_domain_event(&event_body)?;
                                     self.append_action_accepted_event(&envelope)?;
                                     self.append_event(

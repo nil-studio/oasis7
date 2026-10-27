@@ -1,7 +1,8 @@
 use super::super::{
     M1_AGENT_DEFAULT_MODULE_VERSION, M1_MEMORY_MAX_ENTRIES, M1_MEMORY_MODULE_ID,
     M1_MOBILITY_MODULE_ID, M1_POWER_MODULE_VERSION, M1_RADIATION_POWER_MODULE_ID,
-    M1_SENSOR_MODULE_ID, M1_STORAGE_CARGO_MODULE_ID, M1_STORAGE_POWER_MODULE_ID, Manifest,
+    M1_SENSOR_MODULE_ID, M1_STORAGE_CARGO_MODULE_ID, M1_STORAGE_POWER_MODULE_ID,
+    M1_STORAGE_POWER_MODULE_VERSION, Manifest,
     ModuleAbiContract, ModuleActivation, ModuleArtifactIdentity, ModuleChangeSet, ModuleKind,
     ModuleLimits, ModuleManifest, ModuleRegistry, ModuleRole, ModuleSubscription,
     ModuleSubscriptionStage, ProposalDecision, WorldError, util,
@@ -25,10 +26,54 @@ impl Default for M1ScenarioBootstrapConfig {
 }
 
 impl World {
+    pub(super) fn validate_m1_storage_activation(
+        &self,
+        module_id: &str,
+        version: &str,
+    ) -> Result<(), WorldError> {
+        if module_id != M1_STORAGE_POWER_MODULE_ID || version != M1_STORAGE_POWER_MODULE_VERSION {
+            return Ok(());
+        }
+        for (state_key, bytes) in &self.state.module_states {
+            let belongs = state_key == M1_STORAGE_POWER_MODULE_ID
+                || self.state.module_instances.get(state_key).is_some_and(|instance| {
+                    instance.module_id == M1_STORAGE_POWER_MODULE_ID
+                });
+            if !belongs || bytes.is_empty() {
+                continue;
+            }
+            let compatible = serde_cbor::from_slice::<serde_json::Value>(bytes)
+                .ok()
+                .is_some_and(|state| {
+                    let marker = state.get("last_settled_event_id");
+                    marker.is_some_and(|value| value.is_null() || value.as_u64().is_some())
+                        && state.get("agents").and_then(serde_json::Value::as_object)
+                            .is_some_and(|agents| agents.iter().all(|(agent_id, battery)| {
+                                let Some(agent) = self.state.agents.get(agent_id) else {
+                                    return false;
+                                };
+                                let position_matches = battery.get("pos")
+                                    == serde_json::to_value(agent.state.pos).ok().as_ref();
+                                let bounded_level = battery.get("level")
+                                    .and_then(serde_json::Value::as_i64)
+                                    .is_some_and(|level| (0..=12).contains(&level));
+                                position_matches && bounded_level
+                            }))
+                });
+            if !compatible {
+                return Err(WorldError::ModuleChangeInvalid {
+                    reason: "M1 storage 0.2.0 activation requires explicit migration of historical battery state".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub fn install_m1_power_bootstrap_modules(
         &mut self,
         actor: impl Into<String>,
     ) -> Result<(), WorldError> {
+        self.validate_m1_storage_activation(M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION)?;
         let radiation_power_artifact =
             self.load_builtin_wasm_artifact_for_module("m1", M1_RADIATION_POWER_MODULE_ID)?;
         let storage_power_artifact =
@@ -50,7 +95,7 @@ impl World {
             &mut changes,
             M1_STORAGE_POWER_MODULE_ID,
             &storage_power_artifact,
-            M1_POWER_MODULE_VERSION,
+            M1_STORAGE_POWER_MODULE_VERSION,
             "m1",
             m1_storage_power_manifest,
         )?;
@@ -251,7 +296,7 @@ fn m1_storage_power_manifest(
     ModuleManifest {
         module_id: M1_STORAGE_POWER_MODULE_ID.to_string(),
         name: "M1StoragePower".to_string(),
-        version: M1_POWER_MODULE_VERSION.to_string(),
+        version: M1_STORAGE_POWER_MODULE_VERSION.to_string(),
         kind: ModuleKind::Reducer,
         role: ModuleRole::Body,
         wasm_hash: wasm_hash.clone(),

@@ -94,7 +94,7 @@ fn install_power_bootstrap_modules_registers_and_activates() {
     let radiation_key =
         ModuleRegistry::record_key(M1_RADIATION_POWER_MODULE_ID, M1_POWER_MODULE_VERSION);
     let storage_key =
-        ModuleRegistry::record_key(M1_STORAGE_POWER_MODULE_ID, M1_POWER_MODULE_VERSION);
+        ModuleRegistry::record_key(M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION);
     assert!(world.module_registry().records.contains_key(&radiation_key));
     assert!(world.module_registry().records.contains_key(&storage_key));
 }
@@ -359,3 +359,5 @@ fn storage_module_blocks_continuous_move_when_power_runs_out() {
         rejections.join(" | ")
     );
 }
+
+include!("power_movement_settlement.rs");

@@ -18,7 +18,7 @@ fn register_m1_builtin_wasm_artifact(world: &mut World, module_id: &str) -> Stri
 }
 
 #[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
-fn install_m1_move_rule(world: &mut World) {
+pub(super) fn install_m1_move_rule(world: &mut World) {
     let wasm_hash = register_m1_builtin_wasm_artifact(world, M1_MOVE_RULE_MODULE_ID);
 
     let module_manifest = ModuleManifest {
@@ -252,7 +252,7 @@ impl ModuleSandbox for MapSandbox {
     }
 }
 
-fn install_rule_modules(world: &mut World, action_kind: &str, module_ids: &[&str]) {
+pub(super) fn install_rule_modules(world: &mut World, action_kind: &str, module_ids: &[&str]) {
     let mut manifests = Vec::new();
     for module_id in module_ids {
         let wasm_bytes = format!("rule-{module_id}").into_bytes();
