@@ -414,7 +414,6 @@
     {
       "match": [
         "deny.toml",
-        "scripts/rustsec-ignore-direct-dependency-baseline.json",
         "scripts/check-rustsec-ignore-baseline.sh",
         "scripts/check-rustsec-ignore-baseline.test.sh"
       ],

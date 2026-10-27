@@ -237,6 +237,10 @@ run_oasis7_net_clippy() {
 
 run_oasis7_net_libp2p_tests() {
   run python3 ./scripts/libp2p-security-source.test.py
+  if [[ "$(uname -s)" == Linux ]]; then
+    run_cargo test --locked --manifest-path ./vendor-if-watch-3.2.2/Cargo.toml \
+      --target-dir ./target --all-features
+  fi
   run python3 ./scripts/libp2p-compat.test.py
   run_cargo test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml \
     --target-dir ./target --lib -- --test-threads=1
@@ -358,7 +362,7 @@ PY
 run_rustsec_advisory_check() {
   run ./scripts/check-rustsec-ignore-baseline.sh
   run ./scripts/ensure-cargo-deny.sh
-  run cargo deny check advisories
+  run cargo deny check advisories bans
 }
 
 run_oasis7_llm_baseline_fixture_smoke() {

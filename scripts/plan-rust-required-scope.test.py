@@ -223,7 +223,7 @@ class Selection(unittest.TestCase):
 
     def test_rustsec_baseline_inputs_are_registered(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('deny.toml', 'scripts/rustsec-ignore-direct-dependency-baseline.json',
+        for path in ('deny.toml',
                      'scripts/check-rustsec-ignore-baseline.sh',
                      'scripts/check-rustsec-ignore-baseline.test.sh'):
             with self.subTest(path=path):

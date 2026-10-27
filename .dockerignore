@@ -7,6 +7,8 @@
 !Cargo.lock
 !scripts/
 !scripts/build-wasm-module.sh
+!vendor-if-watch-3.2.2/
+!vendor-if-watch-3.2.2/**
 !vendor-libp2p-swarm-0.48.0/
 !vendor-libp2p-swarm-0.48.0/**
 !vendor-libp2p-rendezvous-0.18.1/
