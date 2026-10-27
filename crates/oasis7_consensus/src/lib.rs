@@ -22,6 +22,7 @@ mod sequencer_mainloop;
 mod signature;
 pub mod tendermint_v1;
 pub mod tendermint_v2;
+pub mod tendermint_v3;
 mod tiered_file_log;
 
 pub mod distributed {
