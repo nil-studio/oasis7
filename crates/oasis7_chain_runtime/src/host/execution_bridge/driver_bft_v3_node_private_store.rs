@@ -245,7 +245,7 @@ impl NodePrivateStore {
                 );
             }
         }
-        super::super::super::super::super::super::super::controlled_live::private_directory(
+        super::super::super::super::super::super::super::super::controlled_live::private_directory(
             &self.dir,
         )?;
         self.origin.get_or_insert(Slot {
