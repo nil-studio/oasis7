@@ -348,3 +348,68 @@ fn known_product_stack_limit_166_batch_receipt_matches_quote_once_with_real_vali
     assert_eq!(restored.state().recipe_completion_receipts.len(), 1);
     assert_eq!(restored.state().product_validation_receipts, receipts);
 }
+
+#[test]
+fn known_product_stack_limit_module_plan_rejects_before_sinks() {
+    let mut world = recipe_fixture();
+    activate_product(
+        &mut world,
+        M4_PRODUCT_IRON_INGOT_MODULE_ID,
+        "test",
+        &standard_hash(M4_PRODUCT_IRON_INGOT_MODULE_ID),
+    );
+    let recipe_module = "m4.recipe.fixture.oversize";
+    let bytes = b"fixture recipe plan; not a real WASM validator";
+    let hash = crate::util::sha256_hex(bytes);
+    world.register_module_artifact(hash.clone(), bytes).unwrap();
+    activate_product(&mut world, recipe_module, "test", &hash);
+    world
+        .set_agent_resource_balance(AGENT_ID, ResourceKind::Electricity, 10000)
+        .unwrap();
+    let ledger = world.state().factories["factory"].input_ledger.clone();
+    for kind in ["iron_ore", "carbon_fuel"] {
+        world
+            .set_ledger_material_balance(ledger.clone(), kind, 10000)
+            .unwrap();
+    }
+    let plan = builtin_recipe_plan("recipe.smelter.iron_ingot", 167).unwrap();
+    let mut sandbox = oasis7_wasm_executor::FixedSandbox::succeed(oasis7_wasm_abi::ModuleOutput {
+        new_state: None,
+        effects: vec![],
+        emits: vec![oasis7_wasm_abi::ModuleEmit {
+            kind: "economy.recipe_execution_plan".into(),
+            payload: serde_json::to_value(plan).unwrap(),
+        }],
+        tick_lifecycle: None,
+        output_bytes: 512,
+    });
+    let before = world.state().clone();
+    let start = world.journal().events.len();
+    world.submit_action(Action::ScheduleRecipeWithModule {
+        requester_agent_id: AGENT_ID.into(),
+        factory_id: "factory".into(),
+        recipe_id: "recipe.smelter.iron_ingot".into(),
+        module_id: recipe_module.into(),
+        desired_batches: 167,
+        deterministic_seed: 1,
+    });
+    world.step_with_modules(&mut sandbox).unwrap();
+    assert_eq!(world.state().material_ledgers, before.material_ledgers);
+    assert_eq!(
+        world.state().pending_recipe_jobs,
+        before.pending_recipe_jobs
+    );
+    assert_eq!(world.state().industry_progress, before.industry_progress);
+    assert_eq!(
+        world.state().agents[AGENT_ID]
+            .state
+            .resources
+            .get(ResourceKind::Electricity),
+        before.agents[AGENT_ID]
+            .state
+            .resources
+            .get(ResourceKind::Electricity)
+    );
+    assert!(world.journal().events[start..].iter().any(|event| matches!(&event.body,
+        WorldEventBody::Domain(DomainEvent::ActionRejected { reason: RejectReason::RuleDenied { notes }, .. }) if notes.iter().any(|note| note.contains("stack limit") && note.contains("501")))));
+}
