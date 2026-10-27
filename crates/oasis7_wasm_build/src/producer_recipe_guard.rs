@@ -58,8 +58,12 @@ impl<'ast> Visit<'ast> for Guard<'_> {
         {
             self.error = Some("unsupported producer attribute/input".into());
         }
+        syn::visit::visit_attribute(self, attr);
     }
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+        for attr in &item.attrs {
+            self.visit_attribute(attr);
+        }
         if shadows_syn(&item.tree)
             || crate::source_inputs::scan::unsafe_macro_import(&item.tree, None)
         {
@@ -70,6 +74,9 @@ impl<'ast> Visit<'ast> for Guard<'_> {
         self.error = Some("unsupported producer extern crate".into());
     }
     fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+        for attr in &item.attrs {
+            self.visit_attribute(attr);
+        }
         if item.ident.is_some() {
             self.error = Some("unsupported producer macro definition".into());
         } else {
@@ -250,5 +257,23 @@ mod tests {
         ] {
             assert!(scan(text).is_some(), "accepted shadow: {text}");
         }
+    }
+    #[test]
+    fn standard_attribute_values_are_checked_on_functions_imports_and_macro_items() {
+        let mut admitted = Vec::new();
+        for text in [
+            "#[doc = include_str!(\"../../../external.txt\")] pub fn value() {}",
+            "#[doc = include_str!(\"../../../external.txt\")] use std::fmt;",
+            "#[doc = include_str!(\"../../../external.txt\")] println!(\"literal\");",
+            "#[cfg_attr(any(), doc = include_str!(\"../../../external.txt\"))] pub fn value() {}",
+        ] {
+            if scan(text).is_none() {
+                admitted.push(text);
+            }
+        }
+        assert!(
+            admitted.is_empty(),
+            "standard attribute input skipped: {admitted:?}"
+        );
     }
 }

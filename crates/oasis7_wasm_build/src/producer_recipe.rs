@@ -605,4 +605,106 @@ mod tests {
         }
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn real_native_producer_attributes_reject_external_and_keep_recorded_src_inputs() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!(
+            "producer-attribute-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        for name in FIXED
+            .into_iter()
+            .filter(|name| !matches!(*name, "Cargo.toml" | "Cargo.lock"))
+        {
+            let target = dir.join(name);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::copy(repo.join(name), target).unwrap();
+        }
+        fs::write(dir.join("Cargo.toml"), "[workspace]\nmembers=[\"crates/oasis7_wasm_build\",\"tools/wasm_build_suite\"]\nresolver=\"2\"\n").unwrap();
+        for (package, name) in [
+            (PRODUCERS[0], "oasis7_wasm_build"),
+            (PRODUCERS[1], "wasm_build_suite"),
+        ] {
+            let package = dir.join(package);
+            fs::create_dir_all(package.join("src")).unwrap();
+            let mut manifest =
+                format!("[package]\nname=\"{name}\"\nversion=\"0.1.0\"\nedition=\"2024\"\n");
+            if name == "wasm_build_suite" {
+                manifest.push_str(
+                    "[dependencies]\noasis7_wasm_build={path=\"../../crates/oasis7_wasm_build\"}\n",
+                );
+            }
+            fs::write(package.join("Cargo.toml"), manifest).unwrap();
+        }
+        fs::write(
+            dir.join("tools/wasm_build_suite/src/main.rs"),
+            "fn main(){oasis7_wasm_build::value();}\n",
+        )
+        .unwrap();
+        fs::write(dir.join("external.txt"), "external documentation").unwrap();
+        let library = dir.join("crates/oasis7_wasm_build/src/lib.rs");
+        let build = || {
+            std::process::Command::new("cargo")
+                .env_remove("RUSTC_WRAPPER")
+                .args(["build", "--offline", "--manifest-path"])
+                .arg(dir.join("tools/wasm_build_suite/Cargo.toml"))
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+        };
+        let mut admitted = Vec::new();
+        for item in ["pub fn value() {}", "use std::fmt;\npub fn value() {}"] {
+            fs::write(
+                &library,
+                format!("#[doc=include_str!(\"../../../external.txt\")]\n{item}\n"),
+            )
+            .unwrap();
+            let result = build();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            if compute_builder_recipe(&dir).is_ok() {
+                admitted.push(item);
+            }
+        }
+        assert!(
+            admitted.is_empty(),
+            "real Cargo accepted external attribute input omitted by recipe: {admitted:?}"
+        );
+        fs::write(
+            dir.join("crates/oasis7_wasm_build/src/docs.txt"),
+            "recorded documentation",
+        )
+        .unwrap();
+        fs::write(
+            &library,
+            "#[doc=include_str!(\"docs.txt\")]\npub fn value() {}\n",
+        )
+        .unwrap();
+        let first = compute_builder_recipe(&dir).unwrap();
+        let result = build();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        fs::write(
+            dir.join("crates/oasis7_wasm_build/src/docs.txt"),
+            "changed recorded documentation",
+        )
+        .unwrap();
+        assert_ne!(
+            first.producer_recipe_hash,
+            compute_builder_recipe(&dir).unwrap().producer_recipe_hash
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
