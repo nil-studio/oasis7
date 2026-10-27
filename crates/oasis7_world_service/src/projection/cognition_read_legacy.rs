@@ -1,0 +1,56 @@
+//! Frozen pre-migration read algorithm, independent of the new concrete decoders.
+use super::*;
+pub fn from_committed_world(
+    world: &World,
+    agent: Option<&str>,
+    reader: &str,
+) -> Result<WorldServiceProjection, String> {
+    let mut projection = from_authenticated_world(world, agent, reader)?;
+    if let Some(agent) = agent {
+        projection.agent_context =
+            oasis7_runtime::World::optional_canonical_agent_service_context(world, agent)?;
+        projection.cognition_leases = world
+            .cognition_economy()
+            .map_err(|e| format!("{e:?}"))?
+            .leases
+            .into_values()
+            .filter(|lease| lease.agent_id == agent)
+            .collect();
+        projection.continuations =
+            serde_json::from_value::<Vec<oasis7_runtime::AgentContinuation>>(
+                world.cognition_continuations(),
+            )
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|continuation| continuation.agent_id == agent)
+            .collect();
+        projection.scheduler_wakes = world
+            .cognition_in_flight_wakes()
+            .map_err(|e| format!("{e:?}"))?
+            .into_iter()
+            .filter(|wake| wake.agent_id == agent)
+            .collect();
+        for continuation in &projection.continuations {
+            if let Some(context) = world.service_continuation_context(&continuation.continuation_id)
+            {
+                projection.continuation_contexts.insert(
+                    continuation.continuation_id.clone(),
+                    serde_json::from_value(context).map_err(|e| e.to_string())?,
+                );
+            }
+        }
+    }
+    projection.events = world
+        .journal()
+        .events
+        .iter()
+        .filter(|event| match &event.body {
+            oasis7_runtime::WorldEventBody::Domain(domain) => {
+                agent.is_some_and(|agent| domain.agent_id() == Some(agent))
+            }
+            _ => false,
+        })
+        .cloned()
+        .collect();
+    Ok(projection)
+}

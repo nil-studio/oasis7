@@ -1,3 +1,4 @@
+use oasis7_proto::network_failure::{FailureCause, FailureEvidence, FailureOrigin, NetworkFailure};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -415,16 +416,22 @@ impl Libp2pReplicationNetwork {
         let response = self
             .inner
             .request_to_peer_with_timeout(protocol, payload, peer, timeout)
-            .map_err(|err| WorldError::NetworkProtocolUnavailable {
-                protocol: format!("libp2p-replication outbound request failed: {err:?}"),
+            .map_err(|err| {
+                let facts = err.network_failure(Some(protocol));
+                err.with_network_failure(facts)
             })?;
 
         if let Some(remote_error) = decode_error_response(response.as_slice()) {
-            return Err(WorldError::NetworkRequestFailed {
+            let err = WorldError::NetworkRequestFailed {
                 code: remote_error.code,
                 message: remote_error.message,
                 retryable: remote_error.retryable,
-            });
+            };
+            let mut facts = err.network_failure(Some(protocol));
+            facts.origin = FailureOrigin::RemoteResponse;
+            // The receive path is observed locally; the error semantics remain peer claims.
+            facts.evidence = FailureEvidence::PeerClaim;
+            return Err(err.with_network_failure(facts));
         }
 
         Ok(response)
@@ -551,7 +558,12 @@ impl Libp2pReplicationNetwork {
             Some(handler) => handler(payload),
             None => Err(WorldError::NetworkProtocolUnavailable {
                 protocol: format!("libp2p-replication handler missing: {protocol}"),
-            }),
+            }
+            .with_network_failure(NetworkFailure::observed(
+                FailureOrigin::LocalTransport,
+                FailureCause::MissingHandler,
+                Some(protocol),
+            ))),
         }
     }
 
@@ -1012,7 +1024,7 @@ fn peer_error_indicates_fetch_commit_not_found_retry_cooldown(
         return false;
     }
 
-    match err {
+    match err.diagnostic_source() {
         WorldError::NetworkRequestFailed { code, .. } => {
             matches!(code, DistributedErrorCode::ErrNotFound)
         }
@@ -1029,6 +1041,18 @@ fn replication_request_budget_exhausted(
     budget: Duration,
     last_error: Option<WorldError>,
 ) -> WorldError {
+    let mut facts = last_error
+        .as_ref()
+        .map(|err| err.network_failure(Some(protocol)))
+        .unwrap_or_else(|| {
+            NetworkFailure::observed(
+                FailureOrigin::ProviderRouting,
+                FailureCause::Unknown,
+                Some(protocol),
+            )
+        });
+    // The cumulative deadline must not erase the last typed timeout/denial.
+    facts.requested_protocol = Some(protocol.to_owned());
     WorldError::NetworkProtocolUnavailable {
         protocol: format!(
             "libp2p-replication request budget exhausted protocol={} budget_ms={} last_error={:?}",
@@ -1037,6 +1061,7 @@ fn replication_request_budget_exhausted(
             last_error
         ),
     }
+    .with_network_failure(facts)
 }
 
 fn rotated_peers(peers: &[PeerId], cursor: usize) -> Vec<PeerId> {

@@ -1,3 +1,4 @@
+use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
 use std::collections::HashSet;
 
 use libp2p::PeerId;
@@ -185,7 +186,12 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     | kad::QueryResult::RepublishProvider(Err(err)) => {
                         Err(WorldError::NetworkProtocolUnavailable {
                             protocol: format!("kad start_providing failed: {err}"),
-                        })
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            FailureCause::Timeout,
+                            None,
+                        )))
                     }
                     _ => Ok(()),
                 };
@@ -203,7 +209,15 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     | kad::QueryResult::RepublishRecord(Err(err)) => {
                         Err(WorldError::NetworkProtocolUnavailable {
                             protocol: format!("kad put_record failed: {err}"),
-                        })
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::PutRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )))
                     }
                     _ => Ok(()),
                 };
@@ -221,7 +235,15 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     | kad::QueryResult::RepublishRecord(Err(err)) => {
                         Err(WorldError::NetworkProtocolUnavailable {
                             protocol: format!("kad put_record failed: {err}"),
-                        })
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::PutRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )))
                     }
                     _ => Ok(()),
                 };
@@ -239,7 +261,15 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     | kad::QueryResult::RepublishRecord(Err(err)) => {
                         Err(WorldError::NetworkProtocolUnavailable {
                             protocol: format!("kad put_record failed: {err}"),
-                        })
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::PutRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )))
                     }
                     _ => Ok(()),
                 };
@@ -264,9 +294,17 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                 )) => {}
                 kad::QueryResult::GetProviders(Err(err)) => {
-                    *error = Some(WorldError::NetworkProtocolUnavailable {
-                        protocol: format!("kad get_providers failed: {err}"),
-                    });
+                    record_dht_query_error(
+                        error,
+                        WorldError::NetworkProtocolUnavailable {
+                            protocol: format!("kad get_providers failed: {err}"),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            FailureCause::Timeout,
+                            None,
+                        )),
+                    );
                 }
                 _ => {}
             }
@@ -302,20 +340,42 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(record))) => {
-                    if let Ok(decoded) = super::decode_world_head(&record.record.value) {
-                        *head = Some(decoded);
+                    match super::decode_world_head(&record.record.value) {
+                        Ok(decoded) => *head = Some(decoded),
+                        Err(err) => {
+                            *error = Some(err.with_network_failure(NetworkFailure::observed(
+                                FailureOrigin::DecodeValidation,
+                                FailureCause::Validation,
+                                None,
+                            )))
+                        }
                     }
                 }
                 kad::QueryResult::GetRecord(Ok(
                     kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
                 )) => {}
                 kad::QueryResult::GetRecord(Err(kad::GetRecordError::NotFound { .. })) => {
-                    *error = None;
+                    if !error.as_ref().is_some_and(|err| {
+                        err.network_failure(None).cause == FailureCause::Validation
+                    }) {
+                        *error = None;
+                    }
                 }
                 kad::QueryResult::GetRecord(Err(err)) => {
-                    *error = Some(WorldError::NetworkProtocolUnavailable {
-                        protocol: format!("kad get_record failed: {err}"),
-                    });
+                    record_dht_query_error(
+                        error,
+                        WorldError::NetworkProtocolUnavailable {
+                            protocol: format!("kad get_record failed: {err}"),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::GetRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )),
+                    );
                 }
                 _ => {}
             }
@@ -339,20 +399,42 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(record))) => {
-                    if let Ok(decoded) = super::decode_membership_directory(&record.record.value) {
-                        *snapshot = Some(decoded);
+                    match super::decode_membership_directory(&record.record.value) {
+                        Ok(decoded) => *snapshot = Some(decoded),
+                        Err(err) => {
+                            *error = Some(err.with_network_failure(NetworkFailure::observed(
+                                FailureOrigin::DecodeValidation,
+                                FailureCause::Validation,
+                                None,
+                            )))
+                        }
                     }
                 }
                 kad::QueryResult::GetRecord(Ok(
                     kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
                 )) => {}
                 kad::QueryResult::GetRecord(Err(kad::GetRecordError::NotFound { .. })) => {
-                    *error = None;
+                    if !error.as_ref().is_some_and(|err| {
+                        err.network_failure(None).cause == FailureCause::Validation
+                    }) {
+                        *error = None;
+                    }
                 }
                 kad::QueryResult::GetRecord(Err(err)) => {
-                    *error = Some(WorldError::NetworkProtocolUnavailable {
-                        protocol: format!("kad get_record failed: {err}"),
-                    });
+                    record_dht_query_error(
+                        error,
+                        WorldError::NetworkProtocolUnavailable {
+                            protocol: format!("kad get_record failed: {err}"),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::GetRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )),
+                    );
                 }
                 _ => {}
             }
@@ -394,12 +476,27 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
                 )) => {}
                 kad::QueryResult::GetRecord(Err(kad::GetRecordError::NotFound { .. })) => {
-                    *error = None;
+                    if !error.as_ref().is_some_and(|err| {
+                        err.network_failure(None).cause == FailureCause::Validation
+                    }) {
+                        *error = None;
+                    }
                 }
                 kad::QueryResult::GetRecord(Err(err)) => {
-                    *error = Some(WorldError::NetworkProtocolUnavailable {
-                        protocol: format!("kad get_record failed: {err}"),
-                    });
+                    record_dht_query_error(
+                        error,
+                        WorldError::NetworkProtocolUnavailable {
+                            protocol: format!("kad get_record failed: {err}"),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::GetRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )),
+                    );
                 }
                 _ => {}
             }
@@ -458,9 +555,17 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
                 )) => {}
                 kad::QueryResult::GetProviders(Err(err)) => {
-                    *error = Some(WorldError::NetworkProtocolUnavailable {
-                        protocol: format!("kad discovery get_providers failed: {err}"),
-                    });
+                    record_dht_query_error(
+                        error,
+                        WorldError::NetworkProtocolUnavailable {
+                            protocol: format!("kad discovery get_providers failed: {err}"),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            FailureCause::Timeout,
+                            None,
+                        )),
+                    );
                 }
                 _ => {}
             }
@@ -507,12 +612,27 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
                 )) => {}
                 kad::QueryResult::GetRecord(Err(kad::GetRecordError::NotFound { .. })) => {
-                    *error = None;
+                    if !error.as_ref().is_some_and(|err| {
+                        err.network_failure(None).cause == FailureCause::Validation
+                    }) {
+                        *error = None;
+                    }
                 }
                 kad::QueryResult::GetRecord(Err(err)) => {
-                    *error = Some(WorldError::NetworkProtocolUnavailable {
-                        protocol: format!("kad get_record failed: {err}"),
-                    });
+                    record_dht_query_error(
+                        error,
+                        WorldError::NetworkProtocolUnavailable {
+                            protocol: format!("kad get_record failed: {err}"),
+                        }
+                        .with_network_failure(NetworkFailure::observed(
+                            FailureOrigin::Dht,
+                            match err {
+                                kad::GetRecordError::Timeout { .. } => FailureCause::Timeout,
+                                _ => FailureCause::Unknown,
+                            },
+                            None,
+                        )),
+                    );
                     if let Some(triggers) = rendezvous_triggers.as_ref() {
                         triggers.clear();
                     }
@@ -539,4 +659,13 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
         }
     }
     DhtProgressAction::None
+}
+
+fn record_dht_query_error(slot: &mut Option<WorldError>, candidate: WorldError) {
+    if !slot
+        .as_ref()
+        .is_some_and(|err| err.network_failure(None).cause == FailureCause::Validation)
+    {
+        *slot = Some(candidate);
+    }
 }

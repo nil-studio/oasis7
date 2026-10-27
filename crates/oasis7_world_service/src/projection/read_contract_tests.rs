@@ -14,7 +14,7 @@ fn public(n: u8) -> String {
 fn populated_world() -> World {
     populated_world_with_binding("read-world")
 }
-fn populated_world_with_binding(world_id: &str) -> World {
+pub(super) fn populated_world_with_binding(world_id: &str) -> World {
     let mut seed = World::new();
     seed.submit_action(oasis7_runtime::Action::RegisterAgent {
         agent_id: "7".into(),
@@ -190,7 +190,9 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
         Ok(response)
     }
 
-    let world = populated_world_with_binding("formal-fixture-world");
+    let world = super::cognition_read_tests::with_populated_cognition(
+        populated_world_with_binding("formal-fixture-world"),
+    );
     let mut delegation = world.capability_revocation_state().agent_signer_delegations["7"].clone();
     let (world, trust, granted_anchor, _) =
         actual_world_initial_fixture_from_world(world, "32".repeat(32));
@@ -205,6 +207,8 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
     .unwrap();
     let delegated = read_current(&before, &trust, "agent:7", &secret(8)).unwrap();
     assert!(delegated.view.state.pending_factory_builds.contains_key(&7));
+    assert_eq!(delegated.view.continuations.len(), 3);
+    assert_eq!(delegated.view.continuation_contexts.len(), 2);
     before_tree
         .inclusion(&delegate)
         .unwrap()
@@ -253,6 +257,14 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
         ("public", secret(8), public_audience, false),
     ] {
         let response = read_current(&after, &trust, scope, &reader_secret).unwrap();
+        assert_eq!(
+            response.view.continuations.len(),
+            if private { 3 } else { 0 }
+        );
+        assert_eq!(
+            response.view.continuation_contexts.len(),
+            if private { 2 } else { 0 }
+        );
         assert_eq!(
             response.view.state.pending_factory_builds.contains_key(&7),
             private

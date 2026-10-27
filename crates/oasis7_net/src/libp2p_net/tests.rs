@@ -1086,3 +1086,93 @@ fn active_transport_path_from_endpoint_maps_inbound_ephemeral_tcp_port_to_known_
     assert_eq!(mapped_path.kind, TransportPathKind::Direct);
     assert_eq!(mapped_path.flavor, TransportSessionFlavor::TcpNoiseYamux);
 }
+
+#[test]
+fn typed_dht_timeout_and_malformed_record_have_distinct_origins() {
+    use oasis7_proto::network_failure::{FailureCause, FailureEvidence, FailureOrigin};
+    for malformed_first in [false, true] {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut pending = PendingDhtQuery::GetWorldHead {
+            response: Some(sender),
+            head: None,
+            error: None,
+        };
+        let key = RecordKey::new(&"typed-dht-head");
+        let clock = super::peer_record_time::DiscoveryClock::default();
+        if malformed_first {
+            handle_dht_progress(
+                &mut pending,
+                kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(kad::PeerRecord {
+                    peer: Some(PeerId::random()),
+                    record: kad::Record {
+                        key: key.clone(),
+                        value: b"malformed".to_vec(),
+                        publisher: None,
+                        expires: None,
+                    },
+                }))),
+                false,
+                &clock,
+            );
+        }
+        handle_dht_progress(
+            &mut pending,
+            kad::QueryResult::GetRecord(Err(kad::GetRecordError::Timeout { key })),
+            true,
+            &clock,
+        );
+        let err = receiver.recv().unwrap().expect_err("query must fail");
+        let facts = err.network_failure(None);
+        assert_eq!(
+            facts.origin,
+            if malformed_first {
+                FailureOrigin::DecodeValidation
+            } else {
+                FailureOrigin::Dht
+            }
+        );
+        assert_eq!(
+            facts.cause,
+            if malformed_first {
+                FailureCause::Validation
+            } else {
+                FailureCause::Timeout
+            }
+        );
+        assert_eq!(facts.evidence, FailureEvidence::LocalObservation);
+        assert!(!facts.is_connection_gap());
+    }
+}
+
+#[test]
+fn typed_dht_discovery_timeout_is_not_legacy_interpretation() {
+    let mut pending = PendingDhtQuery::DiscoverPeers {
+        peers: HashSet::new(),
+        error: None,
+    };
+    let action = handle_dht_progress(
+        &mut pending,
+        kad::QueryResult::GetProviders(Err(kad::GetProvidersError::Timeout {
+            key: RecordKey::new(&"discovery"),
+            closest_peers: vec![],
+        })),
+        true,
+        &super::peer_record_time::DiscoveryClock::default(),
+    );
+    let super::kad_queries::DhtProgressAction::DiscoveryError(err) = action else {
+        panic!("expected discovery failure");
+    };
+    let facts = err.network_failure(None);
+    assert_eq!(
+        facts.origin,
+        oasis7_proto::network_failure::FailureOrigin::Dht
+    );
+    assert_eq!(
+        facts.cause,
+        oasis7_proto::network_failure::FailureCause::Timeout
+    );
+    assert_eq!(
+        facts.evidence,
+        oasis7_proto::network_failure::FailureEvidence::LocalObservation
+    );
+}

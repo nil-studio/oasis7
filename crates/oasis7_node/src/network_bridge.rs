@@ -506,7 +506,7 @@ impl ReplicationNetworkEndpoint {
         })?;
         self.network
             .publish_best_effort(self.topic.as_str(), payload.as_slice())
-            .map_err(network_err)
+            .map_err(network_publish_err)
     }
 
     pub(crate) fn drain_replications(&self) -> Result<Vec<GossipReplicationMessage>, NodeError> {
@@ -572,8 +572,15 @@ impl ReplicationNetworkEndpoint {
             .network
             .request(protocol, payload.as_slice())
             .map_err(|err| network_err_for_protocol(protocol, err))?;
-        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| NodeError::Replication {
-            reason: format!("decode replication response {} failed: {}", protocol, err),
+        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| {
+            NodeError::ReplicationNetwork {
+                reason: format!("decode replication response {} failed: {}", protocol, err),
+                failure: Box::new(oasis7_proto::network_failure::NetworkFailure::observed(
+                    oasis7_proto::network_failure::FailureOrigin::DecodeValidation,
+                    oasis7_proto::network_failure::FailureCause::Validation,
+                    Some(protocol),
+                )),
+            }
         })
     }
 
@@ -881,9 +888,16 @@ impl ReplicationNetworkEndpoint {
                 request_timeout_ms,
                 retry_budget_ms,
             )
-            .map_err(network_err)?;
-        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| NodeError::Replication {
-            reason: format!("decode replication response {} failed: {}", protocol, err),
+            .map_err(|err| network_err_for_protocol(protocol, err))?;
+        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| {
+            NodeError::ReplicationNetwork {
+                reason: format!("decode replication response {} failed: {}", protocol, err),
+                failure: Box::new(oasis7_proto::network_failure::NetworkFailure::observed(
+                    oasis7_proto::network_failure::FailureOrigin::DecodeValidation,
+                    oasis7_proto::network_failure::FailureCause::Validation,
+                    Some(protocol),
+                )),
+            }
         })
     }
 
@@ -944,8 +958,15 @@ impl ReplicationNetworkEndpoint {
             .network
             .request_with_providers(protocol, payload.as_slice(), providers)
             .map_err(|err| network_err_for_protocol(protocol, err))?;
-        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| NodeError::Replication {
-            reason: format!("decode replication response {} failed: {}", protocol, err),
+        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| {
+            NodeError::ReplicationNetwork {
+                reason: format!("decode replication response {} failed: {}", protocol, err),
+                failure: Box::new(oasis7_proto::network_failure::NetworkFailure::observed(
+                    oasis7_proto::network_failure::FailureOrigin::DecodeValidation,
+                    oasis7_proto::network_failure::FailureCause::Validation,
+                    Some(protocol),
+                )),
+            }
         })
     }
 
@@ -982,8 +1003,15 @@ impl ReplicationNetworkEndpoint {
                 retry_budget_ms,
             )
             .map_err(|err| network_err_for_protocol(protocol, err))?;
-        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| NodeError::Replication {
-            reason: format!("decode replication response {} failed: {}", protocol, err),
+        serde_json::from_slice::<Resp>(&response_bytes).map_err(|err| {
+            NodeError::ReplicationNetwork {
+                reason: format!("decode replication response {} failed: {}", protocol, err),
+                failure: Box::new(oasis7_proto::network_failure::NetworkFailure::observed(
+                    oasis7_proto::network_failure::FailureOrigin::DecodeValidation,
+                    oasis7_proto::network_failure::FailureCause::Validation,
+                    Some(protocol),
+                )),
+            }
         })
     }
 
@@ -1096,90 +1124,12 @@ mod tests;
 mod network_bridge_consensus;
 pub(crate) use network_bridge_consensus::ConsensusNetworkEndpoint;
 
-fn network_err(err: WorldError) -> NodeError {
-    network_err_with_request_protocol(None, err)
-}
-
-fn network_err_for_protocol(protocol: &str, err: WorldError) -> NodeError {
-    network_err_with_request_protocol(Some(protocol), err)
-}
-
-fn network_err_with_request_protocol(protocol: Option<&str>, err: WorldError) -> NodeError {
-    if network_world_error_is_retryable_connection_gap(&err) {
-        return NodeError::Replication {
-            reason: format!(
-                "{REPLICATION_NETWORK_AVAILABILITY_GAP_PREFIX}{}",
-                replication_network_error_detail(&err)
-            ),
-        };
-    }
-    if network_world_error_is_publish_failure(&err) {
-        return NodeError::Replication {
-            reason: format!("replication network error: {err:?}"),
-        };
-    }
-    if let WorldError::NetworkRequestFailed { code, message, .. } = &err {
-        let protocol = protocol.unwrap_or(message);
-        return NodeError::Replication {
-            reason: format!(
-                "replication network request failed: kind={} protocol={} detail={}",
-                replication_network_error_kind_label(*code),
-                protocol,
-                message
-            ),
-        };
-    }
-    if let WorldError::NetworkProtocolUnavailable { .. } = &err {
-        return NodeError::Replication {
-            reason: format!(
-                "{REPLICATION_NETWORK_ROUTE_UNAVAILABLE_PREFIX}{}",
-                replication_network_error_detail(&err)
-            ),
-        };
-    }
-    NodeError::Replication {
-        reason: format!("replication network error: {err:?}"),
-    }
-}
-
-fn world_head_lookup_can_fallback(err: &NodeError) -> bool {
-    replication_network_error_is_availability_gap(err)
-        || replication_network_error_is_route_unavailable(err)
-        || replication_network_error_is_not_found(err)
-        || replication_network_error_is_unsupported_protocol(err, REPLICATION_GET_HEAD_PROTOCOL)
-        || replication_network_error_is_protocol_unavailable(err, REPLICATION_GET_HEAD_PROTOCOL)
-        || replication_network_error_is_timeout_protocol(err, REPLICATION_GET_HEAD_PROTOCOL)
-        || replication_network_error_is_libp2p_outbound_timeout(err)
-}
-
-fn replication_network_error_is_libp2p_outbound_timeout(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    reason.contains("libp2p-replication outbound request failed") && reason.contains("Timeout")
-}
-
-fn validate_world_head_world_id(world_id: &str, head: &WorldHeadAnnounce) -> Result<(), NodeError> {
-    if head.world_id != world_id {
-        return Err(NodeError::Replication {
-            reason: format!(
-                "world head mismatch: expected={} actual={}",
-                world_id, head.world_id
-            ),
-        });
-    }
-    Ok(())
-}
-
-fn replication_network_error_detail(err: &WorldError) -> &str {
-    match err {
-        WorldError::NetworkProtocolUnavailable { protocol } => protocol.as_str(),
-        WorldError::NetworkRequestFailed { message, .. } => message.as_str(),
-        WorldError::DistributedValidationFailed { reason } => reason.as_str(),
-        WorldError::BlobNotFound { content_hash } => content_hash.as_str(),
-        WorldError::BlobHashMismatch { actual, .. } => actual.as_str(),
-        WorldError::BlobHashInvalid { content_hash } => content_hash.as_str(),
-        WorldError::Io(message) | WorldError::Serde(message) => message.as_str(),
-        WorldError::SignatureKeyInvalid => "invalid signature key",
-    }
-}
+#[path = "network_bridge_error.rs"]
+mod error_mapping;
+use error_mapping::{
+    network_err, network_err_for_protocol, network_publish_err, validate_world_head_world_id,
+    world_head_lookup_can_fallback,
+};
+#[cfg(test)]
+#[path = "network_bridge_typed_failure_tests.rs"]
+mod typed_failure_contract_tests;
