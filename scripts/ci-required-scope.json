@@ -274,7 +274,8 @@
     ],
     "oasis7_hosted_access": [
       "oasis7_required",
-      "launcher_web"
+      "launcher_web",
+      "fleet_health"
     ],
     "oasis7_letai_credit_adapter": [
       "oasis7_required"
