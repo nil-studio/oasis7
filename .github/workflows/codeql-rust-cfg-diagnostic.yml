@@ -66,7 +66,7 @@ jobs:
       - id: source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: d2bf383d8c377b36de83aae4a06d9ec17612e205
+          ref: c036927d33b917a036a731f071209e16f6deb033
           clean: true
           persist-credentials: false
       - id: layout
@@ -75,7 +75,7 @@ jobs:
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
             --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" \
-            --source-sha d2bf383d8c377b36de83aae4a06d9ec17612e205 --deadline "$CAPACITY_DEADLINE"
+            --source-sha c036927d33b917a036a731f071209e16f6deb033 --deadline "$CAPACITY_DEADLINE"
       - id: tools
         name: Prepare pinned production tools
         timeout-minutes: 5
@@ -111,7 +111,7 @@ jobs:
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" --source-sha c036927d33b917a036a731f071209e16f6deb033 \
             --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
@@ -121,7 +121,7 @@ jobs:
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py" --check-only             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py" --verify-context-exclusion --check-only             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
       - id: finalize
         name: Extract and finalize only; no security queries
         timeout-minutes: 21
@@ -152,7 +152,7 @@ jobs:
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py"             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py" --verify-context-exclusion             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
       - id: integrity
         name: Recheck frozen business and official inputs
         if: always() && steps.prepare.outcome == 'success'
@@ -180,7 +180,7 @@ jobs:
         if: always() && steps.prepare.outcome == 'success'
         timeout-minutes: 2
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE"             --checkout-outcome "${{ steps.source.outcome }}" --layout-outcome "${{ steps.layout.outcome }}"             --tools-outcome "${{ steps.tools.outcome }}" --init-outcome "${{ steps.init.outcome }}"             --prepare-outcome "${{ steps.prepare.outcome }}" --analyze-outcome "${{ steps.finalize.outcome }}"             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data"             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE" --source-sha c036927d33b917a036a731f071209e16f6deb033             --checkout-outcome "${{ steps.source.outcome }}" --layout-outcome "${{ steps.layout.outcome }}"             --tools-outcome "${{ steps.tools.outcome }}" --init-outcome "${{ steps.init.outcome }}"             --prepare-outcome "${{ steps.prepare.outcome }}" --analyze-outcome "${{ steps.finalize.outcome }}"             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data"             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: evidence
         name: Seal available bounded CFG evidence
         if: always()
@@ -218,6 +218,11 @@ jobs:
           write('job-clock.json',{'job_id':os.environ.get('CAPACITY_JOB_ID'),'fixed_job_deadline':deadline,
               'analysis_allocated_minutes':minutes,'remaining_before_upload':deadline-time.time() if deadline is not None else None,
               'mode':'cfg-graph-diagnostic','final_job_duration_requires_terminal_readback':True})
+          if not (root/'context-exclusion-report.json').exists():
+              write('context-exclusion-report.json',{'status':'NOT_VERIFIED',
+                  'reason':'No completed database witness; inspect actual stage outcomes and raw query evidence',
+                  'query_check_outcome':os.environ.get('QUERY_CHECK_OUTCOME','unknown'),
+                  'graph_outcome':os.environ.get('GRAPH_OUTCOME','unknown')})
           hashes={}
           for path in sorted(root.rglob('*')):
               if path.is_file() and path.name!='hashes.json':
