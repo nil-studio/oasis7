@@ -187,6 +187,27 @@ class ScopePlan(unittest.TestCase):
                 m.execute(SimpleNamespace(bundle_version="2.27.2"), {}, {}, None)
             run.assert_not_called()
 
+    def test_guard_failure_persists_exact_context_and_never_compiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); official, out, work = root / "official", root / "out", root / "work"
+            source, stages = official_fixture()
+            (official / m.PATH).parent.mkdir(parents=True)
+            (official / m.PATH).write_bytes(source)
+            (official / m.STAGES).write_bytes(stages)
+            out.mkdir(); work.mkdir()
+            context = {"pack": "codeql/controlflow", "path": "codeql/controlflow/BasicBlock.qll", "line": 355,
+                "source_sha256": "fixture-sha", "closure_operator": None, "arity": None}
+            args = SimpleNamespace(probe="successor-keyed-plan", bundle_version="2.27.3", output=out,
+                work=work, deadline=time.monotonic() + 600)
+            with patch.object(m.demand, "boundary", side_effect=m.demand.BoundaryError("unclassified", context)), \
+                    patch.object(m.runtime, "run") as run:
+                with self.assertRaisesRegex(m.demand.BoundaryError, "unclassified"):
+                    m.execute(args, {}, {"codeql/rust-all": {"root": str(official)}}, None)
+            run.assert_not_called()
+            self.assertEqual(json.loads((out / "extension-boundary-failure.json").read_text()), context)
+            self.assertEqual((out / "official-before.json").read_bytes(), (out / "official-after.json").read_bytes())
+            self.assertFalse((out / "compile-help.log").exists())
+
     def test_unknown_candidate_never_spawns(self):
         with patch.object(m.runtime, "run") as run:
             with self.assertRaisesRegex(RuntimeError, "unknown compile-only"):

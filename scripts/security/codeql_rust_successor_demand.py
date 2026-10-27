@@ -20,6 +20,12 @@ SCHEMA = {
     "codeql/rust/elements/internal/generated/Crate.qll":
         "649a3d7cd7ee99f95f8a4d3d3c41ea2fa848ce7d8415ccbac62977dfc9a49d35",
 }
+
+
+class BoundaryError(RuntimeError):
+    def __init__(self, message, context):
+        super().__init__(message)
+        self.context = context
 NAMESPACE = b"""private ItemNode getASuccessor(
   ItemNode pred, string name, Namespace ns, SuccessorKind kind, UseOption useOpt
 ) {
@@ -232,20 +238,36 @@ def boundary(closure, deadline):
                 raise RuntimeError("keyed closure boundary deadline")
             if not path.is_file() or path.suffix not in (".ql", ".qll"):
                 continue
-            text = path.read_text()
+            raw = path.read_bytes()
+            text = raw.decode("utf-8")
+            file_digest = hashlib.sha256(raw).hexdigest()
             code = code_without_comments(text)
             if any(re.search(r"\b" + method + r"\b", code) for method in NEW_NAMES):
                 raise RuntimeError("keyed method collision: " + name + "/" + str(path.relative_to(root)))
             if path == official / "codeql/rust/internal/PathResolution.qll":
                 continue
             for match in re.finditer(r"\bgetASuccessor\b\s*", code):
-                if code[match.end():match.end()+1] != "(":
-                    raise RuntimeError("unclassified outside-file successor symbol reference")
-                count = arity(code, match.end() + 1)
-                calls.append({"pack": name, "path": str(path.relative_to(root)),
-                    "line": code.count("\n", 0, match.start()) + 1, "arity": count})
-                if len(calls) > 4096 or count == 3:
-                    raise RuntimeError("unclassified outside-file three-argument successor call")
+                cursor = match.end()
+                closure_operator = code[cursor:cursor+1] if code[cursor:cursor+1] in ("*", "+") else None
+                if closure_operator:
+                    cursor += 1
+                    while cursor < len(code) and code[cursor].isspace():
+                        cursor += 1
+                context = {"pack": name, "path": str(path.relative_to(root)),
+                    "line": code.count("\n", 0, match.start()) + 1,
+                    "source_sha256": file_digest,
+                    "lexical_context": code[max(0, match.start()-48):cursor+96],
+                    "closure_operator": closure_operator, "arity": None,
+                    "checked_schema": identities, "selected_closure_only": True}
+                if code[cursor:cursor+1] != "(":
+                    raise BoundaryError("unclassified outside-file successor symbol reference", context)
+                count = arity(code, cursor + 1)
+                context["arity"] = count
+                calls.append({key: context[key] for key in ("pack", "path", "line", "arity", "closure_operator")})
+                if len(calls) > 4096:
+                    raise BoundaryError("outside-file successor expression cap exceeded", context)
+                if count == 3:
+                    raise BoundaryError("unclassified outside-file three-argument successor call", context)
     return {**result, "keyed_schema": identities, "outside_file_successor_expressions": calls,
         "outside_file_three_argument_calls": 0, "guard_scope": "selected closure only; conservative arity, not receiver types",
         "recursive_negation": "no new negative rule; original complete AST/dependency negatives retained; actual QL compiler stratification still required"}

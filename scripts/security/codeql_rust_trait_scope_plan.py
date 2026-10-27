@@ -95,7 +95,11 @@ def execute(args, env, closure, verify_library):
     primary = None
     try:
         if probe == "successor-keyed-plan":
-            boundary = demand.boundary(closure, args.deadline - 90)
+            try:
+                boundary = demand.boundary(closure, args.deadline - 90)
+            except demand.BoundaryError as exc:
+                runtime.save(out / "extension-boundary-failure.json", exc.context, out)
+                raise
             runtime.save(out / "extension-boundary.json", boundary, out)
         sources = (successor_sources((official / PATH).read_bytes(), (official / STAGES).read_bytes())
             if probe == "successor-keyed-plan" else {PATH: patched_source((official / PATH).read_bytes())})

@@ -237,6 +237,27 @@ class BoundaryTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "collision"):
                     candidate.boundary(closure, time.monotonic() + 10)
 
+    def test_closure_calls_are_classified_but_three_args_and_bare_refs_still_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); closure, schema = self.setup_closure(root)
+            p = root / "outside.qll"
+            p.write_text('predicate inLoop() { this.getASuccessor+() = this }\nnode.getASuccessor * ();')
+            with patch.object(candidate, "SCHEMA", schema):
+                value = candidate.boundary(closure, time.monotonic() + 10)
+                self.assertEqual([(c["arity"], c["closure_operator"]) for c in value["outside_file_successor_expressions"]], [(0, "+"), (0, "*")])
+                for text, message, count in (
+                    ('node.getASuccessor+("x", k, u);', "three-argument", 3),
+                    ('predicate alias = getASuccessor/3;', "symbol reference", None),
+                ):
+                    p.write_text(text)
+                    with self.assertRaisesRegex(candidate.BoundaryError, message) as failed:
+                        candidate.boundary(closure, time.monotonic() + 10)
+                    context = failed.exception.context
+                    self.assertEqual(context["path"], "outside.qll")
+                    self.assertEqual(context["line"], 1)
+                    self.assertEqual(context["arity"], count)
+                    self.assertEqual(context["source_sha256"], hashlib.sha256(p.read_bytes()).hexdigest())
+
 
 if __name__ == "__main__":
     unittest.main()
