@@ -473,7 +473,9 @@ fn run_periodic_read(
     if let Some(trace) = trace.as_mut() {
         trace.mark_read_started();
     }
+    let query_phase = super::stream_budget_diagnostics::phase(35);
     let outcome = read();
+    drop(query_phase);
     if let Some(trace) = trace.as_mut() {
         trace.mark_read_finished(&outcome);
     }
@@ -626,6 +628,7 @@ impl SessionPoll {
         session: &mut RuntimeLiveSession,
         writer: &mut dyn Write,
     ) -> Result<(), ViewerRuntimeLiveServerError> {
+        let _poll_phase = super::stream_budget_diagnostics::phase(30);
         // A different connection may have applied a verified read first.
         // Catch this subscriber up independently of this mailbox's global
         // advancement token, using the ordinary session privacy projection.
@@ -633,6 +636,7 @@ impl SessionPoll {
             && session.chain_runtime_authoritatively_primed
             && session.explicitly_subscribed_to(ViewerStream::Snapshot)
         {
+            let _catchup_phase = super::stream_budget_diagnostics::phase(31);
             let mut server = lock_shared_server(shared)?;
             let current = server
                 .verified_world_view
@@ -650,6 +654,7 @@ impl SessionPoll {
                 && current.is_some()
                 && current != session.last_world_service_snapshot
             {
+                let _encoding_phase = super::stream_budget_diagnostics::phase(32);
                 let snapshot = server.compat_snapshot_for_session(session);
                 send_response(writer, &ViewerResponse::Snapshot { snapshot })?;
             }
@@ -762,6 +767,7 @@ impl SessionPoll {
                         server.latest_player_gameplay_feedback = None;
                     }
                     let apply_started_at = trace.as_ref().map(|_| Instant::now());
+                    let apply_phase = super::stream_budget_diagnostics::phase(33);
                     let dispatch = match server.apply_chain_linked_runtime_update(prepared, session)
                     {
                         Ok(dispatch) => dispatch,
@@ -786,6 +792,8 @@ impl SessionPoll {
                             TraceApplyResult::NoAdvance
                         };
                     }
+                    drop(apply_phase);
+                    let _encoding_phase = super::stream_budget_diagnostics::phase(34);
                     for response in dispatch.responses {
                         let is_snapshot = matches!(&response, ViewerResponse::Snapshot { .. });
                         if let Err(error) = send_response(writer, &response) {
