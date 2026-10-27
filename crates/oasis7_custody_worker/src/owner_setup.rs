@@ -48,3 +48,6 @@ pub(crate) async fn prepare_owner_setup(
 ) -> Result<oasis7_custody_core::provisioning::OwnerSetupPrepareResponseV1> {
     setup_approval::prepare(state, env, rpc).await
 }
+
+#[path = "owner_setup_reconcile.rs"]
+pub(crate) mod reconcile;

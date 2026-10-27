@@ -51,6 +51,9 @@ pub enum CustodyIntentV1 {
         transport_limit: DecimalU64,
         write_limit: DecimalU64,
     },
+    OwnerSetupReconcile {
+        plan: Box<crate::provisioning::OwnerSetupReconcilePlanV1>,
+    },
     ManagedLogin {
         native_account_id: String,
         login_key_ref: String,
@@ -428,6 +431,12 @@ impl ApprovalOptionsRequestV1 {
                     && (1..=6).contains(&request_limit.0)
                     && (584..=600).contains(&transport_limit.0)
                     && (1..=4).contains(&write_limit.0)
+            }
+            CustodyIntentV1::OwnerSetupReconcile { plan } => {
+                plan.validate().is_ok()
+                    && plan.world_identity.valid()
+                    && plan.deadline.0 > now
+                    && plan.deadline.0 <= now.saturating_add(1_800_000)
             }
             CustodyIntentV1::ManagedLogin {
                 native_account_id,

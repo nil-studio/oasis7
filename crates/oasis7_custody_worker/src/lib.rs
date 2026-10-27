@@ -85,12 +85,16 @@ mod owner_provision;
 mod native_runtime_rpc;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_participant_signing;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod owner_setup_reconcile_rpc;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_setup_reconcile_signing;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod owner_setup_rpc;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_setup_signing;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod participant_runtime_rpc;
-#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
-mod owner_setup_rpc;
 
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod directory_config;

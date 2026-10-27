@@ -221,6 +221,8 @@ pub struct OwnerSetupOutboxV1 {
     pub published_at: Option<DecimalU64>,
     pub claimed_at: Option<DecimalU64>,
     pub result: Option<OwnerSetupResultV1>,
+    #[serde(default)]
+    pub result_provenance: Option<OwnerSetupResultProvenanceV1>,
     pub last_observation: Option<OwnerSetupResultV1>,
     pub last_observation_session: Option<ParticipantSessionEvidenceV1>,
     pub last_observed_at: Option<DecimalU64>,
@@ -557,3 +559,7 @@ mod access;
 #[path = "owner_setup_basis.rs"]
 mod basis;
 pub use basis::*;
+
+#[path = "owner_setup_reconcile.rs"]
+mod reconcile;
+pub use reconcile::*;

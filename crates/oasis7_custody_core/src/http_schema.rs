@@ -4,6 +4,8 @@ use crate::{DecimalU64, approval::*, provisioning::*, source_revocation::*};
 use serde_json::{Value, json};
 #[path = "http_schema_owner_setup.rs"]
 mod owner_setup;
+#[path = "http_schema_reconcile.rs"]
+mod reconcile;
 
 fn context() -> ApprovalContextV1 {
     ApprovalContextV1 {
@@ -371,6 +373,13 @@ pub(super) fn export(directory: &std::path::Path) {
         "OwnerSetupBasisV1":schemars::schema_for!(OwnerSetupBasisV1),
         "OwnerSetupPrepareRequestV1":schemars::schema_for!(OwnerSetupPrepareRequestV1),
         "OwnerSetupPrepareResponseV1":schemars::schema_for!(OwnerSetupPrepareResponseV1),
+        "OwnerSetupReconcileBasisRequestV1":schemars::schema_for!(OwnerSetupReconcileBasisRequestV1),
+        "OwnerSetupReconcileBasisV1":schemars::schema_for!(OwnerSetupReconcileBasisV1),
+        "OwnerSetupReconcilePrepareRequestV1":schemars::schema_for!(OwnerSetupReconcilePrepareRequestV1),
+        "OwnerSetupReconcilePrepareResponseV1":schemars::schema_for!(OwnerSetupReconcilePrepareResponseV1),
+        "OwnerSetupReconcileApproveRequestV1":schemars::schema_for!(OwnerSetupReconcileApproveRequestV1),
+        "OwnerSetupReconcileAttemptRequestV1":schemars::schema_for!(OwnerSetupReconcileAttemptRequestV1),
+        "OwnerSetupReconcileProgressV1":schemars::schema_for!(OwnerSetupReconcileProgressV1),
         "SignedSourceClosureAckV1":schemars::schema_for!(SignedSourceClosureAckV1),
         "SourceRevocationsPollRequestV1":schemars::schema_for!(SourceRevocationsPollRequestV1),
         "SourceRevocationsPollResponseV1":schemars::schema_for!(SourceRevocationsPollResponseV1),
@@ -408,6 +417,10 @@ pub(super) fn export(directory: &std::path::Path) {
         .as_object_mut()
         .unwrap()
         .extend(owner_setup::fixture(&approval).as_object().unwrap().clone());
+    fixtures
+        .as_object_mut()
+        .unwrap()
+        .extend(reconcile::fixture(&approval).as_object().unwrap().clone());
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),

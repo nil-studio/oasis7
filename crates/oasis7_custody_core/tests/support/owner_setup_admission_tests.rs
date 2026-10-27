@@ -488,3 +488,6 @@ mod archive_tests;
 
 #[path = "owner_setup_access_tests.rs"]
 mod access_tests;
+
+#[path = "owner_setup_reconcile_tests.rs"]
+mod reconcile_tests;

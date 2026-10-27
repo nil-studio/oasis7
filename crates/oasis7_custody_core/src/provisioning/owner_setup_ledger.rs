@@ -123,6 +123,7 @@ impl AccountProvisionApprovalState {
             published_at: None,
             claimed_at: None,
             result: None,
+            result_provenance: None,
             last_observation: None,
             last_observation_session: None,
             last_observed_at: None,

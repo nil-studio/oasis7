@@ -144,6 +144,13 @@ impl AccountProvisionApprovalState {
     pub(crate) fn owner_setup_approval_records(
         &self,
     ) -> impl Iterator<Item = &ApprovalAdmissionRecord> {
-        self.owner_setups.values().flat_map(|v| v.book.records())
+        self.owner_setups
+            .values()
+            .flat_map(|v| v.book.records())
+            .chain(
+                self.owner_setup_reconciles
+                    .values()
+                    .flat_map(|v| v.book.records()),
+            )
     }
 }

@@ -31,6 +31,11 @@ pub(crate) use participant_signing::{
 mod setup_signing;
 #[cfg(feature = "owner")]
 pub(crate) use setup_signing::{SetupSigningCurrent, setup_bundle_digest};
+#[cfg(feature = "owner")]
+#[path = "role_key_setup_reconcile_signing.rs"]
+mod setup_reconcile_signing;
+#[cfg(feature = "owner")]
+pub(crate) use setup_reconcile_signing::{SetupReconcileSigningCurrent, reconcile_permit_digest};
 
 #[cfg(feature = "identity")]
 const COMPILED_ROLE: Role = Role::Identity;

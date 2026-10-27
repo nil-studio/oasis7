@@ -13,3 +13,8 @@ export async function advanceOwnerProvision(env, raw) { return env.OWNER_MANAGEM
 export async function readOwnerProvisionProgress(env, raw) { return env.OWNER_MANAGEMENT.getProvisionProgress(raw); }
 
 export async function closeSourceEvent(env, raw) { return env.OWNER_REVOCATIONS.closeSourceEvent(raw); }
+
+export async function approveOwnerSetupReconcile(env, raw) { return env.OWNER_MANAGEMENT.approveOwnerSetupReconcile(raw); }
+export async function continueOwnerSetupReconcile(env, raw) { return env.OWNER_MANAGEMENT.continueOwnerSetupReconcile(raw); }
+export async function ownerSetupReconcileBasis(env, raw) { return env.OWNER_MANAGEMENT.ownerSetupReconcileBasis(raw); }
+export async function prepareOwnerSetupReconcile(env, raw) { return env.OWNER_MANAGEMENT.prepareOwnerSetupReconcile(raw); }

@@ -1,6 +1,6 @@
 //! Private process fixture: real governance, node execution, HTTP and signed canonical receipts.
 use super::*;
-use std::{io::Write,path::PathBuf};
+use std::{io::Write, path::PathBuf};
 struct FixtureDirectory(PathBuf);
 impl Drop for FixtureDirectory {
     fn drop(&mut self) {
@@ -31,6 +31,13 @@ fn serve_custody_world_http_fixture() {
     );
     empty_commit(&mut driver);
     let root = dir.canonicalize().unwrap();
+    // Test-only private storage, separate from public world/records/store roots.
+    // Its wrapping key and path never leave this process or the ready metadata.
+    let private = oasis7::world_service::private_goal_store::PrivateGoalStore::open(
+        &root.join("private-goals"),
+        [7; 32],
+    )
+    .unwrap();
     let pinned = pin(&root, &identity);
     let binding = pinned.world.current_cognition_runtime_binding().unwrap();
     let signer = crate::feedback_submit_api::FeedbackSubmitSigner {
@@ -51,8 +58,17 @@ fn serve_custody_world_http_fixture() {
             stop: &stop,
             node: node.clone(),
         };
-        let server =
-            scope.spawn(|| transport::serve(listener, &node, &root, &signer, &stop, &dropped));
+        let server = scope.spawn(|| {
+            transport::serve_with_private(
+                listener,
+                &node,
+                &root,
+                &signer,
+                &stop,
+                &dropped,
+                Some(&private),
+            )
+        });
         let mut output = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)

@@ -262,43 +262,50 @@ impl AccountProvisionApprovalState {
             }
         }
         if let Some(at) = o.completed_at {
-            source_fresh(source, at.0)?;
-            if o.callback_claimed_at.is_none_or(|t| t.0 > at.0) || at.0 >= v.plan.deadline.0 {
-                return Err(invalid());
-            }
-            let result = o.result.as_ref().ok_or_else(invalid)?;
-            if !result.terminal() {
-                return Err(invalid());
-            }
-            if let Some(fact) = result.canonical_fact() {
-                if o.canonical_history.get(&fact.source) != Some(&fact) {
+            if matches!(
+                o.result_provenance,
+                Some(OwnerSetupResultProvenanceV1::Reconcile { .. })
+            ) {
+                self.validate_reconciled_stage_result(id, stage, o)?;
+            } else {
+                source_fresh(source, at.0)?;
+                if o.callback_claimed_at.is_none_or(|t| t.0 > at.0) || at.0 >= v.plan.deadline.0 {
                     return Err(invalid());
                 }
-            }
-            self.validate_owner_setup_result(id, stage, result)?;
-            validate_owner_setup_signature_fact(OwnerSetupSignatureFact::Result(
-                result,
-                &v.plan.world_identity.service_public_key,
-            ))?;
-            let nonce = match result {
-                OwnerSetupResultV1::Canonical {
-                    from_lookup: true, ..
-                } => {
-                    if o.lookup_claimed_at.is_none() {
+                let result = o.result.as_ref().ok_or_else(invalid)?;
+                if !result.terminal() {
+                    return Err(invalid());
+                }
+                if let Some(fact) = result.canonical_fact() {
+                    if o.canonical_history.get(&fact.source) != Some(&fact) {
                         return Err(invalid());
                     }
-                    ledger::lookup_nonce(id, stage, &o.session_nonce)?
                 }
-                _ => o.session_nonce.clone(),
-            };
-            self.validate_owner_setup_session(
-                id,
-                &nonce,
-                o.session.as_ref().ok_or_else(invalid)?,
-                at.0,
-                r.input().request.context.service_epoch,
-            )?;
-        } else if o.session.is_some() {
+                self.validate_owner_setup_result(id, stage, result)?;
+                validate_owner_setup_signature_fact(OwnerSetupSignatureFact::Result(
+                    result,
+                    &v.plan.world_identity.service_public_key,
+                ))?;
+                let nonce = match result {
+                    OwnerSetupResultV1::Canonical {
+                        from_lookup: true, ..
+                    } => {
+                        if o.lookup_claimed_at.is_none() {
+                            return Err(invalid());
+                        }
+                        ledger::lookup_nonce(id, stage, &o.session_nonce)?
+                    }
+                    _ => o.session_nonce.clone(),
+                };
+                self.validate_owner_setup_session(
+                    id,
+                    &nonce,
+                    o.session.as_ref().ok_or_else(invalid)?,
+                    at.0,
+                    r.input().request.context.service_epoch,
+                )?;
+            }
+        } else if o.session.is_some() || o.result_provenance.is_some() {
             return Err(invalid());
         }
         if o.canonical_history.len() > 2 {
@@ -322,10 +329,11 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        if let Some(observation) = &o.last_observation {
+
+        if let Some(observation) = o.last_observation.as_ref() {
             if observation.terminal()
-                || o.result.is_some()
-                || o.operation.state() != OperationState::Unknown
+                || o.result.is_some() && o.result_provenance.is_none()
+                || o.operation.state() != OperationState::Unknown && o.result_provenance.is_none()
             {
                 return Err(invalid());
             }

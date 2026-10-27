@@ -1,4 +1,7 @@
-//! Same-origin management routes. Native Passkey/Origin/CSRF checks precede Owner RPC.
+use crate::owner_setup_reconcile_rpc::{
+    ReconcileApproveRpc, ReconcileBasisRpc, ReconcileContinueRpc, ReconcilePrepareRpc,
+};
+// Same-origin management routes. Native Passkey/Origin/CSRF checks precede Owner RPC.
 use crate::owner_setup_rpc::{
     OwnerSetupApproveRpc, OwnerSetupBasisRpc, OwnerSetupContinueRpc, OwnerSetupPrepareRpc,
 };
@@ -31,15 +34,27 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
     let setup_continue = provision_path.and_then(|id| id.strip_suffix("/owner-setups/continue"));
     let setup_basis = provision_path.and_then(|id| id.strip_suffix("/owner-setups/basis"));
     let setup_prepare = provision_path.and_then(|id| id.strip_suffix("/owner-setups/prepare"));
+    let reconcile_approve =
+        provision_path.and_then(|id| id.strip_suffix("/owner-setup-reconciles/approve"));
+    let reconcile_continue =
+        provision_path.and_then(|id| id.strip_suffix("/owner-setup-reconciles/continue"));
+    let reconcile_basis =
+        provision_path.and_then(|id| id.strip_suffix("/owner-setup-reconciles/basis"));
+    let reconcile_prepare =
+        provision_path.and_then(|id| id.strip_suffix("/owner-setup-reconciles/prepare"));
     let managed_approve = provision_path.and_then(|id| id.strip_suffix("/managed-logins/approve"));
     let managed_continue =
         provision_path.and_then(|id| id.strip_suffix("/managed-logins/continue"));
     let approve = provision_path
         .and_then(|id| id.strip_suffix("/approve"))
-        .filter(|_| managed_approve.is_none() && setup_approve.is_none());
+        .filter(|_| {
+            managed_approve.is_none() && setup_approve.is_none() && reconcile_approve.is_none()
+        });
     let advance = provision_path
         .and_then(|id| id.strip_suffix("/continue"))
-        .filter(|_| managed_continue.is_none() && setup_continue.is_none());
+        .filter(|_| {
+            managed_continue.is_none() && setup_continue.is_none() && reconcile_continue.is_none()
+        });
     let progress = provision_path.and_then(|id| id.strip_suffix("/progress"));
     let get = provision_path.filter(|_| {
         approve.is_none()
@@ -51,6 +66,10 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             && setup_continue.is_none()
             && setup_basis.is_none()
             && setup_prepare.is_none()
+            && reconcile_approve.is_none()
+            && reconcile_continue.is_none()
+            && reconcile_basis.is_none()
+            && reconcile_prepare.is_none()
     });
     if let Some(id) = approve
         .or(advance)
@@ -61,6 +80,10 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         .or(setup_continue)
         .or(setup_basis)
         .or(setup_prepare)
+        .or(reconcile_approve)
+        .or(reconcile_continue)
+        .or(reconcile_basis)
+        .or(reconcile_prepare)
     {
         if id.is_empty() || id.len() > 128 || id.contains('/') {
             return Response::error("not found", 404);
@@ -74,16 +97,26 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             || managed_approve.is_some()
             || managed_continue.is_some()
             || setup_approve.is_some()
-            || setup_continue.is_some())
+            || setup_continue.is_some()
+            || reconcile_approve.is_some()
+            || reconcile_continue.is_some())
             && request.method() != Method::Post
-        || (setup_basis.is_some() || setup_prepare.is_some()) && request.method() != Method::Post
+        || (setup_basis.is_some()
+            || setup_prepare.is_some()
+            || reconcile_basis.is_some()
+            || reconcile_prepare.is_some())
+            && request.method() != Method::Post
     {
         return Response::error("method not allowed", 405);
     }
     if (setup_approve.is_some()
         || setup_continue.is_some()
         || setup_basis.is_some()
-        || setup_prepare.is_some())
+        || setup_prepare.is_some()
+        || reconcile_approve.is_some()
+        || reconcile_continue.is_some()
+        || reconcile_basis.is_some()
+        || reconcile_prepare.is_some())
         && env
             .var("CUSTODY_OWNER_SETUP_ENABLED")
             .ok()
@@ -137,7 +170,89 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return Ok(response);
     }
     // The request never supplies a manager selector. Metadata remains inside this private hop.
-    let result = if let Some(id) = setup_basis {
+    let result = if let Some(id) = reconcile_basis {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: OwnerSetupReconcileBasisRequestV1 =
+            match serde_json::from_str::<OwnerSetupReconcileBasisRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        owner_setup_reconcile_basis(
+            &env,
+            &serde_json::to_string(&ReconcileBasisRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = reconcile_prepare {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: OwnerSetupReconcilePrepareRequestV1 =
+            match serde_json::from_str::<OwnerSetupReconcilePrepareRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        if value.plan.provision_id != id {
+            return Response::error("invalid request", 400);
+        }
+        prepare_owner_setup_reconcile(
+            &env,
+            &serde_json::to_string(&ReconcilePrepareRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = reconcile_approve {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: OwnerSetupReconcileApproveRequestV1 =
+            match serde_json::from_str::<OwnerSetupReconcileApproveRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        if value.plan.provision_id != id {
+            return Response::error("invalid request", 400);
+        }
+        approve_owner_setup_reconcile(
+            &env,
+            &serde_json::to_string(&ReconcileApproveRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = reconcile_continue {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: OwnerSetupReconcileAttemptRequestV1 =
+            match serde_json::from_str::<OwnerSetupReconcileAttemptRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        continue_owner_setup_reconcile(
+            &env,
+            &serde_json::to_string(&ReconcileContinueRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = setup_basis {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
@@ -355,7 +470,59 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return unavailable();
     };
     // Validate the actual response DTO in Rust before passing its original JSON bytes.
-    if managed_approve.is_some() || managed_continue.is_some() {
+    if let Some(id) = reconcile_basis {
+        let value: OwnerSetupReconcileBasisV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || value.provision_id != id
+            || value.custody_account_id.is_empty()
+            || value.security_epoch.0 == 0
+            || value.service_epoch.0 == 0
+        {
+            return unavailable();
+        }
+    } else if let Some(id) = reconcile_prepare {
+        let value: OwnerSetupReconcilePrepareResponseV1 = serde_json::from_str(&raw)?;
+        if !matches!(&value.intent,
+            oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupReconcile { plan } if plan.provision_id == id
+        ) || value.context.custody_account_id.is_empty()
+            || value.context.security_version.0 == 0
+        {
+            return unavailable();
+        }
+    } else if reconcile_approve.is_some() || reconcile_continue.is_some() {
+        let value: OwnerSetupReconcileProgressV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || Some(value.provision_id.as_str()) != reconcile_approve.or(reconcile_continue)
+        {
+            return unavailable();
+        }
+    } else if let Some(id) = setup_basis {
+        let value: OwnerSetupBasisV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || value.provision_id != id
+            || value.custody_account_id.is_empty()
+            || value.security_epoch.0 == 0
+            || value.service_epoch.0 == 0
+        {
+            return unavailable();
+        }
+    } else if let Some(id) = setup_prepare {
+        let value: OwnerSetupPrepareResponseV1 = serde_json::from_str(&raw)?;
+        if !matches!(&value.intent,
+            oasis7_custody_core::approval::CustodyIntentV1::OwnerSetup { provision_id, .. } if provision_id == id
+        ) || value.context.custody_account_id.is_empty()
+            || value.context.security_version.0 == 0
+        {
+            return unavailable();
+        }
+    } else if setup_approve.is_some() || setup_continue.is_some() {
+        let value: OwnerSetupProgressV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || Some(value.provision_id.as_str()) != setup_approve.or(setup_continue)
+        {
+            return unavailable();
+        }
+    } else if managed_approve.is_some() || managed_continue.is_some() {
         let value: ManagedLoginApprovalViewV1 = serde_json::from_str(&raw)?;
         if value.api_version != 1
             || Some(value.provision_id.as_str()) != managed_approve.or(managed_continue)

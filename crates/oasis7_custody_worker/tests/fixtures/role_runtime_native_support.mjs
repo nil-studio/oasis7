@@ -24,6 +24,7 @@ function options(persist, data, bridge, mode) {
   const routes={...defaultRoutes,world_identity:world.world_id};
   const realFence = realFenceMode(mode);
   const nativeBindings = native ? {CUSTODY_NATIVE_PROVISION_ENABLED:'true',
+    ...(mode.startsWith('native-participant-owner-setup-real-fence-gap')?{FIXTURE_SETUP_STAGE_GAP:mode}:{}),
     ...(mode.startsWith('native-participant-owner-setup')?{CUSTODY_OWNER_SETUP_ENABLED:'true'}:{}),
     ...(mode.startsWith('native-participant')?{CUSTODY_PARTICIPANT_PROVISION_ENABLED:'true'}:{}),
     CUSTODY_NATIVE_PRIVATE_KEK:Buffer.alloc(32,94).toString('hex'),CUSTODY_NATIVE_PRIVATE_WRAPPING_KEY_VERSION:'1'} : {};
@@ -44,11 +45,12 @@ function options(persist, data, bridge, mode) {
       ...(native?{OWNER_NATIVE_PERMITS:{name:'owner',entrypoint:'OwnerNativePermits'}}:{})},
     durableObjects:{SESSIONS:{className:'NativeSession',useSQLite:true},NATIVE_SESSIONS:{className:'NativeSession',useSQLite:true},ROLE_KEYS:{className:'RoleKeyVault',useSQLite:true}},
   },{
-    name:'owner',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,mode==='native-participant-role-capability'?'tests/fixtures/participant_role_capability_probe.mjs':mode==='native-participant-audit-rollback'?'tests/fixtures/participant_audit_fault.mjs':'tests/fixtures/native_owner_result_loss.mjs')},...artifact('owner')],
+    name:'owner',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,mode==='native-participant-owner-setup-real-fence-reconcile-rollback'?'tests/fixtures/setup_reconcile_audit_fault.mjs':mode==='native-participant-role-capability'?'tests/fixtures/participant_role_capability_probe.mjs':mode==='native-participant-audit-rollback'?'tests/fixtures/participant_audit_fault.mjs':'tests/fixtures/native_owner_result_loss.mjs')},...(mode==='native-participant-owner-setup-real-fence-reconcile-rollback'?[{type:'ESModule',path:resolve(root,'tests/fixtures/native_owner_result_loss.mjs')}]:[]),...artifact('owner')],
     bindings:{CUSTODY_NATIVE_APPROVAL_KEY_ID:data.key_id,CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY:data.public_key,CUSTODY_NATIVE_AUDIENCE:data.audience,
       CUSTODY_REVOCATION_OWNER_KEY_ID:'owner-source-test',CUSTODY_REVOCATION_OWNER_SIGNING_KEY:Buffer.alloc(32,92).toString('hex'),
       CUSTODY_NATIVE_NAMESPACE:data.namespace,CUSTODY_NATIVE_INSTANCE_EPOCH:data.identity_instance_epoch,CUSTODY_NATIVE_ENVIRONMENT:'test',CUSTODY_POLICY_VERSION:'1',
       ...(mode==='native-lost-account-result'?{FIXTURE_DROP_NATIVE_RESULT:'true'}:{}),
+      ...(mode.startsWith('native-participant-owner-setup-real-fence-reconcile')?{FIXTURE_SETUP_ARCHIVE_EXPIRY:mode.endsWith('-bind')?'bind':mode.endsWith('-final')?'final_observation':'create_task'}:{}),
       ...(mode==='native-lost-missing-result'?{FIXTURE_DROP_MISSING_RESULT:'true'}:{}),
       ...(mode.startsWith('native-stage-gap-')?{FIXTURE_STAGE_GAP:'true'}:{}),
       CUSTODY_BOOTSTRAP_MANAGERS:JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:'a'},environments:['test']}]),
@@ -107,12 +109,24 @@ export async function withRoleRuntime(mode, run) {
     const persist=resolve(directory,'workerd');
     let nativeVerifications=0;
     const nativeRequests={};
+    const approvalFacts=[];
     const worldResults=[];
     let lostBindingReply=false;
     let lostLoginReply=false;
     let lostParticipantReply=false;
     const bridge=async request=>{
       const url=new URL(request.url);
+      if(mode.startsWith('native-participant-owner-setup-real-fence-reconcile') && url.href==='https://fixture.test/_after-setup-submit-archive') {
+        await delay(5100);return new MiniflareResponse(null,{status:204});
+      }
+      if(mode.startsWith('native-participant-owner-setup-real-fence-gap') && url.href==='https://fixture.test/_after-setup-create-commit') {
+        if(mode.endsWith('-revoke')) {
+          const revoked=await fetch(native.data.address+'/_fixture/revoke-manager',{method:'POST'});
+          assert.equal(revoked.status,200);
+        }
+        await delay(31000);
+        return new MiniflareResponse(null,{status:204});
+      }
       if(mode.startsWith('native-stage-gap-') && url.href==='https://fixture.test/_after-binding-commit') {
         if(mode==='native-stage-gap-revoke'||mode==='native-stage-gap-expire') {
           const path=mode==='native-stage-gap-revoke'?'revoke-manager':'expire';
@@ -151,12 +165,19 @@ export async function withRoleRuntime(mode, run) {
       const outputHeaders=new Headers({'Content-Type':'application/json'});
       if(nativeMode) for(const cookie of response.headers.getSetCookie()) outputHeaders.append('Set-Cookie',cookie);
       let body=await response.text();
+      if(suffix==='/custody/approvals/verify' && response.status===200) {
+        const fact=JSON.parse(body).verification;
+        if(fact) approvalFacts.push(Object.fromEntries(['approval_request_id','purpose','proof_state','origin_state','observed_at','proof_expires_at'].map(key=>[key,fact[key]])));
+      }
       if(mode==='native-stage-gap-stale-entry' && suffix==='/custody/management-session-status' && nativeRequests[suffix]>=3 && response.status===200) {
         const status=JSON.parse(body);status.server_time=String(Date.now()-5001);body=JSON.stringify(status);
       }
-      if(suffix.startsWith('/participant/')) {
-        try {const value=JSON.parse(body);worldResults.push({path:suffix,http:response.status,
-          outcome:value.world_response?.payload?.outcome??value.payload?.outcome??null,error:value.error??null});} catch {worldResults.push({path:suffix,http:response.status,error:'invalid_json'});}
+      if(suffix.startsWith('/participant/') || suffix==='/entry-owner/control') {
+        try {const value=JSON.parse(body),payload=value.world_response?.payload,control=payload?.control?.view?.game_task_control,goal=control?.active_goal_reference,receipt=payload?.outcome?.receipt;
+          worldResults.push({path:suffix,http:response.status,
+            outcome:suffix==='/entry-owner/control' ? payload?.outcome?.status??null : payload?.outcome??value.payload?.outcome??null,error:value.error??null,
+            ...(control?{task:{revision:control.task_revision,status:control.task_status,executor_epoch:control.executor_epoch,latest_goal_revision:control.latest_goal_revision,active_goal_revision:control.active_goal_revision,goal_height:goal?.activation_committed_height,prepare:goal?.prepare_operation_id,publish:goal?.publish_operation_id}}:{}),
+            ...(suffix==='/entry-owner/control'&&receipt?{receipt:{task_revision:receipt.task_revision,goal_height:receipt.goal_reference?.activation_committed_height,goal_revision:receipt.goal_reference?.goal_revision,prepare:receipt.goal_reference?.prepare_operation_id,publish:receipt.goal_reference?.publish_operation_id}}:{})});} catch {worldResults.push({path:suffix,http:response.status,error:'invalid_json'});}
       }
       if(mode==='native-participant-tamper-policy' && suffix==='/participant/policy-original' && response.status===200) {
         const original=JSON.parse(body);original.response.signature_hex='00'.repeat(64);body=JSON.stringify(original);
@@ -206,10 +227,35 @@ export async function withRoleRuntime(mode, run) {
     const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'negative-runtime-approval-operation',request,approval:completed.approval}})});
     assert.equal(accepted.status,200);
     await run({persist,account:original.entry.custody_account_id,planExpires:Number(draft.plan.expires_at),restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
+      reconcileBasis:async(setup_id,stage)=>{
+        identity=await mf.getWorker('identity');
+        const reply=await identity.fetch(base+'/owner-setup-reconciles/basis',{method:'POST',headers,body:JSON.stringify({api_version:1,setup_id,stage})});
+        const text=await reply.text();assert.equal(reply.status,200,text);return JSON.parse(text);
+      },
+      approveReconcile:async plan=>{
+        identity=await mf.getWorker('identity');
+        const prepared=await identity.fetch(base+'/owner-setup-reconciles/prepare',{method:'POST',headers,body:JSON.stringify({api_version:1,approval_request_id:'owner-reconcile-approval-one',plan})});
+        const text=await prepared.text();assert.equal(prepared.status,200,text);const request=JSON.parse(text);
+        const proofReply=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+        const proofText=await proofReply.text();assert.equal(proofReply.status,200,proofText);const proof=JSON.parse(proofText);assert.ok(proof.approval);
+        const reply=await identity.fetch(base+'/owner-setup-reconciles/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,plan,input:{operation_id:plan.reconcile_id,request,approval:proof.approval}})});
+        const raw=await reply.text();assert.equal(reply.status,200,raw);return JSON.parse(raw);
+      },
+      continueReconcile:async(reconcile_id,attempt_id)=>{
+        identity=await mf.getWorker('identity');
+        return identity.fetch(base+'/owner-setup-reconciles/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,reconcile_id,attempt_id})});
+      },
       setupBasis:async()=>{
         identity=await mf.getWorker('identity');
         const reply=await identity.fetch(base+'/owner-setups/basis',{method:'POST',headers,body:JSON.stringify({api_version:1})});
-        const body=await reply.text();assert.equal(reply.status,200,body);return JSON.parse(body);
+        const body=await reply.text();
+        if(reply.status!==200) {
+          const statusReply=await identity.fetch('https://localhost/v1/management/session-status',{headers});
+          const status=statusReply.ok?await statusReply.json():{};
+          const saved=persistedRuntime(persist,original.entry.custody_account_id);
+          assert.equal(reply.status,200,JSON.stringify({body,manager:Object.fromEntries(['identity_namespace','identity_instance_epoch','security_version','policy_version'].map(key=>[key,status[key]])),stored:{stage:saved.provision_stage,epoch:saved.account_security_epoch,binding:saved.native_binding}}));
+        }
+        return JSON.parse(body);
       },
       approveSetup:async plan=>{
         identity=await mf.getWorker('identity');
@@ -242,9 +288,10 @@ export async function withRoleRuntime(mode, run) {
       freezeFence:async()=>{const reply=await (await mf.getWorker('fence')).fetch('https://fixture.test/freeze');assert.equal(reply.status,200);},
       oracle:async(role,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/'+role+'-permit',{method:'POST',body:JSON.stringify(body)}),
       defaultExecutor:async(kind,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/executor-default-'+kind,{method:'POST',body:JSON.stringify(body)}),
+      reconcileFault:async()=>(await (await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/reconcile-audit-fault')).json(),
       participantFault:async()=>(await (await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/participant-audit-fault')).json(),
       participantRoleProbes:async()=>(await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/participant-role-probes'),
-      nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults]});
+      nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults],approvalFacts:()=>[...approvalFacts]});
   } finally {await mf?.dispose();await native?.close();await worldProcess?.close();rmSync(directory,{recursive:true,force:true});}
 }
 
@@ -279,13 +326,15 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
     result['native_reads']=[{'stage':v['request']['stage'],'reads':v['reads']} for v in state.get('native_stages',{}).values()]
     result['history_count']=len(state.get('native_history',{}))
     result['provision_stage']=state['provision']['stage']
+    result['account_security_epoch']=state['provision']['security_epoch']
     ledger=state['provision']['transport'];result['transport_remaining']=str(int(ledger['limit'])-int(ledger['spent'])-sum(int(v) for v in ledger['reservations'].values()))
     result['participants']=[{'reads':v['oracle_reads'],'claims':sorted(v['claims']),'callbacks':sorted(v['callbacks']),'has_result':v['result'] is not None,'submit_digest':hashlib.sha256((v.get('submit_bytes') or '').encode()).hexdigest()} for v in state.get('participant_provisions',{}).values()]
     result['status_recoveries']=[{'reads':v['reads'],'has_result':v['result'] is not None,'nonce':v['nonce']} for v in state.get('session_status_recoveries',{}).values()]
-    result['setups']=[{'stages':[{'stage':stage,'reads':entry['oracle_reads'],'has_result':entry['result'] is not None,'archived_sources':sorted(entry.get('canonical_history',{}))} for stage,entry in setup['stages'].items()]} for setup in state.get('owner_setups',{}).values()]
+    result['setup_reconciles']=[{'attempts':[{'reads':a['oracle_reads'],'has_fact':a['fact'] is not None,'has_result':a['result'] is not None,'lookup_claimed':a['lookup_claimed_at'] is not None,'published':a['published_at'] is not None,'admitted':a['admitted_at'] is not None,'post_claimed':a['completion_reserved_at'] is not None} for a in v['attempts'].values()]} for v in state.get('owner_setup_reconciles',{}).values()]
+    result['setups']=[{'stages':[{'stage':stage,'reads':entry['oracle_reads'],'has_result':entry['result'] is not None,'result_provenance':entry.get('result_provenance'),'archived_sources':sorted(entry.get('canonical_history',{})),'has_original':entry['original'] is not None,'has_access':entry['access'] is not None,'has_world':entry['world'] is not None,'source_created_at':entry['source']['created_at'],'source_verified_at':entry['source'].get('verified_at'),'source_observed_at':((entry['source'].get('verification') or {}).get('verification') or {}).get('observed_at'),'source_expires_at':entry['source']['expires_at'],**{name:entry.get(name) for name in ('reserved_at','published_at','admission_callback_claimed_at','admitted_at','claimed_at','completed_at')}} for stage,entry in setup['stages'].items()]} for setup in state.get('owner_setups',{}).values()]
     for v in state.get('native_stages',{}).values():
      if (v.get('result') or {}).get('kind')=='binding_receipt':
-      receipt=v['result']['result']['receipt'];result['native_binding']={k:receipt[k] for k in ('native_account_id','login_key_ref','identity_namespace')}
+      receipt=v['result']['result']['receipt'];result['native_binding']={k:receipt[k] for k in ('native_account_id','login_key_ref','identity_namespace','identity_instance_epoch')}
   row=db.execute("SELECT payload FROM custody_records WHERE id='custody-native-cipher-v1'").fetchone()
   if row:
    cipher=json.loads(row[0])

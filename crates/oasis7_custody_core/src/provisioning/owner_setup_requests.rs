@@ -9,6 +9,15 @@ impl AccountProvisionApprovalState {
         stage: OwnerSetupStageV1,
         w: &OwnerSetupWorldEvidenceV1,
     ) -> Result<()> {
+        let access = self.owner_setup_stage_access(id, stage)?;
+        self.validate_owner_setup_world_access(id, w, &access.admission)
+    }
+    pub(super) fn validate_owner_setup_world_access(
+        &self,
+        id: &str,
+        w: &OwnerSetupWorldEvidenceV1,
+        admission: &ws::SignedReadRequest<GameParticipantAdmissionV1>,
+    ) -> Result<()> {
         let v = self.owner_setups.get(id).ok_or_else(invalid)?;
         w.response
             .payload
@@ -63,7 +72,7 @@ impl AccountProvisionApprovalState {
             || owner.canonical_authority.agent_identity_generation
                 != old.canonical_authority.agent_identity_generation
             || w.request.owner != participant.bundle.as_ref().ok_or_else(invalid)?.owner
-            || w.request.admission != self.owner_setup_stage_access(id, stage)?.admission
+            || w.request.admission != *admission
         {
             return Err(invalid());
         }
@@ -287,11 +296,7 @@ impl AccountProvisionApprovalState {
         };
         let published: oasis7_client_api::legacy_task_results::PublishReceipt =
             serde_json::from_value(receipt.clone()).map_err(|_| invalid())?;
-        control.task_revision = published.task_revision;
-        control.latest_goal_revision = DecimalU64(1);
-        control.active_goal_revision = DecimalU64(1);
-        control.active_goal_reference = Some(published.goal_reference);
-        control.task_status = GameTaskStatusV1::Active;
+        apply_published_control(&mut control, published);
         if stage == OwnerSetupStageV1::FinalObservation {
             let Some(OwnerSetupResultV1::Canonical { response, .. }) = v
                 .stages
@@ -377,5 +382,108 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         Ok(())
+    }
+}
+
+// Match Runtime game_task::reduce: publishing changes the goal/revision only.
+// Executor binding is the separate canonical operation that activates the task.
+pub(super) fn apply_published_control(
+    control: &mut GameTaskControlV1,
+    published: oasis7_client_api::legacy_task_results::PublishReceipt,
+) {
+    control.task_revision = published.task_revision;
+    control.latest_goal_revision = published.goal_reference.goal_revision;
+    control.active_goal_revision = published.goal_reference.goal_revision;
+    control.active_goal_reference = Some(published.goal_reference);
+}
+
+#[cfg(test)]
+mod publication_state_tests {
+    use super::*;
+    fn published_control() -> GameTaskControlV1 {
+        let mut control: GameTaskControlV1 = serde_json::from_value(serde_json::json!({
+            "schema_revision":1,"task_id":"task-one","world_id":"world-one",
+            "genesis_digest":"genesis-one","branch_id":"main","reorg_epoch":"0",
+            "agent_id":"agent-one","owner_binding":"owner-one","owner_generation":"1",
+            "owner_public_key":"aa".repeat(32),"task_revision":"1","task_status":"suspended",
+            "latest_goal_revision":"0","active_goal_revision":"0","executor_epoch":"0",
+            "executor_id":null,"created_operation_id":"create-one"
+        }))
+        .unwrap();
+        apply_published_control(
+            &mut control,
+            oasis7_client_api::legacy_task_results::PublishReceipt {
+                task_id: "task-one".into(),
+                task_revision: DecimalU64(2),
+                goal_reference: GameGoalReferenceV1 {
+                    goal_revision: DecimalU64(1),
+                    goal_ref: "blake3:goal-one".into(),
+                    prepare_operation_id: "prepare-one".into(),
+                    publish_operation_id: "publish-one".into(),
+                    activation_committed_height: DecimalU64(44),
+                },
+            },
+        );
+        control
+    }
+    #[test]
+    fn published_task_retains_suspended_and_bind_fence_until_executor_receipt() {
+        // Runtime's canonical_task publication regression also asserts Suspended
+        // after goal activation. An active goal is not an active executor.
+        let control = published_control();
+        assert_eq!(control.task_status, GameTaskStatusV1::Suspended);
+        assert_eq!(control.task_revision, DecimalU64(2));
+        assert_eq!(control.active_goal_revision, DecimalU64(1));
+        assert_eq!(
+            control
+                .active_goal_reference
+                .as_ref()
+                .unwrap()
+                .activation_committed_height,
+            DecimalU64(44)
+        );
+        let fence = GameTaskFenceV1::from_control(&control);
+        let bind = GameExecutorControlV1 {
+            api_rev: 1,
+            client_operation_id: "bind-one".into(),
+            fence,
+            operation: GameExecutorOperationV1::Bind {
+                executor_id: "executor-one".into(),
+                executor_public_key: "bb".repeat(32),
+                delegation_generation: DecimalU64(1),
+            },
+        };
+        assert_eq!(bind.fence.task_status, GameTaskStatusV1::Suspended);
+        assert_eq!(bind.fence.executor_epoch, DecimalU64(0));
+    }
+    #[test]
+    fn signed_world_suspended_publication_matches_but_signed_active_does_not() {
+        let expected = published_control();
+        for active in [false, true] {
+            let mut actual = expected.clone();
+            if active {
+                actual.task_status = GameTaskStatusV1::Active;
+            }
+            // Both observations are genuinely signed by the same World key;
+            // rejection is semantic, not a malformed/tampered signature.
+            let signed = ws::sign_service_response(
+                PARTICIPANT_OWNER_VIEW_PATH,
+                "ab".repeat(32),
+                actual,
+                &"3f".repeat(32),
+            )
+            .unwrap();
+            let public = ws::sign_read_request("world-key", (), &"3f".repeat(32))
+                .unwrap()
+                .subject_public_key;
+            verify_owner_signature_strict(
+                PARTICIPANT_OWNER_VIEW_PATH,
+                &(&signed.request_digest, &signed.payload),
+                &public,
+                &signed.signature_hex,
+            )
+            .unwrap();
+            assert_eq!(signed.payload == expected, !active);
+        }
     }
 }

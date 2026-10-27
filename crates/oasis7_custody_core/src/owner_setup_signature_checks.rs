@@ -9,6 +9,10 @@ use oasis7_client_api::world_service::{
 pub(crate) enum OwnerSetupSignatureFact<'a> {
     World(&'a OwnerSetupWorldEvidenceV1, &'a str),
     Original(&'a OwnerSetupOriginalV1, &'a str),
+    GoalRead(
+        &'a ws::SignedReadRequest<ws::private_goal_read::CurrentGoalRequest>,
+        &'a str,
+    ),
     Read(
         &'a ws::participant_discovery::ParticipantOwnerViewRequestV1,
         &'a str,
@@ -59,6 +63,7 @@ pub(crate) fn validate_owner_setup_signature_fact(fact: OwnerSetupSignatureFact<
 fn owner_setup_jobs(fact: OwnerSetupSignatureFact<'_>) -> Result<Vec<SignatureCheck>> {
     let jobs=match fact {
         OwnerSetupSignatureFact::World(v,key)=>vec![job(key,&v.response.signature_hex,PARTICIPANT_OWNER_VIEW_PATH,&(&v.response.request_digest,&v.response.payload))?,job(&v.request.read.subject_public_key,&v.request.read.signature_hex,ws::VIEW_JSON_PATH,&v.request.read.request)?],
+        OwnerSetupSignatureFact::GoalRead(v,key)=>vec![job(key,&v.signature_hex,ws::private_goal_read::GOAL_CURRENT_PATH,&v.request)?],
         OwnerSetupSignatureFact::Read(v,key)=>vec![job(key,&v.read.signature_hex,ws::VIEW_JSON_PATH,&v.read.request)?],
         OwnerSetupSignatureFact::Original(v,key)=>match v {
             OwnerSetupOriginalV1::Canonical {submit,..}=>vec![match &submit.signed_payload {

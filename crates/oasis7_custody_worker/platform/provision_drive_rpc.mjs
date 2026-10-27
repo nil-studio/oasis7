@@ -8,3 +8,4 @@ export async function readNativeHistory(env, raw) { return env.IDENTITY_NATIVE_H
 export async function readMissingNativeSession(env, raw) { return env.IDENTITY_NATIVE_HISTORY.missing(raw); }
 export async function recoverNativeStatus(env, raw) { return env.IDENTITY_NATIVE_STATUS_RECOVERY.recover(raw); }
 export async function runOwnerSetupStage(env, raw) { return env.IDENTITY_NATIVE_PROVISION.ownerSetup(raw); }
+export async function runOwnerSetupReconcile(env, raw) { return env.IDENTITY_NATIVE_PROVISION.ownerSetupReconcile(raw); }

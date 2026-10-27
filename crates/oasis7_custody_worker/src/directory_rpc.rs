@@ -107,6 +107,26 @@ extern "C" {
         env: &Env,
         raw: &str,
     ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = approveOwnerSetupReconcile)]
+    pub(crate) async fn approve_owner_setup_reconcile(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = continueOwnerSetupReconcile)]
+    pub(crate) async fn continue_owner_setup_reconcile(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = ownerSetupReconcileBasis)]
+    pub(crate) async fn owner_setup_reconcile_basis(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = prepareOwnerSetupReconcile)]
+    pub(crate) async fn prepare_owner_setup_reconcile(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = continueOwnerManagedLogin)]
     pub(crate) async fn continue_managed_login_owner(
         env: &Env,

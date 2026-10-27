@@ -90,6 +90,67 @@ pub async fn owner_sign_owner_setup(env: Env, raw: String) -> std::result::Resul
         .await
         .map_err(|_| rejected())
 }
+#[cfg(feature = "owner")]
+#[path = "owner_setup_reconcile_entrypoints.rs"]
+mod setup_reconcile;
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_approve_owner_setup_reconcile(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup_reconcile::approve(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_continue_owner_setup_reconcile(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup_reconcile::advance(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_reconcile_identity_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup_reconcile::runtime(&env, &raw, oasis7_custody_core::http::Role::Identity).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_reconcile_key_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup_reconcile::runtime(&env, &raw, oasis7_custody_core::http::Role::Owner).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_reconcile_basis(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup_reconcile::basis(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_setup_reconcile_prepare(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    setup_reconcile::prepare(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_sign_owner_setup_reconcile(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_setup_reconcile_signing::sign(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
 #[cfg(feature = "identity")]
 #[wasm_bindgen]
 pub async fn identity_run_owner_setup(
@@ -97,6 +158,16 @@ pub async fn identity_run_owner_setup(
     raw: String,
 ) -> std::result::Result<String, JsValue> {
     crate::identity_native_runtime::setup::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_run_owner_setup_reconcile(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::setup_reconcile::run(&env, &raw)
         .await
         .map_err(|_| rejected())
 }

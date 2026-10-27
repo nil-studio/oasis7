@@ -90,48 +90,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<ExactSignatureChecks> {
         let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
         let r = setup.book.original(id).ok_or_else(invalid)?;
-        let p = &r.input().approval.proof;
-        let v = &signed.verification;
-        let s = &context.source;
-        if i.claimed_at.is_none()
-            || now >= i.expires_at.0
-            || v.version != 1
-            || v.purpose != crate::approval::VerificationPurposeV1::InspectOrigin
-            || v.origin_state != crate::approval::OriginStateV1::Active
-            || v.proof_state
-                != if now >= p.expires_at.0 {
-                    crate::approval::ProofStateV1::Expired
-                } else {
-                    crate::approval::ProofStateV1::Active
-                }
-            || v.proof_digest != r.input().approval.digest().map_err(|_| invalid())?
-            || v.identity_namespace != p.identity_namespace
-            || v.identity_instance_epoch != p.identity_instance_epoch
-            || v.approval_request_id != p.approval_request_id
-            || v.audience != p.context.audience
-            || v.intent_digest != p.intent_digest
-            || v.verify_nonce != i.verify_nonce
-            || v.proof_expires_at != p.expires_at
-            || v.manager_security_version != s.manager_security_version
-            || v.manager_policy_version != s.manager_policy_version
-            || v.credential_version != s.passkey_credential_version
-            || v.origin_credential_version != s.origin_credential_version
-            || v.source_session_expires_at != s.session_expires_at
-            || v.source_session_idle_expires_at != s.session_idle_expires_at
-            || v.observed_at.0 < i.claimed_at.ok_or_else(invalid)?.0
-            || v.observed_at.0 > now
-            || now - v.observed_at.0 > 5000
-            || i.verification.as_ref().is_some_and(|s| s != signed)
-        {
-            return Err(invalid());
-        }
-        Ok(registered_origin_checks(
-            r.input(),
-            &i.operation_id,
-            &i.verify_nonce,
-            context,
-            signed,
-        )?)
+        validate_inspection_record(r, i, signed, context, now)
     }
     pub fn complete_owner_setup_source(
         &mut self,
@@ -170,4 +129,55 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         self.owner_setup_source_checks(id, signed, current, now)
     }
+}
+
+pub(super) fn validate_inspection_record(
+    r: &ApprovalAdmissionRecord,
+    i: &ProvisionOriginInspectionV1,
+    signed: &SignedApprovalVerificationV1,
+    context: &ApprovalAdmissionContext,
+    now: u64,
+) -> Result<ExactSignatureChecks> {
+    let p = &r.input().approval.proof;
+    let v = &signed.verification;
+    let s = &context.source;
+    if i.claimed_at.is_none()
+        || now >= i.expires_at.0
+        || v.version != 1
+        || v.purpose != crate::approval::VerificationPurposeV1::InspectOrigin
+        || v.origin_state != crate::approval::OriginStateV1::Active
+        || v.proof_state
+            != if now >= p.expires_at.0 {
+                crate::approval::ProofStateV1::Expired
+            } else {
+                crate::approval::ProofStateV1::Active
+            }
+        || v.proof_digest != r.input().approval.digest().map_err(|_| invalid())?
+        || v.identity_namespace != p.identity_namespace
+        || v.identity_instance_epoch != p.identity_instance_epoch
+        || v.approval_request_id != p.approval_request_id
+        || v.audience != p.context.audience
+        || v.intent_digest != p.intent_digest
+        || v.verify_nonce != i.verify_nonce
+        || v.proof_expires_at != p.expires_at
+        || v.manager_security_version != s.manager_security_version
+        || v.manager_policy_version != s.manager_policy_version
+        || v.credential_version != s.passkey_credential_version
+        || v.origin_credential_version != s.origin_credential_version
+        || v.source_session_expires_at != s.session_expires_at
+        || v.source_session_idle_expires_at != s.session_idle_expires_at
+        || v.observed_at.0 < i.claimed_at.ok_or_else(invalid)?.0
+        || v.observed_at.0 > now
+        || now - v.observed_at.0 > 5000
+        || i.verification.as_ref().is_some_and(|s| s != signed)
+    {
+        return Err(invalid());
+    }
+    Ok(registered_origin_checks(
+        r.input(),
+        &i.operation_id,
+        &i.verify_nonce,
+        context,
+        signed,
+    )?)
 }

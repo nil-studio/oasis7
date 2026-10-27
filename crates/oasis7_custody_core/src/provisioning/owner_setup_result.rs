@@ -359,12 +359,28 @@ impl AccountProvisionApprovalState {
                 ));
             }
 
-            if let Some(result) = v
+            if let Some(final_outbox) = v
                 .stages
                 .get(&OwnerSetupStageV1::FinalObservation)
-                .and_then(|o| o.result.as_ref())
+                .filter(|o| o.result.is_some())
             {
-                self.validate_owner_setup_result(id, OwnerSetupStageV1::FinalObservation, result)?;
+                let result = final_outbox.result.as_ref().ok_or_else(invalid)?;
+                if matches!(
+                    final_outbox.result_provenance,
+                    Some(OwnerSetupResultProvenanceV1::Reconcile { .. })
+                ) {
+                    self.validate_reconciled_stage_result(
+                        id,
+                        OwnerSetupStageV1::FinalObservation,
+                        final_outbox,
+                    )?;
+                } else {
+                    self.validate_owner_setup_result(
+                        id,
+                        OwnerSetupStageV1::FinalObservation,
+                        result,
+                    )?;
+                }
                 phases.push((
                     ProvisionStage::Prepared,
                     PhaseOriginal {

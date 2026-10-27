@@ -12,6 +12,8 @@ pub(crate) mod participant;
 pub(crate) mod recovery;
 #[path = "identity_owner_setup_runtime.rs"]
 pub(crate) mod setup;
+#[path = "identity_owner_setup_reconcile.rs"]
+pub(crate) mod setup_reconcile;
 use crate::{
     envelope_crypto,
     native_identity::provision_transport::NativeProvisionTransport,
@@ -1077,6 +1079,9 @@ impl DurableObject for NativeSession {
         }
         if url.path() == "/internal/owner-setup" {
             return setup::response(self.state.clone(), &self.env, &raw).await;
+        }
+        if url.path() == "/internal/owner-setup-reconcile" {
+            return setup_reconcile::response(self.state.clone(), &self.env, &raw).await;
         }
         let response = match url.path() {
             "/internal/run" => {

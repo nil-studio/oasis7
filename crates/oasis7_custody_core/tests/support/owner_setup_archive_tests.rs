@@ -1,6 +1,6 @@
 use super::*;
 use oasis7_custody_core::operations::OperationState;
-fn dispatched() -> (
+pub(super) fn dispatched() -> (
     AccountProvisionApprovalState,
     ApprovalAdmissionContext,
     NativeBindingPinV1,
@@ -24,7 +24,7 @@ fn dispatched() -> (
         .unwrap();
     (s, c, pin, candidate)
 }
-fn fact(
+pub(super) fn fact(
     candidate: &OwnerSetupCandidateV1,
     source: OwnerSetupCanonicalSourceV1,
     outcome: ws::IntentOutcome<serde_json::Value>,

@@ -474,6 +474,7 @@ fn deadline(input: &ApprovalAdmissionInput, context: &ApprovalAdmissionContext) 
         CustodyIntentV1::Provision { deadline, .. }
         | CustodyIntentV1::OwnerSetup { deadline, .. }
         | CustodyIntentV1::ManagedLogin { deadline, .. } => deadline.0,
+        CustodyIntentV1::OwnerSetupReconcile { plan } => plan.deadline.0,
         CustodyIntentV1::TestSession { write_deadline, .. } => write_deadline.0,
     };
     [

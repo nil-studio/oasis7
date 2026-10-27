@@ -116,6 +116,7 @@ pub struct AccountProvisionApprovalState {
     session_recovery_activation: Option<String>,
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
+    owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,6 +151,8 @@ struct RawAccountProvisionApprovalState {
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     #[serde(default)]
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
+    #[serde(default)]
+    owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -172,6 +175,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             session_recovery_activation: raw.session_recovery_activation,
             participant_provisions: raw.participant_provisions,
             owner_setups: raw.owner_setups,
+            owner_setup_reconciles: raw.owner_setup_reconciles,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -199,6 +203,7 @@ impl AccountProvisionApprovalState {
             session_recovery_activation: None,
             participant_provisions: BTreeMap::new(),
             owner_setups: BTreeMap::new(),
+            owner_setup_reconciles: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -537,6 +542,7 @@ impl AccountProvisionApprovalState {
         validate_draft(&self.draft)?;
         self.validate_managed_login_persistence()?;
         self.validate_owner_setup_persistence()?;
+        self.validate_owner_setup_reconcile_persistence()?;
         self.validate_history_persistence()?;
         for record in self.book.records() {
             binding(&self.draft, record.input())?;

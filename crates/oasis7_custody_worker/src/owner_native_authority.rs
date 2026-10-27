@@ -228,6 +228,9 @@ fn build_current(
         // fixed setup plan retains its signed deadline; every stage still needs
         // its own fresh origin inspection and current Directory/Fence evidence.
         oasis7_custody_core::approval::CustodyIntentV1::OwnerSetup { deadline, .. } => deadline.0,
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupReconcile { plan } => {
+            plan.deadline.0
+        }
         oasis7_custody_core::approval::CustodyIntentV1::Provision { .. } => draft.plan.expires_at.0,
         _ => return Err(denied()),
     };
