@@ -681,7 +681,8 @@ impl World {
                     }
                 }
 
-                let mut decision = self.evaluate_rule_decisions(&action_envelope, sandbox)?;
+                let (mut decision, movement_rejection_cost) =
+                    self.evaluate_rule_decisions(&action_envelope, sandbox)?;
                 if decision.verdict == RuleVerdict::Modify
                     && let Some(override_action) = decision.override_action.clone()
                 {
@@ -707,8 +708,11 @@ impl World {
                     && matches!(action_envelope.action, Action::MoveAgent { .. })
                 {
                     let outcome = self.action_to_event(&action_envelope)?;
-                    if matches!(outcome, WorldEventBody::Domain(DomainEvent::ActionRejected { .. })) {
-                        decision.cost = Default::default();
+                    if matches!(
+                        outcome,
+                        WorldEventBody::Domain(DomainEvent::ActionRejected { .. })
+                    ) {
+                        decision.cost = movement_rejection_cost.unwrap_or_default();
                     }
                     Some(outcome)
                 } else {

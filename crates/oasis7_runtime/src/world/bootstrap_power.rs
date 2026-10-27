@@ -2,10 +2,10 @@ use super::super::{
     M1_AGENT_DEFAULT_MODULE_VERSION, M1_MEMORY_MAX_ENTRIES, M1_MEMORY_MODULE_ID,
     M1_MOBILITY_MODULE_ID, M1_POWER_MODULE_VERSION, M1_RADIATION_POWER_MODULE_ID,
     M1_SENSOR_MODULE_ID, M1_STORAGE_CARGO_MODULE_ID, M1_STORAGE_POWER_MODULE_ID,
-    M1_STORAGE_POWER_MODULE_VERSION, Manifest,
-    ModuleAbiContract, ModuleActivation, ModuleArtifactIdentity, ModuleChangeSet, ModuleKind,
-    ModuleLimits, ModuleManifest, ModuleRegistry, ModuleRole, ModuleSubscription,
-    ModuleSubscriptionStage, ProposalDecision, WorldError, util,
+    M1_STORAGE_POWER_MODULE_VERSION, Manifest, ModuleAbiContract, ModuleActivation,
+    ModuleArtifactIdentity, ModuleChangeSet, ModuleKind, ModuleLimits, ModuleManifest,
+    ModuleRegistry, ModuleRole, ModuleSubscription, ModuleSubscriptionStage, ProposalDecision,
+    WorldError, util,
 };
 use super::World;
 
@@ -36,9 +36,11 @@ impl World {
         }
         for (state_key, bytes) in &self.state.module_states {
             let belongs = state_key == M1_STORAGE_POWER_MODULE_ID
-                || self.state.module_instances.get(state_key).is_some_and(|instance| {
-                    instance.module_id == M1_STORAGE_POWER_MODULE_ID
-                });
+                || self
+                    .state
+                    .module_instances
+                    .get(state_key)
+                    .is_some_and(|instance| instance.module_id == M1_STORAGE_POWER_MODULE_ID);
             if !belongs || bytes.is_empty() {
                 continue;
             }
@@ -47,18 +49,23 @@ impl World {
                 .is_some_and(|state| {
                     let marker = state.get("last_settled_event_id");
                     marker.is_some_and(|value| value.is_null() || value.as_u64().is_some())
-                        && state.get("agents").and_then(serde_json::Value::as_object)
-                            .is_some_and(|agents| agents.iter().all(|(agent_id, battery)| {
-                                let Some(agent) = self.state.agents.get(agent_id) else {
-                                    return false;
-                                };
-                                let position_matches = battery.get("pos")
-                                    == serde_json::to_value(agent.state.pos).ok().as_ref();
-                                let bounded_level = battery.get("level")
-                                    .and_then(serde_json::Value::as_i64)
-                                    .is_some_and(|level| (0..=12).contains(&level));
-                                position_matches && bounded_level
-                            }))
+                        && state
+                            .get("agents")
+                            .and_then(serde_json::Value::as_object)
+                            .is_some_and(|agents| {
+                                agents.iter().all(|(agent_id, battery)| {
+                                    let Some(agent) = self.state.agents.get(agent_id) else {
+                                        return false;
+                                    };
+                                    let position_matches = battery.get("pos")
+                                        == serde_json::to_value(agent.state.pos).ok().as_ref();
+                                    let bounded_level = battery
+                                        .get("level")
+                                        .and_then(serde_json::Value::as_i64)
+                                        .is_some_and(|level| (0..=12).contains(&level));
+                                    position_matches && bounded_level
+                                })
+                            })
                 });
             if !compatible {
                 return Err(WorldError::ModuleChangeInvalid {
@@ -73,11 +80,38 @@ impl World {
         &mut self,
         actor: impl Into<String>,
     ) -> Result<(), WorldError> {
-        self.validate_m1_storage_activation(M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION)?;
+        self.validate_m1_storage_activation(
+            M1_STORAGE_POWER_MODULE_ID,
+            M1_STORAGE_POWER_MODULE_VERSION,
+        )?;
+        if let Some(entry) = self
+            .builtin_release_manifest
+            .module_sets
+            .get("m1")
+            .and_then(|entries| entries.get(M1_STORAGE_POWER_MODULE_ID))
+            && entry.hash_tokens.iter().any(|token| {
+                let hash = token
+                    .split_once('=')
+                    .map_or(token.as_str(), |(_, hash)| hash)
+                    .trim();
+                !crate::m1_builtin_wasm_artifact::storage_power_v2_hash_matches(hash)
+            })
+        {
+            return Err(WorldError::ModuleChangeInvalid {
+                reason: "M1 storage 0.2.0 requires an approved version-specific release artifact; selected release entry is incompatible".into(),
+            });
+        }
         let radiation_power_artifact =
             self.load_builtin_wasm_artifact_for_module("m1", M1_RADIATION_POWER_MODULE_ID)?;
         let storage_power_artifact =
             self.load_builtin_wasm_artifact_for_module("m1", M1_STORAGE_POWER_MODULE_ID)?;
+        if !crate::m1_builtin_wasm_artifact::storage_power_v2_hash_matches(&util::sha256_hex(
+            &storage_power_artifact,
+        )) {
+            return Err(WorldError::ModuleChangeInvalid {
+                reason: "M1 storage 0.2.0 selected an incompatible artifact".into(),
+            });
+        }
         let actor = actor.into();
         let mut changes = ModuleChangeSet::default();
 

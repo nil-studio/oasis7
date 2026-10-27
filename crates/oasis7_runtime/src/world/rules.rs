@@ -71,19 +71,24 @@ impl World {
         &mut self,
         envelope: &ActionEnvelope,
         sandbox: &mut dyn ModuleSandbox,
-    ) -> Result<RuleDecision, WorldError> {
+    ) -> Result<(RuleDecision, Option<ResourceDelta>), WorldError> {
         if matches!(envelope.action, super::super::Action::MoveAgent { .. }) {
-            let general = self.evaluate_rule_decision_phase(envelope, MovementRulePhase::General, sandbox)?;
+            let general =
+                self.evaluate_rule_decision_phase(envelope, MovementRulePhase::General, sandbox)?;
             let mut priced = envelope.clone();
             if general.verdict == RuleVerdict::Modify
                 && let Some(action) = general.override_action.clone()
             {
                 priced.action = action;
             }
-            let pricing = self.evaluate_rule_decision_phase(&priced, MovementRulePhase::Pricing, sandbox)?;
-            return self.merge_action_rule_decisions(envelope.id, vec![general, pricing]);
+            let pricing =
+                self.evaluate_rule_decision_phase(&priced, MovementRulePhase::Pricing, sandbox)?;
+            let rejection_cost = general.cost.clone();
+            let decision = self.merge_action_rule_decisions(envelope.id, vec![general, pricing])?;
+            return Ok((decision, Some(rejection_cost)));
         }
         self.evaluate_rule_decision_phase(envelope, MovementRulePhase::All, sandbox)
+            .map(|decision| (decision, None))
     }
 
     fn evaluate_rule_decision_phase(

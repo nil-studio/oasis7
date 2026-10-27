@@ -1,6 +1,11 @@
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_wasm_abi::ModuleSandbox;
+
 // Real WASM/bootstrap and governed gameplay admission share this fixture.
 fn movement_world() -> (World, WasmExecutor) {
     let mut world = World::new();
+    world.set_resource_balance(ResourceKind::Electricity, 1000);
+    world.set_resource_balance(ResourceKind::Data, 1000);
     super::rules::install_m1_move_rule(&mut world);
     world
         .install_m1_power_bootstrap_modules("bootstrap")
@@ -32,7 +37,7 @@ fn battery(world: &World) -> (serde_json::Value, i64) {
 }
 
 #[test]
-fn rejected_movement_keeps_origin_then_allows_alternate_route() {
+fn movement_settlement_rejected_movement_keeps_origin_then_allows_alternate_route() {
     let (mut world, mut sandbox) = movement_world();
     super::gameplay_protocol::authorize_policy_update(&mut world, "a", "movement-policy");
     world.submit_action(Action::UpdateGameplayPolicy {
@@ -91,7 +96,8 @@ fn rejected_movement_keeps_origin_then_allows_alternate_route() {
             ),
             _ => (electricity, data),
         });
-    assert!(invocation_electricity > 0 && invocation_data > 0);
+    // Global bootstrap modules have no installed Agent payer. Preserve any
+    // applicable recorded invocation charges without inventing a distance fee.
     assert_eq!(
         world
             .agent_resource_balance("a", ResourceKind::Electricity)
@@ -129,16 +135,28 @@ fn rejected_movement_keeps_origin_then_allows_alternate_route() {
     assert_eq!(battery(&restored), battery(&world));
 }
 
+fn restore_with_historical_storage(mut world: World, state: serde_json::Value) -> World {
+    world
+        .append_event_for_test(
+            WorldEventBody::ModuleStateUpdated(oasis7_wasm_abi::ModuleStateUpdate {
+                module_id: M1_STORAGE_POWER_MODULE_ID.into(),
+                trace_id: "historical-storage-fixture".into(),
+                state: serde_cbor::to_vec(&state).unwrap(),
+            }),
+            None,
+        )
+        .unwrap();
+    // Commit the fixture through its ordinary journal/root boundary. Editing a
+    // root-bound snapshot directly would correctly fail recovery before activation.
+    world.step().unwrap();
+    World::from_snapshot(world.snapshot(), world.journal().clone()).unwrap()
+}
+
 #[test]
-fn storage_activation_rejects_unmigrated_historical_state_without_reset() {
+fn movement_settlement_storage_activation_rejects_unmigrated_historical_state_without_reset() {
     let (world, _) = movement_world();
-    let mut snapshot = world.snapshot();
     let legacy = serde_json::json!({"agents": {"a": {"pos": pos(100_000, 0), "level": 4}}});
-    snapshot.state.module_states.insert(
-        M1_STORAGE_POWER_MODULE_ID.into(),
-        serde_cbor::to_vec(&legacy).unwrap(),
-    );
-    let mut restored = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let mut restored = restore_with_historical_storage(world, legacy);
     let before = restored.snapshot();
     let error = restored
         .install_m1_power_bootstrap_modules("bootstrap")
@@ -148,7 +166,7 @@ fn storage_activation_rejects_unmigrated_historical_state_without_reset() {
 }
 
 #[test]
-fn insufficient_world_movement_resources_preserve_battery_harvest_and_origin() {
+fn movement_settlement_insufficient_world_movement_resources_preserve_battery_harvest_and_origin() {
     let (mut world, mut sandbox) = movement_world();
     world.set_resource_balance(ResourceKind::Electricity, 0);
     let id = world.submit_action(Action::MoveAgent {
@@ -180,6 +198,7 @@ struct MovementDirectiveSandbox {
     deny: bool,
     target: Option<i64>,
     non_move: bool,
+    attempt_cost: bool,
 }
 
 impl ModuleSandbox for MovementDirectiveSandbox {
@@ -221,7 +240,13 @@ impl ModuleSandbox for MovementDirectiveSandbox {
                             to: pos(target, 0),
                         })
                     },
-                    cost: ResourceDelta::default(),
+                    cost: if self.attempt_cost {
+                        ResourceDelta {
+                            entries: BTreeMap::from([(ResourceKind::Data, -2)]),
+                        }
+                    } else {
+                        ResourceDelta::default()
+                    },
                     notes: vec!["isolated movement rule".into()],
                 })
                 .unwrap(),
@@ -231,7 +256,8 @@ impl ModuleSandbox for MovementDirectiveSandbox {
 }
 
 #[test]
-fn another_rule_deny_preserves_harvest_and_modified_move_prices_final_target_once() {
+fn movement_settlement_another_rule_deny_preserves_harvest_and_modified_move_prices_final_target_once()
+ {
     for (deny, target, expected_level, expected_x) in [
         (true, None, 7, 0),
         (false, Some(200_000), 1, 200_000),
@@ -248,6 +274,7 @@ fn another_rule_deny_preserves_harvest_and_modified_move_prices_final_target_onc
             deny,
             target,
             non_move: false,
+            attempt_cost: false,
         };
         let initial = world.resource_balance(ResourceKind::Electricity);
         world.submit_action(Action::MoveAgent {
@@ -271,7 +298,7 @@ fn another_rule_deny_preserves_harvest_and_modified_move_prices_final_target_onc
 }
 
 #[test]
-fn zero_distance_has_no_settlement_but_preserves_one_harvest() {
+fn movement_settlement_zero_distance_has_no_settlement_but_preserves_one_harvest() {
     let (mut world, mut sandbox) = movement_world();
     let initial = world.resource_balance(ResourceKind::Electricity);
     world.submit_action(Action::MoveAgent {
@@ -287,7 +314,8 @@ fn zero_distance_has_no_settlement_but_preserves_one_harvest() {
 }
 
 #[test]
-fn nonmovement_override_keeps_its_existing_domain_contract_without_distance_debit() {
+fn movement_settlement_nonmovement_override_keeps_its_existing_domain_contract_without_distance_debit()
+ {
     let (mut world, inner) = movement_world();
     super::rules::install_rule_modules(&mut world, "action.move_agent", &["movement.test.rule"]);
     let mut sandbox = MovementDirectiveSandbox {
@@ -295,6 +323,7 @@ fn nonmovement_override_keeps_its_existing_domain_contract_without_distance_debi
         deny: false,
         target: None,
         non_move: true,
+        attempt_cost: false,
     };
     let initial = world.resource_balance(ResourceKind::Electricity);
     world.submit_action(Action::MoveAgent {
@@ -311,16 +340,11 @@ fn nonmovement_override_keeps_its_existing_domain_contract_without_distance_debi
 }
 
 #[test]
-fn adding_only_format_marker_does_not_repair_historical_position_drift() {
+fn movement_settlement_adding_only_format_marker_does_not_repair_historical_position_drift() {
     let (world, _) = movement_world();
-    let mut snapshot = world.snapshot();
     let drifted = serde_json::json!({"last_settled_event_id": null,
         "agents": {"a": {"pos": pos(100_000, 0), "level": 4}}});
-    snapshot.state.module_states.insert(
-        M1_STORAGE_POWER_MODULE_ID.into(),
-        serde_cbor::to_vec(&drifted).unwrap(),
-    );
-    let mut restored = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let mut restored = restore_with_historical_storage(world, drifted);
     let before = restored.snapshot();
     assert!(
         restored
@@ -328,4 +352,77 @@ fn adding_only_format_marker_does_not_repair_historical_position_drift() {
             .is_err()
     );
     assert_eq!(restored.snapshot(), before);
+}
+
+#[test]
+fn movement_settlement_domain_rejection_discards_distance_cost_but_retains_general_attempt_cost() {
+    let (mut world, inner) = movement_world();
+    super::rules::install_rule_modules(&mut world, "action.move_agent", &["movement.test.rule"]);
+    super::gameplay_protocol::authorize_policy_update(&mut world, "a", "attempt-cost-policy");
+    world.submit_action(Action::UpdateGameplayPolicy {
+        operator_agent_id: "a".into(),
+        electricity_tax_bps: 0,
+        data_tax_bps: 0,
+        power_trade_fee_bps: 0,
+        max_open_contracts_per_agent: 4,
+        blocked_agents: vec![],
+        forbidden_location_ids: vec!["100000:0:0".into()],
+    });
+    world.step().unwrap();
+    world.set_resource_balance(ResourceKind::Data, 10);
+    let electricity = world.resource_balance(ResourceKind::Electricity);
+    let mut sandbox = MovementDirectiveSandbox {
+        inner,
+        deny: false,
+        target: None,
+        non_move: false,
+        attempt_cost: true,
+    };
+    world.submit_action(Action::MoveAgent {
+        agent_id: "a".into(),
+        to: pos(100_000, 0),
+    });
+    world.step_with_modules(&mut sandbox).unwrap();
+    assert_eq!(world.resource_balance(ResourceKind::Data), 8);
+    assert_eq!(
+        world.resource_balance(ResourceKind::Electricity),
+        electricity
+    );
+    assert_eq!(
+        battery(&world),
+        (serde_json::to_value(pos(0, 0)).unwrap(), 7)
+    );
+}
+
+#[test]
+fn movement_settlement_legacy_release_entry_cannot_be_relabelled_as_storage_v2() {
+    let mut world = World::new();
+    let old_hash = "35ee85efeeb41317ff63432131a67541856e36f7d5845ce9237bc8c63497ef06";
+    let old_identity =
+        m1_builtin_module_artifact_identity(M1_STORAGE_POWER_MODULE_ID, old_hash).unwrap();
+    world
+        .upsert_builtin_release_manifest_entry(
+            "m1",
+            M1_STORAGE_POWER_MODULE_ID,
+            BuiltinReleaseManifestEntry {
+                hash_tokens: vec![format!("linux-x86_64={old_hash}")],
+                artifact_identities: BTreeMap::from([(old_hash.to_string(), old_identity)]),
+            },
+        )
+        .unwrap();
+    let before = world.snapshot();
+    let error = world
+        .install_m1_power_bootstrap_modules("bootstrap")
+        .expect_err("old binary cannot be storage v2");
+    assert!(format!("{error:?}").contains("version-specific release artifact"));
+    assert_eq!(world.snapshot(), before);
+    assert!(
+        !world
+            .module_registry()
+            .records
+            .contains_key(&ModuleRegistry::record_key(
+                M1_STORAGE_POWER_MODULE_ID,
+                M1_STORAGE_POWER_MODULE_VERSION
+            ))
+    );
 }
