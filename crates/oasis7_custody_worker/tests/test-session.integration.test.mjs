@@ -23,6 +23,7 @@ let identityDiagnosticActive=false;
 let identitySecretsDisabled=false;
 let identityCloseReadTrap=false;
 let accountAlarmFixtureActive=false;
+let accountAlarmFault=null;
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
   let configuredRoles=0;
@@ -45,6 +46,10 @@ function configureOptions(options){
         return module;
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
+    }
+    if(accountAlarmFault&&worker.name==='owner'){
+      worker.bindings={...worker.bindings,FIXTURE_TEST_SESSION_ALARM_FAULT:accountAlarmFault};
+      worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_alarm_fault_runtime.mjs')},...worker.modules];
     }
     if(accountAlarmFixtureActive&&worker.name==='owner'){
       worker.bindings={...worker.bindings,FIXTURE_TEST_SESSION_ALARM:'true'};
@@ -103,9 +108,9 @@ assert result is not None
 print(json.dumps(result,separators=(',',':')))
 `,runtime.persist,runtime.account,id],{encoding:'utf8'}));}
 
-async function withActiveSession(run,{lostInitial=false}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
-  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;
+  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -143,6 +148,7 @@ async function withActiveSession(run,{lostInitial=false}={}){
     const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest:digest('oasis7.custody.test-session-basis.v1',basis),actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
     const request=await json(await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'session-approval',plan}));
     const approval=await runtime.approveIntent(request);
+    if(approvalFault){await approvalFault(runtime,{basis,plan,request,approval},selectedMode);return;}
     const consumed=await json(await runtime.managementFetch('/test-sessions/approve',{api_version:1,input:{operation_id:basis.session_id,request,approval},plan}));
     assert.equal(consumed.stage,'consumed_pending_preflight');assert.deepEqual(consumed.purposes,[]);assert.equal(consumed.identity_control_http_remaining,'159');
     await runtime.suspend();const beforeState=stored(runtime,basis.session_id);assert.equal(beforeState.consumed,true);assert.deepEqual(beforeState.roots,[]);assert.equal(beforeState.approved,false);
@@ -607,5 +613,50 @@ test('real Account alarm re-arms an early wake and expires across restart withou
       }
       assert.ok(duplicate.events>expired.events);assert.equal(duplicate.audits,expired.audits,'duplicate real alarm adds no audit');assert.equal(duplicate.closing_at,expired.closing_at);assert.equal(duplicate.scheduled_at,null);assert.deepEqual(duplicate.budgets,initial.budgets);assert.deepEqual(runtime.nativeRequests(),native);
     }finally{accountAlarmFixtureActive=false;}
+  });
+});
+
+
+for(const fault of ['set-once','sql-once'])test(`actual ${fault} alarm fault prevents first TestSession begin and does not consume approval`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('a rejected first begin must not activate a session'),{approvalFault:async(runtime,candidate,selectedMode)=>{
+    accountAlarmFault=fault;
+    try{
+      await runtime.restart(selectedMode);
+      const before=await runtime.accountAlarmFixture('observe',candidate.basis.session_id);
+      assert.equal(before.sessions,0);assert.equal(before.roots,0);assert.equal(before.scheduled_at,null);
+      const native=runtime.nativeRequests();
+      const rejected=await runtime.managementFetch('/test-sessions/approve',{api_version:1,input:{operation_id:candidate.basis.session_id,request:candidate.request,approval:candidate.approval},plan:candidate.plan});
+      assert.ok(rejected.status>=400,'a real scheduling or final SQL fault must reject first begin');
+      const after=await runtime.accountAlarmFixture('observe',candidate.basis.session_id);
+      assert.equal(after.sessions,0);assert.equal(after.roots,0);assert.equal(after.consumed,0);assert.equal(after.audits,before.audits);assert.equal(after.begin_audits,before.begin_audits);assert.equal(after.record_digest,before.record_digest,'actual final SQL and audit roll back together');
+      assert.equal((runtime.nativeRequests()['/custody/approvals/verify']??0)-(native['/custody/approvals/verify']??0),0,'no pending begin means no Native approval consumption');
+      if(fault==='set-once'){
+        assert.equal(after.set_faults,1);assert.equal(after.sql_faults,0);assert.equal(after.scheduled_at,null,'a failed initial scheduling attempt cannot pretend an alarm exists');
+      }else{
+        assert.equal(after.sql_faults,1);assert.equal(after.final_update_seen,true,'the fault occurred after the real final record update');assert.equal(after.set_faults,0);assert.ok(after.scheduled_at!==null,'successful prearm survives the rolled-back SQL');assert.ok(after.scheduled_at<=Math.min(Number(candidate.approval.proof.expires_at),Number(candidate.plan.write_deadline)));
+      }
+    }finally{accountAlarmFault=null;}
+  }});
+});
+
+test('unknown real Account inventory keeps its earlier alarm and strict public rejection',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    accountAlarmFault='unknown-inventory';
+    try{
+      await runtime.restart(selectedMode);
+      const before=await runtime.accountAlarmFixture('observe',basis.session_id);
+      assert.ok(before.scheduled_at!==null);
+      const native=runtime.nativeRequests(),counters=publicClientCounters(runtime,basis.session_id);
+      await runtime.accountAlarmFixture('unknown',basis.session_id);
+      // This is a valid paired-key proof. Both maintenance and its actual business
+      // route see the real unexpected SQLite table; neither may treat it as empty.
+      const original=clientClaimChallenge(basis,runtime);
+      const response=await runtime.publicClientFetch(new URL(original.http.original.target_uri).pathname,{method:'POST',headers:Object.fromEntries(original.http.original.headers.map(h=>[h.name,h.value])),body:original.http.original.body});
+      assert.equal(response.status,409,'unknown inventory must remain a strict pending denial');
+      const after=await runtime.accountAlarmFixture('observe',basis.session_id);
+      assert.equal(after.record_digest,before.record_digest);assert.equal(after.audits,before.audits);assert.equal(after.roots,before.roots);
+      assert.ok(after.scheduled_at!==null,'maintenance failure must not delete the pending timer');assert.equal(after.scheduled_at,before.scheduled_at,'fixed retry must preserve an already earlier real timer');
+      assert.deepEqual(runtime.nativeRequests(),native);assert.deepEqual(publicClientCounters(runtime,basis.session_id),counters,'unknown inventory cannot spend session budgets or dispatch');
+    }finally{accountAlarmFault=null;}
   });
 });
