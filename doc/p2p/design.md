@@ -370,7 +370,7 @@ engineering V2 的现有 execution hash 不承诺正式读取的投影树，不�
 
 多高度 ledger 从已认证 H 与固定目标配置直接初始化，不要求旧 H+1 账本先存在；否则正式 producer 无法在首个 H+1 QC 产生前建立其执行起点。新目录、schema 与 required marker 独立解析，同一记录目录不并存旧 H+1 与新 prefix writer mode，双方启动检测均须拒绝混用或降级。不同目录中的只读 QC 导入副本不产生共识签名，分别持有稳定、持久的本地 ledger 身份；其 CAS scope/shard 绑定该身份与 origin digest，不能仅以相同 H/target 共用 shard 而覆盖另一副本的保留集合。正式 producer 的 Node 身份、受保护 signer fencing 与实际安装仍是另行接线的前置条件，导入 receipt 不授予这些权限。
 
-所有当前 BFT 格式在检查、初始化各自目录前共同持有记录根目录的稳定 `bft-format.lock`，再持有自身 ledger lock，避免不同格式各自加锁后并发通过空目录检查。新 prefix 还在旧 `formal-bft-read-required-v1` 路径发布明确不受旧解码器支持的降级 fence；这不是旧 H+1 账本，旧入口不得据此重建或把新格式解释为旧格式。启用新格式前须停止并升级不遵守共同锁/新 marker 合同的旧进程；该 fence 不证明与已经运行的任意旧二进制可无停机混用。锁载体丢失、被替换或出现额外链接时阻断，不能以新建锁文件恢复一份既有 origin。
+所有当前 BFT 格式在检查、初始化各自目录前共同持有记录根目录的稳定 `bft-format.lock`，再持有自身 ledger lock，避免不同格式各自加锁后并发通过空目录检查。新 prefix 还在旧 `formal-bft-read-required-v1` 路径发布明确不受旧解码器支持的降级 fence；这不是旧 H+1 账本，旧入口不得据此重建或把新格式解释为旧格式。启用新格式前须停止并升级不遵守共同锁/新 marker 合同的旧进程；该 fence 不证明与已经运行的任意旧二进制可无停机混用。锁载体丢失、被替换或出现额外链接时阻断，不能以新建锁文件恢复一份既有 origin。共同锁载体在首次取得 OS 锁时写入并 fsync 32 字节随机 token，当前各格式一致消费，旧空载体仅在持有 OS 锁时升级。prefix 的本机 origin 同时固定两把锁的 device/inode 与 token 身份，重开先核对原身份，发布前再核对持有 fd 与路径；只把新 fd 与新路径相互比较，或只记录可能复用的 inode，均不足以证明跨重开的连续性。该本机物理身份不属于可移植 QC 前缀；新副本必须独立初始化。
 
 初始化先持久发布含随机本机 ledger ID、固定 H 材料 digest 与首高度的 `init-intent.cbor`，再通过同 inode 硬链接发布 origin，持久发布两个格式 marker 后才清理原 init-intent。完整初始化 staging 也固定同一原身份；重试不能另生成 ID 或换 H。已完成 origin 即使没有高度记录也要求两个 marker 完整；缺 origin 且仅余 marker 不能重新初始化。初始化未完成时不能已有高度记录；无法证明的状态保留并阻断。
 

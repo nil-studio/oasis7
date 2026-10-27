@@ -136,6 +136,7 @@ impl Ledger {
         material_pin_digest: &str,
         first_height: u64,
     ) -> Result<(), String> {
+        self.verify_carriers()?;
         super::hash(material_pin_digest)?;
 
         if !self.init_pending {
@@ -162,6 +163,8 @@ impl Ledger {
                     ledger_id: hex::encode(random),
                     material_pin_digest: material_pin_digest.into(),
                     first_height,
+                    format_lock: common_storage::lock_carrier_identity(&self._format_lock)?,
+                    writer_lock: common_storage::lock_carrier_identity(&self._lock)?,
                 };
                 pin.validate()?;
                 // Retain this identity in memory even if publication returns
@@ -178,6 +181,7 @@ impl Ledger {
             );
         }
         pin.validate()?;
+        self.verify_carriers()?;
         let bytes = serde_cbor::to_vec(&pin).map_err(|error| error.to_string())?;
 
         let intent_path = self.dir.join(INIT_INTENT_FILE);
@@ -198,9 +202,13 @@ impl Ledger {
         } else {
             files::publish(&intent_path, &bytes)?;
         }
+        self.verify_carriers()?;
         files::link_record(&origin_path, &intent_path, &bytes)?;
+        self.verify_carriers()?;
         files::publish(&self.root.join(LEGACY_MARKER), DOWNGRADE_FENCE)?;
+        self.verify_carriers()?;
         files::publish(&self.root.join(MARKER), MARKER_BYTES)?;
+        self.verify_carriers()?;
         files::finish(&origin_path, &intent_path, &bytes)?;
         self.init_pending = false;
         Ok(())

@@ -436,7 +436,9 @@ fn empty_ledger_metadata_loss_cases(
             proof.to_str().unwrap(),
         ];
         assert!(
-            crate::identity_receipt::dispatch(args.into_iter()).unwrap().is_err(),
+            crate::identity_receipt::dispatch(args.into_iter())
+                .unwrap()
+                .is_err(),
             "install must not reinitialize an existing empty ledger after losing {missing_relative}"
         );
         assert!(

@@ -24,7 +24,17 @@ pub(super) fn lock(directory: &Path, initialize: bool) -> Result<File, String> {
             );
         }
     }
-    common_storage::lock_carrier(&carrier)
+    let identity_started = fs::read_dir(directory)
+        .map_err(|e| e.to_string())?
+        .try_fold(false, |found, entry| {
+            entry.map(|entry| found || entry.file_name() != "writer.lock")
+        })
+        .map_err(|e| e.to_string())?;
+    if identity_started {
+        common_storage::lock_existing_carrier(&carrier)
+    } else {
+        common_storage::lock_carrier(&carrier)
+    }
 }
 pub(super) fn sync(directory: &Path) -> Result<(), String> {
     File::open(directory)

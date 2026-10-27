@@ -30,13 +30,19 @@ struct OriginPin {
     ledger_id: String,
     material_pin_digest: String,
     first_height: u64,
+    format_lock: common_storage::LockCarrierIdentity,
+    writer_lock: common_storage::LockCarrierIdentity,
 }
 impl OriginPin {
     fn validate(&self) -> Result<(), String> {
         hash(&self.ledger_id)?;
         hash(&self.material_pin_digest)?;
+        hash(&self.format_lock.token)?;
+        hash(&self.writer_lock.token)?;
         if self.schema_version != 1
             || self.domain != "oasis7.formal.bft.prefix.origin.v1"
+            || self.format_lock.inode == 0
+            || self.writer_lock.inode == 0
             || self.first_height == 0
             || self.first_height.checked_add(63).is_none()
         {
@@ -282,6 +288,7 @@ impl Ledger {
             #[cfg(test)]
             kill_on_fault: false,
         };
+        ledger.verify_carriers()?;
         ledger.capacity.charge(origin_bytes)?;
         ledger.reload()?;
         Ok(ledger)
@@ -290,11 +297,7 @@ impl Ledger {
     pub(super) fn reload(&mut self) -> Result<(), String> {
         crate::controlled_live_config::require_private_owned(&self.root, true)?;
         crate::controlled_live_config::require_private_owned(&self.dir, true)?;
-        common_storage::verify_lock_carrier(
-            &self._format_lock,
-            &self.root.join("bft-format.lock"),
-        )?;
-        common_storage::verify_lock_carrier(&self._lock, &self.dir.join("writer.lock"))?;
+        self.verify_carriers()?;
         let (disk_pin, pending) = Self::load_origin(&self.dir, &self.root, self.initialize)?;
         if disk_pin != self.pin || pending != self.init_pending {
             return Err(
@@ -613,6 +616,7 @@ impl Ledger {
         store: &LocalCasStore,
         append: bool,
     ) -> Result<String, String> {
+        self.verify_carriers()?;
         if entry.certificate.proposal.block != executed.block
             || entry.commitment != executed.commitment
         {
@@ -693,6 +697,7 @@ impl Ledger {
                         formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
                     )?;
                 }
+                self.verify_carriers()?;
                 store
                     .replace_pin_scope_shard(SCOPE, &shard, &record.references())
                     .map_err(|e| format!("publish formal prefix pins: {e:?}"))?;
@@ -700,6 +705,7 @@ impl Ledger {
             }
             #[cfg(test)]
             self.publication_fault(height, PublicationFault::AfterPins)?;
+            self.verify_carriers()?;
             files::promote(
                 &self.reservation_path(height),
                 &self.intent_path(height),
@@ -722,11 +728,14 @@ impl Ledger {
             }
             #[cfg(test)]
             self.publication_fault(height, PublicationFault::AfterIntent)?;
+            self.verify_carriers()?;
             files::link_record(&self.record_path(height), &self.intent_path(height), &bytes)?;
             #[cfg(test)]
             self.publication_fault(height, PublicationFault::AfterRecordLink)?;
+            self.verify_carriers()?;
             files::finish(&self.record_path(height), &self.intent_path(height), &bytes)?;
         }
+        self.verify_carriers()?;
         files::clean_equivalent_stages(&self.reservation_path(height), &bytes)?;
         files::clean_equivalent_stages(&self.intent_path(height), &bytes)?;
         self.slots.insert(
@@ -739,6 +748,21 @@ impl Ledger {
             },
         );
         record.digest()
+    }
+    fn verify_carriers(&self) -> Result<(), String> {
+        common_storage::verify_lock_carrier(
+            &self._format_lock,
+            &self.root.join("bft-format.lock"),
+        )?;
+        common_storage::verify_lock_carrier(&self._lock, &self.dir.join("writer.lock"))?;
+        if let Some(pin) = &self.pin {
+            if pin.format_lock != common_storage::lock_carrier_identity(&self._format_lock)?
+                || pin.writer_lock != common_storage::lock_carrier_identity(&self._lock)?
+            {
+                return Err("formal prefix original lock carrier identity was replaced".into());
+            }
+        }
+        Ok(())
     }
     fn verify_material(
         &self,
@@ -845,6 +869,60 @@ fn hash(value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod capacity_tests {
     use super::*;
+    #[test]
+    fn completed_origin_rejects_replaced_os_lock_carriers_on_fresh_open() {
+        use std::os::unix::fs::OpenOptionsExt;
+        struct Root(PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let root = Root(
+            std::env::temp_dir()
+                .canonicalize()
+                .unwrap()
+                .join(format!("oasis7-prefix-carrier-{}", hex::encode(random))),
+        );
+        let mut ledger = Ledger::open(&root.0, true, 0).unwrap();
+        ledger.bind(&"a".repeat(64), 3).unwrap();
+        drop(ledger);
+        for relative in ["bft-format.lock", "formal-bft-prefix-v1/writer.lock"] {
+            let carrier = root.0.join(relative);
+            let token = fs::read(&carrier).unwrap();
+            for changed in [vec![0x7a; 32], Vec::new()] {
+                fs::write(&carrier, &changed).unwrap();
+                assert!(
+                    Ledger::open(&root.0, true, 0).is_err(),
+                    "fresh open accepted changed/empty token on same inode: {relative}"
+                );
+                assert_eq!(
+                    fs::read(&carrier).unwrap(),
+                    changed,
+                    "failed reopen must preserve original corrupted carrier bytes"
+                );
+                fs::write(&carrier, &token).unwrap();
+                drop(Ledger::open(&root.0, false, 0).unwrap());
+            }
+            let original = carrier.with_extension("preserved-test-lock");
+            fs::rename(&carrier, &original).unwrap();
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&carrier)
+                .unwrap();
+            assert!(
+                Ledger::open(&root.0, true, 0).is_err(),
+                "fresh open accepted replaced {relative}"
+            );
+            fs::remove_file(&carrier).unwrap();
+            fs::rename(&original, &carrier).unwrap();
+            drop(Ledger::open(&root.0, false, 0).unwrap());
+        }
+    }
     #[test]
     fn failed_material_reservation_cannot_make_a_retry_skip_the_limit() {
         let mut capacity = Capacity::default();
