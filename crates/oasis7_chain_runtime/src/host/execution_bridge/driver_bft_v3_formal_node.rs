@@ -63,6 +63,7 @@ impl FormalBftHeaderNodeDriverV3 {
             ))
             .map_err(|_| "encode original Node material identity")?,
         );
+        capture_h_index(&execution.origin)?;
         let nodes = execution.origin.retained_nodes.accessed_nodes()?;
         private.bind_origin(
             &ledger_origin,
@@ -162,12 +163,27 @@ impl FormalBftHeaderNodeDriverV3 {
         // Live execution may derive new nodes, but all parent reads must still
         // resolve solely through this verified strict overlay.
         let verified_parent = self.execution.origin.retained_nodes.clone();
-        let seed = verified_parent.recorded_nodes()?;
+        let mut parent_nodes: std::collections::BTreeMap<_, _> =
+            self.private.origin_nodes()?.into_iter().collect();
+        for (digest, bytes) in verified_parent.recorded_nodes()? {
+            if parent_nodes
+                .get(&digest)
+                .is_some_and(|original| original != &bytes)
+            {
+                return Err("verified Node parent dependency bytes conflict".into());
+            }
+            parent_nodes.insert(digest, bytes);
+        }
+        let seed: Vec<_> = parent_nodes.into_iter().collect();
+        let strict_source = formal_dependencies::RecordingBusinessIndexReaderV1::new_strict(
+            verified_parent,
+            seed.clone(),
+        )?;
         let mut live = FormalBftHeaderExecutionV3::from_handoff(
             self.execution.inputs.anchor.clone(),
             self.execution.inputs.target.clone(),
             &self.execution.inputs.material,
-            verified_parent,
+            strict_source,
             seed,
             false,
         )?;
@@ -362,12 +378,7 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             .execution
             .origin
             .build_candidate(&bytes)
-            .map_err(|cause| {
-                #[cfg(test)]
-                eprintln!("fixture parent-policy failure: {cause}");
-                let _ = cause;
-                "Node immutable parent-policy admission rejected"
-            })?;
+            .map_err(|_| "Node immutable parent-policy admission rejected")?;
         if actual.commitment.height != context.height
             || actual.commitment.transition.is_some()
             || actual.commitment.transition_ref.is_some()
@@ -482,22 +493,64 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         );
         self.installed_world = cut.world().clone();
         self.cursor_height = height;
-        let installed_execution_root = self
+        let installed_semantic_root = self
             .world()
             .execution_state_identity()
             .map_err(|_| "installed Node World identity unavailable")?
             .state_root_hash;
-        if installed_execution_root != c.execution_state_root {
+        if installed_semantic_root != c.state_root {
             return Err("installed Node World differs from durable execution receipt".into());
         }
         Ok(NodeBftExecutionCommitResultV3 {
             height,
             header_id: token.block_id().into(),
             execution_commitment_hash: certificate.header.execution_commitment_hash,
-            execution_state_root: installed_execution_root,
-            state_root: c.state_root.clone(),
+            execution_state_root: c.execution_state_root.clone(),
+            state_root: installed_semantic_root,
             post_manifest_hash: c.post_manifest_hash.clone(),
             driver_install_digest: install,
         })
     }
+}
+
+/// Retain the bounded complete H index before the first signing lease: future
+/// actions can touch branches no earlier proposal happened to observe.
+fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
+    use oasis7_distfs::controlled_authority::formal::business_index::{
+        BUSINESS_INDEX_DEPTH, BusinessIndexNodeKindV1, BusinessIndexNodeV1, empty_subtree_hashes,
+    };
+    let empty = empty_subtree_hashes()?;
+    let mut stack = vec![(
+        origin.parent_result_tree.index_root().node_root.clone(),
+        0usize,
+    )];
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some((digest, depth)) = stack.pop() {
+        if depth > BUSINESS_INDEX_DEPTH {
+            return Err("Node H index depth exceeded".into());
+        }
+        if digest == empty[depth] || !visited.insert((digest.clone(), depth)) {
+            continue;
+        }
+        if visited.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES {
+            return Err("Node H index count capacity".into());
+        }
+        let bytes = origin
+            .retained_nodes
+            .read_node(&digest)?
+            .ok_or("original Node H index node missing")?;
+        match BusinessIndexNodeV1::decode(&bytes)?.kind {
+            BusinessIndexNodeKindV1::Branch {
+                depth: stored,
+                left_hash,
+                right_hash,
+            } if usize::from(stored) == depth && depth < BUSINESS_INDEX_DEPTH => {
+                stack.push((right_hash, depth + 1));
+                stack.push((left_hash, depth + 1));
+            }
+            BusinessIndexNodeKindV1::Leaf(_) if depth == BUSINESS_INDEX_DEPTH => {}
+            _ => return Err("Node H index node depth differs".into()),
+        }
+    }
+    Ok(())
 }
