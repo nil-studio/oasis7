@@ -20,9 +20,9 @@ from urllib.parse import urlsplit
 class CleanupError(RuntimeError):
     pass
 
-def _run(args, check=True, timeout=10):
+def _run(args, check=True, timeout=10, env=None):
     try:
-        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise CleanupError(str(exc)) from exc
     if check and result.returncode:
@@ -51,8 +51,25 @@ def _native_process_identity(pid):
     raise ValueError('unsupported native process identity')
 
 
+def _darwin_zombie(pid, deadline):
+    """Positive kernel state, not a process-name or missing-output heuristic."""
+    remaining = 1 if deadline is None else min(1, deadline-time.monotonic())
+    if remaining <= 0:
+        return False
+    try:
+        result = _run(['/bin/ps', '-p', str(pid), '-o', 'pid=,state='],
+                      check=False, timeout=remaining, env={**os.environ, 'LC_ALL': 'C'})
+    except CleanupError:
+        return False
+    # Restrict the exception to this exact observed state. Unknown flags and
+    # multiple rows stay fail-closed, as do permissions, warnings and absence.
+    return (result.returncode == 0 and not result.stderr.strip()
+            and [line.split() for line in result.stdout.splitlines() if line.strip()]
+            == [[str(pid), 'Z']])
+
+
 def process_identity(pid, deadline=None):
-    """Native start identity; only ESRCH proves an unreadable process gone."""
+    """Native identity, or no live resources after ESRCH / exact Darwin Z."""
     for attempt in range(100):
         if deadline is not None and time.monotonic() >= deadline:
             raise CleanupError('process inspection budget exhausted')
@@ -65,6 +82,10 @@ def process_identity(pid, deadline=None):
                 if exc.errno == errno.ESRCH:
                     return None
                 raise CleanupError(f'PID {pid}: identity unreadable ({exc.strerror})') from exc
+            if attempt == 0 and sys.platform == 'darwin' and _darwin_zombie(pid, deadline):
+                # A zombie has already released cwd/descriptors. The census
+                # still resamples all PIDs, so reuse must get a fresh identity.
+                return None
             if attempt < 99:
                 # An exiting process can briefly answer kill(0) after native
                 # identity has vanished. Re-read native start identity so PID
