@@ -438,7 +438,7 @@ test('public scoped client claims credentials and heartbeats without borrowing p
     const claimed=await authorized(claimProof);
     assert.equal(claimed.status,'claimed');assert.equal(claimed.credentials.length,2);
     const credentials=new Map();
-    for(const item of claimed.credentials){assert.equal(typeof item.token,'string');assert.ok(item.token.length>=32);assert.equal(item.generation,'1');credentials.set(item.purpose,item.token);}
+    for(const item of claimed.credentials){assert.equal(typeof item.token,'string');assert.equal(item.token.length,43);const decoded=Buffer.from(item.token,'base64url');assert.equal(decoded.length,32);assert.equal(decoded.toString('base64url')===item.token,true,'credential token must use canonical base64url');assert.equal(item.generation,'1');credentials.set(item.purpose,item.token);}
     assert.ok(credentials.has('execution')&&credentials.has('reconcile_read'));
     assert.ok(claimProof.expires*1000-Date.now()>1000,'exact consumed-nonce proof must still be fresh for historical retry');
     const historical=await authorized(claimProof);

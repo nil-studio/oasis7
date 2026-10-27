@@ -185,8 +185,14 @@ async fn credentials(
     let mut allocations = Vec::new();
     for selected in &request.purposes {
         let purpose = claim_purpose(*selected)?;
-        let token =
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        let random =
             Zeroizing::new(crate::approval_crypto::verification_nonce().map_err(|_| denied())?);
+        let bytes = Zeroizing::new(hex::decode(random.as_str()).map_err(|_| denied())?);
+        if bytes.len() != 32 {
+            return Err(denied());
+        }
+        let token = Zeroizing::new(URL_SAFE_NO_PAD.encode(bytes.as_slice()));
         let digest =
             hex::encode(oasis7_custody_core::http_pop::token_digest(&token).map_err(|_| denied())?);
         allocations.push(SessionCredentialAllocation { purpose, digest });
