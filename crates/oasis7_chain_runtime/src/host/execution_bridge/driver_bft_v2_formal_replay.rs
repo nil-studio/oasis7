@@ -29,10 +29,24 @@ impl FormalBftReadExecutionV1 {
         // New result-tree nodes belong to this isolated replay, not the old
         // H+1 ledger's exact dependency set (which is strict after reopen).
         let nodes = formal_dependencies::RecordingBusinessIndexReaderV1::new(
-            self.business_reader.0.clone(),
+            self.business_source.clone(),
             self.retained_nodes.recorded_nodes()?,
         )?;
         let business_reader = formal_business_package::SharedBusinessReader(nodes.clone());
+        let parent_world = RuntimeWorld::from_verified_formal_snapshot(
+            self.parent_world.snapshot(),
+            self.parent_world.journal().clone(),
+            self.retained_parent.clone(),
+            nodes.clone(),
+        )
+        .map_err(|error| format!("restore independent formal replay H: {error:?}"))?
+        .with_release_security_policy(self.parent_world.release_security_policy().clone());
+        if parent_world.snapshot() != self.parent_world.snapshot()
+            || super::super::super::super::super::journal_to_cbor(parent_world.journal())?
+                != super::super::super::super::super::journal_to_cbor(self.parent_world.journal())?
+        {
+            return Err("independent formal replay restore changed H Snapshot or Journal".into());
+        }
         let mut partial = FormalBftCertifiedPrefixV1 {
             schema_version: 1,
             entries: Vec::with_capacity(prefix.entries.len()),
@@ -50,7 +64,7 @@ impl FormalBftReadExecutionV1 {
                         .map(|proof: &VerifiedFormalBftPrefixV1| proof.next_height_schedule())
                         .ok_or("formal BFT replay lacks predecessor proof")?,
                 ),
-                None => (&self.parent_world, &self.parent_result_tree, &self.schedule),
+                None => (&parent_world, &self.parent_result_tree, &self.schedule),
             };
             let executed = execute_formal_candidate(
                 FormalCandidateContext {

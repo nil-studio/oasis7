@@ -70,7 +70,13 @@ fn replay_case() {
     // Use a separately opened consumer so builder-side cached BFT result
     // nodes cannot mask missing per-height delta retention during replay.
     let replay_scratch = Scratch::new();
-    let replayer = open_formal_read(&h, &replay_scratch, h.reader.clone(), true).unwrap();
+    let probe_bytes = b"replay reader isolation probe".to_vec();
+    let probe_digest = blake3_hex(&probe_bytes);
+    let mut source = h.reader.0.clone();
+    source.insert(probe_digest.clone(), probe_bytes.clone());
+    let replayer =
+        open_formal_read(&h, &replay_scratch, Arc::new(IndexReader(source)), true).unwrap();
+    let original_refs = replayer.retained_nodes.recorded_refs().unwrap();
     let id = executed.block.block_id().unwrap();
     let height = executed.block.height;
     let replayed = replayer
@@ -85,6 +91,16 @@ fn replay_case() {
         executed.result_tree.root().unwrap()
     );
     assert_eq!(replayed.tip.world.state().time, 5);
+    assert!(!original_refs.contains(&probe_digest));
+    assert_eq!(
+        replayed.dependencies.read_node(&probe_digest).unwrap(),
+        Some(probe_bytes)
+    );
+    assert_eq!(
+        replayer.retained_nodes.recorded_refs().unwrap(),
+        original_refs,
+        "a replay overlay miss must not grow the original H+1 recorder"
+    );
     let retained = replayed.dependencies.recorded_nodes().unwrap();
     for node in &executed.result_delta.node_writes {
         assert!(
@@ -95,6 +111,10 @@ fn replay_case() {
     }
     assert_eq!(replayer.parent_world.snapshot(), before);
     assert!(replayer.ledger.record().is_none());
+    assert_eq!(
+        replayer.retained_nodes.recorded_refs().unwrap(),
+        original_refs
+    );
     assert_eq!(execution.parent_world.snapshot(), before);
     assert!(
         execution.ledger.record().is_none(),

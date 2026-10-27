@@ -108,6 +108,8 @@ pub(crate) struct FormalBftReadExecutionV1 {
     schedule: BftHeightProposerScheduleV2,
     parent_record: CanonicalRecordV1,
     parent_world: RuntimeWorld,
+    retained_parent: oasis7_runtime::VerifiedFormalRetainedHistoryParentV1,
+    business_source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
     parent_result_tree: FormalBusinessResultTreeV1,
     business_reader: formal_business_package::SharedBusinessReader,
     retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
@@ -185,6 +187,7 @@ impl FormalBftReadExecutionV1 {
             &store,
         )?;
         let seed: Vec<_> = preloaded.nodes.into_iter().collect();
+        let business_source = business_reader.clone();
         let retained_nodes = if preloaded.record_present {
             formal_dependencies::RecordingBusinessIndexReaderV1::new_strict(business_reader, seed)?
         } else {
@@ -196,6 +199,7 @@ impl FormalBftReadExecutionV1 {
         validate_handoff_material(&anchor, &handoff, &h_material)?;
         let restored = restore_handoff_world(&anchor, &h_material, &business_reader)?;
         let parent_world = restored.world;
+        let retained_parent = restored.retained_parent;
         let parent_result_tree = restored.result_tree;
         let parent_semantic_root = parent_world
             .execution_state_identity()
@@ -241,6 +245,8 @@ impl FormalBftReadExecutionV1 {
             schedule,
             parent_record,
             parent_world,
+            retained_parent,
+            business_source,
             parent_result_tree,
             business_reader,
             retained_nodes,
@@ -566,6 +572,7 @@ fn execute_formal_candidate(
 }
 
 struct RestoredHandoffWorld {
+    retained_parent: oasis7_runtime::VerifiedFormalRetainedHistoryParentV1,
     world: RuntimeWorld,
     result_tree: FormalBusinessResultTreeV1,
 }
@@ -648,7 +655,7 @@ fn restore_handoff_world(
     let world = oasis7_runtime::World::from_verified_formal_snapshot(
         snapshot,
         journal,
-        retained,
+        retained.clone(),
         business_reader.0.clone(),
     )
     .map_err(|error| format!("restore qualified H World: {error:?}"))?
@@ -665,6 +672,7 @@ fn restore_handoff_world(
         return Err("qualified H World differs from its committed projection root".into());
     }
     Ok(RestoredHandoffWorld {
+        retained_parent: retained,
         world,
         result_tree: tree,
     })
