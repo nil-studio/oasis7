@@ -229,8 +229,8 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         .collect::<Vec<_>>();
     let expected = [
         "COPY Cargo.toml Cargo.lock /opt/oasis7/",
-        "COPY vendor-egui-winit-0.33.3 /opt/oasis7/vendor-egui-winit-0.33.3",
         "COPY crates /opt/oasis7/crates",
+        "COPY vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
         "COPY vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0",
         "COPY vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1",
         "COPY tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner",

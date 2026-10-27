@@ -4,30 +4,32 @@ use super::*;
 const ARTIFACTS: &str = "crates/oasis7_runtime/src/world/artifacts";
 const DESCRIPTOR: &str = "builtin_wasm_candidate_baseline.v1.json";
 const PURPOSE: &str = "candidate-build";
+// Freeze the current release bytes accepted on trusted main 4b9675d6607569d80a3f7b85bf945d50cd93b781.
+// Historical release versions remain in Git; candidate generation never rewrites these files.
 const LEGACY: [(&str, &str); 6] = [
     (
         "m1_builtin_modules.identity.json",
-        "bc4402578935a14381228b2b66d3fe077f4a770fef897cc3927ce08a1528ebf9",
+        "fd34f0684882ed87a3225884b80424bb2d0655e76c37fbc412ef50c1a42acd2a",
     ),
     (
         "m1_builtin_modules.sha256",
-        "f92378e5ad249ce3ce46c71dd2ebb32986734600549adb6385f8600b0d50be2d",
+        "b03632047d393747cf11339245eaa744a85531fa60903e3e5ba92eb1b0c68afc",
     ),
     (
         "m4_builtin_modules.identity.json",
-        "2624f8bbb13d1711138df143298063501a1fbee1be4f338eb1d0cfcf12b3f994",
+        "95383883451273ca851094bbdd5b2357b55ab08484920c97367a5205755aca08",
     ),
     (
         "m4_builtin_modules.sha256",
-        "2e9cc243483acd9d72b77ccb09d6fb5857e51f977285ce5ce8c9b23709c147d1",
+        "ceb30356b66a2a78a79effe1a7d092ccb1f51e9920a845200b0f0d2846e654c2",
     ),
     (
         "m5_builtin_modules.identity.json",
-        "ebb07fa6f6a545e71cfcff121c9b46e4b10201a20bf3733a4d7d3c5fb699be8d",
+        "d9a1d9edf22105d100ecde22e5da1a41114f2c4d198c1c73589ab324dadf99aa",
     ),
     (
         "m5_builtin_modules.sha256",
-        "154fd149e18b22312a34e611e7e7b24c35314d89e05ee70af5adf2cdc47aeec9",
+        "e271c3168fdde0e3c836dd9339c4cb19acc52d8fa02f145f43cc9e328261f97e",
     ),
 ];
 
