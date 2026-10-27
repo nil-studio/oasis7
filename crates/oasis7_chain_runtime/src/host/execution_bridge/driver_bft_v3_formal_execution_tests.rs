@@ -36,7 +36,7 @@ fn execution() -> FormalBftHeaderExecutionV3 {
     .expect("restore actual qualified wire 3 H and bind its World")
 }
 
-fn private_actions() -> Vec<u8> {
+pub(super) fn private_actions() -> Vec<u8> {
     let payload = oasis7::consensus_action_payload::encode_consensus_action_payload(
         &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
             oasis7_runtime::Action::RegisterAgent {
@@ -52,7 +52,7 @@ fn private_actions() -> Vec<u8> {
     .unwrap()
 }
 
-fn certify(
+pub(super) fn certify(
     schedule: &BftHeaderHeightScheduleV3,
     candidate: &FormalBftHeaderCandidateV3,
 ) -> FormalBftCertifiedHeaderV3 {

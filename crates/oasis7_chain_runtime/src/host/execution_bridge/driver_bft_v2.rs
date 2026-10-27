@@ -37,7 +37,9 @@ mod formal_read;
 mod governance;
 #[path = "driver_bft_v2_storage.rs"]
 mod storage;
-pub(crate) use formal_read::{FormalBftPrefixExecutionV1, FormalBftReadExecutionV1};
+pub(crate) use formal_read::{
+    FormalBftHeaderExecutionV3, FormalBftPrefixExecutionV1, FormalBftReadExecutionV1,
+};
 use governance::{
     has_validator_set_change_action_v2, transition_metadata_for_schedule,
     validate_set_change_actions_have_registry_v2, validate_validator_transition_action_schedule_v2,

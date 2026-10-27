@@ -865,12 +865,14 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) use self::driver::ExecutionResourceIdentity;
-#[cfg(all(unix, not(target_arch = "wasm32")))]
-pub(crate) use self::driver::{FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
 #[allow(unused_imports)]
 pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 #[cfg(not(test))]
 pub(super) use self::driver::derive_local_execution_bootstrap;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub(crate) use self::driver::{
+    FormalBftHeaderExecutionV3, FormalBftPrefixExecutionV1, FormalBftReadExecutionV1,
+};
 #[allow(unused_imports)]
 pub(crate) use self::driver::{load_execution_world, load_execution_world_with_policy};
 pub(crate) use self::driver_persistence::load_execution_world_with_context;

@@ -67,6 +67,10 @@ mod explorer_p0_api;
 #[path = "host/feedback_submit_api.rs"]
 mod feedback_submit_api;
 #[cfg(unix)]
+#[path = "host/formal_bft_header_cli.rs"]
+mod formal_bft_header_cli;
+
+#[cfg(unix)]
 #[path = "host/formal_bft_prefix_cli.rs"]
 mod formal_bft_prefix_cli;
 #[cfg(unix)]
