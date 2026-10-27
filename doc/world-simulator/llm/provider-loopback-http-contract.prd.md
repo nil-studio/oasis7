@@ -6,7 +6,7 @@
 
 审计轮次: 1
 
-Native Launcher 探测的[响应预算与安全诊断](provider-loopback-http-contract.design.md#native-provider-probe-boundary)已定义目标合同，流式字节上限和全消费者验证仍待实现。既有超时及凭据不回显要求保留；本细项不增加异步/取消 UI 或宣称外部 Runtime 已通过实玩验收。
+Native Launcher 探测的[响应预算与安全诊断](provider-loopback-http-contract.design.md#native-provider-probe-boundary)已接入 64 KiB 流式字节上限和 status/log 离线回归。既有超时及凭据不回显要求保留；本细项不增加异步/取消 UI 或宣称外部 Runtime 已通过实玩验收。
 
 
 ## 产品目标与本地传输范围
