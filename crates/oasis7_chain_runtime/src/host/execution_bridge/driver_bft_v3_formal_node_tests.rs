@@ -23,10 +23,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[path = "driver_bft_v3_node_cli_tests.rs"]
-mod node_cli_tests;
 #[path = "driver_bft_v3_node_batch_tests.rs"]
 mod node_batch_tests;
+#[path = "driver_bft_v3_node_cli_tests.rs"]
+mod node_cli_tests;
 #[path = "driver_bft_v3_node_identity_tests.rs"]
 mod node_identity_tests;
 #[path = "driver_bft_v3_node_publication_failure_tests.rs"]
@@ -48,6 +48,7 @@ impl BftSigningKeyHandleV3 for MemoryTestSignerKey {
 
 struct MemoryTestSignerBackend {
     binding_digest: String,
+    fail_confirm_after_commit: Option<Arc<std::sync::atomic::AtomicBool>>,
     snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
 }
 
@@ -177,7 +178,19 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         if let Some(event_time) = minimum_event_time_ms {
             snapshot.protected_time_floor_ms = snapshot.protected_time_floor_ms.max(event_time);
         }
+        let confirmed = snapshot.state.pending_driver_apply.is_some()
+            && next_state.pending_driver_apply.is_none();
         snapshot.state = next_state;
+        if confirmed
+            && self
+                .fail_confirm_after_commit
+                .as_ref()
+                .is_some_and(|flag| flag.swap(false, std::sync::atomic::Ordering::SeqCst))
+        {
+            return Err(BftSignerErrorV3(
+                "test confirm committed but result unknown".into(),
+            ));
+        }
         Ok(snapshot.clone())
     }
 }
@@ -266,6 +279,13 @@ fn service(
     binding: &BftSignerBindingV3,
     snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
 ) -> Arc<BftSignerServiceV3> {
+    service_with_confirm_fault(binding, snapshot, None)
+}
+fn service_with_confirm_fault(
+    binding: &BftSignerBindingV3,
+    snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
+    fail_confirm_after_commit: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Arc<BftSignerServiceV3> {
     Arc::new(
         BftSignerServiceV3::open(
             binding.clone(),
@@ -273,6 +293,7 @@ fn service(
             vec![Box::new(MemoryTestSignerKey(fixtures::key(120)))],
             Box::new(MemoryTestSignerBackend {
                 binding_digest: binding.digest().unwrap(),
+                fail_confirm_after_commit,
                 snapshot,
             }),
         )

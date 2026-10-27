@@ -112,8 +112,23 @@ fn failure_case() {
         signer_binding(&actual).digest().unwrap(),
         binding.digest().unwrap()
     );
-    let (address, server) = tcp(service(&binding, snapshot.clone()));
+    // Fresh Runtime has no queued actions. The backend commits confirmation,
+    // then reports an unknown result; only the request-local recovery cache
+    // can preserve notification eligibility for this same Runtime retry.
+    let unknown = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (address, server) = confirm_retry_tcp(binding.clone(), snapshot.clone(), unknown.clone());
     let mut node = runtime(root.path(), actual.clone(), &binding, address);
+    assert!(node.start().is_err());
+    assert!(!unknown.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(
+        snapshot
+            .lock()
+            .unwrap()
+            .state
+            .pending_driver_apply
+            .is_none()
+    );
+    assert!(node.drain_committed_action_batches().is_empty());
     node.start().unwrap();
     let completion = wait_batch(&node, 9020);
     assert_eq!(completion.height, height);
@@ -287,4 +302,49 @@ fn same_node_case() {
     );
     drop(fresh);
     server.join().unwrap().unwrap();
+}
+
+// Two native sessions share only the test backend's committed snapshot.
+// A fresh service after the unknown-result fault preserves production fencing.
+fn confirm_retry_tcp(
+    binding: BftSignerBindingV3,
+    snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
+    unknown: Arc<std::sync::atomic::AtomicBool>,
+) -> (SocketAddr, thread::JoinHandle<Result<(), String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let join = thread::spawn(move || {
+        for index in 0..2 {
+            let service = service_with_confirm_fault(
+                &binding,
+                snapshot.clone(),
+                if index == 0 {
+                    Some(unknown.clone())
+                } else {
+                    None
+                },
+            );
+            let deadline = Instant::now() + Duration::from_secs(120);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() > deadline {
+                            return Err("confirmation retry did not reconnect".into());
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            let result = service.serve_connection(&mut stream);
+            if index == 1 {
+                result.map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    });
+    (address, join)
 }

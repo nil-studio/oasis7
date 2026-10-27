@@ -323,28 +323,6 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             .commit_bft_v3_certificate(token.clone())
             .map_err(|_| error("wire-3 actual history install rejected"))?;
         validate_result(&token, &result)?;
-        if let Some(receipt) = checkpoint
-            .state
-            .applied_installs
-            .iter()
-            .find(|r| r.height == result.height)
-        {
-            if receipt.header_id != result.header_id
-                || receipt.driver_install_digest != result.driver_install_digest
-            {
-                return Err(error("wire-3 applied receipt differs from replay"));
-            }
-        } else {
-            checkpoint = lease
-                .confirm_applied(
-                    checkpoint.state.revision,
-                    &checkpoint.state.state_digest,
-                    result.height,
-                    &result.header_id,
-                    &result.driver_install_digest,
-                )
-                .map_err(|_| error("wire-3 pending install confirmation rejected"))?;
-        }
         let cached = cached_recovery
             .iter()
             .find(|batch| batch.height == result.height);
@@ -360,7 +338,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
                 height: result.height,
                 slot: certificate.certificate.proposal.round,
                 epoch: commitment.authority_epoch,
-                block_hash: result.header_id,
+                block_hash: result.header_id.clone(),
                 action_root: commitment.action_root.clone(),
                 committed_at_unix_ms: cached
                     .map_or_else(crate::runtime_util::now_unix_ms, |batch| {
@@ -382,6 +360,28 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             if !cache.contains(&batch) {
                 cache.push(batch);
             }
+        }
+        if let Some(receipt) = checkpoint
+            .state
+            .applied_installs
+            .iter()
+            .find(|r| r.height == result.height)
+        {
+            if receipt.header_id != result.header_id
+                || receipt.driver_install_digest != result.driver_install_digest
+            {
+                return Err(error("wire-3 applied receipt differs from replay"));
+            }
+        } else {
+            checkpoint = lease
+                .confirm_applied(
+                    checkpoint.state.revision,
+                    &checkpoint.state.state_digest,
+                    result.height,
+                    &result.header_id,
+                    &result.driver_install_digest,
+                )
+                .map_err(|_| error("wire-3 pending install confirmation rejected"))?;
         }
         schedule = token.next_height_schedule().clone();
         singleton(&schedule, &selected.binding.local_validator_id)?;

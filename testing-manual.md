@@ -581,6 +581,7 @@ Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e
 ```bash
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_consensus --lib tendermint_v3 -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_distfs --lib protected_bft_v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_node --lib bft_v3 -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read_node_private -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib wire3_formal_read_actual_node -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
@@ -606,7 +607,7 @@ For first use, run `bft-header node --config ABS --print-binding` without `--act
 | `provider_address`, `provider_timeout_ms`, `completion_timeout_ms` | Explicit socket endpoint; 1–60000 ms RPC and 1–600000 ms completion bounds |
 | `provider_trust` | Required for actions: schema 3, `provider_public_key`, exact `binding_digest`; may be omitted only for print mode |
 
-The shipping CLI regression first prints this binding without a provider, then preserves an original private candidate before any provider WAL and submits a different new action. It requires the original candidate to commit first with unchanged bytes and the new action to finish afterward. The publication-failure case injects an error after canonical pins are durable, checks that no applied batch or new World is exposed, and cold-opens with an empty external reader to complete the same QC before a second write. These are actual local software paths with object-level failure injection, not physical power-loss evidence.
+The shipping CLI regression first prints this binding without a provider, then preserves an original private candidate before any provider WAL and submits a different new action. It requires the original candidate to commit first with unchanged bytes and the new action to finish afterward. The publication-failure case injects an error after canonical pins are durable, checks that no applied batch or new World is exposed, and cold-opens with an empty external reader to complete the same QC before a second write. Additional regressions prequeue 1025 valid actions and require protocol-valid batches across multiple actual heights with no loss, test exact CBOR framing and one-element admission boundaries, and require the original completion after both same-Runtime restart and a provider confirmation that commits before returning an unknown result. Fully applied history with no matching pending operation must not be replayed; notification-budget or lock failures must retain the original queue and eligibility. These are actual local software paths with object-level failure injection, not physical power-loss evidence.
 
 #### 本地 CAS retention 与 GC 协调
 
