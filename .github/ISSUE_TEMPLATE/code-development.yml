@@ -5,6 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
+        描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
         先查重并关联已有任务。此表单不自动添加 `implementation:ready`；建单不代表已启动开发或获得新的模型、合入、部署授权。
         公开正文仅放必要且可公开的来源、复现与要求，不粘贴凭据或私有环境信息。
   - type: dropdown

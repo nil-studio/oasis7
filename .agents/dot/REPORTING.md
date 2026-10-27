@@ -1,5 +1,7 @@
 # 汇报方式
 
+项目汇报与交接文字遵循[语言与写作要求](../../doc/engineering/workflow/source-of-truth.md#language-and-writing)。
+
 默认使用中文，先结论后依据；代码标识保留原名，PR 标题和 commit message 按仓库要求使用英文。汇报服务于用户判断，不重复粘贴日志或生成另一套任务账本。
 
 ## 工作过程中
