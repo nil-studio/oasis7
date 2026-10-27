@@ -197,7 +197,8 @@ pub(super) fn exercise_with_fault(
             Ok(commit) => break commit,
             Err(error) if Instant::now() >= original_deadline => {
                 return Err(format!(
-                    "original request was not committed before arm: {error}"
+                    "original request was not committed before arm: {error}; {}",
+                    cli_support::original_commit_failure_status(&case.owner_client_config)
                 ));
             }
             Err(_) => thread::sleep(Duration::from_millis(100)),
