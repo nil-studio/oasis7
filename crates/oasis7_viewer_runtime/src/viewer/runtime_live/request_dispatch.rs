@@ -608,7 +608,6 @@ impl ViewerRuntimeLiveServer {
                                         session.current_player_id = None;
                                         session.owner_read_context = None;
                                         session.owner_read_view = None;
-                                        session.owner_read_commit = None;
                                     }
                                 }
                                 _ => session.current_player_id = Some(player_id.to_string()),

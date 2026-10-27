@@ -293,8 +293,12 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     let mut private_response = response.clone();
     private_response.version.visibility_scope = request.scope_id.clone();
     private_response.continuation.scope_id = request.scope_id.clone();
-    private_response.view.canonical_agent_chat =
-        crate::world_service::agent_chat::owner_view(&world, "owner-agent").unwrap();
+    private_response.view =
+        projection::from_authenticated_world(&world, Some("owner-agent"), &public).unwrap();
+    private_response.view.runtime_binding = None;
+    let expected_capability =
+        private_response.view.world_rule_status.as_ref().unwrap()["gameplay_capability"].clone();
+    let owner_response = private_response.clone();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let expected =
@@ -350,6 +354,7 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
         ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal))
             .unwrap();
     server.world = world;
+    server.config.world_id = identity.world_id.clone();
     server.config.world_service = Some(WorldServiceClientConfig {
         formal_read_trust: None,
         endpoint,
@@ -368,9 +373,11 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     });
     let mut public_request = request.clone();
     public_request.scope_id = "public".into();
-    server.verified_world_view = Some(verified_fixture_assertion(
+    let reader_config = server.config.world_service.as_ref().unwrap().clone();
+    server.verified_world_view = Some(verified_fixture_assertion_bound(
         response.clone(),
         &public_request,
+        &reader_config,
     ));
     assert!(
         server
@@ -398,7 +405,7 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
         .unwrap();
     assert_eq!(
         pending.blocker_kind.as_deref(),
-        Some("agent_owner_sync_pending")
+        Some("llm_required")
     );
     assert!(pending.canonical_agent_chat.is_none());
     assert_eq!(pending.progress_percent, 0);
@@ -432,8 +439,92 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
         .handle_owner_read(original.clone(), &mut owner, &mut output)
         .unwrap();
     worker.join().unwrap();
-    assert!(owner.owner_read_view.as_ref().unwrap().goal.is_some());
+    assert!(
+        owner
+            .owner_read_view
+            .as_ref()
+            .unwrap()
+            .projection()
+            .canonical_agent_chat
+            .as_ref()
+            .unwrap()
+            .goal
+            .is_some()
+    );
     let own_snapshot = server.compat_snapshot_for_session(&mut owner);
+    assert_eq!(
+        own_snapshot
+            .player_gameplay
+            .as_ref()
+            .unwrap()
+            .gameplay_capability
+            .as_ref(),
+        Some(&expected_capability)
+    );
+    // A newer genuine owner read may not borrow an older shared snapshot's coordinates.
+    let mut older = response.clone();
+    older.version.commit.position -= 1;
+    older.continuation.commit = older.version.commit.clone();
+    let mut older_request = public_request.clone();
+    older_request.min_commit = None;
+    server.verified_world_view = Some(verified_fixture_assertion_bound(
+        older,
+        &older_request,
+        &reader_config,
+    ));
+    assert_no_personal_capability(
+        server
+            .compat_snapshot_for_session(&mut owner)
+            .player_gameplay
+            .unwrap()
+            .gameplay_capability
+            .as_ref(),
+    );
+    assert!(
+        owner.owner_read_view.is_some(),
+        "owner authority remains valid but its newer query is not aligned"
+    );
+    server.verified_world_view = Some(verified_fixture_assertion_bound(
+        response.clone(),
+        &public_request,
+        &reader_config,
+    ));
+    assert_eq!(
+        server
+            .compat_snapshot_for_session(&mut owner)
+            .player_gameplay
+            .unwrap()
+            .gameplay_capability
+            .as_ref(),
+        Some(&expected_capability)
+    );
+    let current_owner_read = owner.owner_read_view.clone();
+    let mut legacy_owner_response = owner_response;
+    legacy_owner_response
+        .view
+        .world_rule_status
+        .as_mut()
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("gameplay_capability");
+    let legacy_owner_response =
+        serde_json::from_slice(&serde_json::to_vec(&legacy_owner_response).unwrap()).unwrap();
+    owner.owner_read_view = Some(verified_fixture_assertion_with_reader(
+        legacy_owner_response,
+        &request,
+        &hex::encode([91; 32]),
+    ));
+    assert!(
+        server
+            .compat_snapshot_for_session(&mut owner)
+            .player_gameplay
+            .unwrap()
+            .gameplay_capability
+            .is_none()
+    );
+    owner.owner_read_view = current_owner_read;
+
     assert!(
         own_snapshot
             .player_gameplay
@@ -478,6 +569,17 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     );
     let mut foreign = RuntimeLiveSession::new();
     foreign.current_player_id = Some("foreign".into());
+    foreign.owner_read_view = owner.owner_read_view.clone();
+    foreign.owner_read_context = owner.owner_read_context.clone();
+    assert_no_personal_capability(
+        server
+            .compat_snapshot_for_session(&mut foreign)
+            .player_gameplay
+            .unwrap()
+            .gameplay_capability
+            .as_ref(),
+    );
+    assert!(foreign.owner_read_view.is_none());
     assert!(
         server
             .handle_owner_read_context("owner-agent".into(), &mut foreign, &mut Vec::new())
@@ -512,7 +614,11 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     let mut newer_public = response;
     newer_public.version.commit.position += 1;
     newer_public.continuation.commit = newer_public.version.commit.clone();
-    server.verified_world_view = Some(verified_fixture_assertion(newer_public, &public_request));
+    server.verified_world_view = Some(verified_fixture_assertion_bound(
+        newer_public,
+        &public_request,
+        &reader_config,
+    ));
     server.invalidate_owner_read_session(&mut owner);
     server.configure_service_provider();
     assert!(owner.owner_read_view.is_none());
@@ -567,10 +673,18 @@ fn verified_fixture_assertion(
     >,
     request: &oasis7_client_api::world_service::ReadWorldViewRequest,
 ) -> crate::world_service::verified_view::VerifiedWorldView {
+    verified_fixture_assertion_with_reader(response, request, &hex::encode([7; 32]))
+}
+fn verified_fixture_assertion_with_reader(
+    response: oasis7_client_api::world_service::ReadWorldViewResponse<
+        oasis7_world_projection::WorldServiceProjection,
+    >,
+    request: &oasis7_client_api::world_service::ReadWorldViewRequest,
+    reader_private: &str,
+) -> crate::world_service::verified_view::VerifiedWorldView {
     use crate::world_service::authority;
     let path = oasis7_client_api::world_service::VIEW_PATH;
-    let request =
-        authority::sign_read_request(path, request.clone(), &hex::encode([7; 32])).unwrap();
+    let request = authority::sign_read_request(path, request.clone(), reader_private).unwrap();
     let digest = authority::request_digest(path, &request).unwrap();
     let response =
         authority::sign_service_response(path, digest, response, &hex::encode([9; 32])).unwrap();
@@ -584,4 +698,257 @@ fn verified_fixture_assertion(
         crate::world_service::verified_view::ReadEvidencePolicy::Ordinary,
     )
     .unwrap()
+}
+
+fn capability_consumer_fixture(
+    owner_reader: bool,
+    legacy: bool,
+) -> (PathBuf, ViewerRuntimeLiveServer, String, serde_json::Value) {
+    use oasis7_client_api::world_service::*;
+    let (dir, mut world, owner, _) = observer_fixture();
+    let reader_private = hex::encode([if owner_reader { 91 } else { 7 }; 32]);
+    let reader = sign_read_request("fixture", (), &reader_private)
+        .unwrap()
+        .subject_public_key;
+    let delegation = sign_read_request(
+        "delegation",
+        AgentSignerDelegationChangeV1 {
+            world_id: "privacy-world".into(),
+            branch_id: "main".into(),
+            agent_id: "owner-agent".into(),
+            owner_binding: "owner".into(),
+            agent_identity_generation: 1,
+            generation: 1,
+            delegate_public_key: sign_read_request("fixture", (), &hex::encode([7; 32]))
+                .unwrap()
+                .subject_public_key,
+            revoked: false,
+            nonce: 1,
+        },
+        &hex::encode([91; 32]),
+    )
+    .unwrap();
+    world.apply_agent_signer_delegation(&delegation).unwrap();
+    crate::world_service::agent_authority::validate_agent_signer(
+        &world,
+        "owner-agent",
+        &reader,
+        if owner_reader { 0 } else { 1 },
+    )
+    .unwrap();
+    let mut projection =
+        projection::from_authenticated_world(&world, Some("owner-agent"), &reader).unwrap();
+    projection.runtime_binding = None;
+    assert_eq!(projection.canonical_agent_chat.is_some(), owner_reader);
+    let expected = projection.world_rule_status.as_ref().unwrap()["gameplay_capability"].clone();
+    if legacy {
+        projection
+            .world_rule_status
+            .as_mut()
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("gameplay_capability");
+    }
+    let world_id = WorldIdentity {
+        world_id: "privacy-world".into(),
+        genesis_digest: "fixture".into(),
+    };
+    let commit = CommitRef {
+        world: world_id.clone(),
+        binding: ExecutionBinding {
+            provider_world_id: "privacy-world".into(),
+            branch_id: "main".into(),
+            finality_ref: "fixture".into(),
+            reorg_generation: 0,
+            governing_manifest_ref: "fixture".into(),
+            authority_generation: 1,
+            permission_generation: 1,
+        },
+        position: 2,
+        execution_block_hash: "fixture".into(),
+        state_root_ref: "fixture".into(),
+    };
+    let request = ReadWorldViewRequest {
+        observation_nonce: None,
+        formal_anchor: None,
+        contract_version: 1,
+        world: world_id.clone(),
+        scope_id: "agent:owner-agent".into(),
+        min_commit: None,
+        fixed_commit: None,
+        deadline_unix_ms: None,
+    };
+    let response = ReadWorldViewResponse {
+        formal_profile: None,
+        formal_proof: None,
+        execution_evidence_scope: None,
+        contract_version: 1,
+        version: ProjectionVersion {
+            commit: commit.clone(),
+            projection_revision: "fixture".into(),
+            visibility_scope: request.scope_id.clone(),
+        },
+        logical_tick: world.state().time,
+        continuation: EventCursor {
+            stream_id: "fixture".into(),
+            scope_id: request.scope_id.clone(),
+            era: 0,
+            sequence: 0,
+            commit,
+        },
+        view: projection,
+    };
+    let signed = sign_read_request(VIEW_PATH, request.clone(), &reader_private).unwrap();
+    let signed_response = sign_service_response(
+        VIEW_PATH,
+        request_digest(VIEW_PATH, &signed).unwrap(),
+        response,
+        &hex::encode([9; 32]),
+    )
+    .unwrap();
+    let config = crate::world_service::client::WorldServiceClientConfig {
+        formal_read_trust: None,
+        endpoint: "http://127.0.0.1:1".into(),
+        trusted_service_public_key: sign_read_request("fixture", (), &hex::encode([9; 32]))
+            .unwrap()
+            .subject_public_key,
+        expected_world: world_id,
+        scope_id: request.scope_id,
+        read_private_key_hex: reader_private,
+        timeout: std::time::Duration::from_secs(3),
+        max_response_bytes: 1024 * 1024,
+    };
+    let verified = crate::world_service::client::RemoteWorldServiceClient::new(config.clone())
+        .unwrap()
+        .accept_view_response(signed_response, signed)
+        .unwrap();
+    let mut server =
+        ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal))
+            .unwrap();
+    server.config.world_id = "privacy-world".into();
+    server.world = world;
+    server.config.world_service = Some(config);
+    server.verified_world_view = Some(verified);
+    server
+        .session_policy
+        .register_session("owner", &owner)
+        .unwrap();
+    (dir, server, owner, expected)
+}
+
+#[test]
+fn canonical_capability_keeps_authenticated_binding_without_chat_authority() {
+    let (dir, mut server, key, expected) = capability_consumer_fixture(false, false);
+    assert_eq!(
+        server.canonical_session_agent("owner", &key).as_deref(),
+        Some("owner-agent")
+    );
+    let gameplay = server
+        .compat_snapshot(Some("owner"))
+        .player_gameplay
+        .unwrap();
+    assert!(gameplay.canonical_agent_chat.is_none());
+    assert_eq!(gameplay.gameplay_capability.as_ref(), Some(&expected));
+    assert_no_personal_capability(
+        server
+            .compat_snapshot(None)
+            .player_gameplay
+            .unwrap()
+            .gameplay_capability
+            .as_ref(),
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn canonical_capability_rejects_stale_foreign_rotated_and_legacy_sources() {
+    for invalid in ["scope", "tick", "owner", "rotation", "revoked", "legacy"] {
+        for chat in [false, true] {
+            let (dir, mut server, key, _) = capability_consumer_fixture(chat, invalid == "legacy");
+            match invalid {
+                "scope" => server.config.world_service.as_mut().unwrap().scope_id = "public".into(),
+                "tick" => {
+                    let mut state = server.world.state().clone();
+                    state.time += 1;
+                    server.world = crate::runtime_host::world::new_with_state(state);
+                }
+                "revoked" => {
+                    server.session_policy.revoke_session("owner", None).unwrap();
+                }
+                "rotation" => {
+                    server
+                        .session_policy
+                        .rotate_session(
+                            "owner",
+                            &key,
+                            &sign_read_request("fixture", (), &hex::encode([6; 32]))
+                                .unwrap()
+                                .subject_public_key,
+                        )
+                        .unwrap();
+                }
+                _ => {}
+            }
+            let player = if invalid == "owner" {
+                "foreign"
+            } else {
+                "owner"
+            };
+            let capability = server
+                .compat_snapshot(Some(player))
+                .player_gameplay
+                .unwrap()
+                .gameplay_capability;
+            if invalid == "legacy" {
+                assert!(capability.is_none());
+            } else {
+                assert_no_personal_capability(capability.as_ref());
+            }
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+fn assert_no_personal_capability(query: Option<&serde_json::Value>) {
+    if let Some(query) = query {
+        assert_ne!(query["subject"]["kind"], "personal");
+        for field in [
+            "personal_stage",
+            "first_settlement",
+            "current_stable_line",
+            "primary_factory_id",
+            "current_recipe_id",
+        ] {
+            assert!(query[field].is_null(), "{field}");
+        }
+        for option in query["recovery"].as_array().unwrap() {
+            assert_eq!(option["status"], "unknown");
+            assert!(option["action"].is_null());
+        }
+    }
+}
+
+fn verified_fixture_assertion_bound(
+    response: oasis7_client_api::world_service::ReadWorldViewResponse<
+        oasis7_world_projection::WorldServiceProjection,
+    >,
+    request: &oasis7_client_api::world_service::ReadWorldViewRequest,
+    config: &crate::world_service::client::WorldServiceClientConfig,
+) -> crate::world_service::verified_view::VerifiedWorldView {
+    use crate::world_service::authority;
+    let signed =
+        authority::sign_read_request(VIEW_PATH, request.clone(), &config.read_private_key_hex)
+            .unwrap();
+    let response = authority::sign_service_response(
+        VIEW_PATH,
+        authority::request_digest(VIEW_PATH, &signed).unwrap(),
+        response,
+        &hex::encode([9; 32]),
+    )
+    .unwrap();
+    crate::world_service::client::RemoteWorldServiceClient::new(config.clone())
+        .unwrap()
+        .accept_view_response(response, signed)
+        .unwrap()
 }

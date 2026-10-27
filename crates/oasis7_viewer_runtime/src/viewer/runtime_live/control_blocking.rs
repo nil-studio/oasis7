@@ -247,7 +247,7 @@ impl ViewerRuntimeLiveServer {
         &mut self,
         current_player_id: Option<&str>,
         request_feedback: Option<&PlayerGameplayRecentFeedback>,
-        owner_view: Option<&oasis7_proto::viewer::CanonicalAgentChatViewV1>,
+        owner_view: Option<&crate::world_service::verified_view::VerifiedWorldView>,
     ) -> WorldSnapshot {
         let mut runtime_snapshot = self.world.snapshot();
         super::snapshot_privacy::omit_private_canonical_chat(&mut runtime_snapshot);
@@ -269,6 +269,7 @@ impl ViewerRuntimeLiveServer {
             .map(str::trim)
             .filter(|player_id| !player_id.is_empty());
         let canonical_chat = owner_view
+            .and_then(|view| view.projection().canonical_agent_chat.as_ref())
             .or_else(|| {
                 self.verified_world_view
                     .as_ref()
@@ -490,21 +491,35 @@ impl ViewerRuntimeLiveServer {
             snapshot_player_id.is_some(),
         );
         player_gameplay.canonical_agent_chat = canonical_chat.cloned();
-        // The chain projection was authenticated for this exact owner read.
-        // An absent/legacy field is retained as unknown, never reconstructed
-        // into executable recommendations from the public snapshot.
+        // Capability attribution requires a current verified source and resolved
+        // owner binding, independently from the narrower private chat authority.
         if self.chain_link_enabled() {
-            player_gameplay.gameplay_capability = canonical_chat.and_then(|chat| {
-                self.verified_world_view
-                    .as_ref()
+            let current = self.canonical_binding_source();
+            let source = if owner_view.is_some() {
+                owner_view.filter(|view| {
+                    current.is_some_and(|current| {
+                        view.version().commit == current.version().commit
+                            && view.logical_tick() == current.logical_tick()
+                    }) && canonical_chat.is_some_and(|chat| {
+                        view.version().visibility_scope == format!("agent:{}", chat.agent_id)
+                            && view.projection().canonical_agent_chat.as_ref() == Some(chat)
+                    })
+                })
+            } else {
+                current
+            };
+            player_gameplay.gameplay_capability = snapshot_bound_agent_id.and_then(|agent| {
+                source
                     .and_then(|view| view.projection().world_rule_status.as_ref())
                     .and_then(|status| status.get("gameplay_capability"))
                     .filter(|query| {
-                        query["subject"]["owner_agent_id"].as_str() == Some(chat.agent_id.as_str())
+                        query["subject"]["kind"].as_str() == Some("personal")
+                            && query["subject"]["owner_agent_id"].as_str() == Some(agent)
+                            && query["source_tick"].as_u64() == Some(runtime_state.time)
                     })
                     .cloned()
             });
-            if canonical_chat.is_none() {
+            if snapshot_bound_agent_id.is_none() {
                 use oasis7_world_state::gameplay_capability::GameplaySubject;
                 player_gameplay.gameplay_capability =
                     serde_json::to_value(runtime_state.gameplay_capability_query(
