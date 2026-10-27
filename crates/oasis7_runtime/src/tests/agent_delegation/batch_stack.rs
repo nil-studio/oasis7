@@ -44,10 +44,7 @@ fn activate_product(world: &mut World, module_id: &str, version: &str, hash: &st
 }
 
 fn standard_hash(module_id: &str) -> String {
-    m4_builtin_manifest_hash_tokens(module_id).unwrap()[0]
-        .split_once('=')
-        .map(|(_, hash)| hash.to_string())
-        .unwrap()
+    m4_builtin_manifest_hash_tokens(module_id).unwrap()[0].clone()
 }
 
 fn batch_world() -> World {
@@ -287,4 +284,67 @@ fn known_product_stack_limit_applies_to_alloy_without_iron_batch_hardcoding() {
     assert!(
         matches!(rejected.rejection, Some(RejectReason::RuleDenied { notes }) if notes.iter().any(|note| note.contains("alloy_plate") && note.contains("402") && note.contains("400")))
     );
+}
+
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
+#[test]
+fn known_product_stack_limit_166_batch_receipt_matches_quote_once_with_real_validator() {
+    let mut world = batch_world();
+    let bytes = crate::m4_builtin_wasm_artifact::m4_builtin_wasm_module_artifact_bytes(
+        M4_PRODUCT_IRON_INGOT_MODULE_ID,
+    )
+    .unwrap();
+    let hash = crate::util::sha256_hex(&bytes);
+    assert_eq!(hash, standard_hash(M4_PRODUCT_IRON_INGOT_MODULE_ID));
+    world.register_module_artifact(hash, &bytes).unwrap();
+    let quote = world
+        .builtin_recipe_quote(AGENT_ID, "factory", "recipe.smelter.iron_ingot", 166)
+        .unwrap();
+    let preview = quote.preview.clone().unwrap();
+    let prepared = prepare(
+        &mut world,
+        "legal-166-production",
+        quote.action,
+        1328,
+        Default::default(),
+    );
+    world
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    let mut wasm =
+        oasis7_wasm_executor::WasmExecutor::new(crate::tests::test_wasm_executor_config()).unwrap();
+    world.step_with_modules(&mut wasm).unwrap();
+    assert_eq!(
+        world.ledger_material_balance(&preview.output_ledger, "iron_ingot"),
+        498
+    );
+    assert_eq!(
+        world.ledger_material_balance(&preview.output_ledger, "slag"),
+        166
+    );
+    assert_eq!(
+        world.state().factories["factory"].production.completed_jobs,
+        1
+    );
+    assert_eq!(world.state().recipe_completion_receipts.len(), 1);
+    let receipts = world.state().product_validation_receipts.clone();
+    assert_eq!(receipts.values().map(Vec::len).sum::<usize>(), 1);
+    assert!(
+        receipts
+            .values()
+            .flatten()
+            .all(|receipt| receipt.decision.accepted
+                && receipt.stack == MaterialStack::new("iron_ingot", 498))
+    );
+    let mut restored = World::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
+    restored
+        .finalize_cognition_commit(&prepared.commit_id)
+        .unwrap();
+    restored.step_with_modules(&mut wasm).unwrap();
+    assert_eq!(
+        restored.ledger_material_balance(&preview.output_ledger, "iron_ingot"),
+        498
+    );
+    assert_eq!(restored.state().recipe_completion_receipts.len(), 1);
+    assert_eq!(restored.state().product_validation_receipts, receipts);
 }
