@@ -30,7 +30,7 @@ fn run_probe(replies: Vec<(u16, String)>, timeout_ms: u64, delay: bool) -> Clien
                 .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                 .unwrap();
             let mut request = [0; 4096];
-            stream.read(&mut request).unwrap();
+            assert!(stream.read(&mut request).unwrap() > 0);
             if delay {
                 std::thread::sleep(std::time::Duration::from_millis(250));
             }
@@ -231,11 +231,13 @@ fn run_wire_probe(
                     Err(e) => panic!("accept: {e}"),
                 }
             };
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                 .unwrap();
             let mut request = [0; 4096];
             let len = stream.read(&mut request).unwrap();
+            assert!(len > 0);
             paths.push(
                 String::from_utf8_lossy(&request[..len])
                     .lines()
@@ -358,7 +360,7 @@ fn native_provider_probe_stream_budget_keeps_total_timeout_for_drip_body() {
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
             .unwrap();
         let mut request = [0; 4096];
-        stream.read(&mut request).unwrap();
+        assert!(stream.read(&mut request).unwrap() > 0);
         let _ = stream.write_all(
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
         );
