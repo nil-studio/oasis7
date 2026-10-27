@@ -277,6 +277,9 @@ fn management_fixture() -> SessionFixture {
     }
 }
 fn pending_fixture() -> SessionFixture {
+    session_fixture(true)
+}
+fn session_fixture(consume: bool) -> SessionFixture {
     let SessionFixture {
         state: mut s,
         context: c,
@@ -387,6 +390,15 @@ fn pending_fixture() -> SessionFixture {
         record
     );
     assert_eq!(s, snapshot);
+    if !consume {
+        return SessionFixture {
+            state: s,
+            context: c,
+            pin,
+            fact,
+            deployments,
+        };
+    }
     let request = s
         .claim_test_session_approval_verification("session-one", UnixMillis::new(8003))
         .unwrap();
@@ -479,3 +491,6 @@ mod activation;
 
 #[path = "test_session_management_tests.rs"]
 mod management;
+
+#[path = "test_session_expiry_tests.rs"]
+mod expiry;

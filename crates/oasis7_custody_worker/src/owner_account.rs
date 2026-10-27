@@ -239,7 +239,14 @@ impl DurableObject for AccountAuthority {
             env: Some(env),
         }
     }
+    async fn alarm(&self) -> Result<Response> {
+        crate::owner_test_session_alarm::repair(&self.state).await?;
+        Response::empty()
+    }
     async fn fetch(&self, request: Request) -> Result<Response> {
+        // Maintenance failure leaves the independent route authorization intact.
+        // repair retains a bounded retry; it never treats unknown state as empty.
+        let _repair = crate::owner_test_session_alarm::repair(&self.state).await;
         let url = request.url()?;
         #[cfg(feature = "approval-harness")]
         if crate::owner_test_session_client_entry::diagnostic_path(url.path()) {

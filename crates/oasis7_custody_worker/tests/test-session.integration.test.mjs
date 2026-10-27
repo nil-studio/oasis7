@@ -22,6 +22,7 @@ let ownerDiagnosticActive=false;
 let identityDiagnosticActive=false;
 let identitySecretsDisabled=false;
 let identityCloseReadTrap=false;
+let accountAlarmFixtureActive=false;
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
   let configuredRoles=0;
@@ -44,6 +45,10 @@ function configureOptions(options){
         return module;
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
+    }
+    if(accountAlarmFixtureActive&&worker.name==='owner'){
+      worker.bindings={...worker.bindings,FIXTURE_TEST_SESSION_ALARM:'true'};
+      worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_alarm_runtime.mjs')},...worker.modules];
     }
     if(identityCloseReadTrap&&worker.name==='owner')delete worker.bindings.CUSTODY_ROLE_KEY_KEK;
     worker.bindings={...worker.bindings,CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
@@ -100,7 +105,7 @@ print(json.dumps(result,separators=(',',':')))
 
 async function withActiveSession(run,{lostInitial=false}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
-  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;
+  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -554,5 +559,53 @@ for(const kind of ['finish','abort'])test(`public ${kind} tightens without Nativ
       await runtime.suspend();const same=closeSessionState(runtime,basis.session_id);
       assert.equal(same.private_read_attempts,0);assert.equal(same.closing_at,state.closing_at);assert.equal(same.termination_results,0);
     } finally {identitySecretsDisabled=false;identityCloseReadTrap=false;runtime.setNativeUnavailable(false);}
+  });
+});
+
+
+test('real Account alarm re-arms an early wake and expires across restart without cleanup dispatch',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    accountAlarmFixtureActive=true;
+    try {
+      await runtime.restart(selectedMode);
+      const native=runtime.nativeRequests();
+      const initial=await runtime.accountAlarmFixture('observe',basis.session_id);
+      assert.equal(initial.events,0);assert.equal(initial.closing_reason,null);
+      const expiryAt=Math.min(Number(initial.execution_deadline),Number(initial.lease_until));
+      assert.ok(initial.scheduled_at!==null&&initial.scheduled_at<=expiryAt,'an earlier conservative prearm may be retained, never a later expiry timer');
+      assert.ok(expiryAt-Date.now()>2000,'an early wake must precede the original actual deadline');
+      await runtime.accountAlarmFixture('early',basis.session_id);
+      let early;
+      for(let n=0;n<30;n++){
+        early=await runtime.accountAlarmFixture('observe',basis.session_id);
+        if(early.events>=1&&early.scheduled_at===expiryAt)break;
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      assert.ok(early.events>=1,'actual workerd alarm handler must have executed');
+      assert.equal(early.scheduled_at,expiryAt);assert.equal(early.lease_until,initial.lease_until);
+      assert.equal(early.closing_reason,null);assert.equal(early.audits,initial.audits,'early wake writes no expiry audit');assert.deepEqual(early.budgets,initial.budgets);
+      await runtime.restart(selectedMode);
+      const restored=await runtime.accountAlarmFixture('observe',basis.session_id);
+      assert.equal(restored.events,0,'a new actual DO instance has a fresh diagnostic counter');assert.equal(restored.scheduled_at,expiryAt,'the real storage alarm survives restart');assert.equal(restored.lease_until,initial.lease_until);
+      const wait=Math.max(0,expiryAt-Date.now())+50;
+      await new Promise(resolve=>setTimeout(resolve,wait));
+      let expired;
+      for(let n=0;n<30;n++){
+        expired=await runtime.accountAlarmFixture('observe',basis.session_id);
+        if(expired.closing_reason!==null&&expired.scheduled_at===null)break;
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      assert.ok(expired.events>=1,'deadline expiry is driven by the persisted alarm, not observer fetch repair');
+      assert.equal(expired.closing_reason,'deadline');assert.equal(expired.scheduled_at,null,'Closing session does not rearm its old deadlines');assert.equal(expired.lease_until,initial.lease_until);
+      assert.equal(expired.audits,initial.audits+1);assert.equal(expired.termination_originals,0);assert.equal(expired.termination_results,0,'expiry is not a Closed/Stop/Revoke receipt');assert.deepEqual(expired.budgets,initial.budgets);assert.deepEqual(runtime.nativeRequests(),native);
+      await runtime.accountAlarmFixture('early',basis.session_id);
+      let duplicate;
+      for(let n=0;n<30;n++){
+        duplicate=await runtime.accountAlarmFixture('observe',basis.session_id);
+        if(duplicate.events>expired.events&&duplicate.scheduled_at===null)break;
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      assert.ok(duplicate.events>expired.events);assert.equal(duplicate.audits,expired.audits,'duplicate real alarm adds no audit');assert.equal(duplicate.closing_at,expired.closing_at);assert.equal(duplicate.scheduled_at,null);assert.deepEqual(duplicate.budgets,initial.budgets);assert.deepEqual(runtime.nativeRequests(),native);
+    }finally{accountAlarmFixtureActive=false;}
   });
 });

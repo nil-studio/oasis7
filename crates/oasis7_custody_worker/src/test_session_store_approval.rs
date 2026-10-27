@@ -21,10 +21,17 @@ impl OwnerProvisionApprovalStore {
             verify_nonce: nonce,
         };
         let id = admission.input.operation_id.clone();
-        self.native_verified(
+        let deadline = super::super::alarm::write_deadline(&admission.input)?;
+        let deadline = UnixMillis::new(
+            deadline
+                .get()
+                .min(admission.input.approval.proof.expires_at.0),
+        );
+        self.native_verified_with_alarm(
             &|| Ok(current()?.native),
             "test_session_pending",
             &id,
+            deadline,
             |state, _, _, time| {
                 current()?.with_core(|c| {
                     state
@@ -51,10 +58,14 @@ impl OwnerProvisionApprovalStore {
         F: Fn() -> Result<TestSessionApprovalOwned>,
     {
         let id = commit.session_id.clone();
-        self.native_verified(
+        let saved = self.snapshot()?;
+        let session = saved.state.test_sessions().get(&id).ok_or_else(rejected)?;
+        let deadline = super::super::alarm::write_deadline(&session.input)?;
+        self.native_verified_with_alarm(
             &|| Ok(current()?.native),
             "test_session_consumed",
             &id,
+            deadline,
             |state, _, _, time| {
                 current()?.with_core(|c| {
                     state

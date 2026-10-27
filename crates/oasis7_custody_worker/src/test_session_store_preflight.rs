@@ -245,10 +245,16 @@ impl OwnerProvisionApprovalStore {
     where
         F: Fn() -> Result<TestSessionApprovalOwned>,
     {
-        self.native_verified(
+        let saved = self.snapshot()?;
+        let session = saved.state.test_sessions().get(id).ok_or_else(rejected)?;
+        let write = super::super::alarm::write_deadline(&session.input)?;
+        let lease = now()?.checked_add(90_000).ok_or_else(rejected)?;
+        let deadline = UnixMillis::new(write.get().min(lease));
+        self.native_verified_with_alarm(
             &|| Ok(current()?.native),
             "test_session_activated",
             id,
+            deadline,
             |s, _, _, t| {
                 current()?.with_core(|approval| {
                     s.activate_test_session_checks(

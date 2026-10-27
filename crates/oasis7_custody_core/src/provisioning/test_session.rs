@@ -396,3 +396,6 @@ pub use progress::*;
 #[path = "test_session_client_http.rs"]
 mod client_http;
 pub use client_http::*;
+
+#[path = "test_session_expiry.rs"]
+mod expiry;

@@ -70,7 +70,7 @@ fn source_current(f: &mut SessionFixture, d: &TestSessionPreflightDescriptorV1, 
         )
         .unwrap();
 }
-fn activated(start: u64) -> SessionFixture {
+pub(super) fn activated(start: u64) -> SessionFixture {
     let mut f = pending_fixture();
     let d = f
         .state

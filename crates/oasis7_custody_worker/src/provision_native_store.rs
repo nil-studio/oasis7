@@ -1,5 +1,7 @@
 //! Account-local native stage transitions. All authority/config inputs are Rust-owned.
 use super::*;
+#[path = "test_session_alarm_store.rs"]
+pub mod alarm;
 #[path = "provision_native_history_store.rs"]
 pub mod history;
 #[path = "owner_setup_store.rs"]
@@ -305,6 +307,54 @@ impl OwnerProvisionApprovalStore {
             }
             transition(state, scope, context, time, &mut cache)
         })
+    }
+    async fn native_verified_with_alarm<F, R, C, T>(
+        &self,
+        current: &F,
+        event: &str,
+        reference: &str,
+        deadline: oasis7_custody_core::time_units::UnixMillis,
+        checks: C,
+        mut transition: T,
+    ) -> Result<R>
+    where
+        F: Fn() -> Result<NativeStageCurrent>,
+        C: Fn(
+            &AccountProvisionApprovalState,
+            &NativeStageScope<'_>,
+            &ProvisionApprovalContext<'_>,
+            u64,
+        ) -> Result<Vec<ExactSignatureChecks>>,
+        T: FnMut(
+            &mut AccountProvisionApprovalState,
+            &NativeStageScope<'_>,
+            &ProvisionApprovalContext<'_>,
+            u64,
+            &mut NativeExactCache,
+        ) -> Result<R>,
+    {
+        let snapshot = self.snapshot()?;
+        let trusted = current()?;
+        let checks_before = checks(
+            &snapshot.state,
+            &trusted.scope.as_core(),
+            &trusted.provision.as_core(),
+            now()?,
+        )?;
+        let mut verified = Vec::with_capacity(checks_before.len());
+        for exact in checks_before {
+            verified.push(verify(exact).await?);
+        }
+        let mut cache = NativeExactCache(verified);
+        self.prearm_test_session_commit(deadline, || {
+            self.native_step(current, event, reference, |state, scope, context, time| {
+                for exact in checks(state, scope, context, time)? {
+                    cache.verify(&exact).map_err(|_| rejected())?;
+                }
+                transition(state, scope, context, time, &mut cache)
+            })
+        })
+        .await
     }
     pub fn claim_native_origin_inspection<F>(
         &self,
@@ -822,7 +872,7 @@ impl OwnerProvisionApprovalStore {
 #[path = "owner_setup_reconcile_store.rs"]
 pub mod setup_reconcile;
 
-#[path = "test_session_store.rs"]
-pub(crate) mod test_session;
 #[path = "test_session_client_store.rs"]
 pub(crate) mod client;
+#[path = "test_session_store.rs"]
+pub(crate) mod test_session;

@@ -1006,9 +1006,11 @@ Stop 与 Revoke 使用各自独立的一次 claim、原件和恢复状态；一�
 
 **Cleanup 24 的完整调用图准入：** 当前独立 cleanup dispatcher、读原件签名与迟到事实准入尚未完成，24 transport 内的完整冷路径没有闭合证明，实际派发保持 disabled/cleanup_blocked。不能直接复用 Owner setup 的 96 transport 阶段、用 8 个观察信用代替实际出站计数、提高 24 上限，或从 Execution、ReconcileRead、控制/native 预算借额度。所有所需的 Source、Directory/Fence、SID/CSRF 私读前后观察、Native lifetime/当前 session、fresh policy/admission、固定 Owner 角色签名、World submit/lookup/回读、状态回传均须列入本 purpose 的实际逐 port 图；每次真实出站先持久预扣，失败/unknown 不退款，内部同 admission 回调的幂等不能把新网络请求变成免费重试。
 
-**本地到期与 alarm 一致性：** Account Authority 必须从实际持久状态派生最近的本地截止：未消费批准的 30 秒 proof 窗口、write_deadline、已激活写 lease 及 cleanup_until 分别按其阶段适用。alarm 只触发同 SQL 的本地 expire/quiesce/closing 与重新排程，不调用 Native、不消费 24 transport、不证明世界 Stop/Revoke 已执行。已 closing 会话最多登记一次仍在未来的 cleanup wake；cleanup 已过期而原件仍未知时保留 pending/cleanup_blocked，不重排过去的时间形成 busy loop，也不标记 Closed。早醒必须重读实际时钟和持久状态，尚未到期则重排，不提前关闭或重置任何绝对期限。
+**本地到期与 alarm 一致性：** Account Authority 必须从实际持久状态派生最近的本地截止：未消费批准的 30 秒 proof 窗口、write_deadline、已激活写 lease 及 cleanup_until 分别按其阶段适用。alarm 只触发同 SQL 的本地 expire/quiesce/closing 与重新排程，不调用 Native、不消费 24 transport、不证明世界 Stop/Revoke 已执行。当前仅实现本地到期维护、尚未接通 cleanup dispatcher，因此排程 getter 排除全部已 closing 会话，不为它们伪挂 cleanup wake；后续实际接通 dispatcher 时才按独立合同登记仍在未来的一次 cleanup wake。cleanup 已过期而原件仍未知时保留 pending/cleanup_blocked，不重排过去的时间形成 busy loop，也不标记 Closed。早醒必须重读实际时钟和持久状态，尚未到期则重排，不提前关闭或重置任何绝对期限。
 
 DO SQL 事务与 storage.setAlarm 不是同一原子事务。交付任何首次开放或续租成功前，先持久一个不晚于当前实际最早应唤醒时刻的 alarm，再提交/核对开放或 lease 状态；SQL 随后失败留下额外早醒是安全的，早醒只重读重排。alarm 持久化失败时不得向调用者交付开放/续租成功。构造恢复（例如 blockConcurrencyWhile）以及 fetch/alarm 入口必须重读状态、补处理已经到期的本地事件并恢复该保守排程；重启、延迟 wake 或 setAlarm/SQL 任一阶段失败都不能产生新的执行授权。该机制仅补齐本地到期收紧，不将独立 cleanup 派发缺口或 24 次完整调用图宣称为已实现。
+
+fetch/构造恢复中的维护若因严格库存读取或恢复失败而不能完成，应明确保留 maintenance_pending/failed，不把未知库存当空、到期处理当成功；可先保守登记 60 秒后的有限重试，再继续原 handler 自有的时钟、strict restore/库存、冻结及权限检查，不将维护失败另行变成所有既有只读/收紧/业务路由的全局新拒绝条件，也不得吞掉原 handler 的授权失败。首次开放或续租仍须满足前述实际保守 alarm 已持久化的交付条件；原 handler 不能借维护降级发出新的权限或跳过其自身库存检查。alarm handler 自身处理失败则返回错误并保守 backoff/retry，不报告已完成 expiry；重试仍不是授权来源，不能无限立即重排。
 
 下面仅列复用既有 Owner 签名调用模板时的已知子图，用于说明不能直接宣称“24 次足够”，不是已完成的 cleanup 调用图或集成验收：
 

@@ -110,7 +110,7 @@ impl OwnerProvisionApprovalStore {
         &self,
         env: &Env,
         rpc: &TestSessionClientAdmissionRpc,
-        lane: (SessionClientOperation, &str),
+        lane: (SessionClientOperation, &str, Option<UnixMillis>),
         current: F,
         checks: C,
         mut transition: T,
@@ -130,42 +130,65 @@ impl OwnerProvisionApprovalStore {
             &mut NativeExactCache,
         ) -> Result<R>,
     {
-        let (operation, event) = lane;
-        self.native_verified(
-            &|| Ok(current()?.native),
-            event,
-            &rpc.http.selector.session_id,
-            |state, _, _, time| {
-                selector(state, rpc)?;
-                let prepared = ClientHttpConfiguration::load(env)?.prepare(
-                    state,
-                    &rpc.http.original,
-                    operation,
-                    UnixMillis::new(time),
-                )?;
-                let mut jobs = vec![prepared.signature_checks().map_err(|_| rejected())?];
-                jobs.extend(
-                    current()?
-                        .with_core(|context| checks(state, context, UnixMillis::new(time)))?,
-                );
-                Ok(jobs)
-            },
-            |state, _, _, time, cache| {
-                selector(state, rpc)?;
-                let prepared = ClientHttpConfiguration::load(env)?.prepare(
-                    state,
-                    &rpc.http.original,
-                    operation,
-                    UnixMillis::new(time),
-                )?;
-                let proof = verify_http_possession(prepared, UnixMillis::new(time), cache)
-                    .map_err(|_| rejected())?;
-                current()?.with_core(|context| {
-                    transition(state, &proof, context, UnixMillis::new(time), cache)
-                })
-            },
-        )
-        .await
+        let (operation, event, alarm) = lane;
+        let observe = |state: &AccountProvisionApprovalState,
+                       _: &NativeStageScope<'_>,
+                       _: &ProvisionApprovalContext<'_>,
+                       time: u64| {
+            selector(state, rpc)?;
+            let prepared = ClientHttpConfiguration::load(env)?.prepare(
+                state,
+                &rpc.http.original,
+                operation,
+                UnixMillis::new(time),
+            )?;
+            let mut jobs = vec![prepared.signature_checks().map_err(|_| rejected())?];
+            jobs.extend(
+                current()?.with_core(|context| checks(state, context, UnixMillis::new(time)))?,
+            );
+            Ok(jobs)
+        };
+        let apply = |state: &mut AccountProvisionApprovalState,
+                     _: &NativeStageScope<'_>,
+                     _: &ProvisionApprovalContext<'_>,
+                     time: u64,
+                     cache: &mut NativeExactCache| {
+            selector(state, rpc)?;
+            let prepared = ClientHttpConfiguration::load(env)?.prepare(
+                state,
+                &rpc.http.original,
+                operation,
+                UnixMillis::new(time),
+            )?;
+            let proof = verify_http_possession(prepared, UnixMillis::new(time), cache)
+                .map_err(|_| rejected())?;
+            current()?.with_core(|context| {
+                transition(state, &proof, context, UnixMillis::new(time), cache)
+            })
+        };
+        match alarm {
+            Some(deadline) => {
+                self.native_verified_with_alarm(
+                    &|| Ok(current()?.native),
+                    event,
+                    &rpc.http.selector.session_id,
+                    deadline,
+                    observe,
+                    apply,
+                )
+                .await
+            }
+            None => {
+                self.native_verified(
+                    &|| Ok(current()?.native),
+                    event,
+                    &rpc.http.selector.session_id,
+                    observe,
+                    apply,
+                )
+                .await
+            }
+        }
     }
 }
 
@@ -266,6 +289,7 @@ impl OwnerProvisionApprovalStore {
             (
                 SessionClientOperation::Challenge,
                 "test_session_client_challenge",
+                None,
             ),
             current,
             |state, context, time| {
@@ -314,6 +338,7 @@ impl OwnerProvisionApprovalStore {
             (
                 SessionClientOperation::CredentialClaim,
                 "test_session_client_credentials",
+                None,
             ),
             current,
             |state, context, time| {
@@ -390,12 +415,29 @@ impl OwnerProvisionApprovalStore {
                 )
                 .await;
         }
+        let saved = self.snapshot()?;
+        let session = saved
+            .state
+            .test_sessions()
+            .get(&rpc.http.selector.session_id)
+            .ok_or_else(rejected)?;
+        let execution = session
+            .roots
+            .get(&SessionPurposeV1::Execution)
+            .ok_or_else(rejected)?;
+        let deadline = UnixMillis::new(
+            execution
+                .deadline
+                .get()
+                .min(session.lease_until.ok_or_else(rejected)?.get()),
+        );
         self.client_live_transaction(
             env,
             rpc,
             (
                 SessionClientOperation::Control(kind),
                 "test_session_client_control",
+                Some(deadline),
             ),
             current,
             |state, context, time| {

@@ -88,6 +88,8 @@ mod native_identity;
 mod owner_account;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_provision;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_alarm;
 
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod native_runtime_rpc;
