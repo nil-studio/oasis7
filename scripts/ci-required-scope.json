@@ -120,6 +120,20 @@
     ],
     "command_center": []
   },
+  "scoped_control_paths": {
+    ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/config.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/decision.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/defect.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/document.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/test.yml": ["workflow_governance"],
+    ".github/instructions/pr-review.instructions.md": ["workflow_governance"],
+    ".github/pull_request_template.md": ["workflow_governance"],
+    ".github/workflows/codeql.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-cargo-check.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"]
+  },
   "generated_inputs": [
     {
       "package": "oasis7_chain_runtime",
