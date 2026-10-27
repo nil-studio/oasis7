@@ -66,7 +66,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
     baseline, size = facts(database)
     if shutil.disk_usage(work).free < max(4 * 1024**3, size*3 + 1024**3):
         raise RuntimeError("insufficient space for two independent database copies")
-    if args.deadline-time.monotonic() < 600:
+    if args.deadline-time.monotonic() < 540+20*len(texts):
         raise RuntimeError("NOT_REACHED insufficient two-arm and terminal budget")
     runtime.save(out / "database-facts.json", {"sha256": baseline, "bytes": size,
         "source": model.SOURCE, "extractions": 1, "omitted_mutable_paths": sorted(OMIT | {"db-rust/default/cache"})}, out)
@@ -98,22 +98,26 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         cache.mkdir(exist_ok=False); common.mkdir(exist_ok=False)
         options = ["--additional-packs="+packs, "--compilation-cache="+str(cache),
             "--no-default-compilation-cache", "--common-caches="+str(common), "--threads=2", "--ram=3072"]
-        if args.deadline-time.monotonic() < ARM_SECONDS+135:
-            raise RuntimeError("NOT_REACHED insufficient full arm and final reserve")
-        end = time.monotonic()+ARM_SECONDS
         completed, tables = {}, {}
         state[label] = {"status": "RUNNING", "shared_budget_seconds": ARM_SECONDS,
             "cache_start": "empty independent DB/results/compilation/common caches; intra-arm reuse",
             "queries": {n: "NOT_REACHED" for n in texts}}
-        failure = None
+        failure, pending_summaries = None, []
         try:
-            for name, text in texts.items():
-                state[label]["queries"][name] = "RUNNING"
+            for name in texts:
                 query = out / "queries" / (name+".ql")
                 resolved = out / (label+"-"+name+"-library.json")
                 runtime.run([cli,"resolve","library-path","--query="+str(query),"--format=json",
-                    "--additional-packs="+packs],work,resolved,end,20,out,env)
+                    "--additional-packs="+packs],work,resolved,args.deadline-315,20,out,env)
                 verify_library(json.loads(resolved.read_text()),query.parent,name,selected)
+            required = (2*(ARM_SECONDS+45)+90+20*len(texts)
+                if label == "original" else ARM_SECONDS+135)
+            if args.deadline-time.monotonic() < required:
+                raise RuntimeError("NOT_REACHED insufficient full arm and final reserve")
+            end = time.monotonic()+ARM_SECONDS
+            for name, text in texts.items():
+                state[label]["queries"][name] = "RUNNING"
+                query = out / "queries" / (name+".ql")
                 log = out / (label+"-"+name+"-evaluator.jsonl")
                 query_error, query_success = None, False
                 try:
@@ -128,13 +132,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                     raise
                 finally:
                     if log.exists() and (query_success or clean_query_timeout(query_error)):
-                        # Summary work is outside each equal query clock, inside the fixed job clock.
-                        summary = runtime.official_summaries(cli,log,work,out,
-                            min(args.deadline-90,time.monotonic()+45),env,query_error)
-                        runtime.save(out/(label+"-"+name+"-summary-status.json"),summary,out)
-                        if set(summary) != {"overall", "predicates"} or any(
-                                v != "GENERATED_NOT_EVALUATION_COMPLETION" for v in summary.values()):
-                            raise RuntimeError("official summary incomplete or unsafe; stop comparison")
+                        pending_summaries.append((log,query_error))
                 results = list((db/"results").rglob(name+".bqrs"))
                 if len(results) != 1:
                     raise RuntimeError("missing/ambiguous complete BQRS")
@@ -171,10 +169,24 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
             state[label].update(status="CLEAN_QUERY_TIMEOUT" if clean else "FAILED",error=repr(exc)[:2048])
             if not clean: raise
         finally:
+            post_error = None
+            if failure is None or clean_query_timeout(failure):
+                summary_end = min(args.deadline-90,time.monotonic()+45)
+                try:
+                    for log, query_error in pending_summaries:
+                        summary = runtime.official_summaries(cli,log,work,out,summary_end,env,query_error)
+                        runtime.save(out/(log.stem+"-summary-status.json"),summary,out)
+                        if set(summary) != {"overall", "predicates"} or any(
+                                v != "GENERATED_NOT_EVALUATION_COMPLETION" for v in summary.values()):
+                            raise RuntimeError("official summary incomplete or unsafe; stop comparison")
+                except BaseException as exc:
+                    post_error = exc
+                    state[label].update(status="FAILED_POSTPROCESSING",postprocessing_error=repr(exc)[:2048])
             intact = facts(db)[0] == baseline and facts(database)[0] == baseline
             state[label]["facts_unchanged"] = intact
             runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
             if not intact: raise RuntimeError("database facts changed after arm") from failure
+            if post_error is not None: raise post_error
     result = {"status":"INCOMPLETE_EQUALITY_UNKNOWN","full_rust_coverage":"HOLD",
         "runtime_performance":"NOT_ESTABLISHED", "relation_counts":"inspect raw evaluator and official summaries; absent is UNKNOWN"}
     if set(arms)=={"original","candidate"}:

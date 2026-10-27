@@ -91,5 +91,38 @@ class ComparisonTests(unittest.TestCase):
     def test_unclean_timeout_prevents_candidate(self):
         self.experiment(False)
 
+    def resolution_experiment(self, copy_delay=0):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);db=p/'db';db.mkdir();self.database(db)
+            out=p/'out';out.mkdir();work=p/'work';work.mkdir()
+            clock=[100.0]; windows=[]
+            args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),
+                business_source=p,deadline=1100.0)
+            def run(argv,cwd,output,end,*rest):
+                if argv[1:3]==['resolve','library-path']:
+                    clock[0]+=10;output.write_text('{}');return
+                windows.append(end-clock[0]);clock[0]=end
+                raise m.runtime.PhaseError({'argv':argv,'failure_kind':'timeout',
+                    'cleanup_errors':[],'evidence_errors':[],'pid':123,'pgid':123,
+                    'exit':-15,'started_wall':time.time(),'elapsed':180.0})
+            def prepare(*a):
+                clock[0]+=copy_delay;return p/'private'
+            with patch.object(m.plan,'inventory',return_value={}),patch.object(m.plan,'prepare_copy',side_effect=prepare),patch.object(m.runtime,'run',side_effect=run),patch.object(m.time,'monotonic',side_effect=lambda:clock[0]):
+                if copy_delay:
+                    with self.assertRaisesRegex(RuntimeError,'insufficient full arm'):
+                        m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
+                            db,{str(i):'query' for i in range(6)},p,set(),SimpleNamespace(SOURCE='fixed'))
+                    self.assertEqual(windows,[])
+                else:
+                    m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
+                        db,{str(i):'query' for i in range(6)},p,set(),SimpleNamespace(SOURCE='fixed'))
+                    self.assertEqual(windows,[180.0,180.0])
+
+    def test_resolution_does_not_consume_either_model_clock(self):
+        self.resolution_experiment()
+
+    def test_copy_cost_cannot_consume_candidate_reserve_before_original_starts(self):
+        self.resolution_experiment(copy_delay=300)
+
 
 if __name__=='__main__': unittest.main()
