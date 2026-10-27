@@ -252,5 +252,24 @@ class ComparisonTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'inventory exceeds'):
                 m.inventory_bytes({'file':'a'*64})
 
+    def test_prequery_failure_remains_not_reached_and_does_not_write_after_maps(self):
+        for failure_phase in ('resolve','reserve'):
+            with self.subTest(phase=failure_phase),tempfile.TemporaryDirectory() as d:
+                p=Path(d);work=p/'work';work.mkdir();db=work/'candidate-db';db.mkdir();self.database(db)
+                out=p/'out';out.mkdir()
+                args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),business_source=p,deadline=time.monotonic()+800)
+                def run(argv,cwd,output,*a):
+                    self.assertEqual(argv[1:3],['resolve','library-path'])
+                    if failure_phase=='resolve':raise RuntimeError('prequery resolve failure')
+                    output.write_text('{}')
+                with patch.object(m.runtime,'run',side_effect=run),patch.object(m,'reserve_after_maps',side_effect=RuntimeError('prequery reserve failure')):
+                    with self.assertRaisesRegex(RuntimeError,'prequery'):
+                        m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
+                            db,{'Files':'query'},p,set(),SimpleNamespace(SOURCE='fixed'),files_only=True)
+                state=json.loads((out/'comparison-terminal.json').read_text())['original']
+                self.assertEqual(state['status'],'NOT_REACHED')
+                self.assertEqual(state['queries']['Files'],'NOT_REACHED')
+                self.assertFalse(list(out.glob('after-*-inventory.json')))
+
 
 if __name__=='__main__': unittest.main()

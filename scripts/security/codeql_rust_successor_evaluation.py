@@ -175,7 +175,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         state[label] = {"status": "RUNNING", "shared_budget_seconds": ARM_SECONDS, "facts_before": before_detail,
             "cache_start": "empty independent DB/results/compilation/common caches; intra-arm reuse",
             "queries": {n: "NOT_REACHED" for n in texts}}
-        failure, pending_summaries, original_write_cap = None, [], None
+        failure, pending_summaries, original_write_cap, query_attempted = None, [], None, False
         try:
             for name in texts:
                 query = out / "queries" / (name+".ql")
@@ -196,6 +196,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 log = out / (label+"-"+name+"-evaluator.jsonl")
                 query_error, query_success = None, False
                 try:
+                    query_attempted = True
                     runtime.run([cli,"database","run-queries",str(db),str(query),*options,
                         "--max-disk-cache=1024","--evaluator-log","{EVALUATOR_FIFO}",
                         "--evaluator-log-minify","--tuple-counting","--verbosity=progress"],
@@ -242,12 +243,16 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         except BaseException as exc:
             failure = exc
             clean = clean_query_timeout(exc)
-            state[label]["queries"][name] = "CLEAN_QUERY_TIMEOUT" if clean else "FAILED"
-            state[label].update(status="CLEAN_QUERY_TIMEOUT" if clean else "FAILED",error=repr(exc)[:2048])
+            if query_attempted:
+                state[label]["queries"][name] = "CLEAN_QUERY_TIMEOUT" if clean else "FAILED"
+                status = "CLEAN_QUERY_TIMEOUT" if clean else "FAILED"
+            else:
+                status = "NOT_REACHED"
+            state[label].update(status=status,error=repr(exc)[:2048])
             if not clean: raise
         finally:
             post_error = None
-            if failure is None or clean_query_timeout(failure):
+            if query_attempted and (failure is None or clean_query_timeout(failure)):
                 summary_end = min(args.deadline-90,time.monotonic()+45)
                 try:
                     for log, query_error in pending_summaries:
@@ -261,12 +266,16 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                     state[label].update(status="FAILED_POSTPROCESSING",postprocessing_error=repr(exc)[:2048])
             if original_write_cap is not None:
                 runtime.WRITE_CAP = original_write_cap
-            intact, detail = after_facts(database, db, baseline, out if files_only else None, "after")
-            state[label]["facts_unchanged"] = intact
-            state[label]["facts_after"] = detail
-            if not intact:
-                state[label]["pre_fact_status"] = state[label]["status"]
-                state[label]["status"] = "FAILED_FACTS_AFTER"
+            intact = True
+            if query_attempted:
+                intact, detail = after_facts(database, db, baseline, out if files_only else None, "after")
+                state[label]["facts_unchanged"] = intact
+                state[label]["facts_after"] = detail
+                if not intact:
+                    state[label]["pre_fact_status"] = state[label]["status"]
+                    state[label]["status"] = "FAILED_FACTS_AFTER"
+            else:
+                state[label]["facts_after_status"] = "NOT_REACHED_NO_QUERY"
             runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
             if not intact: raise RuntimeError("database facts changed after arm") from failure
             if post_error is not None: raise post_error
