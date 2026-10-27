@@ -19,12 +19,47 @@ fn remote(binding: &BftSignerBindingV3, address: SocketAddr) -> RemoteBftSignerP
     .unwrap()
 }
 
+/// Keeps only the pinned public identity. Any attempt to re-sign a cached
+/// decision fails, even though Ed25519 would otherwise reproduce the same bytes.
+struct DisabledConsensusKey {
+    public_key_hex: String,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl BftSigningKeyHandleV3 for DisabledConsensusKey {
+    fn public_key_hex(&self) -> String {
+        self.public_key_hex.clone()
+    }
+    fn sign_preimage(&self, _: &[u8]) -> Result<[u8; 64], BftSignerErrorV3> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(BftSignerErrorV3(
+            "test consensus key signing is disabled during original-signature recovery".into(),
+        ))
+    }
+}
+
 pub(super) fn assert_completed_signature_retries(
     binding: &BftSignerBindingV3,
     snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
 ) {
-    // A new service object replays independently retained state; no warm signature cache.
-    let (address, server) = tcp(service(binding, snapshot.clone()));
+    // A new service object replays independently retained state. Its consensus
+    // key cannot sign; the separate provider identity still authenticates replies.
+    let signing_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let cold_service = Arc::new(
+        BftSignerServiceV3::open(
+            binding.clone(),
+            Box::new(MemoryTestSignerKey(fixtures::key(116))),
+            vec![Box::new(DisabledConsensusKey {
+                public_key_hex: binding.provisioned_signing_keys[0].public_key_hex.clone(),
+                calls: signing_calls.clone(),
+            })],
+            Box::new(MemoryTestSignerBackend {
+                binding_digest: binding.digest().unwrap(),
+                snapshot: snapshot.clone(),
+            }),
+        )
+        .unwrap(),
+    );
+    let (address, server) = tcp(cold_service);
     let client = remote(binding, address);
     let mut lease = client.acquire(binding).unwrap();
     let original = lease.checkpoint().unwrap().state;
@@ -99,6 +134,11 @@ pub(super) fn assert_completed_signature_retries(
     assert_eq!(lease.checkpoint().unwrap().state, original);
     drop(lease);
     server.join().unwrap().unwrap();
+    assert_eq!(
+        signing_calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "original proposal/prevote/precommit recovery must not invoke the consensus key"
+    );
 }
 
 #[test]
