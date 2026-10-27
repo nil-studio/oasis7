@@ -20,6 +20,32 @@ def once(data, old, new):
     return data.replace(old, new, 1)
 
 
+def remove_empty_branches(body, target):
+    # This split uses the exact frozen source's top-level indentation, not a
+    # general QL parser. QL rejects statically empty terms instead of retaining
+    # them as false disjuncts (even when the declared return type is ItemNode).
+    clauses = body.split(b"    or\n")
+    if target == b"getASuccessorNonCrate":
+        kept = [c for c in clauses if b"externCrateEdge(this, name, kind, result)" not in c]
+        if len(clauses) - len(kept) != 1:
+            raise RuntimeError("crate-only extern branch differs")
+        return once(b"    or\n".join(kept), b'      or\n      name = "crate" and\n'
+            b"      this = result.(CrateItemNode).getASourceFile()\n", b"")
+    impossible = (b"macroExportEdge(", b"macroUseEdge(", b"any(TraitItemNodeImpl trait |",
+        b"typeImplEdge(", b"this.(TypeParamItemNodeImpl)", b"this.(ImplTraitTypeReprItemNodeImpl)",
+        b'name = "super" and')
+    kept = [c for c in clauses if not any(marker in c for marker in impossible)]
+    if len(clauses) - len(kept) != 7:
+        raise RuntimeError("non-crate-only result branches differ")
+    self_clauses = [c for c in kept if b'name = "self" and' in c]
+    if len(self_clauses) != 1:
+        raise RuntimeError("self successor branch differs")
+    # Under the crate output guard, result=this selects the original Crate
+    # arm. Parent modules and the Module/Enum/Trait arms cannot return a crate.
+    return b"    or\n".join(b'    name = "self" and\n    useOpt.isNone() and\n'
+        b"    kind.isBoth() and\n    result = this\n" if c == self_clauses[0] else c for c in kept)
+
+
 def specialize(body, target):
     body = once(body, b"fileImportEdge(this, name, result, kind, useOpt)",
         b"exists(SourceFileItemNode f |\n      fileImport(this.(Module), f) and\n"
@@ -37,7 +63,7 @@ def specialize(body, target):
         # based on missing metadata or an inferred owner.
         body = once(body, b"    or\n    crateDependencyEdge(this, name, result) and\n"
             b"    kind.isInternal() and\n    useOpt.isNone()\n", b"")
-    return body
+    return remove_empty_branches(body, target)
 
 
 def partition_sources(data, stages, path_sha, stages_sha):
@@ -60,8 +86,9 @@ def partition_sources(data, stages, path_sha, stages_sha):
     new += (b"  cached\n  final ItemNode getASuccessorNonCrate" + PARAMS + b" {\n"
         b"    Stages::PathResolutionStage::ref() and\n    not result instanceof CrateItemNode and\n    (\n" +
         specialize(body, b"getASuccessorNonCrate") + b"    )\n  }\n\n")
-    # Keep the declared range ItemNode: branches that are empty for crates can
-    # still contain casts to AssocItemNode. The positive guard fixes the range.
+    # The guard defines the crate range without adding an ItemNode subclass.
+    # Statically impossible QL terms were removed above; declaring ItemNode
+    # does not prevent type narrowing by this positive guard.
     new += (b"  final ItemNode getASuccessorCrate" + PARAMS + b" {\n"
         b"    result instanceof CrateItemNode and\n    (\n" +
         specialize(body, b"getASuccessorCrate") + b"    )\n  }\n\n")

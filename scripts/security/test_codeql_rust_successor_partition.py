@@ -126,14 +126,48 @@ def official_fixture():
     or
     fileImportEdge(this, name, result, kind, useOpt)
     or
+    useImportEdge(this, name, result, kind) and useOpt.isNone()
+    or
     crateDefEdge(this, name, result, kind, useOpt)
     or
     crateDependencyEdge(this, name, result) and
     kind.isInternal() and
     useOpt.isNone()
     or
+    externCrateEdge(this, name, kind, result) and useOpt.isNone()
+    or
     exists(ExternCrateItemNode ec | result = ec.getASuccessor(name, kind, useOpt) |
       ec = this.getASuccessor(_, _, _)
+    )
+    or
+    macroExportEdge(this, name, result) and kind.isBoth()
+    or
+    macroUseEdge(this, name, kind, useOpt, result)
+    or
+    this = any(TraitItemNodeImpl trait | result = trait.getAssocItem(name))
+    or
+    typeImplEdge(this, _, name, result)
+    or
+    implEdge(this, name, result)
+    or
+    result = this.(TypeParamItemNodeImpl).resolveABoundCand().getASuccessor(name, kind, useOpt).(AssocItemNode)
+    or
+    result = this.(ImplTraitTypeReprItemNodeImpl).resolveABoundCand().getASuccessor(name, kind, useOpt).(AssocItemNode)
+    or
+    result = this.(TypeAliasItemNodeImpl).resolveAliasCand().getASuccessor(name, kind, useOpt)
+    or
+    name = "super" and result = this.getImmediateParentModule()
+    or
+    name = "self" and (if this instanceof Crate then result = this else result = this.getImmediateParentModule())
+    or
+    kind.isInternal() and useOpt.isNone() and
+    (
+      preludeEdge(this, name, result)
+      or
+      this instanceof SourceFile and builtin(name, result)
+      or
+      name = "crate" and
+      this = result.(CrateItemNode).getASourceFile()
     )
   }
 
@@ -163,6 +197,7 @@ class PartitionPatch(unittest.TestCase):
         n = result.split(b"  cached\n  final ItemNode getASuccessorNonCrate", 1)[1].split(b"  final ItemNode getASuccessorCrate", 1)[0]
         c = result.split(b"  final ItemNode getASuccessorCrate", 1)[1]
         self.assertIn(b"not result instanceof CrateItemNode", n)
+        self.assertIn(b"if this instanceof Crate", n, "do not send crate receivers into the parent-module else arm")
         self.assertNotIn(b"crateDependencyEdge(this, name, result)", n)
         self.assertIn(b"result instanceof CrateItemNode", c)
         self.assertIn(b"crateDependencyEdge(this, name, result)", c)
@@ -171,6 +206,19 @@ class PartitionPatch(unittest.TestCase):
         self.assertIn(b"unique(CrateItemNode dep0 | dep0.isLatestVersion(name))", result)
         self.assertIn(candidate.NEW_BACKREF, stage)
         self.assertIn(b"1 = 1", stage)
+
+    def test_crate_partition_emits_no_statically_impossible_output_rules(self):
+        data, stages = official_fixture()
+        result, _ = candidate.partition_sources(data, stages,
+            hashlib.sha256(data).hexdigest(), hashlib.sha256(stages).hexdigest())
+        crate = result.split(b"  final ItemNode getASuccessorCrate", 1)[1].split(candidate.METHOD_END, 1)[0]
+        for impossible in (b"macroExportEdge", b"macroUseEdge", b"any(TraitItemNodeImpl", b"typeImplEdge",
+                b"TypeParamItemNodeImpl", b"ImplTraitTypeReprItemNodeImpl", b'name = "super"', b"getImmediateParentModule"):
+            self.assertNotIn(impossible, crate)
+        for required in (b"implEdge", b"resolveAliasCand", b"crateDependencyEdge", b"externCrateEdge", b"useImportEdge", b"preludeEdge"):
+            self.assertIn(required, crate)
+        self.assertIn(b'name = "self"', crate)
+        self.assertIn(b"result = this", crate)
 
     def test_changed_or_already_patched_source_fails_closed(self):
         data, stages = official_fixture()
