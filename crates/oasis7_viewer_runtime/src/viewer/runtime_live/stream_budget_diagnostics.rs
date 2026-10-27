@@ -132,6 +132,32 @@ mod tests {
     use super::*;
     #[test]
     fn numeric_ring_is_bounded_and_disabled_after_snapshot() {
+        const CHILD: &str = "OASIS7_STREAM_BUDGET_RING_PROBE";
+        if std::env::var_os(CHILD).is_none() {
+            // The full Viewer test binary runs shared streams concurrently.
+            // Never enable the process-global recorder in that parent process.
+            let name = concat!(
+                module_path!(),
+                "::numeric_ring_is_bounded_and_disabled_after_snapshot"
+            );
+            let name = name.split_once("::").unwrap().1;
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", name])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated ring probe failed: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("running 1 test"),
+                "exact ring probe must actually execute"
+            );
+            return;
+        }
         ViewerRuntimeLiveServer::test_begin_stream_budget_diagnostics();
         for _ in 0..4104 {
             drop(phase(1));
