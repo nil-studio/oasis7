@@ -221,7 +221,7 @@ impl FormalBftReadHttpServiceV3 {
             Ok(publication) => publication,
             Err(_) => {
                 return self.request_error(
-                    &request,
+                    request,
                     503,
                     "publication_unavailable",
                     "fixed-cut publication is unavailable or busy",
