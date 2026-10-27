@@ -2,7 +2,7 @@
   "record": {
     "authority_entry": "doc/testing/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "9cb7e6ad891fe52e368198c263f39e74e89f2d140883dfa80b7769d53a46d83c",
+    "content_sha256": "8279f16559e7cb3c4fa07e3402b5c70f53b2011bcbc9be2ab9a6ceea72054370",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "review_required",
     "object_kind": "markdown_record",

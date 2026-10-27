@@ -16,7 +16,7 @@ STAGES_CANDIDATE_SHA = "70e9bfea85a37cdf4029334a2c74e9b0afbf813aa59d75e72cce5854
 NEW_NAMES = ("getASuccessorCrateQualified", "getASuccessorCrateRequested",
     "getASuccessorQualified", "getASuccessorUnqualified", "crateInternalDemand",
     "requestedCrateDependencyEdge", "getASuccessorCrateEnumerated",
-    "crateEnumerationReach", "crateInternalForward", "enumeratedCrateDependencyEdge")
+    "crateEnumerationReach", "crateInternalForward", "crateMacroForward")
 SCHEMA = {
     "codeql/rust/elements/internal/generated/Synth.qll":
         "1a1bfe65be484d44b08c27447b40bb7a31e6011690e5b97f493ac920b7828691",
@@ -38,16 +38,28 @@ NAMESPACE = b"""private ItemNode getASuccessor(
   ns = result.getNamespace()
 }
 """
+EXTERN_PRELUDE = b"""      or
+      // if the extern crate appears in the crate root, then the crate name is also added
+      // to the 'extern prelude', see https://doc.rust-lang.org/reference/items/extern-crates.html
+      exists(Crate c |
+        ec = c.getSourceFile().(ItemNode).getASuccessorNonCrate(_, _, _) and
+        this = c.getASourceFile()
+      )
+"""
 ROOTS = b"""// Internal/None crate requests originate only in unqualified AST lookups.
 // Qualified/use-tree/glob consumers use complete Q, retaining visibility checks.
-private predicate crateInternalForward(ItemNode owner, ItemNode item) {
-  fileImport(owner.(Module), item.(SourceFileItemNode))
-  or
+private predicate crateMacroForward(ItemNode owner, ItemNode item) {
   exists(BlockExprItemNode be |
     owner = be.getImmediateParent() and
     be = any(MacroCall mc).getMacroCallExpansion() and
     item = be
   )
+}
+
+private predicate crateInternalForward(ItemNode owner, ItemNode item) {
+  fileImport(owner.(Module), item.(SourceFileItemNode))
+  or
+  crateMacroForward(owner, item)
 }
 
 private predicate crateInternalDemand(ItemNode item, string name) {
@@ -62,7 +74,8 @@ private predicate crateInternalDemand(ItemNode item, string name) {
 }
 
 // Full wildcard inputs of a use/extern consumer remain complete, even for
-// unusual AST forwarding. Only receivers reachable from those roots enumerate P.
+// unusual AST forwarding. Roots and macro targets are not Modules; file-import
+// edges cannot be traversed here. The complete enumerated domain has no SourceFile.
 private predicate crateEnumerationReach(ItemNode item) {
   item instanceof UseItemNode
   or
@@ -70,21 +83,13 @@ private predicate crateEnumerationReach(ItemNode item) {
   or
   exists(ItemNode owner |
     crateEnumerationReach(owner) and
-    crateInternalForward(owner, item)
+    crateMacroForward(owner, item)
   )
 }
 
 bindingset[file, name]
 pragma[inline_late]
 private predicate requestedCrateDependencyEdge(
-  SourceFileItemNode file, string name, CrateItemNode dep
-) {
-  crateDependencyEdge(file, name, dep)
-}
-
-bindingset[file]
-pragma[inline_late]
-private predicate enumeratedCrateDependencyEdge(
   SourceFileItemNode file, string name, CrateItemNode dep
 ) {
   crateDependencyEdge(file, name, dep)
@@ -150,7 +155,7 @@ def translate(base):
     # P has exactly one kind/provenance state. File/macro forwarding preserves
     # its receiver/name key; use paths and extern identifiers retain their own
     # exact syntactic name mappings instead of enumerating the fallback domain.
-    p = []
+    p = {}
     for index in (0, 1, 2, 4, 5, 7, 10, 12):
         clause = clauses[index]
         if index == 4:
@@ -159,15 +164,21 @@ def translate(base):
         if index == 7:
             clause = clause.replace(b".getASuccessorCrate(", b".getASuccessorCrateEnumerated(")
         clause = clause.replace(b".getASuccessorCrate(", b".getASuccessorCrateRequested(")
-        p.append(clause)
+        p[index] = clause
     requested = (b"  final ItemNode getASuccessorCrateRequested" + PARAMS + b" {\n"
         b"    result instanceof CrateItemNode and\n"
         b"    kind.isInternal() and useOpt.isNone() and\n"
-        b"    crateInternalDemand(this, name) and\n    (\n" + b"    or\n".join(p) + suffix)
-    enumerated = requested.replace(b"getASuccessorCrateRequested", b"getASuccessorCrateEnumerated")
-    enumerated = once(enumerated, b"crateInternalDemand(this, name)", b"crateEnumerationReach(this)")
-    enumerated = once(enumerated, b"requestedCrateDependencyEdge(this, name, result)",
-        b"enumeratedCrateDependencyEdge(this, name, result)")
+        b"    crateInternalDemand(this, name) and\n    (\n" + b"    or\n".join(p.values()) + suffix)
+    enum_clauses = []
+    for index in (0, 2, 5, 7, 10):
+        clause = p[index].replace(b"getASuccessorCrateRequested", b"getASuccessorCrateEnumerated")
+        if index == 7:
+            clause = once(clause, EXTERN_PRELUDE, b"")
+        enum_clauses.append(clause)
+    enumerated = (b"  final ItemNode getASuccessorCrateEnumerated" + PARAMS + b" {\n"
+        b"    result instanceof CrateItemNode and\n"
+        b"    kind.isInternal() and useOpt.isNone() and\n"
+        b"    crateEnumerationReach(this) and\n    (\n" + b"    or\n".join(enum_clauses) + suffix)
     helper = (b"  final ItemNode getASuccessorQualified" + PARAMS + b" {\n"
         b"    result = this.getASuccessorNonCrate(name, kind, useOpt)\n    or\n"
         b"    result = this.getASuccessorCrateQualified(name, kind, useOpt)\n  }\n\n")
@@ -182,6 +193,7 @@ def translate(base):
          b"result = mid.getASuccessorQualified(pragma[only_bind_into](name), kind, useOpt)"),
         (b"result = q.getASuccessor(name, kind, useOpt)",
          b"result = q.getASuccessorQualified(name, kind, useOpt)"),
+        (b"    crateDependencyEdge(f, s, crate)\n", b"    requestedCrateDependencyEdge(f, s, crate)\n"),
         (b"imported = m.(ExternCrateItemNode).getASuccessorCrate(_, _, _)",
          b"(\n          imported = m.(ExternCrateItemNode).getASuccessorCrateQualified(_, _, _)\n"
          b"          or\n          imported = m.(ExternCrateItemNode).getASuccessorCrateEnumerated(_, _, _)\n        )")]

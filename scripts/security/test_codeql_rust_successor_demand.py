@@ -60,6 +60,30 @@ def split_closure(base, forwards, uses, externs, aliases, seeds, *, enum_forward
 
 
 class EnumeratedProjectionTests(unittest.TestCase):
+    def test_typed_enumeration_roots_never_reach_module_or_source_file(self):
+        nodes = ("use", "extern", "block", "module", "file")
+        possible_macro = [(owner, "block") for owner in nodes]
+        for bits in range(1 << len(possible_macro)):
+            macro = {edge for i, edge in enumerate(possible_macro) if bits & (1 << i)}
+            for file_edge in (set(), {("module", "file")}):
+                def reach(edges):
+                    values = {"use", "extern"}
+                    while True:
+                        more = values | {target for owner, target in edges if owner in values}
+                        if more == values:
+                            return values
+                        values = more
+                self.assertEqual(reach(macro | file_edge), reach(macro))
+                self.assertFalse(reach(macro | file_edge) & {"module", "file"})
+                base = dependency_edges({"file"}, set(), set(), {("dep", "c-file", 1)})
+                base |= {("extern", "ext", "internal", None, "c-extern")}
+                uses, externs = {("module", "use")}, {("use", "extern"), ("block", "extern")}
+                full = full_closure(base, macro | file_edge, uses, externs, set())
+                q, enum, requested, domain, demand = split_closure(base, macro | file_edge, uses, externs, set(), {("file", "dep")})
+                self.assertEqual(enum, {e for e in full if pstate(e) and e[0] in reach(macro)})
+                self.assertIn(("file", "dep", "internal", None, "c-file"), requested)
+                self.assertNotIn(("file", "dep", "internal", None, "c-file"), enum)
+
     def test_use_to_extern_to_forwarded_file_keeps_unmentioned_names(self):
         base = dependency_edges({"file"}, set(), set(), {("syntax", "c1", 1), ("unmentioned", "c2", 1)})
         forwards, uses, externs = {("extern", "block"), ("block", "file")}, {("scope", "use")}, {("use", "extern")}
@@ -101,7 +125,13 @@ def consumer_fixture():
         b"    useOpt.asSome() = any(UseItemNode use_ | use_ = this.getASuccessorNonCrate(_, _, _) and\n"
         b"      result = use_.getASuccessorCrate(name, kind, _))\n",
         b"    exists(ExternCrateItemNode ec | result = ec.getASuccessorCrate(name, kind, useOpt) |\n"
-        b"      ec = this.getASuccessorNonCrate(_, _, _))\n",
+        b"      ec = this.getASuccessorNonCrate(_, _, _)\n"
+        b"      or\n"
+        b"      // if the extern crate appears in the crate root, then the crate name is also added\n"
+        b"      // to the 'extern prelude', see https://doc.rust-lang.org/reference/items/extern-crates.html\n"
+        b"      exists(Crate c |\n"
+        b"        ec = c.getSourceFile().(ItemNode).getASuccessorNonCrate(_, _, _) and\n"
+        b"        this = c.getASourceFile()\n      )\n    )\n",
         b"    implEdge(this, name, result) and kind.isExternal() and useOpt.isNone()\n",
         b"    result = this.(TypeAliasItemNodeImpl).resolveAliasCand().getASuccessorCrate(name, kind, useOpt) and kind.isExternalOrBoth()\n",
         b"    exists(BlockExprItemNode be | this = be.getImmediateParent() and\n"
@@ -120,6 +150,8 @@ def consumer_fixture():
     rest += b"result = q.getASuccessor(name, kind, useOpt)\n"
     rest += b"imported = m.(ExternCrateItemNode).getASuccessorNonCrate(_, _, _)\n    or\n"
     rest += b"imported = m.(ExternCrateItemNode).getASuccessorCrate(_, _, _)\n"
+    rest += b"    crateDependencyEdge(f, s, crate)\n"
+    rest += b'    or s = "self" and ec.getFile() = crate.getASourceFile().getFile()\n'
     return raw + rest, raw
 
 
@@ -140,6 +172,19 @@ class KeyedSourceTests(unittest.TestCase):
         self.assertIn(b"this.getASuccessorQualified(name, kind, _) and\n      kind.isExternalOrBoth()", out)
         for name in ("getASuccessorCrateQualified", "getASuccessorCrateRequested", "getASuccessorCrateEnumerated", "getASuccessorQualified"):
             self.assertNotIn(b".getASuccessorCrate(", method(out, name))
+
+    def test_enumerator_domain_cannot_contain_module_or_source_file_terms(self):
+        out = candidate.translate(consumer_fixture()[0])
+        enum = method(out, "getASuccessorCrateEnumerated")
+        self.assertNotIn(b"this.(Module)", enum)
+        self.assertNotIn(b"enumeratedCrateDependencyEdge", enum)
+        self.assertNotIn(b"preludeEdge(this", enum)
+        self.assertNotIn(b"builtin(name", enum)
+        self.assertNotIn(b"this = c.getASourceFile()", enum)
+        requested = method(out, "getASuccessorCrateRequested")
+        self.assertIn(b"this.(Module)", requested)
+        self.assertIn(b"requestedCrateDependencyEdge", requested)
+        self.assertIn(b"preludeEdge(this", requested)
 
     def test_inverse_use_and_extern_leaf_preserve_requested_inputs(self):
         out = candidate.translate(consumer_fixture()[0])
@@ -164,8 +209,9 @@ class KeyedSourceTests(unittest.TestCase):
         self.assertNotIn(b"useOpt.asSome()", p)
         self.assertIn(b"bindingset[file, name]\npragma[inline_late]", out)
         self.assertIn(b"crateEnumerationReach(this)", e)
-        self.assertIn(b"enumeratedCrateDependencyEdge(this, name, result)", e)
-        self.assertIn(b"bindingset[file]\npragma[inline_late]", out)
+        self.assertNotIn(b"enumeratedCrateDependencyEdge", out)
+        self.assertIn(b"requestedCrateDependencyEdge(f, s, crate)", out)
+        self.assertIn(b'or s = "self" and ec.getFile() = crate.getASourceFile().getFile()', out)
         self.assertIn(b"item instanceof UseItemNode", out)
         self.assertIn(b"item instanceof ExternCrateItemNode", out)
         self.assertIn(b"crateEnumerationReach(owner)", out)
