@@ -61,7 +61,7 @@ impl FormalBftHeaderReadPublicationV4 {
             .map_err(FormalReadError::Integrity)?;
         let block = &proof.certificate().certified_header().header;
         let commitment = proof.commitment();
-        if block.height != input.exact_target.height
+        if commitment.height != input.exact_target.height
             || proof.certificate().block_id() != input.exact_target.header_id
         {
             return Err(FormalReadError::Integrity(
@@ -71,7 +71,7 @@ impl FormalBftHeaderReadPublicationV4 {
         validate_committed_world(
             input.committed_world,
             &record.world,
-            block.height,
+            commitment.height,
             &commitment.state_root,
             &commitment.execution_state_root,
             &commitment.post_manifest_hash,
@@ -106,7 +106,7 @@ impl FormalBftHeaderReadPublicationV4 {
             genesis_digest: record.world.genesis_digest.clone(),
         };
         let head = FormalBftHeaderReadHeadV4 {
-            height: block.height,
+            height: commitment.height,
             header_id: proof.certificate().block_id().to_owned(),
             execution_commitment_hash: block.execution_commitment_hash.clone(),
             state_root: commitment.state_root.clone(),
