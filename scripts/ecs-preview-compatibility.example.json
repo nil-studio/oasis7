@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "permissions": [],
+  "player_policy": {
+    "schema_version": 1,
+    "contracts": {
+      "program_contract": "REPLACE_WITH_AUDITED_PROGRAM_CONTRACT",
+      "persistence_contract": "REPLACE_WITH_AUDITED_PERSISTENCE_CONTRACT",
+      "identity_contract": "REPLACE_WITH_AUDITED_IDENTITY_CONTRACT"
+    },
+    "migration_free": true,
+    "evidence": "REPLACE: independent host administrator approval and trusted publisher migration-free contract commitment"
+  }
+}

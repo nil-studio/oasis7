@@ -157,7 +157,16 @@ the two response-loss flags. A nonzero or oversized probe additionally records
 `probe_failure` with its exit code, output byte count and an exact allowlisted
 error category; unknown, decorated or multiline diagnostics become `unavailable`,
 and oversized output becomes `output_limit`. This reports the probe separately
-from the preceding cold-entry result and does not retry it. Arbitrary CLI text,
+from the preceding cold-entry result. Only the canonical probe may recover a verified identity
+throttle: exit code 1, the exact fixed `rate_limited; retain original operation` line, and a new
+HTTP 429 observed during that same child command are all required. It waits the observed Retry-After
+and reuses the exact command, vaults, plan, unlock and persisted originals, with at most two
+recoveries and the unchanged overall deadline. An earlier 429 cannot authorize another attempt. This
+reruns original-operation recovery, not a wholly read-only command: the owner binding path may
+reconcile the same persisted original, while cached action/prefix identities remain unchanged. No
+new role, nonce, Context or replacement action is created to bypass unknown results or expiry. Other
+failures stop immediately; successful recovery clears the earlier probe diagnostic. Arbitrary CLI
+text,
 private identifiers and response material are excluded. Failure receipt write
 errors must not prevent process cleanup.
 Fixture source revision, actual binary digests and canonical proof details belong

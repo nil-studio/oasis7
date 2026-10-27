@@ -4,6 +4,7 @@ import copy
 import contextlib
 import io
 import json
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -29,6 +30,43 @@ class InstallTests(unittest.TestCase):
         self.assertIn("OnUnitInactiveSec=60s", timer)
         self.assertNotIn("PartOf=", service)
         self.assertNotIn("initialize", service)
+
+    def test_installed_file_set_loads_and_authorizes_player_policy_without_repository_imports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            installed = root / "installed"; installed.mkdir()
+            for name in installer.FILES:
+                shutil.copy2(Path(__file__).with_name(name), installed / name)
+            contracts = {"program_contract": "player-v1", "persistence_contract": "data-v1", "identity_contract": "identity-v1"}
+            policy = {"schema_version": 1, "permissions": [], "player_policy": {"schema_version": 1, "contracts": contracts, "migration_free": True, "evidence": "isolated administrator fixture"}}
+            (root / "policy.json").write_text(json.dumps(policy))
+            identities = ["a" * 40 + "/11-1", "b" * 40 + "/12-1"]
+            bindings = []
+            for identity in identities:
+                release = root / "releases" / identity; release.mkdir(parents=True)
+                bindings.append({name: {"path": str(release / name), "release": str(release), "source_sha": identity.split("/")[0], "sha256": "c" * 64} for name in ("chain", "player", "web", "skill")})
+            bindings[1]["chain"] = bindings[0]["chain"].copy()
+            def manifest(identity):
+                return {"schema_version": 1, "release_id": identity, "source_sha": identity.split("/")[0], "archive_key": "preview/releases/" + identity + "/bundle.tar.gz", "archive_sha256": "d" * 64, "platform": "linux-x64", "components": ["player"], "compatibility": contracts}
+            request = {"config": {"releases_dir": str(root / "releases"), "prefix": "preview", "compatibility_file": str(root / "policy.json")}, "before": bindings[0], "after": bindings[1], "manifest": manifest(identities[1]), "previous": manifest(identities[0])}
+            (root / "request.json").write_text(json.dumps(request))
+            program = """
+import importlib.util, json, pathlib, sys
+location, request = pathlib.Path(sys.argv[1]), json.loads(pathlib.Path(sys.argv[2]).read_text())
+spec = importlib.util.spec_from_file_location('installed_updater', location / 'ecs_preview_update.py')
+u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)
+updater = u.Updater.__new__(u.Updater); updater.c = request['config']
+class Store:
+    def get(self, key):
+        assert key == 'preview/releases/' + request['previous']['release_id'] + '/manifest.json'
+        return json.dumps(request['previous']).encode()
+updater.store = Store()
+assert updater.permit(request['before'], request['after'], request['manifest'])['rollback_allowed'] is False
+assert str(location) not in sys.path
+print('installed player policy passed')
+"""
+            result = subprocess.run([sys.executable, "-I", "-c", program, str(installed), str(root / "request.json")], cwd=root, check=True, capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(), "installed player policy passed")
 
     def test_lock_parent_created_private_only_below_trusted_ancestor(self):
         import ecs_preview_update as updater

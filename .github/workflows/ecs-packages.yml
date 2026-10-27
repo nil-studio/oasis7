@@ -41,9 +41,9 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUST_TOOLCHAIN: 1.96.0
-  # Verified at /nil-studio/oasis7/actions/caches on 2026-10-21: 10 GB.
-  # An explicit conservative budget, never a fabricated live API response.
-  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '10000000000'
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '20000000000'
 
 jobs:
   web:
