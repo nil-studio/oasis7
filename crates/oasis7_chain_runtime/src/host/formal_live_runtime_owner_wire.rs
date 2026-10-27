@@ -73,7 +73,8 @@ impl Read for DeadlineStream<'_> {
 
 impl Write for DeadlineStream<'_> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.stream.set_write_timeout(Some(remaining(self.deadline)?))?;
+        self.stream
+            .set_write_timeout(Some(remaining(self.deadline)?))?;
         let count = self.stream.write(buffer)?;
         remaining(self.deadline)?;
         Ok(count)

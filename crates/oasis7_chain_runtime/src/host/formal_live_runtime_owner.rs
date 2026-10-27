@@ -1048,9 +1048,8 @@ fn run_owner_with_fixed_trust(
                                 Instant::now() + Duration::from_millis(request.timeout_ms);
                             snapshot.state = "stopping".into();
                             write_owner_record(&state_path, snapshot.clone())?;
-                            runtime.stop(
-                                stop_deadline.saturating_duration_since(Instant::now()),
-                            )?;
+                            runtime
+                                .stop(stop_deadline.saturating_duration_since(Instant::now()))?;
                             snapshot.state = "stopped".into();
                             write_owner_record(&state_path, snapshot.clone())?;
                         }

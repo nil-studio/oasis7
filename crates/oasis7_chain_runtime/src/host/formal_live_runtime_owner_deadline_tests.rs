@@ -34,12 +34,7 @@ fn absent_state_path() -> PathBuf {
 
 #[test]
 fn stop_reserves_reply_time_without_extending_caller_budget() {
-    for (total_ms, expected_ms) in [
-        (2, 1),
-        (2_000, 1_000),
-        (10_000, 8_000),
-        (60_000, 58_000),
-    ] {
+    for (total_ms, expected_ms) in [(2, 1), (2_000, 1_000), (10_000, 8_000), (60_000, 58_000)] {
         let total = Duration::from_millis(total_ms);
         let work = control_work_timeout("stop", total).unwrap();
         assert_eq!(work, Duration::from_millis(expected_ms));
@@ -53,11 +48,7 @@ fn stop_reserves_reply_time_without_extending_caller_budget() {
         control_work_timeout("query", Duration::from_secs(2)).unwrap(),
         Duration::from_secs(2)
     );
-    for total in [
-        Duration::ZERO,
-        Duration::from_nanos(1),
-        Duration::from_millis(1),
-    ] {
+    for total in [Duration::ZERO, Duration::from_nanos(1), Duration::from_millis(1)] {
         assert!(control_work_timeout("stop", total).is_err());
     }
 }
