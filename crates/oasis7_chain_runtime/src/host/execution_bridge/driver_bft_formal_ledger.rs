@@ -455,12 +455,21 @@ impl<F: Format> GenericLedger<F> {
         Ok(())
     }
 
+    pub(super) fn bind_retained(
+        &mut self,
+        material_pin_digest: &str,
+        first_height: u64,
+        retain: impl FnOnce(&F::Origin, bool) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.bind_origin(material_pin_digest, first_height, retain)
+    }
+
     pub(super) fn bind(
         &mut self,
         material_pin_digest: &str,
         first_height: u64,
     ) -> Result<(), String> {
-        self.bind_origin(material_pin_digest, first_height)
+        self.bind_origin(material_pin_digest, first_height, |_, _| Ok(()))
     }
 
     pub(super) fn preload(

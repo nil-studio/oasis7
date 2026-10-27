@@ -6,9 +6,9 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-pub(super) const DIRECTORY: &str = "formal-bft-header-prefix-v1";
-pub(super) const MARKER: &str = "formal-bft-header-prefix-required-v1";
-pub(super) const DOWNGRADE_FENCE: &[u8] = b"oasis7.formal.bft.header_prefix.downgrade_fence/v1\n";
+pub(super) const DIRECTORY: &str = common_storage::FORMAL_HEADER_PREFIX_DIRECTORY;
+pub(super) const MARKER: &str = common_storage::FORMAL_HEADER_PREFIX_MARKER;
+pub(super) const DOWNGRADE_FENCE: &[u8] = common_storage::FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE;
 const ORIGIN_DOMAIN: &str = "oasis7.formal.bft.header_prefix.origin.v1";
 const RECORD_DOMAIN: &str = "oasis7.formal.bft.header_prefix.record.v1";
 

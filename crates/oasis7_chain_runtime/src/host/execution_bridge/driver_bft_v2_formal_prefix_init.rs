@@ -133,6 +133,7 @@ impl<F: Format> GenericLedger<F> {
         &mut self,
         material_pin_digest: &str,
         first_height: u64,
+        retain: impl FnOnce(&F::Origin, bool) -> Result<(), String>,
     ) -> Result<(), String> {
         self.verify_carriers()?;
         super::canonical_hash(material_pin_digest)?;
@@ -145,7 +146,8 @@ impl<F: Format> GenericLedger<F> {
             {
                 return Err("formal prefix origin differs from qualified H/target/material".into());
             }
-            return Ok(());
+            retain(pin, false)?;
+            return self.verify_carriers();
         }
 
         let pin = match self.pin.clone() {
@@ -202,6 +204,8 @@ impl<F: Format> GenericLedger<F> {
         files::publish(&self.root.join(LEGACY_MARKER), F::DOWNGRADE_FENCE)?;
         self.verify_carriers()?;
         files::publish(&self.root.join(F::MARKER), F::MARKER_BYTES)?;
+        self.verify_carriers()?;
+        retain(&pin, true)?;
         self.verify_carriers()?;
         files::finish(&origin_path, &intent_path, &bytes)?;
         self.init_pending = false;

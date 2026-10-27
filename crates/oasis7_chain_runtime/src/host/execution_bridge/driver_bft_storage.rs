@@ -768,13 +768,34 @@ fn parse_record_name(name: &str) -> Result<Option<u64>, String> {
 pub(super) const FORMAL_PREFIX_DOWNGRADE_FENCE: &[u8] =
     b"oasis7.formal.bft.prefix.requires-new-format/v1\n";
 
+pub(super) const FORMAL_HEADER_PREFIX_DIRECTORY: &str = "formal-bft-header-prefix-v1";
+pub(super) const FORMAL_HEADER_PREFIX_MARKER: &str = "formal-bft-header-prefix-required-v1";
+pub(super) const FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE: &[u8] =
+    b"oasis7.formal.bft.header_prefix.downgrade_fence/v1\n";
+
+/// Namespace presence is enough to reject a different format, including an
+/// interrupted or damaged ledger whose origin/required marker has disappeared.
+pub(super) fn has_formal_header_prefix_material(records_dir: &Path) -> Result<bool, String> {
+    for name in [FORMAL_HEADER_PREFIX_DIRECTORY, FORMAL_HEADER_PREFIX_MARKER] {
+        match fs::symlink_metadata(records_dir.join(name)) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("inspect formal header prefix identity: {error}")),
+        }
+    }
+    Ok(
+        read_optional_bytes(&records_dir.join("formal-bft-read-required-v1"), 128)?.as_deref()
+            == Some(FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE),
+    )
+}
+
 /// All current BFT formats claim this carrier before inspecting or creating
 /// their format directory. Per-format locks alone cannot serialize migration.
 pub(super) fn lock_format(records_dir: &Path) -> Result<File, String> {
     super::super::super::durable_transaction::ensure_dir_all_durable(records_dir)?;
     let carrier = records_dir.join("bft-format.lock");
-    let mut prefix_started =
-        read_optional_bytes(&records_dir.join("formal-bft-read-required-v1"), 128)?.as_deref()
+    let mut prefix_started = has_formal_header_prefix_material(records_dir)?
+        || read_optional_bytes(&records_dir.join("formal-bft-read-required-v1"), 128)?.as_deref()
             == Some(FORMAL_PREFIX_DOWNGRADE_FENCE);
     match fs::symlink_metadata(records_dir.join("formal-bft-prefix-required-v1")) {
         Ok(_) => prefix_started = true,
@@ -882,4 +903,95 @@ fn verify_lock_carrier_shape(file: &File, path: &Path, allow_empty: bool) -> Res
     }
     crate::controlled_live_config::require_private_owned(path, false)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod header_prefix_namespace_tests {
+    use super::*;
+
+    struct Root(PathBuf);
+    impl Root {
+        fn new() -> Self {
+            let mut random = [0u8; 16];
+            getrandom::fill(&mut random).unwrap();
+            let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
+                "oasis7-header-prefix-guard-{}",
+                hex::encode(random)
+            ));
+            super::super::super::super::controlled_live::private_directory(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Root {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn header_prefix_namespace_or_fence_never_heals_missing_or_empty_carrier() {
+        for evidence in ["directory", "marker", "fence"] {
+            let root = Root::new();
+            drop(lock_format(&root.0).unwrap());
+            let carrier = root.0.join("bft-format.lock");
+            let original = fs::read(&carrier).unwrap();
+            match evidence {
+                "directory" => fs::create_dir(root.0.join(FORMAL_HEADER_PREFIX_DIRECTORY)).unwrap(),
+                "marker" => {
+                    let mut marker = OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
+                        .open(root.0.join(FORMAL_HEADER_PREFIX_MARKER))
+                        .unwrap();
+                    std::io::Write::write_all(&mut marker, b"damaged marker").unwrap();
+                }
+                "fence" => {
+                    let mut marker = OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
+                        .open(root.0.join("formal-bft-read-required-v1"))
+                        .unwrap();
+                    std::io::Write::write_all(&mut marker, FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE)
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert!(has_formal_header_prefix_material(&root.0).unwrap());
+            // This is the shared formal-material check used by both existing
+            // engineering open paths, even if the header marker/origin is lost.
+            assert!(super::super::v2::has_formal_bft_material(&root.0).unwrap());
+            fs::write(&carrier, []).unwrap();
+            assert!(
+                lock_format(&root.0).is_err(),
+                "upgraded empty carrier with {evidence}"
+            );
+            assert!(fs::read(&carrier).unwrap().is_empty());
+            fs::remove_file(&carrier).unwrap();
+            assert!(
+                lock_format(&root.0).is_err(),
+                "recreated missing carrier with {evidence}"
+            );
+            assert!(!carrier.exists());
+            let mut restored = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&carrier)
+                .unwrap();
+            std::io::Write::write_all(&mut restored, &original).unwrap();
+            drop(restored);
+            drop(lock_format(&root.0).unwrap());
+            assert!(super::super::v2::has_formal_bft_material(&root.0).unwrap());
+            for old in [
+                "bft-execution-v1",
+                "bft-execution-v2",
+                "formal-bft-read-v1",
+                "formal-bft-prefix-v1",
+            ] {
+                assert!(!root.0.join(old).exists());
+            }
+        }
+    }
 }

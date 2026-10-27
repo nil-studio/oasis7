@@ -88,7 +88,7 @@ fn cli_case() {
         execution.replay_next(&certificate, &bytes).unwrap();
         entries.push(serde_json::json!({"certificate":certificate, "actions_cbor":bytes}));
     }
-    let history_value = serde_json::json!({"schema_version":1, "entries":entries});
+    let history_value = serde_json::json!({"schema_version":1, "entries":entries.clone()});
     file(
         &history,
         &oasis7_wasm_abi::encode_canonical_cbor(&history_value).unwrap(),
@@ -145,6 +145,35 @@ fn cli_case() {
     assert!(
         crate::formal_bft_header_cli::preview_from_paths(&config, &linked_actions, None).is_err()
     );
+
+    // The durable commands are real dispatch consumers with a separately pinned target.
+    let ledger_config = root.path().join("ledger.json");
+    let tip = &entries[1]["certificate"];
+    file(
+        &ledger_config,
+        &serde_json::to_vec(&serde_json::json!({
+            "schema_version":1, "trust_config_path":trust, "target":h.target,
+            "handoff_material_path":material, "cas_directory":cas,
+            "ledger_directory":root.path().join("ledger"),
+            "exact_height":tip["execution_commitment"]["height"],
+            "exact_header_id":execution.schedule().parent_commit_ref(),
+        }))
+        .unwrap(),
+    );
+    for command in ["install", "verify"] {
+        let mut args = vec![
+            "bft-header",
+            command,
+            "--config",
+            ledger_config.to_str().unwrap(),
+        ];
+        if command == "install" {
+            args.extend(["--history", history.to_str().unwrap()]);
+        }
+        crate::identity_receipt::dispatch(args.into_iter())
+            .unwrap()
+            .unwrap();
+    }
 
     // File syntax is valid and the certificates are real, but the original
     // first-height private bytes are replaced by a different canonical vector.

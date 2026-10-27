@@ -15,7 +15,7 @@ use super::formal_bft_read_cli::{
     CasBusinessIndexReader, load_qualified_handoff_anchor, read_qualified_handoff_material,
     require_existing_directory,
 };
-use oasis7_formal_protocol::bft::{BftProfileTargetV2, FormalBftCertifiedHeaderV3};
+use oasis7_formal_protocol::bft::BftProfileTargetV2;
 use oasis7_proto::distributed_bft::{BFT_MAX_ACTIONS_CBOR_BYTES_V1, v3::BftBlockHeaderV3};
 use oasis7_runtime::LocalCasStore;
 use serde::{Deserialize, Serialize};
@@ -156,7 +156,7 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_history_cli::read_bounded(path, maximum)
 }
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header install --config ABS --history ABS; bft-header verify --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Output is public header/commitment only; no durable receipt, canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header install --config ABS --history ABS; bft-header verify --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]

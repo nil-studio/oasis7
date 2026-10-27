@@ -25,6 +25,8 @@ const EMPTY_ACTIONS_CBOR: &[u8] = &[0x80];
 mod cli_execution_tests;
 #[path = "driver_bft_v3_formal_execution_tests.rs"]
 mod execution_tests;
+#[path = "driver_bft_v3_formal_ledger_tests.rs"]
+mod ledger_tests;
 #[path = "driver_bft_v3_header_transition_tests.rs"]
 mod transition_tests;
 

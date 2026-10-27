@@ -8,8 +8,8 @@ use serde::{
 use std::fmt;
 
 pub(crate) const PRIVATE_HEADER_PREFIX_MAX_BYTES_V3: usize = 32 * 1024 * 1024;
-const MAX_HEIGHTS: usize = 64;
-const MAX_ACTION_BYTES: usize = 1024 * 1024;
+const MAX_HEIGHTS: usize = oasis7_formal_protocol::bft::BFT_FORMAL_HEADER_PREFIX_MAX_HEIGHTS_V3;
+const MAX_ACTION_BYTES: usize = oasis7_proto::distributed_bft::BFT_MAX_ACTIONS_CBOR_BYTES_V1;
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -101,10 +101,15 @@ impl PrivateHeaderPrefixV3 {
                 })
                 .collect(),
         };
-        let lower_bound = serde_cbor::to_vec(&view)
-            .map_err(|_| "measure private BFT header prefix".to_string())?;
-        if lower_bound.len() > PRIVATE_HEADER_PREFIX_MAX_BYTES_V3 {
-            return Err("private BFT header prefix byte capacity".into());
+        let mut lower_bound = 0usize;
+        for entry in &view.entries {
+            let size = serde_cbor::to_vec(entry)
+                .map_err(|_| "measure private BFT header entry".to_string())?
+                .len();
+            lower_bound = lower_bound
+                .checked_add(size)
+                .filter(|n| *n <= PRIVATE_HEADER_PREFIX_MAX_BYTES_V3)
+                .ok_or("private BFT header prefix byte capacity")?;
         }
         let bytes = oasis7_wasm_abi::encode_canonical_cbor(&view)
             .map_err(|_| "encode private BFT header prefix".to_string())?;

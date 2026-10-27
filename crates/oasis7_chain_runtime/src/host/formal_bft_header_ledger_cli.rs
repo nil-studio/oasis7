@@ -24,6 +24,8 @@ pub(super) struct Report {
     height: u64,
     header_id: String,
     durable_record_digest: String,
+    world_tick: u64,
+    result_root: String,
     certified_prefix: oasis7_formal_protocol::bft::FormalBftCertifiedHeaderPrefixV3,
 }
 
@@ -120,6 +122,11 @@ pub(super) fn from_paths(config_path: &Path, history: Option<&Path>) -> Result<R
         height: cut.proof().commitment().height,
         header_id: cut.proof().certificate().block_id().into(),
         durable_record_digest: cut.durable_record_digest().into(),
+        world_tick: cut.world().state().time,
+        result_root: cut
+            .result_tree()
+            .root()
+            .map_err(|_| "read verified local result root")?,
         certified_prefix: cut.certified_prefix().clone(),
     })
 }

@@ -5,7 +5,7 @@ use super::*;
 use oasis7_formal_protocol::bft::{
     FormalBftCertifiedHeaderPrefixV3, VerifiedFormalBftHeaderPrefixV3,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 const MAX_H_BYTES: usize = 64 * 1024 * 1024;
@@ -32,7 +32,6 @@ pub(crate) struct FormalBftHeaderPrefixCutV3 {
     proof: VerifiedFormalBftHeaderPrefixV3,
     world: RuntimeWorld,
     result_tree: FormalBusinessResultTreeV1,
-    reader: formal_business_package::SharedBusinessReader,
     record_digest: String,
 }
 impl FormalBftHeaderPrefixCutV3 {
@@ -48,19 +47,12 @@ impl FormalBftHeaderPrefixCutV3 {
     pub(crate) fn result_tree(&self) -> &FormalBusinessResultTreeV1 {
         &self.result_tree
     }
-    pub(crate) fn index_reader(&self) -> &dyn BusinessIndexNodeReader {
-        &self.reader
-    }
     pub(crate) fn durable_record_digest(&self) -> &str {
         &self.record_digest
     }
 }
 
 impl FormalBftHeaderLedgerExecutionV3 {
-    pub(crate) fn exists(records: &Path) -> Result<bool, String> {
-        storage::Ledger::exists(records)
-    }
-
     pub(crate) fn open_from_handoff(
         records: &Path,
         store: LocalCasStore,
@@ -103,7 +95,9 @@ impl FormalBftHeaderLedgerExecutionV3 {
             !initialize && !ledger.empty(),
         )?;
         let pin = material_pin_digest(&origin, &material)?;
-        ledger.bind(&pin, handoff.activation_height()?)?;
+        ledger.bind_retained(&pin, handoff.activation_height()?, |origin, pending| {
+            retain_origin_material(&store, &material, origin, pending)
+        })?;
         let owner = Self {
             origin,
             ledger,
@@ -115,7 +109,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 source,
             },
         };
-        owner.ensure_origin_material(initialize)?;
+        owner.ensure_origin_material()?;
         Ok(owner)
     }
 
@@ -147,7 +141,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         exact_header_id: &str,
     ) -> Result<FormalBftHeaderPrefixCutV3, String> {
         self.ledger.reload()?;
-        self.ensure_origin_material(false)?;
+        self.ensure_origin_material()?;
         let input = PrivateHeaderPrefixV3::from_entries(
             self.ledger
                 .records_through(exact_height)?
@@ -178,7 +172,6 @@ impl FormalBftHeaderLedgerExecutionV3 {
             proof,
             world: self.origin.parent_world.clone(),
             result_tree: self.origin.parent_result_tree.clone(),
-            reader: self.origin.business_reader.clone(),
             record_digest,
         })
     }
@@ -219,39 +212,14 @@ impl FormalBftHeaderLedgerExecutionV3 {
         Ok(previous)
     }
 
-    fn ensure_origin_material(&self, initialize: bool) -> Result<(), String> {
-        use super::super::super::super::storage as common_storage;
-        let bytes = encoded_h_material(&self.inputs.material)?;
-        let reference = blake3_hex(&bytes);
-        let expected = BTreeSet::from([reference.clone()]);
-        let shard = format!("origin-{}", self.ledger.origin_digest()?);
-        let shards = self
-            .store
-            .list_pin_scope_shards(ORIGIN_PIN_SCOPE)
-            .map_err(|_| "read wire 3 retained H receipt")?;
-        if shards.contains(&shard) {
-            self.store
-                .verify_pin_scope_shard(ORIGIN_PIN_SCOPE, &shard, &expected)
-                .map_err(|_| "wire 3 original H retention receipt changed")?;
-            if common_storage::read_cas_bounded(&self.store, &reference, MAX_H_BYTES)? != bytes {
-                return Err("wire 3 original H material differs from its retained blob".into());
-            }
-        } else {
-            if !initialize || !self.ledger.empty() {
-                return Err("wire 3 original H retention receipt is missing".into());
-            }
-            common_storage::put_cas_durable(&self.store, &bytes, MAX_H_BYTES)?;
-            self.ledger.verify_carriers()?;
-            self.store
-                .replace_pin_scope_shard(ORIGIN_PIN_SCOPE, &shard, &expected)
-                .map_err(|_| "publish wire 3 original H retention receipt")?;
-            self.store
-                .verify_pin_scope_shard(ORIGIN_PIN_SCOPE, &shard, &expected)
-                .map_err(|_| "verify wire 3 original H retention receipt")?;
-            if common_storage::read_cas_bounded(&self.store, &reference, MAX_H_BYTES)? != bytes {
-                return Err("wire 3 retained H reread differs".into());
-            }
-        }
+    fn ensure_origin_material(&self) -> Result<(), String> {
+        self.ledger.verify_carriers()?;
+        retain_origin_material(
+            &self.store,
+            &self.inputs.material,
+            self.ledger.origin()?,
+            false,
+        )?;
         self.ledger.verify_carriers()
     }
 
@@ -384,6 +352,45 @@ fn validate_storage_paths(records: &Path, cas: &Path) -> Result<(), String> {
     crate::controlled_live_config::require_private_owned(&cas, true)?;
     if records.starts_with(&cas) || cas.starts_with(&records) {
         return Err("wire 3 private CAS and ledger must be separate".into());
+    }
+    Ok(())
+}
+
+fn retain_origin_material(
+    store: &LocalCasStore,
+    material: &ClosedRecord,
+    origin: &storage::Origin,
+    pending: bool,
+) -> Result<(), String> {
+    use super::super::super::super::storage as common_storage;
+    let bytes = encoded_h_material(material)?;
+    let reference = blake3_hex(&bytes);
+    let expected = BTreeSet::from([reference.clone()]);
+    let shard = format!("origin-{}", origin.digest()?);
+    let shards = store
+        .list_pin_scope_shards(ORIGIN_PIN_SCOPE)
+        .map_err(|_| "read wire 3 retained H receipt")?;
+    if shards.contains(&shard) {
+        store
+            .verify_pin_scope_shard(ORIGIN_PIN_SCOPE, &shard, &expected)
+            .map_err(|_| "wire 3 original H retention receipt changed")?;
+        if common_storage::read_cas_bounded(store, &reference, MAX_H_BYTES)? != bytes {
+            return Err("wire 3 original H material differs from its retained blob".into());
+        }
+    } else {
+        if !pending {
+            return Err("wire 3 original H retention receipt is missing".into());
+        }
+        common_storage::put_cas_durable(store, &bytes, MAX_H_BYTES)?;
+        store
+            .replace_pin_scope_shard(ORIGIN_PIN_SCOPE, &shard, &expected)
+            .map_err(|_| "publish wire 3 original H retention receipt")?;
+        store
+            .verify_pin_scope_shard(ORIGIN_PIN_SCOPE, &shard, &expected)
+            .map_err(|_| "verify wire 3 original H retention receipt")?;
+        if common_storage::read_cas_bounded(store, &reference, MAX_H_BYTES)? != bytes {
+            return Err("wire 3 retained H reread differs".into());
+        }
     }
     Ok(())
 }
