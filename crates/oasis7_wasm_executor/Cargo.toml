@@ -7,7 +7,7 @@ license = "MIT"
 [dependencies]
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 serde = { version = "1", features = ["derive"] }
-serde_cbor = "0.11"
+serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 sha2 = "0.11"
 
 # Keep the synchronous Core WASM contract and diagnostics; see

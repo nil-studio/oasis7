@@ -33,11 +33,13 @@ mod receiver_floor;
 mod rendezvous_operations;
 mod rendezvous_trigger;
 use peer_record_cache::PeerRecordCache;
+mod outbound_failure;
 mod peer_record_republish;
 mod reachability;
 mod response_budget;
 mod response_workers;
 mod runtime_loop;
+use outbound_failure::fail_pending_request;
 mod runtime_support;
 mod swarm_behaviour;
 mod swarm_reachability_events;
@@ -105,7 +107,7 @@ use reachability::{note_hole_punch_result, note_relay_reservation_accepted, snap
 use response_workers::ResponseWorkers;
 use runtime_loop::{
     Command, CommandContext, CommandOutcome, CommandResponseSender, CommandStateRefs, Handler,
-    HandlerRegistration, PendingResponse, fail_pending_request, handle_command,
+    HandlerRegistration, PendingResponse, handle_command,
 };
 #[cfg(test)]
 use runtime_loop::{

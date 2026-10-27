@@ -24,6 +24,13 @@ const BFT_PROFILE_TARGET_DOMAIN_V1: &str = "oasis7.formal.bft.profile_target.v1"
 const BFT_HANDOFF_ACTIVATION_DOMAIN_V1: &str = "oasis7.formal.bft.handoff_activation.v1";
 pub const BFT_FORMAL_EXECUTION_DOMAIN_V1: &str = "oasis7.formal.bft.execution.v1";
 
+#[path = "formal_prefix.rs"]
+mod prefix;
+pub use prefix::{
+    BFT_FORMAL_PREFIX_MAX_BYTES_V1, BFT_FORMAL_PREFIX_MAX_HEIGHTS_V1, FormalBftCertifiedEntryV1,
+    FormalBftCertifiedPrefixV1, VerifiedFormalBftPrefixV1,
+};
+
 /// Static V1 target configuration committed by a qualified formal H record.
 /// It deliberately contains no H output root or manifest, avoiding a cycle
 /// through the record that stores this digest.

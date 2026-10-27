@@ -378,7 +378,7 @@ fn libp2p_replication_network_request_with_providers_honors_provider_subset() {
     );
     assert!(
         matches!(
-            fail_only,
+            fail_only.as_ref().map_err(|err| err.diagnostic_source()),
             Err(WorldError::NetworkRequestFailed { .. })
                 | Err(WorldError::NetworkProtocolUnavailable { .. })
         ),

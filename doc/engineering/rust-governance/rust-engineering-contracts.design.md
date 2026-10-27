@@ -72,6 +72,7 @@ feature 是叠加关系。共享基线只含所有相关消费者确实共同需
 首批显式继承成员为 `oasis7_agent_api`、`oasis7_client_api`、`oasis7_proto`、`oasis7_wasm_sdk`、`oasis7_game_client`、`oasis7_model_provider`：
 
 - 只继承原有的 `edition=2024`、`license=MIT`；不集中 version/MSRV/publish，也不补原先缺失的发布属性。Model Provider description、Client API/Proto lib path 和 SDK crate-type 保持成员所有。
+- 共享 CBOR 依赖使用 Kanidm 维护的 `serde_cbor_2`，通过 `serde_cbor` Cargo alias 保留既有调用 API；黄金字节约束签名载荷、canonical map、持久化数据及浮点/整数边界，迁移不得隐式改变 wire 或存储格式。
 - 本批已有的 `hex`、`serde`（含原有 derive）、`serde_json`、`serde_cbor` 继承根版本；SDK 仍在成员声明 optional，`wire` 才激活三个 serde 依赖。Agent API/Client API 的 `sha2=0.11` 继承，Game Client 的 `sha2=0.10` 保留显式多版本。
 - `reqwest=0.13.4` 仅共享版本和 `default-features=false`；Game Client 与 Model Provider 分别显式保留 blocking/json/rustls，不把 features 提升到根。其他依赖、kind、target cfg、alias 与 features 不动。
 - SDK manifest 同时属于 37 个正式内置模块的本地源码闭包；[构建身份合同](../../p2p/consensus/builtin-wasm-identity-consensus.design.md)按原始 manifest 字节取摘要。共享 hasher 同时纳入各本地包由 Cargo 定位的 owning workspace manifest，避免声明移到虚拟根后漏检根继承配置变化；只覆盖这些 manifest，去重并使用相对路径标签，不增加依赖或扫描整个仓库。配置等价不表示 source identity 不变：通过现有 canonical sync 重建并刷新 m1/m4/m5 identity，核对 WASM 字节摘要与 recipe 的 build_manifest_hash 保持，不放宽 source/receipt 检查，也不发布或改写世界状态。

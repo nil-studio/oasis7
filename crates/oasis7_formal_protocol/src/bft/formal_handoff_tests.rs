@@ -14,6 +14,9 @@ use oasis7_proto::distributed_bft::v2::{
     BftValidatorV2,
 };
 
+#[path = "formal_prefix_tests.rs"]
+mod prefix_tests;
+
 fn hash(byte: u8) -> String {
     hex::encode([byte; 32])
 }

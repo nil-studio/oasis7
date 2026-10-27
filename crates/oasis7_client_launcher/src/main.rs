@@ -303,7 +303,7 @@ fn configure_egui_fonts(context: &egui::Context) {
 }
 
 fn configure_egui_visuals(context: &egui::Context) {
-    let mut style = (*context.style()).clone();
+    let mut style = (*context.global_style()).clone();
     style.visuals = egui::Visuals::light();
     style.spacing.item_spacing = egui::vec2(7.0, 5.0);
     style.spacing.button_padding = egui::vec2(8.0, 5.0);
@@ -319,7 +319,7 @@ fn configure_egui_visuals(context: &egui::Context) {
     style.visuals.widgets.hovered.bg_stroke = soft_stroke;
     style.visuals.window_stroke = soft_stroke;
     style.visuals.selection.bg_fill = egui::Color32::from_rgb(76, 139, 111);
-    context.set_style(style);
+    context.set_global_style(style);
 }
 
 fn load_font_override_from_env() -> Option<(String, egui::FontData)> {

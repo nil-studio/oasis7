@@ -237,6 +237,32 @@ impl DurableObject for RoleKeyVault {
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
+        #[cfg(feature = "owner")]
+        if request.method() == Method::Post
+            && url.path() == "/internal/participant-sign"
+            && url.scheme() == "https"
+            && url.host_str() == Some("role-key.internal")
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && request.headers().get("Content-Type")?.as_deref() == Some("application/json")
+        {
+            let raw = Zeroizing::new(text(
+                bounded_body(request.inner().as_ref(), 4096)
+                    .await
+                    .map_err(|_| denied())?,
+                4096,
+            )?);
+            return match crate::owner_participant_signing::sign_in_vault(
+                self.state.clone(),
+                &self.env,
+                &raw,
+            )
+            .await
+            {
+                Ok(value) => Ok(value),
+                Err(_) => Response::error("participant owner signing rejected", 409),
+            };
+        }
         #[cfg(feature = "identity")]
         if request.method() == Method::Post
             && url.path() == "/internal/native-sign"

@@ -123,6 +123,13 @@ fn view(store: &OwnerProvisionApprovalStore, operation: &str) -> Result<Provisio
             })
             .map(|v| v.request.operation_id.clone()),
     );
+    pending_operations.extend(
+        state
+            .participant_provisions()
+            .values()
+            .filter(|v| v.result.is_none())
+            .map(|v| v.request.operation_id.clone()),
+    );
     pending_operations.sort();
     pending_operations.dedup();
     Ok(ProvisionProgressViewV1 {
@@ -189,6 +196,14 @@ pub(crate) async fn advance(
         || rpc.manager_session.session_ref != input.approval.proof.manager_session_ref
     {
         return Err(denied());
+    }
+    if matches!(
+        snapshot.state.provision().stage(),
+        ProvisionStage::ParticipantBound | ProvisionStage::ReadyForSetup | ProvisionStage::Prepared
+    ) {
+        // Terminal preparation facts are readable history. Continuing them must
+        // not start another key inspection, consume transport or grant execution.
+        return view(&store, &rpc.request.operation_id);
     }
     if matches!(
         snapshot.state.provision().stage(),

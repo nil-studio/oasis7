@@ -1135,7 +1135,12 @@ mod effect_birth;
 pub use observer_identity::ObserverAuthorityIdentity;
 
 mod owner_control_admission;
+mod owner_delegation_control;
 pub use owner_control_admission::OwnerControlHostAuthority;
+pub use owner_delegation_control::{
+    DelegationControlDisposition, DelegationControlError, DelegationControlOperation,
+    DelegationControlOutcome, DelegationControlStage, DelegationReplayMatch,
+};
 
 mod provider_causal_commit;
 pub use provider_causal_commit::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};

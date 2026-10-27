@@ -1,6 +1,6 @@
 //! Private Owner draft/tombstone component. There are no key, grant or dispatch methods.
 use js_sys::Array;
-use oasis7_custody_core::{DecimalU64, approval::bytes_digest, provisioning::*};
+use oasis7_custody_core::{DecimalU64, approval::bytes_digest, http::Role, provisioning::*};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -228,6 +228,8 @@ impl DurableObject for AccountAuthority {
                     | "/internal/role-permit"
                     | "/internal/native"
                     | "/internal/native-recovery"
+                    | "/internal/participant-identity"
+                    | "/internal/participant-owner"
                     | "/internal/managed-login-approve"
                     | "/internal/managed-login-continue"
             )
@@ -246,6 +248,46 @@ impl DurableObject for AccountAuthority {
             None => return Response::error("invalid or oversized body", 400),
         };
         match url.path() {
+            "/internal/participant-identity" | "/internal/participant-owner" => {
+                if url.scheme() != "https"
+                    || url.host_str() != Some("account.internal")
+                    || url.fragment().is_some()
+                {
+                    return Response::error("not found", 404);
+                }
+                let Some(env) = &self.env else {
+                    return Response::error("participant authority unavailable", 409);
+                };
+                let rpc = match serde_json::from_str::<
+                    crate::participant_runtime_rpc::ParticipantRuntimeRpc,
+                >(&body)
+                {
+                    Ok(value) if value.request.validate().is_ok() => value,
+                    _ => return Response::error("invalid participant request", 400),
+                };
+                let role = if url.path() == "/internal/participant-owner" {
+                    Role::Owner
+                } else {
+                    Role::Identity
+                };
+                match crate::owner_provision::native::participant_dispatch(
+                    &self.state,
+                    env,
+                    rpc,
+                    role,
+                )
+                .await
+                {
+                    Ok(raw) => {
+                        let mut response = Response::ok(raw)?;
+                        response
+                            .headers_mut()
+                            .set("Content-Type", "application/json")?;
+                        Ok(response)
+                    }
+                    Err(_) => Response::error("participant rejected or pending", 409),
+                }
+            }
             "/internal/native-recovery" => {
                 let Some(env) = &self.env else {
                     return Response::error("recovery authority unavailable", 409);

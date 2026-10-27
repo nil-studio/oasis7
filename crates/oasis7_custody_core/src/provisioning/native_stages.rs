@@ -161,7 +161,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<NativeStageDescriptorV1> {
         self.native_descriptor_with_origin(scope.http_origin)
     }
-    pub(super) fn native_descriptor_with_origin(
+    pub(in crate::provisioning) fn native_descriptor_with_origin(
         &self,
         http_origin: &str,
     ) -> Result<NativeStageDescriptorV1> {

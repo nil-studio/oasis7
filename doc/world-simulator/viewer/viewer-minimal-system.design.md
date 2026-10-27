@@ -74,6 +74,12 @@ Owner：viewer_engineer；消费者为 demo CLI、离线 Viewer server 与运行
 
 核心 `runtime_host` 维护通用世界 bootstrap、Gameplay 请求到 Runtime Action 的组装、进程目录锁与持久 replay ledger、Runtime receipt 回读和 Harness 权威适配。完整 `WorldSnapshot`、事件及 Runtime/Player/Chain 组合归档仍由核心 Simulator 宿主持有。Viewer 的协议响应在应用边界组合该归档；客户端只消费自身所需合同和明确的解析模型。
 
+共享进程锁由 `oasis7_hosted_access::auth_storage` 实现，nonce ledger 和 execution world writer 使用相同原语。它只支持同主机 Linux/macOS/Windows 的受信本地文件系统，须提供内核文件锁、原子 rename 和所用持久化操作；不承诺 NFS/SMB、网络共享盘或多机分布式互斥。目录及祖先由部署方控制，不允许运行期间移动、删除、替换或通过不同文件系统别名访问锁锚点；同权限恶意进程和外部文件系统修改不在此协作锁的隔离能力内。
+
+获取前规范化普通路径末尾斜杠/点组件并解析父目录，使同一目标的这些写法共享锚点；拒绝目标自身符号链接/reparse point 和普通文件 hardlink，Windows 已存在目标还须解析完整路径以统一短文件名；拒绝组件末尾点/空格、ADS 冒号、DOS 设备名以及非本地磁盘命名空间等不确定表示。路径解析失败不得获取。对每个规范目标路径，永久保留 `<path>.lock.guard` 普通文件，使用 Rust 标准库 `File::try_lock`（Unix `flock` / Windows `LockFileEx`）获取独占锁。锁文件不截断、不删除、不换 inode；文件句柄从首次 owner 检查之前持有到 guard 清理之后。所有 owner 检查、过期回收、quarantine 删除和新 owner 发布均在该内核互斥范围内；失败、未知 owner、进程存活状态不明、权限/符号链接/非普通文件、无法获取或验证 OS 锁均不得返回可写 guard。PID/token 仅用于旧状态判断与清理归属，不能代替 OS 锁。健康 owner 不回收，PID 复用保守拒绝；崩溃释放内核锁后，下次获取在互斥范围内回收确认死亡的旧 owner。owner 发布或父目录 sync 失败不授予写资格，清理只涉及本次所有物；quarantine 清理失败拒绝本次获取。
+
+升级必须先停止所有使用旧目录协议的 writer，不能混跑不认识 `.lock.guard` 的旧二进制；仅有新进程持锁不能约束旧回收者。未知/损坏 owner 留待停止全部 writer 后人工核对，不凭超时推定死亡；保留永久 guard 文件。fork 子进程不得使用继承 guard 写入或继续运行服务，应立即 exec/exit；子进程关闭继承句柄不能主动 unlock 或删除父进程 owner。guard 不可跨进程转移。这里不改变 nonce 原件、claim/consume 身份、未知提交结果和世界持久化合同。
+
 纯请求与签名验证由既有 Proto/Client API 拥有；纯验签不检查磁盘 replay ledger，Viewer 宿主适配在验签后继续执行 nonce 未使用检查。Harness 与 Game Client 不获取 Runtime World，也不承接受信 receipt 验证。Chain 宿主直接查询 World 的 canonical agent context，不经 Viewer 转发。
 
 验证边界包括：核心无 Viewer 依赖、Runtime/World Service 的生产闭包无 DistFS、协议签名字节和归档兼容回归、迁移后 Viewer 测试的实际执行及默认/无默认 feature 检查。修改 Viewer 普通实现只使应用及实际应用消费者失效；编译耗时须按真实源码变化测量，不能从 no-op check 推断提速比例。此迁移不改变游戏行为与正式 Skill/API，因此不以新增模型试玩代替合同和恢复回归。

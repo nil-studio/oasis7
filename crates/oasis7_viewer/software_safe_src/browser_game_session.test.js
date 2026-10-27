@@ -254,3 +254,10 @@ describe("browser game session authorization", () => {
     expect(env.effects()).toBe(0);
   });
 });
+
+it("keeps safe diagnostics in a blocked executor session snapshot", async () => {
+ const env = setup(); env.hooks.readTask = async () => { throw { code: "participant_request_failed", diagnostic: { stage: "participant_owner_view", httpStatus: 403, serverCode: "csrf_failed", message: "PRIVATE_KEY" } }; };
+ const session = env.create(); await expect(session.prepare({ inspectOnly: true })).rejects.toMatchObject({ code: "participant_request_failed" });
+ expect(session.snapshot()).toMatchObject({ phase: "blocked", diagnostic: { stage: "participant_owner_view", httpStatus: 403, serverCode: "csrf_failed" } });
+ expect(JSON.stringify(session.snapshot())).not.toContain("PRIVATE_KEY");
+});

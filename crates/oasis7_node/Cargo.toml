@@ -22,7 +22,7 @@ futures = { version = "0.3", optional = true }
 hex = "0.4"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca", optional = true, default-features = false, features = ["cbor", "gossipsub", "macros", "noise", "request-response", "tcp", "tokio", "yamux"] }
 serde = { version = "1", features = ["derive"] }
-serde_cbor = "0.11"
+serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]

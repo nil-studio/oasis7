@@ -910,9 +910,12 @@ impl PosNodeEngine {
                     }
                     Err(err) if replication_gap_sync_provider_blob_route_blocked(&err) => {
                         provider_route_blocked = true;
-                        let summary = format!(
-                            "attempt {attempt}/{} failed: {err}",
-                            REPLICATION_GAP_SYNC_MAX_RETRIES_PER_HEIGHT
+                        let summary = crate::network_error_classification::persisted_network_reason(
+                            format!(
+                                "attempt {attempt}/{} failed: {err}",
+                                REPLICATION_GAP_SYNC_MAX_RETRIES_PER_HEIGHT
+                            ),
+                            &err,
                         );
                         self.last_replication_gap_sync_repair_attempt_height = Some(next_height);
                         self.last_replication_gap_sync_repair_attempt_summary =
