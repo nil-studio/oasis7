@@ -36,7 +36,7 @@ pub struct BftSignerKeyIdentityV3 {
 
 /// An operator-admitted qualified-H capability, never deserialized from the wire.
 /// Public fields are checked against the retained opaque H and initial schedule.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BftSignerBindingV3 {
     pub schema_version: u32,
     pub scope: BftScopeV2,

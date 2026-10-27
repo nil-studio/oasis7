@@ -421,14 +421,23 @@ pub(crate) fn validate_candidate_transition(
             return Err(invalid("BFT V3 protocol advance changed install state"));
         }
         match (&old.journal, &candidate.journal) {
-            (Some(a), Some(b)) if a != b => verify_bft_signing_journal_transition_v3(
-                a,
-                b,
-                previous.schedule.active_set(),
-                &previous.schedule,
-                binding.timeouts,
-            )
-            .map_err(invalid)?,
+            (Some(a), Some(b)) if a != b => {
+                let derived = verify_bft_signing_journal_transition_v3(
+                    a,
+                    b,
+                    previous.schedule.active_set(),
+                    &previous.schedule,
+                    binding.timeouts,
+                )
+                .map_err(invalid)?;
+                // A protocol event cannot install a successor height without
+                // the separately checked QC append and driver confirmation.
+                if derived != previous.schedule {
+                    return Err(invalid(
+                        "BFT V3 journal advance cannot install a new height",
+                    ));
+                }
+            }
             _ => {
                 return Err(invalid(
                     "BFT V3 candidate is not one legal journal transition",

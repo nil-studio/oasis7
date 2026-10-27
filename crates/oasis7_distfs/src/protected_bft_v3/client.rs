@@ -178,7 +178,7 @@ impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
         &self,
         binding: &BftSignerBindingV3,
     ) -> Result<Box<dyn BftSignerLeaseV3>, BftSignerErrorV3> {
-        if binding != &self.binding {
+        if binding.digest()? != self.binding.digest()? {
             return Err(invalid("BFT V3 acquire binding differs from provider pin"));
         }
         for attempt in 0..=MAX_ACQUIRE_CONFLICT_RETRIES {

@@ -243,6 +243,7 @@ impl NodeRuntime {
             config,
             bft_config: None,
             bft_v2_config: None,
+            bft_v3_config: None,
             local_execution_bootstrap: None,
             local_execution_genesis_bootstrap: None,
             replication_network: None,
@@ -398,12 +399,15 @@ impl NodeRuntime {
         if self.bft_v2_config.is_some() {
             self.validate_bft_v2_payload_admission(&payload_cbor)?;
         }
+        if self.bft_v3_config.is_some() {
+            self.validate_bft_v3_payload_admission(&payload_cbor)?;
+        }
         validate_consensus_action_payload_auth(&self.config, payload_cbor.as_slice())?;
         // BFT V2 admission above is stateful: its execution hook validates the
         // signed governance action against the exact verified V2 parent cursor.
         // The legacy preflight uses the ordinary governance path and can reject
         // a valid V2 transition under a different, non-BFT parent projection.
-        if self.bft_v2_config.is_none() {
+        if self.bft_v2_config.is_none() && self.bft_v3_config.is_none() {
             governance_auth::preflight(self, payload_cbor.as_slice())?;
         }
         let action = NodeConsensusAction::from_payload(
@@ -416,7 +420,9 @@ impl NodeRuntime {
             .pending_consensus_actions
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if (self.bft_config.is_some() || self.bft_v2_config.is_some())
+        if (self.bft_config.is_some()
+            || self.bft_v2_config.is_some()
+            || self.bft_v3_config.is_some())
             && bft_action_validation::reject_conflicting_queue_id(&pending, &action)?
         {
             return Ok(());

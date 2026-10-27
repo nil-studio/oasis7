@@ -5,7 +5,7 @@ use super::*;
 fn protected_header_state_declared_counts_are_rejected_before_entries() {
     for field in ["history", "applied_installs"] {
         let mut bytes = vec![0xa1];
-        bytes.extend(serde_cbor::to_vec(field).unwrap());
+        bytes.extend(serde_cbor::to_vec(&field).unwrap());
         bytes.extend([0x98, 0x41]); // Array(65), deliberately no first entry.
         let error = serde_cbor::from_slice::<BftSignerCandidateV3>(&bytes)
             .unwrap_err()
