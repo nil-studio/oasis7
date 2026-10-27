@@ -340,7 +340,23 @@ fn confirm_retry_tcp(
             };
             stream.set_nonblocking(false).unwrap();
             let result = service.serve_connection(&mut stream);
-            if index == 1 {
+            if index == 0 {
+                assert!(result.is_err(), "uncertain CAS must fence the service");
+                assert!(!unknown.load(std::sync::atomic::Ordering::SeqCst));
+                // An uncertain backend write poisons the service, so it cannot
+                // release its lease. Model independent backend recovery only
+                // after this session has ended: fence the old generation while
+                // preserving every committed protocol byte. Production needs
+                // an independently provisioned backend with this capability.
+                let mut retained = snapshot.lock().unwrap();
+                assert!(retained.state.pending_driver_apply.is_none());
+                assert!(!retained.lease_token_digest.is_empty());
+                retained.lease_generation = retained
+                    .lease_generation
+                    .checked_add(1)
+                    .expect("test backend fencing generation");
+                retained.lease_token_digest.clear();
+            } else {
                 result.map_err(|e| e.to_string())?;
             }
         }
