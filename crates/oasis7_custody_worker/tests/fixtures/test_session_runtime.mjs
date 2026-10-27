@@ -40,3 +40,17 @@ export default {async fetch(request,env,ctx){
     }
     return deployed.fetch(request,env,ctx);
 }};
+
+// Isolated close-only namespace trap: any attempted SID/role actor access is
+// recorded in its own test SQLite table and rejected, never forwarded.
+export class ClientCloseReadTrap {
+    constructor(state){this.state=state;}
+    async fetch(request){
+        this.state.storage.sql.exec('CREATE TABLE IF NOT EXISTS fixture_close_reads (attempt INTEGER NOT NULL)');
+        const path=new URL(request.url).pathname;
+        if(path==='/fixture/close-trap-count')return Response.json({attempts:this.state.storage.sql.exec('SELECT COUNT(*) AS count FROM fixture_close_reads').one().count});
+        if(path==='/fixture/close-trap-reset'){this.state.storage.sql.exec('DELETE FROM fixture_close_reads');return Response.json({after_reset:0});}
+        this.state.storage.sql.exec('INSERT INTO fixture_close_reads VALUES (1)');
+        return new Response('fixed private read trap',{status:409});
+    }
+}

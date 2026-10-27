@@ -21,6 +21,7 @@ const descriptorDigest=digest('oasis7.custody.host-deployment-descriptor.v1',des
 let ownerDiagnosticActive=false;
 let identityDiagnosticActive=false;
 let identitySecretsDisabled=false;
+let identityCloseReadTrap=false;
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
   let configuredRoles=0;
@@ -44,11 +45,13 @@ function configureOptions(options){
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
     }
+    if(identityCloseReadTrap&&worker.name==='owner')delete worker.bindings.CUSTODY_ROLE_KEY_KEK;
     worker.bindings={...worker.bindings,CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
     worker.durableObjects={...worker.durableObjects,CLIENT_ENROLLMENTS:{className:'ClientEnrollmentAuthority',useSQLite:true,...(worker.name==='owner'?{scriptName:'identity'}:{})}};
     if(worker.name==='identity') {
       worker.serviceBindings={...worker.serviceBindings,TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'},TEST_SESSION_NATIVE_HISTORY:{name:'identity',entrypoint:'NativeProvisionHistory'}};
       if(identitySecretsDisabled){delete worker.bindings.CUSTODY_NATIVE_PRIVATE_KEK;delete worker.bindings.CUSTODY_ROLE_KEY_KEK;}
+      if(identityCloseReadTrap)worker.durableObjects.NATIVE_SESSIONS={className:'ClientCloseReadTrap',useSQLite:true};
     }
     if(worker.name==='identity')worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_runtime.mjs')},...worker.modules.filter(m=>!m.path.endsWith('/native_revocation_scheduler.mjs'))];
     else worker.serviceBindings={...worker.serviceBindings,IDENTITY_TEST_SESSIONS:{name:'identity',entrypoint:'IdentityTestSessions'},TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'}};
@@ -97,7 +100,7 @@ print(json.dumps(result,separators=(',',':')))
 
 async function withActiveSession(run,{lostInitial=false}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
-  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;
+  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -466,5 +469,90 @@ test('public scoped client claims credentials and heartbeats without borrowing p
       assert.ok(rejected.status>=400,`${name}: invalid public proof must be rejected`);
       assert.deepEqual(runtime.nativeRequests(),before);assert.deepEqual(publicClientCounters(runtime,basis.session_id),counter,'invalid proof never charges a session or creates a source');
     }
+  });
+});
+
+async function claimCloseCredentials(runtime,basis,label){
+  const body={api_version:1,enrollment_id:basis.client_pairing.enrollment_id,test_session_id:basis.session_id,request_id:`${label}-claim`,purposes:['execute','read'],replace:false,expected_generation:null};
+  const challenge={api_version:1,session_id:basis.session_id,request_id:`${label}-claim-challenge`,purpose:'execution',kind:{kind:'credential_claim'},logical_request_id:body.request_id,operation_request_digest:digest('oasis7.custody.test-session-claim.v1',body)};
+  const nonce=await liveClientCall(runtime,publicClientProof(basis,runtime,{tail:'proof-challenges',body:challenge,requestId:challenge.request_id,tag:'oasis7-custody-challenge-v1'}));
+  const claimed=await liveClientCall(runtime,publicClientProof(basis,runtime,{tail:`client-enrollments/${body.enrollment_id}/claim`,body,requestId:body.request_id,tag:'oasis7-custody-enroll-v1',nonce:nonce.nonce,nonceUntil:nonce.expires_at}));
+  assert.equal(claimed.status,'claimed');
+  const execute=claimed.credentials.find(v=>v.purpose==='execution');assert.equal(typeof execute?.token,'string');assert.equal(execute.token.length,43);
+  return execute.token;
+}
+async function liveClientCall(runtime,proof){
+  const native=runtime.nativeRequests();
+  const reply=await clientJson(await runtime.publicClientFetch(proof.path,proof.init));
+  const after=runtime.nativeRequests();
+  assert.equal((after['/custody/approvals/verify']??0)-(native['/custody/approvals/verify']??0),1);
+  assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(native['/custody/managed-bindings/session-lifetime']??0),1);
+  assert.equal(Object.values(after).reduce((a,b)=>a+b,0)-Object.values(native).reduce((a,b)=>a+b,0),2,'each live client HTTP uses only its own source/lifetime native calls');
+  return reply;
+}
+async function clientControlChallenge(runtime,basis,token,kind,label){
+  const body={api_version:1,session_id:basis.session_id,request_id:`${label}-${kind}`,kind};
+  const challenge={api_version:1,session_id:basis.session_id,request_id:`${label}-${kind}-challenge`,purpose:'execution',kind:{kind:'control',control:kind},logical_request_id:body.request_id,operation_request_digest:digest('oasis7.custody.test-session-control-request.v1',body)};
+  const nonce=await liveClientCall(runtime,publicClientProof(basis,runtime,{tail:'proof-challenges',body:challenge,requestId:challenge.request_id,tag:'oasis7-custody-challenge-v1',token}));
+  return publicClientProof(basis,runtime,{tail:`test-sessions/${basis.session_id}/${kind==='tools_list'?'tools-list':kind}`,body,requestId:body.request_id,tag:'oasis7-custody-client-v1',token,nonce:nonce.nonce,nonceUntil:nonce.expires_at});
+}
+function closeSessionState(runtime,id){
+  return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+out=None;reads=0
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='fixture_close_reads'").fetchone():reads+=db.execute('SELECT COUNT(*) FROM fixture_close_reads').fetchone()[0]
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+  if not row:continue
+  state=json.loads(row[0])['state']
+  if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+  s=state['test_sessions'][sys.argv[3]]
+  out={'closing_reason':s['closing'][0] if s['closing'] else None,'closing_at':s['closing'][1] if s['closing'] else None,'termination_originals':len(s['termination_slots']),'termination_results':sum(v['result'] is not None for v in s['termination_slots'].values()),'lease_until':s['lease_until']}
+ except sqlite3.OperationalError:continue
+ finally:
+  if 'db' in locals():db.close()
+assert out is not None
+out['private_read_attempts']=reads
+print(json.dumps(out,separators=(',',':')))
+`,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+}
+for(const kind of ['finish','abort'])test(`public ${kind} tightens without Native or private SID access after its live challenge`,{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    const initial=publicClientCounters(runtime,basis.session_id);
+    const token=await claimCloseCredentials(runtime,basis,kind);
+    if(kind==='finish')for(const control of ['initialize','tools_list']){
+      const proof=await clientControlChallenge(runtime,basis,token,control,kind);
+      const ack=await liveClientCall(runtime,proof);assert.equal(ack.kind,control);
+    }
+    const closeProof=await clientControlChallenge(runtime,basis,token,kind,kind);
+    const before=publicClientCounters(runtime,basis.session_id),native=runtime.nativeRequests();
+    const liveHttp=kind==='finish'?7:3,logical=kind==='finish'?4:2;
+    assert.equal(before.host,initial.host-liveHttp);assert.equal(before.native,initial.native-liveHttp*2);assert.equal(before.requests,initial.requests-logical);assert.equal(before.sources,initial.sources+liveHttp);assert.deepEqual(before.roots,initial.roots);
+    identitySecretsDisabled=true;identityCloseReadTrap=true;
+    runtime.setNativeUnavailable(true);
+    try {
+      await runtime.restart(selectedMode);
+      assert.deepEqual(await runtime.probeClientCloseTrap(),{rejected:409,attempts:1,after_reset:0},'the actual rebound namespace trap must reject reads and reset only its own counter');
+      assert.ok(closeProof.expires*1000-Date.now()>1000,'closing proof must remain under its original nonce/root deadline');
+      const ack=await clientJson(await runtime.publicClientFetch(closeProof.path,closeProof.init));
+      assert.equal(ack.kind,kind);
+      assert.deepEqual(runtime.nativeRequests(),native,'the close call cannot contact an unavailable Native provider');
+      const after=publicClientCounters(runtime,basis.session_id);
+      assert.equal(after.host,before.host-1);assert.equal(after.native,before.native);assert.equal(after.requests,before.requests,'the already reserved close logical request is not charged twice');assert.deepEqual(after.roots,initial.roots,'closing cannot borrow business/read/cleanup transports');
+      await runtime.suspend();const state=closeSessionState(runtime,basis.session_id);
+      assert.equal(state.private_read_attempts,0,'close cannot read the deny-all SID/role actor namespace');
+      assert.equal(state.closing_reason,kind==='finish'?'finished':'aborted');assert.equal(state.termination_originals,0);assert.equal(state.termination_results,0,'closing acknowledgement is not World Stop/Revoke completion');
+      await runtime.restart(selectedMode);
+      assert.ok(closeProof.expires*1000-Date.now()>1000,'same ack retry remains bounded by its original proof');
+      const repeated=await clientJson(await runtime.publicClientFetch(closeProof.path,closeProof.init));
+      assert.equal(repeated.acknowledged_at,ack.acknowledged_at);assert.equal(repeated.lease_until,ack.lease_until);
+      assert.deepEqual(runtime.nativeRequests(),native);
+      const paidRetry=publicClientCounters(runtime,basis.session_id);assert.equal(paidRetry.host,after.host-1);assert.equal(paidRetry.native,before.native);assert.equal(paidRetry.requests,before.requests);assert.deepEqual(paidRetry.roots,initial.roots);
+      await runtime.suspend();const same=closeSessionState(runtime,basis.session_id);
+      assert.equal(same.private_read_attempts,0);assert.equal(same.closing_at,state.closing_at);assert.equal(same.termination_results,0);
+    } finally {identitySecretsDisabled=false;identityCloseReadTrap=false;runtime.setNativeUnavailable(false);}
   });
 });

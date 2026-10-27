@@ -109,6 +109,7 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
     if(worldProcess) native.data.world=world;
     const persist=resolve(directory,'workerd');
     let nativeVerifications=0;
+    let nativeUnavailable=false;
     const nativeRequests={};
     const approvalFacts=[];
     const worldResults=[];
@@ -144,6 +145,7 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup','/custody/managed-bindings/session-status','/custody/managed-bindings/session-lifetime',
         ...(worldProcess?['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view',...(mode.startsWith('native-participant-owner-setup')?['/entry-owner/control']:[])]:[])].includes(suffix));
       nativeRequests[suffix]=(nativeRequests[suffix]??0)+1;
+      if(nativeUnavailable)throw new Error('fixed test native provider unavailable');
       if(!management) {
         assert.equal(request.headers.get('authorization'),null,'ordinary native transport has no approval adapter credential');
         assert.notEqual(request.headers.get('cookie'),native.data.cookie,'manager cookie never becomes a managed account credential');
@@ -229,6 +231,8 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
     assert.equal(accepted.status,200);
     await run({persist,account:original.entry.custody_account_id,provisionId:original.entry.provision_id,
       publicEnrollmentFetch:async(path,init)=>{assert.match(path,/^\/v1\/client-enrollments(?:\/[A-Za-z0-9._~-]+\/prove)?$/);const incoming=new Headers(init.headers);for(const key of ['cookie','authorization','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public enrollment never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      probeClientCloseTrap:async()=>{const {NATIVE_SESSIONS}=await mf.getBindings('identity');const stub=NATIVE_SESSIONS.get(NATIVE_SESSIONS.idFromName('fixed-close-trap-probe'));const denied=await stub.fetch('https://native-session.internal/internal/paired-private',{method:'POST'});const count=await (await stub.fetch('https://native-session.internal/fixture/close-trap-count',{method:'POST'})).json();await stub.fetch('https://native-session.internal/fixture/close-trap-reset',{method:'POST'});const after=await (await stub.fetch('https://native-session.internal/fixture/close-trap-count',{method:'POST'})).json();return {rejected:denied.status,attempts:count.attempts,after_reset:after.attempts};},
+      setNativeUnavailable:value=>{assert.equal(typeof value,'boolean');nativeUnavailable=value;},
       publicClientFetch:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/);const incoming=new Headers(init.headers);for(const key of ['cookie','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public client never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
       publicClientHostFault:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/);return mf.dispatchFetch('https://localhost/fixture/client-wrong-host'+path,init);},
       testClientAdmission:async(kind,body)=>{const paths={drain:'/internal/performance/client-source-drain',direct_admit:'/internal/performance/client-direct-admit'};assert.ok(Object.hasOwn(paths,kind),'closed client admission fixture port');const {ACCOUNTS}=await mf.getBindings('owner');return ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal'+paths[kind],{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});},
