@@ -543,7 +543,7 @@ for(const kind of ['finish','abort'])test(`public ${kind} tightens without Nativ
       const after=publicClientCounters(runtime,basis.session_id);
       assert.equal(after.host,before.host-1);assert.equal(after.native,before.native);assert.equal(after.requests,before.requests,'the already reserved close logical request is not charged twice');assert.deepEqual(after.roots,initial.roots,'closing cannot borrow business/read/cleanup transports');
       await runtime.suspend();const state=closeSessionState(runtime,basis.session_id);
-      assert.equal(state.private_read_attempts,0,'close cannot read the deny-all SID/role actor namespace');
+      assert.equal(state.private_read_attempts,0,'close cannot read the deny-all SID actor namespace');
       assert.equal(state.closing_reason,kind==='finish'?'finished':'aborted');assert.equal(state.termination_originals,0);assert.equal(state.termination_results,0,'closing acknowledgement is not World Stop/Revoke completion');
       await runtime.restart(selectedMode);
       assert.ok(closeProof.expires*1000-Date.now()>1000,'same ack retry remains bounded by its original proof');

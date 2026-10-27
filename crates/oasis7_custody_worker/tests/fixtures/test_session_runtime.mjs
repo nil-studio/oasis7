@@ -41,7 +41,7 @@ export default {async fetch(request,env,ctx){
     return deployed.fetch(request,env,ctx);
 }};
 
-// Isolated close-only namespace trap: any attempted SID/role actor access is
+// Isolated close-only namespace trap: any attempted SID actor access is
 // recorded in its own test SQLite table and rejected, never forwarded.
 export class ClientCloseReadTrap {
     constructor(state){this.state=state;}
