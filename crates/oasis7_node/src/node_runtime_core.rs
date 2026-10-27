@@ -244,6 +244,7 @@ impl NodeRuntime {
             bft_config: None,
             bft_v2_config: None,
             bft_v3_config: None,
+            bft_v3_recovery_batches: Arc::new(Mutex::new(Vec::new())),
             local_execution_bootstrap: None,
             local_execution_genesis_bootstrap: None,
             replication_network: None,
@@ -400,6 +401,14 @@ impl NodeRuntime {
             payload_cbor,
         )
         .map_err(|err| NodeError::Consensus { reason: err.reason })?;
+        if let Some(selected) = &self.bft_v3_config {
+            if selected.capacity_exhausted.load(Ordering::Acquire) {
+                return Err(NodeError::Consensus {
+                    reason: "wire-3 H prefix capacity exhausted".into(),
+                });
+            }
+            crate::node_bft_v3_runtime::validate_single_action(&action)?;
+        }
         let mut pending = self
             .pending_consensus_actions
             .lock()

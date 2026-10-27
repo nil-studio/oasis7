@@ -115,6 +115,9 @@ fn failure_case() {
     let (address, server) = tcp(service(&binding, snapshot.clone()));
     let mut node = runtime(root.path(), actual.clone(), &binding, address);
     node.start().unwrap();
+    let completion = wait_batch(&node, 9020);
+    assert_eq!(completion.height, height);
+    assert_eq!(completion.block_hash, first_id);
     // Startup itself must complete the original public QC and exact private
     // input, reconcile its receipt, and only then make the worker available.
     {
@@ -172,4 +175,116 @@ fn failure_case() {
             .contains_key("node-wire3-after-recovery-agent")
     );
     assert_eq!(fs::read(private_path).unwrap(), private_bytes);
+}
+
+#[test]
+fn wire3_formal_read_same_node_restart_delivers_original_pending_completion() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(same_node_case)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+fn two_connection_tcp(
+    binding: BftSignerBindingV3,
+    snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
+) -> (SocketAddr, thread::JoinHandle<Result<(), String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let join = thread::spawn(move || {
+        for _ in 0..2 {
+            let service = service(&binding, snapshot.clone());
+            let deadline = Instant::now() + Duration::from_secs(120);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() > deadline {
+                            return Err("same Node did not reconnect".into());
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            service
+                .serve_connection(&mut stream)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    });
+    (address, join)
+}
+fn same_node_case() {
+    let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
+    let root = Scratch::new();
+    let store = cas(root.path());
+    let actual = driver(&h, root.path(), &store);
+    let binding = signer_binding(&actual);
+    let height = binding.initial_schedule().height();
+    actual
+        .lock()
+        .unwrap()
+        .configure_bft_v3_execution(&binding)
+        .unwrap();
+    actual
+        .lock()
+        .unwrap()
+        .inject_publication_failure(height, "pins")
+        .unwrap();
+    let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        state: BftSignerStateV3::from_handoff(&binding).unwrap(),
+        lease_generation: 1,
+        lease_token_digest: String::new(),
+        protected_time_floor_ms: 100,
+    }));
+    let (address, server) = two_connection_tcp(binding.clone(), snapshot.clone());
+    let mut node = runtime(root.path(), actual.clone(), &binding, address);
+    node.submit_consensus_action_payload(9030, payload("same-node-recovered-completion-agent"))
+        .unwrap();
+    node.start().unwrap();
+    wait_blocked(&node);
+    assert!(node.drain_committed_action_batches().is_empty());
+    let original = snapshot.lock().unwrap().state.history[0].clone();
+    node.stop().unwrap();
+    actual.lock().unwrap().clear_publication_failure();
+    node.start().unwrap();
+    let batch = wait_batch(&node, 9030);
+    assert_eq!(batch.height, height);
+    assert_eq!(batch.block_hash, original.header.block_id().unwrap());
+    node.stop().unwrap();
+    drop(node);
+    server.join().unwrap().unwrap();
+    let state = snapshot.lock().unwrap();
+    assert_eq!(state.state.history[0], original);
+    assert!(state.state.pending_driver_apply.is_none());
+    assert!(
+        actual
+            .lock()
+            .unwrap()
+            .world()
+            .state()
+            .agents
+            .contains_key("same-node-recovered-completion-agent")
+    );
+    drop(state);
+    drop(actual);
+    // A normal cold object restart with no queued request and no pending apply
+    // must not re-emit the already delivered historical nonempty batch.
+    let actual = driver_with_source(&h, root.path(), &store, Arc::new(EmptyIndexReader));
+    let (address, server) = tcp(service(&binding, snapshot.clone()));
+    let mut fresh = runtime(root.path(), actual, &binding, address);
+    fresh.start().unwrap();
+    fresh.stop().unwrap();
+    assert!(
+        fresh
+            .drain_committed_action_batches()
+            .iter()
+            .all(|batch| batch.actions.is_empty())
+    );
+    drop(fresh);
+    server.join().unwrap().unwrap();
 }

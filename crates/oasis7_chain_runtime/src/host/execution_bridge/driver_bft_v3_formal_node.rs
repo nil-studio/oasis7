@@ -95,6 +95,10 @@ impl FormalBftHeaderNodeDriverV3 {
         self.execution
             .inject_publication_failure(height, phase, false)
     }
+    #[cfg(test)]
+    pub(crate) fn clear_publication_failure(&mut self) {
+        self.execution.ledger.clear_publication_failure();
+    }
     pub(crate) fn handoff(&self) -> &VerifiedBftHandoffTargetV2 {
         &self.execution.origin.handoff
     }

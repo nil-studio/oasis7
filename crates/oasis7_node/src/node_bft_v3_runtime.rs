@@ -3,6 +3,13 @@ use crate::runtime_util::lock_state;
 use crate::{NodeError, NodeRuntime};
 use oasis7_distfs::protected_bft_v3::{BftSignerBindingV3, RemoteBftSignerProviderV3};
 use std::sync::{Arc, atomic::Ordering};
+#[path = "node_bft_v3_actions.rs"]
+mod actions;
+#[path = "node_bft_v3_completions.rs"]
+mod completions;
+pub(super) fn validate_single_action(action: &crate::NodeConsensusAction) -> Result<(), NodeError> {
+    actions::validate_single_action(action)
+}
 #[path = "node_bft_v3_startup.rs"]
 mod startup;
 #[path = "node_bft_v3_worker.rs"]
@@ -14,6 +21,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
 pub(crate) struct SelectedNodeBftConfigV3 {
     pub binding: BftSignerBindingV3,
     pub provider: Arc<RemoteBftSignerProviderV3>,
+    pub capacity_exhausted: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Debug, Clone, Default)]
 pub struct NodeBftStatusV3 {
@@ -44,7 +52,11 @@ impl NodeRuntime {
         {
             return Err(error("another consensus profile is already selected"));
         }
-        let selected = SelectedNodeBftConfigV3 { binding, provider };
+        let selected = SelectedNodeBftConfigV3 {
+            binding,
+            provider,
+            capacity_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
         startup::validate_runtime(&self, &selected)?;
         self.bft_v3_config = Some(selected);
         Ok(self)

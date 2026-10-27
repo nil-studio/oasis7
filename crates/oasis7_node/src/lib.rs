@@ -244,6 +244,7 @@ pub struct NodeRuntime {
     bft_config: Option<node_bft_runtime::SelectedNodeBftConfigV1>,
     bft_v2_config: Option<node_bft_v2_runtime::SelectedNodeBftConfigV2>,
     bft_v3_config: Option<node_bft_v3_runtime::SelectedNodeBftConfigV3>,
+    bft_v3_recovery_batches: Arc<Mutex<Vec<NodeCommittedActionBatch>>>,
     local_execution_bootstrap: Option<execution_hook::NodeExecutionBootstrap>,
     local_execution_genesis_bootstrap: Option<execution_hook::NodeExecutionGenesisBootstrap>,
     replication_network: Option<NodeReplicationNetworkHandle>,

@@ -261,6 +261,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             .map_err(|_| error("wire-3 pending queue poisoned"))?;
         let mut execution = lock_hook(&hook)?;
         for action in pending.iter() {
+            super::validate_single_action(action)?;
             action
                 .validate()
                 .map_err(|_| error("wire-3 queued action rejected"))?;
@@ -273,6 +274,16 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
                 .map_err(|_| error("wire-3 queued payload is unsupported"))?;
         }
     }
+    let original_pending = runtime
+        .pending_consensus_actions
+        .lock()
+        .map_err(|_| error("wire-3 pending queue poisoned"))?
+        .clone();
+    let cached_recovery = runtime
+        .bft_v3_recovery_batches
+        .lock()
+        .map_err(|_| error("wire-3 recovery completion cache poisoned"))?
+        .clone();
     let mut lease = selected
         .provider
         .acquire(&selected.binding)
@@ -281,6 +292,13 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .checkpoint()
         .map_err(|_| error("wire-3 checkpoint unavailable"))?;
     let history = checkpoint.state.history.clone();
+    let initial_pending_apply = checkpoint.state.pending_driver_apply.clone();
+    if history.len() > 64 {
+        return Err(error("wire-3 H prefix capacity exceeded"));
+    }
+    selected
+        .capacity_exhausted
+        .store(history.len() == 64, Ordering::Release);
     if driver_history.len() > history.len()
         || driver_history.iter().zip(&history).any(|(a, b)| a != b)
     {
@@ -289,7 +307,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         ));
     }
     let mut schedule = selected.binding.initial_schedule().clone();
-    let mut committed_actions = Vec::new();
+    let mut recovery_batches = Vec::new();
     for certificate in &history {
         let token = verify_commit_certificate_token_v3(&schedule, certificate).map_err(error)?;
         let value = BftHeaderValueV3 {
@@ -297,12 +315,10 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             execution_commitment: certificate.execution_commitment.clone(),
         };
         let private = candidate(&runtime.config, &hook, &schedule, &value)?;
-        committed_actions.extend(
-            oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(
-                &private.actions_cbor,
-            )
-            .map_err(|_| error("wire-3 recovered actions rejected"))?,
-        );
+        let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(
+            &private.actions_cbor,
+        )
+        .map_err(|_| error("wire-3 recovered actions rejected"))?;
         let result = lock_hook(&hook)?
             .commit_bft_v3_certificate(token.clone())
             .map_err(|_| error("wire-3 actual history install rejected"))?;
@@ -329,12 +345,64 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
                 )
                 .map_err(|_| error("wire-3 pending install confirmation rejected"))?;
         }
+        let cached = cached_recovery
+            .iter()
+            .find(|batch| batch.height == result.height);
+        if initial_pending_apply.as_ref().is_some_and(|pending| {
+            pending.height == result.height && pending.header_id == result.header_id
+        }) || actions
+            .iter()
+            .any(|action| original_pending.contains(action))
+            || cached.is_some()
+        {
+            let commitment = token.bound_header().commitment();
+            let batch = crate::NodeCommittedActionBatch {
+                height: result.height,
+                slot: certificate.certificate.proposal.round,
+                epoch: commitment.authority_epoch,
+                block_hash: result.header_id,
+                action_root: commitment.action_root.clone(),
+                committed_at_unix_ms: cached
+                    .map_or_else(crate::runtime_util::now_unix_ms, |batch| {
+                        batch.committed_at_unix_ms
+                    }),
+                actions,
+            };
+            if cached.is_some_and(|original| original != &batch) {
+                return Err(error(
+                    "wire-3 retained recovery completion differs from replay",
+                ));
+            }
+            recovery_batches.push(batch.clone());
+            // Retain eligibility before any later replay/network failure.
+            let mut cache = runtime
+                .bft_v3_recovery_batches
+                .lock()
+                .map_err(|_| error("wire-3 recovery completion cache poisoned"))?;
+            if !cache.contains(&batch) {
+                cache.push(batch);
+            }
+        }
         schedule = token.next_height_schedule().clone();
         singleton(&schedule, &selected.binding.local_validator_id)?;
     }
     if checkpoint.state.pending_driver_apply.is_some() {
         return Err(error("wire-3 pending driver apply was not reconciled"));
     }
+    // Preserve confirmed notification eligibility even if later current-journal
+    // validation fails. A subsequent start replays and compares this cache again.
+    if cached_recovery
+        .iter()
+        .any(|cached| !recovery_batches.iter().any(|batch| batch == cached))
+    {
+        return Err(error(
+            "wire-3 retained recovery completion lost its original history",
+        ));
+    }
+    *runtime
+        .bft_v3_recovery_batches
+        .lock()
+        .map_err(|_| error("wire-3 recovery completion cache poisoned"))? = recovery_batches;
     if lock_hook(&hook)?
         .current_bft_v3_execution_context(&schedule)
         .map_err(|_| error("wire-3 context unavailable"))?
@@ -342,32 +410,19 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     {
         return Err(error("wire-3 replay tip context mismatch"));
     }
-    if history.len() >= 64 {
-        return Err(error("wire-3 H prefix capacity exhausted"));
-    }
     restore(&selected, &schedule, &checkpoint, &hook, &runtime.config)?;
-    if checkpoint
-        .state
-        .journal
-        .as_ref()
-        .is_some_and(|j| j.height_started_at_ms.is_none())
+    if history.len() < 64
+        && checkpoint
+            .state
+            .journal
+            .as_ref()
+            .is_some_and(|j| j.height_started_at_ms.is_none())
     {
         checkpoint = lease
             .start_height_timer(checkpoint.state.revision)
             .map_err(|_| error("wire-3 protected timer rejected"))?;
     }
     let (machine, effects) = restore(&selected, &schedule, &checkpoint, &hook, &runtime.config)?;
-    {
-        let mut pending = runtime
-            .pending_consensus_actions
-            .lock()
-            .map_err(|_| error("wire-3 pending queue poisoned"))?;
-        pending.retain(|action| !committed_actions.contains(action));
-        runtime.pending_consensus_action_queue_bytes.store(
-            crate::action_payload_bytes(pending.iter()),
-            Ordering::Release,
-        );
-    }
     let worker = worker::Worker {
         config: runtime.config.clone(),
         selected,
@@ -377,6 +432,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         schedule,
         machine,
         effects: effects.into(),
+        recovery_batches: runtime.bft_v3_recovery_batches.clone(),
         pending: runtime.pending_consensus_actions.clone(),
         pending_bytes: runtime.pending_consensus_action_queue_bytes.clone(),
         state: runtime.state.clone(),

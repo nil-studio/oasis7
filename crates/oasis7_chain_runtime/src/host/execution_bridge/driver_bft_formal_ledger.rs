@@ -149,6 +149,12 @@ impl<F: Format> GenericLedger<F> {
     }
 
     #[cfg(test)]
+    pub(super) fn clear_publication_failure(&mut self) {
+        self.fault = None;
+        self.kill_on_fault = false;
+    }
+
+    #[cfg(test)]
     pub(super) fn inject_process_kill(&mut self, height: u64, phase: PublicationFault) {
         self.fault = Some((height, phase));
         self.kill_on_fault = true;

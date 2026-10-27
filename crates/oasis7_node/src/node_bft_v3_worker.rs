@@ -26,10 +26,13 @@ pub(super) struct Worker {
     pub pending_bytes: Arc<AtomicUsize>,
     pub state: Arc<Mutex<crate::node_runtime_core::RuntimeState>>,
     pub last_commit: Instant,
+    pub recovery_batches: Arc<Mutex<Vec<NodeCommittedActionBatch>>>,
     pub batches: Arc<(Mutex<Vec<NodeCommittedActionBatch>>, Condvar)>,
 }
 impl Worker {
     pub(super) fn run(mut self, stop: mpsc::Receiver<()>) -> Result<(), NodeError> {
+        self.publish_recovered_completions()?;
+        self.publish_status();
         loop {
             match stop.try_recv() {
                 Ok(()) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
@@ -98,6 +101,16 @@ impl Worker {
             }
         }
     }
+    fn publish_recovered_completions(&self) -> Result<(), NodeError> {
+        super::completions::publish(
+            &self.recovery_batches,
+            &self.pending,
+            &self.pending_bytes,
+            &self.batches,
+            self.config.max_committed_action_batches,
+            self.config.max_committed_action_batch_bytes,
+        )
+    }
     fn journal(&self) -> Result<BftSigningJournalV3, NodeError> {
         self.checkpoint
             .state
@@ -164,13 +177,15 @@ impl Worker {
             {
                 Some(original) => original,
                 None => {
-                    let mut actions = self
+                    let actions = self
                         .pending
                         .lock()
                         .map_err(|_| error("wire-3 pending queue poisoned"))?
                         .clone();
-                    actions.sort_by_key(|a| a.action_id);
-                    actions.truncate(self.config.max_engine_pending_consensus_actions);
+                    let actions = super::actions::select_prefix(
+                        actions,
+                        self.config.max_engine_pending_consensus_actions,
+                    )?;
                     hook.validate_bft_v3_action_batch(&self.schedule, &actions)
                         .map_err(|_| error("wire-3 queued parent-policy admission rejected"))?;
                     hook.build_bft_v3_candidate(NodeBftBuildContextV3 {
@@ -355,6 +370,9 @@ impl Worker {
                 certificate,
             )
             .map_err(|_| error("wire-3 protected QC append failed"))?;
+        self.selected
+            .capacity_exhausted
+            .store(self.checkpoint.state.history.len() >= 64, Ordering::Release);
         let result = lock_hook(&self.hook)?
             .commit_bft_v3_certificate(token.clone())
             .map_err(|_| error("wire-3 durable actual commit failed"))?;
