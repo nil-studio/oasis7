@@ -40,3 +40,9 @@ pub use oasis7_proto::distributed_bft::{
     BftBlockV1, BftCommitCertificateV1, BftMessageV1, BftProposalHeaderV1, BftProposalV1,
     BftScopeV1, BftValidRoundEvidenceV1, BftVotePhaseV1, BftVoteV1, BftVoteValueV1,
 };
+
+pub use crate::execution_hook::{
+    NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
+    NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
+};
+pub use crate::node_bft_v3_runtime::NodeBftStatusV3;

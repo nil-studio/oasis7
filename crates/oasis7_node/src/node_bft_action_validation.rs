@@ -26,6 +26,32 @@ pub(super) fn reject_conflicting_queue_id(
 }
 
 impl NodeRuntime {
+    /// Apply the selected profile's stateful admission before generic payload
+    /// authentication and the legacy-only governance preflight.
+    pub(super) fn validate_selected_consensus_payload(
+        &self,
+        payload: &[u8],
+    ) -> Result<(), NodeError> {
+        if self.bft_config.is_some() {
+            self.validate_bft_payload_admission(payload)?;
+        }
+        if self.bft_v2_config.is_some() {
+            self.validate_bft_v2_payload_admission(payload)?;
+        }
+        if self.bft_v3_config.is_some() {
+            self.validate_bft_v3_payload_admission(payload)?;
+        }
+        validate_consensus_action_payload_auth(&self.config, payload)?;
+        // BFT V2 admission above is stateful: its execution hook validates the
+        // signed governance action against the exact verified V2 parent cursor.
+        // The legacy preflight uses the ordinary governance path and can reject
+        // a valid V2 transition under a different, non-BFT parent projection.
+        if self.bft_v2_config.is_none() && self.bft_v3_config.is_none() {
+            governance_auth::preflight(self, payload)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_bft_payload_admission(&self, payload: &[u8]) -> Result<(), NodeError> {
         let hook = self
             .execution_hook

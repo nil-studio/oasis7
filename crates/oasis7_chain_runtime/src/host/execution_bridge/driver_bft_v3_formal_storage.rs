@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 pub(super) const DIRECTORY: &str = common_storage::FORMAL_HEADER_PREFIX_DIRECTORY;
+pub(super) const NODE_PRIVATE_DIRECTORY: &str = "node-private-v1";
 pub(super) const MARKER: &str = common_storage::FORMAL_HEADER_PREFIX_MARKER;
 pub(super) const DOWNGRADE_FENCE: &[u8] = common_storage::FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE;
 const ORIGIN_DOMAIN: &str = "oasis7.formal.bft.header_prefix.origin.v1";
@@ -190,6 +191,7 @@ impl Format for HeaderFormat {
     const SCOPE: &'static str = DIRECTORY;
     const OTHER_DIRECTORY: &'static str = "formal-bft-prefix-v1";
     const OTHER_MARKER: &'static str = "formal-bft-prefix-required-v1";
+    const EXTRA_PRIVATE_DIRECTORY: Option<&'static str> = Some(NODE_PRIVATE_DIRECTORY);
     fn new_origin(
         material_pin_digest: &str,
         first_height: u64,

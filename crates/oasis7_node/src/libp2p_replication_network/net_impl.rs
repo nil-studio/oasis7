@@ -295,6 +295,16 @@ fn sort_dedup_peer_ids(peer_ids: &mut Vec<String>) {
     peer_ids.dedup();
 }
 
+fn provider_route_gap(protocol: &str, detail: String) -> WorldError {
+    WorldError::NetworkProtocolUnavailable { protocol: detail }.with_network_failure(
+        NetworkFailure::observed(
+            FailureOrigin::ProviderRouting,
+            FailureCause::ConnectionGap,
+            Some(protocol),
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,14 +322,4 @@ mod tests {
 
         assert_eq!(peer_ids, ["peer-a", "peer-b", "peer-c"]);
     }
-}
-
-fn provider_route_gap(protocol: &str, detail: String) -> WorldError {
-    WorldError::NetworkProtocolUnavailable { protocol: detail }.with_network_failure(
-        NetworkFailure::observed(
-            FailureOrigin::ProviderRouting,
-            FailureCause::ConnectionGap,
-            Some(protocol),
-        ),
-    )
 }

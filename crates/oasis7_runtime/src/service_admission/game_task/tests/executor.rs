@@ -408,6 +408,37 @@ fn game_task_executor_core_commit_rejects_unfenced_and_uncaptured_actions_withou
     };
     artifact.refresh_artifact_digest();
     let before = world.snapshot();
+    // A real owner signature cannot opt a task with an executor epoch back
+    // into the no-task material-transfer path. This is an earlier fence
+    // rejection, not evidence that material-source authorization ran.
+    let transfer = Action::TransferMaterial {
+        requester_agent_id: "agent".into(),
+        from_ledger: crate::MaterialLedgerId::agent("other-agent"),
+        to_ledger: crate::MaterialLedgerId::agent("agent"),
+        kind: "iron_ore".into(),
+        amount: 1,
+        distance_km: 0,
+        priority: None,
+        route_id: None,
+        route_ids: vec![],
+        auto_reroute: false,
+    };
+    let unfenced = sign_read_request(
+        "cognition",
+        CognitionIntentV1 {
+            request: request.clone(),
+            action: transfer,
+            response_artifact: artifact.clone(),
+            delegation_generation: 0,
+            causal_proposal: None,
+            task_fence: None,
+        },
+        &owner,
+    )
+    .unwrap();
+    let error = world.commit_authenticated_cognition(unfenced).unwrap_err();
+    assert!(error.contains("task executor fence"), "{error}");
+    assert_eq!(world.snapshot(), before);
     let action = Action::MoveAgent {
         agent_id: "agent".into(),
         to: oasis7_agent_api::world_action::GeoPos::new(1, 0, 0),

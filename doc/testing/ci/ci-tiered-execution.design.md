@@ -14,7 +14,18 @@ Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编
 
 PR 测试合并提交时，选择范围合并两组差异：实际 target/source 的唯一共同祖先到 source HEAD，以及实际 target 第一父提交到 tested merge。main 在事件 base 之后已存在的改动不重复计入；PR 自身变化和合并结果额外变化仍覆盖。校验 tested merge 恰有两个父提交、第二父提交等于 source HEAD、事件 base 是实际 target 的祖先；父提交身份不符、共同祖先不唯一或对象不可读时扩大为普通全量 required。依赖及嵌入输入分析保留事件 base、共同祖先、source、实际 target 与 tested merge 的图。push/source-only 检查继续使用事件 base 到 source 的完整差异。
 
-Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆盖两端；保留有效 features、WASM、生成输入和平台组合。workspace、features、锁文件、共享生成器及 CI 控制输入变化采用保守普通 required，图解析失败仍扩大覆盖；未登记路径按下述门禁阻断。
+Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆盖两端；保留有效 features、WASM、生成输入和平台组合。workspace、features、锁文件、共享生成器及共享或尚未分类的 CI 控制输入变化采用保守普通 required，图解析失败仍扩大覆盖；未登记路径按下述门禁阻断。
+
+共享控制规则保留 `.github/**` 的保守默认，可信 scope 配置的 `scoped_control_paths` 仅将下表已审读的精确路径映射到现有验证组。键必须是规范化的 `.github/` 相对文件路径，不接受通配符、目录穿越或反斜杠；组名必须有效且不重复。未登记路径或旧配置缺少该字段时仍按原共享控制规则选择全量，不为普通 Cargo、build 或其他目录提供覆盖入口。
+
+| 独立输入 | 精确路径 | 普通验证组 |
+| --- | --- | --- |
+| GitHub Issue 表单与入口配置 | `.github/ISSUE_TEMPLATE/code-development.yml`、`.github/ISSUE_TEMPLATE/config.yml`、`.github/ISSUE_TEMPLATE/decision.yml`、`.github/ISSUE_TEMPLATE/defect.yml`、`.github/ISSUE_TEMPLATE/document.yml`、`.github/ISSUE_TEMPLATE/test.yml` | baseline、workflow_governance |
+| GitHub PR 模板 | `.github/pull_request_template.md` | baseline、workflow_governance |
+| GitHub PR 评审说明 | `.github/instructions/pr-review.instructions.md` | baseline、workflow_governance |
+| 独立 CodeQL 扫描与诊断 workflow | `.github/workflows/codeql.yml`、`.github/workflows/codeql-rust-capacity.yml`、`.github/workflows/codeql-rust-cargo-check.yml`、`.github/workflows/codeql-rust-cfg-diagnostic.yml` | baseline、workflow_governance |
+
+精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。Cargo manifest/lock、共享 build 脚本、缓存及其他 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
 
 可信 scope 配置的 `workspace_support_profile_paths` 可逐 profile 登记跨 package 的真实测试输入路径；命中时在原 Cargo/目录选择之上追加 `workspace_support` 与该 profile，不把整个 support 组扩大。该映射不登记新输入的 ownership，未知路径仍失败，profile 名称及路径必须通过配置验证。现有非 package support 规则、显式整组请求及共享控制/不确定输入继续保留全部 support profiles。custody Worker 的真实原生 HTTP/SQLite 集成依赖指定 hosted_identity authority、会话与 fixture 文件，因此这些文件单独变化也执行 Worker 完整平台 profile；其他 backend 功能不因此增加该平台测试。
 
@@ -27,11 +38,13 @@ Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具
 <a id="ci-generated-inputs-design"></a>
 ### 生成文件与纯文档选择
 
+嵌入输入扫描先区分 Rust 源码 token、注释及字符串字面量的边界，只把真实代码中的 `include_str!` / `include_bytes!` 调用计入输入分析。普通/byte/raw 字符串、字符字面量及注释中出现的宏文本不能被当作另一次调用；真实宏的字面量参数仍须读取和解析。该规则同样适用于生成测试源码的 fixture，不能通过忽略整个测试文件或 `cfg(test)` 区域规避真实测试消费者。无法可靠确定词法边界或真实动态表达式的输入时继续保守回退。
+
 可信 scope 配置可登记已审读的 `OUT_DIR` 生成文件，逐项绑定 Cargo package、实际 build producer 的仓库路径、producer Git blob 内容的 SHA-256 和固定输出文件名。选择器在每个参与分析的 Git revision 上独立验证 package、manifest 的 build 入口及 producer 摘要，只将完整匹配的 `include_str!` / `include_bytes!` 生成输出计为已解析；不执行候选构建脚本，也不按 `OUT_DIR` 名称统一豁免。
 
 登记适用于已确认输入全部受既有共享构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`，其 producer、manifest、锁文件、工具链及 CI 配置仍按原规则选择保守全量。producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档和 corpus 数据仅保留各自已登记检查。
 
-回归覆盖纯说明文档、corpus 数据的逐路径及组合变化，并同时包含已登记生成输出、producer 在 base/source/tested revision 间漂移、未知动态嵌入、真实文档消费者和共享控制输入。还需用当前主仓依赖图重放文档变更，避免仅有微型仓库 fixture 或代码与 README 混合变更掩盖误选。
+回归覆盖纯说明文档、corpus 数据的逐路径及组合变化，并同时包含字符串/注释内的伪调用、真实字面量与动态调用、已登记生成输出、producer 在 base/source/tested revision 间漂移、真实文档消费者和共享控制输入。已登记独立 GitHub 路径分别验证单路径、混合修改、真实消费者、删除/重命名和旧基线行为，未知 workflow 与共享控制保留全量正例。还需用当前主仓依赖图重放文档变更，避免仅有微型仓库 fixture 或代码与 README 混合变更掩盖误选。
 
 <a id="ci-unknown-inputs-design"></a>
 ### 未登记路径的失败链路
@@ -327,6 +340,8 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 正式 harness 的最小构建显式启用 `oasis7/ci_formal_required_features`，通过 native target 与 host build 的 optional dependency aliases 保留完整 required 根包共同构建时的依赖 feature 集合。该标记不参与业务 `cfg`，不自动启用，也不加入 production runtime、ordinary 或 default-feature snapshot 的原命令；依赖版本复用现有锁文件。验证比较完整构建与正式最小构建保留的完整依赖子树，并分别核对 host/build 与 target context 的实际 feature 组合，不能只比较根包上的 `test_tier_required` 字符串或把同包不同 context 合并后判断等价。
 
 正式 producer 分为互斥的候选只读入口 `formal-test-build` 和可信 main 写缓存入口 `formal-test-build-trusted`，共享相同构建步骤，每轮恰好运行一个。可信入口仅用于默认 main 上的 push、schedule 或 manual-full；其他候选不能取得缓存写权限。矩阵和固定汇总显式依赖两个入口，选中时要求恰有一项 success 且另一项 skipped；任何失败、取消或未知状态均阻断，不能让 skipped 的隐式 needs 传播掩盖应运行的矩阵。
+
+重型 `formal-process-tests` job 在既有 `always()` 和两构建入口状态判断上同时要求 `!cancelled()`。同一 PR 的并发替换或显式取消使该条件变为 false，停止旧分片；保留 `always()` 处理互斥构建入口中合法的 skipped。固定 `formal-process` 与 `required-gate` 继续 always 汇总，取消、失败或意外跳过仍阻断；分片故障的 `fail-fast: false` 与诊断上传步骤的 `always()` 保持原语义。条件回归须覆盖取消前后、合法/非法构建结果组合及未选中路径，不以只匹配一段 YAML 文本代替实际条件判断。
 
 producer 核对完整清单后，为普通组及各物理分片输出独立 tar.gz，gzip level 1；保留 executable 权限，不传输整个 target。每包只带该消费者的 harness、生产子进程和动态库闭包，并报告原始字节、压缩字节和逐 binary 体积分布。consumer 核对原 run/source/tested identity、全局清单及所选闭包的 hash、profile 和实际 `--list`，不能因缺少不属于自己的二进制而补编。producer attempt 记录供审计；同 run、相同源码和构建身份的 consumer 重跑可复用先前 attempt 的产物。保持相同 checkout 布局，恢复编译时嵌入的 Cargo 程序路径，设置包工作目录、动态库路径及原二进制环境。普通集成测试需要的 Cargo binary 和 default-feature snapshot 不得被正式分包移除。
 

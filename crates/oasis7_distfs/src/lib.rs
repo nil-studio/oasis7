@@ -21,6 +21,7 @@ mod feedback;
 mod feedback_p2p;
 pub mod protected_bft;
 pub mod protected_bft_v2;
+pub mod protected_bft_v3;
 mod replication;
 pub mod storage_inventory;
 

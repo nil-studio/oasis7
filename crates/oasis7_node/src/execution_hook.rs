@@ -10,7 +10,10 @@ use crate::NodeConsensusAction;
 
 #[path = "execution_hook_bft_v2.rs"]
 mod bft_v2;
+#[path = "execution_hook_bft_v3.rs"]
+mod bft_v3;
 pub use bft_v2::*;
+pub use bft_v3::*;
 
 /// Reserved consensus action identity for execution inputs that are authored
 /// by the block proposer and then replayed by every materializing node.
@@ -644,5 +647,85 @@ pub trait NodeExecutionHook: Send {
         _max_entries: usize,
     ) -> Result<Vec<oasis7_proto::distributed_bft::v2::BftCommitCertificateV2>, String> {
         Err("dynamic-set BFT history is unsupported by this hook".into())
+    }
+    fn configure_bft_v3_execution(
+        &mut self,
+        _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+    ) -> Result<Option<NodeBftExecutionHeadV3>, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn current_bft_v3_execution_context(
+        &mut self,
+        _schedule: &oasis7_consensus::tendermint_v3::BftHeaderHeightScheduleV3,
+    ) -> Result<NodeBftExecutionContextV3, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn build_bft_v3_candidate(
+        &mut self,
+        _context: NodeBftBuildContextV3,
+    ) -> Result<NodeBftPrivateCandidateV3, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn preview_bft_v3_candidate(
+        &mut self,
+        _context: &NodeBftExecutionContextV3,
+        _candidate: &NodeBftPrivateCandidateV3,
+    ) -> Result<(), String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn retain_bft_v3_private_candidate(
+        &mut self,
+        _context: &NodeBftExecutionContextV3,
+        _candidate: &NodeBftPrivateCandidateV3,
+    ) -> Result<String, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    /// Recover the original private reservation before deriving a new value
+    /// from the volatile queue. Missing recovery support is not an empty slot.
+    fn pending_bft_v3_private_candidate(
+        &mut self,
+        _context: &NodeBftExecutionContextV3,
+    ) -> Result<Option<NodeBftPrivateCandidateV3>, String> {
+        Err("wire-3 private candidate recovery is unsupported by this hook".into())
+    }
+
+    fn load_bft_v3_private_candidate(
+        &mut self,
+        _value: &oasis7_consensus::tendermint_v3::BftHeaderValueV3,
+    ) -> Result<NodeBftPrivateCandidateV3, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn commit_bft_v3_certificate(
+        &mut self,
+        _certificate: oasis7_consensus::tendermint_v3::VerifiedBftHeaderCertificateV3,
+    ) -> Result<NodeBftExecutionCommitResultV3, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn load_bft_v3_commit_history_page(
+        &mut self,
+        _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        _after_height: u64,
+        _max_entries: usize,
+    ) -> Result<Vec<oasis7_consensus::tendermint_v3::FormalBftCertifiedHeaderV3>, String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn validate_bft_v3_action_payload(&mut self, _payload: &[u8]) -> Result<(), String> {
+        Err("wire-3 execution is unsupported by this hook".into())
+    }
+
+    fn validate_bft_v3_action_batch(
+        &mut self,
+        _schedule: &oasis7_consensus::tendermint_v3::BftHeaderHeightScheduleV3,
+        _actions: &[NodeConsensusAction],
+    ) -> Result<(), String> {
+        Err("wire-3 execution is unsupported by this hook".into())
     }
 }

@@ -574,6 +574,41 @@ The actual shipping case installs a real nonempty-action three-height private le
 
 The independent current-authorization fixture verifies delegated read success, busy/unavailable 503, journalled revocation 403, owner success and a lock held across reply construction/signing/socket release. The CLI supplies no current authority and returns 503 for private scopes. Reuse the existing bounded HTTP writer tests for responses above the old 8 MiB limit, absolute write deadlines and oversized-body rejection before any header. These are local historical-read and authorization-boundary results; they do not prove current Node readiness, checkpoint freshness, protected provider installation or physical fault domains.
 
+#### Wire-3 singleton Node and protected-provider integration
+
+Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39`. Contract: [des-p2p-bft-header-node-v3](doc/p2p/design.md#des-p2p-bft-header-node-v3).
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_consensus --lib tendermint_v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_distfs --lib protected_bft_v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_node --lib bft_v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read_node_private -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib node_execution_tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+```
+
+The Node case must submit nonempty RuntimeAction payloads through NodeRuntime, obtain native TCP provider signatures, and check the committed batch against the actual installed World, exact canonical ledger record and provider applied receipt. Recreate Node, driver, service and remote-client objects, prune a known unretained CAS canary, then require a second successful nonempty action and read-contract-4 client consumption of the resulting history. The backend in this case is explicitly a test-only in-memory double; object restart does not establish physical backend durability or production key custody.
+
+Native retry checks retain the original completed proposal and vote signatures across height advancement and cold service reopen; changing an old intent must fail without changing state. Timer checks must reject attempts to set or erase the height origin through generic Advance, while the protected StartHeightTimer path remains usable. Private-store checks remove original pins after intent/link publication and remove completed metadata while CAS/pins remain; both must fail without recreating original resources.
+
+The one-shot consumer is `bft-header node --config ABS --actions ABS`. Its separate schema-1 configuration requires qualified-H trust/material, schema-2 target, disjoint existing private CAS/records/replication directories, validator/player/operator identities, provisioned public signing-key identities, timeouts, explicit provider endpoint and pinned V3 trust, and an existing requester authentication key. The actions file is canonical private action CBOR for that player. Public output contains only applied height/header/action-root/count receipts. This command admits one validator without transitions or peer gossip and supplies no software substitute for a production protected backend. Reusing an already completed input is a new submission; an original pending reservation is resumed before newly submitted work. A public receipt is not a global idempotency key.
+
+For first use, run `bft-header node --config ABS --print-binding` without `--actions`. It initializes the original local origin and emits `oasis7.formal_bft_header_node_binding.v3` with a public binding and digest; no provider listener, acquisition or signing is needed. The provider must independently verify qualified H before trusted provisioning; the printed descriptor cannot grant authority. Then add explicit `provider_trust` and run the normal actions command. Repeating print mode must preserve the original digest. Normal submission without provider trust must fail before origin initialization.
+
+| Node config fields | Contract |
+| --- | --- |
+| `schema_version` | 1 |
+| `trust_config_path`, `target`, `handoff_material_path` | Private absolute trust/H files and the qualified schema-2 wire-3 target |
+| `cas_directory`, `records_directory`, `replication_directory` | Existing, owned private absolute directories, mutually disjoint |
+| `validator_id`, `player_id`, `operator_instance_id` | Explicit local validator, action submitter and operator identities |
+| `provisioned_signing_keys` | Public `{validator_id, public_key_hex}` identities matching admitted signing keys |
+| `requester_signing_key_path` | Existing private authentication key; never a local consensus signing key |
+| `timeouts` | Positive `propose_ms`, `prevote_ms`, `precommit_ms`, `round_delta_ms` |
+| `provider_address`, `provider_timeout_ms`, `completion_timeout_ms` | Explicit socket endpoint; 1–60000 ms RPC and 1–600000 ms completion bounds |
+| `provider_trust` | Required for actions: schema 3, `provider_public_key`, exact `binding_digest`; may be omitted only for print mode |
+
+The shipping CLI regression first prints this binding without a provider, then preserves an original private candidate before any provider WAL and submits a different new action. It requires the original candidate to commit first with unchanged bytes and the new action to finish afterward. The publication-failure case injects an error after canonical pins are durable, checks that no applied batch or new World is exposed, and cold-opens with an empty external reader to complete the same QC before a second write. A separate real Node/native-TCP/provider regression uses an explicit deterministic test execution hook: 1025 prequeued action IDs must produce independently decoded protocol-valid batches across multiple heights without loss or duplicate delivery. It exercises production queue selection and consumption, not 1025 actual World executions; the actual World, CLI and durable recovery cases above cover that execution boundary. Other regressions test exact CBOR framing and one-element admission boundaries, and require the original completion after both same-Runtime restart and a provider confirmation that commits before returning an unknown result. Fully applied history with no matching pending operation must not be replayed; notification-budget or lock failures must retain the original queue and eligibility. The uncertain-CAS test explicitly fences the old lease generation in its memory backend after the failed provider session ends, without changing committed protocol state; automatic production backend recovery is not supplied. These are local software paths with object-level failure injection, not physical power-loss evidence.
+
 #### 本地 CAS retention 与 GC 协调
 
 合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。

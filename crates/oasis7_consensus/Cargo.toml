@@ -19,3 +19,6 @@ hmac = "0.13"
 sha2 = "0.11"
 hex = "0.4"
 ed25519-dalek = "3"
+
+[dev-dependencies]
+oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol", features = ["test-support"] }

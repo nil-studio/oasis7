@@ -60,6 +60,7 @@ mod node_bft_v2_runtime;
 #[cfg(all(test, unix))]
 mod node_bft_v2_test_provider;
 mod node_bft_v2_transport;
+mod node_bft_v3_runtime;
 mod node_bft_wal;
 mod node_engine_core;
 mod node_engine_execution;
@@ -242,6 +243,8 @@ pub struct NodeRuntime {
     config: NodeConfig,
     bft_config: Option<node_bft_runtime::SelectedNodeBftConfigV1>,
     bft_v2_config: Option<node_bft_v2_runtime::SelectedNodeBftConfigV2>,
+    bft_v3_config: Option<node_bft_v3_runtime::SelectedNodeBftConfigV3>,
+    bft_v3_recovery_batches: Arc<Mutex<Vec<NodeCommittedActionBatch>>>,
     local_execution_bootstrap: Option<execution_hook::NodeExecutionBootstrap>,
     local_execution_genesis_bootstrap: Option<execution_hook::NodeExecutionGenesisBootstrap>,
     replication_network: Option<NodeReplicationNetworkHandle>,
@@ -273,16 +276,6 @@ pub struct NodeCommittedActionBatchesHandle {
 }
 
 impl NodeRuntime {
-    pub fn start(&mut self) -> Result<(), NodeError> {
-        if self.bft_v2_config.is_some() {
-            return node_bft_v2_runtime::start(self);
-        }
-        if self.bft_config.is_some() {
-            return node_bft_runtime::start(self);
-        }
-        self.start_pos()
-    }
-
     fn start_pos(&mut self) -> Result<(), NodeError> {
         let pending_consensus_actions = self
             .pending_consensus_actions

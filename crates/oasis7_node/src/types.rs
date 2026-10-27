@@ -480,6 +480,7 @@ pub enum NodeConsensusMode {
     Pos,
     TendermintV1,
     TendermintV2,
+    TendermintV3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

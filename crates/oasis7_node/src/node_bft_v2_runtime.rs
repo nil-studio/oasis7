@@ -82,7 +82,8 @@ impl NodeRuntime {
                 node_id: self.config.node_id.clone(),
             });
         }
-        if self.bft_config.is_some() || self.bft_v2_config.is_some() {
+        if self.bft_config.is_some() || self.bft_v2_config.is_some() || self.bft_v3_config.is_some()
+        {
             return Err(invalid("a BFT configuration is already selected"));
         }
         binding

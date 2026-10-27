@@ -31,6 +31,8 @@ mod header_read_private_tests;
 mod header_read_tests;
 #[path = "driver_bft_v3_formal_ledger_tests.rs"]
 mod ledger_tests;
+#[path = "driver_bft_v3_formal_node_tests.rs"]
+mod node_execution_tests;
 #[path = "driver_bft_v3_header_transition_tests.rs"]
 mod transition_tests;
 
@@ -41,8 +43,15 @@ pub(super) fn qualified_handoff_v3() -> QualifiedH<BftProfileTargetV2> {
 pub(super) fn qualified_handoff_v3_with_setup(
     setup: impl FnOnce(&mut RuntimeWorld),
 ) -> QualifiedH<BftProfileTargetV2> {
+    qualified_handoff_v3_with_count_and_setup(4, setup)
+}
+
+pub(super) fn qualified_handoff_v3_with_count_and_setup(
+    count: u8,
+    setup: impl FnOnce(&mut RuntimeWorld),
+) -> QualifiedH<BftProfileTargetV2> {
     qualified_handoff_with_target_and_setup(102, setup, |scope, policy| {
-        let validators = (0..4)
+        let validators = (0..count)
             .map(|index| {
                 let key = fixtures::key(120 + index);
                 BftValidatorV2 {
