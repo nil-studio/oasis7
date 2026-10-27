@@ -565,7 +565,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib prefix_read_v3
 env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix_v3_shipping -- --test-threads=1
 ```
 
-该用例通过真实 `bft-prefix install` 安装三高度原前缀、GC 后以 `bft-prefix serve` 重开，并由实际 HTTP V3 客户端验证完整前缀、精确高度、public inclusion 和 World tick；再重开显式较早 cut。负例包括错误目标、缺高中间前缀、伪造 view/root、旧 V2 路由与签名域、没有当前授权源的 private scope，以及缺 pin 后反复 serve 不补造凭据。V3 DTO 另核对 H 后 64 高度范围和 40 MiB 编码计数提前停止；16 MiB CBOR prefix 的 hex 及 JSON 传输各有明确预算。CLI 默认没有独立当前授权源，因此 private 仍阻断；本例不证明当前 private provider/正式 Node 接线、fresh/latest、硬件 signer 或物理故障域 readiness。
+该用例通过真实 `bft-prefix install` 安装三高度原前缀、GC 后以 `bft-prefix serve` 重开，并由实际 HTTP V3 客户端验证完整前缀、精确高度、public inclusion 和 World tick；再重开显式较早 cut。负例包括错误目标、缺高中间前缀、伪造 view/root、旧 V2 路由与签名域、没有当前授权源的 private scope，以及缺 pin 后反复 serve 不补造凭据。现有 V2 block ID 认证原始动作，因此当前 V2/V3 light-read publication 只支持每高精确规范空动作；实际私有 ledger 接受并重放带动作块后，两个 publication 与 V3 verifier 仍须拒绝泄露这些输入。V3 DTO 另核对 H 后 64 高度范围和 40 MiB 编码计数提前停止；16 MiB CBOR prefix 的 hex 及 JSON 传输各有明确预算。HTTP 组件另以真实 TCP 传输 9 MiB JSON body、检查超限零写入以及不读数据的客户端在绝对截止处失败。`v3_private_read_holds_and_rechecks_the_current_delegation` 用真实 Agent/owner/delegation 与独立当前 World 检查私有正向读取、实际撤权后 403、授权锁忙 503 及写入前暂停时 guard 不释放。CLI 默认没有独立当前授权源，因此 private 仍阻断；本例不证明当前 private provider/正式 Node 接线、fresh/latest、硬件 signer 或物理故障域 readiness。
 
 
 CLI 配置/角色边界见 [P2P 正式交接](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。多高度本机安装 receipt 不代表新读取服务、当前私有授权、自动追随或正式 validator 写入已接线。

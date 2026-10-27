@@ -150,6 +150,15 @@ impl FormalBftReadVerifierV3 {
             return Err("formal BFT prefix byte bound".into());
         }
         let prefix = FormalBftCertifiedPrefixV1::decode_canonical(&prefix_bytes)?;
+        if prefix
+            .entries
+            .iter()
+            .any(|entry| entry.certificate.proposal.block.actions_cbor != [0x80])
+        {
+            return Err(
+                "action-bearing BFT blocks require a private-input-safe light proof version".into(),
+            );
+        }
         let verified = prefix.verify(&self.handoff)?;
         let block = verified.certificate().block();
         let commitment = verified.commitment();

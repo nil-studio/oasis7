@@ -73,6 +73,9 @@ mod formal_bft_prefix_cli;
 #[path = "host/formal_bft_prefix_http.rs"]
 mod formal_bft_prefix_http;
 #[cfg(unix)]
+#[path = "host/formal_bft_prefix_transport.rs"]
+mod formal_bft_prefix_transport;
+#[cfg(unix)]
 #[path = "host/formal_bft_read_cli.rs"]
 mod formal_bft_read_cli;
 #[cfg(unix)]

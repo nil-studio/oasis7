@@ -20,10 +20,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::formal_live_service::{
-    http::{read_http_request, write_http_reply},
-    parse_strict,
-};
+use super::formal_bft_prefix_transport::write_http_reply;
+use super::formal_live_service::{http::read_http_request, parse_strict};
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const HTTP_STACK_BYTES: usize = 8 * 1024 * 1024;
@@ -39,6 +37,13 @@ pub(crate) struct FormalBftReadHttpServiceV3 {
     publication: Mutex<FormalBftReadPublicationV3>,
     signer: SigningKey,
     current_authorization: Option<Arc<Mutex<World>>>,
+    #[cfg(test)]
+    private_release_pause: Mutex<
+        Option<(
+            std::sync::mpsc::SyncSender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
 }
 
 impl FormalBftReadHttpServiceV3 {
@@ -51,7 +56,19 @@ impl FormalBftReadHttpServiceV3 {
             publication: Mutex::new(publication),
             signer,
             current_authorization,
+            #[cfg(test)]
+            private_release_pause: Mutex::new(None),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_private_release_pause(
+        mut self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        resume: std::sync::mpsc::Receiver<()>,
+    ) -> Self {
+        self.private_release_pause = Mutex::new(Some((entered, resume)));
+        self
     }
 
     pub(crate) fn serve_loopback(
@@ -74,10 +91,9 @@ impl FormalBftReadHttpServiceV3 {
                 while !thread_stop.load(Ordering::Acquire) {
                     match listener.accept() {
                         Ok((mut stream, peer)) if peer.ip().is_loopback() => {
-                            if let Err(error) = self.serve_connection(&mut stream) {
-                                let (_, body) = error_body(400, "invalid_http_request", &error);
-                                let _ = write_http_reply(&mut stream, 400, &body);
-                            }
+                            // A write failure may follow an already emitted
+                            // header/body. Never append a second error reply.
+                            let _ = self.serve_connection(&mut stream);
                         }
                         Ok(_) => {}
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -102,7 +118,14 @@ impl FormalBftReadHttpServiceV3 {
         stream
             .set_write_timeout(Some(CONNECTION_TIMEOUT))
             .map_err(|error| error.to_string())?;
-        let (method, path, body) = read_http_request(stream, Instant::now() + CONNECTION_TIMEOUT)?;
+        let (method, path, body) =
+            match read_http_request(stream, Instant::now() + CONNECTION_TIMEOUT) {
+                Ok(request) => request,
+                Err(error) => {
+                    let (status, reply) = error_body(400, "invalid_http_request", &error);
+                    return write_http_reply(stream, status, &reply);
+                }
+            };
         if method != "POST" || path != FORMAL_BFT_READ_PATH_V3 {
             let (status, reply) = error_body(
                 404,
@@ -140,6 +163,22 @@ impl FormalBftReadHttpServiceV3 {
             None
         };
         let (status, reply) = self.read_reply(&request, authorization.as_deref());
+        #[cfg(test)]
+        if status == 200 && request.request.scope_id != "public" {
+            let pause = self
+                .private_release_pause
+                .lock()
+                .map_err(|_| "private release pause poisoned")?
+                .take();
+            if let Some((entered, resume)) = pause {
+                entered
+                    .send(())
+                    .map_err(|_| "private release test parent ended")?;
+                resume
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(|_| "private release test resume deadline")?;
+            }
+        }
         let result = write_http_reply(stream, status, &reply);
         drop(authorization);
         result
@@ -270,3 +309,7 @@ impl Drop for FormalBftReadHttpServerV3 {
         let _ = self.stop();
     }
 }
+
+#[cfg(test)]
+#[path = "formal_bft_prefix_http_tests.rs"]
+mod tests;

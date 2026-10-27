@@ -4,7 +4,8 @@
 use crate::{
     authority,
     formal_bft_read_service::{
-        to_wire_inclusion, validate_committed_world, validate_world_identity,
+        require_private_input_safe_light_proof, to_wire_inclusion, validate_committed_world,
+        validate_world_identity,
     },
     formal_projection::{ProjectionAudienceV1, ProjectionCommitmentsV1},
     formal_read_error::{FormalReadError, FormalReadResult},
@@ -48,6 +49,9 @@ pub struct FormalBftReadPublicationV3 {
 }
 impl FormalBftReadPublicationV3 {
     pub fn new(input: FormalBftReadPublicationInputV3<'_>) -> FormalReadResult<Self> {
+        for entry in &input.certified_prefix.entries {
+            require_private_input_safe_light_proof(&entry.certificate.proposal.block)?;
+        }
         input
             .exact_target
             .validate()
