@@ -100,10 +100,13 @@ fn certify(
 fn actual_execution_case() {
     let mut execution = execution();
     let bytes = private_actions();
+    let decoded: Vec<oasis7_node::NodeConsensusAction> = serde_cbor::from_slice(&bytes).unwrap();
     assert!(
-        bytes
+        decoded[0]
+            .payload_cbor
             .windows(EXECUTION_CANARY.len())
-            .any(|x| x == EXECUTION_CANARY.as_bytes())
+            .any(|x| x == EXECUTION_CANARY.as_bytes()),
+        "the actual private action payload contains the canary",
     );
     let h_tick = execution.parent_world().state().time;
     let before = serde_cbor::to_vec(&execution.parent_world().snapshot()).unwrap();
@@ -117,6 +120,17 @@ fn actual_execution_case() {
     );
     let entry = certify(execution.schedule(), &candidate);
     let public = entry.canonical_bytes().unwrap();
+    // Vec<u8> is encoded as an integer sequence here. Search the encoded input
+    // too; an ASCII-only canary check would miss a leaked raw action vector.
+    let encoded_private_input = serde_cbor::to_vec(&bytes).unwrap();
+    assert!(
+        !public
+            .windows(encoded_private_input.len())
+            .any(|part| part == encoded_private_input.as_slice())
+    );
+    let public_json = serde_json::to_string(&entry).unwrap();
+    assert!(!public_json.contains("\"actions_cbor\":"));
+    assert!(!public_json.contains("\"payload_cbor\":"));
     assert!(
         !public
             .windows(EXECUTION_CANARY.len())

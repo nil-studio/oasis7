@@ -32,7 +32,7 @@ impl World {
             .as_ref()
             .and_then(|reader| reader.parent.as_ref())
             .ok_or_else(|| invalid("formal BFT prefix requires its original retained H reader"))?;
-        let mut binding = FormalBftHandoffBindingV1::from_capability(handoff);
+        let binding = FormalBftHandoffBindingV1::from_capability(handoff);
         if !binding.matches_retained_parent(retained)
             || self.state.retained_history_root.as_ref() != Some(retained.root())
         {

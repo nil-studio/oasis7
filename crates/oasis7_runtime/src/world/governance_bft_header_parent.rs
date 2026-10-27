@@ -5,7 +5,7 @@ use oasis7_formal_protocol::bft::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FormalBftHeaderHandoffBindingV2 {
+pub(in crate::world) struct FormalBftHeaderHandoffBindingV2 {
     target_digest: String,
     activation_digest: String,
     head: FormalHeadRefV1,
@@ -15,7 +15,7 @@ pub(super) struct FormalBftHeaderHandoffBindingV2 {
     authority_epoch: u64,
     initial_validator_set_hash: String,
     schedule_policy_hash: String,
-    successor: Option<FormalBftSuccessorBindingV1>,
+    pub(super) successor: Option<FormalBftSuccessorBindingV1>,
 }
 
 impl FormalBftHeaderHandoffBindingV2 {
