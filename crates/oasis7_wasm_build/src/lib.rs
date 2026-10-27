@@ -106,8 +106,8 @@ impl std::error::Error for SourceHashError {}
 
 mod producer_recipe;
 pub use producer_recipe::{
-    BuilderExecution, BuilderRecipe, CandidateBuilderEvidence, compute_builder_recipe,
-    verify_image_producer_recipe,
+    BuilderExecution, BuilderRecipe, CandidateBuilderEvidence, candidate_builder_evidence,
+    compute_builder_recipe, verify_image_producer_recipe,
 };
 mod build_manifest;
 mod source_inputs;

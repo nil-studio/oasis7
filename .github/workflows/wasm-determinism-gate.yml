@@ -177,6 +177,12 @@ jobs:
             --out-dir "output/ci/${{ matrix.module_set }}-wasm-release-evidence" \
             --required-runners linux-x86_64 \
             --expected-runners linux-x86_64,darwin-arm64
+          summary_json="$(find "output/ci/${{ matrix.module_set }}-wasm-release-evidence" -name summary.json | sort | tail -n 1)"
+          test -n "$summary_json"
+          jq -e '.purpose == "candidate-build"
+            and (.baseline_sha256 | test("^[0-9a-f]{64}$"))
+            and .stable_gate_passed == true
+            and (.gate_result == "conditional-go" or .gate_result == "cross-host-closed")' "$summary_json"
       - name: Upload ${{ matrix.module_set }} release evidence report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

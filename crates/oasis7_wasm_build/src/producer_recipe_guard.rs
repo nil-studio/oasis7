@@ -12,6 +12,23 @@ fn in_producer(root: &Path, file: &Path) -> bool {
         .iter()
         .any(|path| file.starts_with(root.join(path).join("src")))
 }
+fn shadows_syn(tree: &syn::UseTree) -> bool {
+    match tree {
+        syn::UseTree::Name(name) => name.ident == "syn",
+        syn::UseTree::Rename(rename) => rename.rename == "syn",
+        // These modules inherit only names from their own already-scanned parent.
+        // External and deeper wildcard reexports remain unsupported.
+        syn::UseTree::Path(path)
+            if path.ident == "super" && matches!(*path.tree, syn::UseTree::Glob(_)) =>
+        {
+            false
+        }
+        syn::UseTree::Path(path) => shadows_syn(&path.tree),
+        syn::UseTree::Group(group) => group.items.iter().any(shadows_syn),
+        syn::UseTree::Glob(_) => true,
+    }
+}
+
 struct Guard<'a> {
     root: &'a Path,
     file: &'a Path,
@@ -43,7 +60,9 @@ impl<'ast> Visit<'ast> for Guard<'_> {
         }
     }
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-        if crate::source_inputs::scan::unsafe_macro_import(&item.tree, None) {
+        if shadows_syn(&item.tree)
+            || crate::source_inputs::scan::unsafe_macro_import(&item.tree, None)
+        {
             self.error = Some("unsupported producer macro-owner import".into());
         }
     }
@@ -61,7 +80,9 @@ impl<'ast> Visit<'ast> for Guard<'_> {
         if test_only(&item.attrs) {
             return;
         }
-        if crate::source_inputs::scan::reserved_namespace(&item.ident.to_string()) {
+        if item.ident == "syn"
+            || crate::source_inputs::scan::reserved_namespace(&item.ident.to_string())
+        {
             self.error = Some("unsupported producer macro-owner shadow".into());
             return;
         }
@@ -198,4 +219,36 @@ pub(super) fn walk(
         walk(root, &path, is_root, visited)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scan(text: &str) -> Option<String> {
+        let root = Path::new("/producer");
+        let file = root.join("tools/wasm_build_suite/src/lib.rs");
+        let mut guard = Guard {
+            root,
+            file: &file,
+            directory: file.parent().unwrap().into(),
+            modules: Vec::new(),
+            error: None,
+        };
+        guard.visit_file(&syn::parse_file(text).unwrap());
+        guard.error
+    }
+
+    #[test]
+    fn native_syn_token_lane_rejects_lexical_owner_shadows() {
+        assert!(scan("type Comma = syn::Token![,];").is_none());
+        for text in [
+            "use foreign as syn; type Comma = syn::Token![,];",
+            "use foreign::{owner as syn}; type Comma = syn::Token![,];",
+            "mod syn {} type Comma = syn::Token![,];",
+            "use foreign::*; type Comma = syn::Token![,];",
+        ] {
+            assert!(scan(text).is_some(), "accepted shadow: {text}");
+        }
+    }
 }

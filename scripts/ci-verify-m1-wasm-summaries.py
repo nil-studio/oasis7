@@ -42,6 +42,44 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def candidate_builder(evidence, recipe, path):
+    if not isinstance(recipe, dict) or set(recipe) != {"recipe_schema_version", "kind", "producer_recipe_hash", "arguments", "inputs"}:
+        fail(f"summary {path} unknown candidate producer recipe fields")
+    expected_arguments = [{"name": name, "value": value} for name, value in [
+        ("WASM_TARGET", "wasm32-unknown-unknown"), ("WASM_TOOLCHAIN", "nightly-2025-12-11"),
+        ("platform", "linux/amd64"), ("purpose", "candidate-build")]]
+    digest = recipe.get("producer_recipe_hash")
+    if type(recipe["recipe_schema_version"]) is not int or recipe["recipe_schema_version"] != 1 or recipe["kind"] != "producer-content" or recipe["arguments"] != expected_arguments or not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        fail(f"summary {path} invalid candidate producer recipe")
+    inputs = recipe["inputs"]
+    if not isinstance(inputs, list) or not inputs:
+        fail(f"summary {path} missing candidate producer inputs")
+    labels = []
+    for record in inputs:
+        if not isinstance(record, dict) or set(record) != {"kind", "path", "sha256"} or record["kind"] != "source-file":
+            fail(f"summary {path} unknown producer input record")
+        label, sha = record["path"], record["sha256"]
+        if not isinstance(label, str) or "\\" in label or any(part in ("", ".", "..") for part in label.split("/")) or not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+            fail(f"summary {path} malformed producer input record")
+        labels.append(label)
+    if labels != sorted(set(labels)):
+        fail(f"summary {path} unordered/duplicate producer inputs")
+    if evidence.get("purpose") != "candidate-build" or evidence.get("build_manifest_schema_version") != 3 or evidence.get("builder_recipe") != recipe or "builder_image_digest" in evidence or "builder_image_ref" in evidence:
+        fail(f"summary {path} mixed candidate/release receipt recipe")
+    execution = evidence.get("builder_execution")
+    if not isinstance(execution, dict) or set(execution) != {"execution_schema_version", "kind", "image_ref", "image_id", "docker_platform"}:
+        fail(f"summary {path} unknown candidate execution fields")
+    image_id = execution.get("image_id")
+    if type(execution["execution_schema_version"]) is not int or execution["execution_schema_version"] != 1 or execution["kind"] != "local-docker-build" or execution["docker_platform"] != "linux/amd64" or execution["image_ref"] != "oasis7/wasm-builder:candidate-" + digest or not isinstance(image_id, str) or not image_id.startswith("sha256:") or len(image_id) != 71 or any(c not in "0123456789abcdef" for c in image_id[7:]):
+        fail(f"summary {path} malformed candidate execution identity")
+
+
+def comparable_receipts(payload):
+    # Each runner reports its actual execution ID; only declared recipe/output must match.
+    return {module: {key: value for key, value in evidence.items() if key != "builder_execution"}
+            for module, evidence in payload["receipt_evidence"].items()}
+
+
 def load_summary(path: pathlib.Path) -> dict:
     try:
         payload = json.loads(path.read_text())
@@ -115,10 +153,15 @@ def verify_summary_shape(path: pathlib.Path, payload: dict, module_set: str) -> 
         fail(f"summary {path} module set mismatch between module_hashes and receipt_evidence")
 
     build_recipe = payload["identity_build_recipe"]
-    for key in ("builder_image_digest", "container_platform", "canonicalizer_version"):
+    for key in (("builder_image_digest", "container_platform", "canonicalizer_version") if purpose == "release-build" else ("container_platform", "canonicalizer_version")):
         value = build_recipe.get(key)
         if not isinstance(value, str) or not value:
             fail(f"summary {path} identity_build_recipe missing {key}")
+    if purpose == "candidate-build":
+        if build_recipe.get("build_manifest_schema_version") != 3 or "builder_image_ref" in build_recipe or "builder_image_digest" in build_recipe:
+            fail(f"summary {path} mixed candidate/release build recipe")
+    elif any(key in build_recipe for key in ("builder_recipe", "build_manifest_schema_version")):
+        fail(f"summary {path} candidate recipe in release summary")
     if payload["canonical_platform"] != build_recipe["container_platform"]:
         fail(
             f"summary {path} canonical_platform mismatch: summary={payload['canonical_platform']} recipe={build_recipe['container_platform']}"
@@ -145,6 +188,12 @@ def verify_summary_shape(path: pathlib.Path, payload: dict, module_set: str) -> 
             "container_platform",
             "canonicalizer_version",
         }
+        if purpose == "candidate-build":
+            required_evidence_keys.remove("builder_image_digest")
+            required_evidence_keys.update({"purpose", "build_manifest_schema_version", "builder_recipe", "builder_execution"})
+            candidate_builder(evidence, build_recipe.get("builder_recipe"), path)
+        elif any(key in evidence for key in ("purpose", "builder_recipe", "builder_execution", "build_manifest_schema_version")):
+            fail(f"summary {path} candidate fields in release receipt")
         missing_evidence = sorted(required_evidence_keys - set(evidence.keys()))
         if missing_evidence:
             fail(
@@ -175,7 +224,7 @@ def verify_summary_shape(path: pathlib.Path, payload: dict, module_set: str) -> 
             fail(
                 f"summary {path} receipt wasm_hash mismatch for module {module_id}: receipt={evidence['wasm_hash']} built={module_hash}"
             )
-        if evidence["builder_image_digest"] != build_recipe["builder_image_digest"]:
+        if purpose == "release-build" and evidence["builder_image_digest"] != build_recipe["builder_image_digest"]:
             fail(
                 f"summary {path} receipt builder_image_digest mismatch for module {module_id}"
             )
@@ -250,7 +299,7 @@ def main() -> None:
     baseline = summaries_by_runner[baseline_runner]
     baseline_module_keys = set(baseline["module_hashes"].keys())
     baseline_identity_hashes = baseline["identity_hashes"]
-    baseline_receipt_evidence = baseline["receipt_evidence"]
+    baseline_receipt_evidence = comparable_receipts(baseline)
     baseline_canonical_platform = baseline["canonical_platform"]
     baseline_build_recipe = baseline["identity_build_recipe"]
 
@@ -268,7 +317,7 @@ def main() -> None:
             fail(
                 f"identity hash mismatch between runners baseline={baseline_runner} runner={runner}"
             )
-        if payload["receipt_evidence"] != baseline_receipt_evidence:
+        if comparable_receipts(payload) != baseline_receipt_evidence:
             fail(
                 f"receipt evidence mismatch between runners baseline={baseline_runner} runner={runner}"
             )

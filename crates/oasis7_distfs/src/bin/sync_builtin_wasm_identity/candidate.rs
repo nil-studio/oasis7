@@ -54,6 +54,8 @@ struct Descriptor {
     profile: String,
     build_recipe: BuildRecipe,
     #[serde(deserialize_with = "unique_map")]
+    generation_executions: BTreeMap<String, oasis7_wasm_build::BuilderExecution>,
+    #[serde(deserialize_with = "unique_map")]
     frozen_release_sha256: BTreeMap<String, String>,
     #[serde(deserialize_with = "unique_map")]
     module_sets: BTreeMap<String, CandidateSet>,
@@ -132,6 +134,7 @@ fn names(set: &str) -> (String, String) {
 fn options(root: &Path, metadata: &Path, set: &str, dir: &Path) -> Options {
     let (identity, hash) = names(set);
     Options {
+        candidate: true,
         module_ids_path: root
             .join(ARTIFACTS)
             .join(format!("{set}_builtin_module_ids.txt")),
@@ -175,6 +178,27 @@ fn membership(root: &Path, set: &str, manifest: &IdentityManifest) -> Result<(),
 
 fn actual_wasm(metadata: &Path, manifest: &IdentityManifest) -> Result<(), String> {
     for entry in &manifest.modules {
+        let receipt: BuildReceipt = serde_json::from_slice(&bytes(
+            metadata,
+            &format!("{}.build-receipt.json", entry.module_id),
+        )?)
+        .map_err(|e| e.to_string())?;
+        let metadata_raw = bytes(metadata, &format!("{}.metadata.json", entry.module_id))?;
+        validate_builder_field_presence(&metadata_raw, true)?;
+        let mut recorded: BuildReceipt =
+            serde_json::from_slice(&metadata_raw).map_err(|e| e.to_string())?;
+        // Metadata omits these two receipt-only fields. Every shared field,
+        // including actual execution provenance, must match the raw typed receipt.
+        if recorded.schema_version.is_some() || !recorded.build_suite_version.is_empty() {
+            return Err("unexpected receipt-only fields in candidate metadata".into());
+        }
+        recorded.schema_version = receipt.schema_version;
+        recorded
+            .build_suite_version
+            .clone_from(&receipt.build_suite_version);
+        if recorded != receipt {
+            return Err("candidate metadata/receipt evidence mismatch".into());
+        }
         let actual = sha256_hex(&bytes(metadata, &format!("{}.wasm", entry.module_id))?);
         if entry.hash_tokens != [format!("linux-x86_64={actual}")] {
             return Err(format!(
@@ -187,6 +211,12 @@ fn actual_wasm(metadata: &Path, manifest: &IdentityManifest) -> Result<(), Strin
 }
 
 fn known_receipts(root: &Path, metadata: &Path, complete: bool) -> Result<(), String> {
+    for ancestor in metadata.ancestors() {
+        let info = fs::symlink_metadata(ancestor).map_err(|e| e.to_string())?;
+        if info.file_type().is_symlink() || !info.is_dir() {
+            return Err("candidate metadata ancestor must be a real directory".into());
+        }
+    }
     let mut expected = BTreeSet::new();
     for set in ["m1", "m4", "m5"] {
         for id in read_module_ids(
@@ -206,6 +236,12 @@ fn known_receipts(root: &Path, metadata: &Path, complete: bool) -> Result<(), St
             .map_err(|_| "non UTF8 metadata filename")?;
         if name.ends_with(".build-receipt.json") {
             actual.insert(name);
+        } else if let Some(id) = name
+            .strip_suffix(".metadata.json")
+            .or_else(|| name.strip_suffix(".wasm"))
+            && !expected.contains(&format!("{id}.build-receipt.json"))
+        {
+            return Err("unknown candidate module output membership".into());
         }
     }
     if !actual.is_subset(&expected) || (complete && actual != expected) {
@@ -215,16 +251,24 @@ fn known_receipts(root: &Path, metadata: &Path, complete: bool) -> Result<(), St
 }
 
 fn descriptor(dir: &Path) -> Result<Descriptor, String> {
-    let value: Descriptor =
-        serde_json::from_slice(&bytes(dir, DESCRIPTOR)?).map_err(|e| e.to_string())?;
+    let raw = bytes(dir, DESCRIPTOR)?;
+    let shape: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+    if ["builder_image_ref", "builder_image_digest"]
+        .iter()
+        .any(|key| shape["build_recipe"].get(key).is_some())
+    {
+        return Err("candidate descriptor contains legacy image fields".into());
+    }
+    let value: Descriptor = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
     if value.descriptor_schema_version != 1
         || value.purpose != PURPOSE
         || value.source_input_rule_version != 2
-        || value.receipt_schema_version != 3
+        || value.receipt_schema_version != 4
         || value.identity_schema_version != 2
         || value.target != DEFAULT_WASM_TARGET
         || value.profile != "release"
         || value.frozen_release_sha256 != legacy_map()
+        || value.generation_executions.len() != 37
         || value
             .module_sets
             .keys()
@@ -233,6 +277,34 @@ fn descriptor(dir: &Path) -> Result<Descriptor, String> {
             != ["m1", "m4", "m5"]
     {
         return Err("unknown/mixed candidate baseline contract".into());
+    }
+    let recipe = &value.build_recipe;
+    if recipe.profile != value.profile
+        || recipe.wasm_target != value.target
+        || recipe.wasm_toolchain != "nightly-2025-12-11"
+        || recipe.wasm_build_std != "1"
+        || recipe.wasm_build_std_components != "std,panic_abort"
+        || !recipe.wasm_build_std_features.is_empty()
+        || recipe.wasm_deterministic_guard != "1"
+        || recipe.canonicalizer_version != "strip-custom-sections-v1"
+        || recipe.container_platform != "linux-x86_64"
+        || recipe.canonical_platforms != ["linux-x86_64"]
+        || recipe.build_manifest_schema_version != Some(3)
+        || recipe.builder_image_ref.is_some()
+        || recipe.builder_image_digest.is_some()
+    {
+        return Err("mixed candidate descriptor recipe/profile/target".into());
+    }
+    recipe
+        .builder_recipe
+        .as_ref()
+        .ok_or("missing candidate producer recipe")?
+        .validate()
+        .map_err(|e| e.to_string())?;
+    for execution in value.generation_executions.values() {
+        execution
+            .validate(recipe.builder_recipe.as_ref().unwrap())
+            .map_err(|e| e.to_string())?;
     }
     for (set, record) in &value.module_sets {
         let (identity, hash) = names(set);
@@ -252,6 +324,17 @@ fn check(root: &Path, metadata: &Path, set: &str) -> Result<(), String> {
     known_receipts(root, metadata, false)?;
     let dir = root.join(ARTIFACTS);
     let baseline = descriptor(&dir)?;
+    let mut generation_ids = BTreeSet::new();
+    for module_set in ["m1", "m4", "m5"] {
+        generation_ids.extend(read_module_ids(
+            &root
+                .join(ARTIFACTS)
+                .join(format!("{module_set}_builtin_module_ids.txt")),
+        )?);
+    }
+    if generation_ids != baseline.generation_executions.keys().cloned().collect() {
+        return Err("candidate generation execution membership mismatch".into());
+    }
     let record = baseline
         .module_sets
         .get(set)
@@ -330,6 +413,7 @@ fn prepare(root: &Path, metadata: &Path, output: &Path) -> Result<(), String> {
     let result = (|| {
         let mut sets = BTreeMap::new();
         let mut recipe = None;
+        let mut generation_executions = BTreeMap::new();
         for set in ["m1", "m4", "m5"] {
             let options = options(root, metadata, set, &stage);
             let ids = read_module_ids(&options.module_ids_path)?;
@@ -338,6 +422,13 @@ fn prepare(root: &Path, metadata: &Path, output: &Path) -> Result<(), String> {
                 let receipt: BuildReceipt =
                     serde_json::from_slice(&bytes(metadata, &format!("{id}.build-receipt.json"))?)
                         .map_err(|e| e.to_string())?;
+                generation_executions.insert(
+                    id.clone(),
+                    receipt
+                        .builder_execution
+                        .clone()
+                        .ok_or("missing generation execution")?,
+                );
                 hashes.push_str(&format!("{id} linux-x86_64={}\n", receipt.wasm_hash_sha256));
             }
             fs::write(&options.hash_manifest_path, &hashes).map_err(|e| e.to_string())?;
@@ -368,11 +459,12 @@ fn prepare(root: &Path, metadata: &Path, output: &Path) -> Result<(), String> {
             descriptor_schema_version: 1,
             purpose: PURPOSE.into(),
             source_input_rule_version: 2,
-            receipt_schema_version: 3,
+            receipt_schema_version: 4,
             identity_schema_version: 2,
             target: DEFAULT_WASM_TARGET.into(),
             profile: "release".into(),
             build_recipe: recipe.ok_or("missing recipe")?,
+            generation_executions,
             frozen_release_sha256: legacy_map(),
             module_sets: sets,
         };
@@ -396,11 +488,21 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
                 .into(),
         );
     }
-    let root = Path::new(&args[1]);
-    let metadata = Path::new(&args[2]);
+    for path in [&args[1], &args[2]] {
+        if Path::new(path)
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err("candidate input path must not contain parent traversal".into());
+        }
+    }
+    // Absolute spelling supports relative CLI inputs without canonicalizing away
+    // a symlink ancestor before the no-follow checks.
+    let root = std::path::absolute(&args[1]).map_err(|e| e.to_string())?;
+    let metadata = std::path::absolute(&args[2]).map_err(|e| e.to_string())?;
     match args[0].as_str() {
-        "--candidate-baseline-check" => check(root, metadata, &args[3]),
-        "--candidate-baseline-prepare" => prepare(root, metadata, Path::new(&args[3])),
+        "--candidate-baseline-check" => check(&root, &metadata, &args[3]),
+        "--candidate-baseline-prepare" => prepare(&root, &metadata, Path::new(&args[3])),
         _ => Err("unknown candidate mode".into()),
     }
 }
@@ -421,7 +523,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let released: IdentityManifest = serde_json::from_slice(
+        let mut released: IdentityManifest = serde_json::from_slice(
             &fs::read(
                 root.join(ARTIFACTS)
                     .join("m1_builtin_modules.identity.json"),
@@ -429,6 +531,11 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        released.build_recipe.builder_image_ref = None;
+        released.build_recipe.builder_image_digest = None;
+        released.build_recipe.build_manifest_schema_version = Some(3);
+        released.build_recipe.builder_recipe =
+            Some(oasis7_wasm_build::compute_builder_recipe(&root.canonicalize().unwrap()).unwrap());
         let mut module_sets = BTreeMap::new();
         for (set, count) in [("m1", 10), ("m4", 22), ("m5", 5)] {
             let (identity_file, hash_file) = names(set);
@@ -446,15 +553,41 @@ mod tests {
                 },
             );
         }
+        let mut generation_executions = BTreeMap::new();
+        let producer_recipe = released.build_recipe.builder_recipe.as_ref().unwrap();
+        for set in ["m1", "m4", "m5"] {
+            for id in read_module_ids(
+                &root
+                    .join(ARTIFACTS)
+                    .join(format!("{set}_builtin_module_ids.txt")),
+            )
+            .unwrap()
+            {
+                generation_executions.insert(
+                    id,
+                    oasis7_wasm_build::BuilderExecution {
+                        execution_schema_version: 1,
+                        kind: "local-docker-build".into(),
+                        image_ref: format!(
+                            "oasis7/wasm-builder:candidate-{}",
+                            producer_recipe.producer_recipe_hash
+                        ),
+                        image_id: format!("sha256:{}", "a".repeat(64)),
+                        docker_platform: "linux/amd64".into(),
+                    },
+                );
+            }
+        }
         let descriptor = Descriptor {
             descriptor_schema_version: 1,
             purpose: PURPOSE.into(),
             source_input_rule_version: 2,
-            receipt_schema_version: 3,
+            receipt_schema_version: 4,
             identity_schema_version: 2,
             target: DEFAULT_WASM_TARGET.into(),
             profile: "release".into(),
             build_recipe: released.build_recipe,
+            generation_executions,
             frozen_release_sha256: legacy_map(),
             module_sets,
         };
@@ -506,6 +639,23 @@ mod tests {
             fs::write(dir.join(DESCRIPTOR), invalid.to_string()).unwrap();
             assert!(descriptor(&dir).is_err(), "{field}");
         }
+        for (field, value) in [
+            ("unknown", serde_json::json!(true)),
+            ("profile", serde_json::json!("dev")),
+            ("build_manifest_schema_version", serde_json::json!(99)),
+        ] {
+            let mut invalid = original.clone();
+            invalid["build_recipe"][field] = value;
+            fs::write(dir.join(DESCRIPTOR), invalid.to_string()).unwrap();
+            assert!(descriptor(&dir).is_err(), "nested recipe {field}");
+        }
+        let mut invalid = original.clone();
+        invalid["build_recipe"]["builder_recipe"]["unknown"] = true.into();
+        fs::write(dir.join(DESCRIPTOR), invalid.to_string()).unwrap();
+        assert!(
+            descriptor(&dir).is_err(),
+            "unknown nested producer recipe field"
+        );
         for field in [
             "identity_file",
             "hash_file",
@@ -567,6 +717,130 @@ mod tests {
         frozen(&fake).unwrap();
         fs::write(fake.join(ARTIFACTS).join(LEGACY[0].0), b"changed").unwrap();
         assert!(frozen(&fake).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn prepare_entrypoint_rejects_ci_and_cleans_partial_staging() {
+        const CHILD: &str = "OASIS7_TEST_CANDIDATE_PREPARE_DIR";
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        if let Some(directory) = env::var_os(CHILD) {
+            let directory = PathBuf::from(directory);
+            let error = prepare(&root, &directory, &directory.join("prepared")).unwrap_err();
+            println!("prepare rejected: {error}");
+            return;
+        }
+        let (dir, _) = fixture();
+        for set in ["m1", "m4", "m5"] {
+            for id in read_module_ids(
+                &root
+                    .join(ARTIFACTS)
+                    .join(format!("{set}_builtin_module_ids.txt")),
+            )
+            .unwrap()
+            {
+                fs::write(dir.join(format!("{id}.build-receipt.json")), b"{}").unwrap();
+            }
+        }
+        for ci in ["1", "false"] {
+            let result = std::process::Command::new(env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "candidate::tests::prepare_entrypoint_rejects_ci_and_cleans_partial_staging",
+                    "--nocapture",
+                ])
+                .env(CHILD, &dir)
+                .env("CI", ci)
+                .env("GITHUB_ACTIONS", "false")
+                .env("OASIS7_WASM_SYNC_WRITE_ALLOW", "local-dev")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let output = String::from_utf8_lossy(&result.stdout);
+            assert!(
+                output.contains(if ci == "1" {
+                    "outside CI"
+                } else {
+                    "missing field"
+                }),
+                "{output}"
+            );
+            assert!(!dir.join("prepared").exists());
+            assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("prepare-")
+            }));
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn packaged_bytes_and_metadata_bind_the_same_receipt_execution() {
+        let (dir, baseline) = fixture();
+        let id = "fixture.module";
+        let wasm = b"fixture canonical bytes";
+        let hash = sha256_hex(wasm);
+        let recipe = &baseline.build_recipe;
+        let execution = baseline.generation_executions.values().next().unwrap();
+        let receipt = serde_json::json!({
+            "schema_version":4,"module_id":id,"target":DEFAULT_WASM_TARGET,"profile":"release",
+            "wasm_toolchain":recipe.wasm_toolchain,"wasm_build_std":recipe.wasm_build_std,
+            "wasm_build_std_components":recipe.wasm_build_std_components,"wasm_build_std_features":recipe.wasm_build_std_features,
+            "wasm_deterministic_guard":recipe.wasm_deterministic_guard,"build_suite_version":recipe.build_suite_version,
+            "source_input_rule_version":2,"source_inputs":[{"kind":"source-file","path":"module/src/lib.rs","sha256":"0".repeat(64)}],
+            "source_hash":"source","build_manifest_hash":"build","canonicalizer_version":recipe.canonicalizer_version,
+            "container_platform":"linux-x86_64","purpose":PURPOSE,"build_manifest_schema_version":3,
+            "builder_recipe":recipe.builder_recipe,"builder_execution":execution,"wasm_hash_sha256":hash,
+        });
+        let manifest = IdentityManifest {
+            purpose: Some(PURPOSE.into()),
+            schema_version: 2,
+            module_set: "fixture".into(),
+            build_recipe: recipe.clone(),
+            modules: vec![ModuleIdentityEntry {
+                module_id: id.into(),
+                hash_tokens: vec![format!("linux-x86_64={hash}")],
+                source_input_rule_version: Some(2),
+                source_inputs: None,
+                source_hash: "source".into(),
+                build_manifest_hash: "build".into(),
+                identity_hash: "identity".into(),
+            }],
+        };
+        fs::write(dir.join(format!("{id}.wasm")), wasm).unwrap();
+        fs::write(
+            dir.join(format!("{id}.build-receipt.json")),
+            receipt.to_string(),
+        )
+        .unwrap();
+        let mut metadata = receipt.clone();
+        metadata.as_object_mut().unwrap().remove("schema_version");
+        metadata
+            .as_object_mut()
+            .unwrap()
+            .remove("build_suite_version");
+        let metadata_path = dir.join(format!("{id}.metadata.json"));
+        fs::write(&metadata_path, metadata.to_string()).unwrap();
+        actual_wasm(&dir, &manifest).unwrap();
+        let mut changed = metadata.clone();
+        changed["builder_execution"]["image_id"] = format!("sha256:{}", "b".repeat(64)).into();
+        fs::write(&metadata_path, changed.to_string()).unwrap();
+        assert!(actual_wasm(&dir, &manifest).is_err());
+        changed = metadata.clone();
+        changed["builder_image_digest"] = serde_json::Value::Null;
+        fs::write(&metadata_path, changed.to_string()).unwrap();
+        assert!(actual_wasm(&dir, &manifest).is_err());
+        fs::write(&metadata_path, metadata.to_string()).unwrap();
+        fs::write(dir.join(format!("{id}.wasm")), b"changed").unwrap();
+        assert!(actual_wasm(&dir, &manifest).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 }

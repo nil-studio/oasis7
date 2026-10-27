@@ -9,6 +9,8 @@ const IDENTITY_HASH_SIGNATURE_PREFIX: &str = "idhash:";
 
 #[derive(Debug, Deserialize)]
 struct BuiltinIdentityManifest {
+    #[serde(default, rename = "purpose")]
+    _purpose: Option<String>,
     #[serde(default, rename = "schema_version")]
     _schema_version: Option<u64>,
     modules: Vec<BuiltinIdentityEntry>,
@@ -49,6 +51,9 @@ struct BuiltinSourceInputRecord {
 // Runtime consumes the published binary identity, not the source workspace.
 // This is format validation only; the original identity/signature/hash checks below remain authoritative.
 fn validate_identity_source_format(value: &serde_json::Value) -> Result<(), String> {
+    if value.get("purpose").is_some() {
+        return Err("engineering candidate identity is not a published Runtime identity".into());
+    }
     let schema = match value.get("schema_version") {
         None => 1, // Historical unversioned inputs retain their original legacy semantics.
         Some(value) => value.as_u64().ok_or("invalid builtin identity schema")?,
@@ -373,6 +378,14 @@ mod source_input_format_tests {
     }
     #[test]
     fn unknown_identity_schema_rule_and_mixed_fields_fail_closed() {
+        for purpose in ["candidate-build", "release-build", "unknown"] {
+            let mut candidate = v2();
+            candidate["purpose"] = purpose.into();
+            assert!(
+                read(&candidate).is_err(),
+                "candidate purpose must never activate Runtime identity"
+            );
+        }
         let mut unknown = legacy();
         unknown["schema_version"] = 99.into();
         assert!(

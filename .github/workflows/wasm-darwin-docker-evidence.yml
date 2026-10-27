@@ -25,8 +25,6 @@ env:
   EVIDENCE_ROOT: output/ci/wasm-darwin-docker-evidence
   MODULE_SETS: m1,m4,m5
   RUNNER_LABEL: darwin-arm64
-  WASM_BUILDER_IMAGE: oasis7/wasm-builder:nightly-2025-12-11
-  WASM_BUILDER_IMAGE_DIGEST: sha256:f3538a8039074c0b074946ae9d1803f6c74b823aee9152d52584111844ee1ed8
   BUNDLE_ARTIFACT_NAME: darwin-arm64-wasm-summary-bundle
   REPORT_ARTIFACT_NAME: darwin-arm64-wasm-release-evidence-report
 
@@ -75,43 +73,15 @@ jobs:
           grep -Eq '^(x86_64|amd64)$' "${EVIDENCE_ROOT}/preflight/docker-platform.txt"
           printf 'runner_label=%s\n' "$RUNNER_LABEL"
 
-      - name: Rebuild and verify canonical wasm builder image
+      - name: Record candidate producer recipe
         run: |
           mkdir -p "${EVIDENCE_ROOT}/preflight"
-          docker image rm -f "$WASM_BUILDER_IMAGE" >/dev/null 2>&1 || true
-          if docker buildx version >/dev/null 2>&1; then
-            docker buildx build \
-              --load \
-              --platform linux/amd64 \
-              --build-arg "WASM_TOOLCHAIN=${OASIS7_WASM_TOOLCHAIN}" \
-              --build-arg "WASM_TARGET=${OASIS7_WASM_TARGET}" \
-              --tag "$WASM_BUILDER_IMAGE" \
-              --file docker/wasm-builder/Dockerfile \
-              .
-          else
-            docker build \
-              --platform linux/amd64 \
-              --build-arg "WASM_TOOLCHAIN=${OASIS7_WASM_TOOLCHAIN}" \
-              --build-arg "WASM_TARGET=${OASIS7_WASM_TARGET}" \
-              --tag "$WASM_BUILDER_IMAGE" \
-              --file docker/wasm-builder/Dockerfile \
-              .
-          fi
-          actual_image_id="$(docker image inspect "$WASM_BUILDER_IMAGE" --format '{{.Id}}')"
-          {
-            printf 'builder_image=%s\n' "$WASM_BUILDER_IMAGE"
-            printf 'expected_digest=%s\n' "$WASM_BUILDER_IMAGE_DIGEST"
-            printf 'actual_image_id=%s\n' "$actual_image_id"
-          } | tee "${EVIDENCE_ROOT}/preflight/wasm-builder-image.txt"
-          if [[ "$actual_image_id" != "$WASM_BUILDER_IMAGE_DIGEST" ]]; then
-            echo "warning: rebuilt Docker image id differs from configured recipe digest" >&2
-            echo "warning: configured recipe digest $WASM_BUILDER_IMAGE_DIGEST; rebuilt image id $actual_image_id" >&2
-          fi
+          env -u RUSTC_WRAPPER cargo run --quiet --locked -p wasm_build_suite -- \
+            producer-recipe "$PWD" "${EVIDENCE_ROOT}/preflight/producer-recipe.json"
+          # Each canonical wrapper build captures its own iidfile and reports
+          # actual execution identity in receipt4, independently of this recipe.
 
       - name: Package darwin-arm64 summary bundle
-        env:
-          OASIS7_WASM_BUILDER_AUTO_BUILD: "0"
-          OASIS7_WASM_BUILDER_ALLOW_IMAGE_ID_MISMATCH: "1"
         run: |
           mkdir -p "${EVIDENCE_ROOT}"
           ./scripts/package-wasm-summary-bundle.sh --baseline-kind candidate-build \
@@ -121,7 +91,7 @@ jobs:
             --runner-label "${RUNNER_LABEL}"
           jq -e \
             --arg runner "$RUNNER_LABEL" \
-            '.runner_label == $runner and .host_platform == "darwin-arm64" and .canonical_platforms == ["linux-x86_64"]' \
+            '.purpose == "candidate-build" and (.baseline_sha256 | test("^[0-9a-f]{64}$")) and .runner_label == $runner and .host_platform == "darwin-arm64" and .canonical_platforms == ["linux-x86_64"]' \
             "${EVIDENCE_ROOT}/bundle/bundle_manifest.json"
 
       - name: Upload darwin-arm64 summary bundle
@@ -204,7 +174,9 @@ jobs:
           test -n "$summary_json"
           jq -e \
             --arg runner "$RUNNER_LABEL" \
-            '.gate_result == "cross-host-closed"
+            '.purpose == "candidate-build"
+              and (.baseline_sha256 | test("^[0-9a-f]{64}$"))
+              and .gate_result == "cross-host-closed"
               and .cross_host_evidence_pending == false
               and (.received_runners | index("linux-x86_64"))
               and (.received_runners | index($runner))

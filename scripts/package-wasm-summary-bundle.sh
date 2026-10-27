@@ -205,6 +205,8 @@ for module_set in module_sets:
     summary_files[module_set] = str(summary_path.relative_to(out_dir))
 
 manifest = {
+    "purpose": baseline_identity[0],
+    "baseline_sha256": baseline_identity[1],
     "schema_version": 1,
     "runner_label": runner_label,
     "host_platform": host_platform,

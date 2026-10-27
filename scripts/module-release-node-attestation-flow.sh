@@ -387,6 +387,8 @@ proof_summaries_root = proof_inputs_dir / "summaries"
 proof_summaries_root.mkdir(parents=True, exist_ok=True)
 
 report = json.loads(report_summary_path.read_text())
+if report.get("purpose") != "release-build" or report.get("baseline_sha256") != "":
+    raise SystemExit("error: node attestation rejects candidate/unknown report purpose")
 summary_file_index: dict[str, dict[str, dict[str, str]]] = {}
 
 canonical_summary_keys = (
@@ -436,6 +438,8 @@ for module_dir in sorted(path for path in staged_root.iterdir() if path.is_dir()
     summary_file_index[module_set] = runner_index
 
 proof_summary = {
+    "purpose": report["purpose"],
+    "baseline_sha256": report["baseline_sha256"],
     "schema_version": 1,
     "required_runners": report.get("required_runners", []),
     "expected_runners": report.get("expected_runners", []),

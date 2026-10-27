@@ -253,6 +253,9 @@ digest = payload.get("baseline_sha256")
 if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest))):
     raise SystemExit("error: unknown/malformed summary baseline purpose")
 
+if (manifest.get("purpose"), manifest.get("baseline_sha256")) != (purpose, digest):
+    raise SystemExit("error: bundle manifest/summary purpose mismatch")
+
 if payload.get("module_set") != module_set:
     raise SystemExit(
         f"error: external summary module_set mismatch expected={module_set} actual={payload.get('module_set')}"

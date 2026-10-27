@@ -340,6 +340,7 @@ required_runner_set = set(required_runners)
 expected_runner_set = set(expected_runners)
 
 module_sets = []
+baseline_identity = None
 received_runner_union = set()
 missing_required_union = set()
 missing_expected_union = set()
@@ -348,6 +349,16 @@ with open(module_sets_tsv, "r", encoding="utf-8") as fh:
     for raw in fh:
         module_set, collect_status, verify_status, note, summary_dir, verify_log = raw.rstrip("\n").split("\t")
         summary_paths = sorted(pathlib.Path(summary_dir).glob("*.json"))
+        for summary_path in summary_paths:
+            summary = json.loads(summary_path.read_text())
+            purpose, digest = summary.get("purpose"), summary.get("baseline_sha256")
+            valid_digest = isinstance(digest, str) and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+            if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and not valid_digest):
+                raise SystemExit("error: report rejects unknown/malformed evidence purpose")
+            identity = (purpose, digest)
+            if baseline_identity is not None and baseline_identity != identity:
+                raise SystemExit("error: report rejects mixed candidate/release baseline evidence")
+            baseline_identity = identity
         found_runners = []
         module_count = None
         if summary_paths:
@@ -405,6 +416,8 @@ else:
     gate_result = "no-go"
 
 payload = {
+    "purpose": baseline_identity[0] if baseline_identity else "release-build",
+    "baseline_sha256": baseline_identity[1] if baseline_identity else "",
     "run_dir": run_dir,
     "runner_label": runner_label,
     "required_runners": required_runners,

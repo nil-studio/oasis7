@@ -202,6 +202,9 @@ for path in sorted(evidence_dir.iterdir()):
         "size_bytes": path.stat().st_size,
     }
     if path.name == "00-summary.json":
+        summary = json.loads(path.read_text())
+        if summary.get("purpose") != "release-build" or summary.get("baseline_sha256") != "":
+            raise SystemExit("error: release proof rejects candidate/unknown evidence purpose")
         entry["role"] = "release_evidence_summary"
         summary_relpath = relpath
     else:
