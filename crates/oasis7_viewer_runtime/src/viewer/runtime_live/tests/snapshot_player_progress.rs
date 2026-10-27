@@ -306,3 +306,6 @@ fn compat_snapshot_keeps_post_onboarding_no_progress_after_confirmed_progress() 
         Some("Refresh gameplay snapshot")
     );
 }
+
+#[path = "snapshot_personal_industry.rs"]
+mod personal_industry;

@@ -23,11 +23,74 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
     let status_route = path == "/v1/management/session-status";
     let draft = path == "/v1/account-provisions";
     let freeze = path == "/v1/manager-revocations";
-    let get = path.strip_prefix("/v1/account-provisions/");
-    if (status_route || get.is_some()) && request.method() != Method::Get
-        || (draft || freeze) && request.method() != Method::Post
+    let provision_path = path.strip_prefix("/v1/account-provisions/");
+    let managed_approve = provision_path.and_then(|id| id.strip_suffix("/managed-logins/approve"));
+    let managed_continue =
+        provision_path.and_then(|id| id.strip_suffix("/managed-logins/continue"));
+    let approve = provision_path
+        .and_then(|id| id.strip_suffix("/approve"))
+        .filter(|_| managed_approve.is_none());
+    let advance = provision_path
+        .and_then(|id| id.strip_suffix("/continue"))
+        .filter(|_| managed_continue.is_none());
+    let progress = provision_path.and_then(|id| id.strip_suffix("/progress"));
+    let get = provision_path.filter(|_| {
+        approve.is_none()
+            && advance.is_none()
+            && progress.is_none()
+            && managed_approve.is_none()
+            && managed_continue.is_none()
+    });
+    if let Some(id) = approve
+        .or(advance)
+        .or(progress)
+        .or(managed_approve)
+        .or(managed_continue)
+    {
+        if id.is_empty() || id.len() > 128 || id.contains('/') {
+            return Response::error("not found", 404);
+        }
+    }
+    if (status_route || get.is_some() || progress.is_some()) && request.method() != Method::Get
+        || (draft
+            || freeze
+            || approve.is_some()
+            || advance.is_some()
+            || managed_approve.is_some()
+            || managed_continue.is_some())
+            && request.method() != Method::Post
     {
         return Response::error("method not allowed", 405);
+    }
+    if approve.is_some()
+        && env
+            .var("CUSTODY_PROVISION_APPROVAL_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+    {
+        return unavailable();
+    }
+    if (managed_approve.is_some() || managed_continue.is_some())
+        && env
+            .var("CUSTODY_NATIVE_PROVISION_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+    {
+        return unavailable();
+    }
+    if advance.is_some()
+        && env
+            .var("CUSTODY_PROVISION_KEYS_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+    {
+        return unavailable();
     }
     let config = match NativeIdentityConfig::from_env(&env) {
         Ok(Some(v)) => v,
@@ -43,7 +106,92 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return Ok(response);
     }
     // The request never supplies a manager selector. Metadata remains inside this private hop.
-    let result = if draft {
+    let result = if let Some(id) = managed_continue {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: ProvisionDriveRequestV1 =
+            match serde_json::from_str::<ProvisionDriveRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        continue_managed_login_owner(
+            &env,
+            &serde_json::to_string(&DriveRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = managed_approve {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: ManagedLoginApproveRequestV1 = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        approve_managed_login_owner(
+            &env,
+            &serde_json::to_string(&ManagedLoginApproveRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = advance {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: ProvisionDriveRequestV1 = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        if value.validate().is_err() {
+            return Response::error("invalid request", 400);
+        }
+        advance_owner(
+            &env,
+            &serde_json::to_string(&DriveRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = progress {
+        read_progress(
+            &env,
+            &serde_json::to_string(&ReadRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+            })?,
+        )
+        .await
+    } else if let Some(id) = approve {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: ProvisionApproveRequestV1 = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        if value.validate().is_err() {
+            return Response::error("invalid request", 400);
+        }
+        let rpc = ApproveRpc {
+            manager_session: manager,
+            provision_id: id.into(),
+            request: value,
+        };
+        approve_owner(&env, &serde_json::to_string(&rpc)?).await
+    } else if draft {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
@@ -91,7 +239,24 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return unavailable();
     };
     // Validate the actual response DTO in Rust before passing its original JSON bytes.
-    if freeze {
+    if managed_approve.is_some() || managed_continue.is_some() {
+        let value: ManagedLoginApprovalViewV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || Some(value.provision_id.as_str()) != managed_approve.or(managed_continue)
+        {
+            return unavailable();
+        }
+    } else if advance.is_some() || progress.is_some() {
+        let value: ProvisionProgressViewV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1 || Some(value.provision_id.as_str()) != advance.or(progress) {
+            return unavailable();
+        }
+    } else if approve.is_some() {
+        let value: ProvisionApprovalViewV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1 || Some(value.provision_id.as_str()) != approve {
+            return unavailable();
+        }
+    } else if freeze {
         let _: ManagerClosureViewV1 = serde_json::from_str(&raw)?;
     } else {
         let _: ProvisionDraftViewV1 = serde_json::from_str(&raw)?;

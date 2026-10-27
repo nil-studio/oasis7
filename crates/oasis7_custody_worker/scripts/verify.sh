@@ -23,6 +23,12 @@ if env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unk
   echo 'approval harness without Owner unexpectedly built' >&2; exit 1
 fi
 grep -q 'approval-harness requires owner' "$scratch/harness-without-owner"
+for role in owner executor recovery-fence; do
+  if env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features "$role,native-runtime-harness" --locked >"$scratch/native-harness-$role" 2>&1; then
+    echo 'native runtime harness without Identity unexpectedly built' >&2; exit 1
+  fi
+  grep -q 'native-runtime-harness requires identity' "$scratch/native-harness-$role"
+done
 for role in identity owner executor recovery-fence; do
   env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features "$role" --locked
 done
@@ -38,6 +44,7 @@ case "${1:-}" in
       (cd crates/oasis7_custody_worker && npx --no-install wrangler deploy --dry-run --config "deploy/$role/wrangler.toml" --outdir "artifacts/$role/dry-run" --no-bundle)
     done
     bash crates/oasis7_custody_worker/scripts/build-approval-harness.sh
+    bash crates/oasis7_custody_worker/scripts/build-native-runtime-harness.sh
     # Execute native custody regressions, including the Provision bootstrap wire
     # contract; compiling the HTTP fixture alone does not run these assertions.
     env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher hosted_identity::custody::tests --locked

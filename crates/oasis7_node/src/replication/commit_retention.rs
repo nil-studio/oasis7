@@ -715,6 +715,9 @@ fn delete_legacy_cold_commit_blobs_if_unreferenced(
         return Ok(());
     }
     let store = LocalCasStore::new(root_dir.join("store"));
+    let _retention = store
+        .acquire_retention_guard()
+        .map_err(super::distfs_error_to_node_error)?;
     let file_hashes = store
         .list_files()
         .map_err(|err| NodeError::Replication {

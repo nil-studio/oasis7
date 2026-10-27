@@ -17,7 +17,7 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
 | [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | path拒绝/CAS先于atomic index/local FileStore功能 | [des-dh-index](#des-dh-index) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
-| [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | expected hash同进程匹配后操作，None兼容、冲突无分布式lock | [des-dh-precondition](#des-dh-precondition) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
+| [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | expected hash在同根目录引用事务中匹配后操作，None兼容、冲突无分布式lock | [des-dh-precondition](#des-dh-precondition) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | audit missing/dangling/orphan；delete只unreferenced且unpinned回收 | [des-dh-audit-gc](#des-dh-audit-gc) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-manifest](distfs-production-hardening.prd.md#dh-manifest) | sorted canonicalCBOR/CAS export，完整validate后atomic import | [des-dh-manifest](#des-dh-manifest) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-local-probe](distfs-production-hardening.prd.md#dh-local-probe) | local challenge integrity/cursor rotation，不是remote attestation | [des-dh-probe](#des-dh-probe) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
@@ -26,6 +26,7 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 | [professional_acceptance: dh-backoff-report](distfs-production-hardening.prd.md#dh-backoff-report) | chain-runtime CLI严格范围；epoch aggregate-only、详细state local | [des-dh-report](#des-dh-report) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-decompression-bound](distfs-production-hardening.prd.md#dh-decompression-bound) | 缓存填充在产生实际解压字节时限制预算，完整验证后才入缓存 | [des-dh-decompression](#des-dh-decompression) | DistFS decoder/cache 与 runtime/QA | 目标；不改变合法大 blob 的非缓存合同，不证明全局 RSS/CPU/网络防护 |
 | Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39；[AC-DCS-001](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-001) | manifest及其引用blob经get_verified、size/version/path完整校验后替换本地索引；只承接hash-bound材料校验子范围 | [材料校验子范围](#des-dh-manifest) | P2P/runtime拥有提交与权限，QA拥有组合判定 | 仅材料供应子范围；不覆盖DCS-002恢复、DCS-005可服务或完整AC |
+| Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39；[AC-DCS-001](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-001) | 已 pin 的同 cut 材料不被并发本地回收删除；仅承接本地保留接缝 | [des-dh-local-retention-coordination](#des-dh-local-retention-coordination) | CAS、Runtime、节点复制、完整同步及 QA | 不证明完整历史闭包、远端故障域、掉电耐久性或全部 AC |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -48,7 +49,7 @@ DistFS拥有local index/CAS/audit/manifest/probe算法；chain-runtime拥有CLI/
 
 ### des-dh-precondition
 
-`write_file_if_match` / `delete_file_if_match` 在当前索引 hash 匹配时继续操作；None 保留无前置条件兼容路径，非法 expected hash 拒绝。它是同进程逻辑 precondition，不提供跨进程/节点锁或分布式线性化；调用方处理冲突及重试节流。
+`write_file_if_match` / `delete_file_if_match` 在当前索引 hash 匹配时继续操作；None 保留无前置条件兼容路径，非法 expected hash 拒绝。它在同一 CAS 根的 retention 锁内检查并修改索引，防止本地并发调用同时通过同一旧 hash；不提供跨节点锁或一般 FileStore 操作的分布式线性化。调用方处理冲突及重试节流。
 
 产品适用性：N/A；reason=本地precondition不定义玩家版本或共识权威；scope=expected hash检查与None兼容。
 
@@ -59,6 +60,17 @@ DistFS拥有local index/CAS/audit/manifest/probe算法；chain-runtime拥有CLI/
 
 产品适用性：N/A；reason=本地引用回收不独立规定世界历史保留策略；scope=missing/dangling/orphan审计及本地引用/pin保护。
 
+#### des-dh-local-retention-coordination
+
+Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39。
+
+同一个本地 CAS 根目录的 pin 更新、文件索引变更/导入及删除回收，共用稳定的 `.retention.lock` OS 独占锁。锁覆盖读取引用快照、检查 blob 存在、发布 pin/索引及删除 blob 的整个操作，不能在取得旧 pin 快照后放锁再 sweep。独立实例和进程使用同一载体；载体不删除、不替换，不用 PID/超时抢锁，进程退出由 OS 释放。符号链接、非普通文件或非空载体拒绝。锁不适用的平台返回错误，不能降级为无锁回收。
+
+成功 pin 返回后，遵守此协议的 prune 和文件删除不得移除该 blob，直到对应 pin 被显式撤销；全局 pin 的 read-modify-write 同样串行，避免并发增加丢失。blob put 也与删除串行，但裸 put 不授予保留资格；put 与后续 pin 之间允许 GC 先行，pin 必须在锁内重查存在性，缺失返回错误，调用者不能发布依赖该 pin 的提交。直接文件系统修改、旧版进程及不支持可靠 OS 锁的文件系统不在本地协调保证内，启用并发维护前须升级全部访问者。
+
+Runtime sidecar、节点复制 orphan/legacy sweep 和 attempt duplicate 回收也必须在同一 guard 下读取 pins 并删除。sidecar 在完成 CAS put/staging 后取得 guard，先重验新 generation 的闭包，再读取当前索引、合并并发布新索引、按该索引 sweep、写回 GC 结果；guard 不能在最后索引写回前释放，旧实例不能用旧快照覆盖新 generation。未取得 guard 前若 staging/blob 已被回收，重验失败且不得发布新索引；此接缝不把尚未发布材料变为已保留根，也不授予一般 GC 对专用 sidecar 根的回收资格。attempt 在资格、双端独立闭包及持久 retire fence 确认后，才由该私有存储的所有者撤销 `execution_bridge_v1` 内与精确 duplicate 输出重合的内部 pin；变更的 shard 和父目录先 fsync。其他 scope、全局 pin、无关内部引用和文件索引均保留；输出若仍被这些引用保护则等待后续维护，不能标为 Reclaimed。损坏成员修复在锁内重算 hash，已经恢复正确的成员不能因调用者的旧观察再次被删；真正损坏的成员可被清除后按原 hash 重新获取，原 pin 不被撤销。
+
+`prune_unpinned` 保留既有按容量淘汰语义：只保护 effective pins，可淘汰有文件索引但未 pin 的 blob，随后 audit 报告 missing；delete/orphan sweep 额外保护索引引用。此区别不改变配额或保留策略。完整同步的耐久 pin 发布器在同一 guard 内执行容量预检、blob fsync 和原子 shard 发布；其 GC 调用前后的容量采样不是并发写入下的全局容量事务，超限仍明确报错。该锁不是网络锁、世界根闭包证明、磁盘掉电耐久性或 checkpoint/历史 GC 授权。
 
 ### des-dh-manifest
 
@@ -109,7 +121,7 @@ path校验→CAS写→atomic index；if-match查当前hash再write/delete，None
 
 ## 6. 接口与数据合同
 
-FileMetadata path/hash/size/updated_at；write/read/stat/list/delete是local抽象；write_file_if_match/delete_file_if_match expected hash同进程逻辑precondition不是锁。FileIndexAuditReport missing/dangling/orphan；FileIndexManifest/Ref canonicalCBOR/CAS。DistfsProbeRuntimeConfig和reward-distfs-probe/adaptive-multiplier CLI属chain-runtime；旧state defaults兼容。
+FileMetadata path/hash/size/updated_at；write/read/stat/list/delete是local抽象；write_file_if_match/delete_file_if_match expected hash在同一CAS根的引用事务内核对，不是跨节点锁。FileIndexAuditReport missing/dangling/orphan；FileIndexManifest/Ref canonicalCBOR/CAS。DistfsProbeRuntimeConfig和reward-distfs-probe/adaptive-multiplier CLI属chain-runtime；旧state defaults兼容。
 
 | producer → consumer | 输入身份/版本 | 顺序与幂等 | success / error | 兼容与资源边界 |
 | --- | --- | --- | --- | --- |
@@ -123,7 +135,7 @@ accepted、applied、persisted、published必须分别具备各自证据；workf
 
 ## 8. 部署、安全与运行约束
 
-路径禁止empty/absolute/..；unreferenced AND unpinned才GC；precondition冲突调用方retry节流和所有权，不跨进程/节点线性化。budget/base/max/reason multiplier控I/O，不改变challenge验证/reward公式/network协议。secrets不入证据，保state/log/error纠config/code/deployment根因。
+路径禁止empty/absolute/..；delete/orphan GC只处理unreferenced AND unpinned，quota eviction按既有effective pins规则；precondition冲突调用方retry节流和所有权，同根引用事务不提供跨节点线性化。budget/base/max/reason multiplier控I/O，不改变challenge验证/reward公式/network协议。secrets不入证据，保state/log/error纠config/code/deployment根因。
 
 设计只定义受控输入和失败条件；操作留在现行runbook。当前governed live网络raw-copy禁令和signed-V2边界只适用于该runbook环境，不否定历史/offline local事实。任何真实fleet/health/restore claim需固定inventory/manifest/package/config与同窗口证据，不从triad标签或本地成功推导。
 
@@ -149,7 +161,7 @@ MIG067..075、MIG080仅历史；旧probe state字段default兼容。Phase5细rep
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | [des-dh-index](#des-dh-index) | path拒绝/CAS先于atomic index/local FileStore功能 | [testing-manual S4/S9A](../../../testing-manual.md)；exact local test source `crates/oasis7_distfs/src/lib_tests.rs`；existing file_store_rejects_invalid_paths、file_store_write_read_roundtrip、file_store_overwrite_updates_hash_and_metadata；index-write故障完整oracle planned。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
-| [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | [des-dh-precondition](#des-dh-precondition) | expected hash同进程匹配后操作，None兼容、冲突无分布式lock | [testing-manual S4/S9A](../../../testing-manual.md)；exact local test source `crates/oasis7_distfs/src/lib_tests.rs`；existing file_store_write_if_match_enforces_hash_precondition、file_store_delete_if_match_enforces_hash_precondition、file_store_if_match_rejects_invalid_expected_hash；只同进程。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
+| [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | [des-dh-precondition](#des-dh-precondition) | expected hash在同根目录引用事务中匹配后操作，None兼容、冲突无分布式lock | [testing-manual S4/S9A](../../../testing-manual.md)；exact local test source `crates/oasis7_distfs/src/lib_tests.rs`；existing file_store_write_if_match_enforces_hash_precondition、file_store_delete_if_match_enforces_hash_precondition、file_store_if_match_rejects_invalid_expected_hash；只同进程。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-local-index](distfs-production-hardening.prd.md#dh-local-index) | [des-dh-audit-gc](#des-dh-audit-gc) | audit missing/dangling/orphan；delete只unreferenced且unpinned回收 | [testing-manual S4/S9A](../../../testing-manual.md)；exact local test source `crates/oasis7_distfs/src/lib_tests.rs`；existing file_index_audit_reports_missing_dangling_and_orphan_blobs、file_store_delete_preserves_blob_referenced_by_another_file；prune_orphan_blobs_removes_only_unreferenced_data断言live/pinned保留、orphan删除；shared-ref测试断言最后引用删除才回收。非世界pruning证明。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-manifest](distfs-production-hardening.prd.md#dh-manifest) | [des-dh-manifest](#des-dh-manifest) | sorted canonicalCBOR/CAS export，完整validate后atomic import | [testing-manual S4/S9A](../../../testing-manual.md)；exact local test source `crates/oasis7_cas/src/manifest.rs`；existing file_index_manifest_export_import_restores_index、file_index_manifest_import_rejects_missing_blob；roundtrip断言路径a/b排序、恢复2项及原字节；missing-blob测试仅断言错误，完整failed-import nonmutation仍planned；仅local mapping。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-local-probe](distfs-production-hardening.prd.md#dh-local-probe) | [des-dh-probe](#des-dh-probe) | local challenge integrity/cursor rotation，不是remote attestation | [testing-manual S4/S9A](../../../testing-manual.md)；exact local test source `crates/oasis7_distfs/src/challenge_scheduler.rs`；existing probe_with_cursor_records_hash_mismatch_failure、probe_with_cursor_advances_and_accumulates_state；localCAS。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
@@ -158,6 +170,7 @@ MIG067..075、MIG080仅历史；旧probe state字段default兼容。Phase5细rep
 | [professional_acceptance: dh-backoff-report](distfs-production-hardening.prd.md#dh-backoff-report) | [des-dh-report](#des-dh-report) | chain-runtime CLI严格范围；epoch aggregate-only、详细state local | [testing-manual.md](../../../testing-manual.md)；S4 required planned CLI拒非法值、legacy state/readback与epoch fields oracle；CLI/worker/report完整测试未定位，本地lib suite不足。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: dh-decompression-bound](distfs-production-hardening.prd.md#dh-decompression-bound) | [des-dh-decompression](#des-dh-decompression) | 缓存解压实际输出预算与完整性后发布 | [testing-manual S4](../../../testing-manual.md)；§13 的有界 reader/sink 计数、损坏输入、缓存不变和大文件兼容场景；planned local fixture，入口为现有 DistFS lib suite | source、固定容量配置、输出计数、缓存前后结果与命令退出码 | 最终报错不足；未运行，不证明 decoder workspace、RSS、CPU 或网络 DoS 上界 |
 | Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39；[AC-DCS-001](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-001) | [材料校验子范围](#des-dh-manifest) | manifest及其引用blob经get_verified、size/version/path完整校验后替换本地索引；只承接hash-bound材料校验子范围 | [testing-manual S9A](../../../testing-manual.md)；planned同candidate P2P/runtime消费负例：错误hash/缺提交证明/非权威服务输入拒绝，观察无canonical进展；本页局部fixture只验证材料机制 | source/config/world/profile与真实拒绝结果、canonical前后状态；QA独立判定 | 未运行，local CAS、manifest、probe或DHT成功均不足以证明完整AC |
+| Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39；[AC-DCS-001](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-001) | [des-dh-local-retention-coordination](#des-dh-local-retention-coordination) | 同根保留事务与成功 pin 后不丢材料 | [testing-manual 本地 CAS retention 与 GC 协调](../../../testing-manual.md#本地-cas-retention-与-gc-协调)；`crates/oasis7_cas/src/retention_tests.rs` 跨进程锁等待、pin 后原字节保留、杀进程释放原锁及回收先行的 missing；完整同步自有耐久发布器、Node 修复及 Runtime/attempt 消费者回归 | 当次 PR 的 source、命令、实际退出码与独立评审；原始 RED/GREEN 对照 | 合作进程与支持 OS 锁的本地文件系统；不证明完整历史 GC、远端域或掉电 |
 
 ## 12. 决策、长期风险与未决问题
 

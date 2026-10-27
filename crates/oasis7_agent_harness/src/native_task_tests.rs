@@ -30,7 +30,7 @@ struct FakeHost {
     context_drift: bool,
     execution_allowed: Option<Arc<AtomicBool>>,
 }
-fn fence() -> GameTaskFenceV1 {
+pub(super) fn fence() -> GameTaskFenceV1 {
     GameTaskFenceV1 {
         world_id: "world".into(),
         genesis_digest: "genesis".into(),
@@ -185,7 +185,15 @@ impl NativeTaskHost for FakeHost {
             allowed.store(false, Ordering::SeqCst);
         }
         let effect = if t.side_effect() {
-            Some(s.effects.pop_front().unwrap_or(NativeTaskRecovery::Settled))
+            Some(
+                s.effects
+                    .pop_front()
+                    .unwrap_or(if matches!(t, NativeTaskTool::Abort(_)) {
+                        NativeTaskRecovery::Aborted
+                    } else {
+                        NativeTaskRecovery::Settled
+                    }),
+            )
         } else {
             None
         };
@@ -647,3 +655,19 @@ mod baseline_diagnostics;
 
 #[path = "native_task_expiry_tests.rs"]
 mod expiry;
+
+#[test]
+fn explicit_abort_is_not_a_successful_business_turn() {
+    let host = Arc::new(FakeHost::new());
+    let report = NativeTaskRunner::new(
+        host.clone(),
+        provider(vec![vec![call("abort", json!({}))]]),
+        config(),
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+    assert_eq!(report.stop_reason, NativeTaskStopReason::Aborted);
+    assert_eq!(report.turns_completed, 0);
+    assert_eq!(report.model_calls_spent, 1);
+}

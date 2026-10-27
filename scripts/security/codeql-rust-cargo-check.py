@@ -29,8 +29,9 @@ def prepare_native(source, out, end, env):
     preparation_end = min(end - 90, time.monotonic() + 180)
     for name, args, limit in (
             ('native-update', ['update'], 60),
-            ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], 120)):
-        remaining = min(limit, preparation_end - time.monotonic())
+            ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], 180)):
+        # Reserve both 10-second package/module observations within the same window.
+        remaining = min(limit, preparation_end - time.monotonic() - 20)
         if remaining < 10:
             raise RuntimeError('insufficient native preparation budget')
         # The privileged timeout terminates its own apt children before our outer watchdog.

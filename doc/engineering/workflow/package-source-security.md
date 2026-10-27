@@ -77,4 +77,24 @@ ECS 使用独立 `ecs` profile（继承 release、opt-level 3、关闭跨 crate 
 
 ECS 组装同时从固定 source 的 Git 对象发布正式 `skills/oasis7-play/`，不能混入 dirty checkout、未跟踪文件或旧 Bridge Skill。源 Markdown、引用、版本清单与发现页一同进入 `web-dist/skills/`，受整包校验和约束。随包发布工具在部署侧核对实际 launcher 与所选 release、清单 source 和文件字节，生成仅含精确 GET / HEAD 路径的 Nginx include；公网逐字节校验失败恢复旧 include。每次升级 / 回滚均随游戏版本发布，操作见下述单机手册；这不新增部署凭据或 CI 自动安装权限。
 
-候选 ref 的工作流和原生 job 仅只读缓存。仅 main 且 workflow SHA 等于 source/event SHA 的原生 job 有缓存写权限，保存到独立 ECS 命名空间；失败不写缓存。Web 仅恢复既有可信缓存。汇合要求 Web 成功且恰好一个原生 lane 成功、另一个预期跳过；失败、取消或缺失不能生成最终包。入口只有内容读取和 artifact 上传，不含部署凭据、自动发布或自动安装。操作方法见[单机 ECS 手册](../../testing/manual/single-ecs-preview-deploy.manual.md)。
+候选 ref 的工作流和原生 job 仅只读缓存。仅 main 且 workflow SHA 等于 source/event SHA 的原生 job 有缓存写权限，保存到独立 ECS 命名空间；失败不写缓存。Web 仅恢复既有可信缓存。汇合要求 Web 成功且恰好一个原生 lane 成功、另一个预期跳过；失败、取消或缺失不能生成最终包。默认入口保持内容读取和 artifact 上传；显式启用 Preview 发布时，仅通过下述独立受限发布 job 推进 OSS 频道。操作方法见[单机自动更新手册](../../testing/manual/single-ecs-preview-auto-update.manual.md)。
+
+
+<a id="ecs-preview-automatic-deployment"></a>
+## ECS Preview 自动发布与更新
+
+Trace ID: O7-REQ-5ef8b941-eaa3-4975-a020-59b4d74fba89
+
+单机 Preview 的正常兼容升级使用一次发包触发、OSS 不可变发布物、最后更新频道、主机轮询更新的流程。此工程要求承接现有 ECS 包来源与安装边界；不改变游戏权限、世界初始化、正式多节点 rollout 或数据迁移规则。真实 CI 发布与真实 ECS 验收分别记录在 [#5126](https://github.com/nil-studio/oasis7/issues/5126) 和适用部署任务；本地夹具只能证明隔离行为。
+
+发布职责归可信 main 的正常 ECS 发包任务，仅明确启用 Preview 发布且既有构建、组装、冷入场验证全部成功时取得短期 OIDC 发布身份。候选、测量、取消、失败或不完整结果不能推进频道。复用原归档及外部 SHA256，不重新编译；保留 Actions artifact。版本对象包含完整源码 SHA、run ID/attempt，使用禁止覆盖的写入；归档、校验信息和 release manifest 均回读可用后才能更新唯一频道。频道仅允许同一个可信工作流发布身份写入，按频道 concurrency 串行，写前重读确认频道未变化；OSS PutObject 不假设支持 If-Match 条件覆盖。其他工具或身份不得绕过该唯一写者边界；发布意图顺序及源码祖先关系共同防止迟到 run / 旧任务重跑倒退。显式回退是新的意图指向保留的合格发布物，不覆盖旧内容，也不要求已选源码仍是最新 main。
+
+主机只接受固定 bucket/prefix 内的严格 schema、精确 key、平台与 SHA256，不从对象列表选最新版或执行远端清单命令。ECS 实例角色只读，内网 endpoint 优先。主机配置和独立兼容许可由本机管理员控制；许可绑定实际组件前态、精确目标和审核依据，远端自报 safe 不能替代兼容证据。首版还提供受本机一次授权的只读 Viewer 自动兼容子集：包内校验和覆盖完整 Git commit/tree 输入证明，主机独立重建并比对全树；禁止新增/删除输入，变化只限管理员审核的精确显示输入路径，chain、launcher 和签名客户端实际程序字节均须不变，且运行中的 chain 完整绑定不变。管理员须先确认该 Viewer 使用外部 chain、不能直接迁移世界或身份存储；授权文件名不是语义安全证明，而是本机明确接受的显示输入风险范围。超出这一子集仍需精确前后版本的独立兼容证据，不能把相同契约字符串视为兼容。未知持久格式、身份格式或 chain 写入状态在适用切换/回退前停止，不重建世界、不恢复旧快照伪装程序回退。
+
+更新器与游戏服务独立；systemd oneshot/timer 默认 60 秒轮询。下载、归档摘要、安全解包、完整文件校验、来源/平台/依赖与空间预检均先于服务停止。安装到独立版本目录并验证后复用，绝不覆盖运行目录。维护锁默认位于 root 控制的持久目录 `/var/lib/oasis7-preview-updater/deploy.lock`；安装器只在受信祖先下创建缺失的私有锁目录，不放宽共享目录权限。协调者与手工维护共用同一 flock，覆盖组件切换、Web/Skill、验收和恢复。Skill 工具接受继承的已持锁 descriptor，验证准确 inode 与独占锁，不释放外层锁或在其上嵌套独立获取。单独调用 Skill 工具仍自行获取相同维护锁。
+
+每个组件持有独立的版本路径；player-only 更新保留 chain 程序、参数和进程，同时更新对应 Web/Skill。包含 chain 时先停 player、更新 chain、再启 player；沿用所有原参数和数据目录。状态原子持久化目标意图、组件实际版本、上一可用版本、执行阶段和失败/回退结果；实际进程字节、公开 API、同版本 Web/Skill、签名世界读取与原稳定身份，以及完整 60 秒内至少三次有效世界推进全部验证后才标成功。服务 active、HTTP 200 或 CI 冷入场不能代签。
+
+成功意图不重复重启；下载瞬时失败有界重试且保留旧服务。部署验证失败的意图保持失败，timer 不重复切换，须新意图或本地显式 retry。观察频道不等于完成部署。中断恢复读取持久阶段和实际服务状态，不能盲目重做切换或直接记成功。兼容许可明确支持的失败回退须恢复并验证前一组件及 Web/Skill；涉及不兼容写入、迁移或未知写入时保留现场，拒绝旧程序重新读当前数据。版本清理仅处理确认不被进程/unit/配置引用的安装版本，当前、前一可用及所有引用版本受保护；不清理世界、身份、密钥、备份和 journal。
+
+操作入口及一次性云配置见 [单机自动更新手册](../../testing/manual/single-ecs-preview-auto-update.manual.md)。启用前安装预检核对已有服务、组件路径及世界身份，安装器不初始化世界。真实环境未配置/验收时必须保留 unknown，不把代码可用写成已上线。

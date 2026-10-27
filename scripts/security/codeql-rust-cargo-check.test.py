@@ -31,6 +31,35 @@ class SingleCheck(unittest.TestCase):
         cargo.chmod(0o755)
         return str(cargo)
 
+    def test_install_can_use_unused_update_time_without_extending_shared_window(self):
+        clock=[100.0]; calls=[]
+        def run(argv,cwd,output,end,timeout,root,env,**kwargs):
+            calls.append((argv,end,timeout))
+            if "update" in argv:clock[0]+=14
+            elif "install" in argv:
+                self.assertGreaterEqual(timeout,140)
+                clock[0]+=140
+            else:clock[0]+=1
+        with patch.object(m.time,"monotonic",side_effect=lambda:clock[0]), patch.object(m.runtime,"run",side_effect=run):
+            m.prepare_native(self.source,self.out,1000,{})
+        self.assertEqual(len(calls),4)
+        self.assertTrue(all(end==280 for _,end,_ in calls))
+        self.assertLess(clock[0],280)
+
+    def test_native_preparation_respects_shorter_parent_deadline(self):
+        clock=[100.0]; calls=[]
+        def run(argv,cwd,output,end,timeout,root,env,**kwargs):
+            calls.append((argv,end,timeout))
+            if "update" in argv:clock[0]+=14
+            elif "install" in argv:clock[0]+=40
+            else:clock[0]+=1
+        with patch.object(m.time,"monotonic",side_effect=lambda:clock[0]), patch.object(m.runtime,"run",side_effect=run):
+            m.prepare_native(self.source,self.out,270,{})
+        self.assertTrue(all(end==180 for _,end,_ in calls))
+        self.assertEqual(calls[1][2],46)
+        self.assertEqual(int(calls[1][0][5]),41)
+        self.assertLess(clock[0],180)
+
     def test_native_preparation_stops_at_missing_pkgconfig_module(self):
         calls=[]
         def run(argv, *args, **kwargs):
@@ -52,7 +81,7 @@ class SingleCheck(unittest.TestCase):
         self.assertEqual(calls[0][0][0][:3],['sudo','-n','timeout'])
         self.assertEqual(len({args[3] for args,_ in calls}),1)
         self.assertLessEqual(calls[0][0][4],60)
-        self.assertLessEqual(calls[1][0][4],120)
+        self.assertLessEqual(calls[1][0][4],160)
         for package in ('libgtk-3-dev','libwebkit2gtk-4.1-dev','libdbus-1-dev'):
             self.assertIn(package,calls[1][0][0])
         modules=calls[-1][0][0]

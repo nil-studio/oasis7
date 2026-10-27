@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("ecs_skill_release", ROOT / "scripts/package-ecs-skills.py")
 skills = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(skills)
+compatibility_spec = importlib.util.spec_from_file_location("ecs_compatibility", ROOT / "scripts/ecs_preview_compatibility.py")
+compatibility = importlib.util.module_from_spec(compatibility_spec)
+compatibility_spec.loader.exec_module(compatibility)
 
 
 def digest(path):
@@ -89,6 +92,7 @@ def main():
         skills.package(ROOT, sha, args.out / "web-dist")
         (args.out / "deployment").mkdir()
         shutil.copy2(ROOT / "scripts/package-ecs-skills.py", args.out / "deployment/ecs-skill-release.py")
+        (args.out / "compatibility-inputs.json").write_text(json.dumps(compatibility.source_evidence(ROOT, sha), sort_keys=True) + "\n")
         (args.out / "BUILDINFO").write_text(f"source={sha}\nprofile=ecs\nplatform=linux-x64\nkind=ecs-server\n")
         (args.out / "manifest.json").write_text(json.dumps(identity, indent=2) + "\n")
         files = sorted(path for path in args.out.rglob("*") if path.is_file())

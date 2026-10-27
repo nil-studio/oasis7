@@ -22,6 +22,23 @@ pub fn factory_has_canonical_stable_line(factory: &FactoryState) -> bool {
             })
 }
 
+/// Select the canonical industry stage from the supplied scope's progress.
+/// Callers own attribution; this function does not mutate state or infer owners.
+pub fn industry_stage_for_progress(
+    stable: bool,
+    completed_jobs: u64,
+    completed_material_transits: u64,
+    governance_enabled: bool,
+) -> IndustryStage {
+    if !stable {
+        IndustryStage::Bootstrap
+    } else if governance_enabled && (completed_jobs >= 6 || completed_material_transits >= 3) {
+        IndustryStage::Governance
+    } else {
+        IndustryStage::ScaleOut
+    }
+}
+
 impl<'a> WorldStateProjection<'a> {
     pub fn with_industry_overlay(mut self, overlay: &'a PreparedIndustryEvent) -> Self {
         self.industry_overlay = Some(overlay);

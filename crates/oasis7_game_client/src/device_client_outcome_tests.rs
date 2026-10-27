@@ -1,11 +1,15 @@
 use super::*;
 use oasis7_agent_api::game::{GameTaskControlV1, TaskContextIdentityV1};
 
-fn context() -> TaskContextIdentityV1 {
+fn control() -> GameTaskControlV1 {
     let public = authority::sign_read_request("key", (), &hex::encode([7; 32]))
         .unwrap()
         .subject_public_key;
     let control: GameTaskControlV1 = serde_json::from_value(json!({"schema_revision":1,"task_id":"task","world_id":"world","genesis_digest":"genesis","branch_id":"main","reorg_epoch":"0","agent_id":"a","owner_binding":"owner","owner_generation":"1","owner_public_key":public,"task_revision":"3","task_status":"active","latest_goal_revision":"1","active_goal_revision":"1","active_goal_reference":{"goal_revision":"1","goal_ref":"cd".repeat(32),"prepare_operation_id":"goal","publish_operation_id":"publish","activation_committed_height":"2"},"executor_epoch":"1","executor_id":"executor","executor_binding":{"executor_id":"executor","executor_public_key":public,"delegation_generation":"1","executor_epoch":"1"},"created_operation_id":"create"})).unwrap();
+    control
+}
+fn context() -> TaskContextIdentityV1 {
+    let control = control();
     serde_json::from_value(json!({
         "schema_revision":1,"fence":GameTaskFenceV1::from_control(&control),
         "agent_session_id":"session","agent_turn_id":"turn","decision_request_id":"request",
@@ -249,4 +253,52 @@ fn existing_outcome_cannot_be_replaced_with_a_different_reason() {
     );
     drop(client);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn lifecycle_termination_rechecks_the_immutable_initial_run_fence_before_creating_an_outcome() {
+    for field in [
+        "owner_generation",
+        "task_revision",
+        "active_goal_revision",
+        "executor_epoch",
+    ] {
+        let (mut client, root, payload) = fixture();
+        let original = client
+            .cache_intent(ClientStateKind::Prefix, "ctx", payload)
+            .unwrap();
+        let (_, mut response) = crate::verified_task_view::tests::fixture("agent:a");
+        response.view["game_task_control"] = serde_json::to_value(control()).unwrap();
+        let (endpoint, server) = crate::tests::serve_payload(
+            VIEW_JSON_PATH,
+            serde_json::to_value(response).unwrap(),
+            |_| {},
+        );
+        client.remote = crate::WorldServiceTaskClient::new(crate::tests::config(endpoint)).unwrap();
+        let mut changed = serde_json::to_value(context().fence).unwrap();
+        changed[field] = json!("99");
+        let initial = serde_json::from_value(changed).unwrap();
+        assert!(
+            client
+                .terminate_context("ctx", &initial, ContextTermination::BudgetExhausted)
+                .unwrap_err()
+                .contains("task control changed")
+        );
+        assert!(
+            client
+                .cached_intent(ClientStateKind::Outcome, "ctx")
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            client
+                .cached_intent(ClientStateKind::Prefix, "ctx")
+                .unwrap()
+                .unwrap(),
+            original
+        );
+        server.join().unwrap();
+        drop(client);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
