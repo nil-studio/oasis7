@@ -105,6 +105,8 @@ Rust 的 CodeQL、容量及 CFG 诊断入口仅精确忽略 `tools/oasis7-comman
 
 诊断由 Rust workflow 的 `workflow_dispatch` / `run_mode=codeql_rust_model_diagnostic` 显式触发，`model_probe` 选择上述探针，`model_bundle_version` 只接受固定 allowlist 中的 `2.27.2` 或 `2.27.3`，默认旧版；本地入口对应 `--bundle-version`。完整 bundle URL/摘要及解析包闭包随选择绑定，不能混用新版 CLI 和旧版库，也不接受任意下载 URL。派发前冻结诊断 source SHA 与业务 checkout SHA，读回唯一 run 后沿该身份观察，不重复派发。
 
+`model_probe=trait-scope-plan` 仅在完整官方 2.27.3 上做隔离库编译计划实验：将 trait 可见性图的 ItemNode 域限制为目标点所属作用域及其完整反向外层闭包，保留原作用域跳转、图边和相关 trait/element 配对。有限图差分和路径等价证明不代替实际 Rust 语义验收。入口先核固定官方文件摘要，仅在私有副本中替换一处；两版分别编译公共 localFlow 与 getStaticTarget 查询，使用独立冷编译缓存、同一 360 秒共享编译预算及原 1080 秒/20 分钟总门。没有数据库、提取或求值，不读取业务源码，不上传 SARIF，不安装无需使用的 Rust 工具链。完整 RA 必须独立复核作用域约束是否进入图边构造，以及是否只是把工作移到 relevantItemNode/getADescendant；无有效减算证据时淘汰或记 INCONCLUSIVE，runtime_go 始终为 false，不能因编译成功自动启动后续求值。官方包原件及其他诊断模式保持不变。
+
 ## 生产资源容量评估
 
 `.github/workflows/codeql-rust-capacity.yml` 是独立的手动入口，`execute` 默认为 false；只有明确授权并确认 true 才执行。它固定 `rust-repo/default`，不接受扩展档或旧单探针替代完整工作负载。派发前冻结评估源码 main SHA、诊断实现 SHA、官方完整 bundle 和公共见证锚点，读回唯一 run 后沿同一身份观察；一次完成或失败即停止，不自动重跑。
@@ -117,7 +119,7 @@ Rust 的 CodeQL、容量及 CFG 诊断入口仅精确忽略 `tools/oasis7-comman
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前固定业务源码为已合入 Tauri 生成上下文排除的 `c036927d33b917a036a731f071209e16f6deb033`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，仍按 45 分钟完整 default 与公共见证合同验收。旧业务版本仅可显式选取，旧结果不能代签本配置。其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
 
 分析后的独立 `capture` 步骤先保存已有数据库日志，再分别读取 HEAD、工作区状态和 Git 根，不能由身份或资源错误跳过。`database-log-capture.json` 列出原始长度、已保存字节及摘要、变化/截断/未到达原因；部分证据可解释失败，但不能支持完整验收。步骤 outcome、最初失败与后续采证错误分别记录；失败后不继续 CodeQL 解码或公共见证。官方 Action 的进程清理保持 `UNKNOWN_RUNNER_OWNED`，需最终 runner 日志回读，不能套用 helper 自有进程组的清理结果。
 

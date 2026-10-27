@@ -1,389 +1,60 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
+python_bin=$(./scripts/find-python-with-module.sh tomllib)
 
-tmp_dir=$(mktemp -d)
-launcher_manifest="tools/wasm_build_suite/Cargo.toml"
-launcher_backup="$tmp_dir/wasm_build_suite.Cargo.toml"
-root_manifest="Cargo.toml"
-root_backup="$tmp_dir/root.Cargo.toml"
-root_lock="Cargo.lock"
-root_lock_backup="$tmp_dir/root.Cargo.lock"
-cp "$launcher_manifest" "$launcher_backup"
-cp "$root_manifest" "$root_backup"
-cp "$root_lock" "$root_lock_backup"
-cleanup() {
-  cp "$launcher_backup" "$launcher_manifest" 2>/dev/null || true
-  cp "$root_backup" "$root_manifest" 2>/dev/null || true
-  cp "$root_lock_backup" "$root_lock" 2>/dev/null || true
-  rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
-
-direct_baseline="$tmp_dir/direct-dependency-baseline.json"
-cp scripts/rustsec-ignore-direct-dependency-baseline.json "$direct_baseline"
-
-run_check() {
-  OASIS7_RUSTSEC_DENY_TOML="$1" \
-    OASIS7_RUSTSEC_DIRECT_DEP_BASELINE="${2:-$direct_baseline}" \
-    OASIS7_RUSTSEC_TODAY="2026-10-01" \
-    ./scripts/check-rustsec-ignore-baseline.sh
-}
-
-valid_out="$tmp_dir/valid.out"
-run_check deny.toml >"$valid_out"
-if ! grep -q "ok: RustSec ignore baseline" "$valid_out"; then
-  echo "expected valid baseline to pass" >&2
-  cat "$valid_out" >&2
-  exit 1
-fi
-
-missing_metadata="$tmp_dir/missing-metadata.toml"
-python3 - deny.toml "$missing_metadata" <<'PY'
+"$python_bin" - <<'PYTHON'
 from pathlib import Path
-import sys
+import os
+import subprocess
+import tempfile
 
-source = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-out = []
-skip_previous = False
-for line in source:
-    if '"RUSTSEC-2024-0436"' in line and out and "rustsec-ignore:" in out[-1]:
-        out.pop()
-    out.append(line)
-Path(sys.argv[2]).write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-if run_check "$missing_metadata" >"$tmp_dir/missing.out" 2>&1; then
-  echo "expected missing metadata case to fail" >&2
-  exit 1
-fi
-grep -q "missing rustsec-ignore metadata" "$tmp_dir/missing.out"
+checker = "./scripts/check-rustsec-ignore-baseline.sh"
+valid = """[advisories]
+ignore = []
+[bans]
+deny = [{name = 'serde_cbor'}, {name = 'paste'}, {name = 'ttf-parser'}]
+"""
 
-commented_id="$tmp_dir/commented-id.toml"
-python3 - deny.toml "$commented_id" <<'PY'
-from pathlib import Path
-import sys
+def check(content, passes, diagnostic=""):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "deny.toml"
+        path.write_text(content, encoding="utf-8")
+        result = subprocess.run(
+            [checker], env={**os.environ, "OASIS7_RUSTSEC_DENY_TOML": str(path)},
+            text=True, capture_output=True,
+        )
+    assert (result.returncode == 0) == passes, (content, result.stdout, result.stderr)
+    assert diagnostic in result.stderr, result.stderr
 
-source = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-out = []
-for line in source:
-    if '"RUSTSEC-2024-0436"' in line and not line.lstrip().startswith("#"):
-        out.append("  # " + line.strip() + " # test-only commented debt note")
-    else:
-        out.append(line)
-Path(sys.argv[2]).write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-if run_check "$commented_id" >"$tmp_dir/commented.out" 2>&1; then
-  echo "expected commented advisory id case to fail" >&2
-  exit 1
-fi
-grep -q "approved RustSec ignore id(s) missing" "$tmp_dir/commented.out"
-
-extra_id="$tmp_dir/extra-id.toml"
-python3 - deny.toml "$extra_id" <<'PY'
-from pathlib import Path
-import sys
-
-source = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-out = []
-for line in source:
-    out.append(line)
-    if '"RUSTSEC-2024-0436"' in line:
-        out.append("  # rustsec-ignore: owner=repository_health_engineer; scope=test; reason=test; expiry=2026-08-31; validation=test")
-        out.append('  "RUSTSEC-2099-0001", # test-only unapproved advisory')
-        out.append("  # rustsec-ignore: owner=repository_health_engineer; scope=test; reason=retired advisory must stay unapproved; expiry=2026-10-31; validation=cargo tree --locked -i quick-xml")
-        out.append('  "RUSTSEC-2026-0194", # test-only retired quick-xml advisory')
-        out.append("  # rustsec-ignore: owner=repository_health_engineer; scope=test; reason=retired advisory must stay unapproved; expiry=2026-10-31; validation=cargo tree --locked -i quick-xml")
-        out.append('  "RUSTSEC-2026-0195", # test-only retired quick-xml advisory')
-Path(sys.argv[2]).write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-if run_check "$extra_id" >"$tmp_dir/extra.out" 2>&1; then
-  echo "expected unapproved advisory case to fail" >&2
-  exit 1
-fi
-grep -q "unapproved RustSec ignore id" "$tmp_dir/extra.out"
-grep -q "RUSTSEC-2026-0194" "$tmp_dir/extra.out"
-grep -q "RUSTSEC-2026-0195" "$tmp_dir/extra.out"
-
-expired="$tmp_dir/expired.toml"
-python3 - deny.toml "$expired" <<'PY'
-from pathlib import Path
-import sys
-
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-Path(sys.argv[2]).write_text(text.replace("expiry=2026-10-31", "expiry=2026-09-30"), encoding="utf-8")
-PY
-if run_check "$expired" >"$tmp_dir/expired.out" 2>&1; then
-  echo "expected expired metadata case to fail" >&2
-  exit 1
-fi
-grep -q "metadata expired" "$tmp_dir/expired.out"
-
-direct_expired="$tmp_dir/direct-expired.json"
-python3 - "$direct_baseline" "$direct_expired" <<'PY'
-from pathlib import Path
-import json
-import sys
-
-payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-payload["expires"] = "2026-09-30"
-Path(sys.argv[2]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
-if run_check deny.toml "$direct_expired" >"$tmp_dir/direct-expired.out" 2>&1; then
-  echo "expected expired direct dependency baseline case to fail" >&2
-  exit 1
-fi
-grep -q "direct dependency baseline expired on 2026-09-30" "$tmp_dir/direct-expired.out"
-
-bad_validation="$tmp_dir/bad-validation.toml"
-python3 - deny.toml "$bad_validation" <<'PY'
-from pathlib import Path
-import sys
-
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-Path(sys.argv[2]).write_text(
-    text.replace(
-        "validation=cargo tree --locked --all-features --target all -i serde_cbor",
-        "validation=echo not-a-scope-check",
-    ),
-    encoding="utf-8",
-)
-PY
-if run_check "$bad_validation" >"$tmp_dir/bad-validation.out" 2>&1; then
-  echo "expected unsupported validation command case to fail" >&2
-  exit 1
-fi
-grep -q 'validation must be a `cargo tree -i ...` command' "$tmp_dir/bad-validation.out"
-
-extra_local_crate="$tmp_dir/extra-local-crate.toml"
-python3 - deny.toml "$extra_local_crate" <<'PY'
-from pathlib import Path
-import sys
-
-lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-mutated = False
-for index, line in enumerate(lines):
-    if "rustsec-ignore:" in line and "crate=serde_cbor;" in line:
-        prefix, scopes = line.split("local_crates=", 1)
-        crates = scopes.split(",")
-        assert "oasis7" in crates, "fixture must remove an actual approved consumer"
-        lines[index] = prefix + "local_crates=" + ",".join(crate for crate in crates if crate != "oasis7")
-        mutated = True
-assert mutated, "serde_cbor scope fixture was not mutated"
-Path(sys.argv[2]).write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
-if run_check "$extra_local_crate" >"$tmp_dir/extra-local-crate.out" 2>&1; then
-  echo "expected unapproved local crate scope case to fail" >&2
-  exit 1
-fi
-grep -q "appears in unapproved local crate scope" "$tmp_dir/extra-local-crate.out"
-
-missing_local_crate="$tmp_dir/missing-local-crate.toml"
-python3 - deny.toml "$missing_local_crate" <<'PY'
-from pathlib import Path
-import sys
-
-lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-mutated = False
-for index, line in enumerate(lines):
-    if "rustsec-ignore:" in line and "crate=serde_cbor;" in line:
-        assert "local_crates=" in line
-        assert "oasis7_fake_scope" not in line
-        lines[index] = line + ",oasis7_fake_scope"
-        mutated = True
-assert mutated, "serde_cbor scope fixture was not mutated"
-Path(sys.argv[2]).write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
-if run_check "$missing_local_crate" >"$tmp_dir/missing-local-crate.out" 2>&1; then
-  echo "expected missing approved local crate scope case to fail" >&2
-  exit 1
-fi
-grep -q "approved local crate scope(s) missing from validation" "$tmp_dir/missing-local-crate.out"
-
-direct_growth="$tmp_dir/direct-growth.json"
-python3 - "$direct_baseline" "$direct_growth" <<'PY'
-from pathlib import Path
-import json
-import sys
-
-payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-paths = payload["ignored_direct_manifests"]["serde_cbor"]
-paths.remove("crates/oasis7/Cargo.toml")
-Path(sys.argv[2]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
-if run_check deny.toml "$direct_growth" >"$tmp_dir/direct-growth.out" 2>&1; then
-  echo "expected direct manifest growth case to fail" >&2
-  exit 1
-fi
-grep -q "direct dependency manifest scope grew beyond RustSec baseline" "$tmp_dir/direct-growth.out"
-
-direct_stale="$tmp_dir/direct-stale.json"
-python3 - "$direct_baseline" "$direct_stale" <<'PY'
-from pathlib import Path
-import json
-import sys
-
-payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-payload["ignored_direct_manifests"]["serde_cbor"].append("crates/oasis7_fake_scope/Cargo.toml")
-Path(sys.argv[2]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
-if run_check deny.toml "$direct_stale" >"$tmp_dir/direct-stale.out" 2>&1; then
-  echo "expected stale direct manifest baseline case to fail" >&2
-  exit 1
-fi
-grep -q "direct dependency manifest baseline is stale" "$tmp_dir/direct-stale.out"
-
-# Adding paste to a now-root-member tool makes the tool packages appear in
-# paste's inverse dependency tree. Keep the direct-manifest fixtures focused on
-# baseline growth by approving only those two real local members in a temp
-# deny.toml copy.
-paste_scope_deny="$tmp_dir/paste-scope-deny.toml"
-python3 - deny.toml "$paste_scope_deny" <<'PY'
-from pathlib import Path
-import sys
-
-lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-mutated = False
-for index, line in enumerate(lines):
-    if "rustsec-ignore:" in line and "crate=paste;" in line:
-        prefix, scopes = line.split("local_crates=", 1)
-        crates = scopes.split(",")
-        assert not {"wasm_build_suite", "wasm_module_observe"}.intersection(crates)
-        lines[index] = prefix + "local_crates=" + ",".join([*crates, "wasm_build_suite", "wasm_module_observe"])
-        mutated = True
-assert mutated, "paste scope fixture was not mutated"
-text = "\n".join(lines) + "\n"
-# These mutation fixtures add a real manifest dependency without updating the
-# checked-in lockfile. Let only the temporary checker copy resolve that fixture
-# so it can reach the direct-manifest ratchet assertion.
-text = text.replace("validation=cargo tree --locked", "validation=cargo tree")
-Path(sys.argv[2]).write_text(text, encoding="utf-8")
-PY
-
-python3 - "$launcher_manifest" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-lines = path.read_text(encoding="utf-8").splitlines()
-out = []
-inserted = False
-for line in lines:
-    out.append(line)
-    if line.strip() == "[dependencies]" and not inserted:
-        out.append('paste = "1"')
-        inserted = True
-if not inserted:
-    raise SystemExit("test manifest missing [dependencies]")
-path.write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-if run_check "$paste_scope_deny" >"$tmp_dir/paste-direct.out" 2>&1; then
-  echo "expected direct paste manifest case to fail" >&2
-  exit 1
-fi
-if ! grep -q '`paste` direct dependency manifest scope grew beyond RustSec baseline' "$tmp_dir/paste-direct.out"; then
-  echo "expected direct paste manifest scope-growth error" >&2
-  cat "$tmp_dir/paste-direct.out" >&2
-  exit 1
-fi
-cp "$launcher_backup" "$launcher_manifest"
-
-python3 - "$launcher_manifest" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-lines = path.read_text(encoding="utf-8").splitlines()
-out = []
-inserted = False
-for line in lines:
-    out.append(line)
-    if line.strip() == "[dependencies]" and not inserted:
-        out.append("'paste' = '1'")
-        inserted = True
-if not inserted:
-    raise SystemExit("test manifest missing [dependencies]")
-path.write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-if run_check "$paste_scope_deny" >"$tmp_dir/paste-single-quoted.out" 2>&1; then
-  echo "expected single-quoted direct paste manifest case to fail" >&2
-  exit 1
-fi
-grep -q '`paste` direct dependency manifest scope grew beyond RustSec baseline' "$tmp_dir/paste-single-quoted.out"
-cp "$launcher_backup" "$launcher_manifest"
-
-python3 - "$launcher_manifest" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-lines = path.read_text(encoding="utf-8").splitlines()
-out = []
-inserted = False
-for line in lines:
-    out.append(line)
-    if line.strip() == "[dependencies]" and not inserted:
-        out.append('paste_alias.package = "paste"')
-        out.append('paste_alias.version = "1"')
-        inserted = True
-if not inserted:
-    raise SystemExit("test manifest missing [dependencies]")
-path.write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-if run_check "$paste_scope_deny" >"$tmp_dir/paste-dotted-alias.out" 2>&1; then
-  echo "expected dotted alias direct paste manifest case to fail" >&2
-  exit 1
-fi
-grep -q '`paste` direct dependency manifest scope grew beyond RustSec baseline' "$tmp_dir/paste-dotted-alias.out"
-cp "$launcher_backup" "$launcher_manifest"
-
-python3 - "$root_manifest" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-workspace_dependencies = "[workspace.dependencies]"
-if workspace_dependencies in text:
-    text = text.replace(
-        workspace_dependencies,
-        workspace_dependencies + '\npaste = "1"',
-        1,
-    )
-else:
-    lines = text.splitlines()
-    out = []
-    inserted = False
-    for line in lines:
-        out.append(line)
-        if line.strip().startswith("resolver = ") and not inserted:
-            out.append(workspace_dependencies)
-            out.append('paste = "1"')
-            inserted = True
-    if not inserted:
-        raise SystemExit("root manifest missing workspace resolver")
-    text = "\n".join(out) + "\n"
-path.write_text(text, encoding="utf-8")
-PY
-paste_root_scope_deny="$tmp_dir/paste-root-scope-deny.toml"
-python3 - deny.toml "$paste_root_scope_deny" <<'PY'
-from pathlib import Path
-import sys
-
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-text = text.replace("validation=cargo tree --locked", "validation=cargo tree")
-Path(sys.argv[2]).write_text(text, encoding="utf-8")
-PY
-if run_check "$paste_root_scope_deny" >"$tmp_dir/paste-root-direct.out" 2>&1; then
-  echo "expected root workspace direct paste manifest case to fail" >&2
-  exit 1
-fi
-if ! grep -q '`paste` direct dependency manifest scope grew beyond RustSec baseline: Cargo.toml' "$tmp_dir/paste-root-direct.out"; then
-  echo "expected root paste workspace dependency scope-growth error" >&2
-  cat "$tmp_dir/paste-root-direct.out" >&2
-  exit 1
-fi
-cp "$root_backup" "$root_manifest"
-
-echo "check-rustsec-ignore-baseline.test: OK"
+check(Path("deny.toml").read_text(), True)
+check(valid, True)
+check(valid.replace("[advisories]", "['advisories']") + "# RUSTSEC-2024-0436\n", True)
+for ignored in (
+    "['RUSTSEC-2021-0127']",
+    '["RUSTSEC-2024-0436", "RUSTSEC-2026-0192"]',
+    '["RUSTSEC-2024-0436", "RUSTSEC-2024-0436"]',
+    '""', "{}", "false", "[12]",
+):
+    check(valid.replace("ignore = []", f"ignore = {ignored}"), False, "empty array")
+check(valid.replace("ignore = []", ""), False, "empty array")
+for package in ("serde_cbor", "paste", "ttf-parser"):
+    entry = "{name = '" + package + "'}"
+    for replacement in (
+        "{}", "{name = 'unrelated'}",
+        "{name = '" + package + "', version = '<1'}",
+        "{name = '" + package + "', wrappers = ['example']}",
+    ):
+        check(valid.replace(entry, replacement), False, "unconditionally prohibit " + package)
+for invalid in ("", "[advisories", "advisories = []", "bans = []", valid + "[bans]\n"):
+    check(invalid, False)
+# An aliased or transitive manifest key cannot hide the locked package identity.
+for package in ("serde_cbor", "paste", "ttf-parser"):
+    with tempfile.TemporaryDirectory(prefix="rustsec-policy-test-", dir=Path.cwd()) as directory:
+        (Path(directory) / "Cargo.lock").write_text(
+            f'version = 4\n[[package]]\nname = "{package}"\nversion = "1.0.0"\n'
+        )
+        check(valid, False, "retired package(s) still locked: " + package)
+print("check-rustsec-ignore-baseline.test: OK")
+PYTHON

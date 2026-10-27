@@ -26,6 +26,11 @@ use attempt::{read_owner_record, write_owner_record};
 #[path = "formal_live_runtime_owner_wire.rs"]
 mod control_wire;
 use control_wire::{bounded_reason, read_message, write_message};
+#[path = "formal_live_runtime_owner_control.rs"]
+mod control;
+#[cfg(test)]
+use control::control_work_timeout;
+use control::{send_control, send_control_on_stream};
 
 const OWNER_API: &str = "oasis7.formal-runtime-owner/v1";
 const MAX_CONTROL_BYTES: usize = 16 * 1024;
@@ -214,67 +219,6 @@ fn validate_snapshot(
     Ok(())
 }
 
-fn send_control(
-    config_path: &Path,
-    instance: &FormalRuntimeInstanceV1,
-    action: &str,
-    timeout: Duration,
-) -> Result<FormalRuntimeOwnerSnapshotV1, String> {
-    if !matches!(action, "query" | "stop") {
-        return Err("unsupported formal runtime owner control action".into());
-    }
-    let (_, state_path, socket_path) = paths(config_path, &instance.operation_id)?;
-    let stream = UnixStream::connect(&socket_path)
-        .map_err(|error| format!("formal runtime owner control unavailable: {error}"))?;
-    send_control_on_stream(&state_path, instance, action, timeout, stream)
-}
-
-fn send_control_on_stream(
-    state_path: &Path,
-    instance: &FormalRuntimeInstanceV1,
-    action: &str,
-    timeout: Duration,
-    mut stream: UnixStream,
-) -> Result<FormalRuntimeOwnerSnapshotV1, String> {
-    if !matches!(action, "query" | "stop") {
-        return Err("unsupported formal runtime owner control action".into());
-    }
-    stream
-        .set_read_timeout(Some(timeout.min(Duration::from_secs(60))))
-        .map_err(|error| error.to_string())?;
-    stream
-        .set_write_timeout(Some(timeout.min(Duration::from_secs(60))))
-        .map_err(|error| error.to_string())?;
-    let request = ControlRequest {
-        api_version: OWNER_API.into(),
-        action: action.into(),
-        operation_id: instance.operation_id.clone(),
-        request_digest: instance.request_digest.clone(),
-        config_digest: instance.config_digest.clone(),
-        incarnation: instance.incarnation.clone(),
-        timeout_ms: timeout.as_millis().min(60_000) as u64,
-        durable_set: None,
-    };
-    write_message(&mut stream, &request)?;
-    let reply: ControlReply = read_message(&mut stream)?;
-    if reply.api_version != OWNER_API {
-        return Err("formal runtime owner response schema mismatch".into());
-    }
-    validate_snapshot(
-        &reply.snapshot,
-        &instance.operation_id,
-        &instance.request_digest,
-        &instance.config_digest,
-        Some(&instance.incarnation),
-    )?;
-    if let Some(record) = read_owner_record(state_path)?
-        && record.snapshot != reply.snapshot
-    {
-        return Err("formal runtime owner durable/live status mismatch".into());
-    }
-    Ok(reply.snapshot)
-}
-
 /// The private socket, persisted owner and exact incarnation all agree before
 /// an old-writer-signed boundary can be armed. Local owner status grants no
 /// formal qualification, seal or activation permission.
@@ -407,7 +351,7 @@ pub(crate) fn query_operation(
             &state_path,
             &record.snapshot.instance,
             "query",
-            Duration::from_secs(2),
+            Instant::now() + Duration::from_secs(2),
             stream,
         )
         .map(Some),
@@ -1026,9 +970,14 @@ fn run_owner_with_fixed_trust(
                         "query" => {}
                         "stop" => {
                             stop_started = true;
+                            // Publishing stopping consumes the same work budget;
+                            // it must not extend runtime.stop's requested interval.
+                            let stop_deadline =
+                                Instant::now() + Duration::from_millis(request.timeout_ms);
                             snapshot.state = "stopping".into();
                             write_owner_record(&state_path, snapshot.clone())?;
-                            runtime.stop(Duration::from_millis(request.timeout_ms))?;
+                            runtime
+                                .stop(stop_deadline.saturating_duration_since(Instant::now()))?;
                             snapshot.state = "stopped".into();
                             write_owner_record(&state_path, snapshot.clone())?;
                         }
@@ -1178,3 +1127,7 @@ fn configure_control_stream(stream: &UnixStream) -> Result<(), String> {
         .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|error| format!("configure owner control write timeout: {error}"))
 }
+
+#[cfg(test)]
+#[path = "formal_live_runtime_owner_deadline_tests.rs"]
+mod deadline_tests;

@@ -56,6 +56,8 @@ mod profile_tests;
 
 #[path = "driver_bft_v2_formal_prefix_tests.rs"]
 mod prefix_tests;
+#[path = "driver_bft_v2_formal_replay_tests.rs"]
+mod replay_tests;
 
 #[derive(Clone, Default)]
 struct IndexReader(BTreeMap<String, Vec<u8>>);

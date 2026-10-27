@@ -362,6 +362,16 @@ def unpack_archive(archive, destination, max_bytes=STAGING_BYTES):
                 unpack_seconds=round(time.monotonic() - started, 3))
 
 
+def upload_file_identity(archive):
+    value = archive.lstat()
+    if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or value.st_size <= 0:
+        raise ValueError('workspace cache upload requires one nonempty regular file')
+    # Reading may update atime. All attributes affecting the uploaded file and
+    # its identity must remain unchanged while measuring the outer tar stream.
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
+            value.st_ctime_ns, value.st_mode, value.st_nlink)
+
+
 def upload_bound(archive, root=None):
     """Bound the pinned Linux actions/cache wrapper around exactly one file.
 
@@ -376,18 +386,28 @@ def upload_bound(archive, root=None):
     ZSTD_COMPRESSBOUND alone only promises a one-pass bound. This contract uses
     the audited standard zstdmt CLI (v1.5.5, no intermediate flushes, no --long),
     which fills streaming blocks; it does not apply to arbitrary flush callers.
-    The final ceiling also takes the larger zlib generic deflateBound, covering
-    the gzip fallback (fixed/stored blocks plus the 18-byte gzip wrapper).
+    GNU gzip's documented worst expansion is five bytes per 32 KiB block plus
+    its header, not zlib's generic bound for arbitrary nondefault memLevel:
+    https://www.gnu.org/software/gzip/manual/gzip.html#Overview
+    Budget twice that block overhead and a final block, plus the 18-byte stdin
+    gzip header/trailer. Require GNU gzip and retain the larger zstd ceiling,
+    so either pinned action compression choice is covered without assuming
+    a compression ratio for the payload.
     """
     if os.environ.get('TAR_OPTIONS') or os.environ.get('GZIP'):
         raise ValueError('custom tar/gzip options are outside the cache upload size contract')
     version = subprocess.check_output(['tar', '--version'], text=True)
     if 'GNU tar' not in version.splitlines()[0]:
         raise ValueError('workspace cache upload sizing requires GNU tar')
+    gzip_version = subprocess.check_output(['gzip', '--version'], text=True)
+    if (not re.match(r'\Agzip [0-9]+\.[0-9]+', gzip_version)
+            or 'Free Software Foundation' not in gzip_version):
+        raise ValueError('workspace cache upload sizing requires GNU gzip')
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', root or ROOT)).resolve()
     relative = os.path.relpath(archive, workspace)
     if len(os.fsencode(relative)) > 4096 or relative.startswith('-') or any(ord(c) < 32 for c in relative):
         raise ValueError('workspace cache path is outside the upload size contract')
+    before = upload_file_identity(archive)
     with tempfile.TemporaryDirectory(prefix='workspace-wrapper-', dir=archive.parent.parent) as directory:
         manifest = Path(directory) / 'manifest.txt'
         manifest.write_text(relative + '\n')
@@ -400,9 +420,11 @@ def upload_bound(archive, root=None):
                     total += len(data)
                 if process.wait():
                     raise ValueError('GNU tar cache wrapper sizing failed')
+    if upload_file_identity(archive) != before:
+        raise ValueError('workspace cache archive changed during upload sizing')
     bounded_tar = total + tarfile.RECORDSIZE
     zstd = bounded_tar + (bounded_tar >> 8) + max(0, ((128 << 10) - bounded_tar) >> 11)
-    fixed = bounded_tar + (bounded_tar >> 3) + (bounded_tar >> 8) + (bounded_tar >> 9) + 4
-    stored = bounded_tar + (bounded_tar >> 5) + (bounded_tar >> 7) + (bounded_tar >> 11) + 7
+    gzip_bound = bounded_tar + 5 * ((bounded_tar + 16_383) // 16_384 + 1) + 18
     return dict(outer_tar_bytes=total, outer_tar_bound_bytes=bounded_tar,
-                upload_bound_bytes=max(zstd, fixed + 18, stored + 18))
+                outer_zstd_bound_bytes=zstd, outer_gzip_bound_bytes=gzip_bound,
+                upload_bound_bytes=max(zstd, gzip_bound))

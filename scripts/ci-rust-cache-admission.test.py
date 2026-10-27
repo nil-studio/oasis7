@@ -126,6 +126,86 @@ class AdmissionTests(unittest.TestCase):
         self.run['path'] = '.github/workflows/ecs-packages.yml'
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
 
+    def test_release_writers_require_matching_platform_source_and_workflow(self):
+        cases = (
+            ('release-web', 'build-web-dist', 'Linux', 'X64', 'release-packages-web-wasm-trusted-v3'),
+            ('release-linux', 'package-native', 'Linux', 'X64', 'oasis7-package-native-Linux-native-packaging-trusted-v2'),
+            ('release-windows', 'package-native', 'Windows', 'X64', 'release-packages-package-native-Windows-native-trusted-v2'),
+            ('release-macos', 'package-native', 'macOS', 'ARM64', 'release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2'),
+        )
+        self.run.update(event='workflow_dispatch', path='.github/workflows/release-packages.yml')
+        for family, job, runner, arch, namespace in cases:
+            environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY=family,
+                GITHUB_JOB=job, RUNNER_OS=runner, RUNNER_ARCH=arch, GITHUB_EVENT_NAME='workflow_dispatch',
+                GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/release-packages.yml@refs/heads/main',
+                OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=SHA)
+            environment['INPUT_SHARED-KEY'] = namespace
+            environment['INPUT_CACHE-PROVIDER'] = 'github'
+            with self.subTest(family=family), patch.object(admission.subprocess, 'check_output', return_value=SHA + '\n'):
+                self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                for bad in ({'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': 'b' * 40},
+                            {'GITHUB_WORKFLOW_SHA': 'b' * 40}, {'GITHUB_REF': 'refs/tags/v1'},
+                            {'INPUT_CACHE-PROVIDER': 'warpbuild'}, {'GITHUB_EVENT_NAME': 'push'},
+                            {'RUNNER_ARCH': 'unknown'}, {'GITHUB_JOB': 'publish'}):
+                    self.assertFalse(admission.check_archive(self.archive, environment | bad, self.api)['allowed'])
+            with patch.object(admission.subprocess, 'check_output', return_value='b' * 40 + '\n'):
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
+    def test_release_guard_installer_refuses_inherited_node_options(self):
+        environment = self.environment | {'NODE_OPTIONS': '--require unknown.cjs'}
+        with self.assertRaises(admission.AdmissionError):
+            admission.install_release_guard(environment)
+        ready = admission.install_release_guard(self.environment | {'NODE_OPTIONS': ''})
+        self.assertEqual(ready['guard_ready'], 'true')
+        self.assertTrue(Path(ready['python']).is_absolute())
+        self.assertEqual(ready['node_options'], '--require "' + str(
+            Path(admission.__file__).with_suffix('.cjs')).replace('\\', '/') + '"')
+
+    def test_testnet_writer_is_limited_to_the_existing_trusted_packaging_lane(self):
+        event = self.root / 'event.json'
+        self.run.update(event='workflow_dispatch', path='.github/workflows/testnet-packages.yml')
+        environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY='testnet-linux',
+            GITHUB_JOB='package-native-trusted', GITHUB_EVENT_NAME='workflow_dispatch',
+            GITHUB_EVENT_PATH=str(event), OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=SHA,
+            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/testnet-packages.yml@refs/heads/main')
+        environment['INPUT_SHARED-KEY'] = 'oasis7-package-native-Linux-native-packaging-trusted-v2'
+        environment['INPUT_CACHE-PROVIDER'] = 'github'
+        with patch.object(admission.subprocess, 'check_output', return_value=SHA + '\n') as git:
+            for scope, profile, allowed in (('linux_only', 'packaging', True),
+                    ('all_existing', 'packaging', False), ('linux_only', 'dev', False)):
+                event.write_text(json.dumps({'inputs': {'package_scope': scope, 'build_profile': profile}}))
+                self.assertEqual(admission.check_archive(self.archive, environment, self.api)['allowed'], allowed)
+            event.write_text(json.dumps({'inputs': {'package_scope': 'linux_only', 'build_profile': 'packaging'}}))
+            self.assertFalse(admission.check_archive(self.archive,
+                environment | {'GITHUB_JOB': 'package-native'}, self.api)['allowed'])
+            self.assertFalse(admission.check_archive(self.archive,
+                environment | {'GITHUB_WORKFLOW_SHA': 'b' * 40}, self.api)['allowed'])
+            self.assertNotIn('GH_TOKEN', git.call_args.kwargs['env'])
+            self.assertNotIn('NODE_OPTIONS', git.call_args.kwargs['env'])
+
+    def test_node_preload_uses_the_reviewed_upstream_revision(self):
+        hook = Path(__file__).with_name('ci-rust-cache-admission-hook.cjs')
+        result = subprocess.run(['node', '-e',
+                                 "process.stdout.write(require(process.argv[1]).ACTION_REVISION || '')",
+                                 str(hook)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, admission.ACTION_REVISION,
+                         'upstream pin and reviewed Node bundle manifest must be upgraded together')
+
+    def test_node_preload_checkpoint_contract(self):
+        result = subprocess.run(['node', str(Path(__file__).with_suffix('.cjs'))],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_completed_release_archive_requires_private_directory_and_manifest(self):
+        self.assertEqual(admission.completed_archive(self.archive, self.environment), self.archive)
+        with self.assertRaises(admission.AdmissionError):
+            admission.completed_archive(self.archive,
+                self.environment | {'GITHUB_WORKSPACE': str(self.archive_dir)})
+        (self.archive_dir / 'manifest.txt').unlink()
+        with self.assertRaises((admission.AdmissionError, OSError)):
+            admission.completed_archive(self.archive, self.environment)
+
     def test_real_tar_creates_archive_before_inventory_and_denial_stops_save(self):
         self.archive.unlink()
         (self.workspace / 'payload').write_bytes(b'compressible data' * 20000)

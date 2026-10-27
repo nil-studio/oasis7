@@ -17,7 +17,8 @@ fn heavy_modal_windows_render_one_real_egui_frame() {
     app.explorer_window_open = true;
     app.peer_details_window_open = true;
 
-    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let ctx = ui.ctx();
         app.show_transfer_window(ctx);
         app.show_explorer_window(ctx);
         app.show_peer_details_window(ctx);

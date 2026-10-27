@@ -6,7 +6,7 @@ license = "MIT"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_cbor = "0.11"
+serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 ed25519-dalek = "3"
 blake3 = "1"
 hex = "0.4"

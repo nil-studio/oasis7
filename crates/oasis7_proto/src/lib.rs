@@ -32,3 +32,6 @@ pub mod player_auth;
 pub mod agency_control;
 
 pub mod network_failure;
+
+#[cfg(test)]
+mod cbor_compatibility_tests;

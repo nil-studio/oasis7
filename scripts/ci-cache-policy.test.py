@@ -4,8 +4,9 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 
@@ -104,6 +105,45 @@ def dependency_growth_inventory():
         size_in_bytes=2_463_911_046,
         created_at='2026-10-23T01:00:00Z', last_accessed_at='2026-10-23T01:00:00Z'))
     return entries
+
+
+def release_growth_inventory():
+    """Replay all 16 cache sizes from the 2026-10-26 post-5081 audit.
+
+    Source: https://github.com/nil-studio/oasis7/actions/caches and Rust run
+    40282222953/job/121443268752. Rust dependency keys (including host OS,
+    architecture, environment and dependency hashes) and all byte lengths
+    are observed. IDs, times, workspace hashes/SHA lineage, tool key suffixes
+    and version labels are synthetic; each observed version boundary remains
+    separate. The later lifecycle assumes repeated uploads of an observed
+    size, not an estimate of future Cargo archives.
+    """
+    facts = (
+        (1, 'trunk-archive-audit', 8_095_859, 'trunk'),
+        (2, 'oasis7-cache-permission-sentinel-trusted-v2', 287, 'sentinel'),
+        (3, 'wasm-bindgen-audit', 8_685_766, 'wasm-bindgen'),
+        (4, 'node-cache-audit', 103_942_381, 'node'),
+        (5, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-0f3c0684-d1b19d89', 722_718_920, 'linux-dependency'),
+        (6, 'v0-rust-ci-shared-native-trusted-v3-Linux-x64-74e29871-d1b19d89', 2_463_911_046, 'linux-dependency'),
+        (7, 'v0-rust-release-packages-web-wasm-trusted-v3-Linux-x64-c417280c-d3e1a87f', 578_693_347, 'linux-dependency'),
+        (8, 'v0-rust-release-packages-package-native-Windows-native-trusted-v2-Windows_NT-x64-c3622651-5afab5d8',
+         594_105_718, 'windows-dependency'),
+        (9, 'v0-rust-release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2-Darwin-arm64-e1c1501b-d3e1a87f',
+         551_305_373, 'macos-dependency'),
+        (10, key('formal', 10), 705_655_691, 'formal'),
+        (11, 'v0-rust-release-packages-web-wasm-trusted-v3-Linux-x64-c417280c-f26e418d', 602_983_505, 'linux-dependency'),
+        (12, 'v0-rust-release-packages-package-native-Windows-native-trusted-v2-Windows_NT-x64-c3622651-3c34b0a7',
+         594_081_915, 'windows-dependency'),
+        (13, key('ecs', 13), 919_060_748, 'ecs'),
+        (14, 'v0-rust-release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2-Darwin-arm64-e1c1501b-f26e418d',
+         551_327_518, 'macos-dependency'),
+        (15, key('ordinary', 15, 'b'), 690_421_620, 'ordinary'),
+        (16, key('ordinary', 16, 'c'), 704_201_104, 'ordinary'),
+    )
+    return [entry('ordinary', number, key=cache_key, size_in_bytes=size, version=version,
+                  created_at=f'2026-10-25T00:{number:02d}:00Z',
+                  last_accessed_at=f'2026-10-25T00:{number:02d}:00Z')
+            for number, cache_key, size, version in facts]
 
 
 class SchemaTests(unittest.TestCase):
@@ -413,6 +453,144 @@ class InventoryLifecycleTests(unittest.TestCase):
         self.assertEqual(report['reason'], 'repository cache capacity gap')
         idle = maintenance.plan_bootstrap(entries, '2026-10-23T00:00:00Z')
         self.assertTrue({5, 6, 7}.isdisjoint(item['id'] for item in idle['delete']))
+
+
+class ReleaseCapacityLifecycleTests(unittest.TestCase):
+    @staticmethod
+    def recover(entries, cutoff='2026-10-26T09:00:00Z', head=20, **kwargs):
+        # Fixture commits form a linear main history. Timestamp ordering is
+        # deliberately not used to prove source ancestry.
+        return maintenance.plan_recovery(entries, cutoff, repository_limit_bytes=REPOSITORY_LIMIT,
+            verified_head_sha=f'{head:040x}', is_ancestor=lambda old, new: int(old, 16) < int(new, 16), **kwargs)
+
+    @staticmethod
+    def remaining(entries, plan):
+        deleted = {item['id'] for item in plan['delete']}
+        return [item for item in entries if item['id'] not in deleted]
+
+    @staticmethod
+    def native_admission(entries):
+        admission = load('lifecycle_dependency_admission', 'ci-rust-cache-admission.py')
+        sha = f'{99:040x}'
+        environment = dict(GITHUB_ACTIONS='true', RUNNER_OS='Linux', RUNNER_ARCH='X64',
+            GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main',
+            GITHUB_SHA=sha, GITHUB_WORKFLOW_SHA=sha, GITHUB_RUN_ID='42', GITHUB_EVENT_NAME='schedule',
+            GITHUB_JOB='full-regression',
+            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            OASIS7_DEPENDENCY_CACHE_FAMILY='shared-native',
+            OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES=str(REPOSITORY_LIMIT))
+        environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v3'
+        api = capacity_api({'max_cache_size_gb': 10}, entries)
+        api.repository = 'nil-studio/oasis7'
+        run = dict(id=42, head_sha=sha, head_branch='main', event='schedule',
+                   path='.github/workflows/rust.yml', repository={'full_name': api.repository})
+
+        def request(method, path):
+            if method == 'GET' and path == '/actions/runs/42':
+                return run
+            if method == 'GET' and path == '/actions/cache/storage-limit':
+                return {'max_cache_size_gb': 10}
+            raise AssertionError((method, path))
+
+        api.request.side_effect = request
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'cache.tzst'
+            # The final-archive gate consumes stat length, not a compression
+            # estimate. No original cache data or remote upload is reproduced.
+            with archive.open('wb') as output:
+                output.truncate(2_463_911_046)
+            result = admission.check_archive(archive, environment, api)
+        api.delete_cache.assert_not_called()
+        return result
+
+    def test_observed_release_growth_and_lineage_reclaim_only_proven_caches(self):
+        entries = release_growth_inventory()
+        before = json.dumps(entries, sort_keys=True)
+        self.assertEqual(len(entries), 16)
+        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 9_799_190_798)
+        plan = self.recover(entries)
+        self.assertEqual([item['id'] for item in plan['delete']], [7, 8, 9, 15])
+        self.assertEqual(plan['dependencies']['recovery_ids'], [5, 6, 11, 12, 14])
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [10, 13, 16])
+        remaining = self.remaining(entries, plan)
+        self.assertEqual(len(remaining), 12)
+        self.assertEqual(sum(item['size_in_bytes'] for item in remaining), 7_384_664_740)
+        self.assertEqual(plan['rotation']['projected_repository_bytes'], 7_384_664_740)
+        self.assertEqual(plan['rotation']['projected_available_repository_bytes'], 2_615_335_260)
+        # The actual shared archive fits; the larger policy target is not met.
+        self.assertEqual(plan['rotation']['projected_headroom_deficit_bytes'], 69_019_300)
+        self.assertEqual(json.dumps(entries, sort_keys=True), before)
+        self.assertEqual(self.recover(remaining)['delete'], [])
+
+    def test_actual_native_archive_and_formal_push_fit_but_full_reserve_still_blocks(self):
+        entries = release_growth_inventory()
+        self.assertFalse(self.native_admission(entries)['allowed'])
+        entries = self.remaining(entries, self.recover(entries))
+        native = self.native_admission(entries)
+        self.assertTrue(native['allowed'], native)
+        self.assertEqual(native['archive_bytes'], 2_463_911_046)
+        self.assertEqual(native['projected_repository_bytes'], 9_848_575_786)
+        self.assertIsNone(native['saved_confirmed'])
+        # New bound for the observed 738,992,352-byte Formal inner archive,
+        # verified with actual GNU tar in ci-cache-archive.test.py.
+        formal = policy.save_policy(entries, key('formal', 21, 'd'), 741_897_320, REPOSITORY_LIMIT)
+        self.assertTrue(formal['capacity_allowed'], formal)
+        self.assertEqual(formal['compatible_generations'], 0)
+        self.assertEqual(formal['projected_repository_bytes'], 8_126_562_060)
+        self.assertEqual(formal['single_upload_limit_bytes'], 805_306_368)
+        full = policy.save_policy(entries, key('formal', 21, 'd'), 741_897_320, REPOSITORY_LIMIT,
+                                  reserved_repository_bytes=5 * 1024 ** 3 // 2)
+        self.assertFalse(full['capacity_allowed'])
+        self.assertEqual(full['reason'], 'dependency rotation headroom')
+
+    def test_continuous_new_compatibilities_recover_after_active_readers_finish(self):
+        workspace = load('lifecycle_workspace_cache', 'ci-workspace-cache.py')
+        entries = release_growth_inventory()
+        entries = self.remaining(entries, self.recover(entries))
+        old_id = 16
+        for number, compatibility, hour in ((21, 'e', 9), (22, 'f', 10)):
+            new_key = key('ordinary', number, compatibility)
+            staged = policy.save_policy(entries, new_key, 710_214_360, REPOSITORY_LIMIT)
+            self.assertTrue(staged['capacity_allowed'], staged)
+            self.assertEqual(staged['compatible_generations'], 0)
+            self.assertEqual(staged['projected_repository_bytes'], 8_094_879_100)
+            unconfirmed = {}
+            with patch.object(workspace, 'api_client', return_value=capacity_api(None, entries)):
+                workspace.observe_save('ordinary', new_key, unconfirmed)
+            self.assertFalse(unconfirmed['saved_confirmed'])
+            cutoff = f'2026-10-26T{hour:02d}:00:00Z'
+            for item in entries:
+                if item['id'] == old_id:
+                    item['last_accessed_at'] = f'2026-10-26T{hour:02d}:05:00Z'
+            created = f'2026-10-26T{hour:02d}:10:00Z'
+            entries.append(entry('ordinary', number, key=new_key, version='ordinary',
+                                 size_in_bytes=704_201_104, created_at=created, last_accessed_at=created))
+            confirmed = {}
+            with patch.object(workspace, 'api_client', return_value=capacity_api(None, entries)):
+                workspace.observe_save('ordinary', new_key, confirmed)
+            self.assertTrue(confirmed['saved_confirmed'])
+            self.assertEqual(confirmed['cache_id'], number)
+            active = dict(id=100 + number, status='in_progress', created_at=cutoff,
+                          head_sha=f'{number:040x}', path='.github/workflows/rust.yml',
+                          repository={'full_name': 'nil-studio/oasis7'})
+            # Observe-save has confirmed the new exact key, but an active
+            # reader still prevents retiring the previous compatibility.
+            busy = self.recover(entries, cutoff, number, current_key=new_key, active_runs=[active])
+            self.assertEqual(busy['delete'], [])
+            self.assertTrue({old_id, number}.issubset(busy['workspace_recovery']['protected_ids']))
+            self.assertFalse(self.native_admission(entries)['allowed'])
+            # A later maintenance run has no new current key. Verified ancestry
+            # must still retire the old group after activity protection expires.
+            quiet = self.recover(entries, f'2026-10-26T{hour:02d}:30:00Z', number)
+            self.assertEqual([item['id'] for item in quiet['delete']], [old_id])
+            self.assertEqual(quiet['delete'][0]['recovery_id'], number)
+            entries = self.remaining(entries, quiet)
+            ordinary = [item['id'] for item in entries if policy.family_for_key(item['key']) == 'ordinary']
+            self.assertEqual(ordinary, [number])
+            self.assertEqual(sum(item['size_in_bytes'] for item in entries), 7_384_664_740)
+            self.assertTrue(self.native_admission(entries)['allowed'])
+            self.assertEqual(self.recover(entries, f'2026-10-26T{hour:02d}:31:00Z', number)['delete'], [])
+            old_id = number
 
 
 class CapacityEvidenceTests(unittest.TestCase):

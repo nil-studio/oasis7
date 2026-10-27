@@ -241,11 +241,11 @@ This contract consumes current governance grant and ownership-transfer sources; 
 
 
 <a id="owner-delegation-result-replay-contract"></a>
-### 6.0 本地 owner delegation 的结果、重试与 profile（目标接口）
+### 6.0 本地 owner delegation 的结果、重试与 profile
 
 Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad；承接 [REQ-AGENT-AUTH-001](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) 及 DES-WR-IA-010 的同一授权/预算责任，不新增玩家权限或产品动作。本节只收敛 install/revoke 用例；memory correction、task fence、signer delegation、interrupt/override 的既有接口及 effect-time 重验不借此重构。
 
-**现状与 owner。** 当前 [`owner_control_admission.rs`](../../../crates/oasis7_runtime/src/world/owner_control_admission.rs) 的 signed mutation 返回 `Result<(), WorldError>`；Viewer 在 [`agent_memory_correction.rs`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/agent_memory_correction.rs) 自行构造 grant 并裁决新/旧 nonce 的历史匹配。下述 typed result/read 接缝尚待实现。目标由现有 Runtime owner-control 模块唯一拥有 command→grant、同 ID equality、scope reservation、revision transition 和 exact-replay matching；Viewer 只拥有入口 profile、transport、session/nonce/write-fence 及既有 JSON/error 映射。列表读取可用于显示，不得用于 Viewer 再裁决 mutation。无需新增 crate、服务、账本或通用 capability registry。
+**现状与 owner。** [`owner_control_admission.rs`](../../../crates/oasis7_runtime/src/world/owner_control_admission.rs) 负责完整 signed request 与当前 host/owner 认证；[`owner_delegation_control.rs`](../../../crates/oasis7_runtime/src/world/owner_delegation_control.rs) 实现下述 typed result/read 接缝，并唯一拥有 command→grant、同 ID equality、scope reservation、revision transition 和 exact-replay matching。[`agent_memory_correction.rs`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/agent_memory_correction.rs) 消费该结果，只拥有入口 profile、transport、session/nonce/write-fence 及既有 JSON/error 映射。列表读取可用于显示，不得用于 Viewer 再裁决 mutation。无需新增 crate、服务、账本或通用 capability registry。
 
 | 目标进程内接口（名称示意） | 输入/返回 | 行为与权限 |
 | --- | --- | --- |
@@ -269,6 +269,8 @@ Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad；承接 [REQ-AGENT-AUTH
 | Revoke，缺 ID / revision 不符 / 其他 revoked 状态 | 分别 `grant_not_found` / `grant_revision_stale` | `NoMatch` → `auth_nonce_replay` |
 | 授权列表读取失败 | `runtime_agency_read_failed` | 保留原分支的无匹配→`auth_nonce_replay`，内部可保留读取诊断；不得用错误结果放行 |
 | 新应用在底层 grant 校验或持久化失败 | `grant_install_rejected` / `grant_revoke_rejected`，不发布 candidate、不消耗 nonce | 不调用应用/持久化路径 |
+
+**损坏 ledger 的有意收紧。** `Applied` 必须携带可表示的 authorization，因此对应投影在 candidate 持久化与发布前完成。若 ledger 缺少该 grant，却已有同一 budget key 的 orphan `spent`，且超过新 grant 的 limit，则返回应用阶段的原 `budget_corrupt` 原因（Viewer 为 `grant_install_rejected`）；不发布 World、不持久化 candidate、不消费 nonce，不能伪造 remaining 或省略 authorization。旧 unit mutation 在这种不完整状态下可能先成功，而后列表显示读取失败并 fallback 空列表；这项损坏状态的收紧不宣称全状态等价。budget key 包含 grant ID，合法历史及撤销后使用新 ID 的普通重授权不受影响。底层 unit API、预算键、正常 grant/revision 规则不变；首次应用后的纯显示列表读取仍保留既有失败 fallback。
 
 该表的 replay 是当前权威状态上的匹配，不是另建历史 receipt store；被撤销的 install 不恢复为原成功，新的 owner/source 不继承旧 grant。`ExactReplay` 不产生新 revision、usage debit、world action 或 receipt。
 

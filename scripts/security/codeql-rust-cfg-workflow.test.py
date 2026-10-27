@@ -87,8 +87,8 @@ class CfgWorkflow(unittest.TestCase):
         self.assertEqual(TEXT.count("--verify-context-exclusion"),2)
         self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
         capacity=(ROOT/".github/workflows/codeql-rust-capacity.yml").read_text()
-        self.assertIn("ref: d2bf383d8c377b36de83aae4a06d9ec17612e205",capacity)
-        self.assertNotIn("--source-sha "+sha,capacity)
+        self.assertIn("ref: "+sha,capacity)
+        self.assertEqual(capacity.count("--source-sha "+sha),4)
 
     def test_new_query_is_in_snapshot_and_ci(self):
         layout = (ROOT / 'scripts/security/codeql_rust_capacity_layout.py').read_text()

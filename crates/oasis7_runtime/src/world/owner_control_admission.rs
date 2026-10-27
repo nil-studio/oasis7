@@ -2,8 +2,8 @@
 //! policy by borrow; signed wire data never becomes a reusable credential.
 use super::*;
 use crate::{
-    AgentDelegationGrantV1, AgentIntentAuthorityContext, AgentIntentReplayDisposition,
-    AgentOwnerControlKindV1, AgentOwnerControlV1,
+    AgentIntentAuthorityContext, AgentIntentReplayDisposition, AgentOwnerControlKindV1,
+    AgentOwnerControlV1,
 };
 use oasis7_proto::agency_control::{
     AGENCY_CONTROL_REQUEST_TYPE, AgencyControlOperation, AgencyControlRequest,
@@ -88,7 +88,7 @@ fn control_from_request(request: &AgencyControlRequest) -> Result<AgentOwnerCont
     })
 }
 impl World {
-    fn authenticate_local_agency_request(
+    pub(super) fn authenticate_local_agency_request(
         &self,
         request: &AgencyControlRequest,
         host: &dyn OwnerControlHostAuthority,
@@ -149,103 +149,6 @@ impl World {
     ) -> Result<AgentIntentReplayDisposition, WorldError> {
         let player = self.authenticate_local_agency_request(request, host)?;
         self.bind_agent_owner_control(&player, control_from_request(request)?)
-    }
-    /// Install or revoke only the grant terms authenticated by the complete owner request.
-    pub fn apply_signed_delegation_control(
-        &mut self,
-        request: &AgencyControlRequest,
-        host: &dyn OwnerControlHostAuthority,
-    ) -> Result<(), WorldError> {
-        let player = self.authenticate_local_agency_request(request, host)?;
-        let grant = match &request.command {
-            AgencyControlOperation::InstallDelegation {
-                grant_id,
-                object_id,
-                action_kinds,
-                period_id,
-                valid_from_tick,
-                valid_until_tick,
-                limit_units,
-            } => {
-                if grant_id.trim().is_empty()
-                    || object_id.trim().is_empty()
-                    || period_id.trim().is_empty()
-                    || action_kinds.is_empty()
-                    || action_kinds.iter().any(|kind| {
-                        !matches!(
-                            kind.as_str(),
-                            "MoveAgent" | "TransferMaterial" | "ScheduleRecipe" | "WorldRule"
-                        )
-                    })
-                    || action_kinds.iter().collect::<BTreeSet<_>>().len() != action_kinds.len()
-                {
-                    return Err(denied("grant_scope_invalid"));
-                }
-                let owner = self
-                    .current_agent_owner(&request.agent_id)
-                    .ok_or_else(|| denied("owner_source_unavailable"))?;
-                let grant = AgentDelegationGrantV1 {
-                    grant_id: grant_id.clone(),
-                    source_id: owner.source_id.clone(),
-                    issuer_id: player.clone(),
-                    owner_id: player,
-                    organization_id: None,
-                    agent_id: request.agent_id.clone(),
-                    object_id: object_id.clone(),
-                    action_kinds: action_kinds.clone(),
-                    revision: 1,
-                    period_id: period_id.clone(),
-                    valid_from_tick: *valid_from_tick,
-                    valid_until_tick: *valid_until_tick,
-                    limit_units: *limit_units,
-                    resource_kind: "electricity".into(),
-                    revoked: false,
-                };
-                let rows = self.agent_delegation_authorizations(&request.agent_id)?;
-                if let Some(existing) = rows.iter().find(|row| row.grant.grant_id == grant.grant_id)
-                {
-                    if existing.grant == grant {
-                        return Ok(());
-                    }
-                    return Err(denied("grant_identity_conflict"));
-                }
-                if rows.iter().any(|row| {
-                    row.grant.source_id == grant.source_id
-                        && !row.grant.revoked
-                        && row.grant.object_id == grant.object_id
-                        && row
-                            .grant
-                            .action_kinds
-                            .iter()
-                            .any(|kind| grant.action_kinds.contains(kind))
-                }) {
-                    return Err(denied("grant_scope_already_reserved"));
-                }
-                grant
-            }
-            AgencyControlOperation::RevokeDelegation {
-                grant_id,
-                expected_revision,
-            } => {
-                let mut current = self
-                    .agent_delegation_authorizations(&request.agent_id)?
-                    .into_iter()
-                    .find(|row| row.grant.grant_id == *grant_id)
-                    .ok_or_else(|| denied("grant_not_found"))?
-                    .grant;
-                if current.revoked && current.revision == expected_revision.saturating_add(1) {
-                    return Ok(());
-                }
-                if current.revision != *expected_revision || current.revoked {
-                    return Err(denied("grant_revision_stale"));
-                }
-                current.revision = current.revision.saturating_add(1);
-                current.revoked = true;
-                current
-            }
-            _ => return Err(denied("delegation control operation required")),
-        };
-        self.install_agent_delegation_grant(grant)
     }
     /// Legacy local chat still uses the host's current registration/binding policy.
     pub fn record_signed_local_agent_chat(

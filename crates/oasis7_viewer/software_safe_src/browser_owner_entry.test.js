@@ -3,7 +3,7 @@ import { createBrowserOwnerEntry } from "./browser_owner_entry.js";
 const ownerKey = "44".repeat(32);
 const config = { endpoint: "/api/public/hosted-account/v2", servicePublicKey: "11".repeat(32), participantIssuerPublicKey: "22".repeat(32), world: { world_id: "world", genesis_digest: "genesis" }, identity: { service_id: "identity", environment_id: "test", instance_epoch: "1" } };
 function fixture() {
- const records = new Map(), calls = []; let bound = false, task = null, originalOwner, unknown = false, rejectOwner = false, unknownOwnerKind = null;
+ const records = new Map(), calls = []; let bound = false, task = null, originalOwner, unknown = false, rejectOwner = false, unknownOwnerKind = null, ownerOutcome = null;
  const storage = { get: async (key) => structuredClone(records.get(key)), update: async (key, mutate) => { const value = mutate(structuredClone(records.get(key))); records.set(key, structuredClone(value)); return structuredClone(value); } };
  const respond = (value) => new Response(JSON.stringify({ api_version: 2, ok: true, ...value }));
  const control = () => ({ view: { canonical_agent_owner: { agent_id: "canonical-agent", public_key: ownerKey, player_id: "player", world_id: "world" }, game_task_control: task } });
@@ -39,12 +39,12 @@ function fixture() {
    const payload = operation.kind === "submit" ? operation.request.signed_payload : operation.request.original;
    if (operation.kind === "submit" && payload.kind === "game_task_create") task = { task_id: "canonical-task", agent_id: "canonical-agent", active_goal_revision: "0", active_goal_reference: null };
    if (operation.kind === "submit" && payload.kind === "game_goal_publish") task = { ...task, active_goal_revision: "1", active_goal_reference: { goal_ref: "fixture-goal" } };
-   return respond({ world_response: { outcome: { status: unknown || unknownOwnerKind === payload.kind ? "unknown" : "committed", receipt: { original: payload.kind } } } });
+   return respond({ world_response: { outcome: { status: ownerOutcome ?? (unknown || unknownOwnerKind === payload.kind ? "unknown" : "committed"), receipt: { original: payload.kind } } } });
   }
   throw new Error(`unexpected fixture route ${path}`);
  });
  const create = (extra = {}) => createBrowserOwnerEntry({ config, codec, accountId: "account", ownerSigner: { publicKeyHex: ownerKey, sign: async () => new Uint8Array(64) }, storage, locks: { request: async (_name, _options, run) => run() }, fetchImpl, cryptoImpl: { getRandomValues: (bytes) => bytes.fill(7) }, ...extra });
- return { create, calls, records, storage, fetchImpl, setOwnerUnknown: (kind) => { unknownOwnerKind = kind; }, setUnknown: (value) => { unknown = value; }, existing: () => { bound = true; task = { task_id: "canonical-task", agent_id: "canonical-agent", active_goal_revision: "1", active_goal_reference: { goal_ref: "existing" } }; }, mismatch: () => { rejectOwner = true; } };
+ return { create, codec, calls, records, storage, fetchImpl, setOwnerOutcome: (value) => { ownerOutcome = value; }, setOwnerUnknown: (kind) => { unknownOwnerKind = kind; }, setUnknown: (value) => { unknown = value; }, existing: () => { bound = true; task = { task_id: "canonical-task", agent_id: "canonical-agent", active_goal_revision: "1", active_goal_reference: { goal_ref: "existing" } }; }, mismatch: () => { rejectOwner = true; } };
 }
 describe("browser canonical owner entry", () => {
  it.each([["taskRaw", "game_task_create"], ["publishRaw", "game_goal_publish"]])("keeps %s reliably unsent until explicit same-original continuation", async (slot, kind) => {
@@ -218,5 +218,41 @@ describe("browser canonical owner entry", () => {
   await expect(entry.prepare({ goal: "Goal" })).rejects.toMatchObject({ code: "owner_consent_required" });
   entry.dispose(); await expect(entry.inspect()).rejects.toMatchObject({ code: "participant_stopped" });
   expect(f.calls).toHaveLength(0);
+ });
+});
+
+describe("owner diagnostics preserve originals", () => {
+ it("reports a fixed Task build stage without reflecting codec exceptions", async () => {
+  const f = fixture(); const canary = "PRIVATE_GOAL_KEY_SIGNATURE";
+  const codec = { ...f.codec, build: (kind, input) => { if (kind === "task_create") throw new Error(canary); return f.codec.build(kind, input); } };
+  const error = await f.create({ codec }).prepare({ goal: "Goal", consent: true }).catch((value) => value);
+  expect(error).toMatchObject({ code: "owner_proof_invalid", diagnostic: { stage: "owner_task_build", category: "proof" } });
+  expect(JSON.stringify(error)).not.toContain(canary);
+  expect(f.calls.some((call) => call.path === "/entry-owner/control")).toBe(false);
+ });
+ it("retains the Task original and lookup stage when response verification fails", async () => {
+  const f = fixture(); f.setOwnerUnknown("game_task_create");
+  await f.create().prepare({ goal: "Goal", consent: true });
+  const original = [...f.records.values()].find((record) => record.taskRaw).taskRaw;
+  const codec = { ...f.codec, verifyGatewayResponse: (domain, request, raw, key) => {
+    if (domain === "/v1/world/lookup" && JSON.parse(request).original?.kind === "game_task_create") throw new Error("PRIVATE_REPLY_SIGNATURE");
+    return f.codec.verifyGatewayResponse(domain, request, raw, key);
+  } };
+  const status = await f.create({ codec }).inspect();
+  expect(status).toMatchObject({ state: "pending", code: "owner_response_unknown", diagnostic: { stage: "owner_task_lookup", category: "unknown" } });
+  expect(JSON.stringify(status.diagnostic)).not.toContain("PRIVATE_REPLY_SIGNATURE");
+  expect([...f.records.values()].find((record) => record.taskRaw).taskRaw).toBe(original);
+  expect(f.calls.filter((call) => call.path === "/entry-owner/control" && call.body.operation.kind === "submit")).toHaveLength(1);
+ });
+ it.each(["unknown", "history_unavailable", "pending"])("preserves verified %s and never resubmits the Task", async (outcome) => {
+  const f = fixture(); f.setOwnerOutcome(outcome);
+  const result = await f.create().prepare({ goal: "Goal", consent: true });
+  expect(result).toMatchObject({ state: "pending", diagnostic: { stage: "owner_task_lookup", outcome, category: outcome } });
+  await f.create().inspect();
+  expect(f.calls.filter((call) => call.path === "/entry-owner/control" && call.body.operation.kind === "submit")).toHaveLength(1);
+ });
+ it.each([["rejected", "owner_operation_rejected"], ["expired", "owner_operation_expired"]])("keeps terminal %s distinct", async (outcome, code) => {
+  const f = fixture(); f.setOwnerOutcome(outcome);
+  await expect(f.create().prepare({ goal: "Goal", consent: true })).rejects.toMatchObject({ code, diagnostic: { stage: "owner_task_lookup", category: outcome } });
  });
 });
