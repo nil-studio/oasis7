@@ -29,14 +29,7 @@ impl fmt::Debug for ValidatedBftPrivatePayloadV3 {
 impl ValidatedBftPrivatePayloadV3 {
     pub fn decode(bound: BoundFormalBftHeaderV3, bytes: &[u8]) -> Result<Self, String> {
         bound.header().verify_private_payload(bytes)?;
-        let actions: BoundedActions = serde_cbor::from_slice(bytes)
-            .map_err(|_| "invalid bounded BFT private actions".to_string())?;
-        let actions = actions.0;
-        let encoded =
-            serde_cbor::to_vec(&actions).map_err(|_| "encode BFT private actions".to_string())?;
-        if encoded != bytes {
-            return Err("noncanonical BFT private actions".into());
-        }
+        let actions = decode_private_actions_v3(bytes)?;
         let root = compute_consensus_action_root(&actions)
             .map_err(|_| "invalid BFT private action ordering or payload".to_string())?;
         if root != bound.commitment().action_root() {
@@ -52,6 +45,23 @@ impl ValidatedBftPrivatePayloadV3 {
     pub fn actions(&self) -> &[NodeConsensusAction] {
         &self.actions
     }
+}
+
+/// Decode private proposal input before execution, without granting authority.
+/// Byte/count bounds precede materialization; every payload and ordering is checked.
+pub fn decode_private_actions_v3(bytes: &[u8]) -> Result<Vec<NodeConsensusAction>, String> {
+    oasis7_proto::distributed_bft::v3::actions_cbor_digest_v3(bytes)?;
+    let actions: BoundedActions = serde_cbor::from_slice(bytes)
+        .map_err(|_| "invalid bounded BFT private actions".to_string())?;
+    let actions = actions.0;
+    let encoded =
+        serde_cbor::to_vec(&actions).map_err(|_| "encode BFT private actions".to_string())?;
+    if encoded != bytes {
+        return Err("noncanonical BFT private actions".into());
+    }
+    compute_consensus_action_root(&actions)
+        .map_err(|_| "invalid BFT private action ordering or payload".to_string())?;
+    Ok(actions)
 }
 
 struct BoundedActions(Vec<NodeConsensusAction>);

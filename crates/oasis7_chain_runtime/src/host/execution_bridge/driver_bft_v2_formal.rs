@@ -122,6 +122,10 @@ mod formal_dependencies;
 #[path = "driver_bft_v2_formal_storage.rs"]
 mod formal_storage;
 
+#[path = "driver_bft_v3_formal.rs"]
+mod formal_header;
+pub(crate) use formal_header::FormalBftHeaderExecutionV3;
+
 #[path = "driver_bft_v2_formal_origin.rs"]
 mod formal_origin;
 #[path = "driver_bft_v2_formal_prefix.rs"]
@@ -574,15 +578,23 @@ fn validate_handoff_material(
     handoff: &VerifiedBftHandoffTargetV1,
     material: &ClosedRecord,
 ) -> Result<(), String> {
+    validate_handoff_material_for_scope(anchor, handoff.scope(), material)
+}
+
+fn validate_handoff_material_for_scope(
+    anchor: &VerifiedFormalReadAnchorV1,
+    scope: &BftScopeV2,
+    material: &ClosedRecord,
+) -> Result<(), String> {
     let record = anchor.head().record();
     verify_record_material(record, material).map_err(|error| error.to_string())?;
     if record.kind != FormalRecordKindV1::Execution
         || record.handoff.is_none()
         || record.record_id().map_err(|error| error.to_string())? != anchor.head().head().record_id
         || record.world != anchor.authority().definition().world
-        || record.world.world_id != handoff.scope().world_id
-        || record.world.chain_id != handoff.scope().chain_id
-        || record.world.genesis_digest != handoff.scope().genesis_hash
+        || record.world.world_id != scope.world_id
+        || record.world.chain_id != scope.chain_id
+        || record.world.genesis_digest != scope.genesis_hash
         || material.roots != record.artifact_roots
     {
         return Err("qualified H record or closed material differs from formal BFT handoff".into());

@@ -21,6 +21,10 @@ use oasis7_proto::distributed_bft::{
 
 const EMPTY_ACTIONS_CBOR: &[u8] = &[0x80];
 
+#[path = "driver_bft_v3_formal_cli_tests.rs"]
+mod cli_execution_tests;
+#[path = "driver_bft_v3_formal_execution_tests.rs"]
+mod execution_tests;
 #[path = "driver_bft_v3_header_transition_tests.rs"]
 mod transition_tests;
 
