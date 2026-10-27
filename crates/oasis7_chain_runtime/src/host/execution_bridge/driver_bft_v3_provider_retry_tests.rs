@@ -55,6 +55,7 @@ pub(super) fn assert_completed_signature_retries(
             Box::new(MemoryTestSignerBackend {
                 binding_digest: binding.digest().unwrap(),
                 snapshot: snapshot.clone(),
+                fail_confirm_after_commit: None,
             }),
         )
         .unwrap(),
