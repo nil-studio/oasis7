@@ -222,3 +222,6 @@ fn binding_statement(
         .map_err(|_| denied())?;
     Ok(statement)
 }
+
+#[path = "owner_test_session.rs"]
+pub(crate) mod test_session;

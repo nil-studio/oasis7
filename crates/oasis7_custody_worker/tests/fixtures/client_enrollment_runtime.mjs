@@ -9,6 +9,9 @@ export default {async fetch(request,env,ctx){
   }
   const headers=new Headers(request.headers);
   headers.set('CF-Connecting-IP','192.0.2.8');
+  // dispatchFetch uses a loopback Host; this provider fixture supplies the public authority.
+  headers.set('Host',headers.get('x-fixture-wrong-host')==='true'?'other.example':url.host);
+  headers.delete('x-fixture-wrong-host');
   const providerRequest=new Request(request,{headers,cf:{colo:'TEST'}});
   return new RustWorker(ctx,env).fetch(providerRequest);
 }};

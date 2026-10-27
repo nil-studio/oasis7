@@ -155,6 +155,7 @@ pub struct CognitionCausalProposalV1 {
 
 /// Owner-signed, canonical registration/revocation. Generation is a fence,
 /// never inferred from a provider-local key cache.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSignerDelegationChangeV1 {
     pub world_id: String,

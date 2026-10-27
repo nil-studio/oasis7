@@ -18,6 +18,9 @@ pub struct TestSessionPreflightDescriptorV1 {
     pub native_binding: crate::native_binding::NativeBindingReceiptV1,
     pub world: crate::approval::ApprovedWorldV1,
     pub owner_key: PublicRoleKey,
+    pub participant_owner: ws::SignedReadRequest<oasis7_agent_api::game::GameParticipantRegisterV1>,
+    pub owner_scope: RoleKeySlotScopeV1,
+    pub identity_scope: RoleKeySlotScopeV1,
     pub source_operation_id: String,
     pub source_nonce: String,
     pub lifetime_nonce: String,
@@ -65,6 +68,23 @@ impl AccountProvisionApprovalState {
                 .role_key(Role::Owner)
                 .ok_or_else(invalid)?
                 .clone(),
+            participant_owner: self
+                .participant_provisions
+                .values()
+                .find(|p| p.result.is_some())
+                .and_then(|p| p.bundle.as_ref())
+                .ok_or_else(invalid)?
+                .owner
+                .clone(),
+            owner_scope: self
+                .participant_provisions
+                .values()
+                .find(|p| p.result.is_some())
+                .ok_or_else(invalid)?
+                .descriptor
+                .owner_scope
+                .clone(),
+            identity_scope: s.session.scope.role_scope.clone(),
             source_operation_id: nonce("oasis7.custody.test-session-preflight-source.v1")?,
             source_nonce: s.preflight_source_nonce.clone().ok_or_else(invalid)?,
             lifetime_nonce: nonce("oasis7.custody.test-session-native-lifetime.v1")?,
@@ -175,6 +195,8 @@ impl AccountProvisionApprovalState {
             || s.approved_at.is_some()
             || now.get() >= deadline
             || c.authority != s.input.request.context
+            || c.authority.security_version != self.provision.security_epoch()
+            || c.authority.security_version.0 == 0
             || c.frozen
             || c.fence.check_epoch(c.authority.service_epoch.0).is_err()
             || now.get() >= c.source.session_expires_at.0
@@ -209,7 +231,8 @@ impl AccountProvisionApprovalState {
             now.get(),
         )
     }
-    /// One fixed pair consumes two native HTTP attempts before either policy or authorize I/O.
+    /// Reserve all four native HTTP attempts before I/O: policy status, policy,
+    /// authorize status and authorize. A partial/unknown pair never refunds.
     pub fn claim_test_session_preflight_step(
         &mut self,
         id: &str,
@@ -241,7 +264,7 @@ impl AccountProvisionApprovalState {
             .as_mut()
             .ok_or_else(invalid)?
             .charge(if step == SessionPreflightStepV1::FreshAccessPair {
-                2
+                4
             } else {
                 1
             })
@@ -427,83 +450,6 @@ mod lifetime;
 #[path = "test_session_preflight_restore.rs"]
 mod restore;
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TestSessionPreflightPermitV1 {
-    pub descriptor: TestSessionPreflightDescriptorV1,
-    pub role: Role,
-    pub purpose: OwnerSetupReadPurposeV1,
-    pub ticket: u8,
-    pub authority_revision: String,
-    pub observed_at: UnixMillis,
-    pub expires_at: UnixMillis,
-}
-impl core::fmt::Debug for TestSessionPreflightPermitV1 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("TestSessionPreflightPermitV1(<private-read-only>)")
-    }
-}
-impl AccountProvisionApprovalState {
-    pub fn test_session_preflight_permit(
-        &self,
-        id: &str,
-        role: Role,
-        purpose: OwnerSetupReadPurposeV1,
-        current: &TestSessionPreflightCurrent<'_, '_>,
-        now: UnixMillis,
-        verifier: &mut impl ApprovalSignatureVerifier,
-    ) -> Result<TestSessionPreflightPermitV1> {
-        let ticket = current.oracle_ticket;
-        if !match ticket {
-            1 | 2 => role == Role::Identity && purpose == OwnerSetupReadPurposeV1::Session,
-            3 | 4 | 5 => role == Role::Owner && purpose == OwnerSetupReadPurposeV1::Sign,
-            _ => false,
-        } {
-            return Err(invalid());
-        }
-        verifier.verify(&self.test_session_preflight_checks(id, current, now)?)?;
-        let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let source = s
-            .sources
-            .get(current.source_operation_id)
-            .ok_or_else(invalid)?;
-        let expires = source
-            .verification
-            .as_ref()
-            .ok_or_else(invalid)?
-            .verification
-            .observed_at
-            .0
-            .checked_add(5000)
-            .ok_or_else(invalid)?
-            .min(source.expires_at.0)
-            .min(
-                current
-                    .observed_at
-                    .get()
-                    .checked_add(5000)
-                    .ok_or_else(invalid)?,
-            )
-            .min(admission::pairing(&s.input.request.intent)?.2);
-        if now.get() >= expires {
-            return Err(invalid());
-        }
-        Ok(TestSessionPreflightPermitV1 {
-            descriptor: self.test_session_preflight_descriptor(id)?,
-            role,
-            purpose,
-            ticket,
-            authority_revision: digest(&(
-                "oasis7.custody.test-session-preflight-authority.v1",
-                &s.input,
-                &s.session,
-                &current.provision.approval.authority,
-                &current.provision.approval.source,
-                current.source_operation_id,
-                &source.verify_nonce,
-            ))?,
-            observed_at: current.observed_at,
-            expires_at: UnixMillis::new(expires),
-        })
-    }
-}
+#[path = "test_session_preflight_permit.rs"]
+mod permit;
+pub use permit::*;

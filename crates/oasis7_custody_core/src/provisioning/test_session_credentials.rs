@@ -34,7 +34,7 @@ impl AccountProvisionApprovalState {
         }
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
         public_receipt(s, proof, now)?;
-        let claim_digest = digest(&("oasis7.custody.test-session-claim.v1", &request))?;
+        let claim_digest = request.test_session_digest()?;
         if s.control_logicals
             .get(&request.request_id)
             .is_some_and(|d| d != &claim_digest)
@@ -52,8 +52,11 @@ impl AccountProvisionApprovalState {
                 };
                 s.roots
                     .get(&purpose)
-                    .and_then(|r| r.credential.as_ref())
-                    .filter(|c| c.claim_request_id == request.request_id)
+                    .and_then(|r| {
+                        r.credential_history.iter().find(|c| {
+                            c.claim_request_id == request.request_id && c.claim_request == request
+                        })
+                    })
                     .map(|c| (purpose, c.generation))
             })
             .collect();
@@ -70,7 +73,7 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         if challenge.kind != SessionChallengeKindV1::CredentialClaim
             || challenge.logical_request_id != request.request_id
-            || challenge.body_digest != digest(&("oasis7.custody.test-session-claim.v1", &request))?
+            || challenge.body_digest != request.test_session_digest()?
             || now.get() >= challenge.expires_at.get()
             || challenge.consumed_by.is_some()
         {
@@ -89,6 +92,17 @@ impl AccountProvisionApprovalState {
         if allocations.len() != request.purposes.len() {
             return Err(invalid());
         }
+        // Every issued digest is permanently retired when replaced, across all purposes.
+        if allocations.iter().any(|allocation| {
+            s.roots.values().any(|root| {
+                root.credential_history
+                    .iter()
+                    .any(|credential| credential.digest == allocation.digest)
+            })
+        }) {
+            return Err(invalid());
+        }
+
         let mut next = self.clone();
         let mut newly = false;
         let mut results = Vec::new();
@@ -135,17 +149,20 @@ impl AccountProvisionApprovalState {
                 .credential
                 .as_ref()
                 .map_or(0, |old| old.replacements + 1);
-            root.credential = Some(SessionCredentialV1 {
+            let credential = SessionCredentialV1 {
                 digest: allocation.digest.clone(),
                 generation: DecimalU64(generation),
                 replacements,
                 claimed_at: now,
                 claim_request_id: request.request_id.clone(),
-            });
+                claim_request: request.clone(),
+            };
+            root.credential_history.push(credential.clone());
+            root.credential = Some(credential);
             super::lifecycle::reserve_control_logical(
                 s,
                 &request.request_id,
-                &digest(&("oasis7.custody.test-session-claim.v1", &request))?,
+                &request.test_session_digest()?,
             )?;
             newly = true;
             results.push((purpose, DecimalU64(generation)));

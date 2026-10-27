@@ -80,3 +80,20 @@ entrypoint = "NativeProvisionHistory"
 binding = "IDENTITY_NATIVE_STATUS_RECOVERY"
 service = "oasis7-custody-identity-staging"
 entrypoint = "NativeProvisionRecovery"
+
+# Separate fixed metadata and TestSession capabilities. Feature flags and trusted
+# host profiles remain absent, so these bindings do not activate the workflow.
+[[durable_objects.bindings]]
+name = "CLIENT_ENROLLMENTS"
+class_name = "ClientEnrollmentAuthority"
+script_name = "oasis7-custody-identity-staging"
+
+[[services]]
+binding = "IDENTITY_TEST_SESSIONS"
+service = "oasis7-custody-identity-staging"
+entrypoint = "IdentityTestSessions"
+
+[[services]]
+binding = "TEST_SESSION_PRIVATE_HISTORY"
+service = "oasis7-custody-identity-staging"
+entrypoint = "TestSessionPrivateHistory"

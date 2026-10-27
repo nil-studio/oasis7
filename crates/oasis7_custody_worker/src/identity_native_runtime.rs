@@ -14,6 +14,8 @@ pub(crate) mod recovery;
 pub(crate) mod setup;
 #[path = "identity_owner_setup_reconcile.rs"]
 pub(crate) mod setup_reconcile;
+#[path = "identity_test_session_runtime.rs"]
+pub(crate) mod test_session;
 use crate::{
     envelope_crypto,
     native_identity::provision_transport::NativeProvisionTransport,
@@ -1074,6 +1076,12 @@ impl DurableObject for NativeSession {
         if url.path() == "/internal/recover-status" {
             return recovery::response(self.state.clone(), &self.env, &raw).await;
         }
+        if url.path() == "/internal/test-session-attestation" {
+            return test_session_attestation::response(self.state.clone(), &self.env, &raw);
+        }
+        if url.path() == "/internal/test-session-preflight" {
+            return test_session::response(self.state.clone(), &self.env, &raw).await;
+        }
         if url.path() == "/internal/participant" {
             return participant::response(self.state.clone(), &self.env, &raw).await;
         }
@@ -1132,3 +1140,6 @@ impl DurableObject for NativeSession {
         Ok(response)
     }
 }
+
+#[path = "identity_test_session_attestation.rs"]
+pub(crate) mod test_session_attestation;

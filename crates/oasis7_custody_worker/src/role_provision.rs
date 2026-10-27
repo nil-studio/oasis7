@@ -244,6 +244,7 @@ impl DurableObject for RoleKeyVault {
                 "/internal/participant-sign"
                     | "/internal/owner-setup-sign"
                     | "/internal/owner-setup-reconcile-sign"
+                    | "/internal/test-session-sign"
             )
             && url.scheme() == "https"
             && url.host_str() == Some("role-key.internal")
@@ -257,7 +258,14 @@ impl DurableObject for RoleKeyVault {
                     .map_err(|_| denied())?,
                 4096,
             )?);
-            let result = if url.path() == "/internal/owner-setup-reconcile-sign" {
+            let result = if url.path() == "/internal/test-session-sign" {
+                crate::owner_test_session_signing::sign_in_vault(
+                    self.state.clone(),
+                    &self.env,
+                    &raw,
+                )
+                .await
+            } else if url.path() == "/internal/owner-setup-reconcile-sign" {
                 crate::owner_setup_reconcile_signing::sign_in_vault(
                     self.state.clone(),
                     &self.env,

@@ -212,13 +212,22 @@ fn admission(
         verify_nonce: "e1".repeat(32),
     }
 }
+struct SessionFixture {
+    state: AccountProvisionApprovalState,
+    context: ApprovalAdmissionContext,
+    pin: NativeBindingPinV1,
+    fact: ProvedEnrollmentFactV1,
+    deployments: HostDeploymentAllowlist,
+}
 #[test]
 fn test_session_real_mfa_reserves_pending_but_only_native_positive_consume_can_progress() {
+    let _ = pending_fixture();
+}
+fn management_fixture() -> SessionFixture {
     let (mut s, mut c, pin, _, _) = super::tests::prepared_by_reconcile();
     c.handoff_until = DecimalU64(80_000);
     let policy = Policy::new(s.draft());
     let manager = metadata(&c);
-    let ns = scope(&pin);
     let world = s.draft().world_identity.clone();
     let native_namespace = fixture::root_session(&s, "ab".repeat(32), 8000)
         .status
@@ -259,6 +268,24 @@ fn test_session_real_mfa_reserves_pending_but_only_native_positive_consume_can_p
         client_public_key: d.client_public_key.clone(),
     }])
     .unwrap();
+    SessionFixture {
+        state: s,
+        context: c,
+        pin,
+        fact,
+        deployments,
+    }
+}
+fn pending_fixture() -> SessionFixture {
+    let SessionFixture {
+        state: mut s,
+        context: c,
+        pin,
+        fact,
+        deployments,
+    } = management_fixture();
+    let policy = Policy::new(s.draft());
+    let ns = scope(&pin);
     let actual = ProvedEnrollmentObservation {
         actual_actor_id: "actor-one",
         expected_actor_id: "actor-one",
@@ -405,6 +432,13 @@ fn test_session_real_mfa_reserves_pending_but_only_native_positive_consume_can_p
     let mut corrupt = serde_json::to_value(&s).unwrap();
     corrupt["test_sessions"]["session-one"]["consumed_at"] = serde_json::Value::Null;
     assert!(serde_json::from_value::<AccountProvisionApprovalState>(corrupt).is_err());
+    SessionFixture {
+        state: s,
+        context: c,
+        pin,
+        fact,
+        deployments,
+    }
 }
 
 #[test]
@@ -439,3 +473,9 @@ fn test_session_termination_basis_is_account_prepared_fact_not_echo_or_free_sign
     assert!(serde_json::from_value::<TerminationPlanV1>(raw).is_err());
     assert_eq!(s, snapshot);
 }
+
+#[path = "test_session_activation_tests.rs"]
+mod activation;
+
+#[path = "test_session_management_tests.rs"]
+mod management;

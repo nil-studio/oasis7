@@ -331,6 +331,7 @@ impl AccountProvisionApprovalState {
                         business: BudgetLedger::new(business.0),
                     },
                     credential: None,
+                    credential_history: Vec::new(),
                     revoked: false,
                 },
             );

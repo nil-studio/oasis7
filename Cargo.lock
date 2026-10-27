@@ -6213,6 +6213,7 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_proto",
  "oasis7_wasm_abi",
+ "schemars",
  "serde",
  "serde_cbor_2",
  "serde_json",

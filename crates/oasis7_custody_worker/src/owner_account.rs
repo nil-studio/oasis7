@@ -171,7 +171,14 @@ pub struct AccountAuthority {
 fn setup_path(path: &str) -> bool {
     matches!(
         path,
-        "/internal/owner-setup-approve"
+        "/internal/test-session-invite"
+            | "/internal/test-session-basis"
+            | "/internal/test-session-prepare"
+            | "/internal/test-session-approve"
+            | "/internal/test-session-continue"
+            | "/internal/test-session-identity"
+            | "/internal/test-session-owner"
+            | "/internal/owner-setup-approve"
             | "/internal/owner-setup-basis"
             | "/internal/owner-setup-prepare"
             | "/internal/owner-setup-continue"
@@ -234,6 +241,20 @@ impl DurableObject for AccountAuthority {
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
+        #[cfg(feature = "approval-harness")]
+        if url.path() == "/internal/performance/account-restore-observed" {
+            if request.method() != Method::Post
+                || url.scheme() != "https"
+                || url.host_str() != Some("account.internal")
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Response::error("not found", 404);
+            }
+            return Response::from_json(
+                &crate::provision_approval_store::performance::observed_callbacks(&self.state),
+            );
+        }
         if request.method() != Method::Post
             || url.query().is_some()
             || (!setup_path(url.path())
@@ -279,6 +300,91 @@ impl DurableObject for AccountAuthority {
                     return Response::error("owner setup unavailable", 409);
                 };
                 let result = match url.path() {
+                    "/internal/test-session-invite" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_test_session_rpc::TestSessionInviteRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::test_session::invite(&self.state, env, rpc)
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/test-session-basis" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_test_session_rpc::TestSessionBasisRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::test_session::basis(&self.state, env, rpc)
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/test-session-prepare" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_test_session_rpc::TestSessionPrepareRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::test_session::prepare(&self.state, env, rpc)
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/test-session-approve" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_test_session_rpc::TestSessionApproveRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::test_session::approve(&self.state, env, rpc)
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/test-session-continue" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_test_session_rpc::TestSessionContinueRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::test_session::continue_session(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/test-session-identity" | "/internal/test-session-owner" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_test_session_rpc::TestSessionRuntimeRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        let role = if url.path() == "/internal/test-session-owner" {
+                            Role::Owner
+                        } else {
+                            Role::Identity
+                        };
+                        crate::owner_provision::native::test_session::dispatch(
+                            &self.state,
+                            env,
+                            rpc,
+                            role,
+                        )
+                        .await
+                    }
                     "/internal/owner-setup-reconcile-basis" => {
                         let rpc = match serde_json::from_str::<
                             crate::owner_setup_reconcile_rpc::ReconcileBasisRpc,

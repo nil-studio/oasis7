@@ -515,3 +515,9 @@ impl RoleKeyStore {
         Ok(URL_SAFE_NO_PAD.encode(key.sign(bytes).to_bytes()))
     }
 }
+
+#[cfg(feature = "owner")]
+#[path = "role_key_test_session_signing.rs"]
+mod test_session_signing;
+#[cfg(feature = "owner")]
+pub(crate) use test_session_signing::{TestSessionSigningCurrent, test_session_signing_digest};

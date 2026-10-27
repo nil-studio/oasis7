@@ -417,3 +417,109 @@ pub async fn identity_read_client_enrollment(
     let fact = crate::client_enrollment_entrypoints::read_proved(&env, &enrollment_id).await?;
     serde_json::to_string(&fact).map_err(|_| rejected())
 }
+
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_attest_test_session(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::test_session_attestation::read(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_preflight_test_session(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::test_session::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_test_session_invite(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::invite(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_test_session_basis(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::basis(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_test_session_prepare(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::prepare(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_approve_test_session(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::approve(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_continue_test_session(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::continue_session(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_test_session_identity_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::runtime(
+        &env,
+        &raw,
+        oasis7_custody_core::http::Role::Identity,
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_test_session_key_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_entrypoints::runtime(
+        &env,
+        &raw,
+        oasis7_custody_core::http::Role::Owner,
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_sign_test_session_preflight(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_signing::sign(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}

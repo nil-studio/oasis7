@@ -72,8 +72,10 @@ mod sql_store;
 #[path = "../tests/support/approval_harness.rs"]
 mod approval_harness;
 
-#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod client_enrollment_authority;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod client_enrollment_reader;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod client_enrollment_entrypoints;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
@@ -95,8 +97,14 @@ mod owner_participant_signing;
 mod owner_setup_reconcile_rpc;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_setup_reconcile_signing;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_entrypoints;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_signing;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod owner_setup_rpc;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod owner_test_session_rpc;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_setup_signing;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]

@@ -224,7 +224,7 @@ impl OwnerProvisionApprovalStore {
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
-            let _performance = super::performance::callback(event, &old);
+            let _performance = super::performance::callback(event, &old, &self.state);
             let (mut next, previous) = self.reader.transition(&old)?;
             let trusted = current()?;
             let time = now()?;
@@ -821,3 +821,6 @@ impl OwnerProvisionApprovalStore {
 
 #[path = "owner_setup_reconcile_store.rs"]
 pub mod setup_reconcile;
+
+#[path = "test_session_store.rs"]
+pub(crate) mod test_session;

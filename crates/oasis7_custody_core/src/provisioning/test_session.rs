@@ -9,6 +9,7 @@ use crate::{
 };
 use oasis7_agent_api::game::{GameExecutorControlV1, GameExecutorOperationV1, GameTaskFenceV1};
 use oasis7_client_api::world_service_wire::AgentSignerDelegationChangeV1;
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionPurposeV1 {
@@ -50,6 +51,7 @@ impl Default for SessionInventoryV1 {
         Self::UnknownLegacy
     }
 }
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TestSessionClosingReasonV1 {
@@ -68,6 +70,7 @@ pub struct SessionCredentialV1 {
     pub replacements: u8,
     pub claimed_at: UnixMillis,
     pub claim_request_id: String,
+    pub claim_request: ClientCredentialClaimRequestV1,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,6 +79,7 @@ pub struct SessionRootV1 {
     pub deadline: UnixMillis,
     pub budgets: OperationBudgets,
     pub credential: Option<SessionCredentialV1>,
+    pub credential_history: Vec<SessionCredentialV1>,
     pub revoked: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,3 +309,80 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestSessionLiveDescriptorV1 {
+    pub api_version: u8,
+    pub session_id: String,
+    pub purpose: SessionPurposeV1,
+    pub deadline: UnixMillis,
+    pub authority: crate::approval::ApprovalContextV1,
+    pub world: crate::approval::ApprovedWorldV1,
+    pub task_fence: GameTaskFenceV1,
+    pub owner_key_ref: String,
+    pub executor_key_ref: String,
+    pub session: ParticipantSessionRefV1,
+    pub native_binding: crate::native_binding::NativeBindingReceiptV1,
+    pub source_operation_id: String,
+    pub source_funding: SessionSourceFundingV1,
+    pub lifetime_nonce: String,
+    pub credential_generation: Option<DecimalU64>,
+}
+impl ClientCredentialClaimRequestV1 {
+    pub fn test_session_digest(&self) -> Result<String> {
+        self.validate().map_err(|_| invalid())?;
+        digest(&("oasis7.custody.test-session-claim.v1", self))
+    }
+}
+impl AccountProvisionApprovalState {
+    /// Fixed-selector metadata only. Never authorizes decrypt, signing, I/O or a client action.
+    pub fn test_session_live_descriptor(
+        &self,
+        id: &str,
+        purpose: SessionPurposeV1,
+        source_id: &str,
+    ) -> Result<TestSessionLiveDescriptorV1> {
+        let s = self.test_sessions.get(id).ok_or_else(invalid)?;
+        let root = s.roots.get(&purpose).ok_or_else(invalid)?;
+        let source = s.sources.get(source_id).ok_or_else(invalid)?;
+        let native_binding = s
+            .native_lifetime
+            .as_ref()
+            .ok_or_else(invalid)?
+            .lifetime
+            .status
+            .receipt
+            .clone();
+        Ok(TestSessionLiveDescriptorV1 {
+            api_version: 1,
+            session_id: id.into(),
+            purpose,
+            deadline: root.deadline,
+            authority: s.input.request.context.clone(),
+            world: s.termination.world.clone(),
+            task_fence: s.termination.initial_fence.clone(),
+            owner_key_ref: s.termination.owner_key_ref.clone(),
+            executor_key_ref: s.termination.executor_key_ref.clone(),
+            session: s.session.clone(),
+            native_binding,
+            source_operation_id: source_id.into(),
+            source_funding: *s.source_funding.get(source_id).ok_or_else(invalid)?,
+            lifetime_nonce: digest(&(
+                "oasis7.custody.test-session-current-lifetime.v1",
+                id,
+                source_id,
+                &source.verify_nonce,
+            ))?,
+            credential_generation: root.credential.as_ref().map(|c| c.generation),
+        })
+    }
+}
+
+#[path = "test_session_management.rs"]
+mod management;
+pub use management::*;
+
+#[path = "test_session_progress.rs"]
+mod progress;
+pub use progress::*;

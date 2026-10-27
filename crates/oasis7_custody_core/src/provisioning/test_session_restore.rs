@@ -146,17 +146,7 @@ impl AccountProvisionApprovalState {
                     {
                         return Err(invalid());
                     }
-                    if let Some(c) = &root.credential {
-                        if !hex64(&c.digest)
-                            || c.generation.0 != u64::from(c.replacements) + 1
-                            || c.replacements > 3
-                            || !id_nonempty(&c.claim_request_id)
-                            || c.claimed_at.get() < approved.get()
-                            || c.claimed_at.get() >= deadline
-                        {
-                            return Err(invalid());
-                        }
-                    }
+                    credential_history::validate(s, root, purpose, approved, deadline, id)?;
                     let mut expected = OperationBudgets {
                         requests: BudgetLedger::new(requests.0),
                         transport: BudgetLedger::new(transport.0),
@@ -407,7 +397,7 @@ impl AccountProvisionApprovalState {
                         .keys()
                         .map(|step| {
                             if *step == SessionPreflightStepV1::FreshAccessPair {
-                                2
+                                4
                             } else {
                                 1
                             }
@@ -447,3 +437,6 @@ fn same_proof(a: &ApprovalAdmissionInput, b: &ApprovalAdmissionInput) -> bool {
 fn id_nonempty(s: &str) -> bool {
     !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
 }
+
+#[path = "test_session_credential_restore.rs"]
+mod credential_history;

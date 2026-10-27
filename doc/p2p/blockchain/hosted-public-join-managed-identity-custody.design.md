@@ -572,6 +572,8 @@ Enrollment DO 只保存不可变的定向持钥证明，不分配 grant，也不
 
 raw token 只返回宿主私密通道，DO 保存 digest/generation/期限；浏览器、CLI stdout、MCP 结果和审计不能回领它。领取响应丢失时，同 key 以显式 replace=true、预期旧 generation 和新一次挑战重领，DO 原子吊销旧 generation，每 purpose 最多 3 次替换且计入控制预算。重复同 claim ID 只回领取状态；无存储 raw token 可重放时须另一次明确 replace，不能借重试隐式反复轮换。新凭据继承原根范围、余额和截止；已 admission 原件保持原 root/operation 身份，旧凭据不得新调用。丢失私钥、换 host/connector/key 或被撤销须新鲜管理批准，不能凭公开 handle 恢复。
 
+每个可领取 purpose 永久保留本 TestSession 内的完整 credential history（初领加最多三次替换，最多四条），不随撤销、过期或当前代替换删除；TerminationPlan 无客户端凭据及该历史。当前凭据必须等于末条，generation 从 1 连续递增、替换计数与历史长度一致，领取时间不早于批准且不晚于原 purpose 截止。任何新 allocation 的 digest 不得与任何 purpose 的当前或历史 digest 重复，包括本 purpose 已退休代，避免旧 raw token 再次变为有效当前凭据。每条历史须反向绑定完整已登记 claim 原件及其 body digest；同一 claim 同时领取 Execute 与 Read 可共享 request ID，但每个 purpose 不重复该 ID，跨 purpose 只能对应同一原件的目的集合、replace 与 expected generation。旧 claim ID 重试只返回其历史 metadata，不重发秘密、不恢复旧 current、不添加历史或重扣预算；同 ID 异正文冲突。严格恢复核对上述关系，当前凭据存在但历史缺失不能默认成空或重置代数。
+
 <a id="cloud-custody-provision"></a>
 ### 12.16 原生身份会话、批准与幂等开户
 
@@ -1018,7 +1020,7 @@ TerminationPlan 允许在 execution root 到期后执行，是因为初次已经
 
 首次 TestSession 的当前 World/Native 预检发生在三个可用 purpose roots 发出之前。Account 先以本地强验的完整 fresh-MFA 原件登记 `preflight_reserved`：同 SQL 全 Account 唯一占用 proof nonce/原 approval request、stable approval operation ID 与完整计划 digest，保存初批 control 账、绝对截止与一次预检 claim；此状态只授权有界只读预检，不是 approved 或业务权限。它占用一个未关闭 session 槽及三个 root 预留名额，和仍有效的旧 roots 一起受四 root 上限约束。相同 operation/digest 只读原状态、不重新派发或扣账；不同 digest 冲突，新管理请求 ID 不能重建同 proof。取消、到期或 unknown 保留消费、预算与预留事实，不退回额度自动重试。
 
-预检属于初批 80 中一个稳定逻辑控制请求；每实际 HTTP 尝试预扣对应 hop 的 240 账，Identity→native 的实际来源核验、lifetime、policy、authorize 分别预扣 160 账。World 与内部 DO/binding 调用受固定 profile 的独立内部调用上限和逐出站 claim 约束，不能混称 native HTTP 或借 Execution/Read/Cleanup 预算。尚未实测闭合固定调用图时该 profile 保持 disabled/blocked，不能静默提高初批上限。最早管理 session 认证属于原有有界管理 metadata 入口，不伪称由尚不存在的 session 账预扣。最终发出三 roots 前仍需真实 native `consume_approval` 对同 proof、Account 登记 verify nonce 的 positive 原件（消费时 proof 在 30 秒窗口内），及当前来源、DF/RF、独立 lifetime、固定 World 强证据和最终同 SQL 复验；本地签名或到期后的 inspect_origin 不能把未消费的预检状态转为授权。三个 roots、配对绑定及预算同 SQL 一次提交，截止始终取初批绝对值，不从提交时重新起钟。
+预检属于初批 80 中一个稳定逻辑控制请求；每实际 HTTP 尝试预扣对应 hop 的 240 账，Identity→native 的实际来源核验、lifetime、policy、authorize 分别预扣 160 账。FreshAccessPair 的固定调用图包含 policy 前的 Root session-status、policy 原件、authorize 前的独立 Root session-status、authorize 四次实际 HTTP；必须在一次 once-only claim 同 SQL 预扣 4 次，而非只扣两个业务端点。余额不足 4 时整次 claim 拒绝且不得出站，中途失败不退款，重启不得重发该 pair。两个 Root status 仍分别绑定原登记 nonce，不复用一次观察来省略核验。World 与内部 DO/binding 调用受固定 profile 的独立内部调用上限和逐出站 claim 约束，不能混称 native HTTP 或借 Execution/Read/Cleanup 预算。尚未实测闭合固定调用图时该 profile 保持 disabled/blocked，不能静默提高初批上限。最早管理 session 认证属于原有有界管理 metadata 入口，不伪称由尚不存在的 session 账预扣。最终发出三 roots 前仍需真实 native `consume_approval` 对同 proof、Account 登记 verify nonce 的 positive 原件（消费时 proof 在 30 秒窗口内），及当前来源、DF/RF、独立 lifetime、固定 World 强证据和最终同 SQL 复验；本地签名或到期后的 inspect_origin 不能把未消费的预检状态转为授权。三个 roots、配对绑定及预算同 SQL 一次提交，截止始终取初批绝对值，不从提交时重新起钟。
 
 challenge 与后续调用按登记的 stable business request ID/精确控制摘要共享一个逻辑 reservation，各自实际 HTTP 尝试仍独立扣 transport，不能把一次 heartbeat 的 challenge 与调用算成两个逻辑请求。首次私领凭据使用独立 ClaimChallenge purpose：先验登记 key 的 challenge-only PoP，再核实际 enrollment 与已批准 session/purpose，才原子扣控制 HTTP 尝试并占用有界挑战槽；空 token 仅限 enrollment 或该已批准 claim，不能进入 action。未配对 enrollment new/prove 使用独立 metadata origin/IP 限流，不扣不存在的 TestSession 账，也不发业务根。
 

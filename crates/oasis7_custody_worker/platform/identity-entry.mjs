@@ -29,3 +29,10 @@ export class RoleKeyProvision extends WorkerEntrypoint {
 export class IdentityClientEnrollments extends WorkerEntrypoint {
   async readProved(enrollmentId) { return new RustWorker(this.ctx,this.env).identity_read_client_enrollment(this.env,enrollmentId); }
 }
+
+export class TestSessionPrivateHistory extends WorkerEntrypoint {
+  async attest(raw) { return new RustWorker(this.ctx,this.env).identity_attest_test_session(this.env,raw); }
+}
+export class IdentityTestSessions extends WorkerEntrypoint {
+  async preflight(raw) { return new RustWorker(this.ctx,this.env).identity_preflight_test_session(this.env,raw); }
+}

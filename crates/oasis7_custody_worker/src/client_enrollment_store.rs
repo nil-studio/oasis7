@@ -176,7 +176,25 @@ fn prepared(
         },
         time,
     )
-    .map_err(|_| denied())
+    .map_err(|error| {
+        #[cfg(feature = "native-runtime-harness")]
+        worker::console_warn!(
+            "enrollment.prove.http_pop.{}",
+            match error {
+                HttpPopError::Bounds => "Bounds",
+                HttpPopError::Target => "Target",
+                HttpPopError::Header => "Header",
+                HttpPopError::Binding => "Binding",
+                HttpPopError::Digest => "Digest",
+                HttpPopError::Time => "Time",
+                HttpPopError::Signature => "Signature",
+                HttpPopError::Crypto => "Crypto",
+            }
+        );
+        #[cfg(not(feature = "native-runtime-harness"))]
+        let _ = error;
+        denied()
+    })
 }
 pub(crate) fn create(
     state: &JsValue,
@@ -253,31 +271,36 @@ pub(crate) async fn prove(
     input: ProveInput,
 ) -> Result<ProvedEnrollmentFactV1, JsValue> {
     Config::enabled(env)?;
-    let initial = optional(read(state, KEY)?)?.ok_or_else(denied)?;
-    let saved = decode(&initial)?;
+    let initial =
+        optional(read(state, KEY).map_err(|e| diagnostic("read", e))?)?.ok_or_else(denied)?;
+    let saved = decode(&initial).map_err(|e| diagnostic("decode", e))?;
     physical(
         &saved.state,
         &Physical::for_id(env, &input.enrollment_id, actor, realm)?,
         &input.enrollment_id,
-    )?;
-    let proof = prepared(&saved.state, &input, now()?)?;
-    let mut cache = verify(proof.signature_checks().map_err(|_| denied())?).await?;
+    )
+    .map_err(|e| diagnostic("physical", e))?;
+    let proof = prepared(&saved.state, &input, now()?).map_err(|e| diagnostic("prepare", e))?;
+    let mut cache = verify(proof.signature_checks().map_err(|_| denied())?)
+        .await
+        .map_err(|e| diagnostic("precrypto", e))?;
     let mut returned = None;
     let mut callback = |old: JsValue, inv: String| -> Result<Array, JsValue> {
         let old = optional(old)?.ok_or_else(denied)?;
-        inventory(&inv, KEY, Some(&old))?;
+        inventory(&inv, KEY, Some(&old)).map_err(|e| diagnostic("finalinventory", e))?;
         let mut s = decode(&old)?;
         let before = s.state.clone();
         let p = Physical::for_id(env, &input.enrollment_id, actor, realm)?;
         physical(&s.state, &p, &input.enrollment_id)?;
         Config::enabled(env)?;
         let time = now()?;
-        let proof = prepared(&s.state, &input, time)?;
-        let receipt = verify_http_possession(proof, time, &mut cache).map_err(|_| denied())?;
+        let proof = prepared(&s.state, &input, time).map_err(|e| diagnostic("finalprepare", e))?;
+        let receipt = verify_http_possession(proof, time, &mut cache)
+            .map_err(|_| diagnostic("verifyReceipt", denied()))?;
         let fact = s
             .state
             .prove(input.body.as_bytes(), receipt, &p.core(), time)
-            .map_err(|_| denied())?;
+            .map_err(|_| diagnostic("stateProve", denied()))?;
         if s.state != before {
             s.audit_sequence = DecimalU64(s.audit_sequence.0.checked_add(1).ok_or_else(denied)?);
         }
@@ -291,7 +314,7 @@ pub(crate) async fn prove(
         )
     };
     let closure = Closure::borrow_mut(&mut callback);
-    update(state, KEY, closure.as_ref().unchecked_ref())?;
+    update(state, KEY, closure.as_ref().unchecked_ref()).map_err(|e| diagnostic("update", e))?;
     drop(closure);
     returned.ok_or_else(denied)
 }
@@ -430,4 +453,12 @@ pub(crate) fn charge_abuse(
     let closure = Closure::borrow_mut(&mut callback);
     abuse_update(state, ABUSE, closure.as_ref().unchecked_ref())?;
     Ok(())
+}
+
+fn diagnostic(stage: &str, error: JsValue) -> JsValue {
+    #[cfg(feature = "native-runtime-harness")]
+    worker::console_warn!("enrollment.prove.{}", stage);
+    #[cfg(not(feature = "native-runtime-harness"))]
+    let _ = stage;
+    error
 }

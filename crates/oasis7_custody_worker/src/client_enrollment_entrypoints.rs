@@ -1,14 +1,13 @@
 //! Only the fixed public pairing ports and private namespace reader reach these actors.
 use crate::client_enrollment_authority::*;
+pub(crate) use crate::client_enrollment_reader::{FactView, ReadFact, read_proved};
 use crate::client_enrollment_store::{
     self as store, AbuseKind, AbuseRequest, AbuseScope, HeaderPair, ProveInput,
 };
 use oasis7_custody_core::{
     client_enrollment::*,
     http_pop::{CanonicalHttpTarget, HttpPopRoute},
-    time_units::UnixMillis,
 };
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use worker::*;
 #[wasm_bindgen(module = "/platform/sql.mjs")]
@@ -21,37 +20,6 @@ async fn text(r: &Request, max: u32) -> std::result::Result<String, JsValue> {
         .await?
         .as_string()
         .ok_or_else(denied)
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CreateView {
-    pub api_version: u8,
-    pub enrollment_id: String,
-    pub key_id: String,
-    pub server_nonce: String,
-    pub challenge_expires_at: UnixMillis,
-    pub expires_at: UnixMillis,
-    pub descriptor_digest: String,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ProveView {
-    pub api_version: u8,
-    pub enrollment_id: String,
-    pub status: String,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct FactView {
-    pub actual_actor_id: String,
-    pub realm: String,
-    pub public_origin: String,
-    pub fact: ProvedEnrollmentFactV1,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReadFact {
-    enrollment_id: String,
 }
 #[durable_object]
 pub struct ClientEnrollmentAuthority {
@@ -93,7 +61,7 @@ impl DurableObject for ClientEnrollmentAuthority {
                 store::create(&self.state, &self.env, &self.actor_id, &self.realm, &raw).and_then(
                     |s| {
                         let r = s.registration();
-                        serde_json::to_string(&CreateView {
+                        serde_json::to_string(&ClientEnrollmentCreateResponseV1 {
                             api_version: 1,
                             enrollment_id: r.enrollment_id.clone(),
                             key_id: r.key_id.clone(),
@@ -110,10 +78,10 @@ impl DurableObject for ClientEnrollmentAuthority {
                 Ok(p) => store::prove(&self.state, &self.env, &self.actor_id, &self.realm, p)
                     .await
                     .and_then(|f| {
-                        serde_json::to_string(&ProveView {
+                        serde_json::to_string(&ClientEnrollmentProofResponseV1 {
                             api_version: 1,
                             enrollment_id: f.registration.enrollment_id,
-                            status: "proved".into(),
+                            status: ClientEnrollmentProofStatusV1::Proved,
                         })
                         .map_err(|_| denied())
                     }),
@@ -302,31 +270,6 @@ pub(crate) async fn prove(env: &Env, id: &str, request: Request) -> Result<Respo
     .await
     .map_err(|_| Error::RustError("enrollment proof rejected".into()))?;
     json_response(reply)
-}
-/// Fixed named private Reader only. No default/public HTTP route calls this.
-pub(crate) async fn read_proved(env: &Env, id: &str) -> std::result::Result<FactView, JsValue> {
-    let c = Config::load(env)?;
-    let expected = c.actor_id(env, id)?;
-    let raw = call(
-        env,
-        &c.actor_name(id)?,
-        "/internal/read-proved",
-        &serde_json::to_string(&ReadFact {
-            enrollment_id: id.into(),
-        })
-        .map_err(|_| denied())?,
-    )
-    .await?;
-    let v: FactView = serde_json::from_str(&raw).map_err(|_| denied())?;
-    if v.actual_actor_id != expected
-        || v.realm != c.realm
-        || v.public_origin != c.origin
-        || v.fact.registration.enrollment_id != id
-        || v.fact.registration.physical_actor_id != expected
-    {
-        return Err(denied());
-    }
-    Ok(v)
 }
 
 fn json_response(raw: String) -> Result<Response> {

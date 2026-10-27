@@ -357,3 +357,7 @@ fn enrollment_nonce(s: &str) -> bool {
 #[path = "client_enrollment_state.rs"]
 mod state;
 pub use state::*;
+
+#[path = "client_enrollment_http.rs"]
+mod http;
+pub use http::*;

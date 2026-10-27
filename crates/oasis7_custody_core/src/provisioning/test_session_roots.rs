@@ -172,12 +172,9 @@ impl AccountProvisionApprovalState {
         }
         let checks = super::source::validate_inspection_record(r, source, signed, c, now.get())?;
         let status = &current.lifetime.lifetime.status;
-        let nonce = digest(&(
-            "oasis7.custody.test-session-current-lifetime.v1",
-            id,
-            current.source_operation_id,
-            &source.verify_nonce,
-        ))?;
+        let nonce = self
+            .test_session_live_descriptor(id, purpose, current.source_operation_id)?
+            .lifetime_nonce;
         let original = s.native_lifetime.as_ref().ok_or_else(invalid)?;
         current
             .lifetime

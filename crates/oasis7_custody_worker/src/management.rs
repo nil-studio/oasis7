@@ -1,6 +1,7 @@
 use crate::owner_setup_reconcile_rpc::{
     ReconcileApproveRpc, ReconcileBasisRpc, ReconcileContinueRpc, ReconcilePrepareRpc,
 };
+use crate::owner_test_session_rpc::*;
 // Same-origin management routes. Native Passkey/Origin/CSRF checks precede Owner RPC.
 use crate::owner_setup_rpc::{
     OwnerSetupApproveRpc, OwnerSetupBasisRpc, OwnerSetupContinueRpc, OwnerSetupPrepareRpc,
@@ -30,6 +31,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
     let draft = path == "/v1/account-provisions";
     let freeze = path == "/v1/manager-revocations";
     let provision_path = path.strip_prefix("/v1/account-provisions/");
+    let session_invite = provision_path.and_then(|id| id.strip_suffix("/test-sessions/invite"));
+    let session_basis = provision_path.and_then(|id| id.strip_suffix("/test-sessions/basis"));
+    let session_prepare = provision_path.and_then(|id| id.strip_suffix("/test-sessions/prepare"));
+    let session_approve = provision_path.and_then(|id| id.strip_suffix("/test-sessions/approve"));
+    let session_continue = provision_path.and_then(|id| id.strip_suffix("/test-sessions/continue"));
     let setup_approve = provision_path.and_then(|id| id.strip_suffix("/owner-setups/approve"));
     let setup_continue = provision_path.and_then(|id| id.strip_suffix("/owner-setups/continue"));
     let setup_basis = provision_path.and_then(|id| id.strip_suffix("/owner-setups/basis"));
@@ -48,12 +54,18 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
     let approve = provision_path
         .and_then(|id| id.strip_suffix("/approve"))
         .filter(|_| {
-            managed_approve.is_none() && setup_approve.is_none() && reconcile_approve.is_none()
+            managed_approve.is_none()
+                && setup_approve.is_none()
+                && reconcile_approve.is_none()
+                && session_approve.is_none()
         });
     let advance = provision_path
         .and_then(|id| id.strip_suffix("/continue"))
         .filter(|_| {
-            managed_continue.is_none() && setup_continue.is_none() && reconcile_continue.is_none()
+            managed_continue.is_none()
+                && setup_continue.is_none()
+                && reconcile_continue.is_none()
+                && session_continue.is_none()
         });
     let progress = provision_path.and_then(|id| id.strip_suffix("/progress"));
     let get = provision_path.filter(|_| {
@@ -70,6 +82,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             && reconcile_continue.is_none()
             && reconcile_basis.is_none()
             && reconcile_prepare.is_none()
+            && session_invite.is_none()
+            && session_basis.is_none()
+            && session_prepare.is_none()
+            && session_approve.is_none()
+            && session_continue.is_none()
     });
     if let Some(id) = approve
         .or(advance)
@@ -84,9 +101,34 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         .or(reconcile_continue)
         .or(reconcile_basis)
         .or(reconcile_prepare)
+        .or(session_invite)
+        .or(session_basis)
+        .or(session_prepare)
+        .or(session_approve)
+        .or(session_continue)
     {
         if id.is_empty() || id.len() > 128 || id.contains('/') {
             return Response::error("not found", 404);
+        }
+    }
+    if session_invite
+        .or(session_basis)
+        .or(session_prepare)
+        .or(session_approve)
+        .or(session_continue)
+        .is_some()
+    {
+        if request.method() != Method::Post {
+            return Response::error("method not allowed", 405);
+        }
+        if env
+            .var("CUSTODY_TEST_SESSION_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+        {
+            return unavailable();
         }
     }
     if (status_route || get.is_some() || progress.is_some()) && request.method() != Method::Get
@@ -170,7 +212,102 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return Ok(response);
     }
     // The request never supplies a manager selector. Metadata remains inside this private hop.
-    let result = if let Some(id) = reconcile_basis {
+    let result = if let Some(id) = session_invite {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: PairingInviteCreateRequestV1 =
+            match serde_json::from_str::<PairingInviteCreateRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        test_session_invite(
+            &env,
+            &serde_json::to_string(&TestSessionInviteRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = session_basis {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: TestSessionBasisRequestV1 =
+            match serde_json::from_str::<TestSessionBasisRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        test_session_basis(
+            &env,
+            &serde_json::to_string(&TestSessionBasisRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = session_prepare {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: TestSessionPrepareRequestV1 =
+            match serde_json::from_str::<TestSessionPrepareRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        prepare_test_session(
+            &env,
+            &serde_json::to_string(&TestSessionPrepareRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = session_approve {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: TestSessionApproveRequestV1 =
+            match serde_json::from_str::<TestSessionApproveRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        approve_test_session(
+            &env,
+            &serde_json::to_string(&TestSessionApproveRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = session_continue {
+        let body = match request_text(&request).await {
+            Ok(v) => v,
+            Err(_) => return Response::error("invalid request", 400),
+        };
+        let value: TestSessionContinueRequestV1 =
+            match serde_json::from_str::<TestSessionContinueRequestV1>(&body) {
+                Ok(v) if v.validate().is_ok() => v,
+                _ => return Response::error("invalid request", 400),
+            };
+        continue_test_session(
+            &env,
+            &serde_json::to_string(&TestSessionContinueRpc {
+                manager_session: manager,
+                provision_id: id.into(),
+                request: value,
+            })?,
+        )
+        .await
+    } else if let Some(id) = reconcile_basis {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
@@ -470,7 +607,44 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return unavailable();
     };
     // Validate the actual response DTO in Rust before passing its original JSON bytes.
-    if let Some(id) = reconcile_basis {
+    if let Some(id) = session_invite {
+        let value: PairingInviteOriginalV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || value.provision_id != id
+            || value.service_epoch.0 == 0
+            || value.target().is_err()
+        {
+            return unavailable();
+        }
+    } else if let Some(id) = session_basis {
+        let value: TestSessionBasisV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || value.provision_id != id
+            || value.custody_account_id != value.authority.custody_account_id
+            || value.authority.security_version.0 == 0
+            || value.authority.service_epoch.0 == 0
+        {
+            return unavailable();
+        }
+    } else if session_prepare.is_some() {
+        let value: TestSessionPrepareResponseV1 = serde_json::from_str(&raw)?;
+        if !matches!(
+            value.intent,
+            oasis7_custody_core::approval::CustodyIntentV1::TestSession { .. }
+        ) || value.context.custody_account_id.is_empty()
+            || value.context.security_version.0 == 0
+            || value.context.service_epoch.0 == 0
+        {
+            return unavailable();
+        }
+    } else if session_approve.is_some() || session_continue.is_some() {
+        let value: TestSessionProgressV1 = serde_json::from_str(&raw)?;
+        if value.api_version != 1
+            || Some(value.provision_id.as_str()) != session_approve.or(session_continue)
+        {
+            return unavailable();
+        }
+    } else if let Some(id) = reconcile_basis {
         let value: OwnerSetupReconcileBasisV1 = serde_json::from_str(&raw)?;
         if value.api_version != 1
             || value.provision_id != id

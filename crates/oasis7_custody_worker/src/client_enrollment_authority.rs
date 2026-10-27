@@ -1,14 +1,16 @@
 //! Fixed physical enrollment namespace and public deployment policy.
+#[cfg(feature = "identity")]
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use oasis7_custody_core::{
-    approval::bytes_digest, client_enrollment::*, http_pop::*, time_units::UnixMillis,
-};
+#[cfg(feature = "identity")]
+use oasis7_custody_core::time_units::UnixMillis;
+use oasis7_custody_core::{approval::bytes_digest, client_enrollment::*, http_pop::*};
 use wasm_bindgen::JsValue;
 use worker::Env;
 pub(crate) const BINDING: &str = "CLIENT_ENROLLMENTS";
 pub(crate) fn denied() -> JsValue {
     JsValue::from_str("client enrollment unavailable")
 }
+#[cfg(feature = "identity")]
 pub(crate) fn now() -> Result<UnixMillis, JsValue> {
     let n = js_sys::Date::now();
     if !n.is_finite() || n < 0.0 || n.fract() != 0.0 || n > 9_007_199_254_740_991.0 {
@@ -51,6 +53,7 @@ impl Config {
             deployments,
         })
     }
+    #[cfg(feature = "identity")]
     pub fn enabled(env: &Env) -> Result<Self, JsValue> {
         if env
             .var("CUSTODY_CLIENT_ENROLLMENT_ENABLED")
@@ -63,6 +66,7 @@ impl Config {
         }
         Self::load(env)
     }
+    #[cfg(feature = "identity")]
     pub fn enrollment_id(&self, r: &ClientEnrollmentCreateRequestV1) -> Result<String, JsValue> {
         Ok(format!(
             "enroll-{}",
@@ -89,6 +93,7 @@ impl Config {
             .map_err(|_| denied())?
             .to_string())
     }
+    #[cfg(feature = "identity")]
     pub fn bucket_name(&self, bucket: &str) -> Result<String, JsValue> {
         if bucket.len() != 64
             || !bucket
@@ -112,11 +117,13 @@ pub(crate) fn valid_id(v: &str) -> bool {
         && v.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
 }
+#[cfg(feature = "identity")]
 pub(crate) fn nonce() -> Result<String, JsValue> {
     let text = crate::approval_crypto::verification_nonce().map_err(|_| denied())?;
     let bytes = hex::decode(text).map_err(|_| denied())?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
+#[cfg(feature = "identity")]
 pub(crate) struct Physical {
     pub actual_actor_id: String,
     pub actual_realm: String,
@@ -124,6 +131,7 @@ pub(crate) struct Physical {
     pub expected_realm: String,
     pub origin: String,
 }
+#[cfg(feature = "identity")]
 impl Physical {
     pub fn for_id(env: &Env, id: &str, actual: &str, realm: &str) -> Result<Self, JsValue> {
         let c = Config::load(env)?;

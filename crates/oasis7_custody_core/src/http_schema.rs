@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 mod owner_setup;
 #[path = "http_schema_reconcile.rs"]
 mod reconcile;
+#[path = "http_schema_test_session.rs"]
+mod test_session;
 
 fn context() -> ApprovalContextV1 {
     ApprovalContextV1 {
@@ -365,7 +367,7 @@ pub(super) fn export(directory: &std::path::Path) {
         },
         signature: "fixture-signature".into(),
     };
-    let schemas = json!({
+    let mut schemas = json!({
         "OwnerSetupApproveRequestV1":schemars::schema_for!(OwnerSetupApproveRequestV1),
         "OwnerSetupDriveRequestV1":schemars::schema_for!(OwnerSetupDriveRequestV1),
         "OwnerSetupProgressV1":schemars::schema_for!(OwnerSetupProgressV1),
@@ -402,6 +404,10 @@ pub(super) fn export(directory: &std::path::Path) {
         "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
         "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
     });
+    schemas
+        .as_object_mut()
+        .unwrap()
+        .extend(test_session::schemas().as_object().unwrap().clone());
     let mut fixtures = json!({
         "ManagedLoginApproveRequestV1":[managed_login_approve],
         "ManagedLoginApprovalViewV1":[ManagedLoginApprovalViewV1{api_version:1,provision_id:"provision-one".into(),custody_account_id:"custody-one".into(),operation_id:"managed-login-approve-one".into(),stage:ManagedLoginStageV1::Approved}],
@@ -421,6 +427,12 @@ pub(super) fn export(directory: &std::path::Path) {
         .as_object_mut()
         .unwrap()
         .extend(reconcile::fixture(&approval).as_object().unwrap().clone());
+    fixtures.as_object_mut().unwrap().extend(
+        test_session::fixture(&approval)
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),
