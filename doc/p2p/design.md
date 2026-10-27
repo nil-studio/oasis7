@@ -380,6 +380,10 @@ engineering V2 的现有 execution hash 不承诺正式读取的投影树，不�
 
 协议的 64 高度/16 MiB 上限不能代替执行材料容量。安装与重开还须核对 H 到目标的累计记录、CAS 依赖节点和字节硬上限，在 intent 发布前预检，并将已安装前缀计入同一容量核算；重试或增加后继高度不重置累计容量。固定 cut 的局部重开与 GC 用例只证明实际保留的重放闭包，不替代未访问冷历史的 archive 保留资格或完整同步预算。
 
+连续前缀的读取采用独立签名域 `/v3/world/read`、schema/contract/wire version 3；旧 `/v2/world/read` 继续只接受其原 H+1 合同。V3 请求独立固定 H read anchor、目标配置/activation digest、world、audience、observation nonce 和精确目标 `(height, block_id)`，高度限于 H 后的 64 个位置内。响应携带完整 canonical `FormalBftCertifiedPrefixV1` 的小写 hex、同一 tip 的 head 字段及投影 inclusion；不另带可与前缀错配的独立 tip QC/preimage。prefix CBOR 最多 16 MiB，JSON hex 最多 32 MiB，整个响应的实际传输编码限制为 40 MiB。结构校验按有界计数写入而非先分配任意大的重复编码；接收端在解码前限制响应字节。
+
+V3 客户端必须先从本地已认证 H 验证整条前缀及所有集合/schedule 变化，再匹配本地精确目标与响应的 tip/root/tick，最后核对签名请求 audience 的 inclusion。服务端仅从本机 ledger 已持久回读和实际逐高度重放的 cut 建立 publication，重算 World 的语义执行根、manifest 和投影，并核对 cut 的实际结果树 root；不能以单个 tip QC 或服务声明代替该前缀。`bft-prefix serve` 只重开原配置中的既有账本，不初始化缺失状态。固定历史 cut 不能用作当前私有授权 World；缺少独立的当前授权源时私有请求保持阻断；提供当前源时，授权 guard 覆盖响应构造、签名及有界 socket 写入，不能在返回编码字节后、实际释放前提前放开。公开请求仍受原公开范围与释放前闸门约束。新版本不产生 latest/current/fresh、新 validator 权限或 provider 安装资格。
+
 主机通过独立 `bft-prefix install --config <prefix.json> --prefix <complete-prefix.cbor>` 和 `bft-prefix verify --config <prefix.json>` 接入上述实际安装与恢复。配置 schema 1 固定 `trust_config_path`、已由 H 承诺的 `target`、独立精确的 `exact_target.height/block_id`、`handoff_material_path`、`cas_directory` 与 `ledger_directory`；不接受 provider 选择目标。输入文件为 owned 0600，CAS 与 ledger 为既有、分离且 owned 0700 的真实目录。verify 不初始化缺失状态，可以在完整重放和 pin 核验后完成已保存的原 intent；它不接受替代 QC。实现为整条前缀设置 512 MiB 材料容量，包含编码/展开的 H、记录元数据和内容寻址 CAS 闭包；节点集合另受既有 4096 节点/64 MiB 索引预算约束。记录字节在解码前受累计读取上限约束，解码后的数量/引用、实际执行结果和材料容量在 intent 发布前核对；达到容量返回明确 blocker，不丢弃旧前缀继续。
 
 两个命令的 `oasis7.formal_bft_prefix_install_receipt.v1` 是同一原安装 cut 的本机持久回读诊断，绑定实际高度、block ID、activation digest 与本机 durable record digest。外部消费者仍需独立验证完整 QC/正式 preimage 前缀；stdout JSON 不是新的外部权威证明。该入口不生成票、不启动服务端新 read wire、不宣称 latest/current，也不代签正式 signer/provider/Node 安装或全量状态可用性。

@@ -5,7 +5,7 @@ use oasis7_formal_protocol::bft::{FormalBftCertifiedEntryV1, FormalBftCertifiedP
 use oasis7_runtime::{BlobStore, LocalCasStore};
 use std::collections::BTreeSet;
 
-fn actual_prefix(h: &QualifiedH, scratch: &Scratch) -> FormalBftCertifiedPrefixV1 {
+pub(super) fn actual_prefix(h: &QualifiedH, scratch: &Scratch) -> FormalBftCertifiedPrefixV1 {
     let execution = open_formal_read(h, scratch, h.reader.clone(), true).unwrap();
     let first = execution.build_candidate(Vec::new()).unwrap();
     let mut executed = execution.execute_candidate(&first).unwrap();
@@ -52,7 +52,7 @@ fn actual_prefix(h: &QualifiedH, scratch: &Scratch) -> FormalBftCertifiedPrefixV
     prefix
 }
 
-fn open_prefix(
+pub(super) fn open_prefix(
     h: &QualifiedH,
     scratch: &Scratch,
     source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
@@ -504,11 +504,11 @@ fn certificate_at_round(
     }
 }
 
-fn private_file(path: &Path, bytes: &[u8]) {
+pub(super) fn private_file(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
-fn cli_files(
+pub(super) fn cli_files(
     h: &QualifiedH,
     prefix: &FormalBftCertifiedPrefixV1,
     height: u64,

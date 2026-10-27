@@ -56,6 +56,8 @@ mod profile_tests;
 
 #[path = "driver_bft_v2_formal_prefix_ledger_tests.rs"]
 mod prefix_ledger_tests;
+#[path = "driver_bft_v2_formal_prefix_read_tests.rs"]
+mod prefix_read_tests;
 #[path = "driver_bft_v2_formal_prefix_tests.rs"]
 mod prefix_tests;
 #[path = "driver_bft_v2_formal_replay_tests.rs"]

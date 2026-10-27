@@ -70,6 +70,9 @@ mod feedback_submit_api;
 #[path = "host/formal_bft_prefix_cli.rs"]
 mod formal_bft_prefix_cli;
 #[cfg(unix)]
+#[path = "host/formal_bft_prefix_http.rs"]
+mod formal_bft_prefix_http;
+#[cfg(unix)]
 #[path = "host/formal_bft_read_cli.rs"]
 mod formal_bft_read_cli;
 #[cfg(unix)]

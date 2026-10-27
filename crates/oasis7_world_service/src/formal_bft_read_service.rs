@@ -291,7 +291,7 @@ fn validate_exact_target(
     Ok(())
 }
 
-fn validate_committed_world(
+pub(crate) fn validate_committed_world(
     world: &World,
     identity: &FormalWorldIdentityV1,
     height: u64,
@@ -340,7 +340,7 @@ fn validate_committed_world(
     Ok(())
 }
 
-fn validate_world_identity(
+pub(crate) fn validate_world_identity(
     world: &World,
     identity: &WorldIdentity,
     chain_id: Option<&str>,
@@ -355,7 +355,7 @@ fn validate_world_identity(
     Ok(())
 }
 
-fn to_wire_inclusion(inclusion: ProjectionInclusionV1) -> FormalProjectionInclusionV1 {
+pub(crate) fn to_wire_inclusion(inclusion: ProjectionInclusionV1) -> FormalProjectionInclusionV1 {
     FormalProjectionInclusionV1 {
         schema_version: inclusion.schema_version,
         audience: FormalProjectionAudienceV1 {

@@ -558,6 +558,16 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_read::tests
 
 负例须覆盖有效 QC 中伪造结果根、缺 pin 的重复重开、丢失/损坏 CAS、部分记录、符号链接、发布态额外硬链接、丢失 origin/marker/稳定锁，且不自动修复或覆盖原件。真实子进程覆盖 init-intent 与 reservation 完整写入后、rename 前的 staging，CAS/pins 发布后，以及 intent 发布后和 record 硬链接后五个耐久点，由父进程对其持有的 child handle 发送 SIGKILL，再核对原 staging/reservation 字节、单/双链接状态、跨格式排他和同一 lock inode 的恢复。不同签名 round 的同块 QC 也不能替代既有 reservation、staging 或 intent 的原证书；不同合格 H 不能替换初始化 staging 的身份。空账本完成初始化后丢失 origin 或任一 marker，fresh install 也必须拒绝且不修复。较早 cut 的 reader 必须拒绝仅未来高度保留的节点。只有真实覆盖的进程死亡、文件系统和固定 cut 可记为通过；这不是磁盘掉电、硬件 signer 或独立物理故障域证明。
 
+连续前缀读取使用显式 V3 域，执行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib prefix_read_v3
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix_v3_shipping -- --test-threads=1
+```
+
+该用例通过真实 `bft-prefix install` 安装三高度原前缀、GC 后以 `bft-prefix serve` 重开，并由实际 HTTP V3 客户端验证完整前缀、精确高度、public inclusion 和 World tick；再重开显式较早 cut。负例包括错误目标、缺高中间前缀、伪造 view/root、旧 V2 路由与签名域、没有当前授权源的 private scope，以及缺 pin 后反复 serve 不补造凭据。V3 DTO 另核对 H 后 64 高度范围和 40 MiB 编码计数提前停止；16 MiB CBOR prefix 的 hex 及 JSON 传输各有明确预算。CLI 默认没有独立当前授权源，因此 private 仍阻断；本例不证明当前 private provider/正式 Node 接线、fresh/latest、硬件 signer 或物理故障域 readiness。
+
+
 CLI 配置/角色边界见 [P2P 正式交接](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。多高度本机安装 receipt 不代表新读取服务、当前私有授权、自动追随或正式 validator 写入已接线。
 
 #### 本机身份发布回归（NIR bootstrap）
