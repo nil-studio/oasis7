@@ -407,3 +407,13 @@ pub async fn native_pump_revocations(env: Env) -> std::result::Result<(), JsValu
         .await
         .map_err(|_| rejected())
 }
+
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_read_client_enrollment(
+    env: Env,
+    enrollment_id: String,
+) -> std::result::Result<String, JsValue> {
+    let fact = crate::client_enrollment_entrypoints::read_proved(&env, &enrollment_id).await?;
+    serde_json::to_string(&fact).map_err(|_| rejected())
+}

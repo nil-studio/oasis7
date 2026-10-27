@@ -507,6 +507,14 @@ Client API 中的文件读取、`SystemTime` 等便利 API 也不因 crate 可�
 
 首个消费者固定 `native-broker-custody-v1` transport + `custody-native-v1` 工具 profile，由受信 launcher 启动 Game Client，模型用现有 `broker-call` 的 socket/resource_id/typed args。首批只登记实际验收的 codex 组合；openclaw 须单独通过 custody transport 验收。受信宿主须隔离模型进程对私密目录、keyring、环境/argv 和内存的访问；同 UID 的 0600 文件或“不要读取”提示不构成隔离。
 
+#### 宿主部署声明与实际隔离前置
+
+宿主登记使用闭合 `HostDeploymentDescriptor`：environment、transport/tool profile、host instance ID、客户端公钥、构建和正式 Skill/tool manifest digest、固定 HTTPS origin、受限 runtime identity、隔离机制及验收记录引用。它只描述待配对对象，不是密码学隔离证明。enrollment 公钥持有证明和管理者 Passkey 批准不能把自报 descriptor、profile 名称或 `approvedHost` 布尔值提升为可信宿主。已验宿主集合由既有部署环境的固定配置限定，配置仅含公开绑定与验收引用；尚无实际隔离验收的环境保持空集合或 disabled，不在此流程新增运维签名权根或自动创建凭据。
+
+TestSession basis 的 runtime_ref、skill_ref、source_ref 必须从实际命中部署 allowlist 的 exact descriptor 唯一派生，分别为 restricted runtime identity、正式 Skill manifest digest、该版本 build digest；tool manifest 与全部字段另由完整 descriptor digest 绑定。管理者或模型不能仅回显任意字符串替代来源核验。匹配自报 descriptor 的字段值本身不能使空 allowlist 变为可信。
+
+可接受的隔离必须实际约束模型运行时：宿主与模型采用不同 OS 安全主体/强制沙箱，或模型只通过固定 HTTPS 闭工具面调用独立远程宿主。只有宿主安全主体可读 client key、purpose credential 和持久 inbox。真实验收覆盖文件、keyring、env/argv、debug/process memory、继承句柄、挂载和网络逃逸；同 UID 文件权限、容器名称或 AppSandbox 配置文本不代签这些结果。宿主公钥、instance、descriptor digest、runtime/Skill manifest 或 origin 改变必须重新管理配对，不能用同 key credential replacement 隐式迁移宿主。生产配置默认不启用；合成 fixture 只验证协议实现，不能填实际隔离验收的 PASS。
+
 #### dot 的固定远程接线
 
 `dot-mcp-custody-v1` 使用 Oasis 测试运营者额外部署的原生 Rust tool-host，提供固定 HTTPS `/mcp`。采用 [MCP 2025-11-25 Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)，请求采用 JSON 响应，不提供主动 SSE，GET 返回 405，不使用 `MCP-Session-Id`；合法 notification/response 按规范回 202 空正文。业务状态由持久 TestSession/operation 承接。只提供 initialize、必要通知、tools/list 和本节固定 tools/call，不提供任意资源读取、sampling、shell 或递归派工。
@@ -534,6 +542,10 @@ dot 宿主必须实现专用可信 connector adapter，在模型之外持 OAuth 
 | 签名参数 | 唯一 label `oasis7`，`alg="ed25519"`，keyid 为已登记 opaque key ID，不能是远端取钥 URL；tag 分别 `oasis7-mcp-client-v1` / `oasis7-custody-client-v1`；必含 created/expires/nonce。Ed25519 直接签 RFC signature base，不额外预哈希。 |
 | 时钟与挑战 | Unix 整秒，created ≤ server_now+5s，expires>created，expires-created≤30s，server_now<expires 且不越 token/purpose 截止。nonce 为服务生成 32 random bytes 的无 padding base64url，30s 内有效，绑定 hop/key/token digest/session/purpose/method/URI/request ID/body digest。 |
 
+HTTP 签名时间使用独立 Unix 秒类型，批准、Worker 时钟和三 purpose 截止使用独立 Unix 毫秒类型。边界转换必须 checked，秒级 expires 对毫秒截止向下取整，不能通过向上舍入延长权限；小于完整一秒的剩余窗口不能新发 proof。旧 `SessionLifecycle` 的秒值不能直接接收批准里的毫秒值，也不能将 RFC created/expires 当作毫秒存入同一字段。固定 signature base 保留实际正文 bytes；单次 header 总量、每字段长度及正文仍受已有闭工具/32 KiB 请求上限限制，解析前先拒绝超限。
+
+具有原始字段实例的 native 入口按不区分大小写的实例拒绝重复。Cloudflare [Headers](https://developers.cloudflare.com/workers/runtime-apis/headers/) 暴露逗号合并后的表示，不能声称取得原始重复数或原始 header 字节总量。Core 明确区分 RawInstances 与 WorkerMergedSingletons；后者所有签名、认证、正文和目标相关字段采用不含逗号的单值语法，出现逗号直接拒绝而不 split 重建。注册 keyid、nonce、session/request ID 也限定该语法；新 capability 仅无 padding base64url，Bearer 仅允许无逗号的既定 token 语法。若 Host/Content-Length 可观察则要求规范单值；Content-Encoding、Trailer、Transfer-Encoding 拒绝。未知 Accept 等非授权列表可忽略，合并后 8 KiB/32 fields 上限只约束 Worker 可观察表示，原始连接上限由实际入口承担。必须在真实入口验证大小写重复和空值在前/后/双方的行为；若平台丢掉原始空实例，只能报告其固定值语义，不得宣称原始重复拒绝验收通过，相关部署保持待核实，不用客户端自报 raw 信息补证。
+
 严格拒绝多 label、重复/多义 header 或参数、缺失覆盖项、未知算法/key/tag、错误摘要和重放。签名验证按可信入口的固定 public HTTPS origin 与实际请求目标，不信任客户端 Forwarded 或自行改写 URI；禁止重定向，非规范路径/未知 query 拒绝。内部窄转发携带已核验绑定和原 bytes，不重新解释签名目标。
 
 挑战入口 `POST /v1/proof-challenges`（MCP host 同名入口）只发绑定挑战，不授予权限。已配对客户端须先用登记 key 签 challenge-only 请求：沿上表 POST 组件和 30 秒时间条件，tag 分别为 `oasis7-custody-challenge-v1` / `oasis7-mcp-challenge-v1`，不含 server nonce；正文固定所需 purpose/方法/URI/业务 request ID/body digest。服务验签、核当前绑定后，以挑战请求自己的稳定 request ID 原子保存/返回同一挑战，重放不再占槽或扣账，同 ID 异正文拒绝。这避免“取挑战先要挑战”的循环，也不能仅凭公开 session/key 或被盗 token 耗尽他人的额度。
@@ -543,6 +555,16 @@ dot 宿主必须实现专用可信 connector adapter，在模型之外持 OAuth 
 丢响应后先查发送前保存的 operation ID；必要的同原请求重试取得新 challenge/HTTP proof，保持原 typed body/业务 ID。已消费 nonce 不复用；同 ID 同 digest 返回原状态，不重复业务预留，同 ID 异 digest 冲突。HTTP proof nonce、custody operation ID 与世界 nonce 相互独立。MCP JSON-RPC id/新连接不重置业务身份；宿主日志保存 runtime tool-call→operation 对应及尚未收到的结果。
 
 #### 公钥登记、一次领取与凭据替换
+
+##### 定向邀请与唯一 Account 配对
+
+管理会话经既有 Origin/CSRF 与固定 Account 私有 POST 入口建立 `PairingInviteTargetRef`，这不是纯读取；同一稳定 request ID 精确重试只返回原邀请，同 ID 异正文拒绝。邀请是非授权 metadata，不需要另一次 MFA，也不扣业务、Execution、Read 或 Termination 预算。Account 独立持久限制最多八个未结邀请；总历史容量最多 256，满额只阻止新邀请，不阻止关闭、撤销和旧原件读取。未消费且到期的 metadata 可按明确规则回收；已消费邀请及 Enrollment/TestSession 唯一绑定不能当过期缓存丢弃或重置，库存不明保持 pending。
+
+邀请原件包含独立 domain/schema、environment/service authority、目标 custody account/provision、随机 invite ID、issued/expires（最多十分钟）与允许的 transport/tool profile；`invite_digest` 覆盖完整原件，不只是短码哈希。Host 的 Create/Prove 原件必须精确签入此 target ref、Enrollment ID、host descriptor、公钥和服务器挑战/截止。仅凭裸 Account ID、公开 handle 或自报已批准信息不能建立邀请或领取权限。定向 target 不能在 prove 后更换，因此另一合法管理账号也不能抢先占用看到的公开 Enrollment。
+
+Enrollment DO 只保存不可变的定向持钥证明，不分配 grant，也不做跨 Account 的可变认领。真正授权只有目标 Account 一个线性化点：从固定私有 namespace、由 Enrollment ID 确定的 actor 读取实际原件及 State.id/realm，校验目标等于本物理 Account/当前 provision、原 invite 与部署允许的 descriptor；final SQL 再核时钟、未取消、Invite/Prove/MFA 均未过期，原子消费 invite、唯一 Enrollment→TestSession 关联、全 Account 唯一 MFA proof 和三个 sibling purpose roots。一个未关闭 TestSession、现有 root 上限及预算约束不变。不能让客户端提供 receipt、URL、Forwarded、任意 actor 名或 `verified` 布尔值，也不新增运维签名权根代替固定内部能力。
+
+独立 fresh-MFA 的 TestSession 原件签入闭合 `ClientPairingBinding`，包含完整 target/enrollment digest、host instance/descriptor digest、custody client 公钥以及 dot 的 connector 公钥（适用时）、Prepared 资源与所有 purpose 期限/预算。旧仅有 client key 的 TestSession 结构不构成新配对授权。Enrollment 的十分钟 TTL 只限制新 prove/pairing；已经证明或绑定的不可变历史仍可只读核对，不因过期删除，也不因此允许再次配对、续期或重领 raw token。配对 final commit 所核 Prove 截止是原 Enrollment/邀请的十分钟窗口；RFC proof 的三十秒窗口在实际 proved_at 验证并固定为历史事实，不要求用户完成 MFA 时仍落在旧 HTTP 签名的三十秒内，也不能重新 prove 延长登记窗口。原件证明及时而配对 final commit 已过期仍拒绝。后续业务只由 Account 当前 ClientBinding、来源、lease 与 purpose 决定，不把 Enrollment 事实当 live Current。生产 host allowlist 为空或隔离未验收时始终不发 grant。
 
 可信 launcher/host 用现有受保护 vault/OS secret store 生成并保存 custody client key，unlock 仅走可信 stdin/秘密通道。`POST /v1/client-enrollments` 登记公钥、host instance 和有限 enrollment intent，服务器返回 registration ID 与 challenge；调用者经 `/{id}/prove` 证明持钥。prove 采用 RFC 9421 的同类 POST 签名，session 组件替换为 `oasis7-enrollment`，tag=`oasis7-custody-enrollment-proof-v1`，token digest 为空值摘要；keyid 对应该登记公钥，nonce 来自绑定本次登记/正文的服务器挑战。proof 一次消费，重复只回原登记状态。未批准记录无账号/工具权限。管理页面核对 host、两跳 key fingerprint、prepared 资源及 TestSession 摘要后 fresh Passkey 批准，Account DO 将唯一 enrollment/session/key 关联与三个 purpose 原子保存；公开短码/handle 本身不能领取权限。
 
@@ -958,11 +980,21 @@ capabilities 的空业务 grant 投影继续使用现有 `needs_native_context_c
 
 Approval 绑定：manager/credential/version、账户与 native principal、环境和完整 world identity、prepared Agent/task/goal/executor fences、客户端/connector keys 与 approved runtime/Skill/source refs、typed action/参数/资源 allowlist、累计 request/business 总预算、固定 write_deadline、固定 read_until、固定 cleanup_until，以及精确 termination plan digest。初版只接受已核实 prepared_world 的固定资源；不借此模糊批准未来任意账号创建/目标/资产。
 
+资源 allowlist 精确反映实际 Prepared 证据，不能为满足非空校验填造资源引用。闭合的 `Move` 原件只含已批准坐标且不引用资源；仅当所有动作均为精确 `Move` 且 business_limit 为零时，可批准空资源 allowlist，仍强验同一 Prepared Agent/task/Owner/Executor fence 和每次当前准入。Transfer、Build、Schedule 必须逐一核验其真实固定 World 资源事实并匹配非空 allowlist；这些资源证据尚未接通时保持 pending，不借 Move 通道扩大动作或伪造 basis。无资源动作子集的实现不代表其余动作及整体验收已完成。
+
 | 记录 | 初次批准的上限及权限 |
 | --- | --- |
 | ExecutionGrant | 默认批准5min、可明确批至 `write_deadline <= approved_at + 30min`；capability `exp = write_deadline`，至多 100 次普通工具调用/400 次普通下游传输，业务资源按初批预留/结算。 |
 | ReconcileReadGrant | `read_until <= write_deadline + 30min`，最多100次原件读取/300次transport；仅本 session 原 operation 查询与固定 close 状态，非全账号枚举/任意历史数据。执行过期后不新增context、quote或industry查询，不得write、delegate、rotate世界key。 |
 | TerminationPlan | `cleanup_until <= write_deadline + 5min`；只允许本 session 已批准目标的 quiesce、Stop、Revoke、与其原操作查询；最多2份世界写原件（Stop1/Revoke1）及24次transport。仍使用独立槽位和 delegation high-water 屏障。 |
+
+TestSession 的 native 自然存活期证据使用独立固定 `POST /custody/managed-bindings/session-lifetime` 与 `SignedManagedNativeSessionLifetimeV1` 原件，不改变旧 status 路由及其 5 秒 observation `expires_at` 语义。新原件在独立 canonical domain 内嵌完整现 status，另签入明确的毫秒 `session_expires_at`、`session_idle_expires_at`；Native 同 SQL 从实际 AccountSession 读取，按当前 SID/CSRF、receipt、credential/account/security、namespace、Owner pin/退役墓碑及 pending 重核。它不返回 SID、不发 Set-Cookie、不刷新 idle 或续 session。只有当前 active 且两自然期限覆盖所批准 purpose 截止时才可 ready；缺字段或期限不足保持 pending，不从 observation 期限或配置常量推断自然期限。新路由仍限固定 Native origin 和 managed-session 私有 transport，不扩 approval verify-secret 权限。
+
+TerminationPlan 必须保存闭合的 typed 原件，不能接收调用者仅回显的 `termination_plan_digest`。管理 basis 从 Account 已验 Prepared 结果派生版本 1 原件：session/account/provision、Prepared result digest、固定 World/branch/reorg、agent/task、Owner key ref 与 owner binding/identity generation、Executor key ref/ID/public key、完整初始 task fence、原 delegation public key/generation、稳定 Stop/Revoke operation ID、cleanup 截止与 2 写/24 transport 上限。operation ID 由各自独立 domain、session ID 和 Prepared digest 确定，不能由模型选择或换 ID 重建。唯一 trigger policy 是本 session 的持久 closing/finish/abort/deadline；唯一 nonce policy 是 `AccountAllocatedHighWaterV1`。Core 用同一 canonical codec 求 digest，fresh-MFA TestSession 原件必须签入该 digest，最终同 SQL 对比实际 typed 原件。
+
+生成 Stop 时只允许既有 `GameExecutorControlV1::Stop`，其 fence 必须来自已验当前 Owner observation，且精确保持本批准的 World、Agent/task、Owner/identity generation、goal 和 Executor 绑定；不能借模板停止后来更换 Owner、目标或 executor 的任务。Revoke 只允许既有 `AgentSignerDelegationChangeV1` 且 `revoked=true`、仍是本批准的 delegate key/owner lineage；generation/nonce 在出签前同 SQL 按实际 World 已验水位与本 Account 所有已分配水位取最大值后 checked 加一，并永久保留分配事实。未知或不完整库存、溢出或观察到不同 scope/delegate 时只记录 cleanup_blocked，不从零推断、不降水位或换 key。已经生成的 Stop/Revoke 原件只能按原 operation/correlation 查询，不重复分配 nonce。
+
+Stop 与 Revoke 使用各自独立的一次 claim、原件和恢复状态；一个 unknown 不占死另一个的安全槽。Stop 已确认后，Revoke 仍按原授权目标和已记录 Stop receipt 所能证明的后状态核验，不能把自己的 Stop 引起的变化误判为换目标，也不能把任意外部 fence 变化吞掉。24 transport 是原批准的硬上限，不因当前接线增加 hop 静默提额；实际固定调用图、每次实际出站前预扣和超限拒绝必须由集成测试证明。缺证、预算或合法当前来源时保持 cleanup_blocked/unknown，不把预先保存模板或自然 token 到期当作 Stop/Revoke 已 canonical 或 session 已 closed。
 
 所有期限和三目的预算在首次批准时可见、固定且计入初批总账。明示批准30min就发至同一 write_deadline 的凭据，无每5min重批或周期续领；只有私密领取丢响应/重启时允许原登记key在有效权限内rotate credential generation，deadline、预算不变。ExecutionGrant 到期后只可领取预批 ReconcileReadGrant 的凭据，不发新执行凭据；read_until 到期后停止客户端查询。增加预算、延期、换key/scope或恢复被撤销会话必须fresh approval，新批不能覆盖旧unknown reservation。首版每账号仅1个未关闭TestSession，3个目的占现有4个root的上限，不新增不计数的旁路根。
 
@@ -983,6 +1015,14 @@ TerminationPlan 允许在 execution root 到期后执行，是因为初次已经
 断线/host 重启用保留的私密 key、TestSession handle 和原 operation_id 恢复：写窗口和 host lease 均未失效且 session 未 closing 时，才可接续相同根；写窗口结束则只领取 read token、读取原结果；均不重开任务、不清零账目。显式撤销客户端/manager/账户后不可借 read lease 残余自动重连，只能由当前合法独立管理授权查询。
 
 工具宿主另有仅维持当前测试的 `POST /v1/test-sessions/{id}/heartbeat`，每 30 秒一次、lease 最多 90 秒且不越 write_deadline；每 session 至多 64 次，不能恢复已 closing 的测试。同 heartbeat ID 的重试返回原确认，不再次延长 lease。DO 的 admission/claim 和 alarm 都检查 lease；宿主失联到限触发同一关闭事件，活着但无进展的宿主仍受绝对 deadline。重连超过 lease 后只能核对/关闭，不能把 heartbeat 当续权。
+
+首次 TestSession 的当前 World/Native 预检发生在三个可用 purpose roots 发出之前。Account 先以本地强验的完整 fresh-MFA 原件登记 `preflight_reserved`：同 SQL 全 Account 唯一占用 proof nonce/原 approval request、stable approval operation ID 与完整计划 digest，保存初批 control 账、绝对截止与一次预检 claim；此状态只授权有界只读预检，不是 approved 或业务权限。它占用一个未关闭 session 槽及三个 root 预留名额，和仍有效的旧 roots 一起受四 root 上限约束。相同 operation/digest 只读原状态、不重新派发或扣账；不同 digest 冲突，新管理请求 ID 不能重建同 proof。取消、到期或 unknown 保留消费、预算与预留事实，不退回额度自动重试。
+
+预检属于初批 80 中一个稳定逻辑控制请求；每实际 HTTP 尝试预扣对应 hop 的 240 账，Identity→native 的实际来源核验、lifetime、policy、authorize 分别预扣 160 账。World 与内部 DO/binding 调用受固定 profile 的独立内部调用上限和逐出站 claim 约束，不能混称 native HTTP 或借 Execution/Read/Cleanup 预算。尚未实测闭合固定调用图时该 profile 保持 disabled/blocked，不能静默提高初批上限。最早管理 session 认证属于原有有界管理 metadata 入口，不伪称由尚不存在的 session 账预扣。最终发出三 roots 前仍需真实 native `consume_approval` 对同 proof、Account 登记 verify nonce 的 positive 原件（消费时 proof 在 30 秒窗口内），及当前来源、DF/RF、独立 lifetime、固定 World 强证据和最终同 SQL 复验；本地签名或到期后的 inspect_origin 不能把未消费的预检状态转为授权。三个 roots、配对绑定及预算同 SQL 一次提交，截止始终取初批绝对值，不从提交时重新起钟。
+
+challenge 与后续调用按登记的 stable business request ID/精确控制摘要共享一个逻辑 reservation，各自实际 HTTP 尝试仍独立扣 transport，不能把一次 heartbeat 的 challenge 与调用算成两个逻辑请求。首次私领凭据使用独立 ClaimChallenge purpose：先验登记 key 的 challenge-only PoP，再核实际 enrollment 与已批准 session/purpose，才原子扣控制 HTTP 尝试并占用有界挑战槽；空 token 仅限 enrollment 或该已批准 claim，不能进入 action。未配对 enrollment new/prove 使用独立 metadata origin/IP 限流，不扣不存在的 TestSession 账，也不发业务根。
+
+Enrollment metadata 入口按可信 provider 提供的实际 IP 与固定 public origin 分桶，初版每 60 秒 create 最多 8 次、prove 最多 32 次；另有每 realm 每 60 秒 create 256/prove 1024 的总上限。计数由同一固定 namespace 的独立 bucket actor 原子保存，时钟回退拒绝，窗口历史有界清理不删除 Enrollment 原件。生产不能把请求正文、Forwarded 或普通客户端可替换 header 当真实 IP；缺可信 provider context 时该入口保持 disabled。测试 provider 来源只能由显式测试入口静态注入。上述滥用限额不替代登记 key 的 PoP，也不能据此分配 TestSession challenge 槽或任何业务预算。
 
 初次批准另列同一 TestSession 内的控制预算：配对后 claim/替换、MCP initialize/tools-list、heartbeat 和客户端请求关闭共用最多 80 次不同逻辑控制请求；每个已批准 transport hop 各最多 240 次控制 HTTP 尝试，包含 challenge、调用、失败及同 ID 重试。原生为 host→custody 一份；dot 为 connector→host、host→custody 各一份。Identity 的控制来源核验另有最多 160 次 native HTTP 尝试；内部 DO/binding 调用每逻辑步骤有固定上限，不隐含无界重试。预算是三目的之外的传输/连接成本，不发行第四种业务权限；DO 保存初批总额，host inbox 保存第一跳计数并向 DO 对账。未认证流量仅受入口滥用限额，不凭伪造 ID 扣合法 session 预算；通过认证后的失败/重试计尝试成本。控制额度耗尽触发 closing，但本地拒绝写的状态更新和已预留 Owner cleanup 不依赖该额度；不会把 80 个逻辑请求误算成只够 40 次 challenge+heartbeat。执行/原件读取的挑战分别计入对应 transport 上限，所有额度可缩小、不可由模型提高。
 

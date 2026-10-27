@@ -13,7 +13,7 @@ export class NativeProvisionHistory extends WorkerEntrypoint {
 export class NativeProvisionRecovery extends WorkerEntrypoint {
   async recover(raw) { return new RustWorker(this.ctx, this.env).identity_recover_native_status(this.env, raw); }
 }
-export { NativeSession, RoleKeyVault } from './index.js';
+export { NativeSession, RoleKeyVault, ClientEnrollmentAuthority } from './index.js';
 // Fixed fetch/scheduled callbacks keep generated Rust RPC methods off the default entrypoint.
 export default {
   fetch(request, env, ctx) { return new RustWorker(ctx, env).fetch(request); },
@@ -24,4 +24,8 @@ export class IdentityNativeApproval extends WorkerEntrypoint {
 }
 export class RoleKeyProvision extends WorkerEntrypoint {
   async ensureKey(raw) { return new RustWorker(this.ctx, this.env).ensure_role_key(this.env, raw); }
+}
+
+export class IdentityClientEnrollments extends WorkerEntrypoint {
+  async readProved(enrollmentId) { return new RustWorker(this.ctx,this.env).identity_read_client_enrollment(this.env,enrollmentId); }
 }

@@ -70,6 +70,8 @@ pub enum CustodyIntentV1 {
         task_fence: Box<GameTaskFenceV1>,
         executor_key_ref: String,
         client_binding: ApprovedClientBindingV1,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_pairing: Option<Box<crate::client_enrollment::ClientPairingBindingV1>>,
         runtime_ref: String,
         skill_ref: String,
         source_ref: String,
@@ -481,6 +483,7 @@ impl ApprovalOptionsRequestV1 {
                 request_limit,
                 transport_limit,
                 termination_plan_digest,
+                business_limit,
                 ..
             } => {
                 [
@@ -496,7 +499,11 @@ impl ApprovalOptionsRequestV1 {
                 .all(|v| !v.is_empty() && v.len() <= 256)
                     && !actions.is_empty()
                     && actions.len() <= 100
-                    && !allowed_resource_refs.is_empty()
+                    && (!allowed_resource_refs.is_empty()
+                        || (business_limit.0 == 0
+                            && actions
+                                .iter()
+                                .all(|a| matches!(a, ApprovedActionV1::Move { .. }))))
                     && allowed_resource_refs.len() <= 256
                     && allowed_resource_refs.iter().all(|v| bounded(v))
                     && world_identity.valid()
@@ -769,6 +776,7 @@ mod tests {
                 }),
                 task_fence: fence,
                 executor_key_ref: "executor-key".into(),
+                client_pairing: None,
                 client_binding: ApprovedClientBindingV1::NativeBrokerCustodyV1 {
                     client_key: "dd".repeat(32),
                 },
@@ -805,6 +813,31 @@ mod tests {
             },
         };
         request.validate(1000).unwrap();
+        let mut move_only = request.clone();
+        if let CustodyIntentV1::TestSession {
+            allowed_resource_refs,
+            business_limit,
+            ..
+        } = &mut move_only.intent
+        {
+            allowed_resource_refs.clear();
+            *business_limit = DecimalU64(0)
+        }
+        move_only.validate(1000).unwrap();
+        let mut priced_move = move_only.clone();
+        if let CustodyIntentV1::TestSession { business_limit, .. } = &mut priced_move.intent {
+            *business_limit = DecimalU64(1)
+        }
+        assert!(priced_move.validate(1000).is_err());
+        let mut resource_action = move_only.clone();
+        if let CustodyIntentV1::TestSession { actions, .. } = &mut resource_action.intent {
+            *actions = vec![ApprovedActionV1::Build {
+                site: "s".into(),
+                factory: "f".into(),
+                factory_kind: "k".into(),
+            }]
+        }
+        assert!(resource_action.validate(1000).is_err());
         let original = request.intent_digest().unwrap();
         let value = serde_json::to_value(&request).unwrap();
         for (object, field) in [

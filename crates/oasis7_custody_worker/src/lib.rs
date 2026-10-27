@@ -73,6 +73,12 @@ mod sql_store;
 mod approval_harness;
 
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod client_enrollment_authority;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod client_enrollment_entrypoints;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod client_enrollment_store;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod identity_native_runtime;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod native_identity;

@@ -254,3 +254,90 @@ fn invalidation_is_permanent_monotonic_and_cannot_regress_security_versions() {
     v.reason = "active".into();
     assert!(v.validate().is_err());
 }
+
+#[test]
+fn natural_lifetime_is_strongly_signed_but_never_replaces_current_status() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use ed25519_dalek::{Signer, SigningKey};
+    use oasis7_custody_core::time_units::UnixMillis;
+    let r = receipt_fixture();
+    let status = ManagedNativeSessionStatusV1 {
+        api_version: 1,
+        receipt: r.clone(),
+        service_epoch: D(1),
+        native_account_security_epoch: D(1),
+        native_credential_version: D(1),
+        session_ref: "session-ref".into(),
+        nonce: "ab".repeat(32),
+        generation: D(1),
+        active: true,
+        frozen: false,
+        pending: false,
+        observed_at: D(400),
+        expires_at: D(5400),
+    };
+    let key = SigningKey::from_bytes(&[38; 32]);
+    let public = key
+        .verifying_key()
+        .to_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let lifetime = ManagedNativeSessionLifetimeV1 {
+        api_version: 1,
+        status,
+        session_expires_at: D(100_000),
+        session_idle_expires_at: D(80_000),
+    };
+    let mut signed = SignedManagedNativeSessionLifetimeV1 {
+        signature: URL_SAFE_NO_PAD.encode(key.sign(&lifetime.signing_bytes().unwrap()).to_bytes()),
+        key_id: "native-root".into(),
+        lifetime,
+    };
+    signed.verify_root("native-root", &public).unwrap();
+    assert!(signed.verify_root("other-root", &public).is_err());
+    signed
+        .lifetime
+        .validate_for(&r, &"ab".repeat(32), D(1), D(1), 500)
+        .unwrap();
+    signed.lifetime.covers(UnixMillis::new(80_000)).unwrap();
+    // A natural TTL covering write but not read/cleanup cannot authorize all roots.
+    assert!(signed.lifetime.covers(UnixMillis::new(80_001)).is_err());
+    assert!(
+        signed
+            .lifetime
+            .validate_for(&r, &"ab".repeat(32), D(1), D(1), 5400)
+            .is_err()
+    );
+    assert!(
+        signed
+            .lifetime
+            .validate_for(&r, &"ab".repeat(32), D(2), D(1), 500)
+            .is_err()
+    );
+    let mut other_binding = r.clone();
+    other_binding.native_account_security_epoch = D(2);
+    assert!(
+        signed
+            .lifetime
+            .validate_for(&other_binding, &"ab".repeat(32), D(1), D(1), 500)
+            .is_err()
+    );
+    signed.lifetime.session_expires_at = D(100_001);
+    assert!(signed.verify_root("native-root", &public).is_err());
+    // Even a newly valid signature over an inactive observation supplies no live grant.
+    signed.lifetime.status.active = false;
+    signed.lifetime.status.frozen = true;
+    signed.signature = URL_SAFE_NO_PAD.encode(
+        key.sign(&signed.lifetime.signing_bytes().unwrap())
+            .to_bytes(),
+    );
+    signed.verify_root("native-root", &public).unwrap();
+    assert!(signed.lifetime.covers(UnixMillis::new(70_000)).is_ok());
+    assert!(
+        signed
+            .lifetime
+            .validate_for(&r, &"ab".repeat(32), D(1), D(1), 500)
+            .is_err()
+    );
+}

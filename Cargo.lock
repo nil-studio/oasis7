@@ -6329,6 +6329,7 @@ dependencies = [
  "serde_cbor_2",
  "serde_json",
  "sha2 0.11.0",
+ "subtle",
 ]
 
 [[package]]
@@ -6393,12 +6394,14 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
+ "cap-std",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_client_storage",
+ "oasis7_custody_core",
  "oasis7_formal_protocol",
  "oasis7_proto",
  "oasis7_wasm_abi",

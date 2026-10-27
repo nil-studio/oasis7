@@ -19,3 +19,8 @@ pub mod role_key_slot;
 pub mod native_binding;
 
 pub mod native_history;
+
+pub mod http_pop;
+pub mod time_units;
+
+pub mod client_enrollment;

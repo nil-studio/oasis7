@@ -15,11 +15,12 @@ serde.workspace = true
 serde_json.workspace = true
 serde_cbor.workspace = true
 sha2.workspace = true
+ed25519-dalek = "3"
+subtle = "2"
 
 [dev-dependencies]
 oasis7_agent_api = { path = "../oasis7_agent_api", features = ["schema"] }
 schemars = "1.2"
-ed25519-dalek = "3"
 
 [lints]
 workspace = true

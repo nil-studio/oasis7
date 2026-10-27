@@ -4,6 +4,7 @@ pub(crate) enum NativeFact<'a> {
     Challenge(&'a crate::native_binding::SignedNativeBindingChallengeV1),
     Receipt(&'a crate::native_binding::SignedNativeBindingReceiptV1),
     Status(&'a crate::native_binding::SignedManagedNativeSessionStatusV1),
+    Lifetime(&'a crate::native_binding::SignedManagedNativeSessionLifetimeV1),
     Statement(&'a crate::native_binding::SignedOwnerNativeBindingStatementV1),
 }
 pub(crate) fn registered_native_fact_checks(
@@ -31,6 +32,11 @@ pub(crate) fn registered_native_fact_checks(
                 &v.signature,
                 v.statement.signing_bytes(),
             )
+        }
+        NativeFact::Lifetime(v) => {
+            v.verify_root(key_id, public_key)
+                .map_err(|_| ApprovalAdmissionError::SignatureRejected)?;
+            (&v.key_id, &v.signature, v.lifetime.signing_bytes())
         }
         NativeFact::Status(v) => {
             v.validate().map_err(|_| ApprovalAdmissionError::Invalid)?;

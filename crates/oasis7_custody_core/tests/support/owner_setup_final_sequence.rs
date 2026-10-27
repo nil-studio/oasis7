@@ -432,3 +432,5 @@ fn final_dispatched() -> (
 }
 #[path = "owner_setup_final_reconcile_tests.rs"]
 mod tests;
+
+#[path="test_session_authority_tests.rs"]mod test_session_authority_tests;

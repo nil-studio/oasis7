@@ -299,6 +299,67 @@ fn native_session_status_and_logout_create_only_permanent_account_pending_invali
     );
     assert_eq!(active["status"]["generation"], "1");
     let key = session_key(&f.service.config.session_key, &sid);
+    let before = f
+        .service
+        .store
+        .transaction(|tx| Ok(tx.get::<AccountSession>(&key)?.unwrap().value))
+        .unwrap();
+    let original_status = active.clone();
+    let lifetime: SignedManagedNativeSessionLifetimeV1 = serde_json::from_value(
+        f.service
+            .managed_session_lifetime(Some(&sid), &request, 107)
+            .unwrap(),
+    )
+    .unwrap();
+    let config = f.service.custody.as_ref().unwrap();
+    lifetime
+        .verify_root(
+            &config.key_id,
+            &hex::encode(config.key.verifying_key().to_bytes()),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&lifetime.lifetime.status).unwrap(),
+        original_status["status"]
+    );
+    assert_eq!(lifetime.lifetime.session_expires_at.0, before.expires_at);
+    assert_eq!(
+        lifetime.lifetime.session_idle_expires_at.0,
+        before.idle_expires_at
+    );
+    let after = f
+        .service
+        .store
+        .transaction(|tx| Ok(tx.get::<AccountSession>(&key)?.unwrap().value))
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(before).unwrap(),
+        serde_json::to_value(after).unwrap(),
+        "lifetime reads cannot renew or mutate the session"
+    );
+    let mut tampered = lifetime.clone();
+    tampered.lifetime.session_expires_at.0 += 1;
+    assert!(
+        tampered
+            .verify_root(
+                &config.key_id,
+                &hex::encode(config.key.verifying_key().to_bytes())
+            )
+            .is_err()
+    );
+    assert!(
+        lifetime
+            .lifetime
+            .status
+            .validate_for(
+                &lifetime.lifetime.status.receipt,
+                &"55".repeat(32),
+                DecimalU64(1),
+                DecimalU64(7),
+                107
+            )
+            .is_err()
+    );
     f.service
         .store
         .transaction(|tx| {
@@ -554,4 +615,37 @@ fn binding_lookup_http_reports_absence_as_404_and_committed_expired_fact_as_200(
     assert_eq!(historical.status, 200);
     assert_eq!(historical.body, original);
     assert!(historical.cookies.is_empty());
+}
+
+#[test]
+fn managed_lifetime_http_requires_origin_csrf_and_the_managed_session() {
+    let (mut f, _, _, _) = setup();
+    let pre = URL_SAFE_NO_PAD.encode([75u8; 32]);
+    let csrf = digest(&f.service.config.session_key, "csrf", &pre);
+    let path = "/api/public/hosted-account/v2/custody/managed-bindings/session-lifetime";
+    let mut issuer = crate::hosted_player_session::HostedPlayerSessionIssuer::default();
+    let headers = format!(
+        "POST {path} HTTP/1.1\r\nOrigin: https://localhost\r\nContent-Type: application/json\r\nX-Oasis7-CSRF: {csrf}\r\nCookie: __Host-oasis7_pre={pre}\r\n\r\n"
+    );
+    let missing = f.service.handle(
+        "POST",
+        path,
+        &headers,
+        json!({"nonce":"44".repeat(32)}),
+        "fixture",
+        &mut issuer,
+    );
+    assert_eq!(missing.body["error_code"], "session_expired");
+    assert!(missing.cookies.is_empty());
+    let wrong_origin = headers.replace("Origin: https://localhost", "Origin: https://other.test");
+    let rejected = f.service.handle(
+        "POST",
+        path,
+        &wrong_origin,
+        json!({"nonce":"44".repeat(32)}),
+        "fixture",
+        &mut issuer,
+    );
+    assert_eq!(rejected.body["error_code"], "origin_rejected");
+    assert!(rejected.cookies.is_empty());
 }
