@@ -362,7 +362,12 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             .execution
             .origin
             .build_candidate(&bytes)
-            .map_err(|_| "Node immutable parent-policy admission rejected")?;
+            .map_err(|cause| {
+                #[cfg(test)]
+                eprintln!("fixture parent-policy failure: {cause}");
+                let _ = cause;
+                "Node immutable parent-policy admission rejected"
+            })?;
         if actual.commitment.height != context.height
             || actual.commitment.transition.is_some()
             || actual.commitment.transition_ref.is_some()
