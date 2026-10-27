@@ -330,7 +330,7 @@ class BuildAndBundles(unittest.TestCase):
             (bundle / 'lib').mkdir()
             binaries = {}
             for name in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests', 'required-test-lib-example', 'endpoint'):
-                path = bundle / name
+                path = bundle / 'bin' / name
                 path.write_bytes(b'fixture executable\n' * 2000)
                 path.chmod(0o755)
                 binaries[name] = dict(path=f'bin/{name}', sha256=artifacts.digest(path),
