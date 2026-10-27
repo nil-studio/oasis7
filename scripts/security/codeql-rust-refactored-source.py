@@ -355,7 +355,7 @@ def complete_union(partitions):
     return merged
 
 
-def execute(args, env, closure, verify_library):
+def execute(args, env, closure, verify_library, comparison=None):
     source, out, work, cli = args.business_source.resolve(), args.output, args.work, str(args.codeql)
     save = lambda name, value: runtime.save(out / name, value, out)
     if subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip() != SOURCE or subprocess.check_output(['git', 'status', '--porcelain'], cwd=source):
@@ -398,8 +398,9 @@ def execute(args, env, closure, verify_library):
         options = ['--additional-packs=' + packs, '--compilation-cache=' + str(cache),
             '--no-default-compilation-cache', '--common-caches=' + str(common), '--threads=2', '--ram=3072']
         save('query-inputs.json', {name: hashlib.sha256(text.encode()).hexdigest() for name, text in texts.items()})
-        runtime.run([cli, 'query', 'compile', '--keep-going', *options,
-            *[str(query / (name + '.ql')) for name in names]], work, out / 'compile.log', args.deadline-90, 240, out, env)
+        if comparison is None:
+            runtime.run([cli, 'query', 'compile', '--keep-going', *options,
+                *[str(query / (name + '.ql')) for name in names]], work, out / 'compile.log', args.deadline-90, 240, out, env)
         # Version-specific supported options are checked against the actual bundle.
         for command, label, required in [(['database', 'run-queries'], 'query-help',
             ('--evaluator-log', '--tuple-counting')), (['generate', 'log-summary'], 'summary-help',
@@ -438,6 +439,8 @@ def execute(args, env, closure, verify_library):
         archived = verify_archive(database, selected, before, lambda value: save('archive-index.json', value))
         save('archived-source.json', archived)
         wanted = {str(source / name) for name in selected}
+        if comparison is not None:
+            return comparison(args, env, closure, verify_library, database, texts, libp2p_root, wanted)
         model_end = min(args.deadline-90, time.monotonic() + 180)
         completed = {}
         for index, name in enumerate(names):

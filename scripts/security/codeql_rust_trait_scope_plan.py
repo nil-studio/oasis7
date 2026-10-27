@@ -81,6 +81,58 @@ def omitted_cache(path):
     ) for part in path.parts[:-1])
 
 
+def prepare_copy(args, closure, before, probe):
+    out, work = args.output, args.work
+    official = Path(closure["codeql/rust-all"]["root"])
+    if probe == "successor-keyed-plan":
+        try:
+            boundary = demand.boundary(closure, args.deadline - 90)
+        except demand.BoundaryError as exc:
+            runtime.save(out / "extension-boundary-failure.json", exc.context, out)
+            raise
+        runtime.save(out / "extension-boundary.json", boundary, out)
+    sources = (successor_sources((official / PATH).read_bytes(), (official / STAGES).read_bytes())
+        if probe == "successor-keyed-plan" else {PATH: patched_source((official / PATH).read_bytes())})
+    copy = work / "isolated-rust-all"
+    copy.mkdir(exist_ok=False)
+    copied, omitted = {}, []
+    for path in sorted(official.rglob("*")):
+        check_time(args.deadline - 90)
+        relative = path.relative_to(official)
+        if path.is_dir():
+            continue
+        if omitted_cache(relative):
+            omitted.append(str(relative))
+            continue
+        target = copy / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        copied[str(relative)] = runtime.digest(target)
+    for path, patched in sources.items():
+        (copy / path).write_bytes(patched)
+        copied[path] = hashlib.sha256(patched).hexdigest()
+    if probe == "successor-keyed-plan":
+        for rewrite in boundary.get("reviewed_call_rewrites", []):
+            path = rewrite["path"]
+            if (path not in sources or copied[path] != rewrite["candidate_sha256"] or
+                before.get(rewrite["pack"] + "/" + path) != rewrite["source_sha256"]):
+                raise RuntimeError("reviewed boundary rewrite differs from copied candidate")
+    expected = {name.removeprefix("codeql/rust-all/"): value for name, value in before.items()
+        if name.startswith("codeql/rust-all/") and not omitted_cache(Path(name.removeprefix("codeql/rust-all/")))}
+    expected.update({path: copied[path] for path in sources})
+    actual = {str(path.relative_to(copy)): runtime.digest(path) for path in copy.rglob("*") if path.is_file()}
+    if actual != expected or actual != copied:
+        raise RuntimeError("isolated copy contains unexpected differences")
+    runtime.save(out / "isolated-source.json", {"probe": probe, "original_sha256": PATH_SHA,
+        "candidate_sha256": copied[PATH], "changed_path": PATH,
+        "changed_files": {path: {"original_sha256": before["codeql/rust-all/" + path],
+            "candidate_sha256": copied[path]} for path in sources},
+        "copied_regular_files": actual, "omitted_precompiled_or_cache": omitted}, out)
+    for path, patched in sources.items():
+        runtime.evidence_write(out / ("candidate-" + Path(path).name), patched, out)
+    return copy
+
+
 def execute(args, env, closure, verify_library):
     if args.bundle_version != "2.27.3":
         raise RuntimeError("library plan requires complete official 2.27.3")
@@ -94,52 +146,7 @@ def execute(args, env, closure, verify_library):
     runtime.save(out / "official-before.json", before, out)
     primary = None
     try:
-        if probe == "successor-keyed-plan":
-            try:
-                boundary = demand.boundary(closure, args.deadline - 90)
-            except demand.BoundaryError as exc:
-                runtime.save(out / "extension-boundary-failure.json", exc.context, out)
-                raise
-            runtime.save(out / "extension-boundary.json", boundary, out)
-        sources = (successor_sources((official / PATH).read_bytes(), (official / STAGES).read_bytes())
-            if probe == "successor-keyed-plan" else {PATH: patched_source((official / PATH).read_bytes())})
-        copy = work / "isolated-rust-all"
-        copy.mkdir(exist_ok=False)
-        copied, omitted = {}, []
-        for path in sorted(official.rglob("*")):
-            check_time(args.deadline - 90)
-            relative = path.relative_to(official)
-            if path.is_dir():
-                continue
-            if omitted_cache(relative):
-                omitted.append(str(relative))
-                continue
-            target = copy / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
-            copied[str(relative)] = runtime.digest(target)
-        for path, patched in sources.items():
-            (copy / path).write_bytes(patched)
-            copied[path] = hashlib.sha256(patched).hexdigest()
-        if probe == "successor-keyed-plan":
-            for rewrite in boundary.get("reviewed_call_rewrites", []):
-                path = rewrite["path"]
-                if (path not in sources or copied[path] != rewrite["candidate_sha256"] or
-                    before.get(rewrite["pack"] + "/" + path) != rewrite["source_sha256"]):
-                    raise RuntimeError("reviewed boundary rewrite differs from copied candidate")
-        expected = {name.removeprefix("codeql/rust-all/"): value for name, value in before.items()
-            if name.startswith("codeql/rust-all/") and not omitted_cache(Path(name.removeprefix("codeql/rust-all/")))}
-        expected.update({path: copied[path] for path in sources})
-        actual = {str(path.relative_to(copy)): runtime.digest(path) for path in copy.rglob("*") if path.is_file()}
-        if actual != expected or actual != copied:
-            raise RuntimeError("isolated copy contains unexpected differences")
-        runtime.save(out / "isolated-source.json", {"probe": probe, "original_sha256": PATH_SHA,
-            "candidate_sha256": copied[PATH], "changed_path": PATH,
-            "changed_files": {path: {"original_sha256": before["codeql/rust-all/" + path],
-                "candidate_sha256": copied[path]} for path in sources},
-            "copied_regular_files": actual, "omitted_precompiled_or_cache": omitted}, out)
-        for path, patched in sources.items():
-            runtime.evidence_write(out / ("candidate-" + Path(path).name), patched, out)
+        copy = prepare_copy(args, closure, before, probe)
         runtime.save(out / "query-inputs.json", {name: hashlib.sha256(text.encode()).hexdigest()
             for name, text in QUERIES.items()}, out)
         runtime.run([str(args.codeql), "query", "compile", "--help", "-v"], work,

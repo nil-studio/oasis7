@@ -19,7 +19,7 @@ on:
         description: "Candidate public-model diagnostic partition"
         type: choice
         default: node-only
-        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan, successor-keyed-plan]
+        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan, successor-keyed-plan, successor-keyed-eval]
       model_bundle_version:
         description: "Complete official CodeQL bundle"
         type: choice
@@ -87,7 +87,7 @@ jobs:
             *) exit 1 ;;
           esac
           case "$MODEL_PROBE" in
-            trait-scope-plan|successor-keyed-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;
+            trait-scope-plan|successor-keyed-plan|successor-keyed-eval) test "$BUNDLE_VERSION" = 2.27.3 ;;
           esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir "$RUNNER_TEMP/rust-model-tools"
