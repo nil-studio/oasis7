@@ -29,7 +29,6 @@ impl OwnerProvisionApprovalStore {
             },
         )
     }
-
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen(module = "/platform/test_session_alarm.mjs")]

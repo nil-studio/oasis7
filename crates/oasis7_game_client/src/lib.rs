@@ -4,10 +4,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::{io::Read, time::Duration};
 mod cooldown;
 #[cfg(unix)]
-mod custody_inbox;
-#[cfg(unix)]
-mod custody_transport;
-#[cfg(unix)]
 pub mod executor_gateway;
 #[cfg(unix)]
 mod identity_cli;

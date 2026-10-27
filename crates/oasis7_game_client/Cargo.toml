@@ -9,7 +9,6 @@ oasis7_client_storage = { path = "../oasis7_client_storage" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
-oasis7_custody_core = { path = "../oasis7_custody_core" }
 serde_ignored = "0.1"
 serde.workspace = true
 serde_json.workspace = true
@@ -29,6 +28,3 @@ oasis7_proto = { path = "../oasis7_proto" }
 
 [lints]
 workspace = true
-
-[target.'cfg(unix)'.dependencies]
-cap-std = "4"

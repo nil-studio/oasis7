@@ -12,3 +12,4 @@ env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-fe
 mkdir -p artifacts
 if [[ -e artifacts/native-harness ]]; then rm -rf artifacts/native-harness; fi
 cp -R build artifacts/native-harness
+cp platform/identity-entry.mjs artifacts/native-harness/entry.mjs

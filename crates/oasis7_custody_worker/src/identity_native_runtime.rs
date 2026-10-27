@@ -1,6 +1,8 @@
 //! Concrete fixed Identity capabilities. Account/Owner supply current authority;
 //! the manifest factory owns private crypto, and record actors store opaque immutable
 //! envelopes only. No inbound DTO is deserialized into a trusted current reader.
+#[path = "identity_test_session_client_runtime.rs"]
+pub(crate) mod client;
 #[cfg(feature = "native-runtime-harness")]
 #[path = "../tests/support/native_runtime_harness.rs"]
 mod harness;
@@ -16,8 +18,6 @@ pub(crate) mod setup;
 pub(crate) mod setup_reconcile;
 #[path = "identity_test_session_runtime.rs"]
 pub(crate) mod test_session;
-#[path = "identity_test_session_client_runtime.rs"]
-pub(crate) mod client;
 use crate::{
     envelope_crypto,
     native_identity::provision_transport::NativeProvisionTransport,
