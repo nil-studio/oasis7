@@ -775,4 +775,74 @@ mod tests {
         compute_builder_recipe(&dir).unwrap();
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn native_file_path_directory_modes_are_distinct_even_for_the_same_file() {
+        let dir = native_producer_fixture();
+        let src = dir.join("crates/oasis7_wasm_build/src");
+        fs::create_dir(src.join("selected")).unwrap();
+        fs::write(
+            src.join("selected.rs"),
+            "mod inner; pub fn value(){inner::value();}\n",
+        )
+        .unwrap();
+        fs::write(src.join("selected/inner.rs"), "pub fn value(){}\n").unwrap();
+        fs::write(
+            src.join("inner.rs"),
+            "#[doc=include_str!(\"../../../external.txt\")]\npub fn value(){}\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("external.txt"),
+            "unrecorded parent-directory input",
+        )
+        .unwrap();
+        let declarations = [
+            "#[path=\"selected.rs\"] mod renamed; pub fn value(){renamed::value();}",
+            "mod selected; #[path=\"selected.rs\"] mod renamed; pub fn value(){selected::value();renamed::value();}",
+            "#[path=\"selected.rs\"] mod renamed; mod selected; pub fn value(){renamed::value();selected::value();}",
+        ];
+        let mut admitted = Vec::new();
+        for declaration in declarations {
+            fs::write(src.join("lib.rs"), declaration).unwrap();
+            let actual = build_native_fixture(&dir);
+            assert!(
+                actual.status.success(),
+                "{}",
+                String::from_utf8_lossy(&actual.stderr)
+            );
+            if compute_builder_recipe(&dir).is_ok() {
+                admitted.push(declaration);
+            }
+        }
+        assert!(
+            admitted.is_empty(),
+            "wrong directory or cached context hid an external input: {admitted:?}"
+        );
+        fs::write(
+            src.join("inner.rs"),
+            "#[doc=std::include_str!(\"parent-data.txt\")]\npub fn value(){}\n",
+        )
+        .unwrap();
+        fs::write(
+            src.join("parent-data.txt"),
+            "recorded parent-directory input",
+        )
+        .unwrap();
+        fs::write(
+            src.join("selected/inner.rs"),
+            "#[doc=std::include_str!(\"nested-data.txt\")]\npub fn value(){}\n",
+        )
+        .unwrap();
+        fs::write(
+            src.join("selected/nested-data.txt"),
+            "recorded stem-directory input",
+        )
+        .unwrap();
+        for declaration in declarations {
+            fs::write(src.join("lib.rs"), declaration).unwrap();
+            assert!(build_native_fixture(&dir).status.success());
+            compute_builder_recipe(&dir).unwrap();
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

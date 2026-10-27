@@ -136,7 +136,9 @@ impl<'ast> Visit<'ast> for Guard<'_> {
             }
         };
         match next {
-            Some(path) if in_producer(self.root, &path) => self.modules.push((path, false)),
+            Some(path) if in_producer(self.root, &path) => {
+                self.modules.push((path, explicit.is_some()))
+            }
             _ => self.error = Some(
                 "producer module path is missing, ambiguous or outside declared package sources"
                     .into(),
@@ -201,10 +203,10 @@ impl<'ast> Visit<'ast> for Guard<'_> {
 pub(super) fn walk(
     root: &Path,
     file: &Path,
-    crate_root: bool,
-    visited: &mut BTreeSet<PathBuf>,
+    parent_directory: bool,
+    visited: &mut BTreeSet<(PathBuf, bool)>,
 ) -> Result<(), SourceHashError> {
-    if !visited.insert(file.into()) {
+    if !visited.insert((file.into(), parent_directory)) {
         return Ok(());
     }
     validate_file(root, file)?;
@@ -216,7 +218,9 @@ pub(super) fn walk(
     let parent = file
         .parent()
         .ok_or_else(|| invalid("producer file lacks parent"))?;
-    let directory = if crate_root || file.file_name().is_some_and(|name| name == "mod.rs") {
+    // Crate roots and explicit file-level #[path] modules use the parent.
+    // An ordinary name.rs owns name/ for its default child modules.
+    let directory = if parent_directory || file.file_name().is_some_and(|name| name == "mod.rs") {
         parent.into()
     } else {
         parent.join(
@@ -236,8 +240,8 @@ pub(super) fn walk(
     if let Some(error) = guard.error {
         return Err(invalid(format!("{}: {error}", file.display())));
     }
-    for (path, is_root) in guard.modules {
-        walk(root, &path, is_root, visited)?;
+    for (path, parent_directory) in guard.modules {
+        walk(root, &path, parent_directory, visited)?;
     }
     Ok(())
 }
