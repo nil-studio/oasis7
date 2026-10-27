@@ -38,7 +38,7 @@ fn run(case: fn()) {
         .join()
         .unwrap();
 }
-fn fixture(h: &QualifiedH<BftProfileTargetV2>) -> PrivateHeaderPrefixV3 {
+pub(super) fn fixture(h: &QualifiedH<BftProfileTargetV2>) -> PrivateHeaderPrefixV3 {
     let mut execution = FormalBftHeaderExecutionV3::from_handoff(
         h.anchor.clone(),
         h.target.clone(),
@@ -64,13 +64,13 @@ fn fixture(h: &QualifiedH<BftProfileTargetV2>) -> PrivateHeaderPrefixV3 {
     }
     PrivateHeaderPrefixV3::from_entries(entries).unwrap()
 }
-fn cas(root: &Path) -> LocalCasStore {
+pub(super) fn cas(root: &Path) -> LocalCasStore {
     let path = root.join("cas");
     fs::create_dir(&path).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
     LocalCasStore::new(path)
 }
-fn open(
+pub(super) fn open(
     h: &QualifiedH<BftProfileTargetV2>,
     root: &Path,
     store: &LocalCasStore,

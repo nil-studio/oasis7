@@ -558,6 +558,22 @@ Require actual selected tests. The durable cases execute a nonempty private acti
 
 The CLI fixture dispatches both `bft-header install --config ABS --history ABS` and `bft-header verify --config ABS` using private absolute files and an independently fixed exact target. Config fields and bounds are defined in the linked design. Output is an `oasis7.formal_bft_header_local_ledger.v1` local report with a public-only prefix. It does not grant canonical Node, validator or public HTTP read authority. Physical power loss, protected signer/provider custody and WorldServiceIntent remain separate obligations.
 
+#### Header-only fixed-cut read contract 4
+
+Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39`. Contract: [des-p2p-bft-header-read-v4](doc/p2p/design.md#des-p2p-bft-header-read-v4). Read version 4 and consensus wire 3 identify distinct contracts.
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_client_api --lib formal_bft_header -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_game_client --lib formal_bft_read_v4 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib wire3_formal_read_v4 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_bft_prefix_http -- --test-threads=1
+```
+
+The actual shipping case installs a real nonempty-action three-height private ledger, deletes a known unretained GC canary, cold-starts `bft-header serve --config ABS`, and reads `/v4/world/read` with the shipping client. Check the exact tip and earlier World tick, full canonical header-prefix roundtrip, projection proof and private-input byte exclusion. Tampered nonce/H/target/head roots or commitment hash, trimmed/reordered prefixes and mismatched projection audience must fail. Previous read paths and signing domains remain rejected, while read-contract-3 nonempty-action rejection remains covered by the full regression suite. A self-consistent execution lie authenticated by real quorum signatures must pass protocol verification yet fail CLI installation and serving before a listener starts.
+
+The independent current-authorization fixture verifies delegated read success, busy/unavailable 503, journalled revocation 403, owner success and a lock held across reply construction/signing/socket release. The CLI supplies no current authority and returns 503 for private scopes. Reuse the existing bounded HTTP writer tests for responses above the old 8 MiB limit, absolute write deadlines and oversized-body rejection before any header. These are local historical-read and authorization-boundary results; they do not prove current Node readiness, checkpoint freshness, protected provider installation or physical fault domains.
+
 #### 本地 CAS retention 与 GC 协调
 
 合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。

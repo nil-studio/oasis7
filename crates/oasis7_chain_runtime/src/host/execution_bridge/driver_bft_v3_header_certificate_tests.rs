@@ -25,36 +25,42 @@ const EMPTY_ACTIONS_CBOR: &[u8] = &[0x80];
 mod cli_execution_tests;
 #[path = "driver_bft_v3_formal_execution_tests.rs"]
 mod execution_tests;
+#[path = "driver_bft_v3_formal_read_private_tests.rs"]
+mod header_read_private_tests;
+#[path = "driver_bft_v3_formal_read_tests.rs"]
+mod header_read_tests;
 #[path = "driver_bft_v3_formal_ledger_tests.rs"]
 mod ledger_tests;
 #[path = "driver_bft_v3_header_transition_tests.rs"]
 mod transition_tests;
 
 pub(super) fn qualified_handoff_v3() -> QualifiedH<BftProfileTargetV2> {
-    qualified_handoff_with_target_and_setup(
-        102,
-        |_| {},
-        |scope, policy| {
-            let validators = (0..4)
-                .map(|index| {
-                    let key = fixtures::key(120 + index);
-                    BftValidatorV2 {
-                        validator_id: validator_id(index),
-                        public_key_hex: hex::encode(key.verifying_key().to_bytes()),
-                        voting_power: 1,
-                    }
-                })
-                .collect();
-            let target = BftProfileTargetV2::new(scope, 1, validators, policy)?;
-            let handoff = ProfileHandoffV1 {
-                next_profile: target.profile.clone(),
-                next_profile_version: target.profile_version,
-                next_authority_digest: target.target_digest()?,
-                valid_from_position: 3,
-            };
-            Ok((target, handoff))
-        },
-    )
+    qualified_handoff_v3_with_setup(|_| {})
+}
+
+pub(super) fn qualified_handoff_v3_with_setup(
+    setup: impl FnOnce(&mut RuntimeWorld),
+) -> QualifiedH<BftProfileTargetV2> {
+    qualified_handoff_with_target_and_setup(102, setup, |scope, policy| {
+        let validators = (0..4)
+            .map(|index| {
+                let key = fixtures::key(120 + index);
+                BftValidatorV2 {
+                    validator_id: validator_id(index),
+                    public_key_hex: hex::encode(key.verifying_key().to_bytes()),
+                    voting_power: 1,
+                }
+            })
+            .collect();
+        let target = BftProfileTargetV2::new(scope, 1, validators, policy)?;
+        let handoff = ProfileHandoffV1 {
+            next_profile: target.profile.clone(),
+            next_profile_version: target.profile_version,
+            next_authority_digest: target.target_digest()?,
+            valid_from_position: 3,
+        };
+        Ok((target, handoff))
+    })
 }
 
 pub(super) fn qualified_handoff_with_target_and_setup<T>(
