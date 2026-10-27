@@ -19,6 +19,14 @@ const KEY: &str = "custody-role-key-slot-v1";
 const MAX_BYTES: usize = 32 * 1024;
 type Result<T> = std::result::Result<T, JsValue>;
 
+#[cfg(feature = "owner")]
+#[path = "role_key_participant_signing.rs"]
+mod participant_signing;
+#[cfg(feature = "owner")]
+pub(crate) use participant_signing::{
+    ParticipantSigningCurrent, ParticipantSigningKey, participant_bundle_digest,
+};
+
 #[cfg(feature = "identity")]
 const COMPILED_ROLE: Role = Role::Identity;
 #[cfg(feature = "owner")]

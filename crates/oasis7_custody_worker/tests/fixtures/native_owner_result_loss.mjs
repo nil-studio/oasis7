@@ -10,6 +10,10 @@ export class OwnerNativePermits extends RealOwnerNativePermits {
       || this.env.FIXTURE_DROP_MISSING_RESULT==='true' && rpc.action.result.kind==='explicit_login_required')) {
       throw new Error('fixture lost Account submission before commit');
     }
-    return super.call(raw);
+    const result=await super.call(raw);
+    if(this.env.FIXTURE_STAGE_GAP==='true' && rpc.action.kind==='record_result' && rpc.action.result.kind==='binding_receipt') {
+      await fetch('https://fixture.test/_after-binding-commit',{method:'POST'});
+    }
+    return result;
   }
 }

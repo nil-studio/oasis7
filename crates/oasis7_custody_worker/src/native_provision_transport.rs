@@ -18,6 +18,11 @@ pub(crate) enum NativePrivateRoute {
     BindingOptions,
     BindingComplete,
     SessionStatus,
+    ParticipantPolicyOriginal,
+    ParticipantAuthorize,
+    ParticipantSubmit,
+    ParticipantLookup,
+    ParticipantOwnerView,
 }
 impl NativePrivateRoute {
     fn path(self) -> &'static str {
@@ -31,7 +36,22 @@ impl NativePrivateRoute {
             Self::BindingOptions => "/custody/managed-bindings/options",
             Self::BindingComplete => "/custody/managed-bindings/complete",
             Self::SessionStatus => "/custody/managed-bindings/session-status",
+            Self::ParticipantPolicyOriginal => "/participant/policy-original",
+            Self::ParticipantAuthorize => "/participant/authorize",
+            Self::ParticipantSubmit => "/participant/submit",
+            Self::ParticipantLookup => "/participant/lookup",
+            Self::ParticipantOwnerView => "/participant/owner-view",
         }
+    }
+    fn participant(self) -> bool {
+        matches!(
+            self,
+            Self::ParticipantPolicyOriginal
+                | Self::ParticipantAuthorize
+                | Self::ParticipantSubmit
+                | Self::ParticipantLookup
+                | Self::ParticipantOwnerView
+        )
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -131,7 +151,7 @@ impl NativeProvisionTransport {
         } else {
             !original_body.is_empty()
         })?;
-        if route == NativePrivateRoute::SessionStatus {
+        if route == NativePrivateRoute::SessionStatus || route.participant() {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::ManagedSession))?;
         } else if !get {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::Preauth))?;
@@ -176,6 +196,10 @@ impl NativeProvisionTransport {
         let mut selected = None;
         let mut values = Zeroizing::new(response.headers().get_all("Set-Cookie")?);
         checked(values.len() <= 4 && values.iter().all(|v| v.len() <= 1024))?;
+        // Participant forwarding cannot rotate, replace or recover a Cookie.
+        if route.participant() {
+            checked(values.is_empty())?;
+        }
         for raw in values.iter_mut() {
             if let Some((name, token)) = raw.split(';').next().and_then(|v| v.split_once('=')) {
                 if name == wanted.name() {

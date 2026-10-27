@@ -3,6 +3,8 @@ import RustWorker from './index.js';
 export class OwnerNativePermits extends WorkerEntrypoint {
   async call(raw) { return new RustWorker(this.ctx, this.env).owner_native_call(this.env, raw); }
   async recover(raw) { return new RustWorker(this.ctx, this.env).owner_native_recovery_call(this.env, raw); }
+  async participant(raw) { return new RustWorker(this.ctx, this.env).owner_participant_identity_call(this.env, raw); }
+  async signParticipant(raw) { return new RustWorker(this.ctx, this.env).owner_sign_participant(this.env, raw); }
 }
 export { AccountAuthority, ManagerAssociations, RoleKeyVault } from './index.js';
 // Default ingress exposes fetch only, never the generated Rust management RPCs.
@@ -29,6 +31,7 @@ export class IdentityKeyPermits extends WorkerEntrypoint {
 }
 export class OwnerKeyPermits extends WorkerEntrypoint {
   async verifyKeyPermit(raw) { return new RustWorker(this.ctx, this.env).owner_owner_key_permit(this.env, raw); }
+  async verifyParticipantPermit(raw) { return new RustWorker(this.ctx, this.env).owner_participant_key_call(this.env, raw); }
 }
 export class ExecutorKeyPermits extends WorkerEntrypoint {
   async verifyKeyPermit(raw) { return new RustWorker(this.ctx, this.env).owner_executor_key_permit(this.env, raw); }
