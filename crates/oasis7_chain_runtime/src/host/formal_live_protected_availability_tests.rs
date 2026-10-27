@@ -601,22 +601,39 @@ fn wait_for_degraded_status(
     }
 }
 
-fn signed_status(
+pub(super) fn signed_status(
     address: SocketAddr,
     trusted_service_public_key: &str,
 ) -> Result<crate::formal_live_service::FormalLiveStatusV1, String> {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
         .map_err(|error| format!("C06 connect status: {error}"))?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
+        .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|error| error.to_string())?;
     stream
         .write_all(b"GET /v1/chain/status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
         .map_err(|error| error.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(2);
     let mut bytes = Vec::new();
-    stream
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("C06 read signed status: {error}"))?;
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or("signed status response deadline")?;
+        stream
+            .set_read_timeout(Some(remaining))
+            .map_err(|error| error.to_string())?;
+        let mut chunk = [0; 4096];
+        let count = stream
+            .read(&mut chunk)
+            .map_err(|error| format!("C06 read signed status: {error}"))?;
+        if count == 0 {
+            break;
+        }
+        if bytes.len() + count > 64 * 1024 {
+            return Err("signed status response exceeds 64 KiB".into());
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+    }
     let split = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -642,6 +659,44 @@ fn signed_status(
         trusted_service_public_key,
     )?;
     Ok(response.payload)
+}
+
+#[test]
+fn signed_status_rejects_oversized_response_before_decoding() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "status client never connected");
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("status test accept: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            assert!(request.len() < 512, "oversized test request");
+            let mut byte = [0];
+            stream.read_exact(&mut byte).unwrap();
+            request.push(byte[0]);
+        }
+        // Include the HTTP response in the exact aggregate byte bound.
+        let _ = stream.write_all(&vec![b'x'; 64 * 1024 + 1]);
+    });
+    let error = signed_status(address, "unused-until-bounded-body-is-decoded").unwrap_err();
+    server.join().unwrap();
+    assert_eq!(error, "signed status response exceeds 64 KiB");
 }
 
 #[test]

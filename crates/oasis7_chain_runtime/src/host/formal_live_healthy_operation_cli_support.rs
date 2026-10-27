@@ -63,6 +63,42 @@ pub(super) fn wait_owner(
         thread::sleep(Duration::from_millis(50));
     }
 }
+/// Failure-only observation. Read the existing signed status without replacing
+/// the original lookup error or changing its admission/commit deadline.
+pub(super) fn original_commit_failure_status(
+    config: &oasis7::world_service::client::WorldServiceClientConfig,
+) -> String {
+    let status = (|| {
+        let address = config
+            .endpoint
+            .strip_prefix("http://")
+            .ok_or("status endpoint must be HTTP loopback")?
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| "invalid status endpoint")?;
+        if !address.ip().is_loopback() {
+            return Err("status endpoint must be loopback".into());
+        }
+        super::super::availability_tests::signed_status(address, &config.trusted_service_public_key)
+    })();
+    match status {
+        Ok(status) => format!(
+            "state={} ready={} running={} ticks={} committed_position={:?} last_error={:?}",
+            status.state.chars().take(64).collect::<String>(),
+            status.ready,
+            status.node_running,
+            status.tick_count,
+            status.committed_position,
+            status
+                .last_error
+                .map(|error| error.chars().take(512).collect::<String>()),
+        ),
+        Err(error) => format!(
+            "status_unavailable={}",
+            error.chars().take(512).collect::<String>()
+        ),
+    }
+}
+
 pub(super) fn cli_revision(
     binary: &OsString,
     root: &Path,
@@ -177,4 +213,24 @@ impl Drop for ExactOwnerCleanup {
             );
         }
     }
+}
+
+#[test]
+fn original_commit_diagnostic_rejects_remote_endpoint_without_exposing_credentials() {
+    let config = oasis7::world_service::client::WorldServiceClientConfig {
+        endpoint: "http://192.0.2.1:1234".into(),
+        trusted_service_public_key: "private-test-service-identity".into(),
+        expected_world: oasis7_client_api::world_service::WorldIdentity {
+            world_id: "diagnostic-world".into(),
+            chain_id: "diagnostic-chain".into(),
+        },
+        scope_id: "owner".into(),
+        read_private_key_hex: "private-test-credential".into(),
+        timeout: Duration::from_secs(1),
+        max_response_bytes: 1024,
+    };
+    assert_eq!(
+        original_commit_failure_status(&config),
+        "status_unavailable=status endpoint must be loopback"
+    );
 }
