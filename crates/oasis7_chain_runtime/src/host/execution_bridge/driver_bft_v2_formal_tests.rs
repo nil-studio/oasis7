@@ -54,8 +54,15 @@ use std::{
 #[path = "driver_bft_v2_formal_profile_tests.rs"]
 mod profile_tests;
 
+#[path = "driver_bft_v2_formal_prefix_action_privacy_tests.rs"]
+mod prefix_action_privacy_tests;
 #[path = "driver_bft_v2_formal_prefix_ledger_tests.rs"]
 mod prefix_ledger_tests;
+#[cfg(unix)]
+#[path = "driver_bft_v2_formal_prefix_private_tests.rs"]
+mod prefix_private_tests;
+#[path = "driver_bft_v2_formal_prefix_read_tests.rs"]
+mod prefix_read_tests;
 #[path = "driver_bft_v2_formal_prefix_tests.rs"]
 mod prefix_tests;
 #[path = "driver_bft_v2_formal_replay_tests.rs"]
@@ -234,6 +241,13 @@ fn qualified_handoff() -> QualifiedH {
 }
 
 fn qualified_handoff_with_controller_seed(controller_seed: u8) -> QualifiedH {
+    qualified_handoff_with_setup(controller_seed, |_| {})
+}
+
+fn qualified_handoff_with_setup(
+    controller_seed: u8,
+    setup: impl FnOnce(&mut RuntimeWorld),
+) -> QualifiedH {
     let (_, mut trust, template, _) = fixtures::actual_world_initial_fixture();
     let identity = template.authority().definition().world.clone();
     let mut world = wasm_fixture::world_with_formal_history();
@@ -252,7 +266,10 @@ fn qualified_handoff_with_controller_seed(controller_seed: u8) -> QualifiedH {
             ..Default::default()
         })
         .expect("set the H-committed governance controller registry");
-    world.step().expect("prepare nonzero formal H boundary");
+    setup(&mut world);
+    if world.state().time == 0 {
+        world.step().expect("prepare nonzero formal H boundary");
+    }
     assert_eq!(world.state().time, 1);
 
     let release = ReleaseSecurityPolicy::default();
