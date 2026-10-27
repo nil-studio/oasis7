@@ -153,18 +153,23 @@ class ScopePlan(unittest.TestCase):
                     verified.append((query.name, name, selected["codeql/rust-all"]["root"]))
                 with patch.object(m, "PATH_SHA", hashlib.sha256(source).hexdigest()), \
                         patch.object(m, "STAGES_SHA", hashlib.sha256(stages).hexdigest()), \
+                        patch.object(m.demand, "boundary", return_value={"fixture": "guard tested separately"}) as boundary, \
+                        patch.object(m, "successor_sources", return_value={
+                            m.PATH: source + b"\n// keyed runner fixture", m.STAGES: stages + b"\n// keyed runner fixture"}) as keyed, \
                         patch.object(m.runtime, "run", side_effect=run):
                     if fail:
                         with self.assertRaisesRegex(RuntimeError, "baseline compile failed"):
                             m.execute(args, {}, {"codeql/rust-all": {"root": str(official)}}, verify)
                     else:
                         m.execute(args, {}, {"codeql/rust-all": {"root": str(official)}}, verify)
+                self.assertEqual(boundary.call_count, int(probe == "successor-keyed-plan"))
+                self.assertEqual(keyed.call_count, int(probe == "successor-keyed-plan"))
                 self.assertEqual(len(ends), 2 if fail else 4)
                 self.assertEqual(len(set(ends)), 1, "all variants/queries share one compiler deadline")
                 self.assertEqual((official / m.PATH).read_bytes(), source)
                 self.assertEqual((official / m.STAGES).read_bytes(), stages)
                 changed = json.loads((out / "isolated-source.json").read_text())["changed_files"]
-                self.assertEqual(set(changed), {m.PATH, m.STAGES} if probe == "successor-consumer-plan" else {m.PATH})
+                self.assertEqual(set(changed), {m.PATH, m.STAGES} if probe == "successor-keyed-plan" else {m.PATH})
                 self.assertEqual(json.loads((out / "official-after.json").read_text()),
                     json.loads((out / "official-before.json").read_text()))
                 if fail:
@@ -219,8 +224,8 @@ class ScopePlan(unittest.TestCase):
         for probe in m.COMPILE_PROBES:
             self.assertIn(probe, text.split("permissions:", 1)[0])
         self.assertIn("MODEL_PROBE: ${{ inputs.model_probe }}", job)
-        self.assertIn('trait-scope-plan|successor-consumer-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
-        self.assertIn('trait-scope-plan|successor-consumer-plan) ;;', job)
+        self.assertIn('trait-scope-plan|successor-keyed-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
+        self.assertIn('trait-scope-plan|successor-keyed-plan) ;;', job)
         self.assertIn("timeout-minutes: 20", job)
         self.assertIn(" + 1080 ", job)
         self.assertIn("64 * 1024**2", job)

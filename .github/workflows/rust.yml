@@ -19,7 +19,7 @@ on:
         description: "Candidate public-model diagnostic partition"
         type: choice
         default: node-only
-        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan, successor-consumer-plan]
+        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan, successor-keyed-plan]
       model_bundle_version:
         description: "Complete official CodeQL bundle"
         type: choice
@@ -87,7 +87,7 @@ jobs:
             *) exit 1 ;;
           esac
           case "$MODEL_PROBE" in
-            trait-scope-plan|successor-consumer-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;
+            trait-scope-plan|successor-keyed-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;
           esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir "$RUNNER_TEMP/rust-model-tools"
@@ -97,7 +97,7 @@ jobs:
           echo "$bundle_sha  $RUNNER_TEMP/rust-model-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
           case "$MODEL_PROBE" in
-            trait-scope-plan|successor-consumer-plan) ;;
+            trait-scope-plan|successor-keyed-plan) ;;
             *)
               timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
               timeout 180 rustup toolchain install 1.98.1 --profile minimal
