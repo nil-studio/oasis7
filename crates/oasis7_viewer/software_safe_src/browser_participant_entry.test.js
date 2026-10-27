@@ -75,12 +75,12 @@ describe("browser participant entry", () => {
       if (next?.registrationPhase === "dispatch_may_have_started") throw new Error("fixture disk failure");
       return next;
     }) };
-    await expect(f.create({ storage }).registerParticipant(true)).rejects.toMatchObject({ code: "participant_registration_pending" });
+    await expect(f.create({ storage }).registerParticipant(true)).rejects.toMatchObject({ code: "participant_original_not_sent" });
     const record = [...f.records.values()][0], original = record.registrationRaw;
     expect(record.registrationPhase).toBe("prepared_unsent");
     expect(f.calls.filter((c) => c.path === "/participant/submit")).toHaveLength(0);
-    expect(await f.create().inspect()).toMatchObject({ state: "pending", operation: { deliveryPhase: "prepared_unsent", disposition: "unknown" } });
-    await expect(f.create().registerParticipant(true)).rejects.toMatchObject({ code: "participant_registration_pending" });
+    expect(await f.create().inspect()).toMatchObject({ state: "unsent", operation: { deliveryPhase: "prepared_unsent", disposition: "unknown" } });
+    await expect(f.create().registerParticipant(true)).rejects.toMatchObject({ code: "participant_original_not_sent" });
     f.setLookup("committed");
     await f.create().continueOriginal(true);
     const submits = f.calls.filter((c) => c.path === "/participant/submit");
@@ -130,7 +130,7 @@ describe("browser participant entry", () => {
       if (next?.registrationPhase === "dispatch_may_have_started") throw new Error("fixture disk failure");
       return next;
     }) };
-    await expect(f.create({ storage }).registerParticipant(true)).rejects.toMatchObject({ code: "participant_registration_pending" });
+    await expect(f.create({ storage }).registerParticipant(true)).rejects.toMatchObject({ code: "participant_original_not_sent" });
     const original = [...f.records.values()][0].registrationRaw;
     await Promise.allSettled([f.create().continueOriginal(true), f.create().continueOriginal(true)]);
     const submits = f.calls.filter((c) => c.path === "/participant/submit");
@@ -297,4 +297,11 @@ describe("browser participant entry", () => {
     release(); for (let i = 0; i < 10; i += 1) await Promise.resolve();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+});
+
+it("does not create an original from a continuation with nothing retained",async()=>{
+ const env=setup();
+ await expect(env.create().continueOriginal(true)).rejects.toMatchObject({code:"participant_original_missing"});
+ expect(env.calls.some(c=>c.path==="/participant/submit")).toBe(false);
+ expect(env.ownerSigner.sign).not.toHaveBeenCalled();
 });

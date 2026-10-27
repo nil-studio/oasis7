@@ -64,11 +64,21 @@ export async function benchmarkAccountRestoreWithStub(stub,snapshot,{wasmPath=re
     timing_scope:'Node RPC wall time includes transport/input parsing/digest work; workerd event clock may be frozen during CPU; parse-only vs restore wall differences are diagnostic, not exact validation CPU; no pure CPU or total crypto count claimed'};
 }
 export async function benchmarkAccountRestore(snapshot){
+  return withRestoreHarness(snapshot,stub=>benchmarkAccountRestoreWithStub(stub,snapshot));
+}
+export async function verifySnapshotReuse(snapshot){
+  return withRestoreHarness(snapshot,async stub=>{
+    const reply=await stub.fetch('https://fixture.test/performance/account-restore',{method:'POST',body:JSON.stringify({api_version:1,snapshot,repeats:1,mode:'snapshot_reuse'})});
+    assert.equal(reply.status,200,'strict snapshot reuse probe must pass');
+    assert.deepEqual(await reply.json(),{identical_bytes_decoded_once:true,changed_bytes_restored:true,invalid_schema_rejected:true,same_sequence_corruption_rejected:true,failed_restore_not_cached:true});
+  });
+}
+async function withRestoreHarness(snapshot,run){
   const directory=mkdtempSync(resolve(tmpdir(),'oasis7-restore-bench-'));
   const mf=new Miniflare({...convertV4MiniflareOptions({name:'restore-measurement',modulesRoot:root,modules:[
     {type:'ESModule',path:resolve(root,'tests/fixtures/approval_harness.mjs')},
     {type:'ESModule',path:resolve(root,'artifacts/approval-harness/index.js')},
     {type:'CompiledWasm',path:resolve(root,'artifacts/approval-harness/index_bg.wasm')}],compatibilityDate:'2026-10-25',cf:false,durableObjects:{STORE:{className:'TestApprovalAuthority',useSQLite:true}}}),resourcePersistencePath:directory,unsafeDevRegistryPath:resolve(directory,'registry')});
-  try{const {STORE}=await mf.getBindings();return await benchmarkAccountRestoreWithStub(STORE.get(STORE.idFromName('same-snapshot-three-restores')),snapshot);}
+  try{const {STORE}=await mf.getBindings();return await run(STORE.get(STORE.idFromName('same-snapshot-three-restores')));}
   finally{await mf.dispose();rmSync(directory,{recursive:true,force:true});}
 }

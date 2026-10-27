@@ -20,10 +20,16 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
  const decoded = JSON.parse;
  const freshId = (name) => `browser-${name}-${hex(cryptoImpl.getRandomValues(new Uint8Array(16)))}`;
  function check(record) {
-  if (record === undefined) return { schema: 1, key };
-  if (record?.schema !== 1 || record.key !== key || JSON.stringify(record).length > 262144) fail("owner_storage_corrupt");
+  if (record === undefined) return { schema: 2, key };
+  if (![1, 2].includes(record?.schema) || record.key !== key || JSON.stringify(record).length > 262144) fail("owner_storage_corrupt");
   for (const slot of ["taskRaw", "publishRaw", "goalPrepareRaw"]) {
    if (record[`${slot}Phase`] !== undefined && !deliveryPhases.has(record[`${slot}Phase`])) fail("owner_storage_corrupt");
+  }
+  if (record.schema === 2) for (const slot of ["taskRaw", "publishRaw"]) {
+   const phase = record[`${slot}SendState`];
+   if (phase !== undefined && (!record[slot] || !["not_sent", "may_have_sent"].includes(phase)
+    || (phase === "not_sent" && (record[`${slot}Receipt`] || record[`${slot}TerminalReply`]
+      || (record[`${slot}Phase`] !== undefined && record[`${slot}Phase`] !== "prepared_unsent"))))) fail("owner_storage_corrupt");
   }
   return record;
  }
@@ -109,7 +115,7 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
   const raw = `{"contract_version":1,"correlation":${correlation},"deadline_unix_ms":null,"signed_payload":${payload}}`;
   let fresh = false;
   record = await update((current) => {
-   if (!current[slot]) { current[slot] = raw; current[`${slot}Phase`] = "prepared_unsent"; current[`${slot}Scope`] = scopeStamp(slot, controlRaw); fresh = true; }
+   if (!current[slot]) { active(); current.schema = 2; current[slot] = raw; current[`${slot}SendState`] = "not_sent"; current[`${slot}Phase`] = "prepared_unsent"; current[`${slot}Scope`] = scopeStamp(slot, controlRaw); fresh = true; }
    return current;
   });
   if (record[slot] !== raw) fail("owner_original_conflict");
@@ -124,23 +130,35 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
      client_nonce: decoded(field(original, ["request", "client_nonce"])), content: decoded(field(original, ["request", "content"])) });
     if (field(expected, []) !== field(original, ["request"])) fail("owner_original_scope_changed");
    } else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail("owner_original_scope_changed");
-   if (record[slot] !== original || record[`${slot}TerminalReply`] || (!replay && record[`${slot}Phase`] !== "prepared_unsent")) fail("owner_original_conflict");
+   if (record[slot] !== original || record[`${slot}TerminalReply`] || (!replay && !isUnsent(record, slot))) fail("owner_original_conflict");
+   if (!replay) record[`${slot}SendState`] = "may_have_sent";
    record[`${slot}Phase`] = "dispatch_may_have_started"; return record;
   });
   active();
  }
+ const isUnsent = (record, slot) => record.schema === 2 && record[`${slot}SendState`] === "not_sent"
+  && record[`${slot}Phase`] === "prepared_unsent" && typeof record[`${slot}Scope`] === "string" && !record[`${slot}TerminalReply`];
+ const unsentStatus = (record, slot) => ({ state: "unsent", code: "owner_original_not_sent", continuation: slot,
+  operation: pendingOperation(record),
+  ...(record.goalPrepareRaw ? { goal: decoded(field(record.goalPrepareRaw, ["request", "content", "goal_text"])) } : {}) });
  async function settleIntent(slot, original, send) {
   const record = await load();
-  if (record[slot] !== original) fail("owner_original_conflict");
+  if (typeof original !== "string" || record[slot] !== original) fail("owner_original_conflict");
   lookupMaterial(original, slot);
   const terminal = terminalStatus(slot, record);
   const advice = operationObservation({ phase: record[`${slot}Phase`], status: terminal, verified: terminalDisposition(terminal),
-   intent: send ? "continue_authorized_entry" : "query_only", writeAllowed: true });
+   intent: send ? "continue_authorized_entry" : "query_only", writeAllowed: isUnsent(record, slot) });
   if (advice.nextAction === "continue_original") {
    try { verify(SUBMIT, original, await ownerCall("submit", original, true,
     (controlRaw) => claimDispatch(slot, original, controlRaw)), "intent", field(original, ["correlation"])); }
-   catch { /* The exact persisted original and durable dispatch marker own uncertainty. */ }
+   catch (error) {
+    if (error.code === "owner_original_scope_changed") throw error;
+    /* The exact persisted original and durable dispatch marker own uncertainty. */
+   }
   }
+  active(); const current = await load();
+  if (current[slot] !== original) fail("owner_original_conflict");
+  if (isUnsent(current, slot)) fail("owner_original_not_sent");
   // The signed terminal reply already retains its payload. Avoid keeping a
   // second full receipt copy within the unchanged bounded owner record.
   return lookup(original, slot);
@@ -160,6 +178,8 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
  async function inspect() {
   active(); const binding = await participant.inspect(); active();
   if (binding.state !== "bound") return binding;
+  const local = await load();
+  for (const slot of ["taskRaw", "publishRaw"]) if (local[slot] && !settled(slot, local) && isUnsent(local, slot)) return { agentId: binding.agentId, ...unsentStatus(local, slot) };
   try { await reconcile(); }
   catch (error) { if (["owner_operation_pending", "owner_response_unknown"].includes(error.code)) return { state: "pending", code: error.code, diagnostic: error.diagnostic, agentId: binding.agentId, operation: pendingOperation(await load()) }; throw error; }
   const refreshed = await participant.getParticipantProofs(); active(); const controlRaw = refreshed.ownerControl.rawJson;
@@ -169,16 +189,29 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
   const fence = decoded(build("fence", taskRaw));
   return { ...base, taskId: task.task_id, fence, state: task.active_goal_reference && task.active_goal_revision !== "0" ? "ready" : "needs_goal" };
  }
- async function prepare({ goal, consent } = {}) {
+ async function prepare({ goal, consent } = {}, continueUnsent = false) {
   if (consent !== true) fail("owner_consent_required");
-  if (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192) fail("owner_goal_invalid");
+  if ((!continueUnsent || goal !== undefined) && (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192)) fail("owner_goal_invalid");
   if (!locks?.request) fail("participant_locks_unavailable");
   return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
    active(); let status = await inspect();
-   if (status.state === "ready" || status.state === "pending") return status;
+   if (status.state === "ready" || status.state === "pending" || (continueUnsent && status.state !== "unsent")) return status;
+   if (status.state === "unsent") {
+    if (!continueUnsent) return status;
+    if (status.continuation === "participant") await participant.continueOriginal(true);
+    else {
+     const record = await load(), slot = status.continuation;
+     if (!["taskRaw", "publishRaw"].includes(slot)) fail("owner_original_conflict");
+     if (status.goal && goal !== undefined && status.goal !== goal.trim()) fail("owner_goal_original_conflict");
+     await settleIntent(slot, record[slot], true);
+    }
+    status = await inspect();
+    if (goal === undefined) return status;
+   }
    if (status.state === "needs_participant") {
     try { await participant.registerParticipant(true); }
-    catch (error) { if (["participant_registration_pending", "participant_response_unknown", "participant_network_failed"].includes(error.code)) return { state: "pending", code: error.code, diagnostic: error.diagnostic }; throw error; }
+    catch (error) { if (error.code === "participant_original_not_sent") return { state: "unsent", code: error.code, continuation: "participant" };
+     if (["participant_registration_pending", "participant_response_unknown", "participant_network_failed"].includes(error.code)) return { state: "pending", code: error.code, diagnostic: error.diagnostic }; throw error; }
     status = await inspect();
    }
    if (status.state === "needs_task") {
@@ -214,24 +247,14 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
    await settleIntent("publishRaw", publish.raw, publish.fresh);
    active(); return inspect();
   }).catch(async (error) => {
+   if (error.code === "participant_original_not_sent") return { state: "unsent", code: error.code, continuation: "participant" };
+   if (error.code === "owner_original_not_sent") {
+    const record = await load();
+    for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && isUnsent(record, slot)) return unsentStatus(record, slot);
+   }
    if (["owner_operation_pending", "owner_response_unknown", "participant_response_unknown", "participant_network_failed"].includes(error.code)) return { state: "pending", code: error.code, diagnostic: error.diagnostic, operation: pendingOperation(await load()) };
    throw error;
   });
  }
- async function continueOriginal({ consent } = {}) {
-  if (consent !== true) fail("owner_consent_required");
-  if (!locks?.request) fail("participant_locks_unavailable");
-  return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
-   active(); const binding = await participant.inspect(); active();
-   if (binding.state !== "bound") return binding;
-   const record = await load();
-   for (const slot of ["taskRaw", "publishRaw"]) {
-    if (record[slot] && !settled(slot, record)) {
-     await settleIntent(slot, record[slot], true);
-    }
-   }
-   return inspect();
-  });
- }
- return { inspect, prepare, continueOriginal, recover: inspect, dispose: () => { disposed = true; } };
+ return { inspect, prepare: (options) => prepare(options), continueOriginal: (options) => prepare(options, true), recover: inspect, dispose: () => { disposed = true; } };
 }

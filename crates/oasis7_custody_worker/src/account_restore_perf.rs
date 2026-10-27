@@ -71,6 +71,7 @@ impl Drop for Callback {
 pub(crate) enum MeasureMode {
     #[default]
     Restore,
+    SnapshotReuse,
     ParseJsonOnly,
     LegacyDoubleDecode,
     TransitionClone,
@@ -85,12 +86,16 @@ pub(crate) fn measure(
         return Err(JsValue::from_str("invalid restore measurement"));
     }
     let mut samples = Vec::new();
+    if matches!(mode, MeasureMode::SnapshotReuse) {
+        return snapshot_reuse(raw);
+    }
     let mut stage = serde_json::Value::Null;
     for _ in 0..repeats {
         let before = count();
         let started = clock();
         let mut equal = None;
         match mode {
+            MeasureMode::SnapshotReuse => unreachable!(),
             MeasureMode::Restore => {
                 let saved = super::decode(raw)?;
                 stage = serde_json::to_value(saved.state.provision().stage())
@@ -121,6 +126,47 @@ pub(crate) fn measure(
         (m.callback_count, m.callbacks.clone())
     });
     Ok(
-        serde_json::json!({"mode":mode,"validation_scope":match mode{MeasureMode::Restore=>"full_persistence_restore",MeasureMode::ParseJsonOnly=>"json_syntax_only",MeasureMode::LegacyDoubleDecode|MeasureMode::TransitionClone=>"full_persistence_restore_and_state_eq"},"parse_succeeded":true,"stage":stage,"snapshot_digest":oasis7_custody_core::approval::bytes_digest(raw.as_bytes()),"bytes":raw.len(),"repeats":repeats,"samples":samples,"observed_callback_count":callback_count,"recent_callbacks":callbacks,"clock":"workerd_event_clock_may_not_advance_during_cpu; use_node_rpc_wall_ms","crypto_count":null}),
+        serde_json::json!({"mode":mode,"validation_scope":match mode{MeasureMode::SnapshotReuse=>"exact_bytes_restore_reuse",MeasureMode::Restore=>"full_persistence_restore",MeasureMode::ParseJsonOnly=>"json_syntax_only",MeasureMode::LegacyDoubleDecode|MeasureMode::TransitionClone=>"full_persistence_restore_and_state_eq"},"parse_succeeded":true,"stage":stage,"snapshot_digest":oasis7_custody_core::approval::bytes_digest(raw.as_bytes()),"bytes":raw.len(),"repeats":repeats,"samples":samples,"observed_callback_count":callback_count,"recent_callbacks":callbacks,"clock":"workerd_event_clock_may_not_advance_during_cpu; use_node_rpc_wall_ms","crypto_count":null}),
     )
+}
+
+// Exercise the same reader used by live SQL reads and callbacks. No authority
+// or transition result is cached; even an unchanged audit sequence is irrelevant.
+fn snapshot_reuse(raw: &str) -> Result<serde_json::Value, JsValue> {
+    let reader = super::SnapshotReader::default();
+    let before = count();
+    let first = reader.restore(raw)?;
+    let same = reader.restore(raw)?;
+    if first != same || count() - before != 1 {
+        return Err(JsValue::from_str("identical snapshot was not reused"));
+    }
+    let mut changed = first.clone();
+    changed.audit_sequence.0 = changed
+        .audit_sequence
+        .0
+        .checked_add(1)
+        .ok_or_else(|| JsValue::from_str("sequence overflow"))?;
+    let changed_raw = super::encode(&changed)?;
+    if reader.restore(&changed_raw)? != changed || count() - before != 2 {
+        return Err(JsValue::from_str("changed snapshot was not restored"));
+    }
+    let mut invalid_schema = changed.clone();
+    invalid_schema.schema_version = 0;
+    let mut invalid_state: serde_json::Value =
+        serde_json::from_str(&changed_raw).map_err(|_| JsValue::from_str("invalid fixture"))?;
+    invalid_state["state"]["draft"]["entry"]["plan_digest"] = "00".repeat(32).into();
+    for invalid in [super::encode(&invalid_schema)?, invalid_state.to_string()] {
+        if reader.restore(&invalid).is_ok() {
+            return Err(JsValue::from_str("changed invalid snapshot was reused"));
+        }
+    }
+    let after_errors = count();
+    if reader.restore(&changed_raw)? != changed || count() != after_errors {
+        return Err(JsValue::from_str(
+            "failed restore replaced the validated snapshot",
+        ));
+    }
+    Ok(serde_json::json!({"identical_bytes_decoded_once":true,
+        "changed_bytes_restored":true,"invalid_schema_rejected":true,
+        "same_sequence_corruption_rejected":true,"failed_restore_not_cached":true}))
 }
