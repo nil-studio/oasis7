@@ -241,10 +241,25 @@ fn submit_and_wait(
             if batch.actions.is_empty() {
                 continue;
             }
-            if batch.actions.iter().any(|a| !remaining.contains(a)) {
+            if batch.actions.iter().any(|committed| {
+                actions.iter().any(|requested| {
+                    requested.action_id == committed.action_id && requested != committed
+                })
+            }) {
                 return Err(
-                    "header Node committed actions differ from submitted private input".into(),
+                    "header Node committed identity conflicts with submitted private input".into(),
                 );
+            }
+            // Recovery must finish an earlier original private reservation
+            // before this invocation can propose its newly submitted actions.
+            // Those unrelated batches are real results, but cannot complete
+            // any action in this invocation.
+            if !batch
+                .actions
+                .iter()
+                .any(|action| remaining.contains(action))
+            {
+                continue;
             }
             remaining.retain(|a| !batch.actions.contains(a));
             // The V3 worker emits this only after actual durable World install and

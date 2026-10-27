@@ -24,6 +24,50 @@ fn cli_case() {
     let original = driver(&h, root.path(), &store);
     let binding = signer_binding(&original);
     let binding_digest = binding.digest().unwrap();
+    // Reserve a different exact private value before any provider WAL exists.
+    // A cold CLI invocation must finish this value, then execute its own input.
+    let original_actions = vec![
+        oasis7_node::NodeConsensusAction::from_payload(
+            9009,
+            "shipping-node-player",
+            payload("shipping-wire3-original-reservation-agent"),
+        )
+        .unwrap(),
+    ];
+    let original_action_root =
+        oasis7_node::compute_consensus_action_root(&original_actions).unwrap();
+    let original_value = {
+        let mut actual = original.lock().unwrap();
+        actual.configure_bft_v3_execution(&binding).unwrap();
+        let context = actual
+            .current_bft_v3_execution_context(binding.initial_schedule())
+            .unwrap();
+        let candidate = actual
+            .build_bft_v3_candidate(NodeBftBuildContextV3 {
+                execution: context.clone(),
+                actions: original_actions,
+            })
+            .unwrap();
+        actual
+            .preview_bft_v3_candidate(&context, &candidate)
+            .unwrap();
+        assert_eq!(
+            actual
+                .retain_bft_v3_private_candidate(&context, &candidate)
+                .unwrap()
+                .len(),
+            64
+        );
+        candidate.public_value
+    };
+    let original_path = root
+        .path()
+        .join("ledger/formal-bft-header-prefix-v1/node-private-v1")
+        .join(format!(
+            "candidate-{:020}.cbor",
+            original_value.execution_commitment.height
+        ));
+    let original_bytes = fs::read(&original_path).unwrap();
     drop(original);
     let replication = root.path().join("replication");
     fs::create_dir(&replication).unwrap();
@@ -93,6 +137,19 @@ fn cli_case() {
     server.join().unwrap().unwrap();
     let protected = snapshot.lock().unwrap().clone();
     assert!(protected.state.pending_driver_apply.is_none());
+    assert!(protected.state.history.len() >= 2);
+    let recovered = &protected.state.history[0];
+    assert_eq!(recovered.header, original_value.header);
+    assert_eq!(
+        recovered.execution_commitment,
+        original_value.execution_commitment
+    );
+    assert_eq!(
+        recovered.execution_commitment.action_root,
+        original_action_root
+    );
+    assert_eq!(fs::read(original_path).unwrap(), original_bytes);
+
     assert_eq!(
         protected.state.history.len(),
         protected.state.applied_installs.len()
@@ -104,6 +161,10 @@ fn cli_case() {
         .find(|c| c.execution_commitment.action_root == action_root)
         .expect("the CLI committed the submitted nonempty input");
     let height = certificate.execution_commitment.height;
+    assert!(
+        height > recovered.execution_commitment.height,
+        "this request must commit only after the original private reservation"
+    );
     let id = certificate.header.block_id().unwrap();
     let applied = protected
         .state
@@ -117,6 +178,7 @@ fn cli_case() {
     assert!(!public_json.contains(r#""actions_cbor":"#));
     assert!(!public_json.contains(r#""payload_cbor":"#));
     assert!(!public_json.contains("shipping-wire3-node-cli-agent"));
+    assert!(!public_json.contains("shipping-wire3-original-reservation-agent"));
     let public_bytes = serde_cbor::to_vec(&protected.state).unwrap();
     assert!(!public_bytes.windows(input.len()).any(|part| part == input));
     let mut ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
@@ -135,6 +197,12 @@ fn cli_case() {
             .state()
             .agents
             .contains_key("shipping-wire3-node-cli-agent")
+    );
+    assert!(
+        cut.world()
+            .state()
+            .agents
+            .contains_key("shipping-wire3-original-reservation-agent")
     );
     assert_eq!(cut.world().state().time, height);
     assert_eq!(
