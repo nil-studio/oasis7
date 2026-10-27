@@ -17,9 +17,13 @@ impl BftSignerServiceV3 {
     ) -> Result<ReplyDataV3, BftSignerErrorV3> {
         let state = &snapshot.state;
         if expected_revision <= state.revision
-            && let Some(proposal) = state.journal.as_ref().and_then(|journal| {
-                journal.events.iter().find_map(|event| {
-                    if let oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Proposal {
+            && let Some(proposal) = state
+                .journal
+                .iter()
+                .chain(state.completed_journals.iter().flatten())
+                .find_map(|journal| {
+                    journal.events.iter().find_map(|event| {
+                        if let oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Proposal {
                         proposal,
                         local: true,
                         ..
@@ -34,9 +38,9 @@ impl BftSignerServiceV3 {
                             return Some(proposal.as_ref().clone());
                         }
                     }
-                    None
+                        None
+                    })
                 })
-            })
         {
             return self.state_reply(
                 snapshot,
@@ -138,25 +142,29 @@ impl BftSignerServiceV3 {
     ) -> Result<ReplyDataV3, BftSignerErrorV3> {
         let state = &snapshot.state;
         if expected_revision <= state.revision
-            && let Some(vote) = state.journal.as_ref().and_then(|journal| {
-                journal.events.iter().find_map(|event| {
-                    if let oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Vote {
-                        vote,
-                        local: true,
-                        ..
-                    } = event
-                        && vote.height == intent.height
-                        && vote.round == intent.round
-                        && vote.phase == intent.phase
-                        && vote.value == intent.value
-                        && vote.validator_id == intent.validator_id
-                        && vote.schedule_policy_hash == intent.schedule_policy_hash
-                    {
-                        return Some(vote.as_ref().clone());
-                    }
-                    None
+            && let Some(vote) = state
+                .journal
+                .iter()
+                .chain(state.completed_journals.iter().flatten())
+                .find_map(|journal| {
+                    journal.events.iter().find_map(|event| {
+                        if let oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Vote {
+                            vote,
+                            local: true,
+                            ..
+                        } = event
+                            && vote.height == intent.height
+                            && vote.round == intent.round
+                            && vote.phase == intent.phase
+                            && vote.value == intent.value
+                            && vote.validator_id == intent.validator_id
+                            && vote.schedule_policy_hash == intent.schedule_policy_hash
+                        {
+                            return Some(vote.as_ref().clone());
+                        }
+                        None
+                    })
                 })
-            })
         {
             return self.state_reply(
                 snapshot,
@@ -262,6 +270,18 @@ impl BftSignerServiceV3 {
         let now = self.sample_time(runtime, credential, token_digest)?;
         if minimum_event_time_ms.is_some_and(|time| time < 0 || time > now) {
             return Err(invalid("BFT V3 event timestamp exceeds protected time"));
+        }
+        if next_verified
+            .state
+            .journal
+            .iter()
+            .chain(next_verified.state.completed_journals.iter().flatten())
+            .filter_map(|j| j.height_started_at_ms())
+            .any(|origin| origin < 0 || origin > now)
+        {
+            return Err(invalid(
+                "BFT V3 journal timer origin exceeds protected time",
+            ));
         }
         let next_state = next_verified.state.clone();
         let response = runtime.backend.compare_and_swap(

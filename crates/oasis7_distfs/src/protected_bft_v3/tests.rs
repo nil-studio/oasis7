@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn protected_header_state_declared_counts_are_rejected_before_entries() {
-    for field in ["history", "applied_installs"] {
+    for field in ["history", "applied_installs", "completed_journals"] {
         let mut bytes = vec![0xa1];
         bytes.extend(serde_cbor::to_vec(&field).unwrap());
         bytes.extend([0x98, 0x41]); // Array(65), deliberately no first entry.

@@ -582,7 +582,10 @@ impl BftSignerServiceV3 {
         if state.pending_driver_apply.is_some()
             && !matches!(
                 command,
-                BftSignerCommandV3::Checkpoint | BftSignerCommandV3::ConfirmApplied { .. }
+                BftSignerCommandV3::Checkpoint
+                    | BftSignerCommandV3::ConfirmApplied { .. }
+                    | BftSignerCommandV3::SignProposal { .. }
+                    | BftSignerCommandV3::SignVote { .. }
             )
         {
             return Err(invalid(
@@ -650,6 +653,19 @@ impl BftSignerServiceV3 {
                 {
                     return Err(invalid(
                         "BFT V3 protocol advance cannot change driver confirmation",
+                    ));
+                }
+                if state
+                    .journal
+                    .as_ref()
+                    .and_then(|j| j.height_started_at_ms())
+                    != candidate
+                        .journal
+                        .as_ref()
+                        .and_then(|j| j.height_started_at_ms())
+                {
+                    return Err(invalid(
+                        "BFT V3 Advance cannot change the protected height timer origin",
                     ));
                 }
                 let event_time = appended_event_time(state, candidate)?;
@@ -768,6 +784,7 @@ impl BftSignerServiceV3 {
                 encode_bounded(certificate.as_ref(), BFT_SIGNER_MAX_CERTIFICATE_BYTES_V3)?;
                 let mut candidate = state.candidate();
                 candidate.history.push(certificate.as_ref().clone());
+                candidate.completed_journals.push(state.journal.clone());
                 candidate.pending_driver_apply = Some(super::state::BftDriverApplyIntentV3 {
                     height: certificate.execution_commitment.height,
                     header_id: certificate.header.block_id().map_err(invalid)?,

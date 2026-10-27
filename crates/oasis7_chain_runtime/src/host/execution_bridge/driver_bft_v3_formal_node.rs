@@ -453,11 +453,19 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         );
         self.installed_world = cut.world().clone();
         self.cursor_height = height;
+        let installed_execution_root = self
+            .world()
+            .execution_state_identity()
+            .map_err(|_| "installed Node World identity unavailable")?
+            .state_root_hash;
+        if installed_execution_root != c.execution_state_root {
+            return Err("installed Node World differs from durable execution receipt".into());
+        }
         Ok(NodeBftExecutionCommitResultV3 {
             height,
             header_id: token.block_id().into(),
             execution_commitment_hash: certificate.header.execution_commitment_hash,
-            execution_state_root: c.execution_state_root.clone(),
+            execution_state_root: installed_execution_root,
             state_root: c.state_root.clone(),
             post_manifest_hash: c.post_manifest_hash.clone(),
             driver_install_digest: install,

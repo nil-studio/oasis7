@@ -146,6 +146,12 @@ impl NodePrivateStore {
                     return Err("Node origin has candidate schema".into());
                 }
                 let marker = common_storage::read_optional_bytes(&dir.join("ready"), MARKER.len())?;
+                if marker.is_some()
+                    && common_storage::read_optional_bytes(&dir.join("origin.cbor"), MAX_RECORD)?
+                        .is_none()
+                {
+                    return Err("Node ready marker lost its original origin record".into());
+                }
                 if slot.complete && marker.as_deref() != Some(MARKER) {
                     return Err("completed Node origin lost its original marker".into());
                 }
@@ -478,7 +484,8 @@ impl NodePrivateStore {
                         .checked_mul(2)
                         .ok_or("Node capacity overflow")?,
                 )
-                .ok_or("Node capacity overflow")?;
+                .filter(|sum| *sum <= 512 * 1024 * 1024)
+                .ok_or("Node cumulative material capacity")?;
             refs.extend(data.references.iter().cloned());
         }
         if refs.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES {
@@ -707,6 +714,7 @@ fn bounded_references<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Stri
 mod tests {
     use super::*;
 
+    use std::os::unix::fs::PermissionsExt;
     struct Scratch(PathBuf);
     impl Scratch {
         fn new() -> Self {
@@ -714,11 +722,12 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!(
+            let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
                 "oasis7-node-private-{}-{suffix}",
                 std::process::id()
             ));
             fs::create_dir(&path).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
             Self(path)
         }
         fn path(&self) -> &Path {

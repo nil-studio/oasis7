@@ -38,6 +38,8 @@ pub struct BftSignerStateV3 {
     #[serde(deserialize_with = "bounded_history")]
     pub history: Vec<FormalBftCertifiedHeaderV3>,
     pub journal: Option<BftSigningJournalV3>,
+    #[serde(deserialize_with = "bounded_journals")]
+    pub completed_journals: Vec<Option<BftSigningJournalV3>>,
     pub pending_driver_apply: Option<BftDriverApplyIntentV3>,
     #[serde(deserialize_with = "bounded_receipts")]
     pub applied_installs: Vec<BftDriverAppliedReceiptV3>,
@@ -49,6 +51,8 @@ pub struct BftSignerCandidateV3 {
     #[serde(deserialize_with = "bounded_history")]
     pub history: Vec<FormalBftCertifiedHeaderV3>,
     pub journal: Option<BftSigningJournalV3>,
+    #[serde(deserialize_with = "bounded_journals")]
+    pub completed_journals: Vec<Option<BftSigningJournalV3>>,
     pub pending_driver_apply: Option<BftDriverApplyIntentV3>,
     #[serde(deserialize_with = "bounded_receipts")]
     pub applied_installs: Vec<BftDriverAppliedReceiptV3>,
@@ -62,6 +66,7 @@ impl BftSignerStateV3 {
             0,
             BftSignerCandidateV3 {
                 history: Vec::new(),
+                completed_journals: Vec::new(),
                 journal,
                 pending_driver_apply: None,
                 applied_installs: Vec::new(),
@@ -79,6 +84,7 @@ impl BftSignerStateV3 {
             revision,
             history: candidate.history,
             journal: candidate.journal,
+            completed_journals: candidate.completed_journals,
             pending_driver_apply: candidate.pending_driver_apply,
             applied_installs: candidate.applied_installs,
             state_digest: String::new(),
@@ -91,6 +97,7 @@ impl BftSignerStateV3 {
         BftSignerCandidateV3 {
             history: self.history.clone(),
             journal: self.journal.clone(),
+            completed_journals: self.completed_journals.clone(),
             pending_driver_apply: self.pending_driver_apply.clone(),
             applied_installs: self.applied_installs.clone(),
         }
@@ -170,6 +177,7 @@ struct StateDigestInput<'a> {
     revision: u64,
     history: &'a [FormalBftCertifiedHeaderV3],
     journal: &'a Option<BftSigningJournalV3>,
+    completed_journals: &'a [Option<BftSigningJournalV3>],
     pending_driver_apply: &'a Option<BftDriverApplyIntentV3>,
     applied_installs: &'a [BftDriverAppliedReceiptV3],
 }
@@ -181,6 +189,7 @@ impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
             revision: s.revision,
             history: &s.history,
             journal: &s.journal,
+            completed_journals: &s.completed_journals,
             pending_driver_apply: &s.pending_driver_apply,
             applied_installs: &s.applied_installs,
         }
@@ -202,8 +211,43 @@ pub(crate) fn validate_state(
     if digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(state))? != state.state_digest {
         return Err(invalid("BFT V3 state digest mismatch"));
     }
+    if state.completed_journals.len() != state.history.len() {
+        return Err(invalid(
+            "BFT V3 completed journals differ from certificate history",
+        ));
+    }
+    encode_bounded(
+        &(&state.completed_journals, &state.journal),
+        BFT_SIGNER_MAX_JOURNAL_BYTES_V3,
+    )?;
     let mut schedule = binding.initial_schedule().clone();
-    for certificate in &state.history {
+    for (certificate, archived) in state.history.iter().zip(&state.completed_journals) {
+        match (archived, journal_for_schedule(binding, &schedule)?) {
+            (Some(journal), Some(expected)) => {
+                if journal.local_validator_id() != expected.local_validator_id()
+                    || journal.local_signing_public_key() != expected.local_signing_public_key()
+                    || journal.pending_commit() != Some(certificate)
+                {
+                    return Err(invalid(
+                        "BFT V3 archived journal differs from original committed slot",
+                    ));
+                }
+                verify_reserved_bft_commit_transition_v3(
+                    journal,
+                    certificate,
+                    schedule.active_set(),
+                    &schedule,
+                    binding.timeouts,
+                )
+                .map_err(invalid)?;
+            }
+            (None, None) => {}
+            _ => {
+                return Err(invalid(
+                    "BFT V3 archived signer identity missing or foreign",
+                ));
+            }
+        }
         if certificate.execution_commitment.transition.is_some()
             || certificate.execution_commitment.transition_ref.is_some()
         {
@@ -357,6 +401,15 @@ pub(crate) fn validate_candidate_transition(
     if added > 1 {
         return Err(invalid("BFT V3 candidate appends more than one QC"));
     }
+    let mut expected_archives = old.completed_journals.clone();
+    if added == 1 {
+        expected_archives.push(old.journal.clone());
+    }
+    if candidate.completed_journals != expected_archives {
+        return Err(invalid(
+            "BFT V3 completed journals must retain the exact original signed slots",
+        ));
+    }
     if added == 1 {
         if old.pending_driver_apply.is_some() || candidate.applied_installs != old.applied_installs
         {
@@ -465,6 +518,11 @@ pub(crate) fn validate_digest(value: &str) -> Result<(), BftSignerErrorV3> {
     Ok(())
 }
 
+fn bounded_journals<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<Option<BftSigningJournalV3>>, D::Error> {
+    bounded_sequence(d)
+}
 fn bounded_history<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<FormalBftCertifiedHeaderV3>, D::Error> {
