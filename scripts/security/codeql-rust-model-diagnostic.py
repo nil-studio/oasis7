@@ -82,13 +82,14 @@ def main():
     parser.add_argument('--codeql', type=Path, required=True)
     parser.add_argument('--bundle-version', choices=BUNDLES, default='2.27.2')
     parser.add_argument('--business-source', type=Path, required=True)
-    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan'), default='node-only')
+    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan', 'successor-partition-plan'), default='node-only')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True, help='fixed first-preparation Unix deadline, at most1080s ahead')
     args = parser.parse_args()
-    if args.probe == "trait-scope-plan" and args.bundle_version != "2.27.3":
-        parser.error("trait-scope-plan requires complete official 2.27.3")
+    compile_only = args.probe in ("trait-scope-plan", "successor-partition-plan")
+    if compile_only and args.bundle_version != "2.27.3":
+        parser.error("compile-only library plans require complete official 2.27.3")
     remaining = args.deadline - time.time()
     if not 0 < remaining <= 1080:
         parser.error('invalid fixed total deadline')
@@ -112,7 +113,7 @@ def main():
             raise RuntimeError('actual CLI version differs from selected bundle')
         closure = bundle_closure(args.codeql.parent, args.bundle_version)
         runtime.save(args.output / 'bundle-library-closure.json', closure, args.output)
-        if args.probe == "trait-scope-plan":
+        if compile_only:
             import codeql_rust_trait_scope_plan as scope_plan
             scope_plan.execute(args, env, closure, verify_library_path)
             terminal['status'] = 'COMPILE_ONLY_REQUIRES_PLAN_REVIEW'

@@ -19,7 +19,7 @@ on:
         description: "Candidate public-model diagnostic partition"
         type: choice
         default: node-only
-        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan]
+        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan, successor-partition-plan]
       model_bundle_version:
         description: "Complete official CodeQL bundle"
         type: choice
@@ -86,7 +86,9 @@ jobs:
             2.27.3) bundle_sha=218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237 ;;
             *) exit 1 ;;
           esac
-          if [ "$MODEL_PROBE" = trait-scope-plan ]; then test "$BUNDLE_VERSION" = 2.27.3; fi
+          case "$MODEL_PROBE" in
+            trait-scope-plan|successor-partition-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;
+          esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir "$RUNNER_TEMP/rust-model-tools"
           curl --fail --location --max-time 120 \
@@ -94,10 +96,13 @@ jobs:
             --output "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst"
           echo "$bundle_sha  $RUNNER_TEMP/rust-model-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
-          if [ "$MODEL_PROBE" != trait-scope-plan ]; then
-            timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-            timeout 180 rustup toolchain install 1.98.1 --profile minimal
-          fi
+          case "$MODEL_PROBE" in
+            trait-scope-plan|successor-partition-plan) ;;
+            *)
+              timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+              timeout 180 rustup toolchain install 1.98.1 --profile minimal
+              ;;
+          esac
       - name: Diagnose selected public-model partition
         env:
           BUNDLE_VERSION: ${{ inputs.model_bundle_version }}

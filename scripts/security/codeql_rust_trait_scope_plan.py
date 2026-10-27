@@ -1,4 +1,4 @@
-"""One compile-only reverse-live-scope experiment; never creates/evaluates a DB."""
+"""Fixed compile-only library candidates; never creates/evaluates a DB."""
 import hashlib
 import json
 import os
@@ -7,9 +7,13 @@ import shutil
 import time
 
 import codeql_rust_diagnostic_runtime as runtime
+import codeql_rust_successor_partition as partition
 
 PATH = "codeql/rust/internal/PathResolution.qll"
 PATH_SHA = "c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d"
+STAGES = "codeql/rust/internal/CachedStages.qll"
+STAGES_SHA = "e9ec32dedd08185b23787efb12879032dc7a7c0cc59db2b48dd49202d54b5754"
+COMPILE_PROBES = ("trait-scope-plan", "successor-partition-plan")
 OLD = b"""module TraitIsVisible<relevantTraitVisibleSig/2 relevantTraitVisible> {
   private newtype TNode =
     TTrait(Trait t) { relevantTraitVisible(_, t) } or
@@ -46,6 +50,11 @@ def patched_source(data):
     return result
 
 
+def successor_sources(data, stages):
+    candidate, stage_candidate = partition.partition_sources(data, stages, PATH_SHA, STAGES_SHA)
+    return {PATH: candidate, STAGES: stage_candidate}
+
+
 def check_time(end):
     if time.monotonic() >= end:
         raise RuntimeError("fixed compile-plan deadline exhausted")
@@ -74,7 +83,10 @@ def omitted_cache(path):
 
 def execute(args, env, closure, verify_library):
     if args.bundle_version != "2.27.3":
-        raise RuntimeError("trait scope plan requires complete official 2.27.3")
+        raise RuntimeError("library plan requires complete official 2.27.3")
+    probe = getattr(args, "probe", "trait-scope-plan")
+    if probe not in COMPILE_PROBES:
+        raise RuntimeError("unknown compile-only candidate")
     out, work = args.output, args.work
     official = Path(closure["codeql/rust-all"]["root"])
     before = inventory(closure, args.deadline - 90)
@@ -82,7 +94,11 @@ def execute(args, env, closure, verify_library):
     runtime.save(out / "official-before.json", before, out)
     primary = None
     try:
-        patched = patched_source((official / PATH).read_bytes())
+        if probe == "successor-partition-plan":
+            boundary = partition.check_extension_boundary(closure, args.deadline - 90)
+            runtime.save(out / "extension-boundary.json", boundary, out)
+        sources = (successor_sources((official / PATH).read_bytes(), (official / STAGES).read_bytes())
+            if probe == "successor-partition-plan" else {PATH: patched_source((official / PATH).read_bytes())})
         copy = work / "isolated-rust-all"
         copy.mkdir(exist_ok=False)
         copied, omitted = {}, []
@@ -98,18 +114,22 @@ def execute(args, env, closure, verify_library):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
             copied[str(relative)] = runtime.digest(target)
-        (copy / PATH).write_bytes(patched)
-        copied[PATH] = hashlib.sha256(patched).hexdigest()
+        for path, patched in sources.items():
+            (copy / path).write_bytes(patched)
+            copied[path] = hashlib.sha256(patched).hexdigest()
         expected = {name.removeprefix("codeql/rust-all/"): value for name, value in before.items()
             if name.startswith("codeql/rust-all/") and not omitted_cache(Path(name.removeprefix("codeql/rust-all/")))}
-        expected[PATH] = copied[PATH]
+        expected.update({path: copied[path] for path in sources})
         actual = {str(path.relative_to(copy)): runtime.digest(path) for path in copy.rglob("*") if path.is_file()}
         if actual != expected or actual != copied:
             raise RuntimeError("isolated copy contains unexpected differences")
-        runtime.save(out / "isolated-source.json", {"original_sha256": PATH_SHA,
+        runtime.save(out / "isolated-source.json", {"probe": probe, "original_sha256": PATH_SHA,
             "candidate_sha256": copied[PATH], "changed_path": PATH,
+            "changed_files": {path: {"original_sha256": before["codeql/rust-all/" + path],
+                "candidate_sha256": copied[path]} for path in sources},
             "copied_regular_files": actual, "omitted_precompiled_or_cache": omitted}, out)
-        runtime.evidence_write(out / "candidate-PathResolution.qll", patched, out)
+        for path, patched in sources.items():
+            runtime.evidence_write(out / ("candidate-" + Path(path).name), patched, out)
         runtime.save(out / "query-inputs.json", {name: hashlib.sha256(text.encode()).hexdigest()
             for name, text in QUERIES.items()}, out)
         runtime.run([str(args.codeql), "query", "compile", "--help", "-v"], work,

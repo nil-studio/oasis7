@@ -11,6 +11,8 @@ import time
 import sys
 from types import SimpleNamespace
 import unittest
+
+from test_codeql_rust_successor_partition import official_fixture
 from unittest.mock import patch
 
 P = Path(__file__).with_name("codeql_rust_trait_scope_plan.py")
@@ -111,17 +113,19 @@ class ScopePlan(unittest.TestCase):
 
 
     def test_compile_only_commands_and_failure_stops_before_candidate(self):
-        for fail in (False, True):
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as tmp:
+        for probe, fail in itertools.product(m.COMPILE_PROBES, (False, True)):
+            with self.subTest(probe=probe, fail=fail), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 official, out, work = root / "official", root / "out", root / "work"
                 (official / m.PATH).parent.mkdir(parents=True)
-                source = b"prefix\n" + m.OLD + b"suffix\n"
+                source, stages = official_fixture()
+                source = b"prefix\n" + m.OLD + source + b"suffix\n"
                 (official / m.PATH).write_bytes(source)
+                (official / m.STAGES).write_bytes(stages)
                 (official / "qlpack.yml").write_text("official fixture")
                 out.mkdir()
                 work.mkdir()
-                args = SimpleNamespace(bundle_version="2.27.3", output=out, work=work,
+                args = SimpleNamespace(probe=probe, bundle_version="2.27.3", output=out, work=work,
                     codeql=root / "codeql", deadline=time.monotonic() + 600)
                 commands, ends, verified = [], [], []
                 def run(argv, cwd, output, end, timeout, output_root, env):
@@ -147,7 +151,9 @@ class ScopePlan(unittest.TestCase):
                     self.assertEqual(pack_name, m.PACK)
                     self.assertEqual((query / (name + ".ql")).read_text(), m.QUERIES[name])
                     verified.append((query.name, name, selected["codeql/rust-all"]["root"]))
-                with patch.object(m, "PATH_SHA", hashlib.sha256(source).hexdigest()), patch.object(m.runtime, "run", side_effect=run):
+                with patch.object(m, "PATH_SHA", hashlib.sha256(source).hexdigest()), \
+                        patch.object(m, "STAGES_SHA", hashlib.sha256(stages).hexdigest()), \
+                        patch.object(m.runtime, "run", side_effect=run):
                     if fail:
                         with self.assertRaisesRegex(RuntimeError, "baseline compile failed"):
                             m.execute(args, {}, {"codeql/rust-all": {"root": str(official)}}, verify)
@@ -156,6 +162,9 @@ class ScopePlan(unittest.TestCase):
                 self.assertEqual(len(ends), 2 if fail else 4)
                 self.assertEqual(len(set(ends)), 1, "all variants/queries share one compiler deadline")
                 self.assertEqual((official / m.PATH).read_bytes(), source)
+                self.assertEqual((official / m.STAGES).read_bytes(), stages)
+                changed = json.loads((out / "isolated-source.json").read_text())["changed_files"]
+                self.assertEqual(set(changed), {m.PATH, m.STAGES} if probe == "successor-partition-plan" else {m.PATH})
                 self.assertEqual(json.loads((out / "official-after.json").read_text()),
                     json.loads((out / "official-before.json").read_text()))
                 if fail:
@@ -173,37 +182,45 @@ class ScopePlan(unittest.TestCase):
                 m.execute(SimpleNamespace(bundle_version="2.27.2"), {}, {}, None)
             run.assert_not_called()
 
+    def test_unknown_candidate_never_spawns(self):
+        with patch.object(m.runtime, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "unknown compile-only"):
+                m.execute(SimpleNamespace(bundle_version="2.27.3", probe="unknown"), {}, {}, None)
+            run.assert_not_called()
+
     def test_manual_probe_routes_to_compile_only_without_business_input(self):
         spec = importlib.util.spec_from_file_location("diagnostic_entry", P.with_name("codeql-rust-model-diagnostic.py"))
         entry = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(entry)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            argv = ["diagnostic", "--codeql", str(root / "missing-cli"), "--bundle-version", "2.27.3",
-                "--business-source", str(root / "missing-business"), "--probe", "trait-scope-plan",
-                "--output", str(root / "out"), "--work", str(root / "work"), "--deadline", str(time.time() + 600)]
-            def version(argv, cwd, output, *args, **kwargs):
-                self.assertEqual(argv[1:], ["version", "--format=json"])
-                output.write_text(json.dumps({"version": "2.27.3"}))
-            with patch.object(sys, "argv", argv), patch.dict(sys.modules, {"codeql_rust_trait_scope_plan": m}), \
-                patch.object(entry, "bundle_closure", return_value={}), \
-                patch.object(entry.runtime, "run", side_effect=version) as run, patch.object(m, "execute") as execute:
-                entry.main()
-            self.assertEqual(run.call_count, 1)
-            execute.assert_called_once()
-            self.assertEqual(execute.call_args.args[0].probe, "trait-scope-plan")
-            terminal = json.loads((root / "out/terminal.json").read_text())
-            self.assertEqual(terminal["status"], "COMPILE_ONLY_REQUIRES_PLAN_REVIEW")
-            self.assertFalse((root / "missing-business").exists())
+        for probe in m.COMPILE_PROBES:
+            with self.subTest(probe=probe), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                argv = ["diagnostic", "--codeql", str(root / "missing-cli"), "--bundle-version", "2.27.3",
+                    "--business-source", str(root / "missing-business"), "--probe", probe,
+                    "--output", str(root / "out"), "--work", str(root / "work"), "--deadline", str(time.time() + 600)]
+                def version(argv, cwd, output, *args, **kwargs):
+                    self.assertEqual(argv[1:], ["version", "--format=json"])
+                    output.write_text(json.dumps({"version": "2.27.3"}))
+                with patch.object(sys, "argv", argv), patch.dict(sys.modules, {"codeql_rust_trait_scope_plan": m}), \
+                    patch.object(entry, "bundle_closure", return_value={}), \
+                    patch.object(entry.runtime, "run", side_effect=version) as run, patch.object(m, "execute") as execute:
+                    entry.main()
+                self.assertEqual(run.call_count, 1)
+                execute.assert_called_once()
+                self.assertEqual(execute.call_args.args[0].probe, probe)
+                terminal = json.loads((root / "out/terminal.json").read_text())
+                self.assertEqual(terminal["status"], "COMPILE_ONLY_REQUIRES_PLAN_REVIEW")
+                self.assertFalse((root / "missing-business").exists())
 
     def test_workflow_selection_keeps_manual_gate_and_existing_budget(self):
         root = P.parents[2]
         text = (root / ".github/workflows/rust.yml").read_text()
         job = text.split("  codeql-rust-model-diagnostic:\n", 1)[1].split("\n  select:", 1)[0]
-        self.assertIn("trait-scope-plan", text.split("permissions:", 1)[0])
+        for probe in m.COMPILE_PROBES:
+            self.assertIn(probe, text.split("permissions:", 1)[0])
         self.assertIn("MODEL_PROBE: ${{ inputs.model_probe }}", job)
-        self.assertIn('if [ "$MODEL_PROBE" = trait-scope-plan ]; then test "$BUNDLE_VERSION" = 2.27.3; fi', job)
-        self.assertIn('if [ "$MODEL_PROBE" != trait-scope-plan ]; then', job)
+        self.assertIn('trait-scope-plan|successor-partition-plan) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
+        self.assertIn('trait-scope-plan|successor-partition-plan) ;;', job)
         self.assertIn("timeout-minutes: 20", job)
         self.assertIn(" + 1080 ", job)
         self.assertIn("64 * 1024**2", job)
