@@ -9,7 +9,6 @@ use oasis7_node::{
     NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
     NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3, NodeExecutionHook,
 };
-use std::collections::BTreeMap;
 
 #[path = "driver_bft_v3_node_private_store.rs"]
 mod private_store;
@@ -334,7 +333,7 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         actions: &[oasis7_node::NodeConsensusAction],
     ) -> Result<(), String> {
         let context = self.current_bft_v3_execution_context(schedule)?;
-        let bytes = serde_cbor::to_vec(actions).map_err(|_| "encode Node batch admission")?;
+        let bytes = serde_cbor::to_vec(&actions).map_err(|_| "encode Node batch admission")?;
         let actual = self
             .execution
             .origin

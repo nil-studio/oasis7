@@ -182,10 +182,11 @@ impl NodePrivateStore {
             }
             None => {
                 match fs::read_dir(&dir) {
-                    Ok(mut entries) if entries.next().is_some() => {
-                        return Err("Node private files lost their original origin".into());
+                    Ok(mut entries) => {
+                        if entries.next().is_some() {
+                            return Err("Node private files lost their original origin".into());
+                        }
                     }
-                    Ok(_) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(_) => return Err("inspect original Node private directory".into()),
                 }
@@ -244,7 +245,9 @@ impl NodePrivateStore {
                 );
             }
         }
-        crate::controlled_live::private_directory(&self.dir)?;
+        super::super::super::super::super::super::super::controlled_live::private_directory(
+            &self.dir,
+        )?;
         self.origin.get_or_insert(Slot {
             data: data.clone(),
             complete: false,
@@ -704,6 +707,29 @@ fn bounded_references<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Stri
 mod tests {
     use super::*;
 
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new() -> Self {
+            let suffix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "oasis7-node-private-{}-{suffix}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
     fn data() -> Data {
         Data {
             schema_version: 3,
@@ -721,7 +747,7 @@ mod tests {
     #[test]
     fn formal_read_node_private_intent_and_link_cannot_republish_lost_pins() {
         for linked in [false, true] {
-            let root = tempfile::tempdir().unwrap();
+            let root = Scratch::new();
             let store = LocalCasStore::new(root.path().join("cas"));
             let path = root.path().join("origin.cbor");
             let intent = path.with_extension("intent.cbor");
@@ -748,7 +774,7 @@ mod tests {
 
     #[test]
     fn formal_read_node_private_live_metadata_loss_is_rejected() {
-        let root = tempfile::tempdir().unwrap();
+        let root = Scratch::new();
         let store = LocalCasStore::new(root.path().join("cas"));
         let path = root.path().join("origin.cbor");
         let original = data();

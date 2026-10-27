@@ -1,7 +1,8 @@
-//! Explicit offline previews and private durable imports. No canonical
-//! publication, service listener or validator signer is created.
+//! Explicit qualified-H previews, private durable imports, and native Node commands.
 #[path = "formal_bft_header_ledger_cli.rs"]
 mod ledger;
+#[path = "formal_bft_header_node_cli.rs"]
+mod node;
 
 #[cfg(not(test))]
 use super::execution_bridge::{
@@ -51,6 +52,9 @@ pub(super) fn run_with_shutdown<'a>(
     if matches!(action, "--help" | "-h") {
         println!("{}", help());
         return Ok(());
+    }
+    if action == "node" {
+        return node::run(args, shutdown);
     }
     if matches!(action, "install" | "verify" | "serve") {
         return ledger::run(action, args, shutdown);
@@ -162,7 +166,7 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_history_cli::read_bounded(path, maximum)
 }
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header node --config ABS --actions ABS; bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]
