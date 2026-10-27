@@ -40,14 +40,20 @@ pub(super) struct Preview {
     execution_commitment: oasis7_formal_protocol::bft::FormalBftExecutionCommitmentV1,
 }
 
-pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), String> {
+pub(super) fn run<'a>(args: impl Iterator<Item = &'a str>) -> Result<(), String> {
+    run_with_shutdown(args, None)
+}
+pub(super) fn run_with_shutdown<'a>(
+    mut args: impl Iterator<Item = &'a str>,
+    shutdown: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<(), String> {
     let action = args.next().ok_or_else(help)?;
     if matches!(action, "--help" | "-h") {
         println!("{}", help());
         return Ok(());
     }
-    if matches!(action, "install" | "verify") {
-        return ledger::run(action, args);
+    if matches!(action, "install" | "verify" | "serve") {
+        return ledger::run(action, args, shutdown);
     }
     if action != "preview" {
         return Err(help());
@@ -156,7 +162,7 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_history_cli::read_bounded(path, maximum)
 }
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header install --config ABS --history ABS; bft-header verify --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]
