@@ -284,7 +284,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 [配置检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 使用标准 TOML 解析器读取完整配置，要求 ignore 是空数组，并核对每个禁止包都有无条件 `bans.deny` 条目。版本限制、wrapper 豁免、缺失条目和错误类型均拒绝。解析失败沿既有治理入口传播；合法 TOML 中的非空 ignore 仍拒绝。注释中的 advisory 不算启用项，字符串和表名的合法写法不影响语义判断。
 
-随后由既有 Rust 基线入口执行 `cargo deny check advisories bans`，按解析后的真实 package 名称检查依赖图，涵盖别名和传递路径。锁文件必须与 manifest 一致；配置检查器同时扫描仓库内受版本管理或新加入的全部 Cargo.lock，按 package.name 拒绝三个旧包，涵盖独立 WASM 模块及新旧网络兼容 fixture；锁文件扫描不能代替真实构建和平台运行。既有直接依赖基线随最后三个例外删除，避免保留无实际消费者的期限与允许名单。未来重新引入例外或禁止包需要显式策略变更和独立安全评审。网络组在 Linux 上运行本地 if-watch 补丁的全部 feature 测试，直接验证接口枚举；macOS 交叉编译不能代替这一运行验证。
+随后由既有 Rust 基线入口执行 `cargo deny --locked --all-features check advisories bans`，按解析后的真实 package 名称检查依赖图，涵盖别名和传递路径。锁文件必须与 manifest 一致；配置检查器同时扫描仓库内受版本管理或新加入的全部 Cargo.lock，按 package.name 拒绝三个旧包，涵盖独立 WASM 模块及新旧网络兼容 fixture；锁文件扫描不能代替真实构建和平台运行。既有直接依赖基线随最后三个例外删除，避免保留无实际消费者的期限与允许名单。未来重新引入例外或禁止包需要显式策略变更和独立安全评审。网络组在 Linux 上运行本地 if-watch 补丁的全部 feature 测试，直接验证接口枚举；macOS 交叉编译不能代替这一运行验证。
 
 ## 11. 验证
 

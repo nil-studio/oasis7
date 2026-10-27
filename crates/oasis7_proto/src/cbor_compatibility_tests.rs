@@ -1,8 +1,8 @@
 //! Fixed outputs captured with serde_cbor 0.11.2 before migrating to the Kanidm fork.
 //! The fixture is an independent oracle: never regenerate it with the replacement codec.
+use crate::distributed::WorldBlock;
+use crate::distributed_bft::{BftScopeV1, BftVotePhaseV1, BftVoteV1, BftVoteValueV1};
 use ed25519_dalek::SigningKey;
-use oasis7_proto::distributed::WorldBlock;
-use oasis7_proto::distributed_bft::{BftScopeV1, BftVotePhaseV1, BftVoteV1, BftVoteValueV1};
 use serde::Serialize;
 use serde_cbor::Value;
 use std::collections::BTreeMap;
@@ -89,7 +89,7 @@ fn samples() -> BTreeMap<String, Vec<u8>> {
     record("bft_vote", serde_cbor::to_vec(&vote).unwrap());
     record(
         "finality_vote_preimage",
-        oasis7_proto::distributed_finality::world_finality_vote_signing_payload(
+        crate::distributed_finality::world_finality_vote_signing_payload(
             "validator-a",
             u64::MAX,
             "block",
@@ -120,7 +120,7 @@ fn samples() -> BTreeMap<String, Vec<u8>> {
 #[test]
 fn legacy_cbor_bytes_and_signed_payloads_remain_compatible() {
     let expected: BTreeMap<String, String> =
-        serde_json::from_str(include_str!("fixtures/serde_cbor_0_11_2.json")).unwrap();
+        serde_json::from_str(include_str!("test_fixtures/serde_cbor_0_11_2.json")).unwrap();
     let actual: BTreeMap<_, _> = samples()
         .into_iter()
         .map(|(name, bytes)| (name, hex::encode(bytes)))

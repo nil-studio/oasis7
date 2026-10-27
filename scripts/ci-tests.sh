@@ -360,9 +360,10 @@ PY
 }
 
 run_rustsec_advisory_check() {
+  run ./scripts/check-rustsec-ignore-baseline.test.sh
   run ./scripts/check-rustsec-ignore-baseline.sh
   run ./scripts/ensure-cargo-deny.sh
-  run cargo deny check advisories bans
+  run cargo deny --locked --all-features check advisories bans
 }
 
 run_oasis7_llm_baseline_fixture_smoke() {

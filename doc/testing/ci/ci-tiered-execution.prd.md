@@ -119,7 +119,7 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 
 [基线检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 用标准 TOML 解析器检查完整的 ignore 集合与禁止包配置。非空 ignore、无效类型/语法、缺失的禁止项以及为禁止项设置版本或豁免范围均被拒绝；单引号、引号表名、同行元素和注释按 TOML 语义处理。任何未来例外或重新引入这些包都必须作为明确的策略变更独立评审，不能靠过期基线或依赖别名绕过。
 
-Rust 基线检查执行 `cargo deny check advisories bans`，由 cargo-deny 检查真实 Cargo 依赖图中的 advisory 及禁止包；基线检查器另扫描全部仓库 Cargo.lock 的 package.name，防止独立模块和兼容 fixture 残留旧包。配置 fixture 只验证配置策略，不能代替真实依赖图检查；验收须同时覆盖空例外正例、隐藏/重复的 advisory、坏配置、禁止项移除或缩小、依赖别名与传递依赖的实际包身份。
+Rust 基线检查执行 `cargo deny --locked --all-features check advisories bans`，由 cargo-deny 检查真实 Cargo 依赖图中的 advisory 及禁止包；基线检查器另扫描全部仓库 Cargo.lock 的 package.name，防止独立模块和兼容 fixture 残留旧包。配置 fixture 只验证配置策略，不能代替真实依赖图检查；验收须同时覆盖空例外正例、隐藏/重复的 advisory、坏配置、禁止项移除或缩小、依赖别名与传递依赖的实际包身份。
 
 <a id="ci-formal-process"></a>
 ## 真实进程验收与共享产物
