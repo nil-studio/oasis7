@@ -36,6 +36,80 @@ class PackageTests(unittest.TestCase):
                     command.assert_called_once_with(smoke.fixture[name], private=name == "canonical_probe",
                                                     timeout_seconds=seconds)
 
+    def test_canonical_probe_recovers_fresh_rate_limit_with_same_command(self):
+        spec = importlib.util.spec_from_file_location("probe_rate_limit", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            now = [0.0]
+            argv = ["canonical", "same-vault", "same-executor-config"]
+            smoke = module.Smoke({"canonical_probe": argv}, Path(directory), 600)
+            calls = []
+            def command(args, **kwargs):
+                calls.append((list(args), now[0], kwargs))
+                if len(calls) == 1:
+                    smoke.observe_retry_after(429, "60")
+                    return 1, b"rate_limited; retain original operation\n"
+                return 0, b'{"canonical_verified":true}'
+            with patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+                    patch.object(module.time, "sleep", side_effect=lambda n: now.__setitem__(0, now[0] + n)), \
+                    patch.object(smoke, "command", side_effect=command):
+                self.assertEqual(smoke.probe("canonical_probe", {"canonical_verified": True}), {"canonical_verified": True})
+            self.assertEqual([c[0] for c in calls], [argv, argv])
+            self.assertEqual([c[1] for c in calls], [0, 60])
+            self.assertTrue(all(c[2] == {"private": True, "timeout_seconds": 130} for c in calls))
+            self.assertEqual(smoke.deadline, 600)
+            self.assertIsNone(smoke.probe_failure)
+
+    def test_probe_rate_limit_recovery_requires_exact_error_and_fresh_429(self):
+        spec = importlib.util.spec_from_file_location("probe_rate_limit_gate", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cases = [("initial_probe", 1, b"rate_limited; retain original operation\n", True),
+                 ("canonical_probe", 2, b"rate_limited; retain original operation\n", True),
+                 ("canonical_probe", 1, b"rate_limited; retain original operation\n", False),
+                 ("canonical_probe", 1, b"rate_limited; retain original operation\n\n", True),
+                 ("canonical_probe", 1, b"private-canary-message", True)]
+        for name, rc, output, observed in cases:
+            with self.subTest(name=name, rc=rc, output=output), tempfile.TemporaryDirectory() as directory:
+                smoke = module.Smoke({name: ["same-command"]}, Path(directory), 600)
+                now = [0.0]
+                with patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+                        patch.object(module.time, "sleep", side_effect=lambda n: now.__setitem__(0, now[0] + n)):
+                    smoke.observe_retry_after(429, "60")  # Wait, but old evidence cannot permit a retry.
+                    def command(*args, **kwargs):
+                        if observed:
+                            smoke.observe_retry_after(429, "60")
+                        return rc, output
+                    with patch.object(smoke, "command", side_effect=command) as called:
+                        with self.assertRaises(RuntimeError):
+                            smoke.probe(name, {})
+                    called.assert_called_once()
+                    if name == "canonical_probe":
+                        self.assertGreaterEqual(now[0], 60)  # Honor the old cooldown before the first call.
+                if output.endswith(b"\n\n") or b"canary" in output:
+                    self.assertEqual(smoke.probe_failure["category"], "unavailable")
+
+    def test_probe_rate_limit_recovery_is_bounded_by_attempts_and_original_deadline(self):
+        spec = importlib.util.spec_from_file_location("probe_rate_limit_bounds", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for deadline, wanted_calls in [(600, 3), (50, 1)]:
+            with self.subTest(deadline=deadline), tempfile.TemporaryDirectory() as directory:
+                now = [0.0]
+                smoke = module.Smoke({"canonical_probe": ["same-command"]}, Path(directory), deadline)
+                def command(*args, **kwargs):
+                    smoke.observe_retry_after(429, "60")
+                    return 1, b"rate_limited; retain original operation\n"
+                with patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+                        patch.object(module.time, "sleep", side_effect=lambda n: now.__setitem__(0, now[0] + n)), \
+                        patch.object(smoke, "command", side_effect=command) as called:
+                    with self.assertRaises(RuntimeError):
+                        smoke.probe("canonical_probe", {})
+                self.assertEqual(called.call_count, wanted_calls)
+                self.assertEqual(smoke.deadline, deadline)
+                self.assertEqual(smoke.probe_failure["category"], "identity_rate_limited")
+
     def test_smoke_command_watchdogs_remain_capped_by_global_deadline(self):
         module_spec = importlib.util.spec_from_file_location(
             "ecs_probe_watchdog_deadline", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
@@ -72,6 +146,9 @@ class PackageTests(unittest.TestCase):
         module = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(module)
         cases = [
+            (1, b"rate_limited; retain original operation\n", "identity_rate_limited"),
+            (1, b"rate_limited; retain original operation\r\n", "identity_rate_limited"),
+            (1, b"rate_limited; retain original operation\n\n", "unavailable"),
             (1, b"context_prefix query transport; retain original operation\n", "context_prefix_query_transport"),
             (1, b"action rejected:conflict; retain original operation\n", "action_rejected_conflict"),
             (1, b"probe recovery deadline exhausted; retain original operation\n", "recovery_deadline"),
