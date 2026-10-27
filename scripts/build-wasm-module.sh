@@ -632,6 +632,21 @@ run_candidate_wrapper() (
     echo "error: candidate output must stay in the producer workspace" >&2
     exit 2
   fi
+  # Reject before mkdir/mktemp: lexical containment must not follow an output
+  # ancestor symlink into another workspace or external directory.
+  python3 - "$HOST_OUT_DIR" <<'PY_OUTPUT'
+import pathlib
+import stat
+import sys
+path = pathlib.Path(sys.argv[1])
+for ancestor in [*reversed(path.parents), path]:
+    try:
+        mode = ancestor.lstat().st_mode
+    except FileNotFoundError:
+        continue
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        raise SystemExit("error: candidate output ancestor must be a real directory: " + str(ancestor))
+PY_OUTPUT
   require_docker
   mkdir -p "$HOST_OUT_DIR"
   local evidence_dir

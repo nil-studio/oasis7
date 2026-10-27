@@ -151,7 +151,18 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
     let mut pending = String::new();
     for raw in text.lines() {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if let Some(comment) = line.strip_prefix('#') {
+            if let Some((key, _)) = comment.split_once('=')
+                && matches!(
+                    key.trim().to_ascii_lowercase().as_str(),
+                    "syntax" | "escape" | "check"
+                )
+            {
+                return Err(invalid("unsupported Dockerfile parser directive"));
+            }
+            continue;
+        }
+        if line.is_empty() {
             continue;
         }
         let continuation = line.ends_with('\\');
@@ -531,6 +542,27 @@ mod tests {
         let path = dir.join("docker/wasm-builder/Dockerfile");
         fs::write(&path, &original).unwrap();
         validate_dockerfile(&dir).unwrap();
+        fs::write(
+            &path,
+            format!("# Ordinary comment with key=value\n{original}"),
+        )
+        .unwrap();
+        validate_dockerfile(&dir).unwrap();
+        let mut accepted_directives = Vec::new();
+        for directive in [
+            "# syntax=docker/dockerfile:1",
+            "# escape=\\",
+            "# CHECK=skip=all",
+        ] {
+            fs::write(&path, format!("{directive}\n{original}")).unwrap();
+            if validate_dockerfile(&dir).is_ok() {
+                accepted_directives.push(directive);
+            }
+        }
+        assert!(
+            accepted_directives.is_empty(),
+            "accepted parser directives: {accepted_directives:?}"
+        );
         for addition in [
             "COPY .cargo /opt/oasis7/.cargo",
             "copy . /opt/oasis7",

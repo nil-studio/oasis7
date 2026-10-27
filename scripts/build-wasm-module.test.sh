@@ -183,6 +183,23 @@ class BuilderLifecycleTest(unittest.TestCase):
                     self.assertIn("OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE", run["env"])
                 self.assertEqual(list(out.glob(".candidate-builder.*")), [])
 
+    def test_candidate_output_symlink_is_rejected_before_any_external_write(self):
+        cargo = self.bin / "cargo"
+        cargo.write_text(FAKE_CARGO)
+        cargo.chmod(0o755)
+        external = tempfile.TemporaryDirectory(prefix="wasm-candidate-outside-")
+        self.addCleanup(external.cleanup)
+        outside = Path(external.name).resolve()
+        (outside / "marker").write_text("unchanged")
+        (self.root / "linked-output").symlink_to(outside, target_is_directory=True)
+        result = subprocess.run(["bash", str(self.script), "--candidate-build", "--manifest-path", str(self.manifest), "--out-dir", str(self.root / "linked-output/new-output"), "--module-id", "fixture.module"], cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("candidate output ancestor", result.stderr)
+        self.assertEqual((outside / "marker").read_text(), "unchanged")
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["marker"])
+        calls = [json.loads(p.read_text())["args"] for p in self.state.glob("call-*.json")]
+        self.assertFalse(any(args[:1] == ["build"] or args[:2] == ["buildx", "build"] for args in calls))
+
     def tearDown(self):
         # Release fixture-owned barriers first; never kill unrelated processes.
         for name in ("A-run", "B-publish"):
