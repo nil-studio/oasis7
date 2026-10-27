@@ -476,7 +476,7 @@ fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retrya
     let replay_ledger = replay_dir.join("registration-replay.json");
     std::fs::write(&replay_ledger, b"[]").expect("seed readable replay ledger");
     // Keep lock acquisition/read preflight valid, then fail the atomic ledger
-    // write after registration has tentatively installed the binding.
+    // write after registration validation/planning, before binding/session commit.
     let write_blocker = replay_dir.join(format!(".registration-replay-{}.tmp", std::process::id()));
     std::fs::create_dir(&write_blocker).expect("block ledger staging file creation");
 
