@@ -275,8 +275,8 @@ fn ledger_case() {
         );
     }
     for phase in [
-        PublicationFault::AfterIntent,
-        PublicationFault::AfterRecordLink,
+        PublicationFault::IntentPublished,
+        PublicationFault::RecordLinked,
     ] {
         let recovery = Scratch::new();
         let mut execution = open_prefix(&h, &recovery, h.reader.clone(), true).unwrap();
@@ -290,7 +290,7 @@ fn ledger_case() {
             .path()
             .join("records/formal-bft-prefix-v1/intent-00000000000000000004.cbor");
         let original = fs::read(&intent).unwrap();
-        if phase == PublicationFault::AfterRecordLink {
+        if phase == PublicationFault::RecordLinked {
             let alias = recovery.path().join("extra-publication-alias");
             fs::hard_link(&intent, &alias).unwrap();
             assert!(open_prefix(&h, &recovery, h.reader.clone(), true).is_err());
@@ -661,7 +661,7 @@ fn killed_process_cases(
                     shards
                         .iter()
                         .any(|shard| shard.ends_with("height-00000000000000000004")),
-                    "AfterPins must leave the original height reservation and retention pin"
+                    "PinsPublished must leave the original height reservation and retention pin"
                 );
                 (reservation.clone(), fs::read(&reservation).unwrap())
             }
@@ -857,9 +857,9 @@ fn formal_prefix_publication_child() {
                     );
                     None
                 }
-                "pins" => Some(PublicationFault::AfterPins),
-                "intent" => Some(PublicationFault::AfterIntent),
-                "link" => Some(PublicationFault::AfterRecordLink),
+                "pins" => Some(PublicationFault::PinsPublished),
+                "intent" => Some(PublicationFault::IntentPublished),
+                "link" => Some(PublicationFault::RecordLinked),
                 _ => panic!("unknown self-kill phase"),
             };
             if let Some(phase) = phase_fault {

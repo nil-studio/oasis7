@@ -139,17 +139,13 @@ impl Ledger {
         self.verify_carriers()?;
         super::hash(material_pin_digest)?;
 
-        if !self.init_pending {
-            if let Some(pin) = &self.pin {
-                if pin.material_pin_digest != material_pin_digest
-                    || pin.first_height != first_height
-                {
-                    return Err(
-                        "formal prefix origin differs from qualified H/target/material".into(),
-                    );
-                }
-                return Ok(());
+        if !self.init_pending
+            && let Some(pin) = &self.pin
+        {
+            if pin.material_pin_digest != material_pin_digest || pin.first_height != first_height {
+                return Err("formal prefix origin differs from qualified H/target/material".into());
             }
+            return Ok(());
         }
 
         let pin = match self.pin.clone() {

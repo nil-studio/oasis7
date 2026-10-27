@@ -193,9 +193,9 @@ pub(super) struct Ledger {
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum PublicationFault {
-    AfterPins,
-    AfterIntent,
-    AfterRecordLink,
+    PinsPublished,
+    IntentPublished,
+    RecordLinked,
 }
 
 impl Ledger {
@@ -357,7 +357,6 @@ impl Ledger {
             }
             let size = all_paths
                 .iter()
-                .into_iter()
                 .filter_map(|path| match fs::symlink_metadata(path) {
                     Ok(metadata) => Some(Ok(metadata.len())),
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -704,7 +703,7 @@ impl Ledger {
                 self.verify_pins(&record, store)?;
             }
             #[cfg(test)]
-            self.publication_fault(height, PublicationFault::AfterPins)?;
+            self.publication_fault(height, PublicationFault::PinsPublished)?;
             self.verify_carriers()?;
             files::promote(
                 &self.reservation_path(height),
@@ -727,11 +726,11 @@ impl Ledger {
                 files::publish(&self.intent_path(height), &bytes)?;
             }
             #[cfg(test)]
-            self.publication_fault(height, PublicationFault::AfterIntent)?;
+            self.publication_fault(height, PublicationFault::IntentPublished)?;
             self.verify_carriers()?;
             files::link_record(&self.record_path(height), &self.intent_path(height), &bytes)?;
             #[cfg(test)]
-            self.publication_fault(height, PublicationFault::AfterRecordLink)?;
+            self.publication_fault(height, PublicationFault::RecordLinked)?;
             self.verify_carriers()?;
             files::finish(&self.record_path(height), &self.intent_path(height), &bytes)?;
         }
@@ -755,13 +754,13 @@ impl Ledger {
             &self.root.join("bft-format.lock"),
         )?;
         common_storage::verify_lock_carrier(&self._lock, &self.dir.join("writer.lock"))?;
-        if let Some(pin) = &self.pin {
-            if pin.format_lock != common_storage::lock_carrier_identity(&self._format_lock)?
-                || pin.writer_lock != common_storage::lock_carrier_identity(&self._lock)?
-            {
-                return Err("formal prefix original lock carrier identity was replaced".into());
-            }
+        if let Some(pin) = &self.pin
+            && (pin.format_lock != common_storage::lock_carrier_identity(&self._format_lock)?
+                || pin.writer_lock != common_storage::lock_carrier_identity(&self._lock)?)
+        {
+            return Err("formal prefix original lock carrier identity was replaced".into());
         }
+
         Ok(())
     }
     fn verify_material(
