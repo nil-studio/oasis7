@@ -54,6 +54,8 @@ struct ExecutedFormalCandidateV1 {
     snapshot_bytes: Vec<u8>,
     journal_bytes: Vec<u8>,
     new_results: Vec<CanonicalIntentResultV1>,
+    result_tree: FormalBusinessResultTreeV1,
+    result_delta: oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexDeltaV1,
 }
 
 /// The only value passed to the formal read publisher after a durable reread.
@@ -106,6 +108,8 @@ pub(crate) struct FormalBftReadExecutionV1 {
     schedule: BftHeightProposerScheduleV2,
     parent_record: CanonicalRecordV1,
     parent_world: RuntimeWorld,
+    retained_parent: oasis7_runtime::VerifiedFormalRetainedHistoryParentV1,
+    business_source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
     parent_result_tree: FormalBusinessResultTreeV1,
     business_reader: formal_business_package::SharedBusinessReader,
     retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
@@ -117,6 +121,9 @@ pub(crate) struct FormalBftReadExecutionV1 {
 mod formal_dependencies;
 #[path = "driver_bft_v2_formal_storage.rs"]
 mod formal_storage;
+
+#[path = "driver_bft_v2_formal_replay.rs"]
+mod formal_replay;
 
 #[cfg(test)]
 #[path = "driver_bft_v2_formal_tests.rs"]
@@ -180,6 +187,7 @@ impl FormalBftReadExecutionV1 {
             &store,
         )?;
         let seed: Vec<_> = preloaded.nodes.into_iter().collect();
+        let business_source = business_reader.clone();
         let retained_nodes = if preloaded.record_present {
             formal_dependencies::RecordingBusinessIndexReaderV1::new_strict(business_reader, seed)?
         } else {
@@ -191,6 +199,7 @@ impl FormalBftReadExecutionV1 {
         validate_handoff_material(&anchor, &handoff, &h_material)?;
         let restored = restore_handoff_world(&anchor, &h_material, &business_reader)?;
         let parent_world = restored.world;
+        let retained_parent = restored.retained_parent;
         let parent_result_tree = restored.result_tree;
         let parent_semantic_root = parent_world
             .execution_state_identity()
@@ -236,6 +245,8 @@ impl FormalBftReadExecutionV1 {
             schedule,
             parent_record,
             parent_world,
+            retained_parent,
+            business_source,
             parent_result_tree,
             business_reader,
             retained_nodes,
@@ -439,89 +450,129 @@ impl FormalBftReadExecutionV1 {
     fn execute_candidate(&self, block: &BftBlockV2) -> Result<ExecutedFormalCandidateV1, String> {
         block.validate()?;
         validate_formal_block_binding(block, &self.schedule, &self.handoff, &self.parent_world)?;
-        let actions = super::decode_actions_v2(block.actions_cbor.as_slice())?;
-        if super::super::action_root(actions.as_slice())? != block.action_root {
-            return Err("formal BFT action root differs from canonical action bytes".into());
-        }
-        let input_hash = formal_execution_input_hash(&self.handoff, &self.schedule, block)?;
-        let executed =
-            super::execution::execute_world_transition(super::execution::WorldTransitionRequest {
-                parent: &self.parent_world,
-                scope: self.target.scope(),
-                authority_epoch: self.target.authority_epoch(),
+        execute_formal_candidate(
+            FormalCandidateContext {
+                handoff: &self.handoff,
                 schedule: &self.schedule,
-                block,
-                expected_parent: self.handoff.handoff_head().record_id.as_str(),
-                input_hash: input_hash.as_str(),
-                tick_authority: FORMAL_BFT_EXECUTION_TICK_AUTHORITY,
-                formal_handoff: Some(&self.handoff),
-                formal_prefix: None,
-            })?;
-        let projection_root =
-            oasis7::world_service::formal_projection::commitments_for_world(&executed.world)?
-                .root()?;
-        let new_results = newly_recorded_results(&self.parent_world, &executed.world)?;
-        let result_update = FormalBusinessResultTreeV1::extend_bft_successor(
-            oasis7::world_service::formal_result::FormalBftResultSuccessorInputV1 {
-                world: &executed.world,
+                parent_world: &self.parent_world,
+                parent_result_tree: &self.parent_result_tree,
                 identity: &self.parent_record.world,
-                height: block.height,
-                parent_result_root: self.parent_record.result_root.as_str(),
-                execution_state_root: executed.execution_state_root.as_str(),
-                previous: &self.parent_result_tree,
-                new_results: new_results.as_slice(),
-                reader: &self.business_reader,
+                business_reader: &self.business_reader,
+                prefix: None,
             },
-        )?;
-        let commitment = FormalBftExecutionCommitmentV1 {
-            domain: BFT_FORMAL_EXECUTION_DOMAIN_V1.to_owned(),
-            schema_version: 1,
-            profile: self.target.profile().to_owned(),
-            profile_version: self.target.profile_version(),
-            activation_digest: self.handoff.activation_digest().to_owned(),
-            scope: self.target.scope().clone(),
-            height: block.height,
-            parent_commit_ref: self.handoff.handoff_head().record_id.clone(),
-            parent_tick: self.handoff.handoff_position(),
-            parent_semantic_state_root: self.schedule.parent_state_root().to_owned(),
-            authority_epoch: self.target.authority_epoch(),
-            active_validator_set_hash: self.schedule.active_set().set_hash().to_owned(),
-            schedule_policy_hash: self.schedule.policy_hash().to_owned(),
-            manifest_hash: self.schedule.parent_manifest_hash().to_owned(),
-            post_manifest_hash: executed.post_manifest_hash,
-            action_root: block.action_root.clone(),
-            event_root: executed.event_root,
-            execution_state_root: executed.execution_state_root,
-            state_root: executed.state_root,
-            projection_root,
-            result_root: result_update.tree.root()?,
-            transition: executed.transition,
-            transition_ref: executed.transition_ref,
-        };
-        commitment.validate()?;
-        let digest = commitment.digest()?;
-        let mut completed_block = block.clone();
-        completed_block.execution_block_hash = digest;
-        completed_block.event_root = commitment.event_root().to_owned();
-        completed_block.execution_state_root = commitment.execution_state_root().to_owned();
-        completed_block.state_root = commitment.state_root().to_owned();
-        completed_block.post_manifest_hash = commitment.post_manifest_hash().to_owned();
-        completed_block.transition = commitment.transition().cloned();
-        completed_block.transition_ref = commitment.transition_ref().cloned();
-        completed_block.validate()?;
-        commitment.verify_block(&completed_block, self.handoff.activation_digest())?;
-        Ok(ExecutedFormalCandidateV1 {
-            block: completed_block,
-            commitment,
-            world: executed.world,
-            snapshot_bytes: executed.snapshot_bytes,
-            journal_bytes: executed.journal_bytes,
-            new_results,
-        })
+            block,
+        )
     }
 }
 
+struct FormalCandidateContext<'a> {
+    handoff: &'a VerifiedBftHandoffTargetV1,
+    schedule: &'a BftHeightProposerScheduleV2,
+    parent_world: &'a RuntimeWorld,
+    parent_result_tree: &'a FormalBusinessResultTreeV1,
+    identity: &'a oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1,
+    business_reader: &'a formal_business_package::SharedBusinessReader,
+    prefix: Option<&'a oasis7_formal_protocol::bft::VerifiedFormalBftPrefixV1>,
+}
+
+fn execute_formal_candidate(
+    context: FormalCandidateContext<'_>,
+    block: &BftBlockV2,
+) -> Result<ExecutedFormalCandidateV1, String> {
+    let FormalCandidateContext {
+        handoff,
+        schedule,
+        parent_world,
+        parent_result_tree,
+        identity,
+        business_reader,
+        prefix,
+    } = context;
+    block.validate()?;
+    let actions = super::decode_actions_v2(block.actions_cbor.as_slice())?;
+    if super::super::action_root(actions.as_slice())? != block.action_root {
+        return Err("formal BFT action root differs from canonical action bytes".into());
+    }
+    let input_hash = formal_execution_input_hash(handoff, schedule, block)?;
+    let executed =
+        super::execution::execute_world_transition(super::execution::WorldTransitionRequest {
+            parent: parent_world,
+            scope: handoff.target().scope(),
+            authority_epoch: schedule.authority_epoch(),
+            schedule,
+            block,
+            expected_parent: schedule.parent_commit_ref(),
+            input_hash: input_hash.as_str(),
+            tick_authority: FORMAL_BFT_EXECUTION_TICK_AUTHORITY,
+            formal_handoff: prefix.is_none().then_some(handoff),
+            formal_prefix: prefix,
+        })?;
+    let projection_root =
+        oasis7::world_service::formal_projection::commitments_for_world(&executed.world)?.root()?;
+    let new_results = newly_recorded_results(parent_world, &executed.world)?;
+    let result_update = FormalBusinessResultTreeV1::extend_bft_successor(
+        oasis7::world_service::formal_result::FormalBftResultSuccessorInputV1 {
+            world: &executed.world,
+            identity,
+            height: block.height,
+            parent_result_root: parent_result_tree.root()?.as_str(),
+            execution_state_root: executed.execution_state_root.as_str(),
+            previous: parent_result_tree,
+            new_results: new_results.as_slice(),
+            reader: business_reader,
+        },
+    )?;
+    let commitment = FormalBftExecutionCommitmentV1 {
+        domain: BFT_FORMAL_EXECUTION_DOMAIN_V1.to_owned(),
+        schema_version: 1,
+        profile: handoff.target().profile().to_owned(),
+        profile_version: handoff.target().profile_version(),
+        activation_digest: handoff.activation_digest().to_owned(),
+        scope: handoff.target().scope().clone(),
+        height: block.height,
+        parent_commit_ref: schedule.parent_commit_ref().to_owned(),
+        parent_tick: schedule.parent_tick(),
+        parent_semantic_state_root: schedule.parent_state_root().to_owned(),
+        authority_epoch: schedule.authority_epoch(),
+        active_validator_set_hash: schedule.active_set().set_hash().to_owned(),
+        schedule_policy_hash: schedule.policy_hash().to_owned(),
+        manifest_hash: schedule.parent_manifest_hash().to_owned(),
+        post_manifest_hash: executed.post_manifest_hash,
+        action_root: block.action_root.clone(),
+        event_root: executed.event_root,
+        execution_state_root: executed.execution_state_root,
+        state_root: executed.state_root,
+        projection_root,
+        result_root: result_update.tree.root()?,
+        transition: executed.transition,
+        transition_ref: executed.transition_ref,
+    };
+    commitment.validate()?;
+    let digest = commitment.digest()?;
+    let mut completed_block = block.clone();
+    completed_block.execution_block_hash = digest;
+    completed_block.event_root = commitment.event_root().to_owned();
+    completed_block.execution_state_root = commitment.execution_state_root().to_owned();
+    completed_block.state_root = commitment.state_root().to_owned();
+    completed_block.post_manifest_hash = commitment.post_manifest_hash().to_owned();
+    completed_block.transition = commitment.transition().cloned();
+    completed_block.transition_ref = commitment.transition_ref().cloned();
+    completed_block.validate()?;
+    commitment.verify_block(&completed_block, handoff.activation_digest())?;
+    Ok(ExecutedFormalCandidateV1 {
+        block: completed_block,
+        commitment,
+        world: executed.world,
+        snapshot_bytes: executed.snapshot_bytes,
+        journal_bytes: executed.journal_bytes,
+        new_results,
+        result_tree: result_update.tree,
+        result_delta: result_update.delta,
+    })
+}
+
 struct RestoredHandoffWorld {
+    retained_parent: oasis7_runtime::VerifiedFormalRetainedHistoryParentV1,
     world: RuntimeWorld,
     result_tree: FormalBusinessResultTreeV1,
 }
@@ -604,7 +655,7 @@ fn restore_handoff_world(
     let world = oasis7_runtime::World::from_verified_formal_snapshot(
         snapshot,
         journal,
-        retained,
+        retained.clone(),
         business_reader.0.clone(),
     )
     .map_err(|error| format!("restore qualified H World: {error:?}"))?
@@ -621,6 +672,7 @@ fn restore_handoff_world(
         return Err("qualified H World differs from its committed projection root".into());
     }
     Ok(RestoredHandoffWorld {
+        retained_parent: retained,
         world,
         result_tree: tree,
     })
