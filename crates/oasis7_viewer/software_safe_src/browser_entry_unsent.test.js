@@ -136,3 +136,55 @@ it("never recreates a participant original removed between continuation reads",a
  expect(signatures).toBe(0);expect(mutationCalls(f)).toHaveLength(0);
  expect([...f.records.values()].some(r=>r.registrationRaw)).toBe(false);
 });
+
+// Integration with the shared lifecycle contract cannot promote old or partial
+// durable records into a new first-send permit.
+it.each([
+ ["registrationRaw", "registrationPhase"], ["taskRaw", "taskRawPhase"],
+ ["taskRaw", "taskRawScope"], ["publishRaw", "publishRawPhase"], ["publishRaw", "publishRawScope"],
+])("keeps %s read-only when its lifecycle field %s is missing", async (slot, field) => {
+ const f = fixture(); await f.create({ fetchImpl: sessionFailure(f, slot) }).prepare({ goal, consent: true });
+ const record = [...f.records.values()].find(r => r[slot]), original = record[slot]; delete record[field];
+ const before = mutationCalls(f).length;
+ expect(await f.create().inspect()).toMatchObject({ state: "pending" });
+ expect(await f.create().continueOriginal({ goal, consent: true })).toMatchObject({ state: "pending" });
+ expect(mutationCalls(f)).toHaveLength(before); expect(record[slot]).toBe(original);
+});
+it.each(["taskRaw", "publishRaw"])("rejects a contradictory not_sent %s lifecycle phase", async slot => {
+ const f = fixture(); await f.create({ fetchImpl: sessionFailure(f, slot) }).prepare({ goal, consent: true });
+ const record = [...f.records.values()].find(r => r[slot]); record[`${slot}Phase`] = "dispatch_may_have_started";
+ const before = mutationCalls(f).length;
+ await expect(f.create().continueOriginal({ goal, consent: true })).rejects.toMatchObject({ code: "owner_storage_corrupt" });
+ expect(mutationCalls(f)).toHaveLength(before);
+});
+it.each(["taskRaw", "publishRaw"])("does not send a definitely unsent %s after the canonical owner epoch changes", async slot => {
+ const f = fixture(); await f.create({ fetchImpl: sessionFailure(f, slot) }).prepare({ goal, consent: true });
+ const before = mutationCalls(f).length; f.changeOwnerEpoch();
+ await expect(f.create().continueOriginal({ goal, consent: true })).rejects.toMatchObject({ code: "owner_original_scope_changed" });
+ expect(mutationCalls(f)).toHaveLength(before);
+});
+it("does not send an unsent publication after the canonical task fence changes", async () => {
+ const f = fixture(); await f.create({ fetchImpl: sessionFailure(f, "publishRaw") }).prepare({ goal, consent: true });
+ const before = mutationCalls(f).length; f.changeTaskFence();
+ await expect(f.create().continueOriginal({ goal, consent: true })).rejects.toMatchObject({ code: "owner_original_scope_changed" });
+ expect(mutationCalls(f)).toHaveLength(before);
+});
+it.each(["taskRaw", "publishRaw"])("never replaces %s removed between continuation reads", async slot => {
+ const f = fixture(); await f.create({ fetchImpl: sessionFailure(f, slot) }).prepare({ goal, consent: true });
+ let reads = 0; const before = mutationCalls(f).length;
+ const storage = { update: f.storage.update, get: async key => {
+  const record = await f.storage.get(key); if (key.startsWith("owner-entry:") && ++reads === 2) f.records.delete(key); return record;
+ } };
+ await expect(f.create({ storage }).continueOriginal({ goal, consent: true })).rejects.toMatchObject({ code: "owner_original_conflict" });
+ expect(mutationCalls(f)).toHaveLength(before);
+ expect([...f.records.values()].some(r => r[slot])).toBe(false);
+});
+it("restores verified terminal replies from schema-1 records without resubmitting", async () => {
+ const f = fixture(); expect(await f.create().prepare({ goal, consent: true })).toMatchObject({ state: "ready" });
+ const record = [...f.records.values()].find(r => r.taskRaw); record.schema = 1;
+ for (const slot of ["taskRaw", "publishRaw"]) { delete record[`${slot}SendState`]; record[`${slot}Phase`] = "prepared_unsent"; }
+ const before = mutationCalls(f).length;
+ expect(await f.create().inspect()).toMatchObject({ state: "ready" });
+ expect(await f.create().continueOriginal({ goal, consent: true })).toMatchObject({ state: "ready" });
+ expect(mutationCalls(f)).toHaveLength(before);
+});

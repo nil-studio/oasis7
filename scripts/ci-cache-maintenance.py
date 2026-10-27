@@ -39,10 +39,21 @@ ACTIVE_RUN_STATUSES = ('requested', 'pending', 'waiting', 'queued', 'in_progress
 MAIN_REF = 'refs/heads/main'
 WORKFLOW_PATH = '.github/workflows/rust.yml'
 ECS_WORKFLOW_PATH = '.github/workflows/ecs-packages.yml'
+RELEASE_WORKFLOW_PATH = '.github/workflows/release-packages.yml'
 # The pinned Swatinem action's src/config.ts uses HASH_LENGTH=8 for both hashes.
-RUST_KEY = re.compile(r'v0-rust-(?P<family>[a-z0-9]+(?:-[a-z0-9]+)*)-Linux-x64-'
+RUST_KEY = re.compile(r'v0-rust-(?P<family>[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)-'
+                      r'(?P<platform>Linux|Windows_NT|Darwin)-(?P<arch>x64|arm64)-'
                       r'[0-9a-f]{8}-[0-9a-f]{8}\Z', re.ASCII)
-DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2'))
+LEGACY_DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2'))
+DEPENDENCY_PLATFORMS = {
+    **{name: frozenset({('Linux', 'x64')}) for name in LEGACY_DEPENDENCY_NAMESPACES},
+    'release-packages-web-wasm-trusted-v3': frozenset({('Linux', 'x64')}),
+    'oasis7-package-native-Linux-native-packaging-trusted-v2': frozenset({('Linux', 'x64')}),
+    'release-packages-package-native-Windows-native-trusted-v2': frozenset({('Windows_NT', 'x64')}),
+    'release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2':
+        frozenset({('Darwin', 'arm64'), ('Darwin', 'x64')}),
+}
+DEPENDENCY_NAMESPACES = frozenset(DEPENDENCY_PLATFORMS)
 RETIRED_NAMESPACES = {
     'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
     **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v3'
@@ -57,6 +68,11 @@ RETIRED_WORKSPACE_SCHEMAS = {
     'formal-v2': re.compile(policy.FORMAL_V2 + r'\Z', re.ASCII),
     'ecs-v1': re.compile(r'ecs-workspace-v1-' + policy.SOURCE_SUFFIX + r'\Z', re.ASCII),
 }
+# These known schemas have fixed Linux X64 writers. Cache version alone is not
+# platform proof; a future writer platform must introduce a distinct schema.
+LINEAGE_WORKSPACE_SCHEMAS = frozenset(('ordinary-workspace-v1', 'formal-workspace-v3', 'ecs-workspace-v2'))
+# Leave room in the shared request budget for inventories, active runs and DELETEs.
+MAX_ANCESTRY_REQUESTS = 20
 
 
 class MaintenanceError(ValueError):
@@ -193,7 +209,12 @@ def protected_by_activity(entry, cutoff):
 
 def rust_namespace(entry):
     match = RUST_KEY.fullmatch(entry['key']) if entry['ref'] == MAIN_REF else None
-    return match['family'] if match else None
+    if not match:
+        return None
+    platforms = DEPENDENCY_PLATFORMS.get(match['family'])
+    if platforms is None and match['family'] in RETIRED_NAMESPACES:
+        platforms = {('Linux', 'x64')}
+    return match['family'] if (match['platform'], match['arch']) in (platforms or ()) else None
 
 
 def plan_namespace_retirement(entries, cutoff, *, protected_ids=()):
@@ -271,11 +292,11 @@ def plan_retired_schemas(entries, cutoff):
     return plan_redundant_generations(owned, cutoff, 'older retired workspace schema generation')
 
 
-def plan_dependency_retention(entries, cutoff):
+def plan_dependency_retention(entries, cutoff, *, namespaces=DEPENDENCY_NAMESPACES):
     # RUST_KEY and the main ref identify the exact action restore boundary:
     # remove only the final dependency hash, preserving namespace, platform,
     # architecture, environment hash and cache version in every group.
-    owned = [entry for entry in entries if rust_namespace(entry) in DEPENDENCY_NAMESPACES]
+    owned = [entry for entry in entries if rust_namespace(entry) in namespaces]
     return plan_redundant_generations(owned, cutoff, 'older compatible dependency snapshot')
 
 
@@ -286,7 +307,7 @@ def plan_bootstrap(entries, run_started_at, *, active_runs=None):
     protection_started_at = min([run_started_at, *(run['created_at'] for run in active_runs)], key=timestamp)
     cutoff = timestamp(protection_started_at)
     schemas = plan_retired_schemas(entries, cutoff)
-    dependencies = plan_dependency_retention(entries, cutoff)
+    dependencies = plan_dependency_retention(entries, cutoff, namespaces=LEGACY_DEPENDENCY_NAMESPACES)
     # Bootstrap has a narrower allowlist than confirmed-save maintenance.
     # Native Rust namespace retirement remains tied to the post-save path.
     retired = plan_namespace_retirement([], cutoff)
@@ -460,7 +481,50 @@ def plan_workspace_recovery(entries, keys, cutoff):
             'blocked_groups': blocked, 'delete': deletions, 'pressure_candidates': extra}
 
 
-def plan_recovery(entries, run_started_at, *, repository_limit_bytes, current_key=None, active_runs=None):
+def workspace_lineage_successors(entries, workspaces, keys, head_sha, is_ancestor):
+    """Prove optional storage succession; never extend payload compatibility."""
+    if not head_sha or is_ancestor is None:
+        return {}
+    if not isinstance(head_sha, str) or not re.fullmatch(r'[0-9a-f]{40}', head_sha):
+        raise MaintenanceError('workspace lineage requires the verified immutable main source')
+    explicit_families = {policy.family_for_key(key) for key in keys}
+    groups = defaultdict(list)
+    for entry in entries:
+        if managed(entry):
+            groups[compatibility(entry)].append(entry)
+    eligible = {}
+    for recovery in workspaces['recoveries']:
+        schema = recovery['key'].rsplit('-', 2)[0]
+        source = recovery['key'].rsplit('-', 1)[1]
+        if (schema in LINEAGE_WORKSPACE_SCHEMAS
+                and policy.family_for_key(recovery['key']) not in explicit_families
+                and (source == head_sha or is_ancestor(source, head_sha) is True)):
+            eligible[recovery['id']] = recovery
+    edges = defaultdict(set)
+    for old in eligible.values():
+        old_group = compatibility(old)
+        old_sources = {entry['key'].rsplit('-', 1)[1] for entry in groups[old_group]
+                       if entry['size_in_bytes'] > 0}
+        for new in eligible.values():
+            if (old_group == compatibility(new) or old['version'] != new['version']
+                    or old['key'].rsplit('-', 2)[0] != new['key'].rsplit('-', 2)[0]):
+                continue
+            source = new['key'].rsplit('-', 1)[1]
+            # A late old build may be the newest-created entry in its group.
+            # Verify every complete old source, not just that group's anchor.
+            if all(prior != source and is_ancestor(prior, source) is True for prior in old_sources):
+                edges[old['id']].add(new['id'])
+    terminal = set(eligible) - {identifier for identifier, successors in edges.items() if successors}
+    result = {}
+    for identifier, successors in edges.items():
+        choices = successors & terminal
+        if choices:
+            result[identifier] = eligible[min(choices)]
+    return result
+
+
+def plan_recovery(entries, run_started_at, *, repository_limit_bytes, current_key=None, active_runs=None,
+                  verified_head_sha=None, is_ancestor=None):
     validate_inventory(entries)
     if type(repository_limit_bytes) is not int or repository_limit_bytes <= 0:
         raise MaintenanceError('recovery requires a verified positive repository budget')
@@ -490,8 +554,38 @@ def plan_recovery(entries, run_started_at, *, repository_limit_bytes, current_ke
         deletions.append(entry | {'reason': reason})
         projected -= entry['size_in_bytes']
         family_bytes[name] -= entry['size_in_bytes']
+    workspaces['source_lineage'] = []
+    if projected > resident_target or any(family_bytes[name] > spec['max_bytes']
+                                         for name, spec in policy.FAMILIES.items()):
+        successors = workspace_lineage_successors(entries, workspaces, keys, verified_head_sha, is_ancestor)
+        anchors = {entry['id']: entry for entry in workspaces['recoveries']}
+        for identifier in sorted(successors, key=lambda value: (timestamp(anchors[value]['created_at']), value)):
+            old, successor = anchors[identifier], successors[identifier]
+            name = policy.family_for_key(old['key'])
+            if (protected_by_activity(old, cutoff)
+                    or (projected <= resident_target and family_bytes[name] <= policy.FAMILIES[name]['max_bytes'])):
+                continue
+            candidate = dict(old, workspace_family=name, recovery_id=successor['id'],
+                             reason='verified ancestor workspace compatibility')
+            deletions.append(candidate)
+            # Generation pruning within this group must use the permanent
+            # successor too, because its former local anchor is now retired.
+            deletions = [entry | {'recovery_id': successor['id']}
+                         if managed(entry) and compatibility(entry) == compatibility(old) else entry
+                         for entry in deletions]
+            projected -= old['size_in_bytes']
+            family_bytes[name] -= old['size_in_bytes']
+            workspaces['source_lineage'].append(dict(retired_id=identifier, recovery_id=successor['id'],
+                source=old['key'].rsplit('-', 1)[1], successor_source=successor['key'].rsplit('-', 1)[1],
+                verified_head_sha=verified_head_sha))
     deletions.sort(key=lambda entry: (timestamp(entry['created_at']), entry['id']))
     deleted_ids = {entry['id'] for entry in deletions}
+    workspaces['protected_ids'] = sorted(set(workspaces['protected_ids']) - deleted_ids)
+    workspaces['protected_bytes'] = sum(entry['size_in_bytes'] for entry in entries
+                                       if entry['id'] in workspaces['protected_ids'])
+    workspaces['recoveries'] = [entry for entry in workspaces['recoveries'] if entry['id'] not in deleted_ids]
+    workspaces['recovery_ids'] = sorted(entry['id'] for entry in workspaces['recoveries'])
+    workspaces['delete'] = [entry for entry in deletions if managed(entry)]
     workspaces['projected_bytes'] = sum(entry['size_in_bytes'] for entry in entries
                                        if managed(entry) and entry['id'] not in deleted_ids)
     families = {}
@@ -565,11 +659,18 @@ class GitHubApi:
         self.token = token
         self.requests = 0
         self.active_run_inventory_retries = 0
+        self.ancestry_requests = 0
+        self.ancestry_deferred = False
+        self.ancestry = {}
         self.deadline = time.monotonic() + MAX_SECONDS
         self.opener = build_opener(NoRedirect())
 
     def request(self, method, path):
-        if method not in ('GET', 'DELETE') or not path.startswith('/actions/') or '..' in path:
+        comparison = (method == 'GET' and re.fullmatch(
+            r'/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}\?per_page=1', path or '', re.ASCII))
+        action = (method in ('GET', 'DELETE') and isinstance(path, str)
+                  and path.startswith('/actions/') and '..' not in path)
+        if not (action or comparison):
             raise MaintenanceError('API path is outside the repository Actions boundary')
         remaining = self.deadline - time.monotonic()
         if self.requests >= MAX_REQUESTS or remaining <= 0:
@@ -599,6 +700,55 @@ class GitHubApi:
                 raise
             # Do not print response bodies, bearer tokens, URLs or arbitrary exception messages.
             raise MaintenanceError(f'cache API {method} failed ({type(error).__name__})') from None
+
+    def is_ancestor(self, older, newer):
+        if any(not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{40}', sha) for sha in (older, newer)):
+            raise MaintenanceError('source ancestry requires immutable complete SHA identities')
+        if older == newer:
+            return True
+        pair = older, newer
+        if pair in self.ancestry:
+            return self.ancestry[pair]
+        if self.ancestry_requests >= MAX_ANCESTRY_REQUESTS:
+            self.ancestry_deferred = True
+            return None
+        self.ancestry_requests += 1
+        try:
+            result = self.request('GET', f'/compare/{newer}...{older}?per_page=1')
+        except MaintenanceApiError as error:
+            if error.status != 404:
+                raise
+            # Missing historical objects cannot prove a successor; ordinary
+            # within-group retention does not require this optional proof.
+            self.ancestry[pair] = None
+            self.ancestry_deferred = True
+            return None
+        if (not isinstance(result, dict) or not isinstance(result.get('base_commit'), dict)
+                or result['base_commit'].get('sha') != newer
+                or not isinstance(result.get('merge_base_commit'), dict)
+                or not isinstance(result['merge_base_commit'].get('sha'), str)
+                or not re.fullmatch(r'[0-9a-f]{40}', result['merge_base_commit']['sha'])
+                or any(type(result.get(field)) is not int or result[field] < 0
+                       for field in ('ahead_by', 'behind_by', 'total_commits'))
+                or not isinstance(result.get('commits'), list) or len(result['commits']) > 1):
+            raise MaintenanceError('source ancestry response has invalid immutable identity or counts')
+        status = result.get('status')
+        if status == 'behind':
+            if (result['merge_base_commit']['sha'] != older or result['ahead_by'] != 0
+                    or result['behind_by'] <= 0 or result['total_commits'] != 0 or result['commits']):
+                raise MaintenanceError('source ancestry response does not prove the exact ancestor')
+            value = True
+        elif status in ('ahead', 'diverged') and result['ahead_by'] > 0:
+            if (result['total_commits'] != result['ahead_by'] or len(result['commits']) != 1
+                    or (status == 'ahead' and (result['behind_by'] != 0
+                                              or result['merge_base_commit']['sha'] != newer))
+                    or (status == 'diverged' and result['behind_by'] <= 0)):
+                raise MaintenanceError('source ancestry response has inconsistent divergence')
+            value = False
+        else:
+            raise MaintenanceError('source ancestry response has no valid relationship')
+        self.ancestry[pair] = value
+        return value
 
     def list_caches(self):
         entries, total, page = [], None, 1
@@ -689,8 +839,12 @@ def trusted_run_start(api, environment, current_key=None, *, bootstrap=False, re
         workflow, allowed_families, events = WORKFLOW_PATH, {'formal', 'ordinary'}, ('push', 'schedule', 'workflow_dispatch')
     elif workflow_ref == f'{api.repository}/{ECS_WORKFLOW_PATH}@{MAIN_REF}':
         workflow, allowed_families, events = ECS_WORKFLOW_PATH, {'ecs'}, ('workflow_dispatch',)
+    elif workflow_ref == f'{api.repository}/{RELEASE_WORKFLOW_PATH}@{MAIN_REF}':
+        workflow, allowed_families, events = RELEASE_WORKFLOW_PATH, set(), ('workflow_dispatch',)
+        if not recover or keys or environment.get('CACHE_MAINTENANCE_SOURCE_SHA') != sha:
+            raise MaintenanceError('Release recovery requires the matching current source plan and no workspace keys')
     else:
-        raise MaintenanceError('retention requires a trusted main Rust or ECS workflow')
+        raise MaintenanceError('retention requires a trusted main Rust, ECS or Release workflow')
     if bootstrap and workflow != WORKFLOW_PATH:
         raise MaintenanceError('bootstrap requires the trusted main Rust workflow')
     if (environment.get('GITHUB_ACTIONS') != 'true' or environment.get('GITHUB_REF') != MAIN_REF
@@ -728,19 +882,22 @@ def empty_report(apply, *, bootstrap=False, recover=False):
                             'staging_bytes', 'keep_generations')}
                            for name, values in policy.FAMILIES.items()},
                        'retired_namespaces': RETIRED_NAMESPACES,
-                       'dependency_namespaces': sorted(DEPENDENCY_NAMESPACES),
+                       'dependency_namespaces': sorted(LEGACY_DEPENDENCY_NAMESPACES if bootstrap else DEPENDENCY_NAMESPACES),
+                       'lineage_workspace_schemas': sorted(LINEAGE_WORKSPACE_SCHEMAS),
+                       'max_ancestry_requests': MAX_ANCESTRY_REQUESTS,
                        'bootstrap_retired_schemas': sorted(RETIRED_WORKSPACE_SCHEMAS),
                        'dependency_rotation_headroom_bytes': policy.DEPENDENCY_ROTATION_HEADROOM_BYTES},
             'before': None, 'after': None, 'plan': None, 'delete_candidates': [],
             'stable_replacement_ids': {}, 'stable_recovery_ids': [], 'stable_dependency_recovery_ids': [],
             'stable_workspace_recovery_ids': [], 'capacity_before': None, 'capacity_revalidation': None,
             'rotation_after': None, 'active_run_inventory_retries': 0,
+            'ancestry_requests': 0, 'ancestry_deferred': False,
             'deleted_ids': [], 'deleted_dependency_ids': [], 'deleted_workspace_ids': [],
             'deleted_namespace_ids': [], 'already_absent_ids': [], 'warnings': []}
 
 
 def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstrap=False, recover=False,
-             repository_budget_bytes=None):
+             repository_budget_bytes=None, verified_head_sha=None):
     report = empty_report(apply, bootstrap=bootstrap, recover=recover)
     try:
         if bootstrap and recover:
@@ -760,7 +917,9 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstr
             active_runs = api.list_active_runs()
             if recover:
                 return plan_recovery(entries, run_started_at, current_key=current_key, active_runs=active_runs,
-                                     repository_limit_bytes=capacity['effective_repository_budget_bytes'])
+                                     repository_limit_bytes=capacity['effective_repository_budget_bytes'],
+                                     verified_head_sha=verified_head_sha,
+                                     is_ancestor=api.is_ancestor if verified_head_sha else None)
             if bootstrap:
                 return plan_bootstrap(entries, run_started_at, active_runs=active_runs)
             return plan_retention(entries, current_key, run_started_at, active_runs=active_runs)
@@ -842,6 +1001,11 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstr
     finally:
         retries = getattr(api, 'active_run_inventory_retries', 0)
         report['active_run_inventory_retries'] = retries if type(retries) is int else 0
+        ancestry_requests = getattr(api, 'ancestry_requests', 0)
+        report['ancestry_requests'] = ancestry_requests if type(ancestry_requests) is int else 0
+        report['ancestry_deferred'] = getattr(api, 'ancestry_deferred', False) is True
+        if report['ancestry_deferred']:
+            report['warnings'].append('some workspace source comparisons deferred; unproven compatibility groups retained')
     return report
 
 
@@ -852,7 +1016,7 @@ def render_summary(report):
     lines = ['## CI cache storage', '', f"Mode: **{report['mode']}**; status: **{report['status']}**.", '']
     if report.get('recover'):
         lines += ['Recovery uses existing complete main workspace anchors even when this run saved no new cache.',
-                  'Current-format workspace groups target two generations; repository or family pressure may retire extra inactive copies, never the last complete anchor.',
+                  'Current-format groups target two generations; pressure may retire extra inactive copies or verified source ancestors while retaining a complete permanent successor.',
                   'Current exact keys, ambiguous groups, incomplete uploads and observed activity remain protected.', '']
     elif report.get('bootstrap'):
         lines += ['Bootstrap prunes enumerated retired workspace formats and redundant compatible dependency snapshots.',
@@ -889,6 +1053,9 @@ def render_summary(report):
                       f"workspace recovery IDs: {cell(workspaces['recovery_ids'])}; "
                       f"stable in both inventories: {cell(report['stable_workspace_recovery_ids'])}.", '',
                       f"Ambiguous or incomplete workspace groups deferred: {len(workspaces['blocked_groups'])}.", '',
+                      f"Verified source-lineage retirements: {len(workspaces['source_lineage'])}; "
+                      f"immutable-source requests: {report['ancestry_requests']}; "
+                      f"unproven comparisons deferred: {report['ancestry_deferred']}.", '',
                       '| Workspace family | Resident target | Planned remaining bytes | Protected excess |',
                       '| --- | ---: | ---: | ---: |']
             for name, values in sorted(plan['families'].items()):
@@ -966,7 +1133,8 @@ def main(argv=None):
         cutoff = (trusted_run_start(api, os.environ, args.current_key, bootstrap=args.bootstrap, recover=args.recover)
                   if args.current_key or args.bootstrap or args.recover else None)
         report = maintain(api, args.current_key, cutoff, apply=args.apply, bootstrap=args.bootstrap, recover=args.recover,
-                          repository_budget_bytes=policy.configured_budget(args.repository_budget_bytes) if args.recover else None)
+                          repository_budget_bytes=policy.configured_budget(args.repository_budget_bytes) if args.recover else None,
+                          verified_head_sha=os.environ.get('GITHUB_SHA') if args.recover else None)
     except ValueError as error:
         report['warnings'].append(str(error))
     if args.summary:

@@ -265,10 +265,14 @@ fn publish_failure_stays_generic_replication_error() {
         protocol: "libp2p publish failed topic=aw.publish.fail: InsufficientPeers".to_string(),
     });
     assert_eq!(
-        err,
-        NodeError::Replication {
-            reason: "replication network error: NetworkProtocolUnavailable { protocol: \"libp2p publish failed topic=aw.publish.fail: InsufficientPeers\" }".to_string(),
-        }
+        err.replication_reason(),
+        Some(
+            "replication network error: NetworkProtocolUnavailable { protocol: \"libp2p publish failed topic=aw.publish.fail: InsufficientPeers\" }"
+        )
+    );
+    assert_eq!(
+        crate::network_error_classification::replication_network_failure(&err).origin,
+        oasis7_proto::network_failure::FailureOrigin::Publish
     );
 }
 

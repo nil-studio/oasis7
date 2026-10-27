@@ -13,6 +13,8 @@ use crate::viewer::ACTION_CLAIM_FIRST_AGENT;
 mod fallback;
 #[path = "gameplay_snapshot_fine_grain.rs"]
 mod fine_grain;
+#[path = "gameplay_snapshot_industry.rs"]
+mod industry;
 #[path = "gameplay_snapshot_intent.rs"]
 mod intent;
 #[path = "gameplay_snapshot_status.rs"]
@@ -22,9 +24,7 @@ mod sync;
 use super::branch_commitment::{branch_recommendations, effective_branch_stage_status};
 pub(super) use super::gameplay_snapshot_feedback::player_gameplay_feedback_from_control_ack;
 pub(super) use super::gameplay_snapshot_helpers::apply_runtime_snapshot_empty_entities_blocker;
-use super::gameplay_snapshot_helpers::{
-    base_available_actions, blocker_next_step, primary_factory_for_player_gameplay,
-};
+use super::gameplay_snapshot_helpers::{base_available_actions, blocker_next_step};
 use super::gameplay_snapshot_lane::apply_small_player_lane_truth;
 use super::gameplay_validation_preview::product_validation_unlock_preview;
 use super::player_agency_projection::PlayerGameplayCausalitySignal;
@@ -281,6 +281,7 @@ pub(super) fn build_player_gameplay_snapshot(
     agent_claim: Option<PlayerAgentClaimSnapshot>,
     player_scoped: bool,
 ) -> PlayerGameplaySnapshot {
+    let capability = industry::query(state, controlled_agent_id, player_scoped);
     let starter_industrial_feasibility = state.starter_industrial_feasibility();
     let mut available_actions = base_available_actions(
         controlled_agent_id,
@@ -297,27 +298,9 @@ pub(super) fn build_player_gameplay_snapshot(
             &mut available_actions,
         );
     }
-    let industry_stage = state.industry_progress.stage;
+    let industry_stage = capability.progression_stage();
     let validation_unlock_preview = product_validation_unlock_preview(state);
-    let primary_factory = match controlled_agent_id {
-        Some(agent_id) => state
-            .factories
-            .values()
-            .filter(|factory| factory.builder_agent_id == agent_id)
-            .max_by_key(|factory| {
-                let production = &factory.production;
-                (
-                    production.completed_jobs > 0 || production.last_completed_at.is_some(),
-                    production.status != FactoryProductionStatus::Blocked,
-                    production.status == FactoryProductionStatus::Running,
-                    factory.factory_id == crate::viewer::FACTORY_SMELTER_MK1,
-                    production.completed_jobs,
-                    production.last_completed_at.unwrap_or(0),
-                )
-            }),
-        None if !player_scoped => primary_factory_for_player_gameplay(state),
-        None => None,
-    };
+    let primary_factory = industry::primary_factory(state, &capability);
     let factory_production_failure_disposition =
         controlled_agent_id.and_then(|requester_agent_id| {
             latest_fresh_requester_failure_disposition(state, requester_agent_id).map(
@@ -347,6 +330,7 @@ pub(super) fn build_player_gameplay_snapshot(
             recent_feedback,
             causality_signal,
         );
+        gameplay.gameplay_capability = serde_json::to_value(&capability).ok();
         gameplay.primary_intent = primary_intent.clone();
         gameplay.accepted_intent_id = primary_intent.as_ref().and_then(|intent| {
             super::player_agency_projection::canonical_accepted_runtime_intent_id(
@@ -380,7 +364,7 @@ pub(super) fn build_player_gameplay_snapshot(
             can_reprioritize: false,
             goal_id: "first_session_loop.configure_llm_access".to_string(),
             goal_kind: PlayerGameplayGoalKind::CreateFirstWorldFeedback,
-            goal_title: "Configure LLM access before entering the world".to_string(),
+            goal_title: "Configure LLM access before gameplay execution".to_string(),
             objective:
                 "This world requires an active LLM provider before gameplay controls are allowed."
                     .to_string(),
@@ -429,6 +413,7 @@ pub(super) fn build_player_gameplay_snapshot(
             pivot_available: None,
             validation_unlock_preview: None,
             starter_industrial_feasibility: None,
+            gameplay_capability: None,
             factory_production_failure_disposition: None,
             recovery_options: Vec::new(),
             fine_grain_action_translation: None,
@@ -477,7 +462,13 @@ pub(super) fn build_player_gameplay_snapshot(
     let has_recovery_history =
         primary_factory.is_some_and(|factory| factory.production.last_resumed_at.is_some());
     let same_loop_repeat_count = primary_factory
-        .map(|factory| factory.production.same_recipe_repeat_count)
+        .map(|factory| {
+            if player_scoped {
+                industry::current_repeat_count(state, factory)
+            } else {
+                factory.production.same_recipe_repeat_count
+            }
+        })
         .unwrap_or(0);
     if !has_confirmed_world_progress
         && !has_material_flow
@@ -557,6 +548,7 @@ pub(super) fn build_player_gameplay_snapshot(
                 pivot_available: None,
                 validation_unlock_preview: None,
                 starter_industrial_feasibility: None,
+            gameplay_capability: None,
                 factory_production_failure_disposition: None,
                 recovery_options: Vec::new(),
                 fine_grain_action_translation: None,
@@ -631,6 +623,7 @@ pub(super) fn build_player_gameplay_snapshot(
             pivot_available: None,
             validation_unlock_preview: None,
             starter_industrial_feasibility: None,
+            gameplay_capability: None,
             factory_production_failure_disposition: None,
             recovery_options: Vec::new(),
             fine_grain_action_translation: None,
@@ -717,13 +710,17 @@ pub(super) fn build_player_gameplay_snapshot(
             pivot_available: None,
             validation_unlock_preview: None,
             starter_industrial_feasibility: None,
+            gameplay_capability: None,
             factory_production_failure_disposition: None,
             recovery_options: Vec::new(),
             fine_grain_action_translation: None,
         });
     }
     if has_first_output {
-        match industry_stage {
+        // Shared world maturity is not evidence that this player stabilized a
+        // line or already made an expansion decision.
+        let personal_stage = industry_stage;
+        match personal_stage {
             IndustryStage::Bootstrap => {
                 let (progress_detail, next_step_hint, progress_percent) = if has_recovery_history {
                     (
@@ -806,6 +803,7 @@ pub(super) fn build_player_gameplay_snapshot(
                     pivot_available: None,
                     validation_unlock_preview: None,
                     starter_industrial_feasibility: None,
+            gameplay_capability: None,
                     factory_production_failure_disposition: None,
                     recovery_options: Vec::new(),
                     fine_grain_action_translation: None,
@@ -871,6 +869,7 @@ pub(super) fn build_player_gameplay_snapshot(
                     pivot_available: None,
                     validation_unlock_preview: None,
                     starter_industrial_feasibility: None,
+            gameplay_capability: None,
                     factory_production_failure_disposition: None,
                     recovery_options: Vec::new(),
                     fine_grain_action_translation: None,
@@ -893,7 +892,7 @@ pub(super) fn build_player_gameplay_snapshot(
                     goal_kind: PlayerGameplayGoalKind::ChooseMidLoopPath,
                     goal_title: "Choose your mid-loop path".to_string(),
                     objective: "Your first sustainable industrial capability is online. Expand it into stable organizational momentum.".to_string(),
-                    progress_detail: "Stage progress: the first expansion tradeoff is behind you and wider mid-loop branches are now meaningful.".to_string(),
+                    progress_detail: "Stage progress: your stable production and subsequent completed work now support wider mid-loop choices.".to_string(),
                     progress_percent: 100,
                     blocker_kind: None,
                     blocker_detail: None,
@@ -936,6 +935,7 @@ pub(super) fn build_player_gameplay_snapshot(
                     pivot_available: None,
                     validation_unlock_preview: None,
                     starter_industrial_feasibility: None,
+            gameplay_capability: None,
                     factory_production_failure_disposition: None,
                     recovery_options: Vec::new(),
                     fine_grain_action_translation: None,
@@ -1000,6 +1000,7 @@ pub(super) fn build_player_gameplay_snapshot(
             pivot_available: None,
             validation_unlock_preview: None,
             starter_industrial_feasibility: None,
+            gameplay_capability: None,
             factory_production_failure_disposition: None,
             recovery_options: Vec::new(),
             fine_grain_action_translation: None,
@@ -1062,6 +1063,7 @@ pub(super) fn build_player_gameplay_snapshot(
             pivot_available: None,
                     validation_unlock_preview: None,
                     starter_industrial_feasibility: None,
+            gameplay_capability: None,
                     factory_production_failure_disposition: None,
             recovery_options: Vec::new(),
             fine_grain_action_translation: None,
@@ -1124,6 +1126,7 @@ pub(super) fn build_player_gameplay_snapshot(
             pivot_available: None,
                     validation_unlock_preview: None,
                     starter_industrial_feasibility: None,
+            gameplay_capability: None,
                     factory_production_failure_disposition: None,
             recovery_options: Vec::new(),
             fine_grain_action_translation: None,
@@ -1185,6 +1188,7 @@ pub(super) fn build_player_gameplay_snapshot(
         pivot_available: None,
         validation_unlock_preview: None,
         starter_industrial_feasibility: None,
+            gameplay_capability: None,
         factory_production_failure_disposition: None,
         recovery_options: Vec::new(),
         fine_grain_action_translation: None,

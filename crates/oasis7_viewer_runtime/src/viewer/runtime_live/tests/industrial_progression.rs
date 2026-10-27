@@ -551,111 +551,69 @@ fn runtime_gameplay_snapshot_surfaces_same_loop_repeat_count_before_new_leverage
 }
 
 #[test]
-fn runtime_gameplay_snapshot_marks_forced_major_power_dependency_when_no_local_recovery_path_exists()
- {
-    let feedback = PlayerGameplayRecentFeedback {
-        request_auth_nonce: None,
-        action: "step".to_string(),
-        stage: "blocked".to_string(),
-        effect: "no committed recovery".to_string(),
-        intent_summary: Some("advance the blocked line".to_string()),
-        target_agent_id: None,
-        reason: Some(
-            "only viable continuation requires major power sponsorship; no independent path remains"
-                .to_string(),
-        ),
-        hint: Some("secure a major-power sponsor before continuing".to_string()),
-        delta_logical_time: 0,
-        delta_event_seq: 0,
+fn runtime_gameplay_snapshot_does_not_infer_recovery_from_english_feedback() {
+    let make = |reason: &str| {
+        let feedback = PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
+            action: "step".into(),
+            stage: "blocked".into(),
+            effect: "no committed recovery".into(),
+            intent_summary: None,
+            target_agent_id: None,
+            reason: Some(reason.into()),
+            hint: None,
+            delta_logical_time: 0,
+            delta_event_seq: 0,
+        };
+        super::super::gameplay_snapshot::build_player_gameplay_snapshot(
+            &WorldState::default(),
+            None,
+            true,
+            Some(&feedback),
+            None,
+            None,
+            true,
+            None,
+            false,
+            true,
+            None,
+            false,
+        )
     };
-    let gameplay = super::super::gameplay_snapshot::build_player_gameplay_snapshot(
-        &WorldState::default(),
-        None,
-        true,
-        Some(&feedback),
-        None,
-        None,
-        true,
-        None,
-        false,
-        true,
-        None,
-        false,
+    let english = make(
+        "only viable continuation requires major power sponsorship; no independent path remains",
     );
-
+    let translated = make("当前观察没有恢复证据");
     assert_eq!(
-        gameplay.goal_kind,
-        PlayerGameplayGoalKind::RecoverCapability
+        english.requires_major_power_sponsorship,
+        translated.requires_major_power_sponsorship
     );
-    assert_eq!(
-        gameplay.major_power_dependency_status.as_deref(),
-        Some("forced")
-    );
-    assert_eq!(
-        gameplay.requires_major_power_sponsorship.as_deref(),
-        Some("yes")
-    );
-    assert_eq!(gameplay.recovery_path_kind.as_deref(), Some("none"));
-    assert_eq!(gameplay.repair_available, Some(false));
-    assert_eq!(gameplay.rebuild_available, Some(false));
-    assert_eq!(gameplay.pivot_available, Some(false));
-    assert!(
-        gameplay
-            .recovery_path_detail
-            .as_deref()
-            .is_some_and(|detail| detail.contains("no repair, rebuild, or pivot path"))
-    );
+    assert_eq!(english.repair_available, None);
+    assert_eq!(english.rebuild_available, None);
+    assert_eq!(english.pivot_available, None);
+    assert!(english.recovery_options.is_empty());
 }
 
 #[test]
-fn runtime_gameplay_snapshot_publishes_complete_distinguishable_recovery_options() {
+fn runtime_gameplay_snapshot_keeps_unsupported_recovery_unknown() {
     let _guard = lock_test_llm_env();
     let mut server = setup_industrial_gameplay_with_completed_jobs(42, 4);
-    let gameplay = expect_player_gameplay(
-        &mut server,
-        "recoverable player progression after first expansion tradeoff",
-    );
-
-    assert_eq!(
-        gameplay.recovery_path_kind.as_deref(),
-        Some("repair_rebuild_or_pivot")
-    );
-    assert_eq!(gameplay.repair_available, Some(true));
-    assert_eq!(gameplay.rebuild_available, Some(true));
-    assert_eq!(gameplay.pivot_available, Some(true));
-
-    assert_eq!(
-        gameplay.recovery_options.len(),
-        3,
-        "recoverable progression must publish one canonical option for each recovery path"
-    );
-    let expected_kinds = ["repair", "rebuild", "pivot"];
-    for kind in expected_kinds {
-        let option = gameplay
-            .recovery_options
+    let gameplay = expect_player_gameplay(&mut server, "canonical recovery query");
+    assert_eq!(gameplay.repair_available, None);
+    assert_eq!(gameplay.rebuild_available, None);
+    assert_eq!(gameplay.pivot_available, None);
+    assert!(gameplay.recovery_options.is_empty());
+    let query = gameplay.gameplay_capability.expect("actual server query");
+    for kind in ["repair", "rebuild", "pivot"] {
+        let option = query["recovery"]
+            .as_array()
+            .unwrap()
             .iter()
-            .find(|option| option.kind == kind)
-            .unwrap_or_else(|| panic!("missing canonical {kind} recovery option"));
-        assert!(
-            !option.estimated_time_class.trim().is_empty(),
-            "{kind} must publish a qualitative estimated-time class"
-        );
-        assert!(
-            !option.estimated_resource_class.trim().is_empty(),
-            "{kind} must publish a qualitative estimated-resource class"
-        );
-        assert!(
-            !option.risk_class.trim().is_empty(),
-            "{kind} must publish a qualitative risk class"
-        );
-        assert!(
-            !option.retained_benefit.trim().is_empty(),
-            "{kind} must state the player benefit retained by this recovery path"
-        );
-        assert!(
-            !option.recommendation_reason.trim().is_empty(),
-            "{kind} must state why this recovery path is recommended"
-        );
+            .find(|option| option["kind"] == kind)
+            .unwrap();
+        assert_eq!(option["status"], "unknown");
+        assert_eq!(option["reason_code"], "unsupported_recovery_action");
+        assert!(option["action"].is_null());
     }
 }
 
@@ -771,7 +729,7 @@ fn runtime_gameplay_action_promotes_to_generic_midloop_after_governance_ready() 
     );
     assert_eq!(
         gameplay.major_power_dependency_status.as_deref(),
-        Some("independent_path_available")
+        Some("unverified")
     );
     let next_step_hint = gameplay.next_step_hint.to_lowercase();
     let branch_hint = gameplay

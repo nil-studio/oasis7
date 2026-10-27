@@ -939,6 +939,214 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result['status'], 'completed')
 
 
+class CapacityClosureTests(unittest.TestCase):
+    entry = staticmethod(WorkspaceRetentionTests.entry)
+    HEAD = f'{99:040x}'
+
+    @staticmethod
+    def ancestry(older, newer):
+        # Independent synthetic linear Git history; cache creation order is irrelevant.
+        return int(older, 16) <= int(newer, 16)
+
+    def plan(self, entries, **options):
+        return maintenance.plan_recovery(entries, START, repository_limit_bytes=1,
+            verified_head_sha=self.HEAD, is_ancestor=self.ancestry, **options)
+
+    def test_pressure_can_retire_a_superseded_group_without_a_new_saved_key(self):
+        entries = [self.entry(1, 'ordinary', compatibility='a'),
+                   self.entry(2, 'ordinary', compatibility='b')]
+        plan = self.plan(entries)
+        self.assertEqual([item['id'] for item in plan['delete']], [1])
+        self.assertEqual(plan['delete'][0]['recovery_id'], 2)
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2])
+        self.assertEqual(plan['current_keys'], [])
+        quiet = maintenance.plan_recovery(entries, START, repository_limit_bytes=10_000_000_000,
+            verified_head_sha=self.HEAD, is_ancestor=self.ancestry)
+        self.assertEqual(quiet['delete'], [])
+
+    def test_source_history_not_creation_time_selects_a_permanent_successor(self):
+        entries = [self.entry(1, 'ordinary', compatibility='a', created='2026-10-19T08:59:00Z'),
+                   self.entry(2, 'ordinary', compatibility='b', created='2026-10-19T08:01:00Z'),
+                   self.entry(3, 'ordinary', compatibility='c', created='2026-10-19T08:02:00Z')]
+        plan = self.plan(entries)
+        self.assertEqual({item['id'] for item in plan['delete']}, {1, 2})
+        self.assertTrue(all(item['recovery_id'] == 3 for item in plan['delete']))
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [3])
+
+    def test_group_generation_deletions_never_depend_on_an_anchor_being_retired(self):
+        entries = [self.entry(i, 'ordinary', compatibility='a') for i in (1, 2, 3)]
+        entries.append(self.entry(4, 'ordinary', compatibility='b'))
+        plan = self.plan(entries)
+        self.assertEqual({item['id'] for item in plan['delete']}, {1, 2, 3})
+        self.assertTrue(all(item['recovery_id'] == 4 for item in plan['delete']))
+
+    def test_lineage_does_not_cross_version_schema_same_source_or_unrelated_history(self):
+        old = self.entry(1, 'ordinary', compatibility='a')
+        new = self.entry(2, 'ordinary', compatibility='b')
+        variants = [dict(new, version='v2'), dict(new, ref='refs/pull/1/merge'),
+                    dict(new, key=new['key'][:-40] + old['key'][-40:]),
+                    dict(new, key=new['key'][:-40] + f'{100:040x}'),
+                    self.entry(2, 'formal', compatibility='b')]
+        for replacement in variants:
+            with self.subTest(replacement=replacement):
+                self.assertEqual(self.plan([old, replacement])['delete'], [])
+        plan = maintenance.plan_recovery([old, new], START, repository_limit_bytes=1,
+            verified_head_sha=self.HEAD, is_ancestor=lambda older, newer: newer == self.HEAD)
+        self.assertEqual(plan['delete'], [])
+
+    def test_lineage_preserves_activity_ambiguity_and_explicit_current(self):
+        old = self.entry(1, 'ordinary', compatibility='a')
+        new = self.entry(2, 'ordinary', compatibility='b')
+        for entries in ([dict(old, last_accessed_at=START), new],
+                        [old, dict(new, size_in_bytes=0)],
+                        [old, new, dict(new, id=3, version='other')],
+                        [old, new, self.entry(3, 'ordinary', compatibility='b', created=new['created_at'])]):
+            with self.subTest(entries=entries):
+                self.assertNotIn(1, [item['id'] for item in self.plan(entries)['delete']])
+        plan = self.plan([old, new], current_key=old['key'])
+        self.assertNotIn(1, [item['id'] for item in plan['delete']])
+
+    def test_changed_or_missing_lineage_anchor_cannot_authorize_a_delete(self):
+        entries = [self.entry(1, 'ordinary', compatibility='a'),
+                   self.entry(2, 'ordinary', compatibility='b')]
+        for second in ([entries[0]], [entries[0], dict(entries[1], size_in_bytes=1)],
+                       [entries[0], dict(entries[1], version='v2')],
+                       [dict(entries[0], last_accessed_at=START), entries[1]]):
+            api = api_with(entries, second, second)
+            api.request.return_value = {'max_cache_size_gb': 1}
+            api.is_ancestor.side_effect = self.ancestry
+            report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                repository_budget_bytes=1, verified_head_sha=self.HEAD)
+            self.assertEqual(report['deleted_ids'], [])
+            api.delete_cache.assert_not_called()
+
+    def test_lineage_apply_confirms_observed_deletes_and_cannot_switch_successors(self):
+        entries = [self.entry(1, 'ordinary', compatibility='a'),
+                   self.entry(2, 'ordinary', compatibility='b'),
+                   self.entry(3, 'ordinary', compatibility='c')]
+        api = api_with(entries, entries, entries[2:])
+        api.request.return_value = {'max_cache_size_gb': 10}
+        api.is_ancestor.side_effect = self.ancestry
+        report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+            repository_budget_bytes=1, verified_head_sha=self.HEAD)
+        self.assertEqual(report['status'], 'completed')
+        self.assertEqual(report['deleted_ids'], [1, 2])
+        self.assertEqual(report['stable_workspace_recovery_ids'], [3])
+        self.assertEqual(report['after']['total_bytes'], entries[2]['size_in_bytes'])
+        for second in (entries[:2], entries + [self.entry(4, 'ordinary', compatibility='d')]):
+            api = api_with(entries, second, second)
+            api.request.return_value = {'max_cache_size_gb': 10}
+            api.is_ancestor.side_effect = self.ancestry
+            report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                repository_budget_bytes=1, verified_head_sha=self.HEAD)
+            self.assertEqual(report['deleted_ids'], [])
+            api.delete_cache.assert_not_called()
+
+    def test_family_only_lineage_pressure_stops_once_the_family_has_room(self):
+        entries = [self.entry(i, 'ordinary', compatibility=group, size=700_000_000)
+                   for i, group in ((1, 'a'), (2, 'b'), (3, 'c'))]
+        plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=20_000_000_000,
+            verified_head_sha=self.HEAD, is_ancestor=self.ancestry)
+        self.assertEqual([item['id'] for item in plan['delete']], [1])
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2, 3])
+        self.assertEqual(plan['families']['ordinary']['projected_bytes'], 1_400_000_000)
+
+    def test_late_old_source_cannot_hide_a_newer_source_inside_its_group(self):
+        entries = [self.entry(1, 'ordinary', compatibility='a', created='2026-10-19T08:59:00Z'),
+                   self.entry(3, 'ordinary', compatibility='a', created='2026-10-19T08:01:00Z'),
+                   self.entry(2, 'ordinary', compatibility='b', created='2026-10-19T08:02:00Z')]
+        plan = self.plan(entries)
+        self.assertNotIn(1, [item['id'] for item in plan['delete']])
+        self.assertEqual(plan['workspace_recovery']['source_lineage'], [])
+
+    def test_ancestry_failures_prevent_deletion_including_other_planned_groups(self):
+        entries = [self.entry(1, 'ordinary', compatibility='a'),
+                   self.entry(2, 'ordinary', compatibility='b'),
+                   rust_cache(3, 'ci-shared-native-trusted-v3', dependencies='a'),
+                   rust_cache(4, 'ci-shared-native-trusted-v3', dependencies='b')]
+        api = api_with(entries)
+        api.request.return_value = {'max_cache_size_gb': 10}
+        api.is_ancestor.side_effect = maintenance.MaintenanceError('source API permission or total budget failed')
+        report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+            repository_budget_bytes=1, verified_head_sha=self.HEAD)
+        self.assertEqual(report['status'], 'skipped')
+        api.delete_cache.assert_not_called()
+
+    def test_release_retains_platform_environment_and_version_restore_boundaries(self):
+        namespaces = [('release-packages-web-wasm-trusted-v3', 'Linux-x64'),
+                      ('oasis7-package-native-Linux-native-packaging-trusted-v2', 'Linux-x64'),
+                      ('release-packages-package-native-Windows-native-trusted-v2', 'Windows_NT-x64'),
+                      ('release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2', 'Darwin-arm64')]
+        entries = []
+        for offset, (namespace, platform) in enumerate(namespaces):
+            for generation in (1, 2):
+                number = offset * 10 + generation
+                entries.append(cache(number, key=f'v0-rust-{namespace}-{platform}-aaaaaaaa-{generation:08x}'))
+        outsiders = [dict(entries[0], id=80, ref='refs/tags/v1.0.0'),
+                     dict(entries[2], id=81, key=entries[2]['key'].replace('Linux-x64', 'Linux-arm64')),
+                     dict(entries[-2], id=82, key=entries[-2]['key'].replace('aaaaaaaa-', 'bbbbbbbb-')),
+                     dict(entries[-2], id=83, version='other',
+                          key=entries[-2]['key'].rsplit('-', 1)[0] + '-ffffffff')]
+        plan = maintenance.plan_recovery(entries + outsiders, START, repository_limit_bytes=1)
+        self.assertEqual({item['id'] for item in plan['delete']}, {1, 11, 21, 31})
+        legacy = maintenance.plan_bootstrap(entries + outsiders, START)
+        self.assertEqual(legacy['delete'], [])
+
+    def test_reverse_compare_verifies_both_immutable_sources_and_reuses_evidence(self):
+        older, newer = f'{1:040x}', f'{2:040x}'
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        response = dict(status='behind', ahead_by=0, behind_by=1, total_commits=0,
+            base_commit={'sha': newer}, merge_base_commit={'sha': older}, commits=[])
+        api.request = Mock(return_value=response)
+        self.assertTrue(api.is_ancestor(older, newer))
+        self.assertTrue(api.is_ancestor(older, newer))
+        api.request.assert_called_once_with('GET', f'/compare/{newer}...{older}?per_page=1')
+        for changes in ({'base_commit': {'sha': older}}, {'merge_base_commit': {'sha': newer}},
+                        {'merge_base_commit': {'sha': None}},
+                        {'ahead_by': True}, {'behind_by': 0}, {'total_commits': 1},
+                        {'commits': [{'sha': newer}]}, {'status': 'identical'}):
+            bad = maintenance.GitHubApi('nil-studio/oasis7', '')
+            bad.request = Mock(return_value=dict(response, **changes))
+            with self.subTest(changes=changes), self.assertRaises(maintenance.MaintenanceError):
+                bad.is_ancestor(older, newer)
+
+    def test_unavailable_ancestry_is_bounded_without_spending_the_global_request_reserve(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        def response(method, path):
+            newer, older = path.removeprefix('/compare/').removesuffix('?per_page=1').split('...')
+            return dict(status='behind', ahead_by=0, behind_by=1, total_commits=0,
+                        base_commit={'sha': newer}, merge_base_commit={'sha': older}, commits=[])
+        api.request = Mock(side_effect=response)
+        for number in range(1, maintenance.MAX_ANCESTRY_REQUESTS + 1):
+            self.assertTrue(api.is_ancestor(f'{number:040x}', self.HEAD))
+        self.assertIsNone(api.is_ancestor(f'{98:040x}', self.HEAD))
+        self.assertTrue(api.ancestry_deferred)
+        self.assertEqual(api.request.call_count, maintenance.MAX_ANCESTRY_REQUESTS)
+        missing = maintenance.GitHubApi('nil-studio/oasis7', '')
+        missing.request = Mock(side_effect=maintenance.MaintenanceApiError('GET',
+            HTTPError('https://api.github.com/', 404, '', {}, io.BytesIO(b'{}'))))
+        self.assertIsNone(missing.is_ancestor(f'{1:040x}', self.HEAD))
+        self.assertIsNone(missing.is_ancestor(f'{1:040x}', self.HEAD))
+        missing.request.assert_called_once()
+        self.assertTrue(missing.ancestry_deferred)
+        denied = maintenance.GitHubApi('nil-studio/oasis7', '')
+        denied.request = Mock(side_effect=maintenance.MaintenanceApiError('GET',
+            HTTPError('https://api.github.com/', 403, '', {}, io.BytesIO(b'{}'))))
+        with self.assertRaises(maintenance.MaintenanceApiError):
+            denied.is_ancestor(f'{1:040x}', self.HEAD)
+
+    def test_only_strict_read_only_compare_paths_join_the_api_boundary(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', 'not-a-real-token')
+        api.opener.open = Mock()
+        for method, path in [('DELETE', '/compare/' + 'a' * 40 + '...' + 'b' * 40 + '?per_page=1'),
+                             ('GET', '/compare/main...feature?per_page=1'),
+                             ('GET', '/compare/' + 'a' * 40 + '...' + 'b' * 40 + '?per_page=100'),
+                             ('GET', '/git/refs/heads/main')]:
+            with self.subTest(method=method, path=path), self.assertRaises(maintenance.MaintenanceError):
+                api.request(method, path)
+        api.opener.open.assert_not_called()
+
+
 class ActiveRunRetryTests(unittest.TestCase):
     def test_count_drift_restarts_the_entire_status_inventory_without_reusing_partial_runs(self):
         api = maintenance.GitHubApi('nil-studio/oasis7', '')
@@ -1143,6 +1351,27 @@ class TrustTests(unittest.TestCase):
         return {'id': 42, 'head_sha': f'{3:040x}', 'head_branch': 'main',
                 'event': 'push', 'path': '.github/workflows/rust.yml', 'created_at': START,
                 'repository': {'full_name': 'nil-studio/oasis7'}}
+
+    def test_release_recovery_requires_current_planned_main_and_cannot_claim_workspace_keys(self):
+        api = Mock(repository='nil-studio/oasis7')
+        env = dict(self.environment(), GITHUB_EVENT_NAME='workflow_dispatch',
+                   GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/release-packages.yml@refs/heads/main',
+                   CACHE_MAINTENANCE_SOURCE_SHA=f'{3:040x}')
+        api.request.return_value = dict(self.run_metadata(), event='workflow_dispatch',
+                                        path='.github/workflows/release-packages.yml')
+        self.assertEqual(maintenance.trusted_run_start(api, env, recover=True), START)
+        for override in ({'GITHUB_REF': 'refs/tags/v1.0.0'}, {'GITHUB_EVENT_NAME': 'push'},
+                         {'CACHE_MAINTENANCE_SOURCE_SHA': ''}, {'CACHE_MAINTENANCE_SOURCE_SHA': 'b' * 40},
+                         {'GITHUB_WORKFLOW_SHA': 'b' * 40}, {'GITHUB_REPOSITORY': 'other/repo'}):
+            api.reset_mock()
+            with self.subTest(override=override), self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, dict(env, **override), recover=True)
+            api.request.assert_not_called()
+        for name in ('ordinary', 'formal', 'ecs'):
+            with self.subTest(name=name), self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, env, WorkspaceRetentionTests.entry(3, name)['key'], recover=True)
+        with self.assertRaises(maintenance.MaintenanceError):
+            maintenance.trusted_run_start(api, env, bootstrap=True)
 
     def test_bootstrap_requires_the_same_trusted_main_run_without_a_source_key(self):
         api = Mock(repository='nil-studio/oasis7')

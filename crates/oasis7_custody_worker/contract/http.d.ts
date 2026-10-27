@@ -101,12 +101,31 @@ export type CustodyIntentV1 = ({
   "world_identity": ApprovedWorldV1;
   "world_route": string;
 } | {
+  "bootstrap_config_version": DecimalU64;
+  "deadline": DecimalU64;
+  "executor_key_ref": string;
+  "kind": "owner_setup";
+  "owner_key_ref": string;
+  "participant_receipt_digest": string;
+  "provision_id": string;
+  "request_limit": DecimalU64;
+  "setup_id": string;
+  "setup_plan_digest": string;
+  "transport_limit": DecimalU64;
+  "world_identity": ApprovedWorldV1;
+  "write_limit": DecimalU64;
+} | {
+  "kind": "owner_setup_reconcile";
+  "plan": OwnerSetupReconcilePlanV1;
+} | {
   "blocked_operation_ref": string;
   "deadline": DecimalU64;
   "kind": "managed_login";
   "login_key_ref": string;
+  "login_request_id": string;
   "native_account_id": string;
   "native_identity_namespace": string;
+  "transport_limit": DecimalU64;
 } | {
   "actions": Array<ApprovedActionV1>;
   "allowed_resource_refs": Array<string>;
@@ -166,13 +185,84 @@ export type GameTaskFenceV1 = {
 export type GameTaskStatusV1 = "suspended" | "active";
 export type MaterialLedgerId = string;
 export type MaterialTransitPriority = "urgent" | "standard";
+export type OwnerSetupReconcilePlanV1 = {
+  "api_version": number;
+  "attempt_limit": number;
+  "correlation_digest": string;
+  "deadline": DecimalU64;
+  "executor_key_ref": string;
+  "original_deadline": DecimalU64;
+  "original_digest": string;
+  "owner_key_ref": string;
+  "provision_id": string;
+  "reconcile_id": string;
+  "setup_id": string;
+  "setup_plan_digest": string;
+  "stage": OwnerSetupStageV1;
+  "transport_limit": DecimalU64;
+  "world_identity": ApprovedWorldV1;
+};
+export type OwnerSetupStageV1 = "create_task" | "prepare_goal" | "publish_goal" | "delegation" | "bind" | "final_observation";
 export type PurposeBudgetV1 = {
   "business": DecimalU64;
   "requests": DecimalU64;
   "transport": DecimalU64;
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
+export type ManagedLoginStageV1 = "approved" | "native_session_ready" | "explicit_login_required";
+export type ApprovalAdmissionInput = {
+  "approval": SignedCustodyApprovalV1;
+  "operation_id": string;
+  "request": ApprovalOptionsRequestV1;
+};
+export type ApprovalOptionsRequestV1 = {
+  "approval_request_id": string;
+  "context": ApprovalContextV1;
+  "intent": CustodyIntentV1;
+};
 export type ManagerClosureStatus = "open" | "pending" | "closed";
+export type GoalContentV1 = {
+  "goal_text": string;
+  "soft_constraints": Array<string>;
+};
+export type OwnerSetupPlanV1 = {
+  "api_version": number;
+  "bind_operation_id": string;
+  "bootstrap_config_version": DecimalU64;
+  "create_operation_id": string;
+  "deadline": DecimalU64;
+  "delegation_generation": DecimalU64;
+  "delegation_nonce": DecimalU64;
+  "delegation_operation_id": string;
+  "executor_id": string;
+  "executor_key_ref": string;
+  "executor_public_key": string;
+  "goal_content": GoalContentV1;
+  "owner_key_ref": string;
+  "participant_receipt_digest": string;
+  "prepare_nonce": string;
+  "prepare_operation_id": string;
+  "provision_id": string;
+  "publish_operation_id": string;
+  "request_limit": DecimalU64;
+  "resource_refs": Array<string>;
+  "setup_id": string;
+  "transport_limit": DecimalU64;
+  "world_identity": ApprovedWorldV1;
+  "write_limit": DecimalU64;
+};
+export type PublicRoleKey = {
+  "key_id": string;
+  "key_version": DecimalU64;
+  "public_key": string;
+};
+export type OwnerSetupBlockedCodeV1 = "rejected" | "expired_pending" | "history_unavailable_pending" | "outcome_unknown" | "awaiting_canonical_result";
+export type OwnerSetupBlockedOperationV1 = {
+  "code": OwnerSetupBlockedCodeV1;
+  "operation_ref": string;
+  "stage": OwnerSetupStageV1;
+};
+export type ProvisionStage = "draft" | "approved" | "role_keys_ready" | "native_registered" | "native_session_ready" | "participant_bound" | "ready_for_setup" | "prepared";
 export type ProvisionPlan = {
   "environment": string;
   "expires_at": DecimalU64;
@@ -310,11 +400,6 @@ export type ApprovalCompleteResponseV1 = {
   "phase": ApprovalPhaseV1;
   "proof_bytes": string;
 };
-export type ApprovalOptionsRequestV1 = {
-  "approval_request_id": string;
-  "context": ApprovalContextV1;
-  "intent": CustodyIntentV1;
-};
 export type ApprovalOptionsResponseV1 = {
   "api_version": number;
   "approval_id": string;
@@ -348,6 +433,17 @@ export type CustodySessionStatusV1 = {
   "server_time": DecimalU64;
   "session_ref": string;
 };
+export type ManagedLoginApprovalViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "provision_id": string;
+  "stage": ManagedLoginStageV1;
+};
+export type ManagedLoginApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
+};
 export type ManagerClosureViewV1 = {
   "api_version": number;
   "associated_accounts": DecimalU64;
@@ -358,6 +454,120 @@ export type ManagerClosureViewV1 = {
 export type ManagerFreezeRequestV1 = {
   "api_version": number;
   "operation_id": string;
+};
+export type OwnerSetupApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
+  "plan": OwnerSetupPlanV1;
+};
+export type OwnerSetupBasisRequestV1 = {
+  "api_version": number;
+};
+export type OwnerSetupBasisV1 = {
+  "api_version": number;
+  "bootstrap_config_version": DecimalU64;
+  "custody_account_id": string;
+  "executor_key": PublicRoleKey;
+  "identity_instance_epoch": DecimalU64;
+  "native_account_id": string;
+  "native_identity_namespace": string;
+  "owner_key": PublicRoleKey;
+  "participant_receipt_digest": string;
+  "provision_id": string;
+  "security_epoch": DecimalU64;
+  "service_epoch": DecimalU64;
+  "world_identity": ApprovedWorldV1;
+};
+export type OwnerSetupDriveRequestV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "provision_id": string;
+  "setup_id": string;
+};
+export type OwnerSetupPrepareRequestV1 = {
+  "api_version": number;
+  "approval_request_id": string;
+  "plan": OwnerSetupPlanV1;
+};
+export type OwnerSetupPrepareResponseV1 = {
+  "approval_request_id": string;
+  "context": ApprovalContextV1;
+  "intent": CustodyIntentV1;
+};
+export type OwnerSetupProgressV1 = {
+  "api_version": number;
+  "blocked_operations": Array<OwnerSetupBlockedOperationV1>;
+  "custody_account_id": string;
+  "pending_operations": Array<string>;
+  "provision_id": string;
+  "setup_id": string;
+  "stage": ProvisionStage;
+  "transport_remaining": DecimalU64;
+};
+export type OwnerSetupReconcileApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
+  "plan": OwnerSetupReconcilePlanV1;
+};
+export type OwnerSetupReconcileAttemptRequestV1 = {
+  "api_version": number;
+  "attempt_id": string;
+  "reconcile_id": string;
+};
+export type OwnerSetupReconcileBasisRequestV1 = {
+  "api_version": number;
+  "setup_id": string;
+  "stage": OwnerSetupStageV1;
+};
+export type OwnerSetupReconcileBasisV1 = {
+  "api_version": number;
+  "correlation_digest": string;
+  "custody_account_id": string;
+  "executor_key_ref": string;
+  "original_deadline": DecimalU64;
+  "original_digest": string;
+  "original_transport_remaining": DecimalU64;
+  "owner_key_ref": string;
+  "provision_id": string;
+  "security_epoch": DecimalU64;
+  "service_epoch": DecimalU64;
+  "setup_id": string;
+  "setup_plan_digest": string;
+  "stage": OwnerSetupStageV1;
+  "world_identity": ApprovedWorldV1;
+};
+export type OwnerSetupReconcilePrepareRequestV1 = {
+  "api_version": number;
+  "approval_request_id": string;
+  "plan": OwnerSetupReconcilePlanV1;
+};
+export type OwnerSetupReconcilePrepareResponseV1 = {
+  "approval_request_id": string;
+  "context": ApprovalContextV1;
+  "intent": CustodyIntentV1;
+};
+export type OwnerSetupReconcileProgressV1 = {
+  "api_version": number;
+  "completed_attempts": Array<string>;
+  "custody_account_id": string;
+  "original_transport_remaining": DecimalU64;
+  "pending_attempts": Array<string>;
+  "provision_id": string;
+  "reconcile_id": string;
+  "setup_id": string;
+  "stage": OwnerSetupStageV1;
+  "transport_remaining": DecimalU64;
+};
+export type ProvisionApprovalViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "provision_id": string;
+  "stage": ProvisionStage;
+};
+export type ProvisionApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
 };
 export type ProvisionDraftRequestV1 = {
   "api_version": number;
@@ -371,6 +581,19 @@ export type ProvisionDraftViewV1 = {
   "plan": ProvisionPlan;
   "security_epoch": DecimalU64;
   "world_identity": ApprovedWorldV1;
+};
+export type ProvisionDriveRequestV1 = {
+  "api_version": number;
+  "operation_id": string;
+};
+export type ProvisionProgressViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "pending_operations": Array<string>;
+  "provision_id": string;
+  "stage": ProvisionStage;
+  "transport_remaining": DecimalU64;
 };
 export type SignedApprovalVerificationV1 = {
   "signature": string;

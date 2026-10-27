@@ -8,6 +8,17 @@ pub(super) fn serve(
     stop: &AtomicBool,
     dropped: &AtomicBool,
 ) {
+    serve_with_private(listener, node, root, signer, stop, dropped, None)
+}
+pub(super) fn serve_with_private(
+    listener: TcpListener,
+    node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
+    root: &Path,
+    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
+    stop: &AtomicBool,
+    dropped: &AtomicBool,
+    private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
+) {
     while !stop.load(Ordering::SeqCst) {
         let (mut stream, _) = match listener.accept() {
             Ok(v) => v,
@@ -44,13 +55,49 @@ pub(super) fn serve(
         let mut body = vec![0; length];
         stream.read_exact(&mut body).unwrap();
         bytes.extend(body);
+        if crate::world_service_api::private_goal::maybe_handle(
+            &mut stream,
+            &bytes,
+            node,
+            &method,
+            &path,
+            "w1",
+            &root.join("world"),
+            &root.join("records"),
+            &root.join("store"),
+            signer,
+            private,
+        )
+        .unwrap()
+        {
+            continue;
+        }
         if path == SUBMIT_PATH && !dropped.swap(true, Ordering::SeqCst) {
             // Run the genuine handler/admission, but discard its response at the transport boundary.
             let sink = TcpListener::bind("127.0.0.1:0").unwrap();
             let mut writer = TcpStream::connect(sink.local_addr().unwrap()).unwrap();
             let (_reader, _) = sink.accept().unwrap();
-            assert!(crate::world_service_api::maybe_handle(
-                &mut writer,
+            assert!(
+                crate::world_service_api::maybe_handle(
+                    &mut writer,
+                    &bytes,
+                    node,
+                    &method,
+                    &path,
+                    "w1",
+                    &root.join("world"),
+                    &root.join("records"),
+                    &root.join("store"),
+                    signer
+                )
+                .unwrap()
+            );
+            drop(stream);
+            continue;
+        }
+        assert!(
+            crate::world_service_api::maybe_handle(
+                &mut stream,
                 &bytes,
                 node,
                 &method,
@@ -61,22 +108,7 @@ pub(super) fn serve(
                 &root.join("store"),
                 signer
             )
-            .unwrap());
-            drop(stream);
-            continue;
-        }
-        assert!(crate::world_service_api::maybe_handle(
-            &mut stream,
-            &bytes,
-            node,
-            &method,
-            &path,
-            "w1",
-            &root.join("world"),
-            &root.join("records"),
-            &root.join("store"),
-            signer
-        )
-        .unwrap());
+            .unwrap()
+        );
     }
 }

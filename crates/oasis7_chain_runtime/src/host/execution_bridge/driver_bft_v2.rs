@@ -26,10 +26,15 @@ use oasis7_runtime::{
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
 use serde::Serialize;
 
+#[path = "driver_bft_v2_execution.rs"]
+mod execution;
+#[path = "driver_bft_v2_formal.rs"]
+mod formal_read;
 #[path = "driver_bft_v2_governance.rs"]
 mod governance;
 #[path = "driver_bft_v2_storage.rs"]
 mod storage;
+pub(crate) use formal_read::{FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
 use governance::{
     has_validator_set_change_action_v2, transition_metadata_for_schedule,
     validate_set_change_actions_have_registry_v2, validate_validator_transition_action_schedule_v2,
@@ -37,6 +42,14 @@ use governance::{
 
 const BFT_V2_EXECUTION_TICK_AUTHORITY: &str = "system:bft-execution-v2";
 const BFT_V2_EXECUTION_HASH_DOMAIN: &str = "oasis7.bft.execution.v2";
+
+pub(super) fn has_engineering_material(records_dir: &Path) -> Result<bool, String> {
+    storage::BftV2ExecutionLedger::required_material_exists(records_dir)
+}
+
+pub(super) fn has_formal_bft_material(records_dir: &Path) -> Result<bool, String> {
+    formal_read::FormalBftReadExecutionV1::has_required_material(records_dir)
+}
 
 pub(crate) struct BftExecutionStateV2 {
     pub(crate) config: NodeBftExecutionConfigV2,
@@ -83,6 +96,9 @@ impl NodeRuntimeExecutionDriver {
         &mut self,
         config: &NodeBftExecutionConfigV2,
     ) -> Result<Option<NodeBftExecutionHeadV2>, String> {
+        if has_formal_bft_material(self.records_dir.as_path())? {
+            return Err("BFT V2 execution refuses a formal BFT read ledger".into());
+        }
         let genesis_schedule = config.validate()?;
         if self.bft_execution.is_some() {
             return Err("V1 and V2 BFT execution modes cannot share one driver".into());
@@ -534,10 +550,15 @@ pub(super) fn validate_world_scope_v2(
     config: &NodeBftExecutionConfigV2,
 ) -> Result<(), String> {
     config.scope.validate()?;
+    validate_world_scope_for_scope(world, &config.scope)
+}
+
+fn validate_world_scope_for_scope(world: &RuntimeWorld, scope: &BftScopeV2) -> Result<(), String> {
+    scope.validate()?;
     let manifest = world.chain_resource_manifest();
-    if manifest.world_id != config.scope.world_id
-        || manifest.chain_id != config.scope.chain_id
-        || manifest.genesis_ref.as_deref() != Some(config.scope.genesis_hash.as_str())
+    if manifest.world_id != scope.world_id
+        || manifest.chain_id != scope.chain_id
+        || manifest.genesis_ref.as_deref() != Some(scope.genesis_hash.as_str())
     {
         return Err("BFT V2 scope differs from authenticated World resource identity".into());
     }
@@ -547,6 +568,27 @@ pub(super) fn validate_world_scope_v2(
 fn validate_expected_context_v2(
     world: &RuntimeWorld,
     config: &NodeBftExecutionConfigV2,
+    schedule: &BftHeightProposerScheduleV2,
+    expected: &NodeBftExecutionContextV2,
+    expected_parent: &str,
+) -> Result<(), String> {
+    if expected.scope != config.scope || expected.authority_epoch != config.authority_epoch {
+        return Err("BFT V2 context differs from pinned config".into());
+    }
+    validate_expected_world_context_v2(
+        world,
+        &config.scope,
+        config.authority_epoch,
+        schedule,
+        expected,
+        expected_parent,
+    )
+}
+
+fn validate_expected_world_context_v2(
+    world: &RuntimeWorld,
+    scope: &BftScopeV2,
+    authority_epoch: u64,
     schedule: &BftHeightProposerScheduleV2,
     expected: &NodeBftExecutionContextV2,
     expected_parent: &str,
@@ -562,9 +604,9 @@ fn validate_expected_context_v2(
         .time
         .checked_add(1)
         .ok_or("BFT V2 execution height overflow")?;
-    if expected.scope != config.scope
+    if expected.scope != *scope
         || expected.scope != *schedule.scope()
-        || expected.authority_epoch != config.authority_epoch
+        || expected.authority_epoch != authority_epoch
         || expected.authority_epoch != schedule.authority_epoch()
         || expected.height != schedule.height()
         || expected.height != next_tick
@@ -585,7 +627,7 @@ fn validate_expected_context_v2(
     if world.pending_actions_len() != 0 || world.pending_effects_len() != 0 {
         return Err("BFT V2 parent World has pending local actions or effects".into());
     }
-    validate_world_scope_v2(world, config)
+    validate_world_scope_for_scope(world, scope)
 }
 
 fn validate_candidate_binding_v2(
@@ -632,150 +674,39 @@ fn execute_candidate_v2(
     block: &BftBlockV2,
     expected_parent: &str,
 ) -> Result<ExecutedCandidateV2, String> {
-    block.validate()?;
-    if block.height == 0 || block.parent_commit_ref != expected_parent {
-        return Err("BFT V2 execution input has noncanonical height or parent".into());
-    }
-    let actions = decode_actions_v2(block.actions_cbor.as_slice())?;
-    if super::action_root(actions.as_slice())? != block.action_root {
-        return Err("BFT V2 action root differs from canonical committed actions".into());
-    }
-    let context = NodeBftExecutionContextV2::from_schedule(schedule);
-    validate_expected_context_v2(parent, config, schedule, &context, expected_parent)?;
-    if block.manifest_hash != context.manifest_hash {
-        return Err("BFT V2 parent manifest hash is not exact".into());
-    }
-
-    let parent_snapshot_bytes = super::super::super::snapshot_to_cbor(&parent.snapshot())?;
-    let parent_journal_bytes = super::super::super::journal_to_cbor(parent.journal())?;
-    let mut next_world = RuntimeWorld::from_snapshot_with_release_security_policy(
-        parent.snapshot(),
-        parent.journal().clone(),
-        parent.release_security_policy().clone(),
-    )
-    .map_err(|error| format!("restore detached BFT V2 parent World: {error:?}"))?;
-    if super::super::super::snapshot_to_cbor(&next_world.snapshot())? != parent_snapshot_bytes
-        || super::super::super::journal_to_cbor(next_world.journal())? != parent_journal_bytes
-    {
-        return Err("detached BFT V2 parent restore changed snapshot or journal".into());
-    }
     let input_hash = execution_input_hash_v2(block)?;
-    let commit_context =
-        make_commit_context(config, block.height, input_hash.clone(), actions.as_slice())?;
-    let runtime_actions = super::decode_closed_runtime_actions(&commit_context)?;
-    validate_validator_transition_action_schedule_v2(schedule, &runtime_actions)?;
-    next_world
-        .attach_bft_governance_parent_v2(schedule)
-        .map_err(|error| format!("attach BFT V2 governance execution parent: {error:?}"))?;
-    let tick_context = RuntimeCommittedTickContext {
-        height: block.height,
-        slot: block.height.saturating_sub(1),
-        epoch: block.authority_epoch,
-        node_block_hash: input_hash.clone(),
-        action_root: block.action_root.clone(),
-        authority_node_id: BFT_V2_EXECUTION_TICK_AUTHORITY.to_string(),
-        committed_at_unix_ms: 0,
-    };
-    next_world
-        .begin_bft_execution_tick(&tick_context)
-        .map_err(|error| format!("begin BFT V2 governance execution tick: {error:?}"))?;
-    validate_parent_governance_actions(&next_world, &commit_context)?;
-    validate_set_change_actions_have_registry_v2(&next_world, &runtime_actions)?;
-    let has_set_change_action = has_validator_set_change_action_v2(&runtime_actions);
-    for (action, origin, authorization) in runtime_actions {
-        if let Some(authorization) = authorization {
-            next_world.submit_governance_action(action, authorization);
-        } else if let Some(origin) = origin {
-            next_world
-                .submit_recipe_action_with_origin(action, origin)
-                .map_err(|error| format!("submit BFT V2 recipe origin: {error:?}"))?;
-        } else {
-            next_world.submit_action(action);
-        }
-    }
-    let event_start = next_world.journal().len();
-    let mut executor = WasmExecutor::new_for_deterministic_replay(WasmExecutorConfig::default())
-        .map_err(|error| format!("initialize isolated BFT V2 executor: {error}"))?;
-    next_world
-        .step_with_modules_for_committed_context(&mut executor, &tick_context)
-        .map_err(|error| format!("isolated BFT V2 World execution failed: {error:?}"))?;
-    next_world
-        .finish_bft_execution_tick(&tick_context)
-        .map_err(|error| format!("finish BFT V2 governance execution tick: {error:?}"))?;
-    if next_world.pending_actions_len() != 0 || next_world.pending_effects_len() != 0 {
-        return Err("BFT V2 execution produced pending local actions or effects".into());
-    }
-
-    let manifest = parent.chain_resource_manifest();
-    let resource_context = ChainResourceDerivationContext {
-        world_id: config.scope.world_id.as_str(),
-        chain_id: config.scope.chain_id.as_str(),
-        genesis_ref: Some(config.scope.genesis_hash.as_str()),
-        created_at_height: manifest.created_at_height,
-        manifest_height: block.height,
-        commit_block_hash: Some(input_hash.as_str()),
-        tick: next_world.state().time,
-    };
-    let snapshot = next_world.snapshot_with_chain_resource_context(
-        resource_context,
-        manifest.world_config_hash.clone(),
-        manifest.generation_algorithm_hash.clone(),
-    );
-    next_world = next_world
-        .restore_candidate_snapshot_with_attached_formal_history(
-            snapshot,
-            next_world.journal().clone(),
-        )
-        .map_err(|error| format!("install BFT V2 derived chain-resource context: {error:?}"))?;
-    if next_world.state().time != block.height {
-        return Err("BFT V2 execution World tick does not equal block height".into());
-    }
-
-    let new_events = next_world
-        .journal()
-        .events
-        .get(event_start..)
-        .ok_or("BFT V2 journal moved backwards")?;
-    let event_root = blake3_hex(
-        &serde_cbor::to_vec(&new_events)
-            .map_err(|error| format!("encode BFT V2 event root: {error}"))?,
-    );
-    let snapshot_bytes = super::super::super::snapshot_to_cbor(&next_world.snapshot())?;
-    let journal_bytes = super::super::super::journal_to_cbor(next_world.journal())?;
-    let execution_state_root = blake3_hex(snapshot_bytes.as_slice());
-    let state_root = next_world
-        .execution_state_identity()
-        .map_err(|error| format!("compute BFT V2 state root: {error:?}"))?
-        .state_root_hash;
-    let post_manifest_hash = next_world
-        .current_manifest_hash()
-        .map_err(|error| format!("compute BFT V2 post manifest: {error:?}"))?;
-    let (transition, transition_ref) = transition_metadata_for_schedule(
+    let executed = execution::execute_world_transition(execution::WorldTransitionRequest {
+        parent,
+        scope: &config.scope,
+        authority_epoch: config.authority_epoch,
         schedule,
-        &actions,
-        has_set_change_action,
-        Some(&next_world),
-    )?;
+        block,
+        expected_parent,
+        input_hash: &input_hash,
+        tick_authority: BFT_V2_EXECUTION_TICK_AUTHORITY,
+        formal_handoff: None,
+        formal_prefix: None,
+    })?;
     let execution_block_hash = execution_block_hash_v2(
         block,
-        &event_root,
-        &execution_state_root,
-        &state_root,
-        &post_manifest_hash,
-        &transition,
-        &transition_ref,
+        &executed.event_root,
+        &executed.execution_state_root,
+        &executed.state_root,
+        &executed.post_manifest_hash,
+        &executed.transition,
+        &executed.transition_ref,
     )?;
     Ok(ExecutedCandidateV2 {
-        world: next_world,
-        snapshot_bytes,
-        journal_bytes,
-        event_root,
+        world: executed.world,
+        snapshot_bytes: executed.snapshot_bytes,
+        journal_bytes: executed.journal_bytes,
+        event_root: executed.event_root,
         execution_block_hash,
-        execution_state_root,
-        state_root,
-        post_manifest_hash,
-        transition,
-        transition_ref,
+        execution_state_root: executed.execution_state_root,
+        state_root: executed.state_root,
+        post_manifest_hash: executed.post_manifest_hash,
+        transition: executed.transition,
+        transition_ref: executed.transition_ref,
     })
 }
 
@@ -848,13 +779,31 @@ fn make_commit_context(
     node_block_hash: String,
     actions: &[NodeConsensusAction],
 ) -> Result<NodeExecutionCommitContext, String> {
+    make_commit_context_for_binding(
+        &config.scope,
+        config.authority_epoch,
+        BFT_V2_EXECUTION_TICK_AUTHORITY,
+        height,
+        node_block_hash,
+        actions,
+    )
+}
+
+fn make_commit_context_for_binding(
+    scope: &BftScopeV2,
+    authority_epoch: u64,
+    tick_authority: &str,
+    height: u64,
+    node_block_hash: String,
+    actions: &[NodeConsensusAction],
+) -> Result<NodeExecutionCommitContext, String> {
     Ok(NodeExecutionCommitContext {
-        world_id: config.scope.world_id.clone(),
-        node_id: BFT_V2_EXECUTION_TICK_AUTHORITY.into(),
-        proposer_id: BFT_V2_EXECUTION_TICK_AUTHORITY.into(),
+        world_id: scope.world_id.clone(),
+        node_id: tick_authority.to_owned(),
+        proposer_id: tick_authority.to_owned(),
         height,
         slot: height.saturating_sub(1),
-        epoch: config.authority_epoch,
+        epoch: authority_epoch,
         node_block_hash,
         action_root: super::action_root(actions)?,
         committed_actions: actions.to_vec(),

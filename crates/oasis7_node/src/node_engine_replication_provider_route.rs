@@ -5,17 +5,22 @@ pub(super) const REPLICATION_GAP_SYNC_PROVIDER_ROUTE_BLOCK_RETRY_COOLDOWN_MS: i6
 pub(super) const REPLICATION_GAP_SYNC_FETCH_BLOB_RATE_LIMIT_COOLDOWN_MS: i64 = 60_000;
 
 pub(super) fn replication_gap_sync_provider_blob_route_blocked(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    replication_gap_sync_provider_blob_route_blocked_reason(reason)
+    if let NodeError::ReplicationNetwork { failure, .. } = err {
+        return failure.matches_protocol(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL)
+            && matches!(
+                failure.cause,
+                oasis7_proto::network_failure::FailureCause::MissingHandler
+                    | oasis7_proto::network_failure::FailureCause::ProviderExhausted
+                    | oasis7_proto::network_failure::FailureCause::ProtocolUnavailable
+                    | oasis7_proto::network_failure::FailureCause::NotFound
+            );
+    }
+    err.replication_reason()
+        .is_some_and(replication_gap_sync_provider_blob_route_blocked_reason)
 }
 
 pub(super) fn replication_gap_sync_provider_blob_route_blocked_reason(reason: &str) -> bool {
-    reason.contains("gap sync height ")
-        && (reason.contains(" blob not found for hash ")
-            || reason.contains("blob fetch provider routes exhausted")
-            || reason.contains(crate::network_bridge::REPLICATION_NETWORK_ROUTE_UNAVAILABLE_PREFIX))
+    crate::network_error_legacy::provider_blob_route_blocked_reason(reason)
 }
 
 pub(super) fn replication_gap_sync_provider_blob_route_blocked_in_cooldown(
@@ -58,10 +63,15 @@ pub(super) fn record_replication_gap_sync_fetch_blob_rate_limit(
     }
     engine.last_replication_gap_sync_blocked_height = Some(next_height);
     engine.last_replication_gap_sync_blocked_at_ms = Some(now_ms);
-    engine.last_replication_gap_sync_blocked_reason = Some(format!(
-        "replication state sync rate limited at height {next_height}: attempt {attempt}/{} rate limited: {err}",
-        super::REPLICATION_GAP_SYNC_MAX_RETRIES_PER_HEIGHT
-    ));
+    engine.last_replication_gap_sync_blocked_reason = Some(
+        crate::network_error_classification::persisted_network_reason(
+            format!(
+                "replication state sync rate limited at height {next_height}: attempt {attempt}/{} rate limited: {err}",
+                super::REPLICATION_GAP_SYNC_MAX_RETRIES_PER_HEIGHT
+            ),
+            err,
+        ),
+    );
     true
 }
 

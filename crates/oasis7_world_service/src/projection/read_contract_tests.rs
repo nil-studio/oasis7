@@ -14,7 +14,7 @@ fn public(n: u8) -> String {
 fn populated_world() -> World {
     populated_world_with_binding("read-world")
 }
-fn populated_world_with_binding(world_id: &str) -> World {
+pub(super) fn populated_world_with_binding(world_id: &str) -> World {
     let mut seed = World::new();
     seed.submit_action(oasis7_runtime::Action::RegisterAgent {
         agent_id: "7".into(),
@@ -121,6 +121,25 @@ fn typed_legacy_and_independent_read_codecs_preserve_public_owner_delegate_commi
         };
         let projection =
             crate::projection::from_formal_committed_world(&world, agent, &reader).unwrap();
+        assert!(
+            projection
+                .world_rule_status
+                .as_ref()
+                .unwrap()
+                .get("gameplay_capability")
+                .is_some()
+        );
+        let mut tampered = projection.clone();
+        tampered.world_rule_status.as_mut().unwrap()["gameplay_capability"]["source_tick"] =
+            serde_json::json!(999);
+        assert!(
+            commitments
+                .inclusion(&audience)
+                .unwrap()
+                .verify(&audience, &tampered, &commitments.root().unwrap())
+                .is_err(),
+            "the current query is bound inside the original audience leaf, not appended after proof verification"
+        );
         let raw = assert_codec(&projection);
         let leaf = projection_leaf(&audience, &projection).unwrap();
         assert_eq!(leaf, projection_leaf(&audience, &raw).unwrap());
@@ -190,7 +209,9 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
         Ok(response)
     }
 
-    let world = populated_world_with_binding("formal-fixture-world");
+    let world = super::cognition_read_tests::with_populated_cognition(
+        populated_world_with_binding("formal-fixture-world"),
+    );
     let mut delegation = world.capability_revocation_state().agent_signer_delegations["7"].clone();
     let (world, trust, granted_anchor, _) =
         actual_world_initial_fixture_from_world(world, "32".repeat(32));
@@ -205,6 +226,8 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
     .unwrap();
     let delegated = read_current(&before, &trust, "agent:7", &secret(8)).unwrap();
     assert!(delegated.view.state.pending_factory_builds.contains_key(&7));
+    assert_eq!(delegated.view.continuations.len(), 3);
+    assert_eq!(delegated.view.continuation_contexts.len(), 2);
     before_tree
         .inclusion(&delegate)
         .unwrap()
@@ -253,6 +276,14 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
         ("public", secret(8), public_audience, false),
     ] {
         let response = read_current(&after, &trust, scope, &reader_secret).unwrap();
+        assert_eq!(
+            response.view.continuations.len(),
+            if private { 3 } else { 0 }
+        );
+        assert_eq!(
+            response.view.continuation_contexts.len(),
+            if private { 2 } else { 0 }
+        );
         assert_eq!(
             response.view.state.pending_factory_builds.contains_key(&7),
             private
@@ -303,7 +334,7 @@ fn reader_keeps_current_claim_sequence_without_disclosing_terminal_tombstones() 
 }
 
 #[test]
-fn extracted_projection_matches_pre_split_public_owner_delegate_golden_bytes() {
+fn capability_projection_matches_public_owner_delegate_golden_bytes() {
     let world = populated_world();
     for (name, scope, reader) in [
         ("public", None, "".to_string()),
@@ -316,18 +347,175 @@ fn extracted_projection_matches_pre_split_public_owner_delegate_golden_bytes() {
             .join("../oasis7_world_projection/fixtures");
         assert_eq!(
             oasis7_world_projection::codec::projection_to_json(&projection).unwrap(),
-            std::fs::read(root.join(format!("{name}.json"))).unwrap(),
+            std::fs::read(root.join(format!("capability-{name}.json"))).unwrap(),
             "{name} JSON"
         );
         assert_eq!(
             oasis7_world_projection::codec::projection_to_cbor(&projection).unwrap(),
-            std::fs::read(root.join(format!("{name}.cbor"))).unwrap(),
+            std::fs::read(root.join(format!("capability-{name}.cbor"))).unwrap(),
             "{name} CBOR"
         );
         assert_eq!(
             authority::signing_bytes("view", &projection).unwrap(),
-            std::fs::read(root.join(format!("{name}.signing"))).unwrap(),
+            std::fs::read(root.join(format!("capability-{name}.signing"))).unwrap(),
             "{name} signing"
         );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn gameplay_query_reaches_real_game_client_industry_over_signed_json_read() {
+    use oasis7_client_api::world_service::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        os::unix::fs::PermissionsExt,
+    };
+    for reader in [7_u8, 8] {
+        let world = populated_world();
+        let before = serde_json::to_value(world.snapshot()).unwrap();
+        let expected =
+            crate::projection::from_authenticated_world(&world, Some("7"), &public(reader))
+                .unwrap()
+                .world_rule_status
+                .unwrap()["gameplay_capability"]
+                .clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let service = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+            }
+            let head = String::from_utf8(head).unwrap();
+            assert!(head.starts_with(&format!("POST {VIEW_JSON_PATH} ")));
+            let length: usize = head
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().unwrap())
+                })
+                .unwrap();
+            let mut body = vec![0; length];
+            socket.read_exact(&mut body).unwrap();
+            let signed: SignedReadRequest<ReadWorldViewRequest> =
+                serde_json::from_slice(&body).unwrap();
+            authority::verify_read_request(VIEW_JSON_PATH, &signed).unwrap();
+            assert_eq!(signed.subject_public_key, public(reader));
+            assert_eq!(signed.request.scope_id, "agent:7");
+            // Exercise the same authenticated Service projection used by committed
+            // reads, with the current caller rather than a fabricated gameplay DTO.
+            let view = crate::projection::from_authenticated_world(
+                &world,
+                Some("7"),
+                &signed.subject_public_key,
+            )
+            .unwrap();
+            let binding = view.runtime_binding.as_ref().unwrap();
+            let commit = CommitRef {
+                world: signed.request.world.clone(),
+                binding: ExecutionBinding {
+                    provider_world_id: binding.world_id.clone(),
+                    branch_id: binding.branch_id.clone(),
+                    finality_ref: authority::request_digest(
+                        "finality",
+                        &(
+                            binding.finality_epoch,
+                            &binding.finality_status,
+                            &binding.finality_block_hash,
+                        ),
+                    )
+                    .unwrap(),
+                    reorg_generation: binding.reorg_epoch,
+                    governing_manifest_ref: binding.runtime_manifest_hash.to_string(),
+                    authority_generation: 1,
+                    permission_generation: 1,
+                },
+                position: 1,
+                execution_block_hash: "fixture".into(),
+                state_root_ref: "fixture".into(),
+            };
+            let response = ReadWorldViewResponse {
+                formal_profile: None,
+                formal_proof: None,
+                execution_evidence_scope: None,
+                contract_version: 1,
+                logical_tick: view.state.time,
+                version: ProjectionVersion {
+                    commit: commit.clone(),
+                    projection_revision: authority::request_digest("projection", &view).unwrap(),
+                    visibility_scope: "agent:7".into(),
+                },
+                continuation: EventCursor {
+                    stream_id: "fixture-events".into(),
+                    scope_id: "agent:7".into(),
+                    era: 0,
+                    sequence: 0,
+                    commit,
+                },
+                view: serde_json::to_value(view).unwrap(),
+            };
+            let response = authority::sign_service_response(
+                VIEW_JSON_PATH,
+                authority::request_digest(VIEW_JSON_PATH, &signed).unwrap(),
+                response,
+                &secret(9),
+            )
+            .unwrap();
+            let bytes = serde_json::to_vec(&response).unwrap();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            )
+            .unwrap();
+            socket.write_all(&bytes).unwrap();
+            assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), before);
+        });
+        let directory = std::env::temp_dir().join(format!(
+            "oasis7-gameplay-query-{}-{reader}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let directory = directory.canonicalize().unwrap();
+        let key = directory.join("key");
+        std::fs::write(&key, [reader; 32]).unwrap();
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let config = directory.join("client.json");
+        std::fs::write(
+            &config,
+            serde_json::to_vec(&serde_json::json!({
+                "endpoint":endpoint,"world_id":"read-world","genesis_digest":"fixture-genesis",
+                "agent_id":"7","service_public_key":public(9),"signer_file":key,
+                "state_directory":directory.join("state")
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let client = oasis7_game_client::device_client::Client::open(&config).unwrap();
+        let response = client.industry().unwrap();
+        service.join().unwrap();
+        assert_eq!(response["gameplay_capability"], expected);
+        assert_eq!(
+            response["gameplay_capability"]["subject"]["owner_agent_id"],
+            "7"
+        );
+        assert!(
+            response["gameplay_capability"]["recovery"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|option| option["status"] == "unknown")
+        );
+        drop(client);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

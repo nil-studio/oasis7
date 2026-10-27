@@ -1,8 +1,10 @@
+import { BrowserParticipantError } from "./browser_participant_entry.js";
+import { browserGameDiagnostic } from "./browser_game_diagnostics.js";
 // WorldService task lane only. The WASM codec owns canonical bytes and typed proofs.
 export class BrowserGameError extends Error {
- constructor(code) { super(code); this.name = "BrowserGameError"; this.code = code; }
+ constructor(code, diagnostic) { const safe = browserGameDiagnostic({ code, diagnostic }, "game_session"); super(code); this.name = "BrowserGameError"; this.code = code; this.diagnostic = safe; }
 }
-const fail = (code) => { throw new BrowserGameError(code); };
+const fail = (code, diagnostic) => { throw new BrowserGameError(code, diagnostic); };
 const json = (value) => JSON.stringify(value);
 const copy = (value) => JSON.parse(json(value));
 const hex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
@@ -94,7 +96,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
     if (parent?.[last] && typeof parent[last] === "object") parent[last] = field(payload, nestedPath);
    }
    return payload;
-  } catch (error) { if (error instanceof BrowserGameError) throw error; fail("game_response_invalid"); }
+  } catch (error) { if (error instanceof BrowserGameError) throw error; if (error instanceof BrowserParticipantError) throw new BrowserGameError(error.code, error.diagnostic); fail("game_response_invalid"); }
  }
  const readRequest = () => ({ observation_nonce: nonce(), contract_version: 1, world, scope_id: `agent:${agentId}`, min_commit: null, fixed_commit: null, deadline_unix_ms: null });
  async function describe() {
@@ -158,7 +160,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   const request = decoded(original.signedRequest.rawJson);
   let result;
   try { result = await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect); }
-  catch { fail("operation_unknown"); }
+  catch (error) { const detail = browserGameDiagnostic(error, "game_session"); fail("operation_unknown", { ...detail, causeCode: detail.code }); }
   // Submission admission is never substituted for an original lookup result.
   const checked = await lookup(original);
   await recovery.settle(original.operationId, { state: checked.state, receipt: { rawJson: json(checked.receipt) } });

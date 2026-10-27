@@ -173,6 +173,44 @@ afterEach(() => {
 });
 
 describe("focused viewer UI contracts", () => {
+  it.each(["spectator", "unavailable"])("does not call a populated public world empty for %s", async (kind) => {
+    const base = sampleSnapshot();
+    const {core, container} = await renderViewerApp({selection: {kind: "agent", id: "agent-1"},
+      setupAfterMount(core) { core.state.auth = {...core.state.auth, boundAgentId: null, playerId: null}; },
+      snapshot: sampleSnapshot({model: {...base.model,
+        agents: Object.fromEntries(Array.from({length: 5}, (_, i) => [`agent-${i}`, {...base.model.agents["agent-0"], id: `agent-${i}`} ])),
+        agent_player_bindings: {}, agent_player_public_key_bindings: {},
+      }, player_gameplay: {
+      ...base.player_gameplay, blocker_kind: "llm_required", blocker_detail: "LLM required", gameplay_capability: {subject: {kind}, recovery: []},
+    }})});
+    expect(core.state.auth.boundAgentId).toBeNull();
+    expect(core.buildGameplaySummary().entityCounts.agents).toBe(5);
+    const stage = container.querySelector("#viewer-stage-panel");
+    expect(within(stage).queryByText("No published entities yet")).not.toBeInTheDocument();
+    expect(within(stage).getAllByText(/personal ownership|personal owner/).length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("This is a new-user empty world");
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+
+  it.each(["available", "blocked"])("renders canonical recipe %s without inheriting legacy recovery or sponsorship", async (status) => {
+    const { container } = await renderViewerApp({snapshot: sampleSnapshot({player_gameplay: {
+      ...sampleSnapshot().player_gameplay,
+      major_power_dependency_status: "forced",
+      repair_available: true,
+      recovery_path_detail: "legacy repair is available after a snapshot refresh",
+      gameplay_capability: {goal_id: "current_industrial_capability", recovery: [
+        {kind: "current_recipe_run", status,
+          reason_code: status === "available" ? "canonical_recipe_quote_available" : "canonical_recipe_admission_rejected",
+          action: {ScheduleRecipe: {factory_id: "factory-0"}}},
+        {kind: "repair", status: "unknown", reason_code: "unsupported_recovery_action", action: null},
+      ]},
+    }})});
+    const stagePanel = container.querySelector("#viewer-stage-panel");
+    expect(within(stagePanel).getAllByText(new RegExp(`Run the current recipe: ${status}`)).length).toBeGreaterThan(0);
+    expect(within(stagePanel).getAllByText(/Repair: unknown/).length).toBeGreaterThan(0);
+    expect(within(stagePanel).queryByText("forced")).not.toBeInTheDocument();
+    expect(within(stagePanel).queryByText("legacy repair is available after a snapshot refresh")).not.toBeInTheDocument();
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+
   it("keeps visible Prompt Overrides contained inside the Advanced disclosure", async () => {
     const { core } = await renderViewerApp({
       selection: { kind: "agent", id: "agent-0" },

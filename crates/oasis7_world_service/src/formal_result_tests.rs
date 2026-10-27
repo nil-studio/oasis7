@@ -399,6 +399,96 @@ fn business_result_proof_distinguishes_missing_leaf_from_cas_failure() {
 }
 
 #[test]
+fn bft_successor_result_tree_requires_exact_parent_and_actual_world_boundary() {
+    let (world, _trust, anchor, _proof) =
+        crate::formal_read_fixtures::actual_world_initial_fixture();
+    let identity = anchor.head().record().world.clone();
+    let mut index = MemoryIndex::default();
+    let initial = FormalBusinessResultTreeV1::for_initial_world(&world, &identity, &index)
+        .expect("initial result tree");
+    index.persist(&initial.delta.node_writes);
+    let parent_root = initial.tree.root().unwrap();
+    let snapshot = world.snapshot();
+    let execution_state_root =
+        blake3::hash(&oasis7_world_state::codec::snapshot_cbor(&snapshot).unwrap())
+            .to_hex()
+            .to_string();
+    let update =
+        FormalBusinessResultTreeV1::extend_bft_successor(super::FormalBftResultSuccessorInputV1 {
+            world: &world,
+            identity: &identity,
+            height: 2,
+            parent_result_root: &parent_root,
+            execution_state_root: &execution_state_root,
+            previous: &initial.tree,
+            new_results: &[],
+            reader: &index,
+        })
+        .expect("exact BFT successor boundary");
+    assert_eq!(update.tree.metadata().formal_position, 2);
+    assert_eq!(
+        update.tree.metadata().after_state_root,
+        execution_state_root
+    );
+    assert_ne!(update.tree.root().unwrap(), parent_root);
+
+    assert!(
+        FormalBusinessResultTreeV1::extend_bft_successor(super::FormalBftResultSuccessorInputV1 {
+            world: &world,
+            identity: &identity,
+            height: 3,
+            parent_result_root: &parent_root,
+            execution_state_root: &execution_state_root,
+            previous: &initial.tree,
+            new_results: &[],
+            reader: &index,
+        },)
+        .is_err()
+    );
+    assert!(
+        FormalBusinessResultTreeV1::extend_bft_successor(super::FormalBftResultSuccessorInputV1 {
+            world: &world,
+            identity: &identity,
+            height: 2,
+            parent_result_root: &h(99),
+            execution_state_root: &execution_state_root,
+            previous: &initial.tree,
+            new_results: &[],
+            reader: &index,
+        },)
+        .is_err()
+    );
+    assert!(
+        FormalBusinessResultTreeV1::extend_bft_successor(super::FormalBftResultSuccessorInputV1 {
+            world: &world,
+            identity: &identity,
+            height: 2,
+            parent_result_root: &parent_root,
+            execution_state_root: &h(98),
+            previous: &initial.tree,
+            new_results: &[],
+            reader: &index,
+        },)
+        .is_err()
+    );
+    let mut wrong_identity = identity.clone();
+    wrong_identity.chain_id.push_str("-other");
+    assert!(
+        FormalBusinessResultTreeV1::extend_bft_successor(super::FormalBftResultSuccessorInputV1 {
+            world: &world,
+            identity: &wrong_identity,
+            height: 2,
+            parent_result_root: &parent_root,
+            execution_state_root: &execution_state_root,
+            previous: &initial.tree,
+            new_results: &[],
+            reader: &index,
+        },)
+        .is_err()
+    );
+}
+
+#[test]
 fn private_result_scope_and_metadata_generations_are_explicit() {
     let leaf = outcome();
     leaf.validate().unwrap();

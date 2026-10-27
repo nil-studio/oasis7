@@ -145,4 +145,6 @@ valid_state; run_m4=1; selected=(m4 m1); selected_module_sets=m4,m1; selected_mo
 valid_state; scope=all; run_all=1; run_m1=0; selected=(); selected_module_sets=""; selected_module_sets_json='[]'; reject_state
 valid_state; scope=skip; run_m1=0; selected=(""); selected_module_sets=""; selected_module_sets_json='[]'; reject_state
 
+candidate_plan=$(bash "$ROOT_DIR/scripts/plan-wasm-determinism-scope.sh" --event-name pull_request --changed-path crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json)
+[[ "$candidate_plan" == *'scope=all'* ]] || { echo "candidate descriptor must select all sets" >&2; exit 1; }
 echo "plan-wasm-determinism-scope.test: OK"

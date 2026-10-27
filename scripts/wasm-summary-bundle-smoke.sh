@@ -26,6 +26,8 @@ target = pathlib.Path(sys.argv[1])
 module_set, runner, host_platform, canonical_platform = sys.argv[2:]
 
 summary = {
+    "purpose": "release-build",
+    "baseline_sha256": "",
     "schema_version": 1,
     "module_set": module_set,
     "runner": runner,
@@ -108,7 +110,7 @@ for module_set in m1 m4 m5; do
     exit 1
   fi
 
-  rg -n "host_platform mismatch" "$tmp_root/bad-stage-$module_set.stderr" >/dev/null
+  grep -F -q -- "host_platform mismatch" "$tmp_root/bad-stage-$module_set.stderr"
 done
 
 echo "wasm summary bundle smoke: OK"

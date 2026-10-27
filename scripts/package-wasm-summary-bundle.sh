@@ -55,6 +55,7 @@ out_dir=""
 archive_path=""
 module_sets_csv="m1,m4,m5"
 runner_label=""
+baseline_kind="release-build"
 source_summary_root=""
 
 while [[ $# -gt 0 ]]; do
@@ -65,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --archive)
       archive_path=${2:-}
+      shift 2
+      ;;
+    --baseline-kind)
+      baseline_kind=${2:-}
       shift 2
       ;;
     --module-sets)
@@ -126,7 +131,7 @@ for module_set in "${module_sets[@]}"; do
     fi
     cp "$source_summary" "$target_summary"
   else
-    ./scripts/ci-m1-wasm-summary.sh \
+    ./scripts/ci-m1-wasm-summary.sh --baseline-kind "$baseline_kind" \
       --module-set "$module_set" \
       --runner-label "$runner_label" \
       --out "$target_summary"
@@ -148,11 +153,29 @@ if not module_sets:
 summary_files = {}
 host_platform = None
 canonical_platforms = set()
+baseline_identity = None
 for module_set in module_sets:
     summary_path = out_dir / "summaries" / module_set / f"{runner_label}.json"
     if not summary_path.is_file():
         raise SystemExit(f"error: summary missing from bundle: {summary_path}")
     payload = json.loads(summary_path.read_text())
+    if (
+        type(payload.get("schema_version")) is int
+        and payload["schema_version"] == 1
+        and "purpose" not in payload
+        and "baseline_sha256" not in payload
+    ):
+        raise SystemExit("error: legacy-envelope/current-freshness-unverified: original evidence retained; canonical rebuild required for current gates or new proof assembly")
+    purpose = payload.get("purpose")
+    digest = payload.get("baseline_sha256")
+    if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest))):
+        raise SystemExit("error: unknown/malformed summary baseline purpose")
+
+    identity = (purpose, digest)
+    if baseline_identity is not None and baseline_identity != identity:
+        raise SystemExit("error: mixed summary baseline purposes")
+    baseline_identity = identity
+
     if payload.get("schema_version") != 1:
         raise SystemExit(
             f"error: summary {summary_path} schema_version must be 1, got {payload.get('schema_version')}"
@@ -189,6 +212,8 @@ for module_set in module_sets:
     summary_files[module_set] = str(summary_path.relative_to(out_dir))
 
 manifest = {
+    "purpose": baseline_identity[0],
+    "baseline_sha256": baseline_identity[1],
     "schema_version": 1,
     "runner_label": runner_label,
     "host_platform": host_platform,

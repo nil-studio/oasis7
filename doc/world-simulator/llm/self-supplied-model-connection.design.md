@@ -82,6 +82,8 @@ Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；[上游要求](../../p
 
 Participant 登记、Task 创建与 goal publication 的持久原件必须区分 `not_sent`（可靠记录证明尚未进入实际 POST 边界）与 `may_have_sent`。新原件与 `not_sent` 一次持久化；完成当前登录/CSRF 和 owner 授权核对后，在实际 POST 前以本原件的原子条件更新持久化为 `may_have_sent`，写入失败不得发送。标记后即使 Stop 或传输失败也保持可能已发；旧 schema 或缺可靠标记的原件保守归为可能已发，不能从 Unknown、无 receipt 或近期快照倒推出未发。所有槽位分别记录阶段；同账号跨页竞争只能有一个原子更新成功，失败者只核对原件。
 
+schema 2 的发送许可与共用操作生命周期保持同一事务：`not_sent` 对应 `prepared_unsent`，实际 POST 前同时推进为 `may_have_sent` 与 `dispatch_may_have_started`。旧 schema、任一可靠许可标记缺失或未保留原件创建时的 owner/task scope 时，只读查询，不补造发送许可；新 Task/goal 原件的首发还须在发送边界核对当前 canonical owner、任务与 fence。已验证 terminal 回执以原件为键保留，迟到查询不能降级它，旧终态记录也不能因阶段标记变化而重发。私有目标准备仍按其独立的同 proof 回放策略处理。
+
 只有可靠 `not_sent` 原件可显示“继续发送保留的原件”。刷新、inspect、重连及 Stop 后重开只读，不自动发送；玩家须在当前账号/world/owner 授权仍有效时另行明确继续，复用完全相同的签名字节、operation/nonce 与绑定。Task/goal 的后续准备仍使用原有明确同意和原目标，不自动登记 executor 或开始模型。`may_have_sent` 只按原件查询，不重新提交或换号；迟到旧账号/世界/停止代的回调不能取得发送资格。此切片不改变 private goal preparation 的同原件回放合同，也不将 hosted action 纳入已完成范围。
 
 浏览器 Game Client 的协议校验由独立 Rust/WASM 桥复用 `oasis7_client_api` 的 canonical CBOR、BLAKE3、Ed25519 与 typed validator，不复用渲染 WASM 的信任或以 JS 数值重编码替代签名原文。请求/响应原文在桥中校验后才投影为页面状态。服务公钥和 world/genesis pin 来自部署端唯一注入的 runtime config，不能从 URL、模型建议或未认证快照安装。独立 executor 的非可导出 CryptoKey 与原签名操作/恢复索引存于按账号、世界、Agent 隔离的 IndexedDB；模型 Key 仍只存 localStorage。owner 通过现有 Delegation 与 GameExecutorControl Bind 显式登记 executor，登录身份不直接冒充 executor。
@@ -171,6 +173,8 @@ Stop 先撤销运行 generation/持久停止标记再取消待发工作，保留
 localStorage 命名空间不能防御同源恶意脚本。部署应采用严格 CSP，限制供应商 connect-src，避免第三方脚本和 session replay，不加载模型返回脚本/HTML；模型结果按不可信数据解析。禁止把 Key 放入 DOM 属性、URL、分享、HAR/截图或诊断导出。既有应用登录、世界 CSRF/Origin、签名和权限校验继续有效；不把模型 Key 转成登录凭证。
 
 供应商请求失败只输出本地固定错误分类（认证、额度、预算、限流、模型/协议不兼容、容量、网络/CORS、存储、活动页冲突）；供应商原始错误体可能含输入，不直接展示。CORS 与网络失败未必可由 JS 区分，文案不得声称已确认具体原因。完整响应大小、流式累积、工具参数和终态须有界；截断或畸形工具不执行，不通过自动重试/抬高预算解阻塞。记录最小 provider/model/revision、计数、耗时与 unknown 用量，不记录完整 prompt/response、私有推理或 Key 指纹。
+
+浏览器 Game Client 的入口准备与原件核对也须提供安全诊断：展示本地固定错误码及失败阶段，网关失败可附实际 HTTP 状态和客户端明确列举的服务端固定错误码；未知码降为固定未知分类，不透传任意响应正文、异常消息、签名、目标或请求原文。网络、超时、存储、身份/权限、部署支持和协议校验失败分别提示相应下一步；传输或校验失败不能证明世界拒绝或原件未生效。Pending、已确认拒绝/过期和无法核对分别呈现，保留原请求并仅提供合法只读恢复。成功核对清除旧失败诊断；账号、世界或运行代改变后的迟到诊断不得覆盖当前状态。诊断不触发模型、重发、新原件或预算重置。
 
 ## 10. 兼容、迁移与部署
 

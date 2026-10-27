@@ -32,6 +32,25 @@ pub fn from_authenticated_world(
             }
         }
     }
+    let subject = match authorized_agent {
+        Some(agent) => oasis7_world_state::gameplay_capability::GameplaySubject::Personal {
+            owner_agent_id: agent.into(),
+        },
+        None => oasis7_world_state::gameplay_capability::GameplaySubject::Spectator,
+    };
+    let execution_actor = authorized_agent.filter(|agent| {
+        super::agent_authority::owner_public_key(world, agent)
+            .ok()
+            .as_deref()
+            == Some(caller_public_key)
+    });
+    let query =
+        world.gameplay_capability_query(subject, "current_industrial_capability", execution_actor);
+    let status = projection
+        .world_rule_status
+        .get_or_insert_with(|| serde_json::json!({}));
+    status["gameplay_capability"] =
+        serde_json::to_value(query).map_err(|_| "gameplay query encoding unavailable")?;
     Ok(projection)
 }
 
@@ -273,3 +292,6 @@ mod factory_authority_tests;
 
 #[cfg(test)]
 mod read_contract_tests;
+
+#[cfg(test)]
+mod cognition_read_tests;

@@ -570,6 +570,7 @@ Identity 向 Owner 和 Executor 分别提供独立的命名 service entrypoint�
 | 静态调用角色 | 固定 route enum / native 路径 | 允许条件 |
 | --- | --- | --- |
 | Owner | ParticipantAuthorize / /api/public/hosted-account/v2/participant/authorize | 已批准的同一 provision operation；提交既有 owner 签名的 GameParticipantRegisterV1 |
+| Owner | ParticipantPolicyOriginal / 同前缀的 participant/policy-original | 只读固定 World policy；Account 先登记唯一 observation_nonce，Identity 使用自己的托管 session 转送；返回原 SignedReadRequest 与 SignedServiceResponse，Owner 按固定 World service pin、request digest、nonce 和 world 核验，不信 discovery payload |
 | Owner | ParticipantSubmit、ParticipantLookup / 同前缀的 participant/submit、participant/lookup | 原 participant 请求及关联；submit 需要有效派发 claim，lookup 不重建注册 |
 | Owner | ParticipantOwnerView / 同前缀的 participant/owner-view | 同一账号/世界的有界核对许可；返回供 Owner 验证的原服务响应 |
 | Owner | OwnerControl / 同前缀的 entry-owner/control | 仅既有 EntryOwnerControlRequestV1 与当前 profile 允许的 owner 操作；必须匹配本服务批准/claim 或受限恢复查询许可 |
@@ -582,6 +583,8 @@ ForwardV1 最小字段：schema_revision、environment、custody_account_id、na
 Identity 通过专用窄 binding 向 AccountAuthority 核对许可引用与其已落盘的账号、调用角色、route、payload digest、操作/attempt、期限和安全代；不是检查一个客户端传来的布尔值。对于写请求，原协议 bytes 已在账户 outbox 持久保存，并且已完成最终 claim。读取与 provisioning 许可也有固定用途、请求预算和截止，不能用于普通新写。直接让 Identity 持有 Owner 的全部管理入口不是实现方式。
 
 每次经上述角色 forwarding 派发 participant/owner/executor 调用前，Identity 使用该托管账号自己的当前 session 核验 /session 返回的 account_id，再按现有合同取得/使用 CSRF；验证当前 AccountAuthority 许可及 Recovery Fence，固定 HTTPS origin、identity namespace/audience 和对应 native 路径，拒绝重定向。Cookie/Origin/CSRF 由适配器构造，payload 由 Rust 从原 bytes 解析校验或原样发送，不经过 JS Number 或 stringify 重编码。Native gateway 的账号、session、owner/executor 与 world fence 检查继续生效。初次机器注册/native-key login 则走既有 preauth/challenge 合同及有效 provision/managed_login 许可，不要求尚未建立的托管 session，也不把该例外开放给角色 forwarding。
+
+policy 原件只证明固定 World 对该 nonce 关联请求的策略观察，不是托管账号或 session 存活的跨 authority 签名，也不构成 participant admission、canonical receipt 或执行许可。Account 必须将原件绑定到自己预先登记并计费的唯一 nonce、当前 native→custody 关联和观察窗口；Owner 仍须单独检查当前来源、独立 Fence、真实 session 转发及后续 admission/receipt/current owner，不能把 native issuer 对只读请求的签名当成管理者批准或账号存活证明。
 
 session 核验、Account DO、Recovery Fence 与 native HTTP 不组成分布式事务。claim 后可能发送的请求仍按在途处理；冻结/撤销不能追回已离开 bytes。Identity 的 HTTP 成功不结算业务状态：它只返回有界原响应及传输状态，Owner/Executor 验证 service signature、world pin、correlation 与原请求后，才调用 AccountAuthority settle。传输中断保留原 operation/预算，后续按原查询/查重合同核对。
 
@@ -641,6 +644,14 @@ complete 丢响应时，客户端保留原 approval_request_id、ceremony 和 co
 
 Provision 批准原件必须显式签入 `purpose` 与原 draft 的完整 `plan_digest`，并逐项绑定 provision/account、environment、bootstrap version、固定 identity/world routes 与完整 world pins、native identity namespace、注册/登录 request IDs、deadline 和 transport budget。`intent_digest` 与 `plan_digest` 使用不同分域，不能直接视为相等或仅凭相似字段推断授权。缺少新增必需绑定的旧批准原件拒绝消费，不以默认用途或空摘要补齐。 新 Account draft 的目标 authority security epoch 沿现有初始化合同为 0；仅上述完整绑定的 Provision bootstrap 批准允许该目标代，Owner 消费时仍须匹配真实 pristine draft 的当前代。此例外不适用于其他 intent，也不放宽管理者来源、原生凭证/会话或 service epoch 的验证。Account DO 在同一个持久事务内消费已核验 proof、将同一 draft 的 ProvisionRecord 转为 approved，并写入三个固定角色 key 准备阶段的有界原 outbox 和审计；异步验签后必须在提交点重验当前来源、ACL/配置版本、冻结状态和时钟。该提交本身不生成 key、不创建身份、不派发任何阶段；取消或冻结先关闭阶段准入并保留这些原件。
 
+批准入口单独由显式 `CUSTODY_PROVISION_APPROVAL_ENABLED=true` 开启；缺省不启用，单有该开关也不能绕过其他权威。Identity 完成同源管理认证后，只将闭集批准请求与当前管理元数据送往 `OwnerManagement.approveProvision`。Owner 从已登记目录核对同一管理者、provision/account、完整且未冻结的关联库存、初始化状态及当前配置；Account 根据真实 draft 与固定配置建立目标 authority，不信任请求自报的当前版本。Account 先登记本次 native verify nonce，再调用独立 `IdentityNativeApproval.verifyApproval`，最后重读目录与独立 Recovery Fence，核对签名验证原件后在同一 Account SQL 事务消费。目录与 Fence 观察保留版本及观测时间，提交时最多接受五秒前的观察并重验本地冻结、配置和时钟；这些跨 DO/原生读取不构成分布式原子事务，原生撤销到全部账号关闭之间仍按既有 pending 屏障处理。
+
+Recovery Fence 的 `RecoveryFenceReader.read` 是固定命名的只读 binding，读取该独立 Worker 的固定持久命名空间，不接受调用者指定 epoch 或 DO 地址，默认 HTTP ingress 不转发它。新命名空间仍初始化为冻结；普通批准不能启用或解除它。首次启用与恢复必须由独立、受控的恢复合同完成，在该合同未完成或 Fence 仍冻结时，批准正向路径必须拒绝。隔离测试可明确提供测试 authority 证明其余调用链，但不能据此宣称真实 Fence 已启用或生产批准可用。成功批准仅返回非秘密 operation/阶段引用，不回传原生 proof、session 或内部来源上下文。
+
+**独立 RF 激活合同：** 激活不是 `tighten` 的反向调用，也不接受普通 Owner proof 或请求中的 enabled bool。部署侧固定 environment、独立 authority ID、实际 RF Durable Object ID 和离线恢复公钥集合；集合包含 2 至 5 个不同 key ID 与公钥，固定 quorum 至少为 2。发布配置只安装公钥，不安装恢复私钥；普通 Identity/Owner/Executor 不绑定控制入口。首次启用和新代恢复均须对闭合 `RecoveryActivationManifestV1` 的唯一 canonical CBOR 域取得 quorum 个不同固定公钥的严格 Ed25519 签名。manifest 绑定固定 scope、policy digest、当前完整 RF state digest、原 epoch、严格加一的新 epoch、operation ID、最多五分钟的新鲜期限和非空 evidence digest。evidence digest 是独立恢复操作者对旧 writer 隔离、Stop/Revoke/原件与库存核对记录的批准引用，不冒充代码已自动验证这些外部事实；无法完成核对时不得签发 manifest。签名只允许推进服务代，不授予任何账号 grant、预算、SID 或业务写能力。
+
+RF 的条件 SQL 事务必须在异步验签之后重读 policy/scope、完整库存摘要、旧 epoch、时钟与原件，并原子保留已消费 manifest、旧代冻结墓碑、新代 active fence 及审计；响应丢失只回读同一原件，不重复推进、续期或以旧回执解冻当前代。历史容量有界，容量满仅阻止新的激活，不能阻止本地收紧冻结。审计必须逐 revision 从保留的原件和冻结转换重放，核对归属、连续序号、闭集 payload 和对应 state digest；仅核对行数不足以证明完整性。配置/namespace/policy 不符、未知或损坏/缺失历史保持 disabled/pending，不能把旧 active 记录当作新 namespace bootstrap。旧代墓碑不可删除；本合同不提供恢复根集合轮换或 RF 自身回滚的捷径。同一物理 DO 的整库一致 PITR 或全量丢失无法由同 DO 内的 ledger 自证，属于运维禁区，不在部分库存损坏检测的保证内；恢复不能自动复用旧 manifest，应隔离旧服务并按独立恢复权威重新核对 namespace 和下游状态。既有 `RecoveryFence.tighten` 永远不能 reenable，独立控制入口缺省关闭且不由默认 HTTP 转发。开启新服务代后，旧账号状态仍须冻结并按现有恢复流程取得新批准；manifest 不重写旧 proof、原件、预算或 grant 的 service epoch。实际部署、离线签发与外部核对须另行授权，单元/隔离平台测试不代签这些义务。
+
 稳定定位映射由服务端固定版本计算/存储；调用者不能以路径参数选择并初始化一个已存在的任意 Account DO。空 draft 的 ACL 仅限创建者读取/批准该草稿；native account 尚未建立，不能据此发 grant。allowlist 配置变化与当前管理凭证有效性在批准/派发前重验。
 
 管理认证适配复用原生固定 GET/POST `/api/public/hosted-account/v2/custody/management-session-status` 与 `CustodySessionStatusV1`。GET 只读；POST 空正文仍经过现有 Origin/CSRF 与 `management_session`。Identity 只转发当前唯一 SID 和原始精确 Origin/CSRF；Worker 须位于同一 HTTPS RP origin，不伪造跨域身份。Owner 的 `ManagerAssociations` DO 只协调关联与冻结，`AccountAuthority` 仍是账号权威。管理请求的 Identity→Owner binding 只配置 `OwnerManagement` 的固定命名方法；原生 proof verify 使用单独 `IdentityNativeApproval`。实际 builder 会把 Rust free function 挂到默认 entrypoint，因此部署使用只暴露 fetch 与固定 scheduled 回调、没有生成 RPC 的 wrapper，不能把 raw 产物作为部署入口而额外开放默认 RPC。
@@ -654,6 +665,149 @@ Owner 保留权威的 manager→custody account 关联目录，包括 pending pr
 Owner 使用独立命名撤销入口验证固定原生签名，持久关闭目录并接续有界 fan-out。多个来源事件分别绑定到同一永久 manager-wide 冻结，保留第一份不可替换的撤销 notice；后续事件不能因 operation ID 不同而丢失，也不能重开目录。无现存目录时也保存冻结 tombstone，阻止迟到初始化，但未知库存保持 pending；没有独立全集证据时不能把新建空目录当作零关联的证明。旧快照缺少本版本的库存完整标记时同样保持 pending，不能自动升级为已关闭；当前保守实现不提供 fresh login 自动解冻或新建关联。只有目录全集和全部账号确认、在途原件均可核清，才产生固定 Owner key 签发、绑定精确 source event digest 与实际 closure/inventory digest 的 closed 回执；原生 ack 必须核验该回执。未确认始终为 custody pending，identity revoked 单独成立；未知库存不能签 closed。离线身份代推进还须验证原代登记参与者的全部完整事件、永久 checkpoint、精确 trigger 的 Owner 关闭回执以及 writer fence；不扩大到普通非参与账号。checkpoint 签名绑定 registry 摘要、namespace/epoch、参与者、首 trigger、最新事件摘要、水位和前 checkpoint 摘要。首次 overflow 与永久 fence 同事务，Owner 对该精确 trigger 的永久 manager-wide 关闭证明可确认授权入口已关闭；后续 checkpoint 仅记录原生变更连续性，不能据旧 ACK 自动解冻或声称逐条下游确认。缺少这些证据拒绝推进。该通道不获得世界 Stop/Revoke、管理批准、密钥生成或重新登录权限。
 
 目录缺失、版本不明或未收齐确认时不宣称 custody authorization closed，也不继续新增授权。该目录是 Owner 内的路由/撤销协调记录，不另设 grant/预算 authority。
+
+##### 原生托管反向绑定与首次会话
+
+反向绑定使用固定服务 pin 验证的签名事实，不采纳自报 native account、公钥或 manager registry。
+当前 native HTTP 持有 IdentityService/issuer 锁并同步处理请求；不能在锁内回调 Identity→Account 再进入 native 来源检查。
+采用分阶段 challenge/statement，native 只执行本地 crypto/SQL，Identity 在两次 native 请求之间调用固定 Owner RPC。
+这仍使用原 Account authority，不增加另一份 custody ACL/grant authority。
+
+1. Identity 先加密保存原 preauth Cookie/CSRF，再使用原计划派生的 registration operation 完成既有 machine registration。
+   native 从已提交的 machine_register receipt、ceremony、credential 和原 owner-context 推导账号/公钥/摘要，
+   保存 30 秒一次性 binding nonce，并以固定 pin 的 native authority 签发 SignedNativeBindingChallengeV1。
+   闭合字段为 api_version、challenge_id、nonce、identity_namespace、identity_instance_epoch、registration_operation_id、
+   registration_request_digest、registration_receipt_digest、native_account_id、native_credential_ref、login_public_key、
+   owner_context_ref、issued_at、expires_at。owner_context_ref 是 native 生成的摘要，不是 Cookie；调用者不能指定目标账号/key。
+   nonce 为 32 字节的 canonical lowercase hex；签名采用既有无 padding base64url 的 64 字节格式。
+   签名 domain 固定为 oasis7-custody-native-binding-challenge-v1，使用 Rust canonical bytes。
+   普通注册 JSON 回执没有因此获得跨 authority 签名权威。
+   options 只接原 registration_operation_id 与 Account 本次已登记的 binding_operation_id，后者成为 challenge_id。
+   同 attempt 返回原 nonce且不续期；新 attempt 可以为同账号/key 创建新 nonce，每原注册最多永久保留 16 个挑战。
+   达限只拒新增挑战，不能阻止普通 logout/revoke。固定只读 lookup 以原 preauth 核对并返回原 signed receipt 或 404，
+   即使原 statement/nonce 已过期也不丢原事实；Owner 只能接受与自己已登记 statement 匹配的原回执，不能据 lookup 新授权。
+   registration_request_digest 使用 namespace/epoch、原 operation、公钥、display_name 和原 audience 的共享 canonical public projection；
+   native 从原 ceremony 重构，Owner 从自己的原登记请求及固定配置计算，不使用 native 私有 HMAC request digest。
+   bootstrap v1 的 display_name 固定为 Oasis7 managed account，不接受模型/HTTP 请求改名；该常量由原 bootstrap version 绑定。
+   原 registration/login operation 从 environment、custody/provision、namespace/epoch、原 request ID 及 Identity 公钥稳定派生，
+   不直接使用调用者 ID，也不因未知结果重新派生身份或操作。
+   registration_receipt_digest 是 native 签名的原 receipt fact；Owner 验挑战后登记，不假称普通 JSON 可重建 native 内部回执。
+2. Account 仅从已批准 Provision、Identity role result、原注册请求及已验 native 签名挑战生成 OwnerNativeBindingStatementV1。
+   statement 嵌入完整 challenge，再绑定 environment、custody_account_id、provision_id、approved_plan_digest、login_key_ref、
+   binding_operation_id、permit_id、source_revision、account_authority_revision、service_epoch、service_identity、signer_key_id、
+   authority_observed_at 和自身 expires_at。Account key ref/请求摘要必须与 native 挑战完全匹配，不能签请求回显字段。
+   先持久预留/claim，核对真实来源、目录、独立 Fence 和最终时钟，保存原 bytes/digest/nonce/attempt 后才签发。
+   使用专用服务 key 和独立 domain oasis7-custody-native-binding-statement-v1，不扩大现 approval-verify secret。
+   最早真实来源/目录/Fence 观察为 authority_observed_at；截止最多其后 5 秒，且不越 challenge/plan/source 截止。
+   转发或重读不能续期；这仍是有界观察，不宣称分布式事务。
+3. native 只信独立配置并持久固定的 Owner 服务 key ID/public key、environment、service identity/epoch。
+   不信 statement 自带公钥、每账号 Owner role key 或普通管理者 key；pin 轮换单调推进，旧 pin 仅供历史核对。
+   接线缺省关闭，不创建/安装运维 key，不解除 Recovery Fence。
+   一个 native SQL 事务重验 nonce、注册 receipt/credential/key/owner-context、账号状态、namespace/epoch、签名和时钟，
+   complete 是闭合 NativeBindingCompleteV1，包含 signed statement 与 login_key_signature；fresh 持钥签名使用
+   oasis7-custody-native-binding-possession-v1 并绑定完整 statement digest，只能由该原 login key 生成，不提供任意字节签名。
+   消费 nonce并保存不可替换的 managed-native→custody/provision/login-key binding、receipt 和 audit。
+   native 以独立 domain oasis7-custody-native-binding-receipt-v1 签署回执，Account 精确验收后才推进。
+   冲突绑定拒绝；丢响应不换身份或覆盖原件；历史同 operation/body 只恢复原事实，不重新授权。
+
+Owner pin 的持久水位按 native namespace 固定，不能只随部署环境变量变更。
+首次仅在该 namespace 没有任何 managed challenge/binding/outcome/失效库存时，
+允许把显式配置的当前 pin 与 native root key/instance epoch 同 SQL 固定；
+旧 managed 库存缺水位时属于 unknown/pending，不能自动补为可用。
+同一 service epoch 只能精确使用原 pin；降代、同代换 key、重复启用已退役 key 均拒绝新准入。
+更高 epoch 需要独立 OwnerPinRotationManifestV1：绑定原 ledger digest、native namespace/instance epoch、
+原/新 pin、operation_id、issued_at/expires_at（最多五分钟），同时带已固定 native root 的专用域签名
+与新 Owner key 对完整 manifest digest 的持钥签名。manifest 只从固定运维配置读取，
+不接受普通管理批准、公开请求 bool 或 statement 自报的签名 key。
+同 SQL 验证并推进水位、保存旧 pin 指纹墓碑；旧 key 只可核对已存历史事实，不能再签发新准入。
+初版最多保留 256 次轮换墓碑，达到容量只拒绝后续轮换，不影响原生 logout/revoke。
+native root 或 instance epoch 变化不由该 key 轮换协议隐式激活，仍 pending，等待独立恢复合同。
+业务开关关闭时保留水位；重新加载同一当前 pin 不得清除任何既有 frozen/pending 或旧 key 墓碑。
+历史 receipt 查询不改 pin 或水位；pin 不匹配时不能签 custody active session status 或按托管登录原件发新 SID。
+服务 pin 轮换不等同于吊销底层 native credential；普通 native-key 登录仍遵循原有持钥协议，
+其 SID 不能据此恢复退役 binding 的 custody 活性或 grant。
+普通原生账号的独立 logout/revoke 不依赖该 pin 水位成功。
+
+managed binding 库存与 manager registry 分离。托管账号/credential/session 失效按可信 binding 关闭相应 custody 入口，
+不得路由成 manager-wide 目录，不影响普通非参与者。缺失、legacy、未知库存仍 pending；容量满只拒绝新增 custody 尝试，
+不能阻止原生 logout、撤销和失效事实持久化。业务关闭还需完整库存/在途原件及独立 Stop/Revoke，不能凭 binding 签 closed。
+
+注册、binding、初次 login 各用 Account 先登记的阶段原件，每次预留 64 transport，包含来源预检、固定角色许可/签名、
+native 往返和最终核对；真实接线不得越该上界。同原件不恢复发送权，unknown 不退款，新尝试另扣并恢复同一账号/key。
+Provision 总上限仍 400，旧批准不自动提高；不足保持 pending/recovery_required。
+Owner 只见非秘密引用/摘要/回执；preauth、CSRF、原请求和 session 由 Identity 私有 DO 加密，AAD 区分
+login-key/preauth/native-session/original-request，并绑定 environment、namespace/epoch、custody account、provision、record ID/version。
+
+首次 login 只消费原 Provision 明示的一次 operation；原 SID 先加密持久化，再核托管账号自己的 session-status，
+才上报非秘密 generation/status。complete 已提交但未保存原 Cookie 时只记 explicit_login_required，
+禁止重放领 Cookie或用旧计划新建登录；fresh Passkey ManagedLogin 批准须原子消费并登记新登录原件。
+恢复/heartbeat 不能扩大截止或预算；native/session-ready 不等同于 participant-bound 或世界可执行。
+status 的 generation 是 native 持久 binding 失效水位；Identity 私有 SID 槽代独立记录，不能混用或由请求自报。
+托管登录的原生 options 另带显式 managed_operation_id（规范的 32-byte base64url ID），
+作为已批准逻辑登录与 native ceremony 的同一永久操作标识；不把随机响应 ID 当作批准目标。
+该扩展仅在托管适配开启时用于 login，普通 native-key 客户端不带该字段仍由服务随机分配 ID，
+不改变 bind/reauth 或既有 operation_id 字段的行为。
+在 native pending 原件保留期内，同一托管 ID 的重试必须精确匹配原 preauth owner、Origin、
+namespace/instance epoch、public key 与用途，只返回原 challenge，不换 nonce、不延长截止；已过期即拒绝。
+未持钥证明的 pending 原件按既有 TTL 清理后，native 只能回答该 ID 当前 unknown，不能证明从未出现过。
+Account/Identity 仍永久保留原逻辑 ID、请求原件、截止与 claim，不能借 native 的 unknown
+重获旧 attempt 发送权、替换已存 options/complete 或视为已成功；新的 native challenge 本身不是 custody 授权。
+成功 complete 必须同 SQL 留永久已提交原件或墓碑，清理 ceremony 后也不得按该 ID 再发起登录。
+该提交原件不保存或重放 SID Cookie；same-complete 或 options 重放只能返回已提交事实/拒绝，
+不能领取旧 Cookie。未持钥证明的 pending options 保留既有期限和配额，不能据此制造永久成功墓碑。
+status/invalidation 的 service_epoch 指该绑定原 Owner statement 中的 custody service epoch，
+不使用 native RP 的 instance epoch 代填；后者继续单独核对 namespace、原账号、credential 与会话。
+
+Identity manifest 已存 complete 事实但 Account 未收到提交时，公开 continue 必须能够调用固定、纯只读的历史通道。
+该通道仅按 immutable environment/account/provision、原阶段与 logical operation、首次产生结果的 result_permit_id
+返回原 typed Root fact 和已存 SID 的非秘密 attestation；不发 GetPermit、不读 KEK/Cookie、不签名、不发 native 请求，
+也不初始化或修改 manifest。缺原件返回 unknown；旧记录无法唯一确定结果所属 attempt 时仍 pending。
+Account 独立强验 Root 签名、原 namespace/key/pin、已登记请求及已知 B1 statement，永久归档该原事实与原观察/截止。
+归档本身不推进 NativeSessionReady、不激活 epoch、不清除 frozen/cancel、不产生预算或恢复发送权。
+若原结果与原批准仍满足当下全部新鲜度/来源/目录/Fence/时钟约束，可经原最终 SQL 准入提交；
+不能拿原 claim 时间重验已过期的 RootStatus 并宣布当前可用。
+
+已存 SID 的当前状态恢复必须另有有界 SessionStatusRecovery 原件：只允许同一已登记 login 与该私有 SID generation，
+用独立 nonce、固定只读 native session-status 路径和新鲜来源/目录/Fence；不调用 options/complete、不再签登录。
+每个恢复原件先预扣 64 transport 和最多八次 oracle 读，不能续旧 permit；
+首次登录恢复从仍有效的原 Provision 预算扣除，ManagedLogin 恢复只从该次 fresh 批准尚余的预算扣除。
+原截止、当前权限或余额不足时只保留历史 pending/frozen，不自动加额或借旧 grant，须取得另一个适用的有效批准。
+SID 确实未保存时只记录 explicit_login_required；恢复或历史查询不能改为重新领取 Cookie。
+若该收紧结果到 Account 的提交丢失，固定 Identity history named capability 可另外返回 typed missing-session attestation，明确区别于 Root 签名事实。它只能来自已完成且持久保存 explicit_login_required 的 manifest，绑定原 scope、phase、native operation、原 permit/result permit 与稳定 intent digest；当前仅允许初始或 ManagedLogin 的原 permit，不猜测 legacy/recovery 归属。Account 仅对自己已 claimed 且尚无成功结果的精确原件记录 explicit_login_required，允许在到期、冻结或取消后收紧，但不得改 stage、epoch、预算、nonce、期限或解冻。该通道不能成为状态恢复或 Root 验签的替代，也不能覆盖已有成功会话事实。未知、歧义或损坏库存继续 pending。
+新 nonce 的 RootStatus 经真实验签和最终 SQL 当前准入后才可声明 NativeSessionReady；
+与归档的历史状态及独立 native binding 失效水位分开保存，失败不能复活旧状态或旧发送权。
+
+原生阶段必须先在 Account 本地预留固定核验原件、nonce 与预算，才可执行来源检查 I/O。
+首次 inspect 的目录预检查只读取已关联管理者的当前目录、冻结与独立 Fence；
+它可以定位已验签原批准保存的 immutable source refs，但不能把旧 server_time 改成新鲜活性证明。
+该只读历史预检查只能 claim 已预留的 inspect 原件，不能签发阶段许可、签名、密钥或业务发送权。
+inspect 返回当次 nonce 绑定的真实 native 签名后，必须再走正常新鲜管理会话检查、目录/Fence 与最终 SQL 重验，
+才可 claim 阶段或返回 oracle 许可。所有 oracle 均先本地耗用有界读信用，再执行远端检查。
+
+初始 Provision 的 target epoch 0 仅用于完整 bootstrap 原任务，不能扩展给 ManagedLogin 等其它 intent。
+绑定回执经真实验签及当前准入后，Account 同 SQL 保存 native target/key 关联与一次性 bootstrap 激活记录，
+将实际 custody target authority 从 0 单调推进到 1；这不是借用 native account 的 security epoch，两者独立。
+原 Provision 的来源核对仍验证已消费 proof 的完整原 context，但每次派发另外精确核对当前阶段的实际 target epoch。
+仅该原绑定结果允许记录 0→1 接续；撤销/冻结或其它升代都会使旧阶段许可失效，不能拿旧 proof 恢复旧代。
+新的 ManagedLogin 须对当前正数 target epoch 作 fresh 批准，精确绑定 native account、login key、namespace、
+blocked operation 和有界期限/预算；批准消费与新登录原件同事务，不复用原 Provision nonce或旧操作发送权。
+ManagedLogin intent 必签新的 login_request_id 和 transport_limit（64..400）；kind 本身限定 purpose，
+旧 proof 缺这些字段即拒绝，不从旧 Provision 借额度，不根据剩余 deadline 猜出额外预算。
+同一个 Account 对 ManagedLogin 批准的原 native nonce/proof 保留全局唯一消费关联，
+覆盖 pending 与 consumed 原件及恢复校验；更换未签署的 operation_id 不能重复消费同一批准或再次获得预算。
+相同 operation 的精确历史重试只返回原结果，不签发新操作，也不清除该唯一关联。
+管理 HTTP 使用相同 Origin/CSRF/Passkey 管理会话前置：
+`POST /v1/account-provisions/{id}/managed-logins/approve` 只消费本次 ManagedLogin 批准并登记新原件；
+`POST /v1/account-provisions/{id}/managed-logins/continue` 只选择该已批准 operation 执行一次登录。
+后者沿用只含 api_version/operation_id 的 continuation body，不允许传 session、key、native endpoint 或 current authority。
+原 Provision 的 continue 只按 Account 已存阶段接续开户、绑定和首次登录；
+Account 已提交结果而 RPC 丢响应时以原事实推进，unknown 同 attempt 不重发，不能创建第二次首次登录。
+HTTP 入口仍要求 Identity 本次真实管理会话观察不超过五秒；该观察用于鉴别这次调用，不能充当长流程后来阶段的 grant 证据。
+长 provisioning 循环与其 participant 接续只用该已认证来源的精确 account/session/credential/version/security/policy 引用和绝对 expiry 核对原批准，
+不改写旧 server_time 或签名。每个新阶段仍先登记独立 nonce，通过真实 native inspect、当前 Directory/Fence 和最终 SQL 才授予许可；
+跨阶段超过五秒本身不撤销已提交事实，也不免除下一阶段自己的五秒 live gate。独立 ManagedLogin continue 的入口仍核新鲜管理观察。
+这些原生业务入口另受默认关闭的 native provisioning 配置控制，不改变普通 metadata/默认 RPC 的关闭边界。
+Trace refs: O7-REQ-844f4b30-b7d5-4651-941e-17c21f37b4ac; O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945; O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3.
 
 ##### 分阶段提交与恢复
 
@@ -672,6 +826,22 @@ AccountAuthority 持久保存 ProvisionRecord：provision_id、client_request_id
 
 每一步派发前都重验原 plan 截止/调用预算、管理来源安全版本、Account DO 状态与 Recovery Fence。30 秒是批准证明的消费窗口；已经消费的 provision 计划仍只能在其明确的动作范围/截止内推进，不构成无限授权。provision 使用普通 owner 工作容量，不占用 Stop/Revoke 的独立安全控制槽。
 
+开户计划的 `transport_limit` 首版显式限制为 1–400，完整签入批准；它与 TestSession 的 execute/read/cleanup 预算分开，不能互相借用。旧已批准计划不自动扩大额度。派发前对固定调用图保守预留：一次来源检查原件 claim 扣 8 个传输额度，一次角色密钥派发 claim 扣 32 个，覆盖该步骤的目录、Fence、native 核验或角色/oracle/DO 路由等有限调用；未发出或 unknown 的已 claim 尝试不自动退回。该上界不能作为无限内部重试许可，每个角色 permit 最多允许三次当前 oracle 核验（factory、角色存储前、加密后），恢复使用同一 task/key/version/vault 身份，新传输 attempt 另行预留。三角色首轮至少需要 104 个额度，额度不足明确拒绝或保留 pending，不能静默提升原计划或换新身份；后续注册、登录和 participant 阶段仍须从同一开户余额预留各自固定调用图，不挪用独立收尾槽。
+
+首批 participant 冷路径使用单一、预先持久登记的 104 额度 attempt，最多 8 次付费当前 oracle 读取，不能直接复用会为每个 route 重解 Cookie 的普通 driver。固定调用图保守按来源检查 8、8 次角色到 Owner/Account 与目录/Fence 核对 40、角色独立 Fence 读取 16、5 个固定 native 动作各自的 session/native/World 转发 15、policy/admission/final 三次当前原件回调 15、私有 actor 读取 4、Owner signer/vault 2、固定入口 3，合计 103；余 1 是容量余量，不是重试许可。Identity 在一个有界流程内私读原 SID/CSRF，不重复创建或写入秘密；每次出站仍须重新核对当前 permit、scope、截止和真实 session，所有异步间隔后的 5 秒当前观察要求不变。实际调用图超界时明确拒绝，不能删掉核验来迁就预算。
+
+第 8 次 oracle 的固定 final-read 许可同时登记一次 lookup 和一次 owner-view 的原件/只读 claim。真实 World submit 可能先返回 pending；此时仅允许在原截止内作一次至多 250 毫秒的有界等待，再查询这份已登记的 AuthenticatedLookup，不能循环或重发 submit。每个实际 native 读取前仍取得并强验新的固定 Root session 状态。只有对应 Submit 或 Lookup 签名域、原 request digest 与同一 correlation 均匹配的 committed 结果，才继续已登记的 owner-view；lookup 仍 pending 或传输未知就保留 pending。已在同 attempt 内预留的这一次 lookup 属于上述 5 个动作；后续新的查询尝试仍须另行预付，不能把此例外变成无限恢复或新的发送许可。
+
+Owner signer 的最后一次 oracle 核对同时提交固定 bundle 候选：先在本地生成双签名，再消费该次读取信用，由 Account 重读当前来源/目录/Fence、严格验双签名并原子登记完整原件；Vault 只在该精确提交成功后返回同一原件。这一次属于上述 8 次读取池，不另设未计费的第四原件回调；不因签名已本地生成就允许出站。Identity 的两个秘密可以在一次有界私读过程中解密，持久 envelope 在前后各读核对，中间每个 await 后核验原 scope/时钟，全部解密后再完成真实当前 oracle/Fence 核对，未通过前不输出秘密或派发。
+
+仅此 participant 冷路径的每次 native 动作前置 session 核验使用固定 `/custody/managed-bindings/session-status`：Account 为该步骤登记独立 nonce，Identity 以原 SID/CSRF 请求，严格验证固定 Root key、当前绑定/账号/credential、nonce、service epoch、5 秒时限以及 active 且非 frozen/pending。该 route 自身在 native 同一事务核对真实 session 和绑定，不接受调用者自报活性；它替代该次普通 `/session` 读取而不增加权限。policy/admission/final 回调携带这份签名状态与既有非秘密 SID generation 引用，由 Account 独立核验，不能把绑定 generation 与 Identity 私有 SID generation 混用。其他 forwarding 仍遵循原 `/session` 前置合同，不扩大此例外。
+
+Account 先登记 policy nonce、owner-view nonce、精确 native 绑定/SID 非秘密引用、固定 World service pin、原 native 账号与三个角色 public reference；当前目标 security epoch 为真实绑定后的 1，原 Provision source proof 的 0 不改写。策略原件强验后，只允许 Owner vault 生成一个固定 bundle：既有 GameParticipantRegisterV1 域的注册原件，以及 VIEW_JSON_PATH 域、OwnerControlV1 profile 所用的只读请求原件。二者分别使用已登记 nonce/operation，并由 Account 固定角色、固定域、精确 payload 核准；不接受原始 bytes 通用签名。此冷路径仅支持新建 native 账号的首次 fresh binding；只读 agent 固定为既有 World account-key 规则派生的 participant agent，owner generation 必须为 1。imported、已有不同 agent/owner 或不一致 receipt 只保留 pending，不能根据响应换 reader 或重签注册。
+
+Account 在任何 native/World 派发前持久保留完整 owner/admission/submit 原件及一次性 send claim；policy、admission、canonical result 和当前 owner 的回调均强验固定签名、nonce、业务摘要、世界/namespace/branch/reorg 与原关联，再在同一 SQL 事务重读当前来源、独立 Fence、时钟、冻结、库存、预算与原件。只有 canonical receipt 与独立当前 OwnerControlV1 都匹配同一新 agent/owner，才推进 participant_bound；HTTP 200、native admission 或缓存阶段均不能代签。响应未知或丢失不重发 submit，不释放或退回原 attempt；后续仅可用另行预付的 lookup-only attempt 查询同一原件。余额不足或原授权失效保持 pending，不能借 ManagedLogin/TestSession 的余额，也不能以新 operation 重建注册绕过未知结果。明确的新批准和 lookup 恢复合同未满足前，不宣称该 pending 已恢复。
+
+来源检查只能针对 Account 已登记并消费的原批准，在任何远端预检前本地预留额度并持久保存独立 `inspect_origin` nonce，真实目录/Fence 预检后才原子登记原请求 bytes 和发送 claim；重复已预留原件不再次取得预检或发送权。nonce 原件最多 pending 30 秒且不越原计划/来源截止，独立于签名观察的五秒新鲜度。原 proof 的 30 秒消费窗口过期后可报告来源，但当前 origin、原来源版本、计划截止和 service fence 仍须有效，签名响应必须绑定本次 nonce/purpose/原 proof digest 且观察不超过五秒；角色 permit 截止还须限制在该 native 观察时刻加五秒内，不能按后续 oracle 响应时间续期。角色许可从已保存的精确 task、typed 请求原 bytes/digest、attempt、已认证来源检查和安全代计算，角色通过自己的窄静态 Account oracle 核对，不接受请求自报的 active 状态或摘要回显；oracle 先本地耗用有界读信用，再执行远端核验，预留信用本身不返回任何授权。加密前后重读许可/Fence，最终本地 SQL 重验完整绑定与时钟；无远端 timestamp 时，新鲜度从 RPC 发出前保守计时，慢响应不能更新观察年龄。跨角色已发布密钥保持不可替换；unknown 收据保持原件和预算占用，不因撤销删除或重造密钥。
+
 跨角色 DO、native authority 与世界不构成一个原子事务；协调依据是稳定 provision ID、每角色不可替换的 key ref 与每个副作用的原件/回执。未在任何对外请求中使用的临时密码学计算可丢弃；已经持久发布的 role key 或可能已注册的原件不可因重试换新。取消 provisioning 先停新阶段，保留已产生身份/绑定与原件的真实状态，不假装全局回滚或默认删除 native account。已有世界写能力的清理沿原 Stop/Revoke/冻结合同。
 
 只有 prepared 状态和当前世界/身份核验均通过，且另一次明确的 grant/测试会话批准被消费后，才发行执行能力。native 注册成功、列表可见、key 已生成或 participant_bound 均不是 Agent 已获执行权。
@@ -679,6 +849,48 @@ AccountAuthority 持久保存 ProvisionRecord：provision_id、client_request_id
 上述接口复用现有 [identity client](../../../crates/oasis7_game_client/src/identity_client.rs)、[HTTP 会话适配](../../../crates/oasis7_game_client/src/identity_http.rs)和[Owner gateway](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs)的账号/会话/CSRF 前置，不是跳过它们的 cloud 后门。`inspect_origin` 的核验结果绑定 Owner 当次 nonce，最多新鲜 5 秒；最终 claim 重验本地版本及有效期，跨权威仍非原子，撤销 fan-out 与在途原件继续按 §12.5 处理。
 
 <a id="cloud-custody-tools"></a>
+##### 独立批准的 Owner setup 与原件 outbox
+
+Trace refs: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c.
+
+Owner setup 的世界结果分别记录传输、原件和业务效果：只有严格成功的 canonical Committed 才允许后续阶段；实际 World 原件中的 Rejected 保存为已知失败，不推进 Prepared。Expired、HistoryUnavailable、Unknown、Received 或 Pending 均保留原件与预留，不能改成成功、确认已清理或换 ID 重发。公开进度只给安全的分类和原 operation 引用，不回显私有错误正文。
+
+Canonical 写的公开签名响应在 live Result 回调前先进入窄 fact-only archive：每阶段 Submit/Lookup 各一个 immutable 槽，只以固定部署 World key、该 Account 已登记的确切原件/correlation/域做严格 Rust 与 WebCrypto 核验，并在同 SQL 重验库存后保存原 bytes。它允许在冻结或权限到期后保留晚到事实，不需要 Owner seed/KEK，不改阶段、epoch、预算或任何发送权；即使归档了 Committed 也不能凭历史事实推进下一阶段。原生响应在 await 后超出 live 五秒边界时仍保留这份公开证据，之后的正常 Result 必须同时满足其独立当前授权。该 lane 不处理私有 PrepareGoal 正文，不为取回丢失私有准备响应重新发送；私有准备未知仍按原件和无 canonical 写的关闭合同处理。
+
+独立 OwnerSetup 可以从 `ParticipantBound` 登记、消费新 MFA 并准备下述只读候选；旧 participant 回执不等于现在的 owner 确认。只有首个 CreateTask 的 Admission 强验当前 World/Root、原 owner 和确实不存在 task/delegation 后，才能在同 SQL 保存 owner-confirmation 原件，将阶段推进为 `ReadyForSetup` 并 claim 首个已批准 effect。后续阶段仍要求这份确认及精确前序原件；不能由普通 phase setter 或单凭批准消费提前推进。
+
+participant 绑定不批准创建 task、发布 goal 或授权 executor。首版另设闭合 `OwnerSetupPlanV1`，只支持同一已绑定 Agent 的固定流程：CreateTask、私有 PrepareGoal、PublishGoal、Delegation、Bind，最后独立读取当前 OwnerControl、CurrentGoal 和 delegation 后核对 Prepared。四个 canonical 写和一个私有准备各有固定 operation ID；不含 starter、资源发放、任意世界 payload 或任意签名字节入口。资源只引用管理者明确批准并由当前世界证据确认的预置集合，缺资源保留未准备，不自动补发。
+
+管理者在当前正数 Account security epoch 下进行新鲜 Passkey 批准。`CustodyIntentV1::OwnerSetup` 完整签入 setup/provision/account、原 participant receipt digest、唯一固定 world identity、Owner/Executor key refs、完整私有 plan digest、bootstrap version、deadline 和独立 request/transport/write 上限；不得消费已用 Provision proof 或借开户/TestSession 余额。计划原件包含完整 goal content、四个 canonical operation ID、private prepare ID/随机 nonce、executor ID/public key/代、delegation nonce 与预置资源引用；Owner 从批准原件及已验前序结果唯一推导请求，不接受调用者替换 task、goal、key 或 fence。私有 goal 及其可枚举摘要不进入公共 progress、审计正文或模型输出。
+
+管理端先通过现有 Origin/CSRF/Passkey 管理会话调用固定 Owner setup basis/prepare 入口。basis 只读实际 Account 的 participant result digest、唯一 World、Owner/Executor 公钥引用、native namespace、bootstrap version 和当前正数 security/service epoch；不含 Cookie、SID、goal 或旧批准 token。prepare 接完整私有 plan 与 approval request ID，在真实 Rust current 下强验 basis 并由 Core 唯一 canonical codec 构造 ApprovalOptionsRequestV1，供 Native 新 MFA；不保存业务候选、不预留预算、不签名、不消费批准或推进阶段。摘要只在该管理者私有批准流传递，不作为模型工具或公开进度。Node/管理 UI 不另算协议摘要。
+
+每账号至多一个未结清普通 setup。批准时同 SQL 保存精确计划、消费全 Account 唯一 proof nonce 并预留独立预算；首版至多六个逻辑阶段、四个 canonical 写、独立 584–600 transport；此新 OwnerSetup 的显式批准上限为 600，不改变已有 Provision 或 TestSession 的 400 上限。来源检查原件预留 8，四个写阶段、私有准备、最终核验各预留 96，完整初次路径合计 584。每阶段最多五次付费当前 oracle（Identity 私有解密前后各一次，Owner factory、固定角色 vault、发布前各一次），另有 Admission 与 Result 两个各一次的当前原件回调。阶段的独立来源检查不能复用早于五秒的初次观察；每阶段 source nonce 先持久登记、有效期最多三十秒且不越批准的计划截止。96 包含固定初次 lookup 一次，保守图为 source 8、五 oracle 25、角色独立 Fence 10、native Root status/转发/World 的预检与 effect/lookup 最多 11、两回调 10、私有 actor 4、signer/vault 2、固定入口 3、一次 lookup 当前准入 5、本地 unknown 收紧 1 与 Submit/Lookup 各一次事实归档共 4，合计 83；native Owner gateway 内部的额外 owner-view World 读取已计入。发布、Admission 与 lookup 返回的新当前 permit 在 Identity 使用前各独立重读 Fence（最多三次，共 6 跳）；旧私有解密阶段的 Fence 不随新 permit 静默延时。连同下述刷新 access 的 6 跳，完整固定图为 95/96。余量不是无限重试许可。固定图超界拒绝而不减少安全核验；unknown 不退已 claim 额度。固定初查后仍 unknown 或 canonical 已归档而当前结果准入丢失时，按下述独立 MFA paid reconcile 合同恢复；原阶段预留不返还，不能靠新管理 request ID 重建同一 setup。
+
+旧 participant admission 的 tick 有效期不能由后续 setup 延长或绕过。每个 setup 阶段在 96 预留中登记 policy observation、policy Root session 和 authorize Root session 三个独立 nonce。Identity 第二次私有解密后当前读取在同 SQL 一次 claim policy/authorize 固定对；以当前托管 SID/CSRF 取得固定 World 的 policy 原件，再用同一已存 Owner register 原件重新取得 native admission，不再次注册 Agent。第三次付费 Sign oracle 携闭合 access evidence（policy 原件、两份独立 Root session status 和新 admission），在严格 Rust/WebCrypto 与同 SQL 当前核验后固定保存该阶段 access；第四次 vault 与第五次 publish 只使用并重验这份原件，不接受更换 owner 或静默换票。policy 必须绑定已登记 nonce、唯一 World pin 和原 issuer；admission 必须绑定原 register business digest/account/key/namespace、当前 policy generation 与有效 tick 窗口；两份 Root 状态分别验证实际会话引用、私有 SID 代、binding invalidation 代与五秒边界。首版要求原 register、新 policy 和 admission 的 namespace epoch 精确一致；底层 Native 支持的旧 epoch 恢复不自动扩展为本 setup 合同。Native authorize 内部会再次读取 policy，两份 policy 的 generation、namespace、issuer、branch/reorg 或窗口发生变化时保持 pending，不续票。fresh admission 只证明准入，不能代替每阶段独立当前 canonical OwnerControl。固定对 claim 后任一响应丢失保持 unknown，不换 nonce 重领。旧 participant receipt 和 admission 均不改写。新增两个 native 读取的 Root/native/World 跳共 6，计入本阶段上限，保守图合计 95/96；失效或 unknown 保留 pending，不循环续发 admission。
+
+每阶段先从已批准计划和已验前序 canonical 原件唯一派生固定候选与该阶段独立 nonce 的 OwnerSetup 读取请求；此时它们是历史预期，不自称当前 World。五次 oracle 仅依据新鲜来源、真实 Directory/Fence 和批准范围核验固定候选，同 SQL 永久保存完整签名字节、correlation、lookup 和只读请求，不能从 RPC 暴露给模型，也不授予 effect 发送权。这一只读预签边界避免“需要当前 World 才能签获得当前 World 的 read”循环。Identity 只从真实 Owner/Account 固定 RPC 取得 Rust 当前来源，在解密前后分别重读；不能把调用者附带的 permit 当 Current。随后 Identity 私有转发预检读取；Admission 回调强验该请求对应的 World 原件、Root session status 与独立 nonce，并核对当前实际状态等于固定候选的已登记前置，才在同 SQL claim effect 发送。前置改变保持 pending，不重新签不同 fence 或目标。
+
+外部 await 后重新核对 scope、原件库存和不超过五秒的当前观察；Identity 只用原私有 managed SID/CSRF向固定 native Owner 控制路由转发，每次 native 发送先取得该阶段独立 nonce 的 Root session status。预检/effect/lookup 的 nonce 分别登记；FinalObservation 的只读发送也由该阶段新鲜来源授权，其结果不授予任何新写。Owner vault 仅签上述固定阶段域及已登记读取请求，不提供通用 raw sign。新增 setup lane 的 native/World 响应先做完整 Value→typed→Value 相等校验，拒绝被泛型 DTO 静默丢弃的未知 wrapper 或字段，不改变旧客户端的泛型 wire。World request/response 和 Owner、Root 签名均经严格 Rust 与 WebCrypto 验证；Result 回调最终同 SQL 重读时钟、authority、原件和预算后提交结果。HTTP 200、Received 或服务响应本身不代表 canonical committed。
+
+CreateTask 的 task ID沿用 `game-task-` 加 `request_digest("game-task-id", correlation.key)`。PrepareGoal 只签由该 task、已批准 content 和固定 nonce 组成的原提案；原 PreparedGoalReceipt 通过现有 `validate_against` 后，才能用既有 publication helper 构造公开 PublishGoal。真实 TaskCreate 的控制状态为 Suspended；GoalPublish 只更新 task/goal revision 与 reference，保留 Suspended，不提前推断 Active。Delegation 前置和 Bind 的完整 fence 必须保留这份实际状态；只有 Bind 的 canonical ExecutorReceipt 才能证明 Active，最终 Prepared 仍严格要求 Active。Delegation 是与 Bind 分开的第四类世界写：持久分配的 delegation generation/nonce 必须覆盖本服务已分配水位；未知旧授权不能被忽略。Bind 仅使用已验当前完整 task fence、同 Executor key 和已 committed delegation generation。每阶段 unknown 只恢复原 request，不换 nonce、不重新 prepare goal；私有准备丢回包也不能伪造未执行，无法合法恢复时保留 pending。
+
+只有最终当前证据同时证明原 task/agent/owner、精确 goal reference/content、Active task、完整 branch/reorg/fence、Executor key/ID/epoch、未撤销的 delegation generation 及已批准资源都一致，Account 才可由 setup 专用强验路径将 `ReadyForSetup` 推为 `Prepared`。通用 phase setter、旧 participant receipt 或结构正确的快照不能代签。冻结、到期、旧 pin、身份撤销或未知库存只收紧/保持 pending，不授予 TestSession，也不能为结束测试自行发 Stop/Revoke。setup 默认关闭，部署不配新运维凭据；真实启用和实玩仍是独立验收。
+
+setup 当前观察使用显式 `OwnerSetupV1` response profile，不改变已有 `OwnerControlV1` 的 wire。World 在同一 pinned commit 返回原 owner/task control 和该 Agent 的完整当前 signer-delegation record（含 revoked/nonce/generation），或明确的 None；整个 `OwnerSetupObservationV1` 由固定 World service 对原请求、profile 和 observation nonce 签名。只有这个完整已验 profile 的 None 能证明当时无 delegation，不能从旧 control 未返回字段推断。首版仅支持 fresh setup、无既有或未知 delegation 分配库存、当前 World record 为 None 的起点，固定初代 generation/nonce 为 1，并在出签前持久分配；资源集合首版必须为空，后续带资源的 setup 需要另补独立原件合同，不以传入引用当已验。
+
+##### 独立 MFA 的 setup 原件核对与迟到结果准入
+
+阶段来源的五秒时限是真实授权边界；即使 World 已处理请求，过期也只能归档原件事实，不能用旧 claim 时间完成当前准入。原 Submit/Lookup 每类只保存一条 immutable 原件，因此 Received/Pending 不能覆盖为后来 Committed。后续恢复使用独立 `OwnerSetupReconcile` 正数 fresh-MFA 批准及独立账本，不延长原 setup，不重发写请求，不借 Provision、ManagedLogin 或 TestSession 余额。
+
+批准闭合绑定 reconcile ID、setup/provision、唯一阶段、原 setup plan digest、原请求与 correlation digest、固定 World、Owner/Executor key refs、原 deadline、此次 deadline（不晚于原 deadline）、attempt limit 1..3 与独立 transport limit。来源先预留 8，每 attempt 在任何外部 I/O 前另预留 104；上限仍为 400，固定最多 3 次（预算分别为 112、216、320），首次至少 112。每 attempt 独立 nonce、五票角色矩阵与一次 lookup claim；失败或 unknown 不返还。原 setup 已预留阶段不重新扣费或 refund，未预留后续写阶段仍只能使用原 setup 的剩余预算及原期限，新 reconcile 余额不资助后续写。
+
+每 attempt 重建当前来源检查、Directory/Fence、私有会话及 fresh policy/admission，Owner 只能签已登记的固定只读 observation。实际 lookup 必须发送原阶段已存 authenticated lookup bytes，不能重新编码替换 correlation。新的签名 lookup response 存入该 attempt 自己的 immutable 槽，不覆盖原 Submit/Lookup。冷调用图从阶段 95/96 图去掉 effect submit，保留来源、五 oracle、私有 actor、fresh access、预检 Owner 读取、一次 lookup、事实归档及当前结果回调，基础保守 91；新增 ClaimResult 的独立当前核验与 Account 往返共 5 跳，不能用旧 permit 替代；归档后重新读取 post-state 的独立 Root status/native/World 共 3 跳，Result permit 返回后独立 Fence 共 2 跳，完整保守图为 101/104，三跳余量不构成重试许可。Result 回调容量在 post-state 网络读取前本地一次 claim，返回已绑定独立 post-state nonce 的新只读 permit；lookup 前状态与 post-state 状态使用不同 nonce，Completion 同时携带并分别强验两份 Root 状态，不以同 nonce 重新观察续期。
+
+恢复当前结果不能复用正常 Admission 的 predecessor 期望：World 已 committed 后应严格核对由原 canonical receipt 推导的 post-state，包括 Create 的 Suspended rev1、Publish 保留 Suspended 的新 goal/revision、Bind 后 Active 及精确 executor/delegation。强验新 Root session、原 signed canonical correlation/domain/固定 World pin、新 OwnerSetup observation 及同 SQL current/clock/inventory 后，只填原阶段结果及 `Reconcile{reconcile_id,attempt_id}` provenance，不改原 source、original、claim、deadline 或预算。strict restore 按该 provenance 重验，不伪装原五秒 grant 仍 fresh。已归档 Committed 也必须经过这次新当前核验；Pending/Received/Unknown 不推进，Rejected 已是终态，不重开后续阶段。
+
+原计划到期、冻结、撤销或库存未知只允许事实归档并保持 pending，不恢复 active/Prepared。私有 PrepareGoal 未知不在 canonical lookup 白名单内，不重复 prepare 或改 body；只有已持久保存的真实 receipt 可在独立当前准入下恢复。FinalObservation 没有写副作用，可在新批准中重新签固定 OwnerSetup/CurrentGoal 只读 pair，但仍必须强验原 Bind、同 goal 与 delegation，不能借此签写请求。UI 明示此次额外读取预算、原计划不可延长与未结清原件；普通 continue 不自动创建或消费新批准。
+
 ### 12.17 首版原生工具与多阶段原件
 
 首版固定 `custody-native-v1` 工具 profile；下游私有任务请求显式采用 `TaskContextAuthorityModeV1::NativeExecutorV1`（wire `native_executor_v1`，相关 schema revision 按既有 Rust helper），不省略该模式而落入旧 Provider authority。通过当前受认证的 `EntryExecutorOperationV1` 接续原生任务读写，不等待或假定 `/v1/game` 已具备写接口。该 profile 是新增托管适配的目标合同，现有 Unix broker 不因本段声明而自动支持它。

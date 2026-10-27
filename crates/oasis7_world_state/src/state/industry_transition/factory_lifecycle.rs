@@ -18,19 +18,14 @@ fn refresh_progress_without_factory(
         .iter()
         .filter(|(id, _)| id.as_str() != removed)
         .any(|(_, factory)| factory_has_canonical_stable_line(factory));
-    let mut next = if stable {
-        IndustryStage::ScaleOut
-    } else {
-        IndustryStage::Bootstrap
-    };
     let governance_enabled =
         state.gameplay_policy.electricity_tax_bps > 0 || state.gameplay_policy.data_tax_bps > 0;
-    if next == IndustryStage::ScaleOut
-        && governance_enabled
-        && (active_completed_jobs >= 6 || progress.completed_material_transits >= 3)
-    {
-        next = IndustryStage::Governance;
-    }
+    let next = industry_stage_for_progress(
+        stable,
+        active_completed_jobs,
+        progress.completed_material_transits,
+        governance_enabled,
+    );
     if next != current {
         progress.stage = next;
         progress.stage_updated_at = now;

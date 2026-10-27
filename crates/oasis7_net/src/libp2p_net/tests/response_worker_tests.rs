@@ -229,7 +229,7 @@ fn timed_out_slow_response_surfaces_as_retryable_transport_failure() {
         .expect_err("late response must time out");
     assert!(super::super::error_mapping::world_error_is_retryable_connection_gap(&error));
     assert!(matches!(
-        error,
+        error.diagnostic_source(),
         WorldError::NetworkRequestFailed {
             retryable: true,
             ..

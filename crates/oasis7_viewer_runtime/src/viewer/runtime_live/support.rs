@@ -250,8 +250,7 @@ pub(super) fn apply_provider_backed_bootstrap_authorities(
 pub(super) struct RuntimeLiveSession {
     pub(super) world_view_projection: Option<crate::viewer::world_view::SessionProjection>,
     pub(super) owner_read_context: Option<super::owner_read::OwnerReadContext>,
-    pub(super) owner_read_commit: Option<oasis7_client_api::world_service::CommitRef>,
-    pub(super) owner_read_view: Option<oasis7_proto::viewer::CanonicalAgentChatViewV1>,
+    pub(super) owner_read_view: Option<crate::world_service::verified_view::VerifiedWorldView>,
     pub(super) subscribed: HashSet<ViewerStream>,
     pub(super) event_filters: Option<HashSet<ViewerEventKind>>,
     pub(super) current_player_id: Option<String>,
@@ -292,7 +291,6 @@ impl RuntimeLiveSession {
             world_view_projection: None,
             owner_read_context: None,
             owner_read_view: None,
-            owner_read_commit: None,
             subscribed: HashSet::new(),
             event_filters: None,
             current_player_id: None,
@@ -538,6 +536,7 @@ pub(super) fn is_timeout_error(err: &io::Error) -> bool {
 pub(super) fn lock_shared_server(
     shared: &Arc<Mutex<ViewerRuntimeLiveServer>>,
 ) -> Result<MutexGuard<'_, ViewerRuntimeLiveServer>, ViewerRuntimeLiveServerError> {
+    let _phase = super::stream_budget_diagnostics::phase(10);
     shared.lock().map_err(|_| {
         ViewerRuntimeLiveServerError::Io(io::Error::other(
             "viewer runtime live shared state poisoned",

@@ -10,7 +10,7 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PATCH = "vendor-egui-winit-0.33.3"
+PATCH = "vendor-if-watch-3.2.2"
 
 
 class RustCoverageTests(unittest.TestCase):
@@ -20,8 +20,8 @@ class RustCoverageTests(unittest.TestCase):
             (root / "Cargo.toml").write_text(
                 '[workspace]\nmembers = ["app"]\nresolver = "2"\n'
                 + "exclude = " + json.dumps(exclusions) + "\n"
-                + '[patch.crates-io]\negui-winit = { path = "' + PATCH + '" }\n')
-            for folder, name in (("app", "app"), (PATCH, "egui-winit")):
+                + '[patch.crates-io]\nif-watch = { path = "' + PATCH + '" }\n')
+            for folder, name in (("app", "app"), (PATCH, "if-watch")):
                 package = root / folder
                 (package / "src").mkdir(parents=True)
                 (package / "Cargo.toml").write_text(
@@ -39,12 +39,12 @@ class RustCoverageTests(unittest.TestCase):
 
     def test_existing_nonmember_patch_loads_with_repository_exclusion(self):
         config = tomllib.loads((ROOT / "Cargo.toml").read_text())
-        self.assertEqual(config["patch"]["crates-io"]["egui-winit"]["path"], PATCH)
+        self.assertEqual(config["patch"]["crates-io"]["if-watch"]["path"], PATCH)
         self.assertNotIn(PATCH, config["workspace"]["members"])
         result = self.metadata(config["workspace"].get("exclude", []))
         self.assertEqual(result.returncode, 0, result.stderr)
         graph = json.loads(result.stdout)
-        self.assertEqual([p["name"] for p in graph["packages"]], ["egui-winit"])
+        self.assertEqual([p["name"] for p in graph["packages"]], ["if-watch"])
 
     def test_missing_exclusion_reproduces_workspace_identity_error(self):
         result = self.metadata([])
@@ -62,6 +62,25 @@ class RustCoverageTests(unittest.TestCase):
         self.assertNotIn(PATCH, ignored)
         self.assertNotIn("_templates", ignored)
         self.assertNotIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_TARGET:", workflow)
+
+    def test_generated_tauri_context_is_the_only_new_rust_exclusion(self):
+        excluded="tools/oasis7-command-center/src-tauri/src/generated_context.rs"
+        for name in ("codeql.yml","codeql-rust-capacity.yml","codeql-rust-cfg-diagnostic.yml"):
+            text=(ROOT/".github/workflows"/name).read_text()
+            block=re.split(r"(?m)^      - ",text.split("paths-ignore:\n",1)[1],maxsplit=1)[0]
+            paths=re.findall(r"^              - (.+)$",block,re.M)
+            self.assertEqual(paths,["third_party/**","target/**","node_modules/**","dist/**",".pm/**",excluded],name)
+        main=(ROOT/"tools/oasis7-command-center/src-tauri/src/main.rs").read_text()
+        self.assertNotIn("tauri::generate_context!",main)
+        self.assertIn(".build(generated_context::create())",main)
+        self.assertIn("mod generated_context;",main)
+        source=(ROOT/excluded).read_text()
+        self.assertEqual(source.count("tauri::generate_context!()"),1)
+        self.assertIn("pub(super) fn create() -> tauri::Context<tauri::Wry>",source)
+        self.assertNotIn("cfg(",source)
+        self.assertNotIn("panic!",source)
+        substantive=[line.strip() for line in source.splitlines() if line.strip() and not line.lstrip().startswith("//")]
+        self.assertEqual(substantive,["pub(super) fn create() -> tauri::Context<tauri::Wry> {","tauri::generate_context!()","}"])
 
     def test_extra_include_array_resolves_to_existing_checkout_templates(self):
         workflow = (ROOT / ".github/workflows/codeql.yml").read_text()

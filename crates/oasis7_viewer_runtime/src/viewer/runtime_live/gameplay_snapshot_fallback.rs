@@ -54,7 +54,7 @@ pub(super) fn fallback_tradeoff_decision(
     FallbackTradeoffDecision {
         recommended_value_class,
         no_safe_fallback_reason: no_safe_fallback.then_some(
-            "Neither snapshot repair nor goal reroute is currently available; return to goal selection to choose a new actionable intent.",
+            "Neither domain repair nor goal reroute is currently available; return to goal selection to choose a new actionable intent.",
         ),
         required_next_decision_action_id: no_safe_fallback.then_some("return_to_goal_selection"),
         required_next_decision_class: no_safe_fallback.then_some("return_to_goal_selection"),
@@ -71,7 +71,7 @@ pub(super) fn fallback_tradeoff_decision_for_gameplay(
             .any(|action| action.action_id == action_id && action.disabled_reason.is_none())
     };
     fallback_tradeoff_decision(
-        action_available("request_snapshot"),
+        gameplay.repair_available == Some(true),
         action_available("reprioritize"),
     )
 }
@@ -132,7 +132,7 @@ pub(super) fn player_gameplay_fallback_tradeoff_preview(
             .iter()
             .any(|action| action.action_id == action_id && action.disabled_reason.is_none())
     };
-    let repair_available = action_available("request_snapshot");
+    let repair_available = gameplay.repair_available == Some(true);
     let reroute_available = action_available("reprioritize");
     let decision = fallback_tradeoff_decision_for_gameplay(gameplay);
 
@@ -150,14 +150,15 @@ pub(super) fn player_gameplay_fallback_tradeoff_preview(
         PlayerGameplayFallbackTradeoffOption {
             value_class: "repair_now".to_string(),
             available: repair_available,
-            cost: "Refresh the gameplay snapshot and inspect the current blocker.".to_string(),
+            cost: "A verified domain repair action is required. Snapshot refresh only observes."
+                .to_string(),
             progress_kept: "Keeps the current intent while checking recovery state.".to_string(),
             opportunity_cost: "Uses the next decision on diagnosis instead of a new goal."
                 .to_string(),
             reason: if repair_available {
-                "A snapshot refresh is available to verify or repair the published blocker."
+                "A current canonical repair assessment supports this action."
             } else {
-                "No enabled repair-oriented snapshot action is currently available."
+                "No current canonical repair action is available."
             }
             .to_string(),
             recommended: decision.recommended_value_class == Some("repair_now"),
@@ -193,7 +194,7 @@ mod tests {
         assert_eq!(
             decision.no_safe_fallback_reason,
             Some(
-                "Neither snapshot repair nor goal reroute is currently available; return to goal selection to choose a new actionable intent."
+                "Neither domain repair nor goal reroute is currently available; return to goal selection to choose a new actionable intent."
             )
         );
         assert_eq!(

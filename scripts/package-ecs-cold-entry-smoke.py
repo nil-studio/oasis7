@@ -90,6 +90,8 @@ for _phase in ("context_prefix", "action"):
 
 
 def probe_error_category(output):
+    if output in (b"rate_limited; retain original operation\n", b"rate_limited; retain original operation\r\n"):
+        return "identity_rate_limited"
     if len(output) > 65536:
         return "output_limit"
     if len(output) > 256:
@@ -116,6 +118,7 @@ class Smoke:
         self.lock = threading.Lock()
         self.stage = "initialization"
         self.retry_not_before = 0.0
+        self.rate_limit_generation = 0
         self.attempts = 0
         self.probe_failure = None
         self.last_result = {"rc": None, **{key: "unavailable" for key in COLD_ENTRY_ENUMS}}
@@ -131,6 +134,7 @@ class Smoke:
             if value and value.isascii() and value.isdecimal():
                 seconds = int(value) if len(value) <= 10 else float("inf")
         with self.lock:
+            self.rate_limit_generation += 1
             self.retry_not_before = max(self.retry_not_before, time.monotonic() + seconds)
 
     def wait_recovery(self, backoff):
@@ -229,13 +233,30 @@ class Smoke:
 
     def probe(self, name, expected):
         self.probe_failure = None
-        code, output = self.command(self.fixture[name], private=name == "canonical_probe",
-                                    timeout_seconds=130 if name == "canonical_probe" else 60)
-        if code or len(output) > 65536:
+        recoveries = 0
+        while True:
+            if name == "canonical_probe":
+                self.wait_recovery(0)
+            with self.lock:
+                observed_generation = self.rate_limit_generation
+            code, output = self.command(self.fixture[name], private=name == "canonical_probe",
+                                        timeout_seconds=130 if name == "canonical_probe" else 60)
+            if not code and len(output) <= 65536:
+                self.probe_failure = None
+                break
+            category = probe_error_category(output)
             self.probe_failure = {
                 "rc": code if type(code) is int and -255 <= code <= 255 else None,
-                "output_bytes": len(output), "category": probe_error_category(output)}
-            raise RuntimeError(name + " failed; inspect private process log")
+                "output_bytes": len(output), "category": category}
+            with self.lock:
+                fresh_throttle = self.rate_limit_generation > observed_generation
+            if (name != "canonical_probe" or code != 1 or category != "identity_rate_limited"
+                    or not fresh_throttle or recoveries >= 2):
+                raise RuntimeError(name + " failed; inspect private process log")
+            # The trusted forwarder saw this child's real 429. Retain the exact
+            # fixture command and all originals; never renew the smoke deadline.
+            self.wait_recovery(0)
+            recoveries += 1
         try:
             value = json.loads(output)
         except (ValueError, UnicodeError):

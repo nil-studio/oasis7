@@ -64,6 +64,61 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
+    def test_owner_setup_protocol_inputs_retain_actual_custody_world_coverage(self):
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
+        required = [
+            'crates/oasis7_agent_api/src/game/goal.rs',
+            'crates/oasis7_agent_api/src/game/task.rs',
+            'crates/oasis7_agent_api/src/game/goal_prepare.rs',
+            'crates/oasis7_agent_api/src/game/goal_publish.rs',
+            'crates/oasis7_agent_api/src/game/executor.rs',
+            'crates/oasis7_client_api/src/world_service/entry_control.rs',
+            'crates/oasis7_client_api/src/world_service/private_goal_read.rs',
+            'crates/oasis7_client_api/src/world_service/owner_setup_observation.rs',
+            'crates/oasis7_client_api/src/world_service_wire.rs',
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs',
+            'crates/oasis7_chain_runtime/src/host/world_service_private_goal.rs',
+        ]
+        for path in required:
+            with self.subTest(path=path):
+                self.assertIn(path, paths)
+
+    def test_participant_protocol_inputs_retain_actual_custody_world_coverage(self):
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
+        required = [
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry.rs',
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry_tests.rs',
+            'crates/oasis7_client_api/src/world_service.rs',
+            'crates/oasis7_client_api/src/world_service/authority.rs',
+            'crates/oasis7_client_api/src/world_service/private_goal.rs',
+            'crates/oasis7_client_api/src/world_service/participant_discovery.rs',
+            'crates/oasis7_client_api/src/world_service/participant_policy_original.rs',
+            'crates/oasis7_client_api/src/world_service_correlation.rs',
+            'crates/oasis7_chain_runtime/src/host/world_service_participant_api.rs',
+            'crates/oasis7_chain_runtime/src/host/world_service_participant_owner_control.rs',
+            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http.rs',
+            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http_fixture.rs',
+            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_governance.rs',
+            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_transport.rs',
+        ]
+        for path in required:
+            with self.subTest(path=path):
+                self.assertIn(path, paths)
+
+    def test_native_custody_protocol_inputs_retain_real_platform_coverage(self):
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
+        prefix = 'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/'
+        for name in ('custody_managed_binding.rs', 'custody_managed_binding_tests.rs',
+                     'custody_owner_pin.rs', 'custody_owner_pin_tests.rs',
+                     'native_managed_operation.rs', 'native_managed_operation_tests.rs',
+                     'native_key.rs', 'native_key_complete.rs', 'native_key_tests.rs',
+                     'machine_registration.rs', 'machine_registration_tests.rs'):
+            with self.subTest(path=name):
+                self.assertIn(prefix + name, paths)
+
     def invoke(self, profiles, fail=False, fail_protocol=False):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"

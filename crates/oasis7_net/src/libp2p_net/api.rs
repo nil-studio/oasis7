@@ -1,4 +1,5 @@
 use super::peer_manager::peer_health_issue_is_record_exchange_pending;
+use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -120,7 +121,9 @@ impl Libp2pNetwork {
             response: sender,
         })?;
         let operation = format!("request_to_peer protocol={protocol} peer={peer}");
-        block_on_command_response_with_timeout(receiver, operation.as_str(), timeout)
+        block_on_command_response_with_timeout(receiver, operation.as_str(), timeout).map_err(
+            |err| command_failure_context(err, FailureOrigin::LocalTransport, Some(protocol)),
+        )
     }
 
     pub fn debug_peer_healths(&self) -> Vec<PeerManagerPeerHealth> {
@@ -150,7 +153,29 @@ impl Libp2pNetwork {
     }
 
     pub(super) fn enqueue_command(&self, command: Command) -> Result<(), WorldError> {
-        super::try_send_command(&self.command_tx, command)
+        let context = match &command {
+            Command::Publish { .. } => Some((FailureOrigin::Publish, None)),
+            Command::Request { protocol, .. } | Command::RequestToPeer { protocol, .. } => {
+                Some((FailureOrigin::LocalTransport, Some(protocol.clone())))
+            }
+            Command::PublishProvider { .. }
+            | Command::GetProviders { .. }
+            | Command::PutWorldHead { .. }
+            | Command::GetWorldHead { .. }
+            | Command::PutMembershipDirectory { .. }
+            | Command::GetMembershipDirectory { .. }
+            | Command::PutPeerRecord { .. }
+            | Command::GetPeerRecord { .. } => Some((FailureOrigin::Dht, None)),
+            _ => None,
+        };
+        super::try_send_command(&self.command_tx, command).map_err(|err| match context {
+            Some((origin, protocol)) => err.with_network_failure(NetworkFailure::observed(
+                origin,
+                FailureCause::ProtocolUnavailable,
+                protocol.as_deref(),
+            )),
+            None => err,
+        })
     }
 }
 
@@ -276,6 +301,7 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pNetwork {
             response: Some(sender),
         })?;
         block_on_command_response(receiver, "publish")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Publish, None))
     }
 
     fn publish_best_effort(&self, topic: &str, payload: &[u8]) -> Result<(), WorldError> {
@@ -324,7 +350,9 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pNetwork {
                 providers.join(",")
             )
         };
-        block_on_command_response(receiver, operation.as_str())
+        block_on_command_response(receiver, operation.as_str()).map_err(|err| {
+            command_failure_context(err, FailureOrigin::ProviderRouting, Some(protocol))
+        })
     }
 
     fn register_handler(
@@ -386,6 +414,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
         let (sender, receiver) = mpsc::channel();
         self.enqueue_command(Command::PublishProvider(key, Some(sender)))?;
         block_on_command_response(receiver, "publish_provider")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn publish_provider_best_effort(
@@ -407,6 +436,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
         let (sender, receiver) = mpsc::channel();
         self.enqueue_command(Command::GetProviders(key, sender))?;
         block_on_command_response(receiver, "get_providers")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn put_world_head(&self, world_id: &str, head: &WorldHeadAnnounce) -> Result<(), WorldError> {
@@ -419,6 +449,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
             response: sender,
         })?;
         block_on_command_response(receiver, "put_world_head")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn get_world_head(&self, world_id: &str) -> Result<Option<WorldHeadAnnounce>, WorldError> {
@@ -426,6 +457,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
         let (sender, receiver) = mpsc::channel();
         self.enqueue_command(Command::GetWorldHead(key, sender))?;
         block_on_command_response(receiver, "get_world_head")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn put_membership_directory(
@@ -442,6 +474,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
             response: sender,
         })?;
         block_on_command_response(receiver, "put_membership_directory")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn get_membership_directory(
@@ -455,6 +488,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
             response: sender,
         })?;
         block_on_command_response(receiver, "get_membership_directory")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn put_peer_record(&self, world_id: &str, record: &SignedPeerRecord) -> Result<(), WorldError> {
@@ -467,6 +501,7 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
             response: sender,
         })?;
         block_on_command_response(receiver, "put_peer_record")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
 
     fn get_peer_record(
@@ -488,7 +523,23 @@ impl ProtoDistributedDht<WorldError> for Libp2pNetwork {
             response: sender,
         })?;
         block_on_command_response(receiver, "get_peer_record")
+            .map_err(|err| command_failure_context(err, FailureOrigin::Dht, None))
     }
+}
+
+fn command_failure_context(
+    err: WorldError,
+    origin: FailureOrigin,
+    protocol: Option<&str>,
+) -> WorldError {
+    let mut facts = err.network_failure(protocol);
+    if facts.origin != FailureOrigin::DecodeValidation
+        && (facts.evidence == oasis7_proto::network_failure::FailureEvidence::LegacyInterpretation
+            || matches!(origin, FailureOrigin::Dht | FailureOrigin::Publish))
+    {
+        facts.origin = origin;
+    }
+    err.with_network_failure(facts)
 }
 
 fn block_on_command_response<T>(
@@ -507,13 +558,23 @@ fn block_on_command_response_with_timeout<T>(
         Ok(result) => result,
         Err(mpsc::RecvTimeoutError::Disconnected) => Err(WorldError::NetworkProtocolUnavailable {
             protocol: format!("libp2p command {operation} response channel closed"),
-        }),
+        }
+        .with_network_failure(NetworkFailure::observed(
+            FailureOrigin::LocalTransport,
+            FailureCause::ProtocolUnavailable,
+            None,
+        ))),
         Err(mpsc::RecvTimeoutError::Timeout) => Err(WorldError::NetworkProtocolUnavailable {
             protocol: format!(
                 "libp2p command {operation} timed out after {}ms",
                 timeout.as_millis()
             ),
-        }),
+        }
+        .with_network_failure(NetworkFailure::observed(
+            FailureOrigin::LocalTransport,
+            FailureCause::Timeout,
+            None,
+        ))),
     }
 }
 
@@ -532,7 +593,7 @@ mod command_response_tests {
         )
         .expect_err("missing runtime response should time out");
 
-        match err {
+        match err.diagnostic_source() {
             WorldError::NetworkProtocolUnavailable { protocol } => {
                 assert!(protocol.contains("libp2p command request_to_peer"));
                 assert!(protocol.contains("/aw/node/replication/fetch-commit/1.0.0"));
@@ -552,7 +613,7 @@ mod command_response_tests {
             block_on_command_response_with_timeout(receiver, "request", Duration::from_millis(100))
                 .expect_err("closed runtime response should fail");
 
-        match err {
+        match err.diagnostic_source() {
             WorldError::NetworkProtocolUnavailable { protocol } => {
                 assert!(protocol.contains("libp2p command request response channel closed"));
             }

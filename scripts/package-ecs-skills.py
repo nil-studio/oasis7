@@ -238,14 +238,46 @@ def require_root_owned(paths):
                 raise ValueError("publication path must be root-owned and not group/world writable: " + str(item))
 
 
+@contextlib.contextmanager
+def maintenance_lock(path, inherited_fd=None):
+    """Reuse only a descriptor demonstrably holding this exact flock."""
+    import fcntl
+    import stat
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        identity = os.fstat(fd)
+        if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1:
+            raise ValueError("maintenance lock must be a regular single-link file")
+        if inherited_fd is None:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield fd
+        else:
+            inherited = os.fstat(inherited_fd)
+            if (identity.st_dev, identity.st_ino) != (inherited.st_dev, inherited.st_ino):
+                raise ValueError("inherited maintenance lock identity mismatch")
+            # A separate open description must be blocked. Acquiring the passed
+            # descriptor afterwards proves the conflicting lock belongs to it.
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                raise ValueError("inherited maintenance lock is not held")
+            fcntl.flock(inherited_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield inherited_fd
+    finally:
+        os.close(fd)
+
+
 def activate(args, public):
     import fcntl
     public_origin(args.origin)
     include = args.nginx_include.absolute()
     require_root_owned([*public.values(), args.release / "bin/oasis7_game_launcher", include])
     # Shared with the ECS operator; acquire before reading the previous config.
-    with args.lock_file.open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with maintenance_lock(args.lock_file, getattr(args, "lock_fd", None)):
         pid = subprocess.check_output(["systemctl", "show", args.player_service, "-p", "MainPID", "--value"], text=True, timeout=3).strip()
         if not pid.isdigit() or int(pid) <= 0:
             raise ValueError("player service is not running")
@@ -280,7 +312,8 @@ def main():
     parser.add_argument("--origin", required=True)
     parser.add_argument("--nginx-include", type=Path)
     parser.add_argument("--player-service")
-    parser.add_argument("--lock-file", type=Path, default=Path("/run/lock/oasis7-preview-deploy.lock"))
+    parser.add_argument("--lock-fd", type=int, help="inherited descriptor holding the exact maintenance lock")
+    parser.add_argument("--lock-file", type=Path, default=Path("/var/lib/oasis7-preview-updater/deploy.lock"))
     args = parser.parse_args()
     args.release, public = checked_release(args.release, args.expected_source)
     if args.command == "verify":

@@ -57,6 +57,7 @@ WASM_CANONICALIZER_VERSION="$(wasm_env_or_default CANONICALIZER_VERSION "$DEFAUL
 
 RUSTFLAGS_EFFECTIVE=""
 SELECTED_BUILDER_IMAGE_ID=""
+CANDIDATE_BUILD=0
 
 is_truthy() {
   local value="$1"
@@ -610,6 +611,114 @@ run_docker_wrapper() {
     "$SELECTED_BUILDER_IMAGE_ID" \
     "${TRANSLATED_ARGS[@]}"
 }
+
+run_candidate_wrapper() (
+  local key
+  for key in OASIS7_WASM_BUILDER_IMAGE OASIS7_WASM_BUILDER_IMAGE_REF OASIS7_WASM_BUILDER_IMAGE_DIGEST OASIS7_WASM_BUILDER_DOCKERFILE OASIS7_WASM_BUILDER_ALLOW_IMAGE_ID_MISMATCH OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE OASIS7_WASM_BUILD_SUITE_BIN; do
+    if [[ -n "${!key+x}" ]]; then
+      echo "error: candidate build forbids inherited $key" >&2
+      exit 2
+    fi
+  done
+  local host_cwd
+  host_cwd="$(pwd -P)"
+  parse_host_paths "$host_cwd" "$@"
+  if ! starts_with_path_prefix "$HOST_MANIFEST_PATH" "$ROOT_DIR"; then
+    echo "error: candidate manifest must belong to the producer workspace" >&2
+    exit 2
+  fi
+  HOST_OUT_DIR="${HOST_OUT_DIR:-$ROOT_DIR/.tmp/wasm-build-suite}"
+  if ! starts_with_path_prefix "$HOST_OUT_DIR" "$ROOT_DIR"; then
+    echo "error: candidate output must stay in the producer workspace" >&2
+    exit 2
+  fi
+  # Reject before mkdir/mktemp: lexical containment must not follow an output
+  # ancestor symlink into another workspace or external directory.
+  python3 - "$HOST_OUT_DIR" <<'PY_OUTPUT'
+import pathlib
+import stat
+import sys
+path = pathlib.Path(sys.argv[1])
+for ancestor in [*reversed(path.parents), path]:
+    try:
+        mode = ancestor.lstat().st_mode
+    except FileNotFoundError:
+        continue
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        raise SystemExit("error: candidate output ancestor must be a real directory: " + str(ancestor))
+PY_OUTPUT
+  require_docker
+  mkdir -p "$HOST_OUT_DIR"
+  local evidence_dir
+  evidence_dir="$(mktemp -d "$HOST_OUT_DIR/.candidate-builder.XXXXXX")"
+  trap 'rm -rf -- "$evidence_dir"' EXIT
+  # Host Cargo runs only the producer recipe utility; guest WASM always uses Docker.
+  candidate_tool() {
+    (cd "$ROOT_DIR" && env -u RUSTC_WRAPPER cargo run --quiet --locked -p wasm_build_suite -- "$@")
+  }
+  candidate_tool producer-recipe "$ROOT_DIR" "$evidence_dir/recipe.json"
+  local recipe_hash image_ref
+  recipe_hash="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["producer_recipe_hash"])' "$evidence_dir/recipe.json")"
+  image_ref="oasis7/wasm-builder:candidate-$recipe_hash"
+  local -a build=(docker build)
+  if docker buildx version >/dev/null 2>&1; then
+    build=(docker buildx build --load)
+  fi
+  "${build[@]}" --platform "$CANONICAL_DOCKER_PLATFORM" \
+    --build-arg "WASM_TOOLCHAIN=$CANONICAL_WASM_TOOLCHAIN" \
+    --build-arg "WASM_TARGET=$CANONICAL_WASM_TARGET" \
+    --label io.oasis7.candidate.purpose=candidate-build \
+    --label "io.oasis7.candidate.producer-recipe=$recipe_hash" \
+    --iidfile "$evidence_dir/build.iid" \
+    --tag "$image_ref" --file "$DEFAULT_BUILDER_DOCKERFILE" "$ROOT_DIR"
+  local built_image_id
+  built_image_id="$(cat "$evidence_dir/build.iid")"
+  if [[ ! "$built_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "error: candidate build returned an invalid immutable image ID" >&2
+    exit 2
+  fi
+  docker image inspect "$built_image_id" > "$evidence_dir/inspect.json"
+  candidate_tool candidate-builder-evidence "$evidence_dir/recipe.json" "$evidence_dir/inspect.json" "$evidence_dir/evidence.json"
+  SELECTED_BUILDER_IMAGE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["builder_execution"]["image_id"])' "$evidence_dir/evidence.json")"
+  if [[ "$SELECTED_BUILDER_IMAGE_ID" != "$built_image_id" ]]; then
+    echo "error: Docker inspection changed the candidate build image ID" >&2
+    exit 2
+  fi
+  candidate_tool producer-recipe "$ROOT_DIR" "$evidence_dir/recipe-after.json"
+  cmp "$evidence_dir/recipe.json" "$evidence_dir/recipe-after.json"
+  translate_args_for_container "$(containerize_path "$ROOT_DIR" "$HOST_MANIFEST_PATH")" "$(containerize_path "$ROOT_DIR" "$HOST_OUT_DIR")" "$@"
+  docker run --rm --platform "$CANONICAL_DOCKER_PLATFORM" \
+    --user "$(id -u):$(id -g)" --workdir "$CONTAINER_WORKSPACE_DIR" \
+    --mount "type=bind,src=$ROOT_DIR,dst=$CONTAINER_WORKSPACE_DIR" \
+    --env OASIS7_WASM_BUILD_IN_CONTAINER=1 \
+    --env "OASIS7_WASM_SOURCE_WORKSPACE_DIR=$CONTAINER_WORKSPACE_DIR" \
+    --env "OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE=$(containerize_path "$ROOT_DIR" "$evidence_dir/evidence.json")" \
+    --env CARGO_BUILD_JOBS=2 \
+    --env "OASIS7_WASM_CANONICAL_CONTAINER_PLATFORM=$CANONICAL_CONTAINER_PLATFORM_TOKEN" \
+    --env "OASIS7_WASM_CANONICALIZER_VERSION=$WASM_CANONICALIZER_VERSION" \
+    --env HOME=/tmp/oasis7-home --env CARGO_HOME=/tmp/oasis7-cargo-home --env RUSTUP_HOME=/rustup \
+    "$SELECTED_BUILDER_IMAGE_ID" "${TRANSLATED_ARGS[@]}"
+  candidate_tool producer-recipe "$ROOT_DIR" "$evidence_dir/recipe-final.json"
+  cmp "$evidence_dir/recipe.json" "$evidence_dir/recipe-final.json"
+)
+
+# Candidate selection is a host-only option; it never changes the legacy default.
+CANDIDATE_ARGS=()
+for arg in "$@"; do
+  if [[ "$arg" == --candidate-build ]]; then
+    CANDIDATE_BUILD=1
+  else
+    CANDIDATE_ARGS+=("$arg")
+  fi
+done
+if (( CANDIDATE_BUILD == 1 )); then
+  if is_truthy "$WASM_BUILD_IN_CONTAINER"; then
+    echo "error: --candidate-build is a host-only selector" >&2
+    exit 2
+  fi
+  run_candidate_wrapper "${CANDIDATE_ARGS[@]}"
+  exit 0
+fi
 
 if is_truthy "$WASM_BUILD_IN_CONTAINER"; then
   run_native_build "$@"

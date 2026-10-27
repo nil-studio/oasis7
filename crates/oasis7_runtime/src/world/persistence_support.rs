@@ -365,6 +365,7 @@ fn collect_sidecar_orphan_blob_hashes(
 fn sweep_sidecar_orphan_blobs(
     store_root: &Path,
     index: &SidecarGenerationIndex,
+    _retention: &oasis7_cas::CasRetentionGuard,
 ) -> Result<SidecarGcResult, WorldError> {
     let store = LocalCasStore::new(store_root);
     let retained_blob_hashes = collect_sidecar_retained_blob_hashes(store_root, index)?;
@@ -426,6 +427,30 @@ fn maybe_fail_after_sidecar_stage(store_root: &Path) -> Result<(), WorldError> {
 
 #[cfg(any(test, feature = "test-support"))]
 fn maybe_fail_sidecar_commit_seam(store_root: &Path, seam: &str) -> Result<(), WorldError> {
+    let pause = sidecar_generation_root_dir(store_root).join(format!(".test-pause-{seam}"));
+    if pause.exists() {
+        let claim = pause.with_extension("claimed");
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&claim)
+        {
+            Ok(_) => {
+                fs::write(pause.with_extension("reached"), [])?;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while pause.exists() {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(WorldError::DistributedValidationFailed {
+                            reason: "sidecar test pause timed out".into(),
+                        });
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
     let fail_path = sidecar_generation_root_dir(store_root).join(format!(".test-fail-{seam}"));
     if fail_path.exists() {
         return Err(WorldError::DistributedValidationFailed {
@@ -580,6 +605,12 @@ pub(super) fn persist_sidecar_generation_index(
         tick_consensus_archive_bytes,
         recovery_metadata,
     )?;
+    // Staging performs CAS puts, which acquire this lock individually. From
+    // here through the final GC-result index write, use one transaction: first
+    // revalidate the candidate, then rebase on the latest persisted index.
+    maybe_fail_sidecar_commit_seam(store_root, "before-retention-lock")?;
+    let store = LocalCasStore::new(store_root);
+    let retention = store.acquire_retention_guard()?;
     maybe_fail_after_sidecar_stage(store_root)?;
     validate_staged_sidecar_generation(store_root, &staged_record)?;
     maybe_fail_sidecar_commit_seam(store_root, "after-stage-validation")?;
@@ -653,7 +684,7 @@ pub(super) fn persist_sidecar_generation_index(
         sidecar_generation_index_path(store_root).as_path(),
     )?;
     maybe_fail_sidecar_commit_seam(store_root, "after-index-commit")?;
-    index.last_gc_result = match sweep_sidecar_orphan_blobs(store_root, &index) {
+    index.last_gc_result = match sweep_sidecar_orphan_blobs(store_root, &index, &retention) {
         Ok(result) => result,
         Err(err) => SidecarGcResult::failed(format!("{err:?}")),
     };

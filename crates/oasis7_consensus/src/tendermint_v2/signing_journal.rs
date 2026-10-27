@@ -37,7 +37,7 @@ pub struct BftSigningJournalV2 {
     pub parent_tick: u64,
     pub parent_state_root: String,
     pub parent_manifest_hash: String,
-    #[serde(with = "super::priority_wire")]
+    #[serde(with = "oasis7_formal_protocol::bft::priority_wire")]
     pub starting_priority: std::collections::BTreeMap<String, i128>,
     pub height_started_at_ms: Option<i64>,
     pub events: Vec<BftSigningJournalEventV2>,

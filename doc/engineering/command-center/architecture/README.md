@@ -92,6 +92,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 ### 服务与执行
 
+2026-10-27 业务接口实现局部核对：cognition 投影解码 [#5140](https://github.com/nil-studio/oasis7/pull/5140)、Game Client 原操作生命周期 [#5146](https://github.com/nil-studio/oasis7/pull/5146)、网络失败类型合同 [#5147](https://github.com/nil-studio/oasis7/pull/5147) 和 Runtime 委托结果/只读重试 [#5149](https://github.com/nil-studio/oasis7/pull/5149) 已合入。验证和兼容边界见各 PR，不代表部署或新增完整玩法验收。WASM 输入闭包 [#5148](https://github.com/nil-studio/oasis7/pull/5148) 仍在实现与构建验证；个人能力/恢复查询 [#5150](https://github.com/nil-studio/oasis7/pull/5150) 的当前源码检查通过，但真实界面验收因受支持入口和 Owner 身份映射前置未满足而阻塞，仍为草稿。其他主题和部署基线不变。
+
 玩法权威协议局部设计核对（2026-10-19，文档基线 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`）：[Runtime 专题分工](../../../world-runtime/design.md#runtime-gameplay-authority-designs)与[八项协议入口](../../../world-runtime/prd.index.md#gameplay-authority-protocols)把治理分类、charter、工业工作、配方替代、公共 levy、外部性、贡献恢复和安全确认分配给独立 authority。各专题共享世界提交顺序和恢复事实；charter、模型建议、预览或其他专题 receipt 不自动授予新权限或代签世界效果。该增量只补目标系统设计，不改变现有 Runtime/native 制度边界；实现、正式持久性及部署仍按各原合同验证。
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
@@ -158,7 +160,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 - ARCH-08：headless ingress 已定义签名 payload、ed25519、单调 nonce 与恢复防重放；它不自动证明任意新 API 的完整授权和恢复行为。
 - ARCH-08 的 [多凭证账号设计](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 使用固定 RP/origin、事务身份存储、HttpOnly 账号 Cookie 和短期签名世界授权；新注册默认关闭，不改变资产或 operator 授权。2026-10-19 核对的[导入协议](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#imported-key-web)沿用同一账号/会话/世界授权边界，服务端仅接收公钥和挑战签名，`import_only` 不代表客户端生成和加密备份已发布；目标部署状态仍以 capabilities 及环境验收为准。代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署与环境验收进度见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)，验收方法见 [手册](../../../testing/manual/hosted-passkey-account.manual.md)。
 - ARCH-08 的新预览世界初始化按 [合同](../../../p2p/design.md#des-p2p-fresh-preview-bootstrap) 固定真实初始材料、CAS/提交证明和节点派生服务 signer，再为 Viewer 配置独立 public-read 身份。操作见 [手册](../../../testing/manual/fresh-world-preview-bootstrap.manual.md)；这些材料不授予 Agent 写权限或正式 activation/finality。
-- 2026-10-21 准入职责拆分候选：官方与外部客户端共用身份到 executor 的协议；[DevLocal 本地运营者与正式网络治理](../../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)使用不同授权历史。可信 Host 在恢复及尾日志重放前固定安全策略和公钥 pin，缓存按完整上下文隔离，安装沿节点写锁和 canonical commit；[配置手册](../../../testing/manual/single-ecs-preview-deploy.manual.md#devlocal-世界的参与者准入授权)不授予客户端管理信任根的能力。当前为待验证实现候选，本轮未变更部署；切换 authority source、恢复上下文或正式网络配置时重新核对。
+- 2026-10-21 准入职责拆分候选：官方与外部客户端共用身份到 executor 的协议；[DevLocal 本地运营者与正式网络治理](../../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)使用不同授权历史。可信 Host 在恢复及尾日志重放前固定安全策略和公钥 pin，缓存按完整上下文隔离，安装沿节点写锁和 canonical commit；[配置手册](../../../testing/manual/devlocal-participant-policy.manual.md)不授予客户端管理信任根的能力。当前为待验证实现候选，本轮未变更部署；切换 authority source、恢复上下文或正式网络配置时重新核对。
 - ARCH-09：[PR #4562](https://github.com/eng-cc/oasis7/pull/4562)交付 Game API 的发现合同和已实现签名读取；范围仍是显式开启的 loopback bootstrap。
 - [PR #4565](https://github.com/eng-cc/oasis7/pull/4565)增加持久、owner-signed task control；初态 suspended、没有 executor。配对、私有目标、完整 context 和 action admission 不在该切片内。
 - 2026-10-14 局部摘要（仅原生任务执行）：owner 私有目标控制、fenced executor/Context、物流、权威配方和 prepared claimed Agent 建厂到首产物的代码切片已交付。实际试玩源、失败与 targeted 范围从 [Game API 专业合同及证据入口](../../../world-simulator/llm/external-agent-game-api.design.md#当前实施候选原生任务执行链)读取，逐次 CI/清理流水归原交付 PR。本摘要不证明完整 TaskSnapshot、两 Runtime 首局、GUI、稳定生产或部署；部署暂停保持，其他主题基线不变。
@@ -206,3 +208,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 [文档树合同](../document-tree.design.md)统一产品树、专业系统树、目录与明确配对关系的解释。云端读取固定提交，按可信身份保存个人阅读位置；本地工作树预览仅在设备范围索引并保存本机位置。快照与覆盖、部分读取和失效关系各自可见，来源刷新不改变条款权威或个人决定。两端验收分别核对真实浏览器与适用的原生交互，旧本地索引证据不代签云端完整文档树。
 
 2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。
+
+2026-10-26 单机 Preview 发布合同局部更新：[自动发布与更新设计](../../workflow/package-source-security.md#ecs-preview-automatic-deployment)将日常兼容升级收敛为可信发包、OSS 不可变发布物与主机统一锁协调；[操作手册](../../../testing/manual/single-ecs-preview-auto-update.manual.md)维护一次安装及暂停/恢复边界。实现与隔离验证由 [#5126](https://github.com/nil-studio/oasis7/issues/5126)承接，真实云身份和现有 ECS 自动更新尚待环境验收；不改变正式网络部署暂停。
+
+主机兼容边界支持默认关闭的 player 兼容族策略：[来源与更新合同](../../workflow/package-source-security.md#ecs-preview-automatic-deployment)规定管理员一次批准无需迁移的三个契约，主机验证当前及目标可信发布后允许 player/Web/Skill 向前切换，不再逐源码 SHA 填许可。chain、迁移和明确回退继续保持独立审核，归档与全文件哈希校验保留；真实启用和部署结果由部署任务承载。

@@ -54,6 +54,41 @@ select s, loc, edges, starts
 """
 
 
+CONTEXT_PATHS = (
+    "tools/oasis7-command-center/src-tauri/src/generated_context.rs",
+    "tools/oasis7-command-center/src-tauri/src/main.rs",
+    "tools/oasis7-command-center/src-tauri/src/commands.rs",
+)
+
+
+def context_query(source):
+    root=json.dumps(str(source)+"/")
+    paths=",".join(json.dumps(p) for p in CONTEXT_PATHS)
+    return f"""import rust
+from string path, int nodes, int expanded
+where path in [{paths}]
+  and nodes=count(AstNode n | n.getLocation().getFile().getAbsolutePath()={root}+path)
+  and expanded=count(AstNode n | n.getLocation().getFile().getAbsolutePath()={root}+path
+    and n.isFromMacroExpansion())
+select path,nodes,expanded
+"""
+
+
+def validate_context_exclusion(rows):
+    observed={}
+    for row in rows:
+        if (len(row)!=3 or not isinstance(row[0],str) or row[0] not in CONTEXT_PATHS
+                or row[0] in observed or any(type(x) is not int or x<0 for x in row[1:])
+                or row[2]>row[1]):
+            raise RuntimeError("invalid context exclusion witness")
+        observed[row[0]]={"ast_nodes":row[1],"expanded_ast_nodes":row[2]}
+    if set(observed)!=set(CONTEXT_PATHS):raise RuntimeError("incomplete context exclusion witnesses")
+    if observed[CONTEXT_PATHS[0]]["ast_nodes"]!=0:raise RuntimeError("excluded context AST remains in database")
+    if any(observed[p]["ast_nodes"]==0 for p in CONTEXT_PATHS[1:]):raise RuntimeError("retained context source AST missing")
+    return {"status":"EXCLUSION_AST_VERIFIED","files":observed,
+            "scope":"Database AST location witnesses only; not proof of absent Rust Analyzer work or complete Rust coverage"}
+
+
 def patch_text(name, text):
     if name == 'codeql/controlflow':
         for old in ('private module Reachability {', 'private predicate startsSplits(AstNode n)',
@@ -198,18 +233,26 @@ def verify_originals(terminal, originals):
         terminal['status']='INCOMPLETE'
 
 
+def command_file_limit(argv):
+    # Evaluator page files belong to the private database, not the evidence stream.
+    # Keep the existing direct-file bound for decode and other small outputs.
+    return None if list(map(str, argv[1:3])) == ["query", "run"] else 64*1024**2
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     for key in ('codeql','database','source','output','work'):ap.add_argument('--'+key,type=Path,required=True)
+    ap.add_argument('--verify-context-exclusion',action='store_true')
     ap.add_argument('--check-only',action='store_true');ap.add_argument('--deadline',type=float,required=True);ap.add_argument('--threads',type=int,default=4);ap.add_argument('--ram',type=int,required=True)
     args=ap.parse_args();out=args.output;out.mkdir(exist_ok=True);args.work.mkdir(exist_ok=True)
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-8*1024**2
     end=time.monotonic()+max(0,args.deadline-time.time())-180
     terminal={'status':'INCOMPLETE','full_rust_coverage':'HOLD','production_capacity':'UNKNOWN','security_upload':False,'closure_cardinality':'NOT_MEASURED'}
     originals={}
+    if args.verify_context_exclusion:terminal['context_exclusion_verification']='NOT_REACHED'
     def run(argv,name):
         runtime.run(list(map(str,argv)),args.source,out/(name+'.log'),end,min(900,max(0,end-time.monotonic())),out,
-                    {k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN')},file_limit=64*1024**2)
+                    {k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN')},file_limit=command_file_limit(argv))
     try:
         if end<=time.monotonic() or args.threads!=4 or args.ram<=0:raise RuntimeError('resource/deadline admission')
         spec=importlib.util.spec_from_file_location('model',Path(__file__).with_name('codeql-rust-model-diagnostic.py'))
@@ -254,14 +297,25 @@ def main():
             dest=out/(name+'.json')
             run([args.codeql,'bqrs','decode',b,'--format=json','--output='+str(dest)],'decode-'+name)
             return decode_rows(dest,info)
+        checks=[('summary',SUMMARY),('edges',edge_query([0]))]
+        if args.verify_context_exclusion:
+            files={p:runtime.digest(args.source/p) for p in CONTEXT_PATHS}
+            runtime.save(out/'context-exclusion-source.json',files,out)
+            checks.insert(0,('context-exclusion',context_query(args.source)))
         if args.check_only:
-            for name,text in (('summary',SUMMARY),('edges',edge_query([0]))):
+            for name,text in checks:
                 q=query/(name+'.ql');q.write_text(text)
                 run([args.codeql,'resolve','library-path','--query='+str(q),'--format=json','--additional-packs='+additional],'check-library-'+name)
                 model.verify_library_path(json.loads((out/('check-library-'+name+'.log')).read_text()),query,name,closure,'oasis7/rust-cfg-diagnostic')
                 run([args.codeql,'query','compile','--check-only',q,'--threads='+str(args.threads),'--ram='+str(args.ram),*options],'check-'+name)
             terminal['status']='QL_CHECKED'
         if not args.check_only:
+            if args.verify_context_exclusion:
+                terminal['context_exclusion_verification']='INCOMPLETE'
+                observed=evaluate('context-exclusion',context_query(args.source))
+                runtime.save(out/'context-exclusion-rows.json',observed,out)
+                runtime.save(out/'context-exclusion-report.json',validate_context_exclusion(observed),out)
+                terminal['context_exclusion_verification']='PASS'
             rows=evaluate('summary',SUMMARY);selected,skipped=choose_scopes(rows)
             runtime.save(out/'selection.json',{'selected':selected,'skipped':skipped,'summary_rows':len(rows),'global_checks':[r for r in rows if r[0]<0],'selected_start_counts':{r[0]:r[3] for r in rows if r[0] in selected},'edge_cap':EDGE_CAP,'scope_cap':TOP},out)
             if not selected:raise RuntimeError('no bounded scope admitted; retained aggregate evidence')

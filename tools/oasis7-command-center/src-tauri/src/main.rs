@@ -2,6 +2,7 @@
 
 mod commands;
 mod context_commands;
+mod generated_context;
 mod tool_commands;
 mod tool_exit;
 
@@ -130,7 +131,7 @@ fn main() {
             commands::choose_project,
             commands::read_version,
         ])
-        .build(tauri::generate_context!())
+        .build(generated_context::create())
         .expect("initialize Command Center desktop")
         .run(|app, event| {
             if let tauri::RunEvent::Reopen { .. } = event {

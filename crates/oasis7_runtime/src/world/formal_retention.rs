@@ -114,6 +114,12 @@ pub struct FormalWorldRetentionPlanV1 {
 }
 
 impl World {
+    pub(super) fn formal_history_candidate_installed(&self) -> bool {
+        self.formal_history_reader
+            .as_ref()
+            .is_some_and(|attached| attached.candidate_installed)
+    }
+
     /// Initialize the independent retained-history index on a fresh staged
     /// World before its first profile-v2 Snapshot is externally approved.
     /// This does not create a verified parent token or migrate existing history.
@@ -185,6 +191,9 @@ impl World {
         parent: VerifiedFormalRetainedHistoryParentV1,
         reader: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
     ) -> Result<(), String> {
+        if self.formal_bft_handoff_attached() {
+            return Err("formal BFT handoff cannot replace its authenticated H reader".into());
+        }
         let snapshot_bytes = oasis7_world_state::codec::snapshot_cbor(&self.snapshot())
             .map_err(|error| error.to_string())?;
         let current_snapshot_root = blake3::hash(&snapshot_bytes).to_hex().to_string();
@@ -210,6 +219,9 @@ impl World {
     /// evidence, and the target descriptor must equal that exact read view.
     /// This only copies process-local access; it does not qualify the Snapshot.
     pub fn inherit_formal_history_reader(&mut self, source: &World) -> Result<(), String> {
+        if self.formal_bft_handoff_attached() {
+            return Err("formal BFT handoff cannot replace its authenticated H reader".into());
+        }
         let attached = source
             .formal_history_reader
             .as_ref()

@@ -222,17 +222,14 @@ impl PosNodeEngine {
 }
 
 pub(super) fn should_fallback_provider_aware_replication_request(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
     crate::network_bridge::replication_network_error_is_availability_gap(err)
         || crate::network_bridge::replication_network_error_is_route_unavailable(err)
         || crate::network_bridge::replication_network_error_is_rate_limited_protocol(
             err,
             super::replication::REPLICATION_FETCH_BLOB_PROTOCOL,
         )
-        || reason.starts_with("blob fetch routes exhausted without response")
-        || reason.starts_with("blob fetch provider routes exhausted without response")
+        || crate::network_error_classification::replication_network_failure(err).cause
+            == oasis7_proto::network_failure::FailureCause::ProviderExhausted
         || crate::network_bridge::replication_network_error_is_unsupported_protocol(
             err,
             super::replication::REPLICATION_FETCH_BLOB_PROTOCOL,
@@ -576,12 +573,10 @@ fn request_fetch_blob_chunk_with_route_fallback(
         && last_retryable_error.is_none()
         && (provider_route_attempted || !provider_lookup_supplied)
     {
-        return Err(NodeError::Replication {
-            reason: format!(
-                "blob fetch provider routes exhausted without response for world_id={} hash={} before retryable provider failure",
-                world_id, content_hash
-            ),
-        });
+        return Err(provider_routes_exhausted(format!(
+            "blob fetch provider routes exhausted without response for world_id={} hash={} before retryable provider failure",
+            world_id, content_hash
+        )));
     }
 
     if provider_lookup_supplied
@@ -589,26 +584,22 @@ fn request_fetch_blob_chunk_with_route_fallback(
         && last_retryable_error.is_none()
         && provider_route_attempted
     {
-        return Err(NodeError::Replication {
-            reason: format!(
-                "blob fetch provider routes exhausted without response for world_id={} hash={}",
-                world_id, content_hash
-            ),
-        });
+        return Err(provider_routes_exhausted(format!(
+            "blob fetch provider routes exhausted without response for world_id={} hash={}",
+            world_id, content_hash
+        )));
     }
 
     if provider_lookup_supplied
         && !policy.allow_connected_peer_fallback
         && !policy.require_retryable_provider_route_before_fallback
     {
-        return Err(
-            last_retryable_error.unwrap_or_else(|| NodeError::Replication {
-                reason: format!(
-                    "blob fetch provider routes exhausted without response for world_id={} hash={}",
-                    world_id, content_hash
-                ),
-            }),
-        );
+        return Err(last_retryable_error.unwrap_or_else(|| {
+            provider_routes_exhausted(format!(
+                "blob fetch provider routes exhausted without response for world_id={} hash={}",
+                world_id, content_hash
+            ))
+        }));
     }
 
     // Provider throttling remains authoritative after multiple advertised
@@ -719,14 +710,12 @@ fn request_fetch_blob_chunk_with_route_fallback(
         return Ok((response, None));
     }
 
-    Err(
-        last_retryable_error.unwrap_or_else(|| NodeError::Replication {
-            reason: format!(
-                "blob fetch routes exhausted without response for world_id={} hash={}",
-                world_id, content_hash
-            ),
-        }),
-    )
+    Err(last_retryable_error.unwrap_or_else(|| {
+        provider_routes_exhausted(format!(
+            "blob fetch routes exhausted without response for world_id={} hash={}",
+            world_id, content_hash
+        ))
+    }))
 }
 
 #[cfg(test)]
@@ -850,5 +839,17 @@ mod tests {
             "classification should survive display wording changes as long as kind/protocol are preserved"
         );
         assert!(!replication_request_waitable_connection_gap(&err));
+    }
+}
+
+fn provider_routes_exhausted(reason: String) -> NodeError {
+    use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
+    NodeError::ReplicationNetwork {
+        reason,
+        failure: Box::new(NetworkFailure::observed(
+            FailureOrigin::ProviderRouting,
+            FailureCause::ProviderExhausted,
+            Some(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL),
+        )),
     }
 }

@@ -1,9 +1,11 @@
+import { browserGameDiagnostic, gatewayFailureDiagnostic } from "./browser_game_diagnostics.js";
 import { createBrowserGameDatabase, browserIdentityScope } from "./browser_game_identity.js";
+import { deliveryPhases, operationObservation, terminalDisposition } from "./browser_operation_lifecycle.js";
 
 export class BrowserParticipantError extends Error {
-  constructor(code) { super(code); this.name = "BrowserParticipantError"; this.code = code; }
+  constructor(code, diagnostic) { const safe = browserGameDiagnostic({ code, diagnostic }, "participant"); super(code); this.name = "BrowserParticipantError"; this.code = code; this.diagnostic = safe; }
 }
-const fail = (code) => { throw new BrowserParticipantError(code); };
+const fail = (code, diagnostic) => { throw new BrowserParticipantError(code, diagnostic); };
 const json = JSON.stringify;
 const clone = (value) => JSON.parse(json(value));
 const hex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
@@ -30,6 +32,7 @@ async function boundedText(response, maximum) {
 export function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
   if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail("participant_configuration_invalid");
   async function request(path, options = {}, deadline = Date.now() + 30000, callSignal) {
+    const stage = ({ "/entry/discovery": "participant_discovery", "/session": "participant_session", "/participant/authorize": "participant_authorize", "/participant/owner-view": "participant_owner_view", "/participant/submit": "participant_submit", "/participant/lookup": "participant_lookup", "/entry-owner/control": "owner_control", "/entry-executor/control": "executor_control" })[path];
     const signals = [signal, callSignal].filter(Boolean);
     if (signals.some((item) => item.aborted)) fail("participant_stopped");
     if (Date.now() >= deadline) fail("participant_request_timeout");
@@ -54,20 +57,26 @@ export function createBrowserParticipantGateway({ config, accountId, fetchImpl =
         const { beforeSend, ...fetchOptions } = options;
         if (beforeSend) { await beforeSend(); stopped(); }
         if (Date.now() >= deadline) fail("participant_request_timeout");
-        const response = await fetchImpl(`${config.endpoint}${path}`, { credentials: "same-origin", mode: "same-origin",
-          cache: "no-store", redirect: "error", referrerPolicy: "no-referrer", ...fetchOptions, signal: controller.signal });
+        let response;
+        try { response = await fetchImpl(`${config.endpoint}${path}`, { credentials: "same-origin", mode: "same-origin",
+          cache: "no-store", redirect: "error", referrerPolicy: "no-referrer", ...fetchOptions, signal: controller.signal }); }
+        catch { stopped(); fail("participant_network_failed", { stage }); }
         stopped();
-        if (!response.ok) fail("participant_request_failed");
+        if (!response.ok) {
+          let value;
+          try { value = JSON.parse(await boundedText(response, 4096)); } catch { /* Only status survives malformed or oversized errors. */ }
+          stopped(); fail("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
+        }
         const declared = response.headers?.get?.("content-length");
         if (declared !== null && declared !== undefined && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail("participant_response_limit");
         const raw = await boundedText(response, maximum);
         stopped();
         const status = JSON.parse(raw);
-        if (status.api_version !== 2 || status.ok !== true) fail("participant_request_failed");
+        if (status.api_version !== 2 || status.ok !== true) fail("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
         return raw;
       })();
       return await Promise.race([operation, cancelled]);
-    } catch (error) { if (error instanceof BrowserParticipantError) throw error; fail("participant_response_unknown"); }
+    } catch (error) { if (error instanceof BrowserParticipantError) { if (error.diagnostic.stage === "participant") error.diagnostic = browserGameDiagnostic({ code: error.code, diagnostic: { ...error.diagnostic, stage } }); throw error; } fail("participant_response_unknown", { stage }); }
     finally { clearTimeout(timer); for (const remove of removers) remove(); }
   }
   return {
@@ -124,7 +133,8 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     if (record.schema === 2 && record.registrationSendState !== undefined) {
       if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState)
         || (record.registrationSendState === "not_sent") !== (record.sent === false)
-        || (record.registrationSendState === "not_sent" && record.receiptRaw)) fail("participant_storage_corrupt");
+        || (record.registrationSendState === "not_sent" && (record.receiptRaw || record.registrationTerminalReply
+          || (record.registrationPhase !== undefined && record.registrationPhase !== "prepared_unsent")))) fail("participant_storage_corrupt");
     }
     const r = record.owner.request;
     if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex
@@ -132,6 +142,7 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
       || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id
       || r.identity_namespace?.instance_epoch !== namespace.instance_epoch
       || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail("participant_storage_corrupt");
+    if (record.registrationPhase !== undefined && !deliveryPhases.has(record.registrationPhase)) fail("participant_storage_corrupt");
     return record;
   }
   async function update(mutate) {
@@ -215,20 +226,50 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     catch { fail("participant_response_unknown"); }
     return validate(kind, validationRequest, raw);
   }
-  const isUnsent = (record) => record?.schema === 2 && record.registrationSendState === "not_sent" && record.sent === false;
-  async function registrationLookup(record) {
+  const isUnsent = (record) => record?.schema === 2 && record.registrationSendState === "not_sent"
+    && record.sent === false && record.registrationPhase === "prepared_unsent" && !record.registrationTerminalReply;
+  function registrationMaterial(record) {
     const originalRaw = record.registrationRaw;
     if (!originalRaw) fail("participant_original_missing");
     const payloadRaw = field(originalRaw, ["signed_payload"]);
+    if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail("participant_original_conflict");
     const correlationRaw = build("correlation", { world: config.world, payload_json: payloadRaw });
+    if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail("participant_original_conflict");
     const keyRaw = field(correlationRaw, ["key"]);
     const lookupRaw = `{"request":{"contract_version":1,"key":${keyRaw}},"original":${payloadRaw}}`;
+    return { originalRaw, correlationRaw, lookupRaw };
+  }
+  function terminalStatus(record) {
+    if (!record.registrationTerminalReply) return "unknown";
+    const { lookupRaw, correlationRaw } = registrationMaterial(record);
+    const raw = verified("/v1/world/lookup", lookupRaw, record.registrationTerminalReply, "lookup", correlationRaw);
+    const status = decoded(field(raw, ["outcome", "status"]));
+    if (!terminalDisposition(status)) fail("participant_storage_corrupt");
+    return status;
+  }
+  async function registrationLookup(record) {
+    const { originalRaw, correlationRaw, lookupRaw } = registrationMaterial(record);
     const response = await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw });
-    const raw = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
+    const candidate = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
+    // Select and reverify against the CURRENT locked record, not the snapshot
+    // captured before a potentially slow request or another tab's commit.
+    const winner = await update((current) => {
+      if (!current || current.registrationRaw !== originalRaw) fail("participant_original_conflict");
+      const raw = current.registrationTerminalReply
+        ? verified("/v1/world/lookup", lookupRaw, current.registrationTerminalReply, "lookup", correlationRaw) : candidate;
+      const state = decoded(field(raw, ["outcome", "status"]));
+      if (current.registrationTerminalReply && !terminalDisposition(state)) fail("participant_storage_corrupt");
+      if (!current.registrationTerminalReply && terminalDisposition(state)) current.registrationTerminalReply = response;
+      current.registrationObservation = { logicalOperation: current.owner.request.client_operation_id, originalKind: "participant_registration",
+        correlation: decoded(correlationRaw), ...operationObservation({ phase: current.registrationPhase, status: state, verified: true }) };
+      return current;
+    });
+    const raw = winner.registrationTerminalReply
+      ? verified("/v1/world/lookup", lookupRaw, winner.registrationTerminalReply, "lookup", correlationRaw) : candidate;
     const state = decoded(field(raw, ["outcome", "status"]));
     if (state !== "committed") {
-      if (["rejected", "expired"].includes(state)) fail("participant_registration_rejected");
-      fail("participant_registration_pending");
+      if (["rejected", "expired"].includes(state)) fail(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
+      fail("participant_registration_pending", { outcome: state, stage: "participant_lookup" });
     }
     validate("participant_receipt", record.owner.request, raw);
     const receipt = decoded(field(raw, ["outcome", "receipt"]));
@@ -244,49 +285,58 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     active(); await discover(); active(); const record = await ensureOwner();
     if (record.agentId) canonicalAgentId = record.agentId;
     if (record.registrationRaw) {
-      if (isUnsent(record)) return { state: "unsent", code: "participant_original_not_sent", continuation: "participant" };
+      if (isUnsent(record)) return { state: "unsent", code: "participant_original_not_sent", continuation: "participant",
+        operation: { ...operationObservation({ phase: record.registrationPhase }), originalKind: "participant_registration" } };
       try { await registrationLookup(record); }
-      catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code }; throw error; }
+      catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code, diagnostic: error.diagnostic, operation: (await load())?.registrationObservation }; throw error; }
     }
     try {
       const result = await proofs(record, await authorize(record.owner));
       return { state: "bound", agentId: canonicalAgentId, ...result };
     } catch (error) {
-      if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown") return { state: "needs_participant", code: "participant_binding_unverified" };
+      if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown" || error.code === "participant_network_failed") return { state: "needs_participant", code: error.code === "participant_binding_required" ? "participant_binding_unverified" : error.code, diagnostic: error.diagnostic };
       throw error;
     }
   }
-  async function registerParticipant(consent, continueUnsent = false) {
-    let created = false;
+  async function registerParticipant(consent, { continueOriginal = false } = {}) {
     if (consent !== true) fail("participant_consent_required");
-    active(); await discover(); active();
-    // Continuation never calls ensureOwner: a deleted record cannot become a
-    // fresh owner/registration between two reads of local storage.
-    let record = continueUnsent ? await load() : await ensureOwner(); active();
-    if (continueUnsent && !record?.registrationRaw) fail("participant_original_missing");
+    active(); await discover();
+    // A continuation never synthesizes a replacement owner/original after deletion.
+    let record = continueOriginal ? await load() : await ensureOwner(); active();
+    if (continueOriginal && !record?.registrationRaw) fail("participant_original_missing");
+    let created = false;
     if (!record.registrationRaw) {
       const authorized = await authorize(record.owner);
       const payload = { kind: "game_participant_register", payload: { owner: record.owner, admission: authorized.admission } };
       const correlationRaw = build("correlation", { world: config.world, payload });
       const raw = `{"contract_version":1,"correlation":${correlationRaw},"deadline_unix_ms":null,"signed_payload":${json(payload)}}`;
-      record = await update((current) => { active(); if (current.registrationRaw) return current; created = true;
-        current.schema = 2; current.registrationRaw = raw; current.registrationSendState = "not_sent"; current.sent = false; return current; });
+      record = await update((current) => {
+        if (current.registrationRaw) return current;
+        created = true; current.schema = 2; current.registrationRaw = raw; current.sent = false;
+        current.registrationSendState = "not_sent";
+        current.registrationPhase = "prepared_unsent"; return current;
+      });
     }
-    // Only the creator or an explicit continuation may claim this original.
-    // A session GET failure leaves not_sent intact; the durable CAS happens at
-    // the actual POST boundary, and is never rolled back after a transport error.
-    if (created || (continueUnsent && isUnsent(record))) {
+    registrationMaterial(record);
+    const terminal = terminalStatus(record);
+    const advice = operationObservation({ phase: record.registrationPhase, status: terminal, verified: terminalDisposition(terminal),
+      intent: created || continueOriginal ? "continue_authorized_entry" : "query_only", writeAllowed: isUnsent(record) });
+    if (advice.nextAction === "continue_original") {
       if (!created) await authorize(record.owner);
       try {
-        const original = record.registrationRaw;
-        const response = await transport.gatewayCall("/participant/submit", null, { rawBody: original, beforeSend: async () => {
-          active(); await update((current) => {
-            active(); if (!current || current.registrationRaw !== original || !isUnsent(current)) fail("participant_original_conflict");
-            current.registrationSendState = "may_have_sent"; current.sent = true; return current;
-          }); active();
-        } });
-        verified("/v1/world/submit", original, response, "intent", field(original, ["correlation"]));
-      } catch { /* retain original; never infer non-execution from an error */ }
+        const originalRaw = record.registrationRaw;
+        const response = await transport.gatewayCall("/participant/submit", null, { rawBody: originalRaw,
+          beforeSend: async () => {
+            active();
+            await update((current) => {
+              if (!current || current.registrationRaw !== originalRaw || !isUnsent(current)) fail("participant_original_conflict");
+              current.registrationSendState = "may_have_sent"; current.sent = true;
+              current.registrationPhase = "dispatch_may_have_started"; return current;
+            });
+            active();
+          } });
+        verified("/v1/world/submit", originalRaw, response, "intent", field(originalRaw, ["correlation"]));
+      } catch { /* Durable phase and original are retained; recovery only queries. */ }
     }
     active(); record = await load();
     if (!record?.registrationRaw) fail("participant_original_missing");
@@ -297,7 +347,7 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
   return {
     discover, inspect,
     registerParticipant,
-    continueOriginal: (consent) => registerParticipant(consent, true),
+    continueOriginal: (consent) => registerParticipant(consent, { continueOriginal: true }),
     gatewayCall: transport.gatewayCall,
     async prepare({ existingOnly = true, consent } = {}) {
       // The existing-only Game Client consumer cannot create a participant.

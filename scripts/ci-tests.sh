@@ -237,6 +237,12 @@ run_oasis7_net_clippy() {
 
 run_oasis7_net_libp2p_tests() {
   run python3 ./scripts/libp2p-security-source.test.py
+  if [[ "$(uname -s)" == Linux ]]; then
+    # Unit tests avoid the upstream cdylib's un-hashed libif_watch.rlib
+    # overwriting the workspace dependency build in the shared target directory.
+    run_cargo test --locked --manifest-path ./vendor-if-watch-3.2.2/Cargo.toml \
+      --target-dir ./target --all-features --lib
+  fi
   run python3 ./scripts/libp2p-compat.test.py
   run_cargo test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml \
     --target-dir ./target --lib -- --test-threads=1
@@ -356,9 +362,10 @@ PY
 }
 
 run_rustsec_advisory_check() {
+  run ./scripts/check-rustsec-ignore-baseline.test.sh
   run ./scripts/check-rustsec-ignore-baseline.sh
   run ./scripts/ensure-cargo-deny.sh
-  run cargo deny check advisories
+  run cargo deny --locked --all-features check advisories bans
 }
 
 run_oasis7_llm_baseline_fixture_smoke() {
@@ -432,6 +439,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-workflow.test.py
   run python3 ./scripts/security/codeql-rust-coverage.test.py
   run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
+  run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
@@ -457,6 +465,10 @@ run_packaging_artifact_contract_tests() {
   run bash ./scripts/packaging-artifact-size-contract.test.sh
   run bash ./scripts/package-workflow-cache-reuse-contract.test.sh
   run python3 ./scripts/package-ecs.test.py
+  run python3 ./scripts/ecs-preview-release.test.py
+  run python3 ./scripts/ecs-preview-update.test.py
+  run python3 ./scripts/ecs-preview-install.test.py
+  run python3 ./scripts/ecs-preview-compatibility.test.py
   run python3 ./scripts/ci-ecs-cache.test.py
   run python3 ./scripts/package-ecs-resource-monitor.test.py
   run bash ./scripts/copy-viewer-web-dist.test.sh

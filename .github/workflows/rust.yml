@@ -19,7 +19,7 @@ on:
         description: "Candidate public-model diagnostic partition"
         type: choice
         default: node-only
-        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full]
+        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, trait-scope-plan]
       model_bundle_version:
         description: "Complete official CodeQL bundle"
         type: choice
@@ -43,8 +43,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   PYTHONDONTWRITEBYTECODE: "1"
-  # Verified repository eviction limit: 10 GB (2026-10-21 Actions cache settings).
-  CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -79,12 +80,14 @@ jobs:
       - name: Set up selected immutable Rust CodeQL bundle
         env:
           BUNDLE_VERSION: ${{ inputs.model_bundle_version }}
+          MODEL_PROBE: ${{ inputs.model_probe }}
         run: |
           case "$BUNDLE_VERSION" in
             2.27.2) bundle_sha=acf2050189aeede5b9aa566f8fb382b02ac1ace72f534778f68b06fce5371cea ;;
             2.27.3) bundle_sha=218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237 ;;
             *) exit 1 ;;
           esac
+          if [ "$MODEL_PROBE" = trait-scope-plan ]; then test "$BUNDLE_VERSION" = 2.27.3; fi
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir "$RUNNER_TEMP/rust-model-tools"
           curl --fail --location --max-time 120 \
@@ -92,8 +95,10 @@ jobs:
             --output "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst"
           echo "$bundle_sha  $RUNNER_TEMP/rust-model-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
-          timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-          timeout 180 rustup toolchain install 1.98.1 --profile minimal
+          if [ "$MODEL_PROBE" != trait-scope-plan ]; then
+            timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+            timeout 180 rustup toolchain install 1.98.1 --profile minimal
+          fi
       - name: Diagnose selected public-model partition
         env:
           BUNDLE_VERSION: ${{ inputs.model_bundle_version }}
@@ -649,8 +654,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
-      (github.event_name == 'push' || github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+        (github.event_name == 'push' || github.event_name == 'schedule' ||
+         (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps: *formal-build-steps
 
@@ -1674,12 +1679,15 @@ jobs:
           TMPDIR: /private/tmp
         run: python3 scripts/ci-local-signer-tests.py --require-darwin
 
-      - name: Prepare context Rust toolchain on macOS
-        if: runner.os == 'macOS'
+      - name: Prepare native filesystem contract Rust toolchain
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
+
+      - name: Verify hosted access cross-process ownership on native host
+        shell: bash
+        run: env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access
 
       - name: Verify private context filesystem and caller on macOS
         if: runner.os == 'macOS'

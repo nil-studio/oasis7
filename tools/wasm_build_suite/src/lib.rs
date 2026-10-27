@@ -1,3 +1,4 @@
+use oasis7_wasm_build::BuildManifest;
 #[cfg(test)]
 mod artifact_pipeline_contract_tests;
 
@@ -32,7 +33,7 @@ pub const DEFAULT_OUT_DIR: &str = ".tmp/wasm-build-suite";
 pub const DEFAULT_CANONICALIZER_VERSION: &str = "strip-custom-sections-v1";
 pub const DEFAULT_CONTAINER_PLATFORM: &str = "linux-x86_64";
 const WASM_ENV_PREFIX: &str = "OASIS7_WASM_";
-const BUILD_RECEIPT_SCHEMA_VERSION: u32 = 2;
+const BUILD_RECEIPT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
@@ -72,12 +73,26 @@ pub struct BuildMetadata {
     pub source_artifact_path: String,
     pub packaged_wasm_path: String,
     pub build_receipt_path: String,
+    #[serde(default)]
+    pub source_input_rule_version: Option<u32>,
+    #[serde(default)]
+    pub source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     pub source_hash: String,
     pub build_manifest_hash: String,
     pub canonicalizer_version: String,
     pub container_platform: String,
-    pub builder_image_ref: String,
-    pub builder_image_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_image_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_image_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_manifest_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_recipe: Option<oasis7_wasm_build::BuilderRecipe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_execution: Option<oasis7_wasm_build::BuilderExecution>,
     pub build_timing: BuildTimingSnapshot,
     pub wasm_hash_sha256: String,
     pub wasm_size_bytes: u64,
@@ -99,12 +114,26 @@ pub struct BuildReceipt {
     pub source_manifest_path: String,
     pub source_artifact_path: String,
     pub packaged_wasm_path: String,
+    #[serde(default)]
+    pub source_input_rule_version: Option<u32>,
+    #[serde(default)]
+    pub source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     pub source_hash: String,
     pub build_manifest_hash: String,
     pub canonicalizer_version: String,
     pub container_platform: String,
-    pub builder_image_ref: String,
-    pub builder_image_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_image_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_image_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_manifest_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_recipe: Option<oasis7_wasm_build::BuilderRecipe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_execution: Option<oasis7_wasm_build::BuilderExecution>,
     pub build_timing: BuildTimingSnapshot,
     pub wasm_hash_sha256: String,
     pub wasm_size_bytes: u64,
@@ -118,6 +147,8 @@ pub struct BuildOutput {
     pub metadata_path: PathBuf,
     pub receipt_path: PathBuf,
     pub wasm_hash_sha256: Option<String>,
+    pub source_input_rule_version: Option<u32>,
+    pub source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     pub source_hash: Option<String>,
     pub build_manifest_hash: Option<String>,
     pub build_timing: Option<BuildTimingSnapshot>,
@@ -231,22 +262,6 @@ struct BuildStdConfig {
     features: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct BuildManifest {
-    profile: String,
-    target: String,
-    wasm_toolchain: String,
-    wasm_build_std: String,
-    wasm_build_std_components: String,
-    wasm_build_std_features: String,
-    wasm_deterministic_guard: String,
-    canonicalizer_version: String,
-    container_platform: String,
-    builder_image_ref: String,
-    builder_image_digest: String,
-    build_suite_version: String,
-}
-
 impl BuildStdConfig {
     fn from_env() -> Self {
         let enabled = wasm_env_value("BUILD_STD")
@@ -279,7 +294,41 @@ impl BuildStdConfig {
     }
 }
 
+fn read_candidate_builder(
+    request: &BuildRequest,
+) -> Result<Option<oasis7_wasm_build::CandidateBuilderEvidence>, BuildError> {
+    let Some(path) = std::env::var_os("OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE") else {
+        return Ok(None);
+    };
+    let invalid = |value: String| BuildError::MetadataInvalid(value);
+    if std::env::var("CARGO_BUILD_JOBS").as_deref() != Ok("2") {
+        return Err(invalid(
+            "candidate recipe requires actual guest CARGO_BUILD_JOBS=2".into(),
+        ));
+    }
+    if request.profile != "release"
+        || request.target != DEFAULT_TARGET
+        || std::env::var_os("OASIS7_WASM_BUILDER_IMAGE_REF").is_some()
+        || std::env::var_os("OASIS7_WASM_BUILDER_IMAGE_DIGEST").is_some()
+    {
+        return Err(invalid("mixed candidate/release builder identity".into()));
+    }
+    let bytes = fs::read(&path).map_err(|error| invalid(error.to_string()))?;
+    let evidence: oasis7_wasm_build::CandidateBuilderEvidence =
+        serde_json::from_slice(&bytes).map_err(|error| invalid(error.to_string()))?;
+    evidence
+        .validate()
+        .map_err(|error| invalid(error.to_string()))?;
+    oasis7_wasm_build::verify_image_producer_recipe(
+        Path::new("/opt/oasis7"),
+        &evidence.builder_recipe,
+    )
+    .map_err(|error| invalid(error.to_string()))?;
+    Ok(Some(evidence))
+}
+
 pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
+    let candidate = read_candidate_builder(request)?;
     validate_request(request)?;
     let total_started = Instant::now();
     let manifest_path = canonical_or_original(&request.manifest_path);
@@ -316,6 +365,8 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
             metadata_path,
             receipt_path,
             wasm_hash_sha256: None,
+            source_input_rule_version: None,
+            source_inputs: None,
             source_hash: None,
             build_manifest_hash: None,
             build_timing: None,
@@ -324,6 +375,10 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         });
     }
 
+    let source_evidence =
+        oasis7_wasm_build::compute_source_inputs(&request.manifest_path, &request.target).map_err(
+            |e| BuildError::MetadataInvalid(format!("source input closure failed: {e}")),
+        )?;
     let cargo_started = Instant::now();
     run_cargo_build(
         manifest_path.as_path(),
@@ -348,7 +403,14 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
     })?;
     let wasm_hash_sha256 = sha256_hex(&canonical_wasm_bytes);
     let source_manifest_path = manifest_path.to_string_lossy().to_string();
-    let source_hash = compute_source_hash(&manifest_path, request.target.as_str())?;
+    let after_build = oasis7_wasm_build::compute_source_inputs(&manifest_path, &request.target)
+        .map_err(|e| BuildError::MetadataInvalid(format!("source input closure failed: {e}")))?;
+    if source_evidence != after_build {
+        return Err(BuildError::MetadataInvalid(
+            "source inputs changed during build; rebuild required".into(),
+        ));
+    }
+    let source_hash = source_evidence.source_hash.clone();
     let wasm_toolchain = wasm_env_value_or_default("TOOLCHAIN", "");
     let wasm_build_std = wasm_env_value_or_default("BUILD_STD", "0");
     let wasm_build_std_components =
@@ -361,7 +423,7 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         wasm_env_value_or_default("CANONICAL_CONTAINER_PLATFORM", DEFAULT_CONTAINER_PLATFORM);
     let builder_image_ref = wasm_env_value_or_default("BUILDER_IMAGE_REF", "");
     let builder_image_digest = wasm_env_value_or_default("BUILDER_IMAGE_DIGEST", "");
-    let build_manifest_hash = compute_build_manifest_hash(
+    let build_manifest_hash = compute_build_manifest_hash_with_candidate(
         request.profile.as_str(),
         request.target.as_str(),
         wasm_toolchain.as_str(),
@@ -373,6 +435,7 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         container_platform.as_str(),
         builder_image_ref.as_str(),
         builder_image_digest.as_str(),
+        candidate.as_ref(),
     )?;
     let hash_ms = elapsed_ms(hash_started);
 
@@ -400,7 +463,11 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
 
     let receipt_started = Instant::now();
     let receipt_payload = BuildReceipt {
-        schema_version: BUILD_RECEIPT_SCHEMA_VERSION,
+        schema_version: if candidate.is_some() {
+            4
+        } else {
+            BUILD_RECEIPT_SCHEMA_VERSION
+        },
         recorded_at_unix_ms,
         module_id: request.module_id.clone(),
         target: request.target.clone(),
@@ -414,12 +481,22 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         source_manifest_path: source_manifest_path.clone(),
         source_artifact_path: artifact_path.to_string_lossy().to_string(),
         packaged_wasm_path: packaged_wasm_path.to_string_lossy().to_string(),
+        source_input_rule_version: Some(source_evidence.source_input_rule_version),
+        source_inputs: Some(source_evidence.source_inputs.clone()),
         source_hash: source_hash.clone(),
         build_manifest_hash: build_manifest_hash.clone(),
         canonicalizer_version: canonicalizer_version.clone(),
         container_platform: container_platform.clone(),
-        builder_image_ref: builder_image_ref.clone(),
-        builder_image_digest: builder_image_digest.clone(),
+        builder_image_ref: candidate.is_none().then(|| builder_image_ref.clone()),
+        builder_image_digest: candidate.is_none().then(|| builder_image_digest.clone()),
+        purpose: candidate.as_ref().map(|value| value.purpose.clone()),
+        build_manifest_schema_version: candidate
+            .as_ref()
+            .map(|value| value.build_manifest_schema_version),
+        builder_recipe: candidate.as_ref().map(|value| value.builder_recipe.clone()),
+        builder_execution: candidate
+            .as_ref()
+            .map(|value| value.builder_execution.clone()),
         build_timing: build_timing.clone(),
         wasm_hash_sha256: wasm_hash_sha256.clone(),
         wasm_size_bytes,
@@ -450,12 +527,22 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         source_artifact_path: artifact_path.to_string_lossy().to_string(),
         packaged_wasm_path: packaged_wasm_path.to_string_lossy().to_string(),
         build_receipt_path: receipt_path.to_string_lossy().to_string(),
+        source_input_rule_version: Some(source_evidence.source_input_rule_version),
+        source_inputs: Some(source_evidence.source_inputs.clone()),
         source_hash: source_hash.clone(),
         build_manifest_hash: build_manifest_hash.clone(),
         canonicalizer_version,
         container_platform,
-        builder_image_ref,
-        builder_image_digest,
+        builder_image_ref: candidate.is_none().then_some(builder_image_ref),
+        builder_image_digest: candidate.is_none().then_some(builder_image_digest),
+        purpose: candidate.as_ref().map(|value| value.purpose.clone()),
+        build_manifest_schema_version: candidate
+            .as_ref()
+            .map(|value| value.build_manifest_schema_version),
+        builder_recipe: candidate.as_ref().map(|value| value.builder_recipe.clone()),
+        builder_execution: candidate
+            .as_ref()
+            .map(|value| value.builder_execution.clone()),
         build_timing: BuildTimingSnapshot {
             total_build_wall_ms: 0,
             cargo_build_ms,
@@ -537,6 +624,8 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         metadata_path,
         receipt_path,
         wasm_hash_sha256: Some(wasm_hash_sha256),
+        source_input_rule_version: Some(source_evidence.source_input_rule_version),
+        source_inputs: Some(source_evidence.source_inputs),
         source_hash: Some(source_hash),
         build_manifest_hash: Some(build_manifest_hash),
         build_timing: Some(build_timing),
@@ -678,7 +767,7 @@ fn wasm_env_value_or_default(suffix: &str, default: &str) -> String {
     clippy::too_many_arguments,
     reason = "The explicit canonical build receipt fields preserve the existing hash schema"
 )]
-fn compute_build_manifest_hash(
+fn compute_build_manifest_hash_with_candidate(
     profile: &str,
     target: &str,
     wasm_toolchain: &str,
@@ -690,8 +779,10 @@ fn compute_build_manifest_hash(
     container_platform: &str,
     builder_image_ref: &str,
     builder_image_digest: &str,
+    candidate: Option<&oasis7_wasm_build::CandidateBuilderEvidence>,
 ) -> Result<String, BuildError> {
     let payload = BuildManifest {
+        source_input_rule_version: oasis7_wasm_build::SOURCE_INPUT_RULE_VERSION,
         profile: profile.to_string(),
         target: target.to_string(),
         wasm_toolchain: wasm_toolchain.to_string(),
@@ -701,17 +792,19 @@ fn compute_build_manifest_hash(
         wasm_deterministic_guard: wasm_deterministic_guard.to_string(),
         canonicalizer_version: canonicalizer_version.to_string(),
         container_platform: container_platform.to_string(),
-        builder_image_ref: builder_image_ref.to_string(),
-        builder_image_digest: builder_image_digest.to_string(),
+        builder_image_ref: candidate.is_none().then(|| builder_image_ref.to_string()),
+        builder_image_digest: candidate
+            .is_none()
+            .then(|| builder_image_digest.to_string()),
         build_suite_version: env!("CARGO_PKG_VERSION").to_string(),
+        build_manifest_schema_version: candidate.map(|value| value.build_manifest_schema_version),
+        builder_recipe: candidate.map(|value| value.builder_recipe.clone()),
     };
-    let bytes = serde_json::to_vec(&payload).map_err(|source| BuildError::Json {
-        source,
-        context: "serialize build manifest".to_string(),
-    })?;
-    Ok(sha256_hex(bytes.as_slice()))
+    oasis7_wasm_build::compute_build_manifest_hash(&payload)
+        .map_err(|error| BuildError::MetadataInvalid(format!("build manifest failed: {error}")))
 }
 
+#[cfg(test)]
 fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String, BuildError> {
     oasis7_wasm_build::compute_source_hash(manifest_path, target).map_err(|error| {
         BuildError::MetadataInvalid(format!("source hash closure failed: {error}"))

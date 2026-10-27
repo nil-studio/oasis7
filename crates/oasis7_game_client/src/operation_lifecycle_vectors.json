@@ -1,0 +1,353 @@
+[
+  {
+    "name": "query never dispatches prepared",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "explicit first send",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "continue_original"
+  },
+  {
+    "name": "legacy phase missing is not unsent",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "possible dispatch only queries",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "dispatch_may_have_started",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "action query only even explicit consent",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "query_only",
+      "phase": "prepared_unsent",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "private preparation exact replay",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "private_preparation_replay",
+      "phase": "unknown",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "continue_original"
+  },
+  {
+    "name": "stop forbids private replay",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "private_preparation_replay",
+      "phase": "unknown",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": true
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "stop forbids first send",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": true
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "no write permission",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": false,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "no read permission",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": false,
+      "write_allowed": false,
+      "stopped": false
+    },
+    "expected": "retain"
+  },
+  {
+    "name": "scope changed",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": false,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "retain"
+  },
+  {
+    "name": "no persisted original",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "unknown",
+      "proof_verified": false,
+      "original_present": false,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "retain"
+  },
+  {
+    "name": "received stays query",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "received",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "pending stays query",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "pending",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "unknown stays query",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "unknown",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "history_unavailable stays query",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "history_unavailable",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "committed verified terminal",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "committed",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "read_terminal"
+  },
+  {
+    "name": "committed unverified cannot settle",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "committed",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "rejected verified terminal",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "rejected",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "read_terminal"
+  },
+  {
+    "name": "rejected unverified cannot settle",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "rejected",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  },
+  {
+    "name": "expired verified terminal",
+    "input": {
+      "intent": "continue_authorized_entry",
+      "policy": "entry_first_send",
+      "phase": "prepared_unsent",
+      "disposition": "expired",
+      "proof_verified": true,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "read_terminal"
+  },
+  {
+    "name": "expired unverified cannot settle",
+    "input": {
+      "intent": "query_only",
+      "policy": "entry_first_send",
+      "phase": "unknown",
+      "disposition": "expired",
+      "proof_verified": false,
+      "original_present": true,
+      "scope_current": true,
+      "read_allowed": true,
+      "write_allowed": true,
+      "stopped": false
+    },
+    "expected": "query_original"
+  }
+]

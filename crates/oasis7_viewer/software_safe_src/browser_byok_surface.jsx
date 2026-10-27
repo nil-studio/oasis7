@@ -1,3 +1,4 @@
+import { browserGameDiagnostic } from "./browser_game_diagnostics.js";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { BrowserModelConnectionPanel } from "./browser_model_connection_panel.jsx";
 import { createBrowserGameSession } from "./browser_game_session.js";
@@ -16,8 +17,9 @@ export function BrowserByokSurface(props) {
   let contextKey, entryKey, entryIdentityKey, entryController, previousAccount, unsubscribe, alive = true, entryGeneration = 0;
   const config = () => read(props.config);
   const goalBytes = () => new TextEncoder().encode(goal().trim()).byteLength;
-  const entryLabel = () => ({ needs_participant: tr("账号绑定待核对", "Account binding needs verification"), needs_task: tr("需要创建任务", "Task needs preparation"), needs_goal: tr("需要发布目标", "Goal needs publication"), ready: tr("账号任务已就绪", "Account task ready"), pending: tr("原件结果待确认", "Original result pending"), unsent: tr("保留原件确定尚未发送", "Retained original has not been sent"), owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"), stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing") })[entryState()?.state] || "—";
+  const entryLabel = () => ({ needs_participant: tr("账号绑定待核对", "Account binding needs verification"), needs_task: tr("需要创建任务", "Task needs preparation"), needs_goal: tr("需要发布目标", "Goal needs publication"), ready: tr("账号任务已就绪", "Account task ready"), pending: browserGameDiagnostic(entryState()).category === "pending" ? tr("原件结果待确认", "Original result pending") : browserGameDiagnostic(entryState()).category === "history_unavailable" ? tr("原件历史暂不可核对", "Original history unavailable") : tr("原件结果尚未确认", "Original result unconfirmed"), unsent: tr("保留原件确定尚未发送", "Retained original has not been sent"), owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"), failed: tr("入口核对失败", "Entry inspection failed"), stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing") })[entryState()?.state] || "—";
   const reason = (code) => {
+    if (["participant_registration_expired", "owner_operation_expired"].includes(code)) return tr("世界确认该原件已过期。保留原件并核对当前权限；不会自动替换或重发。", "The world confirmed that this original expired. Retain it and review current authority; it is not automatically replaced or resubmitted.");
     if (["participant_registration_rejected", "owner_operation_rejected"].includes(code)) return tr("世界拒绝了该登记或任务原件。请核对原账号玩家身份和任务权限；不会切换身份或替换原 Agent。", "The world rejected this registration or task original. Check the account's original owner identity and task authority; no identity or Agent is replaced.");
     if (code === "owner_goal_invalid") return tr("请输入不超过 8192 UTF-8 字节的任务目标。", "Enter a task goal of at most 8192 UTF-8 bytes.");
     if (["owner_mismatch", "participant_owner_mismatch"].includes(code)) return tr("本机玩家身份与账号原绑定不符。已停止；请恢复原身份后重试，不会替换原 Agent。", "This browser owner identity differs from the account binding. Restore the original identity; the existing Agent is not replaced.");
@@ -31,18 +33,35 @@ export function BrowserByokSurface(props) {
     if (String(code).includes("budget") || code === "run_time_limit") return tr("本轮预算或期限已到，不自动扩大或重置。", "This run's budget or deadline is exhausted; it is not automatically increased or reset.");
     return tr("游戏客户端操作未完成。请检查本机存储、登录、合法任务及当前部署支持；原件未知仍保持未知。", "The Game Client operation did not complete. Check browser storage, sign-in, the authorized task and deployment support; unknown originals stay unknown.");
   };
+  const diagnosticMessage = (failure, operation) => {
+    const detail = browserGameDiagnostic(failure, operation);
+    const guidance = ({
+      network: tr("网络请求未取得可验证结果；检查连接，写入结果仍可能未知。", "The network request produced no verified result. Check connectivity; a write outcome may still be unknown."),
+      timeout: tr("请求期限已到；保留原件，仅核对已有结果。", "The request deadline elapsed. Retain originals and look up their results."),
+      storage: tr("无法安全读取或保存本机原件。检查浏览器存储权限和空间。", "Local originals could not be read or saved safely. Check browser storage permissions and space."),
+      proof: tr("客户端证明构建或校验失败。核对当前部署和原身份，不使用未验证响应。", "Client proof construction or validation failed. Check the deployment and original identity; unverified responses are not used."),
+      permission: tr("登录或权限核对失败。恢复原登录身份并核对任务权限。", "Sign-in or authority verification failed. Restore the original identity and review task authority."),
+      deployment: tr("当前部署或协议能力不可用。请部署方核对 Game Client 支持。", "Deployment or protocol capability is unavailable. Ask the operator to check Game Client support."),
+      history_unavailable: tr("无法核对原件历史；这不代表未执行或被拒绝。保留原件，不自动重发。", "Original history cannot be verified. This does not mean non-execution or rejection. Retain the original; it is not automatically resubmitted."),
+      pending: tr("原件结果待确认；仅只读核对，不自动重发。", "The original result is pending. Use read-only lookup; it is not automatically resubmitted."),
+    })[detail.category] || reason(detail.code);
+    const operationLabel = ({ entry_inspect: tr("核对账号入口", "Inspect account entry"), entry_lookup: tr("核对入口原件", "Look up entry originals"), entry_prepare: tr("准备账号入口", "Prepare account entry"), protocol_load: tr("加载客户端协议", "Load client protocol"), game_session: tr("浏览器执行会话", "Browser execution session"), executor_inspect: tr("核对当前任务", "Inspect current task"), executor_prepare: tr("登记执行身份", "Register executor"), executor_start: tr("启动 Agent", "Start Agent"), executor_recover: tr("核对执行原件", "Look up execution originals"), executor_forget: tr("忘记本机 Key", "Forget local key") })[operation] || tr("游戏客户端操作", "Game Client operation");
+    return `${detail.code === "operation_unknown" ? `${reason(detail.code)} ` : ""}${guidance} [${operationLabel}: ${detail.stage}; code=${detail.code}; category=${detail.category}${detail.httpStatus ? `; HTTP=${detail.httpStatus}` : ""}${detail.serverCode ? `; server=${detail.serverCode}` : ""}${detail.causeCode ? `; cause=${detail.causeCode}` : ""}]`;
+  };
+  const showFailure = (failure, operation) => setError(diagnosticMessage(failure, operation));
   function refresh() {
     const value = driver()?.snapshot(); setState(value || null);
-    if (value?.code) setError(reason(value.code));
+    if (value?.code) showFailure(value, "game_session");
   }
   const ownerKey = (owner) => owner?.identityId || owner?.publicKey || "";
   const trustKey = (trusted) => JSON.stringify(trusted || null);
   const installedSigner = (owner, captured) => ({ publicKeyHex: owner.publicKey,
     sign: async (bytes) => { if (!alive || captured !== entryKey) throw new Error("game_session_changed"); const signature = await owner.sign(bytes); if (!alive || captured !== entryKey) throw new Error("game_session_changed"); return signature; } });
-  const acceptEntry = (value, captured) => {
+  const acceptEntry = (value, captured, operation = "entry_inspect") => {
     if (!alive || captured !== entryKey) return;
     setEntryState(value);
     if (value?.state === "unsent" && value.goal) setGoal(value.goal);
+    if (value?.code) showFailure(value, operation); else setError("");
     if (value?.state === "ready" && value.agentId) setProjectionPending(props.onCanonicalAgent?.(value.agentId) === false);
   };
   function openEntry({ accountId, owner, trusted }, resetGoal = false) {
@@ -52,14 +71,16 @@ export function BrowserByokSurface(props) {
     if (!accountId || !owner || !trusted) { setEntryBusy(false); return; }
     const captured = entryKey, controller = new AbortController(); entryController = controller; setEntryBusy(true);
     void (async () => {
+      let operation = "protocol_load";
       try {
         const codec = await (props.protocolLoader || loadBrowserGameProtocol)();
         if (!alive || captured !== entryKey) return;
+        operation = "entry_inspect";
         const ownerEntry = (props.createOwnerEntry || createBrowserOwnerEntry)({ config: trusted, codec, accountId,
           ownerSigner: installedSigner(owner, captured), signal: controller.signal, isCurrent: () => alive && captured === entryKey });
         setEntry(ownerEntry);
         acceptEntry(await ownerEntry.inspect(), captured);
-      } catch (failure) { if (alive && captured === entryKey) setError(reason(failure.code)); }
+      } catch (failure) { if (alive && captured === entryKey) { setEntryState({ state: "failed" }); showFailure(operation === "protocol_load" ? { code: "game_protocol_unavailable" } : failure, operation); } }
       finally { if (alive && captured === entryKey) setEntryBusy(false); }
     })();
   }
@@ -86,7 +107,7 @@ export function BrowserByokSurface(props) {
     contextKey = key; unsubscribe?.(); setConfirm(false); setRunConsent(false);
     const old = driver();
     if (old) {
-      if (previousAccount !== accountId) { const loggedOutContext = key; void old.logout().catch(() => { if (alive && contextKey === loggedOutContext) setError(reason("storage_write_failed")); }); }
+      if (previousAccount !== accountId) { const loggedOutContext = key; void old.logout().catch(() => { if (alive && contextKey === loggedOutContext) showFailure({ code: "storage_write_failed" }, "game_session"); }); }
       old.dispose();
     }
     previousAccount = accountId; setDriver(null); setState(null);
@@ -96,20 +117,21 @@ export function BrowserByokSurface(props) {
       const signer = installedSigner(owner, capturedEntry);
       const session = (props.createSession || createBrowserGameSession)({ config: trusted, accountId, agentId: canonicalAgent, ownerSigner: signer, isCurrent: () => alive && captured === contextKey && capturedEntry === entryKey });
       setDriver(session); unsubscribe = session.subscribe(refresh); refresh();
-    } catch { setError(reason("game_configuration_invalid")); }
+    } catch { showFailure({ code: "game_configuration_invalid" }, "game_session"); }
   });
   const prepareEntry = async (continuation = false) => {
     if (!entryConsent() || entryBusy() || !entry() || goalBytes() > 8192) return;
     const captured = entryKey, ownerEntry = entry(); setEntryBusy(true); setEntryConsent(false); setError("");
-    try { acceptEntry(await (continuation ? ownerEntry.continueOriginal({ goal: goal().trim(), consent: true }) : ownerEntry.prepare({ goal: goal().trim(), consent: true })), captured); }
-    catch (failure) { if (alive && captured === entryKey) setError(reason(failure.code)); }
+    try { acceptEntry(await (continuation ? ownerEntry.continueOriginal({ goal: goal().trim(), consent: true }) : ownerEntry.prepare({ goal: goal().trim(), consent: true })), captured, "entry_prepare"); }
+    catch (failure) { if (alive && captured === entryKey) showFailure(failure, "entry_prepare"); }
     finally { if (alive && captured === entryKey) setEntryBusy(false); }
   };
   const modelReady = () => { state(); return driver()?.modelSession.snapshot().checked === true; };
-  const act = async (action) => {
+  const act = async (action, operation = "game_session") => {
     const captured = contextKey, current = driver(); setError(""); setRunConsent(false);
-    try { await action(current); } catch (failure) { if (alive && captured === contextKey) setError(reason(failure.code)); }
-    finally { if (alive && captured === contextKey) refresh(); }
+    let failure;
+    try { await action(current); } catch (error) { failure = error; }
+    finally { if (alive && captured === contextKey) { refresh(); if (failure) showFailure(failure, operation); } }
   };
   onCleanup(() => { alive = false; contextKey = null; entryKey = null; entryController?.abort(); entry()?.dispose?.(); unsubscribe?.(); driver()?.dispose(); });
   return <section class="stack" style="overflow-wrap:anywhere;min-width:0" aria-label={tr("浏览器自带模型 Agent", "Browser BYOK Agent")}>
@@ -130,22 +152,22 @@ export function BrowserByokSurface(props) {
             <p role="status">{tr("可靠本机记录证明此原件尚未进入发送边界。确认当前身份和目标后，可继续发送同一原件；只读核对不会发送。可能已发送的原件仍只能查询。", "A durable local record confirms this original has not reached the send boundary. Confirm the current identity and goal to continue with the same original. Read-only lookup never sends it; possibly sent originals remain lookup-only.")}</p>
             <button type="button" disabled={entryBusy() || !entryConsent() || !goal().trim() || goalBytes() > 8192} onClick={() => void prepareEntry(true)}>{tr("继续发送保留的原件", "Continue sending the retained original")}</button>
           </Show>
-          <button type="button" disabled={entryBusy()} onClick={() => { const captured = entryKey; setEntryBusy(true); void entry().inspect().then((value) => acceptEntry(value, captured)).catch((failure) => { if (alive && captured === entryKey) setError(reason(failure.code)); }).finally(() => { if (alive && captured === entryKey) setEntryBusy(false); }); }}>{tr("只读核对账号入口原件", "Look up account entry originals")}</button>
+          <button type="button" disabled={entryBusy()} onClick={() => { const captured = entryKey; setEntryBusy(true); void entry().inspect().then((value) => acceptEntry(value, captured, "entry_lookup")).catch((failure) => { if (alive && captured === entryKey) showFailure(failure, "entry_lookup"); }).finally(() => { if (alive && captured === entryKey) setEntryBusy(false); }); }}>{tr("只读核对账号入口原件", "Look up account entry originals")}</button>
         </Show>
       </Show>
       <Show when={driver()}>
         <p>{tr("实际执行入口：当前浏览器。模型 Key 不授予游戏权限；下面的执行身份登记仅复用上方已确认的玩家/Agent/Task，不创建新的 Agent。", "Execution location: this browser. A model key grants no game authority. Executor registration below reuses the confirmed player, Agent and Task above; it creates no Agent.")}</p>
         <Show when={state()?.fence}>{(fence) => <p role="status">{`world=${fence().world_id} · owner=${fence().owner_binding} · Agent=${fence().agent_id} · Task=${fence().task_id} · goal=${fence().active_goal_reference?.goal_ref || "—"} · executor=${fence().executor_binding?.executor_public_key || "—"}`}<br />{state()?.goal}</p>}</Show>
-        <button type="button" disabled={["running", "preparing"].includes(state()?.phase)} onClick={() => { setConfirm(false); void act((session) => session.prepare({ inspectOnly: true })); }}>{tr("只读核对当前任务", "Inspect current task")}</button>
+        <button type="button" disabled={["running", "preparing"].includes(state()?.phase)} onClick={() => { setConfirm(false); void act((session) => session.prepare({ inspectOnly: true }), "executor_inspect"); }}>{tr("只读核对当前任务", "Inspect current task")}</button>
         <label><input type="checkbox" checked={confirm()} onChange={(event) => setConfirm(event.currentTarget.checked)} disabled={!state()?.fence || ["running", "preparing"].includes(state()?.phase)} />{tr("确认核对既有任务并授权此浏览器执行身份；若已有其他执行方，明确同意切换。", "Confirm the existing task and authorize this browser executor; explicitly switch if another executor is bound.")}</label>
-        <button type="button" disabled={!state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase)} onClick={() => { const confirmedFence = state()?.fence; setConfirm(false); void act((session) => session.prepare({ takeover: true, confirmedFence })); }}>{tr("核对任务并登记执行身份", "Check task and register executor")}</button>
+        <button type="button" disabled={!state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase)} onClick={() => { const confirmedFence = state()?.fence; setConfirm(false); void act((session) => session.prepare({ takeover: true, confirmedFence }), "executor_prepare"); }}>{tr("核对任务并登记执行身份", "Check task and register executor")}</button>
         <BrowserModelConnectionPanel locale={props.locale} accountId={props.accountId} executionReady={() => state()?.ready === true} session={() => driver()?.modelSession} onStop={() => driver()?.stop()} />
         <label><input type="checkbox" checked={runConsent()} onChange={(event) => setRunConsent(event.currentTarget.checked)} disabled={!state()?.ready || state()?.phase === "running"} />{tr("确认上述实际 Agent、任务和目标；开始后供应商账户计费。检查与执行共享本站账号最多 8 次调用、131072 token；每次执行输出最多 512 token，本轮 120 秒。", "Confirm the actual Agent, Task and goal above. Starting charges your provider account. Checks and execution share an account limit of 8 calls and 131072 reserved tokens. Each execution call allows 512 output tokens; this run lasts 120 seconds.")}</label>
         <div class="model-connection-panel__actions">
-          <button type="button" disabled={!runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running"} onClick={() => void act((session) => session.start())}>{tr("确认开始 Agent", "Confirm Agent start")}</button>
+          <button type="button" disabled={!runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running"} onClick={() => void act((session) => session.start(), "executor_start")}>{tr("确认开始 Agent", "Confirm Agent start")}</button>
           <button type="button" onClick={() => driver()?.stop()}>{tr("停止新决策", "Stop new decisions")}</button>
-          <button type="button" disabled={state()?.phase === "running"} onClick={() => void act((session) => session.recover())}>{tr("只读核对原件", "Look up original operations")}</button>
-          <button type="button" onClick={() => void act((session) => session.forget())}>{tr("忘记本机 Key", "Forget local key")}</button>
+          <button type="button" disabled={state()?.phase === "running"} onClick={() => void act((session) => session.recover(), "executor_recover")}>{tr("只读核对原件", "Look up original operations")}</button>
+          <button type="button" onClick={() => void act((session) => session.forget(), "executor_forget")}>{tr("忘记本机 Key", "Forget local key")}</button>
         </div>
         <p role="status">{tr("运行状态", "Execution state")}: {state()?.phase || "—"}</p>
       </Show>

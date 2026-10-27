@@ -58,6 +58,65 @@ async function provisionInput(mf, name, path = 'prepare') {
   result.input.approval.signature = await sign(result.canonical_bytes);
   return result.input;
 }
+test('role-local encrypted key slot commits once, survives restart and authenticates the original material', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const name = 'role-slot-original';
+  const results = await Promise.all(Array.from({length: 3}, () => ok(mf, name, '/role-key/ensure')));
+  assert.deepEqual(results[0], results[1]); assert.deepEqual(results[0], results[2]);
+  assert.deepEqual(Object.keys(results[0]).sort(), ['key_id', 'key_version', 'public_key']);
+  assert.match(results[0].public_key, /^[0-9a-f]{64}$/);
+  const raw = await ok(mf, name, '/role-key/raw');
+  const saved = JSON.parse(raw[0].payload);
+  assert.equal(saved.audit_sequence, '1');
+  assert.equal(saved.slot.envelope.ciphertext.length, 96, '32-byte seed plus GCM tag only');
+  assert.equal(saved.slot.envelope.context.identity.role, 'owner');
+  assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 1, audits: 1});
+  const audit = await ok(mf, name, '/role-key/audit');
+  assert.doesNotMatch(JSON.stringify(audit), /ciphertext|wrapped_dek|seed|signature|kek/i);
+  const proof = await ok(mf, name, '/role-key/verify-material');
+  assert.equal(proof.public_key, results[0].public_key);
+  const publicKey = await webcrypto.subtle.importKey('raw', Buffer.from(proof.public_key, 'hex'), 'Ed25519', false, ['verify']);
+  assert.equal(await webcrypto.subtle.verify('Ed25519', publicKey, Buffer.from(proof.signature, 'hex'), Uint8Array.from(proof.message)), true);
+  mf = await restart();
+  assert.deepEqual(await ok(mf, name, '/role-key/ensure'), results[0]);
+  assert.deepEqual(await ok(mf, name, '/role-key/raw'), raw);
+  assert.deepEqual(await ok(mf, name, '/role-key/audit'), audit);
+  assert.equal((await call(mf, name, '/role-key/ensure-scope')).status, 409);
+  assert.equal((await call(mf, name, '/role-key/ensure-role')).status, 409);
+  assert.equal((await call(mf, name, '/role-key/ensure-wrong-kek')).status, 409);
+  assert.deepEqual(await ok(mf, name, '/role-key/raw'), raw, 'failure cannot replace the original');
+}));
+test('role slot audit failure rolls back candidate; final authority changes cannot publish a key', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current();
+  for (const suffix of ['expired', 'frozen', 'cancelled', 'revision', 'unapproved', 'clock']) {
+    const name = 'role-final-' + suffix;
+    assert.equal((await call(mf, name, '/role-key/ensure-' + suffix)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 0, audits: 0});
+  }
+  const name = 'role-audit-rollback';
+  await ok(mf, name, '/role-key/fault');
+  assert.equal((await call(mf, name, '/role-key/ensure')).status, 409);
+  assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 0, audits: 0});
+  await ok(mf, name, '/role-key/clear-fault');
+  await ok(mf, name, '/role-key/ensure');
+  const original = await ok(mf, name, '/role-key/raw');
+  for (const suffix of ['frozen', 'cancelled', 'revision', 'expired']) {
+    assert.equal((await call(mf, name, '/role-key/ensure-' + suffix)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/role-key/raw'), original);
+  }
+}));
+test('damaged role slot ciphertext, public key or schema fails closed without replacement', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current();
+  for (const field of ['public', 'ciphertext', 'schema']) {
+    const name = 'role-corrupt-' + field;
+    await ok(mf, name, '/role-key/ensure');
+    await ok(mf, name, '/role-key/corrupt-' + field);
+    const corrupt = await ok(mf, name, '/role-key/raw');
+    mf = await restart();
+    assert.equal((await call(mf, name, '/role-key/ensure')).status, 409);
+    assert.deepEqual(await ok(mf, name, '/role-key/raw'), corrupt);
+    assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 1, audits: 1});
+  }
+}));
 async function provisionVerification(mf, name) {
   const result = await ok(mf, name, '/provision/verification');
   return { verification: result.verification, signature: await sign(result.canonical_bytes) };
@@ -104,6 +163,30 @@ test('real provision SQLite audit failure leaves proof pending, plan draft and o
   await ok(mf, name, '/provision/clear-fault');
   await ok(mf, name, '/provision/commit', signed);
   assert.equal((await ok(mf, name, '/provision/snapshot')).state.provision.stage, 'approved');
+}));
+test('Account commits three exact role results atomically, rejects replacement and retains history after cancellation', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const name = 'provision-three-role-results';
+  const input = await provisionInput(mf,name); await ok(mf,name,'/provision/begin',input);
+  await ok(mf,name,'/provision/commit',await provisionVerification(mf,name));
+  const before = await ok(mf,name,'/provision/snapshot');
+  await ok(mf,name,'/provision/role-fault');
+  const identity = {role:'identity',public_key:'12'.repeat(32)};
+  assert.equal((await call(mf,name,'/provision/role-result',identity)).status,409);
+  assert.deepEqual(await ok(mf,name,'/provision/snapshot'),before,'role receipt and stage must roll back with audit');
+  await ok(mf,name,'/provision/clear-fault');
+  const first = await ok(mf,name,'/provision/role-result',identity);
+  assert.deepEqual(await ok(mf,name,'/provision/role-result',identity),first);
+  assert.equal((await call(mf,name,'/provision/role-result',{...identity,public_key:'13'.repeat(32)})).status,409);
+  assert.equal((await call(mf,name,'/provision/role-result',{role:'owner',public_key:identity.public_key})).status,409,'distinct roles cannot reuse a public key');
+  await ok(mf,name,'/provision/role-result',{role:'owner',public_key:'14'.repeat(32)});
+  assert.equal((await ok(mf,name,'/provision/snapshot')).state.provision.stage,'approved');
+  await ok(mf,name,'/provision/role-result',{role:'executor',public_key:'15'.repeat(32)});
+  const ready = await ok(mf,name,'/provision/snapshot'); assert.equal(ready.state.provision.stage,'role_keys_ready');
+  assert.equal(ready.audit_sequence,'5');
+  mf = await restart(); assert.deepEqual(await ok(mf,name,'/provision/snapshot'),ready);
+  const cancelled = await ok(mf,name,'/provision/cancel');
+  assert.deepEqual(await ok(mf,name,'/provision/role-result',identity),first,'same historical receipt does not gain new authority');
+  assert.deepEqual(await ok(mf,name,'/provision/snapshot'),cancelled);
 }));
 test('provision admission binds signed purpose and live policy; real freeze blocks final consumption', { timeout: 90000 }, async () => fixture(async current => {
   const mf = current();

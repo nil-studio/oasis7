@@ -20,7 +20,8 @@ export function loginApproval(deadline: string): ApprovalOptionsRequestV1 {
     audience: 'account-authority:test', environment: 'test', custody_account_id: 'custody-one',
     policy_version: '1', security_version: '2', service_epoch: '3',
   }, intent: { kind: 'managed_login', native_account_id: 'native-one', login_key_ref: 'login-one',
-    native_identity_namespace: 'identity:test', blocked_operation_ref: 'blocked-one', deadline } };
+    native_identity_namespace: 'identity:test', blocked_operation_ref: 'blocked-one',
+    login_request_id:'managed-login-one', transport_limit:'64', deadline } };
 }
 export function completion(id: string, intent_digest: string, assertion: unknown): ApprovalCompleteRequestV1 {
   return { approval_id: id, ceremony_id: id, operation_id: id, intent_digest, response: assertion };

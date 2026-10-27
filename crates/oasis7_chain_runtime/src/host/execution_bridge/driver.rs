@@ -64,6 +64,8 @@ pub(crate) use state::{ExecutionResourceIdentity, NodeRuntimeExecutionDriver};
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 #[path = "driver_bft.rs"]
 mod bft_execution;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub(crate) use bft_execution::{FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
 #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
 #[path = "driver_bft_unsupported.rs"]
 mod bft_execution;
@@ -92,6 +94,9 @@ impl NodeRuntimeExecutionDriver {
         config: ExecutionDriverConfig,
         local_execution_bootstrap: Option<NodeExecutionBootstrap>,
     ) -> Result<Self, String> {
+        if bft_execution::has_formal_bft_material(records_dir.as_path())? {
+            return Err("legacy World startup refuses a formal BFT read ledger".into());
+        }
         // A BFT sidecar is an execution-mode fence. Do not let legacy startup
         // clean partial World files, restore Pos records, or reconcile checkpoint
         // transactions before NodeRuntime supplies the fixed BFT configuration.

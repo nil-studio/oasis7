@@ -5,7 +5,7 @@ mod checkpoint_attempt_tests;
 mod frozen_snapshot_tests;
 use crate::formal_read_fixtures as fixtures;
 #[path = "formal_wasm_fixture.rs"]
-mod wasm_fixture;
+pub(crate) mod wasm_fixture;
 use oasis7_distfs::controlled_authority::{
     formal::{
         coordinator::{FormalCoordinator, FormalDurabilityEndpoint},

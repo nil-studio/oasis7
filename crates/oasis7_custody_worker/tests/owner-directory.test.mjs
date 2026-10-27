@@ -46,8 +46,21 @@ function options(persist) {
   }] }), resourcePersistencePath: persist, unsafeDevRegistryPath: resolve(persist, 'registry') };
 }
 async function call(mf, path, body) {
+  await mf.ready;
   if (body.manager_session) body = { ...body, manager_session: { ...body.manager_session, server_time: String(Date.now()) } };
   return mf.dispatchFetch('https://component.test' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+
+test('component metadata is sampled after lazy startup, inside the unchanged five-second boundary', {timeout:15000}, async()=>{
+  const ready=delay(5100);
+  const runtime={ready,dispatchFetch:async(_url,init)=>{
+    await ready;
+    const request=JSON.parse(init.body);
+    assert.ok(Date.now()-Number(request.manager_session.server_time)<=5000,
+      'startup latency must not age synthetic current authority before delivery');
+    return new Response('{}',{headers:{'Content-Type':'application/json'}});
+  }};
+  await call(runtime,'/reserve',{manager_session:session(),request:request('startup-fresh')});
+});
 async function ok(response) { assert.equal(response.status, 200, response.status === 200 ? '' : await response.text()); return response.json(); }
 async function account(mf, name, path, body) {
   const { ACCOUNTS } = await mf.getBindings();

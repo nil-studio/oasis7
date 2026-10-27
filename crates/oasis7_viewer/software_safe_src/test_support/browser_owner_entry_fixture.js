@@ -2,10 +2,10 @@ import { createBrowserOwnerEntry } from "../browser_owner_entry.js";
 export const ownerKey = "44".repeat(32);
 export const config = { endpoint: "/api/public/hosted-account/v2", servicePublicKey: "11".repeat(32), participantIssuerPublicKey: "22".repeat(32), world: { world_id: "world", genesis_digest: "genesis" }, identity: { service_id: "identity", environment_id: "test", instance_epoch: "1" } };
 export function fixture() {
- const records = new Map(), calls = [], effects = new Set(); let bound = false, task = null, originalOwner, unknown = false, rejectOwner = false, unknownOwnerKind = null;
+ const records = new Map(), calls = [], effects = new Set(); let bound = false, task = null, originalOwner, unknown = false, rejectOwner = false, unknownOwnerKind = null, ownerOutcome = null, ownerEpoch = "0";
  const storage = { get: async (key) => structuredClone(records.get(key)), update: async (key, mutate) => { const value = mutate(structuredClone(records.get(key))); records.set(key, structuredClone(value)); return structuredClone(value); } };
  const respond = (value) => new Response(JSON.stringify({ api_version: 2, ok: true, ...value }));
- const control = () => ({ view: { canonical_agent_owner: { agent_id: "canonical-agent", public_key: ownerKey, player_id: "player", world_id: "world" }, game_task_control: task } });
+ const control = () => ({ view: { canonical_agent_owner: { agent_id: "canonical-agent", public_key: ownerKey, player_id: "player", world_id: "world", reorg_epoch: ownerEpoch, canonical_authority: "active" }, game_task_control: task } });
  const codec = {
   signingBytes: () => new Uint8Array([1]), validate: (_kind, _request, raw) => raw,
   verifyGatewayResponse: (_domain, _request, raw) => { const value = JSON.parse(raw); if (!value.world_response) throw new Error("unverified"); return JSON.stringify(value.world_response); },
@@ -39,12 +39,12 @@ export function fixture() {
    if (operation.kind === "submit") effects.add(JSON.stringify(payload));
    if (operation.kind === "submit" && payload.kind === "game_task_create") task = { task_id: "canonical-task", agent_id: "canonical-agent", active_goal_revision: "0", active_goal_reference: null };
    if (operation.kind === "submit" && payload.kind === "game_goal_publish") task = { ...task, active_goal_revision: "1", active_goal_reference: { goal_ref: "fixture-goal" } };
-   return respond({ world_response: { outcome: { status: unknown || unknownOwnerKind === payload.kind || !effects.has(JSON.stringify(payload)) ? "unknown" : "committed", receipt: { original: payload.kind } } } });
+   return respond({ world_response: { outcome: { status: ownerOutcome ?? (unknown || unknownOwnerKind === payload.kind || !effects.has(JSON.stringify(payload)) ? "unknown" : "committed"), receipt: { original: payload.kind } } } });
   }
   throw new Error(`unexpected fixture route ${path}`);
  };
  const create = (extra = {}) => createBrowserOwnerEntry({ config, codec, accountId: "account", ownerSigner: { publicKeyHex: ownerKey, sign: async () => new Uint8Array(64) }, storage, locks: { request: async (_name, _options, run) => run() }, fetchImpl, cryptoImpl: { getRandomValues: (bytes) => bytes.fill(7) }, ...extra });
- return { create, calls, records, fetchImpl, storage, setOwnerUnknown: (kind) => { unknownOwnerKind = kind; }, setUnknown: (value) => { unknown = value; }, existing: () => { bound = true; task = { task_id: "canonical-task", agent_id: "canonical-agent", active_goal_revision: "1", active_goal_reference: { goal_ref: "existing" } }; }, mismatch: () => { rejectOwner = true; } };
+ return { create, codec, changeOwnerEpoch: () => { ownerEpoch = "1"; }, changeTaskFence: () => { task = { ...task, active_goal_revision: "9" }; }, setOwnerOutcome: (value) => { ownerOutcome = value; }, calls, records, fetchImpl, storage, setOwnerUnknown: (kind) => { unknownOwnerKind = kind; }, setUnknown: (value) => { unknown = value; }, existing: () => { bound = true; task = { task_id: "canonical-task", agent_id: "canonical-agent", active_goal_revision: "1", active_goal_reference: { goal_ref: "existing" } }; }, mismatch: () => { rejectOwner = true; } };
 }
 
 export function sessionFailure(f, slot) {

@@ -4,10 +4,35 @@ import unittest
 import tempfile
 from unittest.mock import patch
 import json
+import os
+import sys
+import time
 from pathlib import Path
 import codeql_rust_cfg_graph as cfg
 
 class GraphTests(unittest.TestCase):
+    def test_evaluator_pagefile_is_not_an_evidence_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); evidence=root/"evidence"; evidence.mkdir()
+            code="import os,sys; f=open(sys.argv[3], \"wb\"); f.truncate(65*1024**2); f.close()"
+            # Real child file growth crosses the old 64 MiB process limit.
+            argv=[sys.executable,"-c",code,"query","run",str(root/"page")]
+            limit=cfg.command_file_limit(["codeql","query","run","summary.ql"])
+            cfg.runtime.run(argv,root,evidence/"child",time.monotonic()+10,10,evidence,os.environ.copy(),file_limit=limit)
+            self.assertEqual((root/"page").stat().st_size,65*1024**2)
+            decode_limit=cfg.command_file_limit(["codeql","bqrs","decode"])
+            argv[-1]=str(root/"decoded")
+            with self.assertRaises(cfg.runtime.PhaseError):
+                cfg.runtime.run(argv,root,evidence/"decode",time.monotonic()+10,10,evidence,os.environ.copy(),file_limit=decode_limit)
+            self.assertLessEqual((root/"decoded").stat().st_size,64*1024**2)
+
+    def test_context_exclusion_requires_negative_and_positive_database_witnesses(self):
+        paths=cfg.CONTEXT_PATHS
+        good=[[paths[0],0,0],[paths[1],50,10],[paths[2],70,20]]
+        self.assertEqual(cfg.validate_context_exclusion(good)["status"],"EXCLUSION_AST_VERIFIED")
+        for bad in (good[:2],good+[good[0]],[[paths[0],1,1],*good[1:]],[[paths[0],0,0],[paths[1],0,0],good[2]],[["other.rs",0,0],*good[1:]],[[paths[0],False,0],*good[1:]]):
+            with self.assertRaises(RuntimeError):cfg.validate_context_exclusion(bad)
+
     def test_digest_exception_preserves_primary_error(self):
         terminal={'status':'DIAGNOSTIC_COMPLETED','error':'original query failure'}
         with tempfile.TemporaryDirectory() as tmp:

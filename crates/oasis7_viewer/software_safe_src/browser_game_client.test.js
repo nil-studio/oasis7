@@ -1,3 +1,4 @@
+import { BrowserParticipantError } from "./browser_participant_entry.js";
 import { describe, expect, it, vi } from "vitest";
 import { createBrowserGameClient, WORLD_PATHS } from "./browser_game_client.js";
 import { createBrowserGameRecovery } from "./browser_game_recovery.js";
@@ -34,7 +35,7 @@ function fixture(recoveryOverride) {
   return { world_response: { payload } };
  });
  const client = createBrowserGameClient({ config: { endpoint: "/api/public/hosted-account/v2", world: { world_id: "world", genesis_digest: "genesis" }, servicePublicKey: key }, codec, ownerSigner: signer(key), executorSigner: signer(executor), participantProofs: async () => ({ owner: { request: "owner" }, admission: { request: "admission" } }), agentId: "agent", taskId: "task", recovery: recoveryOverride ?? recovery, gatewayCall, beforeEffect: () => effectGate() });
- return { client, codec, recovery, entries, calls, order, signed, prepared, setGate: (gate) => { effectGate = gate; }, setFence: (value) => { stateFence = value; }, setOutcomeLookup: (value) => { outcomeLookupStatus = value; }, setTick: (value) => { logicalTick = value; }, setLookup: (value) => { lookupStatus = value; }, rejectWrite: () => { rejectWrite = true; } };
+ return { client, codec, gatewayCall, recovery, entries, calls, order, signed, prepared, setGate: (gate) => { effectGate = gate; }, setFence: (value) => { stateFence = value; }, setOutcomeLookup: (value) => { outcomeLookupStatus = value; }, setTick: (value) => { logicalTick = value; }, setLookup: (value) => { lookupStatus = value; }, rejectWrite: () => { rejectWrite = true; } };
 }
 describe("browser WorldService client", () => {
  it("discovers an owner-signed canonical task and binds its complete fence", async () => {
@@ -150,4 +151,26 @@ describe("browser WorldService client", () => {
   const loaded = await recovery.load(); expect(loaded.operations).toHaveLength(3);
   expect(loaded.operations.every((entry) => typeof entry.original.signedRequest.rawJson === "string")).toBe(true);
  });
+});
+
+it("preserves safe gateway diagnostics through task reads without raw messages", async () => {
+ const f = fixture();
+ f.gatewayCall.mockRejectedValueOnce(new BrowserParticipantError("participant_request_failed", { stage: "participant_owner_view", httpStatus: 403, serverCode: "csrf_failed" }));
+ await expect(f.client.readTask()).rejects.toMatchObject({ code: "participant_request_failed", diagnostic: { stage: "participant_owner_view", httpStatus: 403, serverCode: "csrf_failed" } });
+});
+it("retains unknown action identity while preserving its safe gateway failure classification", async () => {
+ const f = fixture(); await f.client.bindFence(fence);
+ const transport = f.gatewayCall.getMockImplementation();
+ f.gatewayCall.mockImplementation((path, body, options) => {
+  if (body.operation?.kind === "submit") throw new BrowserParticipantError("participant_request_failed", { stage: "executor_control", httpStatus: 503, serverCode: "executor_control_unavailable" });
+  return transport(path, body, options);
+ });
+ await expect(f.client.action("same-action", { prepared: f.prepared }, { type: "MoveAgent" })).rejects.toMatchObject({ code: "operation_unknown", diagnostic: { httpStatus: 503, serverCode: "executor_control_unavailable", causeCode: "participant_request_failed" } });
+ expect(f.entries.find((entry) => entry.original.kind === "action").state).toBe("unknown");
+});
+
+it("preserves the existing Context rejection code after a verified prefix terminal result", async () => {
+ const f = fixture(); await f.client.bindFence(fence);
+ const prepared = await f.client.prepareContext("prefix-terminal"); f.setLookup("rejected");
+ await expect(f.client.captureContext("prefix-terminal", prepared)).rejects.toMatchObject({ code: "context_rejected" });
 });

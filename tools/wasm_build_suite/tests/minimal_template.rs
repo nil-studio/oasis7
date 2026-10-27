@@ -177,7 +177,16 @@ fn minimal_template_real_build_writes_wasm_and_metadata() {
     let receipt_bytes = fs::read(&output.receipt_path).expect("read build receipt json");
     let receipt: BuildReceipt =
         serde_json::from_slice(&receipt_bytes).expect("parse build receipt json");
-    assert_eq!(receipt.schema_version, 2);
+    assert_eq!(receipt.schema_version, 3);
+    assert_eq!(receipt.source_input_rule_version, Some(2));
+    assert_eq!(receipt.source_inputs, metadata.source_inputs);
+    let inputs = oasis7_wasm_build::compute_source_inputs(&request.manifest_path, DEFAULT_TARGET)
+        .expect("shared source inputs");
+    assert_eq!(receipt.source_hash, inputs.source_hash);
+    assert_eq!(
+        receipt.source_inputs.as_deref(),
+        Some(inputs.source_inputs.as_slice())
+    );
     assert_eq!(receipt.module_id, module_id);
     assert_eq!(receipt.target, DEFAULT_TARGET);
     assert_eq!(receipt.profile, "dev");

@@ -1,7 +1,8 @@
 //! Bounded current owner/task observation. Never constructs a world projection.
 use super::*;
 use oasis7_client_api::world_service::participant_discovery::{
-    ParticipantOwnerControlResponseV1, ParticipantOwnerControlViewV1,
+    OwnerSetupObservationV1, ParticipantOwnerControlResponseV1, ParticipantOwnerControlViewV1,
+    ParticipantOwnerViewProfileV1,
 };
 
 pub(super) fn read(
@@ -48,8 +49,23 @@ pub(super) fn read(
         logical_tick: pinned.world.state().time,
         view,
     };
-    response.validate(request)?;
-    let signed = service.signed(PARTICIPANT_OWNER_VIEW_PATH, request, response)?;
+    let signed = if request.response_profile == Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) {
+        let observation = OwnerSetupObservationV1 {
+            api_version: 1,
+            control: response,
+            signer_delegation: pinned
+                .world
+                .capability_revocation_state()
+                .agent_signer_delegations
+                .get(&agent)
+                .cloned(),
+        };
+        observation.validate(request)?;
+        service.signed(PARTICIPANT_OWNER_VIEW_PATH, request, observation)?
+    } else {
+        response.validate(request)?;
+        service.signed(PARTICIPANT_OWNER_VIEW_PATH, request, response)?
+    };
     // Leave space for the identity transport's world_response wrapper without
     // increasing either existing HTTP boundary.
     if serde_json::to_vec(&signed)

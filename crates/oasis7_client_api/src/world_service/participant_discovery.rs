@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 pub const PARTICIPANT_POLICY_PATH: &str = "/v1/world/participant-policy";
 pub const PARTICIPANT_OWNER_VIEW_PATH: &str = "/v1/world/participant-owner-view";
 pub const PARTICIPANT_STARTER_ELIGIBILITY_PATH: &str = "/v1/world/participant-starter-eligibility";
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[path = "participant_policy_original.rs"]
+mod policy_original;
+pub use policy_original::ParticipantPolicyOriginalV1;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParticipantOwnerViewRequestV1 {
     pub owner: SignedReadRequest<GameParticipantRegisterV1>,
@@ -45,7 +48,12 @@ impl ParticipantPolicyRequestV1 {
 #[serde(rename_all = "snake_case")]
 pub enum ParticipantOwnerViewProfileV1 {
     OwnerControlV1,
+    OwnerSetupV1,
 }
+
+#[path = "owner_setup_observation.rs"]
+mod owner_setup_observation;
+pub use owner_setup_observation::OwnerSetupObservationV1;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParticipantOwnerControlViewV1 {

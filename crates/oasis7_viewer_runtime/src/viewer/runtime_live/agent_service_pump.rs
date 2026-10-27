@@ -187,9 +187,12 @@ impl ViewerRuntimeLiveServer {
                 let Some(shared) = weak.upgrade() else {
                     break;
                 };
+                let pump_phase = stream_budget_diagnostics::phase(20);
+                let wait_phase = stream_budget_diagnostics::phase(21);
                 let Ok(mut server) = shared.lock() else {
                     break;
                 };
+                drop(wait_phase);
                 let had_phase = server.llm_sidecar.hosted_service_phase.is_some();
                 let mut progress = None;
                 let mut retry_without_progress = false;
@@ -199,10 +202,12 @@ impl ViewerRuntimeLiveServer {
                             in_flight = false;
                             let original_phase = result.token.phase_digest.clone();
                             let unpublished_response = unpublished_response(&result);
+                            let apply_phase = stream_budget_diagnostics::phase(22);
                             #[cfg(any(test, feature = "test_tier_required"))]
                             let applied = diagnostics.apply(&mut server, result);
                             #[cfg(not(any(test, feature = "test_tier_required")))]
                             let applied = server.apply_agent_service_io(result);
+                            drop(apply_phase);
                             let phase_identity = if applied.is_err() {
                                 None
                             } else {
@@ -254,7 +259,10 @@ impl ViewerRuntimeLiveServer {
                             Some(AgentServiceProgress::Idle | AgentServiceProgress::Advanced)
                         )
                     {
-                        match server.prepare_agent_service_io(eligible) {
+                        let prepare_phase = stream_budget_diagnostics::phase(23);
+                        let prepared = server.prepare_agent_service_io(eligible);
+                        drop(prepare_phase);
+                        match prepared {
                             Ok(value) => {
                                 server.observe_agent_pump_progress(&value);
                                 progress = Some(value);
@@ -301,6 +309,7 @@ impl ViewerRuntimeLiveServer {
                 // observers retain access. Fresh admission and terminal phase
                 // removal stop the burst; it never starts another model turn.
                 drop(server);
+                drop(pump_phase);
                 drop(shared);
                 if advance_without_sleep {
                     local_advances += 1;

@@ -2,6 +2,11 @@ use oasis7_client_api::world_service as authority;
 #[path = "device_client_build.rs"]
 mod client_build;
 pub use client_build::BuildQuoteOutcome;
+#[path = "device_client_lifecycle.rs"]
+mod client_lifecycle;
+pub use client_lifecycle::{
+    ContextTermination, OperationDisposition, OperationObservation, OriginalIdentity, OriginalKind,
+};
 
 use crate::operation_store::{ClientStateKind, ClientStateV1, OperationStore as PrivateGoalStore};
 use crate::private_key_file::read_private_key_file;
@@ -300,7 +305,7 @@ impl Client {
         }
         Ok(
             json!({"api_revision":1,"read_version":view.version(),"logical_tick":view.logical_tick(),
-            "world_rule_status":view.raw_projection().get("world_rule_status"),"industry":fields,"collection_limit":128,"scope":"authenticated public industry observation; no signed transfer quote is provided"}),
+            "gameplay_capability":view.raw_projection().get("world_rule_status").and_then(|v|v.get("gameplay_capability")),"world_rule_status":view.raw_projection().get("world_rule_status"),"industry":fields,"collection_limit":128,"scope":"authenticated public industry observation; no signed transfer quote is provided"}),
         )
     }
     pub fn quote_schedule(

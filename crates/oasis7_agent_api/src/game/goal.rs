@@ -9,6 +9,7 @@ pub const GAME_GOAL_VERSION_DOMAIN: &str = "game_goal_version/v1";
 
 /// Complete content, preserved without trimming, truncation or reordering.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct GoalContentV1 {
     pub goal_text: String,

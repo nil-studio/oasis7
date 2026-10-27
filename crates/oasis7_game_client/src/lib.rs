@@ -9,6 +9,7 @@ pub mod executor_gateway;
 mod identity_cli;
 #[cfg(unix)]
 pub mod identity_client;
+pub mod operation_lifecycle;
 #[cfg(unix)]
 mod participant_cli;
 pub use cooldown::WorldServiceQueryState;
@@ -246,6 +247,10 @@ impl WorldServiceTransport {
             .map_err(|_| {
                 WorldServiceClientError::Configuration("private transport unavailable".into())
             })
+    }
+    pub(crate) fn use_private_connection(&mut self) -> Result<(), WorldServiceClientError> {
+        self.http = self.private_connection()?;
+        Ok(())
     }
     /// Fetch confidential bytes without proxies or redirects. The caller must
     /// strictly decode and verify the exact original request's response proof.
@@ -533,7 +538,12 @@ fn quote_error_category(path: &str, status: u16, reader: &mut impl Read) -> Opti
     }
 }
 
+mod formal_bft_read_v2;
 pub mod formal_read;
+pub use formal_bft_read_v2::{
+    FormalBftReadClientConfigV2, FormalBftReadClientV2, FormalBftReadVerifierV2,
+    VerifiedFormalBftReadPageV2,
+};
 
 pub mod verified_world_view;
 

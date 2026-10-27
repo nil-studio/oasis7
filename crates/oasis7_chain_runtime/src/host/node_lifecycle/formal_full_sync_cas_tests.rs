@@ -37,6 +37,51 @@ fn put(store: &LocalCasStore, bytes: &[u8]) -> String {
 }
 
 #[test]
+fn durable_full_sync_pin_publisher_waits_for_the_shared_cas_retention_guard() {
+    let root = CasTestRoot::new();
+    let store = LocalCasStore::new(root.path());
+    let hash = put(&store, b"full-sync closure retained after contention");
+    let guard = store
+        .acquire_retention_guard()
+        .expect("hold GC transaction");
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+    let worker_store = store.clone();
+    let worker_hash = hash.clone();
+    let worker = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let result = replace_history_pins(&worker_store, &BTreeSet::from([worker_hash]));
+        completed_tx.send(result).unwrap();
+    });
+    started_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let early = completed_rx.recv_timeout(std::time::Duration::from_millis(150));
+    // Release before checking the oracle so a failing test cannot strand a
+    // worker on the real OS lock.
+    drop(guard);
+    let blocked = matches!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+    let result = match early {
+        Ok(result) => result,
+        Err(_) => completed_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap(),
+    };
+    worker.join().unwrap();
+    assert!(
+        blocked,
+        "durable custom pin publisher bypassed CAS retention lock"
+    );
+    result.expect("publish original closure after guard release");
+    store.prune_orphan_blobs().unwrap();
+    store.prune_unpinned(0).unwrap();
+    assert_eq!(
+        store.get_verified(&hash).unwrap(),
+        b"full-sync closure retained after contention"
+    );
+}
+
+#[test]
 fn read_only_cas_probe_does_not_create_roots_or_directories() {
     let root = CasTestRoot::new();
     let store = LocalCasStore::new(root.path().join("absent-cas"));

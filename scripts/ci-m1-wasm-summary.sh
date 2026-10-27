@@ -6,6 +6,7 @@ cd "$repo_root"
 
 metadata_dir="$repo_root/.tmp/builtin-wasm-sync-modules"
 module_set="m1"
+baseline_kind="release-build"
 sync_script_path=""
 hash_manifest_path=""
 identity_manifest_path=""
@@ -37,6 +38,7 @@ Usage:
 Options:
   --out <path>            Output summary JSON path (required)
   --module-set <name>     Builtin wasm module set (default: m1, allowed: m1|m4|m5)
+  --baseline-kind <kind>  release-build (default) | candidate-build
   --runner-label <label>  Runner label recorded in summary (default: detected platform key)
   --metadata-dir <dir>    Metadata dir produced by sync script
                           (default: .tmp/builtin-wasm-sync-modules)
@@ -101,6 +103,11 @@ while [[ $# -gt 0 ]]; do
       out_path="$2"
       shift 2
       ;;
+    --baseline-kind)
+      [[ $# -ge 2 ]] || exit 2
+      baseline_kind="$2"
+      shift 2
+      ;;
     --module-set)
       [[ $# -ge 2 ]] || { echo "error: --module-set requires a value" >&2; exit 2; }
       module_set="$2"
@@ -141,11 +148,21 @@ if [[ -z "$runner_label" ]]; then
   runner_label="$host_platform"
 fi
 
-"$sync_script_path" --check
+case "$baseline_kind" in
+  release-build) "$sync_script_path" --check --out-dir "$metadata_dir" ;;
+  candidate-build)
+    hash_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/${module_set}_builtin_modules.source-rule2-candidate.sha256"
+    identity_manifest_path="${hash_manifest_path%.sha256}.identity.json"
+    "$sync_script_path" --candidate-check --out-dir "$metadata_dir" --hash-path "$hash_manifest_path" --identity-path "$identity_manifest_path"
+    env -u RUSTC_WRAPPER cargo run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity -- --candidate-baseline-check "$repo_root" "$metadata_dir" "$module_set"
+    ;;
+  *) echo "error: unknown baseline kind" >&2; exit 2 ;;
+esac
 
 mkdir -p "$(dirname "$out_path")"
 
-python3 - "$module_set" "$metadata_dir" "$hash_manifest_path" "$identity_manifest_path" "$out_path" "$runner_label" "$host_platform" "$canonical_platform" <<'PY'
+python3 - "$module_set" "$metadata_dir" "$hash_manifest_path" "$identity_manifest_path" "$out_path" "$runner_label" "$host_platform" "$canonical_platform" "$baseline_kind" "$repo_root" <<'PY'
+import hashlib
 import datetime as dt
 import glob
 import json
@@ -160,6 +177,7 @@ out_path = pathlib.Path(sys.argv[5])
 runner_label = sys.argv[6]
 host_platform = sys.argv[7]
 canonical_platform = sys.argv[8]
+purpose = sys.argv[9]
 
 manifest_platform_hashes = {}
 canonical_platforms = set()
@@ -208,6 +226,7 @@ if not metadata_files:
     raise SystemExit(f"error: no metadata files found in {metadata_dir}")
 
 module_hashes = {}
+metadata_source_evidence = {}
 for path in metadata_files:
     payload = json.loads(pathlib.Path(path).read_text())
     module_id = payload.get("module_id")
@@ -216,6 +235,9 @@ for path in metadata_files:
         raise SystemExit(f"error: invalid metadata payload in {path}")
     if module_id not in manifest_module_ids:
         continue
+    if type(payload.get("source_input_rule_version")) is not int or payload["source_input_rule_version"] != 2 or not isinstance(payload.get("source_inputs"), list) or not payload["source_inputs"]:
+        raise SystemExit(f"error: legacy/unknown metadata source input rule in {path}; canonical rebuild required")
+    metadata_source_evidence[module_id] = (payload["source_inputs"], payload.get("source_hash"), payload.get("build_manifest_hash"))
     module_hashes[module_id] = wasm_hash
 
 identity_payload = json.loads(identity_manifest_path.read_text())
@@ -228,6 +250,7 @@ if not isinstance(identity_build_recipe, dict):
 
 identity_hashes = {}
 identity_source_hashes = {}
+identity_source_inputs = {}
 identity_build_manifest_hashes = {}
 for entry in identity_modules:
     module_id = entry.get("module_id")
@@ -241,6 +264,9 @@ for entry in identity_modules:
     if module_id not in manifest_module_ids:
         continue
     identity_hashes[module_id] = identity_hash
+    if type(entry.get("source_input_rule_version")) is not int or entry["source_input_rule_version"] != 2 or not isinstance(entry.get("source_inputs"), list) or not entry["source_inputs"]:
+        raise SystemExit(f"error: legacy/unknown identity source input rule for {module_id}; canonical rebuild required")
+    identity_source_inputs[module_id] = entry["source_inputs"]
     identity_source_hashes[module_id] = source_hash
     identity_build_manifest_hashes[module_id] = build_manifest_hash
 
@@ -264,7 +290,7 @@ for path in receipt_files:
             source_hash,
             build_manifest_hash,
             wasm_hash,
-            builder_image_digest,
+            builder_image_digest if purpose == "release-build" else payload.get("builder_recipe"),
             container_platform,
             canonicalizer_version,
         ]
@@ -272,11 +298,20 @@ for path in receipt_files:
         raise SystemExit(f"error: invalid build receipt payload in {path}")
     if module_id not in manifest_module_ids:
         continue
+    if type(payload.get("schema_version")) is not int or payload["schema_version"] != (4 if purpose == "candidate-build" else 3) or type(payload.get("source_input_rule_version")) is not int or payload["source_input_rule_version"] != 2 or not isinstance(payload.get("source_inputs"), list) or not payload["source_inputs"]:
+        raise SystemExit(f"error: legacy/unknown receipt source input rule in {path}; canonical rebuild required")
     receipt_evidence[module_id] = {
+        "source_input_rule_version": payload["source_input_rule_version"],
+        "source_inputs": payload["source_inputs"],
         "source_hash": source_hash,
         "build_manifest_hash": build_manifest_hash,
         "wasm_hash": wasm_hash,
-        "builder_image_digest": builder_image_digest,
+        **({"builder_image_digest": builder_image_digest} if purpose == "release-build" else {
+            "purpose": payload.get("purpose"),
+            "build_manifest_schema_version": payload.get("build_manifest_schema_version"),
+            "builder_recipe": payload.get("builder_recipe"),
+            "builder_execution": payload.get("builder_execution"),
+        }),
         "container_platform": container_platform,
         "canonicalizer_version": canonicalizer_version,
     }
@@ -310,10 +345,14 @@ for module_id, built_hash in sorted(module_hashes.items()):
             f"error: built hash does not match manifest for module {module_id} built={built_hash} expected={expected_hash}"
         )
     receipt = receipt_evidence[module_id]
+    if metadata_source_evidence[module_id] != (receipt["source_inputs"], receipt["source_hash"], receipt["build_manifest_hash"]):
+        raise SystemExit(f"error: metadata source input evidence mismatch for {module_id}")
     if receipt["wasm_hash"] != built_hash:
         raise SystemExit(
             f"error: build receipt wasm hash mismatch for module {module_id} receipt={receipt['wasm_hash']} built={built_hash}"
         )
+    if receipt["source_inputs"] != identity_source_inputs[module_id]:
+        raise SystemExit(f"error: receipt source input details mismatch for {module_id}")
     if receipt["source_hash"] != identity_source_hashes[module_id]:
         raise SystemExit(
             f"error: build receipt source hash mismatch for module {module_id} receipt={receipt['source_hash']} identity={identity_source_hashes[module_id]}"
@@ -333,7 +372,7 @@ build_recipe_canonicalizer_version = identity_build_recipe.get("canonicalizer_ve
 if not all(
     [
         build_recipe_container_platform,
-        build_recipe_builder_image_digest,
+        build_recipe_builder_image_digest if purpose == "release-build" else identity_build_recipe.get("builder_recipe"),
         build_recipe_canonicalizer_version,
     ]
 ):
@@ -345,7 +384,10 @@ if build_recipe_container_platform != canonical_platform:
         f"error: identity build_recipe container platform mismatch recipe={build_recipe_container_platform} canonical={canonical_platform}"
     )
 for module_id, receipt in sorted(receipt_evidence.items()):
-    if receipt["builder_image_digest"] != build_recipe_builder_image_digest:
+    if purpose == "candidate-build":
+        if receipt.get("purpose") != purpose or receipt.get("build_manifest_schema_version") != 3 or receipt.get("builder_recipe") != identity_build_recipe.get("builder_recipe"):
+            raise SystemExit(f"error: candidate receipt/identity recipe mismatch for {module_id}")
+    elif receipt["builder_image_digest"] != build_recipe_builder_image_digest:
         raise SystemExit(
             f"error: build receipt builder image digest mismatch for module {module_id} receipt={receipt['builder_image_digest']} recipe={build_recipe_builder_image_digest}"
         )
@@ -354,7 +396,11 @@ for module_id, receipt in sorted(receipt_evidence.items()):
             f"error: build receipt canonicalizer version mismatch for module {module_id} receipt={receipt['canonicalizer_version']} recipe={build_recipe_canonicalizer_version}"
         )
 
+purpose = sys.argv[9]
+baseline_sha256 = hashlib.sha256((pathlib.Path(sys.argv[10]) / "crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json").read_bytes()).hexdigest() if purpose == "candidate-build" else ""
 summary = {
+    "purpose": purpose,
+    "baseline_sha256": baseline_sha256,
     "schema_version": 1,
     "module_set": module_set,
     "runner": runner_label,

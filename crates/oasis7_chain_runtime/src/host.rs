@@ -66,6 +66,15 @@ mod execution_role;
 mod explorer_p0_api;
 #[path = "host/feedback_submit_api.rs"]
 mod feedback_submit_api;
+#[cfg(unix)]
+#[path = "host/formal_bft_prefix_cli.rs"]
+mod formal_bft_prefix_cli;
+#[cfg(unix)]
+#[path = "host/formal_bft_read_cli.rs"]
+mod formal_bft_read_cli;
+#[cfg(unix)]
+#[path = "host/formal_bft_read_http.rs"]
+mod formal_bft_read_http;
 #[path = "host/formal_durable_set_cli.rs"]
 mod formal_durable_set_cli;
 #[path = "host/formal_effect_delivery_store.rs"]
@@ -97,6 +106,10 @@ mod formal_live_runtime;
 #[cfg(unix)]
 #[path = "host/formal_live_service.rs"]
 mod formal_live_service;
+#[cfg(all(test, unix))]
+pub(crate) use formal_bft_read_cli::{
+    run_until_shutdown as run_formal_bft_read_cli_until_shutdown, tests::install_handoff_for_test,
+};
 #[path = "host/gameplay_submit_api.rs"]
 mod gameplay_submit_api;
 #[path = "host/governance_registry.rs"]

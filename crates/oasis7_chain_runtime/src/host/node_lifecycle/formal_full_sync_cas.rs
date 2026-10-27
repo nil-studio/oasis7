@@ -243,6 +243,9 @@ pub(super) fn replace_history_pins(
     store: &LocalCasStore,
     hashes: &BTreeSet<String>,
 ) -> Result<(), PinPublicationError> {
+    let _retention = store.acquire_retention_guard().map_err(|error| {
+        PinPublicationError::NotPublished(format!("lock full-sync CAS roots: {error:?}"))
+    })?;
     replace_pin_scope_shard_durable(store, HISTORY_PIN_SHARD, hashes).map_err(|error| match error {
         PinPublicationError::NotPublished(message) => PinPublicationError::NotPublished(format!(
             "publish full-sync history CAS pins: {message}"
@@ -268,6 +271,9 @@ fn replace_loaded_world_pins_with_limit(
     candidate: &BTreeSet<String>,
     max_bytes: u64,
 ) -> Result<(), PinPublicationError> {
+    let _retention = store.acquire_retention_guard().map_err(|error| {
+        PinPublicationError::NotPublished(format!("lock full-sync CAS roots: {error:?}"))
+    })?;
     if candidate.is_empty() {
         return Err(PinPublicationError::NotPublished(
             "HistoryUnavailable: verified full-sync cut has no CAS objects".into(),
@@ -315,6 +321,9 @@ fn replace_pin_scope_shard_durable(
 /// Re-publishes a previous loaded-world shard through the durable writer
 /// before startup GC. Earlier builds used the generic non-fsync CAS helper.
 pub(super) fn stabilize_loaded_world_pins(store: &LocalCasStore) -> Result<(), String> {
+    let _retention = store
+        .acquire_retention_guard()
+        .map_err(|error| format!("lock full-sync CAS roots: {error:?}"))?;
     let scope_dir = ensure_pin_scope_dir(store).map_err(|error| error.to_string())?;
     let path = scope_dir.join(format!("{LOADED_WORLD_PIN_SHARD}.json"));
     let Some(hashes) = read_pin_shard(&path)? else {

@@ -367,3 +367,6 @@ fn expired_native_challenge_remains_queryable_during_recovery_window() {
             .is_none()
     );
 }
+
+#[path = "native_managed_operation_tests.rs"]
+mod managed_operation_tests;

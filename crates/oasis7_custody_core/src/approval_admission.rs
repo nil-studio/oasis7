@@ -37,6 +37,7 @@ pub struct ApprovalAdmissionContext {
     pub handoff_until: DecimalU64,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalAdmissionInput {
@@ -64,7 +65,7 @@ type Result<T> = std::result::Result<T, ApprovalAdmissionError>;
 
 /// Immutable material for a trusted crypto adapter. No public constructor or
 /// Deserialize implementation permits a request to supply "verified" jobs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct SignatureCheck {
     key_id: String,
     public_key_hex: String,
@@ -86,7 +87,7 @@ impl SignatureCheck {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ExactSignatureChecks {
     operation_id: String,
     body_digest: String,
@@ -173,11 +174,20 @@ impl TryFrom<RawAdmissionRecord> for ApprovalAdmissionRecord {
     }
 }
 impl ApprovalAdmissionRecord {
+    pub(crate) fn recorded_context(&self) -> &ApprovalAdmissionContext {
+        &self.context
+    }
+    pub(crate) fn check_recorded_context(&self, current: &ApprovalAdmissionContext) -> Result<()> {
+        check_current_context(&self.context, current)
+    }
     pub fn input(&self) -> &ApprovalAdmissionInput {
         &self.input
     }
     pub fn verify_nonce(&self) -> &str {
         &self.verify_nonce
+    }
+    pub fn consumed_at(&self) -> Option<u64> {
+        self.consumed_at.map(|v| v.0)
     }
     pub fn handoff_until(&self) -> u64 {
         self.handoff_until.0
@@ -462,7 +472,9 @@ fn check_current_context(
 fn deadline(input: &ApprovalAdmissionInput, context: &ApprovalAdmissionContext) -> u64 {
     let plan_deadline = match &input.request.intent {
         CustodyIntentV1::Provision { deadline, .. }
+        | CustodyIntentV1::OwnerSetup { deadline, .. }
         | CustodyIntentV1::ManagedLogin { deadline, .. } => deadline.0,
+        CustodyIntentV1::OwnerSetupReconcile { plan } => plan.deadline.0,
         CustodyIntentV1::TestSession { write_deadline, .. } => write_deadline.0,
     };
     [
@@ -655,4 +667,76 @@ fn signature_checks(
             .transpose()?,
         checks,
     })
+}
+
+/// Internal factory for an already consumed, registered approval source. It does
+/// not validate freshness or authorize dispatch; the provisioning state binds
+/// the exact persisted inspection and checks the verification before use.
+pub(crate) fn registered_origin_checks(
+    input: &ApprovalAdmissionInput,
+    operation_id: &str,
+    nonce: &str,
+    context: &ApprovalAdmissionContext,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<ExactSignatureChecks> {
+    let mut checks = signature_checks(input, nonce, context, Some(signed))?;
+    checks.operation_id = operation_id.into();
+    checks.body_digest = canonical_digest(
+        "oasis7.custody.registered-origin-inspection.v1",
+        &(operation_id, nonce, input),
+    )?;
+    Ok(checks)
+}
+
+#[path = "native_fact_checks.rs"]
+mod native_fact_checks;
+pub(crate) use native_fact_checks::*;
+
+#[path = "participant_signature_checks.rs"]
+mod participant_signature_checks;
+pub(crate) use participant_signature_checks::*;
+
+#[path = "owner_setup_signature_checks.rs"]
+mod owner_setup_signature_checks;
+pub(crate) use owner_setup_signature_checks::*;
+
+impl core::fmt::Debug for SignatureCheck {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SignatureCheck(<signed-bytes>)")
+    }
+}
+impl core::fmt::Debug for ExactSignatureChecks {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ExactSignatureChecks(<private-checks>)")
+    }
+}
+#[cfg(test)]
+mod private_debug_tests {
+    use super::*;
+    #[test]
+    fn signature_jobs_do_not_debug_private_proposals() {
+        let check = SignatureCheck {
+            key_id: "private-goal-domain".into(),
+            public_key_hex: "11".repeat(32),
+            signature_base64url: "signature".into(),
+            canonical_bytes: b"private goal raw content".to_vec(),
+        };
+        assert_eq!(format!("{check:?}"), "SignatureCheck(<signed-bytes>)");
+        let checks = ExactSignatureChecks {
+            operation_id: "private operation".into(),
+            body_digest: "enumerable-private-digest".into(),
+            context_digest: "context".into(),
+            verify_nonce: "nonce".into(),
+            verification_digest: None,
+            checks: vec![check],
+        };
+        assert_eq!(
+            format!("{checks:?}"),
+            "ExactSignatureChecks(<private-checks>)"
+        );
+        assert_eq!(
+            checks.checks()[0].canonical_bytes(),
+            b"private goal raw content"
+        );
+    }
 }

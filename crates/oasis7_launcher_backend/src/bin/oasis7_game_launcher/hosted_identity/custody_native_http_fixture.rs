@@ -61,6 +61,58 @@ fn serve_native_identity_http_fixture() {
         std::env::var_os("OASIS7_CUSTODY_NATIVE_HTTP_STOP").expect("explicit fixture stop path"),
     );
     let (mut fixture, key) = fixture();
+    let managed_binding = std::env::var("OASIS7_CUSTODY_NATIVE_HTTP_MANAGED_BINDING")
+        .ok()
+        .as_deref()
+        == Some("true");
+    if managed_binding {
+        fixture.service.custody.as_mut().unwrap().managed_binding =
+            Some(managed_binding::ManagedBindingConfig::native_http_fixture());
+        fixture
+            .service
+            .custody
+            .as_mut()
+            .unwrap()
+            .managed_binding_state = managed_binding::ManagedBindingConfigState::Ready;
+        fixture.service.config.registration_enabled = true;
+        fixture.service.config.machine_registration_enabled = true;
+    }
+    if let Ok(raw) = std::env::var("OASIS7_CUSTODY_NATIVE_WORLD_TRUST") {
+        assert!(
+            managed_binding,
+            "participant fixture requires real managed binding"
+        );
+        assert!(raw.len() <= 65536);
+        let trusted: Value = serde_json::from_str(&raw).unwrap();
+        let world: oasis7_client_api::world_service::WorldIdentity =
+            serde_json::from_value(trusted["world"].clone()).unwrap();
+        let namespace = oasis7_agent_api::game::GameIdentityNamespaceV1 {
+            service_id: fixture.service.config.namespace.identity_service_id.clone(),
+            environment_id: fixture.service.config.namespace.environment_id.clone(),
+            instance_epoch: oasis7_agent_api::game::DecimalU64(
+                fixture.service.config.rp.identity_instance_epoch,
+            ),
+        };
+        assert_eq!(
+            serde_json::to_value(&namespace).unwrap(),
+            trusted["identity_namespace"]
+        );
+        let mut participant = crate::hosted_identity::participant_entry::ParticipantEntry::new(
+            crate::hosted_identity::participant_entry::EntryTrust {
+                endpoint: trusted["endpoint"].as_str().unwrap().into(),
+                service_public_key: trusted["world"]["service_public_key"]
+                    .as_str()
+                    .unwrap()
+                    .into(),
+                world,
+            },
+            zeroize::Zeroizing::new(hex::encode([95; 32])),
+        )
+        .unwrap();
+        participant.owner_control_enabled =
+            trusted.get("owner_setup").and_then(Value::as_bool) == Some(true);
+        fixture.service.participant_entry = Some(participant);
+    }
     {
         let custody = fixture.service.custody.as_mut().unwrap();
         custody.revocation = Some(revocation::RevocationConfig::http_fixture(
@@ -90,11 +142,14 @@ fn serve_native_identity_http_fixture() {
         )
         .unwrap();
     let request = verify_request(&complete);
+    let mut authenticator_counter = 1_u32;
     let authority = fixture.service.custody.as_ref().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let data = json!({
         "fixture_label":"public developer data in isolated native SQLite; never deployment credentials",
+        "managed_binding_owner_pin": authority.managed_binding.as_ref().map(|c| c.fixture_pin()),
+        "managed_binding_fixture_seed_note": managed_binding.then_some("Public test-only Ed25519 seed [93;32]; isolated developer fixture, never deployment credentials"),
         "address": format!("http://{}", listener.local_addr().unwrap()),
         "cookie": format!("__Host-oasis7_sid={}", fixture.token),
         "revocation_poll_secret":hex::encode([83_u8;32]),
@@ -141,7 +196,34 @@ fn serve_native_identity_http_fixture() {
         } else {
             serde_json::from_slice(&body).unwrap()
         };
-        let reply = if method == "GET" && path == "/_fixture/revocation-status" {
+        let reply = if method == "POST" && path == "/_fixture/approve-intent" {
+            // Test-only authenticator owns this synthetic Passkey. The real
+            // options/UV completion and SQLite proof persistence are unchanged.
+            let now = now_ms();
+            match fixture.service.custody_options(
+                Some(&fixture.token),
+                &payload,
+                "provision-fixture",
+                now,
+            ) {
+                Ok(start) => {
+                    authenticator_counter = authenticator_counter.checked_add(1).unwrap();
+                    let mut payload = complete_payload(&start, &key, 0x05);
+                    payload["response"] =
+                        assertion_with_counter(&start, &key, 0x05, authenticator_counter);
+                    match fixture.service.custody_complete(
+                        Some(&fixture.token),
+                        &payload,
+                        "provision-fixture",
+                        now,
+                    ) {
+                        Ok(value) => crate::hosted_identity::service::IdentityReply::ok(value),
+                        Err(error) => crate::hosted_identity::service::IdentityReply::error(error),
+                    }
+                }
+                Err(error) => crate::hosted_identity::service::IdentityReply::error(error),
+            }
+        } else if method == "GET" && path == "/_fixture/revocation-status" {
             let (pending, acknowledged) = fixture
                 .service
                 .store
@@ -211,7 +293,15 @@ fn serve_native_identity_http_fixture() {
             )
         };
         let bytes = serde_json::to_vec(&reply.body).unwrap();
-        write!(stream, "HTTP/1.1 {} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", reply.status, bytes.len()).unwrap();
+        write!(stream, "HTTP/1.1 {} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n", reply.status, bytes.len()).unwrap();
+        for cookie in &reply.cookies {
+            assert!(
+                cookie.bytes().all(|byte| byte != b'\r' && byte != b'\n'),
+                "fixture cookie must be one header value"
+            );
+            write!(stream, "Set-Cookie: {cookie}\r\n").unwrap();
+        }
+        stream.write_all(b"\r\n").unwrap();
         stream.write_all(&bytes).unwrap();
     }
     std::fs::remove_file(ready).unwrap();

@@ -649,6 +649,8 @@ fn pending_transition_install_survives_disconnect_reacquire_and_exact_retry() {
     };
     assert_eq!(pending_checkpoint.state.revision, before.state.revision + 1);
     drop(first_lease);
+    // Closing the client socket does not synchronously release the server lease.
+    security::wait_for_released_generation(&fixture, pending_checkpoint.lease_generation + 1);
 
     let mut recovered_lease = provider.acquire(&fixture.binding).unwrap();
     let recovered_checkpoint = recovered_lease.checkpoint().unwrap();

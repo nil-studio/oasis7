@@ -13,6 +13,216 @@ const SYNC_M1: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifa
 const SYNC_TEST: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifacts.test.sh");
 const SYNC_M4: &str = include_str!("../../../scripts/sync-m4-builtin-wasm-artifacts.sh");
 const SYNC_M5: &str = include_str!("../../../scripts/sync-m5-builtin-wasm-artifacts.sh");
+const PACKAGE_SUMMARY: &str = include_str!("../../../scripts/package-wasm-summary-bundle.sh");
+const STAGE_SUMMARY: &str = include_str!("../../../scripts/stage-wasm-summary-imports.sh");
+const CANDIDATE_WORKFLOW: &str =
+    include_str!("../../../.github/workflows/wasm-determinism-gate.yml");
+const VERIFY_SUMMARY: &str = include_str!("../../../scripts/ci-verify-m1-wasm-summaries.py");
+
+#[test]
+fn summary_verifier_requires_current_input_evidence_for_every_module_set() {
+    assert_compiled_input("scripts/ci-verify-m1-wasm-summaries.py", VERIFY_SUMMARY);
+    assert_compiled_input(
+        ".github/workflows/wasm-determinism-gate.yml",
+        CANDIDATE_WORKFLOW,
+    );
+    assert_compiled_input("scripts/package-wasm-summary-bundle.sh", PACKAGE_SUMMARY);
+    assert_compiled_input("scripts/stage-wasm-summary-imports.sh", STAGE_SUMMARY);
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import copy, json, pathlib, re, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+script = repo / 'scripts/ci-verify-m1-wasm-summaries.py'
+def summary(module, runner):
+    payload = dict(schema_version=1, purpose='candidate-build', baseline_sha256='0'*64, module_set=module, runner=runner,
+        current_platform='linux-x86_64', host_platform=runner, canonical_platform='linux-x86_64', module_count=1,
+        module_hashes={module+'.module':'wasm'}, manifest_platform_hashes={module+'.module':'wasm'},
+        identity_hashes={module+'.module':'identity'},
+        identity_build_recipe=dict(builder_image_digest='builder', container_platform='linux-x86_64', canonicalizer_version='v1'),
+        receipt_evidence={module+'.module':dict(source_input_rule_version=2,
+            source_inputs=[dict(kind='source-file',path='module/src/lib.rs',sha256='0'*64)],
+            source_hash='source',build_manifest_hash='build',wasm_hash='wasm',builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+    recipe=dict(recipe_schema_version=1,kind='producer-content',producer_recipe_hash='0'*64,
+        arguments=[dict(name=k,value=v) for k,v in [('GUEST_CARGO_BUILD_JOBS','2'),('WASM_TARGET','wasm32-unknown-unknown'),('WASM_TOOLCHAIN','nightly-2025-12-11'),('platform','linux/amd64'),('purpose','candidate-build')]],
+        inputs=[dict(kind='source-file',path='Cargo.lock',sha256='0'*64)])
+    payload['identity_build_recipe'].pop('builder_image_digest')
+    payload['identity_build_recipe'].update(build_manifest_schema_version=3,builder_recipe=recipe)
+    evidence=payload['receipt_evidence'][module+'.module'];evidence.pop('builder_image_digest')
+    evidence.update(purpose='candidate-build',build_manifest_schema_version=3,builder_recipe=recipe,
+        builder_execution=dict(execution_schema_version=1,kind='local-docker-build',image_ref='oasis7/wasm-builder:candidate-'+'0'*64,image_id='sha256:'+('a' if runner=='linux-x86_64' else 'b')*64,docker_platform='linux/amd64'))
+    return payload
+def run(module, directory):
+    return subprocess.run([sys.executable,str(script),'--module-set',module,'--summary-dir',str(directory)],capture_output=True,text=True)
+for module in ('m1','m4','m5'):
+    directory=root/module; directory.mkdir()
+    for runner in ('linux-x86_64','darwin-arm64'):
+        (directory/(runner+'.json')).write_text(json.dumps(summary(module,runner)))
+    result=run(module,directory); assert result.returncode==0,result.stderr
+original=summary('m1','linux-x86_64')
+for purpose,digest in [('unknown','0'*64),('candidate-build',''),('release-build','')]:
+    changed=summary('m1','linux-x86_64'); changed['purpose']=purpose; changed['baseline_sha256']=digest
+    (root/'m1/linux-x86_64.json').write_text(json.dumps(changed))
+    assert run('m1',root/'m1').returncode!=0,'unknown/mixed purpose'
+
+for mutation in ('legacy','unknown','missing-details','invalid-path','invalid-digest'):
+    candidate=copy.deepcopy(original); evidence=candidate['receipt_evidence']['m1.module']
+    if mutation=='legacy': del evidence['source_input_rule_version']
+    elif mutation=='unknown': evidence['source_input_rule_version']=99
+    elif mutation=='missing-details': evidence['source_inputs']=[]
+    elif mutation=='invalid-path': evidence['source_inputs'][0]['path']='../escape'
+    else: evidence['source_inputs'][0]['sha256']='not-a-digest'
+    (root/'m1/linux-x86_64.json').write_text(json.dumps(candidate))
+    result=run('m1',root/'m1'); assert result.returncode!=0,mutation
+for module in ('m1','m4','m5'):
+    (root/module/'linux-x86_64.json').write_text(json.dumps(summary(module,'linux-x86_64')))
+bundle=root/'bundle'
+result=subprocess.run(['bash',str(repo/'scripts/package-wasm-summary-bundle.sh'),'--out-dir',str(bundle),'--runner-label','darwin-arm64','--source-summary-root',str(root)],capture_output=True,text=True)
+assert result.returncode==0,result.stderr
+for mixed in (False,True):
+    local=root/'local'; local.mkdir(exist_ok=True)
+    payload=summary('m1','linux-x86_64')
+    if mixed: payload['purpose']='release-build'; payload['baseline_sha256']=''
+    (local/'linux-x86_64.json').write_text(json.dumps(payload))
+    result=subprocess.run(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(local),'--out-dir',str(root/('mixed' if mixed else 'staged')),'--external-summary-bundle',str(bundle)],capture_output=True,text=True)
+    assert (result.returncode!=0)==mixed,result.stderr
+# Actual report must preserve candidate purpose; different host execution IDs are valid.
+report_root=root/'candidate-report'
+result=subprocess.run(['bash',str(repo/'scripts/wasm-release-evidence-report.sh'),'--out-dir',str(report_root),'--module-sets','m1','--runner-label','linux-x86_64','--skip-collect','--summary-import-dir',str(root/'m1'),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64'],capture_output=True,text=True)
+reports=list(report_root.glob('*/summary.json'));assert len(reports)==1,result.stderr
+report=json.loads(reports[0].read_text());assert report['purpose']=='candidate-build' and report['baseline_sha256']=='0'*64,report
+assert report['gate_result']=='cross-host-closed',(report,result.stderr)
+# Execute the actual CI report predicate, including Linux-only pending semantics.
+workflow=(repo/'.github/workflows/wasm-determinism-gate.yml').read_text()
+predicate=re.search(r"jq -e '(.+?)' \"\$summary_json\"",workflow,re.S).group(1)
+for mutation,accepted in [('unchanged',True),('pending',True),('release',False),('digest',False),('failed',False)]:
+    changed=copy.deepcopy(report)
+    if mutation=='pending': changed['gate_result']='conditional-go'
+    elif mutation=='release': changed['purpose']='release-build'; changed['baseline_sha256']=''
+    elif mutation=='digest': changed['baseline_sha256']=''
+    elif mutation=='failed': changed['stable_gate_passed']=False; changed['gate_result']='no-go'
+    checked=subprocess.run(['jq','-e',predicate],input=json.dumps(changed),capture_output=True,text=True)
+    assert (checked.returncode==0)==accepted,(mutation,checked.stderr)
+proof_root=root/'candidate-proof'
+command=['bash',str(repo/'scripts/package-module-release-attestation-proof.sh'),'--out-dir',str(proof_root),'--evidence-summary-json',str(reports[0]),'--evidence-file',str(reports[0])]
+for key,value in [('request-id','1'),('operator-agent-id','fixture'),('signer-node-id','fixture'),('platform','linux-x86_64'),('build-manifest-hash','build'),('source-hash','source'),('wasm-hash','wasm'),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:command += ['--'+key,value]
+result=subprocess.run(command,capture_output=True,text=True)
+assert result.returncode!=0 and 'release proof rejects candidate/unknown' in result.stderr,result.stderr
+assert not (proof_root/'proof_payload.json').exists() and not (proof_root/'submit_request.json').exists()
+for mutation in ('unknown-recipe','unknown-execution','mixed-image','recipe-mismatch'):
+    invalid=summary('m1','linux-x86_64');evidence=invalid['receipt_evidence']['m1.module']
+    if mutation=='unknown-recipe': invalid['identity_build_recipe']['builder_recipe']['recipe_schema_version']=99
+    elif mutation=='unknown-execution': evidence['builder_execution']['execution_schema_version']=99
+    elif mutation=='mixed-image': evidence['builder_image_digest']='old-pin'
+    else: evidence['builder_recipe']=dict(evidence['builder_recipe'],producer_recipe_hash='f'*64)
+    (root/'m1/linux-x86_64.json').write_text(json.dumps(invalid))
+    result=run('m1',root/'m1');assert result.returncode!=0,mutation
+
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("run actual summary verifier positive/negative vectors"));
+}
+
+const IMPORT_SUMMARIES: &str = include_str!("../../../scripts/stage-wasm-summary-imports.sh");
+const ATTESTATION_FLOW: &str =
+    include_str!("../../../scripts/module-release-node-attestation-flow.sh");
+const EVIDENCE_REPORT: &str = include_str!("../../../scripts/wasm-release-evidence-report.sh");
+const BUNDLE_SMOKE: &str = include_str!("../../../scripts/wasm-summary-bundle-smoke.sh");
+
+#[test]
+fn registered_evidence_report_executes_full_pending_and_mismatch_contracts() {
+    assert_compiled_input("scripts/wasm-release-evidence-report.sh", EVIDENCE_REPORT);
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+def summary(runner):
+    return dict(schema_version=1,purpose='release-build',baseline_sha256='',module_set='m1',runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',module_count=1,
+      module_hashes={'m1.module':'wasm'},manifest_platform_hashes={'m1.module':'wasm'},identity_hashes={'m1.module':'identity'},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={'m1.module':dict(source_input_rule_version=2,source_inputs=[dict(kind='source-file',path='module/src/lib.rs',sha256='0'*64)],source_hash='source',build_manifest_hash='build',wasm_hash='wasm',builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+for case in ('closed','pending','mismatch'):
+    imports=root/case/'imports'; imports.mkdir(parents=True)
+    for runner in (('linux-x86_64',) if case=='pending' else ('linux-x86_64','darwin-arm64')):
+        value=summary(runner)
+        if case=='mismatch' and runner=='darwin-arm64': value['module_hashes']['m1.module']='different-wasm'
+        (imports/(runner+'.json')).write_text(json.dumps(value))
+    out=root/case/'report'
+    result=subprocess.run(['bash',str(repo/'scripts/wasm-release-evidence-report.sh'),'--out-dir',str(out),'--module-sets','m1','--runner-label','linux-x86_64','--skip-collect','--summary-import-dir',str(imports),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64'],capture_output=True,text=True)
+    files=list(out.glob('*/summary.json'));assert len(files)==1,result.stderr
+    report=json.loads(files[0].read_text())
+    expected={'closed':'cross-host-closed','pending':'conditional-go','mismatch':'no-go'}[case]
+    assert report['gate_result']==expected,(report,result.stderr)
+    assert report['cross_host_closed']==(case=='closed'),(case,report,result.stdout,result.stderr)
+    assert report['cross_host_evidence_pending']==(case=='pending'),(case,report,result.stdout,result.stderr)
+    assert result.returncode==0,(case,result.stderr) # report generation succeeds; the recorded gate is authoritative
+    assert report['module_sets'][0]['verify_status']==('failed' if case=='mismatch' else 'passed')
+    assert report['purpose']=='release-build' and report['baseline_sha256']=='',report
+    if case=='closed':
+        flow=['bash',str(repo/'scripts/module-release-node-attestation-flow.sh'),'--out-dir',str(root/'release-flow'),'--module-sets','m1','--skip-local-collect','--summary-import-dir',str(imports),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64','--require-cross-host-closed']
+        for key,value in [('request-id','1'),('operator-agent-id','operator'),('signer-node-id','fixture'),('platform','darwin-arm64'),('build-manifest-hash','build'),('source-hash','source'),('wasm-hash','wasm'),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:flow += ['--'+key,value]
+        result=subprocess.run(flow,capture_output=True,text=True)
+        assert result.returncode==0,result.stderr
+        proof=list((root/'release-flow').glob('*/proof/proof_payload.json'));assert len(proof)==1,result.stderr
+        assert json.loads(proof[0].read_text())['proof_cid'].startswith('sha256:')
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("execute actual offline evidence report matrix"));
+}
+
+#[test]
+fn registered_manual_bundle_smoke_executes_its_real_local_fixtures() {
+    assert_compiled_input("scripts/wasm-summary-bundle-smoke.sh", BUNDLE_SMOKE);
+    let scratch = Scratch::new();
+    let tools = scratch.0.join("no-ripgrep");
+    fs::create_dir(&tools).expect("create sentinel tools directory");
+    let sentinel = tools.join("rg");
+    fs::write(
+        &sentinel,
+        "#!/bin/sh\necho ripgrep-sentinel-invoked >&2\nexit 127\n",
+    )
+    .expect("write failing rg sentinel");
+    fs::set_permissions(&sentinel, fs::Permissions::from_mode(0o755))
+        .expect("make sentinel executable");
+    let path = std::env::join_paths(std::iter::once(tools).chain(std::env::split_paths(
+        &std::env::var_os("PATH").expect("test PATH"),
+    )))
+    .expect("sentinel PATH");
+    let stdout = assert_success(
+        Command::new("bash")
+            .arg(repo_root().join("scripts/wasm-summary-bundle-smoke.sh"))
+            .env("PATH", path)
+            .current_dir(repo_root())
+            .output()
+            .expect("execute actual local bundle smoke"),
+    );
+    assert!(stdout.contains("wasm summary bundle smoke: OK"));
+}
+
+#[test]
+fn registered_wasm_consumers_execute_import_and_offline_request_contracts() {
+    assert_compiled_input("scripts/stage-wasm-summary-imports.sh", IMPORT_SUMMARIES);
+    assert_compiled_input(
+        "scripts/module-release-node-attestation-flow.sh",
+        ATTESTATION_FLOW,
+    );
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+bundle=root/'bundle'; bundle.mkdir()
+summary=dict(schema_version=1,purpose='release-build',baseline_sha256='',module_set='m1',runner='darwin-arm64',host_platform='darwin-arm64',canonical_platform='linux-x86_64',identity_build_recipe=dict(container_platform='linux-x86_64'))
+(bundle/'summary.json').write_text(json.dumps(summary))
+(bundle/'bundle_manifest.json').write_text(json.dumps(dict(schema_version=1,purpose='release-build',baseline_sha256='',runner_label='darwin-arm64',host_platform='darwin-arm64',canonical_platforms=['linux-x86_64'],summary_files=dict(m1='summary.json'))))
+local=root/'local';local.mkdir();(local/'linux-x86_64.json').write_text(json.dumps(dict(purpose='release-build',baseline_sha256='')))
+def stage(out):
+    return subprocess.run(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(local),'--out-dir',str(out),'--external-summary-bundle',str(bundle)],capture_output=True,text=True)
+result=stage(root/'valid');assert result.returncode==0,result.stderr
+assert json.loads((root/'valid/darwin-arm64.json').read_text())==summary
+summary['host_platform']='linux-x86_64';(bundle/'summary.json').write_text(json.dumps(summary))
+result=stage(root/'invalid');assert result.returncode!=0 and 'host_platform mismatch' in result.stderr,result.stderr
+flow=['bash',str(repo/'scripts/module-release-node-attestation-flow.sh'),'--out-dir',str(root/'flow'),'--module-sets','m1','--skip-local-collect','--summary-import-dir',str(root/'missing-imports')]
+for key,value in [('request-id','1'),('operator-agent-id','1'),('signer-node-id','fixture'),('build-manifest-hash','build'),('source-hash','source'),('wasm-hash','wasm'),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:flow += ['--'+key,value]
+result=subprocess.run(flow,capture_output=True,text=True)
+assert result.returncode!=0 and 'summary import dir not found' in result.stderr,result.stderr
+assert not list((root/'flow').rglob('proof_payload.json')) and not list((root/'flow').rglob('submit_request.json')), 'invalid imports must not be packaged or submitted'
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("execute registered consumer contracts without signing or network"));
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -148,4 +358,71 @@ fn artifact_sync_wrappers_forward_exact_runtime_owner_paths_and_caller_arguments
             "wrapper contract must not perform build writes"
         );
     }
+}
+
+#[test]
+fn legacy_summary_envelopes_are_not_silently_upgraded_for_current_gates() {
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"import copy, json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+token='legacy-envelope/current-freshness-unverified'
+failures=[]
+def old_summary(module,runner):
+    key=module+'.module'
+    return dict(schema_version=1,module_set=module,runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',canonical_platforms=['linux-x86_64'],module_count=1,
+      module_hashes={key:'a'*64},manifest_platform_hashes={key:'a'*64},identity_hashes={key:'b'*64},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={key:dict(source_hash='c'*64,build_manifest_hash='d'*64,wasm_hash='a'*64,builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+def run(command):return subprocess.run(command,capture_output=True,text=True)
+def legacy(command, label):
+    result=run(command)
+    if result.returncode==0 or token not in result.stderr:failures.append((label,result.returncode,result.stdout,result.stderr))
+original={}
+for module in ('m1','m4','m5'):
+    directory=root/module;directory.mkdir()
+    for runner in ('linux-x86_64','darwin-arm64'):
+        path=directory/(runner+'.json');path.write_text(json.dumps(old_summary(module,runner)));original[path]=path.read_bytes()
+verify=[sys.executable,str(repo/'scripts/ci-verify-m1-wasm-summaries.py'),'--module-set','m1','--summary-dir',str(root/'m1')]
+legacy(verify,'old raw summary verifier')
+legacy(['bash',str(repo/'scripts/package-wasm-summary-bundle.sh'),'--out-dir',str(root/'packaged'),'--runner-label','darwin-arm64','--source-summary-root',str(root)],'old raw summary packager')
+assert not (root/'packaged/bundle_manifest.json').exists()
+bundle=root/'old-bundle';bundle.mkdir();(bundle/'summary.json').write_text(json.dumps(old_summary('m1','darwin-arm64')))
+manifest=dict(schema_version=1,runner_label='darwin-arm64',host_platform='darwin-arm64',canonical_platforms=['linux-x86_64'],module_sets=['m1'],summary_files=dict(m1='summary.json'))
+(bundle/'bundle_manifest.json').write_text(json.dumps(manifest))
+for path in bundle.iterdir():original[path]=path.read_bytes()
+legacy(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(root/'m1'),'--out-dir',str(root/'staged'),'--external-summary-bundle',str(bundle)],'old raw bundle importer')
+legacy(['bash',str(repo/'scripts/wasm-release-evidence-report.sh'),'--out-dir',str(root/'report'),'--module-sets','m1','--skip-collect','--summary-import-dir',str(root/'m1'),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64'],'old raw summary report')
+for schema in (None,1):
+    old_report=dict(gate_result='cross-host-closed',stable_gate_passed=True,cross_host_evidence_pending=False,cross_host_closed=True,module_sets=[],required_runners=['linux-x86_64'],expected_runners=['linux-x86_64','darwin-arm64'],received_runners=['linux-x86_64','darwin-arm64'])
+    if schema is not None:old_report['schema_version']=schema
+    path=root/('old-report-'+str(schema)+'.json');path.write_text(json.dumps(old_report));original[path]=path.read_bytes()
+    target=root/('proof-'+str(schema));command=['bash',str(repo/'scripts/package-module-release-attestation-proof.sh'),'--out-dir',str(target),'--evidence-summary-json',str(path),'--evidence-file',str(path)]
+    for key,value in [('request-id','1'),('operator-agent-id','operator'),('signer-node-id','fixture'),('platform','linux-x86_64'),('build-manifest-hash','d'*64),('source-hash','c'*64),('wasm-hash','a'*64),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:command+=['--'+key,value]
+    legacy(command,'old raw report/canonical proof summary assembler')
+    assert not (target/'proof_payload.json').exists() and not (target/'submit_request.json').exists()
+for path,raw in original.items():assert path.read_bytes()==raw,'old bytes were silently upgraded: '+str(path)
+assert not failures,failures
+# Independent synthetic current DTO control; this is not a migration of old bytes or canonical build evidence.
+current=root/'current';current.mkdir()
+def fresh(runner):
+    return dict(schema_version=1,purpose='release-build',baseline_sha256='',module_set='m1',runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',canonical_platforms=['linux-x86_64'],module_count=1,
+      module_hashes={'m1.module':'a'*64},manifest_platform_hashes={'m1.module':'a'*64},identity_hashes={'m1.module':'b'*64},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={'m1.module':dict(source_input_rule_version=2,source_inputs=[dict(kind='source-file',path='module/src/lib.rs',sha256='0'*64)],source_hash='c'*64,build_manifest_hash='d'*64,wasm_hash='a'*64,builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+verify=[sys.executable,str(repo/'scripts/ci-verify-m1-wasm-summaries.py'),'--module-set','m1','--summary-dir',str(current)]
+for runner in ('linux-x86_64','darwin-arm64'):(current/(runner+'.json')).write_text(json.dumps(fresh(runner)))
+result=run(verify);assert result.returncode==0,result.stderr
+for mutation in ('missing-purpose','missing-digest','unknown','mixed','unknown-schema'):
+    bad=fresh('linux-x86_64')
+    if mutation=='missing-purpose':del bad['purpose']
+    elif mutation=='missing-digest':del bad['baseline_sha256']
+    elif mutation=='unknown':bad['purpose']='unknown'
+    elif mutation=='mixed':bad['baseline_sha256']='f'*64
+    else:
+        bad['schema_version']=99;del bad['purpose'];del bad['baseline_sha256']
+    (current/'linux-x86_64.json').write_text(json.dumps(bad))
+    result=run(verify);assert result.returncode!=0 and token not in result.stderr,(mutation,result.stderr)
+for path,raw in original.items():assert path.read_bytes()==raw,'old bytes mutated after current DTO controls: '+str(path)
+print('legacy raw consumer envelopes rejected without mutation; current release and malformed/unknown distinctions verified')
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("run actual legacy raw consumer contracts"));
 }

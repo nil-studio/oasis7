@@ -17,9 +17,9 @@ function options(fixture, className, persist, bindings = {}) {
     bindings });
   return { ...converted, resourcePersistencePath: persist, unsafeDevRegistryPath: resolve(persist, 'registry') };
 }
-async function get(mf, path) {
+async function get(mf, path, origin = 'https://fixture.test') {
   const { STORE } = await mf.getBindings();
-  return STORE.get(STORE.idFromName('same-original')).fetch('https://fixture.test' + path);
+  return STORE.get(STORE.idFromName('same-original')).fetch(origin + path);
 }
 
 test('actual SQLite glue rolls back partial state and audit; TEXT preserves full-width integers', { timeout: 60000 }, async () => {
@@ -43,15 +43,16 @@ test('Rust RecoveryFence initializes independently frozen and keeps its epoch ac
   let mf = new Miniflare(options('fence_harness.mjs', 'RecoveryFence', persist,
     { CUSTODY_INITIAL_SERVICE_EPOCH: '18446744073709551615' }));
   try {
-    let response = await get(mf, '/internal/recovery-fence');
+    assert.equal((await get(mf, '/internal/recovery-fence')).status,404,'private actor rejects a foreign host');
+    let response = await get(mf, '/internal/recovery-fence', 'https://fence.internal');
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { epoch: '18446744073709551615', disabled: true });
     await mf.dispose();
     mf = new Miniflare(options('fence_harness.mjs', 'RecoveryFence', persist,
       { CUSTODY_INITIAL_SERVICE_EPOCH: '1' }));
-    assert.deepEqual(await (await get(mf, '/internal/recovery-fence')).json(),
+    assert.deepEqual(await (await get(mf, '/internal/recovery-fence', 'https://fence.internal')).json(),
       { epoch: '18446744073709551615', disabled: true });
-    const denied = await get(mf, '/internal/recovery-fence?enable=true');
+    const denied = await get(mf, '/internal/recovery-fence?enable=true', 'https://fence.internal');
     assert.equal(denied.status, 404);
   } finally { await mf.dispose(); rmSync(persist, { recursive: true, force: true }); }
 });

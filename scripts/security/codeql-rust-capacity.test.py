@@ -27,6 +27,19 @@ def workflow_steps():
     return steps,by_id
 
 class Capacity(unittest.TestCase):
+    def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
+        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE):
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp); source=root/"source";source.mkdir()
+                argv=["capacity","capture","--source",str(source),"--database",str(root/"db"),"--output",str(root/"out"),"--work",str(root/"work"),"--sarif",str(root/"sarif"),"--deadline",str(time.time()+300)]
+                if selected:argv += ["--source-sha",selected]
+                observed=[]
+                def capture(args,source,out,end,env,terminal):observed.append((m.SOURCE,terminal["source"]))
+                with patch.object(m,"SOURCE",m.BASE_SOURCE),patch.object(sys,"argv",argv),patch.object(m,"capture_failure_evidence",side_effect=capture):m.main()
+                self.assertEqual(observed,[(selected or m.EXCLUSION_SOURCE,selected or m.EXCLUSION_SOURCE)])
+                with patch.object(sys,"argv",argv+["--source-sha","f"*40]),patch.object(m.argparse.ArgumentParser,"error",side_effect=ValueError("rejected")):
+                    with self.assertRaises(ValueError):m.main()
+
     def test_failed_analysis_dirty_checkout_and_missing_resources_still_capture(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
@@ -510,6 +523,7 @@ assert value['found_manifests']==[]
         for phase in ('prepare','capture','finish'):
             self.assertIn('"$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" '+phase,by_id[phase])
             self.assertIn('--source "$GITHUB_WORKSPACE"',by_id[phase])
+            self.assertIn("--source-sha "+m.EXCLUSION_SOURCE,by_id[phase])
         condition=next(line.strip() for line in by_id['capture'].splitlines() if line.strip().startswith('if:'))
         self.assertEqual(condition,"if: always() && steps.snapshot.outcome == 'success'")
         self.assertIn("steps.capture.outcome == 'success'",by_id['finish'])

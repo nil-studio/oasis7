@@ -3,6 +3,11 @@
 import ast
 from pathlib import Path
 import re
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,7 +32,7 @@ class CfgWorkflow(unittest.TestCase):
         self.assertIn('cancel-in-progress: false', TEXT)
 
     def test_fixed_source_official_bundle_and_external_tools(self):
-        self.assertIn('d2bf383d8c377b36de83aae4a06d9ec17612e205', TEXT)
+        self.assertIn('c036927d33b917a036a731f071209e16f6deb033', TEXT)
         self.assertIn('codeql-bundle-v2.27.3/codeql-bundle-rust-linux64.tar.zst', TEXT)
         self.assertIn('218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237', TEXT)
         self.assertIn('persist-credentials: false', TEXT)
@@ -53,6 +58,37 @@ class CfgWorkflow(unittest.TestCase):
         self.assertNotIn("'analyze'", finalize)
         self.assertIn("'--ram='+os.environ['CODEQL_RAM']", finalize)
         self.assertIn("'--threads='+os.environ['CODEQL_THREADS']", finalize)
+
+    def test_external_helpers_import_from_business_cwd(self):
+        # Reproduce the real stdin-Python boundary: cwd has business source,
+        # helpers live elsewhere, and PYTHONPATH supplies no accidental repair.
+        for step in ('finalize', 'integrity'):
+            block = TEXT.split('      - id: '+step+'\n', 1)[1].split('      - id:', 1)[0]
+            raw = block.split("python3 - <<'PYCODE'\n", 1)[1].split('          PYCODE', 1)[0]
+            code = '\n'.join(line[10:] for line in raw.splitlines())
+            prefix = code.split('spec.loader.exec_module(m)', 1)[0]+'spec.loader.exec_module(m)'
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                tools = root/'rust-capacity-helper';tools.mkdir()
+                for file in (ROOT/'scripts/security').glob('*.py'):
+                    shutil.copyfile(file, tools/file.name)
+                source = root/'business';source.mkdir()
+                # An input-tree module must not shadow the trusted snapshot.
+                (source/'codeql_rust_diagnostic_runtime.py').write_text('raise RuntimeError("business module imported")')
+                env = dict(os.environ, RUNNER_TEMP=str(root), PYTHONPATH='')
+                code = prefix+'\nassert m.runtime.__file__ == '+repr(str(tools/'codeql_rust_diagnostic_runtime.py'))+'\nassert callable(m.after_identity)\n'
+                result = subprocess.run([sys.executable, '-c', code], cwd=source, env=env, capture_output=True, text=True, timeout=20)
+                self.assertEqual(result.returncode, 0, step+': '+result.stderr)
+
+    def test_exclusion_verification_is_bound_to_new_source_everywhere(self):
+        sha="c036927d33b917a036a731f071209e16f6deb033"
+        self.assertIn("ref: "+sha,TEXT)
+        self.assertEqual(TEXT.count("--source-sha "+sha),3)
+        self.assertEqual(TEXT.count("--verify-context-exclusion"),2)
+        self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
+        capacity=(ROOT/".github/workflows/codeql-rust-capacity.yml").read_text()
+        self.assertIn("ref: "+sha,capacity)
+        self.assertEqual(capacity.count("--source-sha "+sha),4)
 
     def test_new_query_is_in_snapshot_and_ci(self):
         layout = (ROOT / 'scripts/security/codeql_rust_capacity_layout.py').read_text()

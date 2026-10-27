@@ -71,7 +71,7 @@ action-root、共识签名/验签/消息纯逻辑迁到 consensus；node 保留�
 - Evaluation Strategy: 不适用。
 
 ## 4. Technical Specifications
-- Architecture Overview: node 单向依赖 consensus；共享纯逻辑拥有状态推进和动作完整性，node 拥有网络、复制、执行 hook 与 snapshot 接线。
+- Architecture Overview: node 单向依赖 consensus；共享纯逻辑拥有状态推进和动作完整性，node 拥有网络、复制、执行 hook 与 snapshot 接线。本专题的集中目标是 PoS/Node 共识推进与宿主接线；基于 `oasis7_proto` wire 类型的共享、版本化 BFT 证明验证合同归纯 `oasis7_formal_protocol::bft`，`oasis7_consensus` 保留 machine、journal、持久化与兼容重导出，客户端可直接复用证明算法而不引入 CAS。
 - Integration Points:
   - `doc/p2p/consensus/consensus-code-consolidation-to-oasis7-consensus.prd.md`
   - GitHub Issue / GitHub Project

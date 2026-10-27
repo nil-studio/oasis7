@@ -228,6 +228,87 @@ class ProcessReadbackTests(unittest.TestCase):
         with patch.object(cleanup, 'snapshot_processes', side_effect=cleanup.CleanupError('timeout')):
             self.assertEqual(cleanup.inspect_process_use(pathlib.Path('/tmp'))['state'], 'unknown')
 
+class ZombieProcessTests(unittest.TestCase):
+    def test_only_exact_successful_zombie_evidence_is_accepted(self):
+        for code, out, err, expected in [
+            (0, '202 Z\n', '', True),
+            (0, '202 S\n', '', False),
+            (0, '203 Z\n', '', False),
+            (0, '202 Z\n203 Z\n', '', False),
+            (0, '', '', False),
+            (1, '202 Z\n', '', False),
+            (0, '202 Z\n', 'incomplete visibility', False),
+            (0, '202 Z+\n', '', False),
+        ]:
+            with self.subTest(code=code, out=out, err=err), patch.object(
+                cleanup, '_run', return_value=subprocess.CompletedProcess([], code, out, err),
+            ) as run:
+                self.assertEqual(cleanup._darwin_zombie(202, time.monotonic()+30), expected)
+                self.assertEqual(run.call_args.args[0], ['/bin/ps', '-p', '202', '-o', 'pid=,state='])
+                self.assertEqual(run.call_args.kwargs['env']['LC_ALL'], 'C')
+                self.assertGreater(run.call_args.kwargs['timeout'], 0)
+                self.assertLessEqual(run.call_args.kwargs['timeout'], 1)
+        with patch.object(cleanup, '_run', side_effect=cleanup.CleanupError('timeout')):
+            self.assertFalse(cleanup._darwin_zombie(202, time.monotonic()+30))
+        with patch.object(cleanup, '_run') as expired:
+            self.assertFalse(cleanup._darwin_zombie(202, time.monotonic()-1))
+        expired.assert_not_called()
+
+    def test_unreadable_live_process_and_permissions_stay_unknown(self):
+        for state in ['S', 'R', 'I']:
+            with self.subTest(state=state), patch.object(cleanup.sys, 'platform', 'darwin'), patch.object(
+                cleanup, '_native_process_identity', side_effect=ValueError('unreadable'),
+            ), patch.object(cleanup.os, 'kill', return_value=None), patch.object(
+                cleanup, '_run', return_value=subprocess.CompletedProcess([], 0, f'202 {state}\n', ''),
+            ), patch.object(cleanup.time, 'sleep'), self.assertRaisesRegex(
+                cleanup.CleanupError, 'alive but native identity unreadable',
+            ):
+                cleanup.process_identity(202)
+        with patch.object(cleanup, '_native_process_identity', side_effect=ValueError('unreadable')), patch.object(
+            cleanup.os, 'kill', side_effect=PermissionError(1, 'denied'),
+        ), patch.object(cleanup, '_darwin_zombie', return_value=True) as zombie, self.assertRaises(cleanup.CleanupError):
+            cleanup.process_identity(202)
+        zombie.assert_not_called()
+
+    def test_reused_zombie_pid_must_be_scanned_as_a_new_live_holder(self):
+        snapshots = [
+            {203: (203, 1, 'R')},
+            {202: (202, 99, 'R'), 203: (203, 1, 'R')},
+            {202: (202, 99, 'R'), 203: (203, 1, 'R')},
+        ]
+        with patch.object(cleanup, 'snapshot_processes', side_effect=snapshots), patch.object(
+            cleanup, 'visible_target_holders', return_value=None,
+        ), patch.object(cleanup, 'read_open_files', side_effect=[({203}, set()), ({202}, {202})]) as scan:
+            result = cleanup.inspect_process_use(pathlib.Path('/tmp/owned'))
+        self.assertEqual(result['state'], 'busy')
+        self.assertIn('PID 202', result['reason'])
+        self.assertEqual(set(scan.call_args_list[1].args[0]), {202})
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin libproc zombie regression')
+    def test_unreaped_owned_child_has_no_live_resources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            child = subprocess.Popen([
+                sys.executable, '-c',
+                'import os; os.open("held", os.O_CREAT|os.O_WRONLY, 0o600); os._exit(0)',
+            ], cwd=directory)
+            try:
+                deadline = time.monotonic() + 10
+                while True:
+                    state = subprocess.run(
+                        ['/bin/ps', '-p', str(child.pid), '-o', 'pid=,state='],
+                        capture_output=True, text=True, timeout=1,
+                    )
+                    if state.returncode == 0 and state.stdout.split() == [str(child.pid), 'Z']:
+                        break
+                    self.assertLess(time.monotonic(), deadline, 'owned child did not become a zombie')
+                    time.sleep(.01)
+                # Do not poll/wait first: that would reap the exact kernel state.
+                self.assertTrue((pathlib.Path(directory)/'held').is_file())
+                self.assertIsNone(cleanup.process_identity(child.pid, deadline))
+                self.assertIsNone(cleanup.visible_target_holders(pathlib.Path(directory), deadline))
+            finally:
+                child.wait(timeout=5)
+
 class DeliveryTests(SafetyTests):
     @patch.object(cleanup, '_process_mentions_path', return_value=False)
     def test_pruned_upstream_and_main_advance_are_allowed(self, _):

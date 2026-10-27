@@ -134,7 +134,7 @@ it("explains that missing server migration policy requires the deployment operat
  fireEvent.click(view.getByRole("button",{name:"Check task and register executor"}));
  await waitFor(()=>expect(view.getByRole("alert").textContent).toContain("Ask the deployment operator to complete migration"));
  expect(view.getByRole("alert").textContent).toContain("unknown original result");
- expect(view.getByRole("alert").textContent).not.toContain("legacy_migration_required");
+ expect(view.getByRole("alert").textContent).toContain("legacy_migration_required");
 });
 
 it("requires a separate explicit continuation for a reliably unsent original", async () => {
