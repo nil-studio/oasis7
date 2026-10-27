@@ -6,6 +6,35 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static UNIQUE_SUFFIX: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(all(test, unix))]
+thread_local! {
+    static PRIVATE_PUBLICATION_PAUSE: std::cell::RefCell<Option<(PathBuf, PathBuf)>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(all(test, unix))]
+pub(super) fn set_private_publication_pause(target: PathBuf, ready: PathBuf) {
+    PRIVATE_PUBLICATION_PAUSE.with(|pause| *pause.borrow_mut() = Some((target, ready)));
+}
+#[cfg(all(test, unix))]
+fn pause_private_publication(path: &Path) -> Result<(), String> {
+    let ready = PRIVATE_PUBLICATION_PAUSE.with(|pause| {
+        pause
+            .borrow()
+            .as_ref()
+            .filter(|(target, _)| target == path)
+            .map(|(_, ready)| ready.clone())
+    });
+    if let Some(ready) = ready {
+        use std::io::Read;
+        fs::write(ready, b"original pre-rename publication ready").map_err(|e| e.to_string())?;
+        let _ = std::io::stdin().read_exact(&mut [0u8]);
+        // SAFETY: this hook is used only by the dedicated test child.
+        unsafe {
+            libc::_exit(92);
+        }
+    }
+    Ok(())
+}
+
 /// Synchronize a verified existing blob and its directory entry. The caller
 /// must create its directory through ensure_dir_all_durable before publication.
 pub(super) fn sync_existing_file_durable(path: &Path) -> Result<(), String> {
@@ -51,6 +80,10 @@ fn write_file_durable_with_mode(path: &Path, bytes: &[u8], private: bool) -> Res
             "write durable temp {} failed: {err}",
             temp.display()
         ));
+    }
+    #[cfg(all(test, unix))]
+    if private {
+        pause_private_publication(path)?;
     }
     replace_file(temp.as_path(), path)?;
     sync_directory(parent)

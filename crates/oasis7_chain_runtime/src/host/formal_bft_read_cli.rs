@@ -213,27 +213,18 @@ fn load_inputs(config_path: &Path) -> Result<LoadedInputs, String> {
         .map_err(|error| format!("decode bft-read config: {error}"))?;
     config.validate()?;
 
-    super::controlled_live_config::require_private_owned(
-        config.trust_config_path.as_path(),
-        false,
+    let QualifiedHandoffFilesV1 {
+        anchor,
+        handoff,
+        handoff_material,
+    } = load_qualified_handoff(
+        &config.trust_config_path,
+        &config.target,
+        &config.handoff_material_path,
     )?;
-    let trust_bytes = super::controlled_history_cli::read_bounded(
-        config.trust_config_path.as_path(),
-        TRUST_MAX_BYTES,
-    )?;
-    let trust: FormalReadTrustConfigV1 = serde_json::from_slice(&trust_bytes)
-        .map_err(|error| format!("decode external formal-read trust config: {error}"))?;
-    let anchor = trust.verified_anchor()?;
-    let handoff = verify_formal_bft_handoff_v1(&anchor, config.target.clone())?;
     if config.exact_target.height != handoff.activation_height()? {
         return Err("exact target height must be the H handoff activation height".into());
     }
-
-    let handoff_material: ClosedRecord = read_canonical_cbor(
-        &config.handoff_material_path,
-        HANDOFF_MATERIAL_MAX_BYTES,
-        "qualified H closed material",
-    )?;
 
     let cas_directory = require_existing_directory(&config.cas_directory, "CAS directory")?;
     let ledger_directory =
@@ -250,6 +241,40 @@ fn load_inputs(config_path: &Path) -> Result<LoadedInputs, String> {
         handoff,
         handoff_material,
         store,
+    })
+}
+
+pub(super) struct QualifiedHandoffFilesV1 {
+    pub(super) anchor: VerifiedFormalReadAnchorV1,
+    pub(super) handoff: VerifiedBftHandoffTargetV1,
+    pub(super) handoff_material: ClosedRecord,
+}
+
+pub(super) fn load_qualified_handoff(
+    trust_config_path: &Path,
+    target: &BftProfileTargetV1,
+    handoff_material_path: &Path,
+) -> Result<QualifiedHandoffFilesV1, String> {
+    if !trust_config_path.is_absolute() || !handoff_material_path.is_absolute() {
+        return Err("formal handoff input paths must be absolute".into());
+    }
+    super::controlled_live_config::require_private_owned(trust_config_path, false)?;
+    let trust_bytes =
+        super::controlled_history_cli::read_bounded(trust_config_path, TRUST_MAX_BYTES)?;
+    let trust: FormalReadTrustConfigV1 = serde_json::from_slice(&trust_bytes)
+        .map_err(|error| format!("decode external formal-read trust config: {error}"))?;
+    let anchor = trust.verified_anchor()?;
+    let handoff = verify_formal_bft_handoff_v1(&anchor, target.clone())?;
+
+    let handoff_material: ClosedRecord = read_canonical_cbor(
+        handoff_material_path,
+        HANDOFF_MATERIAL_MAX_BYTES,
+        "qualified H closed material",
+    )?;
+    Ok(QualifiedHandoffFilesV1 {
+        anchor,
+        handoff,
+        handoff_material,
     })
 }
 
@@ -385,7 +410,7 @@ fn read_canonical_cbor<T: DeserializeOwned + Serialize>(
     Ok(value)
 }
 
-fn require_existing_directory(path: &Path, label: &str) -> Result<PathBuf, String> {
+pub(super) fn require_existing_directory(path: &Path, label: &str) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(format!("{label} must be an absolute path"));
     }
@@ -404,7 +429,7 @@ fn require_existing_directory(path: &Path, label: &str) -> Result<PathBuf, Strin
     fs::canonicalize(path).map_err(|error| format!("canonicalize {label}: {error}"))
 }
 
-fn paths_overlap(left: &Path, right: &Path) -> bool {
+pub(super) fn paths_overlap(left: &Path, right: &Path) -> bool {
     left == right || left.starts_with(right) || right.starts_with(left)
 }
 
@@ -415,8 +440,8 @@ serve only reopens that exact existing cut and serves public reads on loopback."
 }
 
 #[derive(Clone)]
-struct CasBusinessIndexReader {
-    store: LocalCasStore,
+pub(super) struct CasBusinessIndexReader {
+    pub(super) store: LocalCasStore,
 }
 
 impl BusinessIndexNodeReader for CasBusinessIndexReader {

@@ -54,6 +54,8 @@ use std::{
 #[path = "driver_bft_v2_formal_profile_tests.rs"]
 mod profile_tests;
 
+#[path = "driver_bft_v2_formal_prefix_ledger_tests.rs"]
+mod prefix_ledger_tests;
 #[path = "driver_bft_v2_formal_prefix_tests.rs"]
 mod prefix_tests;
 #[path = "driver_bft_v2_formal_replay_tests.rs"]
@@ -228,10 +230,14 @@ struct QualifiedH {
 }
 
 fn qualified_handoff() -> QualifiedH {
+    qualified_handoff_with_controller_seed(102)
+}
+
+fn qualified_handoff_with_controller_seed(controller_seed: u8) -> QualifiedH {
     let (_, mut trust, template, _) = fixtures::actual_world_initial_fixture();
     let identity = template.authority().definition().world.clone();
     let mut world = wasm_fixture::world_with_formal_history();
-    let controller = fixtures::key(102);
+    let controller = fixtures::key(controller_seed);
     world
         .set_governance_main_token_controller_registry(GovernanceMainTokenControllerRegistry {
             genesis_controller_account_id: "formal-bft-controller".into(),

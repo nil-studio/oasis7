@@ -153,6 +153,7 @@ pub(super) struct PreloadedBusinessIndexNodes {
 pub(super) struct FormalBftReadLedgerV1 {
     dir: PathBuf,
     _lock: File,
+    _format_lock: File,
     pin: FormalBftReadPinV1,
     record: Option<FormalBftReadRecordV1>,
 }
@@ -246,6 +247,15 @@ impl FormalBftReadLedgerV1 {
             return Err("durable formal BFT read ledger is unsupported on this platform".into());
         }
         pin.validate()?;
+        let format_lock = common_storage::lock_format(records_dir)?;
+        if super::formal_prefix_storage::Ledger::exists(records_dir)? {
+            return Err("old H+1 format refuses a multiheight prefix ledger".into());
+        }
+        if common_storage::BftExecutionLedger::required_material_exists(records_dir)?
+            || super::super::storage::BftV2ExecutionLedger::required_material_exists(records_dir)?
+        {
+            return Err("formal H+1 format refuses an engineering ledger".into());
+        }
         let dir = records_dir.join(LEDGER_DIR);
         let existed = match fs::symlink_metadata(dir.as_path()) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
@@ -323,6 +333,7 @@ impl FormalBftReadLedgerV1 {
         let mut ledger = Self {
             dir,
             _lock: lock,
+            _format_lock: format_lock,
             pin,
             record: None,
         };
@@ -667,7 +678,7 @@ fn validate_business_index_refs(refs: &[String]) -> Result<BTreeSet<String>, Str
     Ok(unique)
 }
 
-fn read_business_index_nodes_bounded(
+pub(super) fn read_business_index_nodes_bounded(
     refs: &BTreeSet<String>,
     max_node_bytes: usize,
     max_total_bytes: usize,
@@ -785,12 +796,14 @@ mod tests {
         let first = FormalBftReadLedgerV1 {
             dir: root.join("first"),
             _lock: File::open("/dev/null").unwrap(),
+            _format_lock: File::open("/dev/null").unwrap(),
             pin: pin(31),
             record: None,
         };
         let second = FormalBftReadLedgerV1 {
             dir: root.join("second"),
             _lock: File::open("/dev/null").unwrap(),
+            _format_lock: File::open("/dev/null").unwrap(),
             pin: pin(32),
             record: None,
         };
