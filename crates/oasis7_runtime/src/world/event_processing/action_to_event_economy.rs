@@ -521,6 +521,12 @@ impl World {
                         },
                     }));
                 }
+                if let Some(reason) = self.recipe_output_stack_limit_rejection(plan)? {
+                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason,
+                    }));
+                }
                 let recipe_profile = self.recipe_profile(recipe_id);
                 if let Some(profile) = recipe_profile {
                     if !recipe_stage_gate_allowed(

@@ -948,7 +948,7 @@ impl World {
         self.extract_economy_emit(module_id, &trace_id, &output, PRODUCT_VALIDATION_EMIT_KIND)
     }
 
-    fn resolve_product_module_for_stack(&self, product_kind: &str) -> Option<String> {
+    pub(super) fn resolve_product_module_for_stack(&self, product_kind: &str) -> Option<String> {
         if let Some(module_id) = Self::builtin_product_module_for_kind(product_kind)
             && self.module_registry.active.contains_key(module_id)
         {
