@@ -359,3 +359,70 @@ fn artifact_sync_wrappers_forward_exact_runtime_owner_paths_and_caller_arguments
         );
     }
 }
+
+#[test]
+fn legacy_summary_envelopes_are_not_silently_upgraded_for_current_gates() {
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"import copy, json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+token='legacy-envelope/current-freshness-unverified'
+failures=[]
+def old_summary(module,runner):
+    key=module+'.module'
+    return dict(schema_version=1,module_set=module,runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',canonical_platforms=['linux-x86_64'],module_count=1,
+      module_hashes={key:'a'*64},manifest_platform_hashes={key:'a'*64},identity_hashes={key:'b'*64},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={key:dict(source_hash='c'*64,build_manifest_hash='d'*64,wasm_hash='a'*64,builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+def run(command):return subprocess.run(command,capture_output=True,text=True)
+def legacy(command, label):
+    result=run(command)
+    if result.returncode==0 or token not in result.stderr:failures.append((label,result.returncode,result.stdout,result.stderr))
+original={}
+for module in ('m1','m4','m5'):
+    directory=root/module;directory.mkdir()
+    for runner in ('linux-x86_64','darwin-arm64'):
+        path=directory/(runner+'.json');path.write_text(json.dumps(old_summary(module,runner)));original[path]=path.read_bytes()
+verify=[sys.executable,str(repo/'scripts/ci-verify-m1-wasm-summaries.py'),'--module-set','m1','--summary-dir',str(root/'m1')]
+legacy(verify,'old raw summary verifier')
+legacy(['bash',str(repo/'scripts/package-wasm-summary-bundle.sh'),'--out-dir',str(root/'packaged'),'--runner-label','darwin-arm64','--source-summary-root',str(root)],'old raw summary packager')
+assert not (root/'packaged/bundle_manifest.json').exists()
+bundle=root/'old-bundle';bundle.mkdir();(bundle/'summary.json').write_text(json.dumps(old_summary('m1','darwin-arm64')))
+manifest=dict(schema_version=1,runner_label='darwin-arm64',host_platform='darwin-arm64',canonical_platforms=['linux-x86_64'],module_sets=['m1'],summary_files=dict(m1='summary.json'))
+(bundle/'bundle_manifest.json').write_text(json.dumps(manifest))
+for path in bundle.iterdir():original[path]=path.read_bytes()
+legacy(['bash',str(repo/'scripts/stage-wasm-summary-imports.sh'),'--module-set','m1','--local-summary-dir',str(root/'m1'),'--out-dir',str(root/'staged'),'--external-summary-bundle',str(bundle)],'old raw bundle importer')
+legacy(['bash',str(repo/'scripts/wasm-release-evidence-report.sh'),'--out-dir',str(root/'report'),'--module-sets','m1','--skip-collect','--summary-import-dir',str(root/'m1'),'--required-runners','linux-x86_64','--expected-runners','linux-x86_64,darwin-arm64'],'old raw summary report')
+for schema in (None,1):
+    old_report=dict(gate_result='cross-host-closed',stable_gate_passed=True,cross_host_evidence_pending=False,cross_host_closed=True,module_sets=[],required_runners=['linux-x86_64'],expected_runners=['linux-x86_64','darwin-arm64'],received_runners=['linux-x86_64','darwin-arm64'])
+    if schema is not None:old_report['schema_version']=schema
+    path=root/('old-report-'+str(schema)+'.json');path.write_text(json.dumps(old_report));original[path]=path.read_bytes()
+    target=root/('proof-'+str(schema));command=['bash',str(repo/'scripts/package-module-release-attestation-proof.sh'),'--out-dir',str(target),'--evidence-summary-json',str(path),'--evidence-file',str(path)]
+    for key,value in [('request-id','1'),('operator-agent-id','operator'),('signer-node-id','fixture'),('platform','linux-x86_64'),('build-manifest-hash','d'*64),('source-hash','c'*64),('wasm-hash','a'*64),('builder-image-digest','builder'),('container-platform','linux-x86_64'),('canonicalizer-version','v1')]:command+=['--'+key,value]
+    legacy(command,'old raw report/canonical proof summary assembler')
+    assert not (target/'proof_payload.json').exists() and not (target/'submit_request.json').exists()
+for path,raw in original.items():assert path.read_bytes()==raw,'old bytes were silently upgraded: '+str(path)
+assert not failures,failures
+# Independent synthetic current DTO control; this is not a migration of old bytes or canonical build evidence.
+current=root/'current';current.mkdir()
+def fresh(runner):
+    return dict(schema_version=1,purpose='release-build',baseline_sha256='',module_set='m1',runner=runner,current_platform='linux-x86_64',host_platform=runner,canonical_platform='linux-x86_64',canonical_platforms=['linux-x86_64'],module_count=1,
+      module_hashes={'m1.module':'a'*64},manifest_platform_hashes={'m1.module':'a'*64},identity_hashes={'m1.module':'b'*64},
+      identity_build_recipe=dict(builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1'),
+      receipt_evidence={'m1.module':dict(source_input_rule_version=2,source_inputs=[dict(kind='source-file',path='module/src/lib.rs',sha256='0'*64)],source_hash='c'*64,build_manifest_hash='d'*64,wasm_hash='a'*64,builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+verify=[sys.executable,str(repo/'scripts/ci-verify-m1-wasm-summaries.py'),'--module-set','m1','--summary-dir',str(current)]
+for runner in ('linux-x86_64','darwin-arm64'):(current/(runner+'.json')).write_text(json.dumps(fresh(runner)))
+result=run(verify);assert result.returncode==0,result.stderr
+for mutation in ('missing-purpose','missing-digest','unknown','mixed','unknown-schema'):
+    bad=fresh('linux-x86_64')
+    if mutation=='missing-purpose':del bad['purpose']
+    elif mutation=='missing-digest':del bad['baseline_sha256']
+    elif mutation=='unknown':bad['purpose']='unknown'
+    elif mutation=='mixed':bad['baseline_sha256']='f'*64
+    else:
+        bad['schema_version']=99;del bad['purpose'];del bad['baseline_sha256']
+    (current/'linux-x86_64.json').write_text(json.dumps(bad))
+    result=run(verify);assert result.returncode!=0 and token not in result.stderr,(mutation,result.stderr)
+for path,raw in original.items():assert path.read_bytes()==raw,'old bytes mutated after current DTO controls: '+str(path)
+print('legacy raw consumer envelopes rejected without mutation; current release and malformed/unknown distinctions verified')
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("run actual legacy raw consumer contracts"));
+}

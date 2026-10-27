@@ -33,6 +33,7 @@ struct Guard<'a> {
     root: &'a Path,
     file: &'a Path,
     directory: PathBuf,
+    in_inline_module: bool,
     modules: Vec<(PathBuf, bool)>,
     error: Option<String>,
 }
@@ -96,16 +97,24 @@ impl<'ast> Visit<'ast> for Guard<'_> {
         for attr in &item.attrs {
             self.visit_attribute(attr);
         }
+        let explicit = item.attrs.iter().find(|attr| attr.path().is_ident("path"));
+        if explicit.is_some() && (self.in_inline_module || item.content.is_some()) {
+            self.error =
+                Some("unsupported explicit producer path in an inline module context".into());
+            return;
+        }
         if let Some((_, items)) = &item.content {
             let previous = self.directory.clone();
+            let previous_inline = self.in_inline_module;
+            self.in_inline_module = true;
             self.directory.push(item.ident.to_string());
             for item in items {
                 self.visit_item(item);
             }
             self.directory = previous;
+            self.in_inline_module = previous_inline;
             return;
         }
-        let explicit = item.attrs.iter().find(|attr| attr.path().is_ident("path"));
         let next = if let Some(attr) = explicit {
             if let syn::Meta::NameValue(value) = &attr.meta
                 && let syn::Expr::Lit(syn::ExprLit {
@@ -150,6 +159,10 @@ impl<'ast> Visit<'ast> for Guard<'_> {
             == ["syn", "Token"]
             && mac.tokens.to_string() == ","
         {
+            return;
+        }
+        if !crate::source_inputs::scan::known_macro_path(&mac.path) {
+            self.error = Some(format!("unsupported producer macro owner for {name}"));
             return;
         }
         if matches!(name.as_str(), "env" | "option_env") {
@@ -215,6 +228,7 @@ pub(super) fn walk(
         root,
         file,
         directory,
+        in_inline_module: false,
         modules: Vec::new(),
         error: None,
     };
@@ -239,6 +253,7 @@ mod tests {
             root,
             file: &file,
             directory: file.parent().unwrap().into(),
+            in_inline_module: false,
             modules: Vec::new(),
             error: None,
         };
@@ -275,5 +290,22 @@ mod tests {
             admitted.is_empty(),
             "standard attribute input skipped: {admitted:?}"
         );
+    }
+    #[test]
+    fn special_input_macros_require_the_known_standard_owner() {
+        assert!(scan("const V: &str = std::env!(\"CARGO_PKG_VERSION\");").is_none());
+        let mut admitted = Vec::new();
+        for text in [
+            "const V: &str = foreign::env!(\"CARGO_PKG_VERSION\");",
+            "const V: Option<&str> = foreign::option_env!(\"CARGO_PKG_VERSION\");",
+            "const V: &str = foreign::include_str!(\"data.txt\");",
+            "const V: &[u8] = foreign::include_bytes!(\"data.txt\");",
+        ] {
+            if !scan(text).is_some_and(|reason| reason.contains("unsupported producer macro owner"))
+            {
+                admitted.push(text);
+            }
+        }
+        assert!(admitted.is_empty(), "unknown owner accepted: {admitted:?}");
     }
 }

@@ -605,11 +605,10 @@ mod tests {
         }
         fs::remove_dir_all(dir).unwrap();
     }
-    #[test]
-    fn real_native_producer_attributes_reject_external_and_keep_recorded_src_inputs() {
+    fn native_producer_fixture() -> PathBuf {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let dir = std::env::temp_dir().join(format!(
-            "producer-attribute-{}-{}",
+            "producer-fixture-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -647,17 +646,25 @@ mod tests {
             "fn main(){oasis7_wasm_build::value();}\n",
         )
         .unwrap();
+        dir
+    }
+
+    fn build_native_fixture(dir: &Path) -> std::process::Output {
+        std::process::Command::new("cargo")
+            .env_remove("RUSTC_WRAPPER")
+            .args(["build", "--offline", "--manifest-path"])
+            .arg(dir.join("tools/wasm_build_suite/Cargo.toml"))
+            .current_dir(dir)
+            .output()
+            .unwrap()
+    }
+
+    #[test]
+    fn real_native_producer_attributes_reject_external_and_keep_recorded_src_inputs() {
+        let dir = native_producer_fixture();
         fs::write(dir.join("external.txt"), "external documentation").unwrap();
         let library = dir.join("crates/oasis7_wasm_build/src/lib.rs");
-        let build = || {
-            std::process::Command::new("cargo")
-                .env_remove("RUSTC_WRAPPER")
-                .args(["build", "--offline", "--manifest-path"])
-                .arg(dir.join("tools/wasm_build_suite/Cargo.toml"))
-                .current_dir(&dir)
-                .output()
-                .unwrap()
-        };
+        let build = || build_native_fixture(&dir);
         let mut admitted = Vec::new();
         for item in ["pub fn value() {}", "use std::fmt;\npub fn value() {}"] {
             fs::write(
@@ -705,6 +712,67 @@ mod tests {
             first.producer_recipe_hash,
             compute_builder_recipe(&dir).unwrap().producer_recipe_hash
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn native_inline_path_contexts_fail_closed_but_supported_module_paths_remain() {
+        let dir = native_producer_fixture();
+        let src = dir.join("crates/oasis7_wasm_build/src");
+        fs::create_dir(src.join("outer")).unwrap();
+        fs::create_dir(src.join("alternate")).unwrap();
+        fs::write(dir.join("external.txt"), "external inline module input").unwrap();
+        let mut admitted = Vec::new();
+        for (name, declaration, real) in [
+            (
+                "path inside inline",
+                "mod outer { #[path=\"inner.rs\"] mod inner; pub fn value(){inner::value();} }",
+                "outer/inner.rs",
+            ),
+            (
+                "path on inline",
+                "#[path=\"alternate\"] mod outer { mod inner; pub fn value(){inner::value();} }",
+                "alternate/inner.rs",
+            ),
+        ] {
+            fs::write(
+                src.join("lib.rs"),
+                format!("{declaration}\npub fn value(){{outer::value();}}\n"),
+            )
+            .unwrap();
+            fs::write(src.join("inner.rs"), "pub fn value(){}\n").unwrap();
+            fs::write(src.join("outer/inner.rs"), "pub fn value(){}\n").unwrap();
+            fs::write(
+                src.join(real),
+                "#[doc=include_str!(\"../../../../external.txt\")]\npub fn value(){}\n",
+            )
+            .unwrap();
+            let actual = build_native_fixture(&dir);
+            assert!(
+                actual.status.success(),
+                "{}",
+                String::from_utf8_lossy(&actual.stderr)
+            );
+            if compute_builder_recipe(&dir).is_ok() {
+                admitted.push(name);
+            }
+        }
+        assert!(
+            admitted.is_empty(),
+            "accepted unsupported compiler path contexts: {admitted:?}"
+        );
+        fs::write(src.join("outer/inner.rs"), "#[doc=std::include_str!(\"docs.txt\")]\npub fn value(){let _=std::env!(\"CARGO_PKG_VERSION\");}\n").unwrap();
+        fs::write(src.join("outer/docs.txt"), "recorded inline data").unwrap();
+        fs::write(src.join("lib.rs"), "mod outer {mod inner; pub fn value(){inner::value();}}\npub fn value(){outer::value();}\n").unwrap();
+        assert!(build_native_fixture(&dir).status.success());
+        compute_builder_recipe(&dir).unwrap();
+        fs::write(src.join("selected.rs"), "pub fn value(){}\n").unwrap();
+        fs::write(
+            src.join("lib.rs"),
+            "#[path=\"selected.rs\"] mod selected;\npub fn value(){selected::value();}\n",
+        )
+        .unwrap();
+        assert!(build_native_fixture(&dir).status.success());
+        compute_builder_recipe(&dir).unwrap();
         fs::remove_dir_all(dir).unwrap();
     }
 }

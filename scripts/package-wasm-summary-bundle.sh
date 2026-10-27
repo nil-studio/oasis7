@@ -159,6 +159,13 @@ for module_set in module_sets:
     if not summary_path.is_file():
         raise SystemExit(f"error: summary missing from bundle: {summary_path}")
     payload = json.loads(summary_path.read_text())
+    if (
+        type(payload.get("schema_version")) is int
+        and payload["schema_version"] == 1
+        and "purpose" not in payload
+        and "baseline_sha256" not in payload
+    ):
+        raise SystemExit("error: legacy-envelope/current-freshness-unverified: original evidence retained; canonical rebuild required for current gates or new proof assembly")
     purpose = payload.get("purpose")
     digest = payload.get("baseline_sha256")
     if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest))):

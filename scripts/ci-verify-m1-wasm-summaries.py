@@ -86,6 +86,13 @@ def load_summary(path: pathlib.Path) -> dict:
     except Exception as exc:  # noqa: BLE001
         fail(f"failed to parse summary {path}: {exc}")
 
+    if (
+        type(payload.get("schema_version")) is int
+        and payload["schema_version"] == 1
+        and "purpose" not in payload
+        and "baseline_sha256" not in payload
+    ):
+        fail("legacy-envelope/current-freshness-unverified: original evidence retained; canonical rebuild required for current gates or new proof assembly")
     required_keys = {
         "schema_version",
         "purpose",

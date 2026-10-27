@@ -351,6 +351,13 @@ with open(module_sets_tsv, "r", encoding="utf-8") as fh:
         summary_paths = sorted(pathlib.Path(summary_dir).glob("*.json"))
         for summary_path in summary_paths:
             summary = json.loads(summary_path.read_text())
+            if (
+                type(summary.get("schema_version")) is int
+                and summary["schema_version"] == 1
+                and "purpose" not in summary
+                and "baseline_sha256" not in summary
+            ):
+                raise SystemExit("error: legacy-envelope/current-freshness-unverified: original evidence retained; canonical rebuild required for current gates or new proof assembly")
             purpose, digest = summary.get("purpose"), summary.get("baseline_sha256")
             valid_digest = isinstance(digest, str) and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
             if purpose not in ("candidate-build", "release-build") or (purpose == "release-build" and digest != "") or (purpose == "candidate-build" and not valid_digest):

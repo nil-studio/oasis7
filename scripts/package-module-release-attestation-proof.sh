@@ -203,6 +203,13 @@ for path in sorted(evidence_dir.iterdir()):
     }
     if path.name == "00-summary.json":
         summary = json.loads(path.read_text())
+        if (
+            type(summary.get("schema_version", 1)) is int
+            and summary.get("schema_version", 1) == 1
+            and "purpose" not in summary
+            and "baseline_sha256" not in summary
+        ):
+            raise SystemExit("error: legacy-envelope/current-freshness-unverified: original evidence retained; canonical rebuild required for current gates or new proof assembly")
         if summary.get("purpose") != "release-build" or summary.get("baseline_sha256") != "":
             raise SystemExit("error: release proof rejects candidate/unknown evidence purpose")
         entry["role"] = "release_evidence_summary"
