@@ -16,6 +16,11 @@ impl IdentityService {
             return Err(reject("invalid_request"));
         }
         let response_digest = digest(&self.config.session_key, "native-response", &p.to_string());
+        if let Some(original) = self.store.transaction(|tx| {
+            managed::complete_original(tx, &self.config, id, owner, origin, &response_digest)
+        })? {
+            return Ok((original, None));
+        }
         if let Some(receipt) = self
             .store
             .transaction(|tx| tx.get::<OperationReceipt>(&format!("receipt:{id}")))?
@@ -37,8 +42,17 @@ impl IdentityService {
             .ok_or_else(|| reject("authentication_failed"))?
             .value;
         check_ceremony(&ceremony, owner, now)?;
+        if ceremony.kind == "native_managed_login" && !self.managed_login_adapter_enabled() {
+            return Err(reject("custody_disabled"));
+        }
         let state = ceremony.server_state.as_ref().ok_or(StoreError::Corrupt)?;
-        if !["native_login", "native_bind", "native_reauth"].contains(&ceremony.kind.as_str())
+        if ![
+            "native_login",
+            "native_managed_login",
+            "native_bind",
+            "native_reauth",
+        ]
+        .contains(&ceremony.kind.as_str())
             || ceremony.namespace != self.config.namespace
             || ceremony.rp_config_version != self.config.rp.version
             || state["audience"] != origin
@@ -46,6 +60,24 @@ impl IdentityService {
             return Err(reject("authentication_failed"));
         }
         let key = public_key(state)?;
+        let pin_fingerprint = if ceremony.kind == "native_managed_login" {
+            super::super::custody::managed_binding::owner_pin::configured_fingerprint(
+                self.custody
+                    .as_ref()
+                    .ok_or_else(|| reject("custody_disabled"))?,
+                &self.config,
+            )?
+        } else {
+            String::new()
+        };
+        managed::validate_pending(
+            &self.config,
+            &ceremony,
+            owner,
+            origin,
+            &key,
+            &pin_fingerprint,
+        )?;
         let verification = (|| {
             let sig = p["signature"]
                 .as_str()
@@ -66,13 +98,19 @@ impl IdentityService {
             return Err(error);
         }
         let config = &self.config;
+        let root = self.custody.as_ref();
         let token = random_token();
         let skey = sid.map(|s| session_key(&config.session_key, s));
         self.store.transaction(|tx| {
+            if let Some(original) = managed::complete_original(tx, config, id, owner, origin, &response_digest)? { return Ok((original, None)); }
             let mut c = tx.get::<CeremonyRecord>(&ckey)?.ok_or(StoreError::Corrupt)?;
             check_ceremony(&c.value, owner, now)?;
             // The entire verified challenge must still be the stored challenge.
             if c.value.server_state != ceremony.server_state || c.value.kind != ceremony.kind || c.value.namespace != config.namespace || c.value.rp_config_version != config.rp.version { return Err(reject("state_changed")); }
+            let pin_fingerprint = if c.value.kind == "native_managed_login" {
+                super::super::custody::managed_binding::owner_pin::guard_login(tx, root.ok_or_else(|| reject("custody_disabled"))?, config, &key, now)?
+            } else { String::new() };
+            managed::validate_pending(config, &c.value, owner, origin, &key, &pin_fingerprint)?;
             let purpose = state["purpose"].as_str().ok_or(StoreError::Corrupt)?;
             let (account_id, bound_session) = if purpose == "login" {
                 (native_credential(tx, &key)?.value.account_id, None)
@@ -120,6 +158,7 @@ impl IdentityService {
             c.value.status = "consumed".into(); c.value.server_state = None; c.value.result_ref = Some(account_id.clone());
             tx.replace(&ckey, c.row_version, "ceremony", Some(&account_id), Some(ceremony_storage_expiry(&c.value)), &c.value)?;
             tx.create(&format!("receipt:{id}"), "receipt", Some(&account_id), Some(now + 7 * 86_400_000), &OperationReceipt { operation_id:id.into(), kind:ceremony.kind.clone(), owner_context_digest:owner.into(), request_digest:response_digest.clone(), state:"committed".into(), result_ids:vec![account_id.clone()], committed_at:now })?;
+            managed::record(tx, config, &ceremony, owner, origin, &key, &response_digest, &pin_fingerprint, &account.value, &credential, now)?;
             audit(tx, &account.value, if purpose == "bind" {"security_changed"} else {"credential_authenticated"}, now)?;
             Ok((json!({"api_version":2,"ok":true,"phase":if purpose == "login" {"authenticated"} else {"credential_verified"},"account":{"account_id":account_id,"display_name":account.value.display_name},"world":{"state":"not_requested"}}), session_token))
         })

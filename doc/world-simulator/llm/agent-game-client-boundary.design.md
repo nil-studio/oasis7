@@ -165,9 +165,17 @@ SDK 统一严格编码、签名、世界/主体/服务绑定验证、有限响�
 canonical 远端 cognition 的 `stale_base` 恢复反馈只在现有签名、任务与当前执行资格校验通过，且 Runtime 返回结构化的对应拒绝后发布。执行桥丢弃失败的业务 candidate，从原世界仅保留既有拒绝终结和幂等记录、生成与该原件精确关联的 rejected feedback，并与空 receipt 的 canonical 拒绝结果同块提交；不能提交失败 candidate 的业务变更，也不为任意鉴权、fence 或有效期错误生成可恢复反馈。SDK 同时校验原件终态和当前授权投影中的反馈，缺失或不匹配时继续停止。只有确认拒绝的执行方策略才可另开 slot、读取新 Context 并重新决策，原签名不替换，既有预算不重置。
 
 <a id="original-operation-lifecycle-port"></a>
-### 原操作 lifecycle port（目标合同，实施与入口验证未完成）
+### 原操作 lifecycle port（实际入口验收边界分别保留）
 
 本节细化 DES-AGC-002 / DES-AGC-004，承接 [REQ-AGENT-PARITY-003](../../product/agents-world-simulation/provider-agent-experience-continuity.prd.md#req-agent-parity-003) 与 [REQ-AGENT-PARITY-002](../../product/agents-world-simulation/provider-agent-experience-continuity.prd.md#req-agent-parity-002)。Trace refs: O7-REQ-ad3ea59c-596c-4c50-8da8-fe47608c6f01；O7-REQ-70188c23-ddbf-49ca-8a70-3fa05c152ba5。
+
+原生适配由 `device_client::Client::recover_operation` 提供只读事实，`terminate_context` 接受显式 abort、预算终结或过期退休意图及调用者的 initial-run fence；CLI 的 `recover --context` 与 Harness SDK 读取同一事实。原件加载复用 `OperationStore` 的既有签名、correlation 和 lane 校验，不另造缓存 schema 或推断业务效果。原生旧缓存没有 durable dispatch 元数据，读取阶段保持 `unknown`。运行全 slot 扫描、预算与 Stop 决策仍在 Harness。
+
+`operation_lifecycle` 与浏览器的窄纯 adapter 消费共同状态/动作向量。browser participant/owner 在现有 schema-1 记录中增加可选 delivery phase，缺失仍是未知；可靠未发原件只能经显式 `continueOriginal` 入口继续。phase 在实际 POST 前的 `beforeSend` 中按相同原件 CAS 持久化；失败、Stop 或 scope 变化不发送。首次准备时的 owner/task scope 在该边界复查。private goal preparation 的既有同 proof 重放保持独立政策，不扩展为 action 重投。
+
+浏览器保存经验证的 terminal signed reply，并在当前锁内按相同原件重新验签择取，迟到 pending/unknown 不覆盖已验证终态。新 owner 记录不再额外复制同一 terminal payload 为第二份 receipt，旧 receipt 字段仍可读，记录大小上限不变。存储/锁与 proof 校验仍是 adapter 职责，普通状态或本地 phase 不能构造凭据。
+
+当前原生 Device Client 生产路径经 `WorldServiceTaskClient` 验证 ordinary signed service response；独立的 generic `RemoteWorldServiceClient` 在配置 formal trust 时继续经既有 `lookup_formal` 验证 proof/pages。前者的迁移及 fixture 不证明后者已接入新的 device-cache port，也不宣称 ordinary 结果具有独立共识证明。真实 Runtime/GUI、自主游玩及各入口覆盖仍按实际测试记录分别验收。
 
 共享 Game Client 拥有**单个逻辑操作**的原件查找、冲突检查、wire 解码、验证后观察和允许的下一动作；native Harness、CLI 与 browser participant/owner 消费相同语义。共享的是窄状态/观察/动作合同，不是统一 session、世界业务规则或万能 retry。存储/锁、transport、凭据刷新和 proof 验证保持 adapter 边界；不同语言可使用独立 adapter 与共同 conformance vectors，无需强制共享一份运行实现。
 
@@ -192,7 +200,7 @@ native port 返回 ContextReady、ActionCommitted、ContextTerminated 等可区�
 
 兼容迁移分为 native 包装与 browser participant/owner 两个可独立验证的切片，均消费同一 phase/disposition/next-action 合同；保留必要包装，不改加密格式、原始签名字节、存储身份、TTL、预算和 endpoint。旧记录缺 phase 一律保守未知；损坏/冲突/缺失不能静默换 nonce、补原件或声称无副作用。原 action 的 query-only、原 outcome 的收口、entry 的合法 exact replay 分别验证，不由统一方法扩张写权限。
 
-验证计划（未执行）：真实客户端 adapter 使用共同语义向量覆盖持久前失败、持久后发前取消、发送后丢响应、原件存在/冲突/损坏/缺失、全部 disposition、无效 proof、迟到观察、多标签锁、崩溃重载、Stop 及 account/world/agent/task/fence 变化。query-only 可有读签名但业务 submit 为零；entry/private prepare 仅在各自允许条件下发送同一原件；native 保留全 slot 屏障、当前/initial-run/Context fence、预算终止及 committed 后控制重检。对账逻辑 ID、各原件 wire correlation/digest、原因和业务效果，不以 mock trait 通过代签真实 adapter 或真实模型 parity。
+验证方法：真实客户端 adapter 使用共同语义向量覆盖持久前失败、持久后发前取消、发送后丢响应、原件存在/冲突/损坏/缺失、全部 disposition、无效 proof、迟到观察、多标签锁、崩溃重载、Stop 及 account/world/agent/task/fence 变化。query-only 可有读签名但业务 submit 为零；entry/private prepare 仅在各自允许条件下发送同一原件；native 保留全 slot 屏障、当前/initial-run/Context fence、预算终止及 committed 后控制重检。对账逻辑 ID、各原件 wire correlation/digest、原因和业务效果，不以 mock trait 通过代签真实 adapter 或真实模型 parity。
 
 ### 报价失败分类与继续决策
 

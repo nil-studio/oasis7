@@ -9,7 +9,6 @@ mod application_feedback_ack_write_failure;
 mod application_fresh;
 mod application_harness;
 mod application_hosted;
-mod application_hosted_transport_recovery;
 mod application_hosted_final_budget;
 mod application_hosted_final_budget_clock;
 mod application_hosted_final_budget_recovery;
@@ -18,6 +17,7 @@ mod application_hosted_resume_rejection;
 mod application_hosted_resume_rejection_recovery;
 mod application_hosted_resume_rejection_write_failure;
 mod application_hosted_resume_write_failure;
+mod application_hosted_transport_recovery;
 mod application_hosted_unpublished_cadence;
 mod application_hosted_wait;
 mod application_hosted_wait_capture_crash;
@@ -397,7 +397,10 @@ impl Fixture {
                     return;
                 }
                 if application_hosted_transport_recovery::interrupt_lookup(
-                    path, &bytes, &stream, &worker_gate,
+                    path,
+                    &bytes,
+                    &stream,
+                    &worker_gate,
                 ) {
                     return;
                 }
@@ -644,7 +647,10 @@ impl Fixture {
                     application_hosted_unpublished_cadence::hold_original_commit(&worker_gate);
                     let body = crate::feedback_submit_api::extract_http_json_body(&bytes).unwrap();
                     let request = serde_json::from_slice(body).unwrap();
-                    application_hosted_final_budget_clock::hold_resumed_reserve(&worker_gate, &request);
+                    application_hosted_final_budget_clock::hold_resumed_reserve(
+                        &worker_gate,
+                        &request,
+                    );
                     controlled_admission::execute(
                         &worker_driver,
                         &worker_root.join("store"),
@@ -1174,3 +1180,6 @@ mod application_act_recovery;
 
 #[path = "qa_conformance/game_task.rs"]
 mod game_task_bootstrap;
+
+#[path = "qa_conformance/application_stream_budget_diagnostics.rs"]
+mod application_stream_budget_diagnostics;

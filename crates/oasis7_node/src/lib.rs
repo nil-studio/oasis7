@@ -1194,3 +1194,5 @@ include!("tests_modules.rs");
 
 #[cfg(all(test, unix))]
 mod node_bft_protected_test_provider;
+
+mod network_error_legacy;

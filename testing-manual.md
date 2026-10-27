@@ -179,6 +179,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - Viewer 的 `viewer-js-required`、`viewer-performance-report` 只恢复当前 Cargo.lock 版本的 wasm-bindgen CLI 目录；key 包含 OS、架构、Rust 版本和两个安装 helper 的 hash，不使用宽松恢复。精确命中必须验证目录内 binary，损坏命中直接失败；冷目录以 `--ensure-cache --print-bin` 安装并验证。普通 PR 不保存该工具缓存。
 - 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存身份为 `ci-shared-native-trusted-v3`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
+- fleet-health 的 Linux/Windows/macOS 原生分片执行 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access`，覆盖永久 OS 锁、双 stale 回收者、崩溃释放与 nonce 原件并发消费；仅适用于受信本地文件系统，不证明网络共享盘或多机互斥。该包的修改选中 fleet-health。
 - fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
 - CI 控制改动的 PR 仍由可信 base selector 选择全部适用组。候选 selector 的精确路由仅在合入后成为可信规则，required-gate 的组集合与失败判定保留。
 - 本地合同验证：`bash scripts/plan-wasm-determinism-scope.test.sh`、`bash scripts/ensure-wasm-bindgen-cli.test.sh`、`python3 scripts/ci-local-signer-tests.test.py`、`python3 scripts/plan-rust-required-scope.test.py`、`python3 scripts/ci-required-result.test.py`、`python3 scripts/ci-workflow.test.py`；前三项接入 workflow_governance。
@@ -528,6 +529,22 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib bft_transport_tests 
 过滤器必须实际选中测试。纯 BFT 证明由 `oasis7_formal_protocol::bft` 提供，consensus facade 与宿主继续共用同一类型；保留既有 CBOR 字节（包括 self-describe tag）和摘要向量，普通客户端依赖闭包不包含 CAS/World/Node/执行后端。验收核对 qualified H 的完整 Snapshot/Journal/执行材料与结果索引、实际 World tick 等于 H position、H+1 隔离执行与 QC 绑定的原始 Snapshot/semantic/projection/result roots、持久提交后重开回读，以及新读取路径到实际客户端的证明校验。负例覆盖错误 H 目标、父引用、manifest、根与投影，工程历史冒充正式历史，交接前 World 不符且不得重写 tick，旧 controlled 权威在 H 后追加，以及当前授权撤销后的私有读取拒绝。
 
 固定 cut 的读取证据不证明最新状态、自动追随、正式写入接线、完整 checkpoint/full-sync 消费者或真实 signer custody。缺少独立当前授权 World 时私有读取必须拒绝，不能使用历史 World 代替。#4975 的其余实施与验收义务保持独立。
+
+#### 正式 BFT 连续前缀与后继候选
+
+沿用上述正式交接合同，额外运行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib prefix_tests -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_bft_parent -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix -- --nocapture
+```
+
+协议前缀逐条核对从 qualified H 接续的 QC 与正式 execution preimage，覆盖缺高、重排、重复、有效 QC 搭配错误 parent semantic root、64 高度与 16 MiB 累计边界，以及集合 h/h+1 使用旧 key、h+2 才切新 key。实际 World 用例从真实 H+1 持久 cut 派生并执行隔离 H+2，保留 H 的冷历史 reader，拒绝父状态漂移、未提交队列和用旧 H restore 认证后继 Snapshot。父策略替换用例中的重新签名 World 只是协议/Runtime 策略 fixture；须同时观察实际 H+1 driver 拒绝它，不能把该 fixture 当作独立重执行或生产提交证据。
+
+完整前缀重放用例从同一 qualified H 顺序执行三个实际高度，核对 tip Snapshot、Journal、全部 commitment 和结果树，且 H World 与旧 ledger 均不变。外部精确目标高度/ID 不符必须在执行前拒绝；合法 QC 签署伪造结果树根时，先确认协议验证通过，再确认完整重放拒绝。该用例不使用 provider 提供的后继 Snapshot 恢复世界。额外让返回的 replay reader 读取 source 中未种入旧 recorder 的 content-addressed probe，确认 fallback 后旧 recorder refs 完全不变；probe 只检验缓存隔离，不作为业务索引的语义证明。
+
+这些候选执行证据不增加固定 H+1 ledger 或 `/v2/world/read` 的范围，也不证明多高度持久前缀、后继读取版本、正式 signer/provider/Node 写入接线或部署 readiness。候选 World 不得被包装为未持久化的 committed cut。
 
 #### 本机身份发布回归（NIR bootstrap）
 

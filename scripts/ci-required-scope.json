@@ -274,7 +274,8 @@
     ],
     "oasis7_hosted_access": [
       "oasis7_required",
-      "launcher_web"
+      "launcher_web",
+      "fleet_health"
     ],
     "oasis7_letai_credit_adapter": [
       "oasis7_required"
@@ -302,7 +303,27 @@
     ]
   },
   "workspace_support_profile_paths": {
+    "wasm_build_suite": [
+      "scripts/module-release-node-attestation-flow.sh",
+      "scripts/stage-wasm-summary-imports.sh",
+      "scripts/wasm-release-evidence-report.sh",
+      "scripts/wasm-summary-bundle-smoke.sh"
+    ],
     "oasis7_custody_worker": [
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry_tests.rs",
+      "crates/oasis7_client_api/src/world_service.rs",
+      "crates/oasis7_client_api/src/world_service/authority.rs",
+      "crates/oasis7_client_api/src/world_service/private_goal.rs",
+      "crates/oasis7_client_api/src/world_service/participant_discovery.rs",
+      "crates/oasis7_client_api/src/world_service/participant_policy_original.rs",
+      "crates/oasis7_client_api/src/world_service_correlation.rs",
+      "crates/oasis7_chain_runtime/src/host/world_service_participant_api.rs",
+      "crates/oasis7_chain_runtime/src/host/world_service_participant_owner_control.rs",
+      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http.rs",
+      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http_fixture.rs",
+      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_governance.rs",
+      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_transport.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_complete.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation.rs",
@@ -310,6 +331,17 @@
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation_tests.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_tests.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_native_http_fixture.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_managed_binding.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_managed_binding_tests.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_owner_pin.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_owner_pin_tests.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_managed_operation.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_managed_operation_tests.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_key.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_key_complete.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_key_tests.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/machine_registration.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/machine_registration_tests.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/mod.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/config.rs",
@@ -323,6 +355,16 @@
     ]
   },
   "rules": [
+    {
+      "match": ["vendor-if-watch-3.2.2/**"],
+      "groups": ["rust_baseline", "net", "node"],
+      "reason": "if_watch_patch_consumers"
+    },
+    {
+      "match": ["vendor-egui-winit-0.33.3/**"],
+      "groups": ["rust_baseline", "launcher_web"],
+      "reason": "egui_winit_patch_consumers"
+    },
     {
       "match": [
         "vendor-libp2p-rendezvous-0.18.1/**"
@@ -710,6 +752,35 @@
         "workspace_support"
       ],
       "reason": "signed_read_handler_conformance"
+    },
+    {
+      "match": [
+        "scripts/module-release-node-attestation-flow.sh"
+      ],
+      "groups": [
+        "operational_contracts",
+        "formal_process"
+      ],
+      "reason": "wasm_release_attestation_consumer"
+    },
+    {
+      "match": [
+        "scripts/stage-wasm-summary-imports.sh"
+      ],
+      "groups": [
+        "packaging_contracts"
+      ],
+      "reason": "wasm_summary_import_consumer"
+    },
+    {
+      "match": ["scripts/wasm-release-evidence-report.sh"],
+      "groups": ["operational_contracts", "packaging_contracts"],
+      "reason": "wasm_release_evidence_report_consumer"
+    },
+    {
+      "match": ["scripts/wasm-summary-bundle-smoke.sh"],
+      "groups": ["packaging_contracts"],
+      "reason": "wasm_summary_bundle_fixture_consumer"
     }
   ]
 }

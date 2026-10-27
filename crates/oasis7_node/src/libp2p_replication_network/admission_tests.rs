@@ -66,7 +66,7 @@ fn admitted_handler_rejects_invalid_remote_request_before_expensive_work() {
         .request("/aw/node/replication/fetch-commit/1.0.0", b"invalid")
         .expect_err("invalid request must be rejected");
     assert!(matches!(
-        error,
+        error.diagnostic_source(),
         WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrUnauthorized,
             ..

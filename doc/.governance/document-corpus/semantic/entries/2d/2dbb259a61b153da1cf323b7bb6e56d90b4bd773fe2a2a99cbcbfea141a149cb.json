@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "f1cadb74329bce1ec760de21382ee5602ff8878c97e7375eabbd323856f3470f",
+    "content_sha256": "a60283405ecb2077a7fe53c211ce0c640e3695d2e1cd17861b856d5acec0f16c",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_authority",

@@ -205,15 +205,16 @@ pub(super) fn evaluate_storage_challenge_sample(
 }
 
 fn storage_challenge_provider_lookup_can_fallback(err: &NodeError) -> bool {
-    let NodeError::Replication { reason } = err else {
-        return false;
-    };
-    crate::network_bridge::replication_network_error_is_availability_gap(err)
-        || crate::network_bridge::replication_network_error_is_route_unavailable(err)
-        || reason.split_whitespace().any(|field| {
-            matches!(
-                field.strip_prefix("kind="),
-                Some("timeout" | "not_available" | "busy" | "rate_limited")
-            )
-        })
+    use oasis7_proto::network_failure::FailureCause;
+    let facts = crate::network_error_classification::replication_network_failure(err);
+    facts.is_connection_gap()
+        || matches!(
+            facts.cause,
+            FailureCause::ProtocolUnavailable
+                | FailureCause::MissingHandler
+                | FailureCause::Timeout
+                | FailureCause::Unavailable
+                | FailureCause::Busy
+                | FailureCause::RateLimited
+        )
 }

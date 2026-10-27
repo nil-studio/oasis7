@@ -502,6 +502,9 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     } else {
         command.output().unwrap()
     };
+    if admission_mode == "slow-consumer" {
+        application_stream_budget_diagnostics::relay(&output);
+    }
     if !output.status.success() {
         eprintln!(
             "fixture_failure_stages={}",
@@ -1107,7 +1110,11 @@ fn application_fixture(wake: bool, drift: bool, ordinary_wait: bool) -> Fixture 
     // Ordinary and final-budget Wait clocks enforce the same non-time-state
     // invariant as the standalone wake clock. Keep automatic crises out of
     // their initial canonical fixture, without changing the deliberate drift case.
-    Fixture::with_clock_options(true, wake || ordinary_wait, (wake && !drift) || ordinary_wait)
+    Fixture::with_clock_options(
+        true,
+        wake || ordinary_wait,
+        (wake && !drift) || ordinary_wait,
+    )
 }
 
 #[test]
@@ -1121,5 +1128,8 @@ fn ordinary_wait_clock_preserves_gameplay_across_automatic_crisis_tick() {
     }
     let mut after = serde_json::to_value(driver.execution_world.state()).unwrap();
     after["time"] = serde_json::json!(0);
-    assert_eq!(before, after, "ordinary Wait fixture clock must preserve gameplay");
+    assert_eq!(
+        before, after,
+        "ordinary Wait fixture clock must preserve gameplay"
+    );
 }

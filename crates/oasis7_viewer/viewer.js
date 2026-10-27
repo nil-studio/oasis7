@@ -1363,6 +1363,296 @@ function RecipeSubstitutionPanel(props) {
 		})()
 	});
 }
+// software_safe_src/browser_game_diagnostics.js
+var clientCodes = /* @__PURE__ */ new Set([
+	"account_required",
+	"agent_busy",
+	"already_running",
+	"authentication_failed",
+	"authentication_required",
+	"budget_exhausted",
+	"cancelled",
+	"context_expired",
+	"context_not_expired",
+	"context_rejected",
+	"credential_invalid",
+	"credential_missing",
+	"delegation_not_committed",
+	"delegation_original_mismatch",
+	"delegation_revision_required",
+	"delegation_revision_unsupported",
+	"effect_batch_invalid",
+	"executor_crypto_unsupported",
+	"executor_identity_corrupt",
+	"executor_not_bound",
+	"executor_signing_failed",
+	"executor_takeover_confirmation_required",
+	"game_configuration_invalid",
+	"game_operation_failed",
+	"game_proof_invalid",
+	"game_protocol_unavailable",
+	"game_request_failed",
+	"game_response_invalid",
+	"game_response_limit",
+	"game_route_unsupported",
+	"game_session_changed",
+	"game_signing_failed",
+	"identity_scope_invalid",
+	"indexeddb_blocked",
+	"indexeddb_transaction_failed",
+	"indexeddb_unavailable",
+	"input_invalid",
+	"input_limit",
+	"invalid_budget",
+	"invalid_key",
+	"legacy_migration_required",
+	"legacy_run_active",
+	"legacy_state_unknown",
+	"locks_unavailable",
+	"model_connection_changed",
+	"model_tool_required",
+	"network_or_cors",
+	"operation_pending",
+	"operation_unknown",
+	"original_action_requires_recovery",
+	"original_correlation_invalid",
+	"original_result_requires_recovery",
+	"output_limit",
+	"owner_consent_required",
+	"owner_goal_invalid",
+	"owner_goal_original_conflict",
+	"owner_mismatch",
+	"owner_operation_expired",
+	"owner_operation_pending",
+	"owner_operation_rejected",
+	"owner_original_conflict",
+	"owner_original_retained",
+	"owner_original_scope_changed",
+	"owner_proof_invalid",
+	"owner_response_unknown",
+	"owner_storage_corrupt",
+	"owner_storage_failed",
+	"page_inactive",
+	"page_paused",
+	"participant_account_changed",
+	"participant_authorization_failed",
+	"participant_binding_required",
+	"participant_binding_unverified",
+	"participant_configuration_invalid",
+	"participant_consent_required",
+	"participant_discovery_mismatch",
+	"participant_locks_unavailable",
+	"participant_network_failed",
+	"participant_original_conflict",
+	"participant_original_missing",
+	"participant_owner_mismatch",
+	"participant_prepare_required",
+	"participant_proof_invalid",
+	"participant_proofs_required",
+	"participant_registration_expired",
+	"participant_registration_pending",
+	"participant_registration_rejected",
+	"participant_request_failed",
+	"participant_request_invalid",
+	"participant_request_limit",
+	"participant_request_timeout",
+	"participant_response_invalid",
+	"participant_response_limit",
+	"participant_response_unknown",
+	"participant_route_forbidden",
+	"participant_signing_failed",
+	"participant_stopped",
+	"participant_storage_corrupt",
+	"participant_storage_failed",
+	"probe_busy",
+	"probe_incompatible",
+	"protocol_incompatible",
+	"provider_failed",
+	"quote_rejected",
+	"rate_limited",
+	"recovery_capacity_exhausted",
+	"recovery_corrupt",
+	"recovery_locks_unavailable",
+	"recovery_lookup_required",
+	"recovery_operation_invalid",
+	"recovery_original_conflict",
+	"recovery_original_missing",
+	"recovery_record_invalid",
+	"recovery_record_too_large",
+	"recovery_required",
+	"recovery_result_invalid",
+	"recovery_scope_invalid",
+	"recovery_secret_forbidden",
+	"recovery_settlement_conflict",
+	"recovery_storage_failed",
+	"reservation_invalid",
+	"revision_conflict",
+	"revision_exhausted",
+	"run_budget_capacity_exhausted",
+	"run_budget_corrupt",
+	"run_budget_exhausted",
+	"run_budget_missing",
+	"run_clock_invalid",
+	"run_confirmation_required",
+	"run_deadline_exceeded",
+	"run_fence_conflict",
+	"run_identity_conflict",
+	"run_reservation_invalid",
+	"run_time_limit",
+	"runner_configuration_invalid",
+	"signing_bytes_invalid",
+	"stopped",
+	"storage_corrupt",
+	"storage_schema_unsupported",
+	"storage_unavailable",
+	"storage_write_failed",
+	"task_fence_changed",
+	"task_scope_required",
+	"task_unavailable",
+	"timeout",
+	"tool_invalid",
+	"unsupported_tool",
+	"unsupported_world_evidence",
+	"webcrypto_unavailable"
+]);
+var serverCodes = /* @__PURE__ */ new Set([
+	"invalid_request",
+	"registration_closed",
+	"csrf_failed",
+	"origin_rejected",
+	"reauth_required",
+	"rate_limited",
+	"authentication_failed",
+	"session_expired",
+	"service_auth_failed",
+	"state_changed",
+	"operation_pending",
+	"identity_store_unavailable",
+	"not_found",
+	"method_not_allowed",
+	"owner_control_unavailable",
+	"owner_control_context_mismatch",
+	"owner_control_operation_not_allowed",
+	"owner_key_cannot_be_delegate",
+	"participant_unavailable",
+	"participant_context_mismatch",
+	"idempotency_conflict",
+	"executor_context_mismatch",
+	"executor_control_unavailable",
+	"executor_operation_not_allowed"
+]);
+var stages = /* @__PURE__ */ new Set([
+	"entry_inspect",
+	"entry_prepare",
+	"entry_lookup",
+	"protocol_load",
+	"game_session",
+	"executor_inspect",
+	"executor_prepare",
+	"executor_start",
+	"executor_recover",
+	"executor_forget",
+	"participant",
+	"participant_discovery",
+	"participant_session",
+	"participant_authorize",
+	"participant_owner_view",
+	"participant_submit",
+	"participant_lookup",
+	"owner_control",
+	"executor_control",
+	"owner_task_build",
+	"owner_goal_build",
+	"owner_proof_build",
+	"owner_response_verify",
+	"owner_response_validate",
+	"owner_task_lookup",
+	"owner_goal_lookup",
+	"owner_task_submit",
+	"owner_goal_submit",
+	"owner_goal_prepare",
+	"participant_response_verify"
+]);
+function browserGameDiagnostic(failure, fallbackStage = "entry_inspect") {
+	const code = clientCodes.has(failure?.code) ? failure.code : "game_operation_failed";
+	const source = failure?.diagnostic;
+	const result = {
+		code,
+		stage: stages.has(source?.stage) ? source.stage : stages.has(fallbackStage) ? fallbackStage : "entry_inspect",
+		category: "unknown"
+	};
+	if (Number.isInteger(source?.httpStatus) && source.httpStatus >= 100 && source.httpStatus <= 599) result.httpStatus = source.httpStatus;
+	if (clientCodes.has(source?.causeCode)) result.causeCode = source.causeCode;
+	if (serverCodes.has(source?.serverCode)) result.serverCode = source.serverCode;
+	if ([
+		"unknown",
+		"history_unavailable",
+		"pending",
+		"received",
+		"committed",
+		"rejected",
+		"expired"
+	].includes(source?.outcome)) result.outcome = source.outcome;
+	if (result.outcome === "history_unavailable") result.category = "history_unavailable";
+	else if (result.outcome === "unknown") result.category = "unknown";
+	else if ([
+		"owner_operation_pending",
+		"participant_registration_pending",
+		"operation_pending"
+	].includes(code) || result.serverCode === "operation_pending") result.category = "pending";
+	else if (["owner_operation_rejected", "participant_registration_rejected"].includes(code)) result.category = "rejected";
+	else if (["owner_operation_expired", "participant_registration_expired"].includes(code)) result.category = "expired";
+	else if (code.includes("timeout")) result.category = "timeout";
+	else if (code === "participant_network_failed") result.category = "network";
+	else if (code.includes("storage") || code.includes("locks")) result.category = "storage";
+	else if (code.includes("proof") || code.includes("signing")) result.category = "proof";
+	else if ([401, 403].includes(result.httpStatus) || [
+		"authentication_failed",
+		"session_expired",
+		"csrf_failed",
+		"origin_rejected",
+		"reauth_required",
+		"executor_operation_not_allowed",
+		"owner_control_operation_not_allowed"
+	].includes(result.serverCode) || code.includes("mismatch") || code.includes("consent") || code.includes("account_changed")) result.category = "permission";
+	else if ([
+		"owner_control_unavailable",
+		"participant_unavailable",
+		"executor_control_unavailable",
+		"not_found"
+	].includes(result.serverCode) || code.includes("configuration") || code.includes("discovery") || code === "game_protocol_unavailable") result.category = "deployment";
+	return Object.freeze(result);
+}
+function browserGameErrorStage(error, stage) {
+	const diagnostic = browserGameDiagnostic({
+		code: error?.code,
+		diagnostic: {
+			...error?.diagnostic,
+			stage
+		}
+	}, stage);
+	const safe = new Error(diagnostic.code);
+	safe.code = diagnostic.code;
+	safe.diagnostic = diagnostic;
+	return safe;
+}
+async function atBrowserGameStage(stage, action) {
+	try {
+		return await action();
+	} catch (error) {
+		throw browserGameErrorStage(error, stage);
+	}
+}
+function gatewayFailureDiagnostic(value, httpStatus, stage) {
+	return browserGameDiagnostic({
+		code: "participant_request_failed",
+		diagnostic: {
+			httpStatus,
+			stage,
+			serverCode: value?.api_version === 2 && value?.ok === false ? value.error_code : void 0
+		}
+	}, stage);
+}
 // software_safe_src/browser_model_store.js
 var BrowserModelStoreError = class extends Error {
 	constructor(code) {
@@ -2673,16 +2963,70 @@ function createBrowserGameRecovery({ scope, indexedDB, storage, locks = globalTh
 	};
 	return api;
 }
+// software_safe_src/browser_operation_lifecycle.js
+var deliveryPhases = /* @__PURE__ */ new Set([
+	"prepared_unsent",
+	"dispatch_may_have_started",
+	"unknown"
+]);
+var terminalDisposition = (status) => [
+	"committed",
+	"rejected",
+	"expired"
+].includes(status);
+function nextOperationAction(input) {
+	if (!input.original_present || !input.scope_current) return "retain";
+	if (input.proof_verified && terminalDisposition(input.disposition)) return "read_terminal";
+	if (input.intent === "continue_authorized_entry" && !input.stopped && input.write_allowed) {
+		if (input.policy === "entry_first_send" && input.phase === "prepared_unsent" || input.policy === "private_preparation_replay") return "continue_original";
+	}
+	return input.read_allowed ? "query_original" : "retain";
+}
+function operationObservation({ phase = "unknown", status = "unknown", verified = false, intent = "query_only", policy = "entry_first_send", stopped = false, scopeCurrent = true, readAllowed = true, writeAllowed = false } = {}) {
+	const known = [
+		"received",
+		"pending",
+		"unknown",
+		"history_unavailable",
+		"committed",
+		"rejected",
+		"expired"
+	].includes(status);
+	const disposition = verified && known ? status : "unknown";
+	const deliveryPhase = deliveryPhases.has(phase) ? phase : "unknown";
+	return {
+		deliveryPhase,
+		disposition,
+		verified: verified && known,
+		nextAction: nextOperationAction({
+			intent,
+			policy,
+			phase: deliveryPhase,
+			disposition,
+			proof_verified: verified && known,
+			original_present: true,
+			scope_current: scopeCurrent,
+			read_allowed: readAllowed,
+			write_allowed: writeAllowed,
+			stopped
+		})
+	};
+}
 // software_safe_src/browser_participant_entry.js
 var BrowserParticipantError = class extends Error {
-	constructor(code) {
+	constructor(code, diagnostic) {
+		const safe = browserGameDiagnostic({
+			code,
+			diagnostic
+		}, "participant");
 		super(code);
 		this.name = "BrowserParticipantError";
 		this.code = code;
+		this.diagnostic = safe;
 	}
 };
-var fail$5 = (code) => {
-	throw new BrowserParticipantError(code);
+var fail$5 = (code, diagnostic) => {
+	throw new BrowserParticipantError(code, diagnostic);
 };
 var json$1 = JSON.stringify;
 var clone$1 = (value) => JSON.parse(json$1(value));
@@ -2721,6 +3065,16 @@ async function boundedText(response, maximum) {
 function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
 	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$5("participant_configuration_invalid");
 	async function request(path, options = {}, deadline = Date.now() + 3e4, callSignal) {
+		const stage = {
+			"/entry/discovery": "participant_discovery",
+			"/session": "participant_session",
+			"/participant/authorize": "participant_authorize",
+			"/participant/owner-view": "participant_owner_view",
+			"/participant/submit": "participant_submit",
+			"/participant/lookup": "participant_lookup",
+			"/entry-owner/control": "owner_control",
+			"/entry-executor/control": "executor_control"
+		}[path];
 		const signals = [signal, callSignal].filter(Boolean);
 		if (signals.some((item) => item.aborted)) fail$5("participant_stopped");
 		if (Date.now() >= deadline) fail$5("participant_request_timeout");
@@ -2756,29 +3110,51 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					stopped();
 				}
 				if (Date.now() >= deadline) fail$5("participant_request_timeout");
-				const response = await fetchImpl(`${config.endpoint}${path}`, {
-					credentials: "same-origin",
-					mode: "same-origin",
-					cache: "no-store",
-					redirect: "error",
-					referrerPolicy: "no-referrer",
-					...fetchOptions,
-					signal: controller.signal
-				});
+				let response;
+				try {
+					response = await fetchImpl(`${config.endpoint}${path}`, {
+						credentials: "same-origin",
+						mode: "same-origin",
+						cache: "no-store",
+						redirect: "error",
+						referrerPolicy: "no-referrer",
+						...fetchOptions,
+						signal: controller.signal
+					});
+				} catch {
+					stopped();
+					fail$5("participant_network_failed", { stage });
+				}
 				stopped();
-				if (!response.ok) fail$5("participant_request_failed");
+				if (!response.ok) {
+					let value;
+					try {
+						value = JSON.parse(await boundedText(response, 4096));
+					} catch {}
+					stopped();
+					fail$5("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
+				}
 				const declared = response.headers?.get?.("content-length");
 				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$5("participant_response_limit");
 				const raw = await boundedText(response, maximum);
 				stopped();
 				const status = JSON.parse(raw);
-				if (status.api_version !== 2 || status.ok !== true) fail$5("participant_request_failed");
+				if (status.api_version !== 2 || status.ok !== true) fail$5("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
 				return raw;
 			})();
 			return await Promise.race([operation, cancelled]);
 		} catch (error) {
-			if (error instanceof BrowserParticipantError) throw error;
-			fail$5("participant_response_unknown");
+			if (error instanceof BrowserParticipantError) {
+				if (error.diagnostic.stage === "participant") error.diagnostic = browserGameDiagnostic({
+					code: error.code,
+					diagnostic: {
+						...error.diagnostic,
+						stage
+					}
+				});
+				throw error;
+			}
+			fail$5("participant_response_unknown", { stage });
 		} finally {
 			clearTimeout(timer);
 			for (const remove of removers) remove();
@@ -2862,6 +3238,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$5("participant_storage_corrupt");
 		const r = record.owner.request;
 		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$5("participant_storage_corrupt");
+		if (record.registrationPhase !== void 0 && !deliveryPhases.has(record.registrationPhase)) fail$5("participant_storage_corrupt");
 		return record;
 	}
 	async function update(mutate) {
@@ -3013,20 +3390,60 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 		return validate(kind, validationRequest, raw);
 	}
-	async function registrationLookup(record) {
+	function registrationMaterial(record) {
 		const originalRaw = record.registrationRaw;
 		if (!originalRaw) fail$5("participant_original_missing");
 		const payloadRaw = field(originalRaw, ["signed_payload"]);
+		if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail$5("participant_original_conflict");
 		const correlationRaw = build("correlation", {
 			world: config.world,
 			payload_json: payloadRaw
 		});
-		const lookupRaw = `{"request":{"contract_version":1,"key":${field(correlationRaw, ["key"])}},"original":${payloadRaw}}`;
-		const raw = verified("/v1/world/lookup", lookupRaw, await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw }), "lookup", correlationRaw);
+		if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail$5("participant_original_conflict");
+		return {
+			originalRaw,
+			correlationRaw,
+			lookupRaw: `{"request":{"contract_version":1,"key":${field(correlationRaw, ["key"])}},"original":${payloadRaw}}`
+		};
+	}
+	function terminalStatus(record) {
+		if (!record.registrationTerminalReply) return "unknown";
+		const { lookupRaw, correlationRaw } = registrationMaterial(record);
+		const raw = verified("/v1/world/lookup", lookupRaw, record.registrationTerminalReply, "lookup", correlationRaw);
+		const status = decoded(field(raw, ["outcome", "status"]));
+		if (!terminalDisposition(status)) fail$5("participant_storage_corrupt");
+		return status;
+	}
+	async function registrationLookup(record) {
+		const { originalRaw, correlationRaw, lookupRaw } = registrationMaterial(record);
+		const response = await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw });
+		const candidate = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
+		const winner = await update((current) => {
+			if (!current || current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			const raw = current.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, current.registrationTerminalReply, "lookup", correlationRaw) : candidate;
+			const state = decoded(field(raw, ["outcome", "status"]));
+			if (current.registrationTerminalReply && !terminalDisposition(state)) fail$5("participant_storage_corrupt");
+			if (!current.registrationTerminalReply && terminalDisposition(state)) current.registrationTerminalReply = response;
+			current.registrationObservation = {
+				logicalOperation: current.owner.request.client_operation_id,
+				originalKind: "participant_registration",
+				correlation: decoded(correlationRaw),
+				...operationObservation({
+					phase: current.registrationPhase,
+					status: state,
+					verified: true
+				})
+			};
+			return current;
+		});
+		const raw = winner.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, winner.registrationTerminalReply, "lookup", correlationRaw) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
-			if (["rejected", "expired"].includes(state)) fail$5("participant_registration_rejected");
-			fail$5("participant_registration_pending");
+			if (["rejected", "expired"].includes(state)) fail$5(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
+			fail$5("participant_registration_pending", {
+				outcome: state,
+				stage: "participant_lookup"
+			});
 		}
 		validate("participant_receipt", record.owner.request, raw);
 		const receipt = decoded(field(raw, ["outcome", "receipt"]));
@@ -3051,7 +3468,9 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		} catch (error) {
 			if (error.code === "participant_registration_pending") return {
 				state: "pending",
-				code: error.code
+				code: error.code,
+				diagnostic: error.diagnostic,
+				operation: (await load())?.registrationObservation
 			};
 			throw error;
 		}
@@ -3063,19 +3482,21 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 				...result
 			};
 		} catch (error) {
-			if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown") return {
+			if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown" || error.code === "participant_network_failed") return {
 				state: "needs_participant",
-				code: "participant_binding_unverified"
+				code: error.code === "participant_binding_required" ? "participant_binding_unverified" : error.code,
+				diagnostic: error.diagnostic
 			};
 			throw error;
 		}
 	}
-	async function registerParticipant(consent) {
+	async function registerParticipant(consent, { continueOriginal = false } = {}) {
 		if (consent !== true) fail$5("participant_consent_required");
 		active();
 		await discover();
 		let record = await ensureOwner();
 		active();
+		let created = false;
 		if (!record.registrationRaw) {
 			const authorized = await authorize(record.owner);
 			const payload = {
@@ -3089,24 +3510,39 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 				world: config.world,
 				payload
 			})},"deadline_unix_ms":null,"signed_payload":${json$1(payload)}}`;
-			let created = false;
 			record = await update((current) => {
 				if (current.registrationRaw) return current;
 				created = true;
 				current.registrationRaw = raw;
 				current.sent = true;
+				current.registrationPhase = "prepared_unsent";
 				return current;
 			});
-			try {
-				if (created) {
-					const response = await transport.gatewayCall("/participant/submit", null, {
-						rawBody: record.registrationRaw,
-						beforeSend: async () => active()
-					});
-					verified("/v1/world/submit", record.registrationRaw, response, "intent", field(record.registrationRaw, ["correlation"]));
-				}
-			} catch {}
 		}
+		registrationMaterial(record);
+		const terminal = terminalStatus(record);
+		if (operationObservation({
+			phase: record.registrationPhase,
+			status: terminal,
+			verified: terminalDisposition(terminal),
+			intent: created || continueOriginal ? "continue_authorized_entry" : "query_only",
+			writeAllowed: true
+		}).nextAction === "continue_original") try {
+			const originalRaw = record.registrationRaw;
+			verified("/v1/world/submit", originalRaw, await transport.gatewayCall("/participant/submit", null, {
+				rawBody: originalRaw,
+				beforeSend: async () => {
+					active();
+					await update((current) => {
+						if (!current || current.registrationRaw !== originalRaw || current.registrationPhase !== "prepared_unsent" || current.registrationTerminalReply) fail$5("participant_original_conflict");
+						current.registrationPhase = "dispatch_may_have_started";
+						return current;
+					});
+					active();
+				}
+			}), "intent", field(originalRaw, ["correlation"]));
+		} catch {}
+		record = await load();
 		await registrationLookup(record);
 		active();
 		return proofs(await load(), await authorize(record.owner));
@@ -3115,6 +3551,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		discover,
 		inspect,
 		registerParticipant,
+		continueOriginal: (consent) => registerParticipant(consent, { continueOriginal: true }),
 		gatewayCall: transport.gatewayCall,
 		async prepare({ existingOnly = true, consent } = {}) {
 			if (!existingOnly) return registerParticipant(consent);
@@ -3133,14 +3570,19 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 }
 // software_safe_src/browser_game_client.js
 var BrowserGameError = class extends Error {
-	constructor(code) {
+	constructor(code, diagnostic) {
+		const safe = browserGameDiagnostic({
+			code,
+			diagnostic
+		}, "game_session");
 		super(code);
 		this.name = "BrowserGameError";
 		this.code = code;
+		this.diagnostic = safe;
 	}
 };
-var fail$4 = (code) => {
-	throw new BrowserGameError(code);
+var fail$4 = (code, diagnostic) => {
+	throw new BrowserGameError(code, diagnostic);
 };
 var json = (value) => JSON.stringify(value);
 var copy$1 = (value) => JSON.parse(json(value));
@@ -3352,6 +3794,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			return payload;
 		} catch (error) {
 			if (error instanceof BrowserGameError) throw error;
+			if (error instanceof BrowserParticipantError) throw new BrowserGameError(error.code, error.diagnostic);
 			fail$4("game_response_invalid");
 		}
 	}
@@ -3464,8 +3907,12 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		const request = decoded(original.signedRequest.rawJson);
 		try {
 			await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect);
-		} catch {
-			fail$4("operation_unknown");
+		} catch (error) {
+			const detail = browserGameDiagnostic(error, "game_session");
+			fail$4("operation_unknown", {
+				...detail,
+				causeCode: detail.code
+			});
 		}
 		const checked = await lookup(original);
 		await recovery.settle(original.operationId, {
@@ -4454,6 +4901,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 	const publish = (value) => {
 		status = {
 			...status,
+			...Object.hasOwn(value, "code") ? { diagnostic: void 0 } : {},
 			...value
 		};
 		notify();
@@ -4746,11 +5194,15 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 			return { ...status };
 		} catch (error) {
 			controller.abort();
-			if (generation === expected) publish({
-				phase: "blocked",
-				ready: false,
-				code: error.code || "game_request_failed"
-			});
+			if (generation === expected) {
+				const diagnostic = browserGameDiagnostic(error, "executor_prepare");
+				publish({
+					phase: "blocked",
+					ready: false,
+					code: diagnostic.code,
+					diagnostic
+				});
+			}
 			throw error;
 		} finally {
 			if (expected === generation) preparing = false;
@@ -5423,8 +5875,8 @@ function ModelConnectionPanel(props) {
 }
 delegateEvents(["click"]);
 // software_safe_src/browser_owner_entry.js
-var fail$1 = (code) => {
-	throw new BrowserParticipantError(code);
+var fail$1 = (code, diagnostic) => {
+	throw new BrowserParticipantError(code, diagnostic);
 };
 var hex$2 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 var VIEW = "/v1/world/view-json";
@@ -5459,7 +5911,11 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		try {
 			return codec.build(kind, typeof input === "string" ? input : JSON.stringify(input));
 		} catch {
-			fail$1("owner_proof_invalid");
+			fail$1("owner_proof_invalid", { stage: {
+				task_create: "owner_task_build",
+				goal_prepare: "owner_goal_build",
+				goal_publish: "owner_goal_build"
+			}[kind] || "owner_proof_build" });
 		}
 	};
 	const field = (raw, path) => build("field", {
@@ -5474,6 +5930,11 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			key
 		};
 		if (record?.schema !== 1 || record.key !== key || JSON.stringify(record).length > 262144) fail$1("owner_storage_corrupt");
+		for (const slot of [
+			"taskRaw",
+			"publishRaw",
+			"goalPrepareRaw"
+		]) if (record[`${slot}Phase`] !== void 0 && !deliveryPhases.has(record[`${slot}Phase`])) fail$1("owner_storage_corrupt");
 		return record;
 	}
 	async function load() {
@@ -5487,7 +5948,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 	async function update(mutate) {
 		if (!locks?.request) fail$1("participant_locks_unavailable");
 		try {
-			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => mutate(check(record))));
+			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => check(mutate(check(record)))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
 			fail$1("owner_storage_failed");
@@ -5522,16 +5983,24 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			fixed_commit: null,
 			deadline_unix_ms: null
 		}));
-		return `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`;
+		return {
+			raw: `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`,
+			controlRaw: proofs.ownerControl.rawJson
+		};
 	}
-	async function ownerCall(kind, requestRaw, mutation = false) {
-		const accessRaw = await access();
+	const ownerCall = (kind, requestRaw, mutation = false, beforeDispatch) => atBrowserGameStage(kind === "prepare_goal" ? "owner_goal_prepare" : "owner_control", () => callOwner(kind, requestRaw, mutation, beforeDispatch));
+	async function callOwner(kind, requestRaw, mutation = false, beforeDispatch) {
+		const accessView = await access();
 		active();
-		const rawBody = `{"access":${accessRaw},"operation":{"kind":${JSON.stringify(kind)},"request":${requestRaw}}}`;
+		const rawBody = `{"access":${accessView.raw},"operation":{"kind":${JSON.stringify(kind)},"request":${requestRaw}}}`;
 		return participant.gatewayCall("/entry-owner/control", null, {
 			rawBody,
 			signal,
-			beforeSend: mutation ? async () => active() : void 0
+			beforeSend: mutation ? async () => {
+				active();
+				await beforeDispatch?.(accessView.controlRaw);
+				active();
+			} : void 0
 		});
 	}
 	function verify(domain, requestRaw, reply, kind, validationRequest = requestRaw) {
@@ -5539,26 +6008,75 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			const raw = codec.verifyGatewayResponse(domain, requestRaw, reply, config.servicePublicKey);
 			return codec.validate(kind, validationRequest, raw);
 		} catch {
-			fail$1("owner_response_unknown");
+			fail$1("owner_response_unknown", { stage: kind === "goal_prepared" ? "owner_goal_prepare" : "owner_response_verify" });
 		}
 	}
-	async function lookup(originalRaw) {
+	function lookupMaterial(originalRaw, slot) {
+		if (decoded(field(originalRaw, ["signed_payload", "kind"])) !== {
+			taskRaw: "game_task_create",
+			publishRaw: "game_goal_publish"
+		}[slot]) fail$1("owner_original_conflict");
 		const payload = field(originalRaw, ["signed_payload"]), correlation = field(originalRaw, ["correlation"]);
 		const expected = build("correlation", {
 			world: config.world,
 			payload_json: payload
 		});
 		if (field(expected, []) !== field(correlation, [])) fail$1("owner_original_conflict");
-		const request = `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`;
-		const raw = verify(LOOKUP, request, await ownerCall("lookup", request), "lookup", correlation);
+		return {
+			request: `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`,
+			correlation
+		};
+	}
+	function terminalStatus(slot, record) {
+		if (!record[`${slot}TerminalReply`]) return "unknown";
+		const { request, correlation } = lookupMaterial(record[slot], slot);
+		const raw = verify(LOOKUP, request, record[`${slot}TerminalReply`], "lookup", correlation);
+		const status = decoded(field(raw, ["outcome", "status"]));
+		if (!terminalDisposition(status)) fail$1("owner_storage_corrupt");
+		return status;
+	}
+	const lookup = (originalRaw, slot) => atBrowserGameStage(slot === "taskRaw" ? "owner_task_lookup" : "owner_goal_lookup", () => lookupOriginal(originalRaw, slot));
+	async function lookupOriginal(originalRaw, slot) {
+		const { request, correlation } = lookupMaterial(originalRaw, slot);
+		const reply = await ownerCall("lookup", request);
+		const candidate = verify(LOOKUP, request, reply, "lookup", correlation);
+		const winner = await update((current) => {
+			if (current[slot] !== originalRaw) fail$1("owner_original_conflict");
+			const raw = current[`${slot}TerminalReply`] ? verify(LOOKUP, request, current[`${slot}TerminalReply`], "lookup", correlation) : candidate;
+			const state = decoded(field(raw, ["outcome", "status"]));
+			if (current[`${slot}TerminalReply`] && !terminalDisposition(state)) fail$1("owner_storage_corrupt");
+			if (!current[`${slot}TerminalReply`] && terminalDisposition(state)) current[`${slot}TerminalReply`] = reply;
+			current[`${slot}Observation`] = operationObservation({
+				phase: current[`${slot}Phase`],
+				status: state,
+				verified: true
+			});
+			return current;
+		});
+		const raw = winner[`${slot}TerminalReply`] ? verify(LOOKUP, request, winner[`${slot}TerminalReply`], "lookup", correlation) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
-			if (["rejected", "expired"].includes(state)) fail$1("owner_operation_rejected");
-			fail$1("owner_operation_pending");
+			if (["rejected", "expired"].includes(state)) fail$1(state === "expired" ? "owner_operation_expired" : "owner_operation_rejected");
+			fail$1("owner_operation_pending", { outcome: state });
 		}
 		return raw;
 	}
-	async function originalIntent(slot, domain, kind, requestRaw) {
+	function scopeStamp(slot, controlRaw) {
+		const owner = [
+			"agent_id",
+			"player_id",
+			"public_key",
+			"world_id",
+			"reorg_epoch",
+			"canonical_authority"
+		].map((name) => field(controlRaw, [
+			"view",
+			"canonical_agent_owner",
+			name
+		]));
+		return JSON.stringify([owner, field(controlRaw, ["view", "game_task_control"])]);
+	}
+	async function originalIntent(slot, domain, kind, requestRaw, controlRaw) {
 		let record = await load();
 		if (record[slot]) return {
 			raw: record[slot],
@@ -5569,30 +6087,77 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			world: config.world,
 			payload_json: payload
 		})},"deadline_unix_ms":null,"signed_payload":${payload}}`;
+		let fresh = false;
 		record = await update((current) => {
-			if (!current[slot]) current[slot] = raw;
+			if (!current[slot]) {
+				current[slot] = raw;
+				current[`${slot}Phase`] = "prepared_unsent";
+				current[`${slot}Scope`] = scopeStamp(slot, controlRaw);
+				fresh = true;
+			}
 			return current;
 		});
 		if (record[slot] !== raw) fail$1("owner_original_conflict");
 		return {
 			raw,
-			fresh: true
+			fresh
 		};
 	}
-	async function settleIntent(slot, original, send) {
-		if (send) try {
-			verify(SUBMIT, original, await ownerCall("submit", original, true), "intent", field(original, ["correlation"]));
-		} catch {}
-		const receipt = await lookup(original);
+	async function claimDispatch(slot, original, controlRaw, replay = false) {
+		active();
 		await update((record) => {
-			record[`${slot}Receipt`] = receipt;
+			if (replay) {
+				const expected = build("goal_prepare", {
+					task_json: field(controlRaw, ["view", "game_task_control"]),
+					client_operation_id: decoded(field(original, ["request", "client_operation_id"])),
+					client_nonce: decoded(field(original, ["request", "client_nonce"])),
+					content: decoded(field(original, ["request", "content"]))
+				});
+				if (field(expected, []) !== field(original, ["request"])) fail$1("owner_original_scope_changed");
+			} else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail$1("owner_original_scope_changed");
+			if (record[slot] !== original || record[`${slot}TerminalReply`] || !replay && record[`${slot}Phase`] !== "prepared_unsent") fail$1("owner_original_conflict");
+			record[`${slot}Phase`] = "dispatch_may_have_started";
 			return record;
 		});
-		return receipt;
+		active();
+	}
+	async function settleIntent(slot, original, send) {
+		const record = await load();
+		if (record[slot] !== original) fail$1("owner_original_conflict");
+		lookupMaterial(original, slot);
+		const terminal = terminalStatus(slot, record);
+		if (operationObservation({
+			phase: record[`${slot}Phase`],
+			status: terminal,
+			verified: terminalDisposition(terminal),
+			intent: send ? "continue_authorized_entry" : "query_only",
+			writeAllowed: true
+		}).nextAction === "continue_original") try {
+			verify(SUBMIT, original, await ownerCall("submit", original, true, (controlRaw) => claimDispatch(slot, original, controlRaw)), "intent", field(original, ["correlation"]));
+		} catch {}
+		return lookup(original, slot);
 	}
 	async function reconcile() {
 		const record = await load();
-		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !record[`${slot}Receipt`]) await settleIntent(slot, record[slot], false);
+		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !settled(slot, record)) await settleIntent(slot, record[slot], false);
+	}
+	function settled(slot, record) {
+		return !!record[`${slot}Receipt`] || terminalStatus(slot, record) === "committed";
+	}
+	function pendingOperation(record) {
+		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !settled(slot, record)) return {
+			cacheSlot: slot,
+			logicalOperation: decoded(field(record[slot], [
+				"signed_payload",
+				"payload",
+				"request",
+				"client_operation_id"
+			])),
+			originalKind: decoded(field(record[slot], ["signed_payload", "kind"])),
+			correlation: decoded(field(record[slot], ["correlation"])),
+			...record[`${slot}Observation`] ?? operationObservation({ phase: record[`${slot}Phase`] })
+		};
+		return null;
 	}
 	async function inspect() {
 		active();
@@ -5605,7 +6170,9 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			if (["owner_operation_pending", "owner_response_unknown"].includes(error.code)) return {
 				state: "pending",
 				code: error.code,
-				agentId: binding.agentId
+				diagnostic: error.diagnostic,
+				agentId: binding.agentId,
+				operation: pendingOperation(await load())
 			};
 			throw error;
 		}
@@ -5641,9 +6208,14 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				try {
 					await participant.registerParticipant(true);
 				} catch (error) {
-					if (["participant_registration_pending", "participant_response_unknown"].includes(error.code)) return {
+					if ([
+						"participant_registration_pending",
+						"participant_response_unknown",
+						"participant_network_failed"
+					].includes(error.code)) return {
 						state: "pending",
-						code: error.code
+						code: error.code,
+						diagnostic: error.diagnostic
 					};
 					throw error;
 				}
@@ -5653,7 +6225,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				const original = await originalIntent("taskRaw", "game_task_create", "game_task_create", build("task_create", {
 					owner_control_json: status.ownerControl.rawJson,
 					client_operation_id: freshId("task")
-				}));
+				}), status.ownerControl.rawJson);
 				await settleIntent("taskRaw", original.raw, original.fresh);
 				status = await inspect();
 			}
@@ -5676,13 +6248,22 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					content
 				}));
 				record = await update((current) => {
-					if (!current.goalPrepareRaw) current.goalPrepareRaw = original;
+					if (!current.goalPrepareRaw) {
+						current.goalPrepareRaw = original;
+						current.goalPrepareRawPhase = "prepared_unsent";
+					}
 					return current;
 				});
 				if (record.goalPrepareRaw !== original) fail$1("owner_original_conflict");
 			}
 			if (!record.goalReceiptRaw) {
-				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true), "goal_prepared", original);
+				if (operationObservation({
+					phase: record.goalPrepareRawPhase,
+					policy: "private_preparation_replay",
+					intent: "continue_authorized_entry",
+					writeAllowed: true
+				}).nextAction !== "continue_original") fail$1("owner_original_retained");
+				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true, (controlRaw) => claimDispatch("goalPrepareRaw", original, controlRaw, true)), "goal_prepared", original);
 				record = await update((current) => {
 					current.goalReceiptRaw = receipt;
 					return current;
@@ -5692,25 +6273,42 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				original_json: original,
 				receipt_json: record.goalReceiptRaw,
 				client_operation_id: freshId("publish")
-			}));
+			}), status.ownerControl.rawJson);
 			await settleIntent("publishRaw", publish.raw, publish.fresh);
 			active();
 			return inspect();
-		}).catch((error) => {
+		}).catch(async (error) => {
 			if ([
 				"owner_operation_pending",
 				"owner_response_unknown",
-				"participant_response_unknown"
+				"participant_response_unknown",
+				"participant_network_failed"
 			].includes(error.code)) return {
 				state: "pending",
-				code: error.code
+				code: error.code,
+				diagnostic: error.diagnostic,
+				operation: pendingOperation(await load())
 			};
 			throw error;
+		});
+	}
+	async function continueOriginal({ consent } = {}) {
+		if (consent !== true) fail$1("owner_consent_required");
+		if (!locks?.request) fail$1("participant_locks_unavailable");
+		return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
+			active();
+			const binding = await participant.inspect();
+			active();
+			if (binding.state !== "bound") return binding;
+			const record = await load();
+			for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !settled(slot, record)) await settleIntent(slot, record[slot], true);
+			return inspect();
 		});
 	}
 	return {
 		inspect,
 		prepare,
+		continueOriginal,
 		recover: inspect,
 		dispose: () => {
 			disposed = true;
@@ -5746,11 +6344,13 @@ function BrowserByokSurface(props) {
 		needs_task: tr("需要创建任务", "Task needs preparation"),
 		needs_goal: tr("需要发布目标", "Goal needs publication"),
 		ready: tr("账号任务已就绪", "Account task ready"),
-		pending: tr("原件结果待确认", "Original result pending"),
+		pending: browserGameDiagnostic(entryState()).category === "pending" ? tr("原件结果待确认", "Original result pending") : browserGameDiagnostic(entryState()).category === "history_unavailable" ? tr("原件历史暂不可核对", "Original history unavailable") : tr("原件结果尚未确认", "Original result unconfirmed"),
 		owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"),
+		failed: tr("入口核对失败", "Entry inspection failed"),
 		stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing")
 	})[entryState()?.state] || "—";
 	const reason = (code) => {
+		if (["participant_registration_expired", "owner_operation_expired"].includes(code)) return tr("世界确认该原件已过期。保留原件并核对当前权限；不会自动替换或重发。", "The world confirmed that this original expired. Retain it and review current authority; it is not automatically replaced or resubmitted.");
 		if (["participant_registration_rejected", "owner_operation_rejected"].includes(code)) return tr("世界拒绝了该登记或任务原件。请核对原账号玩家身份和任务权限；不会切换身份或替换原 Agent。", "The world rejected this registration or task original. Check the account's original owner identity and task authority; no identity or Agent is replaced.");
 		if (code === "owner_goal_invalid") return tr("请输入不超过 8192 UTF-8 字节的任务目标。", "Enter a task goal of at most 8192 UTF-8 bytes.");
 		if (["owner_mismatch", "participant_owner_mismatch"].includes(code)) return tr("本机玩家身份与账号原绑定不符。已停止；请恢复原身份后重试，不会替换原 Agent。", "This browser owner identity differs from the account binding. Restore the original identity; the existing Agent is not replaced.");
@@ -5784,10 +6384,37 @@ function BrowserByokSurface(props) {
 		if (String(code).includes("budget") || code === "run_time_limit") return tr("本轮预算或期限已到，不自动扩大或重置。", "This run's budget or deadline is exhausted; it is not automatically increased or reset.");
 		return tr("游戏客户端操作未完成。请检查本机存储、登录、合法任务及当前部署支持；原件未知仍保持未知。", "The Game Client operation did not complete. Check browser storage, sign-in, the authorized task and deployment support; unknown originals stay unknown.");
 	};
+	const diagnosticMessage = (failure, operation) => {
+		const detail = browserGameDiagnostic(failure, operation);
+		const guidance = {
+			network: tr("网络请求未取得可验证结果；检查连接，写入结果仍可能未知。", "The network request produced no verified result. Check connectivity; a write outcome may still be unknown."),
+			timeout: tr("请求期限已到；保留原件，仅核对已有结果。", "The request deadline elapsed. Retain originals and look up their results."),
+			storage: tr("无法安全读取或保存本机原件。检查浏览器存储权限和空间。", "Local originals could not be read or saved safely. Check browser storage permissions and space."),
+			proof: tr("客户端证明构建或校验失败。核对当前部署和原身份，不使用未验证响应。", "Client proof construction or validation failed. Check the deployment and original identity; unverified responses are not used."),
+			permission: tr("登录或权限核对失败。恢复原登录身份并核对任务权限。", "Sign-in or authority verification failed. Restore the original identity and review task authority."),
+			deployment: tr("当前部署或协议能力不可用。请部署方核对 Game Client 支持。", "Deployment or protocol capability is unavailable. Ask the operator to check Game Client support."),
+			history_unavailable: tr("无法核对原件历史；这不代表未执行或被拒绝。保留原件，不自动重发。", "Original history cannot be verified. This does not mean non-execution or rejection. Retain the original; it is not automatically resubmitted."),
+			pending: tr("原件结果待确认；仅只读核对，不自动重发。", "The original result is pending. Use read-only lookup; it is not automatically resubmitted.")
+		}[detail.category] || reason(detail.code);
+		const operationLabel = {
+			entry_inspect: tr("核对账号入口", "Inspect account entry"),
+			entry_lookup: tr("核对入口原件", "Look up entry originals"),
+			entry_prepare: tr("准备账号入口", "Prepare account entry"),
+			protocol_load: tr("加载客户端协议", "Load client protocol"),
+			game_session: tr("浏览器执行会话", "Browser execution session"),
+			executor_inspect: tr("核对当前任务", "Inspect current task"),
+			executor_prepare: tr("登记执行身份", "Register executor"),
+			executor_start: tr("启动 Agent", "Start Agent"),
+			executor_recover: tr("核对执行原件", "Look up execution originals"),
+			executor_forget: tr("忘记本机 Key", "Forget local key")
+		}[operation] || tr("游戏客户端操作", "Game Client operation");
+		return `${detail.code === "operation_unknown" ? `${reason(detail.code)} ` : ""}${guidance} [${operationLabel}: ${detail.stage}; code=${detail.code}; category=${detail.category}${detail.httpStatus ? `; HTTP=${detail.httpStatus}` : ""}${detail.serverCode ? `; server=${detail.serverCode}` : ""}${detail.causeCode ? `; cause=${detail.causeCode}` : ""}]`;
+	};
+	const showFailure = (failure, operation) => setError(diagnosticMessage(failure, operation));
 	function refresh() {
 		const value = driver()?.snapshot();
 		setState(value || null);
-		if (value?.code) setError(reason(value.code));
+		if (value?.code) showFailure(value, "game_session");
 	}
 	const ownerKey = (owner) => owner?.identityId || owner?.publicKey || "";
 	const trustKey = (trusted) => JSON.stringify(trusted || null);
@@ -5800,9 +6427,11 @@ function BrowserByokSurface(props) {
 			return signature;
 		}
 	});
-	const acceptEntry = (value, captured) => {
+	const acceptEntry = (value, captured, operation = "entry_inspect") => {
 		if (!alive || captured !== entryKey) return;
 		setEntryState(value);
+		if (value?.code) showFailure(value, operation);
+		else setError("");
 		if (value?.state === "ready" && value.agentId) setProjectionPending(props.onCanonicalAgent?.(value.agentId) === false);
 	};
 	function openEntry({ accountId, owner, trusted }, resetGoal = false) {
@@ -5823,9 +6452,11 @@ function BrowserByokSurface(props) {
 		entryController = controller;
 		setEntryBusy(true);
 		(async () => {
+			let operation = "protocol_load";
 			try {
 				const codec = await (props.protocolLoader || loadBrowserGameProtocol)();
 				if (!alive || captured !== entryKey) return;
+				operation = "entry_inspect";
 				const ownerEntry = (props.createOwnerEntry || createBrowserOwnerEntry)({
 					config: trusted,
 					codec,
@@ -5837,7 +6468,10 @@ function BrowserByokSurface(props) {
 				setEntry(ownerEntry);
 				acceptEntry(await ownerEntry.inspect(), captured);
 			} catch (failure) {
-				if (alive && captured === entryKey) setError(reason(failure.code));
+				if (alive && captured === entryKey) {
+					setEntryState({ state: "failed" });
+					showFailure(operation === "protocol_load" ? { code: "game_protocol_unavailable" } : failure, operation);
+				}
 			} finally {
 				if (alive && captured === entryKey) setEntryBusy(false);
 			}
@@ -5886,7 +6520,7 @@ function BrowserByokSurface(props) {
 			if (previousAccount !== accountId) {
 				const loggedOutContext = key;
 				old.logout().catch(() => {
-					if (alive && contextKey === loggedOutContext) setError(reason("storage_write_failed"));
+					if (alive && contextKey === loggedOutContext) showFailure({ code: "storage_write_failed" }, "game_session");
 				});
 			}
 			old.dispose();
@@ -5909,7 +6543,7 @@ function BrowserByokSurface(props) {
 			unsubscribe = session.subscribe(refresh);
 			refresh();
 		} catch {
-			setError(reason("game_configuration_invalid"));
+			showFailure({ code: "game_configuration_invalid" }, "game_session");
 		}
 	});
 	const prepareEntry = async () => {
@@ -5922,9 +6556,9 @@ function BrowserByokSurface(props) {
 			acceptEntry(await ownerEntry.prepare({
 				goal: goal().trim(),
 				consent: true
-			}), captured);
+			}), captured, "entry_prepare");
 		} catch (failure) {
-			if (alive && captured === entryKey) setError(reason(failure.code));
+			if (alive && captured === entryKey) showFailure(failure, "entry_prepare");
 		} finally {
 			if (alive && captured === entryKey) setEntryBusy(false);
 		}
@@ -5933,16 +6567,20 @@ function BrowserByokSurface(props) {
 		state();
 		return driver()?.modelSession.snapshot().checked === true;
 	};
-	const act = async (action) => {
+	const act = async (action, operation = "game_session") => {
 		const captured = contextKey, current = driver();
 		setError("");
 		setRunConsent(false);
+		let failure;
 		try {
 			await action(current);
-		} catch (failure) {
-			if (alive && captured === contextKey) setError(reason(failure.code));
+		} catch (error) {
+			failure = error;
 		} finally {
-			if (alive && captured === contextKey) refresh();
+			if (alive && captured === contextKey) {
+				refresh();
+				if (failure) showFailure(failure, operation);
+			}
 		}
 	};
 	onCleanup(() => {
@@ -6093,8 +6731,8 @@ function BrowserByokSurface(props) {
 											_el$20.$$click = () => {
 												const captured = entryKey;
 												setEntryBusy(true);
-												entry().inspect().then((value) => acceptEntry(value, captured)).catch((failure) => {
-													if (alive && captured === entryKey) setError(reason(failure.code));
+												entry().inspect().then((value) => acceptEntry(value, captured, "entry_lookup")).catch((failure) => {
+													if (alive && captured === entryKey) showFailure(failure, "entry_lookup");
 												}).finally(() => {
 													if (alive && captured === entryKey) setEntryBusy(false);
 												});
@@ -6134,7 +6772,7 @@ function BrowserByokSurface(props) {
 								var _el$22 = _tmpl$3$30();
 								_el$22.$$click = () => {
 									setConfirm(false);
-									act((session) => session.prepare({ inspectOnly: true }));
+									act((session) => session.prepare({ inspectOnly: true }), "executor_inspect");
 								};
 								insert(_el$22, () => tr("只读核对当前任务", "Inspect current task"));
 								createRenderEffect(() => _el$22.disabled = ["running", "preparing"].includes(state()?.phase));
@@ -6156,7 +6794,7 @@ function BrowserByokSurface(props) {
 									act((session) => session.prepare({
 										takeover: true,
 										confirmedFence
-									}));
+									}), "executor_prepare");
 								};
 								insert(_el$25, () => tr("核对任务并登记执行身份", "Check task and register executor"));
 								createRenderEffect(() => _el$25.disabled = !state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase));
@@ -6183,13 +6821,13 @@ function BrowserByokSurface(props) {
 							})(),
 							(() => {
 								var _el$28 = _tmpl$9$7(), _el$29 = _el$28.firstChild, _el$30 = _el$29.nextSibling, _el$31 = _el$30.nextSibling, _el$32 = _el$31.nextSibling;
-								_el$29.$$click = () => void act((session) => session.start());
+								_el$29.$$click = () => void act((session) => session.start(), "executor_start");
 								insert(_el$29, () => tr("确认开始 Agent", "Confirm Agent start"));
 								_el$30.$$click = () => driver()?.stop();
 								insert(_el$30, () => tr("停止新决策", "Stop new decisions"));
-								_el$31.$$click = () => void act((session) => session.recover());
+								_el$31.$$click = () => void act((session) => session.recover(), "executor_recover");
 								insert(_el$31, () => tr("只读核对原件", "Look up original operations"));
-								_el$32.$$click = () => void act((session) => session.forget());
+								_el$32.$$click = () => void act((session) => session.forget(), "executor_forget");
 								insert(_el$32, () => tr("忘记本机 Key", "Forget local key"));
 								createRenderEffect((_p$) => {
 									var _v$3 = !runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running", _v$4 = state()?.phase === "running";

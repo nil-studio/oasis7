@@ -5,6 +5,7 @@
 //! its existing hash payload and domain in `driver_bft_v2.rs`.
 use super::*;
 use oasis7_consensus::tendermint_v2::VerifiedBftHandoffTargetV1;
+use oasis7_formal_protocol::bft::VerifiedFormalBftPrefixV1;
 
 pub(super) struct ExecutedWorldTransition {
     pub(super) world: RuntimeWorld,
@@ -28,6 +29,7 @@ pub(super) struct WorldTransitionRequest<'a> {
     pub(super) input_hash: &'a str,
     pub(super) tick_authority: &'a str,
     pub(super) formal_handoff: Option<&'a VerifiedBftHandoffTargetV1>,
+    pub(super) formal_prefix: Option<&'a VerifiedFormalBftPrefixV1>,
 }
 
 pub(super) fn execute_world_transition(
@@ -43,8 +45,15 @@ pub(super) fn execute_world_transition(
         input_hash,
         tick_authority,
         formal_handoff,
+        formal_prefix,
     } = request;
     block.validate()?;
+    if formal_handoff.is_some() && formal_prefix.is_some() {
+        return Err("BFT execution cannot combine initial handoff and successor prefix".into());
+    }
+    if formal_prefix.is_some_and(|prefix| prefix.next_height_schedule() != schedule) {
+        return Err("BFT execution schedule differs from its complete formal prefix".into());
+    }
     if block.height == 0 || block.parent_commit_ref != expected_parent {
         return Err("BFT V2 execution input has noncanonical height or parent".into());
     }
@@ -68,7 +77,16 @@ pub(super) fn execute_world_transition(
     let parent_snapshot_bytes = super::super::super::super::snapshot_to_cbor(&parent.snapshot())?;
     let parent_journal_bytes = super::super::super::super::journal_to_cbor(parent.journal())?;
     let parent_snapshot = parent.snapshot();
-    let mut next_world = if parent_snapshot.state.retained_history_root.is_some() {
+    let mut next_world = if let Some(prefix) = formal_prefix {
+        // H's retained-history proof authenticates H, not this later BFT
+        // Snapshot. Fork the actual replayed parent, bind it to the complete
+        // prefix and reject uncommitted queues instead of weakening H restore.
+        let mut detached = parent.clone();
+        detached
+            .attach_formal_bft_prefix_parent_v1(prefix)
+            .map_err(|error| format!("attach formal BFT prefix parent: {error:?}"))?;
+        detached
+    } else if parent_snapshot.state.retained_history_root.is_some() {
         parent
             .restore_snapshot_with_attached_formal_history(
                 parent_snapshot,
@@ -107,7 +125,7 @@ pub(super) fn execute_world_transition(
         next_world
             .attach_formal_bft_handoff_parent_v1(handoff, schedule)
             .map_err(|error| format!("attach formal BFT handoff parent: {error:?}"))?;
-    } else {
+    } else if formal_prefix.is_none() {
         next_world
             .attach_bft_governance_parent_v2(schedule)
             .map_err(|error| format!("attach BFT V2 governance execution parent: {error:?}"))?;

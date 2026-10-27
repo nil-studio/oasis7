@@ -7,6 +7,8 @@ rust-version = "1.85"
 description = "Pure bounded test-account custody contracts and state transitions"
 
 [dependencies]
+oasis7_client_api = { path = "../oasis7_client_api" }
+base64 = "0.22"
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
 serde.workspace = true
@@ -18,7 +20,6 @@ sha2.workspace = true
 oasis7_agent_api = { path = "../oasis7_agent_api", features = ["schema"] }
 schemars = "1.2"
 ed25519-dalek = "3"
-base64 = "0.22"
 
 [lints]
 workspace = true

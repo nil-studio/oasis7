@@ -467,122 +467,6 @@ fn session_mutations_roll_back_in_memory_when_recovery_persistence_fails() {
     let _ = std::fs::remove_dir_all(mutation_dir);
 }
 
-#[cfg(unix)]
-#[test]
-fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retryable() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let _guard = lock_test_llm_env();
-    let replay_dir = runtime_live_temp_dir("hosted-grant-persist-failure");
-    std::fs::create_dir_all(&replay_dir).expect("create replay directory");
-    let replay_ledger = replay_dir.join("registration-replay.json");
-    std::fs::write(&replay_ledger, b"[]").expect("seed readable replay ledger");
-    std::fs::set_permissions(&replay_dir, std::fs::Permissions::from_mode(0o500))
-        .expect("make replay directory unwritable");
-
-    let issuer_private_key = hex::encode([94_u8; 32]);
-    let issuer_public_key =
-        crate::viewer::derive_hosted_registration_issuer_public_key(issuer_private_key.as_str())
-            .expect("derive issuer public key");
-    unsafe {
-        oasis7::env_mut::set_var(
-            crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
-            issuer_public_key,
-        );
-        oasis7::env_mut::set_var(
-            crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
-            replay_ledger.as_os_str(),
-        );
-    }
-
-    let mut server = ViewerRuntimeLiveServer::new(
-        ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
-            .with_decision_mode(ViewerLiveDecisionMode::Llm),
-    )
-    .expect("runtime server");
-    let agent_id = server
-        .world
-        .state()
-        .agents
-        .keys()
-        .next()
-        .cloned()
-        .expect("seed agent");
-    let hosted_player_id = "hosted-player-account-persist-failure";
-    let (hosted_public_key, hosted_private_key) = test_signer(95);
-    let registration_grant = crate::viewer::issue_hosted_registration_grant(
-        hosted_player_id,
-        hosted_public_key.as_str(),
-        "device-persist-failure",
-        "nonce-persist-failure",
-        test_now_unix_ms(),
-        issuer_private_key.as_str(),
-    )
-    .expect("issue registration grant");
-    let request = |nonce| {
-        signed_session_register_request(
-            crate::viewer::AuthoritativeSessionRegisterRequest {
-                player_id: hosted_player_id.to_string(),
-                public_key: None,
-                registration_grant: Some(registration_grant.clone()),
-                auth: None,
-                requested_agent_id: Some(agent_id.clone()),
-                force_rebind: false,
-            },
-            nonce,
-            hosted_public_key.as_str(),
-            hosted_private_key.as_str(),
-        )
-    };
-
-    let error = server
-        .handle_authoritative_recovery(AuthoritativeRecoveryCommand::RegisterSession {
-            request: request(1),
-        })
-        .expect_err("replay-ledger persistence must fail");
-    assert!(
-        error.message.contains("registration replay ledger"),
-        "unexpected error: {error:?}"
-    );
-    assert_eq!(
-        server.llm_sidecar.bound_agent_for_player(hosted_player_id),
-        None,
-        "failed registration must roll back the committed binding"
-    );
-    assert!(
-        server
-            .session_policy
-            .validate_known_session_key(hosted_player_id, hosted_public_key.as_str())
-            .is_err(),
-        "failed registration must not commit the active session key"
-    );
-    assert_eq!(
-        server
-            .llm_sidecar
-            .player_auth_last_nonce
-            .get(hosted_player_id),
-        None,
-        "failed registration must not consume the request auth nonce"
-    );
-
-    std::fs::set_permissions(&replay_dir, std::fs::Permissions::from_mode(0o700))
-        .expect("restore replay directory permissions");
-    let _ = std::fs::remove_file(&replay_ledger);
-    std::fs::write(&replay_ledger, b"[]").expect("restore writable replay ledger");
-    let (ack, _) = server
-        .handle_authoritative_recovery(AuthoritativeRecoveryCommand::RegisterSession {
-            request: request(2),
-        })
-        .expect("the same grant must remain retryable after rollback");
-    assert_eq!(ack.status, AuthoritativeRecoveryStatus::SessionRegistered);
-
-    unsafe {
-        oasis7::env_mut::remove_var(crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV);
-        oasis7::env_mut::remove_var(crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV);
-    }
-    let _ = std::fs::remove_dir_all(replay_dir);
-}
-
 #[test]
 fn hosted_registration_recovery_not_committed_keeps_grant_retryable_after_restart() {
     let _guard = lock_test_llm_env();
@@ -1196,3 +1080,7 @@ fn runtime_authoritative_recovery_rotate_and_revoke_session_enforced_for_agent_c
 
 #[path = "auth_actions_authoritative_recovery/devlocal_write_fence.rs"]
 mod devlocal_write_fence;
+
+#[cfg(unix)]
+#[path = "auth_actions_registration_persistence.rs"]
+mod registration_persistence;

@@ -112,6 +112,33 @@ impl DirectoryConfig {
             native_account_id: status.account_id.clone(),
         })
     }
+    /// Historical association lookup only; never evidence of current source activity.
+    #[cfg(feature = "owner")]
+    pub(crate) fn inspection_reference_principal(
+        &self,
+        reference: &crate::directory_rpc::NativeInspectReference,
+    ) -> Result<ManagerPrincipal> {
+        if reference.identity_namespace != self.namespace
+            || reference.identity_instance_epoch != self.epoch
+            || [
+                &reference.account_id,
+                &reference.session_ref,
+                &reference.credential_ref,
+            ]
+            .iter()
+            .any(|v| v.is_empty() || v.len() > 256)
+            || reference.credential_version.0 == 0
+            || reference.security_version.0 == 0
+            || reference.policy_version.0 == 0
+            || clock()? >= reference.expires_at.0.min(reference.idle_expires_at.0)
+        {
+            return Err(denied());
+        }
+        Ok(ManagerPrincipal {
+            identity_namespace: self.namespace.clone(),
+            native_account_id: reference.account_id.clone(),
+        })
+    }
     pub fn policy(&self) -> ProvisionPolicy<'_> {
         ProvisionPolicy {
             routes: &self.routes,

@@ -681,6 +681,7 @@ fn execute_candidate_v2(
         input_hash: &input_hash,
         tick_authority: BFT_V2_EXECUTION_TICK_AUTHORITY,
         formal_handoff: None,
+        formal_prefix: None,
     })?;
     let execution_block_hash = execution_block_hash_v2(
         block,

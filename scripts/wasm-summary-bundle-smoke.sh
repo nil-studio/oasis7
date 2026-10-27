@@ -108,7 +108,7 @@ for module_set in m1 m4 m5; do
     exit 1
   fi
 
-  rg -n "host_platform mismatch" "$tmp_root/bad-stage-$module_set.stderr" >/dev/null
+  grep -F -q -- "host_platform mismatch" "$tmp_root/bad-stage-$module_set.stderr"
 done
 
 echo "wasm summary bundle smoke: OK"

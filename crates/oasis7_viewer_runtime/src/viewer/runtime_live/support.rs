@@ -538,6 +538,7 @@ pub(super) fn is_timeout_error(err: &io::Error) -> bool {
 pub(super) fn lock_shared_server(
     shared: &Arc<Mutex<ViewerRuntimeLiveServer>>,
 ) -> Result<MutexGuard<'_, ViewerRuntimeLiveServer>, ViewerRuntimeLiveServerError> {
+    let _phase = super::stream_budget_diagnostics::phase(10);
     shared.lock().map_err(|_| {
         ViewerRuntimeLiveServerError::Io(io::Error::other(
             "viewer runtime live shared state poisoned",

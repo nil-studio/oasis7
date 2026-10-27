@@ -55,6 +55,7 @@ impl Session {
         let connection = socket.local_addr().unwrap().port();
         let server = shared.clone();
         let worker = thread::spawn(move || {
+            ViewerRuntimeLiveServer::test_record_stream_budget_connection(!small);
             ViewerRuntimeLiveServer::test_serve_shared_stream(server, accepted)
         });
         Self {
@@ -183,7 +184,9 @@ impl Session {
         // Keep reading until its EOF; a bidirectional shutdown races those writes.
         drop(self.accepted_probe);
         self.reader.get_ref().shutdown(std::net::Shutdown::Write)?;
-        self.reader.get_ref().set_read_timeout(Some(Duration::from_secs(2)))?;
+        self.reader
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(2)))?;
         let drained = std::io::copy(&mut self.reader, &mut std::io::sink());
         if drained.is_err() {
             let _ = self.reader.get_ref().shutdown(std::net::Shutdown::Both);
@@ -197,10 +200,16 @@ impl Session {
 fn real_tcp_session_close_drains_responses_queued_before_eof() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-    socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
     let (mut accepted, _) = listener.accept().unwrap();
-    accepted.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    accepted.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+    accepted
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    accepted
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
     let accepted_probe = accepted.try_clone().unwrap();
     let worker = thread::spawn(move || {
         let mut requests = Vec::new();
@@ -219,7 +228,10 @@ fn real_tcp_session_close_drains_responses_queued_before_eof() {
         accepted_probe,
         worker,
     };
-    assert!(session.close().is_ok(), "queued response must drain before read shutdown");
+    assert!(
+        session.close().is_ok(),
+        "queued response must drain before read shutdown"
+    );
 }
 
 pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
@@ -240,6 +252,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     }
 }
 fn slow_consumer(shared: Arc<Mutex<ViewerRuntimeLiveServer>>) {
+    ViewerRuntimeLiveServer::test_begin_stream_budget_diagnostics();
     let mut offender = Session::start(&shared, true);
     let mut observer = Session::start(&shared, false);
     let primed = offender.warm() && observer.warm();
@@ -307,6 +320,7 @@ fn slow_consumer(shared: Arc<Mutex<ViewerRuntimeLiveServer>>) {
         }
         let queue_bytes = kernel_queued_bytes(&offender.accepted_probe);
         let connection_alive = !offender.worker.is_finished();
+        let diagnostic_started = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
         let mut sample = phase_exchange(
             &mut observer,
             &format!("pressure-{index}"),
@@ -318,6 +332,9 @@ fn slow_consumer(shared: Arc<Mutex<ViewerRuntimeLiveServer>>) {
             serde_json::json!(kernel_queued_bytes(&offender.accepted_probe));
         sample["under_pressure"] = serde_json::json!(queue_bytes > 0 && connection_alive);
         outstanding_complete = sample["original_response_complete"] == true;
+        sample["diagnostic_started_us"] = serde_json::json!(diagnostic_started);
+        sample["diagnostic_finished_us"] =
+            serde_json::json!(ViewerRuntimeLiveServer::test_stream_budget_timestamp());
         println!("slow_consumer_phase_sample {sample}");
         samples.push(sample);
     }
@@ -326,6 +343,7 @@ fn slow_consumer(shared: Arc<Mutex<ViewerRuntimeLiveServer>>) {
     let late_response_drained =
         outstanding_complete || observer.snapshot_ordered(Duration::from_secs(2), false);
     let observer_result = observer.close();
+    application_stream_budget_diagnostics::dump(&samples);
     println!(
         "slow_consumer_actual primed={primed} requests={requests} sustained_mutex_contention={backpressure} kernel_queue_pressure={queue_pressure} maximum_queued_bytes={maximum_queued} late_response_drained={late_response_drained} samples={} selection_elapsed_ms={} offender_result={offender_result:?} observer_result={observer_result:?} baseline={baseline}",
         samples.len(),
@@ -394,7 +412,10 @@ fn requests(root: &std::path::Path) -> Vec<serde_json::Value> {
                 .file_name()
                 .to_string_lossy()
                 .starts_with("model-request-")
-                && entry.path().extension().is_some_and(|extension| extension == "json")
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
         })
         .map(|entry| serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap())
         .collect()
@@ -405,7 +426,10 @@ fn model_request_scan_ignores_unpublished_staging_but_rejects_malformed_json() {
     let root = temp_dir("qa-model-request-publication");
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("model-request-pending.staging-1"), b"{").unwrap();
-    assert!(requests(&root).is_empty(), "staging is not a published model request");
+    assert!(
+        requests(&root).is_empty(),
+        "staging is not a published model request"
+    );
     let published = root.join("model-request-actual.json");
     let identity = serde_json::json!({"request_digest": "published-original"});
     application_hosted_wait::publish_marker(&published, &serde_json::to_vec(&identity).unwrap())
@@ -414,7 +438,10 @@ fn model_request_scan_ignores_unpublished_staging_but_rejects_malformed_json() {
     fs::write(&published, b"{").unwrap();
     let malformed = std::panic::catch_unwind(|| requests(&root));
     fs::remove_dir_all(root).unwrap();
-    assert!(malformed.is_err(), "malformed published JSON must remain a failure");
+    assert!(
+        malformed.is_err(),
+        "malformed published JSON must remain a failure"
+    );
 }
 fn repeated(shared: Arc<Mutex<ViewerRuntimeLiveServer>>, root: &std::path::Path) {
     let mut session = Session::start(&shared, false);

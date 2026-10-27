@@ -168,6 +168,9 @@ impl From<io::Error> for WorldError {
 impl From<oasis7_proto::world_error::WorldError> for WorldError {
     fn from(error: oasis7_proto::world_error::WorldError) -> Self {
         match error {
+            oasis7_proto::world_error::WorldError::NetworkFailure { source, .. } => {
+                Self::from(*source)
+            }
             oasis7_proto::world_error::WorldError::NetworkProtocolUnavailable { protocol } => {
                 WorldError::NetworkProtocolUnavailable { protocol }
             }
