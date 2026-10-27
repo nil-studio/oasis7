@@ -31,10 +31,24 @@ struct Config {
     provisioned_signing_keys: Vec<BftSignerKeyIdentityV3>,
     timeouts: BftTimeoutsV1,
     provider_address: SocketAddr,
-    provider_trust: BftSignerTrustV3,
+    provider_trust: Option<BftSignerTrustV3>,
     requester_signing_key_path: PathBuf,
     provider_timeout_ms: u64,
     completion_timeout_ms: u64,
+}
+
+/// Public operator descriptor only. A provider must independently admit H;
+/// serializing this report cannot mint the opaque binding capability.
+#[derive(Serialize)]
+pub(crate) struct BindingReport {
+    pub(crate) schema_version: &'static str,
+    pub(crate) binding: BftSignerBindingV3,
+    pub(crate) binding_digest: String,
+}
+struct Prepared {
+    driver: FormalBftHeaderNodeDriverV3,
+    binding: BftSignerBindingV3,
+    requester: ed25519_dalek::SigningKey,
 }
 
 #[derive(Serialize)]
@@ -56,7 +70,15 @@ pub(super) fn run<'a>(
 ) -> Result<(), String> {
     let mut config = None;
     let mut actions = None;
+    let mut print_binding = false;
     while let Some(option) = args.next() {
+        if option == "--print-binding" {
+            if print_binding {
+                return Err("duplicate header Node option".into());
+            }
+            print_binding = true;
+            continue;
+        }
         let slot = match option {
             "--config" => &mut config,
             "--actions" => &mut actions,
@@ -74,8 +96,20 @@ pub(super) fn run<'a>(
         }
         *slot = Some(path);
     }
+    let config = config.ok_or("bft-header node requires --config")?;
+    if print_binding {
+        if actions.is_some() {
+            return Err("header Node --print-binding cannot be combined with --actions".into());
+        }
+        let report = super::prepare_node_binding_report(&config)?;
+        println!(
+            "{}",
+            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?
+        );
+        return Ok(());
+    }
     let report = from_paths(
-        &config.ok_or("bft-header node requires --config")?,
+        &config,
         &actions.ok_or("bft-header node requires --actions")?,
         shutdown,
     )?;
@@ -91,6 +125,70 @@ fn from_paths(
     actions_path: &Path,
     shutdown: Option<Arc<AtomicBool>>,
 ) -> Result<Report, String> {
+    let config = load_config(config_path)?;
+    let trust = config
+        .provider_trust
+        .clone()
+        .ok_or("header Node actions require explicit pinned provider_trust")?;
+    let input = read_private(actions_path, BFT_MAX_ACTIONS_CBOR_BYTES_V1 as u64)?;
+    let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(&input)
+        .map_err(|_| "header Node canonical private actions rejected")?;
+    if actions.is_empty()
+        || actions
+            .iter()
+            .any(|a| a.submitter_player_id != config.player_id)
+    {
+        return Err("header Node requires nonempty actions for its configured player".into());
+    }
+    let Prepared {
+        driver,
+        binding,
+        requester,
+    } = prepare(&config)?;
+    let provider = Arc::new(
+        RemoteBftSignerProviderV3::new(
+            config.provider_address,
+            Duration::from_millis(config.provider_timeout_ms),
+            binding.clone(),
+            requester,
+            trust,
+        )
+        .map_err(|_| "header Node explicit remote signer trust rejected")?,
+    );
+    let node_config = NodeConfig::new(
+        config.validator_id,
+        binding.scope.world_id.clone(),
+        NodeRole::Sequencer,
+    )
+    .and_then(|c| c.with_player_id(config.player_id))
+    .map_err(|_| "header Node identity rejected")?
+    .with_replication(
+        NodeReplicationConfig::new(config.replication_directory)
+            .map_err(|_| "header Node replication storage rejected")?,
+    );
+    let mut runtime = NodeRuntime::new(node_config)
+        .with_replication_network_consensus_enabled(false)
+        .with_execution_hook(driver)
+        .with_tendermint_v3(binding, provider)
+        .map_err(|_| "header Node runtime configuration rejected")?;
+    runtime
+        .start()
+        .map_err(|_| "header Node actual startup recovery rejected")?;
+    let result = submit_and_wait(
+        &runtime,
+        &actions,
+        Duration::from_millis(config.completion_timeout_ms),
+        shutdown,
+    );
+    let stopped = runtime
+        .stop()
+        .map_err(|_| "header Node could not stop cleanly");
+    let report = result?;
+    stopped?;
+    Ok(report)
+}
+
+fn load_config(config_path: &Path) -> Result<Config, String> {
     let config: Config = serde_json::from_slice(&read_private(config_path, 2 * 1024 * 1024)?)
         .map_err(|_| "invalid header Node config")?;
     if config.schema_version != 1
@@ -102,16 +200,23 @@ fn from_paths(
         return Err("unsupported header Node schema, endpoint or timeout".into());
     }
     config.target.validate()?;
-    let input = read_private(actions_path, BFT_MAX_ACTIONS_CBOR_BYTES_V1 as u64)?;
-    let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(&input)
-        .map_err(|_| "header Node canonical private actions rejected")?;
-    if actions.is_empty()
-        || actions
-            .iter()
-            .any(|a| a.submitter_player_id != config.player_id)
-    {
-        return Err("header Node requires nonempty actions for its configured player".into());
-    }
+    Ok(config)
+}
+
+pub(super) fn prepare_binding_report(config_path: &Path) -> Result<BindingReport, String> {
+    let config = load_config(config_path)?;
+    let Prepared { binding, .. } = prepare(&config)?;
+    let binding_digest = binding
+        .digest()
+        .map_err(|_| "header Node binding digest rejected")?;
+    Ok(BindingReport {
+        schema_version: "oasis7.formal_bft_header_node_binding.v3",
+        binding,
+        binding_digest,
+    })
+}
+
+fn prepare(config: &Config) -> Result<Prepared, String> {
     // All private inputs and existing directories are checked before creating Node state.
     let cas = require_existing_directory(&config.cas_directory, "private Node CAS")?;
     crate::controlled_live_config::require_private_owned(&cas, true)?;
@@ -162,7 +267,7 @@ fn from_paths(
         &config.records_directory,
         store,
         anchor,
-        config.target,
+        config.target.clone(),
         material,
         source,
     )
@@ -172,53 +277,17 @@ fn from_paths(
         driver.initial_schedule().clone(),
         driver.material_identity().into(),
         config.validator_id.clone(),
-        config.provisioned_signing_keys,
+        config.provisioned_signing_keys.clone(),
         config.timeouts,
-        config.operator_instance_id,
+        config.operator_instance_id.clone(),
         hex::encode(requester.verifying_key().to_bytes()),
     )
     .map_err(|_| "header Node trusted signer binding rejected")?;
-    let provider = Arc::new(
-        RemoteBftSignerProviderV3::new(
-            config.provider_address,
-            Duration::from_millis(config.provider_timeout_ms),
-            binding.clone(),
-            requester,
-            config.provider_trust,
-        )
-        .map_err(|_| "header Node explicit remote signer trust rejected")?,
-    );
-    let node_config = NodeConfig::new(
-        config.validator_id,
-        binding.scope.world_id.clone(),
-        NodeRole::Sequencer,
-    )
-    .and_then(|c| c.with_player_id(config.player_id))
-    .map_err(|_| "header Node identity rejected")?
-    .with_replication(
-        NodeReplicationConfig::new(config.replication_directory)
-            .map_err(|_| "header Node replication storage rejected")?,
-    );
-    let mut runtime = NodeRuntime::new(node_config)
-        .with_replication_network_consensus_enabled(false)
-        .with_execution_hook(driver)
-        .with_tendermint_v3(binding, provider)
-        .map_err(|_| "header Node runtime configuration rejected")?;
-    runtime
-        .start()
-        .map_err(|_| "header Node actual startup recovery rejected")?;
-    let result = submit_and_wait(
-        &runtime,
-        &actions,
-        Duration::from_millis(config.completion_timeout_ms),
-        shutdown,
-    );
-    let stopped = runtime
-        .stop()
-        .map_err(|_| "header Node could not stop cleanly");
-    let report = result?;
-    stopped?;
-    Ok(report)
+    Ok(Prepared {
+        driver,
+        binding,
+        requester,
+    })
 }
 
 fn submit_and_wait(
@@ -314,6 +383,32 @@ mod tests {
             .is_err()
         );
         assert!(run(["--actions", "/private/actions"].into_iter(), None).is_err());
+    }
+    #[test]
+    fn binding_mode_rejects_actions_and_duplicate_mode_before_loading() {
+        assert!(
+            run(
+                [
+                    "--config",
+                    "/missing",
+                    "--print-binding",
+                    "--actions",
+                    "/missing-actions"
+                ]
+                .into_iter(),
+                None
+            )
+            .unwrap_err()
+            .contains("cannot be combined")
+        );
+        assert!(
+            run(
+                ["--config", "/missing", "--print-binding", "--print-binding"].into_iter(),
+                None
+            )
+            .unwrap_err()
+            .contains("duplicate")
+        );
     }
     #[test]
     fn public_receipt_omits_private_payloads() {

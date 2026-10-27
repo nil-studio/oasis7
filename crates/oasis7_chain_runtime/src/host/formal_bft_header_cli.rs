@@ -3,6 +3,15 @@
 mod ledger;
 #[path = "formal_bft_header_node_cli.rs"]
 mod node;
+pub(crate) use node::BindingReport as NodeBindingReport;
+
+/// Initialize the private qualified-H Node origin and expose its public descriptor.
+/// No provider connection or signing authority is acquired.
+pub(crate) fn prepare_node_binding_report(
+    config: &std::path::Path,
+) -> Result<NodeBindingReport, String> {
+    node::prepare_binding_report(config)
+}
 
 #[cfg(not(test))]
 use super::execution_bridge::{
@@ -166,7 +175,7 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_history_cli::read_bounded(path, maximum)
 }
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header node --config ABS --actions ABS; bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header node --config ABS (--actions ABS | --print-binding); bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]

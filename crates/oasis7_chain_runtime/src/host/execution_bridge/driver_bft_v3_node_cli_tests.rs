@@ -20,10 +20,115 @@ fn cli_case() {
     let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
     let root = Scratch::new();
     let store = cas(root.path());
-    // Provision only the exact actual H identity, then release its OS claim.
-    let original = driver(&h, root.path(), &store);
+    for (digest, bytes) in &h.reader.0 {
+        assert_eq!(store.put_bytes(bytes).unwrap(), *digest);
+    }
+    let records = root.path().join("ledger");
+    let replication = root.path().join("replication");
+    for dir in [&records, &replication] {
+        fs::create_dir(dir).unwrap();
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let trust = root.path().join("trust.json");
+    let material = root.path().join("H.cbor");
+    let requester = root.path().join("requester.hex");
+    let config = root.path().join("node.json");
+    let input_path = root.path().join("actions.cbor");
+    private_file(&trust, &serde_json::to_vec(&h.trust).unwrap());
+    private_file(
+        &material,
+        &oasis7_wasm_abi::encode_canonical_cbor(&h.material).unwrap(),
+    );
+    private_file(
+        &requester,
+        hex::encode(fixtures::key(117).to_bytes()).as_bytes(),
+    );
+    let actions = vec![
+        oasis7_node::NodeConsensusAction::from_payload(
+            9010,
+            "shipping-node-player",
+            payload("shipping-wire3-node-cli-agent"),
+        )
+        .unwrap(),
+    ];
+    let input = serde_cbor::to_vec(&actions).unwrap();
+    private_file(&input_path, &input);
+    let action_root = oasis7_node::compute_consensus_action_root(&actions).unwrap();
+    let unused = TcpListener::bind("127.0.0.1:0").unwrap();
+    let unlistened = unused.local_addr().unwrap();
+    drop(unused);
+    assert!(std::net::TcpStream::connect_timeout(&unlistened, Duration::from_millis(100)).is_err());
+    let mut config_value = serde_json::json!({
+        "schema_version":1, "trust_config_path":trust, "target":h.target,
+        "handoff_material_path":material, "cas_directory":store.root(),
+        "records_directory":records, "replication_directory":replication,
+        "validator_id":validator_id(0), "player_id":"shipping-node-player",
+        "operator_instance_id":"actual-node-object-restart-4975",
+        "provisioned_signing_keys":[{"validator_id":validator_id(0),"public_key_hex":hex::encode(fixtures::key(120).verifying_key().to_bytes())}],
+        "timeouts":{"propose_ms":2000,"prevote_ms":2000,"precommit_ms":2000,"round_delta_ms":100},
+        "provider_address":unlistened, "requester_signing_key_path":requester,
+        "provider_timeout_ms":10000, "completion_timeout_ms":120000,
+    });
+    private_file(&config, &serde_json::to_vec(&config_value).unwrap());
+    // Normal operation without a pinned provider must fail before initializing
+    // either the private identity or the canonical ledger.
+    assert!(
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "node",
+                "--config",
+                config.to_str().unwrap(),
+                "--actions",
+                input_path.to_str().unwrap(),
+            ]
+            .into_iter()
+        )
+        .unwrap()
+        .unwrap_err()
+        .contains("provider_trust")
+    );
+    assert!(fs::read_dir(&records).unwrap().next().is_none());
+    // This is the real first-use provisioning command, with no provider yet.
+    crate::identity_receipt::dispatch(
+        [
+            "bft-header",
+            "node",
+            "--config",
+            config.to_str().unwrap(),
+            "--print-binding",
+        ]
+        .into_iter(),
+    )
+    .unwrap()
+    .unwrap();
+    let report = crate::formal_bft_header_cli::prepare_node_binding_report(&config).unwrap();
+    report.binding.validate().unwrap();
+    assert_eq!(
+        report.schema_version,
+        "oasis7.formal_bft_header_node_binding.v3"
+    );
+    assert_eq!(report.binding.digest().unwrap(), report.binding_digest);
+    let descriptor = serde_json::to_value(&report).unwrap();
+    assert_eq!(descriptor.as_object().unwrap().len(), 3);
+    let descriptor_json = serde_json::to_string(&descriptor).unwrap();
+    assert!(!descriptor_json.contains(&hex::encode(fixtures::key(117).to_bytes())));
+    for key in [
+        r#""actions_cbor":"#,
+        r#""payload_cbor":"#,
+        r#""snapshot":"#,
+        r#""requester_signing_key_path":"#,
+    ] {
+        assert!(!descriptor_json.contains(key));
+    }
+    let second_report = crate::formal_bft_header_cli::prepare_node_binding_report(&config).unwrap();
+    assert_eq!(second_report.binding_digest, report.binding_digest);
+    // Independently restore actual H rather than deserializing the descriptor
+    // into a trust capability. Its retained H closure needs no fixture reader.
+    let original = driver_with_source(&h, root.path(), &store, Arc::new(EmptyIndexReader));
     let binding = signer_binding(&original);
     let binding_digest = binding.digest().unwrap();
+    assert_eq!(binding_digest, report.binding_digest);
     // Reserve a different exact private value before any provider WAL exists.
     // A cold CLI invocation must finish this value, then execute its own input.
     let original_actions = vec![
@@ -69,9 +174,6 @@ fn cli_case() {
         ));
     let original_bytes = fs::read(&original_path).unwrap();
     drop(original);
-    let replication = root.path().join("replication");
-    fs::create_dir(&replication).unwrap();
-    fs::set_permissions(&replication, fs::Permissions::from_mode(0o700)).unwrap();
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
         lease_generation: 1,
@@ -80,45 +182,12 @@ fn cli_case() {
     }));
     assert!(snapshot.lock().unwrap().state.history.is_empty());
     let (address, server) = tcp(service(&binding, snapshot.clone()));
-    let trust = root.path().join("trust.json");
-    let material = root.path().join("H.cbor");
-    let requester = root.path().join("requester.hex");
-    let config = root.path().join("node.json");
-    let input_path = root.path().join("actions.cbor");
-    private_file(&trust, &serde_json::to_vec(&h.trust).unwrap());
-    private_file(
-        &material,
-        &oasis7_wasm_abi::encode_canonical_cbor(&h.material).unwrap(),
-    );
-    private_file(
-        &requester,
-        hex::encode(fixtures::key(117).to_bytes()).as_bytes(),
-    );
-    let actions = vec![
-        oasis7_node::NodeConsensusAction::from_payload(
-            9010,
-            "shipping-node-player",
-            payload("shipping-wire3-node-cli-agent"),
-        )
-        .unwrap(),
-    ];
-    let input = serde_cbor::to_vec(&actions).unwrap();
-    private_file(&input_path, &input);
-    let action_root = oasis7_node::compute_consensus_action_root(&actions).unwrap();
-    private_file(&config, &serde_json::to_vec(&serde_json::json!({
-        "schema_version":1, "trust_config_path":trust, "target":h.target,
-        "handoff_material_path":material, "cas_directory":store.root(),
-        "records_directory":root.path().join("ledger"), "replication_directory":replication,
-        "validator_id":binding.local_validator_id, "player_id":"shipping-node-player",
-        "operator_instance_id":binding.operator_instance_id,
-        "provisioned_signing_keys":binding.provisioned_signing_keys, "timeouts":binding.timeouts,
-        "provider_address":address, "provider_trust":{
-            "schema_version":3, "provider_public_key":hex::encode(fixtures::key(116).verifying_key().to_bytes()),
-            "binding_digest":binding_digest,
-        },
-        "requester_signing_key_path":requester, "provider_timeout_ms":10000,
-        "completion_timeout_ms":120000,
-    })).unwrap());
+    config_value["provider_address"] = serde_json::json!(address);
+    config_value["provider_trust"] = serde_json::json!({
+        "schema_version":3, "provider_public_key":hex::encode(fixtures::key(116).verifying_key().to_bytes()),
+        "binding_digest":binding_digest,
+    });
+    private_file(&config, &serde_json::to_vec(&config_value).unwrap());
     // No external fixture reader is passed to this production command. It
     // must restore the original Node H closure from its retained CAS receipt.
     crate::identity_receipt::dispatch(

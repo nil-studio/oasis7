@@ -590,7 +590,23 @@ The Node case must submit nonempty RuntimeAction payloads through NodeRuntime, o
 
 Native retry checks retain the original completed proposal and vote signatures across height advancement and cold service reopen; changing an old intent must fail without changing state. Timer checks must reject attempts to set or erase the height origin through generic Advance, while the protected StartHeightTimer path remains usable. Private-store checks remove original pins after intent/link publication and remove completed metadata while CAS/pins remain; both must fail without recreating original resources.
 
-The one-shot consumer is `bft-header node --config ABS --actions ABS`. Its separate schema-1 configuration requires qualified-H trust/material, schema-2 target, disjoint existing private CAS/records/replication directories, validator/player/operator identities, provisioned public signing-key identities, timeouts, explicit provider endpoint and pinned V3 trust, and an existing requester authentication key. The actions file is canonical private action CBOR for that player. Public output contains only applied height/header/action-root/count receipts. This command admits one validator without transitions or peer gossip and supplies no software substitute for a production protected backend. An input submitted again is a new submission; a public receipt is not a global idempotency key.
+The one-shot consumer is `bft-header node --config ABS --actions ABS`. Its separate schema-1 configuration requires qualified-H trust/material, schema-2 target, disjoint existing private CAS/records/replication directories, validator/player/operator identities, provisioned public signing-key identities, timeouts, explicit provider endpoint and pinned V3 trust, and an existing requester authentication key. The actions file is canonical private action CBOR for that player. Public output contains only applied height/header/action-root/count receipts. This command admits one validator without transitions or peer gossip and supplies no software substitute for a production protected backend. Reusing an already completed input is a new submission; an original pending reservation is resumed before newly submitted work. A public receipt is not a global idempotency key.
+
+For first use, run `bft-header node --config ABS --print-binding` without `--actions`. It initializes the original local origin and emits `oasis7.formal_bft_header_node_binding.v3` with a public binding and digest; no provider listener, acquisition or signing is needed. The provider must independently verify qualified H before trusted provisioning; the printed descriptor cannot grant authority. Then add explicit `provider_trust` and run the normal actions command. Repeating print mode must preserve the original digest. Normal submission without provider trust must fail before origin initialization.
+
+| Node config fields | Contract |
+| --- | --- |
+| `schema_version` | 1 |
+| `trust_config_path`, `target`, `handoff_material_path` | Private absolute trust/H files and the qualified schema-2 wire-3 target |
+| `cas_directory`, `records_directory`, `replication_directory` | Existing, owned private absolute directories, mutually disjoint |
+| `validator_id`, `player_id`, `operator_instance_id` | Explicit local validator, action submitter and operator identities |
+| `provisioned_signing_keys` | Public `{validator_id, public_key_hex}` identities matching admitted signing keys |
+| `requester_signing_key_path` | Existing private authentication key; never a local consensus signing key |
+| `timeouts` | Positive `propose_ms`, `prevote_ms`, `precommit_ms`, `round_delta_ms` |
+| `provider_address`, `provider_timeout_ms`, `completion_timeout_ms` | Explicit socket endpoint; 1–60000 ms RPC and 1–600000 ms completion bounds |
+| `provider_trust` | Required for actions: schema 3, `provider_public_key`, exact `binding_digest`; may be omitted only for print mode |
+
+The shipping CLI regression first prints this binding without a provider, then preserves an original private candidate before any provider WAL and submits a different new action. It requires the original candidate to commit first with unchanged bytes and the new action to finish afterward. The publication-failure case injects an error after canonical pins are durable, checks that no applied batch or new World is exposed, and cold-opens with an empty external reader to complete the same QC before a second write. These are actual local software paths with object-level failure injection, not physical power-loss evidence.
 
 #### 本地 CAS retention 与 GC 协调
 
