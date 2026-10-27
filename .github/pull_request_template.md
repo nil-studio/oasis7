@@ -1,3 +1,5 @@
+<!-- Follow the [language and writing requirements](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing) when writing this PR and its comments. -->
+
 ## Summary
 - 
 

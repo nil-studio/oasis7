@@ -2,6 +2,7 @@
 
 mod dht;
 mod ed25519_signer_policy;
+pub mod formal_bft_payload_v3;
 mod lease;
 mod membership;
 mod membership_logic;
@@ -245,3 +246,6 @@ mod tests {
         let _ = std::any::type_name::<MembershipRevocationSyncReport>();
     }
 }
+
+#[cfg(test)]
+mod membership_restore_auth_tests;

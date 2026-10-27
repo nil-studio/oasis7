@@ -5,6 +5,9 @@
 
 mod certificate;
 mod formal_handoff;
+mod header_certificate;
+mod header_handoff;
+mod header_identity;
 pub mod priority_wire;
 mod proposer;
 mod validator_set;
@@ -18,6 +21,15 @@ pub use formal_handoff::{
     FormalBftCertifiedEntryV1, FormalBftCertifiedPrefixV1, FormalBftExecutionCommitmentV1,
     VerifiedBftHandoffTargetV1, VerifiedFormalBftPrefixV1, verify_formal_bft_handoff_v1,
 };
+pub use header_certificate::{
+    BFT_FORMAL_HEADER_CERTIFICATE_MAX_BYTES_V3, BftHeaderHeightScheduleV3,
+    FormalBftCertifiedHeaderV3, VerifiedBftHeaderCertificateV3,
+    verify_formal_bft_header_certificate_v3,
+};
+pub use header_handoff::{
+    BftProfileTargetV2, VerifiedBftHandoffTargetV2, verify_formal_bft_handoff_v2,
+};
+pub use header_identity::BoundFormalBftHeaderV3;
 pub use proposer::{BftProposerPriorityV2, BftProposerV2};
 pub use validator_set::{
     BFT_EPOCH_MAPPING_RULESET_V2, BFT_HEIGHT_SCHEDULE_RULESET_V2, BFT_MAX_ACTIONS_BYTES_V2,
@@ -26,4 +38,10 @@ pub use validator_set::{
 };
 pub use verified_commit::{
     BftHeightProposerScheduleV2, VerifiedBftCommitCertificateV2, verify_commit_certificate_token_v2,
+};
+
+mod header_prefix;
+pub use header_prefix::{
+    BFT_FORMAL_HEADER_PREFIX_MAX_BYTES_V3, BFT_FORMAL_HEADER_PREFIX_MAX_HEIGHTS_V3,
+    FormalBftCertifiedHeaderPrefixV3, VerifiedFormalBftHeaderPrefixV3,
 };

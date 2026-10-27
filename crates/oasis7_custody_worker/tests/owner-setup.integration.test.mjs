@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {withRoleRuntime,persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+import {readSavedAccountSnapshot,verifySnapshotReuse} from './fixtures/account_restore_bench.mjs';
 
 function setupPlan(basis) {
   return {api_version:1,setup_id:'owner-setup-one',provision_id:basis.provision_id,
@@ -47,6 +48,7 @@ test('separate real UV owner setup creates canonical task, private goal, delegat
     assert.deepEqual(business(),before,'terminal history never resends setup effects or renews admission');
     await runtime.suspend();
     const saved=persistedRuntime(runtime.persist,runtime.account);
+    await verifySnapshotReuse(readSavedAccountSnapshot(runtime.persist,runtime.account));
     assert.equal(saved.setups.length,1);
     assert.equal(saved.setups[0].stages.length,6);
     assert.ok(saved.setups[0].stages.every(stage=>stage.reads===5 && stage.has_result));

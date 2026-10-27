@@ -506,6 +506,74 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib driver_bft_v2 -- -
 
 Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和网络接线，其 test hook/内存 backend 不证明磁盘耐久性、实际 World 或硬件隔离。`driver_bft_v2` 另用真实 Runtime World、OS 生命周期锁与持久 execution ledger 验证 build/preview/commit/replay；冷重启用例须核对原证书前缀和已安装记录字节不变，并通过真实 Node 再提交新高度。两类用例的证明范围分别记录，不能互相代签。正式 profile、H/H+1 权威交接、checkpoint 消费者、长期可信 checkpoint 与跨故障域 custody 的整体验收仍须单独完成，不能据这些工程回归宣称 #4975 完成。
 
+
+#### 公开 header V3 身份与私有载荷基础
+
+合同见 [des-p2p-bft-header-identity-v3](doc/p2p/design.md#des-p2p-bft-header-identity-v3)。运行 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_proto --lib distributed_bft::v3 -- --test-threads=1` 和 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_consensus --lib formal_bft_payload_v3 -- --test-threads=1`。核对独立身份域、公开编码不携带原始输入、精确原始字节摘要、1 MiB 边界、canonical header、版本拒绝和动作数组声明超限前置拒绝。确定性 hash 不提供隐藏性；这些测试不能证明低熵输入不可推断。
+
+实际 World 非空动作回归另由 `driver_bft_v2_formal_header_identity_tests` 验证：已有 V2 execution preimage 绑定新 header 后，动作摘要、action root 与执行承诺任一不符必须拒绝。新类型不签名、不生产 QC、不改变 Node 或旧 wire=2 handoff；不能据此解除现有读取发布限制或宣布正式 profile ready。
+
+
+#### Wire 3 公开 header QC 与独立 H 准入
+
+合同见 [des-p2p-bft-header-certificates-v3](doc/p2p/design.md#des-p2p-bft-header-certificates-v3)。执行以下 canonical 命令，过滤器必须实际选中测试：
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_proto --lib distributed_bft::v3 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_formal_protocol --lib header_handoff -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib header_certificate_v3_tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+```
+
+H fixture 在冻结与签名前选择并嵌入真实 target schema 2/wire 3 摘要，验证 qualified H 承诺的精确目标，拒绝旧 wire 2 target。后继 commitment 的根和集合转换是明确的协议向量：核对三高度 QC/valid-round、h/h+1 旧集与 h+2 新 key/成员、权重不足/重复/错 key/策略/轮次/phase、父 semantic root/activation/header ID、旧域签名移植，以及声明超限的 validator/vote 数组前置拒绝。它们不证明 V3 World 重执行、实际治理转换、Node canonical 提交、protected provider 安装或生产私有权限；这些接线与原始动作读取发布限制仍待后续闭环。旧 `formal_read` 回归同时核对重用 H fixture 与共享 schedule 数学未改变 V2 路径。
+
+#### Wire 3 actual World execution preview
+
+Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39`. Contract: [des-p2p-bft-header-execution-v3](doc/p2p/design.md#des-p2p-bft-header-execution-v3).
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib wire3_formal_read -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_bft_header_cli -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_runtime --lib governance_bft_parent -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_node --lib node_bft_v2 -- --test-threads=1
+```
+
+Every filter must select tests. The new `execution_tests` and `cli_execution_tests` are actual World cases: restore the independently qualified wire-3 H, execute a nonempty private action, verify separately signed header QCs and advance multiple actual heights. A self-consistent wrong execution root signed by a real quorum must pass protocol authentication and fail deterministic execution. The CLI test replays private history before preview, compares against independently driven execution, rejects mixed inputs, permissive files and symlinks, and checks no ledger or committed receipt is created. Private input canaries are checked inside the decoded payload and against encoded raw-input leakage; ASCII-only search over a CBOR integer vector is insufficient.
+
+The earlier standalone QC/transition cases still use explicit protocol vectors; they do not claim actual governance transitions. Preview is not durable canonical publication, WorldServiceIntent execution, signer/provider installation, Node wire-3 production, latest freshness or public reading of ordinary actions. Those remaining paths must retain their existing gates.
+
+#### Wire 3 private durable header-prefix import
+
+Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39`. Contract: [des-p2p-bft-header-durable-prefix-v3](doc/p2p/design.md#des-p2p-bft-header-durable-prefix-v3).
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib header_prefix_namespace -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_bft_header_cli -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_formal_protocol --lib header_prefix -- --test-threads=1
+```
+
+Require actual selected tests. The durable cases execute a nonempty private action and three real certified World heights, then reread exact historical World ticks/semantic roots/result roots after GC with no external reader. Five independent child-process SIGKILL seams cover initialization staging, reservation staging, pins, intent and record link; recovery must preserve original bytes and exclusive format claims. A different valid QC round for the same header must authenticate as a public prefix yet fail to replace the original pending private record. Missing H receipts, missing per-height pins and corrupt Snapshots must reject both verify and import without repair. The retention callback case separately exercises real CAS pin publication followed by an initialization error, exact original intent recovery and rejection of a different H binding; it is not an extra process-kill test.
+
+The CLI fixture dispatches both `bft-header install --config ABS --history ABS` and `bft-header verify --config ABS` using private absolute files and an independently fixed exact target. Config fields and bounds are defined in the linked design. Output is an `oasis7.formal_bft_header_local_ledger.v1` local report with a public-only prefix. It does not grant canonical Node, validator or public HTTP read authority. Physical power loss, protected signer/provider custody and WorldServiceIntent remain separate obligations.
+
+#### Header-only fixed-cut read contract 4
+
+Trace refs: `O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46`; `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39`. Contract: [des-p2p-bft-header-read-v4](doc/p2p/design.md#des-p2p-bft-header-read-v4). Read version 4 and consensus wire 3 identify distinct contracts.
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_client_api --lib formal_bft_header -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_game_client --lib formal_bft_read_v4 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib wire3_formal_read_v4 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_read -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_bft_prefix_http -- --test-threads=1
+```
+
+The actual shipping case installs a real nonempty-action three-height private ledger, deletes a known unretained GC canary, cold-starts `bft-header serve --config ABS`, and reads `/v4/world/read` with the shipping client. Check the exact tip and earlier World tick, full canonical header-prefix roundtrip, projection proof and private-input byte exclusion. Tampered nonce/H/target/head roots or commitment hash, trimmed/reordered prefixes and mismatched projection audience must fail. Previous read paths and signing domains remain rejected, while read-contract-3 nonempty-action rejection remains covered by the full regression suite. A self-consistent execution lie authenticated by real quorum signatures must pass protocol verification yet fail CLI installation and serving before a listener starts.
+
+The independent current-authorization fixture verifies delegated read success, busy/unavailable 503, journalled revocation 403, owner success and a lock held across reply construction/signing/socket release. The CLI supplies no current authority and returns 503 for private scopes. Reuse the existing bounded HTTP writer tests for responses above the old 8 MiB limit, absolute write deadlines and oversized-body rejection before any header. These are local historical-read and authorization-boundary results; they do not prove current Node readiness, checkpoint freshness, protected provider installation or physical fault domains.
+
 #### 本地 CAS retention 与 GC 协调
 
 合同见 [des-dh-local-retention-coordination](doc/p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib retention_tests` 和 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_sync::cas_lifecycle::tests`。覆盖独立进程等待同一 OS 锁、pin 发布后 quota/orphan/delete 的原字节保留、并发 global pin 无丢失、杀进程后在原载体上重获锁、GC 先行时 pin 明确 missing、显式 unpin 后允许回收和非法载体拒绝。子进程等待测试使用启动标记和有界观察窗口，须先确认删去锁时同一回归判红，不将时间等待本身当作进入临界区的证明。
@@ -557,6 +625,16 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_read::tests
 用例从 qualified H 构造三个实际 World 高度，通过独立 prefix ledger 及真实 `bft-prefix install/verify` dispatcher 安装，再用空外部索引 reader 在 GC 后重开；对照 Snapshot、结果树、原 durable digest 与较早的显式历史 cut。旧 H+1 目录不是初始化前置，旧解码器必须拒绝降级 fence，同目录其他格式被共同 OS carrier 排除。
 
 负例须覆盖有效 QC 中伪造结果根、缺 pin 的重复重开、丢失/损坏 CAS、部分记录、符号链接、发布态额外硬链接、丢失 origin/marker/稳定锁，且不自动修复或覆盖原件。真实子进程覆盖 init-intent 与 reservation 完整写入后、rename 前的 staging，CAS/pins 发布后，以及 intent 发布后和 record 硬链接后五个耐久点，由父进程对其持有的 child handle 发送 SIGKILL，再核对原 staging/reservation 字节、单/双链接状态、跨格式排他和同一 lock inode 的恢复。不同签名 round 的同块 QC 也不能替代既有 reservation、staging 或 intent 的原证书；不同合格 H 不能替换初始化 staging 的身份。空账本完成初始化后丢失 origin 或任一 marker，fresh install 也必须拒绝且不修复。较早 cut 的 reader 必须拒绝仅未来高度保留的节点。只有真实覆盖的进程死亡、文件系统和固定 cut 可记为通过；这不是磁盘掉电、硬件 signer 或独立物理故障域证明。
+
+连续前缀读取使用显式 V3 域，执行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib prefix_read_v3
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix_v3_shipping -- --test-threads=1
+```
+
+该用例通过真实 `bft-prefix install` 安装三高度原前缀、GC 后以 `bft-prefix serve` 重开，并由实际 HTTP V3 客户端验证完整前缀、精确高度、public inclusion 和 World tick；再重开显式较早 cut。负例包括错误目标、缺高中间前缀、伪造 view/root、旧 V2 路由与签名域、没有当前授权源的 private scope，以及缺 pin 后反复 serve 不补造凭据。现有 V2 block ID 认证原始动作，因此当前 V2/V3 light-read publication 只支持每高精确规范空动作；实际私有 ledger 接受并重放带动作块后，两个 publication 与 V3 verifier 仍须拒绝泄露这些输入。V3 DTO 另核对 H 后 64 高度范围和 40 MiB 编码计数提前停止；16 MiB CBOR prefix 的 hex 及 JSON 传输各有明确预算。HTTP 组件另以真实 TCP 传输 9 MiB JSON body、检查超限零写入以及不读数据的客户端在绝对截止处失败。`v3_private_read_holds_and_rechecks_the_current_delegation` 用真实 Agent/owner/delegation 与独立当前 World 检查私有正向读取、实际撤权后 403、授权锁忙 503 及写入前暂停时 guard 不释放。CLI 默认没有独立当前授权源，因此 private 仍阻断；本例不证明当前 private provider/正式 Node 接线、fresh/latest、硬件 signer 或物理故障域 readiness。
+
 
 CLI 配置/角色边界见 [P2P 正式交接](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。多高度本机安装 receipt 不代表新读取服务、当前私有授权、自动追随或正式 validator 写入已接线。
 

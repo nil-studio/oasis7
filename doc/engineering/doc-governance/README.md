@@ -21,6 +21,7 @@
 ## 按治理问题分流
 | 问题 | Canonical 入口 | 说明 |
 | --- | --- | --- |
+| 文档、Issue、PR、评审和交接文字如何表达 | [语言与写作要求](../workflow/source-of-truth.md#language-and-writing) | 统一表达原则与增量评审口径，正文在开发流程规范维护 |
 | 新文档应该放在哪里、承担什么职责 | `doc-structure-standard.design.md` | 顶层组织规范；定义模块、专题、分册、README、PRD/design/manual/runbook 边界，交付事实使用 Git/PR/实际 CI 与评审记录，Issue/Project 按需 |
 | 产品文档应该写什么、如何验收和追踪 | `product-documentation-standard.design.md` | 在现有四模块与专业 authority 上补充内容合同、REQ/AC 追踪、每功能点设计/实现状态摘要、证据边界和三类试点 |
 | 产品文档如何套用结构、迁移代表性主题 | `product-documentation-standard.templates.md` | 提供根/专题/design 模板、需求/验收卡和 Prompt/首局/SC-31 迁移模式 |

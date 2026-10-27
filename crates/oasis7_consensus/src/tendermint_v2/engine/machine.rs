@@ -626,6 +626,7 @@ impl BftConsensusMachineV2 {
         if evidence.proposal.height != proposal.header.height
             || evidence.proposal.round != valid_round
             || evidence.proposal.block_id != proposal.header.block_id
+            || evidence.proposal.schedule_policy_hash != self.schedule.policy_hash()
         {
             return Err("BFT valid-round evidence does not prove this proposal value".into());
         }

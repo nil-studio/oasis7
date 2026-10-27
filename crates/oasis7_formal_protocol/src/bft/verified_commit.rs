@@ -1,5 +1,6 @@
 use oasis7_proto::distributed_bft::v2::{
     BftBlockV2, BftCommitCertificateV2, BftScopeV2, BftValidatorTransitionRefV2,
+    BftValidatorTransitionV2,
 };
 use serde::Serialize;
 
@@ -21,6 +22,40 @@ pub(super) struct FormalHandoffScheduleAnchorV1 {
     pub(super) parent_tick: u64,
     pub(super) parent_state_root: String,
     pub(super) parent_manifest_hash: String,
+}
+
+/// Internal algorithm inputs after the version-specific identity binding.
+/// This view neither authenticates a block nor grants a public capability.
+pub(super) struct BftCommitFields<'a> {
+    pub(super) scope: &'a BftScopeV2,
+    pub(super) height: u64,
+    pub(super) parent_commit_ref: &'a str,
+    pub(super) authority_epoch: u64,
+    pub(super) active_validator_set_hash: &'a str,
+    pub(super) schedule_policy_hash: &'a str,
+    pub(super) manifest_hash: &'a str,
+    pub(super) post_manifest_hash: &'a str,
+    pub(super) state_root: &'a str,
+    pub(super) transition: Option<&'a BftValidatorTransitionV2>,
+    pub(super) transition_ref: Option<&'a BftValidatorTransitionRefV2>,
+}
+
+impl<'a> From<&'a BftBlockV2> for BftCommitFields<'a> {
+    fn from(block: &'a BftBlockV2) -> Self {
+        Self {
+            scope: &block.scope,
+            height: block.height,
+            parent_commit_ref: &block.parent_commit_ref,
+            authority_epoch: block.authority_epoch,
+            active_validator_set_hash: &block.active_validator_set_hash,
+            schedule_policy_hash: &block.schedule_policy_hash,
+            manifest_hash: &block.manifest_hash,
+            post_manifest_hash: &block.post_manifest_hash,
+            state_root: &block.state_root,
+            transition: block.transition.as_ref(),
+            transition_ref: block.transition_ref.as_ref(),
+        }
+    }
 }
 
 /// Opaque read/replay schedule. It contains protocol membership only and is
@@ -200,10 +235,14 @@ impl BftHeightProposerScheduleV2 {
     }
 
     pub fn validate_for_commit(&self, block: &BftBlockV2) -> Result<(), String> {
+        self.validate_commit_fields(BftCommitFields::from(block))
+    }
+
+    pub(super) fn validate_commit_fields(&self, block: BftCommitFields<'_>) -> Result<(), String> {
         if self.height == 0
             || self.scope != *self.active_set.scope()
             || self.policy.hash()? != self.policy_hash
-            || block.scope != self.scope
+            || block.scope != &self.scope
             || block.height != self.height
             || block.parent_commit_ref != self.parent_commit_ref
             || self.parent_tick.checked_add(1) != Some(self.height)
@@ -216,8 +255,8 @@ impl BftHeightProposerScheduleV2 {
         }
         match (
             &self.pending_transition,
-            &block.transition_ref,
-            &block.transition,
+            block.transition_ref,
+            block.transition,
         ) {
             (Some(pending), Some(reference), None) if reference == &pending.reference => {
                 if self.height != pending.reference.scheduled_height + 1
@@ -264,14 +303,22 @@ impl BftHeightProposerScheduleV2 {
     }
 
     fn successor_after(&self, block: &BftBlockV2, block_id: String) -> Result<Self, String> {
+        self.successor_after_fields(BftCommitFields::from(block), block_id)
+    }
+
+    pub(super) fn successor_after_fields(
+        &self,
+        block: BftCommitFields<'_>,
+        block_id: String,
+    ) -> Result<Self, String> {
         let height = self
             .height
             .checked_add(1)
             .ok_or_else(|| "BFT V2 height overflow".to_string())?;
-        let parent_state_root = block.state_root.clone();
+        let parent_state_root = block.state_root.to_owned();
         let (active_set, starting_priority, pending_transition, last_activation_height) =
             if let Some(pending) = &self.pending_transition {
-                if block.transition_ref.as_ref() != Some(&pending.reference) {
+                if block.transition_ref != Some(&pending.reference) {
                     return Err("BFT V2 transition h+1 proof mismatch".into());
                 }
                 (
@@ -280,7 +327,7 @@ impl BftHeightProposerScheduleV2 {
                     None,
                     pending.reference.activation_height,
                 )
-            } else if let Some(transition) = &block.transition {
+            } else if let Some(transition) = block.transition {
                 let new_set = self.active_set.verify_transition_set(transition)?;
                 let h_plus_one_priority = BftProposerPriorityV2::after_round(
                     &self.active_set,
@@ -325,7 +372,7 @@ impl BftHeightProposerScheduleV2 {
             parent_commit_ref: block_id,
             parent_tick: self.height,
             parent_state_root,
-            parent_manifest_hash: block.post_manifest_hash.clone(),
+            parent_manifest_hash: block.post_manifest_hash.to_owned(),
             starting_priority,
             pending_transition,
             last_activation_height,

@@ -671,6 +671,9 @@ impl MembershipDirectorySignerKeyring {
     }
 }
 
+/// Authentication constraints require a signature and an applicable verifier.
+/// An unconstrained policy without a verifier retains unauthenticated diagnostic
+/// compatibility; it does not establish a verified signer or BFT authority.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MembershipSnapshotRestorePolicy {
     pub trusted_requesters: Vec<String>,

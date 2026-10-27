@@ -48,6 +48,7 @@ pub fn verify_commit_certificate_v2(
         if evidence.proposal.height != header.height
             || evidence.proposal.round != valid_round
             || evidence.proposal.block_id != header.block_id
+            || evidence.proposal.schedule_policy_hash != schedule.policy_hash()
         {
             return Err("BFT V2 valid-round evidence does not bind the proposal".into());
         }
@@ -62,6 +63,7 @@ pub fn verify_commit_certificate_v2(
                 || vote.round != valid_round
                 || vote.phase != BftVotePhaseV2::Prevote
                 || vote.value != expected_value
+                || vote.schedule_policy_hash != schedule.policy_hash()
             {
                 return Err("BFT V2 valid-round prevote does not match block".into());
             }
@@ -87,6 +89,7 @@ pub fn verify_commit_certificate_v2(
             || vote.round != header.round
             || vote.phase != BftVotePhaseV2::Precommit
             || vote.value != expected_value
+            || vote.schedule_policy_hash != schedule.policy_hash()
         {
             return Err("BFT V2 commit certificate contains a mismatched precommit".into());
         }

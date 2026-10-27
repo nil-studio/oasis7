@@ -60,7 +60,7 @@
 <a id="hardening-signature-boundary"></a>
 ## 签名接口、事务与隔离边界
 
-承接配对 PRD §3 全部运行合同：Action/Head 保留 HMAC 与 ed25519 兼容；require_action_signature 配置必须有 HMAC 或非空 allowlist，公钥按同一规范化/去重规则核对。Membership allowlist 是身份过滤，不代替 keyring、key-ID、revocation 或 requester 校验；缺必要 verifier 时拒绝。复制 guard 只有 hash 校验与 store 写入成功后才提交，replay 使用同一在线路径并在首个失败处停止。远程 writer/fetch 鉴权与 bounded subscription/outbox 不得因恢复或降级跳过。
+承接配对 PRD §3 全部运行合同：Action/Head 保留 HMAC 与 ed25519 兼容；require_action_signature 配置必须有 HMAC 或非空 allowlist，公钥按同一规范化/去重规则核对。Membership restore 的任一认证约束（require-signature、require-key-ID、accepted key-ID/public-key allowlist）均要求实际 signature 与适用 signer/keyring，缺失或验签失败在 apply 前拒绝并记录 Rejected，QuorumConsensus 不变。公钥匹配只是认证的附加条件，不代替 keyring、key-ID、revocation 或 requester 校验；默认无约束且无 verifier 只保留显式非认证诊断兼容，不构成正式 BFT authority。复制 guard 只有 hash 校验与 store 写入成功后才提交，replay 使用同一在线路径并在首个失败处停止。远程 writer/fetch 鉴权与 bounded subscription/outbox 不得因恢复或降级跳过。
 
 ## 兼容、部署与剩余风险
 
@@ -85,5 +85,5 @@
 ## 精确源码与断言定位
 
 - [startup reconcile](../../../crates/oasis7_chain_runtime/src/host/startup_reconcile.rs)：`startup_reconcile_advances_stale_pos_state_from_execution_latest`、`startup_reconcile_skips_legacy_latest_without_node_block_hash`、`startup_reconcile_ignores_foreign_world_latest`。缺失/损坏/不可读状态的完整运行证据仍缺，不能用这三个断言代签。
-- [signature](../../../crates/oasis7_consensus/src/signature.rs)：HMAC/ed25519 action/head roundtrip 与 tampered action；[公钥规范化](../../../crates/oasis7_consensus/src/ed25519_signer_policy.rs) 的重复规范化公钥拒绝；[membership](../../../crates/oasis7_consensus/src/membership_tests.rs) 的 keyring roundtrip、unsigned default restore、unaccepted public key、HMAC-with-required-public-key 拒绝。
+- [signature](../../../crates/oasis7_consensus/src/signature.rs)：HMAC/ed25519 action/head roundtrip 与 tampered action；[公钥规范化](../../../crates/oasis7_consensus/src/ed25519_signer_policy.rs) 的重复规范化公钥拒绝；[membership](../../../crates/oasis7_consensus/src/membership_tests.rs) 的 keyring roundtrip、unsigned default restore、unaccepted public key、HMAC-with-required-public-key 拒绝；[restore authentication matrix](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs) 的 `membership_restore_authentication_policy_matrix` 组合检查四种认证约束、签名/篡改、缺 verifier/有效 signer/有效或空 keyring，并核对拒绝 audit 与 membership/history 不变。
 - [replication](../../../crates/oasis7_distfs/src/replication.rs)：`apply_replication_record_hash_mismatch_does_not_mutate_guard`、`apply_replication_record_write_failure_does_not_mutate_guard`、`replay_replication_records_restores_files_in_order`，以及 epoch/sequence/writer 切换断言。fetch 鉴权、网络饱和与真实故障恢复需要各自额外证据，不由这些局部断言证明。
