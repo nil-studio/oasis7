@@ -1,0 +1,11 @@
+{
+  "record": {
+    "content_sha256": "0303c42cb2eee7e0f8a4aa24669c592058892d211733f2f93442687faad76756",
+    "current_authority": "doc/engineering/workflow/source-of-truth.md",
+    "decision_owner": "repository_health_engineer",
+    "disposition": "retain_current_authority",
+    "note": "Reviewed the merged workflow text for integration of the language and writing requirements with the preserved five-type Issue lifecycle, handoff, authorization, and validation rules. Confirmed one writing authority, incremental review without style gates, ten entry references, and all five Issue forms retaining the main-branch fields and permissions. This review covers this document and the changed entry references and forms; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior.",
+    "path": "doc/engineering/workflow/source-of-truth.md"
+  },
+  "schema": "oasis7.document-semantic-entry/v1"
+}

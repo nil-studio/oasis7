@@ -32,6 +32,8 @@ mod participant;
 mod reconcile;
 #[path = "owner_native_recovery.rs"]
 mod recovery;
+#[path = "owner_setup.rs"]
+pub(crate) mod setup;
 pub(crate) async fn participant_dispatch(
     state: &JsValue,
     env: &Env,

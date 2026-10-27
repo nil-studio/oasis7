@@ -20,6 +20,8 @@ pub(super) fn has_formal_bft_material(records_dir: &Path) -> Result<bool, String
     for path in [
         records_dir.join("formal-bft-read-required-v1"),
         records_dir.join("formal-bft-read-v1"),
+        records_dir.join("formal-bft-prefix-required-v1"),
+        records_dir.join("formal-bft-prefix-v1"),
     ] {
         match fs::symlink_metadata(path.as_path()) {
             Ok(_) => return Ok(true),

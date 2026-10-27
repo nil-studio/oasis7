@@ -69,6 +69,7 @@ pub(super) struct BftExecutionRecordV1 {
 pub(super) struct BftExecutionLedger {
     dir: PathBuf,
     _lock: File,
+    _format_lock: File,
     config: NodeBftExecutionConfigV1,
     genesis: BftGenesisV1,
     tip_height: u64,
@@ -107,6 +108,12 @@ impl BftExecutionLedger {
             return Err("durable BFT execution is unsupported on this platform".into());
         }
         config.validate()?;
+        let format_lock = lock_format(records_dir)?;
+        if super::v2::has_formal_bft_material(records_dir)?
+            || super::v2::has_engineering_material(records_dir)?
+        {
+            return Err("BFT V1 refuses another pinned ledger format".into());
+        }
         let dir = records_dir.join(BFT_LEDGER_DIR);
         let existed = match fs::symlink_metadata(dir.as_path()) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
@@ -186,6 +193,7 @@ impl BftExecutionLedger {
         let mut ledger = Self {
             dir,
             _lock: lock,
+            _format_lock: format_lock,
             config: config.clone(),
             genesis,
             tip_height: 0,
@@ -755,4 +763,123 @@ fn parse_record_name(name: &str) -> Result<Option<u64>, String> {
         return Err("BFT history filename has zero height".into());
     }
     Ok(Some(height))
+}
+
+pub(super) const FORMAL_PREFIX_DOWNGRADE_FENCE: &[u8] =
+    b"oasis7.formal.bft.prefix.requires-new-format/v1\n";
+
+/// All current BFT formats claim this carrier before inspecting or creating
+/// their format directory. Per-format locks alone cannot serialize migration.
+pub(super) fn lock_format(records_dir: &Path) -> Result<File, String> {
+    super::super::super::durable_transaction::ensure_dir_all_durable(records_dir)?;
+    let carrier = records_dir.join("bft-format.lock");
+    let mut prefix_started =
+        read_optional_bytes(&records_dir.join("formal-bft-read-required-v1"), 128)?.as_deref()
+            == Some(FORMAL_PREFIX_DOWNGRADE_FENCE);
+    match fs::symlink_metadata(records_dir.join("formal-bft-prefix-required-v1")) {
+        Ok(_) => prefix_started = true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    // Do not upgrade an empty replacement over a durable prefix identity.
+    match fs::read_dir(records_dir.join("formal-bft-prefix-v1")) {
+        Ok(entries) => {
+            for entry in entries {
+                if entry.map_err(|e| e.to_string())?.file_name() != "writer.lock" {
+                    prefix_started = true;
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    lock_carrier_mode(&carrier, !prefix_started)
+}
+
+pub(super) fn lock_carrier(path: &Path) -> Result<File, String> {
+    lock_carrier_mode(path, true)
+}
+pub(super) fn lock_existing_carrier(path: &Path) -> Result<File, String> {
+    lock_carrier_mode(path, false)
+}
+fn lock_carrier_mode(path: &Path, initialize: bool) -> Result<File, String> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(initialize)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|error| format!("open stable BFT lock: {error}"))?;
+    // SAFETY: the descriptor belongs to this open File; flock only locks that descriptor.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(
+            "BFT record directory is already open by another writer (exclusive format claim)"
+                .into(),
+        );
+    }
+    verify_lock_carrier_shape(&file, path, initialize)?;
+    if file.metadata().map_err(|e| e.to_string())?.len() == 0 {
+        use std::os::unix::fs::FileExt;
+        let mut token = [0u8; 32];
+        getrandom::fill(&mut token).map_err(|e| e.to_string())?;
+        file.write_all_at(&token, 0).map_err(|e| e.to_string())?;
+    }
+    verify_lock_carrier(&file, path)?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    File::open(path.parent().ok_or("BFT lock parent absent")?)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(file)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LockCarrierIdentity {
+    pub(super) device: u64,
+    pub(super) inode: u64,
+    pub(super) token: String,
+}
+
+pub(super) fn lock_carrier_identity(file: &File) -> Result<LockCarrierIdentity, String> {
+    use std::os::unix::fs::{FileExt, MetadataExt};
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    if metadata.len() != 32 {
+        return Err("BFT lock carrier token is missing or malformed".into());
+    }
+    let mut token = [0u8; 32];
+    file.read_exact_at(&mut token, 0)
+        .map_err(|e| e.to_string())?;
+    if token == [0u8; 32] {
+        return Err("BFT lock carrier token is empty".into());
+    }
+    Ok(LockCarrierIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        token: hex::encode(token),
+    })
+}
+
+pub(super) fn verify_lock_carrier(file: &File, path: &Path) -> Result<(), String> {
+    verify_lock_carrier_shape(file, path, false)?;
+    lock_carrier_identity(file)?;
+    Ok(())
+}
+fn verify_lock_carrier_shape(file: &File, path: &Path, allow_empty: bool) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let opened = file.metadata().map_err(|e| e.to_string())?;
+    let current = fs::symlink_metadata(path)
+        .map_err(|e| format!("stable BFT lock carrier is missing or unreadable: {e}"))?;
+    if !opened.is_file()
+        || !current.file_type().is_file()
+        || (opened.len() != 32 && !(allow_empty && opened.len() == 0))
+        || opened.nlink() != 1
+        || opened.dev() != current.dev()
+        || opened.ino() != current.ino()
+    {
+        return Err("BFT lock is not a stable single regular token carrier".into());
+    }
+    crate::controlled_live_config::require_private_owned(path, false)?;
+    Ok(())
 }

@@ -402,7 +402,9 @@ describe("viewer web ui automation baseline", () => {
     expect(within(stagePanel).getAllByText(/repair_elasticity/i).length).toBeGreaterThan(0);
     expect(within(stagePanel).getByText("Mature-World Continuation")).toBeInTheDocument();
     expect(within(stagePanel).getByText("Recovery Options")).toBeInTheDocument();
-    expect(within(stagePanel).getByText("repair: available / rebuild: available / pivot: available")).toBeInTheDocument();
+    expect(within(stagePanel).getAllByText(/Recovery feasibility unknown/i).length).toBeGreaterThan(0);
+    expect(within(stagePanel).queryByText("repair: available / rebuild: available / pivot: available")).not.toBeInTheDocument();
+    expect(within(stagePanel).queryByText("independent_path_available")).not.toBeInTheDocument();
     expect(within(stagePanel).getByText("Share Replay")).toBeInTheDocument();
     expect(within(stagePanel).getAllByText(/queued build_factory_smelter_mk1/i).length).toBeGreaterThan(0);
     expect(within(stagePanel).getAllByText("Accepted Intent").length).toBeGreaterThan(0);
@@ -411,7 +413,7 @@ describe("viewer web ui automation baseline", () => {
     expect(within(stagePanel).getByText("Capability Economics")).toBeInTheDocument();
     expect(within(stagePanel).getByText("What The Next Move Changes")).toBeInTheDocument();
     expect(within(stagePanel).queryByText("Why This Step Is Worth Continuing")).not.toBeInTheDocument();
-    expect(within(stagePanel).getByText("Repair Move")).toBeInTheDocument();
+    expect(within(stagePanel).getByText("Next Action Guidance")).toBeInTheDocument();
     expect(within(stagePanel).getByText(/The gating input is the material chain/i)).toBeInTheDocument();
     expect(within(stagePanel).getByText("World Constraint")).toBeInTheDocument();
     expect(within(stagePanel).getByText("Missing Material")).toBeInTheDocument();
@@ -1215,7 +1217,7 @@ describe("viewer web ui automation baseline", () => {
     const recommendedCard = within(stagePanel).getByText("Recommended Action").closest(".callout");
     expect(recommendedCard).toBeTruthy();
     expect(within(recommendedCard).getByText("Advance recovery proof")).toBeInTheDocument();
-    expect(within(recommendedCard).getByText(/Advance one committed step to apply or prove recovery/i)).toBeInTheDocument();
+    expect(within(recommendedCard).getByText(/Advance one committed step, then inspect the committed result/i)).toBeInTheDocument();
     expect(within(recommendedCard).getByRole("button", { name: "Advance One Step" })).toHaveAttribute(
       "data-testid",
       "viewer-playthrough-action-recommended",

@@ -286,25 +286,42 @@ class Updater:
             os.rename(root, release)
         return release
 
-    def permit(self, before, after, manifest):
+    def permit(self, before, after, manifest, *, rollback=False):
         policy = json.loads(Path(self.c["compatibility_file"]).read_text())
-        if not isinstance(policy, dict) or not {"schema_version", "permissions"} <= set(policy) or set(policy) - {"schema_version", "permissions", "viewer_policy"} or policy["schema_version"] != 1 or not isinstance(policy["permissions"], list):
+        if not isinstance(policy, dict) or not {"schema_version", "permissions"} <= set(policy) or set(policy) - {"schema_version", "permissions", "viewer_policy", "player_policy"} or type(policy["schema_version"]) is not int or policy["schema_version"] != 1 or not isinstance(policy["permissions"], list):
             raise ValueError("invalid compatibility permission schema")
+        if type(rollback) is not bool:
+            raise ValueError("invalid rollback intent")
         wanted = {"from": {k: v["source_sha"] for k,v in before.items()}, "to": {k: v["source_sha"] for k,v in after.items()}, "contracts": manifest["compatibility"]}
         for item in policy["permissions"]:
             if not isinstance(item, dict) or set(item) != {"from", "to", "contracts", "evidence", "rollback_allowed"}:
                 raise ValueError("invalid compatibility permission entry")
             if all(item.get(k) == v for k,v in wanted.items()) and isinstance(item.get("evidence"), str) and item["evidence"].strip() and isinstance(item.get("rollback_allowed"), bool):
                 return item
+        if rollback:
+            raise ValueError("explicit rollback requires independent exact from/to compatibility permission")
+        player = module("ecs_preview_compatibility") if "player_policy" in policy else None
+        if player:
+            player.validate_player_policy(policy["player_policy"])
         viewer = policy.get("viewer_policy")
         if viewer is not None:
-            # Only the player bundle's read-only viewer is eligible. Chain
-            # identity, bytes, release and actual binding must remain identical.
-            if set(manifest["components"]) != {"player"} or before["chain"] != after["chain"]:
-                raise ValueError("viewer policy cannot authorize a chain update")
-            if module("ecs_preview_compatibility").evaluate_viewer(Path(before["player"]["release"]), Path(after["player"]["release"]), viewer):
-                return {**wanted, "rollback_allowed": True, "evidence": "local read-only viewer input policy: " + viewer["evidence"]}
-            raise ValueError("viewer input compatibility proof was not accepted")
+            # Retain the established read-only viewer's failure recovery grant.
+            # A nonmatching viewer proof must not preempt a separately approved
+            # general player family. Neither fallback grants explicit rollback.
+            try:
+                if manifest["components"] != ["player"] or before["chain"] != after["chain"]:
+                    raise ValueError("viewer policy cannot authorize a chain update")
+                if module("ecs_preview_compatibility").evaluate_viewer(Path(before["player"]["release"]), Path(after["player"]["release"]), viewer):
+                    return {**wanted, "rollback_allowed": True, "evidence": "local read-only viewer input policy: " + viewer["evidence"]}
+                raise ValueError("viewer input compatibility proof was not accepted")
+            except (ValueError, OSError):
+                if player is None:
+                    raise
+        if player:
+            release_api = module("ecs_preview_release")
+            release_api.validate_manifest(manifest, self.c["prefix"])
+            player.evaluate_player(before, after, manifest, policy["player_policy"], self.c["releases_dir"], self.store, release_api, self.c["prefix"])
+            return {**wanted, "rollback_allowed": False, "evidence": "local migration-free player contract policy: " + policy["player_policy"]["evidence"]}
         raise ValueError("no independent exact from/to compatibility permission")
 
     def point(self, name, target):
@@ -370,7 +387,7 @@ class Updater:
             after = dict(before)
             for name in changed:
                 after[name] = binding(release / self.c["components"][name]["relative_path"], manifest["source_sha"])
-            permission = self.permit(before, after, manifest)
+            permission = self.permit(before, after, manifest, rollback=channel["rollback"])
             self.save(previous=before, expected=after, phase="staged", rollback_allowed=permission["rollback_allowed"])
             self.verify(before)
             switched = True

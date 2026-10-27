@@ -202,6 +202,21 @@ fn owner_observation(
     StoreError,
 > {
     match request.response_profile {
+        Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) => {
+            let response: SignedServiceResponse<OwnerSetupObservationV1> =
+                serde_json::from_value(reply["world_response"].clone())
+                    .map_err(|_| reject("owner_control_unavailable"))?;
+            response
+                .payload
+                .validate(request)
+                .map_err(|_| reject("owner_control_unavailable"))?;
+            let control = response.payload.control;
+            Ok((
+                control.view.canonical_agent_owner,
+                control.view.game_task_control,
+                control.version.commit,
+            ))
+        }
         Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
             let response: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
                 serde_json::from_value(reply["world_response"].clone())

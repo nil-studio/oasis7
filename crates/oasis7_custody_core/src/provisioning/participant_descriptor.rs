@@ -21,7 +21,7 @@ fn namespace(binding: &NativeBindingReceiptV1) -> Result<GameIdentityNamespaceV1
     })
 }
 impl AccountProvisionApprovalState {
-    fn participant_session_candidates(
+    pub(in crate::provisioning) fn participant_session_candidates(
         &self,
         http_origin: &str,
     ) -> Result<
@@ -112,7 +112,7 @@ impl AccountProvisionApprovalState {
         }
         Ok(choices)
     }
-    pub(super) fn participant_session(
+    pub(in crate::provisioning) fn participant_session(
         &self,
         scope: &NativeStageScope<'_>,
     ) -> Result<(ParticipantSessionRefV1, SignedManagedNativeSessionStatusV1)> {

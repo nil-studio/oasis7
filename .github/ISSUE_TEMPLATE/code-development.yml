@@ -1,63 +1,60 @@
-name: 代码开发任务
-description: 由 dot 或已授权发布者准备，交给 Coding Agent 完成的代码实现任务。
-title: "[Code] "
+name: "代码任务"
+description: "设计完善后的代码实施，或明确实现 bug 修复。"
+title: "[代码] "
+labels: ["type:code"]
 body:
   - type: markdown
     attributes:
       value: |
+        先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
-        先查重并关联已有任务。此表单不自动添加 `implementation:ready`；建单不代表已启动开发或获得新的模型、合入、部署授权。
-        公开正文仅放必要且可公开的来源、复现与要求，不粘贴凭据或私有环境信息。
   - type: dropdown
-    id: task_type
+    id: issue_type
     attributes:
-      label: 任务类型
-      description: code-development 供 TPM 筛选代码开发任务；领取与派工由实际会话完成。
+      label: Issue 类型
       options:
-        - code-development / Rust
-        - code-development / JavaScript / TypeScript
-        - code-development / Rust + JavaScript / TypeScript
+        - "code / 代码"
     validations:
       required: true
   - type: textarea
     id: goal
     attributes:
-      label: 目标
-      description: 要解决什么问题，完成后应有什么行为？
-      placeholder: 当前行为、预期行为及对用户的影响。
+      label: "目标"
+      description: "当前问题、预期交付及对用户的影响。"
     validations:
       required: true
   - type: textarea
     id: sources_scope
     attributes:
-      label: 来源与范围
-      description: 关联设计、代码、失败记录或受测版本，说明允许修改的范围与明确限制。
-      placeholder: 来源链接；可复现步骤及版本；本次包含和不包含的范围。
+      label: "来源与范围"
+      description: "公开来源链接与固定版本；允许修改或测试的范围、不包含项；勿上传凭据或敏感日志。"
+    validations:
+      required: true
+  - type: textarea
+    id: type_evidence
+    attributes:
+      label: "代码准入依据"
+      description: "二选一：完善且足以指导本次实现的产品文档和系统设计链接/版本；或正确既有约定、明确实现偏差及复现证据。写明代码语言/模块。"
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: 验收
-      description: 写清可核对的结果；区分代码验证与适用的部署、真实环境验收。
-      placeholder: 最小回归场景、预期结果、适用测试；需要 dot 后续核实的环境行为。
+      label: "验收"
+      description: "可核对的完成条件、适用验证与未覆盖边界；CI 不代替部署或实玩。"
     validations:
       required: true
   - type: textarea
     id: dependencies
     attributes:
-      label: 依赖
-      description: 列出必须先完成的 Issue、PR、权限或用户决定；没有则写“无”。
-      placeholder: 无，或具体依赖及其满足条件。
+      label: "依赖"
+      description: "前置 Issue/PR、权限或 owner 决定及满足条件；没有写“无”。"
     validations:
       required: true
-  - type: dropdown
+  - type: textarea
     id: delivery
     attributes:
-      label: 交付终点
-      description: 选择只描述已有授权；不能通过表单自行授予合入或部署权限。
-      options:
-        - 可评审 PR，等待用户评审，不合入
-        - 按已有明确授权合入，再由 dot 完成适用部署与验收
+      label: "交付终点"
+      description: "写明已授权的交付终点、下一责任人或待承接；类型转换不授予合入、部署或付费执行权限。"
     validations:
       required: true

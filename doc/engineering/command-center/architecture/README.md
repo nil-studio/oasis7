@@ -92,6 +92,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 ### 服务与执行
 
+2026-10-27 业务接口实现局部核对：cognition 投影解码 [#5140](https://github.com/nil-studio/oasis7/pull/5140)、Game Client 原操作生命周期 [#5146](https://github.com/nil-studio/oasis7/pull/5146)、网络失败类型合同 [#5147](https://github.com/nil-studio/oasis7/pull/5147) 和 Runtime 委托结果/只读重试 [#5149](https://github.com/nil-studio/oasis7/pull/5149) 已合入。验证和兼容边界见各 PR，不代表部署或新增完整玩法验收。WASM 输入闭包 [#5148](https://github.com/nil-studio/oasis7/pull/5148) 仍在实现与构建验证；个人能力/恢复查询 [#5150](https://github.com/nil-studio/oasis7/pull/5150) 的当前源码检查通过，但真实界面验收因受支持入口和 Owner 身份映射前置未满足而阻塞，仍为草稿。其他主题和部署基线不变。
+
 玩法权威协议局部设计核对（2026-10-19，文档基线 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`）：[Runtime 专题分工](../../../world-runtime/design.md#runtime-gameplay-authority-designs)与[八项协议入口](../../../world-runtime/prd.index.md#gameplay-authority-protocols)把治理分类、charter、工业工作、配方替代、公共 levy、外部性、贡献恢复和安全确认分配给独立 authority。各专题共享世界提交顺序和恢复事实；charter、模型建议、预览或其他专题 receipt 不自动授予新权限或代签世界效果。该增量只补目标系统设计，不改变现有 Runtime/native 制度边界；实现、正式持久性及部署仍按各原合同验证。
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
@@ -208,3 +210,5 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。
 
 2026-10-26 单机 Preview 发布合同局部更新：[自动发布与更新设计](../../workflow/package-source-security.md#ecs-preview-automatic-deployment)将日常兼容升级收敛为可信发包、OSS 不可变发布物与主机统一锁协调；[操作手册](../../../testing/manual/single-ecs-preview-auto-update.manual.md)维护一次安装及暂停/恢复边界。实现与隔离验证由 [#5126](https://github.com/nil-studio/oasis7/issues/5126)承接，真实云身份和现有 ECS 自动更新尚待环境验收；不改变正式网络部署暂停。
+
+主机兼容边界支持默认关闭的 player 兼容族策略：[来源与更新合同](../../workflow/package-source-security.md#ecs-preview-automatic-deployment)规定管理员一次批准无需迁移的三个契约，主机验证当前及目标可信发布后允许 player/Web/Skill 向前切换，不再逐源码 SHA 填许可。chain、迁移和明确回退继续保持独立审核，归档与全文件哈希校验保留；真实启用和部署结果由部署任务承载。

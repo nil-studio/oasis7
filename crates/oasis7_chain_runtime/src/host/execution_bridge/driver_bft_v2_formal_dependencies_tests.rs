@@ -185,3 +185,25 @@ fn cache_writes_are_local_and_strict_replay_rejects_new_nodes() {
     assert!(strict.cache_content_node(&digest, bytes).is_err());
     assert_eq!(external.cache_writes.load(Ordering::SeqCst), 0);
 }
+
+#[test]
+fn replay_accesses_exclude_unvisited_preloaded_suffix_nodes() {
+    let first = seeded(b"H path actually read");
+    let future = seeded(b"later prefix node not yet used");
+    let generated = seeded(b"actual new result node");
+    let reader = RecordingBusinessIndexReaderV1::new(
+        Arc::new(MemoryReader::default()),
+        vec![first.clone(), future.clone()],
+    )
+    .unwrap();
+    assert!(reader.accessed_nodes().unwrap().is_empty());
+    assert_eq!(reader.read_node(&first.0).unwrap(), Some(first.1.clone()));
+    reader
+        .cache_content_node(&generated.0, &generated.1)
+        .unwrap();
+    assert_eq!(
+        reader.accessed_nodes().unwrap(),
+        BTreeMap::from([first, generated])
+    );
+    assert!(reader.recorded_refs().unwrap().contains(&future.0));
+}

@@ -206,6 +206,22 @@ impl ParticipantEntry {
                     .map_err(|_| StoreError::OutcomeUnknown)?;
                 Ok(reply)
             }
+            Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) => {
+                let reply = self.forward_bound(
+                    PARTICIPANT_OWNER_VIEW_PATH,
+                    PARTICIPANT_OWNER_VIEW_PATH,
+                    request,
+                    request,
+                )?;
+                let response: SignedServiceResponse<OwnerSetupObservationV1> =
+                    serde_json::from_value(reply["world_response"].clone())
+                        .map_err(|_| StoreError::OutcomeUnknown)?;
+                response
+                    .payload
+                    .validate(request)
+                    .map_err(|_| StoreError::OutcomeUnknown)?;
+                Ok(reply)
+            }
         }
     }
     fn forward<Q: Serialize>(&self, path: &str, request: &Q) -> Result<Value, StoreError> {
@@ -307,7 +323,25 @@ impl ParticipantEntry {
         // Private signatures cover typed CBOR, including typed map keys.
         // Never reinterpret that proof as the normalized JSON view profile.
         let response = match response_path {
-            PARTICIPANT_OWNER_VIEW_PATH => verified!(ParticipantOwnerControlResponseV1),
+            PARTICIPANT_OWNER_VIEW_PATH => {
+                // Both profiles use this path, but signatures cover their
+                // distinct typed CBOR. Select only from the exact request whose
+                // digest is being verified, never from the response body.
+                let owner_request: ParticipantOwnerViewRequestV1 = serde_json::from_value(
+                    serde_json::to_value(response_request)
+                        .map_err(|_| reject("invalid_request"))?,
+                )
+                .map_err(|_| reject("invalid_request"))?;
+                match owner_request.response_profile {
+                    Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) => {
+                        verified!(OwnerSetupObservationV1)
+                    }
+                    Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
+                        verified!(ParticipantOwnerControlResponseV1)
+                    }
+                    None => return Err(reject("invalid_request")),
+                }
+            }
             GOAL_PREPARE_PATH => verified!(PreparedGoalReceiptV1),
             GOAL_CURRENT_PATH => verified!(CurrentGoalResponse),
             TASK_CONTEXT_PREPARE_PATH => verified!(PreparedTaskContextV1),

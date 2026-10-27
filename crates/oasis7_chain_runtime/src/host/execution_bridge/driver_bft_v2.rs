@@ -34,7 +34,7 @@ mod formal_read;
 mod governance;
 #[path = "driver_bft_v2_storage.rs"]
 mod storage;
-pub(crate) use formal_read::FormalBftReadExecutionV1;
+pub(crate) use formal_read::{FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
 use governance::{
     has_validator_set_change_action_v2, transition_metadata_for_schedule,
     validate_set_change_actions_have_registry_v2, validate_validator_transition_action_schedule_v2,
@@ -42,6 +42,10 @@ use governance::{
 
 const BFT_V2_EXECUTION_TICK_AUTHORITY: &str = "system:bft-execution-v2";
 const BFT_V2_EXECUTION_HASH_DOMAIN: &str = "oasis7.bft.execution.v2";
+
+pub(super) fn has_engineering_material(records_dir: &Path) -> Result<bool, String> {
+    storage::BftV2ExecutionLedger::required_material_exists(records_dir)
+}
 
 pub(super) fn has_formal_bft_material(records_dir: &Path) -> Result<bool, String> {
     formal_read::FormalBftReadExecutionV1::has_required_material(records_dir)

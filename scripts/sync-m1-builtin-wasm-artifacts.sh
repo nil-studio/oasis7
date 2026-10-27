@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/.tmp/builtin-wasm-sync-modules"
 PROFILE="release"
 CHECK_ONLY=0
+CANDIDATE_CHECK=0
 MODULE_IDS_PATH="$ROOT_DIR/crates/oasis7_runtime/src/world/artifacts/m1_builtin_module_ids.txt"
 MODULE_MANIFEST_MAP_PATH="$ROOT_DIR/crates/oasis7_runtime/src/world/artifacts/builtin_module_manifest_map.txt"
 HASH_MANIFEST_PATH="$ROOT_DIR/crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.sha256"
@@ -44,6 +45,7 @@ Usage:
 
 Options:
   --check                 Build and verify hash manifest vs built wasm, then hydrate DistFS blobs
+  --candidate-check       Candidate-only build/hash check; no release identity/DistFS write
   --profile <name>        Cargo profile forwarded to wasm build suite (default: release)
   --out-dir <dir>         Build output directory (default: .tmp/builtin-wasm-sync-modules)
   --module-ids-path <p>   Module id manifest path (default: crates/.../m1_builtin_module_ids.txt)
@@ -267,6 +269,11 @@ sync_identity_manifest() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --candidate-check)
+      CHECK_ONLY=1
+      CANDIDATE_CHECK=1
+      shift
+      ;;
     --check)
       CHECK_ONLY=1
       shift
@@ -336,7 +343,11 @@ read_module_ids
 mkdir -p "$OUT_DIR"
 mkdir -p "$DISTFS_BLOBS_DIR"
 
-"$ROOT_DIR/scripts/build-builtin-wasm-modules.sh" \
+BUILD_MODE_ARGS=()
+if [[ "$CANDIDATE_CHECK" -eq 1 ]]; then
+  BUILD_MODE_ARGS+=(--candidate-build)
+fi
+"$ROOT_DIR/scripts/build-builtin-wasm-modules.sh" ${BUILD_MODE_ARGS[@]+"${BUILD_MODE_ARGS[@]}"} \
   --module-ids-path "$MODULE_IDS_PATH" \
   --out-dir "$OUT_DIR" \
   --profile "$PROFILE"
@@ -448,6 +459,11 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
     fi
   done
 
+  if [[ "$CANDIDATE_CHECK" -eq 1 ]]; then
+    # Candidate checks never hydrate the release DistFS or rewrite release identities.
+    echo "candidate canonical build/hash checks complete"
+    exit 0
+  fi
   sync_identity_manifest check
   hydrate_distfs_blobs
 

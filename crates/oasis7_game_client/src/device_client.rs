@@ -305,7 +305,7 @@ impl Client {
         }
         Ok(
             json!({"api_revision":1,"read_version":view.version(),"logical_tick":view.logical_tick(),
-            "world_rule_status":view.raw_projection().get("world_rule_status"),"industry":fields,"collection_limit":128,"scope":"authenticated public industry observation; no signed transfer quote is provided"}),
+            "gameplay_capability":view.raw_projection().get("world_rule_status").and_then(|v|v.get("gameplay_capability")),"world_rule_status":view.raw_projection().get("world_rule_status"),"industry":fields,"collection_limit":128,"scope":"authenticated public industry observation; no signed transfer quote is provided"}),
         )
     }
     pub fn quote_schedule(

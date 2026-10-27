@@ -9,7 +9,7 @@ use oasis7_distfs::controlled_authority::formal::business_index::{
     BUSINESS_INDEX_MAX_LEAF_BYTES, BusinessIndexNodeReader, BusinessIndexRootV1,
 };
 use oasis7_runtime::blake3_hex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 pub(super) const BUSINESS_INDEX_MAX_NODE_BYTES: usize = BUSINESS_INDEX_MAX_LEAF_BYTES + 128;
@@ -20,6 +20,7 @@ pub(super) const MAX_RETAINED_INDEX_NODES: usize = 4096;
 struct RecordedNodes {
     nodes: BTreeMap<String, Vec<u8>>,
     total_bytes: usize,
+    accessed: BTreeSet<String>,
 }
 
 /// Reads from the supplied index reader while retaining a bounded, verified
@@ -96,12 +97,30 @@ impl RecordingBusinessIndexReaderV1 {
         Ok(recorded.nodes.keys().cloned().collect())
     }
 
-    fn local_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+    /// Nodes actually read or produced by this replay. Unvisited preload
+    /// entries (including a later historical suffix) do not become dependencies.
+    pub(super) fn accessed_nodes(&self) -> Result<BTreeMap<String, Vec<u8>>, String> {
         let recorded = self
             .recorded
             .lock()
             .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
-        Ok(recorded.nodes.get(digest).cloned())
+        Ok(recorded
+            .accessed
+            .iter()
+            .map(|digest| (digest.clone(), recorded.nodes[digest].clone()))
+            .collect())
+    }
+
+    fn local_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        let mut recorded = self
+            .recorded
+            .lock()
+            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let bytes = recorded.nodes.get(digest).cloned();
+        if bytes.is_some() {
+            recorded.accessed.insert(digest.to_owned());
+        }
+        Ok(bytes)
     }
 
     fn record_external_node(&self, digest: &str, bytes: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -114,11 +133,14 @@ impl RecordingBusinessIndexReaderV1 {
             if existing != &bytes {
                 return Err("external business-index reader changed bytes for one digest".into());
             }
-            return Ok(existing.clone());
+            let bytes = existing.clone();
+            recorded.accessed.insert(digest.to_owned());
+            return Ok(bytes);
         }
         ensure_capacity(&recorded, bytes.len())?;
         let returned = bytes.clone();
         add_node(&mut recorded, digest.to_owned(), bytes)?;
+        recorded.accessed.insert(digest.to_owned());
         Ok(returned)
     }
 
@@ -167,6 +189,7 @@ impl BusinessIndexNodeReader for RecordingBusinessIndexReaderV1 {
             if existing.as_slice() != bytes {
                 return Err("business-index cache bytes conflict with recorded digest".into());
             }
+            recorded.accessed.insert(digest.to_owned());
             return Ok(());
         }
         if self.strict_overlay {
@@ -175,7 +198,9 @@ impl BusinessIndexNodeReader for RecordingBusinessIndexReaderV1 {
         // Keep cache writes local. This bounds accounting before accepting the
         // write and avoids an external side effect that could outlive failure.
         ensure_capacity(&recorded, bytes.len())?;
-        add_node(&mut recorded, digest.to_owned(), bytes.to_vec())
+        add_node(&mut recorded, digest.to_owned(), bytes.to_vec())?;
+        recorded.accessed.insert(digest.to_owned());
+        Ok(())
     }
 }
 

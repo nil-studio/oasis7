@@ -310,6 +310,17 @@
       "scripts/wasm-summary-bundle-smoke.sh"
     ],
     "oasis7_custody_worker": [
+      "crates/oasis7_agent_api/src/game/goal.rs",
+      "crates/oasis7_agent_api/src/game/task.rs",
+      "crates/oasis7_agent_api/src/game/goal_prepare.rs",
+      "crates/oasis7_agent_api/src/game/goal_publish.rs",
+      "crates/oasis7_agent_api/src/game/executor.rs",
+      "crates/oasis7_client_api/src/world_service/entry_control.rs",
+      "crates/oasis7_client_api/src/world_service/private_goal_read.rs",
+      "crates/oasis7_client_api/src/world_service/owner_setup_observation.rs",
+      "crates/oasis7_client_api/src/world_service_wire.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs",
+      "crates/oasis7_chain_runtime/src/host/world_service_private_goal.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry.rs",
       "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry_tests.rs",
       "crates/oasis7_client_api/src/world_service.rs",

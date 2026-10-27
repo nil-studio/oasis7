@@ -97,20 +97,21 @@ fn serve_native_identity_http_fixture() {
             serde_json::to_value(&namespace).unwrap(),
             trusted["identity_namespace"]
         );
-        fixture.service.participant_entry = Some(
-            crate::hosted_identity::participant_entry::ParticipantEntry::new(
-                crate::hosted_identity::participant_entry::EntryTrust {
-                    endpoint: trusted["endpoint"].as_str().unwrap().into(),
-                    service_public_key: trusted["world"]["service_public_key"]
-                        .as_str()
-                        .unwrap()
-                        .into(),
-                    world,
-                },
-                zeroize::Zeroizing::new(hex::encode([95; 32])),
-            )
-            .unwrap(),
-        );
+        let mut participant = crate::hosted_identity::participant_entry::ParticipantEntry::new(
+            crate::hosted_identity::participant_entry::EntryTrust {
+                endpoint: trusted["endpoint"].as_str().unwrap().into(),
+                service_public_key: trusted["world"]["service_public_key"]
+                    .as_str()
+                    .unwrap()
+                    .into(),
+                world,
+            },
+            zeroize::Zeroizing::new(hex::encode([95; 32])),
+        )
+        .unwrap();
+        participant.owner_control_enabled =
+            trusted.get("owner_setup").and_then(Value::as_bool) == Some(true);
+        fixture.service.participant_entry = Some(participant);
     }
     {
         let custody = fixture.service.custody.as_mut().unwrap();
