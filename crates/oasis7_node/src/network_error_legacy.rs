@@ -141,6 +141,22 @@ pub(crate) fn interpret_node_diagnostic(
         facts.cause = FailureCause::Rejected;
         return facts;
     }
+    // The established local found=false outcome carries no network protocol in its text.
+    // Extract its scope before writing versioned facts so restore keeps the existing cooldown.
+    if reason
+        .strip_prefix("gap sync height ")
+        .and_then(|tail| tail.split_once(" blob not found for hash "))
+        .is_some_and(|(height, hash)| {
+            height.parse::<u64>().is_ok()
+                && !hash.is_empty()
+                && !hash.chars().any(char::is_whitespace)
+        })
+    {
+        facts.cause = FailureCause::NotFound;
+        facts.requested_protocol =
+            Some(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL.to_owned());
+        return facts;
+    }
     let protocols = [
         crate::replication::REPLICATION_GET_HEAD_PROTOCOL,
         crate::replication::REPLICATION_FETCH_COMMIT_PROTOCOL,

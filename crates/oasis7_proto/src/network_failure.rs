@@ -108,7 +108,7 @@ pub fn interpret_legacy_world_error(error: &WorldError, protocol: Option<&str>) 
                     let availability = legacy_availability_cause(message);
                     if availability != FailureCause::Unknown {
                         availability
-                    } else if legacy_missing_handler(message) {
+                    } else if legacy_missing_handler(message, protocol) {
                         FailureCause::MissingHandler
                     } else {
                         FailureCause::Rejected
@@ -126,7 +126,7 @@ pub fn interpret_legacy_world_error(error: &WorldError, protocol: Option<&str>) 
                 FailureCause::Unknown
             } else if detail.contains("must be utf-8") || detail.contains("must be valid") {
                 FailureCause::Validation
-            } else if legacy_missing_handler(detail) {
+            } else if legacy_missing_handler(detail, protocol) {
                 FailureCause::MissingHandler
             } else {
                 match legacy_availability_cause(detail) {
@@ -159,7 +159,16 @@ pub fn interpret_legacy_world_error(error: &WorldError, protocol: Option<&str>) 
     facts
 }
 
-fn legacy_missing_handler(detail: &str) -> bool {
+fn legacy_missing_handler(detail: &str, requested_protocol: Option<&str>) -> bool {
+    if let Some(protocol) = requested_protocol {
+        // A peer's claim about another handler cannot qualify this local request.
+        return detail == protocol
+            || detail == format!("{protocol} unsupported by remote")
+            || detail == format!("handler missing: {protocol}")
+            || detail == format!("libp2p handler missing: {protocol}")
+            || detail == format!("libp2p-replication handler missing: {protocol}");
+    }
+    // Existing callers without request context retain their unscoped legacy classification.
     detail.starts_with('/')
         && (!detail.chars().any(char::is_whitespace)
             || detail.ends_with(" unsupported by remote") && detail.split_whitespace().count() == 4)

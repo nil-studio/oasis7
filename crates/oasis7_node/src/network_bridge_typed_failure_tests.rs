@@ -326,3 +326,89 @@ fn checkpoint_missing_policy_uses_typed_facts_and_preserves_legacy_hashes() {
         );
     }
 }
+
+#[test]
+fn review_local_missing_blob_cooldown_survives_persisted_facts() {
+    use crate::node_engine_replication_provider_route::{
+        replication_gap_sync_provider_blob_route_blocked,
+        replication_gap_sync_provider_blob_route_blocked_in_cooldown,
+    };
+    let err = NodeError::Replication {
+        reason: "gap sync height 7 blob not found for hash abc".into(),
+    };
+    assert!(replication_gap_sync_provider_blob_route_blocked(&err));
+    let summary = persisted_network_reason(format!("attempt 1/3 failed: {err}"), &err);
+    let blocked = format!(
+        "replication gap sync provider route blocked: missing commit height 7 repair_attempt={summary}"
+    );
+    let restored: String = serde_json::from_str(&serde_json::to_string(&blocked).unwrap()).unwrap();
+    assert!(
+        replication_gap_sync_provider_blob_route_blocked_in_cooldown(
+            Some(7),
+            Some(&restored),
+            Some(1000),
+            7,
+            30999
+        )
+    );
+    assert!(
+        !replication_gap_sync_provider_blob_route_blocked_in_cooldown(
+            Some(7),
+            Some(&restored),
+            Some(1000),
+            7,
+            31000
+        )
+    );
+    let facts = replication_network_failure(&NodeError::Replication { reason: restored });
+    assert_eq!(facts.cause, Cause::NotFound);
+    assert_eq!(
+        facts.requested_protocol.as_deref(),
+        Some(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL)
+    );
+    assert_eq!(facts.evidence, Evidence::LegacyInterpretation);
+    assert!(!facts.is_connection_gap());
+}
+
+#[test]
+fn review_missing_handler_claim_is_bound_to_requested_protocol() {
+    let requested = crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL;
+    for named in [
+        requested.to_owned(),
+        REPLICATION_FETCH_COMMIT_PROTOCOL.to_owned(),
+        format!("{requested}/other"),
+    ] {
+        for detail in [
+            named.clone(),
+            format!("{named} unsupported by remote"),
+            format!("handler missing: {named}"),
+            format!("libp2p-replication handler missing: {named}"),
+        ] {
+            let err = network_err_for_protocol(
+                requested,
+                WorldError::NetworkRequestFailed {
+                    code: Code::ErrUnsupported,
+                    message: detail.clone(),
+                    retryable: false,
+                },
+            );
+            let expected = named == requested;
+            assert_eq!(
+                replication_network_error_is_unsupported_protocol(&err, requested),
+                expected,
+                "{detail}"
+            );
+            assert_eq!(
+                crate::replication_probe_gate::should_fallback_provider_aware_replication_request(
+                    &err
+                ),
+                expected,
+                "{detail}"
+            );
+            assert!(
+                !crate::PosNodeEngine::high_replication_checkpoint_probe_can_continue(&err),
+                "missing handler is not a checkpoint missing-blob or commit-timeout fact"
+            );
+        }
+    }
+}
