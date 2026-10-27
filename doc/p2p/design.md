@@ -109,7 +109,7 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。首版采用下述完�
 
 `BftProposalV1`、`BftVoteV1`、`BftCommitCertificateV1` 是新协议目标。所有签名绑定固定 world/chain/genesis、协议版本、height、round、消息 phase、活动 validator-set hash 及 block ID 或显式 nil；proposal 另绑定 proposer 与 validRound。block ID 承诺 parent CommitRef、authority epoch、governing manifest、有序 actions 及 execution/event/state roots，候选身份不含当前 round 或 proposal 签名，保证同一值能跨 round 重提。编码沿用[正式协议](#des-p2p-formal-controlled-authority-v1)的 canonical CBOR、domain framing 与 strict Ed25519，但使用独立 `oasis7.bft.<kind>.v1.<purpose>` 域；nil 与任意非空 hash 不可混用，旧 wire 不自动升级。
 
-验证先从合法历史确定本高度固定的集合与整数权重，再逐票验签、按 validator 去重，要求同一 height、round、precommit phase 和非 nil block ID 的总权重 `q=floor(2W/3)+1`。权重求和与阈值算术均 checked，零总权重、溢出、重复身份/key 或错集拒绝。证书中拼接不同 round、phase 或 block 的票不能凑数；当前已进入更高 round 不妨碍接纳同高度较早 round 的完整有效 commit certificate。发现 equivocation 保留可验证证据，不能重复计权或未经治理自行移除当前集合成员；一名 Byzantine 的矛盾投票也不能使一个仍满足规范的有效证书自动失效。
+验证先从合法历史确定本高度固定的集合与整数权重，再逐票验签、按 validator 去重，要求同一 height、round、precommit phase 和非 nil block ID 的总权重 `q=floor(2W/3)+1`。权重求和与阈值算术均 checked，零总权重、溢出、重复身份/key 或错集拒绝。V1 保留上述原始消息与签名域。V2 在同一算法合同上固定额外的 schedule policy 上下文：外层 proposal、valid-round 内层 proposal 以及每张 prevote/precommit 的 schedule_policy_hash 必须精确等于该高度固定 schedule 的 policy hash；有效签名或相同 block ID 不能替代这一上下文校验，在线接收与离线 QC 重放使用同一拒绝边界。证书中拼接不同 round、phase 或 block 的票不能凑数；当前已进入更高 round 不妨碍接纳同高度较早 round 的完整有效 commit certificate。发现 equivocation 保留可验证证据，不能重复计权或未经治理自行移除当前集合成员；一名 Byzantine 的矛盾投票也不能使一个仍满足规范的有效证书自动失效。
 
 `valid(v)` 由同一 committed parent、manifest、确定有序输入和可验证执行闭包定义；每名活动验证者在隔离候选状态重执行并核对全部 roots，投票前不发布世界效果、不重新调用 LLM。仅在证书验证与适用持久条件成立后安装 canonical 状态；复制、checkpoint、普通消费者和冷恢复使用同一 verifier，不接受 receipt、传输成功或本地 stake 计数替代。
 
