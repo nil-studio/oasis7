@@ -122,6 +122,9 @@ mod formal_dependencies;
 #[path = "driver_bft_v2_formal_storage.rs"]
 mod formal_storage;
 
+#[path = "driver_bft_v2_formal_origin.rs"]
+mod formal_origin;
+
 #[path = "driver_bft_v2_formal_replay.rs"]
 mod formal_replay;
 
@@ -187,47 +190,26 @@ impl FormalBftReadExecutionV1 {
             &store,
         )?;
         let seed: Vec<_> = preloaded.nodes.into_iter().collect();
-        let business_source = business_reader.clone();
-        let retained_nodes = if preloaded.record_present {
-            formal_dependencies::RecordingBusinessIndexReaderV1::new_strict(business_reader, seed)?
-        } else {
-            formal_dependencies::RecordingBusinessIndexReaderV1::new(business_reader, seed)?
-        };
-        let business_reader = formal_business_package::SharedBusinessReader(retained_nodes.clone());
-        let parent_record = anchor.head().record().clone();
-        let handoff = verify_formal_bft_handoff_v1(&anchor, target.clone())?;
-        validate_handoff_material(&anchor, &handoff, &h_material)?;
-        let restored = restore_handoff_world(&anchor, &h_material, &business_reader)?;
-        let parent_world = restored.world;
-        let retained_parent = restored.retained_parent;
-        let parent_result_tree = restored.result_tree;
-        let parent_semantic_root = parent_world
-            .execution_state_identity()
-            .map_err(|error| format!("read qualified H semantic root: {error:?}"))?
-            .state_root_hash;
-        let parent_journal_bytes =
-            super::super::super::super::journal_to_cbor(parent_world.journal())?;
-        let parent_journal_root = blake3_hex(&parent_journal_bytes);
-        let parent_manifest_hash = parent_world
-            .current_manifest_hash()
-            .map_err(|error| format!("read qualified H manifest: {error:?}"))?;
-        let parent_result_root = parent_result_tree.root()?;
-        let parent_projection_root =
-            oasis7::world_service::formal_projection::commitments_for_world(&parent_world)?
-                .root()?;
-        let closed_material_digest = closed_material_digest(&parent_record, &h_material)?;
-        let pin = formal_storage::FormalBftReadPinV1::from_handoff(
-            &handoff,
-            parent_semantic_root.clone(),
-            parent_manifest_hash.clone(),
-            parent_journal_root,
-            parent_result_root,
-            parent_projection_root,
-            closed_material_digest,
+        let formal_origin::QualifiedFormalBftOriginV1 {
+            target,
+            handoff,
+            schedule,
+            parent_record,
+            parent_world,
+            retained_parent,
+            business_source,
+            parent_result_tree,
+            business_reader,
+            retained_nodes,
+            pin,
+        } = formal_origin::restore(
+            anchor,
+            target,
+            h_material,
+            business_reader,
+            seed,
+            preloaded.record_present,
         )?;
-        let schedule = handoff
-            .initial_schedule_after_handoff_replay(&parent_semantic_root, &parent_manifest_hash)?;
-        validate_schedule_against_handoff(&schedule, &handoff, &parent_world)?;
         let observed_h_refs: std::collections::BTreeSet<_> =
             retained_nodes.recorded_refs()?.into_iter().collect();
         let ledger = formal_storage::FormalBftReadLedgerV1::open(
