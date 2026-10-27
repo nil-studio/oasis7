@@ -82,7 +82,7 @@ fn tcp_special_peer_record_requests_share_per_source_admission_budget() {
             server.peer_id(),
             Duration::from_secs(3),
         );
-        match result {
+        match result.map_err(|err| err.diagnostic_source().clone()) {
             Err(WorldError::NetworkRequestFailed {
                 code: DistributedErrorCode::ErrBusy,
                 retryable: true,

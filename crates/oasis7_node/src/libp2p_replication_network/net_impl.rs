@@ -1,3 +1,4 @@
+use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -68,17 +69,21 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pReplicationNetwork {
             } else {
                 "no admissible connected peers"
             };
-            return Err(WorldError::NetworkProtocolUnavailable {
-                protocol: format!("libp2p-replication {detail} for protocol {protocol}"),
-            });
+            return Err(provider_route_gap(
+                protocol,
+                format!("libp2p-replication {detail} for protocol {protocol}"),
+            ));
         }
         self.request_over_refreshed_peers(
             protocol,
             payload,
             peers,
             || self.connected_peers_sorted(),
-            || WorldError::NetworkProtocolUnavailable {
-                protocol: format!("libp2p-replication no connected peers for protocol {protocol}"),
+            || {
+                provider_route_gap(
+                    protocol,
+                    format!("libp2p-replication no connected peers for protocol {protocol}"),
+                )
             },
         )
     }
@@ -162,10 +167,11 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pReplicationNetwork {
                 payload,
                 peers,
                 || self.connected_peers_sorted(),
-                || WorldError::NetworkProtocolUnavailable {
-                    protocol: format!(
-                        "libp2p-replication no connected peers for protocol {protocol}"
-                    ),
+                || {
+                    provider_route_gap(
+                        protocol,
+                        format!("libp2p-replication no connected peers for protocol {protocol}"),
+                    )
                 },
                 request_timeout,
                 retry_budget,
@@ -278,9 +284,10 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pReplicationNetwork {
 }
 
 fn no_connected_providers(protocol: &str) -> WorldError {
-    WorldError::NetworkProtocolUnavailable {
-        protocol: format!("libp2p-replication no connected providers for protocol {protocol}"),
-    }
+    provider_route_gap(
+        protocol,
+        format!("libp2p-replication no connected providers for protocol {protocol}"),
+    )
 }
 
 fn sort_dedup_peer_ids(peer_ids: &mut Vec<String>) {
@@ -305,4 +312,14 @@ mod tests {
 
         assert_eq!(peer_ids, ["peer-a", "peer-b", "peer-c"]);
     }
+}
+
+fn provider_route_gap(protocol: &str, detail: String) -> WorldError {
+    WorldError::NetworkProtocolUnavailable { protocol: detail }.with_network_failure(
+        NetworkFailure::observed(
+            FailureOrigin::ProviderRouting,
+            FailureCause::ConnectionGap,
+            Some(protocol),
+        ),
+    )
 }

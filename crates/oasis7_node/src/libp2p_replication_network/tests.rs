@@ -59,7 +59,7 @@ fn libp2p_replication_network_generates_peer_id() {
 fn libp2p_replication_network_request_rejects_without_connected_peers_by_default() {
     let network = Libp2pReplicationNetwork::new(Libp2pReplicationNetworkConfig::default());
     let result = network.request("/aw/node/replication/ping", b"hello");
-    match result {
+    match result.map_err(|err| err.diagnostic_source().clone()) {
         Err(WorldError::NetworkProtocolUnavailable { protocol }) => {
             assert!(protocol.contains("no connected peers"));
         }
@@ -653,7 +653,7 @@ fn libp2p_replication_network_does_not_quarantine_not_found_response_as_unsuppor
 
     let first = dialer.request("/aw/node/replication/ping", b"node");
     assert!(matches!(
-        first,
+        first.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotFound,
             ..
@@ -662,7 +662,7 @@ fn libp2p_replication_network_does_not_quarantine_not_found_response_as_unsuppor
 
     let second = dialer.request("/aw/node/replication/ping", b"node");
     assert!(matches!(
-        second,
+        second.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotFound,
             ..
@@ -767,7 +767,7 @@ fn libp2p_replication_network_connection_gap_cools_peer_across_protocols() {
 
     let first = dialer.request("/aw/node/replication/ping", b"node");
     assert!(matches!(
-        first,
+        first.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotAvailable,
             ..
@@ -847,7 +847,7 @@ fn libp2p_replication_network_fetch_commit_not_found_keeps_single_peer_as_last_r
         b"node",
     );
     assert!(matches!(
-        first,
+        first.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotFound,
             ..
@@ -867,7 +867,7 @@ fn libp2p_replication_network_fetch_commit_not_found_keeps_single_peer_as_last_r
         b"node",
     );
     assert!(matches!(
-        second,
+        second.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotFound,
             ..
@@ -886,7 +886,7 @@ fn libp2p_replication_network_fetch_commit_not_found_keeps_single_peer_as_last_r
         b"node",
     );
     assert!(matches!(
-        third,
+        third.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotFound,
             ..
@@ -938,7 +938,7 @@ fn libp2p_replication_network_connection_gap_on_ping_enters_short_cooldown() {
 
     let first = dialer.request("/aw/node/replication/ping", b"node");
     assert!(matches!(
-        first,
+        first.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotAvailable,
             ..
@@ -952,7 +952,7 @@ fn libp2p_replication_network_connection_gap_on_ping_enters_short_cooldown() {
 
     let second = dialer.request("/aw/node/replication/ping", b"node");
     assert!(matches!(
-        second,
+        second.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotAvailable,
             ..
@@ -968,7 +968,7 @@ fn libp2p_replication_network_connection_gap_on_ping_enters_short_cooldown() {
 
     let third = dialer.request("/aw/node/replication/ping", b"node");
     assert!(matches!(
-        third,
+        third.as_ref().map_err(|err| err.diagnostic_source()),
         Err(WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrNotAvailable,
             ..
@@ -1017,7 +1017,7 @@ fn libp2p_replication_network_caps_peer_request_by_remaining_budget() {
     let started_at = Instant::now();
     let result = dialer.request("/aw/node/replication/slow", b"node");
     let elapsed = started_at.elapsed();
-    match result {
+    match result.map_err(|err| err.diagnostic_source().clone()) {
         Err(WorldError::NetworkProtocolUnavailable { protocol }) => {
             assert!(
                 protocol.contains("request budget exhausted") && protocol.contains("budget_ms=250"),
@@ -1162,18 +1162,22 @@ fn libp2p_replication_network_preserves_remote_unsupported_error_code() {
         .request("/aw/node/replication/ping", b"node")
         .expect_err("unsupported remote handler must bubble its code");
     assert!(matches!(
-        err,
+        err.diagnostic_source(),
         WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrUnsupported,
             ..
         }
     ));
 
+    let facts = err.network_failure(None);
+    assert_eq!(facts.origin, FailureOrigin::RemoteResponse);
+    assert_eq!(facts.evidence, FailureEvidence::PeerClaim);
+    assert_eq!(facts.cause, FailureCause::Rejected);
     let second_err = dialer
         .request("/aw/node/replication/ping", b"node")
         .expect_err("business unsupported must not quarantine the only peer");
     assert!(matches!(
-        second_err,
+        second_err.diagnostic_source(),
         WorldError::NetworkRequestFailed {
             code: DistributedErrorCode::ErrUnsupported,
             ..

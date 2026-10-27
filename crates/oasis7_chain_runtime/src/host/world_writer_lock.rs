@@ -24,20 +24,43 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("duration")
             .as_nanos();
-        let world_dir = std::env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "oasis7-chain-runtime-world-writer-lock-{}-{unique}",
             std::process::id()
         ));
-        let live_node = acquire_live_world_writer_lock(&world_dir).expect("live node owns world");
+        std::fs::create_dir_all(&root).unwrap();
+        let world_dir = root.join("world");
+        let mut live_node = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "world_writer_lock::tests::live_writer_child"])
+            .env("OASIS7_TEST_WORLD_WRITER_ROOT", &root)
+            .spawn().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !root.join("ready").exists() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         let error = ExclusiveDirectoryProcessLock::try_acquire(&world_dir)
             .err()
             .expect("importer-style guard must fail closed while node is live");
         assert!(error.contains("lock") && error.contains("held"), "{error}");
-        drop(live_node);
+        std::fs::write(root.join("release"), b"go").unwrap();
+        assert!(live_node.wait().unwrap().success());
         ExclusiveDirectoryProcessLock::try_acquire(&world_dir)
             .expect("guard release permits the next writer");
-        let mut lock_path = world_dir.as_os_str().to_owned();
-        lock_path.push(".lock");
-        let _ = std::fs::remove_dir_all(std::path::PathBuf::from(lock_path));
+        std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn live_writer_child() {
+        let Some(root) = std::env::var_os("OASIS7_TEST_WORLD_WRITER_ROOT") else { return; };
+        let root = std::path::PathBuf::from(root);
+        let _guard = acquire_live_world_writer_lock(&root.join("world")).unwrap();
+        std::fs::write(root.join("ready"), b"ready").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !root.join("release").exists() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
 }

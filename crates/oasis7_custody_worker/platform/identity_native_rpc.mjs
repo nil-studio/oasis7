@@ -20,3 +20,15 @@ export const readNativeCipher = readNativeManifest;
 export async function ownerNativeRecover(env, raw) {
   return env.OWNER_NATIVE_PERMITS.recover(raw);
 }
+
+export async function ownerParticipantCall(env, raw) {
+  return env.OWNER_NATIVE_PERMITS.participant(raw);
+}
+export async function ownerParticipantSign(env, raw) {
+  return env.OWNER_NATIVE_PERMITS.signParticipant(raw);
+}
+
+// One bounded scheduling delay, never a polling loop or an authority refresh.
+export async function waitParticipantCommit() {
+  await new Promise(resolve => setTimeout(resolve, 250));
+}

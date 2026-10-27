@@ -1,6 +1,6 @@
 use super::*;
 impl AccountProvisionApprovalState {
-    pub(super) fn check_native_current(
+    pub(in crate::provisioning) fn check_native_current(
         &self,
         current: &ProvisionApprovalContext<'_>,
         expected: u64,

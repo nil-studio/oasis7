@@ -1,6 +1,10 @@
 //! Concrete observation codecs. Parsing alone does not authenticate a view.
 use crate::WorldServiceProjection;
 use oasis7_client_api::world_service::{FormalBusinessChangesPageV1, ReadWorldViewResponse};
+mod cognition;
+pub use cognition::{
+    CognitionProjectionDecodeError, decode_cognition_continuations, decode_continuation_context,
+};
 
 pub type WorldViewResponse = ReadWorldViewResponse<WorldServiceProjection>;
 pub type ChangesPage = FormalBusinessChangesPageV1<WorldServiceProjection>;

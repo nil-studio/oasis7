@@ -26,10 +26,20 @@ use config::NativeConfig;
 mod authority;
 #[path = "owner_native_dispatch.rs"]
 mod dispatch;
+#[path = "owner_participant.rs"]
+mod participant;
 #[path = "owner_native_reconcile.rs"]
 mod reconcile;
 #[path = "owner_native_recovery.rs"]
 mod recovery;
+pub(crate) async fn participant_dispatch(
+    state: &JsValue,
+    env: &Env,
+    rpc: crate::participant_runtime_rpc::ParticipantRuntimeRpc,
+    role: Role,
+) -> Result<String> {
+    participant::participant_dispatch(state, env, rpc, role).await
+}
 pub(crate) async fn recover(
     state: &JsValue,
     env: &Env,

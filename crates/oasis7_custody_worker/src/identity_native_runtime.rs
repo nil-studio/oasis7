@@ -6,6 +6,8 @@
 mod harness;
 #[path = "identity_native_history.rs"]
 pub(crate) mod history;
+#[path = "identity_participant_runtime.rs"]
+pub(crate) mod participant;
 #[path = "identity_native_recovery.rs"]
 pub(crate) mod recovery;
 use crate::{
@@ -1067,6 +1069,9 @@ impl DurableObject for NativeSession {
         }
         if url.path() == "/internal/recover-status" {
             return recovery::response(self.state.clone(), &self.env, &raw).await;
+        }
+        if url.path() == "/internal/participant" {
+            return participant::response(self.state.clone(), &self.env, &raw).await;
         }
         let response = match url.path() {
             "/internal/run" => {

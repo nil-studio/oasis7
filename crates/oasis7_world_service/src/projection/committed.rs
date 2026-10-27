@@ -31,14 +31,13 @@ pub fn from_committed_world(
             .into_values()
             .filter(|lease| lease.agent_id == agent)
             .collect();
-        projection.continuations =
-            serde_json::from_value::<Vec<oasis7_runtime::AgentContinuation>>(
-                world.cognition_continuations(),
-            )
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .filter(|continuation| continuation.agent_id == agent)
-            .collect();
+        projection.continuations = oasis7_world_projection::codec::decode_cognition_continuations(
+            world.cognition_continuations(),
+        )
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|continuation| continuation.agent_id == agent)
+        .collect();
         projection.scheduler_wakes = world
             .cognition_in_flight_wakes()
             .map_err(|e| format!("{e:?}"))?
@@ -50,7 +49,8 @@ pub fn from_committed_world(
             {
                 projection.continuation_contexts.insert(
                     continuation.continuation_id.clone(),
-                    serde_json::from_value(context).map_err(|e| e.to_string())?,
+                    oasis7_world_projection::codec::decode_continuation_context(context)
+                        .map_err(|e| e.to_string())?,
                 );
             }
         }

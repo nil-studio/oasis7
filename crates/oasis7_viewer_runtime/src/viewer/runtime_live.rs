@@ -50,6 +50,7 @@ mod agent_service_pump;
 mod periodic_connection_diagnostic;
 mod periodic_service_io;
 mod response_outbox;
+mod stream_budget_diagnostics;
 use tracing::Level;
 
 #[cfg(test)]
@@ -705,9 +706,17 @@ impl ViewerRuntimeLiveServer {
         let mut periodic_io = periodic_service_io::SessionPoll::with_connection(connection.clone());
 
         loop {
-            Self::start_agent_service_pump(&shared)?;
+            let loop_phase = stream_budget_diagnostics::phase(1);
+            {
+                let _phase = stream_budget_diagnostics::phase(2);
+                Self::start_agent_service_pump(&shared)?;
+            }
             let mut line = String::new();
-            match reader.read_line(&mut line) {
+            let read_result = {
+                let _phase = stream_budget_diagnostics::phase(3);
+                reader.read_line(&mut line)
+            };
+            match read_result {
                 Ok(0) => {
                     if let Some(connection) = &connection {
                         connection
@@ -740,6 +749,12 @@ impl ViewerRuntimeLiveServer {
                             agency_control::ParsedAgencyControlFrame::NotAgencyControl => {
                                 if let Ok(request) = oasis7_viewer_codec::request_from_json(trimmed)
                                 {
+                                    let request_phase =
+                                        stream_budget_diagnostics::phase(match &request {
+                                            ViewerRequest::HelloV2 { .. } => 40,
+                                            ViewerRequest::RequestSnapshot => 41,
+                                            _ => 42,
+                                        });
                                     let chain_prime = Self::prime_shared_request_if_needed(
                                         &shared, &request, &session,
                                     )?;
@@ -757,6 +772,7 @@ impl ViewerRuntimeLiveServer {
                                             &shared, &request, &session,
                                         );
                                     handled = {
+                                        let _phase = stream_budget_diagnostics::phase(5);
                                         let mut server = lock_shared_server(&shared)?;
                                         server.prepared_gameplay_lookup = prepared_gameplay_lookup;
                                         server.prepared_safe_alternative =
@@ -778,10 +794,15 @@ impl ViewerRuntimeLiveServer {
                                         agent_presence.observe(&mut server, &session);
                                         handled
                                     };
+                                    drop(request_phase);
                                 }
                             }
                         }
-                        if let Err(error) = output.deliver(&mut socket) {
+                        let delivered = {
+                            let _phase = stream_budget_diagnostics::phase(6);
+                            output.deliver(&mut socket)
+                        };
+                        if let Err(error) = delivered {
                             if let Some(connection) = &connection {
                                 connection.set_close_reason(
                                     periodic_connection_diagnostic::CloseReason::WriteError,
@@ -818,6 +839,8 @@ impl ViewerRuntimeLiveServer {
                 }
             }
 
+            drop(loop_phase);
+            let _periodic_phase = stream_budget_diagnostics::phase(7);
             let (write_fenced, chain_link_enabled, chain_poll_interval, service_mode) = {
                 let server = lock_shared_server(&shared)?;
                 (

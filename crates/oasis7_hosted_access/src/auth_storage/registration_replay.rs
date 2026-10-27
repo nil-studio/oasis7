@@ -213,15 +213,27 @@ mod tests {
         let Some(recovery_dir) = std::env::var_os("OASIS7_TEST_REGISTRATION_RECOVERY_OWNER") else {
             return;
         };
-        claim_registration_grant_nonce_for_recovery(
-            "shared-registration-nonce",
-            std::path::Path::new(&recovery_dir),
-        )
-        .expect("child recovery owner should claim the registration nonce");
+        if std::env::var_os("OASIS7_TEST_REGISTRATION_CONSUME").is_some() {
+            let owner = recovery_claim_owner(std::path::Path::new(&recovery_dir)).unwrap();
+            wait_at_registration_replay_claim_barrier(&owner).unwrap();
+            consume_registration_grant_nonce("shared-registration-nonce")
+                .expect("child should consume the original nonce");
+        } else {
+            claim_registration_grant_nonce_for_recovery(
+                "shared-registration-nonce",
+                std::path::Path::new(&recovery_dir),
+            )
+            .expect("child recovery owner should claim the registration nonce");
+        }
     }
 
     #[test]
     fn registration_recovery_claim_is_atomic_across_processes() {
+        concurrent_nonce_operations(false);
+        concurrent_nonce_operations(true);
+    }
+
+    fn concurrent_nonce_operations(consume_second: bool) {
         let root = std::env::temp_dir().join(format!(
             "oasis7-registration-xproc-{}-{}",
             std::process::id(),
@@ -233,9 +245,13 @@ mod tests {
         let owner_b = root.join("recovery-owner-b");
         std::fs::create_dir_all(&barrier).expect("create contention barrier");
 
-        let spawn_claimant = |owner: &std::path::Path| {
-            Command::new(std::env::current_exe().expect("current test executable"))
-            .args([
+        let spawn_claimant = |owner: &std::path::Path, consume: bool| {
+            let mut command =
+                Command::new(std::env::current_exe().expect("current test executable"));
+            if consume {
+                command.env("OASIS7_TEST_REGISTRATION_CONSUME", "1");
+            }
+            command.args([
                 "--exact",
                 "auth_storage::registration_replay::tests::registration_recovery_claim_child_process",
                 "--nocapture",
@@ -252,8 +268,8 @@ mod tests {
             .spawn()
             .expect("spawn registration replay claimant")
         };
-        let child_a = spawn_claimant(&owner_a);
-        let child_b = spawn_claimant(&owner_b);
+        let child_a = spawn_claimant(&owner_a, false);
+        let child_b = spawn_claimant(&owner_b, consume_second);
 
         let deadline = Instant::now() + Duration::from_secs(10);
         while std::fs::read_dir(&barrier)
@@ -283,6 +299,24 @@ mod tests {
             String::from_utf8_lossy(&output_b.stderr),
         );
 
+        let persisted = read_registration_replay_ledger(&ledger).unwrap();
+        assert_eq!(persisted.claims.len(), 1);
+        let claim = persisted.claims.get("shared-registration-nonce").unwrap();
+        let expected = if output_a.status.success() {
+            RegistrationGrantClaim::Recovery {
+                owner: recovery_claim_owner(&owner_a).unwrap(),
+            }
+        } else if consume_second {
+            RegistrationGrantClaim::Consumed
+        } else {
+            RegistrationGrantClaim::Recovery {
+                owner: recovery_claim_owner(&owner_b).unwrap(),
+            }
+        };
+        assert_eq!(
+            claim, &expected,
+            "original nonce and winning operation must survive"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

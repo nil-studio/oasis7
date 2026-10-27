@@ -11,6 +11,9 @@ use oasis7_proto::distributed_bft::v2::BftScopeV2;
 #[path = "governance_bft_parent_tests.rs"]
 mod tests;
 
+#[path = "governance_bft_prefix_parent.rs"]
+mod prefix_parent;
+
 #[derive(Debug, Clone)]
 pub(super) struct BftGovernanceParentV2 {
     pub(super) schedule: BftHeightProposerScheduleV2,
@@ -27,6 +30,14 @@ pub(super) struct FormalBftHandoffBindingV1 {
     pub(super) scope: BftScopeV2,
     pub(super) raw_snapshot_root: String,
     pub(super) governing_manifest_digest: String,
+    successor: Option<FormalBftSuccessorBindingV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FormalBftSuccessorBindingV1 {
+    schedule_digest: String,
+    raw_snapshot_root: String,
+    governing_manifest_digest: String,
 }
 
 impl FormalBftHandoffBindingV1 {
@@ -38,6 +49,7 @@ impl FormalBftHandoffBindingV1 {
             scope: capability.scope().clone(),
             raw_snapshot_root: capability.raw_snapshot_root().to_owned(),
             governing_manifest_digest: capability.governing_manifest_digest().to_owned(),
+            successor: None,
         }
     }
 
@@ -57,10 +69,32 @@ impl FormalBftHandoffBindingV1 {
     }
 
     pub(super) fn matches_schedule(&self, schedule: &BftHeightProposerScheduleV2) -> bool {
+        if let Some(successor) = &self.successor {
+            return schedule.scope() == &self.scope
+                && schedule.height() > self.head.position.saturating_add(1)
+                && schedule.digest().is_ok_and(|digest| digest == successor.schedule_digest);
+        }
         schedule.scope() == &self.scope
             && schedule.parent_commit_ref() == self.head.record_id
             && schedule.parent_tick() == self.head.position
             && schedule.height() == self.head.position.saturating_add(1)
+    }
+
+    fn matches_controller_registry(
+        &self,
+        retained: &crate::VerifiedFormalRetainedHistoryParentV1,
+        captured: Option<&GovernanceMainTokenControllerRegistry>,
+    ) -> bool {
+        captured.is_some()
+            && (self.successor.is_some() || retained.controller_registry() == captured)
+    }
+
+    fn parent_snapshot_root(&self) -> &str {
+        self.successor.as_ref().map_or(&self.raw_snapshot_root, |next| &next.raw_snapshot_root)
+    }
+
+    fn parent_governing_manifest(&self) -> &str {
+        self.successor.as_ref().map_or(&self.governing_manifest_digest, |next| &next.governing_manifest_digest)
     }
 }
 
@@ -391,7 +425,7 @@ impl World {
             ),
             (
                 "controller registry",
-                formal.controller_registry() != parent.controller_registry.as_ref(),
+                !binding.matches_controller_registry(formal, parent.controller_registry.as_ref()),
             ),
             (
                 "retained-history descriptor",
@@ -403,11 +437,11 @@ impl World {
             ),
             (
                 "raw Snapshot root",
-                crate::blake3_hex(raw_snapshot.as_slice()) != binding.raw_snapshot_root,
+                crate::blake3_hex(raw_snapshot.as_slice()) != binding.parent_snapshot_root(),
             ),
             (
                 "governing manifest digest",
-                actual_governing != binding.governing_manifest_digest,
+                actual_governing != binding.parent_governing_manifest(),
             ),
             (
                 "semantic state root",
@@ -445,7 +479,7 @@ impl World {
             (Some(binding), Some(formal))
                 if binding.matches_retained_parent(formal)
                     && binding.matches_schedule(&parent.schedule)
-                    && formal.controller_registry() == parent.controller_registry.as_ref()
+                    && binding.matches_controller_registry(formal, parent.controller_registry.as_ref())
                     && self.state.retained_history_root.as_ref() == Some(formal.root())
                     && !self.formal_history_candidate_installed() =>
             {
