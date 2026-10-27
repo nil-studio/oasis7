@@ -5,6 +5,8 @@ use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue};
 use worker::*;
 
+#[path = "account_restore_perf_harness.rs"]
+mod account_restore_perf_harness;
 #[path = "native_login_input_harness.rs"]
 mod native_login_input_harness;
 
@@ -70,6 +72,9 @@ impl DurableObject for TestApprovalAuthority {
     }
     async fn fetch(&self, mut request: Request) -> Result<Response> {
         let path = request.path();
+        if path == "/performance/account-restore" {
+            return account_restore_perf_harness::handle(request).await;
+        }
         if path == "/native/fresh-managed-login-input" {
             return native_login_input_harness::handle(request).await;
         }

@@ -223,7 +223,9 @@ impl OwnerProvisionApprovalStore {
         let initial = read(&self.state, KEY)?;
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
-            let mut next = decode(&old)?;
+            #[cfg(feature = "approval-harness")]
+            let _performance = super::performance::callback(event, &old);
+            let (mut next, previous) = super::transition_snapshot(&old)?;
             let trusted = current()?;
             let time = now()?;
             let result = transition(
@@ -232,7 +234,7 @@ impl OwnerProvisionApprovalStore {
                 &trusted.provision.as_core(),
                 time,
             )?;
-            let array = if next.state == decode(&old)?.state {
+            let array = if next.state == previous {
                 validate_inventory(&inventory, next.state.draft(), false)?;
                 unchanged(&old)
             } else {
