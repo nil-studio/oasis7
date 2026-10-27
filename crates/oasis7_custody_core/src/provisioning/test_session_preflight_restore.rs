@@ -64,9 +64,9 @@ impl AccountProvisionApprovalState {
             .find(|p| p.result.is_some())
             .ok_or_else(invalid)?;
         if let Some(e) = &s.preflight_access {
-            if s.preflight_steps
-                .get(&SessionPreflightStepV1::FreshAccessPair)
-                .is_none()
+            if !s
+                .preflight_steps
+                .contains_key(&SessionPreflightStepV1::FreshAccessPair)
                 || s.preflight_oracle_reads < 3
             {
                 return Err(invalid());
@@ -139,9 +139,9 @@ impl AccountProvisionApprovalState {
         }
         if s.approved_at.is_some()
             && (s.native_lifetime != s.preflight_lifetime
-                || s.preflight_steps
-                    .get(&SessionPreflightStepV1::OwnerRead)
-                    .is_none())
+                || !s
+                    .preflight_steps
+                    .contains_key(&SessionPreflightStepV1::OwnerRead))
         {
             return Err(invalid());
         }

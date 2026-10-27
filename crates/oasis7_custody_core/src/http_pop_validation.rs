@@ -43,28 +43,33 @@ pub(super) fn validate_profile(
     binding_id: &str,
 ) -> Result<(), HttpPopError> {
     let valid = match profile {
-        HttpPopProfileV1::Mcp => matches!(target.route, HttpPopRoute::Mcp),
+        HttpPopProfileV1::Mcp => matches!(target.route.profile_route(), HttpPopRoute::Mcp),
         HttpPopProfileV1::Custody => matches!(
-            target.route,
+            target.route.profile_route(),
             HttpPopRoute::Actions
                 | HttpPopRoute::Operation(_)
                 | HttpPopRoute::TestSession(_)
+                | HttpPopRoute::Initialize(_)
+                | HttpPopRoute::ToolsList(_)
                 | HttpPopRoute::Heartbeat(_)
                 | HttpPopRoute::Finish(_)
                 | HttpPopRoute::Abort(_)
         ),
         HttpPopProfileV1::EnrollmentProof => {
-            matches!(&target.route,HttpPopRoute::EnrollmentProve(id) if id==binding_id)
+            matches!(target.route.profile_route(),HttpPopRoute::EnrollmentProve(id) if id==binding_id)
         }
         HttpPopProfileV1::CredentialClaim => {
-            matches!(target.route, HttpPopRoute::EnrollmentClaim(_))
+            matches!(
+                target.route.profile_route(),
+                HttpPopRoute::EnrollmentClaim(_)
+            )
         }
-        _ => matches!(target.route, HttpPopRoute::ProofChallenges),
+        _ => matches!(target.route.profile_route(), HttpPopRoute::ProofChallenges),
     };
     if !valid || !identifier(binding_id) {
         return Err(HttpPopError::Binding);
     }
-    if matches!(&target.route,HttpPopRoute::TestSession(id)|HttpPopRoute::Heartbeat(id)|HttpPopRoute::Finish(id)|HttpPopRoute::Abort(id) if id!=binding_id)
+    if matches!(target.route.profile_route(),HttpPopRoute::TestSession(id)|HttpPopRoute::Initialize(id)|HttpPopRoute::ToolsList(id)|HttpPopRoute::Heartbeat(id)|HttpPopRoute::Finish(id)|HttpPopRoute::Abort(id) if id!=binding_id)
     {
         return Err(HttpPopError::Binding);
     }

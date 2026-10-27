@@ -112,7 +112,7 @@ pub enum TerminationOperationV1 {
     deny_unknown_fields
 )]
 pub enum TerminationPayloadV1 {
-    Stop(GameExecutorControlV1),
+    Stop(Box<GameExecutorControlV1>),
     Revoke(AgentSignerDelegationChangeV1),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -330,7 +330,7 @@ impl AccountProvisionApprovalState {
         let (operation_id, payload) = match kind {
             TerminationOperationV1::Stop => (
                 plan.stop_operation_id.clone(),
-                TerminationPayloadV1::Stop(GameExecutorControlV1 {
+                TerminationPayloadV1::Stop(Box::new(GameExecutorControlV1 {
                     api_rev: 1,
                     client_operation_id: plan.stop_operation_id.clone(),
                     fence: GameTaskFenceV1::from_control(
@@ -345,7 +345,7 @@ impl AccountProvisionApprovalState {
                             .ok_or_else(invalid)?,
                     ),
                     operation: GameExecutorOperationV1::Stop,
-                }),
+                })),
             ),
             TerminationOperationV1::Revoke => {
                 let observed = current

@@ -261,10 +261,9 @@ impl AccountProvisionApprovalState {
         }
 
         if saved.preflight_read.as_ref().map(|r| r.as_ref()) != Some(&w.request)
-            || saved
+            || !saved
                 .preflight_steps
-                .get(&SessionPreflightStepV1::OwnerRead)
-                .is_none()
+                .contains_key(&SessionPreflightStepV1::OwnerRead)
         {
             return Err(invalid());
         }

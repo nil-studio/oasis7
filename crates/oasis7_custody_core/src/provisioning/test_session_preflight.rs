@@ -164,7 +164,7 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         if !match ticket {
             1 | 2 => purpose == OwnerSetupReadPurposeV1::Session && role == Role::Identity,
-            3 | 4 | 5 => purpose == OwnerSetupReadPurposeV1::Sign && role == Role::Owner,
+            3..=5 => purpose == OwnerSetupReadPurposeV1::Sign && role == Role::Owner,
             _ => false,
         } {
             return Err(invalid());

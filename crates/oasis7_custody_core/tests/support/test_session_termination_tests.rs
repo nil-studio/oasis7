@@ -58,8 +58,12 @@ fn world(
 fn original(r: &TerminationOriginalV1, world: ws::WorldIdentity) -> OwnerSetupOriginalV1 {
     let payload = match &r.payload {
         TerminationPayloadV1::Stop(r) => WorldServicePayloadV1::GameExecutorControl(
-            ws::sign_read_request(GAME_EXECUTOR_CONTROL_DOMAIN, r.clone(), &"3e".repeat(32))
-                .unwrap(),
+            ws::sign_read_request(
+                GAME_EXECUTOR_CONTROL_DOMAIN,
+                r.as_ref().clone(),
+                &"3e".repeat(32),
+            )
+            .unwrap(),
         ),
         TerminationPayloadV1::Revoke(r) => WorldServicePayloadV1::Delegation(
             ws::sign_read_request("delegation", r.clone(), &"3e".repeat(32)).unwrap(),

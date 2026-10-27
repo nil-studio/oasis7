@@ -34,7 +34,7 @@ impl AccountProvisionApprovalState {
             (
                 TerminationPayloadV1::Stop(expected),
                 WorldServicePayloadV1::GameExecutorControl(actual),
-            ) => expected == &actual.request && &actual.subject_public_key == key,
+            ) => expected.as_ref() == &actual.request && &actual.subject_public_key == key,
             (TerminationPayloadV1::Revoke(expected), WorldServicePayloadV1::Delegation(actual)) => {
                 expected == &actual.request && &actual.subject_public_key == key
             }

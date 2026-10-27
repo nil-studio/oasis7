@@ -77,6 +77,11 @@ impl HttpPopProfileV1 {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HttpPopRoute {
+    ScopedClient {
+        provision_id: String,
+        custody_account_id: String,
+        route: Box<HttpPopRoute>,
+    },
     Mcp,
     ProofChallenges,
     EnrollmentProve(String),
@@ -84,11 +89,19 @@ pub enum HttpPopRoute {
     Actions,
     Operation(String),
     TestSession(String),
+    Initialize(String),
+    ToolsList(String),
     Heartbeat(String),
     Finish(String),
     Abort(String),
 }
 impl HttpPopRoute {
+    fn profile_route(&self) -> &Self {
+        match self {
+            Self::ScopedClient { route, .. } => route,
+            _ => self,
+        }
+    }
     pub fn method(&self) -> &'static str {
         if matches!(self, Self::Operation(_) | Self::TestSession(_)) {
             "GET"
@@ -97,11 +110,40 @@ impl HttpPopRoute {
         }
     }
     pub fn path(&self) -> Result<String, HttpPopError> {
+        if let Self::ScopedClient {
+            provision_id,
+            custody_account_id,
+            route,
+        } = self
+        {
+            if !identifier(provision_id)
+                || !identifier(custody_account_id)
+                || !matches!(
+                    route.as_ref(),
+                    Self::ProofChallenges
+                        | Self::EnrollmentClaim(_)
+                        | Self::Initialize(_)
+                        | Self::ToolsList(_)
+                        | Self::Heartbeat(_)
+                        | Self::Finish(_)
+                        | Self::Abort(_)
+                )
+            {
+                return Err(HttpPopError::Target);
+            }
+            let tail = route.path()?;
+            return Ok(format!(
+                "/v1/account-provisions/{provision_id}/accounts/{custody_account_id}/client/{}",
+                tail.strip_prefix("/v1/").ok_or(HttpPopError::Target)?
+            ));
+        }
         let dynamic = match self {
             Self::EnrollmentProve(id)
             | Self::EnrollmentClaim(id)
             | Self::Operation(id)
             | Self::TestSession(id)
+            | Self::Initialize(id)
+            | Self::ToolsList(id)
             | Self::Heartbeat(id)
             | Self::Finish(id)
             | Self::Abort(id) => Some(id),
@@ -111,6 +153,7 @@ impl HttpPopRoute {
             return Err(HttpPopError::Target);
         }
         Ok(match self {
+            Self::ScopedClient { .. } => return Err(HttpPopError::Target),
             Self::Mcp => "/mcp".into(),
             Self::ProofChallenges => "/v1/proof-challenges".into(),
             Self::EnrollmentProve(id) => format!("/v1/client-enrollments/{id}/prove"),
@@ -118,6 +161,8 @@ impl HttpPopRoute {
             Self::Actions => "/v1/actions".into(),
             Self::Operation(id) => format!("/v1/operations/{id}"),
             Self::TestSession(id) => format!("/v1/test-sessions/{id}"),
+            Self::Initialize(id) => format!("/v1/test-sessions/{id}/initialize"),
+            Self::ToolsList(id) => format!("/v1/test-sessions/{id}/tools-list"),
             Self::Heartbeat(id) => format!("/v1/test-sessions/{id}/heartbeat"),
             Self::Finish(id) => format!("/v1/test-sessions/{id}/finish"),
             Self::Abort(id) => format!("/v1/test-sessions/{id}/abort"),

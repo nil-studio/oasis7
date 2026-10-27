@@ -73,13 +73,13 @@ fn funded_source(
 fn http(
     f: &SessionFixture,
     body: &[u8],
-    profile: HttpPopProfileV1,
-    route: HttpPopRoute,
+    target: (HttpPopProfileV1, HttpPopRoute),
     request_id: &str,
     nonce: Option<&str>,
     token: Option<&str>,
     now: u64,
 ) -> HttpPossessionReceipt {
+    let (profile, route) = target;
     let descriptor = &f.fact.registration.request.descriptor;
     let target = CanonicalHttpTarget::new("https://custody.example", route).unwrap();
     let created = UnixMillis::new(now).floor_seconds();
@@ -172,20 +172,30 @@ fn claimed() -> (SessionFixture, String, String) {
     let proof = http(
         &f,
         &qbytes,
-        HttpPopProfileV1::ClaimChallenge,
-        HttpPopRoute::ProofChallenges,
+        (
+            HttpPopProfileV1::ClaimChallenge,
+            HttpPopRoute::ProofChallenges,
+        ),
         &q.request_id,
         None,
         None,
         9003,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(9003))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(9003),
+        )
         .unwrap();
     let challenge = f
         .state
         .issue_test_session_challenge(
             SessionProofRequest {
+                ingress_attempt_id: proof.request_id(),
                 original_bytes: &qbytes,
                 possession: &proof,
             },
@@ -216,15 +226,24 @@ fn claimed() -> (SessionFixture, String, String) {
     let proof = http(
         &f,
         &body,
-        HttpPopProfileV1::CredentialClaim,
-        HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+        (
+            HttpPopProfileV1::CredentialClaim,
+            HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+        ),
         &claim.request_id,
         Some(&challenge.nonce),
         None,
         9004,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(9004))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(9004),
+        )
         .unwrap();
     let outcome = f
         .state
@@ -233,6 +252,7 @@ fn claimed() -> (SessionFixture, String, String) {
             SessionCredentialClaim {
                 allocations: &allocations,
                 proof: SessionProofRequest {
+                    ingress_attempt_id: proof.request_id(),
                     original_bytes: &body,
                     possession: &proof,
                 },
@@ -254,6 +274,7 @@ fn claimed() -> (SessionFixture, String, String) {
             SessionCredentialClaim {
                 allocations: &allocations,
                 proof: SessionProofRequest {
+                    ingress_attempt_id: proof.request_id(),
                     original_bytes: &body,
                     possession: &proof,
                 },
@@ -321,20 +342,30 @@ fn test_session_heartbeat_challenge_and_call_share_one_logical_two_http_and_abso
     let proof = http(
         &f,
         &qbytes,
-        HttpPopProfileV1::CustodyChallenge,
-        HttpPopRoute::ProofChallenges,
+        (
+            HttpPopProfileV1::CustodyChallenge,
+            HttpPopRoute::ProofChallenges,
+        ),
         &q.request_id,
         None,
         Some(&execute),
         10_003,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(10_003))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(10_003),
+        )
         .unwrap();
     let challenge = f
         .state
         .issue_test_session_challenge(
             SessionProofRequest {
+                ingress_attempt_id: proof.request_id(),
                 original_bytes: &qbytes,
                 possession: &proof,
             },
@@ -347,20 +378,30 @@ fn test_session_heartbeat_challenge_and_call_share_one_logical_two_http_and_abso
     let proof = http(
         &f,
         &bytes,
-        HttpPopProfileV1::Custody,
-        HttpPopRoute::Heartbeat(ID.into()),
+        (
+            HttpPopProfileV1::Custody,
+            HttpPopRoute::Heartbeat(ID.into()),
+        ),
         &command.request_id,
         Some(&challenge.nonce),
         Some(&execute),
         10_004,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(10_004))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(10_004),
+        )
         .unwrap();
     let ack = f
         .state
         .control_test_session(
             SessionProofRequest {
+                ingress_attempt_id: proof.request_id(),
                 original_bytes: &bytes,
                 possession: &proof,
             },
@@ -383,6 +424,7 @@ fn test_session_heartbeat_challenge_and_call_share_one_logical_two_http_and_abso
         .state
         .control_test_session(
             SessionProofRequest {
+                ingress_attempt_id: proof.request_id(),
                 original_bytes: &bytes,
                 possession: &proof,
             },
@@ -452,8 +494,10 @@ fn test_session_possession_precedes_slot_rate_budget_and_eight_pending_bound() {
     let proof = http(
         &f,
         &bytes,
-        HttpPopProfileV1::CustodyChallenge,
-        HttpPopRoute::ProofChallenges,
+        (
+            HttpPopProfileV1::CustodyChallenge,
+            HttpPopRoute::ProofChallenges,
+        ),
         &q.request_id,
         None,
         Some(&unknown),
@@ -462,7 +506,14 @@ fn test_session_possession_precedes_slot_rate_budget_and_eight_pending_bound() {
     let before = f.state.clone();
     assert!(
         f.state
-            .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(11_003))
+            .charge_test_session_control_http_attempt(
+                ID,
+                SessionHttpAdmission {
+                    ingress_attempt_id: proof.request_id(),
+                    possession: &proof
+                },
+                UnixMillis::new(11_003)
+            )
             .is_err()
     );
     assert_eq!(f.state, before);
@@ -473,19 +524,29 @@ fn test_session_possession_precedes_slot_rate_budget_and_eight_pending_bound() {
         let proof = http(
             &f,
             &bytes,
-            HttpPopProfileV1::CustodyChallenge,
-            HttpPopRoute::ProofChallenges,
+            (
+                HttpPopProfileV1::CustodyChallenge,
+                HttpPopRoute::ProofChallenges,
+            ),
             &q.request_id,
             None,
             Some(&execute),
             now,
         );
         f.state
-            .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(now))
+            .charge_test_session_control_http_attempt(
+                ID,
+                SessionHttpAdmission {
+                    ingress_attempt_id: proof.request_id(),
+                    possession: &proof,
+                },
+                UnixMillis::new(now),
+            )
             .unwrap();
         f.state
             .issue_test_session_challenge(
                 SessionProofRequest {
+                    ingress_attempt_id: proof.request_id(),
                     original_bytes: &bytes,
                     possession: &proof,
                 },
@@ -501,21 +562,31 @@ fn test_session_possession_precedes_slot_rate_budget_and_eight_pending_bound() {
             let proof = http(
                 &f,
                 &bytes,
-                HttpPopProfileV1::CustodyChallenge,
-                HttpPopRoute::ProofChallenges,
+                (
+                    HttpPopProfileV1::CustodyChallenge,
+                    HttpPopRoute::ProofChallenges,
+                ),
                 &q.request_id,
                 None,
                 Some(&execute),
                 now,
             );
             f.state
-                .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(now))
+                .charge_test_session_control_http_attempt(
+                    ID,
+                    SessionHttpAdmission {
+                        ingress_attempt_id: proof.request_id(),
+                        possession: &proof,
+                    },
+                    UnixMillis::new(now),
+                )
                 .unwrap();
             let paid = f.state.clone();
             assert!(
                 f.state
                     .issue_test_session_challenge(
                         SessionProofRequest {
+                            ingress_attempt_id: proof.request_id(),
                             original_bytes: &bytes,
                             possession: &proof
                         },
@@ -534,21 +605,31 @@ fn test_session_possession_precedes_slot_rate_budget_and_eight_pending_bound() {
     let proof = http(
         &f,
         &bytes,
-        HttpPopProfileV1::CustodyChallenge,
-        HttpPopRoute::ProofChallenges,
+        (
+            HttpPopProfileV1::CustodyChallenge,
+            HttpPopRoute::ProofChallenges,
+        ),
         &q.request_id,
         None,
         Some(&execute),
         15_003,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(15_003))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(15_003),
+        )
         .unwrap();
     let paid = f.state.clone();
     assert!(
         f.state
             .issue_test_session_challenge(
                 SessionProofRequest {
+                    ingress_attempt_id: proof.request_id(),
                     original_bytes: &bytes,
                     possession: &proof
                 },
@@ -585,3 +666,6 @@ mod termination;
 
 #[path = "test_session_credential_tests.rs"]
 mod credentials;
+
+#[path = "test_session_http_admission_tests.rs"]
+mod http_admission;

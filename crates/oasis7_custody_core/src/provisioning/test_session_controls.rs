@@ -3,9 +3,10 @@ impl AccountProvisionApprovalState {
     pub fn charge_test_session_control_http_attempt(
         &mut self,
         id: &str,
-        proof: &HttpPossessionReceipt,
+        admission: SessionHttpAdmission<'_>,
         now: UnixMillis,
     ) -> Result<()> {
+        let proof = admission.possession;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
         if matches!(
             proof.profile(),
@@ -25,12 +26,61 @@ impl AccountProvisionApprovalState {
         {
             roots::authenticated_receipt(s, SessionPurposeV1::ReconcileRead, proof, now)?;
         }
-        self.charge_session_control_attempt(
-            id,
-            &proof.transport_attempt_digest(),
+        if !super::id_nonempty(admission.ingress_attempt_id) {
+            return Err(invalid());
+        }
+        let signed_attempt_digest = proof.transport_attempt_digest();
+        if let Some(old) = s.client_http_admissions.get(admission.ingress_attempt_id) {
+            return if old.signed_attempt_digest == signed_attempt_digest
+                && old.hop == SessionControlHopV1::Host
+                && s.control_transports.get(admission.ingress_attempt_id)
+                    == Some(&SessionControlHopV1::Host)
+            {
+                Ok(())
+            } else {
+                Err(ProvisionApprovalError::Conflict)
+            };
+        }
+        if s.client_http_admissions.len() >= 240 {
+            return Err(invalid());
+        }
+        let mut next = self.clone();
+        // Insert both the paid hop and its exact proof binding before validating the snapshot.
+        let session = next.test_sessions.get_mut(id).ok_or_else(invalid)?;
+        if session
+            .control_transports
+            .contains_key(admission.ingress_attempt_id)
+            || session.consumed_at.is_none()
+            || self.frozen()
+            || now.get()
+                >= admission::pairing(&session.input.request.intent)?
+                    .3
+                    .max(admission::pairing(&session.input.request.intent)?.4)
+        {
+            return Err(invalid());
+        }
+        session
+            .control
+            .as_mut()
+            .ok_or_else(invalid)?
+            .transport
+            .charge(1)
+            .map_err(|_| invalid())?;
+        session.control_transports.insert(
+            admission.ingress_attempt_id.into(),
             SessionControlHopV1::Host,
-            now,
-        )
+        );
+        session.client_http_admissions.insert(
+            admission.ingress_attempt_id.into(),
+            SessionClientHttpAdmissionV1 {
+                signed_attempt_digest,
+                hop: SessionControlHopV1::Host,
+                charged_at: now,
+            },
+        );
+        next.validate_persistence()?;
+        *self = next;
+        Ok(())
     }
     pub fn charge_test_session_internal_control_transport(
         &mut self,
@@ -60,7 +110,12 @@ impl AccountProvisionApprovalState {
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<SessionControlAckV1> {
         let request: SessionControlRequestV1 = original(&proof)?;
-        self.require_session_http_paid(&request.session_id, proof.possession, None)?;
+        self.require_session_http_paid(
+            &request.session_id,
+            proof.possession,
+            proof.ingress_attempt_id,
+            None,
+        )?;
         let s = self
             .test_sessions
             .get(&request.session_id)

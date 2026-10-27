@@ -17,7 +17,7 @@ impl AccountProvisionApprovalState {
         let allocations = claim.allocations;
         let proof = claim.proof.possession;
         request.validate().map_err(|_| invalid())?;
-        self.require_session_http_paid(id, proof, None)?;
+        self.require_session_http_paid(id, proof, claim.proof.ingress_attempt_id, None)?;
         if request.test_session_id != id
             || request.enrollment_id
                 != self

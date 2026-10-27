@@ -11,6 +11,7 @@ pub struct SessionControlRequestV1 {
 }
 /// Private transport supplies exact octets alongside its verified receipt.
 pub struct SessionProofRequest<'a> {
+    pub ingress_attempt_id: &'a str,
     pub original_bytes: &'a [u8],
     pub possession: &'a HttpPossessionReceipt,
 }
@@ -67,6 +68,7 @@ impl AccountProvisionApprovalState {
         self.require_session_http_paid(
             &request.session_id,
             proof.possession,
+            proof.ingress_attempt_id,
             if request.kind == SessionChallengeKindV1::Tool {
                 Some(request.purpose)
             } else {
@@ -183,7 +185,12 @@ impl AccountProvisionApprovalState {
             current.source_operation_id,
             purpose.source_funding(),
         )?;
-        self.require_session_http_paid(&request.session_id, proof.possession, Some(purpose))?;
+        self.require_session_http_paid(
+            &request.session_id,
+            proof.possession,
+            proof.ingress_attempt_id,
+            Some(purpose),
+        )?;
         let s = self.test_session_local(&request.session_id, purpose, now)?;
         roots::authenticated_receipt(s, purpose, proof.possession, now)?;
         if request.api_version != 1
@@ -235,10 +242,9 @@ impl AccountProvisionApprovalState {
             }
             SessionToolActionV1::ReconcileOperation { operation_id } => {
                 if cost.business_units != 0
-                    || !s
-                        .actions
+                    || s.actions
                         .get(operation_id)
-                        .is_some_and(|a| a.purpose == SessionPurposeV1::Execution)
+                        .is_none_or(|a| a.purpose != SessionPurposeV1::Execution)
                 {
                     return Err(invalid());
                 }

@@ -38,20 +38,30 @@ fn test_session_replacement_cannot_reuse_another_purpose_token_digest() {
     let proof = http(
         &f,
         &qbytes,
-        HttpPopProfileV1::ClaimChallenge,
-        HttpPopRoute::ProofChallenges,
+        (
+            HttpPopProfileV1::ClaimChallenge,
+            HttpPopRoute::ProofChallenges,
+        ),
         &q.request_id,
         None,
         None,
         12_003,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(12_003))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(12_003),
+        )
         .unwrap();
     let challenge = f
         .state
         .issue_test_session_challenge(
             SessionProofRequest {
+                ingress_attempt_id: proof.request_id(),
                 original_bytes: &qbytes,
                 possession: &proof,
             },
@@ -64,15 +74,24 @@ fn test_session_replacement_cannot_reuse_another_purpose_token_digest() {
     let proof = http(
         &f,
         &body,
-        HttpPopProfileV1::CredentialClaim,
-        HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+        (
+            HttpPopProfileV1::CredentialClaim,
+            HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+        ),
         &request.request_id,
         Some(&challenge.nonce),
         None,
         12_004,
     );
     f.state
-        .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(12_004))
+        .charge_test_session_control_http_attempt(
+            ID,
+            SessionHttpAdmission {
+                ingress_attempt_id: proof.request_id(),
+                possession: &proof,
+            },
+            UnixMillis::new(12_004),
+        )
         .unwrap();
     // Every proof/current/nonce/expected generation is valid; only the factory's
     // proposed token collides with the independently approved Read purpose.
@@ -91,6 +110,7 @@ fn test_session_replacement_cannot_reuse_another_purpose_token_digest() {
                 SessionCredentialClaim {
                     allocations: &allocation,
                     proof: SessionProofRequest {
+                        ingress_attempt_id: proof.request_id(),
                         original_bytes: &body,
                         possession: &proof
                     }
@@ -150,20 +170,30 @@ fn test_session_replacement_cannot_reactivate_a_retired_generation_token_digest(
         let proof = http(
             &f,
             &qbytes,
-            HttpPopProfileV1::ClaimChallenge,
-            HttpPopRoute::ProofChallenges,
+            (
+                HttpPopProfileV1::ClaimChallenge,
+                HttpPopRoute::ProofChallenges,
+            ),
             &q.request_id,
             None,
             None,
             now + 1,
         );
         f.state
-            .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(now + 1))
+            .charge_test_session_control_http_attempt(
+                ID,
+                SessionHttpAdmission {
+                    ingress_attempt_id: proof.request_id(),
+                    possession: &proof,
+                },
+                UnixMillis::new(now + 1),
+            )
             .unwrap();
         let challenge = f
             .state
             .issue_test_session_challenge(
                 SessionProofRequest {
+                    ingress_attempt_id: proof.request_id(),
                     original_bytes: &qbytes,
                     possession: &proof,
                 },
@@ -176,15 +206,24 @@ fn test_session_replacement_cannot_reactivate_a_retired_generation_token_digest(
         let proof = http(
             &f,
             &body,
-            HttpPopProfileV1::CredentialClaim,
-            HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+            (
+                HttpPopProfileV1::CredentialClaim,
+                HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+            ),
             &request.request_id,
             Some(&challenge.nonce),
             None,
             now + 2,
         );
         f.state
-            .charge_test_session_control_http_attempt(ID, &proof, UnixMillis::new(now + 2))
+            .charge_test_session_control_http_attempt(
+                ID,
+                SessionHttpAdmission {
+                    ingress_attempt_id: proof.request_id(),
+                    possession: &proof,
+                },
+                UnixMillis::new(now + 2),
+            )
             .unwrap();
         let allocation = [SessionCredentialAllocation {
             purpose: SessionPurposeV1::Execution,
@@ -199,6 +238,7 @@ fn test_session_replacement_cannot_reactivate_a_retired_generation_token_digest(
             SessionCredentialClaim {
                 allocations: &allocation,
                 proof: SessionProofRequest {
+                    ingress_attempt_id: proof.request_id(),
                     original_bytes: &body,
                     possession: &proof,
                 },
@@ -222,15 +262,24 @@ fn test_session_replacement_cannot_reactivate_a_retired_generation_token_digest(
             let retry = http(
                 &f,
                 &original_bytes,
-                HttpPopProfileV1::CredentialClaim,
-                HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+                (
+                    HttpPopProfileV1::CredentialClaim,
+                    HttpPopRoute::EnrollmentClaim(f.fact.registration.enrollment_id.clone()),
+                ),
                 "claim-one",
                 Some(&URL_SAFE_NO_PAD.encode([3; 32])),
                 None,
                 now + 3,
             );
             f.state
-                .charge_test_session_control_http_attempt(ID, &retry, UnixMillis::new(now + 3))
+                .charge_test_session_control_http_attempt(
+                    ID,
+                    SessionHttpAdmission {
+                        ingress_attempt_id: "fixture-history-retry",
+                        possession: &retry,
+                    },
+                    UnixMillis::new(now + 3),
+                )
                 .unwrap();
             let before_retry = f.state.clone();
             let outcome = f
@@ -240,6 +289,7 @@ fn test_session_replacement_cannot_reactivate_a_retired_generation_token_digest(
                     SessionCredentialClaim {
                         allocations: &[],
                         proof: SessionProofRequest {
+                            ingress_attempt_id: "fixture-history-retry",
                             original_bytes: &original_bytes,
                             possession: &retry,
                         },

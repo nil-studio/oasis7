@@ -407,12 +407,34 @@ impl AccountProvisionApprovalState {
             .map_err(|_| invalid())?;
         let mut connector = (control_budget.transport_hops == 2)
             .then(|| BudgetLedger::new(control_budget.transport_per_hop.0));
+        if s.client_http_admissions.len() > 240 {
+            return Err(invalid());
+        }
+        for (id, a) in &s.client_http_admissions {
+            if !id_nonempty(id)
+                || !hex64(&a.signed_attempt_digest)
+                || a.hop != SessionControlHopV1::Host
+                || s.control_transports.get(id) != Some(&SessionControlHopV1::Host)
+                || a.charged_at.get() < s.approved_at.ok_or_else(invalid)?.get()
+                || a.charged_at.get()
+                    >= admission::pairing(&s.input.request.intent)?
+                        .3
+                        .max(admission::pairing(&s.input.request.intent)?.4)
+            {
+                return Err(invalid());
+            }
+        }
         for (attempt, hop) in &s.control_transports {
             if !id_nonempty(attempt) {
                 return Err(invalid());
             }
             match hop {
-                SessionControlHopV1::Host => control.transport.charge(1),
+                SessionControlHopV1::Host => {
+                    if !s.client_http_admissions.contains_key(attempt) {
+                        return Err(invalid());
+                    }
+                    control.transport.charge(1)
+                }
                 SessionControlHopV1::Identity => identity.charge(1),
                 SessionControlHopV1::Connector => connector.as_mut().ok_or_else(invalid)?.charge(1),
             }

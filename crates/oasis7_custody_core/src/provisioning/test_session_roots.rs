@@ -45,7 +45,7 @@ pub struct SessionCredentialClaimOutcome {
     pub newly_claimed: bool,
     pub roots: Vec<(SessionPurposeV1, DecimalU64)>,
 }
-fn hex_bytes(s: &str) -> Result<[u8; 32]> {
+pub(super) fn hex_bytes(s: &str) -> Result<[u8; 32]> {
     if !hex64(s) {
         return Err(invalid());
     }

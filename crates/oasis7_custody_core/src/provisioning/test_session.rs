@@ -42,14 +42,11 @@ pub struct SessionSourceReservation<'a> {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SessionInventoryV1 {
+    #[default]
     UnknownLegacy,
     Known,
-}
-impl Default for SessionInventoryV1 {
-    fn default() -> Self {
-        Self::UnknownLegacy
-    }
 }
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +169,7 @@ pub struct TestSessionAuthorityV1 {
     pub identity_transport: Option<BudgetLedger>,
     pub connector_transport: Option<BudgetLedger>,
     pub control_transports: BTreeMap<String, SessionControlHopV1>,
+    pub client_http_admissions: BTreeMap<String, SessionClientHttpAdmissionV1>,
     pub lease_until: Option<UnixMillis>,
     pub last_heartbeat: Option<UnixMillis>,
     pub closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
@@ -295,6 +293,7 @@ impl AccountProvisionApprovalState {
         &self,
         id: &str,
         proof: &HttpPossessionReceipt,
+        ingress_attempt_id: &str,
         purpose: Option<SessionPurposeV1>,
     ) -> Result<()> {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
@@ -303,7 +302,14 @@ impl AccountProvisionApprovalState {
             if s.purpose_transports.get(&key) != Some(&purpose) {
                 return Err(invalid());
             }
-        } else if s.control_transports.get(&key) != Some(&SessionControlHopV1::Host) {
+        } else if s.control_transports.get(ingress_attempt_id) != Some(&SessionControlHopV1::Host)
+            || !s
+                .client_http_admissions
+                .get(ingress_attempt_id)
+                .is_some_and(|a| {
+                    a.signed_attempt_digest == key && a.hop == SessionControlHopV1::Host
+                })
+        {
             return Err(invalid());
         }
         Ok(())
@@ -386,3 +392,7 @@ pub use management::*;
 #[path = "test_session_progress.rs"]
 mod progress;
 pub use progress::*;
+
+#[path = "test_session_client_http.rs"]
+mod client_http;
+pub use client_http::*;

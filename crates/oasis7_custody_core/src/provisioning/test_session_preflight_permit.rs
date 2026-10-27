@@ -31,7 +31,7 @@ impl AccountProvisionApprovalState {
         let ticket = current.oracle_ticket;
         if !match ticket {
             1 | 2 => role == Role::Identity && purpose == OwnerSetupReadPurposeV1::Session,
-            3 | 4 | 5 => role == Role::Owner && purpose == OwnerSetupReadPurposeV1::Sign,
+            3..=5 => role == Role::Owner && purpose == OwnerSetupReadPurposeV1::Sign,
             _ => false,
         } {
             return Err(invalid());
