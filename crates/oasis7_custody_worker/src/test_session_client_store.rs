@@ -173,6 +173,11 @@ impl OwnerProvisionApprovalStore {
         operation: SessionClientOperation,
         purpose: SessionPurposeV1,
     ) -> Result<ClientReservation> {
+        // An authenticated ingress is its own durable paid fact. A later
+        // source-capacity or Native budget rejection must not refund it.
+        // The second transaction repeats exact HTTP preparation and verifies
+        // this same paid ingress binding before reserving any source.
+        self.revalidate_client_http(env, rpc, operation).await?;
         let source_id = client_source_operation_id(rpc)?;
         let candidate_nonce =
             crate::approval_crypto::verification_nonce().map_err(|_| rejected())?;
