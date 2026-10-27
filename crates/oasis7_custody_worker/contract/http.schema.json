@@ -366,6 +366,102 @@
         "verify_nonce": "owner-nonce"
       }
     ],
+    "ClientCredentialClaimRequestV1": [
+      {
+        "api_version": 1,
+        "enrollment_id": "enrollment-one",
+        "expected_generation": null,
+        "purposes": [
+          "execute",
+          "read"
+        ],
+        "replace": false,
+        "request_id": "claim-one",
+        "test_session_id": "session-one"
+      }
+    ],
+    "ClientEnrollmentCreateRequestV1": [
+      {
+        "api_version": 1,
+        "descriptor": {
+          "api_version": 1,
+          "build_digest": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+          "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "environment": "test",
+          "host_instance_id": "host-one",
+          "https_origin": "https://custody.example",
+          "isolation_acceptance_refs": [
+            "acceptance-pending-not-proof"
+          ],
+          "isolation_mechanism": "separate_os_principal",
+          "restricted_runtime_identity": "isolated-runtime-one",
+          "skill_manifest_digest": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "tool_manifest_digest": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+          "tool_profile": "custody-native-v1",
+          "transport_profile": "native-broker-custody-v1"
+        },
+        "request_id": "enroll-create-one",
+        "target": {
+          "custody_account_id": "custody-one",
+          "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+          "invite_id": "invite-one",
+          "provision_id": "provision-one"
+        }
+      }
+    ],
+    "ClientEnrollmentCreateResponseV1": [
+      {
+        "api_version": 1,
+        "challenge_expires_at": "31000",
+        "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+        "enrollment_id": "enrollment-one",
+        "expires_at": "601000",
+        "key_id": "client-one",
+        "server_nonce": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"
+      }
+    ],
+    "ClientEnrollmentProofRequestV1": [
+      {
+        "api_version": 1,
+        "challenge_expires_at": "31000",
+        "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+        "enrollment_id": "enrollment-one",
+        "request_id": "prove-one",
+        "server_nonce": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "target": {
+          "custody_account_id": "custody-one",
+          "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+          "invite_id": "invite-one",
+          "provision_id": "provision-one"
+        }
+      }
+    ],
+    "ClientEnrollmentProofResponseV1": [
+      {
+        "api_version": 1,
+        "enrollment_id": "enrollment-one",
+        "status": "proved"
+      }
+    ],
+    "ClientPairingBindingV1": [
+      {
+        "api_version": 1,
+        "client_key_id": "client-one",
+        "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "connector_public_key": null,
+        "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+        "enrollment_digest": "cececececececececececececececececececececececececececececececece",
+        "enrollment_id": "enrollment-one",
+        "host_instance_id": "host-one",
+        "target": {
+          "custody_account_id": "custody-one",
+          "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+          "invite_id": "invite-one",
+          "provision_id": "provision-one"
+        }
+      }
+    ],
     "CustodySessionStatusV1": [
       {
         "account_id": "native-one",
@@ -380,6 +476,25 @@
         "security_version": "2",
         "server_time": "1000",
         "session_ref": "session-one"
+      }
+    ],
+    "HostDeploymentDescriptorV1": [
+      {
+        "api_version": 1,
+        "build_digest": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "environment": "test",
+        "host_instance_id": "host-one",
+        "https_origin": "https://custody.example",
+        "isolation_acceptance_refs": [
+          "acceptance-pending-not-proof"
+        ],
+        "isolation_mechanism": "separate_os_principal",
+        "restricted_runtime_identity": "isolated-runtime-one",
+        "skill_manifest_digest": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "tool_manifest_digest": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+        "tool_profile": "custody-native-v1",
+        "transport_profile": "native-broker-custody-v1"
       }
     ],
     "ManagedLoginApprovalViewV1": [
@@ -925,6 +1040,37 @@
         "transport_remaining": "0"
       }
     ],
+    "PairingInviteCreateRequestV1": [
+      {
+        "api_version": 1,
+        "request_id": "invite-request-one",
+        "tool_profile": "custody-native-v1",
+        "transport_profile": "native-broker-custody-v1"
+      }
+    ],
+    "PairingInviteOriginalV1": [
+      {
+        "api_version": 1,
+        "custody_account_id": "custody-one",
+        "domain": "oasis7-custody-pairing-invite-v1",
+        "environment": "test",
+        "expires_at": "601000",
+        "invite_id": "invite-one",
+        "issued_at": "1000",
+        "provision_id": "provision-one",
+        "service_epoch": "3",
+        "tool_profile": "custody-native-v1",
+        "transport_profile": "native-broker-custody-v1"
+      }
+    ],
+    "PairingInviteTargetRefV1": [
+      {
+        "custody_account_id": "custody-one",
+        "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+        "invite_id": "invite-one",
+        "provision_id": "provision-one"
+      }
+    ],
     "ProvisionApprovalViewV1": [
       {
         "api_version": 1,
@@ -1196,6 +1342,695 @@
             "signature": "fixture-signature"
           }
         ]
+      }
+    ],
+    "TestSessionApproveRequestV1": [
+      {
+        "api_version": 1,
+        "input": {
+          "approval": {
+            "proof": {
+              "approval_id": "approval-one",
+              "approval_request_id": "request-one",
+              "context": {
+                "audience": "account-authority:test",
+                "custody_account_id": "custody-one",
+                "environment": "test",
+                "policy_version": "1",
+                "security_version": "2",
+                "service_epoch": "3"
+              },
+              "expires_at": "31000",
+              "identity_instance_epoch": "3",
+              "identity_namespace": "identity:test",
+              "intent_digest": "27d6c6a3f6bba59b19a674898503dc4ae82cd02f5962c3aa2101471799f7be9f",
+              "issued_at": "1000",
+              "key_id": "key-one",
+              "manager_account_id": "manager-one",
+              "manager_policy_version": "1",
+              "manager_security_version": "2",
+              "manager_session_ref": "manager-session",
+              "nonce": "proof-nonce",
+              "origin_credential_id": "origin-one",
+              "origin_credential_version": "18446744073709551615",
+              "passkey_credential_id": "passkey-one",
+              "passkey_credential_version": "9007199254740993",
+              "version": 1
+            },
+            "signature": "structural-fixture-only"
+          },
+          "operation_id": "session-one",
+          "request": {
+            "approval_request_id": "request-one",
+            "context": {
+              "audience": "account-authority:test",
+              "custody_account_id": "custody-one",
+              "environment": "test",
+              "policy_version": "1",
+              "security_version": "2",
+              "service_epoch": "3"
+            },
+            "intent": {
+              "actions": [
+                {
+                  "position_cm": [
+                    "9007199254740993",
+                    "-9223372036854775808",
+                    "9223372036854775807"
+                  ],
+                  "tool": "move"
+                },
+                {
+                  "amount": "1",
+                  "distance_km": "0",
+                  "from": "agent:agent-one",
+                  "material": "iron_ore",
+                  "priority": "standard",
+                  "routing": {
+                    "kind": "direct"
+                  },
+                  "to": "site:site-one",
+                  "tool": "transfer"
+                },
+                {
+                  "factory": "factory-one",
+                  "factory_kind": "factory.smelter.mk1",
+                  "site": "site-one",
+                  "tool": "build"
+                },
+                {
+                  "batches": 1,
+                  "factory": "factory-one",
+                  "recipe": "recipe.smelter.iron_ingot",
+                  "tool": "schedule"
+                }
+              ],
+              "allowed_resource_refs": [
+                "agent:agent-one",
+                "site:site-one",
+                "iron_ore",
+                "site-one",
+                "factory-one",
+                "recipe.smelter.iron_ingot"
+              ],
+              "business_limit": "18446744073709551615",
+              "cleanup_budget": {
+                "business": "0",
+                "requests": "2",
+                "transport": "24"
+              },
+              "cleanup_until": "601000",
+              "client_binding": {
+                "client_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "profile": "native-broker-custody-v1"
+              },
+              "client_pairing": {
+                "api_version": 1,
+                "client_key_id": "client-one",
+                "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "connector_public_key": null,
+                "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+                "enrollment_digest": "cececececececececececececececececececececececececececececececece",
+                "enrollment_id": "enrollment-one",
+                "host_instance_id": "host-one",
+                "target": {
+                  "custody_account_id": "custody-one",
+                  "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+                  "invite_id": "invite-one",
+                  "provision_id": "provision-one"
+                }
+              },
+              "control_budget": {
+                "identity_transport": "160",
+                "requests": "80",
+                "transport_hops": 1,
+                "transport_per_hop": "240"
+              },
+              "executor_key_ref": "executor-one",
+              "kind": "test_session",
+              "native_account_id": "native-one",
+              "read_budget": {
+                "business": "0",
+                "requests": "100",
+                "transport": "300"
+              },
+              "read_until": "601000",
+              "request_limit": "100",
+              "runtime_ref": "isolated-runtime-one",
+              "session_id": "session-one",
+              "skill_ref": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+              "source_ref": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "task_fence": {
+                "active_goal_reference": {
+                  "activation_committed_height": "9007199254740993",
+                  "goal_ref": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf",
+                  "goal_revision": "1",
+                  "prepare_operation_id": "prepare-one",
+                  "publish_operation_id": "publish-one"
+                },
+                "active_goal_revision": "1",
+                "agent_id": "agent-one",
+                "branch_id": "branch-one",
+                "executor_binding": {
+                  "delegation_generation": "1",
+                  "executor_epoch": "1",
+                  "executor_id": "executor-one",
+                  "executor_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                },
+                "executor_epoch": "1",
+                "genesis_digest": "genesis-one",
+                "latest_goal_revision": "1",
+                "owner_binding": "owner-one",
+                "owner_generation": "1",
+                "owner_public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "reorg_epoch": "1",
+                "task_id": "task-one",
+                "task_revision": "1",
+                "task_status": "active",
+                "world_id": "world-one"
+              },
+              "termination_plan_digest": "bfbc5370150c62a4bee90391f2a33af3347b0593dd203ece9593175b9cc64b0a",
+              "transport_limit": "400",
+              "world_identity": {
+                "branch_id": "branch-one",
+                "genesis_digest": "genesis-one",
+                "reorg_epoch": "1",
+                "service_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "world_id": "world-one"
+              },
+              "write_deadline": "301000"
+            }
+          }
+        },
+        "plan": {
+          "actions": [
+            {
+              "position_cm": [
+                "9007199254740993",
+                "-9223372036854775808",
+                "9223372036854775807"
+              ],
+              "tool": "move"
+            },
+            {
+              "amount": "1",
+              "distance_km": "0",
+              "from": "agent:agent-one",
+              "material": "iron_ore",
+              "priority": "standard",
+              "routing": {
+                "kind": "direct"
+              },
+              "to": "site:site-one",
+              "tool": "transfer"
+            },
+            {
+              "factory": "factory-one",
+              "factory_kind": "factory.smelter.mk1",
+              "site": "site-one",
+              "tool": "build"
+            },
+            {
+              "batches": 1,
+              "factory": "factory-one",
+              "recipe": "recipe.smelter.iron_ingot",
+              "tool": "schedule"
+            }
+          ],
+          "allowed_resource_refs": [
+            "agent:agent-one",
+            "site:site-one",
+            "iron_ore",
+            "site-one",
+            "factory-one",
+            "recipe.smelter.iron_ingot"
+          ],
+          "api_version": 1,
+          "basis_digest": "df932c79d711d6d9f8fd3d6ced6cdd947d7c34840ccbe91547b857b4bc8426b9",
+          "business_limit": "18446744073709551615",
+          "cleanup_budget": {
+            "business": "0",
+            "requests": "2",
+            "transport": "24"
+          },
+          "cleanup_until": "601000",
+          "control_budget": {
+            "identity_transport": "160",
+            "requests": "80",
+            "transport_hops": 1,
+            "transport_per_hop": "240"
+          },
+          "enrollment_id": "enrollment-one",
+          "read_budget": {
+            "business": "0",
+            "requests": "100",
+            "transport": "300"
+          },
+          "read_until": "601000",
+          "request_id": "session-request-one",
+          "request_limit": "100",
+          "transport_limit": "400",
+          "write_deadline": "301000"
+        }
+      }
+    ],
+    "TestSessionBasisRequestV1": [
+      {
+        "api_version": 1,
+        "cleanup_until": "601000",
+        "enrollment_id": "enrollment-one",
+        "request_id": "session-request-one"
+      }
+    ],
+    "TestSessionBasisV1": [
+      {
+        "allowed_resource_refs": [
+          "agent:agent-one",
+          "site:site-one",
+          "iron_ore",
+          "site-one",
+          "factory-one",
+          "recipe.smelter.iron_ingot"
+        ],
+        "api_version": 1,
+        "authority": {
+          "audience": "account-authority:test",
+          "custody_account_id": "custody-one",
+          "environment": "test",
+          "policy_version": "1",
+          "security_version": "2",
+          "service_epoch": "3"
+        },
+        "client_pairing": {
+          "api_version": 1,
+          "client_key_id": "client-one",
+          "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "connector_public_key": null,
+          "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+          "enrollment_digest": "cececececececececececececececececececececececececececececececece",
+          "enrollment_id": "enrollment-one",
+          "host_instance_id": "host-one",
+          "target": {
+            "custody_account_id": "custody-one",
+            "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+            "invite_id": "invite-one",
+            "provision_id": "provision-one"
+          }
+        },
+        "custody_account_id": "custody-one",
+        "executor_key": {
+          "key_id": "executor-one",
+          "key_version": "1",
+          "public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "native_account_id": "native-one",
+        "owner_key": {
+          "key_id": "owner-one",
+          "key_version": "1",
+          "public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "provision_id": "provision-one",
+        "request_id": "session-request-one",
+        "runtime_ref": "isolated-runtime-one",
+        "session_id": "session-one",
+        "skill_ref": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "source_ref": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "termination": {
+          "api_version": 1,
+          "cleanup_until": "601000",
+          "custody_account_id": "custody-one",
+          "executor_key_ref": "executor-one",
+          "initial_fence": {
+            "active_goal_reference": {
+              "activation_committed_height": "9007199254740993",
+              "goal_ref": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf",
+              "goal_revision": "1",
+              "prepare_operation_id": "prepare-one",
+              "publish_operation_id": "publish-one"
+            },
+            "active_goal_revision": "1",
+            "agent_id": "agent-one",
+            "branch_id": "branch-one",
+            "executor_binding": {
+              "delegation_generation": "1",
+              "executor_epoch": "1",
+              "executor_id": "executor-one",
+              "executor_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            },
+            "executor_epoch": "1",
+            "genesis_digest": "genesis-one",
+            "latest_goal_revision": "1",
+            "owner_binding": "owner-one",
+            "owner_generation": "1",
+            "owner_public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "reorg_epoch": "1",
+            "task_id": "task-one",
+            "task_revision": "1",
+            "task_status": "active",
+            "world_id": "world-one"
+          },
+          "nonce_policy": "account_allocated_high_water_v1",
+          "original_delegation": {
+            "agent_id": "agent-one",
+            "agent_identity_generation": "1",
+            "branch_id": "branch-one",
+            "delegate_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "generation": "1",
+            "nonce": "1",
+            "owner_binding": "owner-one",
+            "revoked": false,
+            "world_id": "world-one"
+          },
+          "owner_key_ref": "owner-one",
+          "prepared_result_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "provision_id": "provision-one",
+          "request_limit": "2",
+          "revoke_operation_id": "8c6cf7e3ac70fc910d5f813f953e65a31147763f69b4a4d4138fe96fa9173cc6",
+          "session_id": "session-one",
+          "setup_id": "setup-one",
+          "stop_operation_id": "3525102ed3d036c2605d9f68610f11e209a14ea0589bf510272e250e6fd09bbe",
+          "transport_limit": "24",
+          "trigger": "closing_only_v1",
+          "world": {
+            "branch_id": "branch-one",
+            "genesis_digest": "genesis-one",
+            "reorg_epoch": "1",
+            "service_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "world_id": "world-one"
+          }
+        }
+      }
+    ],
+    "TestSessionContinueRequestV1": [
+      {
+        "api_version": 1,
+        "session_id": "session-one"
+      }
+    ],
+    "TestSessionPrepareRequestV1": [
+      {
+        "api_version": 1,
+        "approval_request_id": "request-one",
+        "plan": {
+          "actions": [
+            {
+              "position_cm": [
+                "9007199254740993",
+                "-9223372036854775808",
+                "9223372036854775807"
+              ],
+              "tool": "move"
+            },
+            {
+              "amount": "1",
+              "distance_km": "0",
+              "from": "agent:agent-one",
+              "material": "iron_ore",
+              "priority": "standard",
+              "routing": {
+                "kind": "direct"
+              },
+              "to": "site:site-one",
+              "tool": "transfer"
+            },
+            {
+              "factory": "factory-one",
+              "factory_kind": "factory.smelter.mk1",
+              "site": "site-one",
+              "tool": "build"
+            },
+            {
+              "batches": 1,
+              "factory": "factory-one",
+              "recipe": "recipe.smelter.iron_ingot",
+              "tool": "schedule"
+            }
+          ],
+          "allowed_resource_refs": [
+            "agent:agent-one",
+            "site:site-one",
+            "iron_ore",
+            "site-one",
+            "factory-one",
+            "recipe.smelter.iron_ingot"
+          ],
+          "api_version": 1,
+          "basis_digest": "df932c79d711d6d9f8fd3d6ced6cdd947d7c34840ccbe91547b857b4bc8426b9",
+          "business_limit": "18446744073709551615",
+          "cleanup_budget": {
+            "business": "0",
+            "requests": "2",
+            "transport": "24"
+          },
+          "cleanup_until": "601000",
+          "control_budget": {
+            "identity_transport": "160",
+            "requests": "80",
+            "transport_hops": 1,
+            "transport_per_hop": "240"
+          },
+          "enrollment_id": "enrollment-one",
+          "read_budget": {
+            "business": "0",
+            "requests": "100",
+            "transport": "300"
+          },
+          "read_until": "601000",
+          "request_id": "session-request-one",
+          "request_limit": "100",
+          "transport_limit": "400",
+          "write_deadline": "301000"
+        }
+      }
+    ],
+    "TestSessionPrepareResponseV1": [
+      {
+        "approval_request_id": "request-one",
+        "context": {
+          "audience": "account-authority:test",
+          "custody_account_id": "custody-one",
+          "environment": "test",
+          "policy_version": "1",
+          "security_version": "2",
+          "service_epoch": "3"
+        },
+        "intent": {
+          "actions": [
+            {
+              "position_cm": [
+                "9007199254740993",
+                "-9223372036854775808",
+                "9223372036854775807"
+              ],
+              "tool": "move"
+            },
+            {
+              "amount": "1",
+              "distance_km": "0",
+              "from": "agent:agent-one",
+              "material": "iron_ore",
+              "priority": "standard",
+              "routing": {
+                "kind": "direct"
+              },
+              "to": "site:site-one",
+              "tool": "transfer"
+            },
+            {
+              "factory": "factory-one",
+              "factory_kind": "factory.smelter.mk1",
+              "site": "site-one",
+              "tool": "build"
+            },
+            {
+              "batches": 1,
+              "factory": "factory-one",
+              "recipe": "recipe.smelter.iron_ingot",
+              "tool": "schedule"
+            }
+          ],
+          "allowed_resource_refs": [
+            "agent:agent-one",
+            "site:site-one",
+            "iron_ore",
+            "site-one",
+            "factory-one",
+            "recipe.smelter.iron_ingot"
+          ],
+          "business_limit": "18446744073709551615",
+          "cleanup_budget": {
+            "business": "0",
+            "requests": "2",
+            "transport": "24"
+          },
+          "cleanup_until": "601000",
+          "client_binding": {
+            "client_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "profile": "native-broker-custody-v1"
+          },
+          "client_pairing": {
+            "api_version": 1,
+            "client_key_id": "client-one",
+            "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "connector_public_key": null,
+            "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+            "enrollment_digest": "cececececececececececececececececececececececececececececececece",
+            "enrollment_id": "enrollment-one",
+            "host_instance_id": "host-one",
+            "target": {
+              "custody_account_id": "custody-one",
+              "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+              "invite_id": "invite-one",
+              "provision_id": "provision-one"
+            }
+          },
+          "control_budget": {
+            "identity_transport": "160",
+            "requests": "80",
+            "transport_hops": 1,
+            "transport_per_hop": "240"
+          },
+          "executor_key_ref": "executor-one",
+          "kind": "test_session",
+          "native_account_id": "native-one",
+          "read_budget": {
+            "business": "0",
+            "requests": "100",
+            "transport": "300"
+          },
+          "read_until": "601000",
+          "request_limit": "100",
+          "runtime_ref": "isolated-runtime-one",
+          "session_id": "session-one",
+          "skill_ref": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "source_ref": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+          "task_fence": {
+            "active_goal_reference": {
+              "activation_committed_height": "9007199254740993",
+              "goal_ref": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf",
+              "goal_revision": "1",
+              "prepare_operation_id": "prepare-one",
+              "publish_operation_id": "publish-one"
+            },
+            "active_goal_revision": "1",
+            "agent_id": "agent-one",
+            "branch_id": "branch-one",
+            "executor_binding": {
+              "delegation_generation": "1",
+              "executor_epoch": "1",
+              "executor_id": "executor-one",
+              "executor_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            },
+            "executor_epoch": "1",
+            "genesis_digest": "genesis-one",
+            "latest_goal_revision": "1",
+            "owner_binding": "owner-one",
+            "owner_generation": "1",
+            "owner_public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "reorg_epoch": "1",
+            "task_id": "task-one",
+            "task_revision": "1",
+            "task_status": "active",
+            "world_id": "world-one"
+          },
+          "termination_plan_digest": "bfbc5370150c62a4bee90391f2a33af3347b0593dd203ece9593175b9cc64b0a",
+          "transport_limit": "400",
+          "world_identity": {
+            "branch_id": "branch-one",
+            "genesis_digest": "genesis-one",
+            "reorg_epoch": "1",
+            "service_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "world_id": "world-one"
+          },
+          "write_deadline": "301000"
+        }
+      }
+    ],
+    "TestSessionProgressV1": [
+      {
+        "api_version": 1,
+        "cleanup_until": "601000",
+        "closing_reason": null,
+        "control_connector_http_remaining": null,
+        "control_host_http_remaining": "240",
+        "control_requests_remaining": "79",
+        "custody_account_id": "custody-one",
+        "identity_control_http_remaining": "159",
+        "lease_until": null,
+        "pending_operations": [
+          "test-session-preflight"
+        ],
+        "provision_id": "provision-one",
+        "purposes": [],
+        "read_until": "601000",
+        "revoke_status": "not_allocated",
+        "session_id": "session-one",
+        "stage": "consumed_pending_preflight",
+        "stop_status": "not_allocated",
+        "write_closed": true,
+        "write_deadline": "301000"
+      },
+      {
+        "api_version": 1,
+        "cleanup_until": "601000",
+        "closing_reason": null,
+        "control_connector_http_remaining": null,
+        "control_host_http_remaining": "240",
+        "control_requests_remaining": "79",
+        "custody_account_id": "custody-one",
+        "identity_control_http_remaining": "159",
+        "lease_until": "91000",
+        "pending_operations": [],
+        "provision_id": "provision-one",
+        "purposes": [
+          {
+            "business_remaining": "18446744073709551615",
+            "deadline": "301000",
+            "purpose": "execution",
+            "requests_remaining": "100",
+            "revoked": false,
+            "transport_remaining": "400"
+          }
+        ],
+        "read_until": "601000",
+        "revoke_status": "not_allocated",
+        "session_id": "session-one",
+        "stage": "active",
+        "stop_status": "not_allocated",
+        "write_closed": false,
+        "write_deadline": "301000"
+      },
+      {
+        "api_version": 1,
+        "cleanup_until": "601000",
+        "closing_reason": "finished",
+        "control_connector_http_remaining": null,
+        "control_host_http_remaining": "240",
+        "control_requests_remaining": "79",
+        "custody_account_id": "custody-one",
+        "identity_control_http_remaining": "159",
+        "lease_until": "91000",
+        "pending_operations": [
+          "stop-one"
+        ],
+        "provision_id": "provision-one",
+        "purposes": [
+          {
+            "business_remaining": "18446744073709551615",
+            "deadline": "301000",
+            "purpose": "execution",
+            "requests_remaining": "100",
+            "revoked": false,
+            "transport_remaining": "400"
+          }
+        ],
+        "read_until": "601000",
+        "revoke_status": "not_allocated",
+        "session_id": "session-one",
+        "stage": "closing",
+        "stop_status": "unknown",
+        "write_closed": true,
+        "write_deadline": "301000"
       }
     ],
     "error": [
@@ -1808,6 +2643,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -2043,6 +2927,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -2373,6 +3267,30 @@
           ],
           "type": "string"
         },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        },
         "PurposeBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -2662,6 +3580,444 @@
       "title": "ApprovalVerifyRequestV1",
       "type": "object"
     },
+    "ClientCredentialClaimRequestV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "TestSessionPurposeV1": {
+          "enum": [
+            "execute",
+            "read",
+            "cleanup"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "enrollment_id": {
+          "type": "string"
+        },
+        "expected_generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "purposes": {
+          "items": {
+            "$ref": "#/$defs/TestSessionPurposeV1"
+          },
+          "type": "array"
+        },
+        "replace": {
+          "type": "boolean"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "test_session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "enrollment_id",
+        "test_session_id",
+        "request_id",
+        "purposes",
+        "replace"
+      ],
+      "title": "ClientCredentialClaimRequestV1",
+      "type": "object"
+    },
+    "ClientEnrollmentCreateRequestV1": {
+      "$defs": {
+        "HostDeploymentDescriptorV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "build_digest": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "https_origin": {
+              "type": "string"
+            },
+            "isolation_acceptance_refs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "isolation_mechanism": {
+              "$ref": "#/$defs/HostIsolationMechanismV1"
+            },
+            "restricted_runtime_identity": {
+              "type": "string"
+            },
+            "skill_manifest_digest": {
+              "type": "string"
+            },
+            "tool_manifest_digest": {
+              "type": "string"
+            },
+            "tool_profile": {
+              "type": "string"
+            },
+            "transport_profile": {
+              "$ref": "#/$defs/HostTransportProfileV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "environment",
+            "transport_profile",
+            "tool_profile",
+            "host_instance_id",
+            "client_public_key",
+            "build_digest",
+            "skill_manifest_digest",
+            "tool_manifest_digest",
+            "https_origin",
+            "restricted_runtime_identity",
+            "isolation_mechanism",
+            "isolation_acceptance_refs"
+          ],
+          "type": "object"
+        },
+        "HostIsolationMechanismV1": {
+          "enum": [
+            "separate_os_principal",
+            "enforced_sandbox",
+            "remote_closed_tool_host"
+          ],
+          "type": "string"
+        },
+        "HostTransportProfileV1": {
+          "enum": [
+            "native-broker-custody-v1",
+            "dot-mcp-custody-v1"
+          ],
+          "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/HostDeploymentDescriptorV1"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/PairingInviteTargetRefV1"
+        }
+      },
+      "required": [
+        "target",
+        "api_version",
+        "request_id",
+        "descriptor"
+      ],
+      "title": "ClientEnrollmentCreateRequestV1",
+      "type": "object"
+    },
+    "ClientEnrollmentCreateResponseV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "challenge_expires_at": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "descriptor_digest": {
+          "type": "string"
+        },
+        "enrollment_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "server_nonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "enrollment_id",
+        "key_id",
+        "server_nonce",
+        "challenge_expires_at",
+        "expires_at",
+        "descriptor_digest"
+      ],
+      "title": "ClientEnrollmentCreateResponseV1",
+      "type": "object"
+    },
+    "ClientEnrollmentProofRequestV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "challenge_expires_at": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "client_public_key": {
+          "type": "string"
+        },
+        "descriptor_digest": {
+          "type": "string"
+        },
+        "enrollment_id": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "server_nonce": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/PairingInviteTargetRefV1"
+        }
+      },
+      "required": [
+        "target",
+        "client_public_key",
+        "server_nonce",
+        "challenge_expires_at",
+        "api_version",
+        "enrollment_id",
+        "request_id",
+        "descriptor_digest"
+      ],
+      "title": "ClientEnrollmentProofRequestV1",
+      "type": "object"
+    },
+    "ClientEnrollmentProofResponseV1": {
+      "$defs": {
+        "ClientEnrollmentProofStatusV1": {
+          "enum": [
+            "proved"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "enrollment_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ClientEnrollmentProofStatusV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "enrollment_id",
+        "status"
+      ],
+      "title": "ClientEnrollmentProofResponseV1",
+      "type": "object"
+    },
+    "ClientPairingBindingV1": {
+      "$defs": {
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "client_key_id": {
+          "type": "string"
+        },
+        "client_public_key": {
+          "type": "string"
+        },
+        "connector_public_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "descriptor_digest": {
+          "type": "string"
+        },
+        "enrollment_digest": {
+          "type": "string"
+        },
+        "enrollment_id": {
+          "type": "string"
+        },
+        "host_instance_id": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/PairingInviteTargetRefV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "target",
+        "enrollment_id",
+        "enrollment_digest",
+        "host_instance_id",
+        "descriptor_digest",
+        "client_key_id",
+        "client_public_key"
+      ],
+      "title": "ClientPairingBindingV1",
+      "type": "object"
+    },
     "CustodySessionStatusV1": {
       "$defs": {
         "DecimalU64": {
@@ -2729,6 +4085,91 @@
         "idle_expires_at"
       ],
       "title": "CustodySessionStatusV1",
+      "type": "object"
+    },
+    "HostDeploymentDescriptorV1": {
+      "$defs": {
+        "HostIsolationMechanismV1": {
+          "enum": [
+            "separate_os_principal",
+            "enforced_sandbox",
+            "remote_closed_tool_host"
+          ],
+          "type": "string"
+        },
+        "HostTransportProfileV1": {
+          "enum": [
+            "native-broker-custody-v1",
+            "dot-mcp-custody-v1"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "build_digest": {
+          "type": "string"
+        },
+        "client_public_key": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "host_instance_id": {
+          "type": "string"
+        },
+        "https_origin": {
+          "type": "string"
+        },
+        "isolation_acceptance_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "isolation_mechanism": {
+          "$ref": "#/$defs/HostIsolationMechanismV1"
+        },
+        "restricted_runtime_identity": {
+          "type": "string"
+        },
+        "skill_manifest_digest": {
+          "type": "string"
+        },
+        "tool_manifest_digest": {
+          "type": "string"
+        },
+        "tool_profile": {
+          "type": "string"
+        },
+        "transport_profile": {
+          "$ref": "#/$defs/HostTransportProfileV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "environment",
+        "transport_profile",
+        "tool_profile",
+        "host_instance_id",
+        "client_public_key",
+        "build_digest",
+        "skill_manifest_digest",
+        "tool_manifest_digest",
+        "https_origin",
+        "restricted_runtime_identity",
+        "isolation_mechanism",
+        "isolation_acceptance_refs"
+      ],
+      "title": "HostDeploymentDescriptorV1",
       "type": "object"
     },
     "ManagedLoginApprovalViewV1": {
@@ -3075,6 +4516,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -3397,6 +4887,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -3726,6 +5226,30 @@
             "final_observation"
           ],
           "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
         },
         "PurposeBudgetV1": {
           "additionalProperties": false,
@@ -4162,6 +5686,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -4484,6 +6057,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -4943,6 +6526,30 @@
             "final_observation"
           ],
           "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
         },
         "PurposeBudgetV1": {
           "additionalProperties": false,
@@ -5626,6 +7233,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -5861,6 +7517,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -6190,6 +7856,30 @@
             "final_observation"
           ],
           "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
         },
         "PurposeBudgetV1": {
           "additionalProperties": false,
@@ -6647,6 +8337,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -6969,6 +8708,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -7298,6 +9047,30 @@
             "final_observation"
           ],
           "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
         },
         "PurposeBudgetV1": {
           "additionalProperties": false,
@@ -7952,6 +9725,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -8187,6 +10009,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -8517,6 +10349,30 @@
           ],
           "type": "string"
         },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        },
         "PurposeBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -8635,6 +10491,142 @@
         "original_transport_remaining"
       ],
       "title": "OwnerSetupReconcileProgressV1",
+      "type": "object"
+    },
+    "PairingInviteCreateRequestV1": {
+      "$defs": {
+        "HostTransportProfileV1": {
+          "enum": [
+            "native-broker-custody-v1",
+            "dot-mcp-custody-v1"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "tool_profile": {
+          "type": "string"
+        },
+        "transport_profile": {
+          "$ref": "#/$defs/HostTransportProfileV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "request_id",
+        "transport_profile",
+        "tool_profile"
+      ],
+      "title": "PairingInviteCreateRequestV1",
+      "type": "object"
+    },
+    "PairingInviteOriginalV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "HostTransportProfileV1": {
+          "enum": [
+            "native-broker-custody-v1",
+            "dot-mcp-custody-v1"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "custody_account_id": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "invite_id": {
+          "type": "string"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "provision_id": {
+          "type": "string"
+        },
+        "service_epoch": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "tool_profile": {
+          "type": "string"
+        },
+        "transport_profile": {
+          "$ref": "#/$defs/HostTransportProfileV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "domain",
+        "environment",
+        "service_epoch",
+        "custody_account_id",
+        "provision_id",
+        "invite_id",
+        "issued_at",
+        "expires_at",
+        "transport_profile",
+        "tool_profile"
+      ],
+      "title": "PairingInviteOriginalV1",
+      "type": "object"
+    },
+    "PairingInviteTargetRefV1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "custody_account_id": {
+          "type": "string"
+        },
+        "invite_digest": {
+          "type": "string"
+        },
+        "invite_id": {
+          "type": "string"
+        },
+        "provision_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "custody_account_id",
+        "provision_id",
+        "invite_id",
+        "invite_digest"
+      ],
+      "title": "PairingInviteTargetRefV1",
       "type": "object"
     },
     "ProvisionApprovalViewV1": {
@@ -8986,6 +10978,55 @@
           ],
           "type": "object"
         },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -9308,6 +11349,16 @@
                 },
                 "client_binding": {
                   "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "control_budget": {
                   "$ref": "#/$defs/ControlBudgetV1"
@@ -9637,6 +11688,30 @@
             "final_observation"
           ],
           "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
         },
         "PurposeBudgetV1": {
           "additionalProperties": false,
@@ -10578,6 +12653,3231 @@
         "events"
       ],
       "title": "SourceRevocationsPollResponseV1",
+      "type": "object"
+    },
+    "TestSessionApproveRequestV1": {
+      "$defs": {
+        "ApprovalAdmissionInput": {
+          "additionalProperties": false,
+          "properties": {
+            "approval": {
+              "$ref": "#/$defs/SignedCustodyApprovalV1"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ApprovalOptionsRequestV1"
+            }
+          },
+          "required": [
+            "operation_id",
+            "request",
+            "approval"
+          ],
+          "type": "object"
+        },
+        "ApprovalContextV1": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "environment",
+            "custody_account_id",
+            "audience",
+            "policy_version",
+            "security_version",
+            "service_epoch"
+          ],
+          "type": "object"
+        },
+        "ApprovalOptionsRequestV1": {
+          "additionalProperties": false,
+          "properties": {
+            "approval_request_id": {
+              "type": "string"
+            },
+            "context": {
+              "$ref": "#/$defs/ApprovalContextV1"
+            },
+            "intent": {
+              "$ref": "#/$defs/CustodyIntentV1"
+            }
+          },
+          "required": [
+            "approval_request_id",
+            "context",
+            "intent"
+          ],
+          "type": "object"
+        },
+        "ApprovedActionV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "position_cm": {
+                  "items": {
+                    "$ref": "#/$defs/DecimalI64"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "tool": {
+                  "const": "move",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "position_cm"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amount": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "distance_km": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "from": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "material": {
+                  "type": "string"
+                },
+                "priority": {
+                  "$ref": "#/$defs/MaterialTransitPriority"
+                },
+                "routing": {
+                  "$ref": "#/$defs/ApprovedRoutingV1"
+                },
+                "to": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "tool": {
+                  "const": "transfer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "from",
+                "to",
+                "material",
+                "amount",
+                "distance_km",
+                "priority",
+                "routing"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "factory": {
+                  "type": "string"
+                },
+                "factory_kind": {
+                  "type": "string"
+                },
+                "site": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "build",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "site",
+                "factory",
+                "factory_kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "batches": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "factory": {
+                  "type": "string"
+                },
+                "recipe": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "schedule",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "factory",
+                "recipe",
+                "batches"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedClientBindingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "client_key": {
+                  "type": "string"
+                },
+                "profile": {
+                  "const": "native-broker-custody-v1",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "client_key"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "client_key": {
+                  "type": "string"
+                },
+                "connector_key": {
+                  "type": "string"
+                },
+                "profile": {
+                  "const": "dot-mcp-custody-v1",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "client_key",
+                "connector_key"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedRoutingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "direct",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "routes",
+                  "type": "string"
+                },
+                "route_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kind",
+                "route_ids"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedWorldV1": {
+          "additionalProperties": false,
+          "description": "Full world pins and task fence are signed, not supplied as opaque client claims.",
+          "properties": {
+            "branch_id": {
+              "type": "string"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_public_key": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "service_public_key"
+          ],
+          "type": "object"
+        },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
+        "ControlBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_transport": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport_hops": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "transport_per_hop": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport_per_hop",
+            "identity_transport",
+            "transport_hops"
+          ],
+          "type": "object"
+        },
+        "CustodyApprovalProofV1": {
+          "additionalProperties": false,
+          "properties": {
+            "approval_id": {
+              "type": "string"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "context": {
+              "$ref": "#/$defs/ApprovalContextV1"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_instance_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_namespace": {
+              "type": "string"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "key_id": {
+              "type": "string"
+            },
+            "manager_account_id": {
+              "type": "string"
+            },
+            "manager_policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "manager_security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "manager_session_ref": {
+              "type": "string"
+            },
+            "nonce": {
+              "type": "string"
+            },
+            "origin_credential_id": {
+              "type": "string"
+            },
+            "origin_credential_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "passkey_credential_id": {
+              "type": "string"
+            },
+            "passkey_credential_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "key_id",
+            "identity_namespace",
+            "approval_id",
+            "approval_request_id",
+            "context",
+            "intent_digest",
+            "manager_account_id",
+            "manager_session_ref",
+            "origin_credential_id",
+            "origin_credential_version",
+            "passkey_credential_id",
+            "passkey_credential_version",
+            "manager_policy_version",
+            "manager_security_version",
+            "identity_instance_epoch",
+            "nonce",
+            "issued_at",
+            "expires_at"
+          ],
+          "type": "object"
+        },
+        "CustodyIntentV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_config_version": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "identity_route": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "provision",
+                  "type": "string"
+                },
+                "login_request_id": {
+                  "type": "string"
+                },
+                "native_identity_namespace": {
+                  "type": "string"
+                },
+                "plan_digest": {
+                  "type": "string"
+                },
+                "provision_id": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "register_request_id": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "world_route": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "provision_id",
+                "purpose",
+                "plan_digest",
+                "bootstrap_config_version",
+                "world_identity",
+                "identity_route",
+                "world_route",
+                "native_identity_namespace",
+                "register_request_id",
+                "login_request_id",
+                "deadline",
+                "transport_limit"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_config_version": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "executor_key_ref": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "owner_setup",
+                  "type": "string"
+                },
+                "owner_key_ref": {
+                  "type": "string"
+                },
+                "participant_receipt_digest": {
+                  "type": "string"
+                },
+                "provision_id": {
+                  "type": "string"
+                },
+                "request_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "setup_id": {
+                  "type": "string"
+                },
+                "setup_plan_digest": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "write_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "setup_id",
+                "provision_id",
+                "participant_receipt_digest",
+                "world_identity",
+                "owner_key_ref",
+                "executor_key_ref",
+                "setup_plan_digest",
+                "bootstrap_config_version",
+                "deadline",
+                "request_limit",
+                "transport_limit",
+                "write_limit"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "owner_setup_reconcile",
+                  "type": "string"
+                },
+                "plan": {
+                  "$ref": "#/$defs/OwnerSetupReconcilePlanV1"
+                }
+              },
+              "required": [
+                "kind",
+                "plan"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "blocked_operation_ref": {
+                  "type": "string"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "kind": {
+                  "const": "managed_login",
+                  "type": "string"
+                },
+                "login_key_ref": {
+                  "type": "string"
+                },
+                "login_request_id": {
+                  "type": "string"
+                },
+                "native_account_id": {
+                  "type": "string"
+                },
+                "native_identity_namespace": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "native_account_id",
+                "login_key_ref",
+                "native_identity_namespace",
+                "blocked_operation_ref",
+                "login_request_id",
+                "transport_limit",
+                "deadline"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "actions": {
+                  "items": {
+                    "$ref": "#/$defs/ApprovedActionV1"
+                  },
+                  "type": "array"
+                },
+                "allowed_resource_refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "business_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "cleanup_budget": {
+                  "$ref": "#/$defs/PurposeBudgetV1"
+                },
+                "cleanup_until": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "client_binding": {
+                  "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "control_budget": {
+                  "$ref": "#/$defs/ControlBudgetV1"
+                },
+                "executor_key_ref": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "test_session",
+                  "type": "string"
+                },
+                "native_account_id": {
+                  "type": "string"
+                },
+                "read_budget": {
+                  "$ref": "#/$defs/PurposeBudgetV1"
+                },
+                "read_until": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "request_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "runtime_ref": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "skill_ref": {
+                  "type": "string"
+                },
+                "source_ref": {
+                  "type": "string"
+                },
+                "task_fence": {
+                  "$ref": "#/$defs/GameTaskFenceV1"
+                },
+                "termination_plan_digest": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "write_deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "session_id",
+                "native_account_id",
+                "world_identity",
+                "task_fence",
+                "executor_key_ref",
+                "client_binding",
+                "runtime_ref",
+                "skill_ref",
+                "source_ref",
+                "actions",
+                "allowed_resource_refs",
+                "read_budget",
+                "cleanup_budget",
+                "control_budget",
+                "write_deadline",
+                "read_until",
+                "cleanup_until",
+                "request_limit",
+                "transport_limit",
+                "business_limit",
+                "termination_plan_digest"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "DecimalI64": {
+          "maxLength": 20,
+          "pattern": "^(?:(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)|-(?!0$)(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7]|9223372036854775808))$",
+          "type": "string"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "GameExecutorBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "delegation_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_id": {
+              "type": "string"
+            },
+            "executor_public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "executor_id",
+            "executor_public_key",
+            "delegation_generation",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameGoalReferenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "activation_committed_height": {
+              "$ref": "#/$defs/DecimalU64",
+              "description": "A full commit root cannot be embedded in the state that it hashes."
+            },
+            "goal_ref": {
+              "type": "string"
+            },
+            "goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "prepare_operation_id": {
+              "type": "string"
+            },
+            "publish_operation_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "goal_revision",
+            "goal_ref",
+            "prepare_operation_id",
+            "publish_operation_id",
+            "activation_committed_height"
+          ],
+          "type": "object"
+        },
+        "GameTaskFenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "active_goal_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameGoalReferenceV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "executor_binding": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameExecutorBindingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "latest_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "owner_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_public_key": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "task_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_status": {
+              "$ref": "#/$defs/GameTaskStatusV1"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "agent_id",
+            "owner_binding",
+            "owner_generation",
+            "owner_public_key",
+            "task_id",
+            "task_revision",
+            "task_status",
+            "latest_goal_revision",
+            "active_goal_revision",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameTaskStatusV1": {
+          "enum": [
+            "suspended",
+            "active"
+          ],
+          "type": "string"
+        },
+        "MaterialLedgerId": {
+          "description": "Material ledger identifier used by M4 economy state.",
+          "type": "string"
+        },
+        "MaterialTransitPriority": {
+          "enum": [
+            "urgent",
+            "standard"
+          ],
+          "type": "string"
+        },
+        "OwnerSetupReconcilePlanV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "attempt_limit": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "correlation_digest": {
+              "type": "string"
+            },
+            "deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_key_ref": {
+              "type": "string"
+            },
+            "original_deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "original_digest": {
+              "type": "string"
+            },
+            "owner_key_ref": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            },
+            "reconcile_id": {
+              "type": "string"
+            },
+            "setup_id": {
+              "type": "string"
+            },
+            "setup_plan_digest": {
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/OwnerSetupStageV1"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "world_identity": {
+              "$ref": "#/$defs/ApprovedWorldV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "reconcile_id",
+            "setup_id",
+            "provision_id",
+            "stage",
+            "setup_plan_digest",
+            "original_digest",
+            "correlation_digest",
+            "world_identity",
+            "owner_key_ref",
+            "executor_key_ref",
+            "original_deadline",
+            "deadline",
+            "attempt_limit",
+            "transport_limit"
+          ],
+          "type": "object"
+        },
+        "OwnerSetupStageV1": {
+          "enum": [
+            "create_task",
+            "prepare_goal",
+            "publish_goal",
+            "delegation",
+            "bind",
+            "final_observation"
+          ],
+          "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        },
+        "PurposeBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "business": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport",
+            "business"
+          ],
+          "type": "object"
+        },
+        "SignedCustodyApprovalV1": {
+          "additionalProperties": false,
+          "properties": {
+            "proof": {
+              "$ref": "#/$defs/CustodyApprovalProofV1"
+            },
+            "signature": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof",
+            "signature"
+          ],
+          "type": "object"
+        },
+        "TestSessionPlanV1": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "items": {
+                "$ref": "#/$defs/ApprovedActionV1"
+              },
+              "type": "array"
+            },
+            "allowed_resource_refs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "business_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "cleanup_budget": {
+              "$ref": "#/$defs/PurposeBudgetV1"
+            },
+            "cleanup_until": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "control_budget": {
+              "$ref": "#/$defs/ControlBudgetV1"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "read_budget": {
+              "$ref": "#/$defs/PurposeBudgetV1"
+            },
+            "read_until": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "request_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "write_deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "api_version",
+            "request_id",
+            "enrollment_id",
+            "basis_digest",
+            "actions",
+            "allowed_resource_refs",
+            "write_deadline",
+            "read_until",
+            "cleanup_until",
+            "request_limit",
+            "transport_limit",
+            "business_limit",
+            "read_budget",
+            "cleanup_budget",
+            "control_budget"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input": {
+          "$ref": "#/$defs/ApprovalAdmissionInput"
+        },
+        "plan": {
+          "$ref": "#/$defs/TestSessionPlanV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "input",
+        "plan"
+      ],
+      "title": "TestSessionApproveRequestV1",
+      "type": "object"
+    },
+    "TestSessionBasisRequestV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cleanup_until": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "enrollment_id": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "request_id",
+        "enrollment_id",
+        "cleanup_until"
+      ],
+      "title": "TestSessionBasisRequestV1",
+      "type": "object"
+    },
+    "TestSessionBasisV1": {
+      "$defs": {
+        "ApprovalContextV1": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "environment",
+            "custody_account_id",
+            "audience",
+            "policy_version",
+            "security_version",
+            "service_epoch"
+          ],
+          "type": "object"
+        },
+        "ApprovedWorldV1": {
+          "additionalProperties": false,
+          "description": "Full world pins and task fence are signed, not supplied as opaque client claims.",
+          "properties": {
+            "branch_id": {
+              "type": "string"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_public_key": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "service_public_key"
+          ],
+          "type": "object"
+        },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "DelegationMetadataV1": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "agent_identity_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "delegate_public_key": {
+              "type": "string"
+            },
+            "generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "nonce": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "revoked": {
+              "type": "boolean"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "branch_id",
+            "agent_id",
+            "owner_binding",
+            "agent_identity_generation",
+            "generation",
+            "delegate_public_key",
+            "revoked",
+            "nonce"
+          ],
+          "type": "object"
+        },
+        "GameExecutorBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "delegation_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_id": {
+              "type": "string"
+            },
+            "executor_public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "executor_id",
+            "executor_public_key",
+            "delegation_generation",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameGoalReferenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "activation_committed_height": {
+              "$ref": "#/$defs/DecimalU64",
+              "description": "A full commit root cannot be embedded in the state that it hashes."
+            },
+            "goal_ref": {
+              "type": "string"
+            },
+            "goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "prepare_operation_id": {
+              "type": "string"
+            },
+            "publish_operation_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "goal_revision",
+            "goal_ref",
+            "prepare_operation_id",
+            "publish_operation_id",
+            "activation_committed_height"
+          ],
+          "type": "object"
+        },
+        "GameTaskFenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "active_goal_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameGoalReferenceV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "executor_binding": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameExecutorBindingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "latest_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "owner_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_public_key": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "task_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_status": {
+              "$ref": "#/$defs/GameTaskStatusV1"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "agent_id",
+            "owner_binding",
+            "owner_generation",
+            "owner_public_key",
+            "task_id",
+            "task_revision",
+            "task_status",
+            "latest_goal_revision",
+            "active_goal_revision",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameTaskStatusV1": {
+          "enum": [
+            "suspended",
+            "active"
+          ],
+          "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        },
+        "PublicRoleKey": {
+          "additionalProperties": false,
+          "properties": {
+            "key_id": {
+              "type": "string"
+            },
+            "key_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key_id",
+            "key_version",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "TerminationNoncePolicyV1": {
+          "enum": [
+            "account_allocated_high_water_v1"
+          ],
+          "type": "string"
+        },
+        "TerminationPlanV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cleanup_until": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "executor_key_ref": {
+              "type": "string"
+            },
+            "initial_fence": {
+              "$ref": "#/$defs/GameTaskFenceV1"
+            },
+            "nonce_policy": {
+              "$ref": "#/$defs/TerminationNoncePolicyV1"
+            },
+            "original_delegation": {
+              "$ref": "#/$defs/DelegationMetadataV1"
+            },
+            "owner_key_ref": {
+              "type": "string"
+            },
+            "prepared_result_digest": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            },
+            "request_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "revoke_operation_id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "setup_id": {
+              "type": "string"
+            },
+            "stop_operation_id": {
+              "type": "string"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "trigger": {
+              "$ref": "#/$defs/TerminationTriggerV1"
+            },
+            "world": {
+              "$ref": "#/$defs/ApprovedWorldV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "session_id",
+            "custody_account_id",
+            "provision_id",
+            "setup_id",
+            "prepared_result_digest",
+            "world",
+            "owner_key_ref",
+            "executor_key_ref",
+            "initial_fence",
+            "original_delegation",
+            "stop_operation_id",
+            "revoke_operation_id",
+            "cleanup_until",
+            "request_limit",
+            "transport_limit",
+            "trigger",
+            "nonce_policy"
+          ],
+          "type": "object"
+        },
+        "TerminationTriggerV1": {
+          "enum": [
+            "closing_only_v1"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "authority": {
+          "$ref": "#/$defs/ApprovalContextV1"
+        },
+        "client_pairing": {
+          "$ref": "#/$defs/ClientPairingBindingV1"
+        },
+        "custody_account_id": {
+          "type": "string"
+        },
+        "executor_key": {
+          "$ref": "#/$defs/PublicRoleKey"
+        },
+        "native_account_id": {
+          "type": "string"
+        },
+        "owner_key": {
+          "$ref": "#/$defs/PublicRoleKey"
+        },
+        "provision_id": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "runtime_ref": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "skill_ref": {
+          "type": "string"
+        },
+        "source_ref": {
+          "type": "string"
+        },
+        "termination": {
+          "$ref": "#/$defs/TerminationPlanV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "request_id",
+        "session_id",
+        "custody_account_id",
+        "provision_id",
+        "authority",
+        "termination",
+        "native_account_id",
+        "owner_key",
+        "executor_key",
+        "client_pairing",
+        "runtime_ref",
+        "skill_ref",
+        "source_ref",
+        "allowed_resource_refs"
+      ],
+      "title": "TestSessionBasisV1",
+      "type": "object"
+    },
+    "TestSessionContinueRequestV1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "session_id"
+      ],
+      "title": "TestSessionContinueRequestV1",
+      "type": "object"
+    },
+    "TestSessionPrepareRequestV1": {
+      "$defs": {
+        "ApprovedActionV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "position_cm": {
+                  "items": {
+                    "$ref": "#/$defs/DecimalI64"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "tool": {
+                  "const": "move",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "position_cm"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amount": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "distance_km": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "from": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "material": {
+                  "type": "string"
+                },
+                "priority": {
+                  "$ref": "#/$defs/MaterialTransitPriority"
+                },
+                "routing": {
+                  "$ref": "#/$defs/ApprovedRoutingV1"
+                },
+                "to": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "tool": {
+                  "const": "transfer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "from",
+                "to",
+                "material",
+                "amount",
+                "distance_km",
+                "priority",
+                "routing"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "factory": {
+                  "type": "string"
+                },
+                "factory_kind": {
+                  "type": "string"
+                },
+                "site": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "build",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "site",
+                "factory",
+                "factory_kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "batches": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "factory": {
+                  "type": "string"
+                },
+                "recipe": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "schedule",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "factory",
+                "recipe",
+                "batches"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedRoutingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "direct",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "routes",
+                  "type": "string"
+                },
+                "route_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kind",
+                "route_ids"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ControlBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_transport": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport_hops": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "transport_per_hop": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport_per_hop",
+            "identity_transport",
+            "transport_hops"
+          ],
+          "type": "object"
+        },
+        "DecimalI64": {
+          "maxLength": 20,
+          "pattern": "^(?:(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)|-(?!0$)(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7]|9223372036854775808))$",
+          "type": "string"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "MaterialLedgerId": {
+          "description": "Material ledger identifier used by M4 economy state.",
+          "type": "string"
+        },
+        "MaterialTransitPriority": {
+          "enum": [
+            "urgent",
+            "standard"
+          ],
+          "type": "string"
+        },
+        "PurposeBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "business": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport",
+            "business"
+          ],
+          "type": "object"
+        },
+        "TestSessionPlanV1": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "items": {
+                "$ref": "#/$defs/ApprovedActionV1"
+              },
+              "type": "array"
+            },
+            "allowed_resource_refs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "business_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "cleanup_budget": {
+              "$ref": "#/$defs/PurposeBudgetV1"
+            },
+            "cleanup_until": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "control_budget": {
+              "$ref": "#/$defs/ControlBudgetV1"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "read_budget": {
+              "$ref": "#/$defs/PurposeBudgetV1"
+            },
+            "read_until": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "request_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "write_deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "api_version",
+            "request_id",
+            "enrollment_id",
+            "basis_digest",
+            "actions",
+            "allowed_resource_refs",
+            "write_deadline",
+            "read_until",
+            "cleanup_until",
+            "request_limit",
+            "transport_limit",
+            "business_limit",
+            "read_budget",
+            "cleanup_budget",
+            "control_budget"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "approval_request_id": {
+          "type": "string"
+        },
+        "plan": {
+          "$ref": "#/$defs/TestSessionPlanV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "approval_request_id",
+        "plan"
+      ],
+      "title": "TestSessionPrepareRequestV1",
+      "type": "object"
+    },
+    "TestSessionPrepareResponseV1": {
+      "$defs": {
+        "ApprovalContextV1": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "environment",
+            "custody_account_id",
+            "audience",
+            "policy_version",
+            "security_version",
+            "service_epoch"
+          ],
+          "type": "object"
+        },
+        "ApprovedActionV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "position_cm": {
+                  "items": {
+                    "$ref": "#/$defs/DecimalI64"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "tool": {
+                  "const": "move",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "position_cm"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amount": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "distance_km": {
+                  "$ref": "#/$defs/DecimalI64"
+                },
+                "from": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "material": {
+                  "type": "string"
+                },
+                "priority": {
+                  "$ref": "#/$defs/MaterialTransitPriority"
+                },
+                "routing": {
+                  "$ref": "#/$defs/ApprovedRoutingV1"
+                },
+                "to": {
+                  "$ref": "#/$defs/MaterialLedgerId"
+                },
+                "tool": {
+                  "const": "transfer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "from",
+                "to",
+                "material",
+                "amount",
+                "distance_km",
+                "priority",
+                "routing"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "factory": {
+                  "type": "string"
+                },
+                "factory_kind": {
+                  "type": "string"
+                },
+                "site": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "build",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "site",
+                "factory",
+                "factory_kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "batches": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "factory": {
+                  "type": "string"
+                },
+                "recipe": {
+                  "type": "string"
+                },
+                "tool": {
+                  "const": "schedule",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "factory",
+                "recipe",
+                "batches"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedClientBindingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "client_key": {
+                  "type": "string"
+                },
+                "profile": {
+                  "const": "native-broker-custody-v1",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "client_key"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "client_key": {
+                  "type": "string"
+                },
+                "connector_key": {
+                  "type": "string"
+                },
+                "profile": {
+                  "const": "dot-mcp-custody-v1",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "client_key",
+                "connector_key"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedRoutingV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "direct",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "routes",
+                  "type": "string"
+                },
+                "route_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kind",
+                "route_ids"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ApprovedWorldV1": {
+          "additionalProperties": false,
+          "description": "Full world pins and task fence are signed, not supplied as opaque client claims.",
+          "properties": {
+            "branch_id": {
+              "type": "string"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_public_key": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "service_public_key"
+          ],
+          "type": "object"
+        },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
+        "ControlBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_transport": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport_hops": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "transport_per_hop": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport_per_hop",
+            "identity_transport",
+            "transport_hops"
+          ],
+          "type": "object"
+        },
+        "CustodyIntentV1": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_config_version": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "identity_route": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "provision",
+                  "type": "string"
+                },
+                "login_request_id": {
+                  "type": "string"
+                },
+                "native_identity_namespace": {
+                  "type": "string"
+                },
+                "plan_digest": {
+                  "type": "string"
+                },
+                "provision_id": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "register_request_id": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "world_route": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "provision_id",
+                "purpose",
+                "plan_digest",
+                "bootstrap_config_version",
+                "world_identity",
+                "identity_route",
+                "world_route",
+                "native_identity_namespace",
+                "register_request_id",
+                "login_request_id",
+                "deadline",
+                "transport_limit"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_config_version": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "executor_key_ref": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "owner_setup",
+                  "type": "string"
+                },
+                "owner_key_ref": {
+                  "type": "string"
+                },
+                "participant_receipt_digest": {
+                  "type": "string"
+                },
+                "provision_id": {
+                  "type": "string"
+                },
+                "request_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "setup_id": {
+                  "type": "string"
+                },
+                "setup_plan_digest": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "write_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "setup_id",
+                "provision_id",
+                "participant_receipt_digest",
+                "world_identity",
+                "owner_key_ref",
+                "executor_key_ref",
+                "setup_plan_digest",
+                "bootstrap_config_version",
+                "deadline",
+                "request_limit",
+                "transport_limit",
+                "write_limit"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "owner_setup_reconcile",
+                  "type": "string"
+                },
+                "plan": {
+                  "$ref": "#/$defs/OwnerSetupReconcilePlanV1"
+                }
+              },
+              "required": [
+                "kind",
+                "plan"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "blocked_operation_ref": {
+                  "type": "string"
+                },
+                "deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "kind": {
+                  "const": "managed_login",
+                  "type": "string"
+                },
+                "login_key_ref": {
+                  "type": "string"
+                },
+                "login_request_id": {
+                  "type": "string"
+                },
+                "native_account_id": {
+                  "type": "string"
+                },
+                "native_identity_namespace": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "native_account_id",
+                "login_key_ref",
+                "native_identity_namespace",
+                "blocked_operation_ref",
+                "login_request_id",
+                "transport_limit",
+                "deadline"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "actions": {
+                  "items": {
+                    "$ref": "#/$defs/ApprovedActionV1"
+                  },
+                  "type": "array"
+                },
+                "allowed_resource_refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "business_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "cleanup_budget": {
+                  "$ref": "#/$defs/PurposeBudgetV1"
+                },
+                "cleanup_until": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "client_binding": {
+                  "$ref": "#/$defs/ApprovedClientBindingV1"
+                },
+                "client_pairing": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClientPairingBindingV1"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "control_budget": {
+                  "$ref": "#/$defs/ControlBudgetV1"
+                },
+                "executor_key_ref": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "test_session",
+                  "type": "string"
+                },
+                "native_account_id": {
+                  "type": "string"
+                },
+                "read_budget": {
+                  "$ref": "#/$defs/PurposeBudgetV1"
+                },
+                "read_until": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "request_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "runtime_ref": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "skill_ref": {
+                  "type": "string"
+                },
+                "source_ref": {
+                  "type": "string"
+                },
+                "task_fence": {
+                  "$ref": "#/$defs/GameTaskFenceV1"
+                },
+                "termination_plan_digest": {
+                  "type": "string"
+                },
+                "transport_limit": {
+                  "$ref": "#/$defs/DecimalU64"
+                },
+                "world_identity": {
+                  "$ref": "#/$defs/ApprovedWorldV1"
+                },
+                "write_deadline": {
+                  "$ref": "#/$defs/DecimalU64"
+                }
+              },
+              "required": [
+                "kind",
+                "session_id",
+                "native_account_id",
+                "world_identity",
+                "task_fence",
+                "executor_key_ref",
+                "client_binding",
+                "runtime_ref",
+                "skill_ref",
+                "source_ref",
+                "actions",
+                "allowed_resource_refs",
+                "read_budget",
+                "cleanup_budget",
+                "control_budget",
+                "write_deadline",
+                "read_until",
+                "cleanup_until",
+                "request_limit",
+                "transport_limit",
+                "business_limit",
+                "termination_plan_digest"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "DecimalI64": {
+          "maxLength": 20,
+          "pattern": "^(?:(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)|-(?!0$)(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7]|9223372036854775808))$",
+          "type": "string"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "GameExecutorBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "delegation_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_id": {
+              "type": "string"
+            },
+            "executor_public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "executor_id",
+            "executor_public_key",
+            "delegation_generation",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameGoalReferenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "activation_committed_height": {
+              "$ref": "#/$defs/DecimalU64",
+              "description": "A full commit root cannot be embedded in the state that it hashes."
+            },
+            "goal_ref": {
+              "type": "string"
+            },
+            "goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "prepare_operation_id": {
+              "type": "string"
+            },
+            "publish_operation_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "goal_revision",
+            "goal_ref",
+            "prepare_operation_id",
+            "publish_operation_id",
+            "activation_committed_height"
+          ],
+          "type": "object"
+        },
+        "GameTaskFenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "active_goal_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameGoalReferenceV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "executor_binding": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameExecutorBindingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "latest_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "owner_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_public_key": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "task_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_status": {
+              "$ref": "#/$defs/GameTaskStatusV1"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "agent_id",
+            "owner_binding",
+            "owner_generation",
+            "owner_public_key",
+            "task_id",
+            "task_revision",
+            "task_status",
+            "latest_goal_revision",
+            "active_goal_revision",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameTaskStatusV1": {
+          "enum": [
+            "suspended",
+            "active"
+          ],
+          "type": "string"
+        },
+        "MaterialLedgerId": {
+          "description": "Material ledger identifier used by M4 economy state.",
+          "type": "string"
+        },
+        "MaterialTransitPriority": {
+          "enum": [
+            "urgent",
+            "standard"
+          ],
+          "type": "string"
+        },
+        "OwnerSetupReconcilePlanV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "attempt_limit": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "correlation_digest": {
+              "type": "string"
+            },
+            "deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_key_ref": {
+              "type": "string"
+            },
+            "original_deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "original_digest": {
+              "type": "string"
+            },
+            "owner_key_ref": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            },
+            "reconcile_id": {
+              "type": "string"
+            },
+            "setup_id": {
+              "type": "string"
+            },
+            "setup_plan_digest": {
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/OwnerSetupStageV1"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "world_identity": {
+              "$ref": "#/$defs/ApprovedWorldV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "reconcile_id",
+            "setup_id",
+            "provision_id",
+            "stage",
+            "setup_plan_digest",
+            "original_digest",
+            "correlation_digest",
+            "world_identity",
+            "owner_key_ref",
+            "executor_key_ref",
+            "original_deadline",
+            "deadline",
+            "attempt_limit",
+            "transport_limit"
+          ],
+          "type": "object"
+        },
+        "OwnerSetupStageV1": {
+          "enum": [
+            "create_task",
+            "prepare_goal",
+            "publish_goal",
+            "delegation",
+            "bind",
+            "final_observation"
+          ],
+          "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        },
+        "PurposeBudgetV1": {
+          "additionalProperties": false,
+          "properties": {
+            "business": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "requests": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "transport": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "requests",
+            "transport",
+            "business"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "approval_request_id": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/ApprovalContextV1"
+        },
+        "intent": {
+          "$ref": "#/$defs/CustodyIntentV1"
+        }
+      },
+      "required": [
+        "approval_request_id",
+        "context",
+        "intent"
+      ],
+      "title": "ApprovalOptionsRequestV1",
+      "type": "object"
+    },
+    "TestSessionProgressV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "SessionPurposeV1": {
+          "enum": [
+            "execution",
+            "reconcile_read",
+            "termination_plan"
+          ],
+          "type": "string"
+        },
+        "TestSessionClosingReasonV1": {
+          "enum": [
+            "finished",
+            "aborted",
+            "deadline",
+            "lease_expired",
+            "budget_exhausted",
+            "revoked"
+          ],
+          "type": "string"
+        },
+        "TestSessionPhaseV1": {
+          "enum": [
+            "pending_approval",
+            "consumed_pending_preflight",
+            "active",
+            "closing",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "TestSessionPurposeProgressV1": {
+          "additionalProperties": false,
+          "properties": {
+            "business_remaining": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "deadline": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "purpose": {
+              "$ref": "#/$defs/SessionPurposeV1"
+            },
+            "requests_remaining": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "revoked": {
+              "type": "boolean"
+            },
+            "transport_remaining": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "purpose",
+            "deadline",
+            "requests_remaining",
+            "transport_remaining",
+            "business_remaining",
+            "revoked"
+          ],
+          "type": "object"
+        },
+        "TestSessionTerminationStatusV1": {
+          "enum": [
+            "not_allocated",
+            "original_saved",
+            "unknown",
+            "committed",
+            "rejected"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cleanup_until": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "closing_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TestSessionClosingReasonV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "control_connector_http_remaining": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "control_host_http_remaining": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "control_requests_remaining": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "custody_account_id": {
+          "type": "string"
+        },
+        "identity_control_http_remaining": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "lease_until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pending_operations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "provision_id": {
+          "type": "string"
+        },
+        "purposes": {
+          "items": {
+            "$ref": "#/$defs/TestSessionPurposeProgressV1"
+          },
+          "type": "array"
+        },
+        "read_until": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "revoke_status": {
+          "$ref": "#/$defs/TestSessionTerminationStatusV1"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/TestSessionPhaseV1"
+        },
+        "stop_status": {
+          "$ref": "#/$defs/TestSessionTerminationStatusV1"
+        },
+        "write_closed": {
+          "type": "boolean"
+        },
+        "write_deadline": {
+          "$ref": "#/$defs/DecimalU64"
+        }
+      },
+      "required": [
+        "api_version",
+        "session_id",
+        "custody_account_id",
+        "provision_id",
+        "stage",
+        "write_closed",
+        "write_deadline",
+        "read_until",
+        "cleanup_until",
+        "purposes",
+        "control_requests_remaining",
+        "control_host_http_remaining",
+        "identity_control_http_remaining",
+        "stop_status",
+        "revoke_status",
+        "pending_operations"
+      ],
+      "title": "TestSessionProgressV1",
       "type": "object"
     }
   }

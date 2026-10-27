@@ -9,10 +9,8 @@ path = "src/lib.rs"
 
 [features]
 signature-metrics = []
-schema = ["dep:schemars"]
 
 [dependencies]
-schemars = { version = "1.2", optional = true }
 ed25519-dalek = "3"
 hex.workspace = true
 serde.workspace = true

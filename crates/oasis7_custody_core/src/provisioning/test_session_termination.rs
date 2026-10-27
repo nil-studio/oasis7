@@ -25,6 +25,8 @@ pub struct TerminationPlanV1 {
     pub owner_key_ref: String,
     pub executor_key_ref: String,
     pub initial_fence: GameTaskFenceV1,
+    #[serde(with = "delegation_metadata")]
+    #[cfg_attr(test, schemars(with = "delegation_metadata::DelegationMetadataV1"))]
     pub original_delegation: AgentSignerDelegationChangeV1,
     pub stop_operation_id: String,
     pub revoke_operation_id: String,
@@ -406,3 +408,6 @@ impl AccountProvisionApprovalState {
 }
 #[path = "test_session_termination_io.rs"]
 mod io;
+
+#[path = "test_session_delegation_metadata.rs"]
+mod delegation_metadata;

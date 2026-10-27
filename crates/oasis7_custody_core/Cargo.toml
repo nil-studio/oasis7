@@ -22,7 +22,6 @@ ed25519-dalek = "3"
 subtle = "2"
 
 [dev-dependencies]
-oasis7_client_api = { path = "../oasis7_client_api", features = ["schema"] }
 oasis7_agent_api = { path = "../oasis7_agent_api", features = ["schema"] }
 schemars = "1.2"
 

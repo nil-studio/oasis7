@@ -125,7 +125,7 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
     let termination: TerminationPlanV1 = typed(
         json!({"api_version":1,"session_id":"session-one","custody_account_id":"custody-one","provision_id":"provision-one","setup_id":"setup-one","prepared_result_digest":prepared,
         "world":intent["world_identity"],"owner_key_ref":"owner-one","executor_key_ref":"executor-one","initial_fence":fence,
-        "original_delegation":{"world_id":"world-one","branch_id":"branch-one","agent_id":"agent-one","owner_binding":"owner-one","agent_identity_generation":1,"generation":1,"delegate_public_key":"cc".repeat(32),"revoked":false,"nonce":1},
+        "original_delegation":{"world_id":"world-one","branch_id":"branch-one","agent_id":"agent-one","owner_binding":"owner-one","agent_identity_generation":"1","generation":"1","delegate_public_key":"cc".repeat(32),"revoked":false,"nonce":"1"},
         "stop_operation_id":operation("oasis7.custody.session-stop.v1"),"revoke_operation_id":operation("oasis7.custody.session-revoke.v1"),
         "cleanup_until":"601000","request_limit":"2","transport_limit":"24","trigger":"closing_only_v1","nonce_policy":"account_allocated_high_water_v1"}),
     );

@@ -106,3 +106,82 @@ test('TypeScript converter reuses exact root definitions without dropping valida
   conflict.Shared.$defs.Shared = { ...copy(shape), required: [] };
   assert.throws(() => declarations(conflict), /Conflicting/);
 });
+
+test('public pairing and TestSession Rust fixtures remain closed metadata contracts', () => {
+  const names = ['PairingInviteCreateRequestV1', 'PairingInviteOriginalV1', 'PairingInviteTargetRefV1',
+    'HostDeploymentDescriptorV1', 'ClientEnrollmentCreateRequestV1', 'ClientEnrollmentCreateResponseV1',
+    'ClientEnrollmentProofRequestV1', 'ClientEnrollmentProofResponseV1', 'ClientCredentialClaimRequestV1',
+    'ClientPairingBindingV1', 'TestSessionBasisRequestV1', 'TestSessionBasisV1', 'TestSessionPrepareRequestV1',
+    'TestSessionPrepareResponseV1', 'TestSessionApproveRequestV1', 'TestSessionContinueRequestV1', 'TestSessionProgressV1'];
+  for (const name of names) {
+    assert.ok(validators[name], `${name} must come from the generated Rust contract`);
+    assert.ok(contract.fixtures[name].length > 0, `${name} must consume actual Rust fixtures`);
+    for (const original of contract.fixtures[name]) {
+      const roundtrip = JSON.parse(JSON.stringify(original));
+      assert.ok(validators[name](roundtrip), `${name}: ${JSON.stringify(validators[name].errors)}`);
+      assert.deepEqual(roundtrip, original);
+      assert.equal(validators[name]({ ...roundtrip, verified_authority: true }), false, name);
+    }
+  }
+  const enrollment = copy(contract.fixtures.ClientEnrollmentCreateRequestV1[0]);
+  delete enrollment.target;
+  assert.equal(validators.ClientEnrollmentCreateRequestV1(enrollment), false, 'a directed invite target is mandatory');
+  const proof = copy(contract.fixtures.ClientEnrollmentProofResponseV1[0]);
+  proof.status = 'approved';
+  assert.equal(validators.ClientEnrollmentProofResponseV1(proof), false, 'proof status never asserts Host approval');
+  const prepare = copy(contract.fixtures.TestSessionPrepareRequestV1[0]);
+  delete prepare.plan.control_budget;
+  assert.equal(validators.TestSessionPrepareRequestV1(prepare), false, 'preflight control budget is explicit');
+});
+
+test('custody delegation metadata preserves all three u64 decimal fields through JSON', () => {
+  // This is the metadata codec, not a cryptographic grant or semantic fence validator.
+  const validate = validators.TestSessionBasisV1;
+  const original = contract.fixtures.TestSessionBasisV1[0];
+  const fields = ['agent_identity_generation', 'generation', 'nonce'];
+  for (const field of fields) {
+    assert.equal(typeof original.termination.original_delegation[field], 'string');
+    for (const value of ['0', '9007199254740993', '18446744073709551614', '18446744073709551615']) {
+      const fixture = copy(original);
+      fixture.termination.original_delegation[field] = value;
+      const roundtrip = JSON.parse(JSON.stringify(fixture));
+      assert.equal(roundtrip.termination.original_delegation[field], value);
+      assert.ok(validate(roundtrip), `${field}=${value}: ${JSON.stringify(validate.errors)}`);
+    }
+    for (const value of [1, 9007199254740992, '01', '+1', '-1', '1.0', '1e3', '18446744073709551616']) {
+      const fixture = copy(original);
+      fixture.termination.original_delegation[field] = value;
+      assert.equal(validate(fixture), false, `${field} must reject ${String(value)}`);
+    }
+    for (const { value, accepted_by_rust } of contract.decimal_fixtures) {
+      const fixture = copy(original);
+      fixture.termination.original_delegation[field] = value;
+      assert.equal(validate(fixture), accepted_by_rust, `${field}: ${JSON.stringify(value)}`);
+    }
+  }
+  const forged = copy(original);
+  forged.termination.original_delegation.verified = true;
+  assert.equal(validate(forged), false, 'an extra delegation authority claim is never metadata');
+});
+
+test('safe TestSession progress rejects proofs, SID selectors, credentials and private goals', () => {
+  const validate = validators.TestSessionProgressV1;
+  const forbidden = ['proof', 'approval', 'source', 'private_sid', 'session_ref', 'private_sid_generation',
+    'raw_token', 'credential_history', 'goal_content', 'authority', 'permit'];
+  for (const fixture of contract.fixtures.TestSessionProgressV1) {
+    assert.ok(validate(fixture));
+    for (const name of forbidden) {
+      assert.equal(Object.hasOwn(fixture, name), false);
+      assert.equal(validate({ ...copy(fixture), [name]: 'not-public' }), false, name);
+    }
+    for (const purpose of fixture.purposes) {
+      for (const name of ['raw_token', 'proof', 'goal_content']) {
+        const forged = copy(fixture);
+        forged.purposes[fixture.purposes.indexOf(purpose)][name] = 'not-public';
+        assert.equal(validate(forged), false, `purpose.${name}`);
+      }
+    }
+  }
+  assert.ok(contract.fixtures.TestSessionProgressV1.some(value => value.stage === 'active'));
+  assert.ok(contract.fixtures.TestSessionProgressV1.some(value => value.stage === 'closing'));
+});

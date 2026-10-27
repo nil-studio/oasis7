@@ -461,3 +461,6 @@ pub(super) fn export(directory: &std::path::Path) {
     )
     .unwrap();
 }
+
+#[path = "http_schema_termination_decimal_tests.rs"]
+mod termination_decimal_tests;

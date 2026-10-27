@@ -80,6 +80,17 @@ export type ApprovedWorldV1 = {
   "service_public_key": string;
   "world_id": string;
 };
+export type ClientPairingBindingV1 = {
+  "api_version": number;
+  "client_key_id": string;
+  "client_public_key": string;
+  "connector_public_key"?: (string | null);
+  "descriptor_digest": string;
+  "enrollment_digest": string;
+  "enrollment_id": string;
+  "host_instance_id": string;
+  "target": PairingInviteTargetRefV1;
+};
 export type ControlBudgetV1 = {
   "identity_transport": DecimalU64;
   "requests": DecimalU64;
@@ -133,6 +144,7 @@ export type CustodyIntentV1 = ({
   "cleanup_budget": PurposeBudgetV1;
   "cleanup_until": DecimalU64;
   "client_binding": ApprovedClientBindingV1;
+  "client_pairing"?: (ClientPairingBindingV1 | null);
   "control_budget": ControlBudgetV1;
   "executor_key_ref": string;
   "kind": "test_session";
@@ -203,12 +215,37 @@ export type OwnerSetupReconcilePlanV1 = {
   "world_identity": ApprovedWorldV1;
 };
 export type OwnerSetupStageV1 = "create_task" | "prepare_goal" | "publish_goal" | "delegation" | "bind" | "final_observation";
+export type PairingInviteTargetRefV1 = {
+  "custody_account_id": string;
+  "invite_digest": string;
+  "invite_id": string;
+  "provision_id": string;
+};
 export type PurposeBudgetV1 = {
   "business": DecimalU64;
   "requests": DecimalU64;
   "transport": DecimalU64;
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
+export type TestSessionPurposeV1 = "execute" | "read" | "cleanup";
+export type HostDeploymentDescriptorV1 = {
+  "api_version": number;
+  "build_digest": string;
+  "client_public_key": string;
+  "environment": string;
+  "host_instance_id": string;
+  "https_origin": string;
+  "isolation_acceptance_refs": Array<string>;
+  "isolation_mechanism": HostIsolationMechanismV1;
+  "restricted_runtime_identity": string;
+  "skill_manifest_digest": string;
+  "tool_manifest_digest": string;
+  "tool_profile": string;
+  "transport_profile": HostTransportProfileV1;
+};
+export type HostIsolationMechanismV1 = "separate_os_principal" | "enforced_sandbox" | "remote_closed_tool_host";
+export type HostTransportProfileV1 = "native-broker-custody-v1" | "dot-mcp-custody-v1";
+export type ClientEnrollmentProofStatusV1 = "proved";
 export type ManagedLoginStageV1 = "approved" | "native_session_ready" | "explicit_login_required";
 export type ApprovalAdmissionInput = {
   "approval": SignedCustodyApprovalV1;
@@ -377,6 +414,68 @@ export type SourceRevocationEventV1 = {
   "source": RevokedSourceV1;
   "version": number;
 };
+export type TestSessionPlanV1 = {
+  "actions": Array<ApprovedActionV1>;
+  "allowed_resource_refs": Array<string>;
+  "api_version": number;
+  "basis_digest": string;
+  "business_limit": DecimalU64;
+  "cleanup_budget": PurposeBudgetV1;
+  "cleanup_until": DecimalU64;
+  "control_budget": ControlBudgetV1;
+  "enrollment_id": string;
+  "read_budget": PurposeBudgetV1;
+  "read_until": DecimalU64;
+  "request_id": string;
+  "request_limit": DecimalU64;
+  "transport_limit": DecimalU64;
+  "write_deadline": DecimalU64;
+};
+export type DelegationMetadataV1 = {
+  "agent_id": string;
+  "agent_identity_generation": DecimalU64;
+  "branch_id": string;
+  "delegate_public_key": string;
+  "generation": DecimalU64;
+  "nonce": DecimalU64;
+  "owner_binding": string;
+  "revoked": boolean;
+  "world_id": string;
+};
+export type TerminationNoncePolicyV1 = "account_allocated_high_water_v1";
+export type TerminationPlanV1 = {
+  "api_version": number;
+  "cleanup_until": DecimalU64;
+  "custody_account_id": string;
+  "executor_key_ref": string;
+  "initial_fence": GameTaskFenceV1;
+  "nonce_policy": TerminationNoncePolicyV1;
+  "original_delegation": DelegationMetadataV1;
+  "owner_key_ref": string;
+  "prepared_result_digest": string;
+  "provision_id": string;
+  "request_limit": DecimalU64;
+  "revoke_operation_id": string;
+  "session_id": string;
+  "setup_id": string;
+  "stop_operation_id": string;
+  "transport_limit": DecimalU64;
+  "trigger": TerminationTriggerV1;
+  "world": ApprovedWorldV1;
+};
+export type TerminationTriggerV1 = "closing_only_v1";
+export type SessionPurposeV1 = "execution" | "reconcile_read" | "termination_plan";
+export type TestSessionClosingReasonV1 = "finished" | "aborted" | "deadline" | "lease_expired" | "budget_exhausted" | "revoked";
+export type TestSessionPhaseV1 = "pending_approval" | "consumed_pending_preflight" | "active" | "closing" | "blocked";
+export type TestSessionPurposeProgressV1 = {
+  "business_remaining": DecimalU64;
+  "deadline": DecimalU64;
+  "purpose": SessionPurposeV1;
+  "requests_remaining": DecimalU64;
+  "revoked": boolean;
+  "transport_remaining": DecimalU64;
+};
+export type TestSessionTerminationStatusV1 = "not_allocated" | "original_saved" | "unknown" | "committed" | "rejected";
 export type ServiceMetadata = {
   "api_profile": string;
   "execution_enabled": boolean;
@@ -418,6 +517,45 @@ export type ApprovalVerifyRequestV1 = {
   "proof_digest": string;
   "purpose": VerificationPurposeV1;
   "verify_nonce": string;
+};
+export type ClientCredentialClaimRequestV1 = {
+  "api_version": number;
+  "enrollment_id": string;
+  "expected_generation"?: (DecimalU64 | null);
+  "purposes": Array<TestSessionPurposeV1>;
+  "replace": boolean;
+  "request_id": string;
+  "test_session_id": string;
+};
+export type ClientEnrollmentCreateRequestV1 = {
+  "api_version": number;
+  "descriptor": HostDeploymentDescriptorV1;
+  "request_id": string;
+  "target": PairingInviteTargetRefV1;
+};
+export type ClientEnrollmentCreateResponseV1 = {
+  "api_version": number;
+  "challenge_expires_at": DecimalU64;
+  "descriptor_digest": string;
+  "enrollment_id": string;
+  "expires_at": DecimalU64;
+  "key_id": string;
+  "server_nonce": string;
+};
+export type ClientEnrollmentProofRequestV1 = {
+  "api_version": number;
+  "challenge_expires_at": DecimalU64;
+  "client_public_key": string;
+  "descriptor_digest": string;
+  "enrollment_id": string;
+  "request_id": string;
+  "server_nonce": string;
+  "target": PairingInviteTargetRefV1;
+};
+export type ClientEnrollmentProofResponseV1 = {
+  "api_version": number;
+  "enrollment_id": string;
+  "status": ClientEnrollmentProofStatusV1;
 };
 export type CustodySessionStatusV1 = {
   "account_id": string;
@@ -558,6 +696,25 @@ export type OwnerSetupReconcileProgressV1 = {
   "stage": OwnerSetupStageV1;
   "transport_remaining": DecimalU64;
 };
+export type PairingInviteCreateRequestV1 = {
+  "api_version": number;
+  "request_id": string;
+  "tool_profile": string;
+  "transport_profile": HostTransportProfileV1;
+};
+export type PairingInviteOriginalV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "domain": string;
+  "environment": string;
+  "expires_at": DecimalU64;
+  "invite_id": string;
+  "issued_at": DecimalU64;
+  "provision_id": string;
+  "service_epoch": DecimalU64;
+  "tool_profile": string;
+  "transport_profile": HostTransportProfileV1;
+};
 export type ProvisionApprovalViewV1 = {
   "api_version": number;
   "custody_account_id": string;
@@ -616,4 +773,67 @@ export type SourceRevocationsPollRequestV1 = {
 export type SourceRevocationsPollResponseV1 = {
   "api_version": number;
   "events": Array<SignedSourceRevocationEventV1>;
+};
+export type TestSessionApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
+  "plan": TestSessionPlanV1;
+};
+export type TestSessionBasisRequestV1 = {
+  "api_version": number;
+  "cleanup_until": DecimalU64;
+  "enrollment_id": string;
+  "request_id": string;
+};
+export type TestSessionBasisV1 = {
+  "allowed_resource_refs": Array<string>;
+  "api_version": number;
+  "authority": ApprovalContextV1;
+  "client_pairing": ClientPairingBindingV1;
+  "custody_account_id": string;
+  "executor_key": PublicRoleKey;
+  "native_account_id": string;
+  "owner_key": PublicRoleKey;
+  "provision_id": string;
+  "request_id": string;
+  "runtime_ref": string;
+  "session_id": string;
+  "skill_ref": string;
+  "source_ref": string;
+  "termination": TerminationPlanV1;
+};
+export type TestSessionContinueRequestV1 = {
+  "api_version": number;
+  "session_id": string;
+};
+export type TestSessionPrepareRequestV1 = {
+  "api_version": number;
+  "approval_request_id": string;
+  "plan": TestSessionPlanV1;
+};
+export type TestSessionPrepareResponseV1 = {
+  "approval_request_id": string;
+  "context": ApprovalContextV1;
+  "intent": CustodyIntentV1;
+};
+export type TestSessionProgressV1 = {
+  "api_version": number;
+  "cleanup_until": DecimalU64;
+  "closing_reason"?: (TestSessionClosingReasonV1 | null);
+  "control_connector_http_remaining"?: (DecimalU64 | null);
+  "control_host_http_remaining": DecimalU64;
+  "control_requests_remaining": DecimalU64;
+  "custody_account_id": string;
+  "identity_control_http_remaining": DecimalU64;
+  "lease_until"?: (DecimalU64 | null);
+  "pending_operations": Array<string>;
+  "provision_id": string;
+  "purposes": Array<TestSessionPurposeProgressV1>;
+  "read_until": DecimalU64;
+  "revoke_status": TestSessionTerminationStatusV1;
+  "session_id": string;
+  "stage": TestSessionPhaseV1;
+  "stop_status": TestSessionTerminationStatusV1;
+  "write_closed": boolean;
+  "write_deadline": DecimalU64;
 };
