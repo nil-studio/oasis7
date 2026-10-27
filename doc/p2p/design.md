@@ -362,6 +362,12 @@ engineering V2 的现有 execution hash 不承诺正式读取的投影树，不�
 
 主机提供两个显式入口：`bft-read install` 从有界 canonical QC 文件安装已被独立配置固定的精确 H+1，先验证 H/闭包/目标及证书，再由实际 World driver 重执行并持久保存；输入 QC 不能自行选择信任起点或目标 block ID。`bft-read serve` 只重开已有独立 ledger，重验该固定 cut 后提供 loopback 读取；不创建缺失信任或重新初始化账本。install 不生成 validator 票、不调用 Submit，也不代表网络写入或正式 validator 生命周期已接线。
 
+连续正式 BFT 前缀扩展保留上述 H+1 合同，另以不可反序列化构造的验证状态绑定已认证 H、目标配置和激活 digest。版本 1 的完整 canonical 前缀同时限制为最多 64 个高度和 16 MiB 编码字节。首高度的协议 schedule 由 H 能力与首条正式 preimage 派生，发布驱动仍须从 H 实际重放并逐项核对该 schedule；每个后继高度复用现有 QC token 验证器，且只能取前一个 token 的 next-height schedule。每条正式 execution preimage 必须与对应 block、激活 digest、精确 parent CommitRef/tick、parent semantic root 和 manifest 相符；缺高、重排、冲突或混入 engineering 执行均拒绝。最后一个普通 QC token 不能单独代替从 H 连续验证的能力。该能力认证协议前缀，不认证 World 已执行、当前可服务、持有签名权限或读取新鲜度。
+
+受控 `restore_snapshot_with_attached_formal_history` 继续只恢复精确 H 的原 Snapshot。连续 BFT 的隔离候选从驱动实际重放所得的父 World 派生；在保留原 H reader 的同时，先核对父 Snapshot 原始摘要、semantic root、manifest 与已验证前缀的 tip/QC，拒绝未提交 action/effect 队列或已有执行阶段，并核对隔离前后的 Snapshot/Journal 字节相同。该路径不接受外部 Snapshot/Journal 替换参数，也不给 H 的旧证明增加对后继状态的认证范围。
+
+驱动在恢复时从相同 H 的认证闭包逐高度重执行，核对每条 commitment、实际 Snapshot/Journal、投影和结果树，再公开相应 cut。每个高度重新捕获刚重放出的父 World controller policy；H 的 reader 继续只承担受控冷历史读取，不能将 H 的 controller policy 沿用为所有后继高度的授权。ledger 对每个高度追加不可变记录并保留累计 CAS 依赖，拒绝截短、覆盖、跳高和用最高结构记录直接生成可信 head；旧单高度 ledger 不静默解释为新格式。完整前缀须同时有累计高度与编码字节硬上限，达到上限返回明确容量不足，不能丢弃旧前缀后继续。新消费者必须协商显式新版本、携带完整有界前缀证据并到达外部精确固定的目标；旧 `/v2/world/read` 仍只支持 H+1。这些接续能力不替代正式 signer/provider 安装、网络共识生产、checkpoint 时间授权或部署 readiness。
+
 保留长期离线 checkpoint 的有效期、退出 key/stake 约束及独立 minimum 要求；完整重放不自动免除弱主观信任期限。缺少适用且独立认证的 checkpoint、时间或受保护 minimum 时，自动接续保持阻断，历史固定 cut 的离线验签与当前可服务/可投票资格分别报告。本机测试只证明实际使用的 provider、时间和存储接缝，不代签硬件、磁盘掉电或故障域验收。
 
 回归必须包含真实 qualified 受控 H、实际 World driver 执行的 H+1，以及正式读取 producer 到客户端 verifier 的正向结果；同一场景拒绝 H+1 受控追加、错误目标配置/父引用/根/manifest、未认证闭包和冒充正式历史的 engineering V2。H 已提交而 H+1 未提交的停启保留同一交接和旧写入拒绝；H+1 安装后重开保留精确 cut，后继合法只读请求可继续。未执行的消费者、签写和真实环境义务保持未完成，不由该只读切片关闭 #4975。

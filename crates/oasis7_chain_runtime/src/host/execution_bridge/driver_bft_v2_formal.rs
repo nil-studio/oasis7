@@ -455,6 +455,7 @@ impl FormalBftReadExecutionV1 {
                 input_hash: input_hash.as_str(),
                 tick_authority: FORMAL_BFT_EXECUTION_TICK_AUTHORITY,
                 formal_handoff: Some(&self.handoff),
+                formal_prefix: None,
             })?;
         let projection_root =
             oasis7::world_service::formal_projection::commitments_for_world(&executed.world)?
