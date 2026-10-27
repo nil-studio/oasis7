@@ -335,6 +335,16 @@
   },
   "rules": [
     {
+      "match": ["vendor-if-watch-3.2.2/**"],
+      "groups": ["rust_baseline", "net", "node"],
+      "reason": "if_watch_patch_consumers"
+    },
+    {
+      "match": ["vendor-egui-winit-0.33.3/**"],
+      "groups": ["rust_baseline", "launcher_web"],
+      "reason": "egui_winit_patch_consumers"
+    },
+    {
       "match": [
         "vendor-libp2p-rendezvous-0.18.1/**"
       ],
