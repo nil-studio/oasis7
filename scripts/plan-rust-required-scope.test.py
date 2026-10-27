@@ -32,6 +32,46 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_m1_storage_source_has_explicit_runtime_and_builder_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
+        self.write(path, '// existing standalone WASM source\n')
+        head = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            plan = selector.select(config, self.base, head)
+            self.assertEqual(set(plan['groups']), {
+                'baseline', 'rust_baseline', 'oasis7_required', 'formal_process',
+                'launcher_web', 'workspace_support',
+            })
+            self.assertEqual(plan['workspace_support_profiles'], ['wasm_build_suite'])
+            trusted_before_registration = dict(config, rules=[
+                rule for rule in config['rules']
+                if rule['reason'] != 'm1_storage_wasm_consumers'
+            ])
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(trusted_before_registration, self.base, head)
+            self.base = head
+            self.git('rm', path)
+            deleted = self.commit()
+            self.assertIn('oasis7_required', selector.select(config, self.base, deleted)['groups'])
+
+    def test_m1_storage_registration_does_not_admit_neighboring_or_renamed_unknown_sources(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        source = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
+        unknown = 'crates/oasis7_builtin_wasm_modules/m1_future/src/lib.rs'
+        self.write(source, '// registered source\n')
+        self.base = self.commit()
+        self.write(unknown, '// not registered\n')
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+            self.git('rm', unknown)
+            self.base = self.commit()
+            Path(unknown).parent.mkdir(parents=True, exist_ok=True)
+            self.git('mv', source, unknown)
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_wasm_consumer_exact_paths_select_real_suite_and_domain_groups(self):
         config = json.loads((HERE / "ci-required-scope.json").read_text())
         graph = ({}, {}, {})
