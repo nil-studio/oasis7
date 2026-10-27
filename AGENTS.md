@@ -13,6 +13,7 @@
 - 问题根因确认后，先按[设计检查与修复](doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：有缺陷先补受影响文档再修实现；纯实现 bug 直接修复验证，不强制改正确设计。
 - 新增或实质修改的跨层要求按[要求追踪规范](doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)关联唯一声明、适用设计与当前 PR：复用同一要求的 Trace ID，不把它当任务身份或准入条件，不为简单编辑虚构要求或补齐三层。
 - CI 控制、安全和兼容边界变化需要独立评审。专业关注点见 `.agents/roles/`，方法见 `.agents/skills/README.md`。
+- 实施按[最小完整改动](doc/engineering/workflow/source-of-truth.md#minimal-complete-change)核对影响范围与复用边界；评审按[有依据的评审](doc/engineering/workflow/source-of-truth.md#evidence-based-review)区分缺陷与非阻断建议。
 
 ## 常用命令
 
