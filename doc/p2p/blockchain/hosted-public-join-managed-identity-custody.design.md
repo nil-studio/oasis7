@@ -1000,6 +1000,27 @@ TerminationPlan 必须保存闭合的 typed 原件，不能接收调用者仅回
 
 Stop 与 Revoke 使用各自独立的一次 claim、原件和恢复状态；一个 unknown 不占死另一个的安全槽。Stop 已确认后，Revoke 仍按原授权目标和已记录 Stop receipt 所能证明的后状态核验，不能把自己的 Stop 引起的变化误判为换目标，也不能把任意外部 fence 变化吞掉。24 transport 是原批准的硬上限，不因当前接线增加 hop 静默提额；实际固定调用图、每次实际出站前预扣和超限拒绝必须由集成测试证明。缺证、预算或合法当前来源时保持 cleanup_blocked/unknown，不把预先保存模板或自然 token 到期当作 Stop/Revoke 已 canonical 或 session 已 closed。
 
+**原签查询、事实归档与当前准入分离：** Stop 已离开本服务、实际提交而回包丢失时，World 可能已处于 Suspended，但 Account 中 Stop 仍为 unknown。读取这一已登记原件不能要求 World 仍满足发送前的初始 Active fence，否则会同时阻断 Stop lookup 和后续独立 Revoke。只读 lookup 使用原已保存的完整 signed lookup request、operation/correlation、固定 World pin 与 domain；它不重新签名、不替换原件、不改变任何 fence，也不授予 Stop/Revoke 新写入或延长 purpose 期限。派发 lookup 仍须满足该预批准读取本身的 scope、当前来源、期限和独立预算条件，不把取消初始 Active 检查扩大为绕过身份/管理来源失效或灾备冻结。首次 Revoke 槽仍独立于 Stop 的 unknown 状态；仅有 unknown 不能占死该槽，无法证明 Revoke 自身合法当前范围时则如实 cleanup_blocked。
+
+对已收到的 canonical Submit/Lookup 响应提供独立的事实归档：按原件类型和固定 World key 强验完整签名、request digest、domain、correlation、branch/reorg 与原 typed payload 所对应的 receipt，分别保存至不可覆盖的两个槽。同一原件的精确重试只读返回原事实；不同原件不能覆盖旧槽。归档本身不要求初始 Active fence 或仍新鲜的业务 Current，因为它只记录已发生的权威事实；它不分配/返还预算、不确认当前活性、不修改 delegation 水位、不清除冻结/unknown，也不推进新的写权限。迟到事实只能在新的合法 Current、原 purpose 未过期、管理/Native 来源及独立 Fence 均通过后，按同一已登记原件进入结果准入。Stop 的强 committed receipt 可据此建立它实际造成的 Suspended 后状态，Revoke 再按该后状态和自身高水位合同核验；不能借归档吞掉任意外部 task/owner/executor 变化。Rejected 是已知阻断结果而非成功；Pending/Received/Unknown/Expired/HistoryUnavailable 不证明未执行，也不能伪造终态、重发 submit 或换 operation ID。
+
+**Cleanup 24 的完整调用图准入：** 当前独立 cleanup dispatcher、读原件签名与迟到事实准入尚未完成，24 transport 内的完整冷路径没有闭合证明，实际派发保持 disabled/cleanup_blocked。不能直接复用 Owner setup 的 96 transport 阶段、用 8 个观察信用代替实际出站计数、提高 24 上限，或从 Execution、ReconcileRead、控制/native 预算借额度。所有所需的 Source、Directory/Fence、SID/CSRF 私读前后观察、Native lifetime/当前 session、fresh policy/admission、固定 Owner 角色签名、World submit/lookup/回读、状态回传均须列入本 purpose 的实际逐 port 图；每次真实出站先持久预扣，失败/unknown 不退款，内部同 admission 回调的幂等不能把新网络请求变成免费重试。
+
+**本地到期与 alarm 一致性：** Account Authority 必须从实际持久状态派生最近的本地截止：未消费批准的 30 秒 proof 窗口、write_deadline、已激活写 lease 及 cleanup_until 分别按其阶段适用。alarm 只触发同 SQL 的本地 expire/quiesce/closing 与重新排程，不调用 Native、不消费 24 transport、不证明世界 Stop/Revoke 已执行。已 closing 会话最多登记一次仍在未来的 cleanup wake；cleanup 已过期而原件仍未知时保留 pending/cleanup_blocked，不重排过去的时间形成 busy loop，也不标记 Closed。早醒必须重读实际时钟和持久状态，尚未到期则重排，不提前关闭或重置任何绝对期限。
+
+DO SQL 事务与 storage.setAlarm 不是同一原子事务。交付任何首次开放或续租成功前，先持久一个不晚于当前实际最早应唤醒时刻的 alarm，再提交/核对开放或 lease 状态；SQL 随后失败留下额外早醒是安全的，早醒只重读重排。alarm 持久化失败时不得向调用者交付开放/续租成功。构造恢复（例如 blockConcurrencyWhile）以及 fetch/alarm 入口必须重读状态、补处理已经到期的本地事件并恢复该保守排程；重启、延迟 wake 或 setAlarm/SQL 任一阶段失败都不能产生新的执行授权。该机制仅补齐本地到期收紧，不将独立 cleanup 派发缺口或 24 次完整调用图宣称为已实现。
+
+下面仅列复用既有 Owner 签名调用模板时的已知子图，用于说明不能直接宣称“24 次足够”，不是已完成的 cleanup 调用图或集成验收：
+
+| 复用模板的已知子图 | 静态 hop 数 | 未包含的必要工作 |
+| --- | --- | --- |
+| 三次固定签名 oracle，各含固定服务转发及实际 Directory/Fence 检查 | 3 × 5 = 15 | 本 cleanup 的新鲜管理来源与 Native/session 检查 |
+| 三次角色阶段的独立 Fence 读取 | 3 × 2 = 6 | 不能以 oracle 内的观察代签独立角色检查 |
+| 固定签名 factory 与 Vault actor 交接 | 2 | World fresh access/read、Stop/Revoke submit、unknown lookup、结果及最终状态回读 |
+| 以上未完整子图 | 23 | 仍不是两个独立写原件的完整冷路径；任何实际图必须重新逐 port 计数 |
+
+可继续设计仅限本 TerminationPlan 的固定双原件通道，但在证明保留全部强签/当前来源/Fence/私读隔离/前置预扣、精确原件与独立恢复语义且完整图不超过 24 之前，不能将“合并一次读取/签名”当成已获授权的优化，也不能宣称该候选方案成立。若无法在原批准额度内完成，保留原模板、所有已 claim/unknown、事实槽与分配水位并报告阻断；Closing Ack、自然 session 到期或其中一个操作的 committed 都不等于 Closed。最终关闭必须分别证明 Stop 与 Revoke 的成功权威结果和所需当前 World 后状态，不能用普通 CI 或组件状态代签。
+
 所有期限和三目的预算在首次批准时可见、固定且计入初批总账。明示批准30min就发至同一 write_deadline 的凭据，无每5min重批或周期续领；只有私密领取丢响应/重启时允许原登记key在有效权限内rotate credential generation，deadline、预算不变。ExecutionGrant 到期后只可领取预批 ReconcileReadGrant 的凭据，不发新执行凭据；read_until 到期后停止客户端查询。增加预算、延期、换key/scope或恢复被撤销会话必须fresh approval，新批不能覆盖旧unknown reservation。首版每账号仅1个未关闭TestSession，3个目的占现有4个root的上限，不新增不计数的旁路根。
 
 在正常连续运行的前提下，ready/preflight 要保证当前 native account session 的已知自然有效期覆盖本次 write/cleanup 窗口；不足时缩短本次窗口或由管理端先执行独立批准的 fresh login。当前 GET /session 没有返回 expiry，需在同一 native identity authority 增补受认证 session metadata：server_time、expires_at、idle_expires_at、安全代；取两个 expiry 的较小值检查覆盖，不能根据底层当前30天/7天常量假定外部合同。撤销仍可随时提前终止权限。不能用“已经批准 30min”推导 native session 自动延长。
