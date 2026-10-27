@@ -12,6 +12,10 @@ use super::World;
 const M1_BOOTSTRAP_WASM_MAX_MEM_BYTES: u64 = 64 * 1024 * 1024;
 const M1_BOOTSTRAP_WASM_MAX_GAS: u64 = 2_000_000;
 
+#[cfg(all(test, feature = "wasmtime", feature = "test_tier_full"))]
+#[path = "m1_movement_era_tests.rs"]
+mod era_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct M1ScenarioBootstrapConfig {
     pub install_default_module_package: bool,
@@ -26,6 +30,39 @@ impl Default for M1ScenarioBootstrapConfig {
 }
 
 impl World {
+    pub(in crate::world) fn validate_m1_storage_movement_event_era(
+        &self,
+    ) -> Result<(), WorldError> {
+        if self.next_event_id_era == 0 {
+            return Ok(());
+        }
+        // Explicit instances suppress the manifest-only singleton, including
+        // when all instances are inactive. Match the actual routing selection.
+        let mut has_instances = false;
+        let mut active_v2_instance = false;
+        for instance in self.state.module_instances.values() {
+            if instance.module_id == M1_STORAGE_POWER_MODULE_ID {
+                has_instances = true;
+                active_v2_instance |=
+                    instance.active && instance.module_version == M1_STORAGE_POWER_MODULE_VERSION;
+            }
+        }
+        let active_v2 = if has_instances {
+            active_v2_instance
+        } else {
+            self.module_registry
+                .active
+                .get(M1_STORAGE_POWER_MODULE_ID)
+                .is_some_and(|version| version == M1_STORAGE_POWER_MODULE_VERSION)
+        };
+        if active_v2 {
+            return Err(WorldError::ModuleChangeInvalid {
+                reason: "M1 storage 0.2.0 requires event era 0; movement needs a qualified-outcome version and approved migration".into(),
+            });
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_m1_storage_activation(
         &self,
         module_id: &str,
