@@ -3,7 +3,11 @@ use oasis7_proto::distributed_bft::{
     v2::{BftScopeV2, BftValidatorV2},
     v3::{BFT_MAX_SIGNED_MATERIAL_BYTES_V3, BFT_MAX_VALIDATORS_V3, BFT_PROTOCOL_VERSION_V3},
 };
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, SeqAccess, Visitor},
+};
+use std::fmt;
 
 use crate::controlled_authority::formal::{FormalHeadRefV1, VerifiedFormalReadAnchorV1};
 
@@ -21,6 +25,41 @@ use super::{
 const TARGET_DOMAIN: &str = "oasis7.formal.bft.profile_target.v2";
 const ACTIVATION_DOMAIN: &str = "oasis7.formal.bft.handoff_activation.v2";
 
+fn bounded_validators<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<BftValidatorV2>, D::Error> {
+    struct Validators;
+    impl<'de> Visitor<'de> for Validators {
+        type Value = Vec<BftValidatorV2>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a bounded BFT validator sequence")
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            if seq
+                .size_hint()
+                .is_some_and(|size| size > BFT_MAX_VALIDATORS_V3)
+            {
+                return Err(de::Error::custom(
+                    "BFT target validator count exceeds bound",
+                ));
+            }
+            let mut validators = Vec::new();
+            while let Some(validator) = seq.next_element()? {
+                if validators.len() == BFT_MAX_VALIDATORS_V3 {
+                    return Err(de::Error::custom(
+                        "BFT target validator count exceeds bound",
+                    ));
+                }
+                validators.push(validator);
+            }
+            Ok(validators)
+        }
+    }
+    deserializer.deserialize_seq(Validators)
+}
+
 /// Logical execution profile 1 with an explicitly different signed identity wire.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +70,7 @@ pub struct BftProfileTargetV2 {
     pub wire_version: u16,
     pub scope: BftScopeV2,
     pub authority_epoch: u64,
+    #[serde(deserialize_with = "bounded_validators")]
     pub initial_validators: Vec<BftValidatorV2>,
     pub schedule_policy: BftSchedulePolicyV2,
     pub tick_mapping_ruleset: String,
@@ -251,4 +291,24 @@ pub fn verify_formal_bft_handoff_v2(
         governing_manifest_digest: fields.governing_manifest_digest,
         finalizing_authority_id: fields.finalizing_authority_id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_validator_declaration_is_rejected_before_elements() {
+        let mut bytes = serde_cbor::to_vec(&std::collections::BTreeMap::from([(
+            "initial_validators",
+            Vec::<BftValidatorV2>::new(),
+        )]))
+        .unwrap();
+        assert_eq!(bytes.pop(), Some(0x80));
+        // The declaration says 257 elements, but contains none. The count
+        // bound must reject it before either allocation or reading an element.
+        bytes.extend_from_slice(&[0x99, 0x01, 0x01]);
+        let error = BftProfileTargetV2::decode_canonical(&bytes).unwrap_err();
+        assert!(error.contains("validator count exceeds bound"), "{error}");
+    }
 }

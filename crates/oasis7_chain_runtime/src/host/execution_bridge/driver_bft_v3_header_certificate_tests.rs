@@ -21,6 +21,9 @@ use oasis7_proto::distributed_bft::{
 
 const EMPTY_ACTIONS_CBOR: &[u8] = &[0x80];
 
+#[path = "driver_bft_v3_header_transition_tests.rs"]
+mod transition_tests;
+
 pub(super) fn qualified_handoff_v3() -> QualifiedH<BftProfileTargetV2> {
     qualified_handoff_with_target_and_setup(
         102,
@@ -298,14 +301,17 @@ fn wire3_target_case() {
 
     let handoff = verify_formal_bft_handoff_v2(&h.anchor, h.target.clone())
         .expect("real qualified H names the exact canonical wire-3 target");
-    assert_eq!(handoff.handoff_position(), h.anchor.head().position);
+    assert_eq!(handoff.handoff_position(), h.anchor.head().head().position);
     assert_eq!(
         handoff.activation_height().unwrap(),
-        h.anchor.head().position + 1
+        h.anchor.head().head().position + 1
     );
     let schedule = initial_schedule(&handoff);
     assert_eq!(schedule.height(), handoff.activation_height().unwrap());
-    assert_eq!(schedule.parent_commit_ref(), &h.anchor.head().record_id);
+    assert_eq!(
+        schedule.parent_commit_ref(),
+        &h.anchor.head().head().record_id
+    );
 
     let old_target = BftProfileTargetV1::new(
         h.target.scope.clone(),
@@ -649,7 +655,7 @@ fn signed_entry(
             valid_round,
             commitment.active_validator_set_hash.clone(),
             commitment.schedule_policy_hash.clone(),
-            old_proposer,
+            old_proposer.clone(),
             block_id.clone(),
             None,
             &key_for_id(&old_proposer),
