@@ -151,9 +151,10 @@ fn absent_or_disabled_owner_gateway_and_invalid_session_fail_closed() {
 }
 #[test]
 fn independent_revocation_during_owner_observation_prevents_mutation_delivery() {
-    revoked_owner_observation(None, false, false);
+    revoked_owner_observation(None, false, false, false);
     revoked_owner_observation(
         Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
+        false,
         false,
         false,
     );
@@ -164,6 +165,7 @@ fn compact_owner_observation_rejects_legacy_signature_domain() {
         Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
         true,
         false,
+        false,
     );
 }
 #[test]
@@ -172,12 +174,23 @@ fn compact_owner_observation_binds_full_access_wrapper() {
         Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
         false,
         true,
+        false,
+    );
+}
+#[test]
+fn compact_owner_observation_checks_signed_payload_context() {
+    revoked_owner_observation(
+        Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
+        false,
+        false,
+        true,
     );
 }
 fn revoked_owner_observation(
     profile: Option<ParticipantOwnerViewProfileV1>,
     wrong_domain: bool,
     wrong_wrapper: bool,
+    wrong_context: bool,
 ) {
     use super::super::model::AccountRecord;
     use super::super::participant_entry::{EntryTrust, ParticipantEntry};
@@ -367,7 +380,7 @@ fn revoked_owner_observation(
                 canonical_agent_owner: fence,
                 game_task_control: None,
             };
-            let response = ParticipantOwnerControlResponseV1 {
+            let mut response = ParticipantOwnerControlResponseV1 {
                 schema_revision: 1,
                 world: world(),
                 version: ProjectionVersion {
@@ -379,6 +392,9 @@ fn revoked_owner_observation(
                 view: compact,
             };
             response.validate(&access).unwrap();
+            if wrong_context {
+                response.schema_revision = 2;
+            }
             let path = if wrong_domain {
                 VIEW_JSON_PATH
             } else {
@@ -464,8 +480,14 @@ fn revoked_owner_observation(
         .unwrap();
     done.send(()).unwrap();
     server.join().unwrap();
-    if wrong_domain || wrong_wrapper {
-        assert!(matches!(result, Err(StoreError::OutcomeUnknown)));
+    if wrong_context {
+        assert!(
+            matches!(result, Err(StoreError::Rejected(code)) if code == "participant_read_response_context")
+        );
+    } else if wrong_domain || wrong_wrapper {
+        assert!(
+            matches!(result, Err(StoreError::Rejected(code)) if code == "participant_read_response_context")
+        );
     } else {
         assert!(matches!(result,Err(StoreError::Rejected(code)) if code=="session_expired"));
     }
