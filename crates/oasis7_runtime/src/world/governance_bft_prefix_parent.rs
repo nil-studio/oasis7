@@ -45,7 +45,7 @@ impl World {
                 "validate formal BFT prefix history reader: {error}"
             ))
         })?;
-        self.validate_bft_parent_world(schedule)?;
+        self.validate_bft_parent_world(&BftGovernanceSchedule::V2(schedule.clone()))?;
         let commitment = prefix.commitment();
         let tip = prefix.certificate();
         let snapshot = crate::codec::snapshot_cbor(&self.snapshot())
@@ -80,16 +80,17 @@ impl World {
             .strip_prefix("blake3:")
             .ok_or_else(|| invalid("formal BFT prefix governing binding is not canonical"))?
             .to_owned();
-        binding.successor = Some(FormalBftSuccessorBindingV1 {
-            schedule_digest: schedule.digest().map_err(invalid)?,
-            raw_snapshot_root: commitment.execution_state_root().to_owned(),
-            governing_manifest_digest: governing,
-        });
-        if !binding.matches_schedule(schedule) {
+        let mut binding = FormalBftHandoffBinding::V1(binding);
+        binding.attach_successor(
+            &BftGovernanceSchedule::V2(schedule.clone()),
+            commitment.execution_state_root().to_owned(),
+            governing,
+        )?;
+        if !binding.matches_schedule(&BftGovernanceSchedule::V2(schedule.clone())) {
             return Err(invalid("formal BFT prefix is not after its handoff height"));
         }
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
-            schedule: schedule.clone(),
+            schedule: BftGovernanceSchedule::V2(schedule.clone()),
             controller_registry: Some(registry),
             formal_handoff: Some(binding),
             execution: None,

@@ -3,7 +3,9 @@
 
 use super::{World, WorldError};
 use crate::{GovernanceMainTokenControllerRegistry, RuntimeCommittedTickContext};
+use header_parent::FormalBftHeaderHandoffBindingV2;
 use oasis7_consensus::tendermint_v2::{BftHeightProposerScheduleV2, VerifiedBftHandoffTargetV1};
+use oasis7_formal_protocol::bft::BftHeaderHeightScheduleV3;
 use oasis7_formal_protocol::controlled_authority::formal::FormalHeadRefV1;
 use oasis7_proto::distributed_bft::v2::BftScopeV2;
 
@@ -14,12 +16,103 @@ mod tests;
 #[path = "governance_bft_prefix_parent.rs"]
 mod prefix_parent;
 
+#[path = "governance_bft_header_parent.rs"]
+mod header_parent;
+
 #[derive(Debug, Clone)]
 pub(super) struct BftGovernanceParentV2 {
-    pub(super) schedule: BftHeightProposerScheduleV2,
+    pub(super) schedule: BftGovernanceSchedule,
     pub(super) controller_registry: Option<GovernanceMainTokenControllerRegistry>,
-    pub(super) formal_handoff: Option<FormalBftHandoffBindingV1>,
+    pub(super) formal_handoff: Option<FormalBftHandoffBinding>,
     execution: Option<(RuntimeCommittedTickContext, bool)>,
+}
+
+/// A process-local typed view over schedule versions. This enum deliberately
+/// has no conversion to V2: the version-specific capability is retained until
+/// the private World execution phase ends.
+#[derive(Debug, Clone)]
+pub(super) enum BftGovernanceSchedule {
+    V2(BftHeightProposerScheduleV2),
+    HeaderV3(BftHeaderHeightScheduleV3),
+}
+
+impl BftGovernanceSchedule {
+    pub(super) fn scope(&self) -> &BftScopeV2 {
+        match self {
+            Self::V2(schedule) => schedule.scope(),
+            Self::HeaderV3(schedule) => schedule.scope(),
+        }
+    }
+
+    pub(super) fn authority_epoch(&self) -> u64 {
+        match self {
+            Self::V2(schedule) => schedule.authority_epoch(),
+            Self::HeaderV3(schedule) => schedule.authority_epoch(),
+        }
+    }
+
+    pub(super) fn height(&self) -> u64 {
+        match self {
+            Self::V2(schedule) => schedule.height(),
+            Self::HeaderV3(schedule) => schedule.height(),
+        }
+    }
+
+    pub(super) fn parent_commit_ref(&self) -> &str {
+        match self {
+            Self::V2(schedule) => schedule.parent_commit_ref(),
+            Self::HeaderV3(schedule) => schedule.parent_commit_ref(),
+        }
+    }
+
+    pub(super) fn parent_tick(&self) -> u64 {
+        match self {
+            Self::V2(schedule) => schedule.parent_tick(),
+            Self::HeaderV3(schedule) => schedule.parent_tick(),
+        }
+    }
+
+    pub(super) fn parent_state_root(&self) -> &str {
+        match self {
+            Self::V2(schedule) => schedule.parent_state_root(),
+            Self::HeaderV3(schedule) => schedule.parent_state_root(),
+        }
+    }
+
+    pub(super) fn parent_manifest_hash(&self) -> &str {
+        match self {
+            Self::V2(schedule) => schedule.parent_manifest_hash(),
+            Self::HeaderV3(schedule) => schedule.parent_manifest_hash(),
+        }
+    }
+
+    pub(super) fn policy(&self) -> &oasis7_consensus::tendermint_v2::BftSchedulePolicyV2 {
+        match self {
+            Self::V2(schedule) => schedule.policy(),
+            Self::HeaderV3(schedule) => schedule.policy(),
+        }
+    }
+
+    fn digest(&self) -> Result<String, String> {
+        match self {
+            Self::V2(schedule) => schedule.digest(),
+            Self::HeaderV3(schedule) => schedule.digest(),
+        }
+    }
+
+    fn v2(&self) -> Option<&BftHeightProposerScheduleV2> {
+        match self {
+            Self::V2(schedule) => Some(schedule),
+            Self::HeaderV3(_) => None,
+        }
+    }
+
+    fn header_v3(&self) -> Option<&BftHeaderHeightScheduleV3> {
+        match self {
+            Self::V2(_) => None,
+            Self::HeaderV3(schedule) => Some(schedule),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +124,12 @@ pub(super) struct FormalBftHandoffBindingV1 {
     pub(super) raw_snapshot_root: String,
     pub(super) governing_manifest_digest: String,
     successor: Option<FormalBftSuccessorBindingV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum FormalBftHandoffBinding {
+    V1(FormalBftHandoffBindingV1),
+    HeaderV3(FormalBftHeaderHandoffBindingV2),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,11 +167,16 @@ impl FormalBftHandoffBindingV1 {
             })
     }
 
-    pub(super) fn matches_schedule(&self, schedule: &BftHeightProposerScheduleV2) -> bool {
+    fn matches_schedule(&self, schedule: &BftGovernanceSchedule) -> bool {
+        let Some(schedule) = schedule.v2() else {
+            return false;
+        };
         if let Some(successor) = &self.successor {
             return schedule.scope() == &self.scope
                 && schedule.height() > self.head.position.saturating_add(1)
-                && schedule.digest().is_ok_and(|digest| digest == successor.schedule_digest);
+                && schedule
+                    .digest()
+                    .is_ok_and(|digest| digest == successor.schedule_digest);
         }
         schedule.scope() == &self.scope
             && schedule.parent_commit_ref() == self.head.record_id
@@ -90,11 +194,79 @@ impl FormalBftHandoffBindingV1 {
     }
 
     fn parent_snapshot_root(&self) -> &str {
-        self.successor.as_ref().map_or(&self.raw_snapshot_root, |next| &next.raw_snapshot_root)
+        self.successor
+            .as_ref()
+            .map_or(&self.raw_snapshot_root, |next| &next.raw_snapshot_root)
     }
 
     fn parent_governing_manifest(&self) -> &str {
-        self.successor.as_ref().map_or(&self.governing_manifest_digest, |next| &next.governing_manifest_digest)
+        self.successor
+            .as_ref()
+            .map_or(&self.governing_manifest_digest, |next| {
+                &next.governing_manifest_digest
+            })
+    }
+}
+
+impl FormalBftHandoffBinding {
+    fn matches_retained_parent(
+        &self,
+        parent: &crate::VerifiedFormalRetainedHistoryParentV1,
+    ) -> bool {
+        match self {
+            Self::V1(binding) => binding.matches_retained_parent(parent),
+            Self::HeaderV3(binding) => binding.matches_retained_parent(parent),
+        }
+    }
+
+    fn matches_schedule(&self, schedule: &BftGovernanceSchedule) -> bool {
+        match self {
+            Self::V1(binding) => binding.matches_schedule(schedule),
+            Self::HeaderV3(binding) => binding.matches_schedule(schedule),
+        }
+    }
+
+    fn matches_controller_registry(
+        &self,
+        retained: &crate::VerifiedFormalRetainedHistoryParentV1,
+        captured: Option<&GovernanceMainTokenControllerRegistry>,
+    ) -> bool {
+        match self {
+            Self::V1(binding) => binding.matches_controller_registry(retained, captured),
+            Self::HeaderV3(binding) => binding.matches_controller_registry(retained, captured),
+        }
+    }
+
+    fn parent_snapshot_root(&self) -> &str {
+        match self {
+            Self::V1(binding) => binding.parent_snapshot_root(),
+            Self::HeaderV3(binding) => binding.parent_snapshot_root(),
+        }
+    }
+
+    fn parent_governing_manifest(&self) -> &str {
+        match self {
+            Self::V1(binding) => binding.parent_governing_manifest(),
+            Self::HeaderV3(binding) => binding.parent_governing_manifest(),
+        }
+    }
+
+    fn attach_successor(
+        &mut self,
+        schedule: &BftGovernanceSchedule,
+        raw_snapshot_root: String,
+        governing_manifest_digest: String,
+    ) -> Result<(), WorldError> {
+        let successor = FormalBftSuccessorBindingV1 {
+            schedule_digest: schedule.digest().map_err(invalid)?,
+            raw_snapshot_root,
+            governing_manifest_digest,
+        };
+        match self {
+            Self::V1(binding) => binding.successor = Some(successor),
+            Self::HeaderV3(binding) => binding.successor = Some(successor),
+        }
+        Ok(())
     }
 }
 
@@ -125,14 +297,14 @@ impl World {
                 "BFT parent cannot replace an active qualified execution",
             ));
         }
-        self.validate_bft_parent_world(schedule)?;
+        self.validate_bft_parent_world(&BftGovernanceSchedule::V2(schedule.clone()))?;
         let registry = self
             .governance_main_token_controller_registry()
             .cloned()
             .map(Self::validate_governance_main_token_controller_registry)
             .transpose()?;
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
-            schedule: schedule.clone(),
+            schedule: BftGovernanceSchedule::V2(schedule.clone()),
             controller_registry: registry,
             formal_handoff: None,
             execution: None,
@@ -281,9 +453,11 @@ impl World {
             current_registry.clone(),
         )?);
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
-            schedule: schedule.clone(),
+            schedule: BftGovernanceSchedule::V2(schedule.clone()),
             controller_registry: registry,
-            formal_handoff: Some(FormalBftHandoffBindingV1::from_capability(capability)),
+            formal_handoff: Some(FormalBftHandoffBinding::V1(
+                FormalBftHandoffBindingV1::from_capability(capability),
+            )),
             execution: None,
         }));
         Ok(())
@@ -291,7 +465,7 @@ impl World {
 
     fn validate_bft_parent_world(
         &self,
-        schedule: &BftHeightProposerScheduleV2,
+        schedule: &BftGovernanceSchedule,
     ) -> Result<(), WorldError> {
         if self.state.time != schedule.parent_tick()
             || self.current_state_root_hash()? != schedule.parent_state_root()
@@ -479,7 +653,10 @@ impl World {
             (Some(binding), Some(formal))
                 if binding.matches_retained_parent(formal)
                     && binding.matches_schedule(&parent.schedule)
-                    && binding.matches_controller_registry(formal, parent.controller_registry.as_ref())
+                    && binding.matches_controller_registry(
+                        formal,
+                        parent.controller_registry.as_ref(),
+                    )
                     && self.state.retained_history_root.as_ref() == Some(formal.root())
                     && !self.formal_history_candidate_installed() =>
             {
