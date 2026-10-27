@@ -184,12 +184,12 @@ async fn abuse(
     };
     for (scope, key) in [
         (
-            AbuseScope::Realm,
-            hash(realm_domain, &(&c.realm, &c.origin))?,
-        ),
-        (
             AbuseScope::Provider,
             hash(provider_domain, &(&c.realm, &c.origin, ip.to_string()))?,
+        ),
+        (
+            AbuseScope::Realm,
+            hash(realm_domain, &(&c.realm, &c.origin))?,
         ),
     ] {
         call(
