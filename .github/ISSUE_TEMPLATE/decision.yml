@@ -1,0 +1,58 @@
+name: "决策任务"
+description: "需要项目 owner 辅助决定的事项。"
+title: "[决策] "
+labels: ["type:decision"]
+body:
+  - type: markdown
+    attributes:
+      value: "先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。"
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue 类型
+      options:
+        - "decision / 决策"
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: "目标"
+      description: "当前问题、预期交付及对用户的影响。"
+    validations:
+      required: true
+  - type: textarea
+    id: sources_scope
+    attributes:
+      label: "来源与范围"
+      description: "公开来源链接与固定版本；允许修改或测试的范围、不包含项；勿上传凭据或敏感日志。"
+    validations:
+      required: true
+  - type: textarea
+    id: type_evidence
+    attributes:
+      label: "待决问题与选项"
+      description: "明确决策者、问题、选项、取舍、推荐、影响及可继续事项；真实决定完成后才转换。"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "验收"
+      description: "可核对的完成条件、适用验证与未覆盖边界；CI 不代替部署或实玩。"
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "依赖"
+      description: "前置 Issue/PR、权限或 owner 决定及满足条件；没有写“无”。"
+    validations:
+      required: true
+  - type: textarea
+    id: delivery
+    attributes:
+      label: "交付终点"
+      description: "写明已授权的交付终点、下一责任人或待承接；类型转换不授予合入、部署或付费执行权限。"
+    validations:
+      required: true

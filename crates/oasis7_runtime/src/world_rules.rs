@@ -130,3 +130,71 @@ pub mod recipe_substitution;
 
 #[cfg(test)]
 use std::collections::BTreeMap;
+
+/// Same read-only capability facts for authenticated Service and Viewer adapters.
+/// `execution_actor` is supplied only after the entry point verifies its current
+/// owner authority. Merely observing the personal subject never enables actions.
+impl crate::World {
+    pub fn gameplay_capability_query(
+        &self,
+        subject: oasis7_world_state::gameplay_capability::GameplaySubject,
+        goal_id: &str,
+        execution_actor: Option<&str>,
+    ) -> oasis7_world_state::gameplay_capability::GameplayCapabilityQuery {
+        use oasis7_world_state::gameplay_capability::RecoveryAssessment;
+        let mut query = self.state().gameplay_capability_query(subject, goal_id);
+        if goal_id != oasis7_world_state::gameplay_capability::CURRENT_INDUSTRIAL_CAPABILITY_GOAL {
+            return query;
+        }
+        let owner = query.subject.owner();
+        let factory = query.primary_factory_id.as_deref();
+        let recipe = query.current_recipe_id.as_deref();
+        let mut candidate = RecoveryAssessment {
+            kind: "current_recipe_run".into(),
+            status: "unknown".into(),
+            reason_code: "current_line_evidence_unavailable".into(),
+            action: None,
+            evidence: None,
+            recheck: Some(
+                "fresh_authenticated_read_after_authority_resource_or_line_change".into(),
+            ),
+        };
+        if let (Some(owner), Some(factory), Some(recipe)) = (owner, factory, recipe) {
+            if execution_actor != Some(owner) {
+                candidate.reason_code = "current_execution_authority_unavailable".into();
+            } else {
+                match self.builtin_recipe_quote(owner, factory, recipe, 1) {
+                    Ok(quote) => {
+                        candidate.status = if quote.rejection.is_some() {
+                            "blocked"
+                        } else {
+                            "available"
+                        }
+                        .into();
+                        candidate.reason_code = if quote.rejection.is_some() {
+                            "canonical_recipe_admission_rejected"
+                        } else {
+                            "canonical_recipe_quote_available"
+                        }
+                        .into();
+                        candidate.action = Some(
+                            serde_json::to_value(&quote.action)
+                                .expect("serializable recipe action"),
+                        );
+                        candidate.evidence = Some(serde_json::json!({
+                            "quoted_at_tick":quote.quoted_at_tick, "rejection":quote.rejection,
+                            "preview":quote.preview, "authorization":quote.authorization,
+                        }));
+                    }
+                    Err(_) => {
+                        // A missing grant or unsupported builtin plan is not proof
+                        // of a domain repair, nor permission to create one.
+                        candidate.reason_code = "canonical_recipe_quote_unavailable".into();
+                    }
+                }
+            }
+        }
+        query.recovery.push(candidate);
+        query
+    }
+}

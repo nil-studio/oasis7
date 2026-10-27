@@ -546,6 +546,20 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix -- -
 
 这些候选执行证据不增加固定 H+1 ledger 或 `/v2/world/read` 的范围，也不证明多高度持久前缀、后继读取版本、正式 signer/provider/Node 写入接线或部署 readiness。候选 World 不得被包装为未持久化的 committed cut。
 
+#### 正式 BFT 多高度持久 prefix 导入与恢复
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_cas --lib pin_store::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_prefix_ledger -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_read::tests -- --test-threads=1
+```
+
+用例从 qualified H 构造三个实际 World 高度，通过独立 prefix ledger 及真实 `bft-prefix install/verify` dispatcher 安装，再用空外部索引 reader 在 GC 后重开；对照 Snapshot、结果树、原 durable digest 与较早的显式历史 cut。旧 H+1 目录不是初始化前置，旧解码器必须拒绝降级 fence，同目录其他格式被共同 OS carrier 排除。
+
+负例须覆盖有效 QC 中伪造结果根、缺 pin 的重复重开、丢失/损坏 CAS、部分记录、符号链接、发布态额外硬链接、丢失 origin/marker/稳定锁，且不自动修复或覆盖原件。真实子进程覆盖 init-intent 与 reservation 完整写入后、rename 前的 staging，CAS/pins 发布后，以及 intent 发布后和 record 硬链接后五个耐久点，由父进程对其持有的 child handle 发送 SIGKILL，再核对原 staging/reservation 字节、单/双链接状态、跨格式排他和同一 lock inode 的恢复。不同签名 round 的同块 QC 也不能替代既有 reservation、staging 或 intent 的原证书；不同合格 H 不能替换初始化 staging 的身份。空账本完成初始化后丢失 origin 或任一 marker，fresh install 也必须拒绝且不修复。较早 cut 的 reader 必须拒绝仅未来高度保留的节点。只有真实覆盖的进程死亡、文件系统和固定 cut 可记为通过；这不是磁盘掉电、硬件 signer 或独立物理故障域证明。
+
+CLI 配置/角色边界见 [P2P 正式交接](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。多高度本机安装 receipt 不代表新读取服务、当前私有授权、自动追随或正式 validator 写入已接线。
+
 #### 本机身份发布回归（NIR bootstrap）
 
 针对普通启动 ensure 与专用身份 helper 的本机持久化修改，运行：

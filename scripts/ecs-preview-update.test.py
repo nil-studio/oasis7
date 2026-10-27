@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Isolated coordinator regressions; no service or production storage access."""
+import copy
 import contextlib
 import hashlib
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tarfile
@@ -27,7 +29,7 @@ class UpdateTests(unittest.TestCase):
             path.symlink_to(self.old / name)
             self.config["components"][name] = {"path": str(path), "relative_path": name, **({"service": name + ".service"} if name in ("chain", "player") else {})}
         self.updater = u.Updater(self.config)
-        self.channel = {"intent": "run-2", "sequence": 2, "manifest_key": "manifest", "release_id": "new", "source_sha": "b" * 40}
+        self.channel = {"rollback": False, "intent": "run-2", "sequence": 2, "manifest_key": "manifest", "release_id": "new", "source_sha": "b" * 40}
         self.manifest = {"release_id": "new", "source_sha": "b" * 40, "platform": "linux-x64", "components": ["player"], "compatibility": {}}
         class Store:
             def download_to(_, key, path, max_bytes):
@@ -352,6 +354,177 @@ class UpdateTests(unittest.TestCase):
         with patch.object(u.time, "monotonic", side_effect=[0,0]):
             with self.assertRaisesRegex(ValueError, "60-second"):
                 self.updater.verify(components)
+
+
+class PlayerPolicyTests(unittest.TestCase):
+    release = UpdateTests.release
+
+    def setUp(self):
+        UpdateTests.setUp(self)
+        self.old_id, self.new_id = "a" * 40 + "/11-1", "b" * 40 + "/12-1"
+        for attribute, identity in (("old", self.old_id), ("new", self.new_id)):
+            target = self.root / "releases" / identity
+            target.parent.mkdir(parents=True, exist_ok=True)
+            getattr(self, attribute).rename(target)
+            setattr(self, attribute, target)
+        for name, info in self.config["components"].items():
+            path = Path(info["path"]); path.unlink(); path.symlink_to(self.old / name)
+        self.contracts = {"program_contract": "player-v1", "persistence_contract": "data-v1", "identity_contract": "identity-v1"}
+        self.policy = {"schema_version": 1, "contracts": self.contracts.copy(), "migration_free": True, "evidence": "Independent administrator approval of publisher migration-free family"}
+        self.manifest = self.published(self.new_id)
+        self.previous_manifest = self.published(self.old_id)
+        self.channel = {"schema_version": 1, "intent": "12", "sequence": 12, "manifest_key": "preview/releases/" + self.new_id + "/manifest.json", "release_id": self.new_id, "source_sha": "b" * 40, "rollback": False}
+        self.requested = []
+        def get(key):
+            self.requested.append(key)
+            if key == self.config["channel_key"]: return json.dumps(self.channel).encode()
+            if key == self.channel["manifest_key"]: return json.dumps(self.manifest).encode()
+            if key == "preview/releases/" + self.old_id + "/manifest.json": return json.dumps(self.previous_manifest).encode()
+            raise FileNotFoundError(key)
+        self.updater = u.Updater(self.config, store=type("Store", (), {"get": staticmethod(get)})())
+        self.write_policy()
+        self.before = self.updater.actual()
+        self.after = dict(self.before, **{name: u.binding(self.new / name) for name in ("player", "web", "skill")})
+
+    def published(self, identity):
+        return {"schema_version": 1, "release_id": identity, "source_sha": identity.split("/")[0], "archive_key": "preview/releases/" + identity + "/bundle.tar.gz", "archive_sha256": "c" * 64, "platform": "linux-x64", "components": ["player"], "compatibility": self.contracts.copy()}
+
+    def write_policy(self, **extra):
+        Path(self.config["compatibility_file"]).write_text(json.dumps({"schema_version": 1, "permissions": [], "player_policy": self.policy, **extra}))
+
+    def test_forward_family_without_exact_sha_grant_checks_immutable_old_manifest(self):
+        result = self.updater.permit(self.before, self.after, self.manifest)
+        self.assertFalse(result["rollback_allowed"])
+        self.assertIn(self.policy["evidence"], result["evidence"])
+        self.assertEqual(self.requested, ["preview/releases/" + self.old_id + "/manifest.json"])
+
+    def test_strict_policy_schema_and_contract_types(self):
+        invalid = [None, [], {**self.policy, "extra": True}]
+        for key in self.policy:
+            value = dict(self.policy); value.pop(key); invalid.append(value)
+        for key, values in {"schema_version": [True, "1", 2], "migration_free": [False, 1, "true"], "evidence": [None, "", "  ", 1], "contracts": [None, [], {}, {**self.contracts, "extra": "x"}]}.items():
+            invalid.extend({**self.policy, key: value} for value in values)
+        for key in self.contracts:
+            invalid.extend({**self.policy, "contracts": {**self.contracts, key: value}} for value in [None, 1, "", " ", "contract/unsafe", "x" * 129])
+        for value in invalid:
+            with self.subTest(policy=value):
+                Path(self.config["compatibility_file"]).write_text(json.dumps({"schema_version": 1, "permissions": [], "player_policy": value}))
+                with self.assertRaises(ValueError): self.updater.permit(self.before, self.after, self.manifest)
+
+    def test_old_or_new_contract_change_and_metadata_absence_fail_closed(self):
+        for side in ("old", "new"):
+            for contracts in ({}, {**self.contracts, "program_contract": "migration-v2"}, {**self.contracts, "persistence_contract": "data-v2"}, {**self.contracts, "identity_contract": "identity-v2"}):
+                with self.subTest(side=side, contracts=contracts):
+                    self.previous_manifest = self.published(self.old_id)
+                    new = self.published(self.new_id)
+                    (self.previous_manifest if side == "old" else new)["compatibility"] = contracts
+                    with self.assertRaises(ValueError): self.updater.permit(self.before, self.after, new)
+
+    def test_old_manifest_identity_integrity_and_read_failures_fail_closed(self):
+        for field, value in (("source_sha", "d" * 40), ("release_id", "a" * 40 + "/99-1"), ("archive_sha256", "bad"), ("archive_key", "elsewhere/bundle.tar.gz"), ("platform", "other")):
+            with self.subTest(field=field):
+                self.previous_manifest = {**self.published(self.old_id), field: value}
+                with self.assertRaises(ValueError): self.updater.permit(self.before, self.after, self.manifest)
+        with patch.object(self.updater.store, "get", side_effect=FileNotFoundError("missing trusted manifest")):
+            with self.assertRaises((ValueError, FileNotFoundError)): self.updater.permit(self.before, self.after, self.manifest)
+
+    def test_old_chain_only_publication_is_not_a_player_baseline(self):
+        self.previous_manifest["components"] = ["chain"]
+        with self.assertRaisesRegex(ValueError, "did not publish a player"):
+            self.updater.permit(self.before, self.after, self.manifest)
+        self.previous_manifest["components"] = ["chain", "player"]
+        self.assertFalse(self.updater.permit(self.before, self.after, self.manifest)["rollback_allowed"])
+
+    def test_illegal_or_bootstrap_old_release_path_cannot_select_arbitrary_objects(self):
+        for release in (str(self.root / "bootstrap"), str(self.root / "releases" / "old"), str(self.root / "releases" / ("a" * 40) / "0-1"), str(self.root / "releases" / ("d" * 40) / "11-1"), str(self.root / "releases" / ".." / "bootstrap")):
+            before = copy.deepcopy(self.before)
+            for name in ("player", "web", "skill"): before[name]["release"] = release
+            with self.subTest(release=release):
+                with self.assertRaises(ValueError): self.updater.permit(before, self.after, self.manifest)
+        self.assertEqual(self.requested, [])
+
+    def test_all_chain_fields_and_player_release_source_coherence_are_required(self):
+        for field in self.before["chain"]:
+            after = copy.deepcopy(self.after); after["chain"][field] += "changed"
+            with self.subTest(chain_field=field):
+                with self.assertRaises(ValueError): self.updater.permit(self.before, after, self.manifest)
+        for side in ("before", "after"):
+            for name in ("player", "web", "skill"):
+                for field in ("release", "source_sha"):
+                    before, after = copy.deepcopy(self.before), copy.deepcopy(self.after)
+                    (before if side == "before" else after)[name][field] += "changed"
+                    with self.subTest(side=side, component=name, field=field):
+                        with self.assertRaises(ValueError): self.updater.permit(before, after, self.manifest)
+        for components in (["chain"], ["chain", "player"], ["player", "player"]):
+            with self.assertRaises(ValueError): self.updater.permit(self.before, self.after, {**self.manifest, "components": components})
+
+    def test_explicit_rollback_requires_exact_permission_even_with_both_policies(self):
+        self.write_policy(viewer_policy={"schema_version": 1, "allowed_inputs": ["crates/viewer.rs"], "evidence": "viewer audit", "read_only_viewer": True})
+        with self.assertRaises(ValueError): self.updater.permit(self.before, self.after, self.manifest, rollback=True)
+
+    def test_nonmatching_viewer_policy_does_not_preempt_player_family(self):
+        self.write_policy(viewer_policy={"schema_version": 1, "allowed_inputs": ["crates/viewer.rs"], "evidence": "viewer audit", "read_only_viewer": True})
+        self.assertFalse(self.updater.permit(self.before, self.after, self.manifest)["rollback_allowed"])
+
+    def test_both_eligible_policies_preserve_viewer_failure_restore_permission(self):
+        self.write_policy(viewer_policy={"schema_version": 1, "allowed_inputs": ["crates/viewer.rs"], "evidence": "viewer audit", "read_only_viewer": True})
+        real_module = u.module
+        def load(name):
+            result = real_module(name)
+            if name == "ecs_preview_compatibility": result.evaluate_viewer = lambda *_args: True
+            return result
+        with patch.object(u, "module", side_effect=load):
+            self.assertTrue(self.updater.permit(self.before, self.after, self.manifest)["rollback_allowed"])
+        self.assertEqual(self.requested, [])
+
+    def test_tick_forwards_validated_explicit_rollback_before_service_stop(self):
+        self.channel["rollback"] = True
+        with patch.object(self.updater, "stage", return_value=self.new), patch.object(self.updater, "service") as service:
+            with self.assertRaisesRegex(ValueError, "explicit rollback"): self.updater.tick()
+            service.assert_not_called()
+        self.assertEqual(self.updater.actual(), self.before)
+
+    def test_legacy_viewer_alone_cannot_authorize_explicit_rollback(self):
+        Path(self.config["compatibility_file"]).write_text(json.dumps({"schema_version": 1, "permissions": [], "viewer_policy": {"schema_version": 1, "allowed_inputs": ["crates/viewer.rs"], "evidence": "viewer audit", "read_only_viewer": True}}))
+        with self.assertRaisesRegex(ValueError, "explicit rollback"):
+            self.updater.permit(self.before, self.after, self.manifest, rollback=True)
+
+    def test_exact_grant_remains_available_for_explicit_rollback(self):
+        exact = {"from": {k: v["source_sha"] for k, v in self.before.items()}, "to": {k: v["source_sha"] for k, v in self.after.items()}, "contracts": self.contracts, "evidence": "exact rollback audit", "rollback_allowed": True}
+        self.write_policy(permissions=[exact])
+        self.assertTrue(self.updater.permit(self.before, self.after, self.manifest, rollback=True)["rollback_allowed"])
+
+    def test_player_policy_cannot_bypass_archive_sha256_verification(self):
+        shutil.rmtree(self.new)
+        self.updater.store.download_to = lambda _key, path, max_bytes: path.write_bytes(b"tampered archive")
+        with patch.object(self.updater, "service") as service, patch.object(self.updater, "permit") as permit:
+            with self.assertRaisesRegex(ValueError, "SHA256"): self.updater.tick()
+            service.assert_not_called(); permit.assert_not_called()
+        self.assertEqual(self.updater.actual(), self.before)
+
+    def test_player_policy_cannot_bypass_exact_payload_checksums(self):
+        files = sorted(path.name for path in self.new.iterdir() if path.is_file())
+        (self.new / "SHA256SUMS").write_text("".join(u.digest(self.new / name) + "  " + name + "\n" for name in files))
+        (self.new / "player").write_text("tampered installed candidate")
+        with patch.object(self.updater, "service") as service, patch.object(self.updater, "permit") as permit:
+            with self.assertRaisesRegex(ValueError, "checksums"): self.updater.tick()
+            service.assert_not_called(); permit.assert_not_called()
+        self.assertEqual(self.updater.actual(), self.before)
+
+    def test_policy_failure_precedes_any_service_stop(self):
+        self.previous_manifest["compatibility"]["program_contract"] = "migration-v2"
+        with patch.object(self.updater, "stage", return_value=self.new), patch.object(self.updater, "service") as service:
+            with self.assertRaises(ValueError): self.updater.tick()
+            service.assert_not_called()
+        self.assertEqual(self.updater.actual(), self.before)
+
+    def test_failed_forward_verification_never_automatically_rolls_back_writes(self):
+        with patch.object(self.updater, "stage", return_value=self.new), patch.object(self.updater, "service") as service, patch.object(self.updater, "skill"), patch.object(self.updater, "verify", side_effect=[{}, ValueError("world writes unknown")]):
+            with self.assertRaisesRegex(ValueError, "world writes unknown"): self.updater.tick()
+        self.assertEqual(self.updater.state["phase"], "blocked")
+        self.assertFalse(self.updater.state["rollback_allowed"])
+        self.assertEqual((self.root / "player").resolve(), self.new / "player")
+        self.assertEqual(service.call_count, 2)
 
 
 if __name__ == "__main__":

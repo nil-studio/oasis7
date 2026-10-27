@@ -72,13 +72,14 @@ fn compat_snapshot_serializes_stalled_and_blocked_fallback_tradeoff_previews() {
                 "recommendation is explicit"
             );
         }
+        assert_eq!(preview[1]["available"], false);
         assert_eq!(
             preview
                 .iter()
                 .filter(|option| option["recommended"] == true)
                 .count(),
-            1,
-            "exactly one fallback option is deterministically recommended",
+            0,
+            "snapshot observation cannot supply a domain repair recommendation",
         );
     }
 }

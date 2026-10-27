@@ -2043,6 +2043,7 @@ function WorldStageHero() {
           <div class="stage-hero__title">
             {gameplaySummary()?.goalTitle || tr(locale(), "进入世界，先看局势，再做动作", "Read the world first, then act.")}
           </div>
+          <Show when={gameplaySummary()?.personalSubjectDetail}><div class="stage-hero__lede">{gameplaySummary().personalSubjectDetail}</div></Show>
           <div class="stage-hero__lede">
             {gameplaySummary()?.nextStepHint
               || gameplaySummary()?.objective
@@ -2208,8 +2209,8 @@ function TargetsPanel() {
               {gameplayActionDisabledReason(action(), gameplaySummary(), locale())
                 || tr(
                   locale(),
-                  "当前是新用户空世界：先认领第一个 Agent，它会在链上提交并同步后出现在行动体列表。",
-                  "This is a new-user empty world: claim the first Agent first, then it will appear in the agent list after chain submission and sync.",
+                  "当前账户尚未绑定个人 Agent；可使用已发布的认领入口，提交并同步后核对个人归属。",
+                  "This account has no bound personal Agent. Use the published claim action, then verify personal ownership after submission and sync.",
                 )}
             </div>
             <Show when={firstAgentClaimWaiting()}>
@@ -2661,7 +2662,7 @@ function WorldSummaryPanel(props = {}) {
               <PanelSection
                 title={tr(locale(), "能力经济可读性", "Capability Economics")}
                 eyebrow={tr(locale(), "下一步会带来什么", "What The Next Move Changes")}
-                meta={tr(locale(), "把当前玩法拆成投入、产出、新用途、修复动作和下一步效果，帮助玩家判断现在该补资源、推进一步，还是换目标。", "Break the current loop into input, output, new use, repair move, and next effect so the player can choose whether to refill resources, advance one step, or switch targets.")}
+                meta={tr(locale(), "把当前玩法拆成投入、产出、新用途、操作指引和下一步效果，帮助玩家判断现在该补资源、推进一步，还是换目标。", "Break the current loop into input, output, new use, action guidance, and next effect so the player can choose whether to refill resources, advance one step, or switch targets.")}
               >
                 <div class="summary-grid">
                   <MetricCard
@@ -2677,7 +2678,7 @@ function WorldSummaryPanel(props = {}) {
                     value={gameplay().economicSurface?.unlockedValue || tr(locale(), "待发布", "not published")}
                   />
                   <MetricCard
-                    label={tr(locale(), "修复动作", "Repair Move")}
+                    label={tr(locale(), "下一步操作指引", "Next Action Guidance")}
                     value={gameplay().economicSurface?.repairAction || tr(locale(), "待发布", "not published")}
                     detail={gameplay().economicSurface?.blockerLabel
                       ? tr(locale(), `当前阻塞归类: ${gameplay().economicSurface.blockerLabel}`, `Current blocker class: ${gameplay().economicSurface.blockerLabel}`)

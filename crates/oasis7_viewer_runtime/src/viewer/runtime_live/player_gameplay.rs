@@ -161,7 +161,15 @@ pub(super) fn extend_available_actions(
 
     let smelter_exists = state.factories.contains_key(FACTORY_SMELTER_MK1);
     let assembler_exists = state.factories.contains_key(FACTORY_ASSEMBLER_MK1);
-    let industry_stage = state.industry_progress.stage;
+    let industry_stage = state
+        .gameplay_capability_query(
+            oasis7_world_state::gameplay_capability::GameplaySubject::Personal {
+                owner_agent_id: agent_id.into(),
+            },
+            "current_industrial_capability",
+        )
+        .personal_stage
+        .unwrap_or(IndustryStage::Bootstrap);
 
     if !smelter_exists {
         actions.push(PlayerGameplayAction {

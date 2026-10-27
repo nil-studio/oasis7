@@ -43,7 +43,17 @@ fn participant_ready() -> (
     )
     .unwrap();
     for (role, byte) in [("identity", "11"), ("owner", "22"), ("executor", "33")] {
-        s.record_role_key_result(role_result(&s, role, byte), &p.current(&c), 1300)
+        let mut result = role_result(&s, role, byte);
+        let seed = match role {
+            "identity" => "3d",
+            "owner" => "3e",
+            _ => "41",
+        };
+        result.public_ref.public_key =
+            oasis7_client_api::world_service::sign_read_request("fixture", (), &seed.repeat(32))
+                .unwrap()
+                .subject_public_key;
+        s.record_role_key_result(result, &p.current(&c), 1300)
             .unwrap();
     }
     let (mut s, c, pin, binding) = binding_ready_from((s, c), false);
@@ -495,3 +505,6 @@ fn participant_rejects_authentic_root_status_for_wrong_nonce_or_binding() {
         assert_eq!(s, before);
     }
 }
+
+#[path = "owner_setup.rs"]
+mod owner_setup;

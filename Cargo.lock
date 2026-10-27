@@ -6797,9 +6797,11 @@ name = "oasis7_wasm_build"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "proc-macro2",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "syn 2.0.119",
 ]
 
 [[package]]

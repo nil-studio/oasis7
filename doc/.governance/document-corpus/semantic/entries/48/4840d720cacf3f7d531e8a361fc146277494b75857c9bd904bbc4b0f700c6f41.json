@@ -1,0 +1,11 @@
+{
+  "record": {
+    "content_sha256": "c51034e11776e120cfe6c919077500e44763a0d3341d6e74da35403caf069edb",
+    "current_authority": "doc/engineering/workflow/source-of-truth.md",
+    "decision_owner": "repository_health_engineer",
+    "disposition": "retain_current_authority",
+    "note": "Scoped semantic review of five Issue types and evidence-preserving transitions, plus minimal complete changes and evidence-based review under the same workflow authority. Reuse respects responsibility boundaries, simplification preserves required behavior and validation, and non-blocking advice adds no approval or evidence chain. Classification is separate from execution permission; closed issues remain historical references. Forms and dot/TPM consumers reference this authority. Online labels, historical migration and recurring execution are not claimed enabled. Unchanged sections retain existing authority.",
+    "path": "doc/engineering/workflow/source-of-truth.md"
+  },
+  "schema": "oasis7.document-semantic-entry/v1"
+}

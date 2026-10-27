@@ -12,9 +12,10 @@
 | [AUTONOMY.md](AUTONOMY.md) | 用户授权、外部任务、隐私和规则修改边界 |
 | [WORKFLOW.md](WORKFLOW.md) | 读取上下文、分析、实施协作、核实与交付的方法 |
 | [REPORTING.md](REPORTING.md) | 面向用户的进度、评审和交付表达 |
-| [SCHEDULE.md](SCHEDULE.md) | 每天 06:00 整理 Issue、13:00 回顾前一日 CI；每 20 分钟 review Sites 内容 |
+| [SCHEDULE.md](SCHEDULE.md) | 每天 06:00 整理 Issue、13:00 回顾前一日 CI；每 20 分钟缺陷 Triage 与 Sites 内容 review |
 | [HEARTBEAT.md](HEARTBEAT.md) | 每 20 分钟检查到期项、去重派工及收取结果的方法 |
 | [CI 回顾任务](tasks/ci-duration-review.md) | 检查前一日 CI 耗时，对卡点创建或关联 Issue |
+| [缺陷 Triage](tasks/defect-triage.md) | 每 20 分钟对缺陷查重、补证并转换至文档/代码/测试/决策；不自动派工 |
 | [Issue 整理任务](tasks/issue-triage.md) | 整理前三天的 Issue，核实关闭、去重与合并 |
 | [Sites 内容 review](tasks/sites-content-review.md) | 检查公开来源、摘要与任务状态；有新增/过期内容时在既有入口更新，无变化不重复写 |
 
@@ -44,7 +45,7 @@ OpenAI 的 [dot 入门说明](https://help.openai.com/en/articles/20001530-getti
 
 以下 20 分钟时间表属于 dot 日常巡检，采用“主 dot 协调、subagent 执行”的分工。这些例行任务不直接启动 Coding Agent 开发。
 
-时间表定义“何时做什么”，HEARTBEAT 定义“一轮如何协调”，任务说明定义“subagent 做什么”。主 Agent 在这些例行任务中只查到期状态、派工、跟踪和汇总，不代做 CI 分析、Issue 整理或 Sites 内容更新。subagent 仅执行对应任务授权的 Issue 操作或 Sites 公开内容维护，不交叉继承权限；不可用时保留待执行实例，20 分钟后再尝试，不停止协调器、不退回主 Agent 代跑。这不改变普通交互任务或仓库通用流程的分工。
+时间表定义“何时做什么”，HEARTBEAT 定义“一轮如何协调”，任务说明定义“subagent 做什么”。主 Agent 在这些例行任务中只查到期状态、派工、跟踪和汇总，不代做 CI 分析、Issue 整理、缺陷 Triage 或 Sites 内容更新。subagent 仅执行对应任务授权的 Issue 操作或 Sites 公开内容维护，不交叉继承权限；不可用时保留待执行实例，20 分钟后再尝试，不停止协调器、不退回主 Agent 代跑。这不改变普通交互任务或仓库通用流程的分工。
 
 本目录的 20 分钟协调流程当前仅提供文件约定，尚未接入或启用实际 20 分钟触发器、持久执行记录和 subagent 派工适配器。2026-10-12 核对的 [ChatGPT 定时任务说明](https://help.openai.com/en/articles/10291617-scheduled-tasks-in-chatgpt)规定付费周期任务最高每小时一次；不能用本目录保证 20 分钟周期，也不拆成多个任务绕过限制。项目内定时任务不能依赖项目附件，运行器须能通过授权的 GitHub 连接读取选定规则版本。
 
@@ -58,7 +59,7 @@ OpenAI 的 [dot 入门说明](https://help.openai.com/en/articles/20001530-getti
 | --- | --- |
 | “按指定版本读取这套约定，说明你的职责” | 能给出实际读取版本及职责；缺文件时明确指出 |
 | “看看当前进度，只读，不启动外部任务” | 引用当前来源；不创建 Issue、评论、提交或外部执行任务 |
-| 已明确批准该仓库及委托范围内的问题建单，确认真实问题但根因未知 | 先查 open/closed Issue/PR；无承接则建普通待定位 Issue，给真实链接，不启动代码执行 |
+| 已明确批准该仓库及委托范围内的问题建单，确认真实问题但根因未知 | 先查 open/closed Issue/PR；无承接则建缺陷 Issue 待 Triage，给真实链接，不启动代码执行 |
 | 同一问题已有承接，或创建/评论响应丢失 | 补关键新证据而非重复建单；结果未知先回读，未核实不得报“已追踪” |
 | 只有阈值命中、不同根因的同症问题，或写权限不足 | 不把噪声建单、不强合并不同问题；缺权限时交付证据与待提交内容，明确阻塞 |
 | “写个文档初版，提 PR，我看看” | 在独立分支提交并给出 PR；保留待用户评审，不合入 |

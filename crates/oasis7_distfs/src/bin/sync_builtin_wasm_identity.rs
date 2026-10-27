@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 struct Options {
+    candidate: bool,
     module_ids_path: PathBuf,
     module_manifest_map_path: PathBuf,
     hash_manifest_path: PathBuf,
@@ -20,6 +21,7 @@ struct Options {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BuildRecipe {
     profile: String,
     wasm_toolchain: String,
@@ -30,16 +32,26 @@ struct BuildRecipe {
     wasm_deterministic_guard: String,
     canonicalizer_version: String,
     container_platform: String,
-    builder_image_ref: String,
-    builder_image_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_image_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_image_digest: Option<String>,
     build_suite_version: String,
     canonical_platforms: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    build_manifest_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_recipe: Option<oasis7_wasm_build::BuilderRecipe>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModuleIdentityEntry {
     module_id: String,
     hash_tokens: Vec<String>,
+    #[serde(default)]
+    source_input_rule_version: Option<u32>,
+    #[serde(default)]
+    source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     source_hash: String,
     build_manifest_hash: String,
     identity_hash: String,
@@ -47,14 +59,26 @@ struct ModuleIdentityEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct IdentityManifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purpose: Option<String>,
     schema_version: u32,
     module_set: String,
     build_recipe: BuildRecipe,
     modules: Vec<ModuleIdentityEntry>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 struct BuildReceipt {
+    #[serde(default)]
+    purpose: Option<String>,
+    #[serde(default)]
+    build_manifest_schema_version: Option<u32>,
+    #[serde(default)]
+    builder_recipe: Option<oasis7_wasm_build::BuilderRecipe>,
+    #[serde(default)]
+    builder_execution: Option<oasis7_wasm_build::BuilderExecution>,
+    #[serde(default)]
+    schema_version: Option<u32>,
     module_id: String,
     target: String,
     profile: String,
@@ -63,13 +87,20 @@ struct BuildReceipt {
     wasm_build_std_components: String,
     wasm_build_std_features: String,
     wasm_deterministic_guard: String,
+    #[serde(default)]
     build_suite_version: String,
+    #[serde(default)]
+    source_input_rule_version: Option<u32>,
+    #[serde(default)]
+    source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     source_hash: String,
     build_manifest_hash: String,
     canonicalizer_version: String,
     container_platform: String,
-    builder_image_ref: String,
-    builder_image_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_image_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_image_digest: Option<String>,
     wasm_hash_sha256: String,
 }
 
@@ -186,6 +217,7 @@ fn parse_args() -> Result<Options, String> {
     };
 
     Ok(Options {
+        candidate: false,
         module_ids_path,
         module_manifest_map_path,
         hash_manifest_path,
@@ -298,6 +330,7 @@ fn parse_canonical_platforms(raw_csv: &str) -> Vec<String> {
     items
 }
 
+#[cfg(test)]
 fn compute_source_hash(module_manifest_path: &Path) -> Result<String, String> {
     oasis7_wasm_build::compute_source_hash(module_manifest_path, DEFAULT_WASM_TARGET)
         .map_err(|error| format!("source hash closure failed: {error}"))
@@ -317,6 +350,100 @@ fn module_set_from_ids(module_ids: &[String]) -> String {
     } else {
         "mixed".to_string()
     }
+}
+
+fn validate_builder_field_presence(raw: &[u8], candidate: bool) -> Result<(), String> {
+    let value: serde_json::Value = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
+    let old = ["builder_image_ref", "builder_image_digest"];
+    let new = [
+        "purpose",
+        "build_manifest_schema_version",
+        "builder_recipe",
+        "builder_execution",
+    ];
+    if (candidate
+        && (old.iter().any(|key| value.get(key).is_some())
+            || new.iter().any(|key| value.get(key).is_none())))
+        || (!candidate && new.iter().any(|key| value.get(key).is_some()))
+    {
+        return Err("mixed candidate/release builder fields, including null fields".into());
+    }
+    Ok(())
+}
+
+fn receipt_build_manifest_hash(receipt: &BuildReceipt) -> Result<String, String> {
+    let manifest = oasis7_wasm_build::BuildManifest {
+        source_input_rule_version: receipt.source_input_rule_version.unwrap_or_default(),
+        profile: receipt.profile.clone(),
+        target: receipt.target.clone(),
+        wasm_toolchain: receipt.wasm_toolchain.clone(),
+        wasm_build_std: receipt.wasm_build_std.clone(),
+        wasm_build_std_components: receipt.wasm_build_std_components.clone(),
+        wasm_build_std_features: receipt.wasm_build_std_features.clone(),
+        wasm_deterministic_guard: receipt.wasm_deterministic_guard.clone(),
+        canonicalizer_version: receipt.canonicalizer_version.clone(),
+        container_platform: receipt.container_platform.clone(),
+        builder_image_ref: receipt.builder_image_ref.clone(),
+        builder_image_digest: receipt.builder_image_digest.clone(),
+        build_suite_version: receipt.build_suite_version.clone(),
+        build_manifest_schema_version: receipt.build_manifest_schema_version,
+        builder_recipe: receipt.builder_recipe.clone(),
+    };
+    oasis7_wasm_build::compute_build_manifest_hash(&manifest).map_err(|error| error.to_string())
+}
+
+fn validate_receipt_source(
+    receipt: &BuildReceipt,
+    expected: &oasis7_wasm_build::SourceInputs,
+) -> Result<(), String> {
+    if receipt.build_suite_version.is_empty() {
+        return Err("build receipt is missing its producer Suite version".into());
+    }
+    oasis7_wasm_build::validate_source_evidence(
+        receipt.source_input_rule_version,
+        receipt.source_inputs.as_deref(),
+        &receipt.source_hash,
+        expected,
+    )
+    .map_err(|e| e.to_string())?;
+    let candidate = receipt.purpose.as_deref() == Some("candidate-build");
+    if candidate {
+        if receipt.schema_version != Some(4)
+            || receipt.build_manifest_schema_version != Some(3)
+            || receipt.builder_image_ref.is_some()
+            || receipt.builder_image_digest.is_some()
+        {
+            return Err("mixed/unknown candidate receipt version".into());
+        }
+        let recipe = receipt
+            .builder_recipe
+            .as_ref()
+            .ok_or("candidate receipt missing producer recipe")?;
+        receipt
+            .builder_execution
+            .as_ref()
+            .ok_or("candidate receipt missing actual execution identity")?
+            .validate(recipe)
+            .map_err(|e| e.to_string())?;
+    } else if receipt.purpose.is_some()
+        || receipt.builder_recipe.is_some()
+        || receipt.builder_execution.is_some()
+        || receipt.build_manifest_schema_version.is_some()
+        || receipt.schema_version != Some(3)
+    {
+        return Err("legacy/unknown build receipt schema; canonical rebuild required".into());
+    }
+    let expected_build_hash = receipt_build_manifest_hash(receipt)?;
+    if receipt.build_manifest_hash != expected_build_hash {
+        return Err(format!(
+            "build manifest hash does not bind current rule/tooling expected={expected_build_hash} actual={}",
+            receipt.build_manifest_hash
+        ));
+    }
+    if receipt.target != DEFAULT_WASM_TARGET {
+        return Err("build receipt target mismatch".into());
+    }
+    Ok(())
 }
 
 fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
@@ -378,6 +505,7 @@ fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
             )
         })?;
 
+        validate_builder_field_presence(&receipt_content, options.candidate)?;
         let receipt: BuildReceipt = serde_json::from_slice(&receipt_content).map_err(|error| {
             format!(
                 "failed to parse build receipt module_id={} path={} err={error}",
@@ -386,6 +514,20 @@ fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
             )
         })?;
 
+        if options.candidate != (receipt.purpose.as_deref() == Some("candidate-build")) {
+            return Err(
+                "receipt purpose does not match explicitly selected baseline purpose".into(),
+            );
+        }
+        if options.candidate {
+            let current = oasis7_wasm_build::compute_builder_recipe(&options.workspace_root)
+                .map_err(|e| e.to_string())?;
+            if receipt.builder_recipe.as_ref() != Some(&current) {
+                return Err(
+                    "candidate receipt producer recipe is not current workspace recipe".into(),
+                );
+            }
+        }
         if receipt.module_id != *module_id {
             return Err(format!(
                 "build receipt module id mismatch expected={} actual={} path={}",
@@ -417,7 +559,12 @@ fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
             ));
         }
 
-        let source_hash = compute_source_hash(&module_manifest_path)?;
+        let source_evidence =
+            oasis7_wasm_build::compute_source_inputs(&module_manifest_path, DEFAULT_WASM_TARGET)
+                .map_err(|e| e.to_string())?;
+        validate_receipt_source(&receipt, &source_evidence)
+            .map_err(|e| format!("build receipt module_id={module_id}: {e}"))?;
+        let source_hash = source_evidence.source_hash;
         if source_hash != receipt.source_hash {
             return Err(format!(
                 "build receipt source_hash mismatch module_id={} expected={} actual={} path={}",
@@ -453,6 +600,8 @@ fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
             builder_image_digest: receipt.builder_image_digest.clone(),
             build_suite_version: receipt.build_suite_version.clone(),
             canonical_platforms: canonical_platforms.clone(),
+            build_manifest_schema_version: receipt.build_manifest_schema_version,
+            builder_recipe: receipt.builder_recipe.clone(),
         };
 
         match &expected_build_recipe {
@@ -488,6 +637,8 @@ fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
         modules.push(ModuleIdentityEntry {
             module_id: module_id.clone(),
             hash_tokens,
+            source_input_rule_version: Some(source_evidence.source_input_rule_version),
+            source_inputs: Some(source_evidence.source_inputs),
             source_hash,
             build_manifest_hash: receipt.build_manifest_hash,
             identity_hash,
@@ -498,7 +649,8 @@ fn expected_manifest(options: &Options) -> Result<IdentityManifest, String> {
         .ok_or_else(|| "failed to derive build recipe from receipts".to_string())?;
 
     Ok(IdentityManifest {
-        schema_version: 1,
+        purpose: options.candidate.then(|| "candidate-build".into()),
+        schema_version: 2,
         module_set: module_set_from_ids(&module_ids),
         build_recipe,
         modules,
@@ -554,6 +706,14 @@ fn diff_manifest(expected: &IdentityManifest, actual: &IdentityManifest) -> Stri
                 actual_entry.hash_tokens.join(",")
             );
         }
+        if expected_entry.source_input_rule_version != actual_entry.source_input_rule_version
+            || expected_entry.source_inputs != actual_entry.source_inputs
+        {
+            return format!(
+                "source input version/details mismatch module_id={}; canonical rebuild required",
+                expected_entry.module_id
+            );
+        }
         if expected_entry.source_hash != actual_entry.source_hash {
             return format!(
                 "source_hash mismatch module_id={} expected={} actual={}",
@@ -579,7 +739,17 @@ fn diff_manifest(expected: &IdentityManifest, actual: &IdentityManifest) -> Stri
     "unknown mismatch".to_string()
 }
 
+#[path = "sync_builtin_wasm_identity/candidate.rs"]
+mod candidate;
+
 fn run() -> Result<(), String> {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    if args
+        .first()
+        .is_some_and(|arg| arg.starts_with("--candidate-baseline-"))
+    {
+        return candidate::run(&args);
+    }
     let options = parse_args()?;
     let expected = sort_manifest(expected_manifest(&options)?);
 
@@ -706,5 +876,142 @@ mod tests {
         let changed = compute_source_hash(&manifest_path).expect("changed source hash");
         assert_ne!(initial, changed);
         let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn identity_consumer_rejects_legacy_version_patches_and_stale_inputs() {
+        let root = unique_temp_dir("identity-source-rule-v2");
+        write_file(
+            &root.join("Cargo.toml"),
+            "[workspace]\nmembers=[\"module\"]\nresolver=\"2\"\n",
+        );
+        write_file(
+            &root.join("module/Cargo.toml"),
+            "[package]\nname=\"fixture\"\nversion=\"0.1.0\"\nedition=\"2024\"\n",
+        );
+        write_file(&root.join("module/src/lib.rs"), "pub fn value(){}\n");
+        let evidence = oasis7_wasm_build::compute_source_inputs(
+            &root.join("module/Cargo.toml"),
+            DEFAULT_WASM_TARGET,
+        )
+        .unwrap();
+        write_file(&root.join("ids"), "fixture.module\n");
+        write_file(&root.join("map"), "fixture.module module/Cargo.toml\n");
+        write_file(
+            &root.join("hashes"),
+            "fixture.module linux-x86_64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        );
+        let options = Options {
+            candidate: false,
+            module_ids_path: root.join("ids"),
+            module_manifest_map_path: root.join("map"),
+            hash_manifest_path: root.join("hashes"),
+            identity_manifest_path: root.join("identity.json"),
+            metadata_dir: root.join("metadata"),
+            workspace_root: root.clone(),
+            profile: "release".into(),
+            canonical_platforms_csv: "linux-x86_64".into(),
+            check_only: true,
+        };
+        let mut receipt = serde_json::json!({"schema_version":3,"module_id":"fixture.module","target":DEFAULT_WASM_TARGET,"profile":"release","wasm_toolchain":"fixture","wasm_build_std":"0","wasm_build_std_components":"","wasm_build_std_features":"","wasm_deterministic_guard":"1","build_suite_version":"fixture","source_input_rule_version":2,"source_inputs":evidence.source_inputs,"source_hash":evidence.source_hash,"build_manifest_hash":"build-hash","canonicalizer_version":"fixture","container_platform":"linux-x86_64","builder_image_ref":"fixture","builder_image_digest":"fixture","wasm_hash_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+        let decoded: BuildReceipt = serde_json::from_value(receipt.clone()).unwrap();
+        receipt["build_manifest_hash"] = receipt_build_manifest_hash(&decoded).unwrap().into();
+        let path = root.join("metadata/fixture.module.build-receipt.json");
+        let set = |value: &serde_json::Value| write_file(&path, &value.to_string());
+        set(&receipt);
+        let identity = expected_manifest(&options).unwrap();
+        assert_eq!(identity.schema_version, 2);
+        assert_eq!(identity.modules[0].source_input_rule_version, Some(2));
+        assert_eq!(
+            identity.modules[0].source_inputs.as_ref(),
+            Some(&evidence.source_inputs)
+        );
+        let mut legacy = receipt.clone();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("source_input_rule_version");
+        legacy.as_object_mut().unwrap().remove("source_inputs");
+        legacy["schema_version"] = 2.into();
+        set(&legacy);
+        assert!(expected_manifest(&options).unwrap_err().contains("legacy"));
+        legacy["source_input_rule_version"] = 2.into();
+        set(&legacy);
+        assert!(
+            expected_manifest(&options)
+                .unwrap_err()
+                .contains("details mismatch")
+        );
+        let mut unknown = receipt.clone();
+        unknown["source_input_rule_version"] = 99.into();
+        set(&unknown);
+        assert!(
+            expected_manifest(&options)
+                .unwrap_err()
+                .contains("unknown/mismatched")
+        );
+        let mut schema = receipt.clone();
+        schema["schema_version"] = 99.into();
+        set(&schema);
+        assert!(
+            expected_manifest(&options)
+                .unwrap_err()
+                .contains("unknown build receipt schema")
+        );
+        let mut wasm = receipt.clone();
+        wasm["wasm_hash_sha256"] = "other-wasm".into();
+        set(&wasm);
+        assert!(
+            expected_manifest(&options)
+                .unwrap_err()
+                .contains("hash missing from hash manifest")
+        );
+        set(&receipt);
+        write_file(
+            &root.join("module/src/lib.rs"),
+            "pub fn value(){let _=1;}\n",
+        );
+        assert!(
+            expected_manifest(&options)
+                .unwrap_err()
+                .contains("source input details mismatch")
+        );
+        write_file(&root.join("module/src/lib.rs"), "pub fn value(){}\n");
+        let keys = [
+            "profile",
+            "target",
+            "wasm_toolchain",
+            "wasm_build_std",
+            "wasm_build_std_components",
+            "wasm_build_std_features",
+            "wasm_deterministic_guard",
+            "canonicalizer_version",
+            "container_platform",
+            "builder_image_ref",
+            "builder_image_digest",
+            "build_suite_version",
+        ];
+        let old_payload = format!(
+            "{{{}}}",
+            keys.iter()
+                .map(|key| format!("{}:{}", serde_json::to_string(key).unwrap(), receipt[*key]))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let mut old_build = receipt.clone();
+        old_build["build_manifest_hash"] = sha256_hex(old_payload.as_bytes()).into();
+        set(&old_build);
+        assert!(
+            expected_manifest(&options).is_err(),
+            "v2 source fields must not accept an unchanged legacy build-manifest hash"
+        );
+        let mut mixed = receipt.clone();
+        mixed["builder_recipe"] = serde_json::Value::Null;
+        set(&mixed);
+        assert!(
+            expected_manifest(&options)
+                .unwrap_err()
+                .contains("mixed candidate/release builder fields")
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }

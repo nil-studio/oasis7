@@ -368,6 +368,22 @@ engineering V2 的现有 execution hash 不承诺正式读取的投影树，不�
 
 驱动在恢复时从相同 H 的认证闭包逐高度重执行，核对每条 commitment、实际 Snapshot/Journal、投影和结果树，再公开相应 cut。完整重放入口先验证整个有界协议前缀及外部精确 `(height, block_id)`，再从已恢复的 H 顺序执行全部高度；每步结果树使用刚重算的前一步树及其 root，不合成受控 CanonicalRecord 充当 BFT parent。合法 QC 但伪造执行输出的前缀也必须拒绝。该重放阶段只返回隔离执行结果，不追加旧 H+1 ledger，也不能生成带持久化含义的 publication cut。重放在独立的有界依赖 recorder 上用同一已验证 retained-parent 能力重建 H，保留原 release policy，并核对 H Snapshot/Journal 不变；结果树和 World 冷读都使用这项隔离 reader，缺页直达原 source，而不经旧 H+1 recorder，避免改变其未来提交的依赖集合和预算。每步匹配实际 commitment 后缓存新结果索引节点，执行结果持有累计依赖的 reader 生命周期。每个高度重新捕获刚重放出的父 World controller policy；H 的 reader 继续只承担受控冷历史读取，不能将 H 的 controller policy 沿用为所有后继高度的授权。ledger 对每个高度追加不可变记录并保留累计 CAS 依赖，拒绝截短、覆盖、跳高和用最高结构记录直接生成可信 head；旧单高度 ledger 不静默解释为新格式。完整前缀须同时有累计高度与编码字节硬上限，达到上限返回明确容量不足，不能丢弃旧前缀后继续。新消费者必须协商显式新版本、携带完整有界前缀证据并到达外部精确固定的目标；旧 `/v2/world/read` 仍只支持 H+1。这些接续能力不替代正式 signer/provider 安装、网络共识生产、checkpoint 时间授权或部署 readiness。
 
+多高度 ledger 从已认证 H 与固定目标配置直接初始化，不要求旧 H+1 账本先存在；否则正式 producer 无法在首个 H+1 QC 产生前建立其执行起点。新目录、schema 与 required marker 独立解析，同一记录目录不并存旧 H+1 与新 prefix writer mode，双方启动检测均须拒绝混用或降级。不同目录中的只读 QC 导入副本不产生共识签名，分别持有稳定、持久的本地 ledger 身份；其 CAS scope/shard 绑定该身份与 origin digest，不能仅以相同 H/target 共用 shard 而覆盖另一副本的保留集合。正式 producer 的 Node 身份、受保护 signer fencing 与实际安装仍是另行接线的前置条件，导入 receipt 不授予这些权限。
+
+所有当前 BFT 格式在检查、初始化各自目录前共同持有记录根目录的稳定 `bft-format.lock`，再持有自身 ledger lock，避免不同格式各自加锁后并发通过空目录检查。新 prefix 还在旧 `formal-bft-read-required-v1` 路径发布明确不受旧解码器支持的降级 fence；这不是旧 H+1 账本，旧入口不得据此重建或把新格式解释为旧格式。启用新格式前须停止并升级不遵守共同锁/新 marker 合同的旧进程；该 fence 不证明与已经运行的任意旧二进制可无停机混用。锁载体丢失、被替换或出现额外链接时阻断，不能以新建锁文件恢复一份既有 origin。共同锁载体在首次取得 OS 锁时写入并 fsync 32 字节随机 token，当前各格式一致消费，旧空载体仅在持有 OS 锁时升级。prefix 的本机 origin 同时固定两把锁的 device/inode 与 token 身份，重开先核对原身份，发布前再核对持有 fd 与路径；只把新 fd 与新路径相互比较，或只记录可能复用的 inode，均不足以证明跨重开的连续性。该本机物理身份不属于可移植 QC 前缀；新副本必须独立初始化。
+
+初始化先持久发布含随机本机 ledger ID、固定 H 材料 digest 与首高度的 `init-intent.cbor`，再通过同 inode 硬链接发布 origin，持久发布两个格式 marker 后才清理原 init-intent。完整初始化 staging 也固定同一原身份；重试不能另生成 ID 或换 H。已完成 origin 即使没有高度记录也要求两个 marker 完整；缺 origin 且仅余 marker 不能重新初始化。初始化未完成时不能已有高度记录；无法证明的状态保留并阻断。
+
+每个实际高度在发布 CAS/pins 前先耐久保存绑定原 QC、commitment、parent-record digest 和全部引用的 `reservation`。材料及精确 per-height pin shard 全部核验后，将原 reservation 原子改名为 intent；再通过不覆盖的硬链接成为 record，同步目录后删除等价 intent，再同步目录。reservation 尚未发布 pin 时可重新执行同一输入以完成材料；原 shard 已存在时必须核验原 pins 与 CAS，不能重写掩盖损坏。intent 或 record 已存在后的缺失、损坏或不符 pin 均阻断。pin shard 找不到原 record/intent/reservation 身份时也阻断，不能从引用集合猜测或换用另一 QC。
+
+恢复须在稳定 OS ledger 锁下识别原状态：仅 reservation 或 intent 为单链接 regular 文件；record 与 intent 同时存在时须为同 dev/ino、逐字节相同且恰有这两个链接；已完成 record 为单链接文件。已完整写入并 fsync、尚未 rename 的初始化或 reservation staging 固定同一原操作身份，重试先核对规范编码和原输入，不能盲删。只有实际重执行、精确 pin/CAS 核验及原字节相等后才提升或清理等价 staging；部分写入、额外链接、符号链接、冲突、未知文件或无法证明的中间态保持原件并阻断。不得按 PID 或超时猜测锁所有者，也不能直接重写部分记录。较早 cut 的隔离 reader 仅装载截至该高度的实际依赖，不能因账本已存更高记录而开放仅由未来高度保留的节点；整本账本仍须核验容量与既有材料完整性。
+
+协议的 64 高度/16 MiB 上限不能代替执行材料容量。安装与重开还须核对 H 到目标的累计记录、CAS 依赖节点和字节硬上限，在 intent 发布前预检，并将已安装前缀计入同一容量核算；重试或增加后继高度不重置累计容量。固定 cut 的局部重开与 GC 用例只证明实际保留的重放闭包，不替代未访问冷历史的 archive 保留资格或完整同步预算。
+
+主机通过独立 `bft-prefix install --config <prefix.json> --prefix <complete-prefix.cbor>` 和 `bft-prefix verify --config <prefix.json>` 接入上述实际安装与恢复。配置 schema 1 固定 `trust_config_path`、已由 H 承诺的 `target`、独立精确的 `exact_target.height/block_id`、`handoff_material_path`、`cas_directory` 与 `ledger_directory`；不接受 provider 选择目标。输入文件为 owned 0600，CAS 与 ledger 为既有、分离且 owned 0700 的真实目录。verify 不初始化缺失状态，可以在完整重放和 pin 核验后完成已保存的原 intent；它不接受替代 QC。实现为整条前缀设置 512 MiB 材料容量，包含编码/展开的 H、记录元数据和内容寻址 CAS 闭包；节点集合另受既有 4096 节点/64 MiB 索引预算约束。记录字节在解码前受累计读取上限约束，解码后的数量/引用、实际执行结果和材料容量在 intent 发布前核对；达到容量返回明确 blocker，不丢弃旧前缀继续。
+
+两个命令的 `oasis7.formal_bft_prefix_install_receipt.v1` 是同一原安装 cut 的本机持久回读诊断，绑定实际高度、block ID、activation digest 与本机 durable record digest。外部消费者仍需独立验证完整 QC/正式 preimage 前缀；stdout JSON 不是新的外部权威证明。该入口不生成票、不启动服务端新 read wire、不宣称 latest/current，也不代签正式 signer/provider/Node 安装或全量状态可用性。
+
 保留长期离线 checkpoint 的有效期、退出 key/stake 约束及独立 minimum 要求；完整重放不自动免除弱主观信任期限。缺少适用且独立认证的 checkpoint、时间或受保护 minimum 时，自动接续保持阻断，历史固定 cut 的离线验签与当前可服务/可投票资格分别报告。本机测试只证明实际使用的 provider、时间和存储接缝，不代签硬件、磁盘掉电或故障域验收。
 
 回归必须包含真实 qualified 受控 H、实际 World driver 执行的 H+1，以及正式读取 producer 到客户端 verifier 的正向结果；同一场景拒绝 H+1 受控追加、错误目标配置/父引用/根/manifest、未认证闭包和冒充正式历史的 engineering V2。H 已提交而 H+1 未提交的停启保留同一交接和旧写入拒绝；H+1 安装后重开保留精确 cut，后继合法只读请求可继续。未执行的消费者、签写和真实环境义务保持未完成，不由该只读切片关闭 #4975。

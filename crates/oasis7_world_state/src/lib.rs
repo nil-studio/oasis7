@@ -19,6 +19,8 @@ pub mod events;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod formal_retained_history;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod gameplay_capability;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gameplay_state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod governance;

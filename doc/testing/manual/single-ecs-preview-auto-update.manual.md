@@ -36,7 +36,13 @@ sudo /opt/oasis7-preview-updater-venv/bin/python scripts/ecs-preview-install.py 
 
 配置结构见 [配置示例](../../../scripts/ecs-preview-config.example.json)。所有示例路径、身份和契约均须替换为本机实际值；配置不含密钥，签名读取使用现有本机身份。`verifier_command` 是 root 配置的固定命令，接收 stdin JSON、stdout 仅输出一份 JSON 健康证据（诊断日志走 stderr）；接口见下节，不能从频道接收命令。默认维护锁为 `/var/lib/oasis7-preview-updater/deploy.lock`，安装器在受信祖先下创建缺失目录，权限为 `0700`；不要改用通常为 `1777` 的 `/run/lock`，也不要更改其共享权限。安装 preflight 失败时不启用 timer、不初始化或替换世界。首次接管旧手工布局需先在维护锁内完成独立路径适配；不能让安装器猜测旧机器布局。
 
-`compatibility_file` 保存管理员独立审核的精确 from/to 组件 source、三个契约和非空依据；例如批准的版本差异/持久格式及身份格式兼容测试、允许的写入与回退条件。只写 `safe=true`、只复制远端 contract 或使用通配符均不构成许可。`rollback_allowed` 只允许已知兼容的程序回退；chain 已不兼容写入、迁移或写入未知时仍禁止普通回退。
+`compatibility_file` 默认保留管理员独立审核的精确 from/to 组件 source、三个契约和非空依据，适用于跨兼容族、chain 更新及明确回退。`rollback_allowed` 只允许已知兼容的程序回退；chain 已不兼容写入、迁移或写入未知时仍禁止普通回退。
+
+对常规 player/Web/Skill 向前升级，可一次批准 `player_policy`，无需逐版本填写源码 SHA。完整结构见[兼容策略示例](../../../scripts/ecs-preview-compatibility.example.json)。将示例中的三个契约替换为经独立审阅的实际兼容族，并填写审核依据；显式设置 `migration_free: true` 承诺该族无需数据或身份迁移。默认不启用此策略，不能把示例直接当作生产许可。
+
+主机验证当前 player 的实际发布目录与固定 OSS 前缀中的旧清单相符；旧清单必须声明包含 player，可为历史 chain/player 联合发布，新清单只声明 player。旧清单、新清单、本机策略的 program/persistence/identity 契约须全部相同；player/Web/Skill 每侧都必须属于同一发布，chain 完整绑定保持不变。来源未知、旧清单不可读、契约变化、需要迁移或显式回退均不会由此策略授权，且检查在停服务前完成。策略返回不允许自动回退；若切换后验收失败，保留现场并停止自动推进，由管理员核查兼容与写入状态。
+
+同族兼容依赖可信发布者遵守契约：程序兼容边界、数据或身份格式变化及任何迁移都必须换契约，不能沿用旧契约绕过准入。策略不是静态代码迁移检测器。只写 `safe=true`、复制远端 contract、使用通配符或关闭归档校验均不构成许可。源码 SHA 仍用于来源和版本身份核对；归档与文件 SHA256、可信 main 发布、冷入场和主机健康验收均保留。
 
 对只读 Viewer 的日常兼容升级，可在首次配置的兼容文件中加入 `viewer_policy`，无需每个新 SHA 修改主机许可：
 

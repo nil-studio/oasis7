@@ -30,6 +30,8 @@
 
 2026-10-24 Rust 工程契约局部核对：[#5026](https://github.com/nil-studio/oasis7/pull/5026)、[#5027](https://github.com/nil-studio/oasis7/pull/5027)、[#5028](https://github.com/nil-studio/oasis7/pull/5028) 已合入首批 6 成员继承、9 条架构规则/37 个 profile 与 signed-read 五 GET 的 TS/schema 生成消费；API revision 1 / read schema revision 5。[现行设计](../rust-governance/rust-engineering-contracts.design.md)保留原专业 owner 与开发期工具边界。[#5036](https://github.com/nil-studio/oasis7/issues/5036) 承接 path/status 回归、dev 范围及可信局部编译选择，尚待 PR 评审；不据此宣称部署、完整世界 schema 或全平台验收。
 
+2026-10-27 业务接口实现局部核对：cognition 投影解码 [#5140](https://github.com/nil-studio/oasis7/pull/5140)、Game Client 原操作生命周期 [#5146](https://github.com/nil-studio/oasis7/pull/5146)、网络失败类型合同 [#5147](https://github.com/nil-studio/oasis7/pull/5147) 和 Runtime 委托结果/只读重试 [#5149](https://github.com/nil-studio/oasis7/pull/5149) 已合入。验证和兼容边界见各 PR，不代表部署或新增完整玩法验收。WASM 输入闭包 [#5148](https://github.com/nil-studio/oasis7/pull/5148) 仍在实现与构建验证；个人能力/恢复查询 [#5150](https://github.com/nil-studio/oasis7/pull/5150) 的当前源码检查通过，但真实界面验收因受支持入口和 Owner 身份映射前置未满足而阻塞，仍为草稿。其他主题和部署基线不变。
+
 Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
@@ -241,3 +243,5 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。
 
 2026-10-26 单机 Preview 自动部署局部核对：[来源与恢复合同](../workflow/package-source-security.md#ecs-preview-automatic-deployment)及[新操作流程](../../testing/manual/single-ecs-preview-auto-update.manual.md)承接 [#5126](https://github.com/nil-studio/oasis7/issues/5126)，替代日常人工转包/切换。云资源配置和真实现有世界更新仍待分别验收；本条不宣称代码已合入或机器已切换，也不改变 #4671 的整体实玩验收与正式网络暂停。
+
+常规 player/Web/Skill 的兼容准入可由本机显式批准的无迁移兼容族承接，见[自动部署合同](../workflow/package-source-security.md#ecs-preview-automatic-deployment)。旧、新可信发布清单及本机契约须一致，chain 保持原绑定；来源和完整性校验继续执行。策略默认关闭，跨契约、迁移和明确回退仍需独立许可；配置存在不表示主机已启用或部署验收完成。

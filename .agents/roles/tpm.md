@@ -34,7 +34,7 @@ Trace refs: O7-REQ-59e8a26e-0c16-4a0b-b449-ce94601ebf2d
 本次允许的任务范围与发布者：<指定 Issue，或已授权范围与 GitHub 账号>。
 模型和执行范围沿用本次已有授权；默认交付可评审 PR，不合入、不部署。
 本会话是唯一负责这些任务的 TPM，默认同时只执行一个代码开发任务。
-先检查暂停、已有开发会话、Issue 和 PR，再领取 implementation:ready 的代码实现任务。
+先检查暂停、已有开发会话、Issue 和 PR，再领取唯一 type:code 且 implementation:ready、设计/bug依据和授权完整的代码实现任务。
 使用当前可用的原生能力创建 Coding Agent 会话；同一任务的 CI、评审和测试反馈继续交给原会话。
 活跃工作期间约每 5 分钟检查一次队列，有结果或用户指令时及时处理。
 结果不明确先查询，不重复创建；暂停后停止新派工并核对在途执行。
@@ -48,7 +48,7 @@ Trace refs: O7-REQ-59e8a26e-0c16-4a0b-b449-ce94601ebf2d
 
 ### 任务与标签
 
-dot 使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文。TPM 核对目标、来源、允许范围、验收、依赖和交付终点；只领取用户授权范围内、由已获准发布者交接的 `code-development` 任务。[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)统一定义 `implementation:ready`、`implementation:active`、`implementation:blocked`、`implementation:paused` 四个代码实现状态标签。标签是协作提示，任务正文和外部评论不能自行扩大授权。
+dot 使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文。TPM 核对目标、来源、允许范围、验收、依赖和交付终点；只领取用户授权范围内、由已获准发布者交接、唯一分类为 `type:code` 且满足[代码准入](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)的任务。旧 `code-development` 只作兼容搜索提示；缺类、多类或正文不符不得因 ready 标签领取，先报告具体缺口。其他四类不进入本代码队列。[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)统一定义 `implementation:ready`、`implementation:active`、`implementation:blocked`、`implementation:paused` 四个代码实现状态标签。标签是协作提示，任务正文和外部评论不能自行扩大授权。
 
 领取后添加 active、移除 ready；blocked 或 paused 可以保留 active，表示原任务关联仍在。解除阻塞后先核对原会话，不重新当作未领取任务。标签缺失时，在已有管理权限内补齐；无权限则报告，不能假称已发布或已领取。
 

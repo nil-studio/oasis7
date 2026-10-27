@@ -7,6 +7,7 @@ safe flag or a general claim of persistence compatibility.
 import base64
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 
@@ -101,4 +102,82 @@ def evaluate_viewer(before_release, after_release, policy):
     for binary in ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_game_client"):
         if file_hash(before_release / "bin" / binary) != file_hash(after_release / "bin" / binary):
             raise ValueError("viewer compatibility requires unchanged chain/launcher/client program bytes")
+    return True
+
+
+# General player families are host-approved publisher commitments. Unlike the
+# viewer evaluator, this does not statically prove absence of migrations.
+PLAYER_CONTRACTS = {"program_contract", "persistence_contract", "identity_contract"}
+PLAYER_SOURCE = re.compile(r"[0-9a-f]{40}")
+PLAYER_RELEASE = re.compile(r"[0-9a-f]{40}/[1-9][0-9]*-[1-9][0-9]*")
+
+
+def validate_player_policy(policy):
+    if not isinstance(policy, dict) or set(policy) != {"schema_version", "contracts", "migration_free", "evidence"}:
+        raise ValueError("invalid player policy schema")
+    contracts = policy["contracts"]
+    if type(policy["schema_version"]) is not int or policy["schema_version"] != 1 or policy["migration_free"] is not True:
+        raise ValueError("player policy requires explicit migration-free approval")
+    if not isinstance(contracts, dict) or set(contracts) != PLAYER_CONTRACTS or any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value) for value in contracts.values()):
+        raise ValueError("invalid player policy contracts")
+    if not isinstance(policy["evidence"], str) or not policy["evidence"].strip():
+        raise ValueError("independent player policy evidence required")
+    return policy
+
+
+def player_release_identity(release, releases_dir, source):
+    root, path = Path(releases_dir), Path(release)
+    if not root.is_absolute() or not path.is_absolute():
+        raise ValueError("player release must be a canonical installed release path")
+    try:
+        identity = path.relative_to(root).as_posix()
+    except ValueError as error:
+        raise ValueError("player release is outside releases directory") from error
+    if not PLAYER_RELEASE.fullmatch(identity) or not isinstance(source, str) or not PLAYER_SOURCE.fullmatch(source) or identity.split("/")[0] != source:
+        raise ValueError("player release/source identity is not a published run-attempt")
+    try:
+        canonical = root.resolve(strict=True) == root and path.resolve(strict=True) == path
+    except OSError as error:
+        raise ValueError("player release path is not installed") from error
+    if not canonical:
+        raise ValueError("player release must be a canonical installed release path")
+    return identity
+
+
+def player_binding_identities(before, after, manifest, releases_dir):
+    if manifest["components"] != ["player"] or before.get("chain") != after.get("chain"):
+        raise ValueError("player policy cannot authorize a chain update")
+    identities = []
+    for bindings in (before, after):
+        if set(bindings) != {"chain", "player", "web", "skill"}:
+            raise ValueError("player policy requires all component bindings")
+        player = bindings["player"]
+        for name in ("player", "web", "skill"):
+            binding = bindings[name]
+            if not isinstance(binding, dict) or set(binding) != {"path", "release", "source_sha", "sha256"} or any(not isinstance(value, str) for value in binding.values()) or not re.fullmatch(r"[0-9a-f]{64}", binding["sha256"]):
+                raise ValueError("invalid player component binding")
+            if binding["release"] != player["release"] or binding["source_sha"] != player["source_sha"]:
+                raise ValueError("player/web/skill must share one release and source")
+        identities.append(player_release_identity(player["release"], releases_dir, player["source_sha"]))
+    if identities[1] != manifest["release_id"] or after["player"]["source_sha"] != manifest["source_sha"]:
+        raise ValueError("new player manifest does not match installed candidate")
+    return identities
+
+
+def evaluate_player(before, after, manifest, policy, releases_dir, store, release_api, prefix):
+    validate_player_policy(policy)
+    old_id, _new_id = player_binding_identities(before, after, manifest, releases_dir)
+    # This key is derived only from the actual installed binding and the fixed
+    # configured prefix. Local bootstrap metadata cannot stand in for a release.
+    if store is None:
+        raise ValueError("trusted old publication manifest is unavailable")
+    key = release_api.object_key(f"{prefix}/releases/{old_id}/manifest.json", prefix)
+    previous = json.loads(store.get(key))
+    release_api.validate_manifest(previous, prefix)
+    if "player" not in previous["components"]:
+        raise ValueError("old immutable manifest did not publish a player component")
+    if previous["release_id"] != old_id or previous["source_sha"] != before["player"]["source_sha"]:
+        raise ValueError("old immutable manifest does not match installed player")
+    if previous["compatibility"] != manifest["compatibility"] or manifest["compatibility"] != policy["contracts"]:
+        raise ValueError("player compatibility contract family is not independently approved")
     return True

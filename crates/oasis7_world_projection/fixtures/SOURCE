@@ -3,3 +3,8 @@ public/owner/delegate: oasis7_world_service projection/read_contract_tests.rs po
 response: formal_read_fixtures::actual_world_initial_fixture(), formal_read_response_fixture::response with schema_version 1 and empty history steps.
 JSON: serde_json::to_vec; CBOR: serde_cbor::to_vec; signing: authority::signing_bytes("view", value).
 These fixed wire fixtures cover numeric map keys, private owner/delegate visibility, formal proof response envelopes and signing payloads. Service tests reconstruct the same observations and compare against these files.
+
+capability-* fixtures add the optional gameplay_capability query to the authenticated projection.
+The original fixtures above remain unchanged and are decoded/re-encoded by codec_tests as the legacy wire contract.
+Current Service tests reconstruct capability-public/owner/delegate and capability-response and compare exact JSON, CBOR and signing bytes; formal proof and audience validation remain enabled.
+The query is observation/conditional admission evidence, never an execution authorization token.

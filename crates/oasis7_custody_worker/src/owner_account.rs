@@ -168,6 +168,24 @@ pub struct AccountAuthority {
     env: Option<Env>,
 }
 
+fn setup_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/internal/owner-setup-approve"
+            | "/internal/owner-setup-basis"
+            | "/internal/owner-setup-prepare"
+            | "/internal/owner-setup-continue"
+            | "/internal/owner-setup-identity"
+            | "/internal/owner-setup-owner"
+            | "/internal/owner-setup-reconcile-basis"
+            | "/internal/owner-setup-reconcile-prepare"
+            | "/internal/owner-setup-reconcile-approve"
+            | "/internal/owner-setup-reconcile-continue"
+            | "/internal/owner-setup-reconcile-identity"
+            | "/internal/owner-setup-reconcile-owner"
+    )
+}
+
 /// Match only the recognized, pristine draft payload. The caller must separately
 /// check the complete Account inventory for a freeze row or unknown material.
 pub(crate) fn matches_pristine_draft(value: &str, expected: &AccountDraftV1) -> bool {
@@ -218,21 +236,22 @@ impl DurableObject for AccountAuthority {
         let url = request.url()?;
         if request.method() != Method::Post
             || url.query().is_some()
-            || !matches!(
-                url.path(),
-                "/internal/draft"
-                    | "/internal/freeze"
-                    | "/internal/approve"
-                    | "/internal/advance"
-                    | "/internal/provision-progress"
-                    | "/internal/role-permit"
-                    | "/internal/native"
-                    | "/internal/native-recovery"
-                    | "/internal/participant-identity"
-                    | "/internal/participant-owner"
-                    | "/internal/managed-login-approve"
-                    | "/internal/managed-login-continue"
-            )
+            || (!setup_path(url.path())
+                && !matches!(
+                    url.path(),
+                    "/internal/draft"
+                        | "/internal/freeze"
+                        | "/internal/approve"
+                        | "/internal/advance"
+                        | "/internal/provision-progress"
+                        | "/internal/role-permit"
+                        | "/internal/native"
+                        | "/internal/native-recovery"
+                        | "/internal/participant-identity"
+                        | "/internal/participant-owner"
+                        | "/internal/managed-login-approve"
+                        | "/internal/managed-login-continue"
+                ))
         {
             return Response::error("not found", 404);
         }
@@ -248,6 +267,201 @@ impl DurableObject for AccountAuthority {
             None => return Response::error("invalid or oversized body", 400),
         };
         match url.path() {
+            path if setup_path(path) => {
+                if url.scheme() != "https"
+                    || url.host_str() != Some("account.internal")
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Response::error("not found", 404);
+                }
+                let Some(env) = &self.env else {
+                    return Response::error("owner setup unavailable", 409);
+                };
+                let result = match url.path() {
+                    "/internal/owner-setup-reconcile-basis" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_reconcile_rpc::ReconcileBasisRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::reconcile::basis(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-reconcile-prepare" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_reconcile_rpc::ReconcilePrepareRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::reconcile::prepare(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-reconcile-approve" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_reconcile_rpc::ReconcileApproveRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::reconcile::approve(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-reconcile-continue" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_reconcile_rpc::ReconcileContinueRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::reconcile::continue_attempt(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-reconcile-identity"
+                    | "/internal/owner-setup-reconcile-owner" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_reconcile_rpc::ReconcileRuntimeRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        let role = if url.path() == "/internal/owner-setup-reconcile-owner" {
+                            Role::Owner
+                        } else {
+                            Role::Identity
+                        };
+                        crate::owner_provision::native::setup::reconcile::dispatch(
+                            &self.state,
+                            env,
+                            rpc,
+                            role,
+                        )
+                        .await
+                    }
+                    "/internal/owner-setup-basis" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupBasisRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::basis_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-prepare" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupPrepareRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::prepare_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-approve" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupApproveRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::approve_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    "/internal/owner-setup-continue" => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupContinueRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        crate::owner_provision::native::setup::continue_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                        )
+                        .await
+                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                    }
+                    _ => {
+                        let rpc = match serde_json::from_str::<
+                            crate::owner_setup_rpc::OwnerSetupRuntimeRpc,
+                        >(&body)
+                        {
+                            Ok(v) => v,
+                            Err(_) => return Response::error("invalid request", 400),
+                        };
+                        let role = if url.path() == "/internal/owner-setup-owner" {
+                            Role::Owner
+                        } else {
+                            Role::Identity
+                        };
+                        crate::owner_provision::native::setup::dispatch_owner_setup(
+                            &self.state,
+                            env,
+                            rpc,
+                            role,
+                        )
+                        .await
+                    }
+                };
+                match result {
+                    Ok(raw) => {
+                        let mut response = Response::ok(raw)?;
+                        response
+                            .headers_mut()
+                            .set("Content-Type", "application/json")?;
+                        Ok(response)
+                    }
+                    Err(_) => Response::error("owner setup rejected or pending", 409),
+                }
+            }
             "/internal/participant-identity" | "/internal/participant-owner" => {
                 if url.scheme() != "https"
                     || url.host_str() != Some("account.internal")

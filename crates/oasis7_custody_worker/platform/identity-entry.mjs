@@ -1,6 +1,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import RustWorker from './index.js';
 export class IdentityNativeProvision extends WorkerEntrypoint {
+  async ownerSetup(raw) { return new RustWorker(this.ctx, this.env).identity_run_owner_setup(this.env, raw); }
+  async ownerSetupReconcile(raw) { return new RustWorker(this.ctx, this.env).identity_run_owner_setup_reconcile(this.env, raw); }
   async participant(raw) { return new RustWorker(this.ctx, this.env).identity_run_participant(this.env, raw); }
   async run(raw) { return new RustWorker(this.ctx, this.env).identity_run_native(this.env, raw); }
 }
