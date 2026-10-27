@@ -839,6 +839,17 @@ fn parse(name: &str, prefix: &str) -> Option<u64> {
     number.parse().ok()
 }
 
+fn canonical_hash(value: &str) -> Result<(), String> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("formal prefix digest is not canonical lowercase BLAKE3 hex".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod capacity_tests {
     use super::*;
@@ -850,15 +861,4 @@ mod capacity_tests {
         assert!(capacity.object("not-retained", 1).is_err());
         assert!(!capacity.objects.contains("not-retained"));
     }
-}
-
-fn canonical_hash(value: &str) -> Result<(), String> {
-    if value.len() != 64
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err("formal prefix digest is not canonical lowercase BLAKE3 hex".into());
-    }
-    Ok(())
 }
