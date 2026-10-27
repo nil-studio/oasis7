@@ -280,7 +280,7 @@ fn header_machine_requires_all_three_equal_votes_and_applies_only_verified_succe
     let certificate = effects
         .into_iter()
         .find_map(|effect| match effect {
-            BftConsensusActionV3::Commit(qc) => Some(qc),
+            BftConsensusActionV3::Commit(qc) => Some(*qc),
             _ => None,
         })
         .unwrap();
@@ -525,7 +525,7 @@ fn header_journal_proposal_and_commit_resume_original_public_decisions() {
     let qc = effects
         .into_iter()
         .find_map(|effect| match effect {
-            BftConsensusActionV3::Commit(qc) => Some(qc),
+            BftConsensusActionV3::Commit(qc) => Some(*qc),
             _ => None,
         })
         .unwrap();

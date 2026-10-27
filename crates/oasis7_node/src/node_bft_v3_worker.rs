@@ -69,7 +69,7 @@ impl Worker {
             while let Some(effect) = self.effects.pop_front() {
                 match effect {
                     BftConsensusActionV3::SignVote(v) => self.sign_vote(v)?,
-                    BftConsensusActionV3::Commit(c) => self.apply_commit(c)?,
+                    BftConsensusActionV3::Commit(c) => self.apply_commit(*c)?,
                     BftConsensusActionV3::RoundAdvanced { .. } => {}
                 }
             }

@@ -72,7 +72,7 @@ impl BftVoteIntentV3 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BftConsensusActionV3 {
     SignVote(BftVoteIntentV3),
-    Commit(FormalBftCertifiedHeaderV3),
+    Commit(Box<FormalBftCertifiedHeaderV3>),
     RoundAdvanced { height: u64, round: u64 },
 }
 
@@ -805,7 +805,7 @@ impl BftConsensusMachineV3 {
                     )?;
                     verify_commit_certificate_v3(&self.schedule, &certificate)?;
                     self.commit_emitted.insert((round, block_id.clone()));
-                    output.push(BftConsensusActionV3::Commit(certificate));
+                    output.push(BftConsensusActionV3::Commit(Box::new(certificate)));
                 }
             }
         }

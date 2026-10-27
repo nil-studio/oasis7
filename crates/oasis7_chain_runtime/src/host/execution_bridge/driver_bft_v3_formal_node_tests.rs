@@ -25,6 +25,8 @@ use std::time::{Duration, Instant};
 
 #[path = "driver_bft_v3_node_identity_tests.rs"]
 mod node_identity_tests;
+#[path = "driver_bft_v3_node_cli_tests.rs"]
+mod node_cli_tests;
 #[path = "driver_bft_v3_provider_retry_tests.rs"]
 mod provider_retry_tests;
 
@@ -303,6 +305,14 @@ fn driver(
     root: &Path,
     store: &LocalCasStore,
 ) -> Arc<Mutex<FormalBftHeaderNodeDriverV3>> {
+    driver_with_source(h, root, store, h.reader.clone())
+}
+fn driver_with_source(
+    h: &QualifiedH<BftProfileTargetV2>,
+    root: &Path,
+    store: &LocalCasStore,
+    source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+) -> Arc<Mutex<FormalBftHeaderNodeDriverV3>> {
     Arc::new(Mutex::new(
         FormalBftHeaderNodeDriverV3::open_from_handoff(
             &root.join("ledger"),
@@ -310,7 +320,7 @@ fn driver(
             h.anchor.clone(),
             h.target.clone(),
             h.material.clone(),
-            h.reader.clone(),
+            source,
         )
         .unwrap(),
     ))
@@ -504,8 +514,9 @@ fn node_case() {
     assert!(store.prune_orphan_blobs().unwrap() > 0);
     assert!(store.get_verified(&garbage).is_err());
     // New driver, service, remote client and Node objects reuse only the
-    // retained software ledger and explicit test backend snapshot.
-    let actual = driver(&h, root.path(), &store);
+    // retained software ledger and explicit test backend snapshot. An empty
+    // external source proves the original private H closure is sufficient.
+    let actual = driver_with_source(&h, root.path(), &store, Arc::new(EmptyIndexReader));
     assert_eq!(
         signer_binding(&actual).digest().unwrap(),
         binding.digest().unwrap()
