@@ -28,12 +28,12 @@ mod authority;
 mod dispatch;
 #[path = "owner_participant.rs"]
 mod participant;
-#[path = "owner_setup.rs"]
-pub(crate) mod setup;
 #[path = "owner_native_reconcile.rs"]
 mod reconcile;
 #[path = "owner_native_recovery.rs"]
 mod recovery;
+#[path = "owner_setup.rs"]
+pub(crate) mod setup;
 pub(crate) async fn participant_dispatch(
     state: &JsValue,
     env: &Env,
