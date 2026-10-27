@@ -77,19 +77,26 @@ impl ViewerRuntimeLiveServer {
     }
 
     pub(super) fn invalidate_owner_read_session(&self, session: &mut RuntimeLiveSession) {
-        let valid = if let Some(view) = session.owner_read_view.as_ref() {
-            self.current_owner_read_context(&view.agent_id, session)
-                .is_ok_and(|current| {
-                    current.expected.matches(view)
-                        && current.request.min_commit.as_ref().is_none_or(|minimum| {
-                            session.owner_read_commit.as_ref().is_some_and(|commit| {
-                                commit.satisfies_minimum(minimum).unwrap_or(false)
-                            })
+        let valid = if let Some(verified) = session.owner_read_view.as_ref() {
+            verified
+                .projection()
+                .canonical_agent_chat
+                .as_ref()
+                .is_some_and(|view| {
+                    self.current_owner_read_context(&view.agent_id, session)
+                        .is_ok_and(|current| {
+                            current.expected.matches(view)
+                                && current.request.min_commit.as_ref().is_none_or(|minimum| {
+                                    verified
+                                        .version()
+                                        .commit
+                                        .satisfies_minimum(minimum)
+                                        .unwrap_or(false)
+                                })
+                                && current.fence.as_ref().is_none_or(|fence| {
+                                    fence == &CanonicalAgentOwnerFenceV1::from(view)
+                                })
                         })
-                        && current
-                            .fence
-                            .as_ref()
-                            .is_none_or(|fence| fence == &CanonicalAgentOwnerFenceV1::from(view))
                 })
         } else if let Some(context) = session.owner_read_context.as_ref() {
             self.current_owner_read_context(&context.expected.agent_id, session)
@@ -101,7 +108,6 @@ impl ViewerRuntimeLiveServer {
         };
         if !valid {
             session.owner_read_view = None;
-            session.owner_read_commit = None;
             session.owner_read_context = None;
         }
     }
@@ -184,7 +190,6 @@ impl ViewerRuntimeLiveServer {
     ) -> Result<(), ViewerRuntimeLiveServerError> {
         session.owner_read_context = None;
         session.owner_read_view = None;
-        session.owner_read_commit = None;
         let context = self.current_owner_read_context(&agent, session)?;
         let signing = authority::signing_bytes(VIEW_PATH, &context.request)
             .map_err(ViewerRuntimeLiveServerError::Init)?;
@@ -204,7 +209,6 @@ impl ViewerRuntimeLiveServer {
         writer: &mut dyn std::io::Write,
     ) -> Result<(), ViewerRuntimeLiveServerError> {
         session.owner_read_view = None;
-        session.owner_read_commit = None;
         let original: SignedReadRequest<ReadWorldViewRequest> = serde_json::from_value(value)
             .map_err(|error| ViewerRuntimeLiveServerError::Init(error.to_string()))?;
         authority::verify_read_request(VIEW_PATH, &original)
@@ -270,8 +274,9 @@ impl ViewerRuntimeLiveServer {
                 "owner read response identity fence mismatch".into(),
             ));
         }
-        session.owner_read_view = Some(view.clone());
-        session.owner_read_commit = Some(verified.version().commit.clone());
+        // Keep the same verified read, including its capability query and
+        // authority/version binding, in the existing per-session container.
+        session.owner_read_view = Some(verified.clone());
         // Internal AgentHost delivery is separate from the shared public World.
         self.llm_sidecar.canonical_owner_goal = Some(view.clone());
         self.llm_sidecar.canonical_owner_goal_commit = Some(verified.version().commit.clone());

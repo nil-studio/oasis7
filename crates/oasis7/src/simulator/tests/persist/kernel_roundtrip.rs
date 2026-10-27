@@ -122,6 +122,7 @@ fn snapshot_player_gameplay_execution_state_backfills_from_legacy_fields() {
         pivot_available: None,
         validation_unlock_preview: None,
         starter_industrial_feasibility: None,
+        gameplay_capability: None,
         factory_production_failure_disposition: None,
         recovery_options: Vec::new(),
         fine_grain_action_translation: None,

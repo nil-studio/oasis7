@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createViewerFeedbackModule } from "./viewer_feedback_module.js";
 
-function createFeedbackModule(state) {
+function createFeedbackModule(state, visible = () => true) {
   return createViewerFeedbackModule({
     clone: (value) => (value == null ? value : JSON.parse(JSON.stringify(value))),
     feedbackBadgeClass: () => "feedback-badge",
     hostedActionPolicy: () => null,
-    isAgentVisibleToCurrentSession: () => true,
+    isAgentVisibleToCurrentSession: visible,
     isLocaleZh: (locale) => locale === "zh",
     localeText: (locale, zh, en) => (locale === "zh" ? zh : en),
     state,
@@ -14,6 +14,23 @@ function createFeedbackModule(state) {
 }
 
 describe("viewer feedback module", () => {
+  it.each(["spectator", "unavailable"])("keeps public entities separate from %s ownership", (kind) => {
+    const state = {uiLocale: "en", selectedKind: "agent", selectedId: "agent-1", snapshot: {
+      model: {agents: Object.fromEntries(Array.from({length: 5}, (_, i) => [`agent-${i}`, {id: `agent-${i}`} ])), locations: {base: {id: "base"}}},
+      player_gameplay: {blocker_kind: "llm_required", blocker_detail: "LLM required", gameplay_capability: {subject: {kind}}},
+    }};
+    const summary = createFeedbackModule(state, () => false).buildGameplaySummary();
+    expect(summary.blockerKind).toBe("llm_required");
+    expect(summary.blockerDetail).toBe("LLM required");
+    expect(summary.personalSubjectDetail).toMatch(/personal ownership|personal owner/);
+  });
+  it("retains real empty-world claim and bound sync behavior", () => {
+    const state = {uiLocale: "en", snapshot: {model: {agents: {}, locations: {}}, player_gameplay: {}}};
+    expect(createFeedbackModule(state).buildGameplaySummary().blockerKind).toBe("runtime_snapshot_empty_entities");
+    state.auth = {available: true, registrationStatus: "registered", boundAgentId: "agent-0"};
+    state.viewerProtocol = {capabilities: ["canonical_agent_chat_v1"]};
+    expect(createFeedbackModule(state).buildGameplaySummary().blockerKind).toBe("agent_owner_sync_pending");
+  });
   it.each(["agent-A", null])("keeps local receipt subject %s independent from a newer runtime intent", (agentId) => {
     const state = {uiLocale:"en",snapshot:{model:{agents:{"agent-A":{id:"agent-A"},"agent-B":{id:"agent-B"}},locations:{base:{id:"base"}}},player_gameplay:{intent_target:"agent-B",recent_feedback:{action:"build",stage:"completed"}}},lastGameplayActionFeedback:{kind:"gameplay_action",action:"build",stage:"completed",agentId}};
     const summary = createFeedbackModule(state).buildGameplaySummary();
@@ -908,20 +925,8 @@ describe("viewer feedback module", () => {
 
     const continuation = createFeedbackModule(state).buildGameplaySummary().matureWorldContinuation;
 
-    expect(continuation.recoveryOptionComparisons).toEqual([
-      expect.objectContaining({
-        kind: "repair",
-        timeClass: "short",
-        resourceClass: "low",
-        riskClass: "low",
-        retainedBenefit: "<existing throughput>",
-        recommendationReason: "Fastest safe recovery",
-      }),
-      expect.objectContaining({ kind: "rebuild", timeClass: "medium", resourceClass: "high" }),
-    ]);
-    expect(continuation.recoveryOptions).toBe(
-      "repair: time=short · resources=low · risk=low · retains=<existing throughput> · why=Fastest safe recovery / rebuild: time=medium · resources=high · risk=medium · retains=new capacity · why=Restores a stronger line",
-    );
+    expect(continuation.recoveryOptionComparisons).toEqual([]);
+    expect(continuation.recoveryOptions).toContain("Recovery feasibility unknown");
   });
 
   it("keeps boolean recovery summaries when runtime recovery records are absent or invalid", () => {
@@ -941,7 +946,7 @@ describe("viewer feedback module", () => {
     const continuation = createFeedbackModule(state).buildGameplaySummary().matureWorldContinuation;
 
     expect(continuation.recoveryOptionComparisons).toEqual([]);
-    expect(continuation.recoveryOptions).toBe("repair: available / rebuild: unavailable");
+    expect(continuation.recoveryOptions).toContain("Recovery feasibility unknown");
   });
 });
 
@@ -971,5 +976,43 @@ describe("owned Agent claim convergence", () => {
     expect(summary.availableActions.some(action => action.actionId === "claim_first_agent")).toBe(false);
     expect(summary.blockerDetail).toMatch(/sync/i);
     expect(summary.nextStepHint).not.toMatch(/submit that claim first/i);
+  });
+});
+
+
+describe("canonical capability recovery", () => {
+  it("keeps canonical status and reasons invariant across locale and stale flags", () => {
+    const gameplay = {
+      repair_available: true,
+      gameplay_capability: {recovery: [
+        {kind: "repair", status: "unknown", reason_code: "unsupported_recovery_action", action: null},
+        {kind: "current_recipe_run", status: "blocked", reason_code: "canonical_recipe_admission_rejected", action: {ScheduleRecipe: {}}},
+      ]},
+    };
+    const summary = (locale) => createFeedbackModule({
+      uiLocale: locale, snapshot: {model:{agents:{},locations:{}}, player_gameplay:gameplay},
+    }).buildGameplaySummary().matureWorldContinuation.recoveryOptions;
+    expect(summary("en")).toBe(summary("zh"));
+    expect(summary("en")).toContain("Repair: unknown");
+    expect(summary("en")).toContain("Run the current recipe: blocked");
+    expect(summary("en")).not.toContain("Repair: available");
+  });
+});
+
+
+describe("recovery guidance evidence boundaries", () => {
+  it.each(["forced", "independent_path_available"])("keeps legacy sponsorship %s unverified without canonical evidence", (dependency) => {
+    const summary = createFeedbackModule({uiLocale:"en",snapshot:{model:{agents:{},locations:{}},player_gameplay:{
+      goal_kind:"recover_capability", execution_state:"blocked", blocker_kind:"missing_material", blocker_detail:"Input is unavailable",
+      major_power_dependency_status:dependency, recovery_path_detail:"Repair is available after refreshing the snapshot",
+      fallback_action_label:"Refresh snapshot", available_actions:[
+        {action_id:"advance_step",label:"Advance one step",protocol_action:"live_control.step"},
+        {action_id:"resume_play",label:"Resume play",protocol_action:"live_control.play"},
+      ],
+    }}}).buildGameplaySummary();
+    expect(summary.matureWorldContinuation.dependencyStatus).toBe("unverified");
+    expect(summary.matureWorldContinuation.recoveryPath).toMatch(/unknown/i);
+    for(const action of summary.availableActions) expect(action.playerDetail).not.toMatch(/apply or prove recovery|after recovery prerequisites|Recovery path:/i);
+    expect(summary.economicSurface.repairAction).toMatch(/inspect the committed result/i);
   });
 });

@@ -152,21 +152,23 @@ export function buildGameplayEconomicSurface({
     );
   })();
 
+  // Retain the wire adapter name; this is observation/action guidance, not
+  // a domain assessment or a promise that a repair is available.
   const repairAction = (() => {
     if (fallbackLabel) {
       return blockerDetail
         ? localeText(
           locale,
-          `${fallbackLabel}，然后确认 blocker 是否真的解除。`,
-          `${fallbackLabel}, then confirm the blocker actually clears.`,
+          `${fallbackLabel}，然后检查提交结果及 blocker 是否变化。`,
+          `${fallbackLabel}, then inspect the committed result and whether the blocker changed.`,
         )
         : fallbackLabel;
     }
     return narrativeNextStep
       || localeText(
         locale,
-        "当前还没有发布更短的修复动作，请先读下一步指引。",
-        "No shorter repair action is published yet; read the next-step guidance first.",
+        "请先读取下一步指引并检查当前状态。",
+        "Read the next-step guidance and inspect the current state.",
       );
   })();
 

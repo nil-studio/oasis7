@@ -592,6 +592,8 @@ pub struct PlayerGameplaySnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub starter_industrial_feasibility: Option<PlayerStarterIndustrialFeasibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gameplay_capability: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub factory_production_failure_disposition:
         Option<PlayerGameplayFactoryProductionFailureDisposition>,
 }
@@ -780,6 +782,8 @@ struct PlayerGameplaySnapshotSerde {
     validation_unlock_preview: Option<ProductValidationUnlockPreview>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     starter_industrial_feasibility: Option<PlayerStarterIndustrialFeasibility>,
+    #[serde(default)]
+    gameplay_capability: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     factory_production_failure_disposition:
         Option<PlayerGameplayFactoryProductionFailureDisposition>,
@@ -886,6 +890,7 @@ impl<'de> Deserialize<'de> for PlayerGameplaySnapshot {
             pivot_available: legacy.pivot_available,
             validation_unlock_preview: legacy.validation_unlock_preview,
             starter_industrial_feasibility: legacy.starter_industrial_feasibility,
+            gameplay_capability: legacy.gameplay_capability,
             factory_production_failure_disposition: legacy.factory_production_failure_disposition,
         })
     }

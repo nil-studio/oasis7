@@ -1,6 +1,8 @@
+use crate::runtime::WorldState;
+#[cfg(test)]
 use crate::runtime::{
-    MaterialLedgerId, STARTER_INDUSTRIAL_PROFILE_ID, STARTER_INDUSTRIAL_PROFILE_REVISION,
-    STARTER_SMELTER_FACTORY_ID, STARTER_SMELTER_RECIPE_ID, WorldState,
+    MaterialLedgerId, STARTER_INDUSTRIAL_PROFILE_ID, STARTER_SMELTER_FACTORY_ID,
+    STARTER_SMELTER_RECIPE_ID,
 };
 use crate::runtime::{StarterIndustrialFeasibilityResult, StarterIndustrialFeasibilityStatus};
 use crate::runtime_host::archive::PlayerStarterIndustrialSettledOutcome;
@@ -14,46 +16,14 @@ pub(super) fn settled_outcome(
     state: &WorldState,
     controlled_agent_id: Option<&str>,
 ) -> Option<PlayerStarterIndustrialSettledOutcome> {
-    let milestone = state
-        .industry_progress
-        .starter_industrial_milestone
-        .as_ref()?;
-    let settlement = milestone.settlement_summary.as_ref()?;
-    let owner = controlled_agent_id?;
-    let origin = milestone.committed_recipe_origin.as_ref()?;
-    let factory = state.factories.get(&milestone.factory_id)?;
-    let site = state.factory_site_authorities.get(&factory.site_id)?;
-    if milestone.profile_id != STARTER_INDUSTRIAL_PROFILE_ID
-        || milestone.profile_revision != STARTER_INDUSTRIAL_PROFILE_REVISION
-        || milestone.factory_id != STARTER_SMELTER_FACTORY_ID
-        || milestone.recipe_id != STARTER_SMELTER_RECIPE_ID
-        || !origin
-            .submission
-            .matches_recipe(owner, &milestone.factory_id, &milestone.recipe_id)
-        || settlement.requester_agent_id != owner
-        || factory.builder_agent_id != owner
-        || site.owner_agent_id != owner
-        || !site.active
-        || factory.output_ledger != milestone.output_ledger
-        || milestone.output_ledger != MaterialLedgerId::site(&factory.site_id)
-        || !state
-            .material_ledgers
-            .contains_key(&milestone.output_ledger)
-        || settlement.accepted_batches == 0
-        || settlement.power_required < 0
-        || !settlement
-            .produce
-            .iter()
-            .any(|stack| stack.kind == "iron_ingot" && stack.amount > 0)
-    {
-        return None;
-    }
-    Some(PlayerStarterIndustrialSettledOutcome {
-        settlement_job_id: milestone.settlement_job_id,
-        settled_at: milestone.settled_at,
-        output_ledger: milestone.output_ledger.clone(),
-        settlement: settlement.clone(),
-    })
+    oasis7_world_state::gameplay_capability::settled_outcome(state, controlled_agent_id).map(
+        |fact| PlayerStarterIndustrialSettledOutcome {
+            settlement_job_id: fact.settlement_job_id,
+            settled_at: fact.settled_at,
+            output_ledger: fact.output_ledger,
+            settlement: fact.settlement,
+        },
+    )
 }
 
 pub(super) fn player_starter_industrial_feasibility(
@@ -156,8 +126,29 @@ mod tests {
         assert_eq!(expected.settlement.consume[0].amount, 48);
         assert_eq!(expected.settlement.power_required, 24);
         state.recipe_completion_receipts.clear();
-        assert_eq!(settled_outcome(&state, Some("owner")), Some(expected));
+        assert_eq!(
+            settled_outcome(&state, Some("owner")),
+            Some(expected.clone())
+        );
         assert!(settled_outcome(&state, Some("foreign")).is_none());
+        state
+            .factories
+            .get_mut(STARTER_SMELTER_FACTORY_ID)
+            .unwrap()
+            .production
+            .status = crate::runtime::FactoryProductionStatus::Paused;
+        let paused = state.gameplay_capability_query(
+            oasis7_world_state::gameplay_capability::GameplaySubject::Personal {
+                owner_agent_id: "owner".into(),
+            },
+            "current_industrial_capability",
+        );
+        assert_eq!(paused.current_stable_line, Some(false));
+        assert_eq!(
+            paused.first_settlement.unwrap().settlement_job_id,
+            expected.settlement_job_id
+        );
+
         let mut mismatched_origin = state.clone();
         mismatched_origin
             .industry_progress
