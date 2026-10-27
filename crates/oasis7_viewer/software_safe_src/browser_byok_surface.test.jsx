@@ -175,3 +175,17 @@ it.each(["owner","world"])("isolates a late explicit continuation after %s switc
  expect(createSession).not.toHaveBeenCalled();expect(onCanonicalAgent).not.toHaveBeenCalled();
  expect(view.queryByText(/late-agent/)).toBeNull();
 });
+
+it("clears prior consent when read-only inspection restores a different retained goal", async () => {
+ const entry = { inspect: vi.fn().mockResolvedValueOnce({ state: "needs_goal" }).mockResolvedValue({ state: "unsent", continuation: "publishRaw", goal: "Retained goal Y" }), prepare: vi.fn(), continueOriginal: vi.fn() };
+ const view = render(() => <BrowserByokSurface config={{ servicePublicKey: "key" }} accountId="account" ownerSigner={{ publicKey: "owner", sign: vi.fn() }} locale="en" protocolLoader={async () => ({})} createOwnerEntry={() => entry} />);
+ await waitFor(() => expect(view.container.textContent).toContain("Goal needs publication"));
+ fireEvent.input(view.getByLabelText("Task goal"), { target: { value: "Entered goal X" } });
+ const consent = view.getByLabelText(/Confirm registration or verification/);
+ fireEvent.click(consent); expect(consent.checked).toBe(true);
+ fireEvent.click(view.getByRole("button", { name: "Look up account entry originals" }));
+ await waitFor(() => expect(view.getByLabelText("Task goal").value).toBe("Retained goal Y"));
+ expect(consent.checked).toBe(false);
+ expect(view.getByRole("button", { name: "Continue sending the retained original" }).disabled).toBe(true);
+ expect(entry.prepare).not.toHaveBeenCalled(); expect(entry.continueOriginal).not.toHaveBeenCalled();
+});

@@ -60,7 +60,7 @@ export function BrowserByokSurface(props) {
   const acceptEntry = (value, captured, operation = "entry_inspect") => {
     if (!alive || captured !== entryKey) return;
     setEntryState(value);
-    if (value?.state === "unsent" && value.goal) setGoal(value.goal);
+    if (value?.state === "unsent" && value.goal) { setGoal(value.goal); setEntryConsent(false); }
     if (value?.code) showFailure(value, operation); else setError("");
     if (value?.state === "ready" && value.agentId) setProjectionPending(props.onCanonicalAgent?.(value.agentId) === false);
   };
