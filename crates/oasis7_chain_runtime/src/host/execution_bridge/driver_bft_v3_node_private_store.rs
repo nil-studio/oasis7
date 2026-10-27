@@ -473,7 +473,7 @@ impl NodePrivateStore {
                 complete: true,
             },
         );
-        Ok(data.digest()?)
+        data.digest()
     }
     pub(super) fn usage(&self) -> Result<usize, String> {
         self.usage_with(None, &BTreeMap::new())
