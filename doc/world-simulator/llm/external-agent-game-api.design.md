@@ -207,6 +207,24 @@ owner gateway 仅接受明确的 task、goal、delegation、executor bind/stop/r
 
 认证与世界授权分层：入口验证 token/device/session，Runtime 再验证 world、Agent、task、当前 executor epoch、goal revision、grant revision 与剩余额度。撤销或替换执行方不依赖 token 自然到期。无权读取返回不泄露对象存在性的错误；先校验权限，再返回版本冲突或最新值。
 
+<a id="cognition-material-source-authority"></a>
+#### Cognition material-source authority
+
+Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61; O7-REQ-7d6cef7f-9419-49ed-b445-663382383458. This specializes [resource ownership and delegation](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-002) and [server-side safety](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-013); the product requirements already prohibit obtaining another resource's authority through connection identity.
+
+An authenticated cognition signature establishes the acting Agent, not permission to debit every material ledger. The existing Runtime delegation decision validates `TransferMaterial.from_ledger` before its no-native-grant compatibility return and again before releasing a new effect. The same rule applies to legacy/dev-local no-task cognition and task-bound cognition; a task fence and an electricity grant do not grant material ownership. Existing stricter grant-bound Agent-source restrictions remain.
+
+| Source ledger | Existing canonical authority required for cognition |
+| --- | --- |
+| `agent:A` | The acting Agent is A. Another Agent remains a separate resource even if its owner key is shared. |
+| `site:S` | Current registered `FactorySiteAuthorityV1` names the acting Agent as `owner_agent_id`. Its builder-access `authorized_agent_ids` do not authorize material withdrawal. Construction `active`/`chunk_ready` flags do not remove the recorded owner's material rights. |
+| `factory:F` | The current factory exists and names the acting Agent as `builder_agent_id`. |
+| `world`, unknown or missing authority | Reject; no ownership or material-withdrawal delegation is inferred. |
+
+Destination credit does not confer source permission. Rejection occurs before material debit, destination credit, transit reservation, business receipt or budget spend; existing denial audit is permitted. Fresh authority is rechecked for new effects, while exact authenticated recovery returns the original result without repeating the transfer. No new grant registry, ownership DTO, reducer restriction or raw trusted-host permission system is introduced. Trusted raw action/reducer and administrative fixture APIs retain their existing contracts and are not authenticated player entrypoints.
+
+Verify with generated test identities in an isolated World: a real owner-signed no-task request A transferring B's positive balance to A must fail at source authorization, while own-Agent and registered-site-owner cases transfer once and survive exact retry/recovery. Separately record earlier strict-formal step and task-fence rejection; those outcomes do not prove the source guard ran. Native-grant cases retain both source and electricity checks. A legacy fixture is not proof that strict formal production execution can reach the transfer.
+
 <a id="api-autonomous-entry"></a>
 ### 5.1.1 目标补充：合法机器主体的冷入场 bootstrap
 

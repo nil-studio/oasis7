@@ -3,7 +3,7 @@
 //! publish its debit and domain references.
 use super::World;
 use crate::cognition_recovery::{WorldCommitRecordV1, cognition_digest_v1};
-use crate::{Action, DomainEvent, WorldError, WorldEventBody};
+use crate::{Action, DomainEvent, MaterialLedgerId, WorldError, WorldEventBody};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -322,6 +322,33 @@ impl World {
                     .is_none_or(|v| &v.intent_id != intent_id)
             {
                 return Err(denied("intent_replan_required"));
+            }
+        }
+        // The acting Agent's signature, task fence and electricity budget do
+        // not convey another material ledger's ownership. Reuse canonical
+        // ownership on every decision validation, including no-grant legacy
+        // cognition and the recheck immediately before releasing effects.
+        if let Action::TransferMaterial { from_ledger, .. } = action {
+            let authorized = match from_ledger {
+                MaterialLedgerId::Agent(agent) => agent == &decision.agent_id,
+                MaterialLedgerId::Site(site) => self
+                    .state
+                    .factory_site_authorities
+                    .get(site)
+                    .is_some_and(|authority| {
+                        authority.site_id == *site
+                            && authority.authority_revision > 0
+                            && authority.owner_agent_id == decision.agent_id
+                    }),
+                MaterialLedgerId::Factory(factory) => {
+                    self.state.factories.get(factory).is_some_and(|state| {
+                        state.factory_id == *factory && state.builder_agent_id == decision.agent_id
+                    })
+                }
+                MaterialLedgerId::World => false,
+            };
+            if !authorized {
+                return Err(denied("asset_source_unsupported"));
             }
         }
         let Some(grant_id) = &decision.grant_id else {
