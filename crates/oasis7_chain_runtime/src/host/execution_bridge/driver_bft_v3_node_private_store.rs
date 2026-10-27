@@ -18,6 +18,7 @@ struct Data {
     origin: bool,
     ledger_origin_digest: String,
     material_identity: String,
+    instance_id: String,
     height: u64,
     value: Option<BftHeaderValueV3>,
     #[serde(deserialize_with = "super::super::super::private::deserialize_actions")]
@@ -32,6 +33,7 @@ impl Data {
             || self.height == 0
             || !canonical_hash(&self.ledger_origin_digest)
             || !canonical_hash(&self.material_identity)
+            || !canonical_hash(&self.instance_id)
             || self.references.len()
                 > super::super::super::super::formal_dependencies::MAX_RETAINED_INDEX_NODES
             || !self.references.windows(2).all(|pair| pair[0] < pair[1])
@@ -97,6 +99,7 @@ struct Slot {
 }
 
 pub(super) struct NodePrivateStore {
+    instance_id: String,
     dir: PathBuf,
     store: LocalCasStore,
     origin: Option<Slot>,
@@ -139,6 +142,15 @@ impl NodePrivateStore {
             crate::controlled_live_config::require_private_owned(&dir, true)?;
         }
         let origin = read_slot(&dir.join("origin.cbor"))?;
+        let instance_id = match &origin {
+            Some(slot) => slot.data.instance_id.clone(),
+            None => {
+                let mut nonce = [0u8; 32];
+                getrandom::fill(&mut nonce)
+                    .map_err(|_| "generate private Node instance identity")?;
+                hex::encode(nonce)
+            }
+        };
         let mut nodes = BTreeMap::new();
         let pending_references = match &origin {
             Some(slot) => {
@@ -206,6 +218,7 @@ impl NodePrivateStore {
         });
         Ok((
             Self {
+                instance_id,
                 dir,
                 store,
                 origin,
@@ -213,6 +226,10 @@ impl NodePrivateStore {
             },
             source,
         ))
+    }
+
+    pub(super) fn instance_id(&self) -> &str {
+        &self.instance_id
     }
 
     pub(super) fn bind_origin(
@@ -229,6 +246,7 @@ impl NodePrivateStore {
             origin: true,
             ledger_origin_digest: ledger_origin.into(),
             material_identity: material.into(),
+            instance_id: self.instance_id.clone(),
             height: h,
             value: None,
             actions_cbor: Vec::new(),
@@ -324,6 +342,7 @@ impl NodePrivateStore {
                 || slot.data.height != height
                 || slot.data.ledger_origin_digest != origin
                 || slot.data.material_identity != material
+                || slot.data.instance_id != self.instance_id
             {
                 return Err("private Node candidate differs from original H identity".into());
             }
@@ -411,6 +430,7 @@ impl NodePrivateStore {
             origin: false,
             ledger_origin_digest: origin.ledger_origin_digest.clone(),
             material_identity: origin.material_identity.clone(),
+            instance_id: self.instance_id.clone(),
             height,
             value: Some(candidate.public_value.clone()),
             actions_cbor: candidate.actions_cbor.clone(),
@@ -755,6 +775,7 @@ mod tests {
             origin: true,
             ledger_origin_digest: "a".repeat(64),
             material_identity: "b".repeat(64),
+            instance_id: "c".repeat(64),
             height: 3,
             value: None,
             actions_cbor: Vec::new(),

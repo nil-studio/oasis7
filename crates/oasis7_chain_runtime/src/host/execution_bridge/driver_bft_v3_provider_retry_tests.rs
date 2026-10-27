@@ -118,7 +118,7 @@ fn timer_origin_case() {
     let binding = signer_binding(&actual);
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
-        lease_generation: 0,
+        lease_generation: 1,
         lease_token_digest: String::new(),
         protected_time_floor_ms: 100,
     }));

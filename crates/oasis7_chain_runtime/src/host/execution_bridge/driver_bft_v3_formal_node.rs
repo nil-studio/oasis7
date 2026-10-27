@@ -58,6 +58,7 @@ impl FormalBftHeaderNodeDriverV3 {
             &serde_cbor::to_vec(&(
                 "oasis7.formal.bft.node_material.v3",
                 &ledger_origin,
+                private.instance_id(),
                 execution.ledger.material_pin_digest()?,
             ))
             .map_err(|_| "encode original Node material identity")?,
