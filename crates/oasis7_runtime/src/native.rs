@@ -448,3 +448,8 @@ pub use world::ResolvedAgentOwnerV1;
 pub use oasis7_agent_api::world_action::GovernanceAuthorizationV1;
 
 pub use world::{GovernanceHistoryVerificationError, VerifiedGovernanceHistorySnapshot};
+
+pub use world::{
+    DelegationControlDisposition, DelegationControlError, DelegationControlOperation,
+    DelegationControlOutcome, DelegationControlStage, DelegationReplayMatch,
+};

@@ -9,6 +9,8 @@ use crate::viewer::runtime_live::agency_control::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 const PLAYER_ID: &str = "agency-owner";
+#[path = "agent_delegation_control_result.rs"]
+mod delegation_result;
 #[path = "agent_memory_correction_control_service_mode.rs"]
 mod service_mode;
 fn root_identity(world: &crate::runtime::World) -> String {
