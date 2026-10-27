@@ -289,6 +289,35 @@ class Workflow(unittest.TestCase):
             self.assertIn(f"needs.{name}.result == 'success'", matrix)
             self.assertIn(f"needs.{name}.result == 'skipped'", matrix)
 
+    def test_formal_consumers_stop_when_cancelled_and_require_one_successful_builder(self):
+        header = JOBS['formal-process-tests'].split('    timeout-minutes:', 1)[0]
+        condition = header.split('    if:', 1)[1].strip().removeprefix('>-').strip()
+        # One producer is deliberately skipped; retain the explicit status check.
+        self.assertIn('always()', condition)
+        states = ('success', 'skipped', 'failure', 'cancelled', '', 'unknown')
+        for candidate in states:
+            for trusted in states:
+                for select in states:
+                    for selected in (False, True):
+                        for cancelled in (False, True):
+                            values = {
+                                'always()': True, 'cancelled()': cancelled,
+                                'needs.select.result': select,
+                                'needs.select.outputs.run_formal_process': str(selected).lower(),
+                                'needs.formal-test-build.result': candidate,
+                                'needs.formal-test-build-trusted.result': trusted,
+                            }
+                            expression = condition
+                            for token, value in values.items():
+                                expression = expression.replace(token, repr(value))
+                            expression = re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
+                            expected = (not cancelled and select == 'success' and selected
+                                        and (candidate, trusted) in (('success', 'skipped'), ('skipped', 'success')))
+                            with self.subTest(candidate=candidate, trusted=trusted, select=select,
+                                              selected=selected, cancelled=cancelled):
+                                actual = eval(' '.join(expression.split()), {'__builtins__': {}}, {})
+                                self.assertEqual(actual, expected)
+
     def test_ordinary_build_aggregation_rejects_every_incomplete_lane_combination(self):
         gate = JOBS['oasis7-test-build']
         self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', gate)
