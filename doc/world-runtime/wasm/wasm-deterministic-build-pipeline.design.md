@@ -136,6 +136,23 @@ Trace ID: O7-REQ-6bf0b127-1fdf-4912-9106-48f146b9f867
 
 Single-module source changes may use local-dev-only `--candidate-baseline-update-module <workspace-root> <metadata-dir> <module-id> <new-staging-dir>`. The updater accepts one exact known module with actual receipt4, metadata and WASM bytes, reusing full prepare/check validation of current source inputs, producer recipe and BuildManifest. Every preserved module must still match its current rule2 source evidence and identity. Changed shared recipes, another changed module, missing evidence or modified frozen release bytes reject without changing the original baseline. Only the selected candidate entry, hash and actual generation execution ID change; affected file digests are refreshed and a new staging directory appears atomically after validation. The updater does not synthesize preserved receipts or change CI checks, release identity or Runtime candidate rejection. A new module version may add distinct release identity/hash files for explicit bootstrap selection while the historical six files remain frozen; these additions still require actual release build evidence, existing installation authority and version activation. Engineering candidate evidence never replaces release evidence.
 
+The default release sync/check paths still name the historical six files; default `sync-m1 --check` does not validate storage 0.2.0. Historical checks require their matching recorded source/recipe tree. The version-specific local command below uses the original actual execution image recorded for storage 0.2.0, and refuses an unavailable image instead of rebuilding or relabelling another image. Run the same command with `--check` to verify the new version's existing metadata; candidate freshness remains a separate receipt4 operation.
+
+```bash
+mkdir -p .tmp
+printf '%s\n' m1.power.storage > .tmp/m1-storage-v0_2_0.ids.txt
+storage_v2_image=sha256:5d95ded750fb6d16d8e8b87da687600af9e34cc52b7e1176ff68a3b01031a99f
+OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev \
+OASIS7_WASM_BUILDER_IMAGE="$storage_v2_image" \
+OASIS7_WASM_BUILDER_IMAGE_DIGEST="$storage_v2_image" \
+OASIS7_WASM_BUILDER_AUTO_BUILD=0 \
+./scripts/sync-m1-builtin-wasm-artifacts.sh \
+  --module-ids-path .tmp/m1-storage-v0_2_0.ids.txt \
+  --out-dir .tmp/m1-storage-v0_2_0 \
+  --hash-path crates/oasis7_runtime/src/world/artifacts/m1_storage_power_v0_2_0.sha256 \
+  --identity-path crates/oasis7_runtime/src/world/artifacts/m1_storage_power_v0_2_0.identity.json
+```
+
 manual/release sync 默认仍使用原发布路径，Runtime bootstrap include、受信 main 已接受的当前六个 hash/identity 文件、原版本身份/签名与 activation 验证职责保持原样；必要主线集成若含独立已验收的 release 更新，仅同步主线原 bytes 的冻结 pin，不由 candidate 生成器重建或改写，历史版本仍按原记录保留；这里不变的范围不包括无条件接纳历史 summary/report 为当前 gate 或新 proof assembly 输入；candidate CI 同时验证这些文件的冻结摘要及 legacy reader 兼容。candidate summary 显式携带 purpose/baseline digest，所有消费者拒绝 unknown/mixed，不能把工程构建证据升级为发布授权。CI 只显式选择 candidate 模式，保持全部 freshness 与跨宿主证据要求；缺少真实宿主仍是 pending。新 baseline 不是 governing version 或 activation，旧签名不移植；生产采用新身份仍须另行授权的新完整 manifest/version、签名与治理发布。
 
 **Candidate-only 镜像身份。** 显式 `--candidate-build` 复用既有 wrapper、Suite 与共享 BuildManifest：从实际 Dockerfile、`.dockerignore`、入口脚本、固定构建参数、Cargo workspace/lock 及两个 producer 包（`wasm_build_suite`、`oasis7_wasm_build`）的内容记录计算 `producer-content` recipe v1。必须由 Cargo metadata 核对真实本地依赖恰为这两个包，并拒绝未支持的 include/config/build 输入；不能只用文件名白名单声称闭包完整。固定 arguments 显式包含 `GUEST_CARGO_BUILD_JOBS=2`，candidate wrapper 实际传入容器环境 `CARGO_BUILD_JOBS=2`，不继承 host jobs 值，Suite 的 candidate producer 入口也核对实际环境精确为 2，缺失/不同值拒绝；这是 guest 构建并发策略，不能冒称限制 Dockerfile 内 native producer 安装阶段。recipe 是所声明 producer 内容与指令的摘要，不是 OCI/image bytes 摘要；可变 FROM/apt 输入仍由真实 execution image ID 区分，不能把旧配置 pin `f353…` 改称内容 hash。
