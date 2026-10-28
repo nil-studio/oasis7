@@ -704,3 +704,18 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 空 frontier 暂存后，同一原事件管线分配本次 event ID/era，追加注册原事件的 mailbox 引用并前移 tail，持久保留原 canonical envelope 与事实顺序。随后移动可直接读取刚注册 cell 的 overlay 字段，无需在 World cache 中先插入 agent。初始模型、输出页均属临时材料；缺额、取消、错误版本、工业身份拒绝、局部字段冲突及晚期原件失败使全部外层写入失效，不安装部分 agent。
 
 局部验证用原 PreparedCorePolicyEvent 的注册和移动结果作为预期 cell，与增量两次事件的全部对应 typed 字段、两项 mailbox occurrence 和原件 digest 逐项比较，并核对唯一额外写入为 event allocator。反例覆盖既有 agent、部分字段已存在、未知版本、工业身份限制、写集额度、取消和原件失败。实际文件方法 `physical_registration_reopens_new_fields_and_moves_without_materialized_agent` 写入全部注册字段页和原事件，重开后验证首次 transition/原 bytes，再继续对该 agent 移动并与不中断分支逐 record/新页比较。这里不将单 cell 的恢复依赖读回扩大为整个 World 恢复、注册动作授权、正式 head 发布、模块续跑或 §11 规模验收结论；其余 Runtime 字段、语义闭包与正式端点仍待接线。
+
+
+### 12.24 小 Merkle 页的有界 pack 发布
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6 的原逻辑身份与 §9 的预算。StatePageSession 的 transition/catalog/artifact 页持久化改为最多 256 个小页一批，原 producer 仍持有同池 charge；批次仅借用输入，先准入 64 KiB 引用元数据，再准入编码和读回 workspace。单页上限沿用 STATE_MAX_PAGE_BYTES（1200 bytes）；value 流的单节点写入暂不改为延迟 batch。
+
+采用既有 business pack 的不可变整包、逻辑对象硬链接与有界索引定位方式，IWS 使用独立物理 profile，不调用旧 endpoint 的 authority/GC 接口。每批分别形成 frame pack 和 recipe pack，保留原 frame stored digest、recipe 中的原 page ID、规范页 bytes 与上层全部逻辑根。目录仍按原 digest 寻址，多个路径共享一个 inode；不能按路径长度累加推算唯一物理占用。整包先 fsync，并按预期 header、各段原 bytes、各 index row 和 EOF 完整读回，再发布硬链接；frame 目录耐久屏障完成后才发布 recipe 目录。每次返回前完成目标目录屏障；不会逐个新逻辑页重复同步同一新 inode。
+
+pack 编码为 `oasis7.iws.page-pack.v1\0`，后接 version u32=1、kind u8（frames=1、recipes=2）、count u16、index offset u64、total bytes u64；整数大端。header 后依序保存按 ID 排序的非空成员 bytes，尾部每条索引为原 ID（32 bytes）、offset u64、length u32。count 上限 256，pack 上限 4 MiB；索引严格位于数据之后，total 必须与实际文件长度及完整 index 长度一致。正常点读只读取有界 header、二分 index 路径与单个成员，不加载整个 pack；该索引只定位，返回内容继续由既有 recipe/frame/page hash 校验，不授予接受或服务能力。未知 version/kind、缺成员、越界 span、损坏与截断均不能充当合法缺失。
+
+raw frame 允许任意原 bytes，可能恰好以 pack 标记开头。此歧义反例已先判红；仅在有界 frame 的 pack 解析出现内容错误时，才用完整原文件摘要与其既有 frame ID 核对原表示。完整摘要不符仍拒绝，额度/取消错误不触发重试或放宽；普通有效 pack 点读不走整文件路径。recipe 与其他控制文件不允许该 raw frame 例外。
+
+编码 workspace 为 128 KiB 加每个条目的 1200+2048+512 bytes 余量，再加既有 raw/zstd codec workspace；不固定申请一个超出恢复预留的大缓冲。原 ordinary 满额、4 MiB recovery 预留的恢复页写入继续使用原预算测试。实际每段读、索引探测和最终 probe 均先扣读取额度；pack 总写 bytes 在创建前准入，每次硬链接另消费工作额度。取消、预算或进程终止后的部分名字/私有文件只代表临时物料，不能发布 head；重试核对实际赢家的原内容并补齐其耐久屏障，不覆盖另一种合法 raw/zstd 表示，不自动删除不明 staging。
+
+局部方法：`incremental_page_store::pack::tests` 核对独立 wire 向量、raw/zstd 的 256 页精确读回与共享 inode、点读精确及少一额度、坏 header/index/span/成员、raw 标记歧义、普通额度耗尽与 recovery 预留、途中耗尽重试、并发单页与 pack 选择，以及六个真实 SIGKILL 边界后的重开/重试。既有 page/object/value/六根状态闭包及原件验证继续使用同一 reader。注册的真实物理测试用于前后核对原字段、原事件和重开后的移动；单项耗时观察不替代固定 H/S、RSS、独立持久域或全负载测量。大值写入 batching、可恢复 pack 维护/回收、全部 typed roots 和全局物理指标仍未完成，当前整个 store 的共享保留租约与无删除边界保持有效。

@@ -22,6 +22,8 @@ use std::{
 mod files;
 #[path = "incremental_object_store.rs"]
 pub mod objects;
+#[path = "incremental_page_pack.rs"]
+mod pack;
 #[path = "incremental_page_store_recipe.rs"]
 mod recipe;
 #[path = "incremental_state_store.rs"]
@@ -77,6 +79,13 @@ pub struct PageIoBudget {
     pub write_bytes_remaining: u64,
 }
 impl PageIoBudget {
+    fn read_part(&mut self, bytes: usize) -> Result<()> {
+        if self.read_bytes_remaining < bytes as u64 {
+            return Err(PageStoreError::ResourceLimited("physical read allowance"));
+        }
+        self.read_bytes_remaining -= bytes as u64;
+        Ok(())
+    }
     fn read(&mut self, bytes: usize) -> Result<()> {
         if self.reads_remaining == 0 || self.read_bytes_remaining < bytes as u64 {
             return Err(PageStoreError::ResourceLimited("physical read allowance"));

@@ -104,18 +104,24 @@ impl StatePageSession<'_> {
             .io
             .get_mut()
             .map_err(|_| PageStoreError::Corrupt("state session poisoned"))?;
+        let _metadata = self.store.memory.reserve(64 * 1024, self.class)?;
+        let mut batch = Vec::with_capacity(pack::MAX_ENTRIES);
         for (id, bytes) in nodes {
             check_cancelled(&self.cancelled)?;
             if bytes.len() > STATE_MAX_PAGE_BYTES {
                 return Err(PageStoreError::Corrupt("Merkle page bound"));
             }
             let id = parse_id(id)?;
-            // Producer owns the original write-set charge. Admit only one
-            // additional bounded transfer buffer, never clone the whole set.
-            let charge = self.store.memory.reserve(bytes.len() + 128, self.class)?;
-            let bytes = charge.retain(bytes.to_vec());
+            batch.push((id, bytes));
+            if batch.len() == pack::MAX_ENTRIES {
+                self.store
+                    .put_small_page_batch(&batch, self.class, io, &self.cancelled)?;
+                batch.clear();
+            }
+        }
+        if !batch.is_empty() {
             self.store
-                .put_page_class(id, &bytes, self.class, io, &self.cancelled)?;
+                .put_small_page_batch(&batch, self.class, io, &self.cancelled)?;
         }
         Ok(())
     }

@@ -3,7 +3,7 @@ use super::*;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::{
     fs::OpenOptions,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     sync::atomic::AtomicU64,
 };
 static STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -45,7 +45,7 @@ fn options() -> OpenOptions {
     options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     options
 }
-fn open_regular(path: &Path) -> Result<File> {
+pub(super) fn open_regular(path: &Path) -> Result<File> {
     let before = fs::symlink_metadata(path)?;
     metadata(&before, false)?;
     let file = options().read(true).open(path)?;
@@ -183,14 +183,50 @@ pub(super) fn read(
     check_cancelled(cancelled)?;
     let mut file = open_regular(path)?;
     let length = file.metadata()?.len();
+    if length > std::cmp::max(bound, pack::MAX_PACK_BYTES) as u64 {
+        return Err(PageStoreError::Corrupt("physical file bound"));
+    }
+    let prefix_len = std::cmp::min(length as usize, pack::MAGIC.len());
+    let mut prefix = [0; pack::MAGIC.len()];
+    io.read(prefix_len)?;
+    file.read_exact(&mut prefix[..prefix_len])?;
+    if &prefix[..prefix_len] == pack::MAGIC {
+        let result = pack::read_member(&mut file, path, length, bound, io, cancelled);
+        // Raw frames may begin with the marker. Only a complete bounded
+        // original digest can disambiguate this error path; never guess raw.
+        if matches!(result, Err(PageStoreError::Corrupt(_)))
+            && length <= bound as u64
+            && path
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|s| s.to_str())
+                == Some("frames")
+        {
+            check_cancelled(cancelled)?;
+            io.read(length as usize + 1)?;
+            file.seek(SeekFrom::Start(0))?;
+            let mut bytes = vec![0; length as usize];
+            file.read_exact(&mut bytes)?;
+            let mut extra = [0];
+            if file.read(&mut extra)? == 0
+                && path.file_name().and_then(|s| s.to_str())
+                    == Some(blake3::hash(&bytes).to_hex().as_str())
+            {
+                check_cancelled(cancelled)?;
+                return Ok(bytes);
+            }
+        }
+        return result;
+    }
     if length > bound as u64 {
         return Err(PageStoreError::Corrupt("physical file bound"));
     }
     // Admit the final overrun probe too; a concurrently growing file cannot
     // force even one unadmitted byte of input.
-    io.read(length as usize + 1)?;
+    io.read_part(length as usize - prefix_len + 1)?;
     let mut bytes = vec![0; length as usize];
-    file.read_exact(&mut bytes)?;
+    bytes[..prefix_len].copy_from_slice(&prefix[..prefix_len]);
+    file.read_exact(&mut bytes[prefix_len..])?;
     let mut extra = [0u8; 1];
     if file.read(&mut extra)? != 0 {
         return Err(PageStoreError::Corrupt("physical file grew"));
@@ -220,24 +256,7 @@ pub(super) fn publish(
         return Ok(());
     }
     io.write(bytes.len())?;
-    let mut attempts = 0;
-    let (stage, mut file) = loop {
-        if attempts == 64 {
-            return Err(PageStoreError::ResourceLimited(
-                "private staging name collisions",
-            ));
-        }
-        attempts += 1;
-        let sequence = STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = root
-            .join("staging")
-            .join(format!("{}-{sequence}", std::process::id()));
-        match options().write(true).create_new(true).open(&path) {
-            Ok(file) => break (path, file),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.into()),
-        }
-    };
+    let (stage, mut file) = new_stage(root)?;
     // Cleanup only our exact private pathname. On any ambiguous failure retain
     // source material for the future bounded maintenance/recovery procedure.
     file.write_all(bytes)?;
@@ -262,7 +281,33 @@ pub(super) fn publish(
     Ok(())
 }
 
-fn publication_point(_root: &Path, _directory: &str, _point: u8) {
+pub(super) fn new_stage(root: &Path) -> Result<(PathBuf, File)> {
+    let mut attempts = 0;
+    loop {
+        if attempts == 64 {
+            return Err(PageStoreError::ResourceLimited(
+                "private staging name collisions",
+            ));
+        }
+        attempts += 1;
+        let sequence = STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = root
+            .join("staging")
+            .join(format!("{}-{sequence}", std::process::id()));
+        match options()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+pub(super) fn publication_point(_root: &Path, _directory: &str, _point: u8) {
     #[cfg(test)]
     if std::env::var("OASIS7_IWS_PAGE_CRASH_POINT").as_deref()
         == Ok(format!("{_directory}-{_point}").as_str())
