@@ -6,7 +6,7 @@
 - 产品入口：[外部 Runtime 游玩](../../product/agents-world-simulation/external-agent-runtime-play.prd.md)；[玩家与 Runtime 协作](../../product/agents-world-simulation/player-runtime-collaboration.prd.md)。
 - 系统总入口：[LLM / external runtime 系统入口](README.md)；写作规范：[系统设计规范](../../engineering/doc-governance/system-design-writing-standard.design.md)。
 
-本文中的新组件、路由、记录和测试场景均为后续实施输入。`accepted` 只表示所属权威已受理，世界效果必须读取既有权威回执；文档合入不代表这些接口已经上线。
+本文的新组件、路由、记录和测试场景均为后续实施输入。`accepted` 只表示所属权威已受理，世界效果必须读取既有权威回执；文档合入不代表这些接口已经上线。
 
 ### 已实施切片：本机签名读取与持久任务控制 bootstrap
 
@@ -55,9 +55,17 @@ Owner 使用 `game_executor_control/v1` 签署 `GameExecutorControlV1`，经原 
 
 当前 executor 以当前完整 fence 签署 POST `/v1/world/private-task/context-prepare`；同操作原 nonce 可恢复，异 nonce 冲突。私有记录包含完整 GoalContent/proof、同 pin 的原始 `world-agent-state/v1` AgentState、实际授权目录、Runtime/base binding、随机盐和原准备证明。独立 AEAD 密文保存并 fsync，不截断到旧 Harness 的 512 字节目标摘要。一个 Context 的租期为 `min(catalog.valid_until_tick, checked(base_tick + 16))`；canonical prefix 同样检验原 captured tick 的 16 tick 上限并拒绝溢出，不能靠后续 current tick 延期。超过期限不能获得正文或授权新效果。
 
-活跃任务的恢复证据保留必须覆盖该任务当前完整 fence 下所有已提交原 Context prefix、终止 outcome 与动作结果的实际历史提交材料，包括已消费或已过期 Context；不能只按 Context 当前可写性决定 GC pin。派生 pin 仅保留签名回读所需 snapshot、journal 与 head proof，不授予旧 Context 新写权，也不延长 16 tick 租期；任务／完整 fence 退休后释放对应依赖。原结果已确认但历史材料在既定保留范围外时返回 `HistoryUnavailable` 并保留原身份、停止新副作用；记录头仍存在但引用已压缩同样属于历史不可用，不伪装成可重试服务故障或 `Unknown`。损坏或冲突证据继续失败关闭。正常维护与重启可从当前 hot 权威结果重建依赖，并将已有派生 scope 指向的历史切点作为候选，与当前 hot／cold canonical 结果和完整 fence 逐条重验；scope 本身不证明结果或权限。既有 scope 损坏必须阻止 GC。所有派生 scope 均丢失、且原结果已全部转 cold 时的完整发现与重建尚未由此路径提供，不得宣称该损坏恢复能力已验收。
+活跃任务的恢复证据保留必须覆盖该任务当前完整 fence 下所有已提交原 Context prefix、终止 outcome 与动作结果的实际历史提交材料，包括已消费或已过期 Context；不能只按 Context 当前可写性决定 GC pin。派生 pin 仅保留签名回读所需 snapshot、journal 与 head proof，不授予旧 Context 新写权，也不延长 16 tick 租期；任务／完整 fence 退休后释放对应依赖。
 
-准备不等于可用。客户端先提交 identity-only `SchedulerOperationV1::TaskProviderPrefix`，等待 canonical committed，再 POST `/v1/world/private-task/context-read`。该 prefix 仅登记已签名的上下文身份，不提交游戏动作。签名意图的 `task_prefix_binding_revision=1` 显式选用有界捕获规则；缺省/0 保持原 exact-base 规则且序列化省略该字段，旧请求、签名、拒绝和历史重放保持不变。其他操作不得携带非零值，未知版本失败关闭。版本 1 允许捕获后世界状态/tick 推进，但必须保持 world、branch、finality epoch/hash/status、reorg epoch 和 Runtime manifest 一致，捕获 tick 不得晚于当前 tick；只有较旧 tick 可忽略历史状态 hash，同 tick 的 hash 仍精确相等，并继续验证当前完整 fence、signer、授权定义及原捕获 tick 的最多 16 tick 租期（当前 tick 等于原到期 tick 仍有效）。捕获 base 必须通过原 schema 验证；其历史状态 hash 仅为捕获关联，不被当作当前状态或历史共识证明。任何 authority 变化或过期均拒绝，不能重新绑定原件、延长租期或替换未知操作。只有此 identity-only prefix 使用有界捕获规则，其他 scheduler 操作和行动仍逐字段校验当前 base/MVCC。新版本意图须在执行与恢复节点协调升级后启用；旧 binary 不能作为含新版本意图历史的恢复执行器。
+原结果已确认但历史材料在既定保留范围外时返回 `HistoryUnavailable` 并保留原身份、停止新副作用；记录头仍存在但引用已压缩同样属于历史不可用，不伪装成可重试服务故障或 `Unknown`。损坏或冲突证据继续失败关闭。
+
+正常维护与重启可从当前 hot 权威结果重建依赖，并将已有派生 scope 指向的历史切点作为候选，与当前 hot／cold canonical 结果和完整 fence 逐条重验；scope 本身不证明结果或权限。既有 scope 损坏必须阻止 GC。所有派生 scope 均丢失、且原结果已全部转 cold 时的完整发现与重建尚未由此路径提供，不得宣称该损坏恢复能力已验收。
+
+准备不等于可用。客户端先提交 identity-only `SchedulerOperationV1::TaskProviderPrefix`，等待 canonical committed，再 POST `/v1/world/private-task/context-read`。该 prefix 仅登记已签名的上下文身份，不提交游戏动作。签名意图的 `task_prefix_binding_revision=1` 显式选用有界捕获规则；缺省/0 保持原 exact-base 规则且序列化省略该字段，旧请求、签名、拒绝和历史重放保持不变。其他操作不得携带非零值，未知版本失败关闭。
+
+版本 1 允许捕获后世界状态/tick 推进，但必须保持 world、branch、finality epoch/hash/status、reorg epoch 和 Runtime manifest 一致，捕获 tick 不得晚于当前 tick；只有较旧 tick 可忽略历史状态 hash，同 tick 的 hash 仍精确相等，并继续验证当前完整 fence、signer、授权定义及原捕获 tick 的最多 16 tick 租期（当前 tick 等于原到期 tick 仍有效）。捕获 base 必须通过原 schema 验证；其历史状态 hash 仅为捕获关联，不被当作当前状态或历史共识证明。任何 authority 变化或过期均拒绝，不能重新绑定原件、延长租期或替换未知操作。
+
+只有此 identity-only prefix 使用有界捕获规则，其他 scheduler 操作和行动仍逐字段校验当前 base/MVCC。新版本意图须在执行与恢复节点协调升级后启用；旧 binary 不能作为含新版本意图历史的恢复执行器。
 
 回应包含原密文记录、实际捕获 CommitRef/receipt 及当前同 pin 的公共 base binding/观察/能力。客户端核对配置服务签名、原意图、完整目标 proof、盐承诺、捕获回执和新鲜 bundle。世界公开历史只存完整 fence、session/turn/request 标识及三项私有随机盐隔域承诺，不保存正文、原私有摘要、盐或完整 Provider request。受信服务签名证明所交付内容，不代替独立共识证书。
 

@@ -5,7 +5,7 @@
 
 <a id="1-设计定位"></a>
 ## 1. 设计定位与目标
-定义 `Local Provider` provider 与内置 agent 的体验等价验收框架，使“是否可默认启用/是否可扩大覆盖范围”由标准化 parity 结果驱动，而不是由单次 PoC 或主观印象驱动。
+定义 `Local Provider` 与内置 agent 的体验等价验收框架，以标准化 parity 结果而非单次 PoC 或主观印象判断“是否可默认启用/是否可扩大覆盖范围”。
 
 ## 2. 设计结构
 - 场景层：按 `P0 低频单 NPC`、`P1 多轮记忆`、`P2 多 agent 并发` 分层。
@@ -25,7 +25,7 @@
 - parity 目标针对“用户体验”，不要求内部实现完全一致。
 - 未通过 parity 的 provider 不得标记为默认体验。
 - 首期 parity 仅覆盖低频和中低复杂度场景，不扩展到高频战斗/经济关键路径。
-- 自动指标与主观评分必须同时存在，缺一不可。
+- 自动指标与主观评分必须同时具备。
 
 ## 5. 设计演进计划
 - 先冻结 P0/P1/P2 场景和指标阈值。
@@ -47,7 +47,11 @@
 <a id="parity-rollout-boundary"></a>
 ### 6.2 受限结论与扩面边界
 
-行为等价硬门禁未通过或证据不足时不得默认启用；行为通过而 latency_class=B 仅保留 experimental/受限试点，A 只是默认候选的必要条件。真实 Runtime receipt/journal 的 failure/restart/reconnect 证据和 QA/producer 评分仍须独立齐备。输出明确缺少的组合、失败类别和下一步补测；未覆盖组合显示 limited/blocked，不以静默替代或历史 smoke 冒充等价体验。Viewer 的具体呈现和 provider 切换在途意图由其专业设计负责，本节不声称已完成这些界面或切换实现。
+行为等价硬门禁未通过或证据不足时不得默认启用；行为通过而 latency_class=B 仅保留 experimental/受限试点，A 只是默认候选的必要条件。
+
+真实 Runtime receipt/journal 的 failure/restart/reconnect 证据和 QA/producer 评分仍须独立齐备。输出明确缺少的组合、失败类别和下一步补测；未覆盖组合显示 limited/blocked，不以静默替代或历史 smoke 冒充等价体验。
+
+Viewer 的具体呈现和 provider 切换在途意图由其专业设计负责，本节不声称已完成这些界面或切换实现。
 
 ### 2.1 需求承接与分配表
 

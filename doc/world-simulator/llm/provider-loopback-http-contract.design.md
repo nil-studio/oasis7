@@ -6,7 +6,7 @@
 
 <a id="1-设计定位"></a>
 ## 1. 设计定位与目标
-定义“安装在用户机器上的 `Local Provider` 如何通过本地 HTTP 参与 world-simulator 的 agent 决策”的首期工程方案，覆盖本地发现、握手、配置、决策请求、反馈回写、状态可观测与失败回退。
+定义安装在用户机器上的 `Local Provider` 通过本地 HTTP 参与 world-simulator agent 决策的首期工程方案，覆盖本地发现、握手、配置、决策请求、反馈回写、状态可观测与失败回退。
 
 ## 2. 设计结构
 - 用户侧本地 provider 层：`Local Provider` 以独立本地服务运行，仅监听 `127.0.0.1`。
@@ -79,7 +79,9 @@ inner DTO is legacy-route only, and a committed Runtime outcome is still require
 <a id="local-provider-delivery-contract"></a>
 ## 6. 本地交付、配置与停止合同
 
-本节是专业设计要求，不是启动脚本、HTTP 实现或真实 Runtime 已通过验收的声明。它细化配对 PRD 的发现、绑定、失败恢复流程，并仅承接本地会话产品 REQ-ENTRY-LAUNCH-001 的配置输入/实际应用及停止不撤销世界请求边界；REQ-ENTRY-LAUNCH-002 的跨会话重新验证由 Launcher 会话设计负责，是外部依赖而非本节覆盖；外部 Runtime 的完整 Game API/Skill 旅程仍由上游产品与 Runtime adapter 设计拥有。
+本节是专业设计要求，不是启动脚本、HTTP 实现或真实 Runtime 已通过验收的声明。它细化配对 PRD 的发现、绑定、失败恢复流程，并仅承接本地会话产品 REQ-ENTRY-LAUNCH-001 的配置输入/实际应用及停止不撤销世界请求边界。
+
+REQ-ENTRY-LAUNCH-002 的跨会话重新验证由 Launcher 会话设计负责，是外部依赖而非本节覆盖；外部 Runtime 的完整 Game API/Skill 旅程仍由上游产品与 Runtime adapter 设计拥有。
 
 | 上游要求 | 本设计责任 | 主责与消费方 | 验证边界 |
 | --- | --- | --- | --- |
@@ -95,7 +97,7 @@ bootstrap 的模型 base URL 在其自身边界内遵循：显式 `--base-url` �
 
 ### 6.2 进程所有权与停止终态
 
-生成的 detached supervisor 是其创建的 bridge/launcher 子进程的生命周期所有者。对返回的 supervisor PID 发出受支持停止请求后，进入停止中；只有本次拥有的进程组及受控后代退出、其占用端口释放后，才能报告已停止。无法确认时保留失败或未知及诊断，父 shell 退出、状态文件消失和停止请求已发送都不是停止完成。
+生成的 detached supervisor 是其创建的 bridge/launcher 子进程的生命周期所有者。对返回的 supervisor PID 发出受支持停止请求后，进入停止中；只有本次拥有的进程组及受控后代退出、其占用端口释放后，才能报告已停止。无法确认时保留失败或未知及诊断，父 shell 退出、状态文件消失和停止请求已发送均不代表停止完成。
 
 停止覆盖启动尚未 Ready、子进程初始化失败和正常运行三个阶段。终止与必要强制终止有界，沿用对应入口的预算；清理不能杀死独立启动的用户 Provider、其他会话或未知归属进程。HUP 与显式 TERM 的语义分别测试，不能为了 detached 生存而吞掉显式停止。`DETACH_NO_SUBMIT`、假 supervisor 和直接运行子 binary 不能代替实际生成入口验收。停止本地进程不撤销世界已接受的请求；重启后按原请求关联查询结果。
 
@@ -118,7 +120,7 @@ transport 与 adapter 使用一致的 retryable 分类。对现有允许重试�
 
 ### 7.3 URL 语法与端点许可分离
 
-受支持 URL 解析器对方括号 IPv6 host、scheme 默认端口和 path 的解释保持一致；HTTPS 省略端口与显式 443 的同一地址语义一致。错误括号、含糊的裸 IPv6 和非法/零端口明确拒绝，不猜测拆分位置。语法能够解析不意味着端点获准：本地 callback 继续遵守 loopback/allowlist 限制，上游模型 endpoint 沿用自己的配置和权限边界，不因支持 IPv6 放开远程 callback。
+受支持 URL 解析器对方括号 IPv6 host、scheme 默认端口和 path 的解释保持一致；对同一 HTTPS 地址，省略端口与显式 443 的语义一致。错误括号、含糊的裸 IPv6 和非法/零端口明确拒绝，不猜测拆分位置。语法能够解析不意味着端点获准：本地 callback 继续遵守 loopback/allowlist 限制，上游模型 endpoint 沿用自己的配置和权限边界，不因支持 IPv6 放开远程 callback。
 
 <a id="native-provider-probe-boundary"></a>
 ### 7.4 Native launcher compatibility probe 的读取与诊断
