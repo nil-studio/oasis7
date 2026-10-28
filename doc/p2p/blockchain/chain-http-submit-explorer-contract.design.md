@@ -77,7 +77,7 @@ WorldService request identity、签名 nonce、客户端 `client_request_id`、N
 5. 相同 ID、相同已验证请求的内部重投只关联原请求，不再次入队或重复申请预算；这不引入 HTTP 客户端幂等承诺。
 6. 相同 ID、不同 payload 或 submitter 显式拒绝，保留原请求；返回 accepted 的请求取得可回读的关联身份。
 
-其他显式传 ID 的 producer 也必须通过 Node 的绑定检查，不能由绕过共享 HTTP allocator 获得冲突写入资格。
+其他显式传 ID 的 producer 也必须通过 Node 的绑定检查，不能通过绕过共享 HTTP allocator 获得冲突写入资格。
 实现需盘点测试注入、复制保留身份和其他调用方；测试 fixture 的显式 ID 不能成为生产旁路。
 共享 allocator 的最低保证是同一 Node 有效身份范围内不冲突；重启时不能用从 1 开始的进程计数器覆盖仍加载的旧索引。
 重启高水位/现有隔离机制的具体接线由 runtime owner 在 §12 明确的触发点核定；本设计不虚构新的持久 schema、epoch 或全网 ID 协议。
@@ -105,7 +105,9 @@ transfer 可用既有 `Failed/error_code/error` 表达确定拒绝；其他 prod
 4. 再刷新允许按时间变化的生命周期，最后读取相应索引、过滤和序列化响应；不要先制造 timeout 再依赖另一个请求纠正。
 5. 同步失败返回结构化失败，不把旧索引包装为已完成同步；重复查询可重试同一批次，不产生重复记录。
 
-一次读取的提交观察边界是单次 drain 在 committed-batch 队列锁内取得批次快照的时点：该时点前已提交且仍在声明保留范围内的批次必须完成本次同步；之后并发发生的提交可以在后续读取体现。worker 也通过该内部队列锁发布批次，外层 runtime 锁本身不冻结提交；各次响应不构成跨请求原子快照，见[批次读取][src-drain]与[批次发布/保留][src-retention]。
+一次读取的提交观察边界是单次 drain 在 committed-batch 队列锁内取得批次快照的时点：该时点前已提交且仍在声明保留范围内的批次必须完成本次同步；之后并发发生的提交可以在后续读取体现。
+
+worker 也通过该内部队列锁发布批次，外层 runtime 锁本身不冻结提交；各次响应不构成跨请求原子快照，见[批次读取][src-drain]与[批次发布/保留][src-retention]。
 
 新同步接点复用 `tracker → runtime（释放）→ Explorer` 的方向；只持有 Explorer 的 helper 不得反向获取 tracker/runtime。
 submit 在释放 runtime 后分别登记两个 store；这些登记依靠幂等合并抵抗交错，不通过持有 runtime 再等待 tracker 来“消除竞态”。
@@ -187,7 +189,7 @@ native/Web 请求不得在存在 action ID 时清除其他条件；非法条件�
 ## 10. 兼容、迁移与回滚
 
 本次只写文档；HTTP/schema/索引版本、配置和部署保持基线行为，不由文档合入自动激活目标设计。
-实施顺序可分项，但应先盘点全部 Node producer 与旧索引身份，再接入共享 allocator/处置，再完成幂等 merge、统一同步和过滤。
+实施可分项进行，但应先盘点全部 Node producer 与旧索引身份，再接入共享 allocator/处置，最后完成幂等 merge、统一同步和过滤。
 H2/H3/H4 可独立验证；H1 身份与可靠处置分别验收，不能因为某项修复而替其他项标完成。
 旧消费者仍能读取原字段；新增非 transfer 结果通道或持久 allocator 数据格式时，runtime owner 必须先在本设计补明确切换和旧数据策略。
 重启不得静默删除旧 Explorer 索引来制造 ID 唯一，也不得用窗口内最大 ID 冒充完整历史高水位。

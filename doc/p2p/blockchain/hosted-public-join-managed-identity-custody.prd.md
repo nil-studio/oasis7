@@ -8,7 +8,7 @@
 
 ## 目标
 - 为 `hosted_public_join` 建立一套正式的托管身份 / 托管密钥产品规格，解决“普通玩家如何登录并长期使用”而不是继续停留在 preview 会话与浏览器本地私钥。
-- 把邮箱登录、托管 player signer、step-up auth 与自托管升级路径收成统一真值，供 runtime / viewer / QA / LiveOps 继续实现。
+- 统一邮箱登录、托管 player signer、step-up auth 与自托管升级路径的规格，供 runtime / viewer / QA / LiveOps 继续实现。
 
 ## 范围
 - 覆盖 hosted player 的账户身份、设备会话、托管签名、风险分级、自托管升级与相关 trust boundary。
@@ -35,7 +35,7 @@
 账号接入的推荐方式、多凭证管理和邮箱受限恢复已由[免邮箱多凭证 PRD](hosted-public-join-key-based-onboarding.prd.md)承接；本专题继续拥有资产 signer / custody / step-up 与自托管升级合同。多凭证实现候选不升级当前技术预览或生产 custody 口径。
 
 ## 1. Executive Summary
-- Problem Statement: `hosted_public_join` 现在已经补上了 hosted account 邮箱登录 broker、`device_session + in-memory session key` 恢复链路，以及 env-configured SMTP 邮件投递；普通玩家不再需要手抄浏览器本地私钥，也不必继续依赖 repo-owned preview code 才能回到同一 `player_id`。但这套实现整体仍停留在 `limited playable technical preview` 边界：`crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_strong_auth.rs` 依然依赖 `OASIS7_HOSTED_STRONG_AUTH_*` + `approval_code`；`signer_ref`、managed custody sign API、冻结/恢复策略和 self-custody upgrade 还没有进入正式后端 contract。如果不把这些缺口继续收完，`public join` 仍然不能被宣称为生产级 hosted wallet / custody 方案。
+- Problem Statement: `hosted_public_join` 已支持 hosted account 邮箱登录 broker、`device_session + in-memory session key` 恢复链路，以及 env-configured SMTP 邮件投递；普通玩家不再需要手抄浏览器本地私钥，也不必依赖 repo-owned preview code 才能回到同一 `player_id`。但这套实现整体仍处于 `limited playable technical preview` 边界：`crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_strong_auth.rs` 依然依赖 `OASIS7_HOSTED_STRONG_AUTH_*` + `approval_code`；`signer_ref`、managed custody sign API、冻结/恢复策略和 self-custody upgrade 还没有进入正式后端 contract。这些缺口补齐前，`public join` 仍不能被宣称为生产级 hosted wallet / custody 方案。
 - Proposed Solution: 为 `hosted_public_join` 正式冻结一套 producer-owned 的“托管身份 + 托管密钥 + 自托管升级”目标态。默认玩家路径改为 `guest -> hosted account -> managed player signer -> optional self-custody bind/transfer-out`：用户通过通行密钥或已登记邮箱证明登录，浏览器只拿 `player_session` 与设备级短期密钥；长期玩家 signer 留在服务端 custody plane，生产目标由 KMS/HSM 或 KMS-wrapped sealed-key backend 保护，并通过 step-up auth + policy engine 出签。下述 Cloudflare 测试版使用独立、明确标注的 Worker 可信持钥 lane，不代表上述生产目标已达成。
 - Success Criteria:
   - SC-1: `hosted_public_join` 必须提供“不输入原始公钥私钥也能开始玩”的正式登录路径，默认推荐通行密钥，邮箱为可选兼容因子；账号与凭证生命周期由[免邮箱多凭证合同](hosted-public-join-key-based-onboarding.prd.md)承接。
@@ -49,7 +49,7 @@
 
 ## 2. User Experience & Functionality
 - User Personas:
-  - `producer_system_designer`: 需要把“邮箱登录游戏”和“链上身份/签名”收成一个不会误伤安全边界的正式产品方案。
+  - `producer_system_designer`: 需要将“邮箱登录游戏”和“链上身份/签名”整合为不损害安全边界的正式产品方案。
   - 普通玩家: 希望点开公开 URL 就能试玩，升级到正式玩家时只做常见登录，不维护裸私钥。
   - `runtime_engineer`: 需要知道 runtime 应该信任什么身份断言、什么 sign API、什么 step-up 结果。
   - `viewer_engineer`: 需要知道浏览器本地还能存什么、登录/重连/升级如何表达。
@@ -140,7 +140,7 @@
   - 若邮箱重复绑定到多个 hosted account，必须提供 canonical merge / reject 规则，不能静默创建分叉账户。
   - 若浏览器丢失 device session，但账户因子仍有效，必须允许重新登录恢复，而不是要求用户回忆旧私钥。
   - 若 hosted 部署配置了 `OASIS7_HOSTED_ACCOUNT_STORE_BACKEND=tablestore`，或 `auto` 模式下检测到 `OASIS7_HOSTED_ACCOUNT_TABLESTORE_*` / `ALIYUN_OTS_*`，但 endpoint/AK/table 条件不完整，server 必须在启动期显式报错，而不是静默回退到错误 backend。
-  - 若 Tablestore 表不存在，服务端可以在 `auto_create=true` 时自动建表；若关闭自动建表，则必须以明确错误阻断启动，避免把 hosted account 持久化退化成隐式 best-effort。
+  - 若 Tablestore 表不存在，服务端可以在 `auto_create=true` 时自动建表；若关闭自动建表，则必须以明确错误阻断启动，避免 hosted account 持久化隐式退化为 best-effort。
   - 若 KMS/HSM 不直接支持运行时签名算法，custody backend 可以退化为 KMS-wrapped sealed key，但对上层仍必须保持“只暴露 sign API，不暴露长期私钥”的契约。
   - 若风控判定高风险设备登录，必须把账户状态切到 `step_up_required` 或 `frozen_review`，不得继续自动签发高权限 session。
   - 若托管到自托管迁移尚未完成，managed 与 self-custody 不得并行对同一高风险动作出签，必须有单一 source of truth。
@@ -168,7 +168,7 @@
 - Technical Risks:
   - 风险-1: 如果把“邮箱登录”和“高风险动作出签”绑死在同一步，玩家体验和风控都会失衡。
   - 风险-2: 如果继续把浏览器本地 `privateKey` 当作 hosted player 正式方案，任何缓存泄露都可能扩大为账户接管。
-  - 风险-3: 如果 KMS 选型过早写死到单一厂商 API，后续算法、成本或跨环境迁移会很难收口；因此上层必须先冻结 `signer_ref + sign API` 契约。
+  - 风险-3: 如果 KMS 选型过早限定为单一厂商 API，后续算法、成本或跨环境迁移问题会更难解决；因此上层必须先冻结 `signer_ref + sign API` 契约。
 
 ## 5. Validation & Decision Record
 - Test Plan & Traceability:
@@ -196,7 +196,7 @@
 
 ### 6.1 使用情境、目标与非目标
 
-测试负责人需要管理多个 oasis7 测试账号，并让 dot 或其他已授权助手完成特定世界、Agent 的有限操作。负责人不应反复复制私钥，助手也不应因为能看到账号或登录管理页就获得 owner 控制权。负责人能够看清每个账号用途、授予哪些动作和预算、何时到期、怎样停止与撤销，以及一次请求到底只是被接收还是已经产生世界结果。
+测试负责人需要管理多个 oasis7 测试账号，并让 dot 或其他已授权助手完成特定世界、Agent 的有限操作。负责人不应反复复制私钥，助手也不应因为能看到账号或登录管理页就获得 owner 控制权。负责人能够看清每个账号的用途、获准动作和预算、到期时间、停止与撤销方式，以及请求是仅被接收，还是已产生世界结果。
 
 首版采用 Cloudflare Workers 承载托管控制面；世界状态、owner 归属、executor delegation、业务预算和共识仍由现有 oasis7 authority 决定。控制面只管理测试账号、保管分用途密钥、消费已授权动作并回读原结果。服务不可用时宁可暂停，不退回把密钥交给助手。文档状态为设计候选，以下功能全部待实现，不声明已部署或完成真实账号验收。
 

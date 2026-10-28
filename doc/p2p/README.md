@@ -26,7 +26,7 @@
 - 文件级索引: `doc/p2p/prd.index.md`
 
 ## 入口分工
-- `README.md` 只承担 landing page 职责：帮助读者先选“总边界 / 当前执行 / 高频入口 / 精确索引”中的正确入口，不重复长表索引内容。
+- `README.md` 只承担 landing page 职责：帮助读者从“总边界 / 当前执行 / 高频入口 / 精确索引”中选择入口，不重复长表索引内容。
 - `prd.md` 是模块权威规格入口，适合先理解主链、共识、DistFS、节点、token 与 hosted player access 的统一边界。
 - GitHub Issue / GitHub Project 是唯一的执行台账与历史证据入口；PRD、design、runbook 和 evidence 只保留稳定的专业合同与可复现操作证据。
 - `node/README.md` 是当前最高密度热点子域 `node/` 的 canonical 入口，适合先按“奖励 / 复制 / PoS 时间 / 身份引导 / WASM 编译”分流，再进入具体专题。
@@ -73,7 +73,7 @@
 - 本页不维护容易漂移的文件数量或状态快照；当前模块库存、热点子目录与治理状态统一以 `./scripts/doc-inventory-report.sh` 为准。
 - 子域数量只用于选择下一轮 focused follow-up；不要在本页扩展全量专题长表。
 - `find` / `git ls-files` 只可作为本地探索辅助；它们不携带 inventory 状态，且可能因统计口径不同与正式报告不一致。
-- 需要完整专题检索清单时，进入 `doc/p2p/prd.index.md`；进入 `node/`、`blockchain/`、`distfs/`、`observer/`、`token/` 时，优先先读对应子域 README 再继续下钻；需要 runbook / release 补充材料时，再按具体专题路径进入。
+- 需要完整专题检索清单时，进入 `doc/p2p/prd.index.md`；进入 `node/`、`blockchain/`、`distfs/`、`observer/`、`token/` 时，先读对应子域 README 再继续下钻；需要 runbook / release 补充材料时，再按具体专题路径进入。
 
 ## 共享约定
 - 模块根入口、专题落位与 README/legacy redirect 的共享规则统一以 `doc/engineering/doc-governance/doc-structure-standard.design.md` 为准。

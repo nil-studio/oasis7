@@ -36,7 +36,7 @@ The chain owner supplies one existing-world ChainConfig. Ordinary node owners do
 
 The two SHA256 values authenticate material supplied out of band; downloading a file and computing its hash yourself is not independent trust. `genesis_sha256` is the material digest for the compatibility adapter, not a new formal WorldService proof or activation certificate. The v1 adapter requires equal existing world/chain IDs, `public_testnet`, `allow_observer_nodes=true`, and the manifest-bound existing registry. Unknown schemas fail before initialization effects.
 
-Init captures absolute paths and byte hashes for the manifest, genesis, registry, release bundle and seed file. Start rechecks those pins and invokes existing runtime artifact/config validation. Changing discovery addresses is done through node.json's explicit additional_peers, not by replacing the fixed chain anchor. Chain materials remain external files and are listed by status; retain their referenced artifact closure with the existing deployment bundle.
+Init captures absolute paths and byte hashes for the manifest, genesis, registry, release bundle and seed file. Start rechecks those pins and invokes existing runtime artifact/config validation. Change discovery addresses through node.json's explicit additional_peers, not by replacing the fixed chain anchor. Chain materials remain external files and are listed by status; retain their referenced artifact closure with the existing deployment bundle.
 
 ### Formal read-only chain configuration
 
