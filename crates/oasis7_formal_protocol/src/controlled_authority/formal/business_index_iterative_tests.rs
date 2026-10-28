@@ -1,6 +1,25 @@
 //! The previous recursive algorithm is a test-only compatibility oracle.
 use super::*;
 
+// Keep the old test oracle independent of the shared production updater.
+struct Updater<'a, R> {
+    reader: &'a R,
+    pending: BTreeMap<String, Vec<u8>>,
+    empty: &'a [String],
+}
+
+impl<R: BusinessIndexNodeReader> Updater<'_, R> {
+    fn read_node(&self, digest: &str, depth: usize) -> Result<Option<BusinessIndexNodeV1>, String> {
+        if digest == self.empty[depth] {
+            return Ok(None);
+        }
+        if let Some(bytes) = self.pending.get(digest) {
+            return BusinessIndexNodeV1::decode(bytes).map(Some);
+        }
+        read_node(self.reader, digest, depth)
+    }
+}
+
 fn recursive_insert<R: BusinessIndexNodeReader>(
     updater: &mut Updater<'_, R>,
     root: &str,

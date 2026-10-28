@@ -469,15 +469,13 @@ fn apply_updates(
     reader: &impl BusinessIndexNodeReader,
 ) -> Result<(BusinessIndexRootV1, Vec<BusinessIndexNodeWriteV1>), String> {
     let empty = empty_hashes()?;
-    let mut updater = Updater {
-        reader,
-        pending: BTreeMap::new(),
-        empty: &empty,
-    };
+    let source = BusinessNodeSource(reader);
+    let mut updater =
+        crate::merkle::Updater::<BusinessNodeCodec, _>::new(&source, &empty, usize::MAX);
     let mut root = base.node_root.clone();
     let mut leaf_count = base.leaf_count;
     for leaf in updates {
-        let existing = updater.lookup(&root, &leaf.key_digest)?;
+        let existing = updater.lookup(&root, &digest_bytes(&leaf.key_digest)?)?;
         match (&existing, leaf.kind) {
             (
                 Some(old),
@@ -584,128 +582,46 @@ fn lookup(
     Ok(Some(leaf))
 }
 
-struct Updater<'a, R> {
-    reader: &'a R,
-    pending: BTreeMap<String, Vec<u8>>,
-    empty: &'a [String],
+// The business policy above remains append-only. Only the pure path walker is
+// shared with the new mutable state format; its codec still emits v1 bytes.
+struct BusinessNodeSource<'a, R>(&'a R);
+impl<R: BusinessIndexNodeReader> crate::merkle::MerkleNodeReader for BusinessNodeSource<'_, R> {
+    fn read_node(&self, digest: &str, _max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
+        self.0.read_node(digest)
+    }
 }
 
-impl<R: BusinessIndexNodeReader> Updater<'_, R> {
-    fn read_node(&self, digest: &str, depth: usize) -> Result<Option<BusinessIndexNodeV1>, String> {
-        if digest == self.empty[depth] {
-            return Ok(None);
-        }
-        let bytes = if let Some(bytes) = self.pending.get(digest) {
-            bytes.clone()
-        } else {
-            self.reader
-                .read_node(digest)?
-                .ok_or("business index references a missing node")?
-        };
-        if blake3_hex(&bytes) != digest {
-            return Err("business index node content hash mismatch".into());
-        }
-        let node = BusinessIndexNodeV1::decode(&bytes)?;
-        match (&node.kind, depth) {
-            (BusinessIndexNodeKindV1::Branch { depth: stored, .. }, expected)
-                if *stored as usize == expected && expected < BUSINESS_INDEX_DEPTH => {}
-            (BusinessIndexNodeKindV1::Leaf(_), BUSINESS_INDEX_DEPTH) => {}
-            _ => return Err("business index node is at the wrong depth".into()),
-        }
-        Ok(Some(node))
+struct BusinessNodeCodec;
+impl crate::merkle::Codec for BusinessNodeCodec {
+    type Leaf = BusinessIndexLeafV1;
+    const MAX_NODE_BYTES: usize = BUSINESS_INDEX_MAX_LEAF_BYTES + 128;
+
+    fn key(leaf: &Self::Leaf) -> Result<[u8; 32], String> {
+        digest_bytes(&leaf.key_digest)
     }
 
-    fn lookup(&self, root: &str, key_digest: &str) -> Result<Option<BusinessIndexLeafV1>, String> {
-        let key = digest_bytes(key_digest)?;
-        let mut current = root.to_owned();
-        for depth in 0..BUSINESS_INDEX_DEPTH {
-            let Some(node) = self.read_node(&current, depth)? else {
-                return Ok(None);
-            };
-            let BusinessIndexNodeKindV1::Branch {
+    fn encode(node: crate::merkle::Node<Self::Leaf>) -> Result<Vec<u8>, String> {
+        match node {
+            crate::merkle::Node::Branch { depth, left, right } => {
+                BusinessIndexNodeV1::branch(depth, left, right)?.encode()
+            }
+            crate::merkle::Node::Leaf(leaf) => BusinessIndexNodeV1::leaf(leaf)?.encode(),
+        }
+    }
+
+    fn decode(bytes: &[u8]) -> Result<crate::merkle::Node<Self::Leaf>, String> {
+        Ok(match BusinessIndexNodeV1::decode(bytes)?.kind {
+            BusinessIndexNodeKindV1::Branch {
+                depth,
                 left_hash,
                 right_hash,
-                ..
-            } = node.kind
-            else {
-                return Err("business index leaf before depth 256".into());
-            };
-            current = if key_bit(&key, depth) {
-                right_hash
-            } else {
-                left_hash
-            };
-        }
-        let Some(node) = self.read_node(&current, BUSINESS_INDEX_DEPTH)? else {
-            return Ok(None);
-        };
-        let BusinessIndexNodeKindV1::Leaf(leaf) = node.kind else {
-            return Err("business index branch at leaf depth".into());
-        };
-        if leaf.key_digest != key_digest {
-            return Err("business index key digest collision".into());
-        }
-        Ok(Some(leaf))
-    }
-
-    fn insert(
-        &mut self,
-        root: &str,
-        depth: usize,
-        leaf: &BusinessIndexLeafV1,
-    ) -> Result<(String, bool), String> {
-        let key = digest_bytes(&leaf.key_digest)?;
-        let mut current = root.to_owned();
-        // Keep the 256-level path on the heap. Recursive hashing retained one
-        // large hashing frame per level on small HTTP-worker stacks.
-        let mut path = Vec::with_capacity(BUSINESS_INDEX_DEPTH - depth);
-        for level in depth..BUSINESS_INDEX_DEPTH {
-            let (left, right) = match self.read_node(&current, level)? {
-                Some(node) => match node.kind {
-                    BusinessIndexNodeKindV1::Branch {
-                        left_hash,
-                        right_hash,
-                        ..
-                    } => (left_hash, right_hash),
-                    BusinessIndexNodeKindV1::Leaf(_) => {
-                        return Err("business index leaf before depth 256".into());
-                    }
-                },
-                None => (self.empty[level + 1].clone(), self.empty[level + 1].clone()),
-            };
-            let right_selected = key_bit(&key, level);
-            current = if right_selected {
-                right.clone()
-            } else {
-                left.clone()
-            };
-            path.push((level, left, right, right_selected));
-        }
-        let existing = self.read_node(&current, BUSINESS_INDEX_DEPTH)?;
-        let inserted = match existing.as_ref().map(|node| &node.kind) {
-            Some(BusinessIndexNodeKindV1::Leaf(old)) if old.key_digest == leaf.key_digest => false,
-            Some(BusinessIndexNodeKindV1::Leaf(_)) => {
-                return Err("business index key digest collision".into());
-            }
-            Some(BusinessIndexNodeKindV1::Branch { .. }) => {
-                return Err("business index branch at leaf depth".into());
-            }
-            None => true,
-        };
-        let bytes = BusinessIndexNodeV1::leaf(leaf.clone())?.encode()?;
-        let mut digest = blake3_hex(&bytes);
-        self.pending.insert(digest.clone(), bytes);
-        for (level, mut left, mut right, right_selected) in path.into_iter().rev() {
-            if right_selected {
-                right = digest;
-            } else {
-                left = digest;
-            }
-            let bytes = BusinessIndexNodeV1::branch(level, left, right)?.encode()?;
-            digest = blake3_hex(&bytes);
-            self.pending.insert(digest.clone(), bytes);
-        }
-        Ok((digest, inserted))
+            } => crate::merkle::Node::Branch {
+                depth: usize::from(depth),
+                left: left_hash,
+                right: right_hash,
+            },
+            BusinessIndexNodeKindV1::Leaf(leaf) => crate::merkle::Node::Leaf(leaf),
+        })
     }
 }
 

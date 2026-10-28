@@ -333,3 +333,23 @@ Runtime/DistFS 在首个实现接受新创世前冻结 canonical 编码向量、
 页面/块大小、fanout、事务工作集、并发/cache、history 段封闭、后台节奏和磁盘余量由实现候选的测量决定，记录实际选择与范围；它们不作为本文虚构的通用 SLO。逻辑布局参数与操作配额必须分开，前者变化需要显式格式规则，后者不能改变共识可见结果。
 
 WASM/Runtime/外部效果 owner 共同确认 scheduler、allocator、授权/去重及 unknown 的完整语义；QA 在非空续跑和原效果不重派上独立审读。ops/P2P 提供实际独立域与恢复证据，缺失时只接受已验证的本地范围。本文提供新格式系统合同，不声明源码实施、原世界修复、生产重置或部署完成。
+
+### 12.3 v1 状态页与局部树根编码
+
+Trace refs: O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.1 的逻辑身份与 §8.2 的页边界。此处只定义状态页和局部状态树根；字段映射、其他对象和全部消费者完成前，§10 的新创世准入限制继续适用。
+
+基础路径算法复用业务索引的 256 层稀疏 Merkle 构造，hash 为 BLAKE3。旧业务索引继续使用原 codec 和 append-only verifier；状态适配使用独立 domain，不将旧页解释为新状态。所有整数使用大端编码，digest 使用原始 32 bytes；对外文本 digest 只接受 64 位小写十六进制。
+
+| 编码 | 冻结规则 |
+| --- | --- |
+| namespace | `u16`：business=1、allocator=2、scheduler=3、authorization/去重=4、effects=5、artifacts=6；未知值拒绝。完整 RootSet 另绑定 world、GenesisConfigId 和提交位置。 |
+| key | 原始 bytes，允许空键，最长 1024 bytes；路径 digest 是 BLAKE3(`oasis7.iws.state-key.v1\0` + namespace + `u16` key 长度 + key)。事务先合并同键写入，再按原始 key bytes 排序，重复键拒绝。 |
+| StatePage | `oasis7.iws.state-page.v1\0` + `u32` 后续 payload 长度 + payload；超 1200 bytes 拒绝。逻辑页与文件、pack 或 I/O buffer 无关。 |
+| branch payload | tag=1（`u8`）+ depth（`u16`，0..255）+ left digest + right digest。 |
+| leaf payload | tag=0 + namespace + `u16` key 长度 + key + value digest。v1 不内联 value；value digest 指向独立 typed value/块树，目标的类型、原件与闭包由 owner 验证。 |
+| 空子树 | 深度 256 的 sentinel 为上述 StatePage header 和单字节 payload tag=2 的 hash；递归 hash 两个相同子 sentinel 得到上层空根。tag=2 不作为可读取 leaf。删除最后一个叶子回到空根，不落盘空路径。 |
+| 局部树根 | `oasis7.iws.state-root.v1\0` + `u32(42)` + namespace + leaf count（`u64`）+ node root。空 count 与空根必须一致；该 digest 是 RootSet 的局部完整性承诺，不单独授予世界权限。 |
+
+put/delete 均携带原 value digest 或明确 absent 的前置条件。构造与独立重建验证只读取实际 key 路径；输出按 digest 排序的最终新可达节点，排除认证父树已有节点和同批临时路径。物理池命中不改变输出。事务 pending bytes 是操作额度，超限报告受限，不改变逻辑树形或产生不同的成功根。presence/absence proof 最多包含 257 个有序节点；缺页、损坏或未完成证明不返回业务不存在。
+
+冻结向量由 `oasis7_formal_protocol::incremental_state::tests::state_profile_vectors` 承载；独立全量 map/逐层重建 oracle 核对 put、替换、删除及新旧节点集合差。原业务索引的递归兼容 oracle 保留，用于核对共享路径算法调整不改变旧格式字节。
