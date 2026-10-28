@@ -300,6 +300,7 @@ pub(crate) fn build_empty_hashes<C: Codec>(empty_leaf: &[u8]) -> Result<Vec<Stri
     Ok(hashes)
 }
 
+#[derive(Debug)]
 pub(crate) enum VisitError<E> {
     Tree(String),
     Visitor(E),

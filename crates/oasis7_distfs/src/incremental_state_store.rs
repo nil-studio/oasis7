@@ -80,6 +80,22 @@ impl StatePageSession<'_> {
                 .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
         )
     }
+    pub fn persist_artifact_pages(
+        &mut self,
+        delta: &ReservedValue<
+            oasis7_formal_protocol::incremental_artifacts::ArtifactCatalogDeltaV1,
+        >,
+    ) -> Result<()> {
+        if !delta.uses_budget(&self.store.memory) {
+            return Err(PageStoreError::Corrupt("artifact producer pool"));
+        }
+        self.persist_nodes(
+            delta
+                .new_nodes
+                .iter()
+                .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
+        )
+    }
     fn persist_nodes<'a>(
         &mut self,
         nodes: impl Iterator<Item = (&'a str, &'a [u8])>,

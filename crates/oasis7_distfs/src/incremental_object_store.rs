@@ -307,6 +307,15 @@ impl IncrementalObjectStore<'_> {
         if root.0.logical_len != locator.length {
             return Err(PageStoreError::Corrupt("object root length"));
         }
+        if locator.length == 0 {
+            // Range(0,0) deliberately reads no descendants. Validate the empty
+            // data leaf, after classifying contradictory locator/root lengths.
+            context
+                .verify_closure(&locator.value_root, 0, || {
+                    io.cancelled.load(Ordering::Acquire)
+                })
+                .map_err(from_value)?;
+        }
         let mut writer = DigestWriter {
             output,
             hash: blake3::Hasher::new(),

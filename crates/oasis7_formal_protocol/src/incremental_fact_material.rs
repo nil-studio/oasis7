@@ -59,11 +59,11 @@ struct HashSink<'a, C> {
 impl<C: FnMut() -> bool> Write for HashSink<'_, C> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.stop.is_some() {
-            return Err(std::io::Error::other("fact stream stopped"));
+            return Err(std::io::Error::other("original stream stopped"));
         }
         if (self.cancelled)() {
             self.stop = Some(StreamStop::Cancelled);
-            return Err(std::io::Error::other("fact stream cancelled"));
+            return Err(std::io::Error::other("original stream cancelled"));
         }
         // Bound hash/cancellation work even if an adapter passes a huge slice.
         let count = bytes.len().min(crate::incremental_value::VALUE_CHUNK_BYTES);
@@ -73,7 +73,7 @@ impl<C: FnMut() -> bool> Write for HashSink<'_, C> {
             .is_none_or(|end| end > self.limit)
         {
             self.stop = Some(StreamStop::Limited);
-            return Err(std::io::Error::other("fact stream byte allowance"));
+            return Err(std::io::Error::other("original stream byte allowance"));
         }
         self.hash.update(&bytes[..count]);
         self.bytes += count as u64;
@@ -116,28 +116,7 @@ pub fn verify_fact_originals<O: OriginalObjectStreamReader>(
         let admitted = budget.max_fact_bytes.min(budget.original_bytes_remaining);
         budget.facts_remaining -= 1;
         budget.original_bytes_remaining -= admitted;
-        let mut sink = HashSink {
-            hash: blake3::Hasher::new(),
-            bytes: 0,
-            limit: admitted,
-            cancelled: &mut cancelled,
-            stop: None,
-        };
-        let streamed = objects.stream_original(&fact.id, admitted, memory, &mut sink);
-        match sink.stop {
-            Some(StreamStop::Cancelled) => return Err(CoreError::Cancelled),
-            Some(StreamStop::Limited) => {
-                return Err(CoreError::ResourceLimited("fact original bytes"));
-            }
-            None => {}
-        }
-        let length = streamed.map_err(CoreError::Object)?;
-        if length != sink.bytes || sink.hash.finalize().as_bytes() != &fact.id {
-            return Err(CoreError::Invalid("fact original length/hash"));
-        }
-        if cancelled() {
-            return Err(CoreError::Cancelled);
-        }
+        let length = verify_original_stream(objects, &fact.id, admitted, memory, &mut cancelled)?;
         budget.original_bytes_remaining += admitted - length;
         result.bytes = result
             .bytes
@@ -151,4 +130,37 @@ pub fn verify_fact_originals<O: OriginalObjectStreamReader>(
         result.counts[index] += 1;
     }
     Ok(charge.retain(result))
+}
+
+/// Caller admits fixed hash metadata and IO allowance before invoking this.
+pub(super) fn verify_original_stream<O: OriginalObjectStreamReader>(
+    objects: &mut O,
+    id: &[u8; 32],
+    admitted: u64,
+    memory: &MemoryBudget,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<u64, CoreError<O::Error>> {
+    let mut sink = HashSink {
+        hash: blake3::Hasher::new(),
+        bytes: 0,
+        limit: admitted,
+        cancelled,
+        stop: None,
+    };
+    let streamed = objects.stream_original(id, admitted, memory, &mut sink);
+    match sink.stop {
+        Some(StreamStop::Cancelled) => return Err(CoreError::Cancelled),
+        Some(StreamStop::Limited) => {
+            return Err(CoreError::ResourceLimited("original stream bytes"));
+        }
+        None => {}
+    }
+    let length = streamed.map_err(CoreError::Object)?;
+    if length != sink.bytes || sink.hash.finalize().as_bytes() != id {
+        return Err(CoreError::Invalid("original stream length/hash"));
+    }
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    Ok(length)
 }

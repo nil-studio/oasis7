@@ -520,3 +520,75 @@ fn killed_original_object_publishers_keep_the_same_identity_on_reopen_and_retry(
 
 #[path = "incremental_material_store_tests.rs"]
 mod material;
+
+#[test]
+fn empty_original_cannot_skip_missing_typed_data_leaf() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let pages =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let cancelled = AtomicBool::new(false);
+    let mut physical = physical_io();
+    let mut logical = logical_io();
+    let objects = IncrementalObjectStore::create(&pages, &mut physical, &cancelled).unwrap();
+    let mut io = ObjectIo {
+        physical: &mut physical,
+        logical: &mut logical,
+        class: MemoryClass::Ordinary,
+        cancelled: &cancelled,
+    };
+    let id = objects
+        .write_object(&mut &b""[..], 0, None, &mut io)
+        .unwrap();
+    let locator = objects.locator(&id, 0, &mut io).unwrap();
+    let source = pages.value_session(physical_io());
+    let root = oasis7_formal_protocol::incremental_value::ValueReadContext {
+        source: &source,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        io: &mut logical_io(),
+    }
+    .load_root(&locator.value_root)
+    .unwrap();
+    fs::remove_file(fixture.store().join("recipes").join(hex::encode(root.0.id))).unwrap();
+    assert!(
+        objects.read_object_owned(&id, 0, &mut io).is_err(),
+        "empty flat hash cannot replace its required typed leaf"
+    );
+}
+
+#[test]
+fn empty_locator_with_nonempty_root_remains_corruption_not_budget_exhaustion() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let pages =
+        IncrementalPageStore::create(&fixture.store(), memory, PageCompression::Raw).unwrap();
+    let cancelled = AtomicBool::new(false);
+    let mut physical = physical_io();
+    let mut logical = logical_io();
+    let objects = IncrementalObjectStore::create(&pages, &mut physical, &cancelled).unwrap();
+    let mut io = ObjectIo {
+        physical: &mut physical,
+        logical: &mut logical,
+        class: MemoryClass::Ordinary,
+        cancelled: &cancelled,
+    };
+    let empty = objects
+        .write_object(&mut &b""[..], 0, None, &mut io)
+        .unwrap();
+    let other = objects
+        .write_object(&mut &b"bytes"[..], 5, None, &mut io)
+        .unwrap();
+    let mut locator = objects.locator(&other, 5, &mut io).unwrap();
+    locator.length = 0;
+    fs::write(
+        fixture.store().join("objects").join(hex::encode(empty)),
+        encode_locator(&empty, &locator),
+    )
+    .unwrap();
+    assert!(matches!(
+        objects.read_object_owned(&empty, 0, &mut io),
+        Err(PageStoreError::Corrupt("object root length"))
+    ));
+}

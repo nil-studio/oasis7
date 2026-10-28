@@ -11,7 +11,7 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 #[path = "incremental_history_objects.rs"]
 mod objects;
 #[path = "incremental_history_wire.rs"]
-mod wire;
+pub(crate) mod wire;
 pub use objects::*;
 #[path = "incremental_catalog.rs"]
 mod catalog;

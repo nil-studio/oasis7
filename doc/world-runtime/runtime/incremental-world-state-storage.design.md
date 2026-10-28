@@ -647,3 +647,23 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 `CheckedNativeEnvironment` 只保留 256 bytes 计费元数据，绑定当前 body、native ID、实际 executable digest、component bytes 和 chunk occurrence。它没有 Clone、反序列化或接受回执能力；不证明当前机器与原环境相同、文件可执行、manifest/WASM/规则语义、字段依赖、frozen 续做或端点服务资格。旧 Snapshot 执行 manifest 不能直接作为 IWS manifest 使用；完整新格式工件与实际端点接线仍待完成，新世界仍未激活。
 
 局部方法：`incremental_material::tests::native_tests` 覆盖原角色绑定、精确和少一 object/bytes 额度、缺失/替换、chunk 各自正确但 component digest 错误、描述符恶意 sequence 声明、取消、跨池、metadata 预算不足及来源 unwind 后准入/内存释放。实际来源 `incremental_page_store::objects::tests::material::native::native_larger_than_pool_is_verified_from_original_chunks_after_reopen` 在 64 MiB 共享池中写入原 chunk 和原描述符，重开后经原协议结构 core 验证，完整读回 64 MiB+17 bytes 可执行内容及 build metadata，逐 occurrence 扣除 descriptor 加 66 个 chunk 的精确额度，并核对仅结果 charge 留存。fixture 原件不执行，不代表真实可运行环境、完整恢复续跑、独立持久域或 provider oracle 证据。
+
+
+### 12.20 IWS 执行 manifest 与原工件目录
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.1/§6.2 的独立执行工件。IWS 不复用引用 Snapshot 的旧 execution manifest。新 manifest 是独立有界对象，不引用本次 RootSet、CommitBody、HistoryPrefix 或证书；原 record 的四个执行角色引用它和对应目录/native 原件。创世 manifest 不含本次 activation input，避免初始证书与 manifest 互相引用。执行 manifest 另外绑定精确 parent commit/RootSet、operation、原 input 和可恢复 continuation 原件；恢复解释与业务合法性仍由对应 owner 核定。
+
+Wasm 与 Rules 角色各指向一个原工件内容目录，按原 content digest 查找长度与 kind。目录复用同一 256 层 Merkle 实现及最终新可达节点策略，每次新增仅改受影响路径，不重写不断增长的平面模块列表；版本/名称/治理绑定仍在 Runtime 的对应状态字段，不由内容目录授予权限。目录当前采用追加原件身份；旧高度自己的根一直保留，不以活跃版本筛掉历史原件。已存在 ID 仅在 kind/长度完全一致时幂等复用。
+
+目录 root 编码为 `oasis7.iws.artifact-root.v1\0` + `u32(41)` + kind（Wasm=1、Rules=2，`u8`）+ count（`u64`）+ node root（32 bytes）。页编码为 `oasis7.iws.artifact-page.v1\0` + `u32` payload 长度；branch payload 为 tag=1 + depth（`u16`）+ left/right digest，leaf 为 tag=0 + kind + 原 digest + 原长度（`u64`），叶路径为原 digest 的 256 bits。空 sentinel 为同页 header 加 tag=2，空根/count 必须一致。页最多 160 bytes，root 最多 128 bytes；未知 kind、错路径/深度/count、截断和尾随内容均拒绝。
+
+manifest 编码为 `oasis7.iws.execution-manifest.v1\0` + `u32` payload 长度，最多 1024 bytes。payload 按序为 world scope（沿用 §12.6）、format profile、native ID、executable 原 digest、Wasm/Rules 目录 ID、execution-policy 原 digest/长度，以及 mode。mode=0 为创世且无后续字段；mode=1 后续为 parent CommitBody ID、parent RootSet ID、operation、原 input ID、continuation 原 digest/长度。整数为大端，所有 digest 为原始 32 bytes。policy 必须与原 record 的 execution_policy_digest 相同，且是 Rules 目录的精确成员；continuation 单独保留原 bytes。此 wire 只定义完整性和依赖位置，不能把原件可读等同于 WASM 可执行、规则/schema 正确或 continuation 可恢复。
+
+完整冷校验按目录原序读取每个原件，逐 occurrence 消费工作与原 bytes 额度，原件经流式 flat digest/长度检查，不物化整个模块包。原目录页与 descriptor 由同池读者和独立额度读取；少一项、缺页、替换或取消均不产生完整标记。正常提交对未变化工件仍须使用 §7 的精确父闭包证据，而不是每次调用完整冷扫描。新 manifest、目录、Runtime 字段/版本绑定及端点消费者全部接通前，新世界继续不可启用。
+
+
+`ArtifactCatalogV1::append` 在分配前取得与有界条目数对应的共享 phase，仅输出精确父目录中不存在的最终新可达页；`ArtifactCatalogDeltaV1::verify` 重建并逐项比对，包括提交节点集合。typed 页边显式区分目录孩子与原对象 digest/长度，不能把原 bytes ID 当成 value-page ID。目录/manifest 解析均先限制原 bytes；冷检查固定 metadata workspace 为 128 KiB，结果只保留 256 bytes charge。其页读取、原字节读取分别使用独立额度和实际 source 的物理/逻辑 IO 预算；来源 unwind 不退已准入工作。Input 事实与工件原件复用同一个有界流式 hash sink，忽略 Write 错误也不能绕过额度或取消。
+
+空原件读取另补齐 §12.17 的空 data 叶检查：完整原对象读回不能用零长度 range 代替 typed 闭包。真实存储删除该叶的回归已先判红，修复后明确失败；正常空原件导入与窄 range 的语义保持不变。
+
+局部方法：`incremental_artifacts::tests` 使用独立全量逐层树和直接二进制 profile 向量，覆盖追加/幂等、父 delta 重建、节点集合替换、kind/长度/顺序/count/缺页/跨池及未知格式。`incremental_material::tests::artifact_tests` 用原协议签名的实际结构 core，覆盖创世与非空执行的 parent/operation/input/continuation、原 policy 摘要/目录 membership、native executable 绑定、精确与少一额度、替换/缺失、取消/class/跨池及 unwind 后已消费额度。实际来源 `incremental_page_store::objects::tests::material::artifacts::iws_manifest_and_large_wasm_catalog_reopen_with_exact_streaming_dependencies` 在 32 MiB 共享池中写入并重开含大 custom section 的超 64 MiB WASM 原件、原 policy/native 和两类目录，核对原协议角色、771 次页读取及全部原件额度精确耗尽、输出计费释放。fixture 不执行模块或 policy，不证明 ABI/规则 schema、Runtime 字段/版本对应、frozen 恢复、有效父耐久租约或最终发布；这些接线与 §11 规模/续跑验收仍待完成。

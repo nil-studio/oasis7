@@ -25,6 +25,9 @@ pub use written_values::*;
 #[path = "incremental_native_material.rs"]
 mod native_material;
 pub use native_material::*;
+#[path = "incremental_execution_artifact_material.rs"]
+mod execution_artifacts;
+pub use execution_artifacts::*;
 
 use std::{
     cell::{Cell, RefCell},
@@ -107,6 +110,8 @@ pub struct ExecutionArtifactRefs {
 #[derive(Debug)]
 pub struct CheckedCommitCore {
     execution_artifacts: ExecutionArtifactRefs,
+    original_input: [u8; 32],
+    original_execution_policy: [u8; 32],
     config: GenesisConfigV1,
     roots: RootSetV1,
     body: CommitBodyV1,
@@ -119,6 +124,12 @@ pub struct CheckedCommitCore {
 }
 
 impl CheckedCommitCore {
+    pub fn original_execution_policy_id(&self) -> [u8; 32] {
+        self.original_execution_policy
+    }
+    pub fn original_input_id(&self) -> [u8; 32] {
+        self.original_input
+    }
     pub fn execution_artifacts(&self) -> ExecutionArtifactRefs {
         self.execution_artifacts
     }
@@ -547,6 +558,10 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     };
     Ok(charge.retain(CheckedCommitCore {
         execution_artifacts,
+        original_input: input_id,
+        original_execution_policy: crate::incremental_history::wire::parse_hash(
+            &record.execution_policy_digest,
+        )?,
         config,
         roots,
         body,

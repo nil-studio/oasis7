@@ -44,14 +44,46 @@ pub fn setup_with_memory(memory: MemoryBudget) -> Setup {
 }
 
 pub fn setup_with_native(memory: MemoryBudget, native: [u8; 32]) -> Setup {
-    let (mut certificate, _, legacy, _) = fixture::initial();
-    let config = GenesisConfigV1 {
+    setup_with_roots(memory, native, None)
+}
+pub fn setup_with_execution_artifacts(
+    memory: MemoryBudget,
+    native: [u8; 32],
+    manifest: [u8; 32],
+    wasm: [u8; 32],
+    rules: [u8; 32],
+    policy: [u8; 32],
+) -> Setup {
+    setup_with_roots(memory, native, Some([manifest, wasm, rules, policy]))
+}
+pub fn genesis_config(native: [u8; 32]) -> GenesisConfigV1 {
+    GenesisConfigV1 {
         world_id: "world".into(),
         format_profile: [1; 32],
         initial_content: [2; 32],
         activation_config: [3; 32],
         execution_environment: native,
-    };
+    }
+}
+fn setup_with_roots(memory: MemoryBudget, native: [u8; 32], refs: Option<[[u8; 32]; 4]>) -> Setup {
+    let (mut certificate, _, legacy, _) = fixture::initial();
+    let config = genesis_config(native);
+    let refs = refs.unwrap_or_else(|| {
+        [
+            hex::decode(&certificate.body.runtime_manifest_digest)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            [47; 32],
+            [48; 32],
+            hex::decode(&certificate.body.execution_policy_digest)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ]
+    });
+    certificate.body.runtime_manifest_digest = hex::encode(refs[0]);
+    certificate.body.execution_policy_digest = hex::encode(refs[3]);
     let scope = config.scope().unwrap();
     let roots = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config).unwrap();
     let state = hex::encode(roots.digest().unwrap());
@@ -71,8 +103,8 @@ pub fn setup_with_native(memory: MemoryBudget, native: [u8; 32]) -> Setup {
             ArtifactRole::ExecutionManifest,
             certificate.body.runtime_manifest_digest.clone(),
         ),
-        (ArtifactRole::Wasm, fixture::h(47)),
-        (ArtifactRole::Rules, fixture::h(48)),
+        (ArtifactRole::Wasm, hex::encode(refs[1])),
+        (ArtifactRole::Rules, hex::encode(refs[2])),
         (
             ArtifactRole::NativeExecutionEnvironment,
             hex::encode(config.execution_environment),
@@ -119,6 +151,8 @@ pub fn setup_with_native(memory: MemoryBudget, native: [u8; 32]) -> Setup {
     record.before_state_root = state.clone();
     record.after_state_root = state;
     record.payload_digest = hex::encode(input_id);
+    record.runtime_manifest_digest = certificate.body.runtime_manifest_digest.clone();
+    record.execution_policy_digest = certificate.body.execution_policy_digest.clone();
     record.artifact_roots = certificate.body.artifact_roots.clone();
     record
         .artifact_roots
@@ -154,8 +188,12 @@ pub fn setup_with_native(memory: MemoryBudget, native: [u8; 32]) -> Setup {
     }
 }
 pub fn frozen(setup: &Setup) -> FormalFrozenCertificateV1 {
+    frozen_with_manifest(setup, [62; 32])
+}
+pub fn frozen_with_manifest(setup: &Setup, manifest: [u8; 32]) -> FormalFrozenCertificateV1 {
     let mut frozen = fixture::frozen(&setup.authority, &setup.commit, None);
     frozen.reservation.body.schema_version = IWS_FROZEN_SCHEMA;
+    frozen.reservation.body.runtime_manifest_digest = hex::encode(manifest);
     frozen.reservation.signature_hex =
         fixture::sign(frozen_signing_bytes(&frozen.reservation.body).unwrap(), 4);
     let id = frozen.reservation.body.reservation_id().unwrap();
@@ -214,4 +252,44 @@ pub fn core_objects(
         )
         .unwrap();
     (charge.retain(blobs), catalog)
+}
+
+/// Tiny original byte fixture. These executable bytes are never run.
+pub fn native_fixture() -> (
+    crate::native_environment::NativeExecutionEnvironmentV1,
+    Vec<Vec<u8>>,
+) {
+    use crate::native_environment::*;
+    let raw = vec![b"native-executable".to_vec(), b"native-build".to_vec()];
+    let components = raw
+        .iter()
+        .enumerate()
+        .map(|(index, bytes)| {
+            let id = blake3::hash(bytes).to_hex().to_string();
+            NativeEnvironmentComponentV1 {
+                role: if index == 0 {
+                    NativeEnvironmentRole::Executable
+                } else {
+                    NativeEnvironmentRole::BuildMetadata
+                },
+                name: format!("original-{index}"),
+                byte_len: bytes.len() as u64,
+                content_digest: id.clone(),
+                chunks: vec![NativeEnvironmentChunkV1 {
+                    digest: id,
+                    byte_len: bytes.len() as u32,
+                }],
+            }
+        })
+        .collect();
+    (
+        NativeExecutionEnvironmentV1 {
+            schema_version: 1,
+            target: "test".into(),
+            os: "test".into(),
+            arch: "test".into(),
+            components,
+        },
+        raw,
+    )
 }

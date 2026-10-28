@@ -383,6 +383,18 @@ fn execution_sources(
     VerifiedCandidateContextV1,
     ReservedValue<crate::incremental_execution::PreparedTransition>,
 ) {
+    execution_sources_with_manifest(s, value, [62; 32])
+}
+fn execution_sources_with_manifest(
+    s: &Setup,
+    value: [u8; 32],
+    manifest: [u8; 32],
+) -> (
+    Objects,
+    Pages,
+    VerifiedCandidateContextV1,
+    ReservedValue<crate::incremental_execution::PreparedTransition>,
+) {
     use crate::incremental_execution::{
         ExecutionFactKindV1, ExecutionFactRefV1, ExecutionTransaction, TransactionLimits,
     };
@@ -468,8 +480,8 @@ fn execution_sources(
     record.parent_record_id = s.commit.head().record_id;
     record.request_digest = fixture::h(60);
     record.payload_digest = fixture::h(61);
-    record.runtime_manifest_digest = fixture::h(62);
-    let frozen = fixture::incremental::frozen(s);
+    record.runtime_manifest_digest = hex::encode(manifest);
+    let frozen = fixture::incremental::frozen_with_manifest(s, manifest);
     record.frozen_reservation_id = Some(frozen.reservation.body.reservation_id().unwrap());
     record.after_state_root = hex::encode(transition.record.after.digest().unwrap());
     for (key, value) in [
@@ -663,3 +675,6 @@ mod written_value_tests;
 
 #[path = "incremental_native_material_tests.rs"]
 mod native_tests;
+
+#[path = "incremental_execution_artifact_material_tests.rs"]
+mod artifact_tests;
