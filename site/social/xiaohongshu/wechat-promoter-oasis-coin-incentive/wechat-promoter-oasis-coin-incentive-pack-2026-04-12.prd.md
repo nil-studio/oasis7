@@ -7,7 +7,7 @@
 
 ## 1. Executive Summary
 - Problem Statement: 上一版“媒体推广者”范围过宽，把媒体、KOL、搬运号和普通宣传参与者混在一起，执行时很容易失焦。当前更实际的需求是先把激励对象收窄到“小红书博主”和“微信公众号”，让 `liveops_community` 能按这两类最常见、最容易复核的宣传资产直接执行绿洲币审核。
-- Proposed Solution: 在 `readme/governance` 收口为独立的 Xiaohongshu blogger and WeChat official account Oasis Coin incentive pack，只定义两类对象、两类渠道内容形态、证据字段、评分逻辑、固定档位金额、审批链、发放回填、反作弊和禁语边界，先把规则做具体、做窄、做可复用。
+- Proposed Solution: 在 `readme/governance` 整理为独立的 Xiaohongshu blogger and WeChat official account Oasis Coin incentive pack，只定义两类对象、两类渠道内容形态、证据字段、评分逻辑、固定档位金额、审批链、发放回填、反作弊和禁语边界，先把规则做具体、做窄、做可复用。
 - Success Criteria:
   - SC-1: 每条进入奖励评审的记录都必须明确属于 `小红书博主` 或 `微信公众号` 之一，并具备 `asset_url`、归档证据、奖励账户和 reviewer。
   - SC-2: 原始阅读量、播放量、点赞量不能单独触发绿洲币奖励建议，所有建议都必须附带内容质量与生态回流说明。
@@ -17,7 +17,7 @@
 
 ## 2. User Experience & Functionality
 - User Personas:
-  - `liveops_community`：需要把“小红书博主 / 微信公众号”激励收成一份能直接执行的绿洲币审核包。
+  - `liveops_community`：需要将“小红书博主 / 微信公众号”激励整理为一份能直接执行的绿洲币审核包。
   - `producer_system_designer`：需要确保绿洲币激励奖励的是高质量宣传贡献，而不是流量采购。
   - 小红书博主 / 微信公众号运营者：需要知道什么样的宣传资产能进入奖励建议池。
 - User Scenarios & Frequency:
