@@ -6,7 +6,7 @@
 
 ## 目标
 - 建立 world-simulator 模块的 active canonical PRD，统一当前能力边界、跨模块接口、验收总口径与 PRD-ID 追踪方式。
-- 让 scenario / viewer / LLM / launcher / runtime-live 相关需求保持可导航、可审计，并能从主入口稳定下钻到专题文档。
+- 让 scenario / viewer / LLM / launcher / runtime-live 相关需求可导航、可审计，并可从主入口稳定跳转到专题文档。
 - 将历史 milestone、逐任务执行证据、round review logs 和完整专题长表移出日常阅读面，避免主 PRD 继续膨胀成历史大全。
 
 ## 范围

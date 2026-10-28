@@ -43,7 +43,7 @@
 `numerator/denominator/value/zero_case/gate_status` object；缺少字段、计数超过
 `decision_steps`、或与 `error_counts.invalid_action_schema` 不一致时标记为 `blocked`，不得按缺失为零。
 
-时延字段按[唯一时延合同](provider-agent-parity-benchmark-protocol.md#parity-latency-contract)填写：`p95_extra_wait_ms` 是最坏样本 p95，median 是各样本中位数的中位数；保留实际 latency 数量、producer 计时边界与缺失项。没有完整时延证据不能从零值或 summary 存在填“达标”。其他 metric object/zero-case 规则以[主 PRD](../../llm/provider-agent-experience-parity.prd.md#parity-metric-object-contract)为准。
+时延字段按[唯一时延合同](provider-agent-parity-benchmark-protocol.md#parity-latency-contract)填写：`p95_extra_wait_ms` 是最坏样本 p95，median 是各样本中位数的中位数；保留实际 latency 数量、producer 计时边界与缺失项。时延证据不完整时，不能因零值或存在 summary 就填“达标”。其他 metric object/zero-case 规则以[主 PRD](../../llm/provider-agent-experience-parity.prd.md#parity-metric-object-contract)为准。
 
 ## 四、失败签名汇总
 | error_code | builtin count | Local Provider count | 是否阻断 | 备注 |

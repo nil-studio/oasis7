@@ -48,7 +48,7 @@ software-safe 通过条件：最终退出 0、本次 summary `ok=true`，且 `au
 agent-browser --session "$AB_SESSION" console > "$CONSOLE_LOG"
 ```
 
-`AB_SESSION`、URL、状态快照和 `CONSOLE_LOG` 都绑定同次采集；不能在脚本已经关闭的 session 之后另开页面，把新会话日志挂给旧结果。无法取得该次 console 时如实标 unverified。
+`AB_SESSION`、URL、状态快照和 `CONSOLE_LOG` 都绑定同次采集；不能在脚本关闭 session 后另开页面，将新会话日志归到旧结果。无法取得该次 console 时如实标 unverified。
 
 ## 工件与保留边界
 

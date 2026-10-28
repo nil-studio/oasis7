@@ -126,7 +126,7 @@
 - 部署 Web 时应解压并以 archive 根目录作为静态根；不要只复制 `web-dist/`。若 payload 真实缺失，manifest 保持 `available: false`，Viewer 必须进入明确的 Renderer Unavailable fallback。
 
 ## 定向检索边界
-- 如果你已经知道准确文件名，直接回 `../prd.index.md`，不要指望本页替代完整索引。
+- 已知准确文件名时，直接查 `../prd.index.md`；本页不替代完整索引。
 - 旧 2026-03-11 模块状态 closure / viewer-to-producer handoff 文档已退役删除；当前 Viewer 合同以本目录 PRD/design/manual 为准，活跃任务状态与历史专题从 `../prd.index.md`、PR、实际 CI 与评审记录（Issue 按需） 与 `.pm/github-project-sync/task-archive.jsonl` 进入。
 - 如果某个主题已经出现“主文档物理合并”，应优先进入主文档，而不是从旧阶段文档开始；release immersion phase2~10 的历史追溯从主文档、`../prd.index.md` 历史说明、core review logs、git history 与 PR、实际 CI 与评审记录（Issue 按需） 进入。
 

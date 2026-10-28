@@ -16,7 +16,7 @@
 
 ### In Scope（V1）
 - `WorldInitConfig`：初始化参数（seed、原点地点、自定义地点、小行星带碎片生成、初始 Agent、初始电力设施）。
-- 原点地点创建：默认位于空间中心，可配置位置与画像与资源存量。
+- 原点地点创建：默认位于空间中心，可配置位置、画像与资源存量。
 - 自定义地点创建：显式指定地点列表，可配置位置/画像/初始资源。
 - 小行星带碎片生成：复用 `generate_fragments`，并支持单独 seed 偏移。
 - 初始 Agent 生成：按数量与前缀批量创建，按 seed 从可用地点中确定性随机出生，可配置初始资源。
@@ -127,10 +127,11 @@
 - 运行示例工具：`env -u RUSTC_WRAPPER cargo run -p oasis7_simulator --bin oasis7_init_demo -- minimal`
 - 查看场景列表：`env -u RUSTC_WRAPPER cargo run -p oasis7_simulator --bin oasis7_init_demo -- --help`
 - 运行自定义场景文件：`env -u RUSTC_WRAPPER cargo run -p oasis7_simulator --bin oasis7_init_demo -- --scenario-file path/to/scenario.json`
-- 示例输出包含每个地点的资源摘要（electricity/hardware/data）。
-- 示例输出包含每个 Agent 的资源摘要（electricity/hardware/data）。
-- 示例输出包含估算的小行星带碎片数量（asteroid_fragment_fragments）。
-- 示例输出包含每个地点的设施统计（power_plants）。
+- 示例输出包含：
+  - 每个地点的资源摘要（electricity/hardware/data）。
+  - 每个 Agent 的资源摘要（electricity/hardware/data）。
+  - 估算的小行星带碎片数量（asteroid_fragment_fragments）。
+  - 每个地点的设施统计（power_plants）。
 - `--summary-only` 可仅输出概要统计（隐藏详细列表）。
 
 ## 5. Risks & Roadmap

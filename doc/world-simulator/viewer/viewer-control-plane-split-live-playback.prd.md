@@ -1,6 +1,6 @@
 # Viewer 控制面：回放与 Live 分离
 
-> 本文是回放/Live 控制 profile 与 live 无 seek 语义的当前专业 authority。它收敛两个 2026-02 源三件套；历史变更仅从 Git 与 PR 与实际验证记录 追溯。
+> 本文是回放/Live 控制 profile 与 live 无 seek 语义的当前专业 authority。它收敛两个 2026-02 源三件套；历史变更仅从 Git、PR 与实际验证记录追溯。
 
 - 对应设计: `doc/world-simulator/viewer/viewer-control-plane-split-live-playback.design.md`
 - 历史实施、验证与 task 状态：GitHub task issue evidence。
