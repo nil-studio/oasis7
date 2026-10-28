@@ -96,6 +96,20 @@ impl StatePageSession<'_> {
                 .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
         )
     }
+    pub fn persist_schedule_pages(
+        &mut self,
+        delta: &ReservedValue<oasis7_formal_protocol::incremental_schedule::ScheduleDeltaV1>,
+    ) -> Result<()> {
+        if !delta.uses_budget(&self.store.memory) {
+            return Err(PageStoreError::Corrupt("schedule producer pool"));
+        }
+        self.persist_nodes(
+            delta
+                .new_nodes
+                .iter()
+                .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
+        )
+    }
     fn persist_nodes<'a>(
         &mut self,
         nodes: impl Iterator<Item = (&'a str, &'a [u8])>,
@@ -183,3 +197,7 @@ fn parse_id(id: &str) -> Result<[u8; 32]> {
 #[cfg(test)]
 #[path = "incremental_state_store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "incremental_schedule_store_tests.rs"]
+mod schedule_tests;

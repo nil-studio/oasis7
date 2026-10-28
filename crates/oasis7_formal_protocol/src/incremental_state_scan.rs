@@ -37,16 +37,16 @@ pub struct StateScanContext<'a, R> {
     pub io: &'a mut StateScanBudget,
 }
 #[derive(Clone, Copy)]
-enum Stop {
+pub(crate) enum Stop {
     Limited,
     Cancelled,
 }
-struct Guarded<'a, R, C> {
-    source: &'a R,
-    nodes: &'a Cell<u64>,
-    bytes: &'a Cell<u64>,
-    cancelled: &'a RefCell<C>,
-    stop: &'a Cell<Option<Stop>>,
+pub(crate) struct Guarded<'a, R, C> {
+    pub(crate) source: &'a R,
+    pub(crate) nodes: &'a Cell<u64>,
+    pub(crate) bytes: &'a Cell<u64>,
+    pub(crate) cancelled: &'a RefCell<C>,
+    pub(crate) stop: &'a Cell<Option<Stop>>,
 }
 impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for Guarded<'_, R, C> {
     type Node = R::Node;

@@ -7,7 +7,7 @@ use crate::merkle::{Codec, DEPTH, Updater};
 #[path = "incremental_state_codec.rs"]
 mod codec;
 #[path = "incremental_state_scan.rs"]
-mod scan;
+pub(crate) mod scan;
 use codec::{StateCodec, empty_hashes, key_digest};
 pub use scan::*;
 

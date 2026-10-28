@@ -754,3 +754,18 @@ Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4
 遍历仍使用最多 257 项 DFS 栈，不保存随总叶数增长的 visited map，也不收集完整结果。该内部原语不自行声明 IO/内存准入：调用者沿用已准入 workspace、带额度 source 和有界 visitor，任何错误均只保留临时输出；完整扫描调用方原有取消、额度和计数核对保持有效。局部测试使用独立逐层分区构树与排序区间 oracle，覆盖每个 bit/byte 边界、闭区间端点、单点、空区间结果、空树、反向边界、范围内缺页、范围外未读取的缺页、坏摘要/深度/叶路径及 visitor 立即失败。单点在多分支树中恰读 257 个路径节点，未遍历其余叶子。
 
 本节只提供认证读取基础。普通状态键仍是摘要键，不能直接把其区间当作绝对 wake 顺序；按时间排序的索引、索引与标量字段的同事务双向约束、完整且每轮去重的 due 集合，以及实际 module driver/J2 仍须继续实现。范围结果不授予接受、持久发布、恢复完成或服务能力。
+
+
+### 12.28 按绝对时间排序的认证 wake 内容索引
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.26–12.27。新增 ScheduleIndexV1 内容结构，外层 sparse Merkle key 为绝对 wake 的大端 u64 加 24 个零 bytes；每个时间叶绑定该 wake、非零成员数与 instance 集合根。内层 key 使用完整 BLAKE3 摘要，输入为 `oasis7.iws.schedule-instance.v1\0`、原 UTF-8 byte 长度 u16 和原 instance；叶保留原 instance bytes。两层均使用完整 256 层树，不截断 instance 摘要来拼接时间。内层允许相同内容集合跨历史时刻复用，其外层叶仍绑定精确 wake。
+
+页域为 `oasis7.iws.schedule-index-page.v1\0`，后接 body 长度 u32、kind u8（Times=1、Instances=2）与 tag u8。branch tag=1，字段为 depth u16、left/right 各 32 bytes；leaf tag=0，Times 字段为 wake u64、count u64、bucket root 32 bytes，Instances 字段为 byte 长度 u16 与原 UTF-8。空叶 marker 使用 kind 与 tag=2，空根由固定深度规范 branch 递推，不保存空对象。整数均大端；页不超过 1200 bytes，非空 instance 不超过 1024 bytes。未知域/kind/tag、尾随、截断、非法 UTF-8、零 count 或空 bucket root 拒绝。两种树使用独立 sentinel 表，不能因泛型 static 共享而混用身份。
+
+根域为 `oasis7.iws.schedule-index-root.v1\0`，后接 body 长度 u32、buckets u64、entries u64 与 time node root 32 bytes，总长不超过 128 bytes。空 entries、空 buckets 与空 time 根必须一致，buckets 不超过 entries。单项 update 接收实际旧 wake 与目标 wake，验证旧 pair 后删除/清空原 bucket，再写目标 pair；相同 pair 幂等。所有路径采用同一个受限 time updater 和同一个受限 instance updater，分别跟踪读取的父闭包，最终只输出目标仍可达且不属于已读父闭包的新页，按 digest 排序。单例从旧时间移动到新时间时可复用原 instance 树；临时删除/重插的中间页不进入 delta。任意未读 CAS 命中不能改变规范新页集合，delta verify 从精确父根重建并逐项比较。生产阶段先取得同池 Ordinary 的 2 MiB metadata/workspace，单树 pending 上限 256 KiB，结果保留实际容量 charge；跨池或错误 class 拒绝。
+
+visit_due 对 time key 的闭区间 [0, now] 做认证范围读取，再逐个读取到期 bucket，顺序为 wake、完整 instance 摘要。读取结果仍是临时内容，不能把这个顺序直接当作实际模块执行顺序；原 routing 的优先级、稳定 instance 与轮次规则仍由 owner 接入。两层 DFS 共用 256 KiB workspace，同池 Ordinary/Recovery 与 node/byte/bucket/instance 额度；逐个 source 调用前消费读取额度，错误或 unwind 不退还已准入工作。取消、visitor 失败、源错误及计数矛盾不返回部分成功；每个到期 bucket 核对完整成员数，完整最大时间读取还核对全根 buckets/entries。未来 bucket 不读取，其缺页不能影响请求区间；已请求缺页不能被当作合法空 schedule。
+
+Runtime 必须将根描述符绑定在 Scheduler 状态、与标量 wake 在同一事务维护，并在创世/恢复核定其双向一致性。此索引的独立 update 要求已合格父索引且 old_wake 来自相同事务的实际标量字段；它不能靠一个 pair 点读证明该 instance 在所有其他时间均不存在。本节未完成该 owner 接线、正式 due 快照/每轮去重、实际 invocation 或 J2。typed page edges 和 StatePageSession 的同池 pack 持久化入口只是保留闭包的基础，尚未接入六根恢复的索引闭包 owner、GC 或正式 head 发布。
+
+局部方法用独立 wire/逐层递归树和逻辑 map 核对创建、同桶新增、跨桶迁移、清除、空树、幂等、精确最终新页及旧根保留；还覆盖 0/MAX、完整 UTF-8 上限、未知格式、错误 kind/摘要/叶路径/count、范围内缺页、未来缺页剪枝、未来桶增长时已请求读取量不变、精确/少一各维额度、晚取消、visitor 失败、源 unwind 保持额度消费、跨池与 recovery 预留。实际 raw/zstd 页测试持久化根描述符为 value，重开后核对 due 集合并继续更新，和不中断 delta 逐项一致；每个显式操作阶段有独立有限物理 allowance，阶段内不重置。raw 使用 16 MiB 池、zstd 使用 32 MiB 池（均含 4 MiB recovery 预留），后者受既有 16 MiB codec workspace 约束；16 MiB 配置的 zstd 写入先明确拒绝，不以取消 charge 放宽。本方法不证明全局 IO/RSS、固定 H/S、原模块行为、完整世界续跑或独立故障域验收。

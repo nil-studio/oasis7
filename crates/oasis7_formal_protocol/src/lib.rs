@@ -14,3 +14,4 @@ pub mod native_environment;
 pub mod incremental_material;
 
 pub mod incremental_artifacts;
+pub mod incremental_schedule;
