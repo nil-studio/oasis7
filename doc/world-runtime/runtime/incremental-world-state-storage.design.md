@@ -634,3 +634,16 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 `verify_state_values` 消费已检查结构 core，对 RootSet 的六类根逐一完整扫描，并复用 §12.17 同一个 value 引用验证/额度入口检查每个叶的完整 descriptor 和数据后代。它适用于创世与显式恢复，可以选择 recovery class；同一 value 被多个业务或控制叶引用时按 occurrence 检查和计数。普通提交继续使用 `verify_written_values`，不会因此全扫 S 或 H。输出 `CheckedStateValues` 只绑定该 body、六类叶数、逻辑 bytes 和 value 页 occurrence；无 Clone、反序列化或最终接受能力。失败不返回部分标记，也不证明事实语义、字段解码、模块/执行环境工件、历史全闭包、租约、独立持久域或可服务资格。
 
 局部方法：`incremental_state::tests::scan_tests` 用独立整树构造与直接 profile key 编码核对根和顺序，覆盖精确/少一额度、错路径/深度/namespace/count、缺页、visitor 失败、空根、取消、跨池及 unwind 已消费额度。`incremental_material::tests::written_value_tests::full_state_checks_all_six_namespaces_and_each_repeated_value` 从原协议候选结构 core 枚举七个真实引用（业务两项、五类控制各一项），分别验证 ordinary/recovery class、每次原值及缺叶拒绝。实际来源 `incremental_page_store::state::tests::full_six_namespace_state_and_value_scan_after_real_store_reopen` 将同一事务六根及 value 写入真实页 store，重开后用 recovery class 完整枚举 1542 个状态页和十二个 value 页 occurrence，核对精确节点/叶额度、无输出及计费释放。测试中的创世/authority/字段语义为隔离 fixture，不代表完整世界恢复、后续业务或 J1/J2/provider oracle 已通过；实际端点和全部 Runtime 字段仍待接线。
+
+
+### 12.19 原 native 执行环境的计费完整读回
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.2 的执行环境与 §12.15 的实际来源。结构 core 现在保留原候选的 ExecutionManifest、Wasm、Rules、NativeExecutionEnvironment 四个精确角色引用；后续 verifier 不接受任意另一候选提供的替代角色。角色引用本身仍不是内容或闭包验证。
+
+`verify_native_environment` 使用其中 native 原 ID，并再次核对 body.execution_environment。它从同池 ordinary 原对象 reader 读取描述符和每个原 chunk，复用已有 `NativeExecutionEnvironmentV1` 格式、校验与整件摘要算法，不重新定义原 native 表示。描述符最多 1 MiB、chunk 最多 1 MiB、单环境最多 4 GiB 及既有组件/边界约束不变；每个 chunk 同时核对原 flat digest、声明长度和按原序累计的 component digest。已有 chunk 全部各自有效但整件摘要不符时仍拒绝。重复引用逐 occurrence 读取，不用同域缓存命中代替整件验证。
+
+固定 16 MiB ordinary metadata workspace 在任何读取、描述符解码、字符串/集合扩张与 canonical 再编码前取得；原字节输出、物理解码及逻辑页仍保持各自 reservation 与实际 IO 额度。CoreBudget 的 object/原 bytes 额度在读取前扣除，成功仅退还未用准入；来源错误或 unwind 保留已发生的准入。native 共同校验器新增保留借用 carrier 的 `verify_with`，避免从计费 Arc 拆出或复制整个 chunk；旧 `verify` 接口转调同一算法，原格式、结果与错误合同不变。完整校验只需描述符和一个当前 chunk，不物化全部可执行文件。取消在原对象读取边界及成功返回前检查；解码/校验仍是明确受尺寸限制的阶段，不宣称进程 RSS 或全局时间治理已完成。
+
+`CheckedNativeEnvironment` 只保留 256 bytes 计费元数据，绑定当前 body、native ID、实际 executable digest、component bytes 和 chunk occurrence。它没有 Clone、反序列化或接受回执能力；不证明当前机器与原环境相同、文件可执行、manifest/WASM/规则语义、字段依赖、frozen 续做或端点服务资格。旧 Snapshot 执行 manifest 不能直接作为 IWS manifest 使用；完整新格式工件与实际端点接线仍待完成，新世界仍未激活。
+
+局部方法：`incremental_material::tests::native_tests` 覆盖原角色绑定、精确和少一 object/bytes 额度、缺失/替换、chunk 各自正确但 component digest 错误、描述符恶意 sequence 声明、取消、跨池、metadata 预算不足及来源 unwind 后准入/内存释放。实际来源 `incremental_page_store::objects::tests::material::native::native_larger_than_pool_is_verified_from_original_chunks_after_reopen` 在 64 MiB 共享池中写入原 chunk 和原描述符，重开后经原协议结构 core 验证，完整读回 64 MiB+17 bytes 可执行内容及 build metadata，逐 occurrence 扣除 descriptor 加 66 个 chunk 的精确额度，并核对仅结果 charge 留存。fixture 原件不执行，不代表真实可运行环境、完整恢复续跑、独立持久域或 provider oracle 证据。

@@ -56,6 +56,13 @@ fn hash(id: &str) -> Result<(), String> {
     }
     Ok(())
 }
+#[derive(Debug)]
+pub enum NativeVerifyError<E> {
+    Descriptor(String),
+    ChunkIntegrity,
+    ComponentIntegrity,
+    Source(E),
+}
 impl NativeExecutionEnvironmentV1 {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 || self.components.is_empty() || self.components.len() > 256 {
@@ -128,24 +135,34 @@ impl NativeExecutionEnvironmentV1 {
         Ok(blake3::hash(&self.encode()?).to_hex().to_string())
     }
     /// Reads one bounded chunk at a time; checks component and whole closure bytes.
-    pub fn verify(
+    pub fn verify(&self, read: impl FnMut(&str) -> Result<Vec<u8>, String>) -> Result<(), String> {
+        self.verify_with(read).map_err(|error| match error {
+            NativeVerifyError::Descriptor(error) | NativeVerifyError::Source(error) => error,
+            NativeVerifyError::ChunkIntegrity => "native chunk bytes/hash".into(),
+            NativeVerifyError::ComponentIntegrity => "native component content hash".into(),
+        })
+    }
+    /// Retain the caller's charged carrier while hashing, without detaching or
+    /// cloning its bytes. The caller admits decoder/validator metadata first.
+    pub fn verify_with<B: AsRef<[u8]>, E>(
         &self,
-        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
-    ) -> Result<(), String> {
-        self.validate()?;
+        mut read: impl FnMut(&str) -> Result<B, E>,
+    ) -> Result<(), NativeVerifyError<E>> {
+        self.validate().map_err(NativeVerifyError::Descriptor)?;
         for component in &self.components {
             let mut hasher = blake3::Hasher::new();
             for chunk in &component.chunks {
-                let bytes = read(&chunk.digest)?;
+                let carrier = read(&chunk.digest).map_err(NativeVerifyError::Source)?;
+                let bytes = carrier.as_ref();
                 if bytes.len() != chunk.byte_len as usize
-                    || blake3::hash(&bytes).to_hex().as_str() != chunk.digest
+                    || blake3::hash(bytes).to_hex().as_str() != chunk.digest
                 {
-                    return Err("native chunk bytes/hash".into());
+                    return Err(NativeVerifyError::ChunkIntegrity);
                 }
-                hasher.update(&bytes);
+                hasher.update(bytes);
             }
             if hasher.finalize().to_hex().as_str() != component.content_digest {
-                return Err("native component content hash".into());
+                return Err(NativeVerifyError::ComponentIntegrity);
             }
         }
         Ok(())

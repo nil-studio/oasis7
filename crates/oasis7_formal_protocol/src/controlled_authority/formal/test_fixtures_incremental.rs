@@ -40,13 +40,17 @@ pub fn setup() -> Setup {
 }
 
 pub fn setup_with_memory(memory: MemoryBudget) -> Setup {
+    setup_with_native(memory, [4; 32])
+}
+
+pub fn setup_with_native(memory: MemoryBudget, native: [u8; 32]) -> Setup {
     let (mut certificate, _, legacy, _) = fixture::initial();
     let config = GenesisConfigV1 {
         world_id: "world".into(),
         format_profile: [1; 32],
         initial_content: [2; 32],
         activation_config: [3; 32],
-        execution_environment: [4; 32],
+        execution_environment: native,
     };
     let scope = config.scope().unwrap();
     let roots = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config).unwrap();

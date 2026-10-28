@@ -660,3 +660,6 @@ mod fact_originals;
 
 #[path = "incremental_written_values_tests.rs"]
 mod written_value_tests;
+
+#[path = "incremental_native_material_tests.rs"]
+mod native_tests;

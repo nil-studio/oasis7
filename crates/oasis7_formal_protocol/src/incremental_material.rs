@@ -22,6 +22,9 @@ pub use fact_material::*;
 #[path = "incremental_written_values.rs"]
 mod written_values;
 pub use written_values::*;
+#[path = "incremental_native_material.rs"]
+mod native_material;
+pub use native_material::*;
 
 use std::{
     cell::{Cell, RefCell},
@@ -43,6 +46,7 @@ pub trait OriginalObjectReader {
 #[derive(Debug)]
 pub enum CoreError<E> {
     Object(E),
+    Artifact(&'static str),
     Execution(ExecutionError),
     Binding(BindingError),
     Invalid(&'static str),
@@ -63,6 +67,7 @@ impl<E: std::fmt::Display> std::fmt::Display for CoreError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Object(e) => e.fmt(f),
+            Self::Artifact(e) => write!(f, "invalid IWS execution artifact: {e}"),
             Self::Execution(e) => e.fmt(f),
             Self::Binding(e) => e.fmt(f),
             Self::Invalid(s) => write!(f, "invalid IWS core: {s}"),
@@ -88,11 +93,20 @@ pub struct CoreRequest<'a> {
     pub max_pending_node_bytes: usize,
 }
 
+/// Exact original record role references. This is no closure/acceptance proof.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutionArtifactRefs {
+    pub manifest: [u8; 32],
+    pub wasm: [u8; 32],
+    pub rules: [u8; 32],
+    pub native: [u8; 32],
+}
 /// Only these structural objects/edges have been checked. No receipt builder
 /// consumes this type. Referenced facts, state values, initial state, executable
 /// closure and business legality remain mandatory full-verifier obligations.
 #[derive(Debug)]
 pub struct CheckedCommitCore {
+    execution_artifacts: ExecutionArtifactRefs,
     config: GenesisConfigV1,
     roots: RootSetV1,
     body: CommitBodyV1,
@@ -105,6 +119,9 @@ pub struct CheckedCommitCore {
 }
 
 impl CheckedCommitCore {
+    pub fn execution_artifacts(&self) -> ExecutionArtifactRefs {
+        self.execution_artifacts
+    }
     pub fn config(&self) -> &GenesisConfigV1 {
         &self.config
     }
@@ -522,7 +539,14 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     if cancelled() {
         return Err(CoreError::Cancelled);
     }
+    let execution_artifacts = ExecutionArtifactRefs {
+        manifest: role(record, ArtifactRole::ExecutionManifest)?,
+        wasm: role(record, ArtifactRole::Wasm)?,
+        rules: role(record, ArtifactRole::Rules)?,
+        native: role(record, ArtifactRole::NativeExecutionEnvironment)?,
+    };
     Ok(charge.retain(CheckedCommitCore {
+        execution_artifacts,
         config,
         roots,
         body,

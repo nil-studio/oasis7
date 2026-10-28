@@ -284,3 +284,6 @@ fn large_fact_streams_after_reopen_with_less_memory_than_original() {
         (0, 0)
     );
 }
+
+#[path = "incremental_native_material_store_tests.rs"]
+mod native;
