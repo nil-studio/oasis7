@@ -254,6 +254,11 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     await runtime.restart(selectedMode);
     const before=runtime.nativeRequests();
     const activeResponse=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+    if(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true') {
+      const metrics=await runtime.readAccountRestoreCallbacks();
+      console.error(JSON.stringify({restore_profile:{attribution_complete:metrics.attribution_complete,observed_callback_count:metrics.observed_callback_count,samples:metrics.recent_callbacks.map(sample=>({event:sample.event,bytes:sample.bytes,decode_count:sample.decode_count,event_clock_ms:sample.event_clock_ms,strict_counts:Object.fromEntries(Object.entries(sample.strict_signature_metrics?.summary??{}).filter(([,value])=>typeof value==='number'))}))}}));
+    }
+
     if(activeResponse.status!==200){
       const status=activeResponse.status;
       try{await activeResponse.arrayBuffer();}catch{} // Discard without printing body or errors.
@@ -872,6 +877,49 @@ for(const barrierMode of ['together','over_window','reject_policy'])test(`actual
   }});
 });
 
+
+
+test('actual Account activation reuses exact strict facts within its synchronous SQL callback',{timeout:300000},async()=>{
+  const previousEnvironment=process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC;
+  const previousOwnerDiagnostic=ownerDiagnosticActive;
+  try {
+    process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC='true';
+    await withActiveSession(async()=>assert.fail('the controlled preflight callback owns this case'),{
+      preflightCase:async(runtime,basis,selectedMode)=>{
+        await runtime.restart(selectedMode);
+        const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+        assert.equal(response.status,200,'real native/World preflight must activate under the unchanged freshness rules');
+        const progress=await response.json();
+        assert.equal(progress.stage,'active');
+        assert.deepEqual(progress.purposes.map(purpose=>purpose.purpose).sort(),['execution','reconcile_read','termination_plan']);
+        const metrics=await runtime.readAccountRestoreCallbacks();
+        assert.equal(metrics.evidence_scope,'actual_Account_actor_synchronous_SQL_callbacks_only');
+        assert.equal(metrics.actor_identity_available,true,'metrics must belong to this actual Account actor');
+        assert.equal(metrics.attribution_complete,true,'actual callback attribution must be complete');
+        const sample=metrics.recent_callbacks.findLast(callback=>callback.event==='test_session_activated');
+        assert.ok(sample,'the real activation SQL callback must be observed');
+        assert.equal(sample.strict_signature_metrics?.scope,'owned_sdk_private_goal_strict');
+        assert.equal(sample.strict_signature_metrics?.summary_available,true);
+        const summary=sample.strict_signature_metrics.summary;
+        for(const name of ['calls','strict_attempts','memo_hits','failures']) {
+          assert.ok(Number.isSafeInteger(summary[name])&&summary[name]>=0,'signature counters must be bounded numbers');
+        }
+        assert.ok(summary.strict_attempts>0,'actual strict cryptography must still execute');
+        assert.ok(summary.calls>summary.strict_attempts,'repeated immutable facts must avoid duplicate cryptography');
+        assert.ok(summary.memo_hits>0,'the central synchronous SQL scope must be active');
+        assert.equal(summary.calls,summary.strict_attempts+summary.memo_hits,'all valid activation calls must be accounted for');
+        assert.equal(summary.failures,0,'a memo hit cannot hide a failed strict verification');
+        // Do not print samples: their private diagnostic fields include snapshot digests.
+      },
+    });
+  } finally {
+    if(previousEnvironment===undefined)delete process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC;
+    else process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC=previousEnvironment;
+    ownerDiagnosticActive=previousOwnerDiagnostic;
+  }
+});
+
+
 for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(`actual paid factory Directory and Fence overlap ${fault} after SQL ticket3`,{timeout:300000},async()=>{
   await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
     paidDirectoryBarrier=fault;
@@ -899,4 +947,5 @@ for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(
       assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),1);
     }finally{paidDirectoryBarrier=null;}
   }});
+
 });

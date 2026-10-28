@@ -6,8 +6,10 @@ use oasis7_agent_api::game::{
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
+mod signature_memo;
 #[cfg(feature = "signature-metrics")]
 pub mod signature_metrics;
+pub use signature_memo::with_owner_signature_verification_batch;
 
 /// Kept strictly outside WorldServicePayloadV1. Debug is absent so body and
 /// enumerable signature material cannot accidentally enter ordinary logs.
@@ -115,8 +117,17 @@ impl PreparedOwnerSignature {
     pub fn verify_strict(&self) -> Result<(), String> {
         #[cfg(feature = "signature-metrics")]
         let mut metrics = signature_metrics::Call::new();
+        let public_key = self.key.to_bytes();
+        if signature_memo::contains(&public_key, &self.signature, &self.canonical_bytes) {
+            #[cfg(feature = "signature-metrics")]
+            {
+                metrics.memo_hit();
+                metrics.success();
+            }
+            return Ok(());
+        }
         #[cfg(feature = "signature-metrics")]
-        metrics.strict_attempt(&self.key.to_bytes(), &self.signature, &self.canonical_bytes);
+        metrics.strict_attempt(&public_key, &self.signature, &self.canonical_bytes);
         let result = self
             .key
             .verify_strict(
@@ -124,8 +135,9 @@ impl PreparedOwnerSignature {
                 &Signature::from_bytes(&self.signature),
             )
             .map_err(|_| "invalid private goal owner signature".into());
-        #[cfg(feature = "signature-metrics")]
         if result.is_ok() {
+            signature_memo::record_success(public_key, self.signature, &self.canonical_bytes);
+            #[cfg(feature = "signature-metrics")]
             metrics.success();
         }
         result
