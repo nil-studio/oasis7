@@ -722,65 +722,21 @@ fn run_protected_runtime_fixture(
             .ok_or("healthy durable-set fixture lacks its scenario deadline")?
             .report_stage("opening original C0 runtime")?;
     }
-    let runtime = if shipping_mode {
-        None
-    } else {
-        let mut runtime = FormalLiveRuntime::open_with_native_history(&runtime_config_path)?;
-        if crash_phase == Some("v3_read_gate_no_adapter") {
-            let error = runtime
-                .start()
-                .expect_err("V3Required without evidence dependencies must fail before startup");
-            if !error.contains("no production witness/history and protected-clock adapter") {
-                return Err(format!(
-                    "V3Required startup failed for the wrong reason: {error}"
-                ));
-            }
-            if runtime.started || runtime.server.is_some() {
-                return Err(
-                    "V3Required without evidence dependencies opened the host listener".into(),
-                );
-            }
-            let listener = TcpListener::bind(status_bind).map_err(|error| {
-                format!("status socket was already bound after rejected startup: {error}")
-            })?;
-            drop(listener);
-            return Ok(());
-        }
-        if crash_phase == Some("identity_runtime_lease") {
-            return identity_runtime_tests::exercise(runtime, &runtime_config_path);
-        }
-        if crash_phase == Some("controlled_stop_budget") {
-            return controlled_stop_tests::exercise(runtime);
-        }
-        runtime.start()?;
-        Some(runtime)
-    };
-    if matches!(
+    let Some(initial_runtime) = protected_runtime_start::open_and_read_initial(
+        shipping_mode,
         crash_phase,
-        Some(
-            "healthy_set"
-                | "healthy_set_long"
-                | "healthy_operation"
-                | "healthy_fault_writer_lock"
-                | "healthy_fault_old_owner_sigkill"
-        )
-    ) && !shipping_mode
-    {
-        scenario_deadline
-            .ok_or("healthy durable-set fixture lacks its scenario deadline")?
-            .report_stage("original C0 runtime started")?;
-    }
-    let initial_client =
-        RemoteWorldServiceClient::new(client_config()).map_err(|error| error.to_string())?;
-    let initial_view = if shipping_mode {
-        None
-    } else {
-        let view = read_current(&initial_client, &world_identity)
-            .map_err(|error| format!("initial externally pinned read: {error}"))?;
-        assert_eq!(view.version().commit.position, 1);
-        assert!(view.formal_commit().is_some());
-        Some(view)
+        &runtime_config_path,
+        &world_identity,
+        status_bind,
+        scenario_deadline,
+        &client_config,
+    )?
+    else {
+        return Ok(());
     };
+    let runtime = initial_runtime.runtime;
+    let initial_client = initial_runtime.initial_client;
+    let initial_view = initial_runtime.initial_view;
     if let Some(
         mode @ ("healthy_set"
         | "healthy_set_long"
@@ -1112,4 +1068,6 @@ fn run_protected_runtime_fixture(
 
 #[path = "formal_live_protected_process_helpers.rs"]
 mod helpers;
+#[path = "formal_live_protected_runtime_start.rs"]
+mod protected_runtime_start;
 use helpers::*;
