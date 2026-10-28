@@ -97,7 +97,7 @@ Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-c
 
 经批准的例外是 `crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs` 中的完整测试数据构造函数 `cognition_projection`。持久化测试及其断言仍参与分析，普通构建使用原样实现；不扩大到其他 `json!` 或目录。结果须注明此测试夹具覆盖缺口。CFG 诊断固定包含拆分的源码，和 Tauri 例外一起验证五个文件：两个隔离文件 AST 为零，Tauri 入口、命令及原持久化测试文件均须有正向 AST。完整图摘要用于检查旧大型 scope 是否消失；它不能单独证明整个模型阶段的性能改善。容量入口保持原冻结源码，不能用其旧结果代签新排除。
 
-CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`、`Action`、`WorldState` 和 `LlmDecisionPayload` 所在四个文件补录 scope 的 AST 类别、标签、位置及宏展开标记。结果最多 10,000 行，每个字符串最多 4,096 字符；缺文件、重复 ID 或非法字段保持失败。标签用于区分同一源码范围的派生方法，不推断其性能成本；opaque scope ID 只能与同一次数据库的摘要、边相连，不能跨运行关联。生产类型在方法身份及兼容性边界核实前保持原实现和扫描范围。
+CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`、`Action`、`WorldState` 和 `LlmDecisionPayload` 所在四个文件补录 scope 的 AST 类别、标签、位置及宏展开标记。结果最多 10,000 行，每个字符串最多 4,096 字符；缺文件、重复 ID 或非法字段保持失败。标签用于区分同一源码范围的派生方法，不推断其性能成本；opaque scope ID 只能与同一次数据库的摘要、边相连，不能跨运行关联。生产类型在方法身份及兼容性边界核实前保持原实现和扫描范围。 拆分派生的 `Debug` / `PartialEq` 时，公开枚举、变体、字段与 Serde 属性保持原样；私有分组必须穷尽且互斥，并核对字段顺序、普通/pretty Debug 和相等性边界。旧版 oracle 可保存为纯数据期待值，不把原完整派生实现复制回扫描源码而重建同级闭包。序列化/反序列化的拆分另外核对 JSON、CBOR、默认/别名、未知/重复字段及支持的位置式序列输入，普通函数拆分或绿色 CI 不代签这些兼容性。
 
 ## Rust 公共模型性能诊断
 
