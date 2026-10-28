@@ -99,6 +99,12 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         self.memory.same_pool(memory)
     }
 
+    /// Fixed at begin; callers recheck the original authority's live fence
+    /// without serializing state or recomputing even this bounded RootSet.
+    pub fn parent_fence(&self) -> ExecutionFence {
+        self.fence
+    }
+
     /// Contribute a nested reducer/codec/storage operation to this overlay.
     /// Any error (including a caught unwind or a swallowed inner transaction
     /// error) permanently poisons the complete transaction. Durable provisional

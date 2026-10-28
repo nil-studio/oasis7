@@ -124,6 +124,16 @@ fn seed(
         },
     )
     .unwrap();
+    write_field_bytes(
+        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(world.state.time),
+        &mut BodyMutationContext {
+            sink: values,
+            memory,
+            io: &mut io(),
+            cancelled: || false,
+        },
+    )
+    .unwrap();
     assert_eq!(world.state.agents.len(), 1);
 }
 fn event(world: &World, id: u64) -> WorldEvent {
@@ -516,3 +526,6 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
 
 #[path = "incremental_body_event_physical_tests.rs"]
 mod physical;
+
+#[path = "incremental_commit_tests.rs"]
+mod commit;

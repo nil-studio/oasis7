@@ -548,3 +548,20 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 原事件使用现有 ABI canonical CBOR 编码，原 flat BLAKE3 digest 同时绑定 fact 与 mailbox 内容引用。该 typed envelope 只有固定 scalar 与 Agent ID、reason、可选 effect cause 三个字符串，先按其长度为原 canonical value model、排序临时空间和 growable output 申请共享额度；结构与变体穷尽匹配使新增动态成员必须重新审查计费。caller 的借用原输入另由其 owner 计费。操作最大事件 bytes 明确准入，实际 bytes 超限则失败；本路径不宣称通用巨大事件也已流式编码。原件 callback 在同池 charged bytes 仍存活时接收原 bytes/expected ID；callback 的职责是按期望原身份持久化，失败必须上抛。其成功不代替完整闭包或接受回执。原件发布或 fact 额度在所有状态写已暂存后失败，整笔事务仍 poison，不能 seal 部分状态。
 
 局部命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_ -- --test-threads=1`。覆盖与旧 publication 产生相同的原 envelope/canonical bytes、四叶同事务变化、固定值读取次数、非零大 ordinal、event era 回卷、连续贡献、晚期原件/fact 失败、错误 ID/time/大小拒绝，以及 codec 边界。实际文件系统 fixture 将相同 Runtime 贡献接到 `IncrementalPageStore`/`IncrementalObjectStore`，重开后核对原事件 bytes/解码、transition 重建与下一次实际 body 贡献记录和新页完全相同。fixture 的初始字段/parent/authority 为测试构造，不是完整 World 创世或原提交资格；它没有证明全字段闭包、跨进程世界恢复、J1/J2、tick consensus、复制、GC 或规定规模性能。
+
+
+### 12.13 Runtime driver 候选准备与材料交接
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5；承接 §5.1 的单事务及 §7 的提交发布边界。`World::prepare_iws_commit` 在分配前申请同池工作空间，核对父 GenesisConfig、RootSet、CommitBody、HistoryPrefix 与 catalog tail 的 world/genesis、height/count、digest/parent/checkpoint 关系，再创建唯一 `ExecutionTransaction`。所有实际 Runtime apply/嵌套入口借用这笔事务，不复制 World，不读取热 journal，不进入旧 Snapshot publication。父材料必须由原 authority/root owner 提供认证；这里的结构验证本身不产生资格。
+
+执行前还从父 body 认证的 catalog-before 重建该 body 的确定性扩展，与提供的追加后 catalog 精确比对。只剩最新目录项路径、但缺少其认证旧前缀依赖时也必须拒绝，不能以 tail 可读代替连续前缀认证。
+
+事务的 parent fence 在 begin 固定并只通过固定字段取回；driver 在 apply 前、seal 时及历史/目录候选材料形成后调用原 adapter 的 live fence 读取并比较。任一父 head、完整父 RootSet digest、authority token/epoch 改变或 adapter 读取失败，均丢弃候选；apply 的外部错误/吞掉的内层事务错误/unwind 沿 §12.5/§12.11 失败边界处理，先前暂存状态不可部分提交。已持久的外部效果义务或 provisional 对象仍由所属 owner 保留，不由此处删除。
+
+同一封闭 transition 的 after RootSet 交给 §12.6 的 HeaderPreparation 形成原 FactSet、TransitionRecord bytes、segment/prefix、可选 checkpoint 与 CommitBody，再从精确父 catalog 生成该 body 的增量候选目录。driver 提供的 next_tick 独立于 height；相同 tick 的行政候选仍按原事务规则使 height 恰增一。RootSet 与追加后 catalog descriptor 的原 canonical bytes 在编码前取得共享额度，随输出持有。`PreparedRuntimeCommit` 的 transition/history/catalog、原 RootSet bytes、catalog bytes 与 fence 均不可变；各组件保留原 charge，外围 carrier 只另收自身元数据，最后持有者释放后归还。
+
+消费者可逐项把 charged transition/catalog 页交给真实页 store，把原 RootSet bytes、历史材料和 catalog descriptor 交给原对象 store；body ID、RootSet ID 与 catalog extension 保持同一候选绑定。这只是候选材料交接，`PreparedRuntimeCommit` 及其 commit_id 不代表已获准提交、完整闭包、耐久域证明、selected head 或 cache-install 权限。它提供固定字段的 `validate_live_fence`，后续协议与原子发布边界仍须再次核对，不能以准备阶段最后一次检查替代实际 CAS/fencing。原证书、独立持久域确认、合法目录选择、失败裁定与恢复仍待真实 adapter 接入。
+
+既有 controlled formal `CanonicalRecordV1`/`ClosedRecord` 的 Snapshot 槽位要求原 Snapshot/schema 展开及原 root 验证，不能把这些 RootSet bytes 塞进去冒充已适配；旧 verifier 和 profile 未因此放宽。新世界仍未激活。候选准备链也没有完成其余 Runtime 字段/事件、tick consensus、复制、保留/GC 或全量验收。
+
+局部命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_body_event::tests::commit -- --test-threads=1`，覆盖真实 body event 经 driver 形成相互绑定的四类材料与原 fact、三个 live fence 边界冲突、坏父材料在执行前拒绝、源不变与输出/失败释放计费。`world::incremental_body_event::tests::physical::prepared_driver_material` 将相同 driver 输出接到实际状态页、目录页与原对象 store，重开读取 CommitBody/RootSet/catalog，核对旧父引用、目录新项与 transition 重建。fixture 的创世/authority 和字段集合为测试构造，未证明原资格、完整世界闭包、接受发布、跨进程世界恢复、J1/J2 或真实故障域。
