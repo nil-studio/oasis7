@@ -60,19 +60,35 @@
 | CandidateIdentityV1 | `{source_oid:GitOid40,integration_base_oid:GitOid40,tested_tree_oid:GitOid40,execution_version:Id,protocol_version:Id,test_contract_version:Id}` | task/run 是 evidence provenance，不进入世界执行 core |
 | ServiceGradeV1 | `verified_serviceable / stale_catching_up / verified_read_only / unavailable_isolated` | 不存在第五个 quarantined enum；health green 不能升级 write gate |
 | VerificationVerdictV1 | `verified / missing / conflicting / incompatible` | proof readback 计算，作者 pass 字段不构成证据 |
-仅 `committed_receipt_count`、`effective_world_effect_count` 的 JSON integer enum 0/1 是明确例外；schema_version 使用类型名 literal，不以 commit OID 代替 schema revision。 目标 `H(domain,body)=SHA256(UTF8(domain)||0x00||CanonicalCBOR(body))`。CBOR 使用 definite lengths、唯一 canonical map keys、shortest integers、无 float、semantic arrays 保序、sets 按完整稳定键排序且唯一。ContentRef locator、自身 ID/signature、本地 timestamp 与递归依赖 containing-block/finality wrapper 均不进入 core。外层 JSON 不是 CBOR hash 替身。 精确域为 `oasis7/execution-result/v1`、`oasis7/module-execution-receipt/v1`、`oasis7/intent-request/v1`、`oasis7/intent-decision/v1`、`oasis7/external-effect-receipt/v1`、`oasis7/version-activation/v1`、`oasis7/module-state-migrated/v1`、`oasis7/world-execution-state-sync-attachment/v1`。现行 `receipt_leaf_hash` 与 modsig domains 保持原义，不是这些域的 alias。
+仅 `committed_receipt_count`、`effective_world_effect_count` 的 JSON integer enum 0/1 是明确例外；schema_version 使用类型名 literal，不以 commit OID 代替 schema revision。
+
+目标 `H(domain,body)=SHA256(UTF8(domain)||0x00||CanonicalCBOR(body))`。CBOR 使用 definite lengths、唯一 canonical map keys、shortest integers、无 float、semantic arrays 保序、sets 按完整稳定键排序且唯一。ContentRef locator、自身 ID/signature、本地 timestamp 与递归依赖 containing-block/finality wrapper 均不进入 core。外层 JSON 不是 CBOR hash 替身。
+
+精确域为 `oasis7/execution-result/v1`、`oasis7/module-execution-receipt/v1`、`oasis7/intent-request/v1`、`oasis7/intent-decision/v1`、`oasis7/external-effect-receipt/v1`、`oasis7/version-activation/v1`、`oasis7/module-state-migrated/v1`、`oasis7/world-execution-state-sync-attachment/v1`。现行 `receipt_leaf_hash` 与 modsig domains 保持原义，不是这些域的 alias。
 <a id="sr2-execution-contract"></a>
 ### 6.2 有效执行 core / finality wrapper
-以下是 target/unimplemented 精确记录，schema_version 每一处为对应类型名 literal：
+以下是 target/unimplemented 精确记录，各处 schema_version 均为对应类型名 literal：
 
 ```text
 ExecutionResultCoreV1 = { schema_version:"ExecutionResultCoreV1", scope:WorldScopeV1, intent_id:Id, request_hash:Hash32, execution_version:Id, governing_manifest_hash:Hash32, parent_state_root:Hash32, ordered_input_hash:Hash32, activation_id:Hash32 } ExecutionIdentityV1 = { schema_version:"ExecutionIdentityV1", execution_id:Hash32, execution_core:ExecutionResultCoreV1, canonical_inclusion:{canonical_block_hash:Hash32,canonical_block_height:U64,proof:ContentRefV1} } ModuleExecutionReceiptCoreV1 = { schema_version:"ModuleExecutionReceiptCoreV1",execution_id:Hash32, execution_core:ExecutionResultCoreV1, module_identity:{module_id:Id,module_version:Id,instance_id:Id,interface_version:Id,wasm_hash:Hash32}, metering_schedule_version:Id,metering_schedule_hash:Hash32, input_hash:Hash32,output_hash:Hash32,input_bytes:U64,output_bytes:U64, fuel_limit:U64,fuel_used:U64,effect_count:U64,emit_count:U64, access_counts:{component_reads:U64,component_writes:U64,schema_decodes:U64}, state_before_hash:Hash32,state_after_hash:Hash32, ordered_effects_hash:Hash32,ordered_emits_hash:Hash32, charges:[{resource_type:Id,amount:ResourceAmount,balance_before:ResourceAmount,balance_after:ResourceAmount}], journal_start:JournalPositionV1,journal_end:JournalPositionV1,status:"committed_success" } ModuleExecutionReceiptV1 = { schema_version:"ModuleExecutionReceiptV1",receipt_id:Hash32, receipt_core:ModuleExecutionReceiptCoreV1, finality_binding:{canonical_block_hash:Hash32,canonical_block_height:U64,proof:ContentRefV1} }
 
 ```
-先计算 execution_id=H(execution-result,execution_core)，验证其一致后计算 receipt_id=H(module-execution-receipt,receipt_core)。scope 仅在 execution_core；wrapper 继承，不能再复制。receipt_core 不嵌入 ExecutionIdentityV1 finalized wrapper。proof 必须绑定两 ID、同一 canonical block/version/activation；不同 containing-block wrapper 不改变 core ID，伪造或矛盾 inclusion 拒绝。fuel_used<=fuel_limit；journal_start<=journal_end；charges 按 resource_type 排序唯一且 after=before-amount，无负余额和溢出。 只有 `committed_success` receipt 是有效执行。拒绝/过期/重规划/无效果终止由 [IntentDecisionV1](../module/module-lifecycle.md#sr2-pending-contract) 拥有；它们不产生 module success receipt、不夺 lineage winner。pending/外部 ACK 不算 committed；非 serviceable 或 manifest/head/finality 缺失的新 intent 必须零 receipt、零效果、零 charge/state publication，历史 receipt 仍保留。完整执行/prepare/publish/失败与 proof checks 由 [host publication](wasm-executor.design.md#sr2-host-publication) 接收。 Decision/Pending hash body 由lifecycle单authority定义：receipt refs 以canonical receipt_core bytes为ContentRef目标，digest=SHA256(CanonicalCBOR(receipt_core))、byte_length为实际core字节数；此digest不是domain-separated receipt_id。接收器重算receipt_id并另外验证detached finalized wrapper，不把包含同一区块的wrapper digest嵌入decision core。
+先计算 execution_id=H(execution-result,execution_core)，验证其一致后计算 receipt_id=H(module-execution-receipt,receipt_core)。scope 仅在 execution_core；wrapper 继承，不能再复制。receipt_core 不嵌入 ExecutionIdentityV1 finalized wrapper。proof 必须绑定两 ID、同一 canonical block/version/activation；不同 containing-block wrapper 不改变 core ID，伪造或矛盾 inclusion 拒绝。fuel_used<=fuel_limit；journal_start<=journal_end；charges 按 resource_type 排序唯一且 after=before-amount，无负余额和溢出。
+
+只有 `committed_success` receipt 是有效执行。拒绝/过期/重规划/无效果终止由 [IntentDecisionV1](../module/module-lifecycle.md#sr2-pending-contract) 拥有；它们不产生 module success receipt、不夺 lineage winner。pending/外部 ACK 不算 committed；非 serviceable 或 manifest/head/finality 缺失的新 intent 必须零 receipt、零效果、零 charge/state publication，历史 receipt 仍保留。
+
+完整执行/prepare/publish/失败与 proof checks 由 [host publication](wasm-executor.design.md#sr2-host-publication) 接收。
+
+Decision/Pending hash body 由lifecycle单authority定义：receipt refs 以canonical receipt_core bytes为ContentRef目标，digest=SHA256(CanonicalCBOR(receipt_core))、byte_length为实际core字节数；此digest不是domain-separated receipt_id。接收器重算receipt_id并另外验证detached finalized wrapper，不把包含同一区块的wrapper digest嵌入decision core。
 <a id="sr2-metering-contract"></a>
 ### 6.3 Schedule identity 与确定性计量
-ScheduleDescriptorV1 目标形状为 `{schema_version:"ScheduleDescriptorV1",metering_schedule_version:Id,input_kib_bytes:PositiveU64,output_kib_bytes:PositiveU64,compute:{input_kib:ResourceAmount,output_kib:ResourceAmount,effect:ResourceAmount,emit:ResourceAmount},electricity:{call:ResourceAmount,effect:ResourceAmount,emit:ResourceAmount,new_state:ResourceAmount},extension_access:{component_read:ResourceAmount,component_write:ResourceAmount,schema_decode:ResourceAmount}}`。descriptor canonical bytes 的 SHA-256 是 metering_schedule_hash；系数使用相应资源单位，KiB divisors 使用 byte 单位。当前公式映射 divisors=1024、compute coefficients=1/1/2/1、electricity=1/1/1/1；该映射不声称当前代码已有 ScheduleDescriptorV1。 先 bounds-check input/output/fuel/计数，再用 checked `n/1024 + (n%1024 != 0)` 计算 ceil，避免 n+1023 溢出；按 schedule 计算 checked amounts，再验证余额，最后随 staged transaction 提交。扩展未支持/未使用时 actual counts 为零；支持但 coefficient=0 的访问仍记录实际 counts，不因免费而抹除。扩展费用必须另经 manifest/schedule 治理，不在本文启用。历史 replay 消费原 schedule/hash/charges，不按当前价重算；timing、unordered collections 和 provider 自报 cost 不参与费用。
+ScheduleDescriptorV1 目标形状为 `{schema_version:"ScheduleDescriptorV1",metering_schedule_version:Id,input_kib_bytes:PositiveU64,output_kib_bytes:PositiveU64,compute:{input_kib:ResourceAmount,output_kib:ResourceAmount,effect:ResourceAmount,emit:ResourceAmount},electricity:{call:ResourceAmount,effect:ResourceAmount,emit:ResourceAmount,new_state:ResourceAmount},extension_access:{component_read:ResourceAmount,component_write:ResourceAmount,schema_decode:ResourceAmount}}`。descriptor canonical bytes 的 SHA-256 是 metering_schedule_hash；系数使用相应资源单位，KiB divisors 使用 byte 单位。当前公式映射 divisors=1024、compute coefficients=1/1/2/1、electricity=1/1/1/1；该映射不声称当前代码已有 ScheduleDescriptorV1。
+
+先 bounds-check input/output/fuel/计数，再用 checked `n/1024 + (n%1024 != 0)` 计算 ceil，避免 n+1023 溢出；按 schedule 计算 checked amounts，再验证余额，最后随 staged transaction 提交。
+
+扩展未支持/未使用时 actual counts 为零；支持但 coefficient=0 的访问仍记录实际 counts，不因免费而抹除。扩展费用必须另经 manifest/schedule 治理，不在本文启用。
+
+历史 replay 消费原 schedule/hash/charges，不按当前价重算；timing、unordered collections 和 provider 自报 cost 不参与费用。
 <a id="sr2-migration-contract"></a>
 ### 6.4 精确 schema migration 与事件身份
 
@@ -267,7 +283,7 @@ fn call(input: Bytes, ctx: ModuleContext) -> Bytes
 **错误约定**
 - 模块返回非规范 CBOR、输出超限或字段缺失时，宿主记录 `ModuleCallFailed` 事件并拒绝输出。
 ## 开放制度扩展合同（试点，非全面迁移）
-本节把“制度能力由 WASM 扩展”的合理部分落成一个可审计的增量合同。它是
+本节将“制度能力由 WASM 扩展”的合理部分落实为一个可审计的增量合同。它是
 现有 `wasm-1` ABI 的可选扩展，不是立即把 `WorldState` 改成 ECS、删除既有
 native action，或允许任意未治理工件进入生产执行路径。
 > **状态边界：command 与 provider 各有基础切片，但尚未闭环。** 当前
@@ -343,7 +359,7 @@ hash 影响规则，都必须在版本化 ABI 和 canonical hash 规范中先定
   hash 前按完整键和版本排序；模块执行时的访问集合也必须按同一稳定顺序
   处理，不能依赖 map/hash iteration 顺序。
 ### 2. Command / component / event wire
-当前已经落地一个受界限的 module-command 入口，不要求为每一种银行、联盟或合约
+当前已落地一个受界限的 module-command 入口，不要求为每一种银行、联盟或合约
 操作新增闭合的 Rust `Action` 变体。`ModuleCommandEnvelope` 承载如下 command
 字段；runtime 会在进入 sandbox 前校验 active module 的声明、namespace/name、
 schema version/hash 和 payload 边界，再复用现有计量调用链。该入口仍只是基础切片；

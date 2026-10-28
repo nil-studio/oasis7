@@ -282,5 +282,5 @@ task issue / Project 与 Git history 追溯，不能由本文代替。
 
 - executor 只装载 hash 已验证的 artifact，并按 manifest limits/capabilities 执行；module storage、ownership、market 和 lifecycle 状态仍由 runtime module authority 拥有。
 - 每次调用的 compute 计量由输入/输出的 1 KiB 向上取整单位、effect 权重与 emit 数确定，electricity 计量由基础调用、effect、emit 与新状态共同确定；实际资源类型、扣减和审计事件由 runtime 统一应用。
-- 余额不足必须产生结构化 policy rejection，并且不扣费、不应用输出/state/effect/emit。成功调用才形成计费事件；replay 读取事件，不重新执行计量或价格判断。
+- 余额不足必须产生结构化 policy rejection，且不扣费、不应用输出/state/effect/emit。成功调用才形成计费事件；replay 读取事件，不重新执行计量或价格判断。
 - source package 编译不是 executor 生产职责；生产只接受 canonical binary + receipt，dev/test source compile guardrail 由 deterministic-build pipeline 维护。
