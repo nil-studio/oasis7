@@ -14,7 +14,8 @@ impl AccountProvisionApprovalState {
         let s = self.test_session_local(id, purpose, now)?;
         roots::authenticated_receipt(s, purpose, admission.possession, now)?;
         let ingress = admission.ingress_attempt_id;
-        if !id_nonempty(ingress)
+        if Self::tool_nonce_internal_attempt(s, ingress)
+            || !id_nonempty(ingress)
             || Self::termination_attempt_occupied(s, ingress)
             || s.control_transports.contains_key(ingress)
             || s.client_http_admissions.contains_key(ingress)
@@ -29,7 +30,8 @@ impl AccountProvisionApprovalState {
         }
         let signed_attempt_digest = admission.possession.transport_attempt_digest();
         if let Some(old) = s.purpose_http_admissions.get(ingress) {
-            return if old.signed_attempt_digest == signed_attempt_digest
+            return if old.class == SessionPurposeHttpAdmissionClassV1::GenericOne
+                && old.signed_attempt_digest == signed_attempt_digest
                 && old.purpose == purpose
                 && old.hop == SessionControlHopV1::Host
             {
@@ -65,6 +67,7 @@ impl AccountProvisionApprovalState {
         session.purpose_http_admissions.insert(
             ingress.into(),
             SessionPurposeHttpAdmissionV1 {
+                class: SessionPurposeHttpAdmissionClassV1::GenericOne,
                 signed_attempt_digest,
                 purpose,
                 hop: SessionControlHopV1::Host,

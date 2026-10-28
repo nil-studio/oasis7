@@ -27,8 +27,17 @@ let accountAlarmFixtureActive=false;
 let accountAlarmFault=null;
 let activationReadDelay=false;
 let paidDirectoryBarrier=null;
+let toolNonceFixtureActive=false;
+const toolNoncePortNames=["public","provider","realm","owner","account"];
+let toolNoncePorts=Object.fromEntries(toolNoncePortNames.map(name=>[name,0]));
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
+  if(toolNonceFixtureActive)options.handleStructuredLogs=record=>{
+    const name=toolNoncePortNames.find(name=>record.message.trim()===`fixture.tool_nonce.${name}`);
+    if(name){toolNoncePorts[name]++;return;}
+    if(record.level==='error'||record.level==='warn')console.error(record.message);
+    else console.log(record.message);
+  };
   let configuredRoles=0;
   for(const worker of options.workers){
     if(!['identity','owner'].includes(worker.name))continue;
@@ -95,6 +104,10 @@ function configureOptions(options){
       });
       assert.equal(wrappers,1,'diagnostic Identity must select the actual provider wrapper');
     }
+  }
+  if(toolNonceFixtureActive)for(const worker of options.workers){
+    if(worker.name==='identity')worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/tool_nonce_identity_runtime.mjs')},...worker.modules];
+    if(worker.name==='owner')worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/tool_nonce_owner_runtime.mjs')},...worker.modules];
   }
   assert.equal(configuredRoles,2,'test session V4 hook must configure actual Identity and Owner');
   return options;
@@ -202,8 +215,10 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
-async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
+  toolNonceFixtureActive=toolNonceFixture;
+  toolNoncePorts=Object.fromEntries(toolNoncePortNames.map(name=>[name,0]));
   ownerDiagnosticActive=setupDiagnostic;identityDiagnosticActive=setupDiagnostic;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;paidDirectoryBarrier=null;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
@@ -1018,4 +1033,81 @@ for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure pre
       const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
     }finally{paidDirectoryBarrier=null;}
   }});
+});
+
+async function waitToolNoncePorts(expected){
+  const deadline=Date.now()+1500;
+  while(Date.now()<deadline){
+    if(toolNoncePortNames.every(name=>toolNoncePorts[name]===expected[name]))return;
+    await new Promise(resolve=>setTimeout(resolve,20));
+  }
+  assert.deepEqual(toolNoncePorts,expected,'fixed physical-port logs must flush without retrying business HTTP');
+}
+function toolNonceState(runtime,id,nonceRequestId){
+  return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys,hashlib
+from pathlib import Path
+out=None
+def remaining(v):return int(v['limit'])-int(v['spent'])-sum(map(int,v['reservations'].values()))
+def clean(v):
+ if isinstance(v,dict):return not any(k.lower() in {'headers','authorization','cookie','csrf','token','raw_body','original_bytes','signature','signature_input','sid'} for k in v) and all(clean(x) for x in v.values())
+ if isinstance(v,list):return all(clean(x) for x in v)
+ return True
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+  if not row:continue
+  state=json.loads(row[0])['state']
+  if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+  s=state['test_sessions'][sys.argv[3]]
+  links=s.get('tool_nonce_links',{});ingresses=s.get('tool_nonce_ingresses',{});link=links.get(sys.argv[4])
+  out={'control':{k:remaining(v) for k,v in s['control'].items()},'native':remaining(s['identity_transport']),'sources':len(s['sources']),'actions':len(s['actions']),'roots':{k:{b:remaining(v) for b,v in r['budgets'].items()} for k,r in s['roots'].items()},'fees':len(ingresses),'links':len(links),'private_history_clean':clean(links) and clean(ingresses),'nonce_hash':hashlib.sha256(link['nonce'].encode()).hexdigest() if link else None,'created_at':link['created_at'] if link else None,'expires_at':link['expires_at'] if link else None}
+ except sqlite3.OperationalError:continue
+ finally:
+  if 'db' in locals():db.close()
+assert out is not None
+print(json.dumps(out,separators=(',',':')))
+`,runtime.persist,runtime.account,id,nonceRequestId],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+}
+function assertToolNonceFeeDelta(before,after,purpose,fees){
+  assert.deepEqual(after.control,before.control);assert.equal(after.native,before.native);
+  assert.equal(after.sources,before.sources);assert.equal(after.actions,before.actions);
+  for(const [name,root] of Object.entries(before.roots)){
+    assert.equal(after.roots[name].requests,root.requests);assert.equal(after.roots[name].business,root.business);
+    assert.equal(root.transport-after.roots[name].transport,name===purpose?fees:0);
+  }
+  assert.equal(after.private_history_clean,true,'metadata history must contain no raw HTTP proof or private bearer material');
+}
+test('public Tool metadata nonce charges three execution hops and replays the original nonce without Native authority',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis)=>{
+    // The actual existing Control challenge/claim path privately returns both credentials.
+    const token=await claimCloseCredentials(runtime,basis,'tool-metadata');
+    await waitToolNoncePorts({public:0,provider:2,realm:2,owner:0,account:0});
+    const action={api_version:1,session_id:basis.session_id,request_id:'metadata-business-move',action:{kind:'execute',request:{tool:'move',position_cm:['100','0','100']}}};
+    const body={api_version:1,session_id:basis.session_id,request_id:'metadata-nonce-move',purpose:'execution',kind:{kind:'tool'},logical_request_id:action.request_id,operation_request_digest:digest('oasis7.custody.test-session-tool-request.v1',action)};
+    const signed=publicClientProof(basis,runtime,{tail:'proof-challenges',body,requestId:body.request_id,tag:'oasis7-custody-challenge-v1',token});
+    const before=toolNonceState(runtime,basis.session_id,body.request_id),native=runtime.nativeRequests();
+    const response=await runtime.publicClientFetch(signed.path,signed.init);
+    assert.equal(response.status,200,'a valid literal Tool metadata proof must reach the dedicated metadata-only ingress');
+    const first=await response.json();
+    assert.equal(first.kind?.kind,'tool_metadata');assert.equal(first.purpose,'execution');
+    assert.equal(typeof first.nonce,'string');assert.equal(first.nonce.length,43);
+    const decoded=Buffer.from(first.nonce,'base64url');assert.equal(decoded.length,32);assert.equal(decoded.toString('base64url')===first.nonce,true);
+    await waitToolNoncePorts({public:1,provider:3,realm:3,owner:1,account:1});
+    const once=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(before,once,'execution',3);assert.equal(once.fees-before.fees,1);assert.equal(once.links-before.links,1);
+    assert.equal(once.nonce_hash===createHash('sha256').update(first.nonce).digest('hex'),true);
+    assert.equal(once.expires_at,first.expires_at);assert.deepEqual(runtime.nativeRequests(),native,'metadata issuance must not call Native or obtain a Source/Root grant');
+    assert.ok(signed.expires*1000-Date.now()>1000,'the exact signed body must retain its original proof window');
+    const retryResponse=await runtime.publicClientFetch(signed.path,signed.init);
+    assert.equal(retryResponse.status,200,'a second actual ingress has its own fixed three fees');
+    const retry=await retryResponse.json();
+    assert.equal(retry.nonce===first.nonce,true);assert.equal(retry.expires_at,first.expires_at);assert.equal(retry.created_at,first.created_at);
+    await waitToolNoncePorts({public:2,provider:4,realm:4,owner:2,account:2});
+    const twice=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(once,twice,'execution',3);assert.equal(twice.fees-once.fees,1);assert.equal(twice.links,once.links);
+    assert.equal(twice.nonce_hash,once.nonce_hash);assert.equal(twice.created_at,once.created_at);assert.equal(twice.expires_at,once.expires_at);
+    assert.deepEqual(runtime.nativeRequests(),native);
+  },{toolNonceFixture:true});
 });

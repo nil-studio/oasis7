@@ -26,6 +26,7 @@ extern "C" {
 fn tag(operation: SessionClientOperation) -> &'static str {
     match operation {
         SessionClientOperation::Challenge => "challenge",
+        SessionClientOperation::ToolNonce => "tool-nonce",
         SessionClientOperation::CredentialClaim => "claim",
         SessionClientOperation::Control(kind) => match kind {
             SessionControlKindV1::Initialize => "initialize",
@@ -88,6 +89,10 @@ pub(crate) async fn run(
     admission: TestSessionClientAdmissionRpc,
     op: SessionClientOperation,
 ) -> Result<String> {
+    // Metadata requires its own paid lane; never fall through to Control/Native.
+    if matches!(op, SessionClientOperation::ToolNonce) {
+        return Err(js_denied());
+    }
     let _: serde_json::Value = rpc(env, &admission, op, TestSessionClientAction::Admit).await?;
     if matches!(
         op,
@@ -131,6 +136,7 @@ pub(crate) async fn run(
     .await?;
     serde_json::to_string(&reply).map_err(|_| js_denied())
 }
+
 pub(super) async fn response(
     state: JsValue,
     env: &Env,

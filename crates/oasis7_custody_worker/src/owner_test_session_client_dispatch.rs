@@ -12,7 +12,7 @@ pub(crate) async fn dispatch(
     operation: SessionClientOperation,
     role: Role,
 ) -> Result<String> {
-    if role != Role::Identity {
+    if role != Role::Identity || matches!(operation, SessionClientOperation::ToolNonce) {
         return Err(denied());
     }
     session_authority::enabled(env)?;
@@ -133,6 +133,7 @@ pub(crate) async fn dispatch(
             )
             .await?;
             match operation {
+                SessionClientOperation::ToolNonce => Err(denied()),
                 SessionClientOperation::Challenge => {
                     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
                     let random = Zeroizing::new(

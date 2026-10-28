@@ -628,3 +628,129 @@ fn test_session_read_identical_signed_proof_two_actual_ingresses_need_two_paid_a
 
 #[path = "test_session_purpose_collision_tests.rs"]
 mod purpose_collisions;
+
+#[test]
+fn test_session_tool_nonce_context_accepts_authentic_metadata_without_live_authority() {
+    let (f, execution, _) = claimed();
+    let now = UnixMillis::new(12_000);
+    let account = f.state.draft().entry.custody_account_id.clone();
+    let provision = f.state.draft().entry.provision_id.clone();
+    let context = SessionClientHttpContext {
+        public_origin: "https://custody.example",
+        custody_account_id: &account,
+        provision_id: &provision,
+        operation: SessionClientOperation::Challenge,
+        representation: HttpHeaderRepresentation::RawInstances,
+    };
+    let mut request = SessionChallengeRequestV1 {
+        api_version: 1,
+        session_id: ID.into(),
+        request_id: "tool-metadata-nonce-one".into(),
+        purpose: SessionPurposeV1::Execution,
+        kind: SessionChallengeKindV1::Control(SessionControlKindV1::Heartbeat),
+        logical_request_id: "tool-business-one".into(),
+        operation_request_digest: "ab".repeat(32),
+    };
+    let control_body = serde_json::to_vec(&request).unwrap();
+    let control = raw_request(
+        &f,
+        &control_body,
+        (
+            HttpPopProfileV1::CustodyChallenge,
+            HttpPopRoute::ProofChallenges,
+            &request.request_id,
+            None,
+            Some(&execution),
+            12_000,
+        ),
+    );
+    let prepared = f
+        .state
+        .prepare_test_session_client_http(&control, &context, now)
+        .unwrap();
+    verify_http_possession(prepared, now, &mut StrictCrypto).unwrap();
+
+    request.kind = SessionChallengeKindV1::Tool;
+    let body = serde_json::to_vec(&request).unwrap();
+    let raw = raw_request(
+        &f,
+        &body,
+        (
+            HttpPopProfileV1::CustodyChallenge,
+            HttpPopRoute::ProofChallenges,
+            &request.request_id,
+            None,
+            Some(&execution),
+            12_000,
+        ),
+    );
+    // Independently authenticate these exact scoped URI/header/body octets with
+    // the fixture's registered key and current purpose token before the RED.
+    let target = CanonicalHttpTarget::new(
+        context.public_origin,
+        HttpPopRoute::ScopedClient {
+            provision_id: provision.clone(),
+            custody_account_id: account.clone(),
+            route: Box::new(HttpPopRoute::ProofChallenges),
+        },
+    )
+    .unwrap();
+    assert_eq!(raw.target_uri, target.uri());
+    let headers = raw
+        .headers
+        .iter()
+        .map(|h| HttpHeader {
+            name: &h.name,
+            value: &h.value,
+        })
+        .collect::<Vec<_>>();
+    let token_digest: [u8; 32] = Sha256::digest(execution.as_bytes()).into();
+    let prepared = prepare_http_pop(
+        &HttpPopMessage {
+            method: &raw.method,
+            target_uri: &raw.target_uri,
+            headers: &headers,
+            representation: context.representation,
+            body: raw.body.as_bytes(),
+        },
+        &HttpPopBinding {
+            profile: HttpPopProfileV1::CustodyChallenge,
+            target: &target,
+            key_id: &f.fact.registration.key_id,
+            public_key_hex: &f.fact.registration.request.descriptor.client_public_key,
+            binding_id: ID,
+            request_id: &request.request_id,
+            nonce: None,
+            credential_digest: &token_digest,
+            valid_until: f.state.test_sessions()[ID].roots[&SessionPurposeV1::Execution].deadline,
+        },
+        now,
+    )
+    .unwrap();
+    verify_http_possession(prepared, now, &mut StrictCrypto).unwrap();
+    let before = f.state.clone();
+    assert!(
+        f.state
+            .prepare_test_session_client_http(&raw, &context, now)
+            .is_err(),
+        "the existing Control challenge route must remain closed to Tool requests"
+    );
+    let metadata = SessionClientHttpContext {
+        operation: SessionClientOperation::ToolNonce,
+        ..context
+    };
+    let result = f
+        .state
+        .prepare_test_session_client_http(&raw, &metadata, now);
+    assert_eq!(
+        f.state, before,
+        "pure preparation must not charge or reserve"
+    );
+    assert!(
+        result.is_ok(),
+        "a separately selected metadata-only Tool nonce context must prepare authentic scoped PoP"
+    );
+}
+
+#[path = "test_session_tool_nonce_tests.rs"]
+mod tool_nonce;

@@ -34,6 +34,8 @@ impl core::fmt::Debug for SessionClientHttpRequestV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionClientOperation {
     Challenge,
+    /// Closed metadata nonce preparation; not an action authorization.
+    ToolNonce,
     CredentialClaim,
     Control(SessionControlKindV1),
 }
@@ -60,10 +62,22 @@ pub struct SessionClientHttpAdmissionV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionPurposeHttpAdmissionV1 {
+    #[serde(default)]
+    pub class: SessionPurposeHttpAdmissionClassV1,
     pub signed_attempt_digest: String,
     pub purpose: SessionPurposeV1,
     pub hop: SessionControlHopV1,
     pub charged_at: UnixMillis,
+}
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SessionPurposeHttpAdmissionClassV1 {
+    #[default]
+    GenericOne,
+    ToolNonceThree {
+        owner_attempt: String,
+        account_attempt: String,
+    },
 }
 impl AccountProvisionApprovalState {
     /// Pure preparation from actual Account originals. This neither charges nor grants authority.
@@ -79,6 +93,15 @@ impl AccountProvisionApprovalState {
             || request.body.len() > crate::http_pop::MAX_HTTP_BODY_BYTES
         {
             return Err(invalid());
+        }
+        if context.operation == SessionClientOperation::ToolNonce {
+            let session = self
+                .test_sessions
+                .get(&request.session_id)
+                .ok_or_else(invalid)?;
+            if context.public_origin != session.enrollment.registration.public_origin {
+                return Err(invalid());
+            }
         }
         let actual_headers = request
             .headers
@@ -103,7 +126,7 @@ impl AccountProvisionApprovalState {
         }
         let (_, pair, _, _, _) = admission::pairing(&s.input.request.intent)?;
         let (profile, route, request_id, purpose, selected) = match context.operation {
-            SessionClientOperation::Challenge => {
+            SessionClientOperation::Challenge | SessionClientOperation::ToolNonce => {
                 let q: SessionChallengeRequestV1 =
                     serde_json::from_str(&request.body).map_err(|_| invalid())?;
                 if q.api_version != 1
@@ -113,7 +136,14 @@ impl AccountProvisionApprovalState {
                     || !hex64(&q.operation_request_digest)
                     || request.nonce_hint.is_some()
                     || q.purpose == SessionPurposeV1::TerminationPlan
-                    || q.kind == SessionChallengeKindV1::Tool
+                    || match context.operation {
+                        SessionClientOperation::ToolNonce => q.kind != SessionChallengeKindV1::Tool,
+                        _ => !matches!(
+                            q.kind,
+                            SessionChallengeKindV1::Control(_)
+                                | SessionChallengeKindV1::CredentialClaim
+                        ),
+                    }
                 {
                     return Err(invalid());
                 }
