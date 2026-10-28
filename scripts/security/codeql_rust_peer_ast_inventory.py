@@ -1,4 +1,4 @@
-"""The fixed Files -> PeerAst prefix, checked after each query; no A/B acceptance."""
+"""Fixed Files/PeerAst[/PeerDf] prefixes, checked after each query; no A/B acceptance."""
 import csv
 import json
 import os
@@ -9,6 +9,7 @@ import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_successor_evaluation as inventory
 
 SEQUENCE = ("Files", "PeerAst")
+SEQUENCES = {"peer-ast-inventory": SEQUENCE, "peer-df-inventory": SEQUENCE+("PeerDf",)}
 
 
 def spawned(result):
@@ -24,11 +25,13 @@ def quiescent(result):
 
 
 def execute(args, env, closure, verify_library, database, texts, libp2p_root, wanted, model):
-    if tuple(texts) != SEQUENCE:
-        raise RuntimeError("inventory prefix must be exactly Files then PeerAst")
+    probe=getattr(args,"probe","peer-ast-inventory")
+    sequence=SEQUENCES.get(probe)
+    if sequence is None or tuple(texts) != sequence:
+        raise RuntimeError("inventory prefix differs from fixed probe sequence")
     out, work, cli = args.output, args.work, str(args.codeql)
     baseline, size = inventory.facts(database,deadline=args.deadline-90)
-    if args.deadline-time.monotonic() < 355 or shutil.disk_usage(work).free < max(4*1024**3, size*2+1024**3):
+    if args.deadline-time.monotonic() < 315+20*len(sequence) or shutil.disk_usage(work).free < max(4*1024**3, size*2+1024**3):
         raise RuntimeError("NOT_REACHED prefix preparation budget/space insufficient")
     runtime.save(out/"database-facts.json", {"sha256":baseline,"bytes":size,"source":model.SOURCE,
         "extractions":1,"omitted_mutable_paths":sorted(inventory.OMIT|{"db-rust/default/cache"})},out)
@@ -42,8 +45,8 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         target=db/name;target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(database/name,target)
     intact, before = inventory.after_facts(database,db,baseline,out,"before",deadline=args.deadline-315)
-    state={"sequence":list(SEQUENCE),"full_rust_coverage":"HOLD","candidate_queries":0,
-        "facts_before":before,"queries":{n:{"status":"NOT_REACHED"} for n in SEQUENCE}}
+    state={"probe":probe,"sequence":list(sequence),"full_rust_coverage":"HOLD","candidate_queries":0,
+        "facts_before":before,"queries":{n:{"status":"NOT_REACHED"} for n in sequence}}
     runtime.save(out/"prefix-terminal.json",state,out)
     if not intact:
         raise RuntimeError("prefix copied facts changed or unknown")
@@ -52,7 +55,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
     cache.mkdir(exist_ok=False);common.mkdir(exist_ok=False)
     options=["--additional-packs="+packs,"--compilation-cache="+str(cache),
         "--no-default-compilation-cache","--common-caches="+str(common),"--threads=2","--ram=3072"]
-    for name in SEQUENCE:
+    for name in sequence:
         query=out/"queries"/(name+".ql")
         resolved=out/("prefix-"+name+"-library.json")
         runtime.run([cli,"resolve","library-path","--query="+str(query),"--format=json",
@@ -64,7 +67,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
     state["shared_query_monotonic_end"]=end
     state["query_window_includes_intermediate_snapshots_and_summaries"]=True
     summary_remaining=45.0
-    for name in SEQUENCE:
+    for name in sequence:
         phase=state["queries"][name]
         query=out/"queries"/(name+".ql")
         evaluator=out/("prefix-"+name+"-evaluator.jsonl")
@@ -75,6 +78,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
             original_cap=inventory.reserve_after_maps(out,baseline)
             runtime.evidence_write(out/("prefix-"+name+"-space-reservation.json"),
                 (out/"inventory-space-reservation.json").read_bytes(),out)
+            phase["remaining_query_seconds_before_call"]=max(0,end-time.monotonic())
             try:
                 receipt=runtime.run([cli,"database","run-queries",str(db),str(query),*options,"--max-disk-cache=1024",
                 "--evaluator-log","{EVALUATOR_FIFO}","--evaluator-log-minify","--tuple-counting","--verbosity=progress"],
@@ -109,13 +113,17 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
         finally:
             if attempted and safe_boundary and (failure is None or inventory.clean_query_timeout(failure)):
                 started=time.monotonic()
+                terminal_summary=probe=="peer-df-inventory" and (name==sequence[-1] or failure is not None)
+                phase["summary_budget"]="terminal-postprocessing" if terminal_summary else "shared-query-window"
+                phase["summary_deadline"]=min(args.deadline-90,started+summary_remaining,
+                    args.deadline-90 if terminal_summary else end)
                 try:
                     if not evaluator.is_file():raise RuntimeError("prefix evaluator log missing")
                     summary={}
                     for fmt in ("overall","predicates"):
                         runtime.run([cli,"generate","log-summary","--format="+fmt,"--minify-output",str(evaluator)],
                             work,out/(evaluator.stem+"-summary-"+fmt+".jsonl"),
-                            min(end,args.deadline-90,started+summary_remaining),20,out,env)
+                            phase["summary_deadline"],20,out,env)
                         summary[fmt]="GENERATED_NOT_EVALUATION_COMPLETION"
                     runtime.save(out/("prefix-"+name+"-summary-status.json"),summary,out)
                 except BaseException as exc:
@@ -126,7 +134,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 summary_remaining=max(0,summary_remaining-(time.monotonic()-started))
             if original_cap is not None:runtime.WRITE_CAP=original_cap
             if attempted and safe_boundary:
-                intermediate=name=="Files" and failure is None
+                intermediate=name!=sequence[-1] and failure is None
                 phase["snapshot_budget"]="shared-query-window" if intermediate else "terminal-reserve"
                 phase["snapshot_deadline"]=end if intermediate else args.deadline-20
                 intact,detail=inventory.after_facts(database,db,baseline,out,"after-"+name,
@@ -144,4 +152,4 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
             runtime.save(out/"prefix-terminal.json",state,out,terminal=True)
         if failure is not None:raise failure
     runtime.save(out/"prefix-result.json",{"status":"PREFIX_TRACKED_FACTS_UNCHANGED",
-        "sequence":list(SEQUENCE),"full_rust_coverage":"HOLD","candidate_queries":0},out,terminal=True)
+        "sequence":list(sequence),"full_rust_coverage":"HOLD","candidate_queries":0},out,terminal=True)

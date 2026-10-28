@@ -268,7 +268,7 @@ class ScopePlan(unittest.TestCase):
         for probe in m.COMPILE_PROBES:
             self.assertIn(probe, text.split("permissions:", 1)[0])
         self.assertIn("MODEL_PROBE: ${{ inputs.model_probe }}", job)
-        self.assertIn('trait-scope-plan|successor-keyed-plan|successor-keyed-eval|files-inventory|peer-ast-inventory) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
+        self.assertIn('trait-scope-plan|successor-keyed-plan|successor-keyed-eval|files-inventory|peer-ast-inventory|peer-df-inventory) test "$BUNDLE_VERSION" = 2.27.3 ;;', job)
         self.assertIn('trait-scope-plan|successor-keyed-plan) ;;', job)
         self.assertIn("timeout-minutes: 20", job)
         self.assertIn(" + 1080 ", job)

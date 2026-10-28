@@ -82,13 +82,13 @@ def main():
     parser.add_argument('--codeql', type=Path, required=True)
     parser.add_argument('--bundle-version', choices=BUNDLES, default='2.27.2')
     parser.add_argument('--business-source', type=Path, required=True)
-    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan', 'successor-keyed-plan', 'successor-keyed-eval', 'files-inventory', 'peer-ast-inventory'), default='node-only')
+    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan', 'successor-keyed-plan', 'successor-keyed-eval', 'files-inventory', 'peer-ast-inventory', 'peer-df-inventory'), default='node-only')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True, help='fixed first-preparation Unix deadline, at most1080s ahead')
     args = parser.parse_args()
     compile_only = args.probe in ("trait-scope-plan", "successor-keyed-plan")
-    if (compile_only or args.probe in ("successor-keyed-eval", "files-inventory", "peer-ast-inventory")) and args.bundle_version != "2.27.3":
+    if (compile_only or args.probe in ("successor-keyed-eval", "files-inventory", "peer-ast-inventory", "peer-df-inventory")) and args.bundle_version != "2.27.3":
         parser.error("isolated library probes require complete official 2.27.3")
     remaining = args.deadline - time.time()
     if not 0 < remaining <= 1080:
@@ -123,11 +123,11 @@ def main():
                             args.output / ('rustc-' + toolchain + '.log'), args.deadline-90, 20, args.output, env)
             spec = importlib.util.spec_from_file_location('refactored', Path(__file__).with_name('codeql-rust-refactored-source.py'))
             model = importlib.util.module_from_spec(spec); spec.loader.exec_module(model)
-            if args.probe == 'peer-ast-inventory':
+            if args.probe in ('peer-ast-inventory', 'peer-df-inventory'):
                 import codeql_rust_peer_ast_inventory as prefix
                 model.execute(args, env, closure, verify_library_path,
                     comparison=lambda *values: prefix.execute(*values, model))
-                terminal['status'] = 'PEER_AST_INVENTORY_RECORDED'
+                terminal['status'] = 'PEER_DF_INVENTORY_RECORDED' if args.probe=='peer-df-inventory' else 'PEER_AST_INVENTORY_RECORDED'
             elif args.probe in ('successor-keyed-eval', 'files-inventory'):
                 import codeql_rust_successor_evaluation as comparison
                 files_only = args.probe == 'files-inventory'
