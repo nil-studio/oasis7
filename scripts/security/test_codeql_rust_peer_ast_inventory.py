@@ -11,7 +11,7 @@ import codeql_rust_peer_ast_inventory as m
 
 
 class PrefixTests(unittest.TestCase):
-    def scenario(self, mutation=None, failure=None, reserve_failure=False, slow_peer=False, df=False, df_timeout=False):
+    def scenario(self, mutation=None, failure=None, reserve_failure=False, slow_peer=False, df=False, df_timeout=False, residue=False):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);work=root/'work';work.mkdir();db=work/'candidate-db';db.mkdir()
             (db/'db-rust/default').mkdir(parents=True)
@@ -22,7 +22,7 @@ class PrefixTests(unittest.TestCase):
             if df:texts['PeerDf']='df query'
             for name,text in texts.items():(out/'queries'/(name+'.ql')).write_text(text)
             timer=[100.0]
-            args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),business_source=root,deadline=1100.0 if slow_peer or df_timeout else time.monotonic()+1000,probe='peer-df-inventory' if df else 'peer-ast-inventory')
+            args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),business_source=root,deadline=1100.0 if slow_peer or df_timeout else time.monotonic()+1000,probe='peer-df-inventory' if df else 'peer-ast-inventory',bundle_version='2.27.3')
             queries=[];summaries=[];query_ends=[];initial_cap=m.runtime.WRITE_CAP
             def receipt(argv):return {'argv':argv,'pid':123,'pgid':123,'exit':0,
                 'started_wall':time.time(),'elapsed':1.0,'cleanup_errors':[],'evidence_errors':[]}
@@ -42,6 +42,10 @@ class PrefixTests(unittest.TestCase):
                     (results/(name+'.bqrs')).write_bytes(b'complete')
                     if failure!='missing-log':(out/('prefix-'+name+'-evaluator.jsonl')).write_text('{}\n')
                     if mutation==name:(target/('derived-'+name)).write_text('generated')
+                    if residue and name=='PeerDf':
+                        for rel in ['buckets/page-000000','metadata/page-000000','pageDump/page-000000000']:
+                            f=target/'db-rust/default/strings/0'/rel
+                            f.parent.mkdir(parents=True,exist_ok=True);f.write_bytes(b'page')
                     if df_timeout and name=='PeerDf':
                         timer[0]=end;r.update(failure_kind='timeout',exit=143)
                         raise m.runtime.PhaseError(r)
@@ -126,6 +130,13 @@ class PrefixTests(unittest.TestCase):
                 self.assertLess(peer['remaining_query_seconds_before_call'],180)
                 self.assertEqual(peer.get('pre_fact_status',peer['status']),'CLEAN_QUERY_TIMEOUT')
                 self.assertFalse((out/'prefix-PeerDf.bqrs').exists())
+                if residue:
+                    self.assertEqual(peer['status'],'CLEAN_QUERY_TIMEOUT')
+                    self.assertEqual(peer['inventory_change_classification'],'QUERY_INTERRUPTION_STRING_RESIDUE_PATTERN')
+                    self.assertFalse(peer['facts_unchanged'])
+                    self.assertEqual(peer['facts_after']['arm']['added_count'],3)
+                    self.assertTrue((out/'after-PeerDf-arm-inventory.json').exists())
+                    self.assertFalse((out/'prefix-result.json').exists())
 
     def test_ordered_prefix_same_db_and_caches_shared_clock_and_unique_snapshots(self):self.scenario()
     def test_first_files_difference_stops_before_peer_ast(self):self.scenario(mutation='Files')
@@ -139,6 +150,9 @@ class PrefixTests(unittest.TestCase):
     def test_peer_ast_difference_prevents_peer_df(self):self.scenario(df=True,mutation='PeerAst')
     def test_peer_df_clean_timeout_keeps_complete_after_maps_and_terminal_summaries(self):self.scenario(df=True,df_timeout=True)
     def test_peer_df_timeout_mutation_keeps_earlier_unchanged_snapshots(self):self.scenario(df=True,df_timeout=True,mutation='PeerDf')
+    def test_classified_peer_df_residue_keeps_timeout_and_complete_maps(self):
+        self.scenario(df=True,df_timeout=True,residue=True)
+
     def test_fixed_mode_rejects_extra_or_reordered_queries(self):
         for sequence in [('Files','PeerDf','PeerAst'),('Files','PeerAst','PeerDf','CallsCandidate')]:
             with self.subTest(sequence=sequence),self.assertRaisesRegex(RuntimeError,'fixed probe sequence'):

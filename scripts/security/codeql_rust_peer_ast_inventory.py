@@ -110,6 +110,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 safe_boundary=safe_boundary and quiescent(exc.result)
             phase.update(status=("CLEAN_QUERY_TIMEOUT" if inventory.clean_query_timeout(exc) else
                 "FAILED" if attempted else "NOT_REACHED"),error=repr(exc)[:2048])
+            if inventory.clean_query_timeout(exc):phase["primary_failure"]="CLEAN_QUERY_TIMEOUT"
         finally:
             if attempted and safe_boundary and (failure is None or inventory.clean_query_timeout(failure)):
                 started=time.monotonic()
@@ -142,7 +143,10 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 phase["facts_after"]=detail
                 phase["facts_unchanged"]=intact
                 if not intact:
-                    phase["pre_fact_status"]=phase["status"];phase["status"]="FAILED_FACTS_AFTER"
+                    if inventory.interrupted_string_residue(detail,baseline,getattr(args,"bundle_version",None),failure):
+                        phase["inventory_change_classification"]="QUERY_INTERRUPTION_STRING_RESIDUE_PATTERN"
+                    else:
+                        phase["pre_fact_status"]=phase["status"];phase["status"]="FAILED_FACTS_AFTER"
                     if failure is None:failure=RuntimeError("prefix database inventory changed or unknown after "+name)
             elif attempted:
                 phase["facts_after_status"]="UNKNOWN_UNSAFE_PROCESS_OR_EVIDENCE_BOUNDARY"

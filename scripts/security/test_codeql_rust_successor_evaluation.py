@@ -64,13 +64,45 @@ class ComparisonTests(unittest.TestCase):
             self.assertEqual(len(details['arm']['added']),4)
             self.assertFalse(details['arm']['details_complete'])
 
-    def experiment(self, clean, broken_summary=False, spawned=True, mutate=False):
+    def test_only_exact_complete_new_string_pages_match_cancel_residue(self):
+        import copy
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);source=p/'source';source.mkdir();self.database(source)
+            baseline=m.facts(source)[0];arm=p/'arm';shutil.copytree(source,arm)
+            paths=['db-rust/default/strings/0/buckets/page-000000',
+                   'db-rust/default/strings/0/metadata/page-000000',
+                   'db-rust/default/strings/0/pageDump/page-000000000']
+            for name in paths:
+                f=arm/name;f.parent.mkdir(parents=True,exist_ok=True);f.write_bytes(b'page')
+            intact,details=m.after_facts(source,arm,baseline)
+            self.assertFalse(intact)
+            error=m.runtime.PhaseError({'argv':['codeql','database','run-queries'],
+                'failure_kind':'timeout','cleanup_errors':[],'evidence_errors':[],
+                'pid':123,'pgid':123,'exit':143,'started_wall':1.0,'elapsed':1.0})
+            self.assertTrue(m.interrupted_string_residue(details,baseline,'2.27.3',error))
+            self.assertFalse(m.interrupted_string_residue(details,baseline,'2.27.2',error))
+            self.assertFalse(m.interrupted_string_residue(details,{**baseline,paths[0]:'old'},'2.27.3',error))
+            for label,key,value in [('source','status','CHANGED'),('source','status','UNKNOWN'),
+                    ('arm','details_complete',False),('arm','changed_count',1),
+                    ('arm','removed_count',1),('arm','added_count',4)]:
+                bad=copy.deepcopy(details);bad[label][key]=value
+                self.assertFalse(m.interrupted_string_residue(bad,baseline,'2.27.3',error))
+            bad=copy.deepcopy(details);bad['arm']['added'][0]['path']='db-rust/default/strings/0/info'
+            self.assertFalse(m.interrupted_string_residue(bad,baseline,'2.27.3',error))
+            bad=copy.deepcopy(details);bad['arm']['added']=bad['arm']['added'][:2]
+            self.assertFalse(m.interrupted_string_residue(bad,baseline,'2.27.3',error))
+            for key,value in [('exit',-15),('cleanup_errors',['live']),('pid',None),('evidence_errors',['lost'])]:
+                wrong=dict(error.result);wrong[key]=value
+                self.assertFalse(m.interrupted_string_residue(details,baseline,'2.27.3',m.runtime.PhaseError(wrong)))
+            self.assertFalse(m.interrupted_string_residue(details,baseline,'2.27.3',None))
+
+    def experiment(self, clean, broken_summary=False, spawned=True, mutate=False, residue=False):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);work=p/'work';work.mkdir()
             db=work/'candidate-db';db.mkdir();self.database(db)
             out=p/'out';out.mkdir()
             args=SimpleNamespace(output=out,work=work,codeql=Path('/fixed/codeql'),
-                business_source=p,deadline=time.monotonic()+1000)
+                business_source=p,deadline=time.monotonic()+1000,bundle_version="2.27.3")
             calls=[]
             def run(argv,cwd,output,*rest):
                 if argv[1:3]==['resolve','library-path']:
@@ -79,14 +111,28 @@ class ComparisonTests(unittest.TestCase):
                 calls.append(argv[3])
                 if mutate:
                     (Path(argv[3])/"new-derived-marker").write_text("new")
+                if residue:
+                    for rel in ['buckets/page-000000','metadata/page-000000','pageDump/page-000000000']:
+                        f=Path(argv[3])/'db-rust/default/strings/0'/rel
+                        f.parent.mkdir(parents=True,exist_ok=True);f.write_bytes(b'page')
                 if broken_summary:
                     (out/('original-Files-evaluator.jsonl')).write_text('{}\n')
                 raise m.runtime.PhaseError({'argv':argv,'failure_kind':'timeout',
                     'cleanup_errors':[] if clean else ['child still alive'],'evidence_errors':[],
                     'pid':123 if spawned else None,'pgid':123 if spawned else None,
-                    'exit':-15 if spawned else None,'started_wall':time.time(),'elapsed':180.0})
+                    'exit':(143 if residue else -15) if spawned else None,'started_wall':time.time(),'elapsed':180.0})
             with patch.object(m.plan,'inventory',return_value={}),patch.object(m.plan,'prepare_copy',return_value=p/'private'),patch.object(m.runtime,'run',side_effect=run),patch.object(m.runtime,'official_summaries',return_value={'overall':{'status':'UNKNOWN'}}):
-                if mutate:
+                if residue:
+                    with self.assertRaises(m.runtime.PhaseError):
+                        m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
+                            db,{'Files':'query'},p,set(),SimpleNamespace(SOURCE='fixed'))
+                    terminal=json.loads((out/'comparison-terminal.json').read_text())
+                    self.assertEqual(terminal['original']['status'],'CLEAN_QUERY_TIMEOUT')
+                    self.assertEqual(terminal['original']['inventory_change_classification'],'QUERY_INTERRUPTION_STRING_RESIDUE_PATTERN')
+                    self.assertFalse(terminal['original']['facts_unchanged'])
+                    self.assertEqual(terminal['candidate']['status'],'NOT_REACHED')
+                    self.assertEqual(len(calls),1)
+                elif mutate:
                     with self.assertRaisesRegex(RuntimeError,'facts changed'):
                         m.execute(args,{}, {'codeql/rust-all':{'root':'official'}},lambda *a:None,
                             db,{'Files':'query'},p,set(),SimpleNamespace(SOURCE='fixed'))
@@ -120,6 +166,9 @@ class ComparisonTests(unittest.TestCase):
 
     def test_clean_query_timeout_still_measures_candidate_without_claiming_equality(self):
         self.experiment(True)
+
+    def test_classified_timeout_residue_never_starts_candidate(self):
+        self.experiment(True,residue=True)
 
     def test_changed_arm_records_exact_difference_and_checks_source_too(self):
         self.experiment(True, mutate=True)

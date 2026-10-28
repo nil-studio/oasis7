@@ -122,6 +122,22 @@ def clean_query_timeout(exc):
         isinstance(value.get("elapsed"), (int, float)) and value["elapsed"] > 0)
 
 
+def interrupted_string_residue(details, baseline, bundle_version, query_error):
+    """Match the 2.27.3 cancellation reproduction; never waive inventory changes."""
+    if (bundle_version != "2.27.3" or not clean_query_timeout(query_error) or
+            query_error.result.get("exit") != 143 or
+            any(n == "db-rust/default/strings" or n.startswith("db-rust/default/strings/") for n in baseline)):
+        return False
+    source, arm = details.get("source", {}), details.get("arm", {})
+    expected = {"db-rust/default/strings/0/"+name for name in (
+        "buckets/page-000000", "metadata/page-000000", "pageDump/page-000000000")}
+    return (source.get("status") == "UNCHANGED" and source.get("details_complete") is True and
+        arm.get("status") == "CHANGED" and arm.get("details_complete") is True and
+        arm.get("added_count") == 3 and len(arm.get("added", [])) == 3 and
+        arm.get("removed_count") == 0 and arm.get("changed_count") == 0 and
+        {v.get("path") for v in arm.get("added", [])} == expected)
+
+
 def execute(args, env, closure, verify_library, database, texts, libp2p_root, wanted, model, files_only=False):
     out, work = args.output, args.work
     cli = str(args.codeql)
@@ -251,6 +267,7 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
             else:
                 status = "NOT_REACHED"
             state[label].update(status=status,error=repr(exc)[:2048])
+            if clean:state[label]["primary_failure"]="CLEAN_QUERY_TIMEOUT"
             if not clean: raise
         finally:
             post_error = None
@@ -268,19 +285,24 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                     state[label].update(status="FAILED_POSTPROCESSING",postprocessing_error=repr(exc)[:2048])
             if original_write_cap is not None:
                 runtime.WRITE_CAP = original_write_cap
-            intact = True
+            intact, residue = True, False
             if query_attempted:
                 intact, detail = after_facts(database, db, baseline, out if files_only else None, "after")
                 state[label]["facts_unchanged"] = intact
                 state[label]["facts_after"] = detail
                 if not intact:
-                    state[label]["pre_fact_status"] = state[label]["status"]
-                    state[label]["status"] = "FAILED_FACTS_AFTER"
+                    residue = interrupted_string_residue(detail,baseline,getattr(args,"bundle_version",None),failure)
+                    if residue:
+                        state[label]["inventory_change_classification"] = "QUERY_INTERRUPTION_STRING_RESIDUE_PATTERN"
+                    else:
+                        state[label]["pre_fact_status"] = state[label]["status"]
+                        state[label]["status"] = "FAILED_FACTS_AFTER"
             else:
                 state[label]["facts_after_status"] = "NOT_REACHED_NO_QUERY"
             runtime.save(out/"comparison-terminal.json",state,out,terminal=True)
-            if not intact: raise RuntimeError("database facts changed after arm") from failure
+            if not intact and not residue: raise RuntimeError("database facts changed after arm") from failure
             if post_error is not None: raise post_error
+            if residue: raise failure  # A changed interrupted arm must never start the candidate.
     if files_only:
         runtime.save(out/"files-inventory-result.json", {"status": state["original"]["status"],
             "full_rust_coverage": "HOLD", "candidate_queries": 0, "model_comparison": "NOT_PLANNED"}, out, terminal=True)
