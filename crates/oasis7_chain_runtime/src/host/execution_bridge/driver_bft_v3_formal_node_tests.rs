@@ -252,6 +252,19 @@ impl NodeExecutionHook for ActualHook {
             .unwrap()
             .export_bft_v3_private_candidate(value)
     }
+    fn enable_bft_v3_membership_execution(&mut self) -> Result<(), String> {
+        self.0.lock().unwrap().enable_bft_v3_membership_execution()
+    }
+    fn lookup_bft_v3_public_value(
+        &mut self,
+        height: u64,
+        header_id: &str,
+    ) -> Result<Option<BftHeaderValueV3>, String> {
+        self.0
+            .lock()
+            .unwrap()
+            .lookup_bft_v3_public_value(height, header_id)
+    }
     fn retain_received_bft_v3_private_candidate(
         &mut self,
         context: &NodeBftExecutionContextV3,

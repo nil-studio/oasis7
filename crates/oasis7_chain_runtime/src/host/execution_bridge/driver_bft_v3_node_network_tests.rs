@@ -75,13 +75,35 @@ fn network_case_pending(
     check_fairness: bool,
     check_pending: bool,
 ) {
-    let h = if check_pending {
+    network_case_membership(
+        check_fetch,
+        check_echo,
+        check_fairness,
+        check_pending,
+        false,
+    );
+}
+fn network_case_membership(
+    check_fetch: bool,
+    check_echo: bool,
+    check_fairness: bool,
+    check_pending: bool,
+    check_membership: bool,
+) {
+    let count = if check_membership { 4 } else { 3 };
+    let h = if check_membership {
+        membership_cases::handoff()
+    } else if check_pending {
         pending_cases::weighted_handoff()
     } else {
         qualified_handoff_v3_with_count_and_setup(3, |_| {})
     };
-    let gates = crate::node_lifecycle::network_gates(h.trust.initial_trust.clone());
-    let roots = (0..3).map(|_| Scratch::new()).collect::<Vec<_>>();
+    let gates = if check_membership {
+        crate::node_lifecycle::network_gates_for_count(h.trust.initial_trust.clone(), count as u8)
+    } else {
+        crate::node_lifecycle::network_gates(h.trust.initial_trust.clone())
+    };
+    let roots = (0..count).map(|_| Scratch::new()).collect::<Vec<_>>();
     let stores = roots.iter().map(|r| cas(r.path())).collect::<Vec<_>>();
     let mut actual = roots
         .iter()
@@ -103,12 +125,31 @@ fn network_case_pending(
     let bindings = actual
         .iter()
         .enumerate()
-        .map(|(i, d)| binding_for(d, i as u8))
+        .map(|(i, d)| {
+            let mut binding = binding_for(d, i as u8);
+            if check_membership {
+                // Actual debug World replay and native protected-journal checks
+                // exceed the 2-second model clock used by fixed-set fixtures.
+                // Preserve the 180-second acceptance deadline and allow real
+                // elapsed-time rounds to contain those actual consumers.
+                binding.timeouts = oasis7_consensus::tendermint_v1::BftTimeoutsV1 {
+                    propose_ms: 30_000,
+                    prevote_ms: 30_000,
+                    precommit_ms: 30_000,
+                    round_delta_ms: 5_000,
+                };
+            }
+            binding
+        })
         .collect::<Vec<_>>();
     for (d, b) in actual.iter().zip(&bindings) {
-        d.lock().unwrap().configure_bft_v3_execution(b).unwrap();
+        let mut driver = d.lock().unwrap();
+        if check_membership {
+            driver.enable_bft_v3_membership_execution().unwrap();
+        }
+        driver.configure_bft_v3_execution(b).unwrap();
     }
-    let networks = (0..3)
+    let networks = (0..count)
         .map(|_| {
             Arc::new(oasis7_net::Libp2pNetwork::new(
                 oasis7_net::Libp2pNetworkConfig {
@@ -122,17 +163,20 @@ fn network_case_pending(
     network_wait("Noise listeners", || {
         networks.iter().all(|n| !n.listening_addrs().is_empty())
     });
-    for i in 0..3 {
-        for j in i + 1..3 {
+    for i in 0..count {
+        for j in i + 1..count {
             networks[i]
                 .dial(networks[j].listening_addrs()[0].clone())
                 .unwrap();
         }
     }
     network_wait("full Noise mesh", || {
-        networks.iter().all(|n| n.connected_peers().len() == 2)
+        networks
+            .iter()
+            .all(|n| n.connected_peers().len() == count - 1)
     });
     let public_delivery = Arc::new(std::sync::atomic::AtomicBool::new(!check_echo));
+    let membership_isolation = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let barriers = gates
         .gates
         .iter()
@@ -140,10 +184,10 @@ fn network_case_pending(
         .collect::<Vec<_>>();
     let mut exchanges = Vec::new();
     let mut public_transports = Vec::new();
-    let drains = (0..3)
+    let drains = (0..count)
         .map(|_| Arc::new(std::sync::atomic::AtomicU64::new(0)))
         .collect::<Vec<_>>();
-    let received = (0..3)
+    let received = (0..count)
         .map(|_| Arc::new(std::sync::atomic::AtomicU64::new(0)))
         .collect::<Vec<_>>();
     let mut execution_views = Vec::new();
@@ -162,7 +206,10 @@ fn network_case_pending(
     let mut snapshots = Vec::new();
     let mut servers = Vec::new();
     let mut nodes = Vec::new();
-    for index in 0..3 {
+    // Membership fault timers begin together after the fault-free transition prefix.
+    // This one-shot test clock is never reset for stop/start recovery.
+    let membership_clock_start = Arc::new(std::sync::OnceLock::<Instant>::new());
+    for index in 0..count {
         let binding = &bindings[index];
         let local = index as u8;
         let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
@@ -171,21 +218,31 @@ fn network_case_pending(
             lease_token_digest: String::new(),
             protected_time_floor_ms: 100,
         }));
+        let backend = MemoryTestSignerBackend {
+            binding_digest: binding.digest().unwrap(),
+            fail_confirm_after_commit: None,
+            snapshot: snapshot.clone(),
+        };
+        let backend: Box<dyn BftSignerBackendV3> = if check_membership {
+            membership_clock::elapsed_backend(backend, membership_clock_start.clone())
+        } else {
+            Box::new(backend)
+        };
         let service = Arc::new(
             BftSignerServiceV3::open_with_candidate_read_proofs(
                 binding.clone(),
                 Box::new(MemoryTestSignerKey(fixtures::key(200 + local))),
                 vec![pending_cases::initial_key(local, check_pending)],
-                Box::new(MemoryTestSignerBackend {
-                    binding_digest: binding.digest().unwrap(),
-                    fail_confirm_after_commit: None,
-                    snapshot: snapshot.clone(),
-                }),
+                backend,
                 BftCandidateReadPolicyV3::STANDARD,
             )
             .unwrap(),
         );
-        let (address, server) = tcp(service);
+        let (address, server) = if check_membership {
+            membership_cases::two_session_provider(service)
+        } else {
+            tcp(service)
+        };
         servers.push(server);
         snapshots.push(snapshot);
         let provider = Arc::new(
@@ -253,6 +310,15 @@ fn network_case_pending(
             drains: drains[index].clone(),
             received: received[index].clone(),
         });
+        let public: Arc<dyn oasis7_node::NodeBftPeerTransportV3> = if check_membership && index == 0
+        {
+            Arc::new(membership_cases::HeightPartition {
+                inner: public,
+                isolated: membership_isolation.clone(),
+            })
+        } else {
+            public
+        };
         let config = NodeConfig::new(
             validator_id(local),
             binding.scope.world_id.clone(),
@@ -264,13 +330,34 @@ fn network_case_pending(
         .with_replication(
             NodeReplicationConfig::new(roots[index].path().join("replication")).unwrap(),
         );
+        let config = if check_membership {
+            config.with_player_id("membership-test-player").unwrap()
+        } else {
+            config
+        };
+        let runtime = NodeRuntime::new(config)
+            .with_replication_network_consensus_enabled(false)
+            .try_with_shared_execution_hook(hook)
+            .unwrap();
         nodes.push(
-            NodeRuntime::new(config)
-                .with_replication_network_consensus_enabled(false)
-                .try_with_shared_execution_hook(hook)
-                .unwrap()
-                .with_tendermint_v3_network(binding.clone(), provider, public, exchange, execution)
-                .unwrap(),
+            if check_membership {
+                runtime.with_tendermint_v3_membership_network(
+                    binding.clone(),
+                    provider,
+                    public,
+                    exchange,
+                    execution,
+                )
+            } else {
+                runtime.with_tendermint_v3_network(
+                    binding.clone(),
+                    provider,
+                    public,
+                    exchange,
+                    execution,
+                )
+            }
+            .unwrap(),
         );
     }
     let proposer = bindings[0]
@@ -281,11 +368,32 @@ fn network_case_pending(
         .iter()
         .position(|b| b.local_validator_id == proposer)
         .unwrap();
-    nodes[proposer]
-        .submit_consensus_action_payload(9500, payload("actual-noise-network-agent"))
-        .unwrap();
+    if check_membership {
+        membership_cases::submit_admission(&nodes[proposer], &actual[proposer]);
+    } else {
+        nodes[proposer]
+            .submit_consensus_action_payload(9500, payload("actual-noise-network-agent"))
+            .unwrap();
+    }
     for node in &mut nodes {
         node.start().unwrap();
+    }
+    if check_membership {
+        membership_cases::exercise(
+            &mut nodes,
+            &actual,
+            &snapshots,
+            &execution_views,
+            &membership_isolation,
+            &membership_clock_start,
+        );
+        drop(nodes);
+        drop(exchanges);
+        drop(public_transports);
+        for server in servers {
+            server.join().unwrap().unwrap();
+        }
+        return;
     }
     if check_pending {
         pending_cases::recover(
@@ -413,3 +521,8 @@ mod fairness_cases;
 
 #[path = "driver_bft_v3_node_pending_tests.rs"]
 mod pending_cases;
+
+#[path = "driver_bft_v3_node_membership_tests.rs"]
+mod membership_cases;
+#[path = "driver_bft_v3_node_membership_clock.rs"]
+mod membership_clock;

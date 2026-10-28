@@ -14,6 +14,8 @@ use super::wire::{
     SignedBftSignerRequestV3, encode_frame, read_frame, validate_reply,
 };
 
+use super::install::*;
+
 const MAX_ACQUIRE_CONFLICT_RETRIES: usize = 3;
 
 /// A remote provider pinned to one immutable V3 binding and provider identity.
@@ -37,6 +39,31 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    fn enable_membership(
+        &mut self,
+        _expected_revision: u64,
+        _expected_state_digest: &str,
+    ) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
+        Err(invalid("V3 membership extension unsupported"))
+    }
+    fn prepare_transition_install(
+        &mut self,
+        _expected_revision: u64,
+        _expected_state_digest: &str,
+        _request_id: String,
+        _transition_source_height: u64,
+        _runtime_instance_id: String,
+    ) -> Result<BftTransitionInstallPreparationV3, BftSignerErrorV3> {
+        Err(invalid("V3 membership extension unsupported"))
+    }
+    fn complete_transition_install(
+        &mut self,
+        _intent: BftTransitionInstallIntentV3,
+        _evidence: BftLocalInstallEvidenceV3,
+    ) -> Result<BftTransitionInstallResultV3, BftSignerErrorV3> {
+        Err(invalid("V3 membership extension unsupported"))
+    }
+
     /// Typed key-possession proof only, never read permission or voting install.
     fn sign_candidate_read_request(
         &mut self,
@@ -356,6 +383,150 @@ impl RemoteBftSignerLeaseV3 {
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn enable_membership(
+        &mut self,
+        expected_revision: u64,
+        expected_state_digest: &str,
+    ) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
+        let (request, reply) = self.command(BftSignerCommandV3::EnableMembership {
+            expected_revision,
+            expected_state_digest: expected_state_digest.into(),
+        })?;
+        let checkpoint = self.result_checkpoint(&request, &reply, |r| {
+            matches!(r, BftSignerReplyKindV3::MembershipEnabled)
+        })?;
+        if checkpoint.state.membership_install.is_none() {
+            return Err(invalid("V3 enable response omitted extension"));
+        }
+        self.checkpoint = checkpoint.clone();
+        Ok(checkpoint)
+    }
+    fn prepare_transition_install(
+        &mut self,
+        expected_revision: u64,
+        expected_state_digest: &str,
+        request_id: String,
+        transition_source_height: u64,
+        runtime_instance_id: String,
+    ) -> Result<BftTransitionInstallPreparationV3, BftSignerErrorV3> {
+        let (request, reply) = self.command(BftSignerCommandV3::PrepareTransitionInstall {
+            expected_revision,
+            expected_state_digest: expected_state_digest.to_string(),
+            request_id: request_id.clone(),
+            transition_source_height,
+            runtime_instance_id: runtime_instance_id.clone(),
+        })?;
+        RemoteBftSignerProviderV3::checked_result(&reply)?;
+        match &reply.body.result {
+            BftSignerReplyKindV3::InstallPreparedPending { intent } => {
+                let checkpoint = self.result_checkpoint(&request, &reply, |kind| {
+                    matches!(kind, BftSignerReplyKindV3::InstallPreparedPending { .. })
+                })?;
+                intent.verify_for(&self.binding, &self.trust.provider_public_key)?;
+                let body = &intent.body;
+                if body.expected_revision != expected_revision
+                    || body.expected_state_digest != expected_state_digest
+                    || body.request_id != request_id
+                    || body.transition_source_height != transition_source_height
+                    || body.runtime_instance_id != runtime_instance_id
+                    || checkpoint
+                        .state
+                        .membership_install
+                        .as_ref()
+                        .and_then(|m| m.pending.as_ref())
+                        != Some(intent.as_ref())
+                {
+                    return Err(invalid("V3 prepared intent differs from original request"));
+                }
+                Ok(BftTransitionInstallPreparationV3::Pending {
+                    intent: intent.as_ref().clone(),
+                    checkpoint,
+                })
+            }
+            BftSignerReplyKindV3::InstallPreparedCompleted { receipt } => {
+                let checkpoint = self.result_checkpoint(&request, &reply, |kind| {
+                    matches!(kind, BftSignerReplyKindV3::InstallPreparedCompleted { .. })
+                })?;
+                receipt.verify_for(&self.binding, &self.trust.provider_public_key)?;
+                let body = &receipt.body;
+                if body.installed_revision.checked_sub(2) != Some(expected_revision)
+                    || body.pre_install_state_digest != expected_state_digest
+                    || body.request_id != request_id
+                    || body.source_height != transition_source_height
+                    || body.runtime_instance_id != runtime_instance_id
+                    || checkpoint
+                        .state
+                        .membership_install
+                        .as_ref()
+                        .is_none_or(|m| !m.receipts.contains(receipt.as_ref()))
+                {
+                    return Err(invalid(
+                        "V3 completed preparation differs from original request",
+                    ));
+                }
+                Ok(BftTransitionInstallPreparationV3::Completed {
+                    receipt: receipt.as_ref().clone(),
+                    checkpoint,
+                })
+            }
+            _ => Err(invalid(
+                "BFT V3 install preparation response has wrong kind",
+            )),
+        }
+    }
+
+    fn complete_transition_install(
+        &mut self,
+        intent: BftTransitionInstallIntentV3,
+        evidence: BftLocalInstallEvidenceV3,
+    ) -> Result<BftTransitionInstallResultV3, BftSignerErrorV3> {
+        let acknowledgement = BftSignedTransitionInstallAckV3::sign(
+            &intent,
+            evidence.clone(),
+            &self.binding,
+            &self.trust.provider_public_key,
+            &self.requester_key,
+        )?;
+        let (request, reply) = self.command(BftSignerCommandV3::CompleteTransitionInstall {
+            intent: Box::new(intent.clone()),
+            acknowledgement: Box::new(acknowledgement.clone()),
+        })?;
+        let checkpoint = self.result_checkpoint(&request, &reply, |r| {
+            matches!(r, BftSignerReplyKindV3::InstallPreparedCompleted { .. })
+        })?;
+        let BftSignerReplyKindV3::InstallPreparedCompleted { receipt } = &reply.body.result else {
+            return Err(invalid("V3 completion wrong result"));
+        };
+        receipt.verify_for(&self.binding, &self.trust.provider_public_key)?;
+        let b = &receipt.body;
+        if b.intent_digest != intent.digest()?
+            || b.acknowledgement_digest != acknowledgement.digest()?
+            || b.request_id != intent.body.request_id
+            || b.wal_install_digest != evidence.wal_install_digest
+            || b.driver_install_digest != evidence.driver_install_digest
+            || b.installed_head_height != evidence.installed_head_height
+            || b.installed_head_commit_ref != evidence.installed_head_commit_ref
+            || b.installed_state_root != evidence.installed_state_root
+            || b.installed_manifest_hash != evidence.installed_manifest_hash
+            || b.active_validator_set_hash != evidence.installed_active_set_hash
+            || b.authority_epoch != evidence.installed_authority_epoch
+            || b.local_signing_public_key != evidence.local_signing_public_key
+            || b.runtime_instance_id != evidence.runtime_instance_id
+            || checkpoint
+                .state
+                .membership_install
+                .as_ref()
+                .is_none_or(|m| !m.receipts.contains(receipt.as_ref()))
+        {
+            return Err(invalid("V3 completion original evidence mismatch"));
+        }
+        self.checkpoint = checkpoint.clone();
+        Ok(BftTransitionInstallResultV3 {
+            receipt: receipt.as_ref().clone(),
+            checkpoint,
+        })
+    }
+
     fn sign_candidate_read_request(
         &mut self,
         body: &oasis7_proto::distributed_bft::v3::BftCandidateReadBodyV3,

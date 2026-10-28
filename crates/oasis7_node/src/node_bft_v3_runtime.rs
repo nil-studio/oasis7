@@ -12,6 +12,8 @@ pub(crate) mod private_exchange;
 pub(super) fn validate_single_action(action: &crate::NodeConsensusAction) -> Result<(), NodeError> {
     actions::validate_single_action(action)
 }
+#[path = "node_bft_v3_membership.rs"]
+mod membership;
 #[path = "node_bft_v3_startup.rs"]
 mod startup;
 #[path = "node_bft_v3_worker.rs"]
@@ -22,6 +24,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
 #[derive(Clone)]
 pub(crate) struct SelectedNodeBftConfigV3 {
     pub network: Option<PeerConfigV3>,
+    pub membership_enabled: bool,
     pub binding: BftSignerBindingV3,
     pub provider: Arc<RemoteBftSignerProviderV3>,
     pub capacity_exhausted: Arc<std::sync::atomic::AtomicBool>,
@@ -63,6 +66,7 @@ impl NodeRuntime {
         }
         let selected = SelectedNodeBftConfigV3 {
             network: None,
+            membership_enabled: false,
             binding,
             provider,
             capacity_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -91,6 +95,7 @@ impl NodeRuntime {
         let selected = SelectedNodeBftConfigV3 {
             binding,
             provider,
+            membership_enabled: false,
             network: Some(PeerConfigV3 {
                 transport,
                 exchange,
@@ -100,6 +105,55 @@ impl NodeRuntime {
         };
         startup::validate_runtime(&self, &selected)?;
         self.bft_v3_config = Some(selected);
+        Ok(self)
+    }
+    pub fn with_tendermint_v3_membership_network(
+        mut self,
+        binding: BftSignerBindingV3,
+        provider: Arc<RemoteBftSignerProviderV3>,
+        transport: Arc<dyn crate::NodeBftPeerTransportV3>,
+        exchange: Arc<dyn private_exchange::NodeBftPrivateCandidateExchangeV3>,
+        execution: Arc<private_exchange::NodeBftPeerExecutionStateV3>,
+    ) -> Result<Self, NodeError> {
+        if self.running.load(Ordering::SeqCst) || self.worker.is_some() {
+            return Err(NodeError::AlreadyRunning {
+                node_id: self.config.node_id.clone(),
+            });
+        }
+        if self.bft_config.is_some() || self.bft_v2_config.is_some() || self.bft_v3_config.is_some()
+        {
+            return Err(error("another consensus profile is already selected"));
+        }
+        let selected = SelectedNodeBftConfigV3 {
+            binding,
+            provider,
+            membership_enabled: true,
+            network: Some(PeerConfigV3 {
+                transport,
+                exchange,
+                execution,
+            }),
+            capacity_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        startup::validate_runtime(&self, &selected)?;
+        self.bft_v3_config = Some(selected);
+        Ok(self)
+    }
+    /// Explicitly opt into protected wire-3 membership installation before start.
+    pub fn with_tendermint_v3_membership(mut self) -> Result<Self, NodeError> {
+        if self.running.load(Ordering::SeqCst) || self.worker.is_some() {
+            return Err(error("wire-3 membership must be selected before start"));
+        }
+        let selected = self
+            .bft_v3_config
+            .as_mut()
+            .ok_or_else(|| error("wire-3 profile must be selected first"))?;
+        selected.membership_enabled = true;
+        let selected = self
+            .bft_v3_config
+            .as_ref()
+            .ok_or_else(|| error("wire-3 profile disappeared"))?;
+        startup::validate_runtime(&self, selected)?;
         Ok(self)
     }
     pub fn bft_v3_status(&self) -> Option<NodeBftStatusV3> {

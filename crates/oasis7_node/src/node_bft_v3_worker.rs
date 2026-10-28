@@ -89,6 +89,13 @@ impl Worker {
             if self.checkpoint.state.history.len() >= 64 {
                 continue;
             }
+            if super::membership::active_key(&self.selected, &self.schedule).is_none() {
+                self.publish_status();
+                match stop.recv_timeout(Duration::from_millis(10)) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                }
+            }
             if !self.peers.is_catching_up() {
                 self.propose()?;
             }
@@ -233,7 +240,13 @@ impl Worker {
                     .map_err(|_| error("wire-3 candidate construction failed"))?
                 }
             };
-            startup::validate_private(&self.config, &mut **hook, &self.schedule, &private)?;
+            startup::validate_private(
+                &self.config,
+                &mut **hook,
+                &self.schedule,
+                &private,
+                &self.selected,
+            )?;
             let digest = hook
                 .retain_bft_v3_private_candidate(&expected, &private)
                 .map_err(|_| error("wire-3 original private candidate retention failed"))?;
@@ -260,7 +273,13 @@ impl Worker {
         {
             return Err(error("wire-3 proposal intent changed"));
         }
-        startup::candidate(&self.config, &self.hook, &self.schedule, &intent.block)?;
+        startup::candidate(
+            &self.config,
+            &self.hook,
+            &self.schedule,
+            &intent.block,
+            &self.selected,
+        )?;
         let mut journal = self.journal()?;
         if let Some(pending) = &journal.pending_proposal_intent {
             if pending != &intent {
@@ -283,7 +302,13 @@ impl Worker {
             return Err(error("wire-3 provider signed a different proposal"));
         }
         self.checkpoint = checkpoint;
-        startup::candidate(&self.config, &self.hook, &self.schedule, &proposal.block)?;
+        startup::candidate(
+            &self.config,
+            &self.hook,
+            &self.schedule,
+            &proposal.block,
+            &self.selected,
+        )?;
         let now = self
             .journal()?
             .events
@@ -350,7 +375,13 @@ impl Worker {
                     _ => None,
                 })
                 .ok_or_else(|| error("wire-3 vote lacks its original proposal"))?;
-            startup::candidate(&self.config, &self.hook, &self.schedule, &value)?;
+            startup::candidate(
+                &self.config,
+                &self.hook,
+                &self.schedule,
+                &value,
+                &self.selected,
+            )?;
         }
         let mut journal = self.journal()?;
         if let Some(pending) = &journal.pending_vote_intent {
@@ -404,7 +435,13 @@ impl Worker {
             header: certificate.header.clone(),
             execution_commitment: certificate.execution_commitment.clone(),
         };
-        let private = startup::candidate(&self.config, &self.hook, &self.schedule, &value)?;
+        let private = startup::candidate(
+            &self.config,
+            &self.hook,
+            &self.schedule,
+            &value,
+            &self.selected,
+        )?;
         let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(
             &private.actions_cbor,
         )
@@ -412,14 +449,16 @@ impl Worker {
         if let Some(network) = &self.selected.network {
             network.execution.invalidate_parent().map_err(error)?;
         }
-        let mut journal = self.journal()?;
-        if let Some(pending) = &journal.pending_commit {
-            if pending != &certificate {
-                return Err(error("different wire-3 commit already reserved"));
+        if super::membership::active_key(&self.selected, &self.schedule).is_some() {
+            let mut journal = self.journal()?;
+            if let Some(pending) = &journal.pending_commit {
+                if pending != &certificate {
+                    return Err(error("different wire-3 commit already reserved"));
+                }
+            } else {
+                journal.pending_commit = Some(certificate.clone());
+                self.advance(journal)?;
             }
-        } else {
-            journal.pending_commit = Some(certificate.clone());
-            self.advance(journal)?;
         }
         let checkpoint = self
             .signer()?
@@ -493,10 +532,34 @@ impl Worker {
         self.broadcast(BftPublicPeerMessageV3::Commit(Box::new(committed)));
         self.peers.height_advanced();
         self.schedule = token.next_height_schedule().clone();
-        startup::validate_schedule(&self.schedule, &self.selected.binding.local_validator_id)?;
+        startup::validate_schedule(&self.schedule, &self.selected)?;
+        {
+            let lease = self.lease.clone();
+            let mut signer = lease.lock().map_err(|_| error("wire-3 signer poisoned"))?;
+            super::membership::install(
+                &self.selected,
+                &self.schedule,
+                &result,
+                &mut **signer,
+                &mut self.checkpoint,
+            )?;
+        }
         self.publish_peer_view()?;
         self.last_commit = Instant::now();
         if self.checkpoint.state.history.len() >= 64 {
+            self.publish_status();
+            return Ok(());
+        }
+        if super::membership::active_key(&self.selected, &self.schedule).is_none() {
+            let (machine, _) = startup::restore(
+                &self.selected,
+                &self.schedule,
+                &self.checkpoint,
+                &self.hook,
+                &self.config,
+            )?;
+            self.machine = machine;
+            self.effects.clear();
             self.publish_status();
             return Ok(());
         }

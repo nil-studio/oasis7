@@ -81,6 +81,7 @@ fn live(core: &ClientCore, cancel: &AtomicBool, deadline: Instant) -> Result<(),
 fn authorization(
     core: &ClientCore,
     target: &Target,
+    value: &BftHeaderValueV3,
     signer: &NodeBftSharedSignerV3,
     cancel: &AtomicBool,
     deadline: Instant,
@@ -92,18 +93,20 @@ fn authorization(
                 .state
                 .view()?
                 .ok_or("private local verified view unavailable")?;
-            target.value.validate_for_schedule(&view.schedule)?;
+            target.validate_value(value)?;
+            value.validate_for_schedule(&view.schedule)?;
             let key = view
                 .schedule
                 .active_set()
                 .validator(&core.binding.local_validator_id)
                 .ok_or("private reader is not current active validator")?;
             let body = target.pending_body(
+                value,
                 key.validator_id.clone(),
                 key.public_key_hex.clone(),
                 core.policy.clone(),
                 core.grant_generation,
-            );
+            )?;
             // Try-lock polling is cancellable. A held signer mutex never blocks
             // the consensus event loop or silently renews this operation.
             loop {
@@ -208,7 +211,9 @@ pub(super) fn fetch(
         context: oasis7_consensus::tendermint_v3::BftPeerContextV3::from_handoff(
             core.binding.handoff(),
         ),
-        value: request.value.clone(),
+        height: request.value.execution_commitment.height,
+        header_id: request.value.block_id()?,
+        execution_commitment_hash: request.value.header.execution_commitment_hash.clone(),
         kind: request.kind,
         requester_peer_id: core.network.peer_id().to_string(),
         serving_peer_id: peer.to_string(),
@@ -216,13 +221,14 @@ pub(super) fn fetch(
         operation: BftCandidateReadOperationV3::Manifest,
     };
     target.validate()?;
-    let auth = authorization(core, &target, &signer, cancel, deadline)?;
+    target.validate_value(&request.value)?;
+    let auth = authorization(core, &target, &request.value, &signer, cancel, deadline)?;
     let reply = rpc(
         core,
         peer,
         &Request {
             domain: DOMAIN.into(),
-            schema_version: 1,
+            schema_version: 2,
             target: target.clone(),
             authorization: auth,
             chunk_index: None,
@@ -235,7 +241,7 @@ pub(super) fn fetch(
     }
     let manifest = reply.manifest;
     target.operation = manifest.operation();
-    let auth = authorization(core, &target, &signer, cancel, deadline)?;
+    let auth = authorization(core, &target, &request.value, &signer, cancel, deadline)?;
     let total = usize::try_from(manifest.total_bytes).map_err(|_| "private package total size")?;
     if total > MAX_PACKAGE {
         return Err("private package capacity".into());
@@ -254,7 +260,7 @@ pub(super) fn fetch(
             peer,
             &Request {
                 domain: DOMAIN.into(),
-                schema_version: 1,
+                schema_version: 2,
                 target: target.clone(),
                 authorization: auth.clone(),
                 chunk_index: Some(index),

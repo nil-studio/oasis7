@@ -226,5 +226,5 @@ mod profile_report_tests;
 
 #[cfg(all(test, feature = "node-libp2p"))]
 pub(crate) use formal_full_sync::tests::read_gate_tests::network_fixture::{
-    NetworkGates, network_gates,
+    NetworkGates, network_gates, network_gates_for_count,
 };

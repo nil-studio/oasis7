@@ -347,13 +347,17 @@ fn v3_observation_for_test(
     nonce: u8,
     time: u64,
 ) -> SignedFullSyncIssuerObservationV3 {
-    let query = SignedFullSyncIssuerQueryV3::sign(
-        policy,
-        anchor.clone(),
-        [nonce; 32],
-        &key(LEASE_SIGNER_KEY),
-    )
-    .unwrap();
+    v3_observation_with_nonce_for_test(policy, anchor, [nonce; 32], time)
+}
+fn v3_observation_with_nonce_for_test(
+    policy: &VerifiedFullSyncIssuerPolicyV3,
+    anchor: &FullSyncIssuerAnchorV3,
+    nonce: [u8; 32],
+    time: u64,
+) -> SignedFullSyncIssuerObservationV3 {
+    let query =
+        SignedFullSyncIssuerQueryV3::sign(policy, anchor.clone(), nonce, &key(LEASE_SIGNER_KEY))
+            .unwrap();
     SignedFullSyncIssuerObservationV3::sign(
         FullSyncIssuerObservationBodyV3 {
             schema_version: 3,

@@ -32,6 +32,8 @@ pub struct BftDriverAppliedReceiptV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerStateV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership_install: Option<super::membership::BftMembershipInstallStateV3>,
     pub schema_version: u32,
     pub binding_digest: String,
     pub revision: u64,
@@ -48,6 +50,8 @@ pub struct BftSignerStateV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerCandidateV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership_install: Option<super::membership::BftMembershipInstallStateV3>,
     #[serde(deserialize_with = "bounded_history")]
     pub history: Vec<FormalBftCertifiedHeaderV3>,
     pub journal: Option<BftSigningJournalV3>,
@@ -65,6 +69,7 @@ impl BftSignerStateV3 {
             binding,
             0,
             BftSignerCandidateV3 {
+                membership_install: None,
                 history: Vec::new(),
                 completed_journals: Vec::new(),
                 journal,
@@ -79,6 +84,7 @@ impl BftSignerStateV3 {
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
+            membership_install: candidate.membership_install,
             schema_version: 3,
             binding_digest: binding.digest()?,
             revision,
@@ -95,6 +101,7 @@ impl BftSignerStateV3 {
     }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
+            membership_install: self.membership_install.clone(),
             history: self.history.clone(),
             journal: self.journal.clone(),
             completed_journals: self.completed_journals.clone(),
@@ -172,6 +179,8 @@ pub(crate) struct CheckpointProofInputV3<'a> {
 }
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    membership_install: &'a Option<super::membership::BftMembershipInstallStateV3>,
     schema_version: u32,
     binding_digest: &'a str,
     revision: u64,
@@ -184,6 +193,7 @@ struct StateDigestInput<'a> {
 impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
+            membership_install: &s.membership_install,
             schema_version: s.schema_version,
             binding_digest: &s.binding_digest,
             revision: s.revision,
@@ -248,8 +258,9 @@ pub(crate) fn validate_state(
                 ));
             }
         }
-        if certificate.execution_commitment.transition.is_some()
-            || certificate.execution_commitment.transition_ref.is_some()
+        if state.membership_install.is_none()
+            && (certificate.execution_commitment.transition.is_some()
+                || certificate.execution_commitment.transition_ref.is_some())
         {
             return Err(invalid(
                 "BFT V3 provider membership transitions are not installed",
@@ -297,6 +308,7 @@ pub(crate) fn validate_state(
             ));
         }
     }
+    super::membership::validate_records(binding, state, _provider_public_key)?;
     let validator = schedule
         .active_set()
         .validator(&binding.local_validator_id)
@@ -368,9 +380,7 @@ pub(super) fn validate_signing_install_gate(
             "BFT V3 original driver installation is not confirmed",
         ));
     }
-    if schedule.pending_transition().is_some() || schedule.last_activation_height() > 0 {
-        return Err(invalid("BFT V3 membership installation unsupported"));
-    }
+    super::membership::signing_gate(binding, state, schedule)?;
     if !schedule
         .active_set()
         .validator(&binding.local_validator_id)
@@ -397,6 +407,7 @@ pub(crate) fn validate_candidate_transition(
     {
         return Err(invalid("BFT V3 history is not an exact prefix extension"));
     }
+    super::membership::validate_change(binding, old, candidate, _provider)?;
     let added = candidate.history.len() - old.history.len();
     if added > 1 {
         return Err(invalid("BFT V3 candidate appends more than one QC"));
@@ -491,6 +502,8 @@ pub(crate) fn validate_candidate_transition(
                     ));
                 }
             }
+            _ if candidate.membership_install != old.membership_install
+                && candidate.journal == old.journal => {}
             _ => {
                 return Err(invalid(
                     "BFT V3 candidate is not one legal journal transition",
@@ -503,7 +516,7 @@ pub(crate) fn validate_candidate_transition(
         .checked_add(1)
         .ok_or_else(|| invalid("BFT V3 revision overflow"))?;
     let next = BftSignerStateV3::from_candidate(binding, revision, candidate.clone())?;
-    validate_state(binding, None, &next)
+    validate_state(binding, Some(_provider), &next)
 }
 pub(crate) fn validate_digest(value: &str) -> Result<(), BftSignerErrorV3> {
     if value.len() != 64
@@ -533,7 +546,7 @@ fn bounded_receipts<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Vec<BftDriverAppliedReceiptV3>, D::Error> {
     bounded_sequence(d)
 }
-fn bounded_sequence<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+pub(super) fn bounded_sequence<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<Vec<T>, D::Error> {
     struct Bound<T>(std::marker::PhantomData<T>);
@@ -570,4 +583,9 @@ fn bounded_sequence<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
         }
     }
     d.deserialize_seq(Bound(std::marker::PhantomData))
+}
+
+#[cfg(test)]
+pub(super) fn test_state_digest(state: &BftSignerStateV3) -> String {
+    digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(state)).unwrap()
 }

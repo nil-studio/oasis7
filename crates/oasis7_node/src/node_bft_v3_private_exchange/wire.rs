@@ -1,8 +1,8 @@
 use super::*;
 use ed25519_dalek::{Signature, VerifyingKey};
 use oasis7_consensus::tendermint_v3::BftPeerContextV3;
-pub(super) const PROTOCOL: &str = "/oasis7/bft/private-candidate/1.0.0";
-pub(super) const DOMAIN: &str = "oasis7.bft.private-candidate.exchange.v1";
+pub(super) const PROTOCOL: &str = "/oasis7/bft/private-candidate/2.0.0";
+pub(super) const DOMAIN: &str = "oasis7.bft.private-candidate.exchange.v2";
 pub(super) const MAX_FRAME: usize = 64 * 1024;
 pub(super) const CHUNK: u32 = 16 * 1024;
 pub(super) const MAX_PACKAGE: usize = 66 * 1024 * 1024;
@@ -10,7 +10,9 @@ pub(super) const MAX_PACKAGE: usize = 66 * 1024 * 1024;
 #[serde(deny_unknown_fields)]
 pub(super) struct Target {
     pub context: BftPeerContextV3,
-    pub value: BftHeaderValueV3,
+    pub height: u64,
+    pub header_id: String,
+    pub execution_commitment_hash: String,
     pub kind: NodeBftPrivateFetchKindV3,
     pub requester_peer_id: String,
     pub serving_peer_id: String,
@@ -19,16 +21,16 @@ pub(super) struct Target {
 }
 impl Target {
     pub fn validate(&self) -> Result<(), String> {
-        self.value.validate_binding()?;
-        if self.context.scope != self.value.execution_commitment.scope
-            || self.context.activation_digest != self.value.execution_commitment.activation_digest
-        {
-            return Err("private target public context differs".into());
+        self.context.scope.validate()?;
+        if self.height == 0 {
+            return Err("private target height is zero".into());
         }
         for id in [
             &self.context.activation_digest,
             &self.context.target_digest,
             &self.nonce,
+            &self.header_id,
+            &self.execution_commitment_hash,
         ] {
             hash(id)?;
         }
@@ -43,17 +45,31 @@ impl Target {
     pub fn base_digest(&self) -> Result<String, String> {
         let mut base = self.clone();
         base.operation = BftCandidateReadOperationV3::Manifest;
-        Ok(digest(b"oasis7.bft.private-target.v1", &encode(&base)?))
+        Ok(digest(b"oasis7.bft.private-target.v2", &encode(&base)?))
+    }
+    pub fn validate_value(&self, value: &BftHeaderValueV3) -> Result<(), String> {
+        value.validate_binding()?;
+        if self.context.scope != value.execution_commitment.scope
+            || self.context.activation_digest != value.execution_commitment.activation_digest
+            || self.height != value.execution_commitment.height
+            || self.header_id != value.block_id()?
+            || self.execution_commitment_hash != value.header.execution_commitment_hash
+        {
+            return Err("private compact target differs from original public value".into());
+        }
+        Ok(())
     }
     pub fn pending_body(
         &self,
+        value: &BftHeaderValueV3,
         validator_id: String,
         public_key: String,
         policy: String,
         generation: u64,
-    ) -> BftCandidateReadBodyV3 {
-        let c = &self.value.execution_commitment;
-        BftCandidateReadBodyV3 {
+    ) -> Result<BftCandidateReadBodyV3, String> {
+        self.validate_value(value)?;
+        let c = &value.execution_commitment;
+        Ok(BftCandidateReadBodyV3 {
             schema_version: 3,
             activation_digest: self.context.activation_digest.clone(),
             target_digest: self.context.target_digest.clone(),
@@ -70,13 +86,13 @@ impl Target {
             parent_commit_ref: c.parent_commit_ref.clone(),
             parent_state_root: c.parent_semantic_state_root.clone(),
             parent_manifest_hash: c.manifest_hash.clone(),
-            header_id: self.value.header.block_id().expect("validated header"),
-            execution_commitment_hash: self.value.header.execution_commitment_hash.clone(),
+            header_id: self.header_id.clone(),
+            execution_commitment_hash: self.execution_commitment_hash.clone(),
             requester_peer_id: self.requester_peer_id.clone(),
             serving_peer_id: self.serving_peer_id.clone(),
             nonce: self.nonce.clone(),
             operation: self.operation.clone(),
-        }
+        })
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -90,7 +106,7 @@ pub(super) struct Request {
 }
 impl Request {
     pub fn validate(&self) -> Result<(), String> {
-        if self.domain != DOMAIN || self.schema_version != 1 {
+        if self.domain != DOMAIN || self.schema_version != 2 {
             return Err("private request domain/schema".into());
         }
         self.target.validate()?;
@@ -103,7 +119,7 @@ impl Request {
         }
     }
     pub fn request_digest(&self) -> Result<String, String> {
-        Ok(digest(b"oasis7.bft.private-request.v1", &encode(self)?))
+        Ok(digest(b"oasis7.bft.private-request.v2", &encode(self)?))
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,7 +196,7 @@ pub(super) fn committed_payload(
     subject: &str,
 ) -> Result<Vec<u8>, String> {
     let bytes = encode(&(target, grant, subject))?;
-    let mut payload = b"oasis7.bft.committed-private-read.v1.sign\0".to_vec();
+    let mut payload = b"oasis7.bft.committed-private-read.v2.sign\0".to_vec();
     payload.extend(bytes);
     if payload.len() > MAX_FRAME {
         return Err("committed read preimage capacity".into());
@@ -276,3 +292,7 @@ pub(super) fn scan(bytes: &[u8], package: bool) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "wire_tests.rs"]
+mod tests;

@@ -29,6 +29,7 @@ use super::wire::{
 };
 
 mod candidate_read;
+mod membership;
 mod operations;
 pub use candidate_read::BftCandidateReadPolicyV3;
 
@@ -600,7 +601,35 @@ impl BftSignerServiceV3 {
                 "BFT V3 original driver installation is not confirmed",
             ));
         }
+        if state
+            .membership_install
+            .as_ref()
+            .is_some_and(|m| m.pending.is_some())
+            && !matches!(
+                command,
+                BftSignerCommandV3::Checkpoint
+                    | BftSignerCommandV3::SignCandidateRead { .. }
+                    | BftSignerCommandV3::SignProposal { .. }
+                    | BftSignerCommandV3::SignVote { .. }
+                    | BftSignerCommandV3::PrepareTransitionInstall { .. }
+                    | BftSignerCommandV3::CompleteTransitionInstall { .. }
+            )
+        {
+            return Err(invalid(
+                "BFT V3 original membership installation is pending",
+            ));
+        }
         match command {
+            BftSignerCommandV3::EnableMembership { .. }
+            | BftSignerCommandV3::PrepareTransitionInstall { .. }
+            | BftSignerCommandV3::CompleteTransitionInstall { .. } => self.membership_command(
+                runtime,
+                &credential,
+                token_digest,
+                snapshot,
+                request,
+                request_digest,
+            ),
             BftSignerCommandV3::SignCandidateRead { body } => self.sign_candidate_read(
                 runtime,
                 session,
@@ -622,12 +651,9 @@ impl BftSignerServiceV3 {
                     return Err(invalid("BFT V3 height timer revision is stale"));
                 }
                 let Some(old_journal) = state.journal.as_ref() else {
-                    return self.state_reply(
-                        snapshot,
-                        request,
-                        request_digest,
-                        BftSignerReplyKindV3::HeightTimerStarted,
-                    );
+                    return Err(invalid(
+                        "BFT V3 inactive follower cannot start a signing timer",
+                    ));
                 };
                 if old_journal.height_started_at_ms().is_some() {
                     return self.state_reply(
@@ -637,6 +663,7 @@ impl BftSignerServiceV3 {
                         BftSignerReplyKindV3::HeightTimerStarted,
                     );
                 }
+                validate_signing_install_gate(&self.binding, state, &cached_schedule)?;
                 let now = self.sample_time(runtime, &credential, token_digest)?;
                 let mut candidate = state.candidate();
                 let journal = candidate
@@ -665,6 +692,14 @@ impl BftSignerServiceV3 {
                     || expected_state_digest != &state.state_digest
                 {
                     return Err(invalid("BFT V3 advance checkpoint is stale"));
+                }
+                if candidate.membership_install != state.membership_install {
+                    return Err(invalid(
+                        "BFT V3 ordinary advance cannot change membership installation",
+                    ));
+                }
+                if candidate.journal != state.journal {
+                    validate_signing_install_gate(&self.binding, state, &cached_schedule)?;
                 }
                 if candidate.pending_driver_apply != state.pending_driver_apply
                     || candidate.applied_installs != state.applied_installs

@@ -34,6 +34,21 @@ pub(crate) enum BftSignerCommandV3 {
         expected_generation: u64,
         prepare_nonce: String,
     },
+    EnableMembership {
+        expected_revision: u64,
+        expected_state_digest: String,
+    },
+    PrepareTransitionInstall {
+        expected_revision: u64,
+        expected_state_digest: String,
+        request_id: String,
+        transition_source_height: u64,
+        runtime_instance_id: String,
+    },
+    CompleteTransitionInstall {
+        intent: Box<super::install::BftTransitionInstallIntentV3>,
+        acknowledgement: Box<super::install::BftSignedTransitionInstallAckV3>,
+    },
     Checkpoint,
     ProtectedTime,
     StartHeightTimer {
@@ -147,6 +162,13 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     CandidateReadSigned {
         proof: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadProofV3>,
+    },
+    MembershipEnabled,
+    InstallPreparedPending {
+        intent: Box<super::install::BftTransitionInstallIntentV3>,
+    },
+    InstallPreparedCompleted {
+        receipt: Box<super::install::BftTransitionInstallReceiptV3>,
     },
     CertificateAppended,
     AppliedConfirmed,
