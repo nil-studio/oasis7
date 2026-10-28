@@ -1,7 +1,6 @@
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
-
 pub(super) fn apply_continuity_availability_command(
     state: &WorldState,
     continuity: &mut OrganizationContinuityStateV1,

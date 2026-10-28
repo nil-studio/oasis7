@@ -1,7 +1,6 @@
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
-
 pub(super) fn apply_continuity_remedy_command(
     state: &WorldState,
     rules: &mut WorldRulesStateV1,
