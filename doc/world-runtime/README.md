@@ -15,6 +15,7 @@
 - 想看模块 SDK 的 no_std、共享 wire 与 codec 兼容契约：`doc/world-runtime/wasm/wasm-sdk.prd.md`
 - 想先看运行态体积、恢复与 retention 治理：`doc/world-runtime/runtime/runtime-storage-footprint-governance.prd.md`
 - 想在完整历史前提下减少正式世界存储：[产品要求](../product/world-infrastructure/lossless-world-history-storage.prd.md)与[无损存储系统设计](runtime/formal-world-storage-efficiency.design.md)，覆盖物理共享/压缩、快照与索引演进、临时材料回收、迁移回滚及容量验收。
+- 想以新格式建立状态与历史分离、增量写入及结构化 checkpoint：[增量世界状态存储设计](runtime/incremental-world-state-storage.design.md#iws-scope)。目标为新建世界，不要求旧数据兼容；当前为待实现合同，完整历史与恢复承诺继续适用。
 - 想确认链 PoS 的时间锚、slot/tick 相位、控制面参数、missed accounting 与恢复边界：`doc/world-runtime/runtime/chain-pos-control-plane.prd.md`
 - 想先看线上模块发布合法性与 binary-only 边界：`doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md`
 - 想进入治理事件、审计导出或收据安全专题：`doc/world-runtime/governance/README.md`

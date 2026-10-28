@@ -2,11 +2,11 @@
   "record": {
     "authority_entry": "doc/world-runtime/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "f90832bae72ce42b2de345d4a1f21e655ccd580c6dc4948850b5884fc4eef506",
+    "content_sha256": "bad4fed0fa25d4a959dac1e76a3645bfd3427b5b6bb1c39bcd88888a04e8f9f4",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "active_candidate",
     "object_kind": "design",
-    "path": "doc/world-runtime/runtime/incremental-world-execution.design.md",
+    "path": "doc/world-runtime/runtime/incremental-world-state-storage.design.md",
     "registry_type": "professional_domain",
     "routing_batch": "world-runtime-corpus-review",
     "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",

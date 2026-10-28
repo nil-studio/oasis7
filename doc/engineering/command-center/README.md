@@ -98,7 +98,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 正式 profile 的实际部署仍暂缓；开放条件继续由[基础设施当前阶段](../../product/world-infrastructure/prd.md#world-infrastructure-current-stage)持有。[#4363](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)只保留为历史来源，本段不刷新其他主线或环境的核验时间。
 
-存储实现边界核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选补双端 pin 释放恢复、有预算的默认物理维护与分页收敛，并测同一正式 writer 完整目录维护前后的净占用；短样本仍净增长，不能将对象表示收益当作完整节点节省，最终验收及长跑结果以该 PR 为准。
+存储架构局部核对（2026-10-28，源码基线 `112a627e889cb0601ed368b2c0be204e39e7554a`）：既有 formal 路径已有共享压缩、Snapshot 增量及维护实现，准确范围见[存储设计](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)；[#5196](https://github.com/nil-studio/oasis7/issues/5196) 与 [#5197](https://github.com/nil-studio/oasis7/issues/5197)记录另一条运行路径的 checkpoint 与历史工作集放大。新目标按[产品范围](../../product/world-infrastructure/lossless-world-history-storage.prd.md#lws-new-format-scope)和[增量状态存储设计](../../world-runtime/runtime/incremental-world-state-storage.design.md#iws-scope)，直接为新建世界采用状态与历史分离、事务增量和结构化 checkpoint，不要求旧数据兼容。该设计待实现；现存世界导入、处置与真实独立故障域验收分别跟踪，局部压缩结果不代表完整节点收益，其他主线与环境基线不变。
 
 ### 2. 真实首产物、阻塞恢复与回访
 
