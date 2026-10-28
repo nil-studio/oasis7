@@ -598,7 +598,6 @@ class WorkspaceCache(unittest.TestCase):
         units, value = self.cargo()
         self.assertTrue(all(u['fresh'] for u in units), units)
         self.assertEqual(value, 'alpha:outside:one:one')
-        manifest = json.loads((self.cache / 'manifest.json').read_text())['inputs']
         manifest = json.loads((self.cache / 'manifest.json').read_text())
         cases = [
             ('support/src/lib.rs', self.sources['support/src/lib.rs'].replace('alpha', 'bravo'), None,
