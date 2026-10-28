@@ -610,3 +610,16 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 返回的 `CheckedFactOriginals` 只绑定该 body、FactSet、三种 occurrence 数和原 bytes 总数，不提供 Clone、反序列化或接受/回执构造能力。它证明当前事实原件的字节身份，不验证事实类型、业务语义、所有状态 value、历史工件、独立耐久域或服务资格。完整 endpoint/frozen/恢复验证及发布仍须接通；新世界仍未激活。
 
 局部方法：协议库 `incremental_material::tests::fact_originals` 覆盖精确额度、原序/重复/空原件、缺失/替换、输出后失败、谎报长度、忽略 sink 错误、取消及 unwind 不退额度。实际来源 `incremental_page_store::objects::tests::material::large_fact_streams_after_reopen_with_less_memory_than_original` 使用 8 MiB 共享池（保留 3 MiB recovery），写入并重开 64 MiB+17 bytes 原件；整件拥有方式无法准入，而按同一 FactSet 的流式校验可在普通预算内完成。这是原字节读回与 reservation 的组件证据，不是进程 RSS、固定 H/S 规模、完整世界恢复、业务/provider oracle 或真实故障域验收。
+
+
+### 12.17 差量新写 value 的完整内容检查
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；承接 §5.1 和 §12.15 的状态叶目标检查。`ValueReadContext::verify_closure` 从预期 value descriptor digest 开始，读取 descriptor 及每个 typed index/data 后代，验证实际原 bytes、同池 carrier/capacity charge、内容 hash、深度与子边界、总逻辑长度。空 value 也必须有真实空 data 叶；零长度 range 的正常无 IO 行为不能代替该闭包检查。与窄 range 共享逐页内容验证实现，原 range 的读取范围和输出预算语义不变。
+
+完整遍历先取得固定共享 workspace，再用最多 depth×(fanout−1)+1 个待访问引用按原序深度优先读取；不建立与 value 大小增长的 visited set。重复子引用按 occurrence 读取和计数，所有读取在节点/原编码 bytes allowance 与取消检查下执行，descriptor 计入节点数。逻辑长度上限在 descriptor 解码后、读取后代前核对；无输出 bytes，不消费输出 allowance。来源失败或 unwind 已消费的逻辑/物理读取额度不退还，失败不返回部分 summary，末页后仍检查取消。
+
+`verify_written_values` 消费不可变结构 core 的已认证 TransitionRecord，按最终 write-set 检查每个非删除 after value 引用。每次先扣 value occurrence 和 max_value_bytes 限定的逻辑 bytes 准入，完成整棵检查才退还未使用部分；同一 value 出现在多个写入中仍逐次验证。不从仅可读根、已存叶或缓存命中推断 value 可读。当前为 ordinary 候选差量路径，要求 core 与 context 同池且 context class 为 ordinary。没有 transition 的创世提交被明确拒绝，不能返回空标记冒充创世状态闭包。删除不产生新 value 义务。
+
+输出 `CheckedWrittenValues` 只绑定当前 body、value occurrence、逻辑 bytes 和实际页 occurrence 总数，没有 Clone、反序列化或接受能力。它不证明父/创世全部状态闭包、字段类型与业务规则、历史工件、持久域、保护根或最终回执；旧材料与新世界仍未激活。创世/恢复的全部状态枚举，以及完整 endpoint 物料接线仍需后续完成；普通提交不得通过全状态枚举补此差量检查。
+
+局部方法：协议库 `incremental_value::tests::closure_tests` 与 `incremental_material::tests::written_value_tests` 覆盖重复页 occurrence、空值缺叶、窄读未经过的叶缺失、精确节点/读取额度与少一额度、最大逻辑长度、取消、来源 unwind、实际 transition after 引用及创世/class 拒绝。真实来源方法为 `incremental_page_store::tests::complete_value_closure_reopens_above_sixty_four_mib_under_small_pool`：在 8 MiB 共享池（3 MiB recovery 预留）中写入、重开并遍历 64 MiB+17 bytes value 的 1036 个页 occurrence，不申请整件值、不消费输出额度；另核对途中取消的已消费读取和 workspace 释放。该证据只覆盖 value 闭包与真实页适配器，不能代替固定 H/S、进程 RSS、完整世界恢复、provider oracle 或独立故障域验收。

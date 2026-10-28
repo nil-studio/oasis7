@@ -374,14 +374,20 @@ fn exact_core_allowances_pass_and_one_less_cannot_finish() {
     }
 }
 
-#[test]
-fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_required() {
+fn execution_sources(
+    s: &Setup,
+    value: [u8; 32],
+) -> (
+    Objects,
+    Pages,
+    VerifiedCandidateContextV1,
+    ReservedValue<crate::incremental_execution::PreparedTransition>,
+) {
     use crate::incremental_execution::{
         ExecutionFactKindV1, ExecutionFactRefV1, ExecutionTransaction, TransactionLimits,
     };
-    let s = setup();
     let _operation_workspace = s.memory.reserve(128 * 1024, MemoryClass::Ordinary).unwrap();
-    let (mut objects, mut pages) = sources(&s, &s.history);
+    let (mut objects, mut pages) = sources(s, &s.history);
     let authority = incremental::authority_binding(&s.authority, &s.memory).unwrap();
     let parent = ExecutionParent {
         commit: s.history.body.digest().unwrap(),
@@ -405,7 +411,13 @@ fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_require
     txn.write(
         crate::incremental_state::StateNamespaceV1::Business,
         b"counter",
-        Some([9; 32]),
+        Some(value),
+    )
+    .unwrap();
+    txn.write(
+        crate::incremental_state::StateNamespaceV1::Business,
+        b"counter-two",
+        Some(value),
     )
     .unwrap();
     txn.append_fact(ExecutionFactRefV1 {
@@ -425,7 +437,7 @@ fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_require
             Arc::new(charge.retain(node.bytes.clone())),
         );
     }
-    let (_, parent_catalog) = core_objects(&s, &s.history);
+    let (_, parent_catalog) = core_objects(s, &s.history);
     let history = HeaderPreparation {
         config: &s.config,
         catalog: &parent_catalog.after,
@@ -448,7 +460,7 @@ fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_require
     record.request_digest = fixture::h(60);
     record.payload_digest = fixture::h(61);
     record.runtime_manifest_digest = fixture::h(62);
-    let frozen = fixture::incremental::frozen(&s);
+    let frozen = fixture::incremental::frozen(s);
     record.frozen_reservation_id = Some(frozen.reservation.body.reservation_id().unwrap());
     record.after_state_root = hex::encode(transition.record.after.digest().unwrap());
     for (key, value) in [
@@ -532,6 +544,13 @@ fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_require
             Arc::new(charge.retain(node.bytes.clone())),
         );
     }
+    (objects, pages, candidate, transition)
+}
+
+#[test]
+fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_required() {
+    let s = setup();
+    let (mut objects, mut pages, candidate, transition) = execution_sources(&s, [9; 32]);
     let request = CoreRequest {
         candidate: &candidate,
         original_authority: &s.authority,
@@ -629,3 +648,6 @@ fn caught_source_unwind_does_not_refund_merkle_allowance() {
 
 #[path = "incremental_fact_material_tests.rs"]
 mod fact_originals;
+
+#[path = "incremental_written_values_tests.rs"]
+mod written_value_tests;

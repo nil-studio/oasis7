@@ -650,3 +650,67 @@ fn killed_publisher_reopens_and_retries_the_same_page_at_each_filesystem_boundar
         assert!(!fixture.store().join("head").exists());
     }
 }
+
+#[test]
+fn complete_value_closure_reopens_above_sixty_four_mib_under_small_pool() {
+    use std::io::Read;
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 3 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let length = (64 << 20) + 17;
+    let mut sink = store.value_session(physical_io());
+    let root = write_value(
+        &mut std::io::repeat(0x4c).take(length),
+        length,
+        &mut sink,
+        &memory,
+        &mut logical_io(),
+        || false,
+    )
+    .unwrap();
+    let id = root.digest().unwrap();
+    drop(sink);
+    drop(store);
+    let store = IncrementalPageStore::open(
+        &fixture.store(),
+        memory.clone(),
+        PageCompression::Raw,
+        MemoryClass::Ordinary,
+    )
+    .unwrap();
+    let source = store.value_session(physical_io());
+    let mut logical = logical_io();
+    logical.write_bytes_remaining = 0;
+    let before = memory.used();
+    let checked = ValueReadContext {
+        source: &source,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        io: &mut logical,
+    }
+    .verify_closure(&id, length, || false)
+    .unwrap();
+    assert_eq!(checked.root(), root);
+    assert_eq!(checked.node_occurrences(), 1036);
+    assert_eq!(logical.nodes_remaining, 100000 - 1036);
+    assert_eq!(logical.write_bytes_remaining, 0);
+    assert_eq!(memory.used(), before);
+    let mut calls = 0;
+    assert!(matches!(
+        ValueReadContext {
+            source: &source,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut logical
+        }
+        .verify_closure(&id, length, || {
+            calls += 1;
+            calls > 10
+        }),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert_eq!(logical.nodes_remaining, 100000 - 1036 - 10);
+    assert_eq!(memory.used(), before);
+}

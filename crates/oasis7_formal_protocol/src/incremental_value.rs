@@ -9,8 +9,11 @@ use std::sync::Arc;
 
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryLimitExceeded, ReservedValue};
 
+#[path = "incremental_value_closure.rs"]
+mod closure;
 #[path = "incremental_value_codec.rs"]
 mod codec;
+pub use closure::ValueClosureSummary;
 #[path = "incremental_value_stream_writer.rs"]
 mod stream_writer;
 use codec::{Node, decode_node, encode_index, encode_leaf, expected_size, span};
@@ -379,16 +382,7 @@ impl<R: ValueNodeReader> ValueReadContext<'_, R> {
             if cancelled() {
                 return Err(ValueTreeError::Cancelled);
             }
-            let size = expected_size(&reference)?;
-            io.node(size as u64, 0)?;
-            let bytes = source.read_node(&reference.id, size, memory, class)?;
-            if !bytes.uses_budget(memory)
-                || bytes.reserved_bytes() < bytes.capacity()
-                || bytes.len() != size
-                || blake3::hash(&bytes).as_bytes() != &reference.id
-            {
-                return Err(ValueTreeError::Invalid("uncharged or wrong value node"));
-            }
+            let bytes = read_verified_node(&reference, source, memory, class, io)?;
             match decode_node(&bytes, &reference)? {
                 Node::Leaf(data) => {
                     let from = offset.saturating_sub(start) as usize;
@@ -430,3 +424,23 @@ mod tests;
 #[cfg(test)]
 #[path = "incremental_value_streaming_tests.rs"]
 mod streaming_tests;
+
+fn read_verified_node(
+    reference: &ValueNodeRefV1,
+    source: &impl ValueNodeReader,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    io: &mut ValueIoBudget,
+) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+    let size = expected_size(reference)?;
+    io.node(size as u64, 0)?;
+    let bytes = source.read_node(&reference.id, size, memory, class)?;
+    if !bytes.uses_budget(memory)
+        || bytes.reserved_bytes() < bytes.capacity()
+        || bytes.len() != size
+        || blake3::hash(&bytes).as_bytes() != &reference.id
+    {
+        return Err(ValueTreeError::Invalid("uncharged or wrong value node"));
+    }
+    Ok(bytes)
+}

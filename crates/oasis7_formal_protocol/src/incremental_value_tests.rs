@@ -613,3 +613,6 @@ fn caught_cancellation_panic_does_not_restore_push_writer() {
     assert!(store.nodes.is_empty());
     assert_eq!(memory.used(), 0);
 }
+
+#[path = "incremental_value_closure_tests.rs"]
+mod closure_tests;

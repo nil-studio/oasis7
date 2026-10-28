@@ -19,6 +19,9 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 #[path = "incremental_fact_material.rs"]
 mod fact_material;
 pub use fact_material::*;
+#[path = "incremental_written_values.rs"]
+mod written_values;
+pub use written_values::*;
 
 use std::{
     cell::{Cell, RefCell},
