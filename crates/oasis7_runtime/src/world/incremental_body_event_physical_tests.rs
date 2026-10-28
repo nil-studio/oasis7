@@ -61,10 +61,10 @@ fn contribute(
     let live = parent.fence().unwrap();
     let mut txn = ExecutionTransaction::begin(parent, [4; 32], &source, memory, limits()).unwrap();
     world
-        .contribute_iws_body_event(
+        .contribute_iws_agent_event(
             event,
             &mut txn,
-            &mut BodyEventContext {
+            &mut AgentEventContext {
                 values: &values,
                 mutation: BodyMutationContext {
                     sink: &mut sink,
@@ -217,6 +217,94 @@ fn physical_event_original_reopens_and_actual_body_continuation_is_deterministic
 }
 
 #[test]
+fn physical_move_reopens_and_continues_from_authenticated_positions() {
+    use super::moves::{moved, seed_positions};
+    use oasis7_agent_api::world_action::GeoPos;
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (world, mut parent, mut state) = fixture(&memory);
+    let mut values = Values::default();
+    seed(
+        &world,
+        &mut parent,
+        &mut state,
+        &mut values,
+        &memory,
+        EventSequenceV1 { next: 1, era: 0 },
+        MailboxFrontierV1 { head: 0, tail: 0 },
+    );
+    seed_positions(&world, &mut parent, &mut state, &mut values, &memory);
+    let root = directory.0.join("move-pages");
+    let store = IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap();
+    install_fixture_pages(&store, &memory, &state, &values);
+    let cancelled = AtomicBool::new(false);
+    drop(IncrementalObjectStore::create(&store, &mut physical_io(), &cancelled).unwrap());
+    let event = moved(1, GeoPos::new(3, 4, 5));
+    let first = contribute(&world, &event, parent.clone(), &store, &memory);
+    let mut source = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    source.persist_transition_pages(&first).unwrap();
+    let next_parent = ExecutionParent {
+        commit: [8; 32],
+        roots: first.record.after.clone(),
+        authority: parent.authority,
+    };
+    let next = moved(2, GeoPos::new(6, 7, 8));
+    let expected = contribute(&world, &next, next_parent.clone(), &store, &memory);
+    drop(source);
+    drop(store);
+    let recovery = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let store = IncrementalPageStore::open(
+        &root,
+        recovery.clone(),
+        PageCompression::Raw,
+        MemoryClass::Recovery,
+    )
+    .unwrap();
+    let source = store
+        .state_session(physical_io(), MemoryClass::Recovery)
+        .unwrap();
+    TransitionVerifier {
+        parent: &parent,
+        operation: [4; 32],
+        source: &source,
+        memory: &recovery,
+        class: MemoryClass::Recovery,
+        max_pending_node_bytes: 4 << 20,
+    }
+    .verify(&first.record)
+    .unwrap();
+    let objects = IncrementalObjectStore::open(
+        &store,
+        MemoryClass::Recovery,
+        &mut physical_io(),
+        &cancelled,
+    )
+    .unwrap();
+    let original = objects
+        .read_object_owned(
+            &first.record.facts[0].id,
+            4096,
+            &mut ObjectIo {
+                physical: &mut physical_io(),
+                logical: &mut logical_io(),
+                class: MemoryClass::Recovery,
+                cancelled: &cancelled,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        original.as_slice(),
+        oasis7_wasm_abi::encode_canonical_cbor(&event).unwrap()
+    );
+    let resumed = contribute(&world, &next, next_parent, &store, &recovery);
+    assert_eq!(resumed.record, expected.record);
+    assert_eq!(resumed.new_nodes, expected.new_nodes);
+    assert_eq!(world.state.agents["alice"].state.pos, GeoPos::new(0, 0, 0));
+}
+
+#[test]
 fn prepared_driver_material_persists_roots_history_and_catalog_without_selecting_head() {
     use super::commit::{request, setup};
     use oasis7_formal_protocol::incremental_execution::RootSetV1;
@@ -245,10 +333,10 @@ fn prepared_driver_material_persists_roots_history_and_catalog_without_selecting
             &memory,
             || Ok::<_, BodyMutationError>(fence),
             |world, txn| {
-                world.contribute_iws_body_event(
+                world.contribute_iws_agent_event(
                     &original,
                     txn,
-                    &mut BodyEventContext {
+                    &mut AgentEventContext {
                         values: &reader,
                         mutation: BodyMutationContext {
                             sink: &mut sink,

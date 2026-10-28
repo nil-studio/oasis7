@@ -176,10 +176,10 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
     let mut txn =
         ExecutionTransaction::begin(parent.clone(), [4; 32], &state, &memory, limits()).unwrap();
     world
-        .contribute_iws_body_event(
+        .contribute_iws_agent_event(
             &original,
             &mut txn,
-            &mut BodyEventContext {
+            &mut AgentEventContext {
                 values: &source,
                 mutation: BodyMutationContext {
                     sink: &mut values,
@@ -303,10 +303,10 @@ fn late_original_or_fact_failure_prevents_sealing_all_staged_state() {
         txn.write(Ns::Business, b"outer-debit", Some([9; 32]))
             .unwrap();
         let called = Cell::new(false);
-        let result = world.contribute_iws_body_event(
+        let result = world.contribute_iws_agent_event(
             &original,
             &mut txn,
-            &mut BodyEventContext {
+            &mut AgentEventContext {
                 values: &source,
                 mutation: BodyMutationContext {
                     sink: &mut values,
@@ -369,10 +369,10 @@ fn mailbox_offsets_and_event_era_preserve_original_allocator_semantics() {
     let live = parent.fence().unwrap();
     let mut txn = ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
     world
-        .contribute_iws_body_event(
+        .contribute_iws_agent_event(
             &event(&world, u64::MAX),
             &mut txn,
-            &mut BodyEventContext {
+            &mut AgentEventContext {
                 values: &source,
                 mutation: BodyMutationContext {
                     sink: &mut values,
@@ -483,7 +483,7 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
     let mut txn = ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
     let mut ids = Vec::new();
     let mut quota = io();
-    let mut context = BodyEventContext {
+    let mut context = AgentEventContext {
         values: &source,
         mutation: BodyMutationContext {
             sink: &mut values,
@@ -505,7 +505,7 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
             view.mass_kg += id - 1;
         }
         world
-            .contribute_iws_body_event(&next, &mut txn, &mut context)
+            .contribute_iws_agent_event(&next, &mut txn, &mut context)
             .unwrap();
     }
     let guard = txn.guard();
@@ -529,3 +529,6 @@ mod physical;
 
 #[path = "incremental_commit_tests.rs"]
 mod commit;
+
+#[path = "incremental_agent_move_tests.rs"]
+mod moves;

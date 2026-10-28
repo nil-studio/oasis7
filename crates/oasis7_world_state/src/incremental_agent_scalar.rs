@@ -1,5 +1,6 @@
 use super::*;
 const DOMAIN: &[u8] = b"oasis7.iws.agent-scalar.v1\0";
+pub const AGENT_I64_VALUE_BYTES: usize = DOMAIN.len() + 9;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum AgentScalarRefV1<'a> {
     U8(u8),

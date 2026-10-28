@@ -682,3 +682,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 Runtime 的 `write_agent_scalar_value` 先准入固定 metadata 和最大逻辑长度，直接借用标量向既有 ValueStreamWriter 写入；不生成整件编码 Vec，修改 status 不读取或编码 summary。`World::write_iws_agent_genesis_fields` 逐个发出 typed key/value 引用，body、mailbox frontier 和原事件引用复用既有格式。mailbox 每个 occurrence 必须由调用者解析到实际持久化的原 WorldEvent；缺失 provenance 失败，不能从 DomainEvent 合成原 envelope。输出回调负责同池计费和临时状态写入，全部成功前不能安装活 World 或发布 head。取消、IO、来源、限额或回调失败不返回成功 count。
 
 本节只提供 AgentCell 子字段和单 agent 创世准备。其余 Runtime 字段 codec、普通业务 reducer、全部世界根构造、原件语义对应、恢复重建、端点与 durable head 尚未完成；这些组件不能签发完整世界、可写恢复或服务资格。局部验证核对直接 wire 向量、原顺序及重复条目、借用地址、非法 key/type、来源状态不变、mailbox 原 occurrence、失败路径，以及大于 64 MiB summary 的真实存储写入重开和独立小 status 写入；该证据不能代替 §11 的 H/S、RSS、J1/J2/provider oracle 与独立故障域验收。
+
+
+### 12.22 移动原事件的同事务字段更新
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.12、§12.21。原 body-event 入口扩为 `World::contribute_iws_agent_event`，当前明确支持 BodyAttributesUpdated 和 AgentMoved，其余事件拒绝。原上下文改名 AgentEventContext，既有调用者同步更新，不保留同义入口。
+
+移动复用原事件的 canonical bytes、flat digest、allocator/era、稳定 mailbox ordinal、原件持久化与事实顺序。同一 ExecutionTransaction 读取精确父根或此前 overlay 中的坐标、body/last_active 和世界时钟；坐标按 §12.21 的固定 i64 标量解码，只为实际变化的坐标及 last_active 写新值。不读取完整 AgentCell、intent summary 或历史，不从物化 cache 推导坐标前值。既有 reducer 使用 `to` 和当前 reducer 时钟更新已存在 agent，原 `from` 保留在原事件中，不新增与旧 reducer 不一致的 from-cache 前置条件。事件时间仍需与当前 reducer 时钟和认证时钟一致；本入口不替代动作策略、授权、receipt 语义或完整 driver 的正式接线。
+
+连续移动读取先前 overlay，last_active 已相同或坐标未变时不产生额外状态写入，原事件及 mailbox occurrence 仍完整保留。缺字段/页、标量类型错误、错误时钟、取消、预算耗尽或原件持久化失败均使整个外层事务不能 seal，包含此前已暂存的无关写入。临时页不代表提交，World cache 不安装。
+
+局部验证包括连续移动的精确原事件、直接坐标预期值、旧 cache 与认证位置不同时仍使用 overlay、i64 极值、完整 TransitionRecord 重建，以及缺字段/时钟/取消/额度/晚原件失败。真实存储方法 `physical_move_reopens_and_continues_from_authenticated_positions` 持久化首次移动页与原事件，重开后核对 transition 和原 bytes，再从同一认证父根继续第二次移动并与不中断分支比较。这只证明该 reducer 及既有页/原对象适配器，尚非完整 World 恢复、正式 head/authority 接受、scheduler/provider 续跑或独立故障域验收。

@@ -116,10 +116,10 @@ fn actual_body_driver_seals_one_consistent_candidate_and_keeps_all_charges() {
                 Ok::<_, BodyMutationError>(fence)
             },
             |world, txn| {
-                world.contribute_iws_body_event(
+                world.contribute_iws_agent_event(
                     &original,
                     txn,
-                    &mut BodyEventContext {
+                    &mut AgentEventContext {
                         values: &source,
                         mutation: BodyMutationContext {
                             sink: &mut values,
@@ -203,10 +203,10 @@ fn live_fence_conflicts_at_each_driver_boundary_discard_candidate_only() {
             },
             |world, txn| {
                 applied.set(true);
-                world.contribute_iws_body_event(
+                world.contribute_iws_agent_event(
                     &original,
                     txn,
-                    &mut BodyEventContext {
+                    &mut AgentEventContext {
                         values: &source,
                         mutation: BodyMutationContext {
                             sink: &mut values,

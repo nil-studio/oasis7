@@ -1,4 +1,4 @@
-//! Original body-event fact, allocator and mailbox contribution in one overlay.
+//! Original agent-event fact, allocator and mailbox contribution in one overlay.
 //! Acceptance, consensus and cache installation remain outer driver operations.
 use super::body::PreparedBodyAttributesUpdate;
 use super::{
@@ -19,7 +19,7 @@ use oasis7_world_state::incremental_agent_body::{
 };
 use oasis7_world_state::incremental_event_fields::*;
 
-pub struct BodyEventContext<'a, V, W, C, F> {
+pub struct AgentEventContext<'a, V, W, C, F> {
     pub values: &'a V,
     pub mutation: BodyMutationContext<'a, W, C>,
     /// Persist exact original bytes under expected flat ID, or return failure.
@@ -28,7 +28,7 @@ pub struct BodyEventContext<'a, V, W, C, F> {
     pub max_event_bytes: usize,
 }
 
-fn read_fixed<const N: usize, V: ValueNodeReader, R: MerkleNodeReader, W, C>(
+pub(super) fn read_fixed<const N: usize, V: ValueNodeReader, R: MerkleNodeReader, W, C>(
     txn: &mut ExecutionTransaction<'_, R>,
     namespace: Ns,
     key: &[u8],
@@ -63,10 +63,10 @@ where
 }
 
 impl World {
-    /// Stage a complete body event's state changes and exact original fact.
+    /// Stage body-attribute or move state changes and the exact original fact.
     /// No hot journal scan/copy, tick consensus reconstruction or state hash.
     /// The caller supplies a borrowed original envelope and the common txn.
-    pub fn contribute_iws_body_event<
+    pub fn contribute_iws_agent_event<
         R: MerkleNodeReader,
         V: ValueNodeReader,
         W: ValueNodeWriter,
@@ -76,7 +76,7 @@ impl World {
         &self,
         event: &WorldEvent,
         txn: &mut ExecutionTransaction<'_, R>,
-        context: &mut BodyEventContext<'_, V, W, C, F>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
     ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
@@ -85,17 +85,21 @@ impl World {
                 caused_by: _,
                 body: _,
             } = event;
-            let WorldEventBody::Domain(
-                domain @ DomainEvent::BodyAttributesUpdated {
-                    agent_id,
-                    view,
-                    reason,
-                },
-            ) = &event.body
-            else {
+            let WorldEventBody::Domain(domain) = &event.body else {
                 return Err(BodyMutationError::Invalid(
-                    "unsupported incremental body event",
+                    "unsupported incremental agent event",
                 ));
+            };
+            let (agent_id, reason) = match domain {
+                DomainEvent::BodyAttributesUpdated {
+                    agent_id, reason, ..
+                } => (agent_id, reason.as_str()),
+                DomainEvent::AgentMoved { agent_id, .. } => (agent_id, ""),
+                _ => {
+                    return Err(BodyMutationError::Invalid(
+                        "unsupported incremental agent event",
+                    ));
+                }
             };
             if !txn.uses_budget(context.mutation.memory) {
                 return Err(BodyMutationError::Invalid("transaction memory pool"));
@@ -153,7 +157,7 @@ impl World {
                 ));
             }
 
-            // Body events contain only fixed scalars and these three strings.
+            // Supported events contain only fixed scalars and these three strings.
             // Admit the existing canonical ABI encoder's full temporary model,
             // sorting scratch and growable output before it allocates anything.
             let cause_bytes = match event.caused_by.as_ref() {
@@ -193,36 +197,54 @@ impl World {
             drop(workspace);
             let id = *blake3::hash(&bytes).as_bytes();
 
-            let key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
-            let current = AgentBodyValueV1::from_canonical_bytes(&read_fixed::<
-                AGENT_BODY_VALUE_BYTES,
-                _,
-                _,
-                _,
-                _,
-            >(
-                txn,
-                Ns::Business,
-                key.as_bytes(),
-                context.values,
-                &mut context.mutation,
-            )?)
-            .map_err(BodyMutationError::Invalid)?;
-            super::body::validate_body_kernel_view(&current.body_view, view)
-                .map_err(BodyMutationError::Rejected)?;
-            let _prepared_charge = context
-                .mutation
-                .memory
-                .reserve(agent_id.len() + 512, MemoryClass::Ordinary)
-                .map_err(ExecutionError::Memory)?;
-            let prepared =
-                PreparedBodyAttributesUpdate::new(agent_id.clone(), view.clone(), event.time);
-            prepared.contribute_iws(
-                &current.body_view,
-                current.last_active,
-                txn,
-                &mut context.mutation,
-            )?;
+            match domain {
+                DomainEvent::BodyAttributesUpdated { view, .. } => {
+                    let key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
+                    let current = AgentBodyValueV1::from_canonical_bytes(&read_fixed::<
+                        AGENT_BODY_VALUE_BYTES,
+                        _,
+                        _,
+                        _,
+                        _,
+                    >(
+                        txn,
+                        Ns::Business,
+                        key.as_bytes(),
+                        context.values,
+                        &mut context.mutation,
+                    )?)
+                    .map_err(BodyMutationError::Invalid)?;
+                    super::body::validate_body_kernel_view(&current.body_view, view)
+                        .map_err(BodyMutationError::Rejected)?;
+                    let _prepared_charge = context
+                        .mutation
+                        .memory
+                        .reserve(agent_id.len() + 512, MemoryClass::Ordinary)
+                        .map_err(ExecutionError::Memory)?;
+                    let prepared = PreparedBodyAttributesUpdate::new(
+                        agent_id.clone(),
+                        view.clone(),
+                        event.time,
+                    );
+                    prepared.contribute_iws(
+                        &current.body_view,
+                        current.last_active,
+                        txn,
+                        &mut context.mutation,
+                    )?;
+                }
+                DomainEvent::AgentMoved { to, .. } => {
+                    super::incremental_agent_move::contribute_move(
+                        agent_id,
+                        to,
+                        event.time,
+                        txn,
+                        context.values,
+                        &mut context.mutation,
+                    )?;
+                }
+                _ => unreachable!("event kind was checked before any contribution"),
+            }
             let next_ref = write_field_bytes(
                 &EventSequenceV1 { next, era }.canonical_bytes(),
                 &mut context.mutation,
