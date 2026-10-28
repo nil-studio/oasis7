@@ -16,8 +16,9 @@
 
 Viewer 的 WS 目标由 launcher 的部署配置注入 HTML 中唯一的 `oasis7-viewer-runtime-config` JSON 数据节点。公开反代部署启动 launcher 前设置 `OASIS7_VIEWER_PUBLIC_WS_URL=wss://<公开域名>/<实际 runtime 路径>`，包括反代要求的固定 query；该值必须与浏览器真正访问的 WSS 目标一致。不得从请求 `Host`、分享 URL 的 `ws`/`addr` 或 `hosted_access` 展示提示推导信任目标。缺失或重复的数据节点、无效配置、不同端口/路径/query、userinfo 和 fragment 均阻止认证连接。
 
-本地直接访问从实际 runtime bind 生成 WS 目标；`0.0.0.0`/`[::]` 明确映射为 loopback，只用于同机访问。远程访问必须配置浏览器可访问的公开 WSS URL；指定远程 hosted bind 而未配置公开目标时，launcher 拒绝启动。分享 URL 可省略 `ws`/`addr`；保留参数时，它只能等于注入配置的规范化完整目标。静态 HTML 必须由 launcher 的配置注入链提供，不能直接部署一份缺配置的 release HTML 并通过 query 指定任意 runtime。
+本地直接访问从实际 runtime bind 生成 WS 目标；`0.0.0.0`/`[::]` 明确映射为 loopback，只用于同机访问。远程访问必须配置浏览器可访问的公开 WSS URL；指定远程 hosted bind 而未配置公开目标时，launcher 拒绝启动。
 
+分享 URL 可省略 `ws`/`addr`；保留参数时，它只能等于注入配置的规范化完整目标。静态 HTML 必须由 launcher 的配置注入链提供，不能直接部署一份缺配置的 release HTML 并通过 query 指定任意 runtime。
 
 - `public player plane`：只承载公开 Viewer/join URL、guest/player session 与经服务端授权的低风险玩家动作。
 - `private control plane`：承载 world lifecycle、operator control、配置、封禁和恢复；默认只允许 loopback、私网、VPN、堡垒机或受控 tunnel。

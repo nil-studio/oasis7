@@ -10,7 +10,11 @@
 
 v1 `network_tier_manifest.rs` 保留 `local_devnet=preview+ephemeral`、`public_testnet=testnet+resettable`、`mainnet=production+frozen` 的兼容校验；下文旧 schema、tier 表和组合规则适用于 v1，不代表世界保留承诺的唯一合法组合，也不证明持久单权威已实现。
 
-目标在既有 manifest 中分别表达网络环境/发行阶段、世界生命周期/保留承诺、合法提交 authority profile/激活版本，以及资产价值/faucet/结算资格。受限 preview 的正式世界可承诺持久保留合法身份、设施、材料、资格及来源；生产结算资格由经济规则与发行条件独立决定，修改 tier 不升值测试奖励，也不能因此清空已承诺世界。`frozen + preview` 只是需求组合；`token_policy.reset_policy` 不足以代表全世界保留，字段归属、兼容迁移、示例与 readiness 消费者须随实现共同闭合，不能仅放宽枚举后宣称保证成立。
+目标在既有 manifest 中分别表达网络环境/发行阶段、世界生命周期/保留承诺、合法提交 authority profile/激活版本，以及资产价值/faucet/结算资格。
+
+受限 preview 的正式世界可承诺持久保留合法身份、设施、材料、资格及来源；生产结算资格由经济规则与发行条件独立决定，修改 tier 不升值测试奖励，也不能因此清空已承诺世界。
+
+`frozen + preview` 只是需求组合；`token_policy.reset_policy` 不足以代表全世界保留，字段归属、兼容迁移、示例与 readiness 消费者须随实现共同闭合，不能仅放宽枚举后宣称保证成立。
 
 固定 `world_id`、`chain_id`、`genesis_hash` 与可演进软件/runtime manifest/authority 分开；后者只能按同世界历史合法升级。已有保留承诺时沿既有身份接续，隔离 local/dev 不并入长期世界。正式提交 profile、持久性和交接验收见 [P2P 合同](../prd.md#p2p-authority-profiles)；当前公开状态仍以根 README 和同候选任务证据为准。v2 的计划配置声明不授予运行权威。
 
@@ -36,13 +40,13 @@ v2 在同一 manifest 增加 `release_policy.stage`、`world_policy.world_id/ret
 
 ## 2. User Experience & Functionality
 - User Personas:
-  - `producer_system_designer`：需要把“旧 shared_devnet rehearsal 字段何时只能作为历史共享预演，什么时候才叫 public_testnet / mainnet”冻结成正式口径。
+  - `producer_system_designer`：需要固定正式口径，明确旧 shared_devnet rehearsal 字段何时仅表示历史共享预演，以及何时才能称为 public_testnet / mainnet。
   - `runtime_engineer`：需要知道一个网络 tier 至少要固定哪些字段，后续 runtime/config 才能围绕单一 manifest 接线。
   - `qa_engineer`：需要知道 testnet/mainnet 的 promotion gate、reset/faucet 边界和 current verdict，避免把 rehearsal 当上线。
   - `liveops_community`：需要知道哪些 tier 可以公开给外部访问，哪些还只能作为团队内部共享轨道。
   - 外部测试者 / validator 候选：需要知道 public testnet 能做什么，不能把 testnet 资产、faucet 或节点准入误认为 mainnet 承诺。
 - User Scenarios & Frequency:
-  - 每次准备把 `public_testnet` 对外开放或把 `mainnet` 进入正式 gate 前执行一次。
+  - 每次准备对外开放 `public_testnet` 或让 `mainnet` 进入正式 gate 前执行一次。
   - 每次准备冻结公共 RPC、explorer、faucet 或 testnet reset policy 时执行一次。
   - 每次出现“这个环境算 testnet 还是 mainnet”类争议时复用。
 - User Stories:
@@ -74,8 +78,8 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385；[REQ-ENTRY-CLAIM-003](
 <a id="tier-manifest-fields-acceptance"></a>
 ### Manifest 字段验收
 
-  - AC-3: `public_testnet` 的最小 manifest 字段必须至少包含 `network_id`、`chain_id`、`release_candidate_bundle_ref`、`genesis_ref`、`bootstrap_peer_ref`、`rpc_ref`、`explorer_ref`、`faucet_ref`、`reset_policy`、`validator_admission`、`allowed_claims` 与 `denied_claims`。
-  - AC-4: `mainnet` 的最小 manifest 字段必须至少包含 `network_id`、`chain_id`、`release_candidate_bundle_ref`、`genesis_ref`、`bootstrap_peer_ref`、`rpc_ref`、`reset_policy=frozen`、`faucet_mode=none`、`validator_admission=governance_registry_only`，并把 `MAINNET-1~4` 写入 required gates。
+  - AC-3: `public_testnet` 的 manifest 必须至少包含 `network_id`、`chain_id`、`release_candidate_bundle_ref`、`genesis_ref`、`bootstrap_peer_ref`、`rpc_ref`、`explorer_ref`、`faucet_ref`、`reset_policy`、`validator_admission`、`allowed_claims` 与 `denied_claims`。
+  - AC-4: `mainnet` 的 manifest 必须至少包含 `network_id`、`chain_id`、`release_candidate_bundle_ref`、`genesis_ref`、`bootstrap_peer_ref`、`rpc_ref`、`reset_policy=frozen`、`faucet_mode=none`、`validator_admission=governance_registry_only`，并把 `MAINNET-1~4` 写入 required gates。
 
 Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385；[REQ-ENTRY-CLAIM-003](../../product/player-entry-distribution/release-communications-and-public-claims.prd.md#req-entry-claim-003)。适用子义务：各 tier 的字段和 reset/faucet/准入/gates 差异是公开表述的专业输入；字段齐备不等于运行、readiness 或发布。原验收和专业 owner 保持有效，不代表该产品要求完整实现或验证。
 <a id="tier-skeleton-manual-acceptance"></a>
