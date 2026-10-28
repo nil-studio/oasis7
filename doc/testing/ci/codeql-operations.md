@@ -85,9 +85,13 @@ CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI
 
 ## Tauri 上下文生成覆盖例外
 
-Rust 的 CodeQL、容量及 CFG 诊断入口仅精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
+Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
 
 验证使用 CFG 诊断固定的新源码与原完整官方 bundle，在同一新数据库中查询三个精确文件的 AST 和宏展开节点计数：隔离文件须为零，`main.rs` 与 `commands.rs` 必须存在正向 AST 见证。保留原始 BQRS、解码行、源码摘要和结果；未到、失败或结果不完整一律不记通过。见证只证明数据库中的 AST 覆盖边界，不证明 Rust Analyzer 没有执行工作区语义准备，也不单独证明性能改善。容量入口默认仍使用原冻结源码，新 pin 仅用于这个明确诊断。
+
+## 大型 JSON 测试夹具覆盖例外
+
+经批准的例外是 `crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs` 中的完整测试数据构造函数 `cognition_projection`。持久化测试及其断言仍参与分析，普通构建使用原样实现；不扩大到其他 `json!` 或目录。结果须注明此测试夹具覆盖缺口。容量/CFG 的旧源码 pin 尚无这个隔离文件，必须在后续明确更新源码身份后验证真实 AST 排除及性能。
 
 ## Rust 公共模型性能诊断
 
