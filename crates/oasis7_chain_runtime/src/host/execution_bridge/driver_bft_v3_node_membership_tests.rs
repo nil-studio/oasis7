@@ -148,6 +148,10 @@ fn admission_payloads(driver: &FormalBftHeaderNodeDriverV3) -> Vec<(u64, Vec<u8>
         .collect()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "actual nodes, authorities and their binding policies remain explicit"
+)]
 pub(super) fn exercise(
     nodes: &mut [NodeRuntime],
     actual: &[Arc<Mutex<FormalBftHeaderNodeDriverV3>>],
@@ -155,6 +159,7 @@ pub(super) fn exercise(
     views: &[Arc<NodeBftPeerExecutionStateV3>],
     isolation: &std::sync::atomic::AtomicBool,
     clock_start: &std::sync::OnceLock<Instant>,
+    bindings: &[BftSignerBindingV3],
     confirmation_timeout_budget: Option<Duration>,
 ) {
     // Node zero is isolated at height 6 by the transport fixture, before it
@@ -316,6 +321,33 @@ pub(super) fn exercise(
             4
         );
     }
+    // At the exact next action window, the still-isolated original validator
+    // is the legitimate round-zero proposer. Confirm that actual verified
+    // schedule before assigning this fault phase a two-round policy budget.
+    wait_height(&nodes[1..], &snapshots[1..], 7);
+    assert!(isolation.load(std::sync::atomic::Ordering::Acquire));
+    let mut partition_budget = None;
+    for (view, binding) in views[1..].iter().zip(&bindings[1..]) {
+        let schedule = view.view().unwrap().unwrap().schedule.clone();
+        assert_eq!(
+            schedule.height(),
+            8,
+            "gate the actual isolated-proposer height"
+        );
+        assert_eq!(
+            schedule.expected_proposer_for_round(0).unwrap(),
+            validator_id(0)
+        );
+        assert_eq!(
+            schedule.expected_proposer_for_round(1).unwrap(),
+            validator_id(3)
+        );
+        let budget = isolated_proposer_action_budget(binding.timeouts);
+        if let Some(expected) = partition_budget {
+            assert_eq!(budget, expected);
+        }
+        partition_budget = Some(budget);
+    }
     // Empty blocks are legal and can already have an original proposal.
     // Bind the positive outcome to this exact action, not to a guessed height.
     // Retry the identical player action through every healthy ingress.
@@ -324,7 +356,13 @@ pub(super) fn exercise(
         node.submit_consensus_action_payload(9706, payload("membership-agent-6"))
             .unwrap();
     }
-    wait_action(&nodes[1..], &snapshots[1..], 9706, "membership-agent-6");
+    wait_action_with_budget(
+        &nodes[1..],
+        &snapshots[1..],
+        9706,
+        "membership-agent-6",
+        partition_budget.expect("survivors have actual binding policies"),
+    );
     for driver in &actual[1..] {
         let driver = driver.lock().unwrap();
         assert!(
@@ -397,6 +435,30 @@ fn wait_action(
     id: u64,
     marker: &str,
 ) {
+    wait_action_with_budget(nodes, snapshots, id, marker, Duration::from_secs(180));
+}
+fn isolated_proposer_action_budget(
+    timeouts: oasis7_consensus::tendermint_v1::BftTimeoutsV1,
+) -> Duration {
+    let round_zero = timeouts
+        .propose_ms
+        .checked_add(timeouts.prevote_ms)
+        .and_then(|v| v.checked_add(timeouts.precommit_ms))
+        .unwrap();
+    let round_one = timeouts
+        .round_delta_ms
+        .checked_mul(3)
+        .and_then(|v| round_zero.checked_add(v))
+        .unwrap();
+    Duration::from_millis(round_zero.checked_add(round_one).unwrap())
+}
+fn wait_action_with_budget(
+    nodes: &[NodeRuntime],
+    snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
+    id: u64,
+    marker: &str,
+    budget: Duration,
+) {
     let expected = oasis7_node::NodeConsensusAction::from_payload(
         id,
         "membership-test-player",
@@ -417,7 +479,7 @@ fn wait_action(
         .unwrap()
         .checked_add(2)
         .unwrap();
-    let mut deadlines = vec![Instant::now() + Duration::from_secs(180); nodes.len()];
+    let mut deadlines = vec![Instant::now() + budget; nodes.len()];
     loop {
         for (index, node) in nodes.iter().enumerate() {
             let status = node.bft_v3_status().unwrap();
@@ -443,7 +505,7 @@ fn wait_action(
                 );
                 if status.committed_height > observed_heights[index] {
                     observed_heights[index] = status.committed_height;
-                    deadlines[index] = Instant::now() + Duration::from_secs(180);
+                    deadlines[index] = Instant::now() + budget;
                 }
             }
         }

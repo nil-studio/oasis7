@@ -389,6 +389,7 @@ fn network_case_membership(
             &execution_views,
             &membership_isolation,
             &membership_clock_start,
+            &bindings,
             confirmation_timeout.then(|| {
                 // The injected round needs its proposal/prevote/precommit
                 // timers, followed by one normal-delivery round. Derive this

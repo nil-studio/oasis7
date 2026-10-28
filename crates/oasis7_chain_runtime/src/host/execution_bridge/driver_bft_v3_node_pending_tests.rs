@@ -505,7 +505,8 @@ pub(super) fn recover(
         .unwrap();
     delivery.store(true, Ordering::Release);
     let mut next = [false; 3];
-    network_wait("post-recovery nonempty continuation", || {
+    let continuation_deadline = Instant::now() + Duration::from_secs(180);
+    loop {
         for (index, node) in nodes.iter().enumerate() {
             assert!(node.bft_v3_status().unwrap().running);
             for batch in node.drain_committed_action_batches() {
@@ -515,8 +516,35 @@ pub(super) fn recover(
                 }
             }
         }
-        next.iter().all(|done| *done)
-    });
+        if next.iter().all(|done| *done) {
+            break;
+        }
+        assert!(Instant::now() < continuation_deadline,
+            "timeout post-recovery nonempty continuation; exact_action=9501 completed={next:?}; nodes={:?}; protected={:?}; views={:?}",
+            nodes.iter().map(NodeRuntime::bft_v3_status).collect::<Vec<_>>(),
+            snapshots.iter().map(|snapshot| snapshot.try_lock().map(|snapshot| {
+                let state = &snapshot.state;
+                (snapshot.protected_time_floor_ms,
+                 state.history.last().map(|c| c.execution_commitment.height),
+                 state.pending_driver_apply.clone(),
+                 state.journal.as_ref().map(|j| j.events.iter().rev().take(16).map(|event| {
+                     match event {
+                         BftSigningJournalEventV3::Proposal { proposal, local, now_ms } =>
+                             format!("proposal h={} r={} by={} local={} time={}", proposal.header.height, proposal.header.round, proposal.header.proposer_id, local, now_ms),
+                         BftSigningJournalEventV3::Vote { vote, local, now_ms } =>
+                             format!("vote h={} r={} by={} phase={:?} value={:?} local={} time={}", vote.height, vote.round, vote.validator_id, vote.phase, vote.value, local, now_ms),
+                         BftSigningJournalEventV3::Timeout { now_ms } => format!("timeout time={now_ms}"),
+                         BftSigningJournalEventV3::ProposalEquivocation { now_ms, .. } => format!("equivocation time={now_ms}"),
+                     }
+                 }).collect::<Vec<_>>()))
+            }).map_err(|_| "snapshot locked")).collect::<Vec<_>>(),
+            views.iter().map(|view| view.view().map(|v| v.map(|v| (
+                view.is_serving(), v.schedule.height(),
+                v.schedule.expected_proposer_for_round(0),
+                v.schedule.expected_proposer_for_round(1)
+            )))).collect::<Vec<_>>());
+        thread::sleep(Duration::from_millis(20));
+    }
     for node in nodes.iter_mut() {
         node.stop().unwrap();
     }
