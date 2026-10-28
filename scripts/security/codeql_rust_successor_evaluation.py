@@ -18,10 +18,12 @@ AFTER_MAP_RESERVE = 2 * MAX_INVENTORY_MAP_BYTES + 4 * runtime.MAX_PROCESS_RECEIP
 OMIT = {"results", "working", "log", "logs", ".cache", "query-cache", "common-cache", "compilation-cache"}
 
 
-def facts(database):
-    """Fingerprint the immutable extracted database, not query results/caches."""
+def facts(database, deadline=None):
+    """Fingerprint tracked database files under the existing cache exclusions."""
     result, size = {}, 0
     for p in sorted(database.rglob("*")):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RuntimeError("database inventory deadline exhausted")
         relative = p.relative_to(database)
         if p.is_symlink():
             raise RuntimeError("symlink in database")
@@ -79,12 +81,12 @@ def reserve_after_maps(output, baseline):
     return original
 
 
-def after_facts(source, arm, baseline, output=None, prefix="after"):
+def after_facts(source, arm, baseline, output=None, prefix="after", deadline=None):
     """Report both inventories even if one changed; do not waive any difference."""
     details = {}
     for label, database in (("source", source), ("arm", arm)):
         try:
-            current, size = facts(database)
+            current, size = facts(database, deadline=deadline)
             added = sorted(set(current)-set(baseline))
             removed = sorted(set(baseline)-set(current))
             changed = sorted(n for n in set(current)&set(baseline) if current[n] != baseline[n])

@@ -280,7 +280,7 @@ def check_files(rows, wanted):
 
 QUERY_CATEGORY = {'PeerAst': 'Peer', 'PeerDf': 'Peer', 'DriverNonTarget': 'Driver',
                   'DriverTarget': 'Driver', 'NodeOnly': 'Driver'}
-PROBES = {'files-inventory': ('Files',), 'node-only': ('Files', 'NodeOnly'), 'endpoints': ('Files', 'Endpoints'),
+PROBES = {'peer-ast-inventory': ('Files', 'PeerAst'), 'files-inventory': ('Files',), 'node-only': ('Files', 'NodeOnly'), 'endpoints': ('Files', 'Endpoints'),
     'peer-df': ('Files', 'PeerDf'), 'driver-non-target': ('Files', 'DriverNonTarget'),
     'driver-target': ('Files', 'DriverTarget'), 'calls': ('Files', 'CallsCandidate'),
     'full': ('Files', 'PeerAst', 'PeerDf', 'DriverNonTarget', 'DriverTarget', 'CallsCandidate')}

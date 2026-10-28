@@ -441,6 +441,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
   run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/test_codeql_rust_successor_evaluation.py
+  run python3 ./scripts/security/test_codeql_rust_peer_ast_inventory.py
   run python3 ./scripts/security/test_codeql_rust_successor_partition.py
   run python3 ./scripts/security/test_codeql_rust_successor_consumer.py
     run python3 ./scripts/security/test_codeql_rust_successor_demand.py
