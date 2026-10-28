@@ -120,6 +120,20 @@
     ],
     "command_center": []
   },
+  "scoped_control_paths": {
+    ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/config.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/decision.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/defect.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/document.yml": ["workflow_governance"],
+    ".github/ISSUE_TEMPLATE/test.yml": ["workflow_governance"],
+    ".github/instructions/pr-review.instructions.md": ["workflow_governance"],
+    ".github/pull_request_template.md": ["workflow_governance"],
+    ".github/workflows/codeql.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-cargo-check.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"]
+  },
   "generated_inputs": [
     {
       "package": "oasis7_chain_runtime",
@@ -304,6 +318,7 @@
   },
   "workspace_support_profile_paths": {
     "wasm_build_suite": [
+      "crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**",
       "scripts/module-release-node-attestation-flow.sh",
       "scripts/stage-wasm-summary-imports.sh",
       "scripts/wasm-release-evidence-report.sh",
@@ -366,6 +381,11 @@
     ]
   },
   "rules": [
+    {
+      "match": ["crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**"],
+      "groups": ["rust_baseline", "oasis7_required", "formal_process", "launcher_web"],
+      "reason": "m1_storage_wasm_consumers"
+    },
     {
       "match": ["vendor-if-watch-3.2.2/**"],
       "groups": ["rust_baseline", "net", "node"],

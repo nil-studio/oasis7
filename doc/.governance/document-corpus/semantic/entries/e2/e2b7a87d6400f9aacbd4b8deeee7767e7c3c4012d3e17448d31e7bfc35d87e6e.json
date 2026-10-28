@@ -1,0 +1,11 @@
+{
+  "record": {
+    "content_sha256": "c78b1d3f0de7e0d274b785d4348e82e9f1c0a872297e77e9595c158c9abc1a15",
+    "current_authority": "doc/world-runtime/wasm/wasm-deterministic-build-pipeline.prd.md",
+    "decision_owner": "wasm_platform_engineer",
+    "disposition": "retain_current_authority",
+    "note": " Scoped design review for the #5111 source change: one-module local-dev staging reuses actual receipt4/metadata/WASM validation, requires current preserved source evidence and unchanged shared recipe, retains frozen historical release bytes and never promotes candidate to release or changes CI checks. Separately versioned release metadata still requires real release build evidence and existing activation authority. This reviews the contract only, not runtime, host, release or playtest acceptance. Reviewed the concrete storage 0.2.0 local sync/check command: exact originally captured execution image, no automatic image rebuild, explicit one-module IDs and distinct versioned hash/identity paths. Default release checks remain historical and candidate receipt4 freshness remains separate; this is method documentation, not proof of production activation.",
+    "path": "doc/world-runtime/wasm/wasm-deterministic-build-pipeline.design.md"
+  },
+  "schema": "oasis7.document-semantic-entry/v1"
+}

@@ -27,11 +27,23 @@ impl World {
         body: WorldEventBody,
         caused_by: Option<CausedBy>,
     ) -> Result<WorldEventId, WorldError> {
+        if matches!(
+            &body,
+            WorldEventBody::Domain(DomainEvent::AgentMoved { .. })
+        ) {
+            // Use the era of this allocation, after any pre-action events.
+            // Replay applies recorded events through its separate reducers.
+            self.validate_m1_storage_movement_event_era()?;
+        }
         if self.devlocal_participant_authority.is_some()
-            && matches!(&body, WorldEventBody::Governance(GovernanceEvent::FinalityEpochSnapshotSet { .. }))
+            && matches!(
+                &body,
+                WorldEventBody::Governance(GovernanceEvent::FinalityEpochSnapshotSet { .. })
+            )
         {
             return Err(WorldError::GovernancePolicyInvalid {
-                reason: "finality epoch conflicts with explicit DevLocal participant authority".into(),
+                reason: "finality epoch conflicts with explicit DevLocal participant authority"
+                    .into(),
             });
         }
         if let WorldEventBody::Domain(DomainEvent::EconomicContractSettled {

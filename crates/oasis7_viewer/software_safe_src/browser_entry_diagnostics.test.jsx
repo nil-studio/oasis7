@@ -102,3 +102,36 @@ it.each([["owner_operation_rejected", "rejected"], ["owner_operation_expired", "
   await waitFor(() => expect(view.getByRole("alert").textContent).toContain(`category=${category}`));
   expect(view.getByRole("alert").textContent).toContain(category === "expired" ? "original expired" : "world rejected");
 });
+
+const readFailures = [
+  ["timeout", "timeout"], ["transport", "network"], ["http_status", "deployment"],
+  ["response_read", "network"], ["response_limit", "deployment"],
+  ["response_decode", "proof"], ["response_schema", "proof"],
+  ["response_shape", "proof"], ["response_signature", "proof"], ["response_context", "proof"],
+];
+it.each(readFailures)("preserves safe owner-view %s diagnostics without implying a pending world operation", async (suffix, category) => {
+  const serverCode = `participant_read_${suffix}`;
+  const error = await gateway(() => new Response(JSON.stringify({ api_version: 2, ok: false, error_code: serverCode, message: canary }), { status: 409 }))
+    .gatewayCall("/participant/owner-view", {}).catch((value) => value);
+  expect(error.diagnostic).toMatchObject({ stage: "participant_owner_view", httpStatus: 409, serverCode, category });
+  expect(error.diagnostic.outcome).toBeUndefined();
+  expect(JSON.stringify(error)).not.toContain(canary);
+});
+it("rejects decorated owner-view error codes rather than copying upstream text", async () => {
+  const error = await gateway(() => new Response(JSON.stringify({ api_version: 2, ok: false, error_code: `participant_read_timeout ${canary}` }), { status: 409 }))
+    .gatewayCall("/participant/owner-view", {}).catch((value) => value);
+  expect(error.diagnostic.serverCode).toBeUndefined();
+  expect(JSON.stringify(error)).not.toContain(canary);
+});
+
+it("renders a failed owner-view read with its safe cause and leaves only original recovery available", async () => {
+  const error = await gateway(() => new Response(JSON.stringify({ api_version: 2, ok: false, error_code: "participant_read_response_signature", message: canary }), { status: 409 }))
+    .gatewayCall("/participant/owner-view", {}).catch((value) => value);
+  const view = surface({ inspect: async () => { throw error; } });
+  await waitFor(() => expect(view.getByRole("alert").textContent).toContain("participant_read_response_signature"));
+  expect(view.getByRole("alert").textContent).toContain("category=proof");
+  expect(view.getByRole("alert").textContent).toContain("participant_owner_view");
+  expect(view.getByRole("button", { name: "Prepare player, Agent and Task" }).disabled).toBe(true);
+  expect(view.getByRole("button", { name: "Look up account entry originals" }).disabled).toBe(false);
+  expect(view.container.textContent).not.toContain(canary);
+});

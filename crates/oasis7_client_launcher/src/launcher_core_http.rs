@@ -12,8 +12,10 @@ use reqwest::blocking::Client;
 use reqwest::{StatusCode, Url};
 #[cfg(not(target_arch = "wasm32"))]
 use serde::de::DeserializeOwned;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Read;
 #[cfg(all(not(target_arch = "wasm32"), test))]
-use std::io::{Read, Write};
+use std::io::Write;
 #[cfg(all(not(target_arch = "wasm32"), test))]
 use std::net::{TcpStream, ToSocketAddrs};
 #[cfg(not(target_arch = "wasm32"))]
@@ -173,6 +175,7 @@ struct ProviderProbeHttpClient {
     base_url: Url,
     auth_token: Option<String>,
     http: Client,
+    timeout: Duration,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -186,7 +189,8 @@ impl ProviderProbeHttpClient {
         let base_url = Url::parse(base_url.trim()).map_err(|_| {
             ProviderCheckError::InvalidConfig("invalid provider URL configuration".into())
         })?;
-        let mut builder = Client::builder().timeout(Duration::from_millis(timeout_ms.max(1)));
+        let timeout = Duration::from_millis(timeout_ms.max(1));
+        let mut builder = Client::builder().timeout(timeout);
         if transport.trim() == LOOPBACK_HTTP_PROVIDER_TRANSPORT {
             builder = builder.no_proxy();
         }
@@ -198,6 +202,7 @@ impl ProviderProbeHttpClient {
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned),
             http,
+            timeout,
         })
     }
 
@@ -211,7 +216,9 @@ impl ProviderProbeHttpClient {
             .map_err(|_| {
                 ProviderCheckError::InvalidConfig("invalid provider URL configuration".into())
             })?;
-        let mut request = self.http.get(url);
+        // Also set the async request deadline: the blocking client timeout alone
+        // is applied anew for each Read and would allow an indefinitely slow drip.
+        let mut request = self.http.get(url).timeout(self.timeout);
         if let Some(token) = &self.auth_token {
             request = request.bearer_auth(token);
         }
@@ -227,10 +234,40 @@ impl ProviderProbeHttpClient {
                 status.as_u16()
             )));
         }
-        let body = response.bytes().map_err(safe_provider_http_error)?;
-        serde_json::from_slice(body.as_ref())
+        // Bound bytes delivered by the HTTP decoder, independent of framing or
+        // untrusted Content-Length. One extra byte distinguishes full from overfull.
+        let body = read_provider_probe_body(response)?;
+        serde_json::from_slice(&body)
             .map_err(|_| ProviderCheckError::Unreachable("provider response decode failed".into()))
     }
+}
+
+// Each endpoint has its own budget; never allocate based on a remote length.
+#[cfg(not(target_arch = "wasm32"))]
+const PROVIDER_PROBE_RESPONSE_MAX_BYTES: usize = 64 * 1024;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_provider_probe_body(reader: impl Read) -> Result<Vec<u8>, ProviderCheckError> {
+    let mut body = Vec::new();
+    reader
+        .take((PROVIDER_PROBE_RESPONSE_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut body)
+        .map_err(|error| {
+            let timed_out = error.kind() == std::io::ErrorKind::TimedOut
+                || error
+                    .get_ref()
+                    .and_then(|source| source.downcast_ref::<reqwest::Error>())
+                    .is_some_and(reqwest::Error::is_timeout);
+            ProviderCheckError::Unreachable(if timed_out {
+                "provider request timed out".into()
+            } else {
+                "provider response read failed".into()
+            })
+        })?;
+    if body.len() > PROVIDER_PROBE_RESPONSE_MAX_BYTES {
+        return Err(ProviderCheckError::Unreachable("response_too_large".into()));
+    }
+    Ok(body)
 }
 
 // reqwest Display may include a private URL; serde Display may quote a remote
@@ -320,5 +357,51 @@ pub(crate) fn parse_http_base_url(base_url: &str, label: &str) -> Result<(String
         parse_host_port(authority, label)
     } else {
         Ok((authority.to_string(), default_port))
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn provider_probe_reader_stops_at_first_extra_byte_without_draining() {
+        let bytes = vec![b'x'; 1_000_000];
+        let mut reader = std::io::Cursor::new(bytes);
+        let error = read_provider_probe_body(&mut reader).unwrap_err();
+        assert_eq!(error.to_string(), "response_too_large");
+        assert_eq!(reader.position(), 65_537);
+    }
+
+    #[test]
+    fn provider_probe_reader_checks_eof_at_exact_limit() {
+        struct NeedsEof {
+            remaining: usize,
+            calls: usize,
+        }
+        impl Read for NeedsEof {
+            fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+                self.calls += 1;
+                if self.remaining == 0 {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+                let len = output.len().min(self.remaining);
+                output[..len].fill(b' ');
+                self.remaining -= len;
+                Ok(len)
+            }
+        }
+        let mut reader = NeedsEof {
+            remaining: 65_536,
+            calls: 0,
+        };
+        assert_eq!(
+            read_provider_probe_body(&mut reader)
+                .unwrap_err()
+                .to_string(),
+            "provider request timed out"
+        );
+        assert_eq!(reader.remaining, 0);
+        assert!(reader.calls > 1);
     }
 }

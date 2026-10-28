@@ -153,6 +153,45 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
+// Failure-only readonly baseline evidence; no originals, identities or digests leave SQLite.
+function baselineFailureState(runtime,observedAt){
+  try{return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+now=int(sys.argv[3]);out={'available':False,'observed_at':str(now)}
+def obj(v):return v if isinstance(v,dict) else {}
+def stamp(v):
+ if isinstance(v,str) and v.isascii() and v.isdigit() and len(v)<=20 and int(v)<=18446744073709551615:return v
+ if type(v) is int and 0<=v<=18446744073709551615:return str(v)
+ return None
+def source(v):
+ v=obj(v);native=obj(obj(v.get('verification')).get('verification'));at=stamp(native.get('observed_at'))
+ return {'created_at':stamp(v.get('created_at')),'verified_at':stamp(v.get('verified_at')),'claimed_at':stamp(v.get('claimed_at')),'expires_at':stamp(v.get('expires_at')),'native_observed_at':at,'source_age_ms':str(now-int(at)) if at is not None and now>=int(at) else None,'has_verification':v.get('verification') is not None}
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+ try:
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+ except sqlite3.OperationalError:
+  db.close();continue
+ db.close()
+ if not row:continue
+ state=json.loads(row[0])['state']
+ if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+ out['available']=True;out['participants']=[];out['setups']=[]
+ for v in obj(state.get('participant_provisions')).values():
+  v=obj(v);claims=obj(v.get('claims'));callbacks=obj(v.get('callbacks'))
+  out['participants'].append({'source':source(v.get('source_inspection')),'workflow_claimed_at':stamp(v.get('workflow_claimed_at')),'oracle_reads':v.get('oracle_reads') if type(v.get('oracle_reads')) is int else None,'claims':{k:stamp(claims[k]) for k in ['policy','sign_bundle','authorize','submit','owner_view'] if k in claims},'callbacks':{k:stamp(callbacks[k]) for k in ['policy','admission','final'] if k in callbacks},'facts':{k:v.get(k) is not None for k in ['policy','bundle','admission','submit','lookup','owner_view','result']},'completed_at':stamp(v.get('completed_at'))})
+ for setup in obj(state.get('owner_setups')).values():
+  stages=[]
+  for name,e in obj(obj(setup).get('stages')).items():
+   if name not in ['create_task','prepare_goal','publish_goal','delegation','bind','final_observation']:continue
+   e=obj(e);history=obj(e.get('canonical_history'))
+   stages.append({'stage':name,'source':source(e.get('source')),'oracle_reads':e.get('oracle_reads') if type(e.get('oracle_reads')) is int else None,'times':{k:stamp(e.get(k)) for k in ['published_at','admission_callback_claimed_at','admitted_at','claimed_at','callback_claimed_at','completed_at','last_observed_at']},'has_result':e.get('result') is not None,'has_last_observation':e.get('last_observation') is not None,'canonical_history_count':len(history),'archived_sources':[k for k in ['submit','lookup'] if k in history]})
+  out['setups'].append({'stages':stages})
+print(json.dumps(out,separators=(',',':')))
+`,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
+  catch{return {available:false,diagnostic_unavailable:true};}
+}
 async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
   ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;
@@ -166,11 +205,18 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       await runtime.approveManaged(blocked);
       await runtime.continueManaged('fresh-managed-operation-one');
       assert.equal((await runtime.drive('session-participant-recovered')).stage,'participant_bound');
-    }else assert.equal(initial.stage,'participant_bound');
+    }else {
+      if(initial.stage!=='participant_bound'){
+        const observedAt=Date.now(),native_requests=runtime.nativeRequests();await runtime.suspend();
+        console.error(JSON.stringify({baseline_participant_failure:{native_requests,state:baselineFailureState(runtime,observedAt)}}));
+      }
+      assert.equal(initial.stage,'participant_bound');
+    }
     const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
     const setupProgress=await json(await runtime.continueSetup(setup.setup_id));
     if(setupProgress.stage!=='prepared') {
-      await runtime.suspend();
+      const observedAt=Date.now(),native_requests=runtime.nativeRequests();await runtime.suspend();
+      console.error(JSON.stringify({baseline_setup_failure:{native_requests,state:baselineFailureState(runtime,observedAt)}}));
       const saved=persistedRuntime(runtime.persist,runtime.account);
       const keys=['stage','reads','has_result','has_original','has_access','has_world','source_created_at','source_verified_at','source_observed_at','source_expires_at','reserved_at','published_at','admission_callback_claimed_at','admitted_at','claimed_at','completed_at'];
       const summary={stage:saved.provision_stage,setups:saved.setups.map(setup=>({stages:setup.stages.map(stage=>Object.fromEntries(keys.map(key=>[key,stage[key]])))}))};

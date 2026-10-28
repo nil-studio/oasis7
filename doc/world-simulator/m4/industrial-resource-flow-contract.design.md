@@ -141,8 +141,10 @@ Trace refs: O7-REQ-baa1e6b2-1a46-47a3-b75c-a0e9cf8b154c；承接[合法执行单
 
 - 检查对象是实际 `RecipeExecutionPlan.produce` 与 `byproducts` 的**每个输出 stack**，不是累计库存、仓储容量，也不将同 kind 的多个合法 stack 擅自合并。零/负量、溢出、配方与其他准入检查继续适用；本轮不改变配比或引入自动 stack splitting、自动减批。
 - 限制必须来自当前有效、实际适用于该 kind 的 product validator 的可信规则/版本绑定。内置常量或 material profile 仅在能证明与该 active validator 的实际规则一致时可用；模块名称、目录提示、旧缓存、其他版本或同 kind 默认值均不足。只对可证明的限制作确定拒绝，缺 validator、任意自定义逻辑或无法证明规则的情况保留“该项未验证”的边界和原有执行/完成验证路径，不全局 fail closed 或谎称安全。
+- 当前内置规则的无副作用接线采用审核过的 `(product kind, module ID, exact WASM SHA-256, stack_limit)` 代码事实表：按完成路径相同的选择器解析当前 active manifest，仅精确代码摘要匹配时使用该限制。它不从可变 profile、模块名、version 或更新后的发行清单推导信任；相同名字的新代码必须另行核验，否则该限制为未知。现有 `ProductModuleSpec` 仅是 DTO，并未在激活注册表保存可信限制，故本接线不引入平行可变治理配置或执行任意 WASM。普通准入回归覆盖选择与漂移；真实标准 validator 回归核对每种已知代码的上限及 `limit+1`，既有完成阶段仍使用实际模块裁决。
 - 当前 [`builtin_recipe_quote`](../../../crates/oasis7_runtime/src/world/builtin_recipe_quote.rs) 走克隆 World 的 `action_to_event`，不拥有 sandbox；本合同不要求报价任意执行 WASM，也不将有副作用的 validator 调用改称只读。实现应共用无副作用的有界检查，绑定实际选择的规则身份、版本与计划；若现有接口无法提供可信限制，先补专业 authority 接线，不凭 DTO 推断验证成功。
 - 报价解释超限产物、请求数量、适用上限及可重报的方向；提交必须重新解析当时 active validator/规则并检查同一计划。已知超限在 `RecipeStarted` 及其材料/电力 sink、执行 slot 占用前拒绝；不得先扣后补偿、先建 job 再让其阻塞。报价/提交共用判断不等于报价保留版本；规则漂移后按当前事实拒绝或重新报价。经 native 或 module 排产进入同一生产路径时均须覆盖，不用客户端批数裁剪替代权威准入。
+- 已准入任务到期取得的 validator 决定是绑定原 job/output 的 Runtime 内部结果，不是 Agent 新发起的 `ValidateProduct` 命令。内部结果继续核对请求 Agent 存在、module/product/stack/limit 与实际决定，并沿原 receipt/attempt 事务投递；不能因原 Agent 具有 native grant 就要求结果再绑定另一份 delegated action，或把有效决定变成新的权限拒绝并造成损失。外部 `ValidateProduct` / `ValidateProductWithModule` 仍经过原有身份、委托与动作准入；内部结果不扩大这些外部权限，也不重收原排产预算。
 - 到期逐 stack 的 product validation、attempt/receipt、`FactoryProductionBlocked` 与 settlement 仍保留：其他谓词、运行中规则变化或未来状态可能使已接受任务失败，预检不是最终 validation receipt。未安装适用 validator 的 native 路径不套用示例上限；既有 blocked/WIP 继续原处置，不自动拆分、退款、重启或生成产物。
 - 迁移仅作用于启用新准入规则后的新提交；历史 `RecipeStarted`、input/power sink、validation receipt 与 blocked 事件保持原义。恢复/replay 重建原任务和结果，不用当前上限重判历史准入、不重新运行 validator 或复制 sink/产物。实现若需新规则元数据/版本，须沿既有治理激活与历史版本合同接入；本文不新增 schema 或热替换已安装 artifact 的授权。
 

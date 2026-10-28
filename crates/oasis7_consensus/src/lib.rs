@@ -2,6 +2,7 @@
 
 mod dht;
 mod ed25519_signer_policy;
+pub mod formal_bft_payload_v3;
 mod lease;
 mod membership;
 mod membership_logic;
@@ -21,6 +22,7 @@ mod sequencer_mainloop;
 mod signature;
 pub mod tendermint_v1;
 pub mod tendermint_v2;
+pub mod tendermint_v3;
 mod tiered_file_log;
 
 pub mod distributed {
@@ -245,3 +247,6 @@ mod tests {
         let _ = std::any::type_name::<MembershipRevocationSyncReport>();
     }
 }
+
+#[cfg(test)]
+mod membership_restore_auth_tests;

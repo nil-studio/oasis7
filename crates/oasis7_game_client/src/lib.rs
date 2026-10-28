@@ -539,6 +539,16 @@ fn quote_error_category(path: &str, status: u16, reader: &mut impl Read) -> Opti
 }
 
 mod formal_bft_read_v2;
+mod formal_bft_read_v3;
+mod formal_bft_read_v4;
+pub use formal_bft_read_v3::{
+    FormalBftReadClientConfigV3, FormalBftReadClientV3, FormalBftReadVerifierV3,
+    VerifiedFormalBftReadPageV3,
+};
+pub use formal_bft_read_v4::{
+    FormalBftHeaderReadClientConfigV4, FormalBftHeaderReadClientV4, FormalBftHeaderReadVerifierV4,
+    VerifiedFormalBftHeaderReadPageV4,
+};
 pub mod formal_read;
 pub use formal_bft_read_v2::{
     FormalBftReadClientConfigV2, FormalBftReadClientV2, FormalBftReadVerifierV2,

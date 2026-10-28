@@ -718,6 +718,18 @@ fn request_fetch_blob_chunk_with_route_fallback(
     }))
 }
 
+fn provider_routes_exhausted(reason: String) -> NodeError {
+    use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
+    NodeError::ReplicationNetwork {
+        reason,
+        failure: Box::new(NetworkFailure::observed(
+            FailureOrigin::ProviderRouting,
+            FailureCause::ProviderExhausted,
+            Some(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -839,17 +851,5 @@ mod tests {
             "classification should survive display wording changes as long as kind/protocol are preserved"
         );
         assert!(!replication_request_waitable_connection_gap(&err));
-    }
-}
-
-fn provider_routes_exhausted(reason: String) -> NodeError {
-    use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
-    NodeError::ReplicationNetwork {
-        reason,
-        failure: Box::new(NetworkFailure::observed(
-            FailureOrigin::ProviderRouting,
-            FailureCause::ProviderExhausted,
-            Some(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL),
-        )),
     }
 }

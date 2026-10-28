@@ -68,6 +68,162 @@ def independent_target_input(path, directory, manifest):
     return not library.startswith(roots)
 
 
+def rust_source_inputs(source):
+    """Read literal tokens and real include calls without expanding candidate macros.
+
+    Rust fixture strings are a single token, not another source file. Unknown
+    real expressions stay unresolved; comments (including nested blocks), strings
+    and character literals must never hide a later real call.
+    """
+    tokens = []
+    position = 0
+    raw_string = re.compile(r'(?:br|cr|r)(#*)"')
+    identifier = re.compile(r'(?:r#)?(?:[^\W\d]|_)\w*')
+    literal_suffix = re.compile(r'(?:[^\W\d]|_)\w*')
+    number_literal = re.compile(r'[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?')
+    character = re.compile(r"(?:b)?'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F_]+\}))'")
+
+    def append_literal(kind, start, end):
+        # Literal suffixes are part of the token, even in arbitrary macro input.
+        # For example, discard!("example"include_str!(...)) contains no include.
+        suffix = literal_suffix.match(source, end)
+        if suffix:
+            end = suffix.end()
+            while end < len(source) and ('_' + source[end]).isidentifier():
+                end += 1
+            kind = 'suffixed_literal'
+        tokens.append((kind, source[start:end], start))
+        return end
+
+    while position < len(source):
+        start = position
+        if source[position].isspace():
+            position += 1
+            continue
+        if source.startswith('//', position):
+            end = source.find('\n', position + 2)
+            position = len(source) if end < 0 else end
+            continue
+        if source.startswith('/*', position):
+            depth = 1
+            position += 2
+            while depth and position < len(source):
+                if source.startswith('/*', position):
+                    depth += 1
+                    position += 2
+                elif source.startswith('*/', position):
+                    depth -= 1
+                    position += 2
+                else:
+                    position += 1
+            if depth:
+                raise ValueError('unterminated Rust block comment')
+            continue
+        raw = raw_string.match(source, position)
+        if raw:
+            closing = '"' + raw.group(1)
+            end = source.find(closing, raw.end())
+            if end < 0:
+                raise ValueError('unterminated Rust raw string')
+            position = append_literal('string', start, end + len(closing))
+            continue
+        quote = position + int(source.startswith(('b"', 'c"'), position))
+        if source[quote] == '"':
+            position = quote + 1
+            while position < len(source) and source[position] != '"':
+                position += 2 if source[position] == '\\' else 1
+            if position >= len(source):
+                raise ValueError('unterminated Rust string')
+            position = append_literal('string', start, position + 1)
+            continue
+        char = character.match(source, position)
+        if char:
+            position = append_literal('character', start, char.end())
+            continue
+        if source[position].isascii() and source[position].isdigit():
+            number = number_literal.match(source, position)
+            position = append_literal('number', start, number.end())
+            continue
+        name = identifier.match(source, position)
+        if name:
+            position = name.end()
+            # Python's \w omits combining marks accepted in Rust identifiers.
+            # Do not split a longer identifier into a false include macro.
+            while position < len(source) and ('_' + source[position]).isidentifier():
+                position += 1
+            tokens.append(('identifier', source[start:position], start))
+            continue
+        # A lifetime's apostrophe is punctuation, not a greedy quoted string.
+        tokens.append(('punctuation', source[position], position))
+        position += 1
+
+    closing = {}
+    stack = []
+    pairs = {')': '(', ']': '[', '}': '{'}
+    for index, (kind, value, _) in enumerate(tokens):
+        if kind != 'punctuation':
+            continue
+        if value in ('(', '[', '{'):
+            stack.append(index)
+        elif value in pairs:
+            if not stack or tokens[stack[-1]][1] != pairs[value]:
+                raise ValueError('unbalanced Rust token delimiters')
+            closing[stack.pop()] = index
+    if stack:
+        raise ValueError('unclosed Rust token delimiter')
+
+    # Decode only forms whose Rust path value is exact. Escapes and other
+    # expressions remain conservative instead of using Python/JSON semantics.
+    plain_literal = re.compile(r'"([^"\\\r\n]*)"')
+    literals = []
+    calls = []
+    for index, (kind, value, start) in enumerate(tokens):
+        if kind == 'string':
+            literal = re.fullmatch(r'(?:b|c)?"([^"\\\r\n]*)"', value)
+            raw = raw_string.match(value)
+            if literal:
+                literals.append(literal.group(1))
+            elif raw:
+                literals.append(value[raw.end():-(len(raw.group(1)) + 1)])
+        name = value.removeprefix('r#')
+        if (kind != 'identifier' or name not in ('include', 'include_str', 'include_bytes')
+                or index + 1 >= len(tokens) or tokens[index + 1][1] != '!'):
+            continue
+        end = closing.get(index + 2)
+        call = {'macro': name, 'kind': 'unknown', 'path': None,
+                'line': source.count('\n', 0, start) + 1}
+        call['expression'] = source[start:tokens[end][2] + 1] if end is not None else value + '!'
+        # Keep canonical std/core builtins; a foreign macro with the same name
+        # has no builtin/OUT_DIR authority. A field's single colon is not a path.
+        cursor = index - 1
+        namespace = []
+        while cursor > 0 and tokens[cursor - 1][1] == tokens[cursor][1] == ':':
+            cursor -= 2
+            if cursor < 0 or tokens[cursor][0] != 'identifier':
+                break
+            namespace.append(tokens[cursor][1].removeprefix('r#'))
+            cursor -= 1
+        qualified = ((index > 1 and tokens[index - 2][1] == tokens[index - 1][1] == ':'
+                      and namespace not in (['std'], ['core']))
+                     or (cursor >= 0 and tokens[cursor][1] == '$'))
+        if end is not None and not qualified:
+            arguments = tokens[index + 3:end]
+            if arguments and arguments[-1][1] == ',':
+                arguments = arguments[:-1]
+            expression = ''.join(token[1] for token in arguments)
+            literal = plain_literal.fullmatch(expression) if len(arguments) == 1 else None
+            concatenated = re.fullmatch(
+                r'concat!\(env!\("(CARGO_MANIFEST_DIR|OUT_DIR)",?\),"([^"\\\r\n]+)",?\)',
+                expression)
+            if literal:
+                call.update(kind='literal', path=literal.group(1))
+            elif concatenated:
+                call.update(kind='manifest' if concatenated.group(1) == 'CARGO_MANIFEST_DIR' else 'generated',
+                            path=concatenated.group(2))
+        calls.append(call)
+    return literals, calls
+
+
 def cargo_graph(ref, generated_inputs=()):
     """Resolve workspace path edges including dev/build/target and renamed dependencies.
 
@@ -169,6 +325,16 @@ def cargo_graph(ref, generated_inputs=()):
     # Widen the whole referenced directory, including implicit child modules.
     library_directories = set()
     library_readers = {}
+    source_inputs = {}
+
+    def inputs(path):
+        if path not in source_inputs:
+            try:
+                source_inputs[path] = rust_source_inputs(blobs[path].decode('utf-8', 'replace'))
+            except ValueError as error:
+                raise ValueError(f'{path}: {error}') from error
+        return source_inputs[path]
+
     source_owners = {path: {n for n, (d, _) in manifests.items()
                           if d and path.startswith(d + '/')}
                      for path in paths if path.endswith('.rs')}
@@ -183,7 +349,8 @@ def cargo_graph(ref, generated_inputs=()):
                               or any(not d or path.startswith(d + '/') for d in library_directories)}
             if not library_owners:
                 continue
-            for token in re.findall(r'"([^"\n]+)"', source):
+            literals, includes = inputs(path)
+            for token in literals:
                 for owner in library_owners:
                     directory = manifests[owner][0]
                     for root in ('', directory, posixpath.dirname(path)):
@@ -196,10 +363,7 @@ def cargo_graph(ref, generated_inputs=()):
                 for owner in library_owners:
                     library_directories.add(manifests[owner][0] + '/src/bin')
             # A computed include/path can reach any target source. Keep all edges.
-            includes = len(re.findall(r'include(?:_str|_bytes)?!\s*\(', source))
-            literal_includes = len(re.findall(r'include(?:_str|_bytes)?!\s*\(\s*"[^"\n]+"\s*,?\s*\)', source))
-            manifest_includes = len(re.findall(r'include(?:_str|_bytes)?!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"[^"\n]+"\s*,?\s*\)\s*,?\s*\)', source))
-            if (includes > literal_includes + manifest_includes
+            if (any(call['kind'] not in ('literal', 'manifest') for call in includes)
                     or re.search(r'#\[(?:path|cfg_attr\([^;\n]*,\s*path)\s*=\s*(?![\s"])[A-Za-z_]', source)):
                 for owner in library_owners:
                     library_directories.add(manifests[owner][0])
@@ -219,24 +383,36 @@ def cargo_graph(ref, generated_inputs=()):
                                        if (not directory or path.startswith(directory + '/')) for reader in readers})
         if not path.endswith('.rs') or not owners:
             continue
-        source = blobs[path].decode('utf-8', 'replace')
+        literals, includes = inputs(path)
         library_owners = set(owners) if path not in leaf_inputs else set()
-        literal = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"\s*,?\s*\)', source))
-        concatenated = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"([^"\n]+)"\s*,?\s*\)\s*,?\s*\)', source))
-        generated = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)\s*,\s*"/([^"\n]+)"\s*,?\s*\)\s*,?\s*\)', source))
-        for match in literal:
-            candidate = posixpath.normpath(posixpath.join(posixpath.dirname(path), match.group(1)))
-            embedded.setdefault(candidate, set()).update(owners)
-            library_embeds.setdefault(candidate, set()).update(library_owners)
-        for match in concatenated:
-            for owner in owners:
-                directory = manifests[owner][0]
-                candidate = posixpath.normpath(directory + '/' + match.group(1).lstrip('/'))
-                embedded.setdefault(candidate, set()).add(owner)
-                if owner in library_owners:
-                    library_embeds.setdefault(candidate, set()).add(owner)
+        for call in includes:
+            if call['macro'] == 'include':
+                continue
+            if call['kind'] == 'literal':
+                candidate = posixpath.normpath(posixpath.join(posixpath.dirname(path), call['path']))
+                embedded.setdefault(candidate, set()).update(owners)
+                library_embeds.setdefault(candidate, set()).update(library_owners)
+            elif call['kind'] == 'manifest':
+                for owner in owners:
+                    directory = manifests[owner][0]
+                    candidate = posixpath.normpath(directory + '/' + call['path'].lstrip('/'))
+                    embedded.setdefault(candidate, set()).add(owner)
+                    if owner in library_owners:
+                        library_embeds.setdefault(candidate, set()).add(owner)
+            else:
+                for owner in owners:
+                    # Each reader has its own OUT_DIR; one registration cannot
+                    # exempt another owner or cancel a different unknown call.
+                    known = (call['kind'] == 'generated'
+                             and call['path'].startswith('/')
+                             and call['path'][1:] in generated_outputs.get(owner, set()))
+                    if not known:
+                        embedded.setdefault('__unresolved_embed__', set()).add(owner)
+                        expression = ' '.join(call['expression'].split())[:160]
+                        embedded.setdefault('__unresolved_embed_sources__', set()).add(
+                            f"{path}:{call['line']} ({owner}): {expression}")
         # Tests often read fixtures through manifest-relative or repo-relative literals.
-        for token in re.findall(r'"([^"\n]+)"', source):
+        for token in literals:
             if '/' not in token or '\\' in token or len(token) > 512:
                 continue
             for owner in owners:
@@ -247,13 +423,6 @@ def cargo_graph(ref, generated_inputs=()):
                         embedded.setdefault(candidate, set()).add(owner)
                         if owner in library_owners:
                             library_embeds.setdefault(candidate, set()).add(owner)
-        unresolved = len(re.findall(r'include_(?:str|bytes)!', source)) - len(literal) - len(concatenated)
-        for owner in owners:
-            # OUT_DIR belongs to the compiling package, including each library
-            # that imports this source. One owner's registration cannot exempt another.
-            known = sum(match.group(1) in generated_outputs.get(owner, set()) for match in generated)
-            if unresolved > known:
-                embedded.setdefault('__unresolved_embed__', set()).add(owner)
     embedded['__leaf_inputs__'] = leaf_inputs
     embedded['__library_directories__'] = library_directories
     embedded['__library_readers__'] = library_readers
@@ -279,6 +448,18 @@ def validate_config(config):
         raise ValueError('invalid group inventory')
     if set(config['resources']) != set(groups):
         raise ValueError('missing resource mapping')
+    scoped = config.get('scoped_control_paths', {})
+    if not isinstance(scoped, dict):
+        raise ValueError('invalid scoped control inventory')
+    for path, selected in scoped.items():
+        if (not isinstance(path, str) or not path.startswith('.github/')
+                or path.endswith('/') or posixpath.normpath(path) != path
+                or any(character in path for character in ('\\', '*', '?', '[', ']'))
+                or '..' in path.split('/') or any(ord(character) < 32 for character in path)
+                or not isinstance(selected, list)
+                or any(not isinstance(group, str) or group not in groups for group in selected)
+                or len(selected) != len(set(selected))):
+            raise ValueError('invalid scoped control path or groups')
     for selected in config['package_groups'].values():
         if not selected or not set(selected).issubset(groups):
             raise ValueError('invalid package groups')
@@ -372,9 +553,15 @@ def select(config, base, source_head, test_head=None, additions=()):
                 # registered input cannot be parsed. Uncertainty is not registration.
                 full = True
                 reasons.append('uncertain Git/dependency inputs: ' + str(error))
+        reported_embeds = False
         for path in paths:
             controlled = any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
-            if controlled:
+            scoped_groups = config.get('scoped_control_paths', {}).get(path)
+            if scoped_groups is not None:
+                chosen.update(scoped_groups)
+                support_rule |= 'workspace_support' in scoped_groups
+                reasons.append('scoped CI control changed: ' + path)
+            elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
             matched = controlled
@@ -419,6 +606,11 @@ def select(config, base, source_head, test_head=None, additions=()):
                     for directory, _ in manifests.values()):
                 full = True
                 reasons.append('unresolved embedded consumer input: ' + path)
+                if not reported_embeds:
+                    reasons.extend('unresolved Rust embed: ' + detail for detail in sorted({
+                        detail for _, _, embedded in graphs
+                        for detail in embedded.get('__unresolved_embed_sources__', ())}))
+                    reported_embeds = True
             if not matched:
                 unknown_paths.append(path)
         for package in sorted(affected):

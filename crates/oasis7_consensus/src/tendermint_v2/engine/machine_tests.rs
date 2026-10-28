@@ -327,6 +327,80 @@ fn accepted_future_proposal_is_promoted_when_its_round_becomes_current() {
     );
 }
 
+#[test]
+fn valid_round_proposal_signed_for_another_policy_cannot_enter_the_machine() {
+    let scope = BftScopeV2 {
+        world_id: "evidence-policy-world".into(),
+        chain_id: "evidence-policy-chain".into(),
+        genesis_hash: "11".repeat(32),
+    };
+    let keys = (1..=4)
+        .map(|seed| (format!("v{seed}"), SigningKey::from_bytes(&[seed; 32])))
+        .collect::<Vec<_>>();
+    let set = BftValidatorSetV2::new(
+        scope,
+        keys.iter()
+            .map(|(validator_id, key)| BftValidatorV2 {
+                validator_id: validator_id.clone(),
+                public_key_hex: hex::encode(key.verifying_key().to_bytes()),
+                voting_power: 1,
+            })
+            .collect(),
+    )
+    .unwrap();
+    let schedule = BftHeightProposerScheduleV2::genesis(
+        set,
+        BftSchedulePolicyV2::new(8, "controlled-bft-v2").unwrap(),
+        4,
+        "22".repeat(32),
+        "33".repeat(32),
+    )
+    .unwrap();
+    let original = signed_proposal_with_round_evidence(&schedule, &keys, 1, 0, 1, &[0, 1, 2]);
+    let mut control = BftConsensusMachineV2::new(schedule.clone(), "v1", 100, TIMEOUTS).unwrap();
+    control
+        .receive_proposal(original.clone(), true, 101)
+        .unwrap();
+    assert!(control.proposal_for_round(1).is_some());
+    assert!(control.valid().is_some());
+
+    let mut conflicting = original.clone();
+    let evidence = conflicting.valid_round_evidence.as_mut().unwrap();
+    let header = &evidence.proposal;
+    let key = &keys
+        .iter()
+        .find(|(id, _)| id == &header.proposer_id)
+        .unwrap()
+        .1;
+    let wrong_policy = "ab".repeat(32);
+    assert_ne!(wrong_policy, schedule.policy_hash());
+    evidence.proposal = BftProposalHeaderV2::sign(
+        header.scope.clone(),
+        header.height,
+        header.round,
+        header.active_validator_set_hash.clone(),
+        wrong_policy,
+        header.proposer_id.clone(),
+        header.block_id.clone(),
+        header.valid_round,
+        key,
+    )
+    .unwrap();
+    evidence.proposal.verify_signature().unwrap();
+    conflicting.validate_binding().unwrap();
+    assert_eq!(conflicting.header, original.header);
+    assert_eq!(
+        conflicting.valid_round_evidence.as_ref().unwrap().prevotes,
+        original.valid_round_evidence.as_ref().unwrap().prevotes
+    );
+
+    let mut machine = BftConsensusMachineV2::new(schedule, "v1", 100, TIMEOUTS).unwrap();
+    assert!(machine.receive_proposal(conflicting, true, 101).is_err());
+    assert!(machine.proposal_for_round(1).is_none());
+    assert!(machine.valid().is_none());
+    assert!(machine.locked().is_none());
+}
+
 fn signed_proposal_with_round_evidence(
     schedule: &BftHeightProposerScheduleV2,
     keys: &[(String, SigningKey)],

@@ -1515,7 +1515,20 @@ var clientCodes = /* @__PURE__ */ new Set([
 	"unsupported_world_evidence",
 	"webcrypto_unavailable"
 ]);
+var participantReadCategories = Object.freeze({
+	participant_read_timeout: "timeout",
+	participant_read_transport: "network",
+	participant_read_http_status: "deployment",
+	participant_read_response_read: "network",
+	participant_read_response_limit: "deployment",
+	participant_read_response_decode: "proof",
+	participant_read_response_schema: "proof",
+	participant_read_response_shape: "proof",
+	participant_read_response_signature: "proof",
+	participant_read_response_context: "proof"
+});
 var serverCodes = /* @__PURE__ */ new Set([
+	...Object.keys(participantReadCategories),
 	"invalid_request",
 	"registration_closed",
 	"csrf_failed",
@@ -1602,6 +1615,7 @@ function browserGameDiagnostic(failure, fallbackStage = "entry_inspect") {
 	].includes(code) || result.serverCode === "operation_pending") result.category = "pending";
 	else if (["owner_operation_rejected", "participant_registration_rejected"].includes(code)) result.category = "rejected";
 	else if (["owner_operation_expired", "participant_registration_expired"].includes(code)) result.category = "expired";
+	else if (Object.hasOwn(participantReadCategories, result.serverCode)) result.category = participantReadCategories[result.serverCode];
 	else if (code.includes("timeout")) result.category = "timeout";
 	else if (code === "participant_network_failed") result.category = "network";
 	else if (code.includes("storage") || code.includes("locks")) result.category = "storage";

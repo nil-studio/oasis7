@@ -10,5 +10,6 @@ pub(super) struct RuntimeState {
     pub(super) consensus_progress_observer_error: Option<NodeConsensusProgressObserverError>,
     pub(super) last_error: Option<String>,
     pub(super) bft_status: Option<crate::node_bft_runtime::NodeBftStatusV1>,
+    pub(super) bft_v3_status: Option<crate::node_bft_v3_runtime::NodeBftStatusV3>,
     pub(super) bft_v2_status: Option<crate::node_bft_v2_runtime::NodeBftStatusV2>,
 }

@@ -189,7 +189,7 @@
       "execution_schema_version": 1,
       "kind": "local-docker-build",
       "image_ref": "oasis7/wasm-builder:candidate-2d31df024d41779b37eecd5733514d9540ec82a462d877da435aa326226cecc9",
-      "image_id": "sha256:f4836d1aa4445555c49adf5b504b9cd54b20ff96843a086623cd02264e70eb62",
+      "image_id": "sha256:c5a64d2ee1ac297b61162bcaae40437e1a0b99d289e149bcec7cdc9f24bfc6a0",
       "docker_platform": "linux/amd64"
     },
     "m1.rule.move": {
@@ -428,9 +428,9 @@
   "module_sets": {
     "m1": {
       "identity_file": "m1_builtin_modules.source-rule2-candidate.identity.json",
-      "identity_sha256": "6d3c800f789150913fc71d56fb36c3456057338682bdaa8729e53ec55c50cfcd",
+      "identity_sha256": "caba4acc000fecbbfb2872d54c434b45ca85c3ea151acf49f433c2ffe7217f0e",
       "hash_file": "m1_builtin_modules.source-rule2-candidate.sha256",
-      "hash_sha256": "b03632047d393747cf11339245eaa744a85531fa60903e3e5ba92eb1b0c68afc",
+      "hash_sha256": "77d1f1b454d314510282dcc4ef2bb47f1ecd4e1212132e2907731ac63a0a9355",
       "module_count": 10,
       "build_manifest_hash": "6e4c7c52f72ff3489d0c2a0b4543fbc2aa13ee581c3b1ebd4bca77ea8a2ef086"
     },

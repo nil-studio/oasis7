@@ -761,7 +761,7 @@ jobs:
   formal-process-tests:
     needs: [select, formal-test-build, formal-test-build-trusted]
     if: >-
-      always() && needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
+      always() && !cancelled() && needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
       ((needs.formal-test-build.result == 'success' && needs.formal-test-build-trusted.result == 'skipped') ||
        (needs.formal-test-build.result == 'skipped' && needs.formal-test-build-trusted.result == 'success'))
     timeout-minutes: ${{ matrix.shard == 'world-history' && 45 || 90 }}

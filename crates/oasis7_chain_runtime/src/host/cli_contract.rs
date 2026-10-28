@@ -907,6 +907,7 @@ pub(crate) enum CommandKind {
     DurableSetControl,
     BftRead,
     BftPrefix,
+    BftHeader,
     Dev,
     Inspect,
 }
@@ -931,6 +932,11 @@ pub(crate) const OFFLINE_COMMANDS: &[CommandSpec] = &[
         name: "durable-set",
         kind: CommandKind::DurableSetControl,
         usage: "arm|query --config <formal.json> --owner-instance <instance.json> --operation-id <id> (exact local owner; no activation grant)",
+    },
+    CommandSpec {
+        name: "bft-header",
+        kind: CommandKind::BftHeader,
+        usage: "preview --config ABS --actions ABS [--history ABS] (offline actual World execution preview; no durable commit, signing or serving authority)",
     },
     CommandSpec {
         name: "bft-prefix",

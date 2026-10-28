@@ -21,6 +21,7 @@ pub(crate) struct FormalBftPrefixExecutionV1 {
 /// Constructed only after locked durable reread and complete H-to-tip replay.
 /// It never conveys permission to sign or claim a current/latest head.
 pub(crate) struct FormalBftPrefixCutV1 {
+    certified_prefix: FormalBftCertifiedPrefixV1,
     proof: VerifiedFormalBftPrefixV1,
     world: RuntimeWorld,
     result_tree: FormalBusinessResultTreeV1,
@@ -34,6 +35,9 @@ struct ReplayedStoredPrefix {
 }
 
 impl FormalBftPrefixCutV1 {
+    pub(crate) fn certified_prefix(&self) -> &FormalBftCertifiedPrefixV1 {
+        &self.certified_prefix
+    }
     pub(crate) fn proof(&self) -> &VerifiedFormalBftPrefixV1 {
         &self.proof
     }
@@ -148,6 +152,7 @@ impl FormalBftPrefixExecutionV1 {
         let prefix = self.ledger.prefix_through(exact_height)?;
         let replayed = self.replay(&prefix, exact_height, exact_block_id, false)?;
         Ok(FormalBftPrefixCutV1 {
+            certified_prefix: prefix,
             proof: replayed.proof,
             world: replayed.tip.world,
             result_tree: replayed.tip.result_tree,

@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "module_set": "m1",
+  "build_recipe": {
+    "profile": "release",
+    "wasm_toolchain": "nightly-2025-12-11",
+    "wasm_target": "wasm32-unknown-unknown",
+    "wasm_build_std": "1",
+    "wasm_build_std_components": "std,panic_abort",
+    "wasm_build_std_features": "",
+    "wasm_deterministic_guard": "1",
+    "canonicalizer_version": "strip-custom-sections-v1",
+    "container_platform": "linux-x86_64",
+    "builder_image_ref": "sha256:5d95ded750fb6d16d8e8b87da687600af9e34cc52b7e1176ff68a3b01031a99f",
+    "builder_image_digest": "sha256:5d95ded750fb6d16d8e8b87da687600af9e34cc52b7e1176ff68a3b01031a99f",
+    "build_suite_version": "0.1.0",
+    "canonical_platforms": [
+      "linux-x86_64"
+    ]
+  },
+  "modules": [
+    {
+      "module_id": "m1.power.storage",
+      "hash_tokens": [
+        "linux-x86_64=d113c866a6e55adec9b58c3f8c9d3484ae2579f7c282e59334c65bcb5bc28707"
+      ],
+      "source_input_rule_version": 2,
+      "source_inputs": [
+        {
+          "kind": "source-file",
+          "path": "Cargo.toml",
+          "sha256": "2cf67eb7f3f447018132a3139e75f74b33f9c97d835c75dd77a77f52d08d7887"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_builtin_wasm_modules/m1_power_storage/Cargo.lock",
+          "sha256": "d53cf160e45689e24ebf49aa7fc023de7b15a91294797705d8f931627b2849c2"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_builtin_wasm_modules/m1_power_storage/Cargo.toml",
+          "sha256": "43e1ba76bea4c4b9f4059906ffbe1f574bcfe8d0c57c5d1bd55868c0ff39b461"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs",
+          "sha256": "2f92460e06f7da810e18ef71ee5895388840d4ae6989dde3cea58b02dbc03364"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_wasm_sdk/Cargo.toml",
+          "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_wasm_sdk/src/lib.rs",
+          "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
+        }
+      ],
+      "source_hash": "c3c45bc3c774fa91b73c232f78b92fcaa074b09743f114429e5bf7dcc5185f96",
+      "build_manifest_hash": "ef6fd78b0ace3e8c4623f30dd753e9055d072d9ce76cedc223dfb7084ca02277",
+      "identity_hash": "629a51c25ac7ac951aa60a24d81df714cde9ede06fe1a9bcb0b04ac4d733dfd6"
+    }
+  ]
+}

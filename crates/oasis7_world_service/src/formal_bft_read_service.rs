@@ -68,6 +68,7 @@ pub struct FormalBftReadPublicationV2 {
 
 impl FormalBftReadPublicationV2 {
     pub fn new(input: FormalBftReadPublicationInputV2<'_>) -> FormalReadResult<Self> {
+        require_private_input_safe_light_proof(&input.certificate.proposal.block)?;
         let record = input.handoff_anchor.head().record();
         let handoff = verify_formal_bft_handoff_v1(&input.handoff_anchor, input.target_config)
             .map_err(FormalReadError::Integrity)?;
@@ -291,7 +292,22 @@ fn validate_exact_target(
     Ok(())
 }
 
-fn validate_committed_world(
+/// Existing V2 block IDs authenticate the raw action bytes. Publicly sending
+/// that QC would disclose every subject's input; a projection grant cannot
+/// authorize those unrelated inputs. Only the exact empty-vector encoding is
+/// safe until a separate header-only proof version exists.
+pub(crate) fn require_private_input_safe_light_proof(
+    block: &oasis7_proto::distributed_bft::v2::BftBlockV2,
+) -> FormalReadResult<()> {
+    if block.actions_cbor != [0x80] {
+        return Err(FormalReadError::NotReady(
+            "action-bearing BFT blocks require a private-input-safe light proof version".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_committed_world(
     world: &World,
     identity: &FormalWorldIdentityV1,
     height: u64,
@@ -340,7 +356,7 @@ fn validate_committed_world(
     Ok(())
 }
 
-fn validate_world_identity(
+pub(crate) fn validate_world_identity(
     world: &World,
     identity: &WorldIdentity,
     chain_id: Option<&str>,
@@ -355,7 +371,7 @@ fn validate_world_identity(
     Ok(())
 }
 
-fn to_wire_inclusion(inclusion: ProjectionInclusionV1) -> FormalProjectionInclusionV1 {
+pub(crate) fn to_wire_inclusion(inclusion: ProjectionInclusionV1) -> FormalProjectionInclusionV1 {
     FormalProjectionInclusionV1 {
         schema_version: inclusion.schema_version,
         audience: FormalProjectionAudienceV1 {

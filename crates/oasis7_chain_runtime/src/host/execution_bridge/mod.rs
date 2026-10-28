@@ -10,7 +10,6 @@ mod controlled_live_history;
 mod controlled_live_package;
 mod driver_startup_recovery;
 mod execution_hash;
-mod governance_authorization;
 #[cfg(unix)]
 mod formal_attempt_lifecycle;
 mod formal_business_package;
@@ -29,12 +28,13 @@ pub(crate) mod formal_package;
 pub(crate) mod formal_snapshot;
 #[cfg(unix)]
 pub(crate) mod formal_writer;
+mod governance_authorization;
+#[cfg(all(test, unix))]
+pub(crate) mod governance_authorization_tests;
 mod product_validation_intent;
 mod provider_bootstrap;
 mod world_service_execution;
 pub(crate) mod world_service_read;
-#[cfg(all(test, unix))]
-pub(crate) mod governance_authorization_tests;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionBridgeState {
@@ -865,15 +865,18 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) use self::driver::ExecutionResourceIdentity;
-#[cfg(all(unix, not(target_arch = "wasm32")))]
-pub(crate) use self::driver::{FormalBftReadExecutionV1, FormalBftPrefixExecutionV1};
 #[allow(unused_imports)]
 pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 #[cfg(not(test))]
 pub(super) use self::driver::derive_local_execution_bootstrap;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub(crate) use self::driver::{
+    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    FormalBftPrefixExecutionV1, FormalBftReadExecutionV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
+    PrivateHeaderPrefixV3,
+};
 #[allow(unused_imports)]
 pub(crate) use self::driver::{load_execution_world, load_execution_world_with_policy};
-pub(crate) use self::driver_persistence::load_execution_world_with_context;
 #[allow(unused_imports)]
 pub(super) use self::driver_committed_heights::bridge_committed_heights;
 #[cfg(test)]
@@ -884,6 +887,7 @@ pub(crate) use self::driver_observability::{
     ExecutionBridgeCommitTimingSnapshot, record_execution_bridge_module_tick_routing_metrics,
     snapshot_execution_bridge_commit_timing, snapshot_execution_bridge_module_tick_routing_metrics,
 };
+pub(crate) use self::driver_persistence::load_execution_world_with_context;
 pub(crate) use self::execution_hash::legacy_migration_execution_hash;
 #[cfg(test)]
 pub(crate) use self::local_bootstrap::derive_local_execution_bootstrap;

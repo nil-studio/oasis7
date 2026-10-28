@@ -1151,3 +1151,6 @@ fn capability_recovery_query_uses_current_quote_authority_and_resources() {
     assert_eq!(blocked.subject, available.subject);
     assert!(blocked.recovery.last().unwrap().evidence.as_ref().unwrap()["rejection"].is_object());
 }
+
+#[path = "agent_delegation/batch_stack.rs"]
+mod batch_stack;

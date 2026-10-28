@@ -32,6 +32,46 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_m1_storage_source_has_explicit_runtime_and_builder_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
+        self.write(path, '// existing standalone WASM source\n')
+        head = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            plan = selector.select(config, self.base, head)
+            self.assertEqual(set(plan['groups']), {
+                'baseline', 'rust_baseline', 'oasis7_required', 'formal_process',
+                'launcher_web', 'workspace_support',
+            })
+            self.assertEqual(plan['workspace_support_profiles'], ['wasm_build_suite'])
+            trusted_before_registration = dict(config, rules=[
+                rule for rule in config['rules']
+                if rule['reason'] != 'm1_storage_wasm_consumers'
+            ])
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(trusted_before_registration, self.base, head)
+            self.base = head
+            self.git('rm', path)
+            deleted = self.commit()
+            self.assertIn('oasis7_required', selector.select(config, self.base, deleted)['groups'])
+
+    def test_m1_storage_registration_does_not_admit_neighboring_or_renamed_unknown_sources(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        source = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
+        unknown = 'crates/oasis7_builtin_wasm_modules/m1_future/src/lib.rs'
+        self.write(source, '// registered source\n')
+        self.base = self.commit()
+        self.write(unknown, '// not registered\n')
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+            self.git('rm', unknown)
+            self.base = self.commit()
+            Path(unknown).parent.mkdir(parents=True, exist_ok=True)
+            self.git('mv', source, unknown)
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_wasm_consumer_exact_paths_select_real_suite_and_domain_groups(self):
         config = json.loads((HERE / "ci-required-scope.json").read_text())
         graph = ({}, {}, {})
@@ -706,6 +746,288 @@ class Selection(unittest.TestCase):
     def test_docs_baseline_only(self):
         self.write('doc/readme.md', 'changed')
         self.assertEqual(self.plan()['groups'], ['baseline'])
+
+    def test_real_wasm_fixture_sources_do_not_expand_unrelated_documents(self):
+        # These production test strings caused the docs-only full fallback in #5177.
+        for name in ('source_inputs_tests.rs', 'producer_recipe.rs', 'producer_recipe_guard.rs'):
+            source = HERE.parent / 'crates/oasis7_wasm_build/src' / name
+            self.write('crates/core/src/' + name, source.read_text())
+        self.base = self.commit()
+        self.write('doc/readme.md', 'unrelated document with real fixture sources present')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_rust_quoted_examples_and_comments_are_not_embedded_inputs(self):
+        cases = {
+            'ordinary': r'const S: &str = "include_str!(\"missing.txt\"); include_bytes!(env!(\"NO\"));";',
+            'byte_and_c': r'const B: &[u8] = b"include_bytes!(\"missing.txt\")"; const C: &core::ffi::CStr = c"include_str!(\"missing.txt\")";',
+            'raw_delimiters': r'''const A: &str = r###"include_str!(env!("NO")); "# include_bytes!(env!("NO")); "##"###;
+                const B: &[u8] = br##"include_bytes!(env!("NO"))"#"##;
+                const C: &core::ffi::CStr = cr#"include_str!(env!("NO"))"#;''',
+            'nested_comments': '''/* outer include_str!(env!("NO"))
+                /* nested include_bytes!(env!("NO")) */ still outer */
+                // include_bytes!(env!("NO"))
+                /// include_str!(env!("NO"))
+                pub fn documented() {}''',
+            'characters_and_lifetimes': r'''fn example<'a>(value: &'a str) -> &'a str {
+                let _ = '"'; let _ = b'\''; let _ = '\u{22}';
+                let _ = "include_str!(\"missing.txt\")"; value
+            }''',
+            'identifier_boundary': 'not_include_str!(env!("NOT_AN_INCLUDE"));',
+            'unicode_identifier_boundary': 'e\u0301include_str!(env!("NOT_AN_INCLUDE"));',
+            'quoted_real_path': r'''const EXAMPLE: &str = r##"include_str!("../../../doc/readme.md")"##;''',
+            'literal_suffixes': r'''discard!("example"include_str!(env!("NO")));
+                discard!(r#"example"#include_bytes!(env!("NO")));
+                discard!(b'x'include_str!(env!("NO")));
+                discard!(1include_str!(env!("NO")));
+                discard!(1.0include_bytes!(env!("NO")));''',
+        }
+        for label, source in cases.items():
+            with self.subTest(case=label):
+                self.write('crates/core/src/lib.rs', source)
+                self.base = self.commit()
+                self.write('doc/readme.md', 'unrelated document: ' + label)
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_real_include_after_quoted_examples_keeps_document_consumers(self):
+        source = r'''fn sample<'a>(value: &'a str) -> &'a str {
+            let _ = '"'; let _ = b'\''; let _ = r##"include_str!(env!("NO"))"##;
+            value
+        }
+        const DOCUMENT: &str = include_str!("../../../doc/readme.md");'''
+        self.write('crates/core/src/lib.rs', source)
+        self.base = self.commit()
+        self.write('doc/readme.md', 'real embedded document still changes consumers')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_real_byte_and_raw_path_literals_keep_fixture_consumers(self):
+        for literal in ('b"doc/readme.md"', 'br#"doc/readme.md"#',
+                        'c"doc/readme.md"', 'cr#"doc/readme.md"#'):
+            with self.subTest(literal=literal):
+                self.write('crates/core/src/lib.rs', f'const PATH = {literal};')
+                self.base = self.commit()
+                self.write('doc/readme.md', 'fixture path: ' + literal)
+                self.assertEqual(set(self.plan()['groups']),
+                                 {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_include_after_field_colon_is_not_a_foreign_macro(self):
+        for source in ('const S = Holder { text: include_str!("data.txt") };',
+                       'json!({"value": include_str!("data.txt")});'):
+            with self.subTest(source=source):
+                self.write('crates/core/src/lib.rs', source)
+                self.write('crates/core/src/data.txt', 'actual embedded input')
+                self.base = self.commit()
+                self.write('doc/readme.md', 'unrelated document: ' + source)
+                self.assertEqual(self.plan()['groups'], ['baseline'])
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write('crates/core/src/data.txt', source)
+                self.assertEqual(set(self.plan()['groups']),
+                                 {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_unknown_embed_diagnostics_identify_source_and_owner(self):
+        self.write('crates/core/src/lib.rs', '\nconst D: &str = include_str!(env!("UNKNOWN"));')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'unrelated document')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'full')
+        self.assertIn('unresolved Rust embed: crates/core/src/lib.rs:2 (core): '
+                      'include_str!(env!("UNKNOWN"))', plan['reasons'])
+
+    def test_standard_library_include_paths_keep_precise_consumers(self):
+        for namespace in ('std::', 'core::', '::std::', '::core::'):
+            with self.subTest(namespace=namespace):
+                self.write('doc/embedded.md', 'actual embedded document')
+                self.write('crates/core/src/lib.rs',
+                           f'const D: &str = {namespace}include_str!("../../../doc/embedded.md");')
+                self.base = self.commit()
+                self.write('doc/readme.md', 'unrelated document: ' + namespace)
+                self.assertEqual(self.plan()['groups'], ['baseline'])
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write('doc/embedded.md', 'changed: ' + namespace)
+                self.assertEqual(set(self.plan()['groups']),
+                                 {'baseline', 'rust_baseline', 'core', 'consumer'})
+        self.write('crates/core/src/lib.rs',
+                   'const D: &str = foreign::std::include_str!("../../../doc/embedded.md");')
+        self.base = self.commit()
+        self.assert_unresolved_document('foreign macro is not a registered builtin')
+
+    def test_real_include_token_variants_never_skip_document_consumers(self):
+        sources = (
+            'const D: &str = include_str /* separator */ ! ("../../../doc/readme.md");',
+            'const D: &str = include_str!["../../../doc/readme.md"];',
+            'const D: &str = include_str!{"../../../doc/readme.md"};',
+            'const D: &str = std::include_str!(r"../../../doc/readme.md");',
+            'macro_rules! document { () => { include_str!("../../../doc/readme.md") }; }',
+        )
+        for index, source in enumerate(sources):
+            with self.subTest(source=source):
+                self.write('crates/core/src/lib.rs', source)
+                self.base = self.commit()
+                self.write('doc/readme.md', f'actual include variant {index}')
+                # Unsupported expression forms may stay conservative, but cannot skip readers.
+                self.assertTrue({'core', 'consumer'}.issubset(self.plan()['groups']))
+
+    def test_real_dynamic_include_survives_literal_and_comment_scanning(self):
+        sources = (
+            r'const EXAMPLE: &str = "include_str!(\"fixture\")"; const D: &str = include_str!(env!("UNKNOWN"));',
+            r'''fn f<'a>(value: &'a str) -> &'static str {
+                let _ = '"'; let _ = b'\''; let _ = value; include_str!(env!("UNKNOWN"))
+            }''',
+            'opaque!(include_bytes!(env!("UNKNOWN")));',
+            'macro_rules! dynamic { () => { include_str!(env!("UNKNOWN")) }; }',
+            'const D: &str = include_str /* separator */ ! [env!("UNKNOWN")];',
+        )
+        for index, source in enumerate(sources):
+            with self.subTest(source=source):
+                self.write('crates/core/src/lib.rs', source)
+                self.base = self.commit()
+                self.write('doc/readme.md', f'unrelated document with dynamic include {index}')
+                self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_registered_generated_inputs_ignore_fixture_strings_without_hiding_dynamic_calls(self):
+        _, consumer, _ = self.native_generated_fixture()
+        original = Path(consumer).read_text()
+        example = r'const EXAMPLE: &str = "include_str!(concat!(env!(\"OUT_DIR\"), \"/not-registered\"))";'
+        self.write(consumer, original + '\n' + example + '\n')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'registered real outputs plus a fixture string')
+        self.assertEqual(self.plan()['groups'], ['baseline'])
+        self.write(consumer, original + '\n' + example + '\nconst UNKNOWN: &str = include_str!(env!("OTHER_INPUT"));\n')
+        self.base = self.commit()
+        self.assert_unresolved_document('real dynamic call cannot be cancelled by registered outputs')
+
+    def test_macro_namespace_parameter_cannot_claim_registered_generated_output(self):
+        _, consumer, _ = self.native_generated_fixture()
+        original = Path(consumer).read_text()
+        for namespace in ('std', 'core'):
+            with self.subTest(namespace=namespace):
+                dynamic = ('macro_rules! input { ($' + namespace + ':ident) => { $' + namespace
+                           + '::include_str!(concat!(env!("OUT_DIR"), "/native-toolchain.txt")) }; }')
+                self.write(consumer, original + '\n' + dynamic + '\n')
+                self.base = self.commit()
+                self.assert_unresolved_document('namespace parameter: ' + namespace)
+
+    def test_scoped_github_controls_select_only_governance(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = (
+            '.github/ISSUE_TEMPLATE/code-development.yml',
+            '.github/ISSUE_TEMPLATE/config.yml',
+            '.github/ISSUE_TEMPLATE/decision.yml',
+            '.github/ISSUE_TEMPLATE/defect.yml',
+            '.github/ISSUE_TEMPLATE/document.yml',
+            '.github/ISSUE_TEMPLATE/test.yml',
+            '.github/instructions/pr-review.instructions.md',
+            '.github/pull_request_template.md',
+            '.github/workflows/codeql.yml',
+            '.github/workflows/codeql-rust-capacity.yml',
+            '.github/workflows/codeql-rust-cargo-check.yml',
+            '.github/workflows/codeql-rust-cfg-diagnostic.yml',
+        )
+        for path in paths:
+            self.write(path, '# original control\n')
+        self.base = self.commit()
+        for path in paths:
+            with self.subTest(path=path):
+                self.write(path, '# changed control\n')
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+                self.base = self.git('rev-parse', 'HEAD')
+
+    def test_scoped_github_controls_do_not_exempt_unknown_or_shared_controls(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in (
+                '.github/ISSUE_TEMPLATE/future.yml', '.github/workflows/codeql-new.yml',
+                '.github/workflows/rust.yml', '.github/actions/shared/action.yml',
+                'scripts/ci-tests.sh', 'Cargo.lock'):
+            with self.subTest(path=path):
+                self.write(path, '# independent or shared control\n')
+                self.assertEqual(self.plan()['scope'], 'full')
+                self.base = self.git('rev-parse', 'HEAD')
+        self.config.pop('scoped_control_paths', None)
+        self.write('.github/pull_request_template.md', 'old trusted baseline remains conservative')
+        self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_scoped_github_controls_keep_mixed_changes_and_embedded_consumers(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        path = '.github/pull_request_template.md'
+        self.write(path, 'ordinary template')
+        self.write('crates/core/src/lib.rs', '// independent library change')
+        plan = self.plan()
+        expected = {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required', 'node'}
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), expected)
+
+        self.write('crates/core/src/lib.rs', 'const TEMPLATE: &str = include_str!("../../../' + path + '");')
+        self.base = self.commit()
+        self.write(path, 'real embedded template changed')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), expected)
+
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write(path, 'template plus a shared control')
+        self.write('Cargo.lock', '# changed lock')
+        self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_scoped_github_controls_keep_deletions_and_both_rename_endpoints(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        first = '.github/ISSUE_TEMPLATE/document.yml'
+        second = '.github/ISSUE_TEMPLATE/test.yml'
+        self.write(first, 'unique existing metadata')
+        self.base = self.commit()
+        self.git('mv', first, second)
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+        self.base = self.git('rev-parse', 'HEAD')
+        Path(second).unlink()
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+
+        self.write(first, 'unique metadata renamed outside the approved paths')
+        self.base = self.commit()
+        self.git('mv', first, '.github/ISSUE_TEMPLATE/future.yml')
+        self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_scoped_github_metadata_rename_does_not_lose_previous_source_owner(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        self.write('crates/core/src/lib.rs', '// source renamed into a metadata path')
+        self.base = self.commit()
+        Path('.github').mkdir()
+        self.git('mv', 'crates/core/src/lib.rs', '.github/pull_request_template.md')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']),
+                         {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required', 'node'})
+
+    def test_scoped_control_configuration_rejects_ambiguous_or_unowned_paths(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        malformed = (
+            [],
+            {'.github/workflows/*.yml': ['workflow_governance']},
+            {'.github/../Cargo.toml': ['workflow_governance']},
+            {'.github//pull_request_template.md': ['workflow_governance']},
+            {'.github\\pull_request_template.md': ['workflow_governance']},
+            {'/.github/pull_request_template.md': ['workflow_governance']},
+            {'scripts/ci-tests.sh': ['workflow_governance']},
+            {'.github/pull_request_template.md': ['nonexistent_group']},
+            {'.github/pull_request_template.md': ['workflow_governance', 'workflow_governance']},
+            {'.github/pull_request_template.md': 'workflow_governance'},
+        )
+        for mapping in malformed:
+            with self.subTest(mapping=mapping):
+                candidate = dict(config, scoped_control_paths=mapping)
+                with self.assertRaises(ValueError):
+                    selector.select(candidate, self.base, self.base)
 
     def test_optional_target_dev_reverse_consumer(self):
         self.write('crates/core/src/lib.rs', '// changed')

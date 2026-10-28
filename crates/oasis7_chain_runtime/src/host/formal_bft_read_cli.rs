@@ -258,24 +258,42 @@ pub(super) fn load_qualified_handoff(
     if !trust_config_path.is_absolute() || !handoff_material_path.is_absolute() {
         return Err("formal handoff input paths must be absolute".into());
     }
-    super::controlled_live_config::require_private_owned(trust_config_path, false)?;
-    let trust_bytes =
-        super::controlled_history_cli::read_bounded(trust_config_path, TRUST_MAX_BYTES)?;
-    let trust: FormalReadTrustConfigV1 = serde_json::from_slice(&trust_bytes)
-        .map_err(|error| format!("decode external formal-read trust config: {error}"))?;
-    let anchor = trust.verified_anchor()?;
+    let anchor = load_qualified_handoff_anchor(trust_config_path)?;
     let handoff = verify_formal_bft_handoff_v1(&anchor, target.clone())?;
-
-    let handoff_material: ClosedRecord = read_canonical_cbor(
-        handoff_material_path,
-        HANDOFF_MATERIAL_MAX_BYTES,
-        "qualified H closed material",
-    )?;
+    let handoff_material = read_qualified_handoff_material(handoff_material_path)?;
     Ok(QualifiedHandoffFilesV1 {
         anchor,
         handoff,
         handoff_material,
     })
+}
+
+/// Authenticate controlled H without choosing the successor wire version.
+pub(super) fn load_qualified_handoff_anchor(
+    trust_config_path: &Path,
+) -> Result<VerifiedFormalReadAnchorV1, String> {
+    if !trust_config_path.is_absolute() {
+        return Err("formal handoff input paths must be absolute".into());
+    }
+    super::controlled_live_config::require_private_owned(trust_config_path, false)?;
+    let trust_bytes =
+        super::controlled_history_cli::read_bounded(trust_config_path, TRUST_MAX_BYTES)?;
+    let trust: FormalReadTrustConfigV1 = serde_json::from_slice(&trust_bytes)
+        .map_err(|error| format!("decode external formal-read trust config: {error}"))?;
+    trust.verified_anchor()
+}
+
+pub(super) fn read_qualified_handoff_material(
+    handoff_material_path: &Path,
+) -> Result<ClosedRecord, String> {
+    if !handoff_material_path.is_absolute() {
+        return Err("formal handoff input paths must be absolute".into());
+    }
+    read_canonical_cbor(
+        handoff_material_path,
+        HANDOFF_MATERIAL_MAX_BYTES,
+        "qualified H closed material",
+    )
 }
 
 fn install(config_path: &Path, certificate_path: &Path) -> Result<(), String> {
