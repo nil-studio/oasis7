@@ -99,7 +99,7 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；既有产品结果由 
 - Acceptance Criteria:
   - AC-1: site PRD 定义页面层级、内容同步和发布链路。
   - AC-2: 对应 PR/已有 Task 记录本次范围、适用要求、验证版本与结果；Issue/Project 按需，长期 PRD 不承载可变任务状态。
-  - AC-3: 与 `site/doc` 与 GitHub Pages 相关设计文档口径一致。
+  - AC-3: 与 `site/doc` 和 GitHub Pages 相关设计文档口径一致。
   - AC-4: 发布前完成链接有效性与基础质量检查。
   - AC-5: 首页与文档入口页（`site/index.html`、`site/en/index.html`、`site/doc/cn/index.html`、`site/doc/en/index.html`）对“是否可玩”状态的表达必须一致且与真实状态相符。
   - AC-6: `doc/site/github-pages/**` 仍可读历史专题的首行标题必须统一使用 `oasis7` 品牌；旧 `oasis7*` 标题仅允许保留在正文历史上下文与证据原文中。
