@@ -257,12 +257,27 @@ fn test_session_cleanup_after_write_expiry_has_independent_once_slots_and_monoto
     assert_eq!(r.nonce, 2);
     assert_eq!(r.generation, 2);
     let result = stop_result(&f.state, &signed);
+    let OwnerSetupResultV1::Canonical {
+        response: selected, ..
+    } = &result
+    else {
+        unreachable!()
+    };
+    let result_world = world(
+        &f.state,
+        TerminationOperationV1::Stop,
+        "cleanup-source",
+        Some(&selected.payload),
+    );
     f.state
         .record_test_session_termination_result(
             ID,
             TerminationOperationV1::Stop,
             result.clone(),
-            &live,
+            &TestSessionTerminationCurrent {
+                live: &live,
+                world: &result_world,
+            },
             UnixMillis::new(52_006),
             &mut StrictCrypto,
         )
@@ -550,6 +565,15 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
     // Canonical fixture commits the exact typed Stop. Its complete signed result
     // passes current strong checks but is deliberately never recorded in Account.
     let committed = stop_result(&f.state, &signed);
+    let OwnerSetupResultV1::Canonical { response, .. } = &committed else {
+        unreachable!()
+    };
+    let post_world = world(
+        &f.state,
+        TerminationOperationV1::Stop,
+        "lost-stop-source",
+        Some(&response.payload),
+    );
     let mut fact_checked = f.state.clone();
     let world_key = f.state.draft().world_identity.service_public_key.clone();
     fact_checked
@@ -566,20 +590,14 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
             ID,
             TerminationOperationV1::Stop,
             &committed,
-            &live,
+            &TestSessionTerminationCurrent {
+                live: &live,
+                world: &post_world,
+            },
             UnixMillis::new(52_006),
         )
         .unwrap();
     StrictCrypto.verify(&checks).unwrap();
-    let OwnerSetupResultV1::Canonical { response, .. } = &committed else {
-        unreachable!()
-    };
-    let post_world = world(
-        &f.state,
-        TerminationOperationV1::Stop,
-        "lost-stop-source",
-        Some(&response.payload),
-    );
     post_world
         .response
         .payload
@@ -595,7 +613,10 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
             ID,
             TerminationOperationV1::Stop,
             committed.clone(),
-            &live,
+            &TestSessionTerminationCurrent {
+                live: &live,
+                world: &post_world,
+            },
             UnixMillis::new(52_006),
             &mut StrictCrypto,
         )
@@ -1023,7 +1044,10 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
                 ID,
                 TerminationOperationV1::Stop,
                 lookup_fact.clone(),
-                &live,
+                &TestSessionTerminationCurrent {
+                    live: &live,
+                    world: &post_world
+                },
                 UnixMillis::new(61_000),
                 &mut StrictCrypto
             )
@@ -1038,7 +1062,10 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
                 ID,
                 TerminationOperationV1::Stop,
                 &lookup_fact,
-                &live,
+                &TestSessionTerminationCurrent {
+                    live: &live,
+                    world: &post_world
+                },
                 UnixMillis::new(52_006)
             )
             .is_err()
@@ -1048,7 +1075,10 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
             ID,
             TerminationOperationV1::Stop,
             lookup_fact,
-            &live,
+            &TestSessionTerminationCurrent {
+                live: &live,
+                world: &post_world,
+            },
             UnixMillis::new(52_006),
             &mut StrictCrypto,
         )
@@ -1059,3 +1089,6 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
             .is_some()
     );
 }
+
+#[path = "test_session_termination_fresh_world_tests.rs"]
+mod fresh_world_tests;

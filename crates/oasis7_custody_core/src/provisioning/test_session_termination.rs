@@ -240,6 +240,16 @@ impl AccountProvisionApprovalState {
         current: &TestSessionTerminationCurrent<'_, '_, '_>,
         now: UnixMillis,
     ) -> Result<ExactSignatureChecks> {
+        self.termination_current_checks_with_stop_result(id, kind, current, now, None)
+    }
+    fn termination_current_checks_with_stop_result(
+        &self,
+        id: &str,
+        kind: TerminationOperationV1,
+        current: &TestSessionTerminationCurrent<'_, '_, '_>,
+        now: UnixMillis,
+        selected_stop: Option<&OwnerSetupResultV1>,
+    ) -> Result<ExactSignatureChecks> {
         self.require_session_source_funding(
             id,
             current.live.source_operation_id,
@@ -282,12 +292,12 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         let observed = GameTaskFenceV1::from_control(task);
         let mut expected = s.termination.initial_fence.clone();
-        if let Some(stop) = s
-            .termination_slots
-            .get(&TerminationOperationV1::Stop)
-            .and_then(|o| o.result.as_ref())
-        {
-            let OwnerSetupResultV1::Canonical { response, .. } = stop.as_ref() else {
+        if let Some(stop) = selected_stop.or_else(|| {
+            s.termination_slots
+                .get(&TerminationOperationV1::Stop)
+                .and_then(|o| o.result.as_deref())
+        }) {
+            let OwnerSetupResultV1::Canonical { response, .. } = stop else {
                 return Err(invalid());
             };
             if let ws::IntentOutcome::Committed { receipt, .. } = &response.payload.outcome {
