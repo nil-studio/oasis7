@@ -9,6 +9,12 @@ const MAX_RECORD: usize = 4 * 1024 * 1024;
 const SCOPE: &str = "formal-bft-header-node-private-v3";
 const MARKER: &[u8] = b"oasis7.formal.bft.node_private.required/v3\n";
 const DOMAIN: &str = "oasis7.formal.bft.node_private.v3";
+const MULTI_DOMAIN: &str = "oasis7.formal.bft.node_private_candidate.v4";
+const SELECTION_DOMAIN: &str = "oasis7.formal.bft.node_private_selection.v5";
+const MAX_CANDIDATES_PER_HEIGHT: usize = 16;
+const MAX_CANDIDATES: usize = 256;
+#[path = "driver_bft_v3_node_private_multivalue.rs"]
+mod multivalue;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,9 +34,10 @@ struct Data {
 }
 impl Data {
     fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 3
-            || self.domain != DOMAIN
-            || self.height == 0
+        if !matches!(
+            (self.schema_version, self.domain.as_str()),
+            (3, DOMAIN) | (4, MULTI_DOMAIN) | (5, SELECTION_DOMAIN)
+        ) || self.height == 0
             || !canonical_hash(&self.ledger_origin_digest)
             || !canonical_hash(&self.material_identity)
             || !canonical_hash(&self.instance_id)
@@ -44,7 +51,22 @@ impl Data {
         {
             return Err("invalid original Node private record identity or capacity".into());
         }
-        if self.origin {
+        if self.schema_version == 5 {
+            if self.origin || !self.actions_cbor.is_empty() || self.references.len() != 1 {
+                return Err("invalid original local selection".into());
+            }
+            let value = self
+                .value
+                .as_ref()
+                .ok_or("local selection has no public value")?;
+            value.validate_binding()?;
+            if value.execution_commitment.height != self.height {
+                return Err("local selection height differs".into());
+            }
+        } else if self.origin {
+            if self.schema_version != 3 {
+                return Err("foreign Node origin schema".into());
+            }
             if self.value.is_some() || !self.actions_cbor.is_empty() {
                 return Err("Node H retention record contains candidate data".into());
             }
@@ -81,7 +103,24 @@ impl Data {
             .collect())
     }
     fn shard(&self) -> String {
-        if self.origin {
+        if self.schema_version == 5 {
+            format!(
+                "ledger-{}-selection-{:020}",
+                self.ledger_origin_digest, self.height
+            )
+        } else if self.schema_version == 4 {
+            format!(
+                "ledger-{}-height-{:020}-header-{}",
+                self.ledger_origin_digest,
+                self.height,
+                self.value
+                    .as_ref()
+                    .expect("validated candidate")
+                    .header
+                    .block_id()
+                    .expect("validated header")
+            )
+        } else if self.origin {
             format!("ledger-{}-origin", self.ledger_origin_digest)
         } else {
             format!(
@@ -104,6 +143,8 @@ pub(super) struct NodePrivateStore {
     store: LocalCasStore,
     origin: Option<Slot>,
     candidates: BTreeMap<u64, Slot>,
+    values: BTreeMap<(u64, String), Slot>,
+    selections: BTreeMap<u64, Slot>,
 }
 
 struct SeedReader {
@@ -223,6 +264,8 @@ impl NodePrivateStore {
                 store,
                 origin,
                 candidates: BTreeMap::new(),
+                values: BTreeMap::new(),
+                selections: BTreeMap::new(),
             },
             source,
         ))
@@ -296,14 +339,33 @@ impl NodePrivateStore {
 
     fn load_inventory(&mut self, origin: &str, material: &str, h: u64) -> Result<(), String> {
         let mut heights = BTreeSet::new();
+        let mut multi = BTreeSet::new();
+        let mut selections = BTreeSet::new();
+        let mut inventory_bytes = 0u64;
         for (count, entry) in fs::read_dir(&self.dir)
             .map_err(|_| "read private Node inventory")?
             .enumerate()
         {
-            if count > 3 * 64 + 8 {
+            if count > 8 * (MAX_CANDIDATES + 64) + 8 {
                 return Err("private Node directory capacity".into());
             }
             let entry = entry.map_err(|_| "inspect private Node inventory")?;
+            if !entry
+                .file_type()
+                .map_err(|_| "inspect Node inventory file type")?
+                .is_file()
+            {
+                return Err("private Node inventory contains a nonregular file".into());
+            }
+            inventory_bytes = inventory_bytes
+                .checked_add(
+                    entry
+                        .metadata()
+                        .map_err(|_| "inspect Node inventory bytes")?
+                        .len(),
+                )
+                .filter(|bytes| *bytes <= 512 * 1024 * 1024)
+                .ok_or("private Node inventory cumulative byte capacity")?;
             let name = entry
                 .file_name()
                 .into_string()
@@ -317,6 +379,17 @@ impl NodePrivateStore {
             ]
             .contains(&target)
             {
+                continue;
+            }
+            if let Some((height, id)) = multivalue::parse_target(target)? {
+                if height <= h || height - h > 64 {
+                    return Err("private Node height capacity".into());
+                }
+                if let Some(id) = id {
+                    multi.insert((height, id));
+                } else {
+                    selections.insert(height);
+                }
                 continue;
             }
             let rest = target
@@ -335,10 +408,26 @@ impl NodePrivateStore {
             }
             heights.insert(height);
         }
+        if heights.len() + multi.len() > MAX_CANDIDATES || selections.len() > 64 {
+            return Err("Node candidate inventory count capacity".into());
+        }
+        let mut per_height = BTreeMap::<u64, usize>::new();
+        for height in heights
+            .iter()
+            .copied()
+            .chain(multi.iter().map(|(height, _)| *height))
+        {
+            let count = per_height.entry(height).or_default();
+            *count += 1;
+            if *count > MAX_CANDIDATES_PER_HEIGHT {
+                return Err("Node per-height candidate inventory capacity".into());
+            }
+        }
         for height in heights {
             let slot = read_slot(&self.candidate_path(height))?
                 .ok_or("private Node candidate identity is missing")?;
-            if slot.data.origin
+            if slot.data.schema_version != 3
+                || slot.data.origin
                 || slot.data.height != height
                 || slot.data.ledger_origin_digest != origin
                 || slot.data.material_identity != material
@@ -351,6 +440,8 @@ impl NodePrivateStore {
             }
             self.candidates.insert(height, slot);
         }
+        self.load_multivalue_inventory(origin, material, &multi, &selections)?;
+        self.check_counts(None)?;
         Ok(())
     }
     fn verify_inventory_pins(&self) -> Result<(), String> {
@@ -358,6 +449,8 @@ impl NodePrivateStore {
         let prefix = format!("ledger-{}-", origin.data.ledger_origin_digest);
         let known: BTreeSet<_> = std::iter::once(origin.data.shard())
             .chain(self.candidates.values().map(|slot| slot.data.shard()))
+            .chain(self.values.values().map(|slot| slot.data.shard()))
+            .chain(self.selections.values().map(|slot| slot.data.shard()))
             .collect();
         for shard in self
             .store
@@ -397,7 +490,7 @@ impl NodePrivateStore {
         height: u64,
     ) -> Result<Option<NodeBftPrivateCandidateV3>, String> {
         let Some(slot) = self.candidates.get(&height) else {
-            return Ok(None);
+            return self.selected_candidate(height);
         };
         verify_original_slot(&self.store, &self.candidate_path(height), slot)?;
         Ok(Some(NodeBftPrivateCandidateV3 {
@@ -415,12 +508,20 @@ impl NodePrivateStore {
         nodes: &BTreeMap<String, Vec<u8>>,
         reserve: &mut impl FnMut(usize) -> Result<(), String>,
     ) -> Result<String, String> {
+        let height = candidate.public_value.execution_commitment.height;
+        if self.selections.contains_key(&height)
+            || self
+                .values
+                .contains_key(&(height, candidate.public_value.block_id()?))
+        {
+            return self.select_received(candidate, nodes, reserve);
+        }
+        self.check_counts(Some((height, candidate.public_value.block_id()?)))?;
         let origin = &self
             .origin
             .as_ref()
             .ok_or("private Node origin unavailable")?
             .data;
-        let height = candidate.public_value.execution_commitment.height;
         if height <= origin.height || height - origin.height > 64 {
             return Err("private Node height capacity".into());
         }
@@ -492,7 +593,9 @@ impl NodePrivateStore {
             .chain(
                 self.candidates
                     .values()
-                    .filter(|slot| additional.is_none_or(|a| a.height != slot.data.height))
+                    .chain(self.values.values())
+                    .chain(self.selections.values())
+                    .filter(|slot| additional.is_none_or(|a| a.shard() != slot.data.shard()))
                     .map(|slot| &slot.data),
             )
             .chain(additional)
@@ -506,11 +609,14 @@ impl NodePrivateStore {
                 )
                 .filter(|sum| *sum <= 512 * 1024 * 1024)
                 .ok_or("Node cumulative material capacity")?;
-            refs.extend(data.references.iter().cloned());
+            if data.schema_version != 5 {
+                refs.extend(data.references.iter().cloned());
+            }
         }
         if refs.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES {
             return Err("Node retained index count capacity".into());
         }
+        let mut dependency_bytes = 0usize;
         for reference in refs {
             let size = if let Some(data) = nodes.get(&reference) {
                 data.len()
@@ -522,6 +628,10 @@ impl NodePrivateStore {
                 )?
                 .len()
             };
+            dependency_bytes = dependency_bytes
+                .checked_add(size)
+                .filter(|sum| *sum <= formal_dependencies::MAX_RETAINED_INDEX_TOTAL_BYTES)
+                .ok_or("Node cumulative dependency byte capacity")?;
             bytes = bytes
                 .checked_add(size)
                 .filter(|sum| *sum <= 512 * 1024 * 1024)
@@ -688,7 +798,11 @@ fn publish(
     if common_storage::read_optional_bytes(path, MAX_RECORD)?.is_some() {
         files::same_pair(path, &intent)?;
     } else {
-        files::promote(&reservation, &intent, &bytes)?;
+        // Promotion already consumed the reservation in an intent-only crash.
+        // Resume the retained original intent; never recreate its material.
+        if common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_none() {
+            files::promote(&reservation, &intent, &bytes)?;
+        }
         files::link_record(path, &intent, &bytes)?;
     }
     if origin {

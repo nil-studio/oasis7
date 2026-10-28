@@ -569,3 +569,68 @@ fn header_journal_proposal_and_commit_resume_original_public_decisions() {
     assert!(!json.contains("\"actions_cbor\":"));
     assert!(!json.contains("\"payload_cbor\":"));
 }
+
+#[test]
+fn current_proposal_effect_can_be_overtaken_by_authenticated_future_round_votes() {
+    // Algorithm event-order vector, not an actual four-Node transport test.
+    // Node may retire the stale volatile effect; the reducer must not rewrite
+    // its signing round merely to accommodate a delayed consumer.
+    let (schedule, keys) = setup(&[1, 1, 1, 1]);
+    let local = schedule.expected_proposer_for_round(0).unwrap();
+    let mut machine =
+        BftConsensusMachineV3::new(schedule.clone(), local.clone(), 0, TIMEOUTS).unwrap();
+    let proposal = machine
+        .sign_proposal_intent(
+            &machine.proposal_intent(value(&schedule), &local).unwrap(),
+            key(&keys, &local),
+        )
+        .unwrap();
+    let old_intent = vote_effect(
+        machine.receive_proposal(proposal, true, 1).unwrap(),
+        BftVotePhaseV3::Prevote,
+    );
+    assert_eq!(old_intent.round, 0);
+    let remotes = keys
+        .iter()
+        .filter(|(id, _)| id != &local)
+        .take(2)
+        .collect::<Vec<_>>();
+    for (index, (id, key)) in remotes.into_iter().enumerate() {
+        let future = BftVoteV3::sign(
+            schedule.scope().clone(),
+            schedule.height(),
+            1,
+            BftVotePhaseV3::Prevote,
+            schedule.active_set().set_hash().into(),
+            schedule.policy_hash().into(),
+            BftVoteValueV3::Nil,
+            id.clone(),
+            key,
+        )
+        .unwrap();
+        machine.receive_vote(future, 2 + index as i64).unwrap();
+        assert_eq!(
+            machine.round(),
+            if index == 0 { 0 } else { 1 },
+            "strict greater-than-one-third future power advances the round"
+        );
+    }
+    assert!(
+        machine
+            .vote_intent(
+                local.clone(),
+                old_intent.phase,
+                old_intent.value,
+                old_intent.round
+            )
+            .is_err(),
+        "the retired effect cannot be signed as though its round were current"
+    );
+    let current = machine.on_timeout(1_000, &local).unwrap();
+    assert!(
+        current.iter().any(
+            |effect| matches!(effect,BftConsensusActionV3::SignVote(intent) if intent.round==1)
+        ),
+        "the new round still produces its own signing decision"
+    );
+}

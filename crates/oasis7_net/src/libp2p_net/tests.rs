@@ -1176,3 +1176,6 @@ fn typed_dht_discovery_timeout_is_not_legacy_interpretation() {
         oasis7_proto::network_failure::FailureEvidence::LocalObservation
     );
 }
+
+#[path = "tests/authenticated_request_tests.rs"]
+mod authenticated_request_tests;

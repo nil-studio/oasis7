@@ -685,6 +685,24 @@ pub trait NodeExecutionHook: Send {
         Err("wire-3 execution is unsupported by this hook".into())
     }
 
+    /// Export only an exact original retained value and its recorded closure.
+    fn export_bft_v3_private_candidate(
+        &mut self,
+        _value: &oasis7_consensus::tendermint_v3::BftHeaderValueV3,
+    ) -> Result<crate::NodeBftPrivateCandidatePackageV3, String> {
+        Err("wire-3 original private candidate export is unsupported by this hook".into())
+    }
+
+    /// Independently execute against the strict local parent, then retain the
+    /// exact received value without changing the local original selection.
+    fn retain_received_bft_v3_private_candidate(
+        &mut self,
+        _context: &NodeBftExecutionContextV3,
+        _package: &crate::NodeBftPrivateCandidatePackageV3,
+    ) -> Result<String, String> {
+        Err("wire-3 received private candidate retention is unsupported by this hook".into())
+    }
+
     /// Recover the original private reservation before deriving a new value
     /// from the volatile queue. Missing recovery support is not an empty slot.
     fn pending_bft_v3_private_candidate(

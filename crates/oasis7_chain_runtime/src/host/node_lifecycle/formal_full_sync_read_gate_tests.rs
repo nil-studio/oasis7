@@ -47,6 +47,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+#[derive(Clone)]
 struct IssuerFixture {
     trust: InitialActivationTrustV1,
     signed_v2: SignedFullSyncIssuerPolicyV2,
@@ -61,6 +62,32 @@ struct IssuerFixture {
 }
 
 fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixture {
+    issue_lease_fixture_role(trust, base, FullSyncReadRoleV2::StateSync)
+}
+fn issue_lease_fixture_role(
+    trust: InitialActivationTrustV1,
+    base: u64,
+    role: FullSyncReadRoleV2,
+) -> IssuerFixture {
+    issue_lease_fixture_keys(
+        trust,
+        base,
+        role,
+        READER_KEY,
+        PROVIDER_KEY,
+        PROVIDER_INCARNATION,
+        &[PROVIDER_KEY],
+    )
+}
+fn issue_lease_fixture_keys(
+    trust: InitialActivationTrustV1,
+    base: u64,
+    role: FullSyncReadRoleV2,
+    reader: u8,
+    provider: u8,
+    incarnation: u8,
+    providers: &[u8],
+) -> IssuerFixture {
     let signed_v2 = SignedFullSyncIssuerPolicyV2::sign(
         FullSyncIssuerPolicyBodyV2 {
             schema_version: 2,
@@ -86,8 +113,23 @@ fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixt
             world: trust.world.clone(),
             authority_epoch: 1,
             scope_digest: verified_v2.scope_digest().into(),
-            allowed_roles: vec![FullSyncReadRoleV2::StateSync],
-            provider_public_keys: vec![public(PROVIDER_KEY)],
+            allowed_roles: if providers.len() > 1 {
+                vec![
+                    FullSyncReadRoleV2::StateSync,
+                    FullSyncReadRoleV2::FullReadOnly,
+                    FullSyncReadRoleV2::BftPendingCandidateV1,
+                ]
+            } else if role == FullSyncReadRoleV2::StateSync {
+                vec![role]
+            } else {
+                vec![FullSyncReadRoleV2::StateSync, role]
+            },
+            provider_public_keys: providers
+                .iter()
+                .map(|seed| public(*seed))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             management_public_key: public(MANAGER_KEY),
             lease_signer_public_key: public(LEASE_SIGNER_KEY),
             witness_public_key: public(WITNESS_KEY),
@@ -101,8 +143,8 @@ fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixt
     .unwrap();
     let verified_v3 =
         VerifiedFullSyncIssuerPolicyV3::verify(&signed_v3, &trust, &verified_v2).unwrap();
-    let target = FullSyncIssuerTargetV2 {
-        node_public_key: public(READER_KEY),
+    let mut target = FullSyncIssuerTargetV2 {
+        node_public_key: public(reader),
         role: FullSyncReadRoleV2::StateSync,
     };
     let target_not_before = base.saturating_sub(1_000);
@@ -181,7 +223,44 @@ fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixt
     .unwrap();
     let migration_decision = prepared_migration.commit(migration_receipt).unwrap();
     let minimum_v3 = migration_decision.record().next_anchor.clone();
-    let migrated = migration_decision.state().clone();
+    let mut migrated = migration_decision.state().clone();
+    let mut v3_entries = vec![migration_decision.entry().clone()];
+    if role != FullSyncReadRoleV2::StateSync {
+        target.role = role;
+        let observed = v3_observation_for_test(&verified_v3, migrated.anchor(), 61, base);
+        let command = SignedFullSyncIssuerCommandV3::sign(
+            FullSyncIssuerCommandBodyV3 {
+                schema_version: 3,
+                world: verified_v3.body().world.clone(),
+                authority_epoch: verified_v3.body().authority_epoch,
+                scope_digest: verified_v3.scope_digest().into(),
+                policy_digest: verified_v3.policy_digest().into(),
+                signer_generation: verified_v3.body().signer_generation,
+                target: target.clone(),
+                operation: FullSyncIssuerOperationV3::Issue {
+                    not_before_unix_ms: target_not_before,
+                    expires_unix_ms: target_expires,
+                },
+                expected_head: migrated.anchor().clone(),
+                expected_target_generation: 0,
+                request_id: issuer_hash(62),
+                command_nonce: issuer_hash(63),
+            },
+            &key(MANAGER_KEY),
+        )
+        .unwrap();
+        let prepared = migrated.prepare_management(command, &observed).unwrap();
+        let record = prepared.record().unwrap().clone();
+        let receipt = SignedFullSyncIssuerReceiptV3::sign(
+            FullSyncIssuerReceiptObservationV3::V3(observed),
+            &record,
+            &key(WITNESS_KEY),
+        )
+        .unwrap();
+        let decision = prepared.commit(receipt).unwrap();
+        migrated = decision.state().clone();
+        v3_entries.push(decision.entry().clone());
+    }
 
     let lease_creation_time = base + 1_000;
     let lease_observation =
@@ -194,8 +273,8 @@ fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixt
             scope_digest: verified_v3.scope_digest().into(),
             policy_digest: verified_v3.policy_digest().into(),
             signer_generation: verified_v3.body().signer_generation,
-            provider_public_key: public(PROVIDER_KEY),
-            provider_incarnation: issuer_hash(PROVIDER_INCARNATION),
+            provider_public_key: public(provider),
+            provider_incarnation: issuer_hash(incarnation),
             lease_id: issuer_hash(47),
             request_id: issuer_hash(48),
             request_nonce: issuer_hash(49),
@@ -203,7 +282,7 @@ fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixt
             target: target.clone(),
             target_generation: 1,
         },
-        &key(PROVIDER_KEY),
+        &key(provider),
     )
     .unwrap();
     let prepared_lease = migrated
@@ -224,10 +303,10 @@ fn issue_lease_fixture(trust: InitialActivationTrustV1, base: u64) -> IssuerFixt
     };
     let history = FullSyncIssuerHistoryV3 {
         v2_entries: v2_state.records().to_vec(),
-        v3_entries: vec![
-            migration_decision.entry().clone(),
-            lease_decision.entry().clone(),
-        ],
+        v3_entries: {
+            v3_entries.push(lease_decision.entry().clone());
+            v3_entries
+        },
     };
     IssuerFixture {
         trust,
@@ -917,3 +996,19 @@ fn full_sync_gate_preserves_response_closure_failure_category() {
         }
     }
 }
+
+#[path = "formal_bft_candidate_read_gate_tests.rs"]
+mod candidate_read_gate;
+
+#[path = "formal_bft_committed_read_gate_tests.rs"]
+mod committed_read_gate;
+
+#[path = "formal_full_sync_remote_evidence_tests.rs"]
+mod remote_evidence;
+
+#[path = "formal_full_sync_remote_lease_tests.rs"]
+mod remote_lease;
+
+#[cfg(feature = "node-libp2p")]
+#[path = "formal_bft_network_gate_fixture.rs"]
+pub(crate) mod network_fixture;

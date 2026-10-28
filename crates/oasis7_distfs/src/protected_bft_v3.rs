@@ -22,7 +22,7 @@ pub use binding::{
 pub use client::{
     BftSignerLeaseV3, BftSignerProviderV3, RemoteBftSignerLeaseV3, RemoteBftSignerProviderV3,
 };
-pub use service::BftSignerServiceV3;
+pub use service::{BftCandidateReadPolicyV3, BftSignerServiceV3};
 pub use state::{
     BftDriverAppliedReceiptV3, BftDriverApplyIntentV3, BftSignerCandidateV3, BftSignerCheckpointV3,
     BftSignerStateV3,

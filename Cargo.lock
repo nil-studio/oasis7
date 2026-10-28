@@ -6180,6 +6180,7 @@ dependencies = [
  "oasis7_distfs",
  "oasis7_formal_protocol",
  "oasis7_game_client",
+ "oasis7_net",
  "oasis7_node",
  "oasis7_proto",
  "oasis7_runtime",
@@ -6571,10 +6572,13 @@ dependencies = [
 name = "oasis7_node"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "ed25519-dalek",
  "futures",
+ "getrandom 0.4.3",
  "hex",
  "libp2p",
+ "oasis7_client_api",
  "oasis7_consensus",
  "oasis7_distfs",
  "oasis7_net",

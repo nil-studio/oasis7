@@ -6,6 +6,8 @@ use crate::{
 };
 use oasis7_consensus::tendermint_v3::*;
 use oasis7_distfs::protected_bft_v3::{BftSignerCheckpointV3, BftSignerLeaseV3};
+#[path = "node_bft_v3_worker_peer.rs"]
+pub(super) mod peer;
 use std::collections::VecDeque;
 use std::sync::{
     Arc, Condvar, Mutex,
@@ -17,7 +19,8 @@ pub(super) struct Worker {
     pub config: NodeConfig,
     pub selected: SelectedNodeBftConfigV3,
     pub hook: Hook,
-    pub lease: Box<dyn BftSignerLeaseV3>,
+    pub lease: super::private_exchange::NodeBftSharedSignerV3,
+    pub peers: peer::PeerRuntime,
     pub checkpoint: BftSignerCheckpointV3,
     pub schedule: BftHeaderHeightScheduleV3,
     pub machine: BftConsensusMachineV3,
@@ -33,6 +36,7 @@ impl Worker {
     pub(super) fn run(mut self, stop: mpsc::Receiver<()>) -> Result<(), NodeError> {
         self.publish_recovered_completions()?;
         self.publish_status();
+        self.publish_peer_view()?;
         loop {
             match stop.try_recv() {
                 Ok(()) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
@@ -41,6 +45,8 @@ impl Worker {
             if self.checkpoint.state.history.len() >= 64 {
                 return Err(error("wire-3 H prefix capacity exhausted"));
             }
+            // Recover every original durable local decision before accepting
+            // peer input that could select a different QC or signing slot.
             if let Some(c) = self
                 .checkpoint
                 .state
@@ -76,9 +82,18 @@ impl Worker {
                     BftConsensusActionV3::RoundAdvanced { .. } => {}
                 }
             }
-            self.propose()?;
+            if self.checkpoint.state.history.len() >= 64 {
+                continue;
+            }
+            self.poll_peers()?;
+            if self.checkpoint.state.history.len() >= 64 {
+                continue;
+            }
+            if !self.peers.is_catching_up() {
+                self.propose()?;
+            }
             let now = self
-                .lease
+                .signer()?
                 .protected_time_ms()
                 .map_err(|_| error("wire-3 protected clock unavailable"))?;
             let mut next = self.machine.clone();
@@ -111,6 +126,20 @@ impl Worker {
             self.config.max_committed_action_batch_bytes,
         )
     }
+    fn signer(&self) -> Result<std::sync::MutexGuard<'_, Box<dyn BftSignerLeaseV3>>, NodeError> {
+        self.lease
+            .lock()
+            .map_err(|_| error("wire-3 shared signer poisoned"))
+    }
+    fn publish_peer_view(&self) -> Result<(), NodeError> {
+        if let Some(network) = &self.selected.network {
+            network
+                .execution
+                .publish(self.schedule.clone(), self.checkpoint.state.history.clone())
+                .map_err(error)?;
+        }
+        Ok(())
+    }
     fn journal(&self) -> Result<BftSigningJournalV3, NodeError> {
         self.checkpoint
             .state
@@ -129,17 +158,26 @@ impl Worker {
         .map_err(error)?;
         let mut candidate = self.checkpoint.state.candidate();
         candidate.journal = Some(journal);
-        self.checkpoint = self
-            .lease
+        let checkpoint = self
+            .signer()?
             .advance(
                 self.checkpoint.state.revision,
                 &self.checkpoint.state.state_digest,
                 candidate,
             )
             .map_err(|_| error("wire-3 journal reservation rejected"))?;
+        self.checkpoint = checkpoint;
         Ok(())
     }
     fn propose(&mut self) -> Result<(), NodeError> {
+        if self
+            .schedule
+            .expected_proposer_for_round(self.machine.round())
+            .map_err(error)?
+            != self.selected.binding.local_validator_id
+        {
+            return Ok(());
+        }
         if self
             .machine
             .proposal_for_round(self.machine.round())
@@ -233,7 +271,7 @@ impl Worker {
             self.advance(journal)?;
         }
         let (proposal, checkpoint) = self
-            .lease
+            .signer()?
             .sign_proposal(self.checkpoint.state.revision, &intent)
             .map_err(|_| error("wire-3 protected proposal signing failed"))?;
         let mut unsigned = proposal.header.clone();
@@ -262,12 +300,25 @@ impl Worker {
             .ok_or_else(|| error("wire-3 signed proposal missing from protected journal"))?;
         self.effects.extend(
             self.machine
-                .receive_proposal(proposal, true, now)
+                .receive_proposal(proposal.clone(), true, now)
                 .map_err(error)?,
         );
+        self.broadcast(BftPublicPeerMessageV3::Proposal(Box::new(proposal)));
         Ok(())
     }
     fn sign_vote(&mut self, intent: BftVoteIntentV3) -> Result<(), NodeError> {
+        let mismatched_position =
+            intent.height != self.schedule.height() || intent.round != self.machine.round();
+        if mismatched_position
+            && retired_unreserved_vote(
+                &intent,
+                self.schedule.height(),
+                self.machine.round(),
+                self.journal()?.pending_vote_intent.as_ref(),
+            )
+        {
+            return Ok(());
+        }
         let exact = self
             .machine
             .vote_intent(
@@ -311,7 +362,7 @@ impl Worker {
             self.advance(journal)?;
         }
         let (vote, checkpoint) = self
-            .lease
+            .signer()?
             .sign_vote(self.checkpoint.state.revision, &intent)
             .map_err(|_| error("wire-3 protected vote signing failed"))?;
         if vote.height != intent.height
@@ -337,13 +388,18 @@ impl Worker {
                 _ => None,
             })
             .ok_or_else(|| error("wire-3 signed vote missing from journal"))?;
-        self.effects
-            .extend(self.machine.record_local_vote(vote, now).map_err(error)?);
+        self.effects.extend(
+            self.machine
+                .record_local_vote(vote.clone(), now)
+                .map_err(error)?,
+        );
+        self.broadcast(BftPublicPeerMessageV3::Vote(Box::new(vote)));
         Ok(())
     }
     fn apply_commit(&mut self, certificate: FormalBftCertifiedHeaderV3) -> Result<(), NodeError> {
         let token =
             verify_commit_certificate_token_v3(&self.schedule, &certificate).map_err(error)?;
+        let committed = certificate.clone();
         let value = BftHeaderValueV3 {
             header: certificate.header.clone(),
             execution_commitment: certificate.execution_commitment.clone(),
@@ -353,6 +409,9 @@ impl Worker {
             &private.actions_cbor,
         )
         .map_err(|_| error("wire-3 committed private bytes rejected"))?;
+        if let Some(network) = &self.selected.network {
+            network.execution.invalidate_parent().map_err(error)?;
+        }
         let mut journal = self.journal()?;
         if let Some(pending) = &journal.pending_commit {
             if pending != &certificate {
@@ -362,14 +421,15 @@ impl Worker {
             journal.pending_commit = Some(certificate.clone());
             self.advance(journal)?;
         }
-        self.checkpoint = self
-            .lease
+        let checkpoint = self
+            .signer()?
             .append_committed_certificate(
                 self.checkpoint.state.revision,
                 &self.checkpoint.state.state_digest,
                 certificate,
             )
             .map_err(|_| error("wire-3 protected QC append failed"))?;
+        self.checkpoint = checkpoint;
         self.selected
             .capacity_exhausted
             .store(self.checkpoint.state.history.len() >= 64, Ordering::Release);
@@ -377,8 +437,8 @@ impl Worker {
             .commit_bft_v3_certificate(token.clone())
             .map_err(|_| error("wire-3 durable actual commit failed"))?;
         startup::validate_result(&token, &result)?;
-        self.checkpoint = self
-            .lease
+        let checkpoint = self
+            .signer()?
             .confirm_applied(
                 self.checkpoint.state.revision,
                 &self.checkpoint.state.state_digest,
@@ -387,6 +447,7 @@ impl Worker {
                 &result.driver_install_digest,
             )
             .map_err(|_| error("wire-3 applied install confirmation failed"))?;
+        self.checkpoint = checkpoint;
         if self.checkpoint.state.pending_driver_apply.is_some()
             || self
                 .checkpoint
@@ -402,7 +463,7 @@ impl Worker {
             return Err(error("wire-3 provider omitted exact applied receipt"));
         }
         let now = self
-            .lease
+            .signer()?
             .protected_time_ms()
             .map_err(|_| error("wire-3 protected clock unavailable"))?;
         let c = token.bound_header().commitment();
@@ -429,17 +490,21 @@ impl Worker {
             self.config.max_committed_action_batches,
             self.config.max_committed_action_batch_bytes,
         );
+        self.broadcast(BftPublicPeerMessageV3::Commit(Box::new(committed)));
+        self.peers.height_advanced();
         self.schedule = token.next_height_schedule().clone();
-        startup::singleton(&self.schedule, &self.selected.binding.local_validator_id)?;
+        startup::validate_schedule(&self.schedule, &self.selected.binding.local_validator_id)?;
+        self.publish_peer_view()?;
         self.last_commit = Instant::now();
         if self.checkpoint.state.history.len() >= 64 {
             self.publish_status();
             return Ok(());
         }
-        self.checkpoint = self
-            .lease
+        let checkpoint = self
+            .signer()?
             .start_height_timer(self.checkpoint.state.revision)
             .map_err(|_| error("wire-3 successor timer rejected"))?;
+        self.checkpoint = checkpoint;
         let (machine, effects) = startup::restore(
             &self.selected,
             &self.schedule,
@@ -490,4 +555,26 @@ fn canonical_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.peers.cancel();
+        if let Some(network) = &self.selected.network {
+            network.execution.stop_serving();
+        }
+    }
+}
+
+// Volatile effects can be overtaken by a later event in one inbound batch.
+// The protected original intent is never retired; replay/recovery must finish
+// it or fail-stop. This predicate is deliberately specific to SignVote, so an
+// older-round independently verified Commit remains admissible.
+fn retired_unreserved_vote(
+    intent: &BftVoteIntentV3,
+    height: u64,
+    round: u64,
+    reserved: Option<&BftVoteIntentV3>,
+) -> bool {
+    (intent.height != height || intent.round != round) && reserved != Some(intent)
 }

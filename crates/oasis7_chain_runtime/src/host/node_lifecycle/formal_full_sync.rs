@@ -244,7 +244,7 @@ pub(crate) struct FormalFullSyncSession {
 
 #[cfg(test)]
 #[path = "formal_full_sync_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 impl FormalFullSyncSession {
     /// Construct from an already loaded, privately held node identity. The

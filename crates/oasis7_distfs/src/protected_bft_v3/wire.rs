@@ -52,6 +52,9 @@ pub(crate) enum BftSignerCommandV3 {
         expected_revision: u64,
         intent: Box<oasis7_consensus::tendermint_v3::BftVoteIntentV3>,
     },
+    SignCandidateRead {
+        body: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadBodyV3>,
+    },
     ConfirmApplied {
         expected_revision: u64,
         expected_state_digest: String,
@@ -141,6 +144,9 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     VoteSigned {
         vote: Box<BftVoteV3>,
+    },
+    CandidateReadSigned {
+        proof: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadProofV3>,
     },
     CertificateAppended,
     AppliedConfirmed,
