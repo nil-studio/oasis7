@@ -126,8 +126,8 @@ pub(super) async fn observe(
         inspection_only,
     })
 }
-/// Only the TestSession Owner factory's already-paid third oracle uses this
-/// pair. Neither readonly input depends on the other's response; all normal
+/// Only the TestSession Owner signing lane's already-paid oracles 3, 4 and 5 use
+/// this pair. Neither readonly input depends on the other's response; all normal
 /// source, gate, Fence and final Current checks retain their original clocks.
 pub(super) async fn observe_paid_test_session_factory(
     env: &Env,

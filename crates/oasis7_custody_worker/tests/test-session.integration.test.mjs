@@ -51,7 +51,10 @@ function configureOptions(options){
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
     }
     if(paidDirectoryBarrier&&worker.name==='owner'){
-      worker.bindings={...worker.bindings,FIXTURE_PAID_DIRECTORY_MODE:paidDirectoryBarrier};
+      const paidMode=typeof paidDirectoryBarrier==='string'?paidDirectoryBarrier:paidDirectoryBarrier.mode;
+      const paidTicket=typeof paidDirectoryBarrier==='string'?3:paidDirectoryBarrier.ticket;
+      assert.ok([3,4,5].includes(paidTicket));
+      worker.bindings={...worker.bindings,FIXTURE_PAID_DIRECTORY_MODE:paidMode,FIXTURE_PAID_DIRECTORY_TICKET:String(paidTicket)};
       worker.serviceBindings={...worker.serviceBindings,FIXTURE_FENCE_CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'}};
       worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/paid_directory_fence_barrier.mjs')},...worker.modules];
     }
@@ -897,6 +900,73 @@ for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(
       assert.equal((after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),2);
       assert.equal((after['/participant/policy-original']??0)-(before['/participant/policy-original']??0),1);
       assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),1);
+    }finally{paidDirectoryBarrier=null;}
+  }});
+});
+
+
+for(const ticket of [4,5])for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(`actual paid role Directory and Fence overlap ${fault} after SQL ticket${ticket}`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    paidDirectoryBarrier={ticket,mode:fault};
+    try{
+      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
+      if(status!==200){
+        await response.arrayBuffer();
+        const observedAt=Date.now();await runtime.suspend();
+        console.error(JSON.stringify({paid_role_directory_fence_failure:{selected_ticket:ticket,status,facts,diagnostic_started_at:observedAt,state:continueFailureState(runtime,basis.session_id)}}));
+      }
+      if(fault==='together'){
+        // Old serial behavior can leave RF unstarted, then the5100ms fixture
+        // releases the real Directory call and it correctly returns409 because
+        // the source is stale. This final target is the intended scheduling RED.
+        assert.equal(status,200,'already-paid independent role Directory/Fence must overlap within unchanged freshness');
+        const progress=await response.json();assert.equal(progress.stage,'active');assert.equal(progress.purposes.length,3);
+      }else{
+        assert.equal(status,503,'failed/frozen/stale actual readonly input must prevent grant');
+        if(fault==='reject_gate'){assert.equal(facts.gate_status,200);assert.equal(facts.gate_faulted,true);}
+        if(fault==='freeze_fence')assert.equal(facts.fence_disabled,true);
+        if(fault==='over_window'){assert.equal(facts.released,'bounded_timeout');assert.ok(facts.elapsed_ms>=5000);}
+        const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
+        assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
+        assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
+      }
+      assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);
+      assert.equal(facts.paid_confirmations,2);assert.equal(facts.oracle_ticket,ticket);assert.equal(facts.source_ticket,ticket);
+      if(fault!=='over_window'){assert.equal(facts.released,'independent_reads_started');assert.ok(facts.elapsed_ms<5000);}
+      // Both earlier Root statuses/policy/authorize were actually sent once.
+      // No Native5s operation is outstanding inside this Account-only barrier;
+      // its bounded_timeout is the fixture5100, not a Native timeout claim.
+      assert.equal((after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),2);
+      assert.equal((after['/participant/policy-original']??0)-(before['/participant/policy-original']??0),1);
+      assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),1);
+    }finally{paidDirectoryBarrier=null;}
+  }});
+});
+
+
+for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure prevents Directory and Fence I/O`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    paidDirectoryBarrier={ticket,mode:'prepay_sql_fail'};
+    try{
+      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;await response.arrayBuffer();
+      const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
+      assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
+      // These prove the actual target candidate reached the real SQLite UPDATE,
+      // not a fixture assertPaid throwing before Rust tried to pay.
+      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+      assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
+      assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
+      assert.equal(facts.record_unchanged,true);assert.equal(facts.roots_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
+      // In this mode observers only count+forward: they do NOT assert paid state
+      // or block a remote call. Zero therefore comes from production sequencing.
+      assert.equal(facts.gate_reads,0);assert.equal(facts.fence_reads,0);assert.equal(facts.paid_confirmations,0);
+      assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
+      assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
+      const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
     }finally{paidDirectoryBarrier=null;}
   }});
 });
