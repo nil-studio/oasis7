@@ -12,7 +12,7 @@
 <a id="当前去向与保留边界"></a>
 ## 当前去向与保留边界：兼容入口范围
 
-设计正文、失败边界与验证责任已由 [历史保留边界与现行去向](readme-gap-distributed-prod-hardening-gap12345.prd.md#historical-retention-and-routing) 承接。读者直接进入该节；
+设计正文、失败边界与验证责任已由 [历史保留边界与现行去向](readme-gap-distributed-prod-hardening-gap12345.prd.md#historical-retention-and-routing) 承接。读者直接进入该节。
 ### 保留决策与风险
 
 本文不要求重复实现或增加审批。旧 URL 暂留，核清全部引用、配对、动态/外部分发消费者与 corpus 后才可删除。
