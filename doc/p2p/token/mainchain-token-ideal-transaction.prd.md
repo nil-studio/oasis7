@@ -20,7 +20,9 @@
 | `max_fee` / `fee_asset_id` | implemented metadata-only | 报价槽位，`max_fee=0` 或缺 fee asset 即 reject；不扣费、不结算。 |
 | `client_request_id` | implemented metadata-only | signed audit/idempotency metadata，不承诺 consensus-level dedupe。 |
 
-All implemented fields are included in `TransferMainToken` signing payload and in node-local signature rebuild/reverification. Explorer p0/p1 and launcher surface the submitted metadata; fee quote display must remain explicitly metadata-only. This remains a display obligation: JSON metadata tests do not verify native/wasm UI labels, Chinese/English quote wording, or actual rendering; those surfaces require their own evidence and are not included in the completed scope.
+All implemented fields are included in `TransferMainToken` signing payload and in node-local signature rebuild/reverification. Explorer p0/p1 and launcher surface the submitted metadata; fee quote display must remain explicitly metadata-only.
+
+This remains a display obligation: JSON metadata tests do not verify native/wasm UI labels, Chinese/English quote wording, or actual rendering; those surfaces require their own evidence and are not included in the completed scope.
 
 ### Canonical request shape
 

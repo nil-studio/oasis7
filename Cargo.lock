@@ -6330,6 +6330,7 @@ dependencies = [
  "serde_cbor_2",
  "serde_json",
  "sha2 0.11.0",
+ "subtle",
 ]
 
 [[package]]

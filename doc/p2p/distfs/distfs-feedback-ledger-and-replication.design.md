@@ -6,7 +6,7 @@
 
 ## 1. 问题、目标与非目标
 
-公开反馈需要保留作者可验证的append-only记录，以轻量announce发现新记录，再按hash取得blob。设计将本地账本、复制提示、内容校验与NodeRuntime失败观测分开，避免把提交返回、publish或重复幂等误作全节点交付。
+公开反馈须保留作者可验证的 append-only 记录，以轻量 announce 发现新记录，再按 hash 取得 blob。设计将本地账本、复制提示、内容校验与 NodeRuntime 失败观测分开，避免把提交返回、publish 或重复幂等误作全节点交付。
 
 本专题是公开反馈存储/复制，不是Agent学习反馈或工业结算反馈，不改变共识、世界finality、state-sync、恢复或经济规则。不承诺生产拓扑、SLA、隐私分级、灾备或release。
 
@@ -92,7 +92,7 @@ root/event/nonce/audit的布局、canonical签名payload及announce字段继续�
 
 ## 7. 状态、事务与持久化
 
-账本文件与内存outbox是不同状态域；nonce、root/event、audit、enqueue之间没有可由当前入口证明的统一事务。失败时先查询实际记录和稳定拒绝原因，不把报错等同无效果，也不承诺自动补发。复制幂等减少重复记录，不能补足丢失的announce或重启中的pending。
+账本文件与内存outbox是不同状态域；nonce、root/event、audit、enqueue之间没有可由当前入口证明的统一事务。失败时先查询实际记录和稳定拒绝原因；报错不等于无效果，也不承诺自动补发。复制幂等减少重复记录，不能补足丢失的announce或重启中的pending。
 
 ## 8. 部署、安全与运行约束
 

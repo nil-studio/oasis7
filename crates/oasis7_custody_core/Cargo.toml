@@ -6,6 +6,9 @@ license.workspace = true
 rust-version = "1.85"
 description = "Pure bounded test-account custody contracts and state transitions"
 
+[features]
+signature-metrics = ["oasis7_client_api/signature-metrics"]
+
 [dependencies]
 oasis7_client_api = { path = "../oasis7_client_api" }
 base64 = "0.22"
@@ -15,11 +18,12 @@ serde.workspace = true
 serde_json.workspace = true
 serde_cbor.workspace = true
 sha2.workspace = true
+ed25519-dalek = "3"
+subtle = "2"
 
 [dev-dependencies]
 oasis7_agent_api = { path = "../oasis7_agent_api", features = ["schema"] }
 schemars = "1.2"
-ed25519-dalek = "3"
 
 [lints]
 workspace = true

@@ -27,7 +27,11 @@ DWE-004 只在可验证工件身份子范围由本设计承接：bootstrap 的 a
 <a id="2-设计结构"></a>
 ## 4. 结构、接口与数据合同
 
-`module_id`、`source_hash`、`build_manifest_hash` 与 `identity_hash` 区分源码、配方与模块身份，实际 wasm hash 另行校验。当前 source_hash 必须复用 `oasis7_wasm_build::compute_source_hash`，覆盖模块及本地 path dependency closure 和适用 Cargo.lock，不重实现旧的“仅模块 crate”算法。源码闭包还包含本地包所属 workspace 的 `Cargo.toml`，包括 package/dependency/lint 继承所在的虚拟根；由 Cargo 定位归属，按去重、稳定相对路径标签纳入原始字节摘要，不扫描整个仓库。已作为包 manifest 覆盖的同一文件不重复计入；查找、读取或归一化失败必须显式拒绝。这样根继承配置变化即使不改变本地包文件或 lock，也会使 source identity 失效。sync 工具读取 build receipt、hash manifest 和模块映射，生成/核对三套 m1/m4/m5 identity manifest；bootstrap 再写入 ModuleArtifactIdentity。
+`module_id`、`source_hash`、`build_manifest_hash` 与 `identity_hash` 区分源码、配方与模块身份，实际 wasm hash 另行校验。当前 source_hash 必须复用 `oasis7_wasm_build::compute_source_hash`，覆盖模块及本地 path dependency closure 和适用 Cargo.lock，不重实现旧的“仅模块 crate”算法。
+
+源码闭包还包含本地包所属 workspace 的 `Cargo.toml`，包括 package/dependency/lint 继承所在的虚拟根；由 Cargo 定位归属，按去重、稳定相对路径标签纳入原始字节摘要，不扫描整个仓库。已作为包 manifest 覆盖的同一文件不重复计入；查找、读取或归一化失败必须显式拒绝。因此，即使根继承配置变化不改变本地包文件或 lock，也会使 source identity 失效。
+
+sync 工具读取 build receipt、hash manifest 和模块映射，生成/核对三套 m1/m4/m5 identity manifest；bootstrap 再写入 ModuleArtifactIdentity。
 
 <a id="builtin-source-input-version"></a>
 ### 4.1 共享模板闭包与规则版本消费

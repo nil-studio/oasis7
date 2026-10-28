@@ -136,7 +136,7 @@
   - v2.0: 在 custody、wallet、public claims 和 LetAI OpenAPI 合同都更稳定后，再评估更强自助化能力；仍不默认承诺双向提现。
 - Technical Risks:
   - 风险-1: LetAI OpenAPI 文档当前可见内容较多依赖飞书页面展示，若项目/Token 接口字段后续变更，adapter 需要同步升级。
-  - 风险-2: 若没有持久化 `platform_project_id/token_key`，服务重启后容易把用户已有多个项目的场景映射错。
+  - 风险-2: 若未持久化 `platform_project_id/token_key`，服务重启后容易在用户已有多个项目时映射错误。
   - 风险-3: 若只看 topup 2xx 不做查询验证，容易把上游暂时成功/幂等重放误判成最终成功。
   - 风险-4: `token_key` 属于可直接调用模型的凭证，若暴露到错误日志或 public API，会放大安全风险。
   - 风险-5: 若对外把该能力称为“代币兑换所”或“用户拿到 token_key 就等于自由资产”，会引入不必要的合规和信任预期压力。

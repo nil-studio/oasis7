@@ -64,6 +64,19 @@ impl AccountProvisionApprovalState {
                 }
             }
         }
+        for (id, v) in &self.test_sessions {
+            for r in v.book.records() {
+                if id == &input.operation_id && r.input() == input {
+                    continue;
+                }
+                if id == &input.operation_id {
+                    return Err(ProvisionApprovalError::Conflict);
+                }
+                if same_proof(r.input(), input) {
+                    return Err(ApprovalAdmissionError::NonceReused.into());
+                }
+            }
+        }
         for (id, v) in &self.owner_setups {
             for r in v.book.records() {
                 if id == &input.operation_id && r.input() == input {

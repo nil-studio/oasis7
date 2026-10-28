@@ -5,7 +5,7 @@
 
 ## 设计原则
 
-1. 将历史专题按 authority 合并，而不是将历史完成状态升级为当前状态。
+1. 按 authority 合并历史专题，不将历史完成状态升级为当前状态。
 2. 保持 `registry-first`：world-state registry 是治理 membership、stake、finality signer 与 controller policy 的运行真值。
 3. 以 fail-closed 处理 signer/custody、genesis binding、ceremony 和 QA 证据缺失。
 4. 将正式网络层级、运行步骤和公开沟通分别下钻到 formal-network-tier、runbook 和相应专业权威。
@@ -237,7 +237,7 @@ production custody、rotation/revocation/audit、真实 registry activation、ce
 
 ## 设计选择与剩余风险
 
-采用 committed policy 认证、协议固定生效点和源端有界撤销，是为了使攻击／崩溃／分区路径与正常路径有同一个可复验决定。拒绝仅比较 controller 字符串、用 World effective projection 代替组件应用、用客户端换 grant 或 provider 列表变更代替撤销的方案。需要承担的成本是过期请求重新授权、未完成安装节点停止投票，以及授权服务分区超过 lease 上界后私有读取暂停；这些是权限边界的结果，不以放宽校验补可用性。
+采用 committed policy 认证、协议固定生效点和源端有界撤销，是为了使攻击／崩溃／分区路径与正常路径有同一个可复验决定。拒绝仅比较 controller 字符串、用 World effective projection 代替组件应用、用客户端换 grant 或 provider 列表变更代替撤销的方案。代价是过期请求重新授权、未完成安装节点停止投票，以及授权服务分区超过 lease 上界后私有读取暂停；这些是权限边界的结果，不以放宽校验补可用性。
 
 生产 signer custody、issuer/provider 的可信时间与故障域、实际网络隔离、全部版本兼容和 BFT 组合仍需实现及部署证据；协议目标与当前差距不能由本文件的 active 状态消除。本文不定义新的运维审批流程、任务台账或公开 readiness 结论。
 

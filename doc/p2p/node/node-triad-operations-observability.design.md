@@ -5,7 +5,7 @@
 
 ## 设计定位
 
-以 repo-owned 脚本保持“一个控制机采样三节点、在同一 run dir 合并证据”的模式。summary 只消费 runtime 发布的 status truth；它将 host、chain、traffic、WASM 与 bounded reachability 拼接为诊断面，不能成为第二套 consensus 或 reachability 真值。
+以 repo-owned 脚本保持“一个控制机采样三节点、在同一 run dir 合并证据”的模式。summary 只消费 runtime 发布的 status truth；它将 host、chain、traffic、WASM 与 bounded reachability 汇总为诊断面，不能成为第二套 consensus 或 reachability 真值。
 
 ### 2.1 需求承接与分配表
 
@@ -138,7 +138,9 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节落实 [OPS-AC-2
 
 Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节落实 [OPS-AC-5](node-triad-operations-observability.prd.md#ops-profile-readiness) 中外层 collector 编排的持久尝试子范围。入口为 `scripts/p2p-real-env-observability-monitor.sh`；独立 host 的持久尝试见[下节](#host-durable-attempt)；独立 snapshot 见[snapshot 发布](#snapshot-durable-attempt)；traffic 见[traffic 发布](#traffic-durable-attempt)；角色权威就绪仍是后续范围。
 
-当前外层入口使用 POSIX OS 锁；锁能力不可用时在采集前拒绝。每个规范化输出目录使用稳定的 OS 文件锁载体；锁文件不删除或按 PID／超时抢占，初始化锚绑定载体设备、inode 及在首个初始化锚前已 fsync 的随机持久标识，不能只凭可能复用的 inode 判断同一载体；已初始化目录中载体丢失、替换或身份不符时拒绝，不重新创建第二锁域。随机标识只在持有首初始化锁时写入原锁 fd；缺失、短写或不匹配的已绑定标识不自动修复。缺随机标识的中间版本初始化锚不支持静默升级，按损坏／不兼容状态阻断。锁内及发布前核对载体身份。锁只覆盖序号分配、状态读取和条件发布，不跨 HTTP／SSH 等采集过程。初始化先持久发布不可自动重建的初始化锚，包含独立序号高水位；每次预留先持久推进高水位，再写 pending 状态。高水位、规范状态及保留 run 的更高序号证据不一致时拒绝续办，不重用序号；初始化锚与 `attempt_state.json` 任一个缺失、损坏或序号不合法时阻断，不回退成初次序号。首次初始化中途崩溃也保持 unknown，需保全原件并修复原状态；不以新输出目录冒充原尝试已恢复。本机制依赖正常本地文件系统的 fsync／原子 rename，不证明全套尝试存储（含锚及保留 run）同时恢复旧备份、恶意篡改或物理回滚下的防回退。
+当前外层入口使用 POSIX OS 锁；锁能力不可用时在采集前拒绝。每个规范化输出目录使用稳定的 OS 文件锁载体；锁文件不删除或按 PID／超时抢占，初始化锚绑定载体设备、inode 及在首个初始化锚前已 fsync 的随机持久标识，不能只凭可能复用的 inode 判断同一载体；已初始化目录中载体丢失、替换或身份不符时拒绝，不重新创建第二锁域。随机标识只在持有首初始化锁时写入原锁 fd；缺失、短写或不匹配的已绑定标识不自动修复。缺随机标识的中间版本初始化锚不支持静默升级，按损坏／不兼容状态阻断。锁内及发布前核对载体身份。锁只覆盖序号分配、状态读取和条件发布，不跨 HTTP／SSH 等采集过程。
+
+初始化先持久发布不可自动重建的初始化锚，包含独立序号高水位；每次预留先持久推进高水位，再写 pending 状态。高水位、规范状态及保留 run 的更高序号证据不一致时拒绝续办，不重用序号；初始化锚与 `attempt_state.json` 任一个缺失、损坏或序号不合法时阻断，不回退成初次序号。首次初始化中途崩溃也保持 unknown，需保全原件并修复原状态；不以新输出目录冒充原尝试已恢复。本机制依赖正常本地文件系统的 fsync／原子 rename，不证明全套尝试存储（含锚及保留 run）同时恢复旧备份、恶意篡改或物理回滚下的防回退。
 
 兼容边界：不含 attempt 协议的旧输出可作为历史诊断，但 canonical read 不把它认作已验证当前尝试。首次启用新协议可初始化序号 1；已有版本化尝试工件但锚／序号状态缺失时必须阻断，不按旧格式重新初始化。独立 collector 的旧接口不因此取得外层发布保护。
 
@@ -148,7 +150,9 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节落实 [OPS-AC-5
 
 终态在同一锁内比较最新 pending 的序号与 attempt ID。旧 A 晚于新 B 完成时，A 可保留自己的 run 工件，但不能更新 B 的状态、latest JSON／Markdown 或 last-success。只有对应的最新成功尝试才更新独立的 `last_success` 历史引用；新 pending／失败不清除历史。未能发布终态、SIGKILL 或状态恢复失败均保持 pending／unknown，不能由旧成功补成当前成功。
 
-文件发布使用同目录唯一临时文件、文件 fsync、原子替换及目录 fsync。多个普通文件不能被当作一个原子事务：终态工件先写、规范状态最后提交，工件携带 generation，规范状态记录其内容摘要。当前读取使用 `scripts/p2p-real-env-observability-attempt.py read --out-dir <root>` 的验证路径，锁内核对规范状态、generation 与 JSON／Markdown 摘要；不一致、不可读或损坏时输出 pending／unknown 诊断并非零退出。此读取不修改原件，也不回退到 last-success。`canonical_state.validation_scope` 仅为 attempt 排序与工件完整性；`read_at_unix_ms` 与原报告 `as_of_unix_ms` 分开，读取不刷新采样／producer 年龄，不把旧报告升级为当前 profile 健康。退出 0 仅说明最新尝试执行成功且工件验证通过；当前健康仍须依据原窗口和适用新鲜度证据判断。根目录中的原始 latest 文件是物化工件，独立缓存或未验证旧副本不能作为实时状态权威；尤其不能假设磁盘发布失败会自动使已有任意副本失效。
+文件发布使用同目录唯一临时文件、文件 fsync、原子替换及目录 fsync。多个普通文件不能被当作一个原子事务：终态工件先写、规范状态最后提交，工件携带 generation，规范状态记录其内容摘要。
+
+当前读取使用 `scripts/p2p-real-env-observability-attempt.py read --out-dir <root>` 的验证路径，锁内核对规范状态、generation 与 JSON／Markdown 摘要；不一致、不可读或损坏时输出 pending／unknown 诊断并非零退出。此读取不修改原件，也不回退到 last-success。`canonical_state.validation_scope` 仅为 attempt 排序与工件完整性；`read_at_unix_ms` 与原报告 `as_of_unix_ms` 分开，读取不刷新采样／producer 年龄，不把旧报告升级为当前 profile 健康。退出 0 仅说明最新尝试执行成功且工件验证通过；当前健康仍须依据原窗口和适用新鲜度证据判断。根目录中的原始 latest 文件是物化工件，独立缓存或未验证旧副本不能作为实时状态权威；尤其不能假设磁盘发布失败会自动使已有任意副本失效。
 
 离线验证必须驱动真实外层入口和实际发布 helper：正常成功、模块 blocked 仍保值、子进程失败后诊断、固定时钟并发、A 慢／B 失败或 pending、B pending 后 SIGKILL、终态／预发布写入失败、初始化中止、损坏／丢失序号状态和正常后续尝试。检查 canonical read 的 JSON／Markdown 一致、无秘密输出、last-success 独立、采集未提前启动及 superseded 发布无副作用。不执行真实 fleet SSH 或部署，不能据此关闭角色／协议及故障域验收。
 
@@ -172,9 +176,13 @@ host reducer 的 schema 2、三节点及请求／完成／失败计数、run ID 
 
 Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节承接 [OPS-AC-5](node-triad-operations-observability.prd.md#ops-profile-readiness) 的 snapshot 尝试发布义务。`p2p-real-env-triad-snapshot.sh` 复用既有稳定锁、序号高水位、generation／摘要验证与 CAS 终态机制；发布 helper 增加具体 `snapshot` 类型，与 `host`／默认 `observability` 分开绑定。旧无类型状态仍只兼容外层 observability，不被 snapshot 接管。
 
-入口在任何写入、env 读取、服务检查、HTTP／SSH 前验证参数与显式节点清单。正整数按有界 ASCII 十进制规范，未知／缺值／空值及重复节点标签拒绝；标签不能形成路径穿越。随后 `begin --collector snapshot` 持久发布 pending 并独占预留 `runs/<sequence>-<attempt-id>`，才启动采集。指纹覆盖实际 snapshot 入口（含其嵌入 reducer）、发布 helper 和调用配置摘要，不持久保存秘密参数原文。无协议的旧时间戳目录仅作历史，首次初始化不采用旧报告为 last-success；版本化工件或锚／状态损坏时仍阻断，不重用序号。
+入口在任何写入、env 读取、服务检查、HTTP／SSH 前验证参数与显式节点清单。正整数按有界 ASCII 十进制规范，未知／缺值／空值及重复节点标签拒绝；标签不能形成路径穿越。随后 `begin --collector snapshot` 持久发布 pending 并独占预留 `runs/<sequence>-<attempt-id>`，才启动采集。指纹覆盖实际 snapshot 入口（含其嵌入 reducer）、发布 helper 和调用配置摘要，不持久保存秘密参数原文。
 
-该次配置、原始节点／样本和 reducer 源报告留在同一独占 run；源报告位于 `report/latest_summary.json|md`。原 `summary.json|md` 如保留，只是同 run 的兼容材料，不是根目录当前状态权威。snapshot 保留默认 triad 与独立入口的显式节点清单；报告使用 schema 2，collection 包含 `node_labels`、`samples_per_node`、`expected_sample_count`、`attempted_count`、`failed_sample_count` 与 `complete`；节点计数及逐样本的 label／index、health／status fetch 标记须与该 run 的 `config.json` 请求清单和样本数一致。发布核对 run 身份、该次配置及节点／汇总计数，不把缺失、错误 run、未知 schema 或自相矛盾计数包装为成功。health／status 请求的 HTTP／SSH 失败、空／无效响应均不能算完整采集；health 的 `ok` 必须为布尔，status 的 node／world 身份必须为非空字符串且 `running` 为布尔，缺失或不支持形状记为采集失败；合法采得的不健康状态仍是节点诊断，采集执行成功不把原 claim_status 提升为通过。collection 完整性只度量请求的 health／status 样本矩阵；env 副本与服务状态继续是尽力保留的诊断工件，不把缺少可选 env 文件或 inactive 服务误计为传输失败。
+无协议的旧时间戳目录仅作历史，首次初始化不采用旧报告为 last-success；版本化工件或锚／状态损坏时仍阻断，不重用序号。
+
+该次配置、原始节点／样本和 reducer 源报告留在同一独占 run；源报告位于 `report/latest_summary.json|md`。原 `summary.json|md` 如保留，只是同 run 的兼容材料，不是根目录当前状态权威。snapshot 保留默认 triad 与独立入口的显式节点清单；报告使用 schema 2，collection 包含 `node_labels`、`samples_per_node`、`expected_sample_count`、`attempted_count`、`failed_sample_count` 与 `complete`；节点计数及逐样本的 label／index、health／status fetch 标记须与该 run 的 `config.json` 请求清单和样本数一致。发布核对 run 身份、该次配置及节点／汇总计数，不把缺失、错误 run、未知 schema 或自相矛盾计数包装为成功。
+
+health／status 请求的 HTTP／SSH 失败、空／无效响应均不能算完整采集；health 的 `ok` 必须为布尔，status 的 node／world 身份必须为非空字符串且 `running` 为布尔，缺失或不支持形状记为采集失败；合法采得的不健康状态仍是节点诊断，采集执行成功不把原 claim_status 提升为通过。collection 完整性只度量请求的 health／status 样本矩阵；env 副本与服务状态继续是尽力保留的诊断工件，不把缺少可选 env 文件或 inactive 服务误计为传输失败。
 
 最新 pending／失败／损坏状态保持 current measurement unavailable，snapshot claim 保持 blocked；有效失败源可保留节点诊断和 underlying failure signatures。只有对应最新、完整且归约成功的尝试推进集合 last-success；新失败或未完成不清除历史，也不能以历史代替当前。旧 A 在新 B pending／失败后完成时只保留自身工件，不覆盖 B；SIGKILL、终态落盘失败或序号恢复失败保持 pending／unknown。独立 canonical 读取为 `python3 scripts/p2p-real-env-observability-attempt.py read --collector snapshot --out-dir <root>`；读取不刷新样本年龄，也不授予 profile 就绪。
 
@@ -193,7 +201,9 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节承接 [OPS-AC-5
 
 各 run 保留 `config.json`、自己的 `samples.ndjson`、不可变 `history.ndjson` 归约输入和 `report/latest_summary.json|md` 源报告；旧同 run `summary.json|md` 可保留为兼容材料。配置明确原 history_path、该 run 的 history_input_path 与 summary_only。traffic schema 2 增加 collection：mode 为 live 或 history_replay，node_labels 为固定 triad，samples_per_node 记录请求，expected_sample_count／attempted_count／failed_sample_count／complete 明确本次执行。live 完整性与该 run 的配置及唯一 label／sample-index、fetch 结果核对；回放的预期／实际／失败采样数均为 0，complete 仅表示归约执行，不表示进行过实时采样或取得当前就绪。源报告还须与预留 run、模式、输入快照和策略相符；有效失败源保留新鲜度、历史与节点诊断，错误身份或未知／矛盾结构不采纳。
 
-live 使用 `history --collector traffic --out-dir <root> --sequence <n> --attempt-id <id> --history-path <path> --retention-minutes <n>` 在同一历史事务中追加、裁剪并保存该 run 快照。先在输出存储锁内确认仍为最新 pending；若已被新尝试取代，返回 superseded，不改共享历史，原始样本和自身终态仍留在旧 run。对规范绝对历史路径使用稳定的文件级 OS 锁，用独立 identity 锚绑定其设备／inode 与持久随机 token；锚存在而载体丢失时不重新创建，非空 token 载体缺锚视为初始化中止，拒绝符号链接或不安全文件，不删除／超时抢锁，也不修改外部父目录权限。多个输出 root 指向同一受支持历史时按该历史锁串行；按一致锁顺序完成，不持网络请求锁。读取原历史、追加、保留裁剪、本 run 输入快照、共享历史原子替换／文件及目录 fsync 与本 run 摘要回执都在事务内，不能由 reducer 再写共享源。history 路径不能覆盖本输出 root 的锚／状态／锁／run／报告，只有 root/history.ndjson 为受支持内部可写历史；符号链接、非普通文件和多硬链接拒绝，不能通过别名建立不同锁域。
+live 使用 `history --collector traffic --out-dir <root> --sequence <n> --attempt-id <id> --history-path <path> --retention-minutes <n>` 在同一历史事务中追加、裁剪并保存该 run 快照。先在输出存储锁内确认仍为最新 pending；若已被新尝试取代，返回 superseded，不改共享历史，原始样本和自身终态仍留在旧 run。对规范绝对历史路径使用稳定的文件级 OS 锁，用独立 identity 锚绑定其设备／inode 与持久随机 token；锚存在而载体丢失时不重新创建，非空 token 载体缺锚视为初始化中止，拒绝符号链接或不安全文件，不删除／超时抢锁，也不修改外部父目录权限。多个输出 root 指向同一受支持历史时按该历史锁串行；按一致锁顺序完成，不持网络请求锁。
+
+读取原历史、追加、保留裁剪、本 run 输入快照、共享历史原子替换／文件及目录 fsync 与本 run 摘要回执都在事务内，不能由 reducer 再写共享源。history 路径不能覆盖本输出 root 的锚／状态／锁／run／报告，只有 root/history.ndjson 为受支持内部可写历史；符号链接、非普通文件和多硬链接拒绝，不能通过别名建立不同锁域。
 
 先持久写该 run 的 history 快照，再提交共享历史，最后持久写 `history_receipt.json`；回执绑定存储／尝试身份、路径、模式、输入及快照摘要。已完成事务重试只有在回执和工件一致时 no-op，不重复追加，也不覆盖后来的其他更新。已有快照却缺少回执时，可能已提交共享源，必须按不确定事务拒绝重试并保留原件；下一次调用用新尝试，不靠再次追加恢复。无需另设共享事务序号或永久标记清单，既有历史行仍兼容。保留已有 append 顺序用于时钟回退诊断；旧行按保留期裁剪，但本次新行即使时钟回退也不能被裁掉，否则会抹去当前失败／回退。后续报告只归约该 run 的固定快照，后来的其他历史提交不能改写已发布证据。这里的共享历史并发保证限已接入事务的 triad writer；旧脚本、单节点入口或外部直接改写者并发操作同文件不在保证内，串行旧历史仍兼容。
 

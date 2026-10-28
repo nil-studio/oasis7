@@ -4,14 +4,14 @@
 
 - `README.md` is the first-read router.
 - `pre-commit.prd.md` owns the current ordinary-commit contract, legacy hook setup, and explicit repair sequence.
-- PR、实际 CI 与评审记录（Issue 按需） preserves completed implementation history.
+- PR、实际 CI 与评审记录（Issue 按需） preserve completed implementation history.
 
 CI tier definitions and command coverage stay outside this topic, in
 `doc/testing/ci/` and `scripts/ci-tests.sh`.
 
 ## Authority boundary
 
-This page is the first-read router for `doc/scripts/precommit/`; it does not duplicate commands, failure procedures, or CI policy.
+This router for `doc/scripts/precommit/` does not duplicate commands, failure procedures, or CI policy.
 
 | Question | Canonical source |
 | --- | --- |

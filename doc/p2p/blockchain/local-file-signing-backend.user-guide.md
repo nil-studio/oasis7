@@ -135,7 +135,7 @@ sudo "$RELEASE/oasis7_local_signer_admin" grant-show --grant-id "$GRANT_ID"
 
 ## 管理员：加密密钥导出和导入
 
-新建时明确使用 `key-new ... --exportable` 才允许单密钥导出；默认不可导出，不能事后通过改名或状态切换提升为可导出。导入只接受工具产生的加密 envelope，导入后始终 inactive，并默认不可导出；需要将来再导出时，在导入时明确添加 `--exportable`。不支持明文 seed、任意 PEM 或其他算法的导入。
+新建时明确使用 `key-new ... --exportable` 才允许单密钥导出；默认不可导出，不能事后通过改名或状态切换提升为可导出。导入只接受工具产生的加密 envelope，导入后始终 inactive，并默认不可导出；如需日后再导出，导入时须明确添加 `--exportable`。不支持明文 seed、任意 PEM 或其他算法的导入。
 
 | 操作 | 新版管理员参数 |
 | --- | --- |
@@ -171,7 +171,7 @@ test "$EXPORT_STATUS" -eq 0
 3. 使用 `restore-apply --input ABSOLUTE --expected-sha256 BACKUP_SHA256 --plan ABSOLUTE --expected-plan-sha256 PLAN_SHA256 --passphrase-stdin`。
 4. 检查密钥目录、历史和 control-show；恢复后的 policy 关闭签名，所有旧 grant 被撤销。重新审批新授权后才使用。
 
-恢复保留快照时已记录的已消耗请求，不能借恢复重置这些历史额度或重用旧 grant。快照之后发生的请求不会自动恢复，业务方须另行保存和对账；旧快照不代表最新完整历史。中断时仅能用原密文、原口令和原已批准计划接续；不删除 receipt、maintenance 或其他部分文件。历史结果保存 payload digest，不包含原 payload；快照会核验 hash-linked 记录和绑定，但独立历史验签仍需要业务方保存原消息。
+恢复保留快照中记录的已消耗请求，不能借恢复重置这些历史额度或重用旧 grant。快照之后发生的请求不会自动恢复，业务方须另行保存和对账；旧快照不代表最新完整历史。中断时仅能用原密文、原口令和原已批准计划接续；不删除 receipt、maintenance 或其他部分文件。历史结果保存 payload digest，不包含原 payload；快照会核验 hash-linked 记录和绑定，但独立历史验签仍需要业务方保存原消息。
 
 ## 调用者：通用文件签名
 

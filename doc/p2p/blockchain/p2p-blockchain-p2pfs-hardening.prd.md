@@ -36,7 +36,7 @@
 - `MembershipDirectorySigner` 支持 HMAC 与 ed25519；snapshot/revocation 的签发和验签通过 keyring 支持 active key、多 key 验签、`signature_key_id`、吊销 key 拒绝及轮换窗口。
 - restore policy 的 `require_signature`、`require_signature_key_id`、非空 accepted key-ID 或 signer-public-key allowlist 均为认证约束：必须有 signature 和可用且适用的 signer/keyring 完成密码学验证，否则在应用 membership 变更前拒绝。公钥 allowlist 非空时还必须为 `ed25519:v1` 且规范化 signer 公钥命中；声明公钥匹配不是认证，不代替验签。提供 verifier 时即使无额外策略也必须验证已有 signature。全部认证约束为空且未提供 verifier 的显式调用保留旧非认证诊断兼容，只说明策略检查通过，不能作为已验证身份或正式 BFT authority。该收紧改变此前 allowlist-only 或 require-key-ID-only 可无验证恢复的库 API 行为，不改变 wire、签名域或 BFT finality。revocation 同步的公开入口仍由其 keyring 验证，不能从 restore 的诊断兼容推导撤销权限。
 - 公钥与 allowlist 统一 trim、非空检查、hex/32-byte 检查、小写规范化和去重；重复、空值或非法值在加载/验证阶段 fail-fast，错误保留字段或索引定位信息。membership 与 sequencer 必须使用同一比较语义。
-- key-ID 信任、吊销同步、requester 信任与签名策略为组合边界；allowlist 不是对 keyring、key-ID 或 revocation 校验的替代。
+- key-ID 信任、吊销同步、requester 信任与签名策略为组合边界；allowlist 不能替代 keyring、key-ID 或 revocation 校验。
 
 ### 复制请求与状态污染防护
 

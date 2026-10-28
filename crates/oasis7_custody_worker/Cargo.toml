@@ -16,7 +16,7 @@ owner = []
 executor = []
 recovery-fence = []
 # Component verification only. Never enabled by any deployment role/configuration.
-approval-harness = []
+approval-harness = ["oasis7_custody_core/signature-metrics"]
 # Identity manifest fixtures only; never enabled by deployment role builds.
 native-runtime-harness = []
 

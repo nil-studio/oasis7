@@ -231,8 +231,15 @@ fn build_current(
         oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupReconcile { plan } => {
             plan.deadline.0
         }
+        // This is only the signed source-observation ceiling. Each sibling
+        // purpose independently enforces its own immutable deadline in Core.
+        oasis7_custody_core::approval::CustodyIntentV1::TestSession {
+            write_deadline,
+            read_until,
+            cleanup_until,
+            ..
+        } => write_deadline.0.max(read_until.0).max(cleanup_until.0),
         oasis7_custody_core::approval::CustodyIntentV1::Provision { .. } => draft.plan.expires_at.0,
-        _ => return Err(denied()),
     };
     let approval = ApprovalAdmissionContext {
         identity_namespace: config.directory.namespace.clone(),

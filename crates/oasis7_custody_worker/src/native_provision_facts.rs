@@ -71,6 +71,32 @@ impl NativeFactPin {
     }
     /// Must use this managed account's encrypted original SID/CSRF on transport.
     /// This never accepts the manager browser's session or a cached earlier status.
+    pub(crate) async fn session_lifetime(
+        &self,
+        signed: &SignedManagedNativeSessionLifetimeV1,
+        receipt: &NativeBindingReceiptV1,
+        nonce: &str,
+        generation: DecimalU64,
+        service_epoch: DecimalU64,
+    ) -> Result<()> {
+        signed
+            .verify_root(&self.key_id, &self.public_key)
+            .map_err(|_| rejected())?;
+        signed
+            .lifetime
+            .validate_for(receipt, nonce, generation, service_epoch, now()?)
+            .map_err(|_| rejected())?;
+        self.verify(
+            &signed.key_id,
+            &signed.signature,
+            &signed.lifetime.signing_bytes().map_err(|_| rejected())?,
+        )
+        .await?;
+        signed
+            .lifetime
+            .validate_for(receipt, nonce, generation, service_epoch, now()?)
+            .map_err(|_| rejected())
+    }
     pub(crate) async fn session_status(
         &self,
         signed: &SignedManagedNativeSessionStatusV1,

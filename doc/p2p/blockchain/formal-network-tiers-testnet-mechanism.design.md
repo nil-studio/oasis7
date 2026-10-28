@@ -5,7 +5,7 @@
 
 审计轮次: 1
 ## 设计目标
-- 把本地、测试、正式三套目标网络层级收成清晰模型；历史 `shared_devnet` 只保留 legacy/rehearsal evidence 语义，不再兼任 testnet。
+- 明确本地、测试、正式三套目标网络的分层模型；历史 `shared_devnet` 只保留 legacy/rehearsal evidence 语义，不再兼任 testnet。
 - 提供一个 repo-owned、机器可读的 `network_tier_manifest` skeleton，后续 runtime / liveops / QA 都可以围绕同一字段集接线。
 - 明确这轮只做 spec + skeleton，不做 live `public_testnet` / `mainnet` 激活。
 
@@ -29,7 +29,11 @@
 
 v1 `network_tier_manifest.rs` 保留 `local_devnet=preview+ephemeral`、`public_testnet=testnet+resettable`、`mainnet=production+frozen` 兼容校验；下文旧 schema 与组合规则适用于 v1，不代表唯一合法保留组合，也不证明持久单权威已实现。
 
-目标在既有 manifest 中分别表达网络环境/发行阶段、世界生命周期/保留承诺、合法提交 authority profile/激活版本，以及资产价值/faucet/结算资格。受限 preview 的正式世界可承诺持久保留合法身份、设施、材料、资格及来源；生产结算资格由经济规则与发行条件独立决定，修改 tier 不升值测试奖励，也不能因此清空已承诺世界。`frozen + preview` 只是需求组合；`token_policy.reset_policy` 不足以代表全世界保留，字段归属、兼容迁移、示例与 readiness 消费者须随实现共同闭合，不能仅放宽枚举后宣称保证成立。
+目标在既有 manifest 中分别表达网络环境/发行阶段、世界生命周期/保留承诺、合法提交 authority profile/激活版本，以及资产价值/faucet/结算资格。
+
+受限 preview 的正式世界可承诺持久保留合法身份、设施、材料、资格及来源；生产结算资格由经济规则与发行条件独立决定，修改 tier 不升值测试奖励，也不能因此清空已承诺世界。
+
+`frozen + preview` 只是需求组合；`token_policy.reset_policy` 不足以代表全世界保留，字段归属、兼容迁移、示例与 readiness 消费者须随实现共同闭合，不能仅放宽枚举后宣称保证成立。
 
 固定 `world_id`、`chain_id`、`genesis_hash` 与可演进软件/runtime manifest/authority 分开；后者只能按同世界历史合法升级。已有保留承诺时沿既有身份接续，隔离 local/dev 不并入长期世界。正式提交 profile、持久性和交接验收见 [P2P 合同](../prd.md#p2p-authority-profiles)；v2 planned 配置不授予运行权威。
 
@@ -117,7 +121,7 @@ Network tier 是统一持久大世界的运行/验证载体分层，不是玩家
 - 规则-1: `shared_devnet` 是 legacy/rehearsal evidence，不是目标 test 环境，也不等于 `public_testnet`。
 - 规则-2: `public_testnet` 必须显式具备 public RPC、explorer、guarded faucet 与 reset policy。
 - 规则-3: `mainnet` 必须显式具备 `faucet_mode=none`、`reset_policy=frozen`、`value_semantics=production`，并把 `MAINNET-1~4` 固定到 `required_gates`。
-- 规则-4: 这轮新增的 manifest validate 既检查字段存在性，也检查 tier 语义组合，避免“字段都齐了但还是 testnet/mainnet 混写”。
+- 规则-4: 这轮新增的 manifest validate 既检查字段存在性，也检查 tier 语义组合，避免字段齐全却混用 testnet/mainnet 语义。
 - 规则-5: `public_testnet` 且 `validator_policy.allow_observer_nodes=true` 时，observer/read-only fetch 准入采用开放签名策略：任意具备有效 requester 签名的节点可以读取 commit/blob 并完成 observer 同步，不需要手动刷新 validator 的 fetch requester allowlist。
 - 规则-6: validator/remote writer 准入仍由 validator set、governance registry 或显式 writer allowlist 控制；observer 自动入网不得授予 gossip write、共识签名或 validator 身份。
 

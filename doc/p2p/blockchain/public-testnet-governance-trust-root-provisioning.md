@@ -1,7 +1,7 @@
 # Public-testnet governance trust-root provisioning
 
 The clean-room adapter consumes one structured JSON trust-root artifact. The
-artifact is not a caller-selected identity and is not a replacement for the
+artifact is neither a caller-selected identity nor a replacement for the
 independent provenance verifier. It is a deployment-bound regular file at:
 
 `/operator/truth/governance-root.json`
@@ -183,8 +183,7 @@ identity and rechecks that identity, protected metadata, and pinned digest
 immediately before and after verifier execution, before promoting evidence.
 These protected reads and pre/post checks do not guarantee atomic execution
 against a hostile same-owner process that replaces and restores an executable
-between checks. Applying `0600` to every public artifact is not required by
-this contract.
+between checks. This contract does not require `0600` on every public artifact.
 
 The provider receipt must use the implemented v2 contract:
 `oasis7.identity_v2_provider_attestation.v2` has the exact top-level fields

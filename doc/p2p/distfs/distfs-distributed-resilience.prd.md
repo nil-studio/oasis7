@@ -40,7 +40,7 @@ Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；审读 so
 
 DistFS 在异构、波动的 provider 集合中保持可验证的数据可用性与有限的副本维护能力；读取、覆盖审计和维护均不得重新引入“任意单机提供完整执行数据”的隐含假设。
 
-该专业规格承载历史专题 PRD-P2P-MIG-064、065、077、078、079 的当前合同。面向产品的连续性结果由 `doc/product/` 承载；本文件是 P2P/Runtime 的实现、失败和验证语义权威。
+本规格承载历史专题 PRD-P2P-MIG-064、065、077、078、079 的当前合同。面向产品的连续性结果由 `doc/product/` 承载；本文件是 P2P/Runtime 的实现、失败和验证语义权威。
 
 ## 范围
 

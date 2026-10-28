@@ -75,7 +75,9 @@ Owner role：runtime_engineer / viewer_engineer；launcher 与 QA 分别审读�
 
 ### 11.1 验证映射表
 
-本表是持续验证方法。下列 test source 均为固定源码中的定义，不表示本轮执行；本轮不运行 Rust、launcher、provider 或浏览器。行为变更时由对应 owner 在实际候选运行适用套件，并保留 source/tested tree、命令、配置、环境、退出码与原始 artifact；缺前置记 blocked/inconclusive，真实断言违反记 failed。
+本表是持续验证方法。下列 test source 均为固定源码中的定义，不表示本轮执行；本轮不运行 Rust、launcher、provider 或浏览器。
+
+行为变更时由对应 owner 在实际候选运行适用套件，并保留 source/tested tree、命令、配置、环境、退出码与原始 artifact；缺前置记 blocked/inconclusive，真实断言违反记 failed。
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |

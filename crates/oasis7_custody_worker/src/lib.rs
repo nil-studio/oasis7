@@ -72,6 +72,14 @@ mod sql_store;
 #[path = "../tests/support/approval_harness.rs"]
 mod approval_harness;
 
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod client_enrollment_authority;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod client_enrollment_entrypoints;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod client_enrollment_reader;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod client_enrollment_store;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod identity_native_runtime;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
@@ -80,6 +88,8 @@ mod native_identity;
 mod owner_account;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_provision;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_alarm;
 
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod native_runtime_rpc;
@@ -93,8 +103,28 @@ mod owner_setup_reconcile_signing;
 mod owner_setup_rpc;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_setup_signing;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_client_entry;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_entrypoints;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod owner_test_session_rpc;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_signing;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod participant_runtime_rpc;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod test_session_client_authority;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod test_session_client_entrypoints;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod test_session_client_ingress;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod test_session_client_response;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod test_session_client_route;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod test_session_client_rpc;
 
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod directory_config;

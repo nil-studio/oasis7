@@ -18,7 +18,7 @@
 - Restart, port cleanup, reseed, data isolation and waiting for recovery may collect evidence or provide temporary recovery only. For peer-head drift, execution/resource divergence, signer/peer identity mismatch, or degraded replication, identify and repair the code, configuration, package, manifest, deployment artifact, or state-contract root cause before clean redeploy/rebuild; never treat an operational restart as the durable resolution.
 
 ## 1. Purpose
-这份 runbook 的目标不是描述理念，而是定义一条可以重复执行的 `public_testnet` 部署、补更、重建和恢复流程：
+本 runbook 定义可重复执行的 `public_testnet` 部署、补更、重建和恢复流程：
 
 1. 从冻结的 governed bootstrap truth 出发。
 2. 先拉起 2 个 validator。
@@ -157,7 +157,7 @@ validator-quorum finality or a replacement for `WorldHeadProofV1`.
 这些文件定义“网络应当是什么”。
 
 ### 3.2 Deployment truth
-真正部署时动态生成或动态确认的真值：
+部署时动态生成或确认的真值：
 
 - validator host 上实际存在的 `config/node-keypair.toml`
 - 从 root node key 派生出的 consensus signer public key
@@ -174,7 +174,7 @@ validator-quorum finality or a replacement for `WorldHeadProofV1`.
 3. observer 接入必须消费 deployment truth，不能继续使用旧的 bootstrap peer id / signer / seed artifact。
 
 ## 4. Hard Rules
-下面这些规则必须作为强约束执行：
+必须遵守以下规则：
 
 1. 禁止对 `config/` 目录使用会删除未列出文件的同步方式。
    - 特别是禁止裸用 `rsync --delete` 覆盖整目录。
@@ -212,7 +212,7 @@ validator-quorum finality or a replacement for `WorldHeadProofV1`.
 5. storage/full-storage provider 即使不是原始 sequencer writer，也必须能在 fetch-commit 响应中为本地 retained execution checkpoint 动态附加 checkpoint descriptor，并以自身 authorized replication writer 身份重新签发增强 commit message；否则只连到 storage peer 的冷 observer 无法获得可安装的高状态入口。
 6. 若保留窗口内没有可获取的 checkpoint，状态接口应继续报告 `state_sync_fallback_required=true`，此时才进入 break-glass seed/state-sync recovery。
 ## 5. Required Inputs
-开始前，操作者必须准备好以下输入：
+开始前，操作者必须准备以下输入：
 
 ### 5.1 Repo artifacts
 
@@ -262,7 +262,7 @@ phase、rollback/recovery、readiness 或 release 判断。
 任何 phase 未通过，不进入下一 phase。
 ## 7. Phase A - Preflight and Truth Capture
 ### Goal
-在任何 destructive 操作前，把本轮 live rebuild 真值先读出来并记下。
+在任何 destructive 操作前，读取并记录本轮 live rebuild 真值。
 
 ### Identity-v2 evidence preparation (capability-gated)
 The executor must first produce exact raw-v1 bytes, an unsigned deployment-truth template, context, and plan intent for each of the five managed nodes. Context and intent precede the payload and contain no receipt, signature, verdict, or final-plan digest. The governed sidecar is `scripts/p2p-public-testnet-identity-receipt-v2.py`; bridge mode accepts `--raw-v1`, `--template`, `--out`, `--context`, `--plan-intent`, `--trust-config`, `--provider-registry`, `--provider-ref`, `--signer-tool`, `--verifier-tool`, `--evidence-map-out`, and `--evidence-dir`, invokes the four fixed commands below, and retains exact evidence. Its legacy shape-only mode is not admission. The sequence below is the only approved argument shape; repeat it in one capture window. `<identity-v2-tool>` is a deployment-provided, independently pinned executable. Until the trust config, registry, provider, and verifier pins exist, this sequence is capability blocked.
@@ -360,7 +360,7 @@ ssh root@39.104.205.67 'curl -s http://127.0.0.1:6632/v1/chain/status | jq -r .r
 
 ## 8. Phase B - Build Deployment Truth
 ### Goal
-把本轮 live deploy 需要的动态真值显式生成出来。
+显式生成本轮 live deploy 所需的动态真值。
 
 ### When to rebuild deployment truth
 满足任一条件就必须重建 deployment truth：
@@ -812,7 +812,7 @@ Use each node's actual `STATUS_BIND` from its env/deploy metadata when it differ
 
 ## 13. Phase G - Final Health Verification
 ### Goal
-确认“节点已跑起来”和“整个 fleet 真正 ready”不是一回事，并分别打结论。
+分别判定“节点已跑起来”和“整个 fleet 真正 ready”，不混淆两者。
 
 ### Required final snapshot
 需要同时保留所有 current operator inventory 节点的原始状态快照；204 使用 bounded proof，不能用 full-status 路径抄表：
@@ -993,7 +993,7 @@ Use the Phase E closure command and retain its receipt; this checklist does not 
 ## 17. Completion Boundary
 这份 runbook 的交付物是“标准流程”，不是单次 live 执行记录。
 
-每次真实执行仍然必须额外记录：
+每次真实执行仍须额外记录：
 
 1. 当前 runtime/package hash
 2. 当前 validator signer truth

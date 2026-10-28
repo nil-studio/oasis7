@@ -56,3 +56,12 @@ entrypoint = "IdentityKeyPermits"
 binding = "RECOVERY_FENCE"
 service = "oasis7-custody-recovery-fence-staging"
 entrypoint = "RecoveryFenceReader"
+
+# Public metadata has its own actor namespace; no key material or purpose grant.
+[[durable_objects.bindings]]
+name = "CLIENT_ENROLLMENTS"
+class_name = "ClientEnrollmentAuthority"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["ClientEnrollmentAuthority"]

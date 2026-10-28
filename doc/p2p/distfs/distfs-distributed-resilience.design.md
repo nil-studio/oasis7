@@ -74,7 +74,7 @@ provider画像/DHT排名/覆盖审计由net；transfer执行器只本节点targe
 
 ### des-dr-due
 
-`run_replica_maintenance_poll` 先校验 polling policy；未到期返回 None 且不推进时间。到期后 plan 成功并取得逐项 report，才写 `last_polled_at_ms=now_ms`。report 可以含 failed_tasks，因此推进时间不以全部 transfer 成功为前提；策略或 plan 返回错误时不会到达写时间步骤。该时间只是轮询节拍。
+`run_replica_maintenance_poll` 先校验 polling policy；未到期返回 None 且不推进时间。到期后 plan 成功并取得逐项 report，才写 `last_polled_at_ms=now_ms`。report 可以含 failed_tasks，因此推进时间不要求全部 transfer 成功；策略或 plan 返回错误时不会到达写时间步骤。该时间只是轮询节拍。
 
 产品适用性：N/A；reason=轮询时钟是局部调度观测，不是恢复完成边界；scope=到期判定、轮次报告及last_polled更新。
 

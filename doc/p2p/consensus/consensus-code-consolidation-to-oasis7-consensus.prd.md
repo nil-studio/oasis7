@@ -41,7 +41,7 @@ action-root、共识签名/验签/消息纯逻辑迁到 consensus；node 保留�
 审计轮次: 5
 ## 1. Executive Summary
 - Problem Statement: 将 `oasis7_node` 中 PoS 共识核心状态机（proposal/attestation/decision）迁移到 `oasis7_consensus`，避免同语义双实现长期漂移。
-- Proposed Solution: 保持 `oasis7_node` 专注于节点运行时职责（网络收发、复制、执行 hook、快照桥接），共识规则核心改为复用 `oasis7_consensus`。
+- Proposed Solution: `oasis7_node` 继续专注于节点运行时职责（网络收发、复制、执行 hook、快照桥接），共识规则核心改为复用 `oasis7_consensus`。
 - Success Criteria:
   - SC-1: 在不破坏现有 runtime 行为的前提下，分阶段完成“代码位置统一 + 运行语义不回退”。
 
@@ -116,7 +116,7 @@ action-root、共识签名/验签/消息纯逻辑迁到 consensus；node 保留�
   - CCG-4：迁移 `oasis7_node` 残留共识纯逻辑到 `oasis7_consensus` 并完成接线。
   - CCG-5：完成 PoS 内部单链路收敛、定向回归与文档/devlog 终态收口。
 - Technical Risks:
-  - 泛型化抽取若边界定义不清，可能导致类型复杂度上升，影响可读性。
+  - 泛型化抽取若边界不清，可能增加类型复杂度，影响可读性。
   - 抽取过程中若状态更新顺序变化，可能引发边界行为回归（如 pending -> committed 时机）。
   - 后续若不继续推进网络层抽取，仍会存在“规则已统一、接线分散”的中间状态，需要后续阶段继续收口。
   - 第二阶段若迁移边界过大，可能导致 `oasis7_node` 与 `oasis7_consensus` 接口短期震荡，需通过分层回归测试兜底。

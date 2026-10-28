@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Miniflare, convertV4MiniflareOptions, Response as MiniflareResponse} from 'miniflare';
 import {fixtureRecoveryPolicy,signFixtureRecoveryActivation} from './fence_activation_signer.mjs';
+import {freshAccessStatusBarrier} from './fresh_access_status_barrier.mjs';
 import {worldAuthority} from './world_runtime_support.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const defaultWorld={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
@@ -18,7 +19,7 @@ function roleBindings(role, wrongKek=false) {
   return {CUSTODY_PROVISION_KEYS_ENABLED:'true',CUSTODY_ROLE_KEY_ENVIRONMENT:'test',CUSTODY_SERVICE_EPOCH:'1',CUSTODY_ROLE_WRAPPING_KEY_VERSION:'1',
     CUSTODY_ROLE_KEY_KEK:Buffer.alloc(32,wrongKek?64:{identity:61,owner:62,executor:63}[role]).toString('hex')};
 }
-function options(persist, data, bridge, mode) {
+function options(persist, data, bridge, mode, configureOptions) {
   const native = mode.startsWith('native-');
   const world=data.world??defaultWorld;
   const routes={...defaultRoutes,world_identity:world.world_id};
@@ -30,7 +31,7 @@ function options(persist, data, bridge, mode) {
     CUSTODY_NATIVE_PRIVATE_KEK:Buffer.alloc(32,94).toString('hex'),CUSTODY_NATIVE_PRIVATE_WRAPPING_KEY_VERSION:'1'} : {};
   const moduleOptions={modulesRoot:root,compatibilityDate:'2026-10-25',cf:false};
   const artifact=role=>[{type:'ESModule',path:resolve(root,`artifacts/${role}/entry.mjs`)},{type:'ESModule',path:resolve(root,`artifacts/${role}/index.js`)},{type:'CompiledWasm',path:resolve(root,`artifacts/${role}/index_bg.wasm`)}];
-  return {...convertV4MiniflareOptions({workers:[{
+  const rawOptions={workers:[{
     name:'identity',...moduleOptions,
     modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/native_revocation_scheduler.mjs')},...artifact('identity')],
     bindings:{CUSTODY_NATIVE_ORIGIN:'https://localhost',CUSTODY_NATIVE_RP_ID:'localhost',CUSTODY_NATIVE_NAMESPACE:data.namespace,
@@ -77,7 +78,8 @@ function options(persist, data, bridge, mode) {
   },{
     name:'oracle-proxy',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/role_runtime_oracle_proxy.mjs')}],bindings:{FIXTURE_MODE:mode},
     serviceBindings:{IDENTITY_REAL:{name:'owner',entrypoint:'IdentityKeyPermits'},EXECUTOR_REAL:{name:'owner',entrypoint:'ExecutorKeyPermits'},EXECUTOR_DEFAULT:'executor',FENCE:'fence'},
-  },...(realFence?[{name:'fence-controller',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/fence_controller.mjs')}],serviceBindings:{CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'},READER:{name:'fence',entrypoint:'RecoveryFenceReader'}}}]:[])]}),resourcePersistencePath:persist,unsafeDevRegistryPath:resolve(persist,'registry')};
+  },...(realFence?[{name:'fence-controller',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/fence_controller.mjs')}],serviceBindings:{CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'},READER:{name:'fence',entrypoint:'RecoveryFenceReader'}}}]:[])]};
+  return {...convertV4MiniflareOptions(configureOptions?configureOptions(rawOptions):rawOptions),resourcePersistencePath:persist,unsafeDevRegistryPath:resolve(persist,'registry')};
 }
 async function authority(directory, nativeMode=false, worldData) {
   const ready=resolve(directory,'native-ready.json'), stop=resolve(directory,'native-stop');
@@ -96,7 +98,7 @@ async function authority(directory, nativeMode=false, worldData) {
   }
   await close();throw new Error('isolated native fixture did not become ready');
 }
-export async function withRoleRuntime(mode, run) {
+export async function withRoleRuntime(mode, run, {configureOptions}={}) {
   const directory=mkdtempSync(resolve(tmpdir(),'oasis7-role-runtime-negative-'));
   let native,mf,worldProcess;
   try {
@@ -108,6 +110,8 @@ export async function withRoleRuntime(mode, run) {
     if(worldProcess) native.data.world=world;
     const persist=resolve(directory,'workerd');
     let nativeVerifications=0;
+    let nativeUnavailable=false;
+    let accessStatusBarrier=null;
     const nativeRequests={};
     const approvalFacts=[];
     const worldResults=[];
@@ -140,9 +144,11 @@ export async function withRoleRuntime(mode, run) {
       const suffix=url.pathname.replace('/api/public/hosted-account/v2','');
       const management=['/custody/management-session-status','/custody/approvals/verify'].includes(suffix);
       assert.ok(management || nativeMode && ['/capabilities','/machine-registration/options','/machine-registration/complete','/native-key/options','/native-key/complete',
-        '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup','/custody/managed-bindings/session-status',
+        '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup','/custody/managed-bindings/session-status','/custody/managed-bindings/session-lifetime',
         ...(worldProcess?['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view',...(mode.startsWith('native-participant-owner-setup')?['/entry-owner/control']:[])]:[])].includes(suffix));
       nativeRequests[suffix]=(nativeRequests[suffix]??0)+1;
+      if(accessStatusBarrier)await accessStatusBarrier.before(suffix,suffix==='/custody/managed-bindings/session-status'?await request.clone().json():{});
+      if(nativeUnavailable)throw new Error('fixed test native provider unavailable');
       if(!management) {
         assert.equal(request.headers.get('authorization'),null,'ordinary native transport has no approval adapter credential');
         assert.notEqual(request.headers.get('cookie'),native.data.cookie,'manager cookie never becomes a managed account credential');
@@ -150,6 +156,7 @@ export async function withRoleRuntime(mode, run) {
       if(url.pathname.endsWith('/verify')) nativeVerifications++;
       const headers=new Headers();for(const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) {const value=request.headers.get(name);if(value!==null) headers.set(name,value);}
       const response=await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      if(accessStatusBarrier)accessStatusBarrier.after(suffix,response.status);
       if(mode==='native-participant-lost-submit' && suffix==='/participant/submit' && response.status===200 && !lostParticipantReply) {
         await response.arrayBuffer();lostParticipantReply=true;
         throw new Error('fixture loses only the original submit response; canonical World may commit');
@@ -158,7 +165,7 @@ export async function withRoleRuntime(mode, run) {
         await response.arrayBuffer(); lostBindingReply=true;
         throw new Error('fixture lost binding response after native SQL commit');
       }
-      if(['native-lost-login','native-lost-missing-result'].includes(mode) && suffix==='/native-key/complete' && response.status===200 && !lostLoginReply) {
+      if((['native-lost-login','native-lost-missing-result'].includes(mode)||mode==='native-participant-owner-setup-real-fence-test-session-lost-initial') && suffix==='/native-key/complete' && response.status===200 && !lostLoginReply) {
         await response.arrayBuffer(); lostLoginReply=true;
         throw new Error('fixture lost original login Cookie after native SQL commit');
       }
@@ -205,7 +212,7 @@ export async function withRoleRuntime(mode, run) {
       }
       return new MiniflareResponse(body,{status:response.status,headers:outputHeaders});
     };
-    const restart=async nextMode=>{await mf?.dispose();mf=new Miniflare(options(persist,native.data,bridge,nextMode));};
+    const restart=async nextMode=>{await mf?.dispose();const configured=options(persist,native.data,bridge,nextMode,configureOptions);mf=new Miniflare(configured);};
     await restart(mode);
     if(realFenceMode(mode)) {
       const controller=await mf.getWorker('fence-controller');
@@ -226,7 +233,20 @@ export async function withRoleRuntime(mode, run) {
     const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
     const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'negative-runtime-approval-operation',request,approval:completed.approval}})});
     assert.equal(accepted.status,200);
-    await run({persist,account:original.entry.custody_account_id,planExpires:Number(draft.plan.expires_at),restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
+    await run({persist,account:original.entry.custody_account_id,provisionId:original.entry.provision_id,
+      publicEnrollmentFetch:async(path,init)=>{assert.match(path,/^\/v1\/client-enrollments(?:\/[A-Za-z0-9._~-]+\/prove)?$/);const incoming=new Headers(init.headers);for(const key of ['cookie','authorization','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public enrollment never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      activationReadDelayStatus:async()=>{const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/activation-read-delay-status',{method:'POST'});assert.equal(response.status,200,'fixed readonly delay status unavailable');return response.json();},
+      accountAlarmFixture:async(kind,sessionId)=>{const paths={observe:'/fixture/account-alarm-observe',early:'/fixture/account-alarm-early',unknown:'/fixture/account-alarm-unknown'};assert.ok(Object.hasOwn(paths,kind));const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal'+paths[kind],{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({session_id:sessionId})});assert.equal(response.status,200,'fixed actual Account alarm fixture unavailable');return response.json();},
+      probeClientCloseTrap:async()=>{const {NATIVE_SESSIONS}=await mf.getBindings('identity');const stub=NATIVE_SESSIONS.get(NATIVE_SESSIONS.idFromName('fixed-close-trap-probe'));const denied=await stub.fetch('https://native-session.internal/internal/paired-private',{method:'POST'});const count=await (await stub.fetch('https://native-session.internal/fixture/close-trap-count',{method:'POST'})).json();await stub.fetch('https://native-session.internal/fixture/close-trap-reset',{method:'POST'});const after=await (await stub.fetch('https://native-session.internal/fixture/close-trap-count',{method:'POST'})).json();return {rejected:denied.status,attempts:count.attempts,after_reset:after.attempts};},
+      setNativeUnavailable:value=>{assert.equal(typeof value,'boolean');nativeUnavailable=value;},
+      publicClientFetch:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/);const incoming=new Headers(init.headers);for(const key of ['cookie','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public client never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      publicClientHostFault:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/);return mf.dispatchFetch('https://localhost/fixture/client-wrong-host'+path,init);},
+      testClientAdmission:async(kind,body)=>{const paths={drain:'/internal/performance/client-source-drain',direct_admit:'/internal/performance/client-direct-admit'};assert.ok(Object.hasOwn(paths,kind),'closed client admission fixture port');const {ACCOUNTS}=await mf.getBindings('owner');return ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal'+paths[kind],{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});},
+      readAccountRestoreCallbacks:async()=>{const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/internal/performance/account-restore-observed',{method:'POST'});const raw=await response.text();assert.equal(response.status,200,'actual Account diagnostic callback port unavailable');return JSON.parse(raw);},
+      attestTestSession:async material=>{identity=await mf.getWorker('identity');return identity.fetch('https://localhost/fixture/test-session-attestation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(material)});},
+      readPrivateNativeHistory:async call=>{identity=await mf.getWorker('identity');return identity.fetch('https://localhost/fixture/native-history',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(call)});},
+      managementFetch:async(suffix,body)=>{identity=await mf.getWorker('identity');return identity.fetch(base+suffix,{method:'POST',headers,body:JSON.stringify(body)});},
+      approveIntent:async request=>{const response=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});const raw=await response.text();assert.equal(response.status,200,raw);const proof=JSON.parse(raw);assert.ok(proof.approval,'actual native fixture must issue UV evidence');return proof.approval;},planExpires:Number(draft.plan.expires_at),restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
       reconcileBasis:async(setup_id,stage)=>{
         identity=await mf.getWorker('identity');
         const reply=await identity.fetch(base+'/owner-setup-reconciles/basis',{method:'POST',headers,body:JSON.stringify({api_version:1,setup_id,stage})});
@@ -270,16 +290,17 @@ export async function withRoleRuntime(mode, run) {
         identity=await mf.getWorker('identity');
         return identity.fetch(base+'/owner-setups/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,custody_account_id:original.entry.custody_account_id,provision_id:original.entry.provision_id,setup_id})});
       },
-      approveManaged:async(blocked,limit='64')=>{
+      approveManaged:async(blocked,limit='64',label='one')=>{
+        assert.match(label,/^[a-z0-9-]{1,32}$/);
         const saved=persistedRuntime(persist,original.entry.custody_account_id);
         assert.ok(saved.native_binding);
-        const request={approval_request_id:'fresh-managed-approval-one',context:{...completed.approval.proof.context,security_version:'1'},
+        const request={approval_request_id:'fresh-managed-approval-'+label,context:{...completed.approval.proof.context,security_version:'1'},
           intent:{kind:'managed_login',native_account_id:saved.native_binding.native_account_id,login_key_ref:saved.native_binding.login_key_ref,
-            native_identity_namespace:saved.native_binding.identity_namespace,blocked_operation_ref:blocked,login_request_id:'fresh-managed-login-one',transport_limit:limit,deadline:String(Date.now()+60000)}};
+            native_identity_namespace:saved.native_binding.identity_namespace,blocked_operation_ref:blocked,login_request_id:'fresh-managed-login-'+label,transport_limit:limit,deadline:String(Date.now()+60000)}};
         const proofReply=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
         assert.equal(proofReply.status,200);const proof=await proofReply.json();assert.ok(proof.approval);
         identity=await mf.getWorker('identity');
-        const reply=await identity.fetch(base+'/managed-logins/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'fresh-managed-operation-one',request,approval:proof.approval}})});
+        const reply=await identity.fetch(base+'/managed-logins/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'fresh-managed-operation-'+label,request,approval:proof.approval}})});
         assert.equal(reply.status,200);return reply.json();
       },
       continueManaged:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/managed-logins/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();},
@@ -291,6 +312,14 @@ export async function withRoleRuntime(mode, run) {
       reconcileFault:async()=>(await (await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/reconcile-audit-fault')).json(),
       participantFault:async()=>(await (await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/participant-audit-fault')).json(),
       participantRoleProbes:async()=>(await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/participant-role-probes'),
+      armAccessStatusBarrier:async(session_id,barrierMode)=>{
+        assert.ok(['together','over_window','reject_policy'].includes(barrierMode));
+        const {ACCOUNTS}=await mf.getBindings('owner');
+        const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/internal/test-session-identity',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:{api_version:1,custody_account_id:original.entry.custody_account_id,provision_id:original.entry.provision_id,session_id},action:{kind:'describe_preflight'}})});
+        assert.equal(response.status,200,'fixed Core preflight descriptor must be available');
+        const descriptor=await response.json();accessStatusBarrier=freshAccessStatusBarrier(descriptor.access_nonces,barrierMode);
+      },
+      accessStatusBarrierFacts:()=>({...accessStatusBarrier.facts}),
       nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults],approvalFacts:()=>[...approvalFacts]});
   } finally {await mf?.dispose();await native?.close();await worldProcess?.close();rmSync(directory,{recursive:true,force:true});}
 }

@@ -85,7 +85,11 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 
 ## 4. 边界与结构
 
-代码归属按消费者需要分层：`oasis7_cas` 拥有本地内容寻址存储、编码、pin、文件索引及其存储探针；`oasis7_formal_protocol` 拥有可离线验证的 formal 协议类型、签名、证明和信任锚算法，不依赖本地 CAS、压缩或端点服务。`oasis7_distfs` 保留持久化协调、复制、端点、传输与恢复接线，并重导出同一份类型保持消费者兼容。客户端证明消费者直接依赖纯协议库，纯 CAS 消费者直接依赖 CAS 库。共享、版本化的 BFT V2 validator-set、proposer schedule、QC 验证以及正式 target/handoff/execution commitment 属于 `oasis7_formal_protocol::bft` 的纯证明合同，供 engineering 与正式调用方复用；`oasis7_consensus` 保留共识状态机、签名 journal 和持久化，并在原 `tendermint_v2` 路径重导出同一份协议类型与验证器。客户端普通依赖闭包不得因此带入 CAS、World、Node 或执行后端。拆分不改变编码、hash domain、落盘路径、回退顺序或权威接纳规则；native 恢复证据仍由实际恢复校验产生，不能用公开的未校验构造器替代。
+代码归属按消费者需要分层：`oasis7_cas` 拥有本地内容寻址存储、编码、pin、文件索引及其存储探针；`oasis7_formal_protocol` 拥有可离线验证的 formal 协议类型、签名、证明和信任锚算法，不依赖本地 CAS、压缩或端点服务。`oasis7_distfs` 保留持久化协调、复制、端点、传输与恢复接线，并重导出同一份类型保持消费者兼容。客户端证明消费者直接依赖纯协议库，纯 CAS 消费者直接依赖 CAS 库。
+
+共享、版本化的 BFT V2 validator-set、proposer schedule、QC 验证以及正式 target/handoff/execution commitment 属于 `oasis7_formal_protocol::bft` 的纯证明合同，供 engineering 与正式调用方复用；`oasis7_consensus` 保留共识状态机、签名 journal 和持久化，并在原 `tendermint_v2` 路径重导出同一份协议类型与验证器。
+
+客户端普通依赖闭包不得因此带入 CAS、World、Node 或执行后端。拆分不改变编码、hash domain、落盘路径、回退顺序或权威接纳规则；native 恢复证据仍由实际恢复校验产生，不能用公开的未校验构造器替代。
 
 net 拥有 transport/peer/DHT；consensus 拥有 proposer/attestation/action-root；存储域由 cas/distfs 分担本地 CAS/challenge 与分布式 replication；node/chain-runtime拥有commit后执行/恢复接线；proto仅共享wire；wasm_abi是manifest/runtime ABI单一来源。公开服务只能供应hash/proof材料，不能投票或写canonical。
 
@@ -304,7 +308,11 @@ V2 的候选执行和 committed 读取分属不同证明阶段。候选在固定
 
 BFT 治理动作复用既有完整动作签名域、controller 阈值、nonce 和父策略规则。其运行时 parent 上下文由真实 driver 已恢复的 opaque BFT cursor 与逐项匹配的 World root、time、manifest 和固定 epoch 映射建立；固定 genesis 信任仍由启动配置及 driver 独立检查，cursor 本身不认证任意调用者给定的 genesis。该上下文与受控模式的 qualified parent 分开，不能伪造 formal reader。执行前固定父 controller registry，显式开始对应 successor tick，在同一 detached World 上验证并执行批次，完成后结束阶段；上下文不进入 Snapshot。没有匹配 parent/tick 的普通 step 不得应用 admission 治理，新 controller policy 不能在同批次为自身或后续动作授权。
 
-受保护签名器的 V2 genesis 绑定固定初始集合、epoch 映射策略和本机不可导出 key 身份；运行中活动集合由逐高度证书与转换链导出，不允许普通 acquire 改写集合。集合安装原子推进持久 signer generation，隔离旧 owner，并返回绑定转换来源、激活高度、集合摘要、runtime 实例和新 generation 的真实安装确认。本机 consensus、WAL 与 provider 均完成安装并持久记录后才能报告本机 adopted；中途崩溃只能续完同一安装或停签。 V2 以 provider 的受保护 journal 作为签名前 WAL 的唯一持久权威，不再维护另一份可独立推进的 Node 日志。 启动必须先固定本机 driver 的模式／genesis 并取得其稳定载体上的 OS 生命周期锁，再执行远端 provider acquire；本机重复实例不能在本地锁失败之前推进远端租约代际、隔离原实例。节点必须从该 journal 与已验证 schedule 实际恢复目标高度的共识状态，并核对 driver 的持久执行记录，之后才签安装 ACK；WAL 安装摘要绑定同一 journal 和 schedule。重启须重做独立协议／执行重放并核对适用的持久安装回执，不能仅凭 DTO 摘要或旧 ACK 恢复投票；原请求恢复不得产生不同的安装证据。未被当前集合纳入、已被移除或尚未安装的 key 不得签名，但合法历史验证与只读追赶仍可继续。软件测试的安装确认不证明硬件不可回滚或真实故障域。
+受保护签名器的 V2 genesis 绑定固定初始集合、epoch 映射策略和本机不可导出 key 身份；运行中活动集合由逐高度证书与转换链导出，不允许普通 acquire 改写集合。集合安装原子推进持久 signer generation，隔离旧 owner，并返回绑定转换来源、激活高度、集合摘要、runtime 实例和新 generation 的真实安装确认。本机 consensus、WAL 与 provider 均完成安装并持久记录后才能报告本机 adopted；中途崩溃只能续完同一安装或停签。
+
+V2 以 provider 的受保护 journal 作为签名前 WAL 的唯一持久权威，不再维护另一份可独立推进的 Node 日志。
+
+启动必须先固定本机 driver 的模式／genesis 并取得其稳定载体上的 OS 生命周期锁，再执行远端 provider acquire；本机重复实例不能在本地锁失败之前推进远端租约代际、隔离原实例。节点必须从该 journal 与已验证 schedule 实际恢复目标高度的共识状态，并核对 driver 的持久执行记录，之后才签安装 ACK；WAL 安装摘要绑定同一 journal 和 schedule。重启须重做独立协议／执行重放并核对适用的持久安装回执，不能仅凭 DTO 摘要或旧 ACK 恢复投票；原请求恢复不得产生不同的安装证据。未被当前集合纳入、已被移除或尚未安装的 key 不得签名，但合法历史验证与只读追赶仍可继续。软件测试的安装确认不证明硬件不可回滚或真实故障域。
 
 | 权威边界 | 集合与证明规则 |
 | --- | --- |
@@ -460,7 +468,11 @@ H+1 的初始 schedule 由该激活能力导出，parent 必须是 H。H 的 gov
 
 目标配置 digest 为 BLAKE3(`u64be(domain.len)` || `oasis7.formal.bft.profile_target.v1` || canonical target CBOR)。激活 digest 则为含固定 `domain="oasis7.formal.bft.handoff_activation.v1"`、schema 1、target digest、H head/world、H 原始 Snapshot root、H governing runtime digest 和 H intrinsic finalizing-authority ID 的 canonical typed payload 摘要；不包含 reader 路径相关的 authority context 或证明 envelope。相同 H/target 不因合法的历史读取或恢复验证路径不同而得到不同激活身份。
 
-Runtime 只通过显式交接入口接续：由已验证 H/目标配置的能力与精确 schedule 共同校验 H 的保留历史 parent、实际 tick、scope、根和 manifest，再安装 BFT 执行阶段；H 的 retained-history reader 保留用于冷历史读取。实际 H Snapshot/语义根/manifest 的相等检查限于接续与执行开始前；tick 推进后，治理授权继续使用捕获的 H parent policy，并核对交接标记、retained parent/descriptor 与 schedule 的稳定绑定，不能要求已变更的 World 仍等于 H，也不能使用同批次新策略自授权。普通 engineering BFT 的 active-qualified-parent 拒绝规则不放宽，也不把旧受控 H 伪装成新受控执行 parent。独立 ledger 的 CAS pin 以完整 H/目标身份隔离分片，以显式节点数/累计字节预算记录 H 恢复与 H+1 重执行实际读取的索引节点，将校验后的节点与 Snapshot/Journal 一同保存并耐久 pin，再发布不可变提交记录；不能靠重启补 pin 掩盖已提交记录与 GC 间的丢失窗口。重开先在既有 ledger 锁下装载有界、内容寻址校验的依赖缓存，再以同一 H 重新恢复和执行；缓存不是信任根。该入口仍要求专用 CAS；[本地 retention 协调](distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)使遵守同一协议的 pin 发布与 GC 串行，成功发布的 pin 不被过期快照删除。启用并发维护前须升级所有 CAS 访问者；旧进程、直接文件系统删除和不支持可靠 OS 锁的文件系统仍须排除。尚未 pin 的候选可被先行回收，安装必须报错且不能发布提交记录；调用者保留同一 QC/操作身份重试。该局部协调不替代完整 GC 闭包与保留资格。未被该固定执行/投影路径访问的冷历史仍由外部 retained reader 保留，这不证明完整历史的独立重建或全量 GC 条件。
+Runtime 只通过显式交接入口接续：由已验证 H/目标配置的能力与精确 schedule 共同校验 H 的保留历史 parent、实际 tick、scope、根和 manifest，再安装 BFT 执行阶段；H 的 retained-history reader 保留用于冷历史读取。实际 H Snapshot/语义根/manifest 的相等检查限于接续与执行开始前；tick 推进后，治理授权继续使用捕获的 H parent policy，并核对交接标记、retained parent/descriptor 与 schedule 的稳定绑定，不能要求已变更的 World 仍等于 H，也不能使用同批次新策略自授权。普通 engineering BFT 的 active-qualified-parent 拒绝规则不放宽，也不把旧受控 H 伪装成新受控执行 parent。
+
+独立 ledger 的 CAS pin 以完整 H/目标身份隔离分片，以显式节点数/累计字节预算记录 H 恢复与 H+1 重执行实际读取的索引节点，将校验后的节点与 Snapshot/Journal 一同保存并耐久 pin，再发布不可变提交记录；不能靠重启补 pin 掩盖已提交记录与 GC 间的丢失窗口。重开先在既有 ledger 锁下装载有界、内容寻址校验的依赖缓存，再以同一 H 重新恢复和执行；缓存不是信任根。
+
+该入口仍要求专用 CAS；[本地 retention 协调](distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)使遵守同一协议的 pin 发布与 GC 串行，成功发布的 pin 不被过期快照删除。启用并发维护前须升级所有 CAS 访问者；旧进程、直接文件系统删除和不支持可靠 OS 锁的文件系统仍须排除。尚未 pin 的候选可被先行回收，安装必须报错且不能发布提交记录；调用者保留同一 QC/操作身份重试。该局部协调不替代完整 GC 闭包与保留资格。未被该固定执行/投影路径访问的冷历史仍由外部 retained reader 保留，这不证明完整历史的独立重建或全量 GC 条件。
 
 H+1 仍使用现有 V2 的签名域、严格权重阈值、独立重执行及 QC 验证；profile 交接不生成一个内部 h+2 validator transition，也不混用旧受控 P/R 回执和新 validator 的票。接续只读 head 前，driver 从 H 的已认证闭包恢复隔离 World，重执行 H+1 的原输入并比较全部已有执行 roots，再持久安装精确 QC 与结果。仅有 QC、Snapshot hash、服务端声明或 transport 成功均不足以发布该 head。
 
@@ -478,7 +490,11 @@ engineering V2 的现有 execution hash 不承诺正式读取的投影树，不�
 
 受控 `restore_snapshot_with_attached_formal_history` 继续只恢复精确 H 的原 Snapshot。连续 BFT 的隔离候选从驱动实际重放所得的父 World 派生；在保留原 H reader 的同时，先核对父 Snapshot 原始摘要、semantic root、manifest 与已验证前缀的 tip/QC，拒绝未提交 action/effect 队列或已有执行阶段，并核对隔离前后的 Snapshot/Journal 字节相同。该路径不接受外部 Snapshot/Journal 替换参数，也不给 H 的旧证明增加对后继状态的认证范围。
 
-驱动在恢复时从相同 H 的认证闭包逐高度重执行，核对每条 commitment、实际 Snapshot/Journal、投影和结果树，再公开相应 cut。完整重放入口先验证整个有界协议前缀及外部精确 `(height, block_id)`，再从已恢复的 H 顺序执行全部高度；每步结果树使用刚重算的前一步树及其 root，不合成受控 CanonicalRecord 充当 BFT parent。合法 QC 但伪造执行输出的前缀也必须拒绝。该重放阶段只返回隔离执行结果，不追加旧 H+1 ledger，也不能生成带持久化含义的 publication cut。重放在独立的有界依赖 recorder 上用同一已验证 retained-parent 能力重建 H，保留原 release policy，并核对 H Snapshot/Journal 不变；结果树和 World 冷读都使用这项隔离 reader，缺页直达原 source，而不经旧 H+1 recorder，避免改变其未来提交的依赖集合和预算。每步匹配实际 commitment 后缓存新结果索引节点，执行结果持有累计依赖的 reader 生命周期。每个高度重新捕获刚重放出的父 World controller policy；H 的 reader 继续只承担受控冷历史读取，不能将 H 的 controller policy 沿用为所有后继高度的授权。ledger 对每个高度追加不可变记录并保留累计 CAS 依赖，拒绝截短、覆盖、跳高和用最高结构记录直接生成可信 head；旧单高度 ledger 不静默解释为新格式。完整前缀须同时有累计高度与编码字节硬上限，达到上限返回明确容量不足，不能丢弃旧前缀后继续。新消费者必须协商显式新版本、携带完整有界前缀证据并到达外部精确固定的目标；旧 `/v2/world/read` 仍只支持 H+1。这些接续能力不替代正式 signer/provider 安装、网络共识生产、checkpoint 时间授权或部署 readiness。
+驱动在恢复时从相同 H 的认证闭包逐高度重执行，核对每条 commitment、实际 Snapshot/Journal、投影和结果树，再公开相应 cut。完整重放入口先验证整个有界协议前缀及外部精确 `(height, block_id)`，再从已恢复的 H 顺序执行全部高度；每步结果树使用刚重算的前一步树及其 root，不合成受控 CanonicalRecord 充当 BFT parent。合法 QC 但伪造执行输出的前缀也必须拒绝。
+
+该重放阶段只返回隔离执行结果，不追加旧 H+1 ledger，也不能生成带持久化含义的 publication cut。重放在独立的有界依赖 recorder 上用同一已验证 retained-parent 能力重建 H，保留原 release policy，并核对 H Snapshot/Journal 不变；结果树和 World 冷读都使用这项隔离 reader，缺页直达原 source，而不经旧 H+1 recorder，避免改变其未来提交的依赖集合和预算。每步匹配实际 commitment 后缓存新结果索引节点，执行结果持有累计依赖的 reader 生命周期。每个高度重新捕获刚重放出的父 World controller policy；H 的 reader 继续只承担受控冷历史读取，不能将 H 的 controller policy 沿用为所有后继高度的授权。
+
+ledger 对每个高度追加不可变记录并保留累计 CAS 依赖，拒绝截短、覆盖、跳高和用最高结构记录直接生成可信 head；旧单高度 ledger 不静默解释为新格式。完整前缀须同时有累计高度与编码字节硬上限，达到上限返回明确容量不足，不能丢弃旧前缀后继续。新消费者必须协商显式新版本、携带完整有界前缀证据并到达外部精确固定的目标；旧 `/v2/world/read` 仍只支持 H+1。这些接续能力不替代正式 signer/provider 安装、网络共识生产、checkpoint 时间授权或部署 readiness。
 
 多高度 ledger 从已认证 H 与固定目标配置直接初始化，不要求旧 H+1 账本先存在；否则正式 producer 无法在首个 H+1 QC 产生前建立其执行起点。新目录、schema 与 required marker 独立解析，同一记录目录不并存旧 H+1 与新 prefix writer mode，双方启动检测均须拒绝混用或降级。不同目录中的只读 QC 导入副本不产生共识签名，分别持有稳定、持久的本地 ledger 身份；其 CAS scope/shard 绑定该身份与 origin digest，不能仅以相同 H/target 共用 shard 而覆盖另一副本的保留集合。正式 producer 的 Node 身份、受保护 signer fencing 与实际安装仍是另行接线的前置条件，导入 receipt 不授予这些权限。
 

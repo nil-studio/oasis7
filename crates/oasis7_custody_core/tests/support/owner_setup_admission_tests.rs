@@ -10,6 +10,13 @@ fn fresh_access(
     stage: OwnerSetupStageV1,
 ) -> OwnerSetupAccessEvidenceV1 {
     let nonce = s.owner_setup_access_nonces("setup-one", stage).unwrap();
+    fresh_access_with_nonces(s, nonce, 1515)
+}
+fn fresh_access_with_nonces(
+    s: &AccountProvisionApprovalState,
+    nonce: OwnerSetupAccessNoncesV1,
+    now: u64,
+) -> OwnerSetupAccessEvidenceV1 {
     let d = &s
         .participant_original("participant-one")
         .unwrap()
@@ -64,9 +71,9 @@ fn fresh_access(
     .unwrap();
     OwnerSetupAccessEvidenceV1 {
         policy,
-        policy_session: fixture::root_session(s, nonce.policy_session, 1515),
+        policy_session: fixture::root_session(s, nonce.policy_session, now),
         admission,
-        authorize_session: fixture::root_session(s, nonce.authorize_session, 1515),
+        authorize_session: fixture::root_session(s, nonce.authorize_session, now),
     }
 }
 fn access_prepared() -> (

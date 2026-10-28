@@ -14,3 +14,4 @@ env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-fe
 mkdir -p artifacts
 if [[ -e artifacts/approval-harness ]]; then rm -rf artifacts/approval-harness; fi
 cp -R build artifacts/approval-harness
+cp platform/owner-entry.mjs artifacts/approval-harness/entry.mjs

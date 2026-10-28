@@ -11,7 +11,7 @@ function options(fixture, className, persist, bindings = {}) {
   if (className === 'RecoveryFence') {
     modules.push({ type: 'ESModule', path: resolve(root, 'artifacts/recovery-fence/index.js') },
       { type: 'CompiledWasm', path: resolve(root, 'artifacts/recovery-fence/index_bg.wasm') });
-  } else modules.push({ type: 'ESModule', path: resolve(root, 'platform/sql.mjs') });
+  } else modules.push({ type: 'ESModule', path: resolve(root, className === 'EnrollmentSqlHarness' ? 'platform/client_enrollment_sql.mjs' : 'platform/sql.mjs') });
   const converted = convertV4MiniflareOptions({ name: "custody-fixture", modules, modulesRoot: root,
     compatibilityDate: '2026-10-25', cf: false, durableObjects: { STORE: { className, useSQLite: true } },
     bindings });
@@ -55,4 +55,20 @@ test('Rust RecoveryFence initializes independently frozen and keeps its epoch ac
     const denied = await get(mf, '/internal/recovery-fence?enable=true', 'https://fence.internal');
     assert.equal(denied.status, 404);
   } finally { await mf.dispose(); rmSync(persist, { recursive: true, force: true }); }
+});
+
+
+test('Enrollment SQLite preserves absence versus empty history and rolls back final record and audit together', {timeout:60000}, async()=>{
+  const persist=mkdtempSync(resolve(tmpdir(),'oasis7-enrollment-sql-'));
+  const mf=new Miniflare(options('client_enrollment_sql_harness.mjs','EnrollmentSqlHarness',persist));
+  try{
+    const absent=await (await get(mf,'/read')).json();
+    assert.equal(absent.payload,null);assert.deepEqual(absent.tables,[]);
+    const created=await (await get(mf,'/create')).json();
+    assert.equal(created.payload,'original');assert.deepEqual(created.observed.records,[]);
+    const rolled=await (await get(mf,'/fault')).json();
+    assert.equal(rolled.payload,'original');assert.deepEqual(rolled.audit,created.audit);
+    const empty=await (await get(mf,'/empty')).json();
+    assert.equal(empty.payload,'');assert.notEqual(empty.payload,null);
+  }finally{await mf.dispose();rmSync(persist,{recursive:true,force:true});}
 });

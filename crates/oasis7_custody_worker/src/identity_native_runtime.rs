@@ -1,6 +1,8 @@
 //! Concrete fixed Identity capabilities. Account/Owner supply current authority;
 //! the manifest factory owns private crypto, and record actors store opaque immutable
 //! envelopes only. No inbound DTO is deserialized into a trusted current reader.
+#[path = "identity_test_session_client_runtime.rs"]
+pub(crate) mod client;
 #[cfg(feature = "native-runtime-harness")]
 #[path = "../tests/support/native_runtime_harness.rs"]
 mod harness;
@@ -14,6 +16,8 @@ pub(crate) mod recovery;
 pub(crate) mod setup;
 #[path = "identity_owner_setup_reconcile.rs"]
 pub(crate) mod setup_reconcile;
+#[path = "identity_test_session_runtime.rs"]
+pub(crate) mod test_session;
 use crate::{
     envelope_crypto,
     native_identity::provision_transport::NativeProvisionTransport,
@@ -1074,6 +1078,15 @@ impl DurableObject for NativeSession {
         if url.path() == "/internal/recover-status" {
             return recovery::response(self.state.clone(), &self.env, &raw).await;
         }
+        if url.path() == "/internal/test-session-attestation" {
+            return test_session_attestation::response(self.state.clone(), &self.env, &raw);
+        }
+        if url.path() == "/internal/test-session-preflight" {
+            return test_session::response(self.state.clone(), &self.env, &raw).await;
+        }
+        if client::operation(url.path()).is_some() {
+            return client::response(self.state.clone(), &self.env, url.path(), &raw).await;
+        }
         if url.path() == "/internal/participant" {
             return participant::response(self.state.clone(), &self.env, &raw).await;
         }
@@ -1132,3 +1145,6 @@ impl DurableObject for NativeSession {
         Ok(response)
     }
 }
+
+#[path = "identity_test_session_attestation.rs"]
+pub(crate) mod test_session_attestation;

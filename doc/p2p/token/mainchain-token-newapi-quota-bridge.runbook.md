@@ -607,7 +607,7 @@ OASIS7_CI_RUN_PROVIDER_LIVE_GATE=true ./scripts/ci-tests.sh --required
 - 当前 resolution 只支持：
   - `mark_resolved`
   - `close`
-- 若需要“调额度后重发”“换 project 后重试”之类 richer action，必须另开任务，不在本轮 runbook 内假装支持。
+- 若需要“调额度后重发”“换 project 后重试”等 richer action，必须另开任务；本轮 runbook 不声称支持。
 
 ## 9. 回滚边界
 - 当前 bridge 是独立服务，回滚优先级：

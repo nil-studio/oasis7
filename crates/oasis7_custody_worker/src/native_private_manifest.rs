@@ -406,6 +406,33 @@ pub(crate) struct NativeManifestStore {
     state: JsValue,
 }
 impl NativeManifestStore {
+    /// Private metadata only. Never decrypts, initializes, renews or grants.
+    pub(crate) fn current_private_session_generation(&self) -> Result<DecimalU64> {
+        let inventory: Inventory =
+            serde_json::from_str(&read_manifest(&self.state)?).map_err(|_| rejected())?;
+        if inventory.records.len() != 1
+            || inventory.records[0].id != KEY
+            || inventory.records[0].payload.len() > MAX_BYTES
+            || inventory.table_names.iter().any(|n| {
+                !matches!(
+                    n.as_str(),
+                    "table:custody_records"
+                        | "table:custody_audit"
+                        | "table:sqlite_sequence"
+                        | "table:_cf_METADATA"
+                )
+            })
+        {
+            return Err(rejected());
+        }
+        let manifest: Manifest =
+            serde_json::from_str(&inventory.records[0].payload).map_err(|_| rejected())?;
+        manifest.validate(&manifest.scope)?;
+        if manifest.private_session_generation.0 == 0 {
+            return Err(rejected());
+        }
+        Ok(manifest.private_session_generation)
+    }
     pub(crate) fn new(state: JsValue) -> Self {
         Self { state }
     }

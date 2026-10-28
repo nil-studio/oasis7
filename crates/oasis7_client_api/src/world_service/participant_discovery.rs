@@ -9,7 +9,7 @@ pub const PARTICIPANT_STARTER_ELIGIBILITY_PATH: &str = "/v1/world/participant-st
 #[path = "participant_policy_original.rs"]
 mod policy_original;
 pub use policy_original::ParticipantPolicyOriginalV1;
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParticipantOwnerViewRequestV1 {
     pub owner: SignedReadRequest<GameParticipantRegisterV1>,

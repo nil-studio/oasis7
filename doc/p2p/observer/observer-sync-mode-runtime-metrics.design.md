@@ -57,7 +57,7 @@
 - PRD 中的 `test_tier_required` 表示未来重新激活前的验证义务，不是运行结果。`module_required`、`module_full`、`integration_required` 与 `release_full` 的范围及证据边界以 [S9A 多节点状态同步闭环设计](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md) 为准；其他 tier、代理或测试绿灯不能替代相应证据，也不证明公开可达性、testnet readiness 或完整游戏体验。
 
 ## 5. 设计演进计划
-以下均为未来重新激活后的顺序目标，当前未由本文声称已交付：
+以下均为未来重新激活后的顺序目标，本文不声称当前已交付：
 - 先由 runtime 变更接回模块图/facade，并验证运行态字段。
 - 再接 metrics 输出。
 - 最后补告警口径与定向回归，并按 S9A 适用 tier 单独记录结果。

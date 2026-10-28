@@ -28,7 +28,7 @@
 | 运行时使用 | `artifact_identity`、本地缓存索引 | bootstrap 绑定身份；materializer 获取/复用工件 | 获取失败按适用 fallback 与错误边界处理 | 物化行为遵循 WASM 主设计 §5.0 | 动作级 release policy 不自动覆盖 builtin materializer |
 - Acceptance Criteria:
   - AC-1: 为 builtin wasm 增加 identity manifest（`source_hash`、`build_manifest_hash`、`identity_hash`）。
-  - AC-2: 扩展 `sync-m1/m4/m5` 流程：在同步 hash 清单时同时生成/校验 identity manifest。
+  - AC-2: 扩展 `sync-m1/m4/m5` 流程：同步 hash 清单时生成/校验 identity manifest。
   - AC-3: 运行时读取 identity manifest，为 bootstrap module manifest 写入可验证的 `artifact_identity`。
   - AC-4: 校验策略升级：`sync --check` 同时验证当前平台产物 hash 与 identity 数据完整性。
   - AC-5: 一致性回归覆盖 `m1/m4/m5` 三套 builtin 模块，避免只校验 `m1` 造成漏检；每次 PR 的适用执行范围由现行 CI/开发规范选择，不由历史命令要求所有普通改动全量检查。
@@ -97,7 +97,7 @@
   - `source_hash` 必须覆盖模块及本地 path 依赖闭包，并复用共享算法与适用 Cargo.lock；缩成仅模块目录会漏掉共享 SDK/ABI 变化，自行扩大为整个仓库则会引入无关抖动。
   - 旧版本清单迁移窗口内可能出现“有 hash 无 identity”状态，需提供兼容提示与一次性同步脚本。
   - 若开发者在非标准环境覆盖构建参数，`build_manifest_hash` 会变化并触发门禁，需要清晰错误提示。
-  - 非 canonical 平台允许本地回退编译后，必须保证远程拉取路径仍然严格校验 hash 清单，避免把“跨平台兼容”退化成“任意字节可执行”。
+  - 非 canonical 平台允许本地回退编译后，必须保证远程拉取路径仍严格校验 hash 清单，避免把“跨平台兼容”退化成“任意字节可执行”。
 
 ## 6. Validation & Decision Record
 - Test Plan & Traceability（验证要求，不是本次执行结果）:

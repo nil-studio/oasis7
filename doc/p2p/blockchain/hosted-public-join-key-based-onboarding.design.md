@@ -199,7 +199,7 @@ IdentityCore 只依赖类型化的 `IdentityStoreV2`。事务接口至少支持�
 ### 5.2 file v2：SQLite，而不是手写多文件事务
 保留 `OASIS7_HOSTED_ACCOUNT_STORE_BACKEND=file` 作为“本地身份存储”的部署选择，新增显式 v2 数据库路径。旧 JSON 路径只作为迁移输入，不把同名 `.json` 静默改写成 SQLite 字节。
 
-采用 `rusqlite` 或仓库最终统一的 SQLite adapter，独立有界 blocking worker 执行；不在 async executor 上直接做同步磁盘 IO。推荐 `WAL + synchronous=FULL`，提交以数据库 COMMIT 成功为准，不先更新进程缓存。SQLite WAL 的多连接共享要求同主机，不能把文件放到 NFS 并据此宣称多机共享身份。[W5][W6]
+采用 `rusqlite` 或仓库最终统一的 SQLite adapter，由独立有界 blocking worker 执行；不在 async executor 上直接做同步磁盘 IO。推荐 `WAL + synchronous=FULL`，提交以数据库 COMMIT 成功为准，不先更新进程缓存。SQLite WAL 的多连接共享要求同主机，不能把文件放到 NFS 并据此宣称多机共享身份。[W5][W6]
 
 可使用以下最小记录表统一映射两种后端；领域验证仍由类型化 Rust 代码负责，不向外开放任意 JSON 写入：
 
@@ -253,7 +253,7 @@ Tablestore 官方本地事务限定同一分区键值，且需要表具备相应
 ### 6.1 验证库与配置
 当前候选已将 `webauthn-rs-core = 0.5.5` 纳入 Cargo.lock，通过 `WebAuthnAdapter` 使用同库的配对注册/认证状态；高层 Passkey API 的 resident 要求是机会性提示，故采用 core builder 明确要求 resident 与 UV，discoverable 登录使用空 allowlist 后注入权威凭证。没有只修改浏览器 JSON、手写密码验证或启用 conditional mediation 的旁路。[W2][W3] 已加入依赖不等于完成真实设备或全部跨平台验收。
 
-`WebAuthnAdapter` 包装库 API，不向业务模块泄露不受版本控制的库内部结构。必须实测默认注册选项是否真正满足可发现凭证目标；不能看到库名包含 Passkey 就认为 resident credential 一定创建成功。若高层 API 无法一致配置并验证 resident 要求，使用同库经过审查的 core 适配能力，不仅修改发给浏览器的 JSON 而让服务端保留另一套状态。
+`WebAuthnAdapter` 包装库 API，不向业务模块泄露不受版本控制的库内部结构。必须实测默认注册选项是否真正满足可发现凭证目标；不能仅凭库名包含 Passkey 就认定 resident credential 创建成功。若高层 API 无法一致配置并验证 resident 要求，使用同库经过审查的 core 适配能力，不能只修改发给浏览器的 JSON 而让服务端保留另一套状态。
 | 参数 | 本设计要求 |
 | --- | --- |
 | `rp.id` | 固定配置的稳定身份域；精确匹配登记的配置版本 |
@@ -362,7 +362,9 @@ OTP 必须绑定 `purpose`（登录、绑定邮箱、恢复开始、恢复完成
 ### 8.3 变更与取消竞态
 凭证添加、邮箱变更、恢复和撤销都绑定预期 `account.policy_version` 以及相关 credential version。安全状态冲突返回 `state_changed`，重新读取后由用户决定下一步，不在后台悄悄将证明重定向到新的目标。
 
-`row_version` 是数据库并发写版本，`policy_version` 是安全设置版本。普通登录的最后使用时间、计数等更新不能仅因 row_version 变化使等待中的恢复申请失效；提交事务重新读取并合并这类观测字段。凭证、邮箱、恢复策略变更会递增 policy_version，并使依赖旧安全状态的 action 或恢复申请失效；恢复流程本身的合法状态转换按申请版本更新，不自我取消。普通凭证变更不必自动撤销所有正常账号 session；恢复完成和紧急冻结另递增 `security_epoch`，形成账号级失效屏障。
+`row_version` 是数据库并发写版本，`policy_version` 是安全设置版本。普通登录的最后使用时间、计数等更新不能仅因 row_version 变化使等待中的恢复申请失效；提交事务重新读取并合并这类观测字段。
+
+凭证、邮箱、恢复策略变更会递增 policy_version，并使依赖旧安全状态的 action 或恢复申请失效；恢复流程本身的合法状态转换按申请版本更新，不自我取消。普通凭证变更不必自动撤销所有正常账号 session；恢复完成和紧急冻结另递增 `security_epoch`，形成账号级失效屏障。
 
 邮箱绑定页面明确区分通知信息与登录/恢复能力。此 PRD 选择的是“启用邮箱登录与恢复”，只有完成明确授权和验证才激活；任意资料表单填入地址不能顺带增加登录权限。
 
@@ -610,14 +612,24 @@ v2 world adapter 使用以上 `/world/*` 路由及版本化身份授权；既有
 账号/会话失效优先阻止新的认证操作，但不抹掉已有原请求结果；世界回执和历史意图视图继续按其授权及已知事实呈现。不同错误不得互相覆盖成“注册失败”。
 账号登录以 `/session` 为依据，`credentials` / `sessions` 管理列表独立加载并单独提供失败提示和重试；列表不可用不能阻止认证回调或世界入口。列表报告 session 失效时必须清除账号、列表与页内签名器，并通知失效；不把未知网络故障解释成已退出。每次失败只展示本地阶段、固定接口路径、HTTP 状态、安全错误码及格式受限的诊断编号，不展示响应原文或浏览器异常详情。
 
-原生密钥 options 成功后、调用本地签名前即保存原 ceremony/operation 引用。本地签名失败先由原上下文取消：只有服务端确认 cancelled/expired/exhausted 才释放；已提交返回安全回执并重新核对 session；取消响应丢失或结果未知时保留原引用，重试先核对原操作，不能盲目建立第二个挑战。原生挑战的存储清理期限为证明到期后再保留 10 分钟，允许原上下文查询 expired/cancelled；证明有效期仍为 120 秒，保留不延长授权。上下文丢失或超出保留窗口时如实提示无法确认原结果，不把 authentication_failed 推断成取消成功；超过保留窗口仍无法查询时明确提示刷新页面先确认当前 session、必要时执行新鲜认证，并保留原结果未知的事实，不在当前页面自动分配新挑战。
+原生密钥 options 成功后、调用本地签名前即保存原 ceremony/operation 引用。本地签名失败先由原上下文取消：只有服务端确认 cancelled/expired/exhausted 才释放；已提交返回安全回执并重新核对 session；取消响应丢失或结果未知时保留原引用，重试先核对原操作，不能盲目建立第二个挑战。
+
+原生挑战的存储清理期限为证明到期后 10 分钟，允许原上下文查询 expired/cancelled；证明有效期仍为 120 秒，保留不延长授权。
+
+上下文丢失或超出保留窗口时如实提示无法确认原结果，不把 authentication_failed 推断成取消成功；超过保留窗口仍无法查询时，明确提示先刷新页面确认当前 session、必要时执行新鲜认证，并保留原结果未知的事实，不在当前页面自动分配新挑战。
 
 ### 12.2 跨标签页与重新进入
 同源多标签页通过 BroadcastChannel 或等价本地通知同步“session_changed / revoked”，但通知不是授权依据；每个标签页收到事件后向服务端核对。前端请求携带本地 generation，旧结果不能覆盖新账号 UI；generation 只是 UI 防竞态，不替代服务端 action/session 绑定。
 
 刷新后先调用 `/session`，再查询目标世界原 join attempt/既有绑定状态。先核对已有结果，必要时注册新页内临时 key；绝不恢复浏览器长期 player privateKey，也不自动重发原世界 intent。
 
-同 tab reload 的短期世界控制恢复可以保留加密 recovery capsule：仅 `sessionStorage` 保存账号范围、原 join attempt、临时控制 key 与尚未终结的原签名玩法请求的 AES-GCM 密文；独立随机 AES key 为 IndexedDB 中 non-extractable CryptoKey，不持久化裸私钥或账号 bearer。恢复须先通过当前 cookie 的 `/session` 账号匹配，再以原 attempt 查询 `/world/join`，权威 bound 后才继续控制；候选 pending 不能借 `/world/refresh` 获取授权。该机制不保存长期登录 key、不自动重发玩法 intent，也不改变服务端 current-only refresh/fence。hosted 玩法发送前必须先完成原请求 nonce/签名原件的加密保存；保存不可用则不得发送。reload 安全恢复控制后，只在 endpoint、world、authority epoch、公共 Feed source fence（branch/generations）与 reorg epoch 均匹配原记录时安装 unknown 反馈并沿原 nonce 对账，不为未确定请求分配新 nonce。当前 scope 未验证或不匹配时保留加密原件，不把它呈现为当前世界请求，也不允许当前世界的同 nonce 终态清理另一 scope 的原件。仅精确匹配的权威终态（含明确拒绝）可清理原请求；received/pending、传输错误和超时不清理。
+同 tab reload 的短期世界控制恢复可以保留加密 recovery capsule：仅 `sessionStorage` 保存账号范围、原 join attempt、临时控制 key 与尚未终结的原签名玩法请求的 AES-GCM 密文；独立随机 AES key 为 IndexedDB 中 non-extractable CryptoKey，不持久化裸私钥或账号 bearer。
+
+恢复须先通过当前 cookie 的 `/session` 账号匹配，再以原 attempt 查询 `/world/join`，权威 bound 后才继续控制；候选 pending 不能借 `/world/refresh` 获取授权。该机制不保存长期登录 key、不自动重发玩法 intent，也不改变服务端 current-only refresh/fence。
+
+hosted 玩法发送前必须先完成原请求 nonce/签名原件的加密保存；保存不可用则不得发送。reload 安全恢复控制后，只在 endpoint、world、authority epoch、公共 Feed source fence（branch/generations）与 reorg epoch 均匹配原记录时安装 unknown 反馈并沿原 nonce 对账，不为未确定请求分配新 nonce。
+
+当前 scope 未验证或不匹配时保留加密原件，不把它呈现为当前世界请求，也不允许当前世界的同 nonce 终态清理另一 scope 的原件。仅精确匹配的权威终态（含明确拒绝）可清理原请求；received/pending、传输错误和超时不清理。
 
 原 tab 通过按 capsule ID 的 exclusive Web Lock 持有使用权；复制 sessionStorage 的新 tab 遇到已持有 lock 必须拒绝恢复，不能生成新 attempt 绕过确认。缺 IndexedDB、Web Locks、存储权限或加密能力时不写恢复材料，保留页内控制并明确要求重新确认控制；未知/损坏恢复材料不得猜测成功。退出或账号切换删除 capsule 与加密 key；真实其他控制者、失效 epoch、撤销均遵循原 fail-closed 和明确接管合同。此存储防止裸 key 落盘，不承诺防御同源脚本执行或浏览器 profile 被完全控制。
 
@@ -756,7 +768,9 @@ Viewer 将密钥导入放入原生 `details` / `summary` 折叠区，默认关�
 
 `POST /native-key/options` 与 `/native-key/complete` 支持 `login`、`bind`、`reauth`，不支持新建账号。签名字节沿用 §15.2 格式：域分隔符为 UTF-8 `oasis7.identity.native.v1\0`，version 为单字节 1；audience 是经 Origin 白名单验证的精确来源；account_context 是绑定/重新认证账号 ID，登录为空；operation_id 是 ceremony_id，nonce 为独立随机 32 字节。全部字符串以 u32 大端长度编码；时间为毫秒 u64 大端。客户端按 capabilities 中的 namespace、当前 location.origin、用途、公钥、操作 ID 和期限重建并对比字节后才签名，不接受任意服务器字符串签名。
 
-挑战持久化保存 owner、namespace、RP version、用途、公钥、action 和签名字节；120 秒、最多 5 次失败。完成时重新检查 owner、namespace、RP version、账号/凭证/action 有效性与一次消费。绑定须现有敏感 `bind` action；reauth 只授权同账号同 session 的 pending action。登录/绑定共用来源及全局挑战配额。绑定唯一 lookup、凭证、账号 policy_version、action 消费、审计和 receipt 同事务；重试同 operation 返回已提交结果，不重新发行 session。登录复用 cookie/session/world 权限边界；`HostedAuthContextV2.auth_method=native_key` 仍仅允许原有 player_session/release 能力，不能升级到资产或 operator 权限。恢复完成时撤销全部旧公钥类型；原生凭证不能冒充 WebAuthn 恢复候选。
+挑战持久化保存 owner、namespace、RP version、用途、公钥、action 和签名字节；120 秒、最多 5 次失败。完成时重新检查 owner、namespace、RP version、账号/凭证/action 有效性与一次消费。绑定须现有敏感 `bind` action；reauth 只授权同账号同 session 的 pending action。登录/绑定共用来源及全局挑战配额。
+
+绑定唯一 lookup、凭证、账号 policy_version、action 消费、审计和 receipt 同事务；重试同 operation 返回已提交结果，不重新发行 session。登录复用 cookie/session/world 权限边界；`HostedAuthContextV2.auth_method=native_key` 仍仅允许原有 player_session/release 能力，不能升级到资产或 operator 权限。恢复完成时撤销全部旧公钥类型；原生凭证不能冒充 WebAuthn 恢复候选。
 
 部署先升级所有世界授权 verifier 以识别 `native_key`（仍只接受玩家会话能力），再升级身份服务和 Viewer 开放入口；旧 verifier 会安全拒绝该 auth_method。首次绑定后身份库存有新的 credential union 分支，旧身份 binary 不具备读取兼容性，不能原地降级或删除新凭证来回退。回退版本必须继续识别并服务已绑定导入凭证，备份/迁移仍按现有存储合同执行。
 
@@ -774,7 +788,11 @@ Unix SDK 的 `IdentityClient` 固定 HTTPS origin、identity service/environment
 
 客户端在 options 前持久保存随机 32 字节 base64url `operation_id`、公钥和显示名；相同 preauth/operation/内容返回原挑战，异内容拒绝。options 分配原账号引用与一次性 nonce，使用 `purpose=register`、空 account_context 的共享 v1 codec。显示名保存在该不可变 operation 的服务端状态中，不由 complete 再提供。完成请求仅含原 operation/ceremony ID 和确切字节的签名；客户端在发送前持久保存原请求，不能超时后更换键或 nonce。
 
-账号、唯一公钥 lookup、凭据、挑战消费、配额、审计与永久原操作 receipt 在同一事务提交。注册仅返回账号及 receipt，不签发会话，也不进入世界；后续登录是独立用途的挑战。complete 原件重放只返回原 receipt，不重复建号或签发 session；原挑战到期不允许新提交，但已提交原件仍可恢复 receipt。原件丢失时使用受支持的新登录挑战查回同一公钥主体，不能删除或替换账号以绕过未知结果。永久公钥 lookup（包括撤销 tombstone）阻止并发、重启和历史请求重复创建主体。失败、耗尽、取消与 proof 过期也持续保留机器注册原 operation 的内容绑定，cleanup 不解除该身份。公开响应不能把此身份 receipt 表示为准入、owner、starter 或任务生效。
+账号、唯一公钥 lookup、凭据、挑战消费、配额、审计与永久原操作 receipt 在同一事务提交。注册仅返回账号及 receipt，不签发会话，也不进入世界；后续登录是独立用途的挑战。
+
+complete 原件重放只返回原 receipt，不重复建号或签发 session；原挑战到期不允许新提交，但已提交原件仍可恢复 receipt。原件丢失时使用受支持的新登录挑战查回同一公钥主体，不能删除或替换账号以绕过未知结果。
+
+永久公钥 lookup（包括撤销 tombstone）阻止并发、重启和历史请求重复创建主体。失败、耗尽、取消与 proof 过期也持续保留机器注册原 operation 的内容绑定，cleanup 不解除该身份。公开响应不能把此身份 receipt 表示为准入、owner、starter 或任务生效。
 
 Unix 密码解锁 profile 复用 `oasis7_secure_envelope` 的固定 Argon2id（64 MiB、3 次、1 lane）与 XChaCha20-Poly1305，使用独立 `login-identity-v1` kind。登录种子与随机 outbox 密钥只在加密 key envelope 内持久保存；请求原件按独立密钥、服务/操作/阶段 AAD 保护，不含长期私钥。目录/文件沿用无符号链接、当前用户所有、0700/0600、fsync 和不可变原件发布合同；缺失或损坏不自动换钥。解锁仅经可信本机控制面的私有 stdin/API；不从 argv/env/聊天获取，不把身份存储交给默认 executor 工具。不支持的平台拒绝打开，密码 profile 不声明硬件不可导出或 OS 凭据库验收。
 

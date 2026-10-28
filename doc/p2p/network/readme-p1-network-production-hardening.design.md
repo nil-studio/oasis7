@@ -8,7 +8,7 @@
 
 本设计的专业输入是配对 [PRD request 路由](readme-p1-network-production-hardening.prd.md#1-libp2p-request-路由)、[共识 topic](readme-p1-network-production-hardening.prd.md#2-共识-topiclibp2p) 与[目标平台约束](readme-p1-network-production-hardening.prd.md#4-oasis7net-与目标平台边界)。P2P/runtime owner 维护 transport/request 与 node bridge；共识 authority 决定消息是否有效，Viewer 只消费观测结果，QA 核对 required 回归和拓扑长跑。
 
-本轮仅归整已有路由、默认拒绝和兼容边界，未修改运行行为；当前实现/验收以实际候选测试为准。PRD 已记载 wasm32 package-level check 的依赖阻断，本设计不把 API/stub 目标改写为已通过。
+本轮仅整理已有路由、默认拒绝和兼容边界，未修改运行行为；当前实现/验收以实际候选测试为准。PRD 已记载 wasm32 package-level check 的依赖阻断，本设计不把 API/stub 目标改写为已通过。
 
 ## 1. 设计定位
 定义分布式网络 P1 主路径生产化方案：把请求层升级为 libp2p 多 peer 轮换重试，并把共识消息切到 libp2p pubsub 主链路。
@@ -42,7 +42,9 @@
 
 Trace ID: O7-REQ-9b6f5d9f-b86b-4b30-957a-6a7a5fe301c0
 
-本专业要求限定 replication 请求错误的内部跨层语义：诊断文案不拥有 fallback、重试或拒绝策略。Net/request producer 保留真实失败来源，Node bridge 传递事实，replication policy 消费事实；不得仅把旧 reason 包装成 enum。产品层不另立要求：本条是 [REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 可用性反馈的内部工程边界，不新增玩家可用性承诺。候选实现由 `oasis7_proto::network_failure` 保留内部事实，Net 原生 outbound/command/DHT/publish 与 Node provider/decode 路径赋值，Node policy 消费事实；保留的文本解释见下述兼容范围。此状态不表示已合入、部署或完成独立安全/兼容验收。
+本专业要求限定 replication 请求错误的内部跨层语义：诊断文案不拥有 fallback、重试或拒绝策略。Net/request producer 保留真实失败来源，Node bridge 传递事实，replication policy 消费事实；不得仅把旧 reason 包装成 enum。产品层不另立要求：本条是 [REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 可用性反馈的内部工程边界，不新增玩家可用性承诺。
+
+候选实现由 `oasis7_proto::network_failure` 保留内部事实，Net 原生 outbound/command/DHT/publish 与 Node provider/decode 路径赋值，Node policy 消费事实；保留的文本解释见下述兼容范围。此状态不表示已合入、部署或完成独立安全/兼容验收。
 
 内部 outcome 至少区分以下信息；这些是语义职责，不是新增 wire 字段或 Rust 类型名的承诺：
 

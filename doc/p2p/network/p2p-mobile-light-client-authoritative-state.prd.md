@@ -7,7 +7,7 @@
 
 本三件套是移动轻客户端的当前专业 authority：客户端仅提交签名 intent 并消费权威 delta；权威执行批次以 `state_root`/`data_root` 承诺，并以 challenge、reorg recovery 与 session-key 生命周期约束可见状态。
 
-它收敛 2026-03-06 日期型三件套的稳定语义。旧文件已退役；完成记录从 Git 与 GitHub task evidence 追溯，且不得以历史完成叙述推导当前部署、QA 放行、公开可用性、finality 或 release 结论。
+它收敛 2026-03-06 日期型三件套的稳定语义。旧文件已退役；完成记录从 Git 与 GitHub task evidence 追溯，不得以历史完成叙述推导当前部署、QA 放行、公开可用性、finality 或 release 结论。
 
 ## 专业合同
 

@@ -210,7 +210,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - 风险-1: 历史脚本行为差异导致切换成本。
   - 风险-2: 入口过多导致文档与实际调用脱节。
   - 风险-3: 若 worktree harness 只包壳而不下沉到 `run-launcher-stack.sh` / `run-producer-playtest.sh` 契约层，后续上层脚本仍会靠 grep stdout 和全局目录工作，隔离性会继续失真。
-  - 风险-4: 若 worktree 创建仍停留在口头规范而无标准脚本，团队会继续混用手工 branch/path 命名，导致多任务并行难以搜索、回收与审计。
+  - 风险-4: 若 worktree 创建仍只有口头规范、没有标准脚本，团队会继续混用手工 branch/path 命名，导致多任务并行难以搜索、回收与审计。
   - 风险-5: 若 `--with-harness` 破坏 JSON/stdout 纯度，agent 侧自动化会从“稳定入口”退回“半结构化抓取”。
   - 风险-6: 若 GitHub PR 收口仍依赖手工 push / gh 序列，不同人会混用本地 landing、直接 push 与半手工 PR 路径，导致默认保护边界和 task worktree 回收时机失控。
   - 风险-7: 清理未经合入、资料或使用检查可能丢失用户工作；无法确认时保留资源并报告原因。

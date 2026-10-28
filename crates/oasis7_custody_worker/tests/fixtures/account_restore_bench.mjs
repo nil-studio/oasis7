@@ -30,9 +30,8 @@ sys.stdout.write(found[0])
   assert.ok(Buffer.byteLength(raw)<=2*1024*1024,'snapshot exceeds measurement bound');
   return raw;
 }
-// Call with the TestApprovalAuthority DO stub in the SAME measurement-enabled
-// Owner worker to collect its observed real SQL callback ring. An isolated stub
-// still measures restore, but callback_count=0 is not callback evidence.
+// Isolated restore samples intentionally contain no Account callback attribution.
+// Collect actual callbacks only through the separate fixed diagnostic Account port.
 export async function benchmarkAccountRestoreWithStub(stub,snapshot,{wasmPath=resolve(root,'artifacts/approval-harness/index_bg.wasm')}={}){
   const bytes=Buffer.byteLength(snapshot);assert.ok(bytes<=2*1024*1024);
   const snapshot_digest=digest(snapshot);const samples=[];
@@ -47,6 +46,13 @@ export async function benchmarkAccountRestoreWithStub(stub,snapshot,{wasmPath=re
     assert.equal(metrics.bytes,bytes);assert.equal(metrics.samples.length,1);assert.equal(metrics.samples[0].decode_count,mode==='parse_json_only'?0:mode==='legacy_double_decode'?2:1);
     assert.equal(metrics.mode,mode);assert.equal(metrics.validation_scope,mode==='restore'?'full_persistence_restore':mode==='parse_json_only'?'json_syntax_only':'full_persistence_restore_and_state_eq');
     if(mode==='parse_json_only') assert.equal(metrics.stage,null,'JSON syntax success must not report a validated phase');
+    const signatures=metrics.samples[0].strict_signature_metrics;
+    assert.equal(signatures.scope,'owned_sdk_private_goal_strict','isolated sample must own its synchronous SDK scope');
+    assert.ok(signatures.summary,'SDK metrics unavailable');
+    for(const name of ['calls','strict_attempts','successes','failures','canonical_bytes','max_canonical_bytes','distinct_tuples','duplicate_tuples','overflow_tuples','tracked_tuples'])assert.ok(Number.isSafeInteger(signatures.summary[name])&&signatures.summary[name]>=0,'signature counter must be a bounded safe count');
+    assert.ok(signatures.summary.tracked_tuples<=1024);
+    assert.equal(signatures.summary.distinct_tuples+signatures.summary.duplicate_tuples+signatures.summary.overflow_tuples,signatures.summary.strict_attempts);
+    if(mode==='parse_json_only')assert.equal(signatures.summary.calls,0,'JSON parsing must not execute strict signature verification');
     if(mode==='legacy_double_decode'||mode==='transition_clone') assert.equal(metrics.samples[0].equal,true,'validated baseline state must remain equal');
     samples.push({mode,temperature:i===0?'cold_mode':'warm_mode',rpc_wall_ms,...metrics});
   }
@@ -60,8 +66,8 @@ export async function benchmarkAccountRestoreWithStub(stub,snapshot,{wasmPath=re
     assert.equal(reply.status,400,'invalid persisted input must be rejected by validation');
     rejection_checks.push({mode,corruption,rejected:true});
   }
-  return {profile:'release-wasm-account-restore-v1',platform:process.platform,arch:process.arch,node:process.version,wasm_digest:digest(readFileSync(wasmPath)),snapshot_digest,bytes,samples,rejection_checks,
-    timing_scope:'Node RPC wall time includes transport/input parsing/digest work; workerd event clock may be frozen during CPU; parse-only vs restore wall differences are diagnostic, not exact validation CPU; no pure CPU or total crypto count claimed'};
+  return {profile:'release-wasm-account-restore-signature-metrics-v2',platform:process.platform,arch:process.arch,node:process.version,wasm_digest:digest(readFileSync(wasmPath)),snapshot_digest,bytes,samples,rejection_checks,
+    timing_scope:'Node RPC wall time includes transport/input parsing/digest work; workerd event clock may be frozen during CPU; parse-only vs restore wall differences are diagnostic, not exact validation CPU; SDK diagnostic counters cover private_goal strict verification only, not Worker NativeRoot/WebCrypto or pure CPU; duplicate tuple fingerprints are never output; overflow uniqueness is unknown'};
 }
 export async function benchmarkAccountRestore(snapshot){
   return withRestoreHarness(snapshot,stub=>benchmarkAccountRestoreWithStub(stub,snapshot));

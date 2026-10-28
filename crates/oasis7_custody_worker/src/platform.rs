@@ -16,6 +16,33 @@ const ROLE: Role = Role::RecoveryFence;
 async fn main(request: Request, _env: Env, _ctx: Context) -> Result<Response> {
     let url = request.url()?;
     #[cfg(feature = "identity")]
+    if crate::test_session_client_route::parse(url.path()).is_some() {
+        return crate::test_session_client_entrypoints::handle(&_env, request).await;
+    }
+    #[cfg(feature = "identity")]
+    if url.path() == "/v1/client-enrollments" || url.path().starts_with("/v1/client-enrollments/") {
+        if _env
+            .var("CUSTODY_CLIENT_ENROLLMENT_ENABLED")
+            .map(|v| v.to_string())
+            .ok()
+            .as_deref()
+            != Some("true")
+        {
+            return Response::error("not found", 404);
+        }
+        if url.path() == "/v1/client-enrollments" {
+            return crate::client_enrollment_entrypoints::create(&_env, request).await;
+        }
+        if let Some(id) = url
+            .path()
+            .strip_prefix("/v1/client-enrollments/")
+            .and_then(|v| v.strip_suffix("/prove"))
+        {
+            return crate::client_enrollment_entrypoints::prove(&_env, id, request).await;
+        }
+        return Response::error("not found", 404);
+    }
+    #[cfg(feature = "identity")]
     if crate::management::is_management_path(url.path()) {
         return crate::management::handle(request, _env).await;
     }

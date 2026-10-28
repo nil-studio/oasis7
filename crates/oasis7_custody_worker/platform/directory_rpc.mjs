@@ -18,3 +18,12 @@ export async function approveOwnerSetupReconcile(env, raw) { return env.OWNER_MA
 export async function continueOwnerSetupReconcile(env, raw) { return env.OWNER_MANAGEMENT.continueOwnerSetupReconcile(raw); }
 export async function ownerSetupReconcileBasis(env, raw) { return env.OWNER_MANAGEMENT.ownerSetupReconcileBasis(raw); }
 export async function prepareOwnerSetupReconcile(env, raw) { return env.OWNER_MANAGEMENT.prepareOwnerSetupReconcile(raw); }
+
+export async function testSessionBasis(env,raw) { return env.OWNER_MANAGEMENT.testSessionBasis(raw); }
+export async function testSessionInvite(env,raw) { return env.OWNER_MANAGEMENT.testSessionInvite(raw); }
+
+export async function prepareTestSession(env,raw) { return env.OWNER_MANAGEMENT.prepareTestSession(raw); }
+
+export async function approveTestSession(env,raw) { return env.OWNER_MANAGEMENT.approveTestSession(raw); }
+
+export async function continueTestSession(env,raw) { return env.OWNER_MANAGEMENT.continueTestSession(raw); }
