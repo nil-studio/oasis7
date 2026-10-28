@@ -101,6 +101,21 @@ impl MemoryReservation {
         self.bytes
     }
 
+    /// Combine already admitted charges from the same pool without releasing
+    /// capacity between phases. Errors leave both reservations unchanged.
+    pub fn merge(&mut self, other: &mut Self) -> Result<(), &'static str> {
+        if !Arc::ptr_eq(&self.pool, &other.pool) {
+            return Err("reservation pools differ");
+        }
+        let bytes = self
+            .bytes
+            .checked_add(other.bytes)
+            .ok_or("reservation merge overflow")?;
+        self.bytes = bytes;
+        other.bytes = 0;
+        Ok(())
+    }
+
     /// Bind an allocation made under this reservation to its charge. Keep this
     /// complete value in caches and reader Arcs, so data cannot outlive charge.
     /// The caller must include the allocation's capacity and owned children.

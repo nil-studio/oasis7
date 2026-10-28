@@ -5,7 +5,7 @@
 - 适用范围：显式选择新状态承诺与存储格式的新建世界，从其创世被接受后保留完整历史。
 - 固定源码基线：`112a627e889cb0601ed368b2c0be204e39e7554a`，2026-10-28；源码事实与目标分列于 §3。
 - 上游：[完整历史产品要求](../../product/world-infrastructure/lossless-world-history-storage.prd.md#lws-requirements)；相关设计：[既有物理存储优化](formal-world-storage-efficiency.design.md#des-lws-002)、[Runtime 提交与恢复](../design.md#runtime-authority-commit-recovery-target)。
-- 问题来源：[#5196](https://github.com/nil-studio/oasis7/issues/5196) 的全量 checkpoint 累积。本设计不等于该运行世界已修复。
+- 问题来源：[#5196](https://github.com/nil-studio/oasis7/issues/5196) 的全量 checkpoint 累积，以及 [#5197](https://github.com/nil-studio/oasis7/issues/5197) 的历史物化、事务深拷贝与全量编码。本设计不等于这些运行世界已修复。
 
 <a id="iws-scope"></a>
 ## 1. 问题、目标与非目标
@@ -81,11 +81,13 @@ Runtime 拥有确定性执行和完整 write-set；WASM/模块 owner 定义控�
 
 1. 按现行 authority 固定 world、genesis、parent commit/root、版本及原请求身份。事务读取固定根，记录实际 read-set 和预期版本。
 2. 原始外部输入先按其原权限和幂等身份持久化。执行产生业务与控制 write-set、事件及结果；拒绝动作若依规则仍产生事件或费用，也纳入同一 write-set。
-3. 先生成独立 Input/Result/Event 原内容对象；将 write-set 按冻结规则合并并排序，COW 更新受影响树页，effects/去重等状态引用这些原件。再把原内容与本次状态根绑定到新历史段，把执行工件写为独立对象。只 hash 新页、新块和变更路径。
+3. 先生成独立 Input/Result/Event 原内容对象；将 write-set 按冻结规则合并并排序，COW 更新受影响树页，effects/去重等状态引用这些原件；执行工件写为独立对象。只 hash 新页、新块和变更路径，原内容与新根的历史绑定由下一步完成。
 4. 形成新根集，将完整 put/delete 与控制变更封闭为 TransitionRecord，再产生 history prefix、结构化 checkpoint 和不含本次证书的 commit body。增量验证父子连续性及新增依赖，复用仍有效的父闭包证据；按 [提交发布](#iws-commit-publication)持久化、接受和选择 head。
 5. 只有原协议已确认后才向消费者报告相应持久结果。外部派发由受保护 outbox 驱动，索引和后台维护不得重新触发原业务。
 
 并发 parent/read-set 冲突在接受前拒绝或按原事务策略重试；重试保留原请求幂等身份，并重新读取获准前态。超时不证明未提交：先查询原请求及候选，不以新请求号重做。
+
+一次合法提交只有一个 ExecutionTransaction。driver、runtime step、bootstrap、service intent 以及属于同一提交的 simulator 变更共享该事务的固定父视图、read-set 和 overlay；内层 prepare 不另建完整 World 副本或独立发布。父 head 保持不可变，失败丢弃未接受的世界差量，外部效果义务按 §6.2 独立处理。
 
 <a id="iws-read-recovery"></a>
 ### 5.2 历史读取、checkpoint 与恢复
@@ -94,9 +96,13 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-46fb6d36-e9c9-4
 
 每个已接受 commit 关联完整根集及本次原历史范围。checkpoint 是这些根和恢复边界的有界描述符，不导出全量 world snapshot，也不把所有历史引用展开成一个数组。checkpoint cadence 只控制检查、定位和预热成本；每高度的 commit/root 与 history 索引仍可查询。`hot_commit_height_window` 与 `hot_checkpoint_count` 是两个独立策略概念，不是已有配置名称或历史删除期限。
 
+纳入 CommitBody 的可选 CheckpointDescriptor 按 §7 在接受前形成并持久化；缓存、预热和物理打包可以在接受后进行。加速任务失败本身不撤销业务提交，也不一律阻断后续提交；只有实际必需的恢复依赖、资源预算或原服务条件无法满足时，才按相应合同限制操作。
+
 读者先取得当前授权、可信 head/目标历史位置和 read lease，使用 head 的已认证 catalog prefix 验证旧高度的 inclusion/range/absence proof；当前 head 项由其原提交证书验证。之后验证所需根集及执行版本，再按需访问状态树和历史段。分页游标绑定 world、目标 commit/root、schema 和查询范围；跨重启续读重新核验绑定。历史索引必须能证明其受支持前缀中的缺口或缺失，不能用未完成扫描的“未找到”返回业务不存在，也不能每查一个旧高度都重走它到 head 的全部 parent 链。
 
 恢复可以直接装载目标高度的状态/控制根，或从较早 checkpoint 按已保存的原 TransitionRecord 重建非空后缀。后者逐高度验证 before roots、完整有序 put/delete、原输入/结果绑定及 after roots，不把业务事件列表当成完整 delta。两条路径均使用原模型结果、原模块/执行工件和原授权/去重材料；需要内容却缺失时停止相关恢复。新格式不要求通过一份展开 snapshot 才能恢复，但读取过的页面和范围必须逐项验证，完整恢复声明还需覆盖所需全部闭包。
+
+两条恢复路径分别验收。checkpoint 后缀组固定 C<T，实际读取并应用连续 `(C,T]` TransitionRecord；不得直接挂载 T 的当前状态树、读取 T 的完整 snapshot 或由它回填缺字段来替代后缀应用。C=T 往返仅证明 checkpoint 读取，不能代签增量恢复。
 
 保存/GC 闭包、一次提交验证闭包和一次读取/恢复闭包分别计算。常规启动或单高度恢复按可信锚/原协议要求核验目标 lineage、目标状态/控制页及实际需要的历史/工件，不因为 HistorySegment 的 parent 或 RootSet 引用递归展开每个旧高度的全部状态树。只有全历史审计与 GC mark 才遍历完整保留图，且按独立预算执行；缺少可验证的 lineage 快捷证明时仍按原协议分批认证所需链，不宣称启动成本与历史无关。字段的“内容依赖、历史定位/证明、保留边”类别由 typed schema 固定，不能由通用字符串 hash 扫描推断。
 
@@ -134,7 +140,15 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4
 
 一次事务合并同键写入后按稳定 key 顺序批量更新，只输出最终新根仍可达、且经认证父树不存在的节点；不输出同批被覆盖的临时路径。是否已存在以父树证明判断，不由任意本地 CAS 命中决定。相同前态与有序输入必须产生相同新根；线程完成顺序、缓存、物理页面 split/merge、pack 或压缩策略均不得改变逻辑 root。物理页分裂和 compaction 只改 locator；若确需改变逻辑构造规则，须显式逻辑版本及合法转换。
 
+逻辑 chunk 的切分规则、inline 阈值、空值/末块表示、块顺序和索引构造由同一格式 profile 冻结，具体参数按 §12.2 确定。相同 canonical 内容在该 profile 下必须形成相同块树，不受 I/O 缓冲大小、线程完成顺序、运行配额或物理压缩影响。逻辑块不能因预算不足而临时改边界，descriptor 以有界树承诺顺序、范围、长度和块身份。
+
+可变大 value 的身份由该 typed 块树承诺，微更新只重算实际改变的块和路径，不要求每次再计算整值 flat hash。原工件/外部响应的完整内容摘要在首次导入时流式计算，原件不变则复用；实际改变全值或改变编码布局时，工作量按真实变更计费。
+
+chain height、simulation tick、Tick record sequence、事件 era/序号和物理 generation 分别定义并校验。行政提交可以推进 height 而不产生 Tick；业务时间按原输入/运行规则推进，TransitionRecord 保留必要的前后边界。不能从 `Vec.len()`、归档数量或 simulation tick 推断提交高度，也不能把物理换代当成业务提交。
+
 history 的逻辑段一经接受即不可变；小段可物理合包，已有段不因包追加而改变身份。当前尾部以已持久的独立记录/块及封闭边界追加；不能每次提交重写一个持续变大的段、offset 数组或索引 manifest。段索引、height/checkpoint 索引及 root catalog 都使用有界页面和增量路径更新；后台校验允许全覆盖，正常提交不扫描全部旧高度。
+
+未接受 candidate 的准备、传播与合法裁定仍遵守原 authority 的替换规则。已接受原记录不就地覆盖；后续合法修订或补充证明追加并引用原记录，由指定 head 的有效视图区分原事实与后续处置。不可变段不取消原有合法裁定能力。
 
 引用图必须避免 self-hash 循环。先生成不带本次 root/commit 引用的独立 Input/Result/Event 原内容对象；RootSet 的业务、effects、去重及工件目录只引用这些原件或已接受前缀，不引用本次 TransitionRecord、history wrapper、CommitBody、checkpoint 或证书。再构建绑定 before/after 根的 TransitionRecord 及其 history prefix；随后产生 checkpoint descriptor 和 CommitBody，最后得到本次 commit ID/证书。需要携带本次 commit ID/证书的 receipt 与证明放在独立 CommitCatalog 的受保护附属账本，不能回填同一个已 hash 的 RootSet/history/descriptor。
 
@@ -157,18 +171,26 @@ RootSet 的状态不能只覆盖玩家可见实体。实现必须逐字段盘点
 
 | 根/状态类 | 必须保留的内容与更新边界 |
 | --- | --- |
-| 业务状态 | 实体、资产/余额、设施、库存、任务/目标与控制关系、模块 instance 状态及版本；终态原文可在 history，仍有效的定位/控制依赖不可丢 |
-| allocator | 实体/事件/请求序列、era rollover、已预留 ID 及其消耗、tick/时间推进和其他影响下一次输出的分配状态；拒绝及回滚路径按原规则推进或不推进 |
-| scheduler | 有序队列、定时器、wake/pause/clear、重试与游标、订阅/等待条件；用可定位键集合保存，不把整个增长队列作为单 value |
-| 授权与去重 | capability/委托、撤销/失效、nonce、原请求处置、幂等结果定位与必要 epoch/版本；历史控制前驱由相同闭包可读取 |
+| 业务状态 | 实体、资产/余额、设施、库存、任务/目标与控制关系、cognition、模块 instance 状态及版本；终态原文可在 history，仍有效的定位/控制依赖不可丢 |
+| allocator | 实体/事件/请求的 next 值、era rollover、预分配 provenance、已预留 ID 及其消耗顺序、tick/时间推进；拒绝及回滚按原规则推进或不推进，不能从最大 ID 推断 |
+| scheduler | 稳定 module instance 的绝对 wake tick 或明确 clear、module_tick_schedule、scheduler_cursor、有序队列、重试及等待条件；Pure 调用或无状态改变也保留调度更新，增长集合按键保存 |
+| 授权与去重 | capability/委托、撤销/失效、nonce 与预算、原请求处置、receipt links、治理/回滚幂等 outcome 及必要 epoch/版本；历史控制前驱由相同闭包可读取 |
 | effects | 原 operation/dispatch 身份、输入与原响应 refs、费用/结算、outbox 和已确认/未决/unknown 处置；未接受外部响应的持久 pending 账本也是独立保护根 |
 | 工件与执行环境 | 原 WASM/native bytes、schema/规则、target/features、必要环境与模块绑定；版本名或摘要不替代原件 |
 
 业务页、以上控制页和 history 由同一事务发布。对结果会产生影响的控制状态不能留在不受根约束的进程内变量或“可以重算”的缓存中。派生缓存可以丢弃，但必须从受保护内容重建并在恢复后验证；原模型回答和已发生外部效果不可重算。
 
+reducer、授权、调度和模块输出通过同一事务的细粒度读写接口访问稳定 entity/field/key 或 chunk。每项持久字段只有一个主责 namespace；世界规则、manifest、版本 binding、治理/finality/rollback 等控制字段也须逐项归属。禁止先构造完整 owned World/WorldState 再 diff，或以 `Arc<World>`/`Arc<Vec<History>>` 的首次写时全复制代替增量；大 cognition/队列不能成为每次微改都重写的单叶。必要过程事件仍按原序保存，最终同键 mutation 合并不消除原收费、拒绝和调用事实。
+
 终态控制记录下冷后，其原前驱、授权/去重结果和原处置仍由历史索引可定位，缩小热点不得使下一合法工作失去前置条件。队列、已分配集合及 effects/去重记录按键分页访问，恢复和查询采用 §8.2 的工作/并发预算；受限时保留原 operation 和控制根并明确进度，不能把暂未读完解释为“没有派发/没有授权”从而产生另一效果。
 
-外部派发先持久化稳定 operation、授权及必要预算/原输入，随后才允许发送。超时、断连或响应丢失转入待核对/unknown，恢复只按原身份查询或使用已保存结果；provider 无法证明是否执行时保持受阻，不重新发请求来补历史。已确认结果不得重复调用模型、收费或结算；外部系统缺幂等条件时不宣称物理恰好一次。新响应被接受后，以新事务更新 effects 根和原结果历史；未决派发记录在此之前不得回收。
+外部动作优先提交 outbox 后再派发。执行中必须取得外部结果的操作，在调用前耐久保存原 input bytes、operation/request/attempt、幂等身份、parent、授权/预算、模块/规则版本、已分配 ID 和可恢复 continuation；完成读回后才进入派发。原 response/receipt 按相同身份先持久化，再供事务消费。恢复 continuation 不重做已完成的 action prologue、折旧、费用结算或 validator 调用。
+
+同步外调与 outbox dispatcher 共用派发前写前记录协议：首次物理发送前，独立 pending ledger 必须耐久写入并读回同一原 effect identity 的 `DispatchedOrUnknown` 标记，绑定 intent、attempt、authority 和单调 sequence；未完成时不得发送。标记已耐久但尚未发送、已发送但后置派发事实或 receipt 未落盘，恢复均按可能已发送核对。缺少后置记录不证明未发生，不能生成新 nonce 或重新调用来补历史。
+
+pending ledger 至少区分 intent durable、DispatchedOrUnknown、result durable、已被获准提交消费及明确拒绝/取消处置，并独立登记保护根。世界事务未接受不抹除真实外部效果；超时、断连或响应丢失只按原身份查询或使用原结果，provider 无法核对时保留 blocked/unknown。没有外部幂等条件时不承诺物理恰好一次。较早形成的 RootSet 只绑定原 operation/attempt 和内容 refs，最终 commit ID/证明关联遵守 §6.1 的独立账本规则。
+
+提交后的派发、未知或 receipt 事实先追加到该独立幂等 ledger，再作为原 effect identity 的输入由后继事务纳入 effects 根和原结果历史；不原地修改已接受对象，也不自行取得提交权。查询区分已提交 effects 与待确认投递事实。未消费或未解决义务保持根保护，世界 overlay 丢弃、读者超时和缓存淘汰均不解除它们。
 
 ### 6.3 跨组件接口
 
@@ -190,6 +212,10 @@ Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-1d257860-b834-4
 
 事务的本地阶段是读取固定前态、构建候选、持久化依赖、按原 authority 判定、选择获准 head、完成派生维护。阶段记录可有 pending/unknown，它们不替代原协议的 accepted/applied/persisted/qualified 含义。COW 只提供旧视图不被原地改写的条件，本身不证明提交原子性。
 
+prepared guard 固定 world/genesis、精确 parent commit/roots、原 authority token/epoch 和事务自身单调 revision；同事务子操作绑定该 revision。所有影响确定性或持久结果的变更必须经事务并使相应 guard 失效，旁路 mutable 访问属于实现缺陷。校验直接比较这些身份与版本，不重新序列化/hash 全状态或历史，不只比较 tick，也不以物理 generation 代替逻辑 parent。
+
+接受前完成可失败的候选校验和内存安装资源预留；耐久发布后的内存安装仅交换准备好的根/视图。若此间进程崩溃，从 durable head 继续。只有能证明 exact candidate 未被原 authority 接受时才返回 NotCommitted；丢弃 overlay 不构成该证明，已接受结果不能因缓存/通知失败变成可重做的新工作。
+
 ### 7.1 发布顺序与原子边界
 
 1. 登记候选/pending roots；写入全部新增状态/控制页、TransitionRecord/history 段、工件、checkpoint 和 CommitBody。校验新增对象的逻辑 hash、长度与全部新增引用边；未变化子树仅复用与精确 parent/对象根、owner、持久域及有效物理代绑定的已验证耐久闭包证据，且这些依赖仍受相应 roots 保护。完成适用文件及目录同步。
@@ -197,7 +223,7 @@ Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-1d257860-b834-4
 3. 持久化原证书及 CommitCatalog 增量，验证 body 所绑定旧前缀与当前项的追加证明；在同一受保护选择边界核对 expected parent、候选和证书，原子选择包含 commit、RootSet、history 和追加后 catalog 前缀的 head descriptor。读者看到完整旧 head 或完整新 head，不看到业务状态新、控制/history 旧的组合。
 4. 只有当前选择及其依赖完成耐久确认和独立读回，才报告相应本地发布成功。索引缓存、通知和物理维护失败独立记录，不撤销已经接受的业务结果。
 
-原 authority 已接受但本域 selector 尚未完成时，重启查询并继续同一候选的本地发布；不能另造候选或自动服务旧 head。selector rename/fsync/读回不确定时保留候选、旧/新表示和原证明，报告 Unknown。可信 head 和完整目录前缀以原证书/lineage 验证，单个文件路径、较大高度或新 mtime 不构成恢复选择依据。
+原 authority 已接受但本域 selector 尚未完成时，重启查询并继续同一候选的本地发布；不能另造候选或自动服务旧 head。selector rename/fsync/读回不确定时保留候选、旧/新表示和原证明，报告 Unknown。Unknown 未收敛期间，在原提交域内隔离受影响 writer，包括重启后的写入准入；不得基于旧 head 推进可能与该候选矛盾的后继提交。仅在原身份的接受结果与本域 head 按原处置收敛后恢复相应写入。可信 head 和完整目录前缀以原证书/lineage 验证，单个文件路径、较大高度或新 mtime 不构成恢复选择依据。
 
 正常提交的闭包验证是“新增节点/边验证 + 仍有效的父闭包证据”，不是每次重读全部已接受历史。证据必须来自实际成功的持久化/验证，并由 root registry、物理代发布和退休 fence 维持其依赖；任意 CAS 命中、目录 mtime 或一个未绑定的 verified 布尔均不够。根/owner/域/代改变、丢失/损坏或证据状态未知时，受影响路径重新验证或受阻；当前 authority、授权和服务条件仍独立检查。首次恢复及后台全覆盖审计按固定根分页执行，分别计量，不把它们的成本隐藏在每次增量提交或声称一次局部验证等于全历史审计。
 
@@ -241,6 +267,8 @@ Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 [REQ-LWS-008](.
 
 新格式不以整世界或整 snapshot 的 64 MiB Vec 为接口。内存上界由页面、块、事务工作集与同时操作数共同决定，大对象和长历史通过有界树、流和游标处理；完整扫描、hash、校验和导出同样逐页消费，不能在末端重新聚合成覆盖全对象或全历史的 Vec。opaque 大 value、模块/执行工件进入有界 chunk 树，checkpoint 只保存其根，不列出全量块清单。首个实现启用前，Runtime/DistFS/QA 按冻结 workload 明确下表数值和计费方式；ops 给出设备容量余量与恢复目标。文档不虚构通用页大小、并发数或硬时限。
 
+进程级预算统一发放可追踪 reservation，commit、读者、编码/解码、checkpoint、复制/恢复及 GC 的在途额度相加受同一上限约束，不能只给每个线程独立上限。分配、解码或扩大并发前先取得额度；reservation 随 buffer/Arc 所有权转移，缓存淘汰后仍被读者持有的内存继续计费。热尾、索引节点/descriptor、prepared guard、游标、proof、root inventory、mark 工作页与 visited 集均在范围内。
+
 | 预算 | 必须覆盖 | 耗尽后的行为 |
 | --- | --- | --- |
 | 页面/块解码 bytes、项数与索引深度 | writer、读者、proof、cache、块树解析 | 接受前拒绝超限对象或按冻结规则分片；既有内容保留，读取报告受限 |
@@ -251,18 +279,29 @@ Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 [REQ-LWS-008](.
 
 页/块预算是接受格式的一部分或显式能力版本；操作配额可以按设备配置，但不能改变确定性树形、canonical hash 或业务结果。大逻辑对象超过单页大小时走分片路径，不能把现有 LIMIT 改大后称为流式。物理 raw/zstd 不值得压缩时可保留 raw；所有 header/index/recipe/pack 开销均计入预算和容量。
 
+资源申请采用固定顺序，或在阶段开始一次预留该阶段所需上界，避免 worker 持有 decode 额度再互等 publication 额度。为提交结果核对、义务恢复、释放和进度持久化保留专用额度，后台维护不能耗尽它。未知大小输入按有界块申请并检查累计上限；无法继续时保存原操作及已验证范围，不先全量分配后检查。
+
+写入在私有 staging 中流式编码、核验逻辑长度/hash 并完成耐久发布，成功后才产生可供提交引用的对象。读取按页/块/proof 完成验证后才向 authoritative reducer 提供内容；仅传输校验未完成逻辑认证的 bytes 不可提前使用。需要完整摘要后才能认证的大对象可以落到受预算控制的临时文件，再按页消费，不能退回完整 Vec。解压累计输出、临时磁盘和 encoder scratch 同样计费。
+
+取消在有界工作边界释放未发布 buffer/普通 read lease，保留原 operation、固定根和已验证进度；下次重新核验授权及根后续做，不切换成 latest。派发或发布已开始的 unknown、未解决 obligation 和维护 source/target 保护根不因取消消失，可转成小型持久引用。错误说明限制维度、完成范围与当前提交判定，不能将受限解释成历史不存在。
+
+应用计费不等于 RSS。allocator retained/fragmentation、线程栈、WASM/模块缓存和映射分别归因，尚未受该预算覆盖的部分给出独立上界或隔离策略。status 报告 hot/total history、index/cache/reader-held bytes、各类 reservation 与峰值、changed nodes/bytes、cold read/decode、backlog 和 unknown 数量；指标采集自身有界，不为打印统计遍历全历史。
+
 ## 9. 质量与容量
 
-在状态总量为 N、一次提交改变 k 个键的负载中，目标更新量随受影响叶页及其树路径、新历史和新工件变化；大致包含批量 COW 路径成本，而不是固定按 N 扫描。若一次交易确实改全状态，或页面分裂/新工件很大，成本仍可相应增长。该模型不是已测复杂度、固定增长斜率或压缩率。
+令 S 为当前有效业务/控制状态，H 为累计已接受历史，Δ 为本次真实变更及原结果。目标更新量随受影响叶页及其树路径、新历史和新工件变化，不固定按 S 或 H 扫描。若一次交易确实改全状态，或页面分裂/新工件很大，成本仍可相应增长；合法去重/控制前驱查询也可能需要冷点读。该模型不是严格 O(1)、已测增长斜率或压缩率。
 
 | 场景 | 环境、规模与资源 | 预期响应 | 指标/阈值来源 | 验证入口 | 当前范围 |
 | --- | --- | --- | --- | --- | --- |
-| 少量修改、长时间提交 | 固定实体规模，checkpoint/历史超过热窗 | 新写/序列化/hash 主要随 dirty pages 与本次 history；索引无每高度全扫描 | 实现前冻结 workload 与基线；记录新页/共享页、扫描对象数、写字节和 p50/p95/p99 | [验证设计](#iws-validation)的容量组 | 未实现验证 |
+| 固定 S、Δ 扩大 H | 合成 13,792、55,168、220,672 Tick；固定当前状态、模块、热窗、每步负载和并发，历史超过热窗 | load/idle/commit/save/checkpoint/range 不展开或深拷贝累计历史 | history deep-clone=0；热驻留/临时峰值符合冻结预算；记录新页、扫描/解码字节和 p50/p95/p99 | [验证设计](#iws-validation)的容量组 | 未实现验证 |
+| 固定 Δ 扩大 S | 相同少量 entity/key 更新，增加无关活跃实体与大 cognition 子树 | 不构造/clone 整个 World 再 diff；只改相关对象和路径 | changed nodes/bytes 与真实 Δ 对账；必要业务扫描独立归因，计量峰值/保留工作集 | [验证设计](#iws-validation)的容量组 | 未实现验证 |
 | 实体/历史/工件增长 | 多档数据量，包含逻辑对象超过旧 32/64 MiB 边界 | 分页/分块可读；实际新增历史正常增长 | 页/块/并发预算、峰值 RSS、metadata/inode、冷/热恢复成本 | [验证设计](#iws-validation)的预算与恢复组 | 未实现验证 |
 | 相邻版本与范围读取 | 固定范围查询、随机/顺序读取 | 读取/解压与交叠块及证明路径相关，不随 offset 重解前缀 | logical/encoded read、decoded bytes、cache、CPU、响应分位数 | [验证设计](#iws-validation)的对象组 | 未实现验证 |
 | 满盘、中断与并发维护 | 固定文件系统、真实进程、reader/pending 同时存在 | 原结果不丢、未知可查询；冗余材料恢复后收敛 | source/target/临时/reader 残余全路径 allocation 与恢复时间 | [验证设计](#iws-validation)的事务/GC 组 | 未实现验证 |
 
 容量口径至少区分：活跃逻辑状态、完整历史与原工件、唯一逻辑页/块、编码文件长度、文件系统 allocated bytes、device/inode 去重、owner/pin 保护量、pack 未释放量和维护峰值。跨故障域副本分别计入；应用写量、设备 I/O、页缓存读取、解压扫描、CPU 与 RSS 分别报告，不互相代替。
+
+按 load、idle、commit、save/checkpoint、range 和 restore 阶段记录 live heap、分配总量/次数/可用调用栈、峰值 RSS/PSS、allocator retained、CPU、逻辑读写与实际设备 I/O；连续多轮记录峰谷，区分临时放大、仍被持有的对象和未归还 allocator 的内存。固定 source/tested tree、seed、原外部结果、机器/文件系统、进程/线程/allocator、warm/cold 条件和采样窗；S、Δ 的真实增长另组呈现。历史窄读允许必要页与证明路径，不把所有负载 cold decode=0 当验收。
 
 比较分两种：同一新格式历史的物理优化比较必须逐对象同 bytes/hash；新格式与旧全量表示的架构比较使用冻结的等价业务输入/原外部结果、状态与控制语义 oracle、同保留范围及持久保障，明确两种格式身份不同。后者不是旧运行世界的无损迁移证据，也不能把删除旧世界材料计入收益。容量、正确性、恢复代价和故障域保障分别判定。
 
@@ -272,6 +311,8 @@ Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 [REQ-LWS-008](.
 Trace refs: O7-REQ-87c0cd77-0b20-4eba-90ff-5a492e85b3a0；承接 [REQ-LWS-006](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-006)。
 
 首个实现只用于明确选择新格式的新建世界。创世/激活描述绑定新状态承诺 domain/schema、树布局、历史格式和必要消费者能力；独立目录/命名空间避免被旧程序误认为旧 world。新格式 reader/writer、同步、查询、恢复、校验与运维工具须完成能力矩阵后才允许该新世界启用。遇未知版本应明确停止，不猜旧 raw、不双写旧索引、不自动导入或覆盖已有世界。
+
+Open 先只读识别有界 header/selector：旧格式、未知 family/version，或无标记但已有世界/record/identity 材料，返回 UnsupportedFormat；识别出的新格式损坏返回 InvalidFormat/IntegrityError。拒绝必须发生在 bootstrap、清理、恢复回写之前，源目录 bytes/身份不变。完全空目录的 Open 返回 Uninitialized，不隐式 Create；新建须显式请求并核对原激活身份，目录为空不授予重新创世或替换既有世界的权限。
 
 首个创世被接受后，本世界身份和全部后续接受历史持续有效。创世接受回执丢失或本地激活 Unknown 时，按原 world_id、GenesisConfigId 和原创世操作查询，继续同一获准 genesis commit；不得更换配置/身份或以空目录判断从未接受。重启按原 authority、受保护 head 和所需验证闭包恢复；存储维护换代继续使用可验证 source/target、expected generation、耐久选择、reader pins 和 Unknown 保留原则。后续软件升级若引入新逻辑格式，需要显式的本世界版本转换和相应消费者合同；不把新软件启动当成完成转换。
 
@@ -292,24 +333,30 @@ Trace refs: O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916；承接 [REQ-LWS-009](.
 | --- | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；[REQ-LWS-001](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-001) | [对象图](incremental-world-state-storage.design.md#iws-object-model) | 新创世至 head 的所有接受内容及 typed 依赖完整 | [V-LWS-HISTORY](formal-world-storage-efficiency.manual.md#v-lws-history)（新格式新增场景，待实施）：全 commit/height/root/对象覆盖与分支/版本检查；逐类移除 page/history/artifact/证书验证拒绝；required 对象 fixture，full 原件与引用图审计 | 完整覆盖清单、原 bytes/hash、typed 引用与缺口分类 | 抽样业务恢复不证明全对象覆盖；不覆盖旧世界导入 |
 | Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；[REQ-LWS-001](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-001) | [恢复](incremental-world-state-storage.design.md#iws-read-recovery) | 目标高度可由原状态/控制根及实际依赖恢复，不以外部重算补缺 | [V-LWS-HISTORY](formal-world-storage-efficiency.manual.md#v-lws-history)（新格式新增场景，待实施）：固定目标高度执行跨进程及归档恢复，核对原内容、执行工件和依赖；断开必要来源验证阻断；full 冷恢复环境 | 目标位置、所需依赖覆盖、原内容与恢复结果对照 | 抽样业务恢复不证明全对象覆盖；不覆盖旧世界导入 |
-| Trace refs: O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c；[REQ-LWS-002](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-002) | [格式身份](incremental-world-state-storage.design.md#iws-object-model) | 新对象 canonical/domain 身份及物理重建保持，引用图无自环 | [V-LWS-CODEC](formal-world-storage-efficiency.manual.md#v-lws-codec)（新格式新增场景，待实施）：相同 parent/有序输入重复生成根；物理页 split/merge、不同缓存/pack 后 root 不变；put/delete、最终新可达节点集合、type/domain/version、同次证书循环负例；raw/frame/pack 往返、跨块 range/proof、损坏/截断；required corpus，full 实际文件系统 | 冻结编码向量、根和 bytes 差分、拒绝结果、范围读取/解压计数 | 新旧 state hash 不要求相等；局部 codec 不证明世界恢复 |
-| Trace refs: O7-REQ-46fb6d36-e9c9-41d5-98df-200b93d68670；[REQ-LWS-003](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-003) | [checkpoint 与历史](incremental-world-state-storage.design.md#iws-read-recovery) | 独立热窗/cadence 不减少可定位历史，索引无遗漏或全链扫描 | [V-LWS-HISTORY](formal-world-storage-efficiency.manual.md#v-lws-history)（新格式新增场景，待实施）：运行跨两类热窗，改变 cadence/缓存后逐高度查询；旧 checkpoint 与完整 TransitionRecord 的 C<T 非空后缀恢复；固定旧高度/范围而增长 head，证明节点与读取量随目录树路径变化；缺页/远端断开不报业务不存在；full 冷恢复 | 连续高度/对象覆盖、cold 恢复、索引证明节点与读取/扫描计数 | 近期 checkpoint 或小历史 fixture 不证明全部规模 |
+| Trace refs: O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c；[REQ-LWS-002](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-002) | [格式身份](incremental-world-state-storage.design.md#iws-object-model) | 新对象 canonical/domain 身份及物理重建保持，引用图无自环 | [V-LWS-CODEC](formal-world-storage-efficiency.manual.md#v-lws-codec)（新格式新增场景，待实施）：相同 parent/有序输入重复生成根；物理页 split/merge、不同缓存/pack 后 root 不变；put/delete、最终新可达节点集合、type/domain/version、同次证书循环负例；冻结 profile 的 inline/块边界、空值/末块及不同 I/O 缓冲的同根向量；raw/frame/pack 往返、跨块 range/proof、损坏/截断；required corpus，full 实际文件系统 | 冻结编码向量、根和 bytes 差分、拒绝结果、范围读取/解压计数 | 新旧 state hash 不要求相等；局部 codec 不证明世界恢复 |
+| Trace refs: O7-REQ-46fb6d36-e9c9-41d5-98df-200b93d68670；[REQ-LWS-003](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-003) | [checkpoint 与历史](incremental-world-state-storage.design.md#iws-read-recovery) | 独立热窗/cadence 不减少可定位历史，索引无遗漏或全链扫描 | [V-LWS-HISTORY](formal-world-storage-efficiency.manual.md#v-lws-history)（新格式新增场景，待实施）：运行跨两类热窗，改变 cadence/缓存后逐高度查询；旧 checkpoint 与完整 TransitionRecord 的 C<T 非空后缀恢复，禁用 T 当前状态回填捷径；固定旧高度/范围而增长 head，证明节点与读取量随目录树路径变化；缺页/远端断开不报业务不存在；full 冷恢复 | 连续高度/对象覆盖、cold 恢复、索引证明节点与读取/扫描计数 | 近期 checkpoint 或小历史 fixture 不证明全部规模 |
 | Trace refs: O7-REQ-46fb6d36-e9c9-41d5-98df-200b93d68670；[REQ-LWS-003](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-003) | [控制历史](incremental-world-state-storage.design.md#iws-runtime-state) | 控制历史下冷不丢原处置或后续工作的前置条件 | [V-LWS-HISTORY](formal-world-storage-efficiency.manual.md#v-lws-history)（新格式新增场景，待实施）：控制记录跨热窗后定位原授权、去重和 effect 前驱；从冷根恢复并执行依赖这些前态的新工作；required 控制 fixture，full 模块/业务路径 | 原控制记录与授权/去重处置、冷读结果、后续工作结果 | 近期 checkpoint 或小历史 fixture 不证明全部规模 |
 | Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c；[REQ-LWS-004](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-004) | [GC](incremental-world-state-storage.design.md#iws-retention-gc) | 所有 owner/history/pending/reader/rollback 根保护，冗余最终收敛 | [V-LWS-GC](formal-world-storage-efficiency.manual.md#v-lws-gc)（新格式新增场景，待实施）：共享块多 owner、旧高度唯一路径、未决效果与 lease；未知 owner/边时扩大共享回收保护；中断退休/重启；required 竞态 fixture，full 进程故障 | root/保留理由差分、无缺边、最终释放与残余 inode | 单线程 sweep 或目录下降不能代签并发/完整历史 |
 | Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c；[REQ-LWS-004](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-004) | [发布 fence](incremental-world-state-storage.design.md#iws-commit-publication) | 发布新增根与并发退休共同保护完整候选和 reader | [V-LWS-FAULT](formal-world-storage-efficiency.manual.md#v-lws-fault)（新格式新增场景，待实施）：final mark 后并发发布引用/读者，覆盖候选持久化、selector 与退休故障点；required 发布/退休竞态 fixture，full 进程中断 | fence 顺序、候选/reader 保留证据、原历史读回和无已引用对象删除 | 单线程 sweep 或目录下降不能代签并发/完整历史 |
 | Trace refs: O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5；[REQ-LWS-005](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-005) | [提交发布](incremental-world-state-storage.design.md#iws-commit-publication) | 根集和证书原子绑定，原 authority 和必要域不被本地发布替代 | [V-LWS-DURABILITY](formal-world-storage-efficiency.manual.md#v-lws-durability)（新格式新增场景，待实施）：各写/fsync/证书/selector 点中断，父冲突、错证书和旧 writer 负例；required 原协议适配测试，full 真实必要独立域丢失后恢复 | 原候选/证书/head、域 inventory、已确认与拒绝结果、Unknown 查询 | 本机双目录不证明独立域；不改变共识协议安全结论 |
 | Trace refs: O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5；[REQ-LWS-005](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-005) | [分域回收](incremental-world-state-storage.design.md#iws-retention-gc) | 域内去重与回收不削弱必要独立域闭包和替代副本资格 | [V-LWS-DURABILITY](formal-world-storage-efficiency.manual.md#v-lws-durability)（新格式新增场景，待实施）：同域多 owner 共享与跨域独立复制；移除或降级必要域、仅远端可下载但未合格的负例；full 原部署 profile 的真实独立域 | 分域闭包、替代资格、阻断回收原因与故障域恢复结果 | 本机双目录不证明独立域；不改变共识协议安全结论 |
-| Trace refs: O7-REQ-87c0cd77-0b20-4eba-90ff-5a492e85b3a0；[REQ-LWS-006](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-006) | [启用恢复](incremental-world-state-storage.design.md#iws-activation-recovery) | 显式新格式准入，重启/后续维护保留原身份与全部已接受历史 | [V-LWS-MIGRATE](formal-world-storage-efficiency.manual.md#v-lws-migrate)（新格式新增场景，待实施）：新创世能力不完整拒启；创世已接受而本地激活 Unknown 时查询并续同一身份；未知版本不误开；物理换代中断/新写后回退到支持该格式的实现；full 固定文件系统和进程 | 能力矩阵、NotCommitted/Committed/Unknown、切换后业务与历史对照 | 不验证旧 snapshot 导入或旧 binary 兼容 |
-| Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；[REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007) | [控制根](incremental-world-state-storage.design.md#iws-runtime-state) | 完整控制根和 pending/outbox 保留；已确认效果不重派 | [V-LWS-CONTINUE](formal-world-storage-efficiency.manual.md#v-lws-continue)（新格式新增场景，待实施）：字段覆盖盘点；era rollover、分配预留及消耗、拒绝收费、多个模块 wake/pause/clear、授权撤销、去重、pending/unknown；required 独立控制 oracle，full 实际模块/业务路径 | 字段覆盖、新 ID/顺序、费用/模块状态、原处置及模型/外部调用计数 | root 相等不证明续跑；provider 无幂等条件不证明恰好一次 |
-| Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；[REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007) | [续跑](incremental-world-state-storage.design.md#iws-read-recovery) | 恢复后至少一条合法新工作完成，结果与不中断对照相同 | [V-LWS-CONTINUE](formal-world-storage-efficiency.manual.md#v-lws-continue)（新格式新增场景，待实施）：checkpoint 加 C<T 非空 TransitionRecord 后缀恢复后，向中断/不中断分支输入相同合法新工作；覆盖费用、分配、模块唤醒与外部结果复用；full 实际消费者 | 新工作完成、状态/事件/费用/模块结果、原请求及外部调用对照 | root 相等不证明续跑；provider 无幂等条件不证明恰好一次 |
-| Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；[REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007) | [原子发布](incremental-world-state-storage.design.md#iws-commit-publication) | 业务、全部控制和原历史原子发布，失败不拆分处置 | [V-LWS-FAULT](formal-world-storage-efficiency.manual.md#v-lws-fault)（新格式新增场景，待实施）：在新增页、原历史、证书和 selector 各点中断，再恢复并继续新输入；required 根集原子性 oracle，full 跨进程提交与派发 | 各阶段完整旧/新根集、pending 原身份、无混合状态及续跑结果 | root 相等不证明续跑；provider 无幂等条件不证明恰好一次 |
-| Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；[REQ-LWS-008](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-008) | [预算](incremental-world-state-storage.design.md#iws-resource-budgets) | 每个消费者按页/事务/操作有界，受限保留原结果与进度 | [V-LWS-BUDGET](formal-world-storage-efficiency.manual.md#v-lws-budget)（新格式新增场景，待实施）：每维 limit±1、逻辑数据跨旧 32/64 MiB、并发/取消/重启、ENOSPC；记录实际分配峰值和访问范围；required 极值对象，full 端到端同步恢复 | 明确错误/续传游标、RSS/FD/CPU/I/O、源和 pending 完整性 | 只有错误码或只调大常量不证明有界行为 |
+| Trace refs: O7-REQ-87c0cd77-0b20-4eba-90ff-5a492e85b3a0；[REQ-LWS-006](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-006) | [启用恢复](incremental-world-state-storage.design.md#iws-activation-recovery) | 显式新格式准入，重启/后续维护保留原身份与全部已接受历史 | [V-LWS-MIGRATE](formal-world-storage-efficiency.manual.md#v-lws-migrate)（新格式新增场景，待实施）：新创世能力不完整拒启；创世已接受而本地激活 Unknown 时查询并续同一身份；旧/未知格式写前拒绝且源 bytes 不变，空目录 Open 不 Create；物理换代中断/新写后回退到支持该格式的实现；full 固定文件系统和进程 | 能力矩阵、NotCommitted/Committed/Unknown、切换后业务与历史对照 | 不验证旧 snapshot 导入或旧 binary 兼容 |
+| Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；[REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007) | [控制根](incremental-world-state-storage.design.md#iws-runtime-state) | 完整控制根和 pending/outbox 保留；已确认效果不重派 | [V-LWS-CONTINUE](formal-world-storage-efficiency.manual.md#v-lws-continue)（新格式新增场景，待实施）：字段覆盖与单事务入口盘点；独立 J1 allocator/预分配/rollover、J2 stable instance/Pure/wake/clear，拒绝收费、授权撤销、去重、pending/unknown 与 continuation；required 独立控制 oracle，full 实际模块/业务路径 | 字段覆盖、新 ID/顺序、费用/模块状态、原处置及模型/外部调用计数 | root 相等不证明续跑；provider 无幂等条件不证明恰好一次 |
+| Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；[REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007) | [续跑](incremental-world-state-storage.design.md#iws-read-recovery) | 恢复后至少一条合法新工作完成，结果与不中断对照相同 | [V-LWS-CONTINUE](formal-world-storage-efficiency.manual.md#v-lws-continue)（新格式新增场景，待实施）：checkpoint 加 C<T 非空 TransitionRecord 后缀恢复后，向中断/不中断分支输入相同合法新工作；以独立 J1/J2 oracle 逐提交核对费用、分配、模块唤醒与外部结果复用；full 实际消费者 | 新工作完成、状态/事件/费用/模块结果、原请求及外部调用对照 | root 相等不证明续跑；provider 无幂等条件不证明恰好一次 |
+| Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；[REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007) | [原子发布](incremental-world-state-storage.design.md#iws-commit-publication) | 业务、全部控制和原历史原子发布，失败不拆分处置 | [V-LWS-FAULT](formal-world-storage-efficiency.manual.md#v-lws-fault)（新格式新增场景，待实施）：在新增页、原历史、证书和 selector 各点及 §11.2 派发前标记/结果窗口中断；覆盖 stale guard，再恢复并继续新输入；required 根集原子性 oracle，full 跨进程提交与派发 | 各阶段完整旧/新根集、pending 原身份、无混合状态及续跑结果 | root 相等不证明续跑；provider 无幂等条件不证明恰好一次 |
+| Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；[REQ-LWS-008](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-008) | [预算](incremental-world-state-storage.design.md#iws-resource-budgets) | 每个消费者按页/事务/操作有界，受限保留原结果与进度 | [V-LWS-BUDGET](formal-world-storage-efficiency.manual.md#v-lws-budget)（新格式新增场景，待实施）：每维 limit±1、逻辑数据跨旧 32/64 MiB、全局并发/Arc 持有/取消/重启、恢复预留及 ENOSPC；记录实际分配峰值、计费转移和访问范围；required 极值对象，full 端到端同步恢复 | 明确错误/续传游标、RSS/FD/CPU/I/O、源和 pending 完整性 | 只有错误码或只调大常量不证明有界行为 |
 | Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；[REQ-LWS-008](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-008) | [有界控制访问](incremental-world-state-storage.design.md#iws-runtime-state) | 控制集合的大小不迫使完整物化，未读完不视为不存在 | [V-LWS-BUDGET](formal-world-storage-efficiency.manual.md#v-lws-budget)（新格式新增场景，待实施）：扩大 scheduler、已分配集合、去重/effects 并注入分页取消、预算不足和恢复；required 极值控制 fixture，full 端到端新工作 | 按键访问范围与内存峰值、原 operation/进度、无误判为空或额外派发 | 只有错误码或只调大常量不证明有界行为 |
-| Trace refs: O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916；[REQ-LWS-009](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-009) | [质量与验证](incremental-world-state-storage.design.md#iws-validation) | 同保留/保障范围比较容量与增量工作，区分格式间语义对照 | [V-LWS-CAPACITY](formal-world-storage-efficiency.manual.md#v-lws-capacity)（新格式新增场景，待实施）：按 §9 两种比较分别冻结基线；少改动、实体增长、大工件、长历史及维护峰值；报告全 store/域 inode 与 allocated、序列化/hash/压缩量、分位数和恢复成本；full 实际文件系统 | 原始计量、版本/配置/窗口、完整性配套结果、未覆盖项 | 模型估算不代签收益，不能计入删除旧世界或独立副本 |
+| Trace refs: O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916；[REQ-LWS-009](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-009) | [质量与验证](incremental-world-state-storage.design.md#iws-validation) | 同保留/保障范围比较容量与增量工作，区分格式间语义对照 | [V-LWS-CAPACITY](formal-world-storage-efficiency.manual.md#v-lws-capacity)（新格式新增场景，待实施）：按 §9 两种比较冻结基线；固定 S/Δ 的 13,792/55,168/220,672 Tick 及固定 Δ 增长 S；报告各阶段 allocation/live/retained/RSS、CPU/I/O、全 store/域 inode 与 allocated、hash/编码量、分位数及恢复成本；full 实际文件系统 | 原始计量、版本/配置/窗口、完整性配套结果、未覆盖项 | 模型估算不代签收益，不能计入删除旧世界或独立副本 |
 
 ### 11.2 完整性与性能接受规则
 
 先观察全量 checkpoint 基线在少量变更下的重复增长或扫描，再验证候选的增量工作；不得只断言代码用了树或 chunk。新格式正确性使用独立的业务/控制参考模型及原输入/结果，避免测试仅重复生产 write-set 实现。错误注入同时核对原请求、世界根、history、控制与后续真实动作，不能只检查函数返回值。
+
+同格式独立参考分支逐提交核对业务/控制语义、原请求效果及承诺根；C<T 恢复分支再与不中断分支执行相同合法新输入。J1 allocator oracle 独立检查 next/era、预分配 provenance、消耗顺序及 rollover；J2 scheduler oracle 独立检查稳定 instance 的绝对 wake/clear、游标、Pure/无 state 变更调用和多个模块到期动作。两者不从被测 TransitionRecord 自报结果生成期望值；根相等、全部拒绝或零外部调用都不能替代应完成的新工作。
+
+同步外调与 outbox 均在以下边界注入中断：intent 未耐久、intent 已耐久而派发标记未完成、DispatchedOrUnknown 已耐久而未发送、已发送但后置事实/receipt 未落盘、result 已耐久但未消费、head 已发布但响应丢失。检查原身份核对、continuation、NotCommitted/Committed/Unknown、独立 pending roots 和后续工作；提交结果 Unknown 未收敛时，在原进程和重启后尝试基于旧 head 的矛盾后继提交均须被拒，收敛后再验证合法新工作完成。外部调用/费用由独立 fake 或受控 provider oracle 统计。prepared 后同 tick 的状态/控制更新也须使旧 guard 失效，且不能触发全状态/历史编码。
+
+容量组执行 §9 的三个 H 档及固定 Δ 增长 S 组，分别给出阶段内分配、峰值/保留工作集、CPU/I/O 和扫描量曲线；资源通过与正确性通过分列。并发 commit、慢读者、checkpoint、恢复和 GC 时耗尽每维预算，验证 Arc 持有仍计费、恢复预留可用、取消保留原义务且可继续；不能靠降低历史保留范围满足预算。
 
 全范围对象/引用覆盖与代表性业务续跑独立通过，才能声明该固定候选/规模的完整恢复。必要域、性能、资源和消费者验证继续分别成立；未执行环境或用例列为未验证。软件、布局/codec、执行版本、对象类型、消费者或平台变化时复核受影响项，不用一次测试结果覆盖未来格式。
 
@@ -367,3 +414,21 @@ ValueRoot 编码为 `oasis7.iws.value-root.v1\0` + `u32(41)` + 顶层节点 ID +
 共享 reservation 基础位于 `oasis7_proto::memory_budget`，CAS 保留同一类型的重导出；写入、读取与缓存使用同一个进程池。值树写入先申请 512 KiB 工作空间，读取申请 128 KiB；编码输出在分配前另申请额度，sink/缓存/reader 接管其 charge，最后一个持有者释放后才归还。读取拒绝另一预算池或低于实际 Vec capacity 的 carrier。适配器的输入、输出、元数据和物理解码缓冲另按所属阶段计费；这些固定逻辑工作空间不替代 allocator retained、RSS 或设备 IO 测量。节点数、输入/encoded read bytes、encoded write/输出 bytes 作为操作额度提前扣除，恢复使用总额内专用预留；原 authority 与资格独立检查。
 
 编码向量和独立逐层重建模型见 `oasis7_formal_protocol::incremental_value::tests`；实际文件系统的超 64 MiB 流与窄读方法见同模块 `streaming_tests`。这些组件证据不代替 §11 的新世界接线、完整历史、跨进程恢复、全进程计费和必要故障域验收。
+
+### 12.5 v1 RootSet、执行事务与 TransitionRecord
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 的单事务、§6.1 的完整差量及 §6.2 的控制根。这里定义共享事务与表示合同；Runtime 各字段和入口仍需按 §6.2 接入，不能以通用 overlay 已存在推定全部业务、allocator 或 scheduler 已覆盖。
+
+RootSet 编码为 `oasis7.iws.root-set.v1\0` + `u32` payload 长度 + payload。payload 为 `u16` world ID UTF-8 byte 长度、原 world ID bytes（1..256 bytes）、GenesisConfigId（32 bytes）、height（`u64`）、simulation tick（`u64`），随后按 §12.3 namespace 顺序保存六个原编码局部树根；不得省略、重排或用 history/物理代替代其中一项。完整 RootSet 最多 1024 bytes，所有整数均为大端。RootSet 不包含本次 commit ID 或证书。
+
+ExecutionTransaction 固定完整 parent commit/RootSet、原 operation 和 authority token/epoch；父 RootSet digest 在 begin 计算一次。所有嵌套入口借用同一非 Clone overlay。首次读按固定父根读取，并按 namespace/key 保存原 digest/absent；后续读看到同一 overlay 的写入。最终同键写合并，恢复原值的写可不进入最终差量，原事实仍按序保存。任何成功 write 或追加事实均推进进程内 revision，即使最终写回原值也使旧 guard 失效；失败的额度申请不产生语义变更。发生读页、格式、额度或内存错误后，该事务不能继续读写、派生有效 guard 或 seal；不得捕获错误后封闭已完成的部分写入。外部 pending 义务仍由独立账本持有。
+
+prepared guard 绑定该事务独占且有独立 charge 的进程内身份、revision 和精确 parent/authority fence。校验只做固定长度比较，不再次 hash 全状态/历史，不把物理 generation 当作业务 revision。相同请求/父根的新事务不能复用旧 guard；guard 存活时其身份不能被释放后重新分配而造成误匹配。最终 seal 重新核对 guard 与现 authority adapter 给出的 fence，不因这些字段本身相等就跳过原资格/提交协议。
+
+TransitionRecord 编码为 `oasis7.iws.transition.v1\0` + `u32` payload 长度。payload 顺序为 parent commit（32 bytes）、原 operation（32 bytes）、authority token（32 bytes）/epoch（`u64`）、before/after RootSet（各有 `u16` 编码长度），随后是 read、write、原事实三个序列，各以 `u16` count 开头。read 为 namespace（`u16`）、`u16` key 长度、key、原值；write 在同样字段后再带新值；值编码为 tag=0 的 absent 或 tag=1 后接原始 32-byte digest。事实编码为 `u8` kind（input=1、result=2、event=3）和原对象 ID，保留原执行顺序。
+
+v1 单次记录最多 4096 个 read、1024 个最终 write、4096 个事实和 8 MiB canonical bytes；key 边界沿用 §12.3。read/write 按 namespace/key 排序且唯一，write 必须有相同原值的 parent read，最终 no-op 不进入 write。before/after 绑定同一 world/GenesisConfigId，height 恰增一，tick 不倒退但可以不变。未知 tag、过量 count、截断、尾随、错误排序/前置条件或重建后根不等均拒绝；原事实的业务正确性及原对象类型/闭包继续由执行与 authority adapter 校验，不由差量自授。
+
+事务先申请固定 64 KiB 元数据/读页工作空间，再在每个 read entry、原事实和 guard 身份分配前获取共享额度；seal/验证在构建树路径与编码前按实际 dirty/read/fact 数申请保守上界，结果只接管其可见 Vec/String 容量及结构元数据 charge，临时额度随后归还。解码在序列分配前核对 count 与剩余 bytes，并另申请 owned entry 槽位；计费合并不短暂释放容量，跨池失败保留双方额度。该上界计费不替代 §9 的真实堆/allocator retained/RSS 测量；操作额度可低于格式上限，受限不得输出部分提交。
+
+协议组件方法见 `oasis7_formal_protocol::incremental_execution::tests`：手工编码与冻结向量、控制根漏写/前置条件篡改拒绝、同 tick stale guard、额度边界，以及从 C 的页集应用非空 transition 后缀到 T 后再产生一致新差量。此类 fixture 不代签真实 Runtime 的 J1/J2、外部派发、提交资格、耐久发布或完整故障域恢复。

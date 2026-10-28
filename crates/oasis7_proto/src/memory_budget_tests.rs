@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn merge_preserves_admission_and_cross_pool_errors_preserve_both_charges() {
+    let budget = MemoryBudget::new(100, 0).unwrap();
+    let other_pool = MemoryBudget::new(100, 0).unwrap();
+    let mut first = budget.reserve(30, MemoryClass::Ordinary).unwrap();
+    let mut second = budget.reserve(40, MemoryClass::Ordinary).unwrap();
+    first.merge(&mut second).unwrap();
+    assert_eq!((first.bytes(), second.bytes(), budget.used()), (70, 0, 70));
+    let mut foreign = other_pool.reserve(20, MemoryClass::Ordinary).unwrap();
+    assert!(first.merge(&mut foreign).is_err());
+    assert_eq!(
+        (
+            first.bytes(),
+            foreign.bytes(),
+            budget.used(),
+            other_pool.used()
+        ),
+        (70, 20, 70, 20)
+    );
+    drop(first);
+    drop(second);
+    drop(foreign);
+    assert_eq!((budget.used(), other_pool.used()), (0, 0));
+}
+
+#[test]
 fn recovery_is_reserved_within_shared_total_and_overflow_is_rejected() {
     assert!(MemoryBudget::new(10, 11).is_err());
     let budget = MemoryBudget::new(100, 20).unwrap();

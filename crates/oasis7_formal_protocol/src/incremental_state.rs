@@ -11,6 +11,7 @@ use codec::{StateCodec, empty_hashes, key_digest};
 pub const STATE_MAX_KEY_BYTES: usize = 1024;
 pub const STATE_MAX_WRITES: usize = 1024;
 pub const STATE_MAX_PAGE_BYTES: usize = 1200;
+pub const STATE_ROOT_BYTES: usize = b"oasis7.iws.state-root.v1\0".len() + 46;
 
 /// Frozen format tags. Extension needs an explicit format version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -163,7 +164,7 @@ impl StateRootV1 {
 }
 
 impl StateNamespaceV1 {
-    fn from_tag(tag: u16) -> Result<Self, String> {
+    pub(crate) fn from_tag(tag: u16) -> Result<Self, String> {
         match tag {
             1 => Ok(Self::Business),
             2 => Ok(Self::Allocator),
