@@ -435,3 +435,6 @@ mod tests;
 
 #[path = "test_session_authority_tests.rs"]
 mod test_session_authority_tests;
+
+#[path = "owner_setup_restore_metrics_tests.rs"]
+mod restore_metrics_tests;

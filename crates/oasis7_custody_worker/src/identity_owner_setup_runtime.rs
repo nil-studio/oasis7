@@ -1,4 +1,7 @@
 //! Fixed separately approved Owner setup driver. Secrets stay in this actor.
+#[cfg(feature = "native-runtime-harness")]
+#[path = "setup_diagnostic.rs"]
+mod diagnostic;
 #[path = "identity_owner_setup_private.rs"]
 mod private;
 #[path = "identity_owner_setup_transport.rs"]
@@ -248,10 +251,18 @@ async fn canonical(
     view: &Observation,
     secrets: &private::SessionSecrets,
     original: &OwnerSetupOriginalV1,
+    #[cfg(feature = "native-runtime-harness")] diagnostic: &diagnostic::Trace,
 ) -> JResult<(
     OwnerSetupResultV1,
     oasis7_custody_core::provisioning::ParticipantSessionEvidenceV1,
 )> {
+    let report = |code: &'static str, error| {
+        #[cfg(feature = "native-runtime-harness")]
+        diagnostic.fail(code);
+        #[cfg(not(feature = "native-runtime-harness"))]
+        let _ = code;
+        error
+    };
     let OwnerSetupOriginalV1::Canonical { submit, lookup } = original else {
         return Err(js_denied());
     };
@@ -262,7 +273,8 @@ async fn canonical(
         secrets,
         &view.view.session_observation_nonce,
     )
-    .await?;
+    .await
+    .map_err(|e| report("submit.root_status", e))?;
     let response: JResult<SignedServiceResponse<ws::IntentResponse<serde_json::Value>>> =
         transport::original(
             env,
@@ -287,8 +299,9 @@ async fn canonical(
                 }),
             },
         )
-        .await?;
-        check(env, selector, view)?;
+        .await
+        .map_err(|e| report("archive.submit", e))?;
+        check(env, selector, view).map_err(|e| report("submit.post_archive_current", e))?;
         if matches!(
             response.payload.outcome,
             ws::IntentOutcome::Committed { .. } | ws::IntentOutcome::Rejected { .. }
@@ -302,14 +315,18 @@ async fn canonical(
             ));
         }
     }
-    check(env, selector, view)?;
-    wait_commit().await?;
-    let permit = rpc(env, selector, OwnerSetupRuntimeAction::ClaimLookup).await?;
-    let lookup_view = returned(env, selector, permit).await?;
+    check(env, selector, view).map_err(|e| report("lookup.pre_wait_current", e))?;
+    wait_commit().await.map_err(|e| report("lookup.wait", e))?;
+    let permit = rpc(env, selector, OwnerSetupRuntimeAction::ClaimLookup)
+        .await
+        .map_err(|e| report("lookup.claim_rpc", e))?;
+    let lookup_view = returned(env, selector, permit)
+        .await
+        .map_err(|e| report("lookup.returned_fence", e))?;
     if lookup_view.view.kind != OwnerSetupPermitKindV1::Lookup
         || lookup_view.view.original.as_ref() != Some(original)
     {
-        return Err(js_denied());
+        return Err(report("lookup.exact_original", js_denied()));
     }
     let lookup_session = transport::session(
         env,
@@ -322,7 +339,8 @@ async fn canonical(
             .as_deref()
             .ok_or_else(js_denied)?,
     )
-    .await?;
+    .await
+    .map_err(|e| report("lookup.root_status", e))?;
     let response: SignedServiceResponse<ws::IntentResponse<serde_json::Value>> =
         transport::original(
             env,
@@ -335,7 +353,8 @@ async fn canonical(
                 operation: ws::entry_control::EntryOwnerOperationV1::Lookup((**lookup).clone()),
             },
         )
-        .await?;
+        .await
+        .map_err(|e| report("native.lookup", e))?;
     let _: OwnerSetupCanonicalFactV1 = rpc(
         env,
         selector,
@@ -346,8 +365,9 @@ async fn canonical(
             }),
         },
     )
-    .await?;
-    check(env, selector, &lookup_view)?;
+    .await
+    .map_err(|e| report("archive.lookup", e))?;
+    check(env, selector, &lookup_view).map_err(|e| report("lookup.post_archive_current", e))?;
     Ok((
         OwnerSetupResultV1::Canonical {
             response,
@@ -374,149 +394,184 @@ async fn execute(
     env: &Env,
     selector: &OwnerSetupStageRpc,
 ) -> JResult<serde_json::Value> {
-    let first = observe(env, selector, OwnerSetupReadPurposeV1::Session).await?;
-    let (second, secrets) = private::read(state, env, selector, &first).await?;
-    let access = refresh_access(env, selector, &second, &secrets).await?;
-    let raw = serde_json::to_string(&OwnerSetupSignRpc {
-        selector: OwnerSetupStageRpc {
-            request: selector.request.clone(),
-            stage: selector.stage,
-        },
-        access,
-    })
-    .map_err(|_| js_denied())?;
-    let published: OwnerSetupPublished =
-        serde_json::from_str(&raw_text(owner_sign(env, &raw).await?, 128 * 1024)?)
-            .map_err(|_| js_denied())?;
-    if published.permit.kind != OwnerSetupPermitKindV1::Preflight
-        || published.permit.plan != second.view.plan
-        || published.permit.participant != second.view.participant
-        || published.permit.original.as_ref() != Some(&published.candidate.original)
-        || published.permit.observation.as_ref() != Some(&published.candidate.observation)
-    {
-        return Err(js_denied());
-    }
-    let preflight = returned(env, selector, published.permit).await?;
-    let session = transport::session(
-        env,
-        selector,
-        &preflight,
-        &secrets,
-        &preflight.view.preflight_session_observation_nonce,
-    )
-    .await?;
-    let request = published.candidate.observation.clone();
-    let world: SignedServiceResponse<ws::participant_discovery::OwnerSetupObservationV1> =
-        transport::original(
+    #[cfg(feature = "native-runtime-harness")]
+    let diagnostic = diagnostic::Trace::new("identity", selector.stage, None);
+    let report = |code: &'static str, error| {
+        #[cfg(feature = "native-runtime-harness")]
+        diagnostic.fail(code);
+        #[cfg(not(feature = "native-runtime-harness"))]
+        let _ = code;
+        error
+    };
+    let outcome = async {
+        let first = observe(env, selector, OwnerSetupReadPurposeV1::Session)
+            .await
+            .map_err(|e| report("session.first", e))?;
+        let (second, secrets) = private::read(state, env, selector, &first)
+            .await
+            .map_err(|e| report("session.private", e))?;
+        let access = refresh_access(env, selector, &second, &secrets)
+            .await
+            .map_err(|e| report("access.pair", e))?;
+        let raw = serde_json::to_string(&OwnerSetupSignRpc {
+            selector: OwnerSetupStageRpc {
+                request: selector.request.clone(),
+                stage: selector.stage,
+            },
+            access,
+        })
+        .map_err(|_| js_denied())?;
+        let published: OwnerSetupPublished = serde_json::from_str(&raw_text(
+            owner_sign(env, &raw)
+                .await
+                .map_err(|e| report("owner.sign", e))?,
+            128 * 1024,
+        )?)
+        .map_err(|_| js_denied())?;
+        if published.permit.kind != OwnerSetupPermitKindV1::Preflight
+            || published.permit.plan != second.view.plan
+            || published.permit.participant != second.view.participant
+            || published.permit.original.as_ref() != Some(&published.candidate.original)
+            || published.permit.observation.as_ref() != Some(&published.candidate.observation)
+        {
+            return Err(report("owner.published_exact", js_denied()));
+        }
+        let preflight = returned(env, selector, published.permit)
+            .await
+            .map_err(|e| report("preflight.returned_fence", e))?;
+        let session = transport::session(
             env,
             selector,
             &preflight,
             &secrets,
-            NativePrivateRoute::ParticipantOwnerView,
-            &request,
+            &preflight.view.preflight_session_observation_nonce,
         )
-        .await?;
-    check(env, selector, &preflight)?;
-    let effect = rpc(
-        env,
-        selector,
-        OwnerSetupRuntimeAction::Admit {
-            evidence: Box::new(OwnerSetupAdmissionEvidenceV1 {
-                world: OwnerSetupWorldEvidenceV1 {
-                    request,
-                    response: world.clone(),
-                },
-                session,
-            }),
-        },
-    )
-    .await?;
-    let effect = returned(env, selector, effect).await?;
-    if effect.view.kind != OwnerSetupPermitKindV1::Effect
-        || effect.view.original.as_ref() != Some(&published.candidate.original)
-    {
-        return Err(js_denied());
-    }
-    let (result, session) = match &published.candidate.original {
-        OwnerSetupOriginalV1::Canonical { .. } => {
-            canonical(
+        .await
+        .map_err(|e| report("preflight.root_status", e))?;
+        let request = published.candidate.observation.clone();
+        let world: SignedServiceResponse<ws::participant_discovery::OwnerSetupObservationV1> =
+            transport::original(
                 env,
                 selector,
-                &effect,
+                &preflight,
                 &secrets,
-                &published.candidate.original,
+                NativePrivateRoute::ParticipantOwnerView,
+                &request,
             )
-            .await?
+            .await
+            .map_err(|e| report("native.preflight_world", e))?;
+        check(env, selector, &preflight).map_err(|e| report("preflight.post_world_current", e))?;
+        let effect = rpc(
+            env,
+            selector,
+            OwnerSetupRuntimeAction::Admit {
+                evidence: Box::new(OwnerSetupAdmissionEvidenceV1 {
+                    world: OwnerSetupWorldEvidenceV1 {
+                        request,
+                        response: world.clone(),
+                    },
+                    session,
+                }),
+            },
+        )
+        .await
+        .map_err(|e| report("effect.admit_rpc", e))?;
+        let effect = returned(env, selector, effect)
+            .await
+            .map_err(|e| report("effect.returned_fence", e))?;
+        if effect.view.kind != OwnerSetupPermitKindV1::Effect
+            || effect.view.original.as_ref() != Some(&published.candidate.original)
+        {
+            return Err(js_denied());
         }
-        OwnerSetupOriginalV1::PrepareGoal(goal) => {
-            let session = transport::session(
-                env,
-                selector,
-                &effect,
-                &secrets,
-                &effect.view.session_observation_nonce,
-            )
-            .await?;
-            let result = transport::original(
-                env,
-                selector,
-                &effect,
-                &secrets,
-                NativePrivateRoute::OwnerControl,
-                &ws::entry_control::EntryOwnerControlRequestV1 {
-                    access: effect.view.observation.clone().ok_or_else(js_denied)?,
-                    operation: ws::entry_control::EntryOwnerOperationV1::PrepareGoal(
-                        (**goal).clone(),
-                    ),
-                },
-            )
-            .await?;
-            check(env, selector, &effect)?;
-            (OwnerSetupResultV1::PreparedGoal(result), session)
-        }
-        OwnerSetupOriginalV1::FinalObservation { owner, goal } => {
-            let session = transport::session(
-                env,
-                selector,
-                &effect,
-                &secrets,
-                &effect.view.session_observation_nonce,
-            )
-            .await?;
-            if owner.as_ref() != &published.candidate.observation {
-                return Err(js_denied());
+        let (result, session) = match &published.candidate.original {
+            OwnerSetupOriginalV1::Canonical { .. } => {
+                canonical(
+                    env,
+                    selector,
+                    &effect,
+                    &secrets,
+                    &published.candidate.original,
+                    #[cfg(feature = "native-runtime-harness")]
+                    &diagnostic,
+                )
+                .await?
             }
-            let goal_result = transport::original(
-                env,
-                selector,
-                &effect,
-                &secrets,
-                NativePrivateRoute::OwnerControl,
-                &ws::entry_control::EntryOwnerControlRequestV1 {
-                    access: effect.view.observation.clone().ok_or_else(js_denied)?,
-                    operation: ws::entry_control::EntryOwnerOperationV1::ReadGoal((**goal).clone()),
-                },
-            )
-            .await?;
-            check(env, selector, &effect)?;
-            (
-                OwnerSetupResultV1::FinalObservation {
-                    owner: Box::new(world),
-                    goal: Box::new(goal_result),
-                },
-                session,
-            )
-        }
-    };
-    rpc(
-        env,
-        selector,
-        OwnerSetupRuntimeAction::RecordResult {
-            result: Box::new(result),
-            session: Box::new(session),
-        },
-    )
-    .await
+            OwnerSetupOriginalV1::PrepareGoal(goal) => {
+                let session = transport::session(
+                    env,
+                    selector,
+                    &effect,
+                    &secrets,
+                    &effect.view.session_observation_nonce,
+                )
+                .await?;
+                let result = transport::original(
+                    env,
+                    selector,
+                    &effect,
+                    &secrets,
+                    NativePrivateRoute::OwnerControl,
+                    &ws::entry_control::EntryOwnerControlRequestV1 {
+                        access: effect.view.observation.clone().ok_or_else(js_denied)?,
+                        operation: ws::entry_control::EntryOwnerOperationV1::PrepareGoal(
+                            (**goal).clone(),
+                        ),
+                    },
+                )
+                .await?;
+                check(env, selector, &effect).map_err(|e| report("effect.post_read_current", e))?;
+                (OwnerSetupResultV1::PreparedGoal(result), session)
+            }
+            OwnerSetupOriginalV1::FinalObservation { owner, goal } => {
+                let session = transport::session(
+                    env,
+                    selector,
+                    &effect,
+                    &secrets,
+                    &effect.view.session_observation_nonce,
+                )
+                .await?;
+                if owner.as_ref() != &published.candidate.observation {
+                    return Err(js_denied());
+                }
+                let goal_result = transport::original(
+                    env,
+                    selector,
+                    &effect,
+                    &secrets,
+                    NativePrivateRoute::OwnerControl,
+                    &ws::entry_control::EntryOwnerControlRequestV1 {
+                        access: effect.view.observation.clone().ok_or_else(js_denied)?,
+                        operation: ws::entry_control::EntryOwnerOperationV1::ReadGoal(
+                            (**goal).clone(),
+                        ),
+                    },
+                )
+                .await?;
+                check(env, selector, &effect).map_err(|e| report("effect.post_read_current", e))?;
+                (
+                    OwnerSetupResultV1::FinalObservation {
+                        owner: Box::new(world),
+                        goal: Box::new(goal_result),
+                    },
+                    session,
+                )
+            }
+        };
+        rpc(
+            env,
+            selector,
+            OwnerSetupRuntimeAction::RecordResult {
+                result: Box::new(result),
+                session: Box::new(session),
+            },
+        )
+        .await
+        .map_err(|e| report("result.record_rpc", e))
+    }
+    .await;
+    outcome.map_err(|e| report("stage.execute", e))
 }
 
 pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {

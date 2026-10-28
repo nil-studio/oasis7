@@ -241,65 +241,79 @@ impl OwnerProvisionApprovalStore {
         private_sid_generation: DecimalU64,
         source: String,
         current: F,
+        #[cfg(feature = "approval-harness")]
+        diagnostic: &crate::provision_approval_store::native::activation_diagnostic::Trace,
     ) -> Result<TestSessionAuthorityV1>
     where
         F: Fn() -> Result<TestSessionApprovalOwned>,
     {
-        let saved = self.snapshot()?;
+        let report = |stage: &'static str, error| {
+            #[cfg(feature = "approval-harness")]
+            diagnostic.fail(stage);
+            #[cfg(not(feature = "approval-harness"))]
+            let _ = stage;
+            error
+        };
+        let saved = self.snapshot().map_err(|e| report("activate.restore", e))?;
         let session = saved.state.test_sessions().get(id).ok_or_else(rejected)?;
         let write = super::super::alarm::write_deadline(&session.input)?;
         let lease = now()?.checked_add(90_000).ok_or_else(rejected)?;
         let deadline = UnixMillis::new(write.get().min(lease));
-        self.native_verified_with_alarm(
+        self.native_verified_with_alarm_traced(
             &|| Ok(current()?.native),
-            "test_session_activated",
-            id,
+            ("test_session_activated", id),
             deadline,
             |s, _, _, t| {
-                current()?.with_core(|approval| {
-                    s.activate_test_session_checks(
-                        id,
-                        &TestSessionCurrent {
-                            approval: TestSessionApprovalCurrent {
-                                provision: approval.provision,
-                                native_scope: approval.native_scope,
-                                enrollment: approval.enrollment,
-                                deployments: approval.deployments,
-                                observed_at: approval.observed_at,
+                current()
+                    .map_err(|e| report("current.checks", e))?
+                    .with_core(|approval| {
+                        s.activate_test_session_checks(
+                            id,
+                            &TestSessionCurrent {
+                                approval: TestSessionApprovalCurrent {
+                                    provision: approval.provision,
+                                    native_scope: approval.native_scope,
+                                    enrollment: approval.enrollment,
+                                    deployments: approval.deployments,
+                                    observed_at: approval.observed_at,
+                                },
+                                lifetime: &lifetime,
+                                private_sid_generation,
+                                world: &world,
+                                source_operation_id: &source,
                             },
-                            lifetime: &lifetime,
-                            private_sid_generation,
-                            world: &world,
-                            source_operation_id: &source,
-                        },
-                        UnixMillis::new(t),
-                    )
-                    .map_err(|_| rejected())
-                })
+                            UnixMillis::new(t),
+                        )
+                        .map_err(|_| rejected())
+                    })
             },
             |s, _, _, t, v| {
-                current()?.with_core(|approval| {
-                    s.activate_test_session(
-                        id,
-                        &TestSessionCurrent {
-                            approval: TestSessionApprovalCurrent {
-                                provision: approval.provision,
-                                native_scope: approval.native_scope,
-                                enrollment: approval.enrollment,
-                                deployments: approval.deployments,
-                                observed_at: approval.observed_at,
+                current()
+                    .map_err(|e| report("current.transition", e))?
+                    .with_core(|approval| {
+                        s.activate_test_session(
+                            id,
+                            &TestSessionCurrent {
+                                approval: TestSessionApprovalCurrent {
+                                    provision: approval.provision,
+                                    native_scope: approval.native_scope,
+                                    enrollment: approval.enrollment,
+                                    deployments: approval.deployments,
+                                    observed_at: approval.observed_at,
+                                },
+                                lifetime: &lifetime,
+                                private_sid_generation,
+                                world: &world,
+                                source_operation_id: &source,
                             },
-                            lifetime: &lifetime,
-                            private_sid_generation,
-                            world: &world,
-                            source_operation_id: &source,
-                        },
-                        UnixMillis::new(t),
-                        v,
-                    )
-                    .map_err(|_| rejected())
-                })
+                            UnixMillis::new(t),
+                            v,
+                        )
+                        .map_err(|_| rejected())
+                    })
             },
+            #[cfg(feature = "approval-harness")]
+            Some(diagnostic),
         )
         .await
     }

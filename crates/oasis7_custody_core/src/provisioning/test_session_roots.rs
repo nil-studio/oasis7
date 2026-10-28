@@ -219,6 +219,9 @@ impl AccountProvisionApprovalState {
             funding,
         } = reservation;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
+        if s.purpose_http_admissions.contains_key(operation_id) {
+            return Err(ProvisionApprovalError::Conflict);
+        }
         if let Some(old) = s.sources.get(operation_id) {
             return if old.verify_nonce == nonce
                 && s.source_funding.get(operation_id) == Some(&funding)
