@@ -6,6 +6,7 @@
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history。
 - 适用范围: `oasis7_viewer_live` / `oasis7_chain_runtime` 默认运行链路下的 execution bridge、execution world sidecar、node-distfs 复制热数据与 footprint metrics。
 - 正式世界边界：[完整历史要求](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-001)及[无损存储专业设计](formal-world-storage-efficiency.design.md#des-lws-001)约束本专题的正式持久路径。以下 legacy/local bootstrap 样本、字段和局部验收保留原范围；本次边界澄清不表示现有实现已具备完整正式历史回收或恢复能力。
+- 新格式边界：[增量世界状态存储设计](incremental-world-state-storage.design.md#iws-scope)拥有新建世界的状态树、追加历史、结构化 checkpoint、增量索引及后台维护合同。本文件的旧 `snapshot.json`/完整 snapshot hash、冷索引兼容双写和旧数据迁移接口只约束其原格式，不作为新格式的兼容要求；新格式从首次接受起仍满足完整历史、原子提交、同世界续跑与资源预算。
 
 ## 1. 设计目标
 - **Replayability-first**：体积治理不能破坏“可追溯、可回放”；必须明确 canonical replay source、checkpoint 语义与 GC 边界。正式持久世界保留全部已承诺历史高度及其完整依赖，storage profile 的热窗口不能缩小该范围。

@@ -36,6 +36,7 @@
 当前模块库存与热点二级目录概览以 `./scripts/doc-inventory-report.sh` 输出为准；该报告不保证列出每个子域的精确数量，本索引也不复制数量快照。
 
 ## 活跃补充文档
+- [增量世界状态存储设计](runtime/incremental-world-state-storage.design.md#iws-scope)：承接无损历史产品要求，以新格式定义状态树、追加历史、事务增量、结构化 checkpoint、范围读取与维护预算；不要求旧数据兼容，不代表已实现或部署。
 - [Agent 工业订单、制造与原子交付设计](runtime/agent-industrial-manufacturing.design.md)：承接额外 Agent 制造政策、订单与产能占用、身份/claim 同次交付及恢复；不代表业务已实现。
 - [紧急保供授权、冻结分配与结算系统设计](runtime/emergency-supply-authorization-and-settlement.design.md)：承接产品保供 REQ/AC 的目标技术合同；不代表当前已实现或发布。
 - [组织连续性与处置系统设计](runtime/organization-continuity-and-disposition.design.md)：承接通知保护、estate 处置、申诉与 scope 原子交接；产品政策和实际实现分别核对。
