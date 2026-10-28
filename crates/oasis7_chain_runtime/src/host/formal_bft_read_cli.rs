@@ -272,6 +272,12 @@ pub(super) fn load_qualified_handoff(
 pub(super) fn load_qualified_handoff_anchor(
     trust_config_path: &Path,
 ) -> Result<VerifiedFormalReadAnchorV1, String> {
+    load_handoff_trust_config(trust_config_path)?.verified_anchor()
+}
+
+pub(super) fn load_handoff_trust_config(
+    trust_config_path: &Path,
+) -> Result<FormalReadTrustConfigV1, String> {
     if !trust_config_path.is_absolute() {
         return Err("formal handoff input paths must be absolute".into());
     }
@@ -280,7 +286,7 @@ pub(super) fn load_qualified_handoff_anchor(
         super::controlled_history_cli::read_bounded(trust_config_path, TRUST_MAX_BYTES)?;
     let trust: FormalReadTrustConfigV1 = serde_json::from_slice(&trust_bytes)
         .map_err(|error| format!("decode external formal-read trust config: {error}"))?;
-    trust.verified_anchor()
+    Ok(trust)
 }
 
 pub(super) fn read_qualified_handoff_material(

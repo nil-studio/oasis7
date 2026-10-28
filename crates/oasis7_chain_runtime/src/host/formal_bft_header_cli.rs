@@ -22,8 +22,8 @@ use super::execution_bridge_real_tests::real_execution_bridge::{
     FormalBftHeaderExecutionV3, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
 };
 use super::formal_bft_read_cli::{
-    CasBusinessIndexReader, load_qualified_handoff_anchor, read_qualified_handoff_material,
-    require_existing_directory,
+    CasBusinessIndexReader, load_handoff_trust_config, load_qualified_handoff_anchor,
+    read_qualified_handoff_material, require_existing_directory,
 };
 use oasis7_formal_protocol::bft::BftProfileTargetV2;
 use oasis7_proto::distributed_bft::{BFT_MAX_ACTIONS_CBOR_BYTES_V1, v3::BftBlockHeaderV3};

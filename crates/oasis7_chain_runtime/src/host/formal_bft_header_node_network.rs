@@ -6,8 +6,10 @@ use crate::formal_live_service::full_sync_read_gate::{
 };
 use ed25519_dalek::Signer;
 use oasis7_client_api::world_service_full_sync::FormalNodeReadGrantV1;
+use oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1;
 use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
     FullSyncIssuerAnchorV3, SignedFullSyncIssuerPolicyV2, SignedFullSyncIssuerPolicyV3,
+    VerifiedFullSyncIssuerPolicyV2, VerifiedFullSyncIssuerPolicyV3,
 };
 use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
 use oasis7_node::{
@@ -63,7 +65,7 @@ pub(super) fn configure(
     binding: BftSignerBindingV3,
     provider: Arc<RemoteBftSignerProviderV3>,
     config: &Config,
-    trust_path: &Path,
+    initial_trust: InitialActivationTrustV1,
 ) -> Result<NodeRuntime, String> {
     if config.listen_addrs.is_empty()
         || config.listen_addrs.len() > 8
@@ -87,19 +89,22 @@ pub(super) fn configure(
         .map(|v| v.parse())
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "header Node bootstrap address rejected")?;
-    let trust: oasis7::world_service::client::FormalReadTrustConfigV1 =
-        serde_json::from_slice(&read_private(trust_path, 2 * 1024 * 1024)?)
-            .map_err(|_| "header Node external read trust rejected")?;
-    trust.verified_anchor()?;
     let read_provider_key = key(&config.read_provider_signing_key_path)?;
-    let verified_v2 = oasis7_distfs::controlled_authority::formal::full_sync_issuer::VerifiedFullSyncIssuerPolicyV2::verify(&config.signed_v2_policy,&trust.initial_trust)
-        .map_err(|_| "header Node V2 issuer policy rejected")?;
-    let verified_v3 = oasis7_distfs::controlled_authority::formal::full_sync_issuer::VerifiedFullSyncIssuerPolicyV3::verify(&config.signed_v3_policy,&trust.initial_trust,&verified_v2)
-        .map_err(|_| "header Node V3 issuer policy rejected")?;
+    // Use the same immutable trust value that qualified the actual H driver.
+    // Reopening its path here could bind private reads to a replacement pin.
+    let verified_v2 =
+        VerifiedFullSyncIssuerPolicyV2::verify(&config.signed_v2_policy, &initial_trust)
+            .map_err(|_| "header Node V2 issuer policy rejected")?;
+    let verified_v3 = VerifiedFullSyncIssuerPolicyV3::verify(
+        &config.signed_v3_policy,
+        &initial_trust,
+        &verified_v2,
+    )
+    .map_err(|_| "header Node V3 issuer policy rejected")?;
     let source = RemoteFullSyncReadEvidenceSourceV3::new(&config.evidence_endpoint)?
         .with_provider_lease_requests(verified_v2, verified_v3, read_provider_key.clone())?;
     let gate = Arc::new(FullSyncV3ReadGate::new(
-        trust.initial_trust,
+        initial_trust,
         config.signed_v2_policy.clone(),
         config.signed_v3_policy.clone(),
         config.minimum_anchor.clone(),

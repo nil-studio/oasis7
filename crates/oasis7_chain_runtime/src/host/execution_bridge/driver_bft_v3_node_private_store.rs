@@ -798,7 +798,11 @@ fn publish(
     if common_storage::read_optional_bytes(path, MAX_RECORD)?.is_some() {
         files::same_pair(path, &intent)?;
     } else {
-        files::promote(&reservation, &intent, &bytes)?;
+        // Promotion already consumed the reservation in an intent-only crash.
+        // Resume the retained original intent; never recreate its material.
+        if common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_none() {
+            files::promote(&reservation, &intent, &bytes)?;
+        }
         files::link_record(path, &intent, &bytes)?;
     }
     if origin {

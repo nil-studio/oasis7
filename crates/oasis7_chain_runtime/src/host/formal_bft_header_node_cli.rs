@@ -56,6 +56,8 @@ struct Prepared {
     driver: FormalBftHeaderNodeDriverV3,
     binding: BftSignerBindingV3,
     requester: ed25519_dalek::SigningKey,
+    #[cfg(feature = "node-libp2p")]
+    initial_trust: oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1,
 }
 
 #[derive(Serialize)]
@@ -182,6 +184,8 @@ fn from_paths(
         driver,
         binding,
         requester,
+        #[cfg(feature = "node-libp2p")]
+        initial_trust,
     } = prepare(&config)?;
     let provider = Arc::new(
         RemoteBftSignerProviderV3::new(
@@ -207,14 +211,7 @@ fn from_paths(
     let runtime = NodeRuntime::new(node_config).with_replication_network_consensus_enabled(false);
     #[cfg(feature = "node-libp2p")]
     let mut runtime = if let Some(network) = &config.network {
-        network::configure(
-            runtime,
-            driver,
-            binding,
-            provider,
-            network,
-            &config.trust_config_path,
-        )?
+        network::configure(runtime, driver, binding, provider, network, initial_trust)?
     } else {
         runtime
             .with_execution_hook(driver)
@@ -360,7 +357,10 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         &config.requester_signing_key_path,
     )
     .map_err(|_| "header Node requester key rejected")?;
-    let anchor = load_qualified_handoff_anchor(&config.trust_config_path)
+    let trust = load_handoff_trust_config(&config.trust_config_path)
+        .map_err(|_| "header Node qualified H trust rejected")?;
+    let anchor = trust
+        .verified_anchor()
         .map_err(|_| "header Node qualified H trust rejected")?;
     if !config.handoff_material_path.is_absolute() {
         return Err("header Node H material path must be absolute".into());
@@ -404,6 +404,8 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         driver,
         binding,
         requester,
+        #[cfg(feature = "node-libp2p")]
+        initial_trust: trust.initial_trust,
     })
 }
 
