@@ -7,20 +7,19 @@
 审计轮次: 1
 
 ## 设计目标
-- 把“间接控制仍然像控制”收成 gameplay 正式合同，而不是零散体验判断。
-- 给 runtime / viewer / agent / QA 一套共同 agency 坐标系，避免只在单侧补丁式修复。
+- 将“间接控制仍然像控制”明确为 gameplay 正式合同，而非零散体验判断。
+- 为 runtime / viewer / agent / QA 定义共同的 agency 标准，避免只在单侧修补。
 - 明确本专题如何承接 `PRD-GAME-012` 的第 4 条 lane“间接控制因果与下一步”。
 
 ## 四项 guarantees
 
 ### 1. Intent Legibility Before/At Commit
-- 玩家必须能知道当前被系统接受的主意图是什么。
+- 玩家必须能了解系统当前接受的主意图。
 - 可以是 commit 前预览，也可以是 commit 后立即确认，但不能完全隐形。
 - 一旦新意图取代旧意图，必须显式标记 `replaced`、`reprioritized` 或等价结果。
 
 ### 2. Execution Acknowledgement With Causality
-- 玩家不能只看到世界有变化。
-- 必须看到“这个变化与我刚刚发出的意图是什么关系”。
+- 玩家不能只看到世界变化，还必须看到它与自己刚发出意图的关系。
 - canonical 状态至少要区分：
   - `executing`
   - `blocked`
@@ -40,7 +39,7 @@
   - 世界改了什么
   - 为什么当前卡住
   - 下一步最值得做什么
-- 这不是“全知全能预测器”，而是“足够做下一步决策”的最小后果面。
+- 后果信息只需足以支持下一步决策，不是全知预测。
 
 ## 设计原则
 - 先 accepted intent，再 debug history：主意图必须优先于原始日志。
@@ -92,7 +91,7 @@ canonical accepted intent/status/blocker/next-step truth 是 Viewer/API 呈现�
 ## 风险
 - 如果只在 Viewer 表面补提示，而 canonical truth 仍不完整，合同会再次回退成文案层错觉。
 - 如果只把 issue #164 解释成“增加 direct control”，会偏离当前间接控制主路线并冲淡 retention 主 blocker。
-- 如果不把 failed guarantee 写成独立 blocker，后续很容易再次出现“系统能跑但像旁观”的静默退化。
+- 若不将 failed guarantee 列为独立 blocker，后续容易再次静默退化为“系统能跑但像旁观”。
 
 ### 2.1 需求承接与分配表
 

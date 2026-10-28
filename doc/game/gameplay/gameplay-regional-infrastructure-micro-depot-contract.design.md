@@ -18,7 +18,7 @@
 
 > 玩家通过一个小型、可审计、带 upkeep 的区域设施，改变一次 repair / logistics 行动的条件。
 
-它不是 Minecraft 式逐块建造，不是自由脚本，不是通用 UGC 市场，也不是 UI buff。它是一个 WASM-backed facility：WASM 负责规则化 proposal，runtime 负责权限、扣费、状态变更和 receipt。
+它不是 Minecraft 式逐块建造、自由脚本、通用 UGC 市场或 UI buff。它是一个 WASM-backed facility：WASM 负责规则化 proposal，runtime 负责权限、扣费、状态变更和 receipt。
 
 核心原则：
 
@@ -57,7 +57,7 @@ WASM proposes, runtime validates / applies / signs.
 
 ## 3. 解锁阶段与准入流程
 
-`micro_depot` 不属于首 10 分钟新手循环，也不应作为随时可点的自由建造物出现。它的正确阶段是中后期的 `regional specialist / limited-scope regional influence`：玩家已经理解 agent intent、repair / logistics blocker、claim / upkeep 成本和区域压力后，才解锁第一个可编程区域设施。
+`micro_depot` 不属于首 10 分钟新手循环，也不应作为随时可点的自由建造物出现。它面向中后期的 `regional specialist / limited-scope regional influence`：玩家已经理解 agent intent、repair / logistics blocker、claim / upkeep 成本和区域压力后，才解锁第一个可编程区域设施。
 
 所有 micro-depot 验证样本必须明确写作 `post-first-capability 10-minute slice` 或 `regional-specialist 10-minute scenario`。这里的 10 分钟指玩家已进入区域专业化后的局部验证窗口，不是首局 0-10 分钟 onboarding gate。
 
@@ -89,7 +89,7 @@ WASM proposes, runtime validates / applies / signs.
 - 服务 quote 必须与 facility pinned 的 `module_id / wasm_hash / entrypoint` 匹配，且 WASM 提议消耗的资源必须属于 facility 的 `supported_resource_kinds`。
 - `MicroDepotServiceApplied` receipt 记录 `schema_version / module_id / module_version / wasm_hash / entrypoint / proposal_hash`，保证玩家可见 receipt 和治理审计能追溯到模块证据。
 
-玩家不应该从全局菜单直接“建一个 depot”。推荐入口是：
+玩家不应从全局菜单直接“建一个 depot”。推荐入口是：
 
 ```text
 regional pressure card
@@ -131,7 +131,7 @@ regional pressure card
 <a id="5-一步到位-wasm-backed-架构"></a>
 ## 5. 一步到位 WASM-backed 架构边界
 
-第一版不做 runtime-only stub。`micro_depot` 从第一版开始就是 WASM-backed，但 WASM 只参与 proposal。
+`micro_depot` 第一版即采用 WASM-backed，不做 runtime-only stub；WASM 只参与 proposal。
 
 ### 5.1 First-Slice Flow
 
@@ -244,7 +244,7 @@ type MicroDepotProposal = {
 }
 ```
 
-上述字段次序与类型是当前 Rust `Serialize` / `Deserialize` wire contract，而不是效果对象草案：output 不存在 `proposal_id` 或嵌套 `effect`。`action_id` 与 `facility_id` 必须逐字匹配 input。所有 pressure、delta、status、decision、action kind 和 resource kind enum 均编码为上列 snake_case 字符串。所有 `units` 都是 runtime 定义的正整数最小计量单位；MVP 不允许浮点、零/负数、隐式单位换算或只报资源类别不报数量。`resource_debits` 按 `resource_kind` 唯一且严格 canonical 顺序参与 `proposal_hash`；`applicable` proposal 必须至少包含一项 debit，其他 decision 必须为空。
+上述字段次序与类型是当前 Rust `Serialize` / `Deserialize` wire contract，而不是效果对象草案：output 不存在 `proposal_id` 或嵌套 `effect`。`action_id` 与 `facility_id` 必须逐字匹配 input。所有 pressure、delta、status、decision、action kind 和 resource kind enum 均编码为上列 snake_case 字符串。`units` 均为 runtime 定义的正整数最小计量单位；MVP 不允许浮点、零/负数、隐式单位换算或只报资源类别不报数量。`resource_debits` 按 `resource_kind` 唯一且严格 canonical 顺序参与 `proposal_hash`；`applicable` proposal 必须至少包含一项 debit，其他 decision 必须为空。
 
 兼容字段规则不可混用：v1 proposal 必须只使用 `consumed_resource_classes` 且 `resource_debits = []`；v2 proposal 必须 `consumed_resource_classes = []` 且只使用 exact `resource_debits`。两字段均有 `serde(default)`，所以 decoder 可把缺失字段投影为空数组，但 canonical producer 会显式序列化字段。v1 input/action/hash projection 继续严格排除所有 v2 measured fields，保持历史 golden hash 与 action payload 不变。
 

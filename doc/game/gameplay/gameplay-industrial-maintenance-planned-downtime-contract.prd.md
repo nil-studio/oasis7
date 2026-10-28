@@ -9,7 +9,7 @@
 
 当前 `ScheduleRecipe` 可证明的只有排程电力账本与 Agent idle-battery 风险信号：`electricity_cost / electricity_after`、`runway_before_ticks / runway_after_ticks / downtime_threshold_ppm / continue_production_risk`。当前排程不扣 battery，两个 battery runway 值相等；`maintenance_pressure_delta=unchanged` 只表示现有路径没有维护压力变化，不能证明工厂拥有 maintenance runway、折旧、维修消耗、计划停机能力或“可安全继续生产”。
 
-只有 runtime 以后提供可扣减、可恢复且会阻断工厂的权威维护真值，`factory_maintenance_status` / `schedule_quote` 才能表达 `maintenance_runway_before_ticks / maintenance_runway_after_ticks / maintenance_downtime_threshold / maintenance_pressure_delta / maintenance_failure_cost / recommended_maintenance_action`。没有该 authority 时必须显示 `maintenance_not_tracked` 或完全不展示维护 runway，不得以 `0`、无限值、电力余额、battery runway、旧 receipt 或 `unchanged` 填充。
+只有 runtime 提供可扣减、可恢复且会阻断工厂的权威维护真值后，`factory_maintenance_status` / `schedule_quote` 才能表达 `maintenance_runway_before_ticks / maintenance_runway_after_ticks / maintenance_downtime_threshold / maintenance_pressure_delta / maintenance_failure_cost / recommended_maintenance_action`。没有该 authority 时必须显示 `maintenance_not_tracked` 或完全不展示维护 runway，不得以 `0`、无限值、电力余额、battery runway、旧 receipt 或 `unchanged` 填充。
 
 当前回归只能证明电力账本与 battery runway 独立，以及 maintenance 尚未被错误冒充；它不能支持 maintenance/player-surface readiness。Future maintenance fields、临界/停机、恢复建议和 Viewer/LLM playtest 都保持 target-only，必须由 fresh runtime + gameplay + Viewer/Agent + QA composite evidence 才能升级。
 
@@ -28,7 +28,7 @@ Preview 不推进 maintenance、排程、tick、资源账本、停机、hold、`
 | `reduce_load` | 降低下一合法 cycle 的维护/停机暴露，保留输入和恢复弹性 | 吞吐、目标与交付变慢；只按合法 quantum/profile-supported partial 降载，不得客户端截断 |
 | `defer` | 保留资源与选择，等待维护 authority、材料或窗口改善 | 承担交付与进度延迟；等待不续期 quote/hold、不刷新优先级，也不自动恢复排程 |
 
-推荐必须指向当前最小可执行动作，并解释该动作如何恢复交付、打开下一单或避免当前工业目标倒退。只有一个真实选择时说明其他路径为何不可用；没有安全选择时返回 `no_safe_maintenance_decision` 与下一次权威复查条件，不能以通用修复、补电或 Agent 建议伪造维护能力。
+推荐必须指向当前最小可执行动作，解释它如何恢复交付、打开下一单或避免当前工业目标倒退。只有一个真实选择时说明其他路径为何不可用；没有安全选择时返回 `no_safe_maintenance_decision` 与下一次权威复查条件，不能以通用修复、补电或 Agent 建议伪造维护能力。
 
 ## 4. 计划停机与既有工作
 
@@ -54,6 +54,14 @@ Viewer、pure API 与 Agent 必须同义表达 maintenance authority/evidence cl
 
 ## 6. 验收与非目标
 
-`test_tier_required` 分层覆盖：(1) current regression 证明电力/battery 信号与 maintenance 独立，`maintenance_pressure_delta=unchanged` 不产生 maintenance cover；(2) target fixture 证明正常/临界维护状态下四类选择、quote 无副作用、submit fresh revalidation、unknown fail-closed、有界 pending 无隐式 hold；(3) planned downtime 在 accepted-unstarted/WIP/in-transit/buffer-held/terminal-pending 各 bucket 中保留 lineage、唯一 disposition、`W` 清零与恢复重计，其中 terminal-pending 保留 destination、recipient、admission、capacity obligation 与 provenance，容量义务只由一次显式 profile disposition 释放或迁移，并分别证明 terminal-admission profile 在 matching settlement 前不计 `W`、production-only profile 从 candidate 重计后可达到 production-stable，而两者都不提前产生 delivery/terminal effect；(4) 重复提交、乱序、重连、retry、restore/replay 不复制效果；(5) Viewer、pure API 与 Agent 对上述所有 bucket 及其 profile-specific `W` policy 保持 parity。`test_tier_full` 再覆盖多工厂共享维护资源、连续计划窗口、长 WIP/transit、恢复失败与 composite playtest。
+`test_tier_required` 分层覆盖：
+
+1. current regression 证明电力/battery 信号与 maintenance 独立，`maintenance_pressure_delta=unchanged` 不产生 maintenance cover；
+2. target fixture 证明正常/临界维护状态下四类选择、quote 无副作用、submit fresh revalidation、unknown fail-closed、有界 pending 无隐式 hold；
+3. planned downtime 在 accepted-unstarted/WIP/in-transit/buffer-held/terminal-pending 各 bucket 中保留 lineage、唯一 disposition、`W` 清零与恢复重计，其中 terminal-pending 保留 destination、recipient、admission、capacity obligation 与 provenance，容量义务只由一次显式 profile disposition 释放或迁移，并分别证明 terminal-admission profile 在 matching settlement 前不计 `W`、production-only profile 从 candidate 重计后可达到 production-stable，而两者都不提前产生 delivery/terminal effect；
+4. 重复提交、乱序、重连、retry、restore/replay 不复制效果；
+5. Viewer、pure API 与 Agent 对上述所有 bucket 及其 profile-specific `W` policy 保持 parity。
+
+`test_tier_full` 再覆盖多工厂共享维护资源、连续计划窗口、长 WIP/transit、恢复失败与 composite playtest。
 
 本合同不新增或冻结维护资源、折旧、损耗、价格、runway/threshold/产率/停机时长公式，不新增 runtime state/action/API/schema、queue/fairness、自动维护/停机/恢复/退款/迁移算法、Agent 行为或 UI，也不改写电力/battery、稳定 `W`、生产/交付结算、工厂 lifecycle、需求、背压或 current-readiness authority。

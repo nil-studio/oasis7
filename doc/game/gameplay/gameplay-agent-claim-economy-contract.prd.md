@@ -38,13 +38,13 @@
 ## 2. User Experience & Functionality
 - User Personas:
   - 中循环玩家/组织经营者：需要用明确代价换取 agent 控制权，而不是靠抢占或挂机囤位。
-  - `producer_system_designer`: 需要把 agent 认领从“模糊权限”收成可平衡、可审计的经济规则。
+  - `producer_system_designer`: 需要将 agent 认领从“模糊权限”明确为可平衡、可审计的经济规则。
   - `runtime_engineer`: 需要一套可确定执行的 claim / upkeep / reclaim 状态机与记账规则。
   - `viewer_engineer`: 需要在 UI / pure API 中向玩家清楚展示认领成本、受限余额、宽限、冷却和回收风险。
   - `qa_engineer`: 需要验证并发争抢、欠费、闲置、多号囤积、transfer guard 和经济审计没有旁路。
   - `liveops_community`: 需要向 limited preview / allowlist / QA seed 账号发放受限启动余额，并在需要时回收、停用或过期。
-  - restricted grant admin operator: 需要一条正式 runtime 真值来判断 `issuer_id=liveops` 是否真的具备发放/撤销权限，而不是只依赖 runbook 约定。
-  - restricted grant liveops operator: 需要低摩擦的日常操作入口来 issue/revoke/status restricted grant，而不是每次都理解底层 runtime action 或 controller payload 细节。
+  - restricted grant admin operator: 需要依据正式 runtime 真值判断 `issuer_id=liveops` 是否具备发放/撤销权限，而非只依赖 runbook 约定。
+  - restricted grant liveops operator: 需要简便的日常入口来 issue/revoke/status restricted grant，无需每次理解底层 runtime action 或 controller payload 细节。
   - non-technical liveops operator: 需要更短、更稳定的脚本入口与环境变量约定，减少手工复制长命令时的误填与漏填。
 - User Scenarios & Frequency:
   - 首次建立组织能力时：每个认真进入中循环的玩家至少 1 次。
@@ -104,7 +104,7 @@
   - 不在本专题内定义现实货币购买、法币结算或站外商城。
   - 不把 agent 认领做成永久不可回收的链上产权 NFT。
   - 不在本轮引入代理拍卖行、agent 二级交易市场或跨玩家租赁市场。
-  - 不在本轮为 claim 成本拍死绝对 token 数值；v1 先冻结公式、状态机和不可突破的边界。
+  - 本轮不敲定 claim 成本的绝对 token 数值；v1 先冻结公式、状态机和不可突破的边界。
   - 不把 `restricted starter claim balance` 扩展成通用的“全游戏不可转账 main token”体系。
 
 ### 2.1 Player Session / Bound Agent / Claim Owner Boundary
@@ -333,7 +333,7 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-A
   - v1.1: 落地 `restricted starter claim balance`、canonical viewer / pure API 展示和 QA abuse suite。
   - v2.0: 基于真实 claim 数据评估 `slot multiplier`、`grace_epochs`、`penalty_bps` 与 starter balance 发放上限是否需要新一轮调参专题。
 - Technical Risks:
-  - 风险-1: 如果 claim 成本只锁 bond 不产生真实 sink，囤位问题可能仍然偏轻处罚。
+  - 风险-1: 如果 claim 成本只锁 bond、不产生真实 sink，对囤位的惩罚可能仍然不足。
   - 风险-2: 如果 upkeep 过高，会让 agent 控制变成纯惩罚，削弱组织扩张乐趣。
   - 风险-3: 如果 viewer 不清楚展示倒计时与宽限，玩家会把强制回收理解为 bug 而不是规则。
   - 风险-4: 如果 tier cap 只靠离线判断、不进 runtime，alt 账号仍可能形成事实囤积。
@@ -373,7 +373,7 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-A
 | DEC-AGC-002 | 采用 `activation fee + claim bond + upkeep` 三段式 | 只收一次性买断费 | 买断只解决入口，不解决长期占坑与闲置问题。 |
 | DEC-AGC-003 | 用 `reputation_tier` 冻结 `1/2/3` 槽位上限，并让后续槽位更贵 | 只靠余额决定能占多少 agent | 只看余额会把组织控制权过度让渡给高资产账号。 |
 | DEC-AGC-004 | 强制回收采用“欠费宽限 + 闲置回收”双触发 | 只在玩家手动 release 时释放 agent | 没有系统回收，agent 池会被长期冻结。 |
-| DEC-AGC-005 | 先冻结状态机和不可突破边界，绝对价格留给后续平衡调参 | 现在就硬拍绝对 token 数值并直接宣称最终价格 | 当前阶段更缺结构性规则，而不是营销式定价数字。 |
+| DEC-AGC-005 | 先冻结状态机和不可突破边界，绝对价格留给后续平衡调参 | 现在就确定绝对 token 数值并宣称最终价格 | 当前阶段更需要结构性规则，而非营销式定价数字。 |
 | DEC-AGC-006 | 首轮 producer review 结论为“维持当前 v1 默认值，不新开调参专题” | 在缺少真实 claim 持有分布、回收率和玩家阶段数据前立即改 `slot multiplier / grace / penalty / tier cap` | 当前 runtime / viewer / QA 闭环已证明结构正确，但还没有足够平衡数据支持改价；过早调参只会引入第二套未验证默认值。 |
 | DEC-AGC-007 | 在 main token 账本内新增 `restricted starter claim balance`，只作为 `slot-1 claim/upkeep` 的受限 bucket | 直接给首个 agent 免费资格；或直接空投可转账 main token | 免费会破坏“首个 claim 非免费”的规则；可转账空投会直接打开刷号和套现路径。 |
 | DEC-AGC-008 | refund / reclaim 必须保留 funding-source provenance，restricted 来源的 bond 退款回 restricted bucket | 所有 bond refund 统一退回 liquid main token | 若 refund 统一回 liquid，玩家可把启动补贴通过 claim/release 洗成可转账资产。 |
@@ -382,9 +382,9 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-A
 | DEC-AGC-011 | 不收窄 `PRD-GAME-011` 对 restricted grant lifecycle / audit 的要求，并保持 starter balance 继续是 `slot-1` 专用、不可转账、可过期可撤销的受限余额 | 把当前实现退化为“只有一个数值 bucket、没有 issuer/expiry/audit 的临时补贴”并据此宣称专题完成 | QA 已证明 bucket 记账与展示闭环正确，但没有正式发放元数据、过期/撤销事件和审计链，就无法证明该补贴受治理、可回收、可复盘。 |
 | DEC-AGC-012 | 在 runtime world-state 里把 restricted grant admin 收口到正式 registry，并要求每个 admin account 同时绑定现有 controller signer allowlist policy；issue/revoke 先过 admin gate，再进入 grant 业务校验 | 继续只依赖 runbook 约定 `issuer_id=liveops`；或另起一套与 controller policy 脱钩的独立 admin 配置 | `issuer_id` 只是业务字段，不足以证明操作者具备正式权限；复用既有 governance controller signer policy 能避免平行治理真值，同时把“非 admin”阻断前置到 runtime action 入口。 |
 | DEC-AGC-013 | 不开放整份 controller registry 的任意热编辑，只新增一条由 `ecosystem_pool` treasury controller account 签名驱动的 `UpdateRestrictedStarterClaimAdminRegistry` 动作，专门更新 restricted grant admin 子集 | 继续只允许离线 import / 启动注入变更 registry；或把 admin roster 继续绑定到模拟内 passed proposal proposer；或开放完整 controller registry runtime 任意改写 | restricted grant admin roster 属于主链资产治理面，不应继续依赖模拟内 agent/proposal 真值；收窄到单一字段更新，并复用既有 controller slot + signer allowlist / threshold policy，能把 liveops/admin 轮换放回正式钱包治理路径，同时避免把更高风险的 controller policy / treasury slot 编辑一并放开。 |
-| DEC-AGC-014 | 为运营补一层薄 CLI `oasis7_liveops_grant_cli`，只封装 `issue/revoke/status` 并继续复用底层 runtime canonical action | 继续让运营手工拼 action JSON；或让 CLI 直接编辑 world snapshot/journal；或顺手开放 admin roster 直改命令 | 问题在于日常操作摩擦过大，不在于底层规则错误；薄 CLI 能降低运营使用成本，同时保持 runtime/state/journal 真值与 controller 治理边界，不引入新旁路。 |
-| DEC-AGC-015 | 在正式 CLI 之上补一层仓库脚本 `scripts/oasis7-liveops-grant.sh`，把 world-dir/issuer 缺省、位置参数与常用命令收口，但最终仍只转发到 `oasis7_liveops_grant_cli` | 继续要求运营直接敲长 `cargo run` 命令；或把更多运营逻辑复制进第二套脚本状态机 | 当前痛点已经从“没有 CLI”变成“正式 CLI 仍太长、太像开发命令”；薄 wrapper 可以减少误操作与培训成本，但不能复制第二份业务规则或引入脚本直改 world 的捷径。 |
-| DEC-AGC-016 | 允许 `liveops` 这类 restricted grant admin 低权限 slot 在 manifest 中显式声明 `threshold=1`，并以 `1-of-2` signer policy 进入 governance registry；其余 treasury/controller 主槽位继续默认 `2-of-3` | 要么强迫 `liveops` 也走统一 `2-of-3`，抬高运营摩擦；要么直接把所有 controller slot 的 threshold 一起降到 `1` 或 `1-of-2` | `liveops` 只负责不可转账 restricted grant 的日常发放/撤销，权限面明显低于 treasury/controller 主槽位；把 threshold 下调收口到单独 slot，既能降运营 ceremony 成本，又不把更高风险的主槽位一起放宽。 |
+| DEC-AGC-014 | 为运营补一层薄 CLI `oasis7_liveops_grant_cli`，只封装 `issue/revoke/status` 并继续复用底层 runtime canonical action | 继续让运营手工拼 action JSON；或让 CLI 直接编辑 world snapshot/journal；或顺手开放 admin roster 直改命令 | 问题在于日常操作繁琐，而非底层规则错误；薄 CLI 能降低运营使用成本，同时保持 runtime/state/journal 真值与 controller 治理边界，不引入新旁路。 |
+| DEC-AGC-015 | 在正式 CLI 之上补一层仓库脚本 `scripts/oasis7-liveops-grant.sh`，把 world-dir/issuer 缺省、位置参数与常用命令收口，但最终仍只转发到 `oasis7_liveops_grant_cli` | 继续要求运营直接敲长 `cargo run` 命令；或把更多运营逻辑复制进第二套脚本状态机 | 当前已有 CLI，但正式命令仍过长、偏开发用途；薄 wrapper 可以减少误操作与培训成本，但不能复制第二份业务规则或引入脚本直改 world 的捷径。 |
+| DEC-AGC-016 | 允许 `liveops` 这类 restricted grant admin 低权限 slot 在 manifest 中显式声明 `threshold=1`，并以 `1-of-2` signer policy 进入 governance registry；其余 treasury/controller 主槽位继续默认 `2-of-3` | 要么强迫 `liveops` 也走统一 `2-of-3`，抬高运营摩擦；要么直接把所有 controller slot 的 threshold 一起降到 `1` 或 `1-of-2` | `liveops` 只负责不可转账 restricted grant 的日常发放/撤销，权限面明显低于 treasury/controller 主槽位；把 threshold 下调收口到单独 slot，既能降低运营操作成本，又不放宽更高风险的主槽位。 |
 | DEC-AGC-017 | 将 daily restricted grant 的 source bucket 从 `ecosystem_pool` 拆成独立 `restricted_starter_claim_liveops_pool`，并只开放一条由 `ecosystem_pool` controller-governed top-up action 负责向该池补款 | 继续让日常发放直接动 `ecosystem_pool`；或把一部分 liquid treasury 先转到 `liveops` 账户；或直接泛化成任意 treasury-to-treasury 转账框架 | 运营需要把高风险大池审批和低权限日常发放明确分层；专用池 + 固定 top-up action 既保留 `ecosystem_pool` 的 `2-of-3` 审批门槛，又不把 `liveops` 变成 liquid treasury 分发者，同时避免当前切片过早扩成通用 bucket 间转账框架。 |
 | DEC-AGC-018 | 首个 `slot-1` 启动金默认走 dedicated pool 自动补足，而不是额外运营审批；自动补足只覆盖首个 claim 的 upfront 缺口，不把已有显式 grant/balance 再次叠加成重复补贴 | 保留 `approval request -> operator review -> approve/reject` 作为首笔启动 OC 的必经路径；或把自动补足扩成“只要有 dedicated pool 就总是替玩家垫付全部 slot-1 成本” | 用户要求把日常首笔启动 OC 改成无需审批；但若对已有显式 grant/balance 继续自动叠加，会把一次性启动资助放大为隐式重复补贴，因此自动路径只覆盖“无现成 restricted starter 余额/grant 的首个 slot-1 缺口”。 |
 | DEC-AGC-019 | 将默认 Agent 控制列表限定为当前账号绑定或当前玩家绑定待同步 Agent；其他账号已绑定 Agent 与未绑定 Agent 默认不展示在控制列表中 | 把世界里第一个 Agent 继续当作当前账号的 implicit primary Agent；或把其他账号/未绑定 Agent 混进“我的 Agent”列表再用 badge 解释；或把 `player_id` 直接等同于 `claim_owner_id` | 换账号后的第一屏应服务“我的下一步”，不是调试 shared-world 全量实体。隐藏其他账号与未绑定 Agent 可以避免 ownership 误读；共享世界活动感后续应通过地图实体、世界事件或只读 world layer 呈现，不能借 Agent 控制列表补。 |

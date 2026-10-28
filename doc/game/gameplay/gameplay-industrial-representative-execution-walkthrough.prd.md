@@ -6,7 +6,7 @@
 
 ## 1. 目标与边界
 
-产品 SC-28 已要求一份把工厂、配方、两类原料、物流、合法执行单位、主/副产物、终端用途与 progression 收成完整只读投影的代表性档案。Gameplay 需要再回答“玩家先看什么、比较什么、确认后何时获得什么、失败后如何恢复、为什么继续”，否则各条规则虽可独立验收，玩家仍无法走完一条工业链。
+产品 SC-28 已要求一份把工厂、配方、两类原料、物流、合法执行单位、主/副产物、终端用途与 progression 收成完整只读投影的代表性档案。Gameplay 还需回答“玩家先看什么、比较什么、确认后何时获得什么、失败后如何恢复、为什么继续”。否则，即使各条规则可独立验收，玩家仍无法走完一条工业链。
 
 本合同只定义一个不绑定具体材料名称的 deterministic walkthrough。它不创建第二套 recipe、材料或物流权威；所有字段必须回指产品、Recipe/Factory、M4 与 `world-runtime` 的当前 authority。缺任一关键 authority 时，整条路径按 `incomplete/unknown/blocked` 处理，不得由 surface 以默认值补齐。
 
@@ -16,7 +16,7 @@
 
 验收 fixture 固定覆盖形状：一座具备目标 capability 的 factory、一个 `active` 或作用域内 `restricted` recipe version、两类独立 required inputs、至少一条有容量约束或损耗的有效 logistics edge、一个 canonical executable cycle/quantum、一个主产物与至少一个必须处置的副产物 branch，以及一个明确 purpose/recipient 的 terminal。固定的是覆盖形状，不冻结材料、配比、产率、价格、绝对容量、tick 或字段编码。
 
-fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 input 的 provenance/适用性/join 结论、path/loss/capacity 与复查边界、合法 cycle 的 full/partial policy 与 power mode、output bundle/branch 的 owner/destination/policy、terminal admission 边界、当前 blocker、已占用/将消费价值、`next_action`、`next_recheck` 与 `progression_effect`。未选路径不取得 hold、吞吐顺位、input sink 或稳定进度。
+fixture 档案必须同时提供 factory/recipe authority 与 fit、两类 input 的 provenance/适用性/join 结论、path/loss/capacity 与复查边界、合法 cycle 的 full/partial policy 与 power mode、output bundle/branch 的 owner/destination/policy、terminal admission 边界、当前 blocker、已占用/将消费价值、`next_action`、`next_recheck` 与 `progression_effect`。未选路径不取得 hold、吞吐顺位、input sink 或稳定进度。
 
 ## 3. 五阶段玩家 walkthrough
 
@@ -57,13 +57,13 @@ fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 in
 | 准备后继能力 | Assembler只是候选；建设账本、地点和材料是否可用，建成后的首配方前置是否存在 | 先决定将哪些真正可用资源留给建设，再决定后继第一条合法生产及与旧链的供给协调 | 建设后无合法首配方或消耗恢复必需资源，不能将“候选解锁”当可用产能 |
 | 暂缓/保留 | 哪些资源已承诺、世界仍有何种变化、何时重查 | 先决定是否停止未提交投入，再在条件变化后继续或重新定目标 | 既有期限、在途风险或未知提交仍存在，等待并非天然零成本 |
 
-比较先指出：同一资源或槽位原本还能用于哪项当前合法用途，本次为何值得让它延后；没有真实竞争用途时不把分配包装成有意义取舍。比较记录从同一当前 authority 填入数量、单位、账本、时长/槽位与来源 revision；未取得的数值写“未知”，不适用写明理由，只有权威证据为零才填零。若无法证明替代用途、两次后继差异或合法路线，结论就是“当前仅操作选择/证据不足”，不为了通过评审补造材料、时限或买家。小批/大批可以有操作价值，但按钮数量不证明长期分支；改变电力、输入、输出空间或权限后，应重新核验偏好而非背诵推荐。
+比较时先指出：同一资源或槽位原本还能用于哪项当前合法用途，本次为何值得让它延后；没有真实竞争用途时不把分配包装成有意义取舍。比较记录从同一当前 authority 填入数量、单位、账本、时长/槽位与来源 revision；未取得的数值写“未知”，不适用写明理由，只有权威证据为零才填零。若无法证明替代用途、两次后继差异或合法路线，结论为“当前仅操作选择/证据不足”，不为了通过评审补造材料、时限或买家。小批/大批可以有操作价值，但按钮数量不证明长期分支；改变电力、输入、输出空间或权限后，应重新核验偏好而非背诵推荐。
 
 ### 3.3 一段可以自然结束、也可以继续的独立经营故事
 
 以下是跨文档一致性推演，不是运行记录，也不要求每位玩家走完全部节点。假设当前正式入口已确认该玩家的一批铁锭生产完成并持有匹配结算：3 铁锭是已得成果，Assembler 仍只按真实里程碑呈现候选与缺口。玩家可以核对当前用途后决定继续原生产、准备真实可达的下一能力，或暂不新增投入；没有交易需求也不生成买家，没有组织关系也不要求先入会。停在基础生产是有效成果，但不证明产线已经稳定。
 
-关键反例是玩家随后提交了一项实际受支持、会动用这批材料的操作，离场前却无法确认其结果。此时旧界面上的“3 铁”不能继续当可自由支配余额，也不能把停止代办当撤销原请求。离场前说明已确认的首产成果、未知请求及仍会推进的风险/义务；回来先按原请求核对权威结果、余额与占用，再决定下一笔投入。若仍未知就保留未知与核对入口，不因想续玩而盲目重交或编造退款。
+关键反例：玩家随后提交了一项实际受支持、会动用这批材料的操作，却在离场前无法确认结果。此时旧界面上的“3 铁”不能继续当可自由支配余额，也不能把停止代办当撤销原请求。离场前说明已确认的首产成果、未知请求及仍会推进的风险/义务；回来先按原请求核对权威结果、余额与占用，再决定下一笔投入。若仍未知就保留未知与核对入口，不因想续玩而盲目重交或编造退款。
 
 后来材料被合法消费，不抹掉已经发生的首产成就；首产成就也不能被当成仍持有材料的证明。玩家再次选择经营或离场，都不需要把故事强行补成下一座工厂、市场交易或区域治理。对照[回访设计](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#return-visit-experience)与[自愿合作/独立止损](gameplay-top-level-design.prd.md#crisis-voluntary-cooperation)检查：若读者只能靠未来功能解释下一步，就把该步记为玩法缺口；若能解释已有成果、剩余暴露与一个真实决定，只证明文档链条可理解，不证明真实留存或运行通过。
 
@@ -112,4 +112,4 @@ fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 in
 
 本合同不新增 runtime/API/schema/action，不规定配比、产率、价格、物流/寻路、容量、队列、terminal 或 settlement 算法，不设计 UI 布局，不新增 recipe/catalog/lifecycle，也不改 starter completion、site selection、input reserve、source allocation、quality/custody、substitution、batch、demand、byproduct、changeover 或 pipeline checkpoint 合同。
 
-残余风险是当前各 authority 可能只有局部实现证据，导致 walkthrough 暂时只能标为 target/unknown；未来 recipe、receipt 或 terminal profile 变更时必须重新生成同一 fixture 的 composite evidence，避免玩家看到可选动作却无法获得一致结算与下一动力。
+残余风险：各 authority 当前可能只有局部实现证据，因此 walkthrough 暂时只能标为 target/unknown。未来 recipe、receipt 或 terminal profile 变更时，必须重新生成同一 fixture 的 composite evidence，避免玩家看到可选动作却无法获得一致结算与下一动力。

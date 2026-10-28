@@ -31,12 +31,12 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 - 可发布公开 claim（releasable public claim）：只有相同窗口的执行记录、产品 PRD、根 [`README.md`](../../../README.md) 和相关专业/QA authority 一致，并且产品审核将候选标记为 `publish_ready` 时，才可把 runbook 结果用于公开说明；否则只保留为内部 evidence 或 `draft/blocked`。
 
 ## 1. 目的
-- 这份 runbook 用于把 `restricted starter claim grant` 的发放、到期、撤销和事故回退固定成一套运营可执行 SOP。
+- 本 runbook 规定 `restricted starter claim grant` 发放、到期、撤销和事故回退的运营步骤。
 - 它服务于 `PRD-GAME-011` 的受控启动金链路，不替代 runtime 真值，也不替代 QA lifecycle / audit matrix。
 - 它只覆盖 `slot-1` 专用、不可转账、可过期可撤销的 restricted grant，不把该余额扩写成通用补贴或公开空投。
 
 ## 2. Runtime 真值边界
-- 发放动作只能走 `IssueRestrictedStarterClaimGrant`，撤销动作只能走 `RevokeRestrictedStarterClaimGrant`；不要再用手工余额注入去替代正式发放。
+- 发放动作只能走 `IssueRestrictedStarterClaimGrant`，撤销动作只能走 `RevokeRestrictedStarterClaimGrant`；不要用手工余额注入替代正式发放。
 - runtime 当前把 daily restricted grant 的 source bucket 固定为 `MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL`，`spend_scope` 固定为 `slot-1 claim + slot-1 upkeep`。
 - `MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL` 不是自由运营余额，也不是 `liveops` 账户余额；它只能通过 `TopUpRestrictedStarterClaimLiveopsPool` 从 `ecosystem_pool` 划拨资金，且该 top-up 仍必须由当前 `ecosystem_pool` treasury controller slot 绑定的 controller account 按 signer allowlist / threshold policy 签名批准。
 - runtime 现在要求 `issuer_id` 先命中 `governance_main_token_controller_registry.restricted_starter_claim_admin_account_ids`；若 registry 缺失、admin allowlist 为空或 `issuer_id` 未登记，action 会在进入 grant 状态机前直接被拒绝。
@@ -52,11 +52,11 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 ## 3. v1 运营冻结口径
 ### 3.1 Canonical issuer_id
 - v1 统一使用 `issuer_id = liveops`。
-- 这样可以保证撤销 owner 单一，避免因为多个 `issuer_id` 并行发放导致 revoke 权限碎片化。
+- 统一 issuer 可保持单一撤销 owner，避免多个 `issuer_id` 并行发放导致 revoke 权限分散。
 - `qa_engineer` 可以发起 `qa_seed` 请求，但正式 issue / revoke 仍由 `liveops_community` 以 `issuer_id = liveops` 执行。
 
 ### 3.1A Recommended operator entry
-- 日常推荐入口是 `./scripts/oasis7-liveops-grant.sh`；正式 CLI `oasis7_liveops_grant_cli` 继续保留给需要更细粒度调试的工程/运营同学，不要再让运营同事手工拼接 runtime action JSON。
+- 日常推荐入口是 `./scripts/oasis7-liveops-grant.sh`；正式 CLI `oasis7_liveops_grant_cli` 继续供工程/运营人员做更细粒度调试，不再要求运营手工拼接 runtime action JSON。
 - 推荐命令：
   - `./scripts/oasis7-liveops-grant.sh status --world-dir <world_dir>`
   - `./scripts/oasis7-liveops-grant.sh status <account> --world-dir <world_dir>`
@@ -93,7 +93,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 
 3. 导入全量治理 manifest：
    `env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_governance_registry_import -- --world-dir <world_dir> --public-manifest <operator_full_public_manifest.json>`
-4. 立刻审计导入结果，不要跳过：
+4. 立即审计导入结果，不要跳过：
    `env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_governance_registry_audit -- --world-dir <world_dir> --public-manifest <operator_full_public_manifest.json> --strict-manifest-match --require-single-failure-tolerance`
 5. 让当前 `ecosystem_pool` treasury controller slot 对应的治理操作者提交一次 `UpdateRestrictedStarterClaimAdminRegistry`，把 `liveops` 放回 admin allowlist。payload 最少应包含：
 
@@ -127,7 +127,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
    - `restricted_claim_liveops_treasury_balance > 0`
 
 - 若第 4 步 audit 失败，不要继续做第 5/6 步。
-- 若第 7 步仍看到任一 `false`，或专用池余额仍为 `0`，不要继续发 grant；先回到 manifest / admin roster / controller slot 绑定 / top-up 记录检查。
+- 若第 7 步任一值仍为 `false`，或专用池余额仍为 `0`，停止发放 grant，先检查 manifest / admin roster / controller slot 绑定 / top-up 记录。
 - 任何一次 signer rotation、manifest 重导入或 world 恢复，只要重新跑了 `oasis7_governance_registry_import`，都要把这 7 步再走一遍。
 
 ### 3.2 Allowed issuance_reason
@@ -160,7 +160,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 | `qa_seed` | 设到该轮 QA 验证窗口结束 epoch，再额外留 `1` 个完整回收窗口 | 不要把长期手工回归账号做成“永不过期”；超窗仍需重申请求 |
 | `liveops_campaign` | 设到活动关闭 epoch，再额外留 `2` 个 epoch buffer | 不要让 campaign grant 跨到下一轮 campaign，避免 cohort 边界混乱 |
 
-- 如果当前无法可靠判断活动结束 epoch，就先不要发；先补齐 campaign 窗口定义。
+- 若无法可靠判断活动结束 epoch，暂停发放，先补齐 campaign 窗口定义。
 
 ## 5. Revoke 条件
 以下情况应优先 `revoke`，而不是等待自然到期：
@@ -173,7 +173,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 | 发现异常占用、转手、代持、可疑滥用 | `abuse_suspected` | 先冻结授予关系，再回流 QA / producer 判定 |
 | 账号替换、重建、迁移到新 beneficiary | `account_replaced` | 旧账号先 revoke，再给新账号重新 issue |
 
-- 若没有清晰 `revoke_reason`，先不要动手；先补齐 incident 记录。
+- 若 `revoke_reason` 不清晰，先不要撤销；补齐 incident 记录。
 - revoke 之后如果 beneficiary 还持有 active slot-1 claim，后续 restricted bond refund 会自动回 treasury。这是预期行为，不需要手工补第二次退款。
 
 ## 6. 发放前检查
@@ -241,7 +241,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 
 ## 9. Incident Fallback
 ### 9.1 发放字段写错
-- 若 `beneficiary_account_id`、`amount`、`issuance_reason`、`expires_at_epoch` 任一写错，第一优先是确认 journal 中是否已经 `Issued`。
+- 若 `beneficiary_account_id`、`amount`、`issuance_reason`、`expires_at_epoch` 任一写错，先确认 journal 中是否已经 `Issued`。
 - 如果 issue 已成功，立即评估是否满足 revoke 条件；不要再补一笔“抵消 grant”去掩盖问题。
 - 若 `issuer_id` 写错，必须使用同一个错误 `issuer_id` 执行 revoke；因此 incident 记录里必须保留原始字段。
 

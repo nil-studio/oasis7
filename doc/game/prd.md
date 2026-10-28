@@ -11,7 +11,7 @@
 ## 目标
 - 作为 game 模块的活跃玩法基线入口，回答当前玩家体验目标、阶段口径、权威专题和完成定义。
 - 保持 PRD-ID、专题文档、执行任务和验证证据可追踪，但不在根 PRD 重复展开每个专题的完整规格。
-- 让新增 gameplay 变更能先判断应改根基线、专题 PRD、执行 project，还是仅补索引/证据。
+- 明确新增 gameplay 变更应修改根基线、专题 PRD、执行 project，还是仅补索引/证据。
 
 ## 范围
 - 覆盖 game 模块当前玩家侧核心循环、progression、agency、经济/claim、preview/beta gate 与可玩性验收边界。
@@ -40,7 +40,7 @@
 - `doc/world-simulator/*` 的 scenario / resource docs 会影响 gameplay，但不应替代 `doc/game` 的玩家侧 loop / progression 权威。
 
 ## 1. Executive Summary
-- Problem Statement: game 模块的玩法、经济、preview/beta、agency 与小玩家成长线已拆成多份专题；根 PRD 需要保留当前基线和路由，而不是继续成为专题规格汇编。
+- Problem Statement: game 模块的玩法、经济、preview/beta、agency 与小玩家成长线已拆成多份专题；根 PRD 需要保留当前基线和路由，不再汇编专题规格。
 - Proposed Solution: 根 PRD 只维护活跃 gameplay baseline、PRD-ID 路由、关键 gate 口径和跨模块权威边界；专题细节、历史执行与证据全部通过索引和 project trace 下钻。
 - Success Criteria:
   - SC-1: 新增或变更 gameplay 能映射到一个 PRD-GAME-ID、专题 PRD 或明确的新增专题需求。
@@ -62,7 +62,7 @@
 | PRD-GAME-009 | 阶段候选需要统一 release gate 和对外 claim envelope，不允许 topic-by-topic 拼凑升阶；当前公开阶段只以根 `README.md` 为准。 | `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；`doc/testing/prd.md`；根 `README.md` | 历史 closed-beta 专题已完成迁移退役；阶段或 claim 变化必须由同候选证据、QA、产品决策与 LiveOps 同步共同支持。 |
 | PRD-GAME-010 | limited preview 必须是 controlled builder-facing、可回流、可纠偏的真实执行闭环；信号按 `Blocking / Opportunity / Idea` 回流，claim drift 在同轮纠正。QA 可建议 block / conditional，producer 决定 continue / hold / reassess；gate pass 不自动升阶。 | `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；Git、PR 与实际 CI 记录 | Round 1 已于 2026-07-28 关闭且无待处理 follow-up；历史发布、渠道 fallback 与信号证据从 Git history 和 GitHub issue `eng-cc/oasis7#48` 追溯。新复现或提案使用聚焦 issue / PR；公开阶段只看根 `README.md`。 |
 | PRD-GAME-011 | agent claim 体现持续承诺：首个 claim 也非免费，但 slot-1 可按 runtime 规则使用 restricted starter funding。首个认领决策包必须同时说明候选用途/差异、非零 upfront cost、确认后的 upkeep runway、release/grace/reclaim 触发、恢复/重新选择和最佳等待/替代动作。当前 cold-start 路径可包含 `claim_first_agent -> claim_starter_oc -> first agent chat`，其中 starter OC 授予初始 liquid OC 并记录首聊解锁，不是免费 agent claim、claim/upkeep 资金或通用补贴。 | `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`；`doc/product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md` | restricted grant / upkeep / reclaim / audit 以专题与 runbook 为准；restricted starter claim balance 与 starter OC 必须分开，前者只能支持 non-zero slot-1 claim/upkeep 成本，后者只处理已存在 Agent 的首聊 gate。该口径不冻结成本、余额、字段或 runtime chat 语义；缺完整认领决策包标记 `first_claim_commitment_packet_missing`。 |
-| PRD-GAME-012 | 10-minute trust gate、first capability gate 与 first 10/30-minute attraction/content-volume gate 分开判定；target coverage、motivation density 和 content volume 不得互相替代。早期 quote/preview 必须聚焦一个主要决策和一个主导 blocker/cost，可延后可恢复细节但必须提升损失、锁定、authority transfer、不可逆行动或恢复可用性变化，且不得省略权威成本或改写语义。各路线/机会、资源、排程、精炼、市场、调运、验证与能源预览仍须按专题说明各自取舍，而不是只靠执行后 receipt 或后台事件。 | `doc/game/gameplay/gameplay-top-level-design.prd.md`；产品承诺见 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md` | 本行拥有早期信息仲裁的 gameplay 验收语义，不冻结 UI/字段。当前 verdict、TASK-GAME-076 required/live 边界与历史 trace 由同候选 PR 与实际验证记录 和 `doc/testing/evidence/` 确认；缺仲裁或高后果信息被隐藏时标记 `early_preview_arbitration_missing`。 |
+| PRD-GAME-012 | 10-minute trust gate、first capability gate 与 first 10/30-minute attraction/content-volume gate 分开判定；target coverage、motivation density 和 content volume 不得互相替代。早期 quote/preview 必须聚焦一个主要决策和一个主导 blocker/cost，可延后可恢复细节但必须提升损失、锁定、authority transfer、不可逆行动或恢复可用性变化，且不得省略权威成本或改写语义。各路线/机会、资源、排程、精炼、市场、调运、验证与能源预览仍须按专题说明各自取舍，而不是只靠执行后 receipt 或后台事件。 | `doc/game/gameplay/gameplay-top-level-design.prd.md`；产品承诺见 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md` | 本行拥有早期信息仲裁的 gameplay 验收语义，不冻结 UI/字段。当前 verdict、TASK-GAME-076 required/live 边界与历史 trace 由同候选 PR、实际验证记录和 `doc/testing/evidence/` 确认；缺仲裁或高后果信息被隐藏时标记 `early_preview_arbitration_missing`。 |
 | PRD-GAME-013 | oasis7 采用真实厘米尺度，但当前玩家主路线仍是间接控制文明模拟；不得把 `1cm` 写成 Minecraft 式逐块直接操作承诺；玩家提出过细动作时，必须翻译成当前可玩的间接控制替代动作或说明无安全替代动作。 | `doc/game/gameplay/gameplay-top-level-design.prd.md`；[`doc/product/world-rules-core-gameplay/prd.md`](../product/world-rules-core-gameplay/prd.md) | 四层合同：厘米真值、coarse-grained 子系统、玩家动作粒度、表现层夸张；替代动作必须来自 canonical 动作面，否则要安全停止并说明下一次可决策点。具身 / block-editing 仅在强化间接控制主路线、具备专业域合同与验证并经显式跨域决策后才可进入候选原型；2026-07-08 `task_4ab03f9be0f847af9f36d963486055d5` 记录过细动作缺少可玩替代动作翻译的小缺陷。 |
 | PRD-GAME-014 | 间接控制必须保留 agency：记忆驱动、社交、治理与冲突动作共用 causal-decision receipt，说明 accepted intent、Agent reason/evidence、stakes/expected consequence、alternative、interrupt/correction、earliest effective point 和 post-correction result；请求/提案接受不等同于权威规则应用或后果发生。社会事实、治理或冲突若影响玩家选择，仍须在同一因果链中提供可读的提交前后果与纠正/替代方向。 | `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`；`doc/product/world-rules-core-gameplay/indirect-control-agency-and-continuation.prd.md` | 本行拥有 gameplay receipt/验收语义，不冻结 runtime 字段、治理规则或 UI。control-feeling 的 runtime/viewer/agent/QA 证据以专题 project 与 evidence 为准；缺跨动作 receipt 或混淆接受与权威应用时标记 `causal_decision_receipt_missing`。 |
 | PRD-GAME-015 | mature-world 小玩家需要不依赖立即投靠 major power 的长期推荐轴：建立并守住可恢复能力 -> 服务区域需求 -> 有限且可审计的区域影响；它们可改道、重排或回退，不是强制职业树。有效阶段成果必须新增选择、恢复弹性、局部协调位置或区域用途，不能以库存、吞吐或重复次数冒充成长。文明尺度项目仅是受影响范围内经授权形成的自愿共同扩展，不是全体玩家的胜利条件或唯一有效路线。针对同一个 active goal，repair / rebuild / pivot 必须比较时间/阶段与资源成本、保留/失去价值、主要风险、推荐理由和独立 lane 可行性；只有独立路径确实不可行时才能把外部依赖列为有原因的受迫项。专业化选择前还必须展示第一单交付收益和本地需求匹配。 | `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md`；`doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md`；[`generic mature-world recognition/opportunity leaf`](gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-recognition-opportunity)（承接 `REQ-WR-MW-004` / `MW-11`，不新增 PRD-ID 或 authority） | 本行拥有 gameplay 比较/验收语义，不冻结数值、状态或 UI。代表性 disruption 必须证明恢复后仍有独立成长或明确重评条件；不得把 sponsor/major-power 依赖当作默认解；认可/机会叶子仅适用于 mature-world，并以其权限重验、单次 receipt、失败恢复和 unresolved evidence gate 为准。 |
@@ -76,7 +76,7 @@
 - `doc/game/prd.md` 是活跃 gameplay baseline 与路由的唯一根入口：它维护 PRD-ID、每个专题的声明范围、默认首读路径以及当前状态应去哪里确认；不复制专题的完整规格。
 - `doc/game/gameplay/gameplay-top-level-design.prd.md` 是核心玩法骨架与 `PRD-GAME-012` early-retention 专业合同的专题 authority，不取得 game 模块级 authority。其范围内的详细合同优先；范围外的问题必须路由到相应专题或产品模块。
 - 其他 topic `*.prd.md` 在各自明确声明的主题范围内同样拥有详细合同；topic detail 只在该范围内优先，不能覆盖根 PRD 的活跃路由/状态指针或产品层承诺。
-- Git、PR 和实际验证记录 维护当前/近期执行状态、阻断、下一步和历史 trace；正式 evidence 决定验证结果，二者均不改写产品承诺或专题范围。
+- Git、PR 和实际验证记录维护当前/近期执行状态、阻断、下一步和历史 trace；正式 evidence 决定验证结果，二者均不改写产品承诺或专题范围。
 - `doc/game/README.md` 与 `doc/game/gameplay/README.md` 负责首读分流，不复制完整专题清单；`doc/game/prd.index.md` 负责完整文件级检索。
 - 发生表述冲突时，先按上述范围判定 authority：产品承诺回产品模块，活跃基线/路由/状态入口回本文件，专题细节回声明专题，执行或验证结论回 project/evidence；范围仍不清楚时保留 blocker 并派发对应 owner slice，不能按更新时间或历史轮次推定优先级。
 - `doc/world-simulator/scenario/*` 与 `doc/world-simulator/m4/*` 可定义 scenario、resource、industrial loop 和 deterministic support contracts；当它们影响玩家侧 progression、resource pressure 或 onboarding 时，应回指 `doc/game` 对玩家体验口径的权威。
@@ -112,7 +112,7 @@
   - NFR-GAME-1: gameplay 变更必须可追踪到 PRD-ID、专题 PRD 或 `.pm` task trace。
   - NFR-GAME-2: formal playability / preview / release claims 必须绑定 fresh evidence，不得复用已标为 historical baseline 的旧样本。
   - NFR-GAME-3: 根入口不得复制专题完整矩阵；新增细节优先进入专题文档，再从根入口增加一行路由。
-  - NFR-GAME-4: 玩家侧 current truth 必须能在 `doc/game/prd.md`、对应专题、Git、PR 与实际 CI 记录 和 evidence 之间闭环检索。
+  - NFR-GAME-4: 玩家侧 current truth 必须能在 `doc/game/prd.md`、对应专题、Git、PR、实际 CI 记录和 evidence 之间闭环检索。
 
 ## 5. Risks & Roadmap
 - Phased Rollout:
@@ -133,7 +133,7 @@
 - Root PRD maintenance check:
   - 新增 PRD-GAME-ID 时，必须同步 `doc/game/prd.index.md` 和相关 topic project。
   - 改变默认首读路径时，必须同步 `doc/game/README.md` 与 `doc/game/gameplay/README.md`。
-  - 改变当前 stage / claim envelope / gate verdict 时，必须同步 Git、PR 与实际 CI 记录 与同候选 evidence。
+  - 改变当前 stage / claim envelope / gate verdict 时，必须同步 Git、PR、实际 CI 记录与同候选 evidence。
 - Decision Log:
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
 | --- | --- | --- | --- |

@@ -4,7 +4,7 @@
 
 ## 从这里开始
 - 想快速理解核心玩法骨架：先在 `../prd.md` 确认活跃基线与路由，再读 `gameplay-top-level-design.prd.md` 的 bounded 专业合同
-- 想确认首局、前 10/30 分钟吸引力和持续游玩合同：先读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 由同候选 PR 与实际验证记录 与 `../../testing/evidence/` 确认。
+- 想确认首局、前 10/30 分钟吸引力和持续游玩合同：先读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 由同候选 PR、实际验证记录与 `../../testing/evidence/` 确认。
 - 想了解经营决策、目标委托和回访的体验与实现边界：先读[首局产品设计的范围与优先顺序](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#gameplay-experience-priorities)，再读[组合系统设计](gameplay-decision-delegation-return.design.md)；真实合作与策略复用保持后续范围，不增加当前首产物或邀请测试门槛。
 - 想确认间接控制为什么仍然应该让玩家感觉自己在控制：先读 `gameplay-indirect-control-agency-contract.prd.md`
 - 想确认成熟世界里小玩家/新玩家靠什么继续形成独立价值：先读 `../../product/world-rules-core-gameplay/mature-world-progression.prd.md`，再读 `gameplay-mature-world-progression-contract.prd.md` 的专业合同
@@ -18,7 +18,7 @@
 - 想确认原材料不适配时如何比较换源、合法替代、换配方、减量/延期与恢复：读 `gameplay-industrial-raw-material-qualification-substitution-contract.prd.md`
 - 想确认流水线服务窗口、lease 到期、hard/soft 迟到与掉电恢复：读 `gameplay-industrial-pipeline-service-window-contract.prd.md`
 - 想确认 1cm 物理世界、动作粒度和表现夸张边界：先读 `../../product/world-rules-core-gameplay/prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的玩法合同
-- 想确认访问模式、limited preview 或 release readiness：先读 `../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前 preview 执行状态由 Git、PR 与实际 CI 记录 确认。已关闭 Round 1 的发布、渠道 fallback、信号与关闭证据从 Git history 和 GitHub issue `eng-cc/oasis7#48` 追溯
+- 想确认访问模式、limited preview 或 release readiness：先读 `../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前 preview 执行状态由 Git、PR 与实际 CI 记录确认。已关闭 Round 1 的发布、渠道 fallback、信号与关闭证据从 Git history 和 GitHub issue `eng-cc/oasis7#48` 追溯
 - 想确认 agent claim token cost、claim bond、upkeep、reclaim、restricted grant、starter OC 或 first chat gate：先读 `gameplay-agent-claim-economy-contract.prd.md`，再按需读 `gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md`
 - 想确认额外 Agent 的制造配方、报价、产能与失败成本：读 [Agent claim 经济合同](gameplay-agent-claim-economy-contract.prd.md)的制造政策，再读 [Runtime 制造设计](../../world-runtime/runtime/agent-industrial-manufacturing.design.md)。
 - 想确认紧急保供触发、资格优先级、批次窗口、补偿与退出：读 [保供首版政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)，产品承诺仍由 [ES 专题](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md)拥有。
@@ -26,7 +26,7 @@
 - 想精确找某份 gameplay 专题文档，而不是按问题阅读：回到 `../prd.index.md`
 
 ## 入口分工
-- 当前页只承担 `gameplay/` 子目录 landing page 职责，不复制完整长表。
+- 本页只作 `gameplay/` 子目录导航，不复制完整长表。
 - `../README.md` 是 game 模块级 landing page，负责在模块 PRD、执行台账、文件级索引和少量高频 gameplay 专题之间分流。
 - `../prd.md` 是 game 模块目标态与阶段口径真值。
 - `gameplay-top-level-design.prd.md` 只拥有核心玩法骨架与 `PRD-GAME-012` early-retention 的详细合同；它不替代 `../prd.md` 的活跃路由/状态职责，也不覆盖其他 topic 或 `doc/product/` 的声明范围。
@@ -40,7 +40,7 @@
 
 ## 文档密度
 - 当前 inventory 与热点判定统一以仓库根目录执行的 `./scripts/doc-inventory-report.sh` 为准；本页不维护容易漂移的文件数量快照。
-- 该子域是持续治理的热点目录；本页目标是降低首读扫描成本，并将退役的一次性 handoff 语义收敛到正式 PRD/project/evidence surfaces。
+- 该子域是持续治理的热点目录；本页帮助读者快速找到首读入口，并将退役的一次性 handoff 内容归入正式 PRD/project/evidence surfaces。
 
 ## 首读主题簇
 
@@ -61,7 +61,7 @@
   - micro-loop、反馈可见性和 post-onboarding 阶段如何衔接
   - 哪些问题应该先作为体验修复，而不是系统重写
   - `TASK-GAME-076` 沿用 `scripts/verify-gameplay-attraction-automation.sh` 的 required/live 入口：fixture 卡片只核验体验结构，live 命令日志只证明对应候选的操作链，真人理解、有效决策与自发回访分别由真人记录判断。操作量、动作族、内容量、时长及等待比例保留为诊断目标，不能作为通用最低通关量；blocked 且无恢复仍阻断结构通过。
-  - 汇总中的 `meaningful_decision_count` 标明快照选择机会代理计数；真人决策以 participant/decision（decision_id 跨会话稳定，新的实际决策使用新 ID） 去重并保留选择及后果。没有真人记录时保持未验证。`production_only` 首产物不要求交付，完整交付样例继续单独检查 local demand 变化；首次实际生产结算、稳定能力和交付分别验收。
+  - 汇总中的 `meaningful_decision_count` 标明快照选择机会代理计数；真人决策以 participant/decision（decision_id 跨会话稳定，新的实际决策使用新 ID）去重并保留选择及后果。没有真人记录时保持未验证。`production_only` 首产物不要求交付，完整交付样例继续单独检查 local demand 变化；首次实际生产结算、稳定能力和交付分别验收。
 
 报告可使用 `--completion-profile production_only`（默认 `production_and_delivery`）、`--candidate '<候选身份注记>'`、`--fixture-samples-json '<快照数组.json>'` 和 `--human-observations-json '<观察记录数组.json>'`。两个文件必须是有效 JSON 对象数组，路径支持空格；输入在运行验证前读取并保存到报告 input，错误输入不会启动验证 gates；包装脚本先在私有临时目录执行原 writer 的完整消费路径，清理预览后才运行 gates。嵌套类型无法被 writer 消费的样本提前拒绝，`attraction_weak` 等未达标结果仍可正常报告。快照对象沿用 writer 的 fixture schema；真人记录沿用 `participant_id`、`session_id` 及 `observation`/`outcome`/`choice`，具体有效决策还需 `decision_id`、`choice`、`consequence`。不完整对象继续由 writer 排除并计数；非有限数值以及绝对值超过 JavaScript 安全整数边界 `9007199254740991` 的数值（包括嵌套字段、小数和科学计数法）被提前拒绝；边界内有限小数仍可报告。观察记录（包括额外字段）会原样保留在 input/report，提供前应去标识化。
 
@@ -104,9 +104,9 @@
 
 ## 定向检索边界
 - 如果你已经知道准确文件名，直接回 `../prd.index.md`。
-- runbook、evidence、checklist 和必要的历史执行补充材料继续保留可检索性，但默认不作为首读入口；一次性 role handoff brief 在对应 evidence 或 PR、实际 CI 与评审记录（Issue 按需） 已能追溯后应退役删除。旧 MLF008 viewer-to-QA handoff、limited-preview 与 closed-beta role handoff briefs 已退役删除；历史 TASK-GAME-018、029~032、036/037 从 PR 与实际验证记录、专业 evidence surfaces、core review logs、Git history 与 GitHub issue `eng-cc/oasis7#48` 追溯。
+- runbook、evidence、checklist 和必要的历史执行补充材料继续保留可检索性，但默认不作为首读入口；一次性 role handoff brief 在对应 evidence 或 PR、实际 CI 与评审记录（Issue 按需）已能追溯后应退役删除。旧 MLF008 viewer-to-QA handoff、limited-preview 与 closed-beta role handoff briefs 已退役删除；历史 TASK-GAME-018、029~032、036/037 从 PR 与实际验证记录、专业 evidence surfaces、core review logs、Git history 与 GitHub issue `eng-cc/oasis7#48` 追溯。
 - 如果问题需要玩法正确性、平衡、release 放行或对外口径结论，本页只提供文档入口；结论必须回到 `gameplay_designer`、`qa_engineer` 或 `liveops_community` 对应任务证据。
-- 历史专题不因出现在本页附近而重新成为当前真值；当前判断以模块 PRD/project、活跃专题、正式 evidence surfaces 与 PR、实际 CI 与评审记录（Issue 按需） 为准。
+- 历史专题不因出现在本页附近而重新成为当前真值；当前判断以模块 PRD/project、活跃专题、正式 evidence surfaces 与 PR、实际 CI 与评审记录（Issue 按需）为准。
 
 ## 维护约定
 - 新增 gameplay 专题后，若改变默认首读路径，应同步更新本页。

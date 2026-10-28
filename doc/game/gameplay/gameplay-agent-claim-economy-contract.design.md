@@ -22,9 +22,9 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
 - 可发布公开 claim（releasable public claim）：只有产品 PRD、根 README、同一证据窗口和对应 [`restricted grant LiveOps runbook`](gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md#public-claim-boundary) 一致时，才可引用本设计的受限规则；否则必须标记为 draft、blocked 或 stale。
 
 ## 1. 设计目标
-- 把 agent 认领从“谁先点到谁拿到”的弱规则，提升为一条有成本、有维护、有回收的正式 gameplay 经济链路。
+- 将 agent 认领从“谁先点到谁拿到”改为有成本、需维护、可回收的正式 gameplay 经济链路。
 - 保持 `Agent 唯一性` 与资源守恒，不把 claim 机制做成可绕过 runtime 审计的侧门。
-- 让 `runtime_engineer`、`viewer_engineer`、`qa_engineer` 对同一套 claim 状态机和字段工作。
+- 让 `runtime_engineer`、`viewer_engineer`、`qa_engineer` 使用同一套 claim 状态机和字段。
 - 让 limited preview / allowlist / QA seed 可以给首个 claim 提供受限启动资金，而不把启动补贴变成可转账资产。
 
 ## 2. 状态机
@@ -64,7 +64,7 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
 - 三段式：
   - `activation fee`: 非退款，立即拆到 burn / treasury。
   - `claim bond`: 锁定后可在 release / reclaim 时按规则退款或 slash。
-  - `upkeep`: 每个 epoch 结算一次，持续表达“占有这个 agent 就要持续承担成本”。
+  - `upkeep`: 每个 epoch 结算一次，体现持续占有 agent 的成本。
 - 报价必须把持续成本换算成玩家可读 runway：
   - `upfront cost`: activation fee + claim bond + first upkeep。
   - `recurring upkeep`: 每个 epoch 的持续成本。
@@ -133,7 +133,7 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
 
 ### 6.1 首次绑定与经济认领的组件边界
 
-既有 [gameplay action 映射](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) 将 `claim_first_agent` 交给 `RegisterAgent`，将 `claim_agent` 交给 `ClaimAgent`。首次绑定只建立可操作 Agent；首聊维护说明需要另外读取该 Agent 作为 claimer 的真实经济 claim。
+既有 [gameplay action 映射](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) 将 `claim_first_agent` 映射为 `RegisterAgent`，将 `claim_agent` 映射为 `ClaimAgent`。首次绑定只建立可操作 Agent；首聊维护说明需要另外读取该 Agent 作为 claimer 的真实经济 claim。
 
 以下表格与 6.2–6.4 节记录已交付的文案/兼容切片；后继目标由 [DES-CLAIM-ENTRY-001](#des-claim-entry-001) 和 [DES-CLAIM-CHAT-005](#des-claim-chat-005) 单独规定，不能将目标能力读成该切片已有行为。
 
@@ -145,7 +145,7 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
 
 本地 runtime 测试使用完整 `WorldState`：`main_token_balances[primary_agent_id].liquid_balance` 沿用缺少账户项为零的既有语义；`starter_oc_claims.contains_key(primary_agent_id)` 提供领取记录存在性；`agent_claims` 中 `claim_owner_id == primary_agent_id` 的记录组成现有 `owned_claims`。`next_claim_quote` 是未来选择，不能证明当前经济认领已经生效。
 
-service 来源需单独限定：[world_service/projection.rs](../../../crates/oasis7_world_service/src/projection.rs) 的 allowlist 保留 `agent_claims` 与 `starter_oc_claims`，但不发布 `main_token_balances`；[world_service_link.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_service_link.rs) 用该裁剪状态重建 runtime world，再由 [control_blocking.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_blocking.rs) 调用本投影。经济 claim 事实仍可用于维护说明，但 service 的真实正 liquid 余额且无领取记录可能因余额未投影而按零值生成预览。这是既有余额输入缺口，已交付文案切片未修改字段公开范围或 gate；本地回归与同一预览的中英文/API 显示一致性不能证明真实 service gate 已正确。后继协议须按 6.5 节修复权威输入与消费边界。
+service 来源需单独限定：[world_service/projection.rs](../../../crates/oasis7_world_service/src/projection.rs) 的 allowlist 保留 `agent_claims` 与 `starter_oc_claims`，但不发布 `main_token_balances`；[world_service_link.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_service_link.rs) 用该裁剪状态重建 runtime world，再由 [control_blocking.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_blocking.rs) 调用本投影。经济 claim 事实仍可用于维护说明，但 service 的真实正 liquid 余额且无领取记录可能因余额未投影而按零值生成预览。这是既有余额输入缺口，已交付文案切片未修改字段公开范围或 gate；本地回归及同一预览的中英文/API 显示一致性，不能证明真实 service gate 正确。后继协议须按 6.5 节修复权威输入与消费边界。
 
 已交付切片只修权威生产者文案与 Viewer 旧文案兼容，没有 DTO 字段存在性追踪、count/list 协调、gate 三态或资料新鲜度检测；这不是对后继协议的禁止。本地状态与当前 service 投影均保留 `agent_claims`；按当前 claimer 筛选的完整结果为空时，才支持没有 owned claim 的结论。经过默认值补齐的旧 preview DTO 不提供这种证据，Viewer 不使用它来生成“没有经济认领”的新结论。
 
@@ -269,7 +269,7 @@ DevLocal policy 由显式启用的本地 operator 管理来源授权，使用独
 ## 7. 设计边界
 - 这不是现实货币付费功能，也不是永久产权出售。
 - 这不是 agent 市场或 NFT 化系统。
-- v1 先冻结规则结构和默认边界，不在本轮拍死最终绝对价格。
+- v1 先冻结规则结构和默认边界，本轮不敲定最终绝对价格。
 - 这也不是“通用不可转账代币”系统；restricted bucket 只服务于首个 agent 启动。
 
 ## 8. 演进顺序
@@ -286,9 +286,9 @@ DevLocal policy 由显式启用的本地 operator 管理来源授权，使用独
   - `forced_reclaim_penalty_bps = 2000`
   - `tier cap = 1 / 2 / 3`
 - 维持理由：
-  - 该历史窗口记录 runtime / viewer / QA 三条闭环通过，当时更缺“真实持有行为样本”，而不是“再造一轮默认值”。
+  - 该历史窗口记录 runtime / viewer / QA 三条闭环通过，当时更需要真实持有行为样本，而非另一套默认值。
   - 当前成本曲线仍满足本专题最重要的结构边界：首个 claim 非免费、额外槽位单调更贵、欠费与闲置都能回收、refund/slash 可审计。
-  - 在还没有真实 claim 分布、平均持有时长、grace 命中率、forced reclaim 占比之前，提前改参数只会稀释对当前默认值的验证意义。
+  - 在取得真实 claim 分布、平均持有时长、grace 命中率、forced reclaim 占比之前，提前改参数只会削弱对当前默认值的验证。
 - 后续只有在以下任一条件成立时，才重新开调参专题：
   - `liveops_community` 回流显示 claim churn、grace 命中率或 idle reclaim 占比异常。
   - `qa_engineer` 发现当前 cap / penalty 造成稳定的玩法退化或反滥用失效。

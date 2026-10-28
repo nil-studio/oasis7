@@ -8,13 +8,13 @@
 - 想先确认当前产品目标、阶段口径与完成定义：先读 `doc/game/prd.md`。
 - 想看当前正在推进什么、谁在阻断、下一步做什么：查看对应 GitHub task issue 的 Project 状态与 evidence comments。
 - 想直接按文件名定位某个 gameplay 专题：先读 `doc/game/prd.index.md`。
-- 想先进入 gameplay 热点子域，而不是顺扫近期长名单：先读 `doc/game/gameplay/README.md`。
+- 想按问题浏览 gameplay 热点子域：先读 `doc/game/gameplay/README.md`。
 - 想快速理解核心玩法骨架：先在 `doc/game/prd.md` 确认活跃基线与路由，再读 `doc/game/gameplay/gameplay-top-level-design.prd.md` 的 bounded 专业合同。
 - 想确认工业流水线服务窗口、lease/expiry、hard/soft 迟到与电力连续性：读 `doc/game/gameplay/gameplay-industrial-pipeline-service-window-contract.prd.md`。
-- 想确认首局、前 10/30 分钟吸引力与持续游玩合同：先读产品承诺 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，再读 `doc/game/gameplay/gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 与复跑边界由对应 PR 与实际验证记录 和 `doc/testing/evidence/` 的同候选样本确认。
+- 想确认首局、前 10/30 分钟吸引力与持续游玩合同：先读产品承诺 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，再读 `doc/game/gameplay/gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 与复跑边界由对应 PR、实际验证记录和 `doc/testing/evidence/` 的同候选样本确认。
 - 想确认“间接控制为什么仍然应该感觉像我在控制，而不是旁观 AI”：先读 `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`。
 - 想确认“成熟世界里小玩家/新玩家靠什么继续有独立价值，而不是只能投靠大组织”：先读 `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md`，再下钻 `doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md`。
-- 想确认当前试玩放行与发行口径：先读 `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前执行状态由 Git、PR 与实际 CI 记录 与同候选 evidence 确认，公开状态只看根 `README.md`。
+- 想确认当前试玩放行与发行口径：先读 `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前执行状态由 Git、PR、实际 CI 记录与同候选 evidence 确认，公开状态只看根 `README.md`。
 - 想跟进最近最活跃的经济/运营规则变化：先读 `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`，再按需进入对应 design / project / runbook。
 - 想确认制造、紧急保供和组织连续性的首版政策：从 [gameplay 入口](gameplay/README.md)进入各专题的唯一规则版本；配方、配给和处置参数不由 Runtime 或 Viewer 各自定义。
 
@@ -24,12 +24,12 @@
 - 文件级索引: `doc/game/prd.index.md`
 
 ## 入口分工
-- `README.md` 只承担 landing page 职责：帮助读者先决定去模块 PRD、文件级索引或少量仍承担专业合同的高频专题。
+- `README.md` 只作导航，帮助读者选择模块 PRD、文件级索引或少量仍承担专业合同的高频专题。
 - `prd.md` 是 game 的活跃玩法基线与路由根入口：它拥有 PRD-ID、专题范围、默认首读路径和当前状态指针；专题详细合同只在各自声明范围内优先。
 - GitHub Project task status 与 issue evidence comments 是执行状态、阻断与历史 trace 的唯一可变真值；文档只保留稳定规则、验收和可复跑证据。
 - `prd.index.md` 是精确检索索引，适合已经知道专题名或需要完整文件清单时使用，不适合作为第一次进入模块时的首读入口。
 - `gameplay/README.md` 是 `gameplay/` 热点子域 landing page，负责把玩法骨架、留存、agency、preview/beta gate 与 economy/claim 按问题分流。
-- 高频专题文档继续承担声明范围内的专业合同：`gameplay-top-level-design` 管核心玩法骨架与 `PRD-GAME-012` early-retention 合同，`gameplay-indirect-control-agency-contract` 管间接控制下的 agency 合同，`gameplay-agent-claim-economy-contract` 管近期高频经济规则。首局与持续游玩的产品承诺统一由产品分册承载，当前执行由 Git、PR 与实际 CI 记录 与对应 evidence 承载。
+- 高频专题文档继续承担声明范围内的专业合同：`gameplay-top-level-design` 管核心玩法骨架与 `PRD-GAME-012` early-retention 合同，`gameplay-indirect-control-agency-contract` 管间接控制下的 agency 合同，`gameplay-agent-claim-economy-contract` 管近期高频经济规则。首局与持续游玩的产品承诺统一由产品分册承载，当前执行由 Git、PR、实际 CI 记录与对应 evidence 承载。
 - `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md` 管 mature-world 小玩家的产品承诺；`gameplay-mature-world-progression-contract.prd.md` 管对应专业玩法合同。
 
 ## 活跃阅读面边界
@@ -50,7 +50,7 @@
 - 模块根入口：`README.md`、`prd.md`、`design.md`、`prd.index.md`。
 
 ## 高密度提示
-- 本页不维护容易漂移的文件数量快照；当前模块库存与热点子目录统一以 `./scripts/doc-inventory-report.sh` 为准。默认入口只负责把你送到 `gameplay/README.md`，不再尝试把 gameplay 长表直接摊平到模块首页。
+- 本页不维护容易漂移的文件数量快照；当前模块库存与热点子目录统一以 `./scripts/doc-inventory-report.sh` 为准。默认入口指向 `gameplay/README.md`，不在模块首页展开 gameplay 长表。
 - 需要完整活跃专题清单时，进入 `doc/game/prd.index.md`；需要 runbook、evidence、checklist 或跨角色执行留痕时，再按 `gameplay/` 中的补充文件精确进入。
 
 ## 共享约定
