@@ -13,7 +13,7 @@
 
 ## 2. 上游约束与相关角色
 
-产品 [SC-33](../../product/world-rules-core-gameplay/prd.md#sc-33)拥有完整适用条件及目标/当前边界；[外部性玩法合同](../../game/gameplay/gameplay-industrial-externality-contract.prd.md#2-玩家循环)拥有选择和机会成本；[M4 外部性 authority](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#工业外部性与-operational_mitigation-authority（target-only）)拥有局部事实、容量、评估及处置类别；runtime 拥有排序、身份、事务和恢复。工业工作图提供原 root/revision/work node，本文不另外生成一棵工作图。
+产品 [SC-33](../../product/world-rules-core-gameplay/prd.md#sc-33)拥有完整适用条件及目标/当前边界；[外部性玩法合同](../../game/gameplay/gameplay-industrial-externality-contract.prd.md#2-玩家循环)拥有选择和机会成本；[M4 外部性 authority](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#工业外部性与-operational_mitigation-authority（target-only）)拥有局部事实、容量、评估及处置类别；runtime 拥有排序、身份、事务和恢复。工业工作图提供原 root/revision/work node，本文不另建工作图。
 
 ### 2.1 需求承接与分配表
 
@@ -34,7 +34,7 @@
 
 ## 4. 边界与结构
 
-M4 产生有出处的 profile、局部 impact/mitigation 计算及支持的动作集合；调用者提交选择，runtime 进行当前状态重验并产生权威事件。M4 返回值在权限与资源检查完成前仍是待校验领域结果，不能自己扣容量、写生产余额或发区域奖励。遵循[共同权威规则](../design.md#runtime-gameplay-authority-designs)，评估绑定相同 canonical 输入、确切 module/profile 版本及有权来源的证据摘要；外部测量必须先通过合法来源写成可重放事实，不能在 sink guard 中按节点即时 HTTP、模型响应或客户端观测计算不同结果。
+M4 产生有出处的 profile、局部 impact/mitigation 计算及支持的动作集合；调用者提交选择，runtime 重验当前状态并产生权威事件。权限与资源检查完成前，M4 返回值仍是待校验领域结果，不能自己扣容量、写生产余额或发区域奖励。遵循[共同权威规则](../design.md#runtime-gameplay-authority-designs)，评估绑定相同 canonical 输入、确切 module/profile 版本及有权来源的证据摘要；外部测量必须先通过合法来源写成可重放事实，不能在 sink guard 中按节点即时 HTTP、模型响应或客户端观测计算不同结果。
 
 工作图拥有 root/revision/child 和存量节点；材料域拥有 quantity/quality/custody；生产域拥有 cycle/output；物流及终端域拥有在途、destination/recipient/admission/settlement。外部性只拥有局部义务、缓解容量及其处置引用。一个联合事务可以写多个独立领域事实，但不合并各领域的完成语义。
 
@@ -75,7 +75,7 @@ M4 产生有出处的 profile、局部 impact/mitigation 计算及支持的动�
 
 原工业提交接受新工作时，按[工作图](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-model)颁发 root/child 并在同一条件提交中写入外部性义务及必要 mitigation reservation。仅请求入队或只读评估不能占用容量；有界 pending/hold 必须由 profile 支持、可见、可恢复且具有到期/释放规则，不等于生产或处置完成。
 
-真正运行时，输入消费、生产阶段更新与适用缓解消费共享领域的合法原子边界。生产完成必须在同一权威事务里写一次 production result 和一次独立、相互引用的 externality disposition，以及相应容量变化。任何一项准备或检查失败，整组完成效果不发布；不允许先把产物记为完成，再异步补一个可能缺失的缓解 receipt。
+运行时，输入消费、生产阶段更新与适用缓解消费共享领域的合法原子边界。生产完成必须在同一权威事务里写一次 production result 和一次独立、相互引用的 externality disposition，以及相应容量变化。任何一项准备或检查失败，整组完成效果不发布；不允许先把产物记为完成，再异步补一个可能缺失的缓解 receipt。
 
 外部性 disposition 必须表达真实结果：`contained` 需要完整有效的缓解证据；`held_pending_disposition` 只证明有代价的受支持持有及保留义务，不表示 treatment/cleanup 完成。只有 profile 明确允许该持有结果且终端义务仍成立，生产结果才可以与其共同提交。profile 要求先完成 treatment 才能出产时，不能用 held 状态绕过该闸门。
 
@@ -107,7 +107,7 @@ M4 产生有出处的 profile、局部 impact/mitigation 计算及支持的动�
 | 解析 profile binding | 配方/工厂 registry → runtime/M4 | 精确版本到 `ExternalityBindingV1`，包括明确 legacy、declared 与 required-unavailable | 同快照解析；未知必需 facet 拒绝，不降为 legacy。 |
 | `preview_externality` | API/Viewer/Agent → 权威只读评估 | candidate/config 或原 ChildRef、选择参数、profile/authority；返回预览摘要、成本/范围/动作和 blocker | 不写世界；超时只表示查询未知；刷新不创建工作。 |
 | 接受/运行检查 | 原工业 action → runtime/M4 | 原请求摘要、ChildRef、相关 revisions、义务及容量需求 | 与工业接受和 sink 的条件提交整合；缺项/过期/范围冲突/容量不足拒绝。 |
-| `commit_externality_disposition` | M4 领域结果 + runtime → 工业/外部性状态及 journal | 原义务、唯一 transition、实际数量/成本、production/工作处置引用与后继义务 | 实际 producer 受检查，不能客户端提交一个“成功”直接落账；生产完成联合提交。 |
+| `commit_externality_disposition` | M4 领域结果 + runtime → 工业/外部性状态及 journal | 原义务、唯一 transition、实际数量/成本、production/工作处置引用与后继义务 | 实际 producer 须受检查，客户端不能提交一个“成功”就直接落账；生产完成联合提交。 |
 | `read_externality_operation` | 已提交状态/receipt → 授权读取者 | 原 root/revision/child、profile/authority、生产/外部性/终端各自结果和新鲜度 | 按当前读取权限重读；不补发执行；缺原件保持未知。 |
 
 错误类别至少为 `profile_required_unavailable`、`authority_unknown`、`authority_expired_or_revoked`、`scope_conflict`、`mitigation_capacity_unavailable`、`preview_stale`、`disposition_unsupported`、`obligation_conflict`、`identity_conflict`、`version_unsupported`、`outcome_unknown`。具体 resource unit、容量算法和支持的处置类型必须来自已批准 profile；未知规则明确拒绝，不能自动转环境模型。profile/证据/处置集合有版本化大小上限，超过上限整项拒绝，不能遗漏部分 obligation 后继续运行。
@@ -122,7 +122,7 @@ Viewer、pure API 与 Agent 读取同一 root/revision 和来源快照，分别�
 <a id="externality-recovery"></a>
 ### 7.1 事务、重放和恢复边界
 
-接受、生产完成和后续处置可以是不同事务；每个事务共同验证原工作节点 revision、profile/authority/capacity、义务状态及领域资源，并原子写入自己的工作状态、容量变化、去重结果和 receipt。生产完成那一笔事务额外共同提交独立 production 与 externality result。事务准备不改变已发布状态，journal 提交失败不保留半组结果。顺序读取后一项失败时不允许只撤销一部分经济效果。
+接受、生产完成和后续处置可以是不同事务；每个事务共同验证原工作节点 revision、profile/authority/capacity、义务状态及领域资源，并原子写入自己的工作状态、容量变化、去重结果和 receipt。生产完成事务还须共同提交独立 production 与 externality result。事务准备不改变已发布状态，journal 提交失败不保留半组结果。顺序读取后一项失败时不允许只撤销一部分经济效果。
 
 相同 semantic effect key 同内容返回原记录；同键不同数量、profile 或目的地冲突。缓解占用分配共享一个当前容量账本；多个 operation 竞争时按权威提交序及原资源分配规则处理，不能各自用同一预览余额透支，也不在此新增公平或优先政策。
 
@@ -166,8 +166,8 @@ snapshot+journal 同时保留 profile binding、全部被引用 profile 版本�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [可选外部性 profile 与 legacy 边界](../../product/world-rules-core-gameplay/prd.md#root-sc33-extscope)；Trace refs: O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244 | [Profile与授权模型](#externality-profile) | 显式启用、scope/authority fail-closed、局部授权及 legacy 隔离。 | `EXT-VERIFY-001`；SC-33 required 固定 candidate/profile 与各入口同源观察。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实 profile/submit、前后摘要及各消费者证据。 | 不证明污染/区域模拟、治理资格或 release readiness。 |
-| [外部性处置与其他事实隔离](../../product/world-rules-core-gameplay/prd.md#root-sc33-extdispose)；Trace refs: O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3 | [联合结果及处置协议](#externality-commit) | preview/fresh submit、分层单次结果、旧工作与其他事实守恒。 | `EXT-VERIFY-001`、`002`、`003`；原 required 的故障/恢复/重复/parity，全保留根 SC 的条件。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的工作图、容量及各域 receipt 对账和实际 CI。 | 本文未运行验收；普通工业测试不代签新增 facet，单节点不代签长时/区域影响。 |
+| [可选外部性 profile 与 legacy 边界](../../product/world-rules-core-gameplay/prd.md#root-sc33-extscope)；Trace refs: O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244 | [Profile与授权模型](#externality-profile) | 显式启用、scope/authority fail-closed、局部授权及 legacy 隔离。 | `EXT-VERIFY-001`；SC-33 required 固定 candidate/profile 与各入口同源观察；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实 profile/submit、前后摘要及各消费者证据。 | 不证明污染/区域模拟、治理资格或 release readiness。 |
+| [外部性处置与其他事实隔离](../../product/world-rules-core-gameplay/prd.md#root-sc33-extdispose)；Trace refs: O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3 | [联合结果及处置协议](#externality-commit) | preview/fresh submit、分层单次结果、旧工作与其他事实守恒。 | `EXT-VERIFY-001`、`002`、`003`；原 required 的故障/恢复/重复/parity，完整保留根 SC 的条件；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的工作图、容量及各域 receipt 对账和实际 CI。 | 本文未运行验收；普通工业测试不代签新增 facet，单节点不代签长时/区域影响。 |
 
 ## 12. 决策、长期风险与未决问题
 

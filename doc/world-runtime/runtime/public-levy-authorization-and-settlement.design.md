@@ -7,7 +7,7 @@
 
 ## 1. 问题、目标与非目标
 
-当前物流服务有真实的报价、托管和费用分配，但一次服务收费不能证明公共征收具备 charter 预授权、目的与受益范围、预算上限、期限和公开复核。目标是把这些条件变成同一权威提交点的合取判定，并使每笔来源、支出、剩余资金和失效处置可以对账。
+当前物流服务有真实的报价、托管和费用分配，但一次服务收费不能证明公共征收具备 charter 预授权、目的与受益范围、预算上限、期限和公开复核。目标是把这些条件变成同一权威提交点的合取判定，并使每笔来源、支出、剩余资金和失效处置可对账。
 
 成功意味着合法征收只产生一次可核对结果；缺失、失效、越界或未知授权不会产生扣费、欠费、资格改变或通行限制；网络恢复只能核对原请求。本文不选择费率、预算数值、征收周期、纳费主体算法或新税制，也不把 levy 变成一般世界资格、加入组织或独立成长的前置条件。
 
@@ -32,13 +32,13 @@
 | 治理与公共征收 | [治理事件准备](../../../crates/oasis7_world_state/src/world/governance_meta_publication.rs)承接普通治理事实；不是本文的 levy 权限、预算及复核合取执行器。 | 新增本专题的领域记录和提交消费者，不能只增加展示字段。 |
 | 账目与恢复 | [持久化入口](../../../crates/oasis7_runtime/src/world/persistence.rs)提供现有恢复基础；没有据此取得 levy 专用账本和单次结算的证据。 | 接入同一持久化边界并完成专用恢复与对账验证。 |
 
-上述仅为固定版本静态审读。目标模型和验证计划不改变产品的当前实现结论，不推断未提供的外部 WASM 或线上配置。
+上述结论仅来自固定版本的静态审读。目标模型和验证计划不改变产品的当前实现结论，不推断未提供的外部 WASM 或线上配置。
 
 ## 4. 边界与结构
 
-`CharterAuthorityRef` 只证明指定 charter revision 的能力范围与当前有效性；charter 处于有效状态本身不授权征费。引用必须保留其 `world_id + module_instance_id + charter_id` 全限定身份和相应 revision，不能跨治理实例按同名 charter 解析。独立的 `LevyAuthorityV1` 消费该引用并拥有公共品、用途、受益/适用主体、上限、时界、账目及复核规则。两个 authority 必须同时有效。
+`CharterAuthorityRef` 只证明指定 charter revision 的能力范围与当前有效性；charter 有效本身不授权征费。引用必须保留其 `world_id + module_instance_id + charter_id` 全限定身份和相应 revision，不能跨治理实例按同名 charter 解析。独立的 `LevyAuthorityV1` 消费该引用并拥有公共品、用途、受益/适用主体、上限、时界、账目及复核规则。两个 authority 必须同时有效。
 
-评估器只读当前权威状态。结算器只能写筹资账本与匹配资金账户，不拥有身份、通行或治理资格的写权限。支出消费者只消费合法资金和独立的用途/预算授权，不能因账户已有余额就获得任意支出权。Viewer、Agent、WASM 提案和运营工具不能直接改余额、应付义务或结算结果。
+评估器只读当前权威状态。结算器只能写筹资账本与匹配资金账户，不拥有身份、通行或治理资格的写权限。支出消费者只消费合法资金及独立的用途/预算授权，不能因账户已有余额就获得任意支出权。Viewer、Agent、WASM 提案和运营工具不能直接改余额、应付义务或结算结果。
 
 ## 5. 关键运行流程
 
@@ -62,7 +62,7 @@
 
 每个资源的余额满足“期初资金 + 已结算流入 − 已结算支出 − 已结算退回 = 当前实际余额”；可用额再减去尚未终止的合法支出占用。未完成支出从预留转为支出时同一原子更新只计一次。征收上限、支出预算和账户实际余额分别检查：有余额不等于有支出授权，有预算也不代表已筹到资金。
 
-支出请求必须绑定已批准用途、受益范围、预算行、收款方/交付义务及来源账户。支付、保留、释放和最终结算遵循所消费领域的原合同；不把“计划支出”算作付款，不把物流到达当作最终用途结算。征收授权不自动批准新补贴、额外补偿或范围外转账。没有适用支出消费者时允许公开显示有界余额及阻塞原因，不对外声称项目已产生效果。
+支出请求必须绑定已批准用途、受益范围、预算行、收款方/交付义务及来源账户。支付、保留、释放和最终结算遵循所消费领域的原合同；不把“计划支出”算作付款，不把物流到达当作最终用途结算。征收授权不自动批准新补贴、额外补偿或范围外转账。没有适用支出消费者时，可公开显示有界余额及阻塞原因，不对外声称项目已产生效果。
 
 公开读面可从相同账本重建总来源、支出、剩余、占用与失效处置，逐笔关联必要的目的、授权和 receipt。公开信息仅包含核对所需内容；完整付款身份、原始资格证据按原读取权限保护，公开摘要保留可验证的明细承诺，不能只提供无法对账的累计数字。
 
@@ -84,7 +84,7 @@
 
 ## 6. 接口与数据合同
 
-下列是必须保留的逻辑数据关系；`V1` 是目标模型版本，不宣称已有 wire 类型。具体编码可复用现有命令/事件封套，不能删去这些身份、谓词或资源边界。
+以下逻辑数据关系必须保留；`V1` 是目标模型版本，不宣称已有 wire 类型。具体编码可复用现有命令/事件封套，不能删去这些身份、谓词或资源边界。
 
 `levy_id`、专项授权和征收依据均在 `world_id + authority_module_instance_id` 的完整命名空间中分配；后续简称指这份全限定身份。治理实例重建或 charter 换版不能让旧义务在另一个同名实例再次结算，跨实例交接必须显式保留原义务与来源索引。
 
@@ -153,10 +153,10 @@ snapshot 和 journal 在同一一致性边界保存授权/撤销、评估引用�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [REQ-WR-GR-008](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-008)；Trace refs: O7-REQ-17536c7e-c59a-464a-90e8-c36f0330c8f7 | [授权与提交](#levy-authority) | 授权合取、公开账目及合法失效处置。 | `LEVY-VERIFY-001`、`002`、`003`；固定 candidate 的 required 域回归及原 full 组合。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的状态差分、分录/receipt、实际 CI 和授权读面。 | 本文无运行证据，不证明具体税率/预算政策。 |
-| [AC-WR-GR-008](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-008)；Trace refs: O7-REQ-17536c7e-c59a-464a-90e8-c36f0330c8f7 | [原子性与单次义务](#levy-transaction) | 无效无效果、有效一次、可区分费用与替代。 | `LEVY-VERIFY-001`、`002`、`003`；拒绝/并发/重连及费用对照。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 同候选原件与全量有关账户对账，真实消费者观察。 | 单元回归不代签正式玩家入口或跨节点。 |
-| [REQ-WR-MW-003](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-003)；Trace refs: O7-REQ-7e2cd84b-9145-4e2f-b3c2-f9c451cec6c5 | [费用与恢复读面](#levy-read-model) | 筹资可读且不成为独立、通行或恢复门槛。 | `LEVY-VERIFY-001`、`003`；原 MW-003 required 范围与适用 surface。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的失败无效果、独立路线和状态读面证据。 | 不证明其余成熟世界成长/认可要求。 |
-| [AC-WR-MW-003](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-003)；Trace refs: O7-REQ-7e2cd84b-9145-4e2f-b3c2-f9c451cec6c5 | [失效与关闭恢复](#levy-expiry-recovery) | 缺项、失效和撤销不续费、欠费或改变资格。 | `LEVY-VERIFY-001`、`003`；固定授权版本、边界时刻与恢复记录。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的原请求结果、资金和资格差分。 | 文档检查不证明实现或发布。 |
+| [REQ-WR-GR-008](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-008)；Trace refs: O7-REQ-17536c7e-c59a-464a-90e8-c36f0330c8f7 | [授权与提交](#levy-authority) | 授权合取、公开账目及合法失效处置。 | `LEVY-VERIFY-001`、`002`、`003`；固定 candidate 的 required 域回归及原 full 组合；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的状态差分、分录/receipt、实际 CI 和授权读面。 | 本文无运行证据，不证明具体税率/预算政策。 |
+| [AC-WR-GR-008](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-008)；Trace refs: O7-REQ-17536c7e-c59a-464a-90e8-c36f0330c8f7 | [原子性与单次义务](#levy-transaction) | 无效无效果、有效一次、可区分费用与替代。 | `LEVY-VERIFY-001`、`002`、`003`；拒绝/并发/重连及费用对照；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 同候选原件与全量有关账户对账，真实消费者观察。 | 单元回归不代签正式玩家入口或跨节点。 |
+| [REQ-WR-MW-003](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-003)；Trace refs: O7-REQ-7e2cd84b-9145-4e2f-b3c2-f9c451cec6c5 | [费用与恢复读面](#levy-read-model) | 筹资可读且不成为独立、通行或恢复门槛。 | `LEVY-VERIFY-001`、`003`；原 MW-003 required 范围与适用 surface；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的失败无效果、独立路线和状态读面证据。 | 不证明其余成熟世界成长/认可要求。 |
+| [AC-WR-MW-003](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-003)；Trace refs: O7-REQ-7e2cd84b-9145-4e2f-b3c2-f9c451cec6c5 | [失效与关闭恢复](#levy-expiry-recovery) | 缺项、失效和撤销不续费、欠费或改变资格。 | `LEVY-VERIFY-001`、`003`；固定授权版本、边界时刻与恢复记录；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的原请求结果、资金和资格差分。 | 文档检查不证明实现或发布。 |
 
 ## 12. 决策、长期风险与未决问题
 
