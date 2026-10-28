@@ -484,3 +484,13 @@ locator 校验和与 ValueRoot 在这里只认证物理重建结构，不能直�
 对象 metadata workspace 为 64 KiB，句柄保留 4 KiB 元数据准入，页/codec/输出沿用共享池和阶段计费。逻辑树与物理文件分别消耗显式操作额度，取消和恢复读取沿用原总额内 reserve；完整原摘要只能在第一次导入或实际读取完整原件时计算，不用 locator 代替原摘要认证。`persist_history_material` 逐件承接 `HeaderPreparation` 产物的事实集合、TransitionRecord、segment/prefix、可选 checkpoint 与 body，并核对其相互内容 ID；不构造全历史包。它返回内容 ID，不返回接受/完整闭包回执；RootSet、状态页、事实内容、执行工件与原证书仍由所属消费者提供并认证。
 
 组件验收命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store:: -- --test-threads=1`。覆盖实际 header producer、超过单页的完整 FactSet 原 bytes/ID、locator 被替换但校验和有效的拒绝、空值/精确长度、共享预算及持有者计费、三窗口原对象发布进程 kill 和原身份续做。超 64 MiB 重复工件组在 8 MiB 总 reservation、3 MiB 恢复预留下完成真实页存储导入与流式读回，整对象 owned 读取被内存准入拒绝；它只证明该重复 fixture 的有界路径，不代签随机数据容量、RSS、设备 IO、满盘、断电、世界恢复或真实故障域。
+
+### 12.9 状态事务与目录的物理页接线
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 的固定父视图、§5.2 的非空后缀与 §8.2 的共享计费。`StatePageSession` 把 `ExecutionTransaction`、`TransitionVerifier` 和 `CommitCatalog` 接到同一 `IncrementalPageStore`，返回仍持有原 reservation 的 `ChargedMerklePage`。共享 `MerkleNodeReader` 使用 `AsRef<[u8]>` 载体，遍历在借用 bytes 时完成长度/hash/深度检查和解码；不为了适配源而拆掉 charge 或复制完整节点，pending 编码页也直接借用解码。旧 business adapter 保留 Vec 接口与原 codec，全部 canonical 身份不变。
+
+producer 在分配前核对具体 source 的预算池身份，拒绝用另一个池准备事务、验证 transition、扩展目录或构造目录证明；旧 source 仍按其原 caller-owned workspace 合同处理。会话先申请 4 KiB 元数据额度，物理页和 decoded carrier 仍按 §12.7 申请同池额度；读者保留载体时 charge 不能提前归还。状态和目录的最终新节点集合逐页转交，每次仅申请一个有界 transfer buffer，不复制整个 write-set；原 producer 的集合 charge 一直由其持有。普通与恢复会话显式选择同一总池中的 class，恢复页安装及所选表示的重读/sync 也使用该 class，不借普通额度挤占恢复预留。该 class 只决定资源准入，不授予恢复或 writer 权限。
+
+共享 Merkle 层原有 String 错误合同保持；会话另保留首次原 `PageStoreError`，消费者在失败路径直接取得其 typed 原因，不从报错文本推断 Missing、损坏、额度或取消。缺少实际引用页返回错误；业务 absent 只来自经过验证的空路径。执行 read 错误仍按 §12.5 poison 原事务，错误后解除资源压力或取消标记不能使其 seal。会话不选择 head，不以页已发布或差量根相等替代原 authority、owner/域/代资格及完整闭包。
+
+组件验收命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store::state::tests -- --test-threads=1`。覆盖真实页上的 put/delete、重开后读取、从落盘原 TransitionRecord 重建 C<T 非空后缀（独立重放池只装 C 的状态页，不读取 T 的状态页），然后以完全相同读写产生一致记录和最终节点；另验证目录落盘重开后的 height/commit 证明、缺页/资源/取消后不输出可 seal 事务、载体保留计费，以及普通额度耗尽时的恢复原页安装。这是通用状态/目录组件的实际文件系统路径；fixture 的合成 parent 身份、原件与状态引用不构成原提交资格，不代签 Runtime 全字段、J1/J2、外部效果、完整工件恢复、世界发布、复制、GC 或规模性能验收。

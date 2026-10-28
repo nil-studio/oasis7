@@ -125,6 +125,15 @@ pub(super) fn validate_store(root: &Path) -> Result<()> {
     }
     Ok(())
 }
+pub(super) fn validate_store_io(
+    root: &Path,
+    io: &mut PageIoBudget,
+    cancelled: &AtomicBool,
+) -> Result<()> {
+    check_cancelled(cancelled)?;
+    io.read(FORMAT.len())?;
+    validate_store(root)
+}
 pub(super) fn open_store(root: &Path) -> Result<File> {
     validate_store(root)?;
     let file = open_regular(&root.join("lease"))?;

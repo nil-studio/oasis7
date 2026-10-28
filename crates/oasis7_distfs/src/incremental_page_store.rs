@@ -24,6 +24,8 @@ mod files;
 pub mod objects;
 #[path = "incremental_page_store_recipe.rs"]
 mod recipe;
+#[path = "incremental_state_store.rs"]
+pub mod state;
 
 const FORMAT: &[u8] = b"oasis7.iws.physical-pages.v1\n";
 const RAW_WORKSPACE: usize = 512 * 1024;
@@ -146,6 +148,16 @@ impl IncrementalPageStore {
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<()> {
+        self.put_page_class(id, bytes, MemoryClass::Ordinary, io, cancelled)
+    }
+    fn put_page_class(
+        &self,
+        id: [u8; 32],
+        bytes: &ReservedValue<Vec<u8>>,
+        class: MemoryClass,
+        io: &mut PageIoBudget,
+        cancelled: &AtomicBool,
+    ) -> Result<()> {
         check_cancelled(cancelled)?;
         if !bytes.uses_budget(&self.memory) || bytes.capacity() > bytes.reserved_bytes() {
             return Err(PageStoreError::Corrupt("unaccounted/cross-pool input"));
@@ -161,12 +173,12 @@ impl IncrementalPageStore {
                 PageCompression::Raw => RAW_WORKSPACE,
                 PageCompression::Zstd => ENCODE_WORKSPACE,
             },
-            MemoryClass::Ordinary,
+            class,
         )?;
-        files::validate_store(&self.root)?;
+        files::validate_store_io(&self.root, io, cancelled)?;
         files::validate_lease(&self.root, &self._lease)?;
         if files::exists(&self.root.join("recipes").join(hex::encode(id)))? {
-            return self.check_existing(&id, bytes, io, cancelled);
+            return self.check_existing(&id, bytes, class, io, cancelled);
         }
         let mut frames = Vec::with_capacity(recipe::MAX_FRAMES);
         for chunk in frame_codec::chunks(bytes) {
@@ -194,22 +206,17 @@ impl IncrementalPageStore {
             cancelled,
             false,
         )?;
-        self.check_existing(&id, bytes, io, cancelled)
+        self.check_existing(&id, bytes, class, io, cancelled)
     }
     fn check_existing(
         &self,
         id: &[u8; 32],
         bytes: &[u8],
+        class: MemoryClass,
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<()> {
-        let stored = self.read_page(
-            id,
-            VALUE_MAX_NODE_BYTES,
-            MemoryClass::Ordinary,
-            io,
-            cancelled,
-        )?;
+        let stored = self.read_page(id, VALUE_MAX_NODE_BYTES, class, io, cancelled)?;
         if stored.as_slice() != bytes {
             return Err(PageStoreError::Corrupt("immutable page differs"));
         }
@@ -240,7 +247,7 @@ impl IncrementalPageStore {
     ) -> Result<Arc<ReservedValue<Vec<u8>>>> {
         check_cancelled(cancelled)?;
         let _workspace = self.memory.reserve(DECODE_WORKSPACE, class)?;
-        files::validate_store(&self.root)?;
+        files::validate_store_io(&self.root, io, cancelled)?;
         files::validate_lease(&self.root, &self._lease)?;
         let path = self.root.join("recipes").join(hex::encode(id));
         let encoded = files::read(&path, recipe::MAX_RECIPE_BYTES, io, cancelled).map_err(

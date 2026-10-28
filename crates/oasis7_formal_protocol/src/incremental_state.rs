@@ -291,12 +291,23 @@ impl StateRootV1 {
             nodes: std::cell::RefCell<Vec<StateNodeWriteV1>>,
         }
         impl<R: MerkleNodeReader> MerkleNodeReader for Recording<'_, R> {
-            fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
+            type Node = R::Node;
+            fn allocation_budget(&self) -> Option<&oasis7_proto::memory_budget::MemoryBudget> {
+                self.reader.allocation_budget()
+            }
+            fn read_node(
+                &self,
+                digest: &str,
+                max_bytes: usize,
+            ) -> Result<Option<Self::Node>, String> {
                 let bytes = self.reader.read_node(digest, max_bytes)?;
                 if let Some(bytes) = &bytes {
+                    if bytes.as_ref().len() > max_bytes {
+                        return Err("state source byte bound".into());
+                    }
                     self.nodes.borrow_mut().push(StateNodeWriteV1 {
                         digest: digest.to_owned(),
-                        bytes: bytes.clone(),
+                        bytes: bytes.as_ref().to_vec(),
                     });
                 }
                 Ok(bytes)
@@ -328,6 +339,7 @@ impl StatePathV1 {
             next: std::cell::Cell<usize>,
         }
         impl MerkleNodeReader for Ordered<'_> {
+            type Node = Vec<u8>;
             fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
                 let next = self.next.get();
                 let node = self.nodes.get(next).ok_or("state proof path incomplete")?;

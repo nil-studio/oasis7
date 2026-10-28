@@ -148,9 +148,9 @@ fn value_tree_uses_real_durable_page_adapter_and_late_range_avoids_prefix_scan()
         .unwrap();
     assert_eq!(&output, &bytes[3 * 65536 - 6..3 * 65536 + 6]);
     let after = session.remaining_io().unwrap();
-    // Four logical nodes, each with one recipe and at most 17 CDC frames.
+    // Four logical nodes, each with a format read, one recipe and at most 17 CDC frames.
     // The byte bound additionally rejects reading the two earlier data pages.
-    assert!(before.reads_remaining - after.reads_remaining <= 4 * 18);
+    assert!(before.reads_remaining - after.reads_remaining <= 4 * 19);
     assert!(before.read_bytes_remaining - after.read_bytes_remaining < 2 * 65536 + 8192);
     assert!(
         session
@@ -376,6 +376,23 @@ fn memory_io_cancellation_and_live_reader_charges_are_enforced() {
             .is_ok()
     );
     drop(ordinary);
+    let recipe_bytes = fs::read(fixture.store().join("recipes").join(hex::encode(id))).unwrap();
+    let (_, frames) = recipe::decode(&id, &recipe_bytes).unwrap();
+    let mut excludes_format = physical_io();
+    excludes_format.reads_remaining = frames.len() as u64 + 1;
+    assert!(
+        matches!(
+            store.read_page(
+                &id,
+                VALUE_MAX_NODE_BYTES,
+                MemoryClass::Ordinary,
+                &mut excludes_format,
+                &cancelled
+            ),
+            Err(PageStoreError::ResourceLimited(_))
+        ),
+        "recipe/frame allowance alone must not cover the additional format read"
+    );
     none = physical_io();
     none.read_bytes_remaining = 0;
     assert!(matches!(

@@ -176,6 +176,7 @@ impl CatalogRootV1 {
         memory: &MemoryBudget,
         max_pending_bytes: usize,
     ) -> Result<ReservedValue<CatalogDeltaV1>, ExecutionError> {
+        crate::incremental_execution::validate_source_budget(source, memory)?;
         self.validate()?;
         body.validate()?;
         if body.catalog_before != *self {
@@ -275,21 +276,26 @@ impl CatalogRootV1 {
         source: &impl MerkleNodeReader,
         memory: &MemoryBudget,
     ) -> Result<ReservedValue<CatalogProofV1>, ExecutionError> {
+        crate::incremental_execution::validate_source_budget(source, memory)?;
         use std::cell::RefCell;
         struct Recording<'a, R> {
             source: &'a R,
             nodes: RefCell<Vec<CatalogNodeWriteV1>>,
         }
         impl<R: MerkleNodeReader> MerkleNodeReader for Recording<'_, R> {
-            fn read_node(&self, digest: &str, max: usize) -> Result<Option<Vec<u8>>, String> {
+            type Node = R::Node;
+            fn allocation_budget(&self) -> Option<&MemoryBudget> {
+                self.source.allocation_budget()
+            }
+            fn read_node(&self, digest: &str, max: usize) -> Result<Option<Self::Node>, String> {
                 let bytes = self.source.read_node(digest, max)?;
                 if let Some(bytes) = &bytes {
-                    if bytes.len() > max {
+                    if bytes.as_ref().len() > max {
                         return Err("catalog source byte bound".into());
                     }
                     self.nodes.borrow_mut().push(CatalogNodeWriteV1 {
                         digest: digest.into(),
-                        bytes: bytes.clone(),
+                        bytes: bytes.as_ref().to_vec(),
                     });
                 }
                 Ok(bytes)
@@ -444,6 +450,7 @@ impl CatalogProofV1 {
             next: Cell<usize>,
         }
         impl MerkleNodeReader for Ordered<'_> {
+            type Node = Vec<u8>;
             fn read_node(&self, digest: &str, max: usize) -> Result<Option<Vec<u8>>, String> {
                 let next = self.next.get();
                 let node = self.nodes.get(next).ok_or("catalog proof incomplete")?;

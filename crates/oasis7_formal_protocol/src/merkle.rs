@@ -25,7 +25,15 @@ pub(crate) trait Codec {
 /// Sources must reserve and bound allocation before loading canonical bytes.
 /// Every read is also checked against the bound and its content digest here.
 pub trait MerkleNodeReader {
-    fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Vec<u8>>, String>;
+    /// The carrier can keep a reservation/reader lease alive through decoding.
+    /// Legacy adapters may continue returning their original owned Vec.
+    type Node: AsRef<[u8]>;
+    /// Concrete IWS stores expose their exact pool for producer admission.
+    /// Legacy sources retain their caller-owned workspace contract.
+    fn allocation_budget(&self) -> Option<&oasis7_proto::memory_budget::MemoryBudget> {
+        None
+    }
+    fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Self::Node>, String>;
 }
 
 pub(crate) struct Updater<'a, C: Codec, R> {
@@ -62,8 +70,8 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         if digest == self.empty[depth] {
             return Ok(None);
         }
-        let bytes = if let Some(bytes) = self.pending.get(digest) {
-            bytes.clone()
+        if let Some(bytes) = self.pending.get(digest) {
+            Self::decode(bytes, digest, depth)
         } else {
             let bytes = self
                 .reader
@@ -74,15 +82,18 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             {
                 parent.insert(digest.to_owned());
             }
-            bytes
-        };
+            Self::decode(bytes.as_ref(), digest, depth)
+        }
+    }
+
+    fn decode(bytes: &[u8], digest: &str, depth: usize) -> Result<Option<Node<C::Leaf>>, String> {
         if bytes.len() > C::MAX_NODE_BYTES {
             return Err("Merkle source node byte bound".into());
         }
-        if blake3::hash(&bytes).to_hex().as_str() != digest {
+        if blake3::hash(bytes).to_hex().as_str() != digest {
             return Err("Merkle node content hash mismatch".into());
         }
-        let node = C::decode(&bytes)?;
+        let node = C::decode(bytes)?;
         match &node {
             Node::Branch { depth: stored, .. } if *stored == depth && depth < DEPTH => {}
             Node::Leaf(_) if depth == DEPTH => {}

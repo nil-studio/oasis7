@@ -10,6 +10,7 @@ struct Pages {
     reads: Cell<usize>,
 }
 impl MerkleNodeReader for Pages {
+    type Node = Vec<u8>;
     fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
         self.reads.set(self.reads.get() + 1);
         let Some(bytes) = self.values.get(digest) else {

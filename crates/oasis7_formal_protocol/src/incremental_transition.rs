@@ -135,6 +135,7 @@ impl<R: MerkleNodeReader> TransitionVerifier<'_, R> {
         &self,
         record: &TransitionRecordV1,
     ) -> Result<ReservedValue<PreparedTransition>, ExecutionError> {
+        validate_source_budget(self.source, self.memory)?;
         record.validate()?;
         if record.before != self.parent.roots
             || record.parent_commit != self.parent.commit

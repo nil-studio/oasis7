@@ -586,6 +586,7 @@ fn lookup(
 // shared with the new mutable state format; its codec still emits v1 bytes.
 struct BusinessNodeSource<'a, R>(&'a R);
 impl<R: BusinessIndexNodeReader> crate::merkle::MerkleNodeReader for BusinessNodeSource<'_, R> {
+    type Node = Vec<u8>;
     fn read_node(&self, digest: &str, _max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
         self.0.read_node(digest)
     }

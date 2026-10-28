@@ -30,7 +30,7 @@ impl<'a> IncrementalObjectStore<'a> {
     ) -> Result<Self> {
         let _workspace = pages.memory.reserve(WORKSPACE, MemoryClass::Ordinary)?;
         check_cancelled(cancelled)?;
-        files::validate_store(&pages.root)?;
+        files::validate_store_io(&pages.root, io, cancelled)?;
         files::validate_lease(&pages.root, &pages._lease)?;
         files::create_directory(&pages.root.join("objects"))?;
         files::publish(
@@ -52,7 +52,7 @@ impl<'a> IncrementalObjectStore<'a> {
     ) -> Result<Self> {
         let charge = pages.memory.reserve(4096, class)?;
         check_cancelled(cancelled)?;
-        files::validate_store(&pages.root)?;
+        files::validate_store_io(&pages.root, io, cancelled)?;
         files::validate_lease(&pages.root, &pages._lease)?;
         files::directory(&pages.root.join("objects"))?;
         let capability = files::read(&pages.root.join("objects-format"), 64, io, cancelled)?;
@@ -240,7 +240,7 @@ impl IncrementalObjectStore<'_> {
         Ok(Arc::new(charge.retain(output)))
     }
     fn validate(&self, io: &mut ObjectIo<'_>) -> Result<()> {
-        files::validate_store(&self.pages.root)?;
+        files::validate_store_io(&self.pages.root, io.physical, io.cancelled)?;
         files::validate_lease(&self.pages.root, &self.pages._lease)?;
         files::directory(&self.pages.root.join("objects"))?;
         if files::read(

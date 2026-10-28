@@ -9,6 +9,7 @@ struct Pages {
     reads: Cell<usize>,
 }
 impl MerkleNodeReader for Pages {
+    type Node = Vec<u8>;
     fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
         self.reads.set(self.reads.get() + 1);
         let Some(page) = self.nodes.get(digest) else {
@@ -657,6 +658,7 @@ fn missing_parent_page_and_memory_failure_also_prevent_partial_seal() {
 fn caught_reader_panic_cannot_reenable_partial_seal() {
     struct Panics;
     impl MerkleNodeReader for Panics {
+        type Node = Vec<u8>;
         fn read_node(&self, _digest: &str, _max_bytes: usize) -> Result<Option<Vec<u8>>, String> {
             panic!("injected reader panic")
         }

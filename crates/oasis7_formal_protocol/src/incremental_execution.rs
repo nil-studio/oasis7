@@ -64,6 +64,19 @@ impl From<MemoryLimitExceeded> for ExecutionError {
     }
 }
 
+pub(crate) fn validate_source_budget(
+    source: &impl MerkleNodeReader,
+    memory: &MemoryBudget,
+) -> Result<(), ExecutionError> {
+    if source
+        .allocation_budget()
+        .is_some_and(|source| !source.same_pool(memory))
+    {
+        return Err(ExecutionError::Invalid("Merkle source memory pool"));
+    }
+    Ok(())
+}
+
 /// An exact binding supplied by the original authority adapter. Possessing
 /// these bytes alone does not prove writer qualification or grant a new epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

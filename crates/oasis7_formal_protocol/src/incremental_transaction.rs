@@ -59,6 +59,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         memory: &'a MemoryBudget,
         limits: TransactionLimits,
     ) -> Result<Self, ExecutionError> {
+        validate_source_budget(source, memory)?;
         if limits.max_reads > EXECUTION_MAX_READS
             || limits.max_writes > EXECUTION_MAX_WRITES
             || limits.max_facts > EXECUTION_MAX_FACTS
