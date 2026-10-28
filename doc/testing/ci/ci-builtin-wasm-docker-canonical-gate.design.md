@@ -4,7 +4,7 @@
 - 可变任务状态与历史: PR、实际 CI 与评审记录（Issue 按需）
 
 ## 1. 设计定位
-定义 CI 与测试门禁专题设计，统一流水线分层、门禁策略、产物校验与失败保护。
+本设计统一 CI 与测试门禁的流水线分层、门禁策略、产物校验与失败保护。
 
 ### 1.1 目标与范围
 
@@ -34,7 +34,9 @@
 
 ## 6. 决策与风险
 
-沿用配对 PRD 的 DEC-WASMHARD-001～003：单 canonical token、独立 `wasm-determinism-gate` 入口，以及 Linux 默认执行、macOS 外部跨宿主产物证据。主要风险是文档 scope 与实际 planner、required-check 保护或证据范围发生漂移；对应选中任务必须真实成功，保护仍须按实际 GitHub 配置核实，跨宿主结论仍需真实 Docker-capable macOS summary 与 Linux 对账。本次文档校正不证明这些运行与配置验证已经完成。
+沿用配对 PRD 的 DEC-WASMHARD-001～003：单 canonical token、独立 `wasm-determinism-gate` 入口，以及 Linux 默认执行、macOS 外部跨宿主产物证据。
+
+主要风险是文档 scope 与实际 planner、required-check 保护或证据范围发生漂移；对应选中任务必须真实成功，保护仍须按实际 GitHub 配置核实，跨宿主结论仍需真实 Docker-capable macOS summary 与 Linux 对账。本次文档校正不证明这些运行与配置验证已经完成。
 
 ## 2. 需求与验证关系
 

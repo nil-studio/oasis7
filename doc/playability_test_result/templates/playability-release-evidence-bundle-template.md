@@ -4,7 +4,7 @@
 
 ## 目的
 - 为 `TASK-PLAYABILITY_TEST_RESULT-004` 提供可直接接入发布门禁的可玩性证据包格式。
-- 对齐 `doc/testing/templates/release-evidence-bundle-template.md`，让可玩性证据可以直接进入阶段收口 go/no-go 评审。
+- 对齐 `doc/testing/templates/release-evidence-bundle-template.md`，使可玩性证据可直接用于阶段收口 go/no-go 评审。
 
 ## 使用说明
 - 每个版本候选至少提交 1 份可玩性证据包。
@@ -28,7 +28,9 @@
 
 ### 评分摘要
 
-严格引用[卡片唯一评分合同](../playability_test_card.md#feedback-score-contract)，不要在证据包另定义公式。记录评分规则版本/修订、候选/模式/场景与来源分组、完整已评卡数、未知/排除卡数及原因；保留每张原始值，再展示同组描述性均值。只对完整卡片求均值不表示缺失卡片已通过，历史卡和人测/AI 来源分开。按未舍入值判档；总评、附加阻断、玩家杠杆和最终发布结论分别填写。
+严格引用[卡片唯一评分合同](../playability_test_card.md#feedback-score-contract)，不要在证据包另定义公式。记录评分规则版本/修订、候选/模式/场景与来源分组、完整已评卡数、未知/排除卡数及原因；保留每张原始值，再展示同组描述性均值。
+
+只对完整卡片求均值不表示缺失卡片已通过，历史卡和人测/AI 来源分开。按未舍入值判档；总评、附加阻断、玩家杠杆和最终发布结论分别填写。
 
 | 维度 | 分数 | 说明 |
 | --- | --- | --- |

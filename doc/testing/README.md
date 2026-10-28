@@ -3,15 +3,15 @@
 审计轮次: 10
 
 ## 从这里开始
-- 想先理解 testing 模块覆盖哪些测试层级、门禁和证据边界：`doc/testing/prd.md`
-- 想判断好玩性证据、`L4A/L4B/L5` 边界、角色 subagent review 或 simulated player persona 的 canonical topic：`doc/testing/governance/README.md`
-- 想在一个 worktree 里准备 `L4A + L4B` 验证：先经 `doc/testing/governance/README.md` 确认所需证据层，再读 [L4 工具链合同与验收](../../testing-manual.md#l4-toolchain-validation)。`./scripts/prepare-playability-l4-review.sh` 只生成 scaffold；L4B 还需实际 release/UI、Hosted 执行会话与当前尝试证据，旧 runner 的实现差距见总手册 L4B 章节。
-- 想执行 Web UI、Playwright、public-testnet attach 或模型视觉评审手册：先读 `doc/testing/manual/README.md`，再按问题进入对应 manual。
-- 想看当前测试策略、覆盖缺口与 QA 证据边界：`doc/testing/prd.md`；可变任务状态和历史以 PR、实际 CI 与评审记录（Issue 按需） 为准。
-- 想先判断要跑哪套测试或查操作步骤：先读 `testing-manual.md`；涉及专项操作再进入 `doc/testing/manual/README.md`。
-- 想先进入 `evidence` 热点子域，并按 release gate / hosted access / public-testnet readiness evidence / legacy p2p rehearsal / governance drill / claim-audit 问题分流：`doc/testing/evidence/README.md`
-- 想先确认云上测试/正式环境、hosted-login 服务清单与 testnet/mainnet 口径边界：`doc/engineering/governance/environment-lanes-and-inventory-2026-05-29.md`
-- 想按子域或文件名继续下钻，而不是从长表里逐行找：`doc/testing/prd.index.md`
+- 了解 testing 模块覆盖的测试层级、门禁和证据边界：`doc/testing/prd.md`
+- 查找好玩性证据、`L4A/L4B/L5` 边界、角色 subagent review 或 simulated player persona 的 canonical topic：`doc/testing/governance/README.md`
+- 在一个 worktree 中准备 `L4A + L4B` 验证：先经 `doc/testing/governance/README.md` 确认所需证据层，再读 [L4 工具链合同与验收](../../testing-manual.md#l4-toolchain-validation)。`./scripts/prepare-playability-l4-review.sh` 只生成 scaffold；L4B 还需实际 release/UI、Hosted 执行会话与当前尝试证据，旧 runner 的实现差距见总手册 L4B 章节。
+- 执行 Web UI、Playwright、public-testnet attach 或模型视觉评审手册：先读 `doc/testing/manual/README.md`，再按问题进入对应 manual。
+- 查看当前测试策略、覆盖缺口与 QA 证据边界：`doc/testing/prd.md`；可变任务状态和历史以 PR、实际 CI 与评审记录（Issue 按需）为准。
+- 选择测试套件或查操作步骤：先读 `testing-manual.md`；涉及专项操作再进入 `doc/testing/manual/README.md`。
+- 进入 `evidence` 热点子域，按 release gate / hosted access / public-testnet readiness evidence / legacy p2p rehearsal / governance drill / claim-audit 问题分流：`doc/testing/evidence/README.md`
+- 确认云上测试/正式环境、hosted-login 服务清单与 testnet/mainnet 口径边界：`doc/engineering/governance/environment-lanes-and-inventory-2026-05-29.md`
+- 按子域或文件名继续检索，避免逐行查长表：`doc/testing/prd.index.md`
 
 ## 入口
 - PRD: `doc/testing/prd.md`
@@ -52,7 +52,7 @@
 - 本页不维护容易漂移的文件数量或状态快照；当前模块库存、热点子目录与 `action_required` 等治理状态统一以 `./scripts/doc-inventory-report.sh` 为准。`find` / `rg --files` 只可作为本地探索辅助，不能替代正式报告状态。
 - `evidence/` 已有 `doc/testing/evidence/README.md` 作为热点子域入口。
 - 子域数量只用于选择下一轮 focused follow-up；不要在本页扩展全量专题长表。
-- 需要完整活跃专题清单时，进入 `doc/testing/prd.index.md`；进入 `evidence/` 时，优先先读 `doc/testing/evidence/README.md` 再继续下钻；需要 template / blocker 留痕时，再按具体子域进入。
+- 需要完整活跃专题清单时，进入 `doc/testing/prd.index.md`；进入 `evidence/` 时，优先读 `doc/testing/evidence/README.md` 再继续下钻；需要 template / blocker 留痕时，再按具体子域进入。
 
 ## 共享约定
 - 模块根入口、专题落位与 README/legacy redirect 的共享规则统一以 `doc/engineering/doc-governance/doc-structure-standard.design.md` 为准。

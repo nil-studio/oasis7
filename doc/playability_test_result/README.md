@@ -9,11 +9,11 @@
 - 文件级索引: `doc/playability_test_result/prd.index.md`
 
 ## 从这里开始
-- 想先确认可玩性证据的字段、评分口径与发布引用边界：先读 `doc/playability_test_result/prd.md`。
-- 想看当前活跃任务或最近收口：读取 GitHub task issue evidence comments。
-- 想直接复用单次结果卡或人工执行说明：先读 `doc/playability_test_result/playability_test_card.md`；专题回归执行从 `doc/playability_test_result/topics/` 进入。
-- 想找专题回归卡组，而不是单次样本：进入 `doc/playability_test_result/topics/`，当前高频入口是 `industrial-onboarding-required-tier-cards-2026-03-15.md`。
-- 想追溯正式发布证据或跨模块引用样例：进入 `doc/playability_test_result/evidence/`。
+- 确认可玩性证据的字段、评分口径与发布引用边界：读 `doc/playability_test_result/prd.md`。
+- 查看当前活跃任务或最近收口：读 GitHub task issue evidence comments。
+- 复用单次结果卡或人工执行说明：先读 `doc/playability_test_result/playability_test_card.md`；专题回归执行从 `doc/playability_test_result/topics/` 进入。
+- 查找专题回归卡组而非单次样本：进入 `doc/playability_test_result/topics/`，当前高频入口是 `industrial-onboarding-required-tier-cards-2026-03-15.md`。
+- 追溯正式发布证据或跨模块引用样例：进入 `doc/playability_test_result/evidence/`。
 
 ## 模块职责
 - 维护可玩性反馈卡、评分口径、高优问题闭环与发布证据包格式。
@@ -43,4 +43,4 @@
 ## 维护约定
 - 可玩性模板、评分口径、专题卡组或发布引用格式变化时，需同步更新 `prd.md`、相关 evidence 文档与 GitHub task evidence。
 - 新增专题后，需同步回写 `doc/playability_test_result/prd.index.md` 与本目录索引。
-- README 优先服务证据消费者与追溯读者，不替代 `evidence/`、`topics/` 或 `prd.index.md` 的详细清单。
+- README 优先帮助读者使用和追溯证据，不替代 `evidence/`、`topics/` 或 `prd.index.md` 的详细清单。

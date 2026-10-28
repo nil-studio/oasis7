@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "2a5f97c5192a400f6ec60004597a3f5d52c1bd5b41a72a0b294dd9e7d63a07c1",
+    "content_sha256": "8c6a4886401cebcd5fd3565169b7760a7d37b0247e52a92eac21721c35e1501f",
     "current_authority": "doc/playability_test_result/prd.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",

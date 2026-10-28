@@ -17,7 +17,7 @@
 > onboarding, mainnet readiness, or production settlement.
 
 ## 1. Executive Summary
-- Problem Statement: 在原始 2026-03-24 基准窗口，oasis7 已有签名交易、生产 signer custody、治理 signer 外部化和创世 ceremony 的专题规格，也已开始治理 registry import/audit/runbook；团队仍缺一份能说明主流公链测试分层、该窗口覆盖到哪一层及剩余缺口的正式基准。若继续只用零散 required/full、长跑和 drill 结果沟通，很容易把“局部门禁已存在”误判成“整体测试体系已接近主流公链”。
+- Problem Statement: 在原始 2026-03-24 基准窗口，oasis7 已有签名交易、生产 signer custody、治理 signer 外部化和创世 ceremony 的专题规格，也已开始治理 registry import/audit/runbook；团队仍缺少说明主流公链测试分层、该窗口覆盖层级及剩余缺口的正式基准。若继续只用零散 required/full、长跑和 drill 结果沟通，很容易把“局部门禁已存在”误判成“整体测试体系已接近主流公链”。
 - Proposed Solution: 由 testing 专业域维护测试体系对标 PRD，把主流公链常见测试层拆成 `spec/reference -> deterministic/unit/integration -> distributed/multi-node -> ui/playability -> longrun/chaos/drill -> network rehearsal / release-train readiness` 六层，再把 oasis7 可追溯的命令、证据与缺口映射为带日期的 benchmark snapshot；producer 只据此决定后续 execution workstreams 的优先级，不由本 benchmark 维护当前网络状态或成熟度。
 - Success Criteria:
 <a id="bench-layer-model"></a>
@@ -36,7 +36,7 @@
 - User Personas:
   - `producer_system_designer`：需要知道 oasis7 的测试体系离主流公链还差哪些层，避免过早升级阶段口径。
   - `qa_engineer`：需要把“主流公链怎么测”翻译成 oasis7 的 `test_tier_required` / `test_tier_full` / S4 / S6 / S9 / S10 / governance drill 组合。
-  - `runtime_engineer`：需要知道 execution workstreams 需要补哪些类型的验证，而不只是继续加功能。
+  - `runtime_engineer`：需要知道 execution workstreams 应补哪些类型的验证，而不只是继续加功能。
   - `liveops_community`：需要知道对外为何仍不能说“对标主流公链安全/测试成熟度”。
 - User Scenarios & Frequency:
   - 每次有人提“现在是不是已经接近主流主链测试体系”时，先对照本专题。
@@ -69,7 +69,7 @@
   - AC-6: 本专题必须输出一份带日期的 `已有/部分具备/缺失/下一步` 矩阵，可供 producer 排序；动态 task 与网络状态不由此矩阵维护。
 <a id="bench-manual-entry"></a>
 
-  - AC-7: `testing-manual.md` 必须能找到本专题入口，避免测试分层与对标口径继续分离。
+  - AC-7: `testing-manual.md` 必须能找到本专题入口，避免测试分层与对标口径分离。
 - Non-Goals:
   - 不在本专题内直接实现 fuzz 框架、legacy shared_devnet rehearsal / formal test environment 或新的 chaos 平台。
   - 不用本 benchmark 升级任何当前 network tier、release 或 live-fleet verdict。

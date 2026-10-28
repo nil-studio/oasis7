@@ -7,7 +7,7 @@
 
 ### 目标与范围
 
-定义发布前真实玩家闭环测试设计，统一启动脚本、`agent-browser` 进入方式、卡片填写与证据沉淀路径。由测试编排者准备环境，实际玩家保持 PRD 的黑盒游玩限制；本设计不要求玩家阅读实现。
+本设计规范发布前真实玩家闭环测试，统一启动脚本、`agent-browser` 进入方式、卡片填写与证据沉淀路径。由测试编排者准备环境，实际玩家保持 PRD 的黑盒游玩限制；本设计不要求玩家阅读实现。
 
 ### 当前风险与未决
 
@@ -41,7 +41,9 @@
 
 ### 构建与入口
 
-默认 release 与正式 UI 组合；准备者记录实际候选、bundle 与构建身份，不能从 URL 的 `test_api=1` 推断测试构建。canonical `viewer` 与兼容 `software_safe` 均遵循 [Viewer entry compatibility](../world-simulator/viewer/viewer-web-entry-compatibility.design.md)：release 不安装 `__AW_TEST__`；需要该接口的受控回归必须显式选择隔离 visual-test 产物并启用测试参数。驱动与产物不匹配时先记录 capability blocker，不继续等待登录/玩法超时。
+默认 release 与正式 UI 组合；准备者记录实际候选、bundle 与构建身份，不能从 URL 的 `test_api=1` 推断测试构建。canonical `viewer` 与兼容 `software_safe` 均遵循 [Viewer entry compatibility](../world-simulator/viewer/viewer-web-entry-compatibility.design.md)：release 不安装 `__AW_TEST__`；需要该接口的受控回归必须显式选择隔离 visual-test 产物并启用测试参数。
+
+驱动与产物不匹配时先记录 capability blocker，不继续等待登录/玩法超时。
 
 worktree 回归用 `worktree-harness.sh url` 读取当次地址；producer 试玩使用其当次输出。不得复用固定端口、其他 worktree 或历史卡片的 URL。保留原有入口与锚点，纠正当前操作示例；历史测试卡仍是对应候选的历史证据。
 
@@ -51,7 +53,11 @@ worktree 回归用 `worktree-harness.sh url` 读取当次地址；producer 试�
 
 准备者创建/传递本次 owned session，登录、操作、录屏和状态核对使用同一实际 session。默认 Hosted clean guest 经正式 UI 登录/注册成为 authenticated；恢复路径也须核对 player 和 gameplay readiness。另一个 producer/headed session 已登录不放行当前会话。缺配置、登录失败、身份不一致分别记录停止原因；不自动签发 Hosted 身份，也不切换 trusted local 规避失败。
 
-准备命令结束不关闭待交接的 browser；显式传递实际 session ID，后续独立 shell 不重新生成会话。凭据输入期间暂停/不采集录屏和截图，脱敏后开始/恢复玩法采证，不把秘密写入日志或结果。结束、取消或阻断都先停录、保存已有证据和初步结果，再清理本次拥有的 browser/harness，并追加真实清理结果；不能以清理其他任务资源恢复本次测试。清理失败单独记录，不覆盖原停止原因。
+准备命令结束不关闭待交接的 browser；显式传递实际 session ID，后续独立 shell 不重新生成会话。
+
+凭据输入期间暂停/不采集录屏和截图，脱敏后开始/恢复玩法采证，不把秘密写入日志或结果。
+
+结束、取消或阻断都先停录、保存已有证据和初步结果，再清理本次拥有的 browser/harness，并追加真实清理结果；不能以清理其他任务资源恢复本次测试。清理失败单独记录，不覆盖原停止原因。
 
 <a id="game-test-evidence"></a>
 

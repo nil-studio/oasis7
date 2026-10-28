@@ -4,7 +4,7 @@
 
 ## 目标
 - 建立 playability_test_result 模块设计主文档，统一需求边界、技术方案与验收标准。
-- 确保 playability_test_result 模块后续改动可追溯到 PRD-ID、任务和测试。
+- 确保模块后续改动可追溯到 PRD-ID、任务和测试。
 
 ## 范围
 - 覆盖 playability_test_result 模块当前能力设计、接口边界、测试口径与演进路线。
@@ -27,7 +27,7 @@
 - 模块边界演进快，文档同步可能滞后。
 - 指标口径不稳定会降低验收一致性。
 ## 1. Executive Summary
-- Problem Statement: 可玩性反馈卡片与结论分散在历史记录中，缺乏统一结构来支撑版本比较、问题收口与发布决策。
+- Problem Statement: 可玩性反馈卡片与结论分散在历史记录中，缺乏支撑版本比较、问题收口与发布决策的统一结构。
 - Proposed Solution: 将 playability_test_result 模块定义为可玩性证据层，统一反馈数据结构、评分口径、缺陷闭环与发布引用规则。
 - Success Criteria:
   - SC-1: 每个发布候选版本至少生成 1 轮标准化反馈卡片集合。
@@ -68,7 +68,7 @@
 | 工业引导卡组 | 首个制成品、停机恢复、首座工厂单元、失败签名、证据路径 | 按场景卡选择手动回归链路 | `planned -> executed -> closed/blocked` | 影响首产出/停机/建厂体验时优先执行 | `qa_engineer` 维护，`producer_system_designer` 联审口径 |
 - Acceptance Criteria:
   - AC-1: PRD 明确卡片字段、评分口径、问题分级标准。
-- AC-2: PRD、模板与 evidence bundle 定义采集、汇总、复盘三类可重复任务。
+  - AC-2: PRD、模板与 evidence bundle 定义采集、汇总、复盘三类可重复任务。
   - AC-3: 与 `doc/playability_test_result/game-test.prd.md`、`testing-manual.md` 口径一致。
   - AC-4: 历史卡片可按版本进行检索与对比。
   - AC-5: 前期工业引导的 `首个制成品 / 停机恢复 / 首座工厂单元` 具备可重复执行的专题卡组与 required-tier 手动回归链路。

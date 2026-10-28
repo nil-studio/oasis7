@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "564c31cba6646f0f3179ff6fbc5cc41e35087be68d75df7a2405588cfac6ef2e",
+    "content_sha256": "d8c4a723928ec44b2951af99941b700086422191c3519d1b394479ce88452f8a",
     "current_authority": "doc/playability_test_result/prd.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_active_template",

@@ -21,7 +21,7 @@
 > `doc/p2p/blockchain/p2p-current-mainstream-public-chain-gap-benchmark-2026-07-03.md`.
 
 ## 设计目标
-- 把“主流公链怎么测”从泛泛经验，收成 oasis7 可执行的对标矩阵。
+- 将“主流公链怎么测”的经验整理为 oasis7 可执行的对标矩阵。
 - 明确当前已有测试层、关键缺口和 producer 下一步优先级。
 
 ### 2.1 需求承接与分配表
@@ -142,7 +142,7 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
 
 ## 决策、风险与结构边界
 
-本设计是文档对标结构，不引入 runtime 架构、协议、状态机或 API。六层模型对应资料结构，历史快照与 evidence 表对应判读流程，G1–G4 和 producer 顺序对应原有决策输入；不启动所列执行工作流。测试层 L4/L5 不等于 playability L4/L5。
+本设计组织测试对标资料，不引入 runtime 架构、协议、状态机或 API。六层模型对应资料结构，历史快照与 evidence 表对应判读流程，G1–G4 和 producer 顺序对应原有决策输入；不启动所列执行工作流。测试层 L4/L5 不等于 playability L4/L5。
 
 产品适用性：N/A；reason=分层字段、历史资料组织和内部排序本身不增加玩家承诺；scope=des-bench-layers、des-bench-snapshot、des-bench-g1-scope、des-bench-gaps 的专业资料维护。公开事实与分类边界分别由 des-bench-public-window / des-bench-public-categories 承接，不能以本 N/A 排除。
 
