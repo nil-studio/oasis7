@@ -126,8 +126,11 @@ def execute(args, env, closure, verify_library, database, texts, libp2p_root, wa
                 summary_remaining=max(0,summary_remaining-(time.monotonic()-started))
             if original_cap is not None:runtime.WRITE_CAP=original_cap
             if attempted and safe_boundary:
+                intermediate=name=="Files" and failure is None
+                phase["snapshot_budget"]="shared-query-window" if intermediate else "terminal-reserve"
+                phase["snapshot_deadline"]=end if intermediate else args.deadline-20
                 intact,detail=inventory.after_facts(database,db,baseline,out,"after-"+name,
-                    deadline=(end if name=="Files" and failure is None else args.deadline-20))
+                    deadline=phase["snapshot_deadline"])
                 phase["facts_after"]=detail
                 phase["facts_unchanged"]=intact
                 if not intact:
