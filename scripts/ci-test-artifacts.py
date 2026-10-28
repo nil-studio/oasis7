@@ -117,8 +117,11 @@ def build_variants(scope):
     if scope == 'ordinary':
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage'):
-        # Keep test checks while avoiding debug-code cost in multi-hour workloads.
-        # Release endpoint policy is independent and remains unchanged.
+        # Keep both core libraries and the exact Chain binary harness. Chain
+        # configuration library tests belong to the ordinary required variant;
+        # integration tests, viewer executables and snapshot variants run elsewhere.
+        # The CI-only marker reproduces shared dependency features from all
+        # required roots without compiling their unrelated harnesses.
         features = ['test_tier_required', 'ci_formal_required_features']
         core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
