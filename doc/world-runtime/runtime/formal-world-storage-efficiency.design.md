@@ -40,6 +40,8 @@
 
 本专题直接承接产品要求，不使用产品 N/A。既有 storage 的 profile、热窗、generation 原子性和本地诊断仍适用；其历史 retained-window 语句不得缩小本专题正式世界的完整历史要求。正式历史 GC 只有通过本文闭包规则才能启用。既有恢复、权威和 J1/J2 的失败边界继续适用，本文不把这些依赖的目标实现状态改成已验收。
 
+[新格式增量执行](incremental-world-execution.design.md#iex-format-boundary)单独承接新建世界的执行状态、历史所有权与提交表示：直接使用分根状态、增量事务和共享 checkpoint，不要求读取、迁移或重建既有 legacy Snapshot 的字节与哈希，因此不以前述“先物理、后逻辑”兼容顺序为前置。新格式一旦提交历史，本文的原内容保护、typed 依赖闭包、独立故障域及安全回收义务仍按产品要求适用。可以复用 codec、分页目录和 pin 机制，但需在新格式实际调用链验证预算与恢复；本文现有 formal 能力不代签该新路径的实现或部署。
+
 <a id="storage-efficiency-current-gap"></a>
 ## 3. 当前状态、目标状态与差距
 

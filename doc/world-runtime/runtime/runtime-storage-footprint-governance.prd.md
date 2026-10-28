@@ -18,6 +18,58 @@
 
 完整历史会随真实新增信息增长。切换 profile、重算 pin 或触及预算均不得删除唯一历史内容；正式范围的依赖、持久条件或容量无法满足时，保留材料、报告原因并停止不安全维护或新写入准入。本文本地诊断降级不授予正式 serving 资格，重新服务仍须核验完整历史闭包、proof 与现行恢复闸门。
 
+<a id="storage-incremental-world-contract"></a>
+## 新格式世界：增量执行与有界运行工作集
+
+本节是 PRD-WORLD_RUNTIME-013/014/015 的新增适用分支，承接[新格式产品范围](../../product/world-infrastructure/lossless-world-history-storage.prd.md#lws-incremental-world-scope)。原有 legacy/bootstrap、现行正式格式、旧样本和下文预算继续按各自范围解释；本分支不以这些局部能力作为已完成证据。
+
+[内存问题 #5197](https://github.com/nil-studio/oasis7/issues/5197)指出，旧执行路径把冷历史重新装入 live World，并在事务、快照与保存中复制；[磁盘问题 #5196](https://github.com/nil-studio/oasis7/issues/5196)指出相邻完整检查点的重复表示。这两类诊断共同说明：热文件条数、单对象压缩或本地回收不能单独形成整个执行链路的工作集上限。精确占用归因和收益仍需测量。
+
+### 目标与适用范围
+
+新格式世界直接以增量执行、完整历史及有界读取为目标。该分支不读取、迁移或重建既有旧格式世界，不承诺新旧快照字节、编码或状态根相等。新格式入口遇到旧格式必须在写入前明确拒绝并保留原数据，不自动重置、清理或替换运行世界；格式识别与启动合同由[新格式边界](incremental-world-execution.design.md#iex-format-boundary)拥有。
+
+新格式首次提交后的原记录、请求、结果、证明和恢复依赖必须完整保留。允许改变后续物理布局，仍须精确取回该格式已提交的原内容。未来若开放既有旧世界迁移，再独立满足[同世界迁移要求](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-006)；旧格式兼容不是本分支实现前置，新格式交付也不自动证明原运行世界缺陷已修复。
+
+| 运行活动 | 本分支要求 | 使用者收益与边界 |
+| --- | --- | --- |
+| 普通提交与回滚 | 只处理本次变更及其验证依赖，不复制整个累计历史，不以重算完整历史作为每 tick 前置；事务副本减少后仍保持原提交、回滚和 unknown 语义 | 历史累积不直接放大每次行动成本；活跃状态和本次变更本身增长仍计入资源需求 |
+| 历史归档与保存 | 已封口历史保持不可变，新增内容与已有内容共享；日常保存不重建完整历史，检查点保存当前状态和可取回完整历史的引用 | 保留全部历史，减少重复处理；周期检查点的当前状态成本单独计量 |
+| 窄范围查询 | 先定位所需范围，再有界读取和验证；去重、权限或前驱核对可读取所需冷记录，读取失败不解释为不存在 | 查询早期原结果不需要先展开整份历史；冷读等待与受阻原因可核对 |
+| 恢复与继续工作 | 从新格式检查点及非空完整增量恢复当前状态、控制安排、原结果与未决操作；原请求按同一身份核对 | 恢复后继续原工作，不重新调用模型、重复收费或重复交付已确认效果 |
+| 导出、复制与全量验证 | 全链路按字节和并发预算分批消费固定根；完整工作量可以随历史增长，临时内存不能要求全历史同时驻留 | 长历史可暂停/续传；预算不足保留材料并给出进度，不静默返回不完整成功 |
+| 资源观测 | 分开显示当前业务规模、热/冷历史计数、有效工作集、临时分配、进程占用、预算和受阻结果 | 能区分合法状态增长、重复历史放大与分配器保留；文件大小和 RSS 均不单独代签有界工作集 |
+
+当前状态包含仍有效的业务、权限、去重与控制信息；不能为了让内存曲线变平而把当前义务删去。归档内容及索引页、共享对象、读者持有的旧代、事务和编解码临时空间共同受预算约束，不能将成本移到无上限缓存或并发队列。技术结构与参数分别见[历史工作集](incremental-world-execution.design.md#iex-history)、[事务](incremental-world-execution.design.md#iex-transactions)、[增量持久化](incremental-world-execution.design.md#iex-storage)和[预算](incremental-world-execution.design.md#iex-budgets)。
+
+### 要求承接与状态
+
+| 现有要求及 Trace refs | 本节承接义务 | 系统设计依据 |
+| --- | --- | --- |
+| [REQ-LWS-002](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-002)；O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c | 新格式已提交内容的原字节、身份与证明保持；旧格式输入明确拒绝 | [格式边界](incremental-world-execution.design.md#iex-format-boundary) |
+| [REQ-LWS-003](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-003)；O7-REQ-46fb6d36-e9c9-41d5-98df-200b93d68670 | 完整历史与运行工作集分离，日常增量处理和按范围读取 | [历史](incremental-world-execution.design.md#iex-history)、[存储](incremental-world-execution.design.md#iex-storage) |
+| [REQ-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-007)；O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709 | 原请求、回滚、unknown、非空增量恢复与后续工作连续 | [事务](incremental-world-execution.design.md#iex-transactions)、[恢复](incremental-world-execution.design.md#iex-recovery) |
+| [REQ-LWS-008](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-008)；O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c | 工作集、临时字节、单条大记录与并发预算共同生效 | [预算](incremental-world-execution.design.md#iex-budgets) |
+| [REQ-LWS-009](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-009)；O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916 | 同负载多历史规模下，成本、完备性和续跑共同验证 | [验证矩阵](incremental-world-execution.design.md#iex-validation) |
+
+- 系统设计状态：已覆盖；依据为上表各精确条款，新格式的编码、根、事务、恢复与预算不由旧格式合同推断。
+- 实现状态：未实现；2026-10-28 对基线 `112a627e889cb0601ed368b2c0be204e39e7554a` 的静态核对中，[持久格式选择器](../../../crates/oasis7_runtime/src/world/persistence_format.rs)仍为现行格式，[World 历史字段](../../../crates/oasis7_runtime/src/world/mod.rs)仍使用既有表示。当前交付仅为设计，未执行新格式代码或资源基准；现有 formal 归档、物理共享及局部恢复能力不能代签本分支。
+- 剩余范围：新格式实现、各消费者接入、同格式差分与崩溃/未知/预算验证、规模测量及实际启用环境验收；实现 PR/任务记录实际版本和结果。
+
+<a id="storage-incremental-world-acceptance"></a>
+### 新格式的独立验收
+
+下列场景细化既有产品 AC，不替换下文旧样本的 SC/AC/NFR。准确 fixture、参数和命令由[系统验证矩阵](incremental-world-execution.design.md#iex-validation)维护；所有目标当前均待执行。
+
+| 适用产品验收 | 给定与操作 | 独立通过条件 |
+| --- | --- | --- |
+| [AC-LWS-002](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-002) | 初始化并重开新格式世界；另输入未标记旧目录、旧标记和不支持格式 | 新格式读取自身原内容；旧输入在任何写入/删除前拒绝，目录和原世界不变；不要求新旧 bytes/root 相等 |
+| [AC-LWS-003](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-003)、[AC-LWS-009](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-009) | 固定当前业务状态、热窗口和并发，构造至少三个合法归档历史规模，包含不少于 55,000 条 Tick；分别测量加载、普通提交、保存与检查点 | 实际工作集及峰值处于声明预算，整份已提交历史的深拷贝为零，普通操作没有无条件全历史遍历；合法冷记录点查按访问范围计量；报告分配、保留、CPU、I/O 和延迟，数值阈值来自同环境资源预算 |
+| [AC-LWS-003](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-003)、[AC-LWS-008](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-008) | 在上述规模查询相同窄范围，并执行可取消、可续传的全量读取/导出 | 窄查询先定位范围，不先物化全史；全量操作按预算逐批推进，固定根和覆盖进度可核对；坏段、缺依赖和预算不足分别给出准确结果 |
+| [AC-LWS-001](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-001)、[AC-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-007) | 与同格式参考执行对照，恢复较早检查点加非空增量，再输入相同合法新工作 | 全部承诺历史与原依赖可核对；当前状态、控制安排、原请求/结果和下一次行为相同，至少一条新工作正常完成；无需重复外部调用补齐历史 |
+| [AC-LWS-004](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-004)、[AC-LWS-007](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-007) | 注入提交前后失败、回应丢失、重启和并发读者；分别核对确定未提交、已提交及未知 | 回滚和安装符合原结果，unknown 保留原操作及恢复材料并阻断矛盾后续写；已确认效果不重复，读者持有的必要材料不提前回收 |
+| [AC-LWS-008](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-008)、[AC-LWS-009](../../product/world-infrastructure/lossless-world-history-storage.prd.md#ac-lws-009) | 增大单条记录、活跃状态、本次变更和并发；跨越各内存/临时工作预算 | 额度在资源扩张前生效，背压/取消/恢复保留原结果与真实下一步；活跃状态增长单独报告，不把固定历史条件下的结果推广为整个世界恒定内存 |
+
 ## 1. Executive Summary
 - Problem Statement: 当前 `oasis7_viewer_live` / `oasis7_chain_runtime` 的默认运行态持久化在短时本地闭环中也会产生明显的磁盘膨胀：一次约 `2102` 高度的运行样本中，`output/chain-runtime/viewer-live-node/store` 约 `1.18 GiB`、`reward-runtime-execution-world/.distfs-state/blobs` 约 `635 MiB`，而当前最新执行世界实际只引用约 `1.55 MiB` 的 sidecar blob。执行桥接按高度保留全量 `snapshot_ref`、执行世界 sidecar 缺少引用回收、`snapshot.json` 中 `tick_consensus_records` 持续增长，导致本地调试、重复启动与长跑验证的磁盘成本过高。
 - Proposed Solution: 为 runtime 引入“canonical replay log + checkpoint + 分层保留 + 引用治理 + 指标可观测”方案：把运行态数据拆分为当前可恢复 head、热历史窗口、稀疏检查点、权威变更日志、冷元数据与可回收孤儿 blob 六类数据，分别实施 retention / compaction / GC；同时对 `tick_consensus_records` 做热冷分层，明确“日志为真、快照为缓存”的回放契约，在控制默认磁盘占用的同时保证可追溯与可回放。

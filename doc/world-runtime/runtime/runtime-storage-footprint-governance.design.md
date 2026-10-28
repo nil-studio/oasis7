@@ -7,6 +7,13 @@
 - 适用范围: `oasis7_viewer_live` / `oasis7_chain_runtime` 默认运行链路下的 execution bridge、execution world sidecar、node-distfs 复制热数据与 footprint metrics。
 - 正式世界边界：[完整历史要求](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-001)及[无损存储专业设计](formal-world-storage-efficiency.design.md#des-lws-001)约束本专题的正式持久路径。以下 legacy/local bootstrap 样本、字段和局部验收保留原范围；本次边界澄清不表示现有实现已具备完整正式历史回收或恢复能力。
 
+<a id="storage-incremental-execution-design"></a>
+## 新格式增量执行的承接边界
+
+[增量世界执行与有界历史工作集](incremental-world-execution.design.md#iex-format-boundary)承接[新格式运行态合同](runtime-storage-footprint-governance.prd.md#storage-incremental-world-contract)：直接采用单一事务、细粒度状态/控制增量、认证冷历史与分块 checkpoint，消除普通提交对全历史物化和完整 Snapshot 编码的依赖。新路径只用于显式新格式创建及同格式恢复，不要求旧 bytes/hash 等价、旧格式迁移或旧二进制兼容；检测到旧材料时明确拒绝并保持原目录，不自动重置世界。
+
+本页以下 schema-v3、JSON sidecar、legacy兼容与阶段写法继续描述原路径，不约束新格式采用相同表示。新路径的完整历史、原请求/外部结果、回滚、unknown、持久提交及预算义务由新设计的[历史](incremental-world-execution.design.md#iex-history)、[事务](incremental-world-execution.design.md#iex-transactions)、[存储](incremental-world-execution.design.md#iex-storage)、[恢复](incremental-world-execution.design.md#iex-recovery)和[验证](incremental-world-execution.design.md#iex-validation)明确承接。原正式协议的authority、独立持久与服务闸门保持，不由新格式赋予资格；新路径交付也不自动完成既有旧世界的迁移或生产缺陷处置。
+
 ## 1. 设计目标
 - **Replayability-first**：体积治理不能破坏“可追溯、可回放”；必须明确 canonical replay source、checkpoint 语义与 GC 边界。正式持久世界保留全部已承诺历史高度及其完整依赖，storage profile 的热窗口不能缩小该范围。
 - **Latest-state recoverability**：任意时刻成功提交后的 latest head 必须可恢复，且恢复后 `execution_state_root` 与 GC 前一致。
