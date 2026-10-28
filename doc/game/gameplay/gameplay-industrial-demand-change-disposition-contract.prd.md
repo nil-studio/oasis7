@@ -7,7 +7,7 @@
 
 ## 1. 玩家问题与触发边界
 
-目标状态变化不能只阻止下一次排程，还必须回答已经承诺或开始的工业工作怎么办。Surface 必须从同一 fresh authority snapshot 说明 demand goal 与 `goal_authority_ref`、触发状态/数量变化、matching settlement 边界、受影响的 root/candidate/revision，以及 `accepted-unstarted / active WIP / in-transit / buffer-held / terminal-pending` 各 bucket 的数量、已消费或仍占用价值、当前用途资格、primary blocker、下一复查点和 progression effect。本文的 `goal_state=matched` 表示目标已达到其专业 authority 声明的满足边界；批量预览中的 `quantity_disposition=matched` 只表示本次数量与 remaining demand 匹配，不能单独把目标状态或 delivery/terminal settlement 提升为已完成。
+目标状态变化不能只阻止下一次排程，还必须说明如何处置已承诺或开始的工业工作。Surface 必须从同一 fresh authority snapshot 说明 demand goal 与 `goal_authority_ref`、触发状态/数量变化、matching settlement 边界、受影响的 root/candidate/revision，以及 `accepted-unstarted / active WIP / in-transit / buffer-held / terminal-pending` 各 bucket 的数量、已消费或仍占用价值、当前用途资格、primary blocker、下一复查点和 progression effect。本文的 `goal_state=matched` 表示目标已达到其专业 authority 声明的满足边界；批量预览中的 `quantity_disposition=matched` 只表示本次数量与 remaining demand 匹配，不能单独把目标状态或 delivery/terminal settlement 提升为已完成。
 
 `matched` 后不得为旧目标创建新的不可逆生产 sink；`cancelled / expired / unknown` 时不得继续计算需求减少、matched/surplus 或交付奖励；`reduced` 时必须按新目标量披露 remaining demand、既有 commitment 与可能形成的 residual/surplus。上述状态来自产品/专业 authority，不得由 Agent 推荐、旧订单、市场热度、客户端缓存或 production receipt 推断。
 
@@ -27,7 +27,7 @@ Preview 不释放、不暂停、不完成、不改道、不迁移、不退款，
 | `buffer-held` | `hold_existing_output`、交付仍合法的既有用途，或显式绑定新 demand/purpose | 产物与 provenance 保留并继续占用有限容量；不得自动倾销、销毁、降价、伪造成交或把旧 production receipt 当作新目标 settlement |
 | `terminal-pending` | 继续原合法 terminal commitment、等待/取得准入，或 profile 支持且显式确认的 hold/return/reroute/handoff | 保留 recipient、destination、admission、capacity obligation 与 provenance；旧目标变化不能提前 settlement、静默释放/迁移容量义务或把 pending 结算到新目标，释放/迁移只能由一次显式 disposition 完成 |
 
-只有 profile 已声明且能映射到现有 authority 的选择才可展示。若一个 bucket 只有一种安全处置，仍须说明其他路径为何不可用；没有安全处置时返回 `no_safe_demand_change_disposition`，保留既有状态并给出下一次权威复查条件。
+只有 profile 已声明且能映射到现有 authority 的选择才可展示。若某个 bucket 只有一种安全处置，仍须说明其他路径为何不可用；没有安全处置时返回 `no_safe_demand_change_disposition`，保留既有状态并给出下一次权威复查条件。
 
 ## 4. 新目标、数量与 progression 边界
 
@@ -47,6 +47,14 @@ Viewer、pure API 与 Agent 必须同义表达 goal state/quantity、matching bo
 
 ## 6. 验收与非目标
 
-`test_tier_required` 至少覆盖：同一 deterministic fixture 中目标分别变为 matched、cancelled、expired、unknown 与 reduced；五类 bucket 各存在时的 profile-supported 处置与 unsupported 隐藏；matched 后无新生产 sink，cancelled/expired/unknown 无需求减少或奖励，reduced 披露 residual/surplus；未开始 hold 只释放一次，WIP/transit/buffer 保留 lineage，terminal-pending 保留 recipient/destination/admission/capacity obligation/provenance 且不提前结算或静默改绑，新用途 fresh validation 且按因果边界建立 revision/candidate；状态恢复只 fresh requote，不自动续产；重复提交、乱序、重连、retry、restore/replay 不复制任何效果；Viewer、pure API 与 Agent 对五类 bucket 保持 parity。
+`test_tier_required` 至少覆盖：
+
+- 同一 deterministic fixture 中目标分别变为 matched、cancelled、expired、unknown 与 reduced；
+- 五类 bucket 各存在时的 profile-supported 处置与 unsupported 隐藏；
+- matched 后无新生产 sink，cancelled/expired/unknown 无需求减少或奖励，reduced 披露 residual/surplus；
+- 未开始 hold 只释放一次，WIP/transit/buffer 保留 lineage，terminal-pending 保留 recipient/destination/admission/capacity obligation/provenance 且不提前结算或静默改绑，新用途 fresh validation 且按因果边界建立 revision/candidate；
+- 状态恢复只 fresh requote，不自动续产；
+- 重复提交、乱序、重连、retry、restore/replay 不复制任何效果；
+- Viewer、pure API 与 Agent 对五类 bucket 保持 parity。
 
 本合同不新增或冻结 demand source/预测、价格/利润/阈值/批量公式、自动取消/排空/完成/返工/退款/改道/迁移算法、maintenance 规则、runtime state/action/API/schema、Agent 行为或 UI，也不把 stop/disposition 解释成 delivery、terminal settlement、需求减少、reward、稳定窗口或 current-readiness 证据。

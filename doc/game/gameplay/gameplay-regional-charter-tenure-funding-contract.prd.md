@@ -78,7 +78,7 @@
 | 设施玩法 | 不取代 micro_depot 的 install/service/depletion/upkeep 合同 | `gameplay-regional-infrastructure-micro-depot-contract.prd.md` 拥有 `PRD-GAME-016` |
 | 验证与当前可用性 | 给出玩法 smoke 与平衡风险，不给 release verdict | `doc/testing/prd.md`、QA、同一候选 fresh evidence 与根 README claim envelope 拥有验证/发布判断 |
 
-本合同与 `PRD-GAME-015` 的关系是“相邻消费”而非 authority 合并：成熟世界成长路线提供独立 lane、区域服务和有限影响的 progression；本合同具体说明玩家在区域 charter、tenure 和融资制度中如何行动，但不把这些制度误报为已实现或已发布。
+本合同与 `PRD-GAME-015` 的关系是“相邻消费”而非 authority 合并：成熟世界成长路线提供独立 lane、区域服务和有限影响的 progression；本合同具体说明玩家在区域 charter、tenure 和融资制度中如何行动，但不据此宣称这些制度已实现或已发布。
 
 ## 5. 玩法风险与验证期待
 

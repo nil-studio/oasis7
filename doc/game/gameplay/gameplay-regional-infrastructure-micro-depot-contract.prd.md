@@ -41,7 +41,7 @@ M1–M4 是目标验收顺序，不是当前可用性、mainline 合入、阶段
 
 ## 风险
 
-- 如果 root docs 吸收完整矩阵，会重新制造 root PRD bloat。
+- 若根文档吸收完整矩阵，会再次使根 PRD 臃肿。
 - 如果 `micro_depot` 被写成 first-10-minute action，会破坏 trust/capability gate sequencing。
 - 如果 WASM 被赋予 canonical mutation authority，会破坏 determinism、audit 和 replay safety。
 - 如果效果过强、可堆叠或绕过 upkeep，会变成唯一正确解或 free-building exploit。
@@ -50,7 +50,7 @@ M1–M4 是目标验收顺序，不是当前可用性、mainline 合入、阶段
 ## 1. Executive Summary
 
 - Problem Statement: `micro_depot` 已在设计补充中定义了可编程区域设施的玩家循环、WASM-backed 规则边界与 smoke gate，但缺少正式 PRD / project triplet，容易被误读为未承诺候选或直接实现承诺。
-- Proposed Solution: 新增 `PRD-GAME-016`，把 `micro_depot` 收口为第一个 bible-grade 可编程区域设施专题：玩家通过小型、可审计、带 upkeep 的区域设施，改变一次 repair / logistics 行动的 quote，并获得可追溯 receipt。
+- Proposed Solution: 新增 `PRD-GAME-016`，将 `micro_depot` 明确为第一个 bible-grade 可编程区域设施专题：玩家通过小型、可审计、带 upkeep 的区域设施，改变一次 repair / logistics 行动的 quote，并获得可追溯 receipt。
 - Success Criteria:
   - SC-1: 玩家能在同一专题内读懂为什么部署 depot、花了什么、改变了哪一次 repair / logistics 行动、还有什么 blocker 没解决。
   - SC-2: 设计明确保持 `regional specialist / limited-scope regional influence` 阶段边界，不进入首 10 分钟新手循环。
@@ -173,10 +173,10 @@ M1–M4 是目标验收顺序，不是当前可用性、mainline 合入、阶段
   - R4: Add Viewer / pure API DTOs, receipt surface, module evidence, and blocker taxonomy.
   - R5: Run gameplay smoke and QA matrix before any release/public claim.
 - Technical / Gameplay Risks:
-  - If effect is too weak, depot feels like tax; if too strong, it becomes the only correct action.
+  - If the effect is too weak, the depot feels like a tax; if too strong, it becomes the only correct action.
   - If upkeep appears too early, starter funding and first capability flow become punishing.
   - If module governance opens arbitrary upload too early, MVP becomes a security platform problem.
-  - If receipt fields are thin, Viewer falls back to guessing causality from recent events.
+  - If receipt fields are insufficient, Viewer falls back to guessing causality from recent events.
   - If future facilities expand too fast, oasis7 can be misread as direct construction gameplay rather than indirect-control civilization simulation.
 
 ## 6. Validation & Decision Record
