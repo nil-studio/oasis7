@@ -112,7 +112,7 @@ fn open_governance_proposal(
     );
 }
 
-fn authorize_policy_update(world: &mut World, operator_agent_id: &str, proposal_key: &str) {
+pub(super) fn authorize_policy_update(world: &mut World, operator_agent_id: &str, proposal_key: &str) {
     open_governance_proposal_by(world, operator_agent_id, proposal_key, 1, 3, 5_000);
 
     world.submit_action(Action::CastGovernanceVote {

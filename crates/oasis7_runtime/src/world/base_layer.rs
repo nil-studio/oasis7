@@ -38,6 +38,7 @@ impl World {
         }
 
         for activation in &changes.activate {
+            self.validate_m1_storage_activation(&activation.module_id, &activation.version)?;
             if !activate_ids.insert(activation.module_id.clone()) {
                 return Err(WorldError::ModuleChangeInvalid {
                     reason: format!("duplicate activate module_id {}", activation.module_id),
@@ -54,6 +55,7 @@ impl World {
         }
 
         for upgrade in &changes.upgrade {
+            self.validate_m1_storage_activation(&upgrade.module_id, &upgrade.to_version)?;
             if upgrade.module_id != upgrade.manifest.module_id {
                 return Err(WorldError::ModuleChangeInvalid {
                     reason: format!("upgrade manifest module_id mismatch {}", upgrade.module_id),

@@ -324,7 +324,7 @@
     {
       "module_id": "m1.power.storage",
       "hash_tokens": [
-        "linux-x86_64=35ee85efeeb41317ff63432131a67541856e36f7d5845ce9237bc8c63497ef06"
+        "linux-x86_64=d113c866a6e55adec9b58c3f8c9d3484ae2579f7c282e59334c65bcb5bc28707"
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
@@ -336,17 +336,17 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/m1_power_storage/Cargo.lock",
-          "sha256": "b47850ebb9c7fa6566c54df499c24a9519a4ae4244c62fe28c517695e56c4db0"
+          "sha256": "d53cf160e45689e24ebf49aa7fc023de7b15a91294797705d8f931627b2849c2"
         },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/m1_power_storage/Cargo.toml",
-          "sha256": "9abedafce303e1d86f0cb24e7aead0d2e25b7fb4d8c03d0aa13938420d5eb79e"
+          "sha256": "43e1ba76bea4c4b9f4059906ffbe1f574bcfe8d0c57c5d1bd55868c0ff39b461"
         },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs",
-          "sha256": "6025a6aece76bbfe592fb07909f38f42f796e44378be9f476c9fd353722c4efb"
+          "sha256": "2f92460e06f7da810e18ef71ee5895388840d4ae6989dde3cea58b02dbc03364"
         },
         {
           "kind": "source-file",
@@ -359,9 +359,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "a05a9f398bd67a0d0927609ca2ef237f2b97bca9db6d32cfc22bf2caff66a8bd",
+      "source_hash": "c3c45bc3c774fa91b73c232f78b92fcaa074b09743f114429e5bf7dcc5185f96",
       "build_manifest_hash": "6a21119b9caac23d71f3a1a78e2fb0fba891a0f3c9a752da6ad3890ad07a4be0",
-      "identity_hash": "917b367c0e07ab85cd42bd0dbc87457a1320f984d04d55fe39d249b4ee269161"
+      "identity_hash": "d416c950a9e2fc9f86a633ce1a3082671f874d42259f3e7239f0c0d0c4257904"
     },
     {
       "module_id": "m1.rule.move",

@@ -20,6 +20,7 @@ pub const M1_STORAGE_POWER_MODULE_ID: &str = "m1.power.storage";
 
 pub const M1_AGENT_DEFAULT_MODULE_VERSION: &str = "0.1.0";
 pub const M1_POWER_MODULE_VERSION: &str = "0.1.0";
+pub const M1_STORAGE_POWER_MODULE_VERSION: &str = "0.2.0";
 pub const M4_ECONOMY_MODULE_VERSION: &str = "0.1.0";
 pub const M5_GAMEPLAY_MODULE_VERSION: &str = "0.1.0";
 
