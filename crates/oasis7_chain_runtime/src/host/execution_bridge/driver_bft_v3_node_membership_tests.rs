@@ -12,14 +12,15 @@ mod fault_cases;
 #[path = "driver_bft_v3_node_membership_rotation_tests.rs"]
 mod rotation_cases;
 
-pub(super) fn two_session_provider(
+pub(super) fn provider_sessions(
     service: Arc<BftSignerServiceV3>,
+    sessions: usize,
 ) -> (SocketAddr, thread::JoinHandle<Result<(), String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     listener.set_nonblocking(true).unwrap();
     let join = thread::spawn(move || {
-        for _ in 0..2 {
+        for _ in 0..sessions {
             let deadline = Instant::now() + Duration::from_secs(180);
             let mut stream = loop {
                 match listener.accept() {
@@ -49,7 +50,17 @@ pub(super) fn two_session_provider(
 fn wire3_membership_actual_world_noise_follower_installs_at_h_plus_two() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(|| network_case_membership(false, false, false, false, true))
+        .spawn(|| network_case_membership(false, false, false, false, true, false))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn wire3_membership_confirmation_proposal_timeout_recovers_after_original_governance_commit() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| network_case_membership(false, false, false, false, true, true))
         .unwrap()
         .join()
         .unwrap();
@@ -144,15 +155,67 @@ pub(super) fn exercise(
     views: &[Arc<NodeBftPeerExecutionStateV3>],
     isolation: &std::sync::atomic::AtomicBool,
     clock_start: &std::sync::OnceLock<Instant>,
+    confirmation_timeout_budget: Option<Duration>,
 ) {
     // Node zero is isolated at height 6 by the transport fixture, before it
     // can contribute a vote or deliver a locally assembled certificate.
-    // Keep the fault-free signed governance prefix on the original fixed test
-    // clock. Start elapsed timeout recovery only at the injected height-6
-    // partition, after every actual driver installed the transition prefix.
-    // Governance actions remain bound to their original qualified parent.
-    wait_height(nodes, snapshots, 5);
+    // Keep the original signed governance decision at height 4 on the fixed
+    // test clock. Once every actual driver commits it, height 5 must have real
+    // timeout recovery as well: waiting for its QC before starting the clock
+    // would deadlock a delayed proposal. The same one-shot origin survives the
+    // later height-6 partition and restart, without changing the original auth.
+    wait_height(nodes, snapshots, 4);
     clock_start.set(Instant::now()).unwrap();
+    if let Some(budget) = confirmation_timeout_budget {
+        wait_height_with_budget(nodes, snapshots, 5, budget);
+        for snapshot in snapshots {
+            let snapshot = snapshot.lock().unwrap();
+            let source = snapshot
+                .state
+                .history
+                .iter()
+                .find(|c| c.execution_commitment.height == 4)
+                .unwrap();
+            let confirmation = snapshot
+                .state
+                .history
+                .iter()
+                .find(|c| c.execution_commitment.height == 5)
+                .unwrap();
+            assert_eq!(
+                source
+                    .execution_commitment
+                    .transition
+                    .as_ref()
+                    .unwrap()
+                    .activation_height,
+                6
+            );
+            assert_eq!(
+                confirmation.certificate.proposal.round, 1,
+                "height 5 must commit in the first normally delivered proposal round"
+            );
+            assert_eq!(
+                confirmation
+                    .execution_commitment
+                    .transition_ref
+                    .as_ref()
+                    .unwrap()
+                    .source_block_id,
+                source.header.block_id().unwrap()
+            );
+            assert!(
+                confirmation
+                    .certificate
+                    .precommits
+                    .iter()
+                    .all(|v| v.validator_id != validator_id(3)),
+                "the future key cannot vote on the confirmation height"
+            );
+        }
+        return;
+    }
+    wait_height(nodes, snapshots, 5);
     wait_height(&nodes[1..], &snapshots[1..], 6);
     assert_eq!(
         snapshots[0]
@@ -459,12 +522,21 @@ fn wait_action(
 }
 
 pub(super) struct HeightPartition {
+    pub confirmation_timeout: bool,
     pub inner: Arc<dyn oasis7_node::NodeBftPeerTransportV3>,
     pub isolated: Arc<std::sync::atomic::AtomicBool>,
 }
 impl HeightPartition {
     fn blocked(&self, message: &oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3) -> bool {
         use oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3 as M;
+        // Delay the confirmation-height round-0 proposal at this node. Every
+        // vote still travels, so a proposal timeout can yield nil and arm the
+        // quorum vote timers. Later-round proposals have normal delivery.
+        if self.confirmation_timeout
+            && matches!(message, M::Proposal(p) if p.header.height == 5 && p.header.round == 0)
+        {
+            return true;
+        }
         self.isolated.load(std::sync::atomic::Ordering::Acquire)
             && match message {
                 M::Proposal(p) => p.header.height >= 6,
@@ -524,7 +596,16 @@ fn wait_height(
     snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
     height: u64,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(180);
+    wait_height_with_budget(nodes, snapshots, height, Duration::from_secs(180));
+}
+
+fn wait_height_with_budget(
+    nodes: &[NodeRuntime],
+    snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
+    height: u64,
+    budget: Duration,
+) {
+    let deadline = Instant::now() + budget;
     loop {
         for node in nodes {
             assert!(
@@ -559,6 +640,45 @@ fn wait_height(
                 .iter()
                 .map(|snapshot| {
                     let snapshot = snapshot.lock().unwrap();
+                    let events = snapshot.state.journal.as_ref().map(|journal| {
+                        journal
+                            .events
+                            .iter()
+                            .map(|event| {
+                                use oasis7_consensus::tendermint_v3::BftSigningJournalEventV3 as E;
+                                match event {
+                                    E::Proposal {
+                                        proposal,
+                                        local,
+                                        now_ms,
+                                    } => format!(
+                                        "proposal r={} by={} local={} time={}",
+                                        proposal.header.round,
+                                        proposal.header.proposer_id,
+                                        local,
+                                        now_ms
+                                    ),
+                                    E::Vote {
+                                        vote,
+                                        local,
+                                        now_ms,
+                                    } => format!(
+                                        "vote r={} by={} phase={:?} value={:?} local={} time={}",
+                                        vote.round,
+                                        vote.validator_id,
+                                        vote.phase,
+                                        vote.value,
+                                        local,
+                                        now_ms
+                                    ),
+                                    E::Timeout { now_ms } => format!("timeout time={now_ms}"),
+                                    E::ProposalEquivocation { .. } => {
+                                        "proposal equivocation".into()
+                                    }
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    });
                     (
                         snapshot.protected_time_floor_ms,
                         snapshot
@@ -571,6 +691,12 @@ fn wait_height(
                             .history
                             .last()
                             .map(|c| c.execution_commitment.height),
+                        events,
+                        snapshot.state.journal.as_ref().and_then(|j| {
+                            j.pending_vote_intent
+                                .as_ref()
+                                .map(|v| (v.round, v.phase, v.value.clone()))
+                        }),
                     )
                 })
                 .collect::<Vec<_>>()

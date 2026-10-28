@@ -81,6 +81,7 @@ fn network_case_pending(
         check_fairness,
         check_pending,
         false,
+        false,
     );
 }
 fn network_case_membership(
@@ -89,6 +90,7 @@ fn network_case_membership(
     check_fairness: bool,
     check_pending: bool,
     check_membership: bool,
+    confirmation_timeout: bool,
 ) {
     let count = if check_membership { 4 } else { 3 };
     let h = if check_membership {
@@ -206,7 +208,7 @@ fn network_case_membership(
     let mut snapshots = Vec::new();
     let mut servers = Vec::new();
     let mut nodes = Vec::new();
-    // Membership fault timers begin together after the fault-free transition prefix.
+    // Membership timers begin together after the original governance decision commits.
     // This one-shot test clock is never reset for stop/start recovery.
     let membership_clock_start = Arc::new(std::sync::OnceLock::<Instant>::new());
     for index in 0..count {
@@ -239,7 +241,7 @@ fn network_case_membership(
             .unwrap(),
         );
         let (address, server) = if check_membership {
-            membership_cases::two_session_provider(service)
+            membership_cases::provider_sessions(service, if confirmation_timeout { 1 } else { 2 })
         } else {
             tcp(service)
         };
@@ -313,6 +315,7 @@ fn network_case_membership(
         let public: Arc<dyn oasis7_node::NodeBftPeerTransportV3> = if check_membership && index == 0
         {
             Arc::new(membership_cases::HeightPartition {
+                confirmation_timeout,
                 inner: public,
                 isolated: membership_isolation.clone(),
             })
@@ -386,6 +389,23 @@ fn network_case_membership(
             &execution_views,
             &membership_isolation,
             &membership_clock_start,
+            confirmation_timeout.then(|| {
+                // The injected round needs its proposal/prevote/precommit
+                // timers, followed by one normal-delivery round. Derive this
+                // fault-only bound from the unchanged configured phase times.
+                let timeouts = bindings[0].timeouts;
+                let first = timeouts
+                    .propose_ms
+                    .checked_add(timeouts.prevote_ms)
+                    .and_then(|v| v.checked_add(timeouts.precommit_ms))
+                    .unwrap();
+                let second = timeouts
+                    .round_delta_ms
+                    .checked_mul(3)
+                    .and_then(|v| first.checked_add(v))
+                    .unwrap();
+                Duration::from_millis(first.checked_add(second).unwrap())
+            }),
         );
         drop(nodes);
         drop(exchanges);
