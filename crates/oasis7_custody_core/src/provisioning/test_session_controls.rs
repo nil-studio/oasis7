@@ -26,7 +26,10 @@ impl AccountProvisionApprovalState {
         {
             roots::authenticated_receipt(s, SessionPurposeV1::ReconcileRead, proof, now)?;
         }
-        if !super::id_nonempty(admission.ingress_attempt_id) {
+        if s.purpose_http_admissions
+            .contains_key(admission.ingress_attempt_id)
+            || !super::id_nonempty(admission.ingress_attempt_id)
+        {
             return Err(invalid());
         }
         let signed_attempt_digest = proof.transport_attempt_digest();
@@ -90,7 +93,8 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<()> {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        if s.input.request.context != current.approval.authority
+        if s.purpose_http_admissions.contains_key(attempt_id)
+            || s.input.request.context != current.approval.authority
             || current.approval.frozen
             || current
                 .approval

@@ -74,7 +74,7 @@ SC-3/AC-5 的[共享模板与版本化输入规则](wasm-deterministic-build-pip
 审计轮次: 3
 
 ## 1. Executive Summary
-- Problem Statement: 当前仓库已经有 host 侧 deterministic guard、canonical packaging、keyed hash manifest、identity manifest、DistFS 与 multi-runner 对账，但这些机制本质上仍是在“接受不同宿主平台会产出不同 wasm，然后用治理和对账去兜底”。如果目标是从源头解决 `darwin-arm64` / `linux-x86_64` 的 hash 漂移，仅靠 host 原生构建护栏不够，必须把发布级构建环境收敛到同一容器镜像。
+- Problem Statement: 当前仓库已有 host 侧 deterministic guard、canonical packaging、keyed hash manifest、identity manifest、DistFS 与 multi-runner 对账，但这些机制本质上仍是在“接受不同宿主平台会产出不同 wasm，再用治理和对账兜底”。如果目标是从源头解决 `darwin-arm64` / `linux-x86_64` 的 hash 漂移，仅靠 host 原生构建护栏不够，必须把发布级构建环境收敛到同一容器镜像。
 - Proposed Solution: 把 publishable WASM 的 canonical build path 改为 Docker-first。所有可进入发布链路的 wasm 都必须在 pinned builder image 中构建，容器平台固定为 `linux-x86_64`，并由同一容器内的 build suite 产出 canonical packaged wasm。宿主机只负责调用 `docker run`；真正进入 module id、release manifest、identity 与 runtime 执行链路的 hash，只认容器产物，不认 host-native 构建结果。
 - Success Criteria:
 <a id="sr2-obligation-sc-1"></a>
@@ -262,8 +262,8 @@ SC-3/AC-5 的[共享模板与版本化输入规则](wasm-deterministic-build-pip
 
 产品适用性：N/A；reason=命名检查不证明构建、可用性或发布权限。；scope=本条的Operator env 命名专业机制；不排除本 PRD 其他条款的真实工件/确定性关系。
 - Non-Goals:
-  - 不在本专题中要求所有节点运行 Docker 再执行模块；Docker 只解决发布级构建，不进入 runtime 执行热路径。
-  - 不在本专题中实现语义等价 canonical hash；当前仍以容器内 canonical packaging 的 byte hash 为准。
+  - 本专题不要求所有节点运行 Docker 再执行模块；Docker 只解决发布级构建，不进入 runtime 执行热路径。
+  - 本专题不实现语义等价 canonical hash；当前仍以容器内 canonical packaging 的 byte hash 为准。
   - 不让 CI 变成生产发布者；CI 只验证同一 Docker builder 的 reproducibility。
   - 不保留“不同宿主平台分别产出不同发布 hash”作为长期目标。
 

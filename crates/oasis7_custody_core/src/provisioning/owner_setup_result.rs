@@ -1,7 +1,7 @@
 use super::*;
 use oasis7_agent_api::game::*;
 use ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH;
-use ws::private_goal::verify_owner_signature_strict;
+
 impl AccountProvisionApprovalState {
     pub fn owner_setup_result_checks(
         &self,
@@ -155,6 +155,15 @@ impl AccountProvisionApprovalState {
         stage: OwnerSetupStageV1,
         result: &OwnerSetupResultV1,
     ) -> Result<()> {
+        self.validate_owner_setup_result_scoped(id, stage, result, None)
+    }
+    pub(super) fn validate_owner_setup_result_scoped(
+        &self,
+        id: &str,
+        stage: OwnerSetupStageV1,
+        result: &OwnerSetupResultV1,
+        mut signature_scope: Option<&mut RestoreSignatureScope>,
+    ) -> Result<()> {
         let v = self.owner_setups.get(id).ok_or_else(invalid)?;
         let o = v.stages.get(&stage).ok_or_else(invalid)?;
         let key = &v.plan.world_identity.service_public_key;
@@ -180,11 +189,12 @@ impl AccountProvisionApprovalState {
                 if response.request_digest != expected {
                     return Err(invalid());
                 }
-                verify_owner_signature_strict(
+                verify_owner_setup_restore_signature(
                     domain,
                     &(&response.request_digest, &response.payload),
                     key,
                     &response.signature_hex,
+                    signature_scope.as_deref_mut(),
                 )
                 .map_err(|_| invalid())?;
                 response
@@ -236,11 +246,12 @@ impl AccountProvisionApprovalState {
             ) => {
                 ws::private_goal_read::verify_prepare_response(original, response, key)
                     .map_err(|_| invalid())?;
-                verify_owner_signature_strict(
+                verify_owner_setup_restore_signature(
                     ws::private_goal_read::GOAL_PREPARE_PATH,
                     &(&response.request_digest, &response.payload),
                     key,
                     &response.signature_hex,
+                    signature_scope.as_deref_mut(),
                 )
                 .map_err(|_| invalid())?;
             }
@@ -261,20 +272,22 @@ impl AccountProvisionApprovalState {
                 {
                     return Err(invalid());
                 }
-                verify_owner_signature_strict(
+                verify_owner_setup_restore_signature(
                     PARTICIPANT_OWNER_VIEW_PATH,
                     &(&owner.request_digest, &owner.payload),
                     key,
                     &owner.signature_hex,
+                    signature_scope.as_deref_mut(),
                 )
                 .map_err(|_| invalid())?;
                 ws::private_goal_read::verify_current_response(goal_request, goal, key)
                     .map_err(|_| invalid())?;
-                verify_owner_signature_strict(
+                verify_owner_setup_restore_signature(
                     ws::private_goal_read::GOAL_CURRENT_PATH,
                     &(&goal.request_digest, &goal.payload),
                     key,
                     &goal.signature_hex,
+                    signature_scope,
                 )
                 .map_err(|_| invalid())?;
                 let task = owner

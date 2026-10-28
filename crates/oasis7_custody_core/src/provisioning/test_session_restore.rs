@@ -57,6 +57,7 @@ impl AccountProvisionApprovalState {
                 return Err(invalid());
             }
             s.enrollment.checks().map_err(|_| invalid())?;
+            self.validate_session_purpose_http_persistence(s)?;
             for record in s.book.records() {
                 if record.input() != &s.input
                     || proofs.iter().any(|old| same_proof(old, record.input()))
@@ -188,7 +189,19 @@ impl AccountProvisionApprovalState {
                         .count() as u64;
                     expected
                         .transport
-                        .charge(sources.checked_add(extra).ok_or_else(invalid)?)
+                        .charge(
+                            sources
+                                .checked_add(extra)
+                                .and_then(|total| {
+                                    total.checked_add(
+                                        s.purpose_http_admissions
+                                            .values()
+                                            .filter(|a| a.purpose == purpose)
+                                            .count() as u64,
+                                    )
+                                })
+                                .ok_or_else(invalid)?,
+                        )
                         .map_err(|_| invalid())?;
                     if purpose == SessionPurposeV1::TerminationPlan {
                         for (kind, o) in &s.termination_slots {

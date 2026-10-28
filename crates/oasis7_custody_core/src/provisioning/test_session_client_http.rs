@@ -56,6 +56,15 @@ pub struct SessionClientHttpAdmissionV1 {
     pub hop: SessionControlHopV1,
     pub charged_at: UnixMillis,
 }
+/// A trusted Host ingress paid from exactly one purpose, never Control or cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionPurposeHttpAdmissionV1 {
+    pub signed_attempt_digest: String,
+    pub purpose: SessionPurposeV1,
+    pub hop: SessionControlHopV1,
+    pub charged_at: UnixMillis,
+}
 impl AccountProvisionApprovalState {
     /// Pure preparation from actual Account originals. This neither charges nor grants authority.
     pub fn prepare_test_session_client_http(
