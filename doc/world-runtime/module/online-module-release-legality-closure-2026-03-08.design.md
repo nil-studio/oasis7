@@ -4,7 +4,7 @@
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history。
 
 ## 1. 设计定位
-定义线上模块发布合法性闭环方案，让模块发布前置到可审计的合法性校验、治理约束与发布门禁。
+定义线上模块发布合法性闭环方案，将可审计的合法性校验、治理约束与发布门禁前置到模块发布之前。
 
 ## 2. 设计结构
 - 发布校验层：检查模块来源、版本、签名与权限是否合法。
@@ -51,7 +51,9 @@ Release producer submits evidence；WASM owns deterministic build/identity；P2P
 本表节点发布证据引用配对 PRD 的 sr2-release-acceptance 表中 SC-4..7 / AC-5..7/10..11/13..17 子范围；原 sr2-release-node-proof 锚点的 SC-9/DC-5 组合证明仍是独立外部义务。新增 Trace refs 仅限定既有产品依赖，不改变产品或实现状态。
 
 ## 3. 当前状态、目标状态与差距
-原 release PRD 描述的 SC/AC 是独立 obligations，历史 TASK 和 run 不变。Current production action controls 已有外部 finality 校验入口和 node-submit/build packaging partial locators；current builtin materializer 仍有 source fallback，不接受 identity/receipt/policy input，该缺口不能被 production action gate 覆盖。Current prototype finality 不是 BFT。目标 VersionActivation/ExternalEffectReceipt 的完整 trust/atomic replay 未被本次运行证明；SN/SR1 prepared drafts 仍 proposal-only。
+原 release PRD 描述的 SC/AC 是独立 obligations，历史 TASK 和 run 不变。Current production action controls 已有外部 finality 校验入口和 node-submit/build packaging partial locators；current builtin materializer 仍有 source fallback，不接受 identity/receipt/policy input，该缺口不能被 production action gate 覆盖。
+
+Current prototype finality 不是 BFT。目标 VersionActivation/ExternalEffectReceipt 的完整 trust/atomic replay 未被本次运行证明；SN/SR1 prepared drafts 仍 proposal-only。
 
 ## 4. 边界与结构
 BuildReceipt 证明 particular build bytes/provenance；ArtifactIdentity 证明 signer 对 exact wasm/source/build_manifest 身份签名；release attestation 绑定 request/module/platform/proof bytes；governance certificate 证明 epoch snapshot 阈值准许 exact manifest；VersionActivation 证明生效 canonical boundary；execution receipt 证明实际结果。六者不能互相替代，locator/CID/path 仅检索入口。
@@ -91,10 +93,12 @@ release draft→signed→finalized→active/revoked、request proposed→atteste
 ## 9. 质量与容量
 热 cache 单模块 manifest+identity+signature p95<=200ms；100 signer 热 cache finality p95<=50ms；<=2治理 epoch收敛、trace100%、未签/伪签接受率0，均继承 PRD 阈值且独立 measured evidence。Duplicate NFR-OMR-6 按原文分别为 submit结构响应与finality latency，不静默编号。实际 scripts/oasis7-runtime-finality-baseline.sh summary.md/summary.json记录候选、配置、规模、窗口、分位数；本次未执行。
 
-固定 baseline 的测试归属为 `oasis7_runtime` 的 lib unit tests；按 required/full feature 和完整 identity 精确选择。每次 warmup/sample 均须在退出成功之外，确认唯一目标实际执行且通过；零命中、错 identity、ignored、失败或无法识别的结果一律失败，并传播到 case、总状态和进程退出码。原始日志保留命令和逐次执行结果；只有验证通过的 measured sample 进入耗时统计。dry-run 与零样本/skip-full 不作为执行证明。当前计时单位仍为整条 Cargo 命令毫秒，单 World 轮换不证明全节点收敛或热缓存单证书性能。
+固定 baseline 的测试归属为 `oasis7_runtime` 的 lib unit tests；按 required/full feature 和完整 identity 精确选择。每次 warmup/sample 均须在退出成功之外，确认唯一目标实际执行且通过；零命中、错 identity、ignored、失败或无法识别的结果一律失败，并传播到 case、总状态和进程退出码。原始日志保留命令和逐次执行结果；只有验证通过的 measured sample 进入耗时统计。dry-run 与零样本/skip-full 不作为执行证明。
+
+当前计时单位仍为整条 Cargo 命令毫秒，单 World 轮换不证明全节点收敛或热缓存单证书性能。
 
 ## 10. 兼容、迁移与回滚
-Current release mapping append-only且request不可重写。新 target receivers 不强制 current wasm-1新字段；trust root key rotation只在治理授权 grace内兼容，结束拒旧证书。历史 artifact、proof、schedule保留给 replay；rollback必须治理撤销/新activation，节点不能手改。Materializer source fallback能力差距在后续实现前阻断 production hardening claim，但不阻断本 concrete design authoring。
+Current release mapping append-only且request不可重写。新 target receivers 不强制 current wasm-1新字段；trust root key rotation只在治理授权 grace内兼容，结束拒旧证书。历史 artifact、proof、schedule保留给 replay；rollback必须治理撤销/新activation，节点不能手改。Materializer source fallback 能力差距在后续实现前阻断 production hardening claim，但不阻断本次具体设计的编写。
 
 ## 11. 验证设计与可追溯性
 <a id="sr2-release-validation"></a>

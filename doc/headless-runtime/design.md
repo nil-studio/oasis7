@@ -7,7 +7,7 @@
 - 对应文件级索引: `doc/headless-runtime/prd.index.md`
 
 ## 1. 设计定位
-`headless-runtime` 模块的 `design.md` 负责描述无界面运行链路的总体设计，包括：
+`headless-runtime` 模块的 `design.md` 描述无界面运行链路的总体设计，包括：
 - 非 Viewer 运行模式的系统边界；
 - 长时运行、认证、安全与归档相关设计；
 - 与 world-runtime / p2p / testing 的集成位置。

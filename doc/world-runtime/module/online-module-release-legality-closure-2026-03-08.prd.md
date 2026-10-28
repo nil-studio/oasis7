@@ -177,12 +177,20 @@
 | new target activation/migration dependency of AC-2/8/9/10 | [VersionActivationV1](module-lifecycle.md#sr2-activation-contract) + [migration publication](module-lifecycle.md#sr2-migration-publication) | target/unimplemented；原 governed proposal seam只是partial | canonical inclusive height selects version，exact migration declarations，all-object atomic failure、old bytes/schedule retained，ACT-01/MIG-01..03 |
 | external proof dependency of actual effect acceptance | [ExternalEffectReceiptV1](module-lifecycle.md#sr2-external-contract) + [host publication](../wasm/wasm-executor.design.md#sr2-host-publication) | provider immutable result与canonical verification分离，local unsigned/signable EffectReceipt不是productiontrust | RCP-01/02；raw provider response0 committed effect，verified successful module receipt才计1；wrong scope/request/root/epoch/proof拒绝，不承诺provider exactly-once |
 
-该表承接专业接受关系，不增加产品模块或新的经济规则。Target receipt唯一 successful status为 committed_success；rejected/expired/replan_required/terminated_without_effect 是 IntentDecision，不算executionreceipt或lineagewinner。Missing/invalid governing manifest/head/finality 与非 verified_serviceable 的受影响 NEW intents均0新receipt/0effect/无charge/无state publication；历史receipt不可改。Service recovery重审权利、资源、expiry、preconditions；accepted/requestACK不是effect。
+该表承接专业接受关系，不增加产品模块或新的经济规则。
+
+Target receipt唯一 successful status为 committed_success；rejected/expired/replan_required/terminated_without_effect 是 IntentDecision，不算executionreceipt或lineagewinner。
+
+Missing/invalid governing manifest/head/finality 与非 verified_serviceable 的受影响 NEW intents均0新receipt/0effect/无charge/无state publication；历史receipt不可改。Service recovery重审权利、资源、expiry、preconditions；accepted/requestACK不是effect。
 
 <a id="sr2-release-node-proof"></a>
 ### SC-9 / DC-5 组合证明保持独立
 
-[GWSC actual DC5 receiver](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-dc5-attachment) 必须消费 execution+state-sync 同 candidate/world/canonical window 的真实附件，schema valid不等于pass。SC-9 两 outage classes × stage_finish/transit/buffer_admission/terminal_settlement 八完整 cells、fixed baseline identities/quantities/state/window/lease/receipt/W/progression/next action/recheck 均保留；required deterministic matrix + active LLM/provider pure API parity，full真实localstack/provider external headed desktop+narrow S6/Playwright/screenshots/console + provider Agent parity（decision source/backend/contract/transport），provider_local_mock不能替代。只有 gameplay canonical interruption可reset unfinished W一次；read-plane outage仅stale/unknown/reconcile，不能改世界/W。Release/receipt目标合同只提供依赖，不把genericWASM场景当这些cells完成证据。
+[GWSC actual DC5 receiver](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-dc5-attachment) 必须消费 execution+state-sync 同 candidate/world/canonical window 的真实附件，schema valid不等于pass。
+
+SC-9 两 outage classes × stage_finish/transit/buffer_admission/terminal_settlement 八完整 cells、fixed baseline identities/quantities/state/window/lease/receipt/W/progression/next action/recheck 均保留；required deterministic matrix + active LLM/provider pure API parity，full真实localstack/provider external headed desktop+narrow S6/Playwright/screenshots/console + provider Agent parity（decision source/backend/contract/transport），provider_local_mock不能替代。
+
+只有 gameplay canonical interruption可reset unfinished W一次；read-plane outage仅stale/unknown/reconcile，不能改世界/W。Release/receipt目标合同只提供依赖，不把genericWASM场景当这些cells完成证据。
 
 ## 既有发布结果的产品接收与身份定位
 
