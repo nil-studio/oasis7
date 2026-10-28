@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_set_sha256": "c0f510da64a9934de13bc6bea929b75c0f9b061c392487be04c980b937df68e3",
+    "content_set_sha256": "d1857b0a2581c2468bc30510be380293facbdd6a37b45e80301a4a3134e92ddb",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_active_template_or_example",

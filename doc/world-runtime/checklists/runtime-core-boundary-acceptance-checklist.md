@@ -4,7 +4,7 @@
 
 ## 目的
 - 为 `TASK-WORLD_RUNTIME-002` 提供 runtime 核心边界（确定性 / WASM / 治理）的统一验收清单。
-- 让 `producer_system_designer`、`runtime_engineer`、`qa_engineer` 在发布前可以用同一清单判断 runtime 是否达到最小可放行状态。
+- 供 `producer_system_designer`、`runtime_engineer`、`qa_engineer` 在发布前用同一清单判断 runtime 是否达到最小可放行状态。
 
 ## 使用说明
 - 每次 runtime 关键边界改动后至少抽样执行一次本清单。

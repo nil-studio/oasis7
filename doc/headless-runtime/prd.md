@@ -67,7 +67,7 @@
   - AC-1: headless-runtime PRD 定义生命周期、鉴权、归档三条主线。
   - AC-2: 对应 PR/已有 Task 记录本次范围、适用要求、验证版本与结果；Issue/Project 按需，长期 PRD 不承载可变任务状态。
   - AC-3: 鉴权、防重放、恢复与归档语义与当前协议、runtime storage authority 及定向回归一致。
-  - AC-4: 对外行为变更时同步补齐测试证据，并在对应 PR、实际 CI 与评审记录（Issue 按需） 记录任务执行证据。
+  - AC-4: 对外行为变更时同步补齐测试证据；任务执行证据记录在对应 PR、实际 CI 与评审记录（Issue 按需）中。
 - Non-Goals:
   - 不在本 PRD 中重写 viewer UI 行为。
   - 不替代 p2p 共识层详细设计。
@@ -77,7 +77,7 @@
 - Evaluation Strategy: 以连续运行稳定性、鉴权失败率、故障恢复时长、可追溯证据完整度评估。
 
 ## 4. Technical Specifications
-- Architecture Overview: headless-runtime 作为无界面运行链路，连接 runtime/p2p 能力并提供生产可运维能力，强调协议一致性与可恢复性。
+- Architecture Overview: headless-runtime 作为无界面运行链路，连接 runtime/p2p 能力，支持生产运维，强调协议一致性与可恢复性。
 - Integration Points:
   - `crates/oasis7_proto/src/viewer.rs` 的 `PlayerAuthProof` 与受保护请求字段。
   - `crates/oasis7_client_api/src/viewer_auth.rs`、simulator live auth 路由与 `WorldModel.player_auth_last_nonce`。
