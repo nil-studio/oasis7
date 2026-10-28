@@ -117,6 +117,9 @@ impl StatePageSession<'_> {
 }
 impl MerkleNodeReader for StatePageSession<'_> {
     type Node = ChargedMerklePage;
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        Some(self.class)
+    }
     fn allocation_budget(&self) -> Option<&MemoryBudget> {
         Some(&self.store.memory)
     }

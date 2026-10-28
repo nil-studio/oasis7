@@ -517,3 +517,6 @@ fn killed_original_object_publishers_keep_the_same_identity_on_reopen_and_retry(
         );
     }
 }
+
+#[path = "incremental_material_store_tests.rs"]
+mod material;

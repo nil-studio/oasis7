@@ -28,6 +28,10 @@ pub trait MerkleNodeReader {
     /// The carrier can keep a reservation/reader lease alive through decoding.
     /// Legacy adapters may continue returning their original owned Vec.
     type Node: AsRef<[u8]>;
+    /// Concrete charged readers expose their class for phase-specific admission.
+    fn allocation_class(&self) -> Option<oasis7_proto::memory_budget::MemoryClass> {
+        None
+    }
     /// Concrete IWS stores expose their exact pool for producer admission.
     /// Legacy sources retain their caller-owned workspace contract.
     fn allocation_budget(&self) -> Option<&oasis7_proto::memory_budget::MemoryBudget> {

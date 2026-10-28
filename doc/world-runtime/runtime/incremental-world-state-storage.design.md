@@ -586,3 +586,16 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4
 初始 RootSet 形成于初始授权证书之前；其状态不能回填本次 activation/context、CommitBody 或证明。授权签发后才能形成带原授权 context 的 IWS body，随后形成原协议 record 和其独立 proof ledger 原件。原证书/回执作为原内容保留，不回填已 hash 的 RootSet/body。内容绑定还不等于完整物料验证：原 input/result/event bytes、FactSet/segment 与业务 roots、transition 重建、catalog 扩展、projection、WASM/native 历史依赖、frozen 写前材料、独立耐久域与原子 head 发布均须由实际 endpoint/Runtime 消费者完成后才可服务。
 
 局部方法：`env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib controlled_authority::formal::incremental::tests -- --test-threads=1`。用实际 IWS HeaderPreparation 与空状态 transaction，经过原 initial 授权签名、frozen 双端回执、candidate/decision/proof-complete 验证并核对 typed 内容引用；覆盖角色缺失/混用、格式降级、缺一端 complete、错误角色回执、旧 Snapshot 入口拒绝、body 承诺替换和预算准入。测试使用独立测试 signer，不是实际端点落盘、真实故障域、完整世界激活或完整恢复证据；安全/兼容变更仍须独立协议与持久化评审后才可合入。
+
+
+### 12.15 候选结构原件的有界读回验证
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5；承接 §5.1、§6.1 及 §7 的实际内容验证。`incremental_material::verify_commit_core` 要求原协议已经验证的 candidate context，以及适用的父 qualified record；它从 `OriginalObjectReader` 读取由原 record 根指定的 GenesisConfig、RootSet、CommitBody、HistoryPrefix，再读取 FactSet、segment、可选 checkpoint/transition。每次先扣 object/原 bytes 额度，reader 在分配前使用受限 max，返回同池且保留 reservation 的原 bytes；校验长度、capacity/charge 与原 flat digest 后才解码。成功仅退还未使用的预留 bytes allowance，失败保留已准入工作量；物理读取、解压、重复验证等仍消费 source 自己的实际 IO 额度。
+
+原对象接口由实际 `IncrementalObjectStore::original_reader` 实现，不从 locator 或 CAS 命中推定原内容。该 reader 借用原 ObjectIo 的物理/逻辑额度，保留 typed PageStoreError。当前为普通候选准备路径，要求同池 ordinary source；Merkle reader 显式提供 allocation class，实际 StatePageSession 返回其已选 class。恢复 class、未知 class 或跨池不能被普通候选借来绕过预留。完整恢复路径尚须接通所有 producer/decoder 的 recovery phase，不能把这个 ordinary 检查冒充恢复验收。
+
+读回后复用 §12.14 的原协议引用绑定，再以同一个 HeaderPreparation 重建当前 body/facts/segment/prefix/checkpoint 并逐项比对；无需展开完整历史。原 record 的 Input/payload 原身份必须在该提交 FactSet 的 Input 项中，不能只保留签名元数据却使历史输入范围失去原件定位。检查执行父 body/prefix/RootSet 的原身份，并从父 body 绑定的旧目录重建父 catalog extension，核对当前 body 的 catalog-before。非空 TransitionRecord 从认证父 RootSet 重新应用 read/write-set，校验实际新状态页与重建页 bytes 完全一致；再生成当前 catalog delta，核对所有实际新目录页及其原 descriptor。缺页、替换原件、相互一致但与原 producer/输入承诺不一致的候选均失败；受限和取消不会返回部分结果。
+
+Merkle source read 另有独立计数，每次父目录重建、transition 验证、候选目录构建与新页读回均在 source read 前检查取消和额度。adapter 以独立 stop 标记返回 typed Cancelled/ResourceLimited，不解析底层 String 错误；计数直接更新 caller 的 Cell 视图，捕获 source unwind 也不能退还已发生的读取工作。固定 metadata workspace 在任何解析/扩张前取得；FactSet、TransitionRecord、重建阶段及 catalog delta 保留各自 charge。输出 `CheckedCommitCore` 只持有仍计费的结构材料，没有 Clone/可变访问或接受/回执构造能力。它证明当前结构检查成功，不证明完整物料：原事实 bytes/类型语义、value 树与创世状态闭包、projection、执行环境及历史工件、业务执行合法性、实际 fsync/独立域、保护根租约、frozen/恢复写前材料和原子选择仍是后续完整 verifier/endpoint 的义务。旧 Snapshot 入口继续拒绝新材料；不得仅凭此 core 结果签发最终回执或取得服务资格。
+
+局部方法：`env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib incremental_material::tests -- --test-threads=1`，覆盖原字节/计费持有、非空差量、实际新状态页缺失、签名有效但 checkpoint 错配/原输入漏记、原件替换、原件/新页缺失、精确额度与少一额度、取消/跨池/class。实际来源方法为 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store::objects::tests::material -- --test-threads=1`：用同一原协议测试 signer 和实际 header producer 将结构原件/目录页写入真实存储，重开后通过原对象 adapter 验证，并核对 carrier charge 及 ordinary class 边界。测试没有签发端点回执，也未证明完整世界/原事实与工件闭包、完整恢复或真实故障域。

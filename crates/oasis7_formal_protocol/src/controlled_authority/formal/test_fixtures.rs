@@ -583,3 +583,6 @@ fn verified_seal(body: fencing::EpochSealBodyV1, signer: u8) -> fencing::Fencing
     )
     .unwrap()
 }
+
+#[path = "test_fixtures_incremental.rs"]
+pub mod incremental;

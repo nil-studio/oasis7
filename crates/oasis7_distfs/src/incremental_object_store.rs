@@ -21,6 +21,13 @@ struct ObjectLocator {
     value_root: [u8; 32],
 }
 impl<'a> IncrementalObjectStore<'a> {
+    /// Borrow the actual object IO allowances for live candidate core checks.
+    pub fn original_reader<'s, 'io, 'quota>(
+        &'s self,
+        io: &'io mut ObjectIo<'quota>,
+    ) -> ObjectReadSession<'s, 'a, 'io, 'quota> {
+        ObjectReadSession { store: self, io }
+    }
     /// Explicitly install this capability on a page pool. A partial creation
     /// is retained, never guessed complete by Open or silently cleared.
     pub fn create(
@@ -441,3 +448,28 @@ fn decode_locator(id: &[u8; 32], bytes: &[u8]) -> Result<ObjectLocator> {
 #[cfg(test)]
 #[path = "incremental_object_store_tests.rs"]
 mod tests;
+
+/// Keeps the source store, operation quotas and original charged carriers bound.
+pub struct ObjectReadSession<'s, 'pool, 'io, 'quota> {
+    store: &'s IncrementalObjectStore<'pool>,
+    io: &'io mut ObjectIo<'quota>,
+}
+impl oasis7_formal_protocol::incremental_material::OriginalObjectReader
+    for ObjectReadSession<'_, '_, '_, '_>
+{
+    type Error = PageStoreError;
+    fn allocation_budget(&self) -> &MemoryBudget {
+        &self.store.pages.memory
+    }
+    fn read_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>> {
+        if !memory.same_pool(&self.store.pages.memory) || self.io.class != MemoryClass::Ordinary {
+            return Err(PageStoreError::Corrupt("live original reader pool/class"));
+        }
+        self.store.read_object_owned(id, max_bytes, self.io)
+    }
+}
