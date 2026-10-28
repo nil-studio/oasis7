@@ -37,7 +37,11 @@
 
 ### 1.1 代表性情境
 
-玩家第一次来到一个仍有资源和生产约束的世界，想把一个可理解的工业目标推进到当前 `starter_completion_profile` 声明的真实完成边界：先确认工厂和配方，再按该配方的实际前置准备合法输入与电力，完成排程与生产；来源获取/精炼、handoff、物流抵达和多输入齐套仅在所选配方/profile 明确依赖时进入这条链。`production_only` 在匹配 production receipt 后完成首产物并保持 `produced/undelivered`，后续 `production-stable` 仍须满足另行声明的稳定条件；后续 `terminal-admission` 专题才独立确认匹配 delivery/terminal settlement 是否产生目的地后果。玩家需要在每一步知道系统是否接受、当前主要阻塞是什么、已经保留或消耗了什么，以及失败、重连或事实变化后还能安全地继续哪条路；首局结束后，他还应理解下一项可以持续运转的能力和真实分支，而不是只看到一次动作成功。
+玩家首次来到一个仍有资源和生产约束的世界，希望将一个可理解的工业目标推进到当前 `starter_completion_profile` 声明的真实完成边界：先确认工厂和配方，再按该配方的实际前置准备合法输入与电力，完成排程与生产；来源获取/精炼、handoff、物流抵达和多输入齐套仅在所选配方/profile 明确依赖时进入这条链。
+
+`production_only` 在匹配 production receipt 后完成首产物并保持 `produced/undelivered`，后续 `production-stable` 仍须满足另行声明的稳定条件；后续 `terminal-admission` 专题才独立确认匹配 delivery/terminal settlement 是否产生目的地后果。
+
+玩家每一步都需要知道系统是否接受、当前主要阻塞是什么、已经保留或消耗了什么，以及失败、重连或事实变化后还能安全地继续哪条路；首局结束后，他还应理解下一项可以持续运转的能力和真实分支，而不是只看到一次动作成功。
 
 ### 1.2 事实、假设与未决问题
 
@@ -111,7 +115,7 @@
 
 ### 2.2.1 首个工业闭环 walkthrough
 
-首局至首次持续能力至少要能把一条代表性工业目标讲成同一条可追溯因果链。当前 canonical `production_only` 首产物按以下边界验收：
+首局至首次持续能力至少要能将一个代表性工业目标解释为同一条可追溯因果链。当前 canonical `production_only` 首产物按以下边界验收：
 
 `合法 Smelter 就绪 -> 确认配方与合法输入/电力 -> 排程 -> 真实生产 receipt 与 owner-bound 正量铁锭结算 -> 持久首产物里程碑与 Assembler 候选`
 
@@ -163,7 +167,7 @@
 
 ### 2.2.2 Starter Industrial Feasibility Gate
 
-在系统把预设工业目标作为首局引导脊柱或当前主推荐交给玩家前，必须先运行产品根 PRD 定义的 `Starter Industrial Feasibility Gate`。本分册把它收敛为一张玩家可读的 feasibility card：闸门顶层结果只有 `candidate_available` 或 `no_safe_starter_chain`，不把内部 job、ledger、target contract 或旧缓存当成可行性证明；闸门本身不创建目标、不锁定库存/容量、不扣资源、不排程，也不保证产量、价格、ETA 或长期稳定。
+系统将预设工业目标作为首局引导脊柱或当前主推荐交给玩家前，必须先运行产品根 PRD 定义的 `Starter Industrial Feasibility Gate`。本分册将其表达为一张玩家可读的 feasibility card：闸门顶层结果只有 `candidate_available` 或 `no_safe_starter_chain`，不把内部 job、ledger、target contract 或旧缓存当成可行性证明；闸门本身不创建目标、不锁定库存/容量、不扣资源、不排程，也不保证产量、价格、ETA 或长期稳定。
 
 `candidate_available` 只表示同一份 fresh authority snapshot 已证明一条代表性 starter chain 能到达其 profile 声明的完成边界。卡片至少说明稳定的 starter-chain/candidate identity（或等价的不可变上下文摘要）、绑定的 authority snapshot/version、当前工厂/地点、可用 recipe candidate、合法输入、电力与输出前置、主要风险、completion boundary、首个可验证成果、即时收益、`progression_effect`、`next_action`、`next_recheck` 与完成后打开的下一 beat；来源/精炼结果、handoff、物流路径、多输入和终端前置仅按[适用范围](#starter-profile-applicability)纳入。identity 必须覆盖实际改变本候选产出因果的工厂、配方、输入来源、适用物流与完成边界。如果有多个候选，不得静默选定，推荐必须能说明来自当前事实的理由。只有已被专业 evidence 证明的 current path 才能通过；多输入 join、多阶段 root/window、output bundle、terminal settlement 或 maintenance 等 target-only 能力不能借 walkthrough 文本直接当作当前前置。首个可验证成果只能证明该链真实产生了声明的第一个世界结果，不能提前发放稳定/交付成长；即时收益必须是本次选择保住的能力、用途或下一选择，而不是后台完成或免费资源。
 
@@ -401,7 +405,7 @@ Trace refs: O7-REQ-81c0bc21-36ef-400d-9398-31859b9a08b2；声明：[REQ-FIRST-IN
 预览的材料需求、有效消费账本、电力和预期产出由对应专业 authority 提供；缺字段就显示未确认，不由 UI 照配方常量补算。输入、对象、权限或适用状态变化后，旧报价不可继续提交，也不能静默替换成新方案。报价失效与在途查询分别处理，不能丢失请求归属或让迟到响应覆盖新方案；安全重新提交必须遵守原请求核对和幂等边界。具体数据关系与时序由 M4、Runtime 和 Viewer 专业设计承接。
 
 
-首局与早期持续游玩中的既有 quote、preview 与推荐，应优先帮助玩家完成一个当前主要决策，并突出一个会改变该决策的主导 blocker 或成本。可以延后与当前选择无关、且可恢复的补充细节，但延后必须保留可回看的路径和时机；它不能把复杂性伪装成没有代价。
+首局与早期持续游玩中的既有 quote、preview 与推荐，应优先帮助玩家完成当前的一个主要决策，并突出会改变该决策的一个主导 blocker 或成本。与当前选择无关且可恢复的补充细节可以延后，但必须保留回看的路径和时机，不能把复杂性伪装成没有代价。
 
 当任何细节会改变损失、锁定、权威移交、不可逆行动或恢复路径是否可用时，必须立即提升为当前决策的显式信息，不能被仲裁为次要或延后内容。仲裁只可重排和解释同一权威事实，不能省略权威成本、改变动作语义、把风险降格，或把建议写成已发生的后果。本规则不规定 UI 层级、字段、数值或实现方式。
 
