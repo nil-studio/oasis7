@@ -745,3 +745,12 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 唤醒时间计算与现有 tick 路由共用同一个函数：WakeAfterTicks 的相对间隔至少为 1，以当前绝对时钟饱和相加；Suspend/无 directive 不额外重排，保留既有回调中其他合法控制写入的语义。稳定 instance 的另一个版本或同 module 的其他 instance 不被顺带清除。这些点贡献不枚举 due set；正式 driver 仍须从精确根提供有界、完整且每轮去重的 due 集合，特别是最大时钟饱和后不能在同一轮重复消费新写的唤醒。
 
 本节尚未接入认证 due 索引、完整 module invocation/工件绑定、Pure 的 state 限制、费用/原结果事实及确定性 routing metrics；不能用这些函数代签完整路由或 J2。局部方法覆盖独立 wire 向量/UTF-8/key 上限、实际 map 的固定字节创世、条目额度、overlay 与旧 cache 不一致、执行前 clear、零延迟/溢出、挂起、缺失/未来键、坏值、写入不足及晚失败。既有模块路由测试核对共享计算的消费者。实际文件方法 `module_wake_reopens_and_continues_from_the_same_absolute_schedule` 持久化首次 wake 与业务写集，重开后验证 transition，再由隔离 driver 显式暂存新时钟并执行到期 clear，与不中断分支逐 record/新页比较；回调为 fixture，不是实际 WASM/费用或完整世界恢复验收。
+
+
+### 12.27 认证键范围遍历基础
+
+Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.26 未完成的 due 集合。共享 sparse Merkle 遍历增加闭区间键读取，完整扫描复用全键域区间。读取子节点前按当前认证路径前缀计算子树的最小/最大键；与请求区间不相交的子树不读取，不以读取失败或猜测摘要代替范围判断。范围内节点继续核对原 digest、编码、深度和叶 key/path；无效反向区间在任何 source 读取前拒绝。
+
+遍历仍使用最多 257 项 DFS 栈，不保存随总叶数增长的 visited map，也不收集完整结果。该内部原语不自行声明 IO/内存准入：调用者沿用已准入 workspace、带额度 source 和有界 visitor，任何错误均只保留临时输出；完整扫描调用方原有取消、额度和计数核对保持有效。局部测试使用独立逐层分区构树与排序区间 oracle，覆盖每个 bit/byte 边界、闭区间端点、单点、空区间结果、空树、反向边界、范围内缺页、范围外未读取的缺页、坏摘要/深度/叶路径及 visitor 立即失败。单点在多分支树中恰读 257 个路径节点，未遍历其余叶子。
+
+本节只提供认证读取基础。普通状态键仍是摘要键，不能直接把其区间当作绝对 wake 顺序；按时间排序的索引、索引与标量字段的同事务双向约束、完整且每轮去重的 due 集合，以及实际 module driver/J2 仍须继续实现。范围结果不授予接受、持久发布、恢复完成或服务能力。

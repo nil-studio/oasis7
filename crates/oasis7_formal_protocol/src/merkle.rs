@@ -111,12 +111,37 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
     pub(crate) fn visit_leaves<E>(
         &mut self,
         root: &str,
+        visit: impl FnMut(&C::Leaf) -> Result<(), E>,
+    ) -> Result<u64, VisitError<E>> {
+        self.visit_key_range(root, &[0; 32], &[255; 32], visit)
+    }
+
+    /// Inclusive authenticated key range. Prune by the path prefix before
+    /// reading a child; a missing requested node remains an error. The caller
+    /// admits DFS/visitor memory and governs IO/work, as for a full scan.
+    pub(crate) fn visit_key_range<E>(
+        &mut self,
+        root: &str,
+        lower: &[u8; 32],
+        upper: &[u8; 32],
         mut visit: impl FnMut(&C::Leaf) -> Result<(), E>,
     ) -> Result<u64, VisitError<E>> {
+        if lower > upper {
+            return Err(VisitError::Tree("Merkle range boundaries".into()));
+        }
         let mut stack = Vec::with_capacity(DEPTH + 1);
         stack.push((root.to_owned(), 0usize, [0u8; 32]));
         let mut count = 0u64;
         while let Some((id, depth, path)) = stack.pop() {
+            let mut last = path;
+            let byte = depth / 8;
+            if byte < 32 {
+                last[byte] |= 255 >> (depth % 8);
+                last[byte + 1..].fill(255);
+            }
+            if &path > upper || &last < lower {
+                continue;
+            }
             let Some(node) = self.read(&id, depth).map_err(VisitError::Tree)? else {
                 continue;
             };
@@ -305,3 +330,7 @@ pub(crate) enum VisitError<E> {
     Tree(String),
     Visitor(E),
 }
+
+#[cfg(test)]
+#[path = "merkle_range_tests.rs"]
+mod range_tests;
