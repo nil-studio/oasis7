@@ -352,6 +352,10 @@ fn wait_action(
             assert!(status.running, "{status:?}");
             for batch in node.drain_committed_action_batches() {
                 if let Some(action) = batch.actions.iter().find(|action| action.action_id == id) {
+                    assert!(
+                        batch.height <= maximum_height,
+                        "original action {id} arrived beyond its fixed height bound"
+                    );
                     assert_eq!(
                         action, &expected,
                         "receipt must name the exact original player action"
