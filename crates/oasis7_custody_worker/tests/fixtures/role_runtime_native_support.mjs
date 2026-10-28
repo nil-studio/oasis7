@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Miniflare, convertV4MiniflareOptions, Response as MiniflareResponse} from 'miniflare';
 import {fixtureRecoveryPolicy,signFixtureRecoveryActivation} from './fence_activation_signer.mjs';
+import {freshAccessStatusBarrier} from './fresh_access_status_barrier.mjs';
 import {worldAuthority} from './world_runtime_support.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const defaultWorld={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
@@ -110,6 +111,7 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
     const persist=resolve(directory,'workerd');
     let nativeVerifications=0;
     let nativeUnavailable=false;
+    let accessStatusBarrier=null;
     const nativeRequests={};
     const approvalFacts=[];
     const worldResults=[];
@@ -145,6 +147,7 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup','/custody/managed-bindings/session-status','/custody/managed-bindings/session-lifetime',
         ...(worldProcess?['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view',...(mode.startsWith('native-participant-owner-setup')?['/entry-owner/control']:[])]:[])].includes(suffix));
       nativeRequests[suffix]=(nativeRequests[suffix]??0)+1;
+      if(accessStatusBarrier)await accessStatusBarrier.before(suffix,suffix==='/custody/managed-bindings/session-status'?await request.clone().json():{});
       if(nativeUnavailable)throw new Error('fixed test native provider unavailable');
       if(!management) {
         assert.equal(request.headers.get('authorization'),null,'ordinary native transport has no approval adapter credential');
@@ -153,6 +156,7 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
       if(url.pathname.endsWith('/verify')) nativeVerifications++;
       const headers=new Headers();for(const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) {const value=request.headers.get(name);if(value!==null) headers.set(name,value);}
       const response=await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      if(accessStatusBarrier)accessStatusBarrier.after(suffix,response.status);
       if(mode==='native-participant-lost-submit' && suffix==='/participant/submit' && response.status===200 && !lostParticipantReply) {
         await response.arrayBuffer();lostParticipantReply=true;
         throw new Error('fixture loses only the original submit response; canonical World may commit');
@@ -308,6 +312,14 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
       reconcileFault:async()=>(await (await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/reconcile-audit-fault')).json(),
       participantFault:async()=>(await (await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/participant-audit-fault')).json(),
       participantRoleProbes:async()=>(await mf.getWorker('owner')).fetch('https://fixture.test/_fixture/participant-role-probes'),
+      armAccessStatusBarrier:async(session_id,barrierMode)=>{
+        assert.ok(['together','over_window','reject_policy'].includes(barrierMode));
+        const {ACCOUNTS}=await mf.getBindings('owner');
+        const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/internal/test-session-identity',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({request:{api_version:1,custody_account_id:original.entry.custody_account_id,provision_id:original.entry.provision_id,session_id},action:{kind:'describe_preflight'}})});
+        assert.equal(response.status,200,'fixed Core preflight descriptor must be available');
+        const descriptor=await response.json();accessStatusBarrier=freshAccessStatusBarrier(descriptor.access_nonces,barrierMode);
+      },
+      accessStatusBarrierFacts:()=>({...accessStatusBarrier.facts}),
       nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults],approvalFacts:()=>[...approvalFacts]});
   } finally {await mf?.dispose();await native?.close();await worldProcess?.close();rmSync(directory,{recursive:true,force:true});}
 }

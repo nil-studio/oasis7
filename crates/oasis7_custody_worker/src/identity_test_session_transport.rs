@@ -179,7 +179,16 @@ pub(super) async fn access(
     secrets: &SessionSecrets,
 ) -> JResult<OwnerSetupAccessEvidenceV1> {
     let nonces = &view.descriptor.access_nonces;
-    let policy_session = session(env, selector, view, secrets, &nonces.policy_session).await?;
+    // The two distinct Root observations are independent. Complete both with the
+    // unchanged checks before policy, and keep policy before authorize's mutation.
+    let (policy_session, authorize_session) = access_statuses(
+        session(env, selector, view, secrets, &nonces.policy_session),
+        session(env, selector, view, secrets, &nonces.authorize_session),
+    )
+    .await;
+    let policy_session = policy_session?;
+    let authorize_session = authorize_session?;
+    check(env, selector, view)?;
     let policy = original(
         env,
         selector,
@@ -190,8 +199,6 @@ pub(super) async fn access(
     )
     .await?;
     check(env, selector, view)?;
-    let authorize_session =
-        session(env, selector, view, secrets, &nonces.authorize_session).await?;
     #[derive(serde::Deserialize, serde::Serialize)]
     #[serde(deny_unknown_fields)]
     struct AdmissionReply {
@@ -232,4 +239,36 @@ pub(super) async fn access(
         admission,
         authorize_session,
     })
+}
+
+// No spawned task or dependency: each completed read is retained, never repolled.
+async fn access_statuses<A, B>(a: A, b: B) -> (A::Output, B::Output)
+where
+    A: std::future::Future,
+    B: std::future::Future,
+{
+    use std::{future::poll_fn, task::Poll};
+    let (mut a, mut b) = (std::pin::pin!(a), std::pin::pin!(b));
+    let (mut first, mut second) = (None, None);
+    poll_fn(|cx| {
+        if first.is_none() {
+            if let Poll::Ready(value) = a.as_mut().poll(cx) {
+                first = Some(value);
+            }
+        }
+        if second.is_none() {
+            if let Poll::Ready(value) = b.as_mut().poll(cx) {
+                second = Some(value);
+            }
+        }
+        if first.is_some() && second.is_some() {
+            Poll::Ready((
+                first.take().expect("completed policy status"),
+                second.take().expect("completed authorize status"),
+            ))
+        } else {
+            Poll::Pending
+        }
+    })
+    .await
 }

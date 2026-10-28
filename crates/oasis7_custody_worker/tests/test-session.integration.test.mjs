@@ -817,3 +817,35 @@ for(const fault of ['reject_history','over_window'])test(`actual concurrent acti
     }finally{activationReadDelay=false;}
   }});
 });
+
+for(const barrierMode of ['together','over_window','reject_policy'])test(`actual fresh-access Root statuses overlap ${barrierMode} without reordering policy and authorize`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('the controlled preflight callback owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    await runtime.restart(selectedMode);await runtime.armAccessStatusBarrier(basis.session_id,barrierMode);
+    const before=runtime.nativeRequests(),startedAt=Date.now();
+    const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+    const status=response.status;const facts=runtime.accessStatusBarrierFacts();const after=runtime.nativeRequests();
+    if(status!==200){
+      await response.arrayBuffer();const observedAt=Date.now();await runtime.suspend();
+      console.error(JSON.stringify({access_status_barrier:{status,...facts,native_status_delta:(after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),state:continueFailureState(runtime,basis.session_id)}}));
+      assert.ok(Number.isSafeInteger(observedAt));
+    }
+    if(barrierMode==='together'){
+      assert.equal(status,200,'overlapped Root statuses must leave the unchanged policy-before-authorize path fresh');
+      assert.equal(facts.policy_status,1);assert.equal(facts.authorize_status,1);assert.equal(facts.released,'independent_statuses_started');assert.ok(facts.elapsed_ms<5000);assert.equal(facts.policy_completed,1);assert.equal(facts.authorize_after_policy,true);
+      const progress=await response.json();assert.equal(progress.stage,'active');assert.equal(progress.purposes.length,3);
+    }else{
+      assert.equal(facts.policy_status,1);assert.equal(facts.authorize_status,1);assert.equal(status,503);
+      if(barrierMode==='reject_policy'){
+        assert.equal(facts.released,'independent_statuses_started');assert.equal(facts.policy_http_status,200,'the injected failure requires an actually successful native policy response');assert.equal(facts.policy_completed,1);assert.equal(facts.policy_rejected,true);assert.equal(facts.authorize_after_policy,false);
+        assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),0,'a rejected actual policy response must prevent authorize mutation');
+      }else{
+        assert.ok(Date.now()-startedAt>=5000,'the actual readonly transport remains bounded by its unchanged five-second limit');
+        // The real native transport may abort at5000 before the5100 fixture timer.
+        assert.ok(facts.released===null||facts.released==='bounded_timeout');
+        if(facts.released!==null)assert.ok(facts.elapsed_ms>=5000);
+      }
+      const finalState=stored(runtime,basis.session_id);assert.equal(finalState.approved,false);assert.deepEqual(finalState.roots,[]);
+    }
+    assert.equal((after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),2,'the exact two prepaid Root status calls cannot refresh or retry');
+  }});
+});
