@@ -1,7 +1,7 @@
 # Pixel World Voxel Asset Pipeline Design
 
 This pipeline turns a six-view orthographic robot reference into a colored
-centimeter-scale voxel asset suitable as a base asset for pixel-world rendering.
+centimeter-scale voxel asset suitable as a base for pixel-world rendering.
 It is deterministic after the source image is supplied; generated preview and
 evaluation files are local artifacts and should not be committed.
 
