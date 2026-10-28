@@ -8,9 +8,9 @@
 <a id="lws-validation-use"></a>
 ## 1. 使用前提与结果范围
 
-以下 V-LWS-* 是稳定场景 ID，不是假定已经存在的 CLI、测试函数或自动化 runner。执行者先确认实现 PR 提供相应可调用入口，将**实际命令或手动调用、完整参数、退出码和原始输出**记入证据；没有入口、能力、合法样本或环境时标 `not_run`/`blocked` 并说明原因，不用模拟成功或改造手册步骤代替实现。
+以下 V-LWS-* 是稳定场景 ID，不表示对应 CLI、测试函数或自动化 runner 已存在。执行者先确认实现 PR 提供相应可调用入口，将**实际命令或手动调用、完整参数、退出码和原始输出**记入证据；没有入口、能力、合法样本或环境时标 `not_run`/`blocked` 并说明原因，不用模拟成功或改造手册步骤代替实现。
 
-只在固定的验证副本/独立验证部署中执行数据损坏、进程中断和删除负例，保留原始样本及未优化对照。世界 identity、输入、原结果和历史不能为使候选通过而重写。测试 owner 在开始前冻结适用规模、预算、阈值与消费者组合，失败后不放宽阈值重标成功。
+只在固定的验证副本/独立验证部署中执行数据损坏、进程中断和删除负例，保留原始样本及未优化对照。世界 identity、输入、原结果和历史不能为使候选通过而重写。测试 owner 开始前冻结适用规模、预算、阈值与消费者组合，失败后不放宽阈值重标成功。
 
 | 必须固定的输入 | 记录内容 |
 | --- | --- |
@@ -23,7 +23,7 @@
 
 本手册 `passed` 只表示该固定场景的预期满足；`failed` 表示结果违反合同；`blocked` 表示条件尚不能判定；`not_run` 表示未执行。它们是验证记录用语，不替代原运行时的 committed/unknown、服务资格或业务结果。required 局部、full 真实集成、独立故障域及平台耐久性分别记录，不相互代签。
 
-按本次实际启用子集选择场景：S0–S3 物理优化可独立验收/部署，S4 完整 delta 和 S5 Merkle v2 可分别后置。物理阶段仍须证明原材料恢复后的新工作连续；非空 delta 与 v2 未启用时独立标未验证，不用完整 T snapshot 或 v1 成功代签，也不将它们捆成物理优化前置。
+按本次实际启用子集选择场景：S0–S3 物理优化可独立验收/部署，S4 完整 delta 和 S5 Merkle v2 可分别后置。物理阶段仍须证明原材料恢复后的新工作连续；非空 delta 与 v2 未启用时独立标未验证，不用完整 T snapshot 或 v1 成功代签，也不将它们作为物理优化的前置条件。
 
 <a id="lws-manual-ci"></a>
 ### 1.1 手动存储专项 CI
@@ -86,7 +86,7 @@ env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --example formal_storag
 
 入口取得 endpoint 同名独占 lease；运行中的 endpoint 会使其在创建目标前失败。它读取 `formal-objects-v1` 全部 digest 名对象，解析原 raw/v1 pack，再把不超过既有 pack node 上限的小对象按 8 MiB payload 批次写入现有 v1 pack；空对象及更大对象保持 raw。65,536 对象、1 GiB 总逻辑输入为本工具的固定上限；单对象沿用原 reader 的 64 MiB 逻辑/80 MiB 物理限制，读回同时持有两个逻辑对象，内存最多约 128 MiB 加有界名称清单及常数解码元数据。超限返回错误并保留源，不放宽预算继续。
 
-必须将全部原对象逐个读回并比较精确 bytes；每次逻辑读取继续校验原 hash。源中未知文件、symlink、非空 staging 或不完整物理盘点都会拒绝，不能跳过 pending 材料来扩大容量收益。输出 JSON 分列原逻辑 bytes、对象数量和源/目标物理盘点；以 allocated_bytes 比较该**对象命名空间**的候选占用。目标 hardlink 的按路径 apparent_bytes 会重复计整个 pack，不代表逻辑内容增长；源/目标保留同一逻辑对象，不能从总磁盘增量推算已释放量。
+必须逐个读回全部原对象并比较精确 bytes；每次逻辑读取继续校验原 hash。源中未知文件、symlink、非空 staging 或不完整物理盘点都会拒绝，不能跳过 pending 材料来扩大容量收益。输出 JSON 分列原逻辑 bytes、对象数量和源/目标物理盘点；以 allocated_bytes 比较该**对象命名空间**的候选占用。目标 hardlink 的按路径 apparent_bytes 会重复计整个 pack，不代表逻辑内容增长；源/目标保留同一逻辑对象，不能用总磁盘增量推算已释放量。
 
 源文件和 checkpoint 始终保留，目标既有内容绝不覆盖；任何失败都保留源及可能不完整的目标。写入任何对象前先创建并同步 `.shadow-only` 标志；初始化阶段失败可能仅留下空目录。目标只包含对象及打包元数据，不复制 checkpoint、authority 或 generation selector，**不能作为 endpoint 启动或视为可激活的完整恢复 generation**；endpoint open 在创建 checkpoint 前拒绝任何带此标志的目录。成功仅证明该命名空间的全对象精确读回；不证明 typed 全世界闭包、独立故障域或运行时恢复续跑。此一次性入口不激活、不回收源；失败重试使用另一个新目标。
 
@@ -101,7 +101,7 @@ env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --example formal_storag
 
 可追加 `--until-complete`，在同一进程内持有目标独占 lease 连续推进；默认 builder 和容量循环也复用 `FormalStorageShadowSession`。单页命令每次开启新 owner，必须完整恢复元数据；仅同一 live session 的后续页省去重复全 selector 恢复。错误、重开或 owner 变化仍重新恢复，不能在磁盘保存可信的“已恢复”标志。
 
-每次单页调用仅推进有界 copy 或 verify 步骤；退出码 0 且 `complete:false` 表示本页成功，**不表示整个 shadow 已完成**。保存 JSON 的 phase、processed_records、total_records，直到 `complete:true` 并取得最终 report；独立 verify 结束前不报全对象读回成功。原始 v1 pack 对照可用同一命令去掉 `--optimized`，两种表示使用不同目标。源 checkpoint、registry、generation、目录身份或 codec 参数变化会拒绝续原操作，不能删源或改游标绕过；私有 catalog 及 `.shadow-only` 在中断期间保留。
+每次单页调用仅推进有界 copy 或 verify 步骤；退出码 0 且 `complete:false` 表示本页成功，**不表示整个 shadow 已完成**。保存 JSON 的 phase、processed_records、total_records，直到 `complete:true` 并取得最终 report；独立 verify 结束前不得报告全对象读回成功。原始 v1 pack 对照可用同一命令去掉 `--optimized`，两种表示使用不同目标。源 checkpoint、registry、generation、目录身份或 codec 参数变化会拒绝续原操作，不能删源或改游标绕过；私有 catalog 及 `.shadow-only` 在中断期间保留。
 
 ### 正式物理代与 attempt 维护
 
@@ -244,7 +244,11 @@ JSON 分域报告 file_paths、unique_files、directories、apparent_bytes、uni
 
 容量验收用同一正式 writer、世界、原历史和副本数，在停止 Node 新工作后固定原 head。先盘点维护前目录，再保持 P/R 存活逐页完成 writer attempt 维护，停止端点后推进有预算的物理代维护，分别盘点维护后和冷恢复后目录。计入 P/R、writer、native 环境、attempt、旧代及维护残余；共享安装与编译缓存明确排除。此比较标记为 `same_formal_directory_maintenance_net_occupancy`，不能称作旧 raw writer 与新版 writer 的比较。
 
-每端逻辑清单按页重新验证原 hash，保留重复 digest 的保留记录，比较各端维护前后流式摘要；不要求 P/R 私有材料相等。完整 typed history、原 Published、Snapshot、原业务结果和继续工作均须验证。冷恢复盘点必须在启动新工作前完成，不能把冷启动清理归因于物理代维护。这里的 writer 冷恢复由父验收进程启动同测试二进制的全新 OS 子进程执行，核对 child PID 与 parent PID 不同；子进程只读取持久 runtime 配置与有界原请求/摘要输入，不接收 World、Arc 或父进程缓存。子进程在 Node 未启动时实际读回固定 head、authority 和完整 typed history，发布绑定 nonce/PID 的 ready 收据并等待；父进程完成停止/回收 P/R 后的冷目录盘点、重启 P/R，才允许子进程提交原请求及继续新工作，并核对其独立完成收据。父进程沿原整场景绝对截止监管 ready、完成与退出，失败时 kill+wait；worker 输出留在有界独立 spool，辅助 worker 不作为另一个验收 pass。这个边界清空 writer 进程及其逻辑缓存，不清空 OS cache；耗时不能冒充冷设备读取性能。 CI 的 full-node 消费者必须同时校验 ready/done 两份收据的 schema、nonce、实际且不同的父子 PID、固定 head/authority/typed 摘要、原结果/效果/完整 CommitRef 和续跑位置；缺少收据的旧同进程报告不得通过。
+每端逻辑清单按页重新验证原 hash，保留重复 digest 的保留记录，比较各端维护前后流式摘要；不要求 P/R 私有材料相等。完整 typed history、原 Published、Snapshot、原业务结果和继续工作均须验证。冷恢复盘点必须在启动新工作前完成，不能把冷启动清理归因于物理代维护。
+
+这里的 writer 冷恢复由父验收进程启动同测试二进制的全新 OS 子进程执行，核对 child PID 与 parent PID 不同；子进程只读取持久 runtime 配置与有界原请求/摘要输入，不接收 World、Arc 或父进程缓存。子进程在 Node 未启动时实际读回固定 head、authority 和完整 typed history，发布绑定 nonce/PID 的 ready 收据并等待；父进程完成停止/回收 P/R 后的冷目录盘点、重启 P/R，才允许子进程提交原请求及继续新工作，并核对其独立完成收据。父进程沿原整场景绝对截止监管 ready、完成与退出，失败时 kill+wait；worker 输出留在有界独立 spool，辅助 worker 不作为另一个验收 pass。
+
+这个边界清空 writer 进程及其逻辑缓存，不清空 OS cache；耗时不能冒充冷设备读取性能。CI 的 full-node 消费者必须同时校验 ready/done 两份收据的 schema、nonce、实际且不同的父子 PID、固定 head/authority/typed 摘要、原结果/效果/完整 CommitRef 和续跑位置；缺少收据的旧同进程报告不得通过。
 
 冷恢复后的原请求重投先以最多 120 秒等待自然 Published 同步点，再在独立最多 120 秒动作阶段提交同一签名原请求，要求紧邻下一发布包含该精确动作且仅一个动作；在释放边界前捕获该 cut，远程证明在释放后验证原 CommitRef 与效果不变。两个阶段合计最多 240 秒并均受原整场景绝对截止约束，HTTP 提交计入动作阶段；这是 full-node 既有每意图 120 秒预算及新增同步等待，不是产品时延 SLO，不提高业务 RPC 或整场景预算，也不改变初始规模工作负载的 120 秒发布截止。
 
