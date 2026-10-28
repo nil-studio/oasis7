@@ -15,7 +15,7 @@ For newly added or substantively changed cross-layer requirements, follow the [t
 If a layer does not yet exist or does not apply, briefly explain why. This PR can serve as the Task; no separate Issue or task ID is required. For edits that do not affect such requirements, delete this section without inventing a requirement.
 
 ## Reward Review Intake
-Delete this entire section if you do not want this PR to be considered in the early contributor reward review.
+Delete this section if you do not want this PR considered for early contributor reward review.
 Set `Request reward review` to `yes` only when you want this PR to enter reward review.
 
 - Request reward review:
@@ -23,5 +23,4 @@ Set `Request reward review` to `yes` only when you want this PR to enter reward 
 - Evidence / context link:
 - Notes:
 
-`Reward Account` is the only reward payout field required in this PR template.
-Do not use raw `public_key` as the claimant/display name in this PR template.
+`Reward Account` is the only required reward payout field in this template; do not use raw `public_key` as the claimant or display name.
