@@ -117,11 +117,8 @@ def build_variants(scope):
     if scope == 'ordinary':
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage'):
-        # Keep both core libraries and the exact Chain binary harness. Chain
-        # configuration library tests belong to the ordinary required variant;
-        # integration tests, viewer executables and snapshot variants run elsewhere.
-        # The CI-only marker reproduces shared dependency features from all
-        # required roots without compiling their unrelated harnesses.
+        # Keep test checks while avoiding debug-code cost in multi-hour workloads.
+        # Release endpoint policy is independent and remains unchanged.
         features = ['test_tier_required', 'ci_formal_required_features']
         core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
@@ -466,7 +463,7 @@ def cache_begin(root, selection='all'):
     root = root.resolve()
     return dict(schema_version=CACHE_SCHEMA, checkout=str(root),
                 target=str((root / 'target').resolve()), inputs=_cache_inputs(root),
-                selection=selection, packages={}, files=[], directories=[], complete=False)
+                selection=selection, packages={}, input_owners={}, files=[], directories=[], complete=False)
 
 
 def _cache_relative(state, path):
@@ -583,6 +580,14 @@ def cache_record(state, message):
         root = Path(state['checkout'])
         if not manifest.is_relative_to(root):
             return
+        manifest_name = manifest.relative_to(root).as_posix()
+        manifest = _cache_path(root, manifest_name)
+        generators = state.setdefault('input_owners', {}).setdefault(manifest_name, [])
+        if set(message['target']['kind']).intersection(('custom-build', 'proc-macro')):
+            source = Path(message['target']['src_path']).relative_to(root).as_posix()
+            _cache_path(root, source)
+            if source not in generators:
+                generators.append(source)
         if state.get('selection', 'all') == 'libraries':
             kinds = set(message['target']['kind'])
             if ('custom-build' not in kinds and (message['profile']['test'] is not False
@@ -762,7 +767,8 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
         if _cache_inputs(root) != state['inputs']:
             raise ValueError('source inputs changed while staging')
         manifest = dict(schema_version=CACHE_SCHEMA, checkout=str(root), target=str(target),
-                        inputs=state['inputs'], files=files, directories=directories)
+                        inputs=state['inputs'], files=files, directories=directories,
+                        input_owners=state.get('input_owners'))
         (cache / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
         report['save'] = True
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -770,6 +776,69 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
     finally:
         report['elapsed_seconds'] = round(time.monotonic() - started, 3)
     return report
+
+
+def _cache_input_refresh(root, inputs, current, owners, report):
+    """Preserve unaffected mtimes; make path changes visible to Cargo itself."""
+    for name in inputs:
+        _cache_path(root, name)
+        if Path(name).parts[0] in ('.git', 'target'):
+            raise ValueError('invalid cache source input: ' + name)
+    added, removed = set(current) - set(inputs), set(inputs) - set(current)
+    report['input_path_changes'] = {
+        key: dict(count=len(paths), paths=sorted(paths)[:50], truncated=len(paths) > 50)
+        for key, paths in (('added', added), ('removed', removed))
+    }
+    if not added and not removed:
+        return set(), set()
+    # Old snapshots have no observed Cargo ownership. Keep their old closed
+    # behavior on a path-set change, rather than guessing from directory names.
+    if not isinstance(owners, dict) or not owners:
+        raise ValueError('path changes require Cargo input ownership metadata')
+    roots, generators = set(), set()
+    for manifest, sources in owners.items():
+        _cache_path(root, manifest)
+        if (Path(manifest).name != 'Cargo.toml' or manifest not in inputs
+                or manifest not in current or not isinstance(sources, list)):
+            raise ValueError('invalid or changed Cargo input owner: ' + manifest)
+        roots.add(Path(manifest).parent)
+        for source in sources:
+            _cache_path(root, source)
+            if source not in inputs:
+                raise ValueError('unrecorded Cargo generator input: ' + source)
+            generators.add(source)
+    delta = added | removed
+    if any(Path(name).name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml')
+           or '.cargo' in Path(name).parts for name in delta):
+        raise ValueError('Cargo configuration paths changed')
+    old_dirs = {parent for name in inputs for parent in Path(name).parents}
+    new_dirs = {parent for name in current for parent in Path(name).parents}
+    common_dirs = old_dirs & new_dirs
+    scopes, directories = set(), set()
+    for name in delta:
+        path = Path(name)
+        owners_for_path = [owner for owner in roots if path.is_relative_to(owner)]
+        if owners_for_path:
+            # Package-wide promotion also catches newly ambiguous Rust module
+            # layouts and auto-discovered targets absent from old dep-info.
+            scope = max(owners_for_path, key=lambda owner: len(owner.parts))
+        else:
+            # Retain every input, including documents and ignored files. A
+            # previously observed sibling subtree is the conservative boundary
+            # for an input outside Cargo packages; a new top-level tree widens
+            # to the checkout root, never to an unproven exclusion list.
+            scope = next(parent for parent in path.parents if parent in common_dirs)
+        scopes.add(scope)
+        directories.update(parent for parent in path.parents if parent in new_dirs)
+    # Build scripts and proc macros can observe directory membership outside
+    # their package. Recompile their observed entry sources on every path-set
+    # change, leaving Cargo to propagate dirtiness to dependent units.
+    refresh = {name for name in current if name in generators
+               or any(Path(name).is_relative_to(scope) for scope in scopes)}
+    report['refreshed_input_scopes'] = sorted(scope.as_posix() for scope in scopes)[:50]
+    report['refreshed_input_scope_count'] = len(scopes)
+    report['refreshed_generator_inputs'] = len(generators & set(current))
+    return refresh, directories
 
 
 def cache_restore(root, cache, maximum=8 * 1024 ** 3):
@@ -791,8 +860,6 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
         if set(actual) != {'manifest.json', *('target/' + name for name in files)}:
             raise ValueError('cache payload is incomplete or has extra files')
         current = _cache_inputs(root)
-        if set(current) != set(inputs):
-            raise ValueError('source input paths were added, removed or renamed')
         now = time.time_ns()
         for metadata in [*files.values(), *directories.values(), *inputs.values()]:
             if (not isinstance(metadata, dict) or type(metadata['mtime_ns']) is not int or not 0 < metadata['mtime_ns'] < now
@@ -802,6 +869,8 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
             if (type(metadata['bytes']) is not int or metadata['bytes'] < 0
                     or not isinstance(metadata['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', metadata['sha256'])):
                 raise ValueError('invalid cache file length or checksum')
+        refresh, input_directories = _cache_input_refresh(
+            root, inputs, current, manifest.get('input_owners'), report)
         if not 0 < sum(item['bytes'] for item in files.values()) <= maximum:
             raise ValueError('cache payload exceeds budget or is empty')
         for name, metadata in files.items():
@@ -824,18 +893,29 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
                     raise ValueError('cache overlaps an incomplete existing Cargo unit')
         _cache_copy(cache / 'target', target, files, directories)
         written = True
-        changed = 0
+        changed = matched = refreshed = 0
         # Validation rejects future metadata; this stamp is strictly newer than
         # every restored Cargo freshness reference, including build-script runs.
         stamp = time.time_ns()
-        for name, metadata in inputs.items():
-            same = all(current[name][key] == metadata[key] for key in ('bytes', 'mode', 'sha256'))
+        for name in current:
+            metadata = inputs.get(name)
+            same = metadata is not None and all(
+                current[name][key] == metadata[key] for key in ('bytes', 'mode', 'sha256'))
             changed += not same
+            matched += same
+            dirty = not same or name in refresh
+            refreshed += dirty
             path = _cache_path(root, name)
-            value = metadata['mtime_ns'] if same else stamp
+            value = stamp if dirty else metadata['mtime_ns']
             os.utime(path, ns=(value, value))
-        report.update(restored=True, changed_inputs=changed, matched_inputs=len(inputs) - changed,
-                      raw_bytes=sum(item['bytes'] for item in files.values()))
+        # A removed input stays absent. Stamp surviving parent directories so
+        # rerun-if-changed directory observers see removals as well as additions.
+        for directory in input_directories:
+            path = root if directory == Path('.') else _cache_path(root, directory.as_posix())
+            if path.is_dir():
+                os.utime(path, ns=(stamp, stamp))
+        report.update(restored=True, changed_inputs=changed, matched_inputs=matched,
+                      refreshed_inputs=refreshed, raw_bytes=sum(item['bytes'] for item in files.values()))
     except (OSError, ValueError, KeyError, TypeError) as error:
         if written:
             for name in files:
