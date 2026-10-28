@@ -432,3 +432,25 @@ v1 单次记录最多 4096 个 read、1024 个最终 write、4096 个事实和 8
 事务先申请固定 64 KiB 元数据/读页工作空间，再在每个 read entry、原事实和 guard 身份分配前获取共享额度；seal/验证在构建树路径与编码前按实际 dirty/read/fact 数申请保守上界，结果只接管其可见 Vec/String 容量及结构元数据 charge，临时额度随后归还。解码在序列分配前核对 count 与剩余 bytes，并另申请 owned entry 槽位；计费合并不短暂释放容量，跨池失败保留双方额度。该上界计费不替代 §9 的真实堆/allocator retained/RSS 测量；操作额度可低于格式上限，受限不得输出部分提交。
 
 协议组件方法见 `oasis7_formal_protocol::incremental_execution::tests`：手工编码与冻结向量、控制根漏写/前置条件篡改拒绝、同 tick stale guard、额度边界，以及从 C 的页集应用非空 transition 后缀到 T 后再产生一致新差量。此类 fixture 不代签真实 Runtime 的 J1/J2、外部派发、提交资格、耐久发布或完整故障域恢复。
+
+### 12.6 v1 历史对象、提交目录与查询证明
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-46fb6d36-e9c9-41d5-98df-200b93d68670；承接 §6.1 的无环身份、连续目录与 §5.2 的认证定位。以下对象使用各自的 `oasis7.iws.<type>.v1\0` domain、`u32` payload 长度和 BLAKE3 身份；整数为大端，object ID 为原始 32 bytes。Scope 为 `u16` UTF-8 world ID 长度、原 bytes（1..256）和 GenesisConfigId。optional digest 为 tag=0 或 tag=1 + digest；checkpoint pointer 为 tag=1 + `u64` height + descriptor ID，或 tag=0。普通 header 最大 4096 bytes。
+
+| type / 编码顺序 | 绑定与边界 |
+| --- | --- |
+| `genesis-config`：world ID、format profile、初始内容、原激活配置、执行环境 IDs | 不含 RootSet、CommitBody、证书或自身 ID。配置先取得身份，创世 body 另取得不同身份；profile/执行材料和原激活资格由实际消费者核定。 |
+| `fact-set`：scope、operation、`u16` count、原序 kind/ID | kind 为 input=1、result=2、event=3；最多 4096 项、256 KiB 编码 bytes。记录原事实顺序，不包含本次根、history 或 commit ID。 |
+| `history-segment`：scope、height、optional parent、operation、optional before RootSet ID、after RootSet ID、optional transition ID、fact-set ID | 每提交封闭一个不可变逻辑段；创世 parent/before/transition 均 absent，后续均 present。正文大对象另走值树，不能重写累计尾段。 |
+| `history-prefix`：scope、count、optional previous prefix ID、segment ID | count 为 height+1；首段无 previous，后续引用原前缀，不展开旧段清单。旧高度定位通过目录，不沿 prefix 逐代回走。 |
+| `checkpoint`：scope、height、optional parent、RootSet ID、history prefix ID、format profile、执行环境 IDs | 形成于 body 之前，不包含当前证书或当前 commit ID；引用结构，不嵌入历史全集。 |
+| `catalog-root`：scope、count、node root、optional last commit、optional last checkpoint pointer | 前缀精确覆盖 0..count−1；空根/count/last commit 一致，checkpoint height 小于 count。该描述符本身不证明 authority 或目录完整性。 |
+| `commit-body`：scope、height、operation、optional parent、authority token/epoch、`u16` 长度和原编码 catalog-before、RootSet ID、optional transition、history prefix、fact-set、optional checkpoint、执行环境 IDs | height 等于旧目录 count，parent 等于旧目录 last commit；本次 body 不含追加后的目录根、当前证书或 receipt。证书/receipt 原件由独立受保护账本保留。 |
+
+目录复用 §12.3 的共享 256 层 sparse Merkle 算法，使用独立 `catalog-node` codec。branch payload 为 tag=1 + `u16` depth + left/right digest；空叶 sentinel 是单字节 tag=2 的同 domain 对象。叶 payload 为 tag=0 + kind；kind=1 记录 scope、height、commit/body ID、optional parent、optional checkpoint 与 latest checkpoint；kind=2 记录 scope、commit ID、height。query key 为 `catalog-key` domain 下的 scope + kind（height=1、commit=2）+ `u64` height 或 commit ID 的 digest。节点最大 1024 bytes。一次扩展只插入本次 height 和 commit 两叶，禁止覆写，输出最终新可达且认证父树不存在的节点；CAS 命中不决定写集。
+
+latest checkpoint 为本次 checkpoint 或精确沿用父目录 pointer；它使旧高度可直接得到当时最近 checkpoint，独立于热高度窗口和 checkpoint 缓存数量。已认证 count 外的高度可以按前缀边界判定 absent；count 内缺叶、断路径、损坏或 locator/height 不一致均为错误，不能返回合法不存在。认证前缀的来源仍是 §6.1 的原证书及 extension 验证，不得直接信任本地未完成索引。
+
+`catalog-proof` 编码为 root digest、query（tag=1 + height 或 tag=2 + commit）、`u16` node count、按实际访问顺序排列的 digest + `u16` 原节点 byte 长度 + bytes。最多 514 个节点、每节点最多 1024 bytes、packet 最大 600 KiB；解码先匹配受权 root/query，再分配节点序列。height 点查最多 257 个节点，commit 点查先验证 locator 再验证 height，最多 514 个节点；证明不能缺页、带多余节点、重排或跨根/范围复用。构造/解码先申请 2 MiB 操作工作空间，验证申请 64 KiB，保留的 packet/条目接管实际容量 charge；IO/时间/取消由读者适配器在这些路径边界继续计费。
+
+HeaderPreparation 校验 config、parent body、parent prefix、RootSet 和原 TransitionRecord 的 scope/高度/operation/authority/前后根绑定，再按原件 → segment/prefix → checkpoint → body 的依赖方向形成内容。Catalog extension 可以准备候选 bytes，但必须在原证书获准后才能成为已接受目录并由 selector 选择；任何本地 hash、对象写入或证明测试均不自授接受资格。固定编码向量、缺页/篡改负例及增长目录下固定旧位置的读取计数见 `oasis7_formal_protocol::incremental_history::tests`；它们不代签真实 authority、持久化、全量闭包、复制或故障域验收。

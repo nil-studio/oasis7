@@ -9,3 +9,4 @@ mod merkle;
 pub mod incremental_state;
 pub mod incremental_value;
 pub mod incremental_execution;
+pub mod incremental_history;

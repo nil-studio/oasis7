@@ -130,21 +130,10 @@ pub(super) fn empty_hashes() -> Result<&'static [String], String> {
     static EMPTY: OnceLock<Result<Vec<String>, String>> = OnceLock::new();
     EMPTY
         .get_or_init(|| {
-            let mut hashes = vec![String::new(); DEPTH + 1];
             let mut marker = MAGIC.to_vec();
             marker.extend_from_slice(&1u32.to_be_bytes());
             marker.push(2);
-            hashes[DEPTH] = blake3::hash(&marker).to_hex().to_string();
-            for depth in (0..DEPTH).rev() {
-                hashes[depth] = blake3::hash(&StateCodec::encode(Node::Branch {
-                    depth,
-                    left: hashes[depth + 1].clone(),
-                    right: hashes[depth + 1].clone(),
-                })?)
-                .to_hex()
-                .to_string();
-            }
-            Ok(hashes)
+            crate::merkle::build_empty_hashes::<StateCodec>(&marker)
         })
         .as_ref()
         .map(Vec::as_slice)

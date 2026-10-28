@@ -234,3 +234,18 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
 fn key_bit(key: &[u8; 32], depth: usize) -> bool {
     key[depth / 8] & (0x80 >> (depth % 8)) != 0
 }
+
+pub(crate) fn build_empty_hashes<C: Codec>(empty_leaf: &[u8]) -> Result<Vec<String>, String> {
+    let mut hashes = vec![String::new(); DEPTH + 1];
+    hashes[DEPTH] = blake3::hash(empty_leaf).to_hex().to_string();
+    for depth in (0..DEPTH).rev() {
+        hashes[depth] = blake3::hash(&C::encode(Node::Branch {
+            depth,
+            left: hashes[depth + 1].clone(),
+            right: hashes[depth + 1].clone(),
+        })?)
+        .to_hex()
+        .to_string();
+    }
+    Ok(hashes)
+}
