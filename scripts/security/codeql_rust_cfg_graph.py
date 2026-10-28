@@ -58,7 +58,10 @@ CONTEXT_PATHS = (
     "tools/oasis7-command-center/src-tauri/src/generated_context.rs",
     "tools/oasis7-command-center/src-tauri/src/main.rs",
     "tools/oasis7-command-center/src-tauri/src/commands.rs",
+    "crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs",
+    "crates/oasis7_runtime/src/tests/agent_cognition_live_persistence.rs",
 )
+EXCLUDED_CONTEXT_PATHS = (CONTEXT_PATHS[0], CONTEXT_PATHS[3])
 
 
 def context_query(source):
@@ -83,8 +86,8 @@ def validate_context_exclusion(rows):
             raise RuntimeError("invalid context exclusion witness")
         observed[row[0]]={"ast_nodes":row[1],"expanded_ast_nodes":row[2]}
     if set(observed)!=set(CONTEXT_PATHS):raise RuntimeError("incomplete context exclusion witnesses")
-    if observed[CONTEXT_PATHS[0]]["ast_nodes"]!=0:raise RuntimeError("excluded context AST remains in database")
-    if any(observed[p]["ast_nodes"]==0 for p in CONTEXT_PATHS[1:]):raise RuntimeError("retained context source AST missing")
+    if any(observed[p]["ast_nodes"]!=0 for p in EXCLUDED_CONTEXT_PATHS):raise RuntimeError("excluded context AST remains in database")
+    if any(observed[p]["ast_nodes"]==0 for p in CONTEXT_PATHS if p not in EXCLUDED_CONTEXT_PATHS):raise RuntimeError("retained context source AST missing")
     return {"status":"EXCLUSION_AST_VERIFIED","files":observed,
             "scope":"Database AST location witnesses only; not proof of absent Rust Analyzer work or complete Rust coverage"}
 

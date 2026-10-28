@@ -19,6 +19,7 @@ import codeql_rust_cargo_guard as cargo_guard
 
 BASE_SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
+JSON_FIXTURE_SOURCE='09641e1b9d551700771c772e7545ac2851ea273d'
 SOURCE=EXCLUSION_SOURCE
 BUNDLE='2.27.3'
 CAP=256*1024**2
@@ -439,7 +440,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
-    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE),default=EXCLUSION_SOURCE)
+    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)

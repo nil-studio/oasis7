@@ -91,7 +91,7 @@ Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-c
 
 ## 大型 JSON 测试夹具覆盖例外
 
-经批准的例外是 `crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs` 中的完整测试数据构造函数 `cognition_projection`。持久化测试及其断言仍参与分析，普通构建使用原样实现；不扩大到其他 `json!` 或目录。结果须注明此测试夹具覆盖缺口。容量/CFG 的旧源码 pin 尚无这个隔离文件，必须在后续明确更新源码身份后验证真实 AST 排除及性能。
+经批准的例外是 `crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs` 中的完整测试数据构造函数 `cognition_projection`。持久化测试及其断言仍参与分析，普通构建使用原样实现；不扩大到其他 `json!` 或目录。结果须注明此测试夹具覆盖缺口。CFG 诊断固定包含拆分的源码，和 Tauri 例外一起验证五个文件：两个隔离文件 AST 为零，Tauri 入口、命令及原持久化测试文件均须有正向 AST。完整图摘要用于检查旧大型 scope 是否消失；它不能单独证明整个模型阶段的性能改善。容量入口保持原冻结源码，不能用其旧结果代签新排除。
 
 ## Rust 公共模型性能诊断
 
