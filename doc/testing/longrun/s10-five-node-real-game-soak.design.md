@@ -15,7 +15,7 @@ S10 本身不引入 chaos 编排；恢复、故障注入和 state-sync/commit cl
   可用节点取累计最大值后聚合，缺失值显式告警；`distfs_total_checks=0` 与比例
   超阈值分离，且只有 `invariant_ok=false` 可分类为资产不变量违规。
 - DistFS probe 预热层：reward worker 启动时仅在 blob set 为空时写入幂等、非敏感 seed；失败局部记录而不阻断主循环。
-- 验收归档层：沉淀 `summary.json`、`summary.md`、`timeline.csv`、节点日志、失败签名与门禁结论。
+- 验收归档层：归档 `summary.json`、`summary.md`、`timeline.csv`、节点日志、失败签名与门禁结论。
 
 ### 2.1 需求承接与分配表
 

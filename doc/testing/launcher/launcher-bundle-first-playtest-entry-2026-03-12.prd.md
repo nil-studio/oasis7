@@ -32,7 +32,7 @@
 
 ## 1. Executive Summary
 - Problem Statement: 当前 `testing-manual.md` 与 `scripts/run-launcher-stack.sh` 都把 `oasis7_game_launcher` 说成默认 Web 闭环入口，但没有明确区分“源码直接运行”与“打包后 bundle 产物运行”。这会让制作人试玩、发布前人工验收和开发回归混用同一口径，导致操作者更容易直接走 `cargo run`，偏离真实交付物体验，也放大静态资源、执行目录与本地状态混杂带来的误判。
-- Proposed Solution: 将启动器试玩入口明确收敛为 operator-facing `2 + 1` 口径：本地真实 LetAI provider-backed 试玩使用 `scripts/run-local-letai-game-test.sh`；制作人试玩、发布前人工验收和对外交付样张默认使用 bundle-first 的 `scripts/run-producer-playtest.sh --open-headed`；QA / subagent evidence 使用 worktree harness 与 A/B 哨兵。`scripts/run-launcher-stack.sh` 保留，但降级为底层 bootstrap / 高级排障入口，并通过 `--bundle-dir` 继续消费打包产物。
+- Proposed Solution: 将启动器试玩入口明确为 operator-facing `2 + 1` 口径：本地真实 LetAI provider-backed 试玩使用 `scripts/run-local-letai-game-test.sh`；制作人试玩、发布前人工验收和对外交付样张默认使用 bundle-first 的 `scripts/run-producer-playtest.sh --open-headed`；QA / subagent evidence 使用 worktree harness 与 A/B 哨兵。`scripts/run-launcher-stack.sh` 保留，但降级为底层 bootstrap / 高级排障入口，并通过 `--bundle-dir` 继续消费打包产物。
 - Success Criteria:
   - SC-1: 手册、启动器人工测试清单和脚本帮助文本都明确区分 `bundle` 验收入口与源码回归入口。
   - SC-2: `scripts/run-launcher-stack.sh` 支持 `--bundle-dir <bundle>`，可直接通过 `<bundle>/run-game.sh` 启动游戏。
@@ -72,7 +72,7 @@
   - 不移除 `run-launcher-stack.sh` 源码模式。
   - 不改造 `oasis7_game_launcher` / `oasis7_web_launcher` 参数协议。
   - 不新建独立的第三套 bundle 专用自动化脚本。
-  - 不新增统一 wrapper；当前先瘦文档与 operator-facing 菜单。
+  - 不新增统一 wrapper；当前先精简文档与 operator-facing 菜单。
 - Acceptance Criteria:
   - AC-1: `./scripts/run-launcher-stack.sh --help` 明确 `--bundle-dir` 的定位与 bundle-first 推荐口径。
   - AC-2: 传入 `--bundle-dir` 时，脚本使用 `<bundle>/run-game.sh` 而不是 `cargo run` 拉起游戏。
@@ -93,7 +93,7 @@
 - Edge Cases & Error Handling:
   - `--bundle-dir` 指向不存在目录：脚本必须 fail-fast 并提示目录路径。
   - `--bundle-dir` 缺少 `run-game.sh`：脚本必须明确提示 bundle 不完整。
-  - bundle 模式下未显式传 `--viewer-static-dir`：默认使用 bundle 自带 `web/`，不再偷偷 fresh build 源码目录。
+  - bundle 模式下未显式传 `--viewer-static-dir`：默认使用 bundle 自带 `web/`，不再隐式 fresh build 源码目录。
   - `run-game-test-ab.sh --headless` 命中 software renderer：先确认 viewer/compat safe-mode。最小 DOM 闭环仅在已确认该路径可用时继续；未进入 safe-mode 或目标为 GPU/完整验收时保留环境阻断。不能把 `connecting` 一概归因于构建或玩法。
   - `--open-headed` / `--headed` 也须记录实际 `browser_env.json`，按同一 scope 规则处理；headed 本身不保证硬件。producer 试玩或 release/GPU 要求仍按各自目标验收，不因 QA 软件最小闭环通过而放行。
   - bundle 缺少 freshness manifest、或 manifest 与当前工作区 fingerprint 不一致：必须视为 stale bundle；`run-launcher-stack.sh` 默认 fail-fast，`run-producer-playtest.sh` 默认重建。
