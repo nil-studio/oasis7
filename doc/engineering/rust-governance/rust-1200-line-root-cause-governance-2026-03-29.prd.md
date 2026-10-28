@@ -35,7 +35,7 @@
 ## 变更流程
 
 1. 运行 `./scripts/check-rust-file-size.sh`，记录失败路径和计数。
-2. 在当前 工作说明或按需 Issue 中声明目标职责、写范围和回归命令；不要在本文
+2. 在当前工作说明或按需 Issue 中声明目标职责、写范围和回归命令；不要在本文
    维护并行任务 ledger。
 3. 完成语义拆分并执行定向回归。
 4. 再次运行 `./scripts/check-rust-file-size.sh`；只有 oversized code、test、

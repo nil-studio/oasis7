@@ -1,6 +1,6 @@
 # engineering/governance 运行治理
 
-本页是工程运行治理的 canonical 入口：它直接定义仓库健康巡检方法，并将需要独立专业语义的环境治理分流到专题文档。
+本页是工程运行治理的 canonical 入口：定义仓库健康巡检方法，并将需要独立专业语义的环境治理分流到专题文档。
 
 ## 从这里开始
 
@@ -19,7 +19,7 @@
 
 工程治理 owner 人工触发巡检；仓库不维护 scheduler 或 GitHub Actions 定时任务。巡检是人工分类的 health review，不新增 required gate，也不替代 [canonical workflow](../workflow/source-of-truth.md)。
 
-巡检按需在独立分支或只读环境进行，记录问题、验证和建议。记录实际版本、命令结果和后续处置；通用规则见 [开发流程规范](../workflow/source-of-truth.md)。
+巡检按需在独立分支或只读环境进行，记录问题、验证、建议、实际版本、命令结果和后续处置；通用规则见 [开发流程规范](../workflow/source-of-truth.md)。
 
 ### 基线检查
 

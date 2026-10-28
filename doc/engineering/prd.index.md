@@ -30,7 +30,7 @@
 - 本索引用于保证模块专题文档在根入口文档树中可达。
 - 文档配对规则：`*.prd.md`、`*.design.md` 与相关 PR 和实际验证记录。
 - 上述 standalone content standard 没有另建 PRD 或本地 project ledger；它们的规范正文由 design 文件承接，任务与执行证据使用 Git、PR 与实际 CI 记录。
-- `doc/engineering/doc-governance/README.md` 是 doc-governance 簇级分流入口；本索引保留相关规范与执行记录的可达性，不再要求读者从长表里判断治理问题归属。
+- `doc/engineering/doc-governance/README.md` 是 doc-governance 簇级分流入口；本索引保留相关规范与执行记录的可达性，读者不必从长表中判断治理问题归属。
 - `doc/engineering/rust-governance/README.md` 是 Rust 工程治理簇级分流入口；本索引保留文件结构及工程契约专题的精确检索，不复制已完成专题的 design / project。
 - `engineering` 根目录默认只保留 `README.md / prd.md / design.md / prd.index.md` 四个模块文件入口；PR、实际 CI 与评审记录承载交付事实，Issue 按需；治理专题已分别下沉到 `doc-governance/`、`rust-governance/` 与 `governance/`。`doc-structure-standard` 负责组织、职责和消费层边界，`governance/README.md` 负责 inventory 和维护成本 follow-up 路由；workflow source of truth 与 `.agents/skills/README.md` 分别承接 self-evolution task/evidence boundary 与 skill reachability。已完成且规则已被这些 current authorities 承接的一次性专题不再作为 live 三件套暴露。`doc/devlog` 的当前入口是 `doc/devlog/README.md` compact archive summary，不再通过 active 专题三件套暴露。
 
