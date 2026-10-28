@@ -20,5 +20,5 @@
 | Observer sync mode metrics | `observer-sync-mode-runtime-metrics.prd.md` | 已吸收 runtime bridge 与 observability |
 
 ## 维护规则
-- 新增 Observer 专题时，先判断是否是现有同步模式的增量差异；属于增量时只补本页和 `doc/p2p/prd.index.md` 的主从说明。
+- 新增 Observer 专题时，先判断其是否属于现有同步模式的增量差异；属于增量时只补本页和 `doc/p2p/prd.index.md` 的主从说明。
 - 如果增量文档开始定义新的默认同步语义，应先提升为新的主入口，再更新本页分流。

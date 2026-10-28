@@ -7,7 +7,7 @@ Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；审读 so
 <a id="nir-bootstrap"></a>
 ### Local identity
 
-local/dev missing key 仅启用节点启动前在当前 config path 创建；disabled 不创建；missing/malformed/conflict/unwritable 明确失败，不替换已有非法 identity。不是 custody/admission。
+local/dev missing key 仅在启用节点启动前于当前 config path 创建；disabled 不创建；missing/malformed/conflict/unwritable 明确失败，不替换已有非法 identity。不是 custody/admission。
 
 Trace ID: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e
 

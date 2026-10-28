@@ -26,9 +26,9 @@
 - User Personas:
   - `producer_system_designer`: 需要一套不退回 MVP、直接对标公共主链的网络目标态。
   - `runtime_engineer`: 需要知道底层 P2P core 应该抽象到什么层，哪些能力必须做成框架层，而不是继续散落在 runtime 业务里。
-  - validator / sentry operator: 需要明确什么时候节点必须公开暴露，什么时候只需要 outbound reachability。
+  - validator / sentry operator: 需要明确何时节点必须公开暴露，何时只需 outbound reachability。
   - home / CGNAT / enterprise operator: 需要在没有公网 IP 的条件下仍然能加入网络、同步状态并承担受限角色。
-  - 普通玩家 / 社区节点用户: 需要用简单模式加入网络，而不是先学完整的部署角色矩阵。
+  - 普通玩家 / 社区节点用户: 需要用简单模式加入网络，而不必先学完整的部署角色矩阵。
   - `qa_engineer`: 需要把 mixed-topology、relay fallback、anti-eclipse 和 shared-network 变成正式验证矩阵。
 - User Scenarios & Frequency:
   - 每次有人提出“某个节点没有公网 IP，是否还能成为正式节点”时，先看本专题。

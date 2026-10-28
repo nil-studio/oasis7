@@ -14,7 +14,7 @@
 - User Personas: Node 网络维护者、协议实现者与网络回归复核者。
 - User Scenarios & Frequency: 发送共识消息、处理 request 或核对无 peer/失败路径时。
 - User Stories: 作为 Node 网络维护者，需要按既有路由合同发送共识消息并解释失败，避免把本地回退误当远端成功。
-- Critical User Flows: 共识广播优先选择 libp2p endpoint，否则走 UDP；两路消息按既有高度/哈希守卫 ingest。request 按连接 peer 轮换，失败试剩余 peer，耗尽返回结构化错误；无 peer 默认拒绝，只有显式开关才允许本地 handler。
+- Critical User Flows: 共识广播优先选择 libp2p endpoint，否则走 UDP；两路消息按既有高度/哈希守卫 ingest。request 按连接 peer 轮换，失败后尝试剩余 peer，耗尽返回结构化错误；无 peer 默认拒绝，只有显式开关才允许本地 handler。
 - Functional Specification Matrix（仅承接下文既有专业合同；不新增实现或验收结论）:
 | 功能点 | 字段定义 | 动作行为 | 状态转换 | 计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |

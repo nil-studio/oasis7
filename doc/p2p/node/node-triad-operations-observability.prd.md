@@ -34,7 +34,9 @@
 
 ## 产物与解释
 
-Canonical command is `scripts/p2p-real-env-observability-monitor.sh`; it composes triad snapshot, host monitor, traffic monitor and WASM monitor. It writes machine-readable JSON and Markdown summary containing `overall.status`、per-node alerts、module breakdown and `optimization_candidates`. 外层尝试的当前状态由 `python3 scripts/p2p-real-env-observability-attempt.py read --out-dir <root>` 验证读取（Markdown 加 `--format markdown`）；根目录 latest 文件是物化工件，未验证缓存不作为当前状态权威。 三节点配置选项按[消费者路由](node-triad-operations-observability.design.md#run-routing)分别传递；外层拒绝不支持的 `--node` 拓扑与未知／缺值选项，避免不同模块采样范围不一致。
+Canonical command is `scripts/p2p-real-env-observability-monitor.sh`; it composes triad snapshot, host monitor, traffic monitor and WASM monitor. It writes machine-readable JSON and Markdown summary containing `overall.status`、per-node alerts、module breakdown and `optimization_candidates`. 外层尝试的当前状态由 `python3 scripts/p2p-real-env-observability-attempt.py read --out-dir <root>` 验证读取（Markdown 加 `--format markdown`）；根目录 latest 文件是物化工件，未验证缓存不作为当前状态权威。
+
+三节点配置选项按[消费者路由](node-triad-operations-observability.design.md#run-routing)分别传递；外层拒绝不支持的 `--node` 拓扑与未知／缺值选项，避免不同模块采样范围不一致。
 
 `pass_with_resource_alerts` 或 `pass_with_module_alerts` 仅可在 underlying snapshot 为 `pass_candidate` 时使用。summary 的可读诊断不构成 public-chain claim、长期可用性承诺或发布许可。
 

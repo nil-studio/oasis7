@@ -18,7 +18,7 @@ This stable design absorbs the dated 2026-06-08 ideal-transaction design. Its pu
 | Quote | `max_fee` is non-zero when present and requires `fee_asset_id`; both are metadata only, with no debit. |
 | Client audit | `client_request_id` is signed audit/idempotency metadata only, not consensus dedupe. |
 
-The signing payload and node-local signature rebuild use the exact same implemented fields. A submission whose live chain identity is unavailable fails before signing; structural validation rejects invalid v2 context and incomplete quote metadata.
+The signing payload and node-local signature rebuild use the same implemented fields. A submission whose live chain identity is unavailable fails before signing; structural validation rejects invalid v2 context and incomplete quote metadata.
 
 ## Surface contract
 

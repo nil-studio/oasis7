@@ -36,7 +36,9 @@
 
 ## 6. 本次规范化范围、上下游与状态
 
-本次仅规范化既有经济合同的身份、需求接收和验证计划；原设计正文、参数、接口、签名策略、权限、计划和实现声明原样保留。产品结果由世界规则根定位，专业 PRD 继续拥有规则/数值；P2P/runtime、治理维护者与 QA 分别负责技术、治理和验收，涉及贡献奖励的资格/审批仍归 README reward governance。这里的设计关系和 planned 方法不启用资产、不授权交易，也不是本轮业务测试或生产证据。
+本次仅规范化既有经济合同的身份、需求接收和验证计划；原设计正文、参数、接口、签名策略、权限、计划和实现声明原样保留。
+
+产品结果由世界规则根定位，专业 PRD 继续拥有规则/数值；P2P/runtime、治理维护者与 QA 分别负责技术、治理和验收，涉及贡献奖励的资格/审批仍归 README reward governance。这里的设计关系和 planned 方法不启用资产、不授权交易，也不是本轮业务测试或生产证据。
 
 - 当前基线：2026-10-15，固定文档提交 `cde57786e711b03a9c9fa2a5174aba357e8350d5`；本次只核对文档关系，当前实现与完整验收未核实。
 - 目标：原独立经济结果可从产品条款追至专业规则、有限设计和真实验证入口。
@@ -59,28 +61,36 @@
 
 Trace refs: O7-REQ-c0f136a1-3baf-497e-a0ec-622e745024d0；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-ledger) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-ledger)。
 
-PowerCredit保持不可直接转账的受限协议资产；按原积分换算和mint记录形成可追溯余额，不扩展通用交易市场。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不更改兑换率，不新增转账/市场或当前可兑现承诺。
+PowerCredit保持不可直接转账的受限协议资产；按原积分换算和mint记录形成可追溯余额，不扩展通用交易市场。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不更改兑换率，不新增转账/市场或当前可兑现承诺。
 
 <a id="des-economic-power-redemption"></a>
 ### 全部条件成立才燃烧资产并增加目标电力
 
 Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-redemption) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-redemption)。
 
-兑换沿原余额、nonce、最小量、epoch储备与上限条件；成功须扣资产、扣储备与增加指定Agent电力一致，失败不得伪装兑付成功。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不改额度、目标、权限或承诺当前服务可用。
+兑换沿原余额、nonce、最小量、epoch储备与上限条件；成功须扣资产、扣储备与增加指定Agent电力一致，失败不得伪装兑付成功。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不改额度、目标、权限或承诺当前服务可用。
 
 <a id="des-economic-power-signature"></a>
 ### 签名治理条件不足必须拒绝
 
 Trace refs: O7-REQ-85c5baeb-e05a-4924-9024-e05f1903bd2a；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-signature) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-signature)。
 
-v1仅历史可重算摘要；v2与兑换签名依既有治理策略和绑定执行，缺少密钥、绑定或所需策略条件时fail closed。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不接触密钥，不证明HSM/KMS或跨组织custody。
+v1仅历史可重算摘要；v2与兑换签名依既有治理策略和绑定执行，缺少密钥、绑定或所需策略条件时fail closed。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不接触密钥，不证明HSM/KMS或跨组织custody。
 
 <a id="des-economic-power-audit"></a>
 ### 审计与恢复检测异常而不自动修复
 
 Trace refs: O7-REQ-9804d9d7-2c75-475f-b321-5c4ed36276b5；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-audit) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-audit)。
 
-mint/burn/balance/record与快照/replay保持一致；invariant report用于检测而非自动修复，旧快照可读取不免除签名策略与报告复核。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不证明mainnet或生产恢复，不恢复历史viewer flags入口。
+mint/burn/balance/record与快照/replay保持一致；invariant report用于检测而非自动修复，旧快照可读取不免除签名策略与报告复核。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不证明mainnet或生产恢复，不恢复历史viewer flags入口。
 
 ## 8. 验证设计
 
