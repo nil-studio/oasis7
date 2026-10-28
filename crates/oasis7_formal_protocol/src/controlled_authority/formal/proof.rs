@@ -30,6 +30,7 @@ impl SignedCanonicalCandidateV1 {
     pub fn verify_original(&self, authority: &VerifiedAuthorityV1) -> Result<(), FormalError> {
         self.record.validate()?;
         let definition = authority.definition();
+        super::incremental::check_record_profile(&self.record, definition)?;
         if self.record.world != definition.world
             || self.record.original_authority_id != definition.authority_id()?
             || self.record.original_epoch != definition.epoch
@@ -170,6 +171,7 @@ pub fn verify_formal_candidate(
 ) -> Result<VerifiedCandidateContextV1, FormalError> {
     let record = &candidate.record;
     record.validate()?;
+    super::incremental::check_record_profile(record, authority.definition())?;
     let (finalizer, certificate) = match branch {
         FormalCompletionBranchV1::Normal => {
             if recovery.is_some()
@@ -239,8 +241,10 @@ pub fn verify_formal_candidate(
                 .initial
                 .as_ref()
                 .ok_or_else(|| invalid("initial formal proof missing initial authorization"))?;
-            if (initial.schema_version == 2) != (record.schema_version == 5)
-                || record.parent_record_id != record.world.genesis_head()?.record_id
+            if !matches!(
+                (initial.schema_version, record.schema_version),
+                (1, 1) | (2, 5) | (3, 7)
+            ) || record.parent_record_id != record.world.genesis_head()?.record_id
                 || record.before_state_root != initial.initial_state_root
                 || record.after_state_root != initial.initial_state_root
                 || record.runtime_manifest_digest != initial.runtime_manifest_digest
@@ -263,7 +267,9 @@ pub fn verify_formal_candidate(
             }
         }
         (FormalRecordKindV1::Execution, Some(parent)) => {
-            if (parent.record.schema_version >= 5 && record.schema_version < 5)
+            if (super::incremental::is_iws_record(parent.record.schema_version)
+                != super::incremental::is_iws_record(record.schema_version))
+                || (parent.record.schema_version >= 5 && record.schema_version < 5)
                 || parent.record.world != record.world
                 || parent.record.position.checked_add(1) != Some(record.position)
                 || parent.head().record_id != record.parent_record_id

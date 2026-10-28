@@ -26,6 +26,14 @@ pub fn verify_formal_reservation(
 ) -> Result<VerifiedFormalReservationV1, FormalError> {
     let body = &reservation.body;
     body.validate()?;
+    if (authority.definition().profile_version == 3) != (body.schema_version == 4) {
+        return Err(invalid("frozen reservation authority format"));
+    }
+    if super::incremental::is_iws_record(parent.record().schema_version)
+        != (body.schema_version == 4)
+    {
+        return Err(invalid("frozen reservation incremental parent format"));
+    }
     super::proof::verify_normal_parent_continuity(authority, parent, body.next_position)?;
     if parent
         .record()
@@ -108,7 +116,7 @@ pub struct FormalFrozenCertificateV1 {
 impl FormalFrozenBodyV1 {
     pub fn validate(&self) -> Result<(), FormalError> {
         self.world.validate()?;
-        if !matches!(self.schema_version, 1..=3)
+        if !matches!(self.schema_version, 1..=4)
             || self.epoch == 0
             || self.parent.position == 0
             || self.parent.position.checked_add(1) != Some(self.next_position)
@@ -167,6 +175,11 @@ pub fn verify_frozen_material_retaining_snapshot(
     material: &ClosedRecord,
 ) -> Result<Option<Vec<u8>>, FormalError> {
     body.validate()?;
+    if body.schema_version == 4 {
+        return Err(invalid(
+            "incremental frozen requires bounded typed material verification",
+        ));
+    }
     if frozen_material_digest(material)? != body.frozen_material_digest
         || material.payload_digest != body.payload_digest
         || material.before_state_root != body.pre_state_root
@@ -208,6 +221,9 @@ impl FormalFrozenCertificateV1 {
         authority.validate()?;
         let body = &self.reservation.body;
         body.validate()?;
+        if (body.schema_version == 4) != (authority.profile_version == 3) {
+            return Err(invalid("frozen authority incremental format mismatch"));
+        }
         let authority_id = authority.authority_id()?;
         let reservation_id = body.reservation_id()?;
         if body.world != authority.world
@@ -250,7 +266,8 @@ impl FormalFrozenCertificateV1 {
     }
     pub fn matches_record(&self, record: &CanonicalRecordV1) -> Result<(), FormalError> {
         let body = &self.reservation.body;
-        if (body.schema_version >= 3 && record.schema_version < 5)
+        if ((body.schema_version == 4) != super::incremental::is_iws_record(record.schema_version))
+            || (body.schema_version >= 3 && record.schema_version < 5)
             || record.frozen_reservation_id.as_deref() != Some(body.reservation_id()?.as_str())
             || record.world != body.world
             || record.original_authority_id != body.authority_id

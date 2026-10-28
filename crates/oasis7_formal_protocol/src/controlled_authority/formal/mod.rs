@@ -2,6 +2,7 @@
 pub mod activation;
 pub mod crypto;
 pub mod frozen;
+pub mod incremental;
 pub mod proof;
 pub mod record;
 pub mod recovery;

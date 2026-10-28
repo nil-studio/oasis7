@@ -66,6 +66,38 @@ impl PreparedRuntimeCommit {
     pub fn expected_fence(&self) -> ExecutionFence {
         self.fence
     }
+    /// Match an original protocol record to this exact immutable candidate.
+    /// Qualification, complete material verification and acceptance are still
+    /// separate obligations; the candidate cannot award those capabilities.
+    pub fn verify_protocol_binding(
+        &self,
+        record: &oasis7_formal_protocol::controlled_authority::formal::CanonicalRecordV1,
+        authority: &oasis7_formal_protocol::controlled_authority::formal::VerifiedAuthorityV1,
+        parent: Option<
+            &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+        >,
+        config: &GenesisConfigV1,
+        memory: &MemoryBudget,
+    ) -> Result<(), oasis7_formal_protocol::controlled_authority::formal::incremental::BindingError>
+    {
+        use oasis7_formal_protocol::controlled_authority::formal::{FormalError, incremental};
+        if !self.transition.uses_budget(memory) {
+            return Err(FormalError::Invalid("runtime protocol binding memory pool".into()).into());
+        }
+        incremental::verify_commit_binding(
+            record,
+            authority,
+            parent,
+            incremental::CommitMaterialRefs {
+                config,
+                roots: &self.transition.record.after,
+                body: &self.history.body,
+                history: &self.history.prefix,
+            },
+            memory,
+        )
+    }
+
     /// Recheck immediately at each later protocol/publication boundary too.
     pub fn validate_live_fence(&self, live: &ExecutionFence) -> Result<(), ExecutionError> {
         if self.fence == *live {

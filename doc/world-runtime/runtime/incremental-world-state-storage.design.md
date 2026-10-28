@@ -565,3 +565,24 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 既有 controlled formal `CanonicalRecordV1`/`ClosedRecord` 的 Snapshot 槽位要求原 Snapshot/schema 展开及原 root 验证，不能把这些 RootSet bytes 塞进去冒充已适配；旧 verifier 和 profile 未因此放宽。新世界仍未激活。候选准备链也没有完成其余 Runtime 字段/事件、tick consensus、复制、保留/GC 或全量验收。
 
 局部命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_body_event::tests::commit -- --test-threads=1`，覆盖真实 body event 经 driver 形成相互绑定的四类材料与原 fact、三个 live fence 边界冲突、坏父材料在执行前拒绝、源不变与输出/失败释放计费。`world::incremental_body_event::tests::physical::prepared_driver_material` 将相同 driver 输出接到实际状态页、目录页与原对象 store，重开读取 CommitBody/RootSet/catalog，核对旧父引用、目录新项与 transition 重建。fixture 的创世/authority 和字段集合为测试构造，未证明原资格、完整世界闭包、接受发布、跨进程世界恢复、J1/J2 或真实故障域。
+
+
+### 12.14 原 controlled authority 的 IWS 格式绑定
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5；承接 §7 的原协议、资格与独立持久边界。`controlled_authority::formal::incremental` 将 IWS 材料显式绑定到现有 controlled-single-authority 协议，不另设签名算法、端点角色、决定/complete 回执或降低独立域数量。原签名 domain、原 record_id、原 frozen/reservation 身份和 proof-complete 流程保留；schema 和 format profile 明确区分新旧材料。这里是协议元数据与内容引用绑定；实际端点的新格式物料闭包、落盘、恢复及服务资格仍未接通。
+
+| 合同 | IWS 版本与绑定 |
+| --- | --- |
+| authority profile | 原 `controlled_single_authority` 的 profile_version=3；仍使用原 writer、两个独立实例/角色/域与原 issuer/fencer/witness 策略。只用于新建 IWS 世界；旧 profile 1/2 不能提交 IWS record，不能把旧世界直接升版导入。 |
+| 初始授权 | InitialActivationBody schema=3；六个精确根角色为 IncrementalGenesisConfig、IncrementalRootSet、ExecutionManifest、Wasm、Rules、NativeExecutionEnvironment。初始 RootSet 与 world.genesis/config、manifest 精确绑定。不包含 IWS CommitBody 或 HistoryPrefix，避免授权证书与带当前 authority context 的 body 形成循环。 |
+| 原 canonical record | schema=7 为初始/普通执行，schema=8 为原 durable-set transition 的执行边界；九个精确角色为上述六项加 Input、IncrementalCommitBody、IncrementalHistoryPrefix。RootSet 绑定 after_state_root，GenesisConfig 绑定 world.genesis_digest，Input 绑定原 payload_digest；不使用 Snapshot/Journal/NonceIndex/EffectOutbox/Result 槽位冒充新根。控制状态由完整 RootSet 持有。 |
+| 原 frozen | FormalFrozenBody schema=4；签名、原父记录、request/payload、原 epoch/activation 及双端 frozen 回执规则不变。IWS parent 只能使用该 schema；旧 Snapshot frozen schema 不能用于 IWS，也不能反向混用。新格式 frozen_material 的有界完整验证仍须由新消费者接入。 |
+| 身份映射 | 原协议 position=IWS height+1；原 canonical record_id 是协议身份，IWS CommitBody digest 是存储内容身份，两者不相等也不互相覆盖。原 record 的 typed artifact roots 绑定 IWS body/history/RootSet；IWS body.parent_commit 绑定父原 record 的 IncrementalCommitBody 根，原 record.parent_record_id 仍绑定父原协议 head。 |
+
+`authority_binding` 从原 VerifiedAuthority 的完整 authorization-window context_digest 和 epoch 派生 ExecutionTransaction fence，而不是只取可重复的 authority definition ID。其 metadata hash 前申请共享预算；`verify_commit_binding` 同样先准入，再核对实际 GenesisConfig、六根 RootSet、CommitBody、HistoryPrefix 与原 record/authority/父 qualified record 的 scope、height/position、operation、epoch/context、native 环境与前后根引用。预算不足保留 typed Memory 错误，不变成材料损坏。该函数只返回绑定结果，不颁发新的 Verified commit 或已接受能力。
+
+原 initial/execution candidate、frozen、双端 decision 和 proof-complete verifier 复用同一实现，并拒绝 authority/record、parent/child 或 frozen 的格式混用。新 schema 不改变现有 1–6 record 或 1/2 profile 的 bytes/身份；旧 Snapshot 完整包验证入口对 IWS record/frozen 明确拒绝，不能在 `schema>=3` 分支尝试展开 RootSet。尚未覆盖 IWS 的旧读取、端点和恢复消费者不能因元数据 verifier 已支持 schema 就取得服务资格。
+
+初始 RootSet 形成于初始授权证书之前；其状态不能回填本次 activation/context、CommitBody 或证明。授权签发后才能形成带原授权 context 的 IWS body，随后形成原协议 record 和其独立 proof ledger 原件。原证书/回执作为原内容保留，不回填已 hash 的 RootSet/body。内容绑定还不等于完整物料验证：原 input/result/event bytes、FactSet/segment 与业务 roots、transition 重建、catalog 扩展、projection、WASM/native 历史依赖、frozen 写前材料、独立耐久域与原子 head 发布均须由实际 endpoint/Runtime 消费者完成后才可服务。
+
+局部方法：`env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib controlled_authority::formal::incremental::tests -- --test-threads=1`。用实际 IWS HeaderPreparation 与空状态 transaction，经过原 initial 授权签名、frozen 双端回执、candidate/decision/proof-complete 验证并核对 typed 内容引用；覆盖角色缺失/混用、格式降级、缺一端 complete、错误角色回执、旧 Snapshot 入口拒绝、body 承诺替换和预算准入。测试使用独立测试 signer，不是实际端点落盘、真实故障域、完整世界激活或完整恢复证据；安全/兼容变更仍须独立协议与持久化评审后才可合入。
