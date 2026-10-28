@@ -21,7 +21,7 @@ fields! {
     world_rules => value, Value, FieldDestination::State(Namespace::Authorization);
     time => value, Value, FieldDestination::State(Namespace::Allocator);
     retained_history_root => side, History, FieldDestination::ProofLedger;
-    agents => map, Map, FieldDestination::State(Namespace::Business);
+    agents => agents, Children, FieldDestination::Children;
     agent_intent_ledger => map, Map, FieldDestination::State(Namespace::Authorization);
     resources => map, Map, FieldDestination::State(Namespace::Business);
     materials => map, Map, FieldDestination::State(Namespace::Business);

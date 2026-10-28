@@ -13,6 +13,7 @@ mod provider_outcome;
 mod source_compiler;
 pub use provider_outcome::AgentIntentReference;
 mod execution_identity;
+pub mod incremental_agent_genesis;
 pub mod incremental_body;
 pub mod incremental_body_event;
 pub mod incremental_commit;

@@ -667,3 +667,18 @@ manifest 编码为 `oasis7.iws.execution-manifest.v1\0` + `u32` payload 长度�
 空原件读取另补齐 §12.17 的空 data 叶检查：完整原对象读回不能用零长度 range 代替 typed 闭包。真实存储删除该叶的回归已先判红，修复后明确失败；正常空原件导入与窄 range 的语义保持不变。
 
 局部方法：`incremental_artifacts::tests` 使用独立全量逐层树和直接二进制 profile 向量，覆盖追加/幂等、父 delta 重建、节点集合替换、kind/长度/顺序/count/缺页/跨池及未知格式。`incremental_material::tests::artifact_tests` 用原协议签名的实际结构 core，覆盖创世与非空执行的 parent/operation/input/continuation、原 policy 摘要/目录 membership、native executable 绑定、精确与少一额度、替换/缺失、取消/class/跨池及 unwind 后已消费额度。实际来源 `incremental_page_store::objects::tests::material::artifacts::iws_manifest_and_large_wasm_catalog_reopen_with_exact_streaming_dependencies` 在 32 MiB 共享池中写入并重开含大 custom section 的超 64 MiB WASM 原件、原 policy/native 和两类目录，核对原协议角色、771 次页读取及全部原件额度精确耗尽、输出计费释放。fixture 不执行模块或 policy，不证明 ABI/规则 schema、Runtime 字段/版本对应、frozen 恢复、有效父耐久租约或最终发布；这些接线与 §11 规模/续跑验收仍待完成。
+
+
+### 12.21 AgentCell 独立字段与流式创世准备
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 与 §12.10 的借用字段清单。agents 不再将整个 AgentCell 作为一个 Map value 交给 genesis visitor；新的穷尽解构逐一访问身份、坐标、机体规格、资源、槽位、货物、activity、intent，并沿用已有 body/mailbox typed 编码。新增字段会使穷尽解构编译失败，避免默默遗漏。此变化尚未接通完整世界格式启用。
+
+字段键编码为 `oasis7.iws.agent-field-key.v1\0` 加 agent digest（32 bytes）、字段 tag（u16）、ordinal（u64）。agent digest 为 BLAKE3(`oasis7.iws.agent-id.v1\0` + UTF-8 长度 u64 + 原 bytes)；整数大端。tag 1 为身份，2–4 为坐标，5–6 为机体规格，7 为资源，8–10 为 frame/capacity/expansion，11–16 为槽位 count/next/id/type/installed/locked，17–22 为货物 count/next/id/kind/quantity/unit-size，23–30 为 activity，31–53 为 intent。精确顺序与类型由 `AgentFieldV1` 固定；未知 tag、错误类型及枚举值拒绝。1–22 属 Business，23–30 属 Scheduler，31–53 属 Authorization；这里仅确定内容位置，字段内容本身不授予权限。
+
+非索引字段 ordinal 必须为零。资源 ordinal 0/1 分别为 Electricity/Data，保留显式零、负值以及不存在的差别，业务合法性仍由业务 owner 判断。槽位和货物采用原顺序的独立 ordinal，即使语义 ID 重复也不合并。创世 count 和 next 等于原条目数，后续删除可以留下空洞，不能通过重新枚举活跃条目改变旧 ordinal。activity/intent 独立 present 字段区别 None 与存在对象；可选子字段保留 None、空字符串及零的区别。
+
+标量编码为 `oasis7.iws.agent-scalar.v1\0` + 类型 tag（u8）+ payload。类型 1–9 按序为 u8/u16/u32/u64/i64/bool/text/optional-text/optional-u64；整数大端，bool 为 0/1，text 为 UTF-8 长度 u64 加原 bytes，可选值为 0 或 1 加原 payload。解码借用输入并拒绝截断、尾随、非法 UTF-8、类型不符和非法判别值。semantic visitor 的 serde 视图不属于冻结 wire。
+
+Runtime 的 `write_agent_scalar_value` 先准入固定 metadata 和最大逻辑长度，直接借用标量向既有 ValueStreamWriter 写入；不生成整件编码 Vec，修改 status 不读取或编码 summary。`World::write_iws_agent_genesis_fields` 逐个发出 typed key/value 引用，body、mailbox frontier 和原事件引用复用既有格式。mailbox 每个 occurrence 必须由调用者解析到实际持久化的原 WorldEvent；缺失 provenance 失败，不能从 DomainEvent 合成原 envelope。输出回调负责同池计费和临时状态写入，全部成功前不能安装活 World 或发布 head。取消、IO、来源、限额或回调失败不返回成功 count。
+
+本节只提供 AgentCell 子字段和单 agent 创世准备。其余 Runtime 字段 codec、普通业务 reducer、全部世界根构造、原件语义对应、恢复重建、端点与 durable head 尚未完成；这些组件不能签发完整世界、可写恢复或服务资格。局部验证核对直接 wire 向量、原顺序及重复条目、借用地址、非法 key/type、来源状态不变、mailbox 原 occurrence、失败路径，以及大于 64 MiB summary 的真实存储写入重开和独立小 status 写入；该证据不能代替 §11 的 H/S、RSS、J1/J2/provider oracle 与独立故障域验收。

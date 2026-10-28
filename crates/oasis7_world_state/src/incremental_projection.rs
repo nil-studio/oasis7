@@ -95,6 +95,10 @@ pub fn scalar<V: Serialize + ?Sized, S: GenesisFieldVisitor>(
 // macro does not define a codec or grant a successful genesis activation.
 #[macro_export]
 macro_rules! visit_iws_field {
+    ($sink:expr, $field:expr, $value:expr, agents) => {{
+        let _ = $field;
+        $crate::incremental_agent_fields::visit_agents_projection($value, $sink)
+    }};
     ($sink:expr, $field:expr, $value:expr, value) => {
         $crate::incremental_projection::scalar($sink, $field, $value)
     };

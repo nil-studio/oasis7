@@ -83,7 +83,23 @@ fn field_catalogs_cover_runtime_state_and_snapshot_without_building_a_snapshot()
     let mut sink = Capture::default();
     world.visit_iws_genesis_fields(&mut sink).unwrap();
     for field in oasis7_world_state::incremental_projection::WORLD_STATE_FIELDS {
-        assert_eq!(sink.fields.get(&(field.owner, field.name)), Some(field));
+        if field.destination != FieldDestination::Children {
+            assert_eq!(sink.fields.get(&(field.owner, field.name)), Some(field));
+        }
+    }
+    assert!(
+        !sink
+            .fields
+            .contains_key(&(FieldOwner::WorldState, "agents"))
+    );
+    for field in oasis7_world_state::incremental_agent_fields::AgentFieldV1::ALL {
+        assert_eq!(
+            sink.fields[&(FieldOwner::WorldState, field.name())].destination,
+            FieldDestination::State(field.namespace())
+        );
+    }
+    for name in ["agents.body", "agents.mailbox_frontier", "agents.mailbox"] {
+        assert!(sink.fields.contains_key(&(FieldOwner::WorldState, name)));
     }
     let runtime_fields = World::iws_runtime_fields();
     let names: BTreeSet<_> = runtime_fields.iter().map(|field| field.name).collect();
