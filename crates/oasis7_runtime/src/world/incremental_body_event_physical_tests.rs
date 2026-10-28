@@ -48,6 +48,17 @@ fn contribute(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
 ) -> ReservedValue<oasis7_formal_protocol::incremental_execution::PreparedTransition> {
+    contribute_with_limits(world, event, parent, store, memory, limits())
+}
+
+fn contribute_with_limits(
+    world: &World,
+    event: &WorldEvent,
+    parent: ExecutionParent,
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    limits: oasis7_formal_protocol::incremental_execution::TransactionLimits,
+) -> ReservedValue<oasis7_formal_protocol::incremental_execution::PreparedTransition> {
     let source = store
         .state_session(physical_io(), MemoryClass::Ordinary)
         .unwrap();
@@ -59,7 +70,7 @@ fn contribute(
         IncrementalObjectStore::open(store, MemoryClass::Ordinary, &mut physical, &cancelled)
             .unwrap();
     let live = parent.fence().unwrap();
-    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &source, memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &source, memory, limits).unwrap();
     world
         .contribute_iws_agent_event(
             event,
@@ -94,6 +105,109 @@ fn contribute(
         .unwrap();
     let guard = txn.guard();
     txn.seal(&guard, &live, 0).unwrap()
+}
+
+#[test]
+fn physical_registration_reopens_new_fields_and_moves_without_materialized_agent() {
+    use super::registration::{registration, registration_limits};
+    use oasis7_agent_api::world_action::GeoPos;
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
+    let (world, mut parent, mut state) = fixture(&memory);
+    let mut values = Values::default();
+    seed(
+        &world,
+        &mut parent,
+        &mut state,
+        &mut values,
+        &memory,
+        EventSequenceV1 { next: 1, era: 0 },
+        MailboxFrontierV1 { head: 0, tail: 0 },
+    );
+    let root = directory.0.join("registration-pages");
+    let store = IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap();
+    install_fixture_pages(&store, &memory, &state, &values);
+    let cancelled = AtomicBool::new(false);
+    drop(IncrementalObjectStore::create(&store, &mut physical_io(), &cancelled).unwrap());
+    let event = registration(1, "bob", 1);
+    let first = contribute_with_limits(
+        &world,
+        &event,
+        parent.clone(),
+        &store,
+        &memory,
+        registration_limits(),
+    );
+    let mut source = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    source.persist_transition_pages(&first).unwrap();
+    let next_parent = ExecutionParent {
+        commit: [8; 32],
+        roots: first.record.after.clone(),
+        authority: parent.authority,
+    };
+    let next = WorldEvent {
+        id: 2,
+        time: 11,
+        caused_by: None,
+        body: WorldEventBody::Domain(DomainEvent::AgentMoved {
+            agent_id: "bob".into(),
+            from: GeoPos::new(-7, 8, 9),
+            to: GeoPos::new(6, 7, 8),
+        }),
+    };
+    let expected = contribute(&world, &next, next_parent.clone(), &store, &memory);
+    drop(source);
+    drop(store);
+    let recovery = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
+    let store = IncrementalPageStore::open(
+        &root,
+        recovery.clone(),
+        PageCompression::Raw,
+        MemoryClass::Recovery,
+    )
+    .unwrap();
+    let source = store
+        .state_session(physical_io(), MemoryClass::Recovery)
+        .unwrap();
+    TransitionVerifier {
+        parent: &parent,
+        operation: [4; 32],
+        source: &source,
+        memory: &recovery,
+        class: MemoryClass::Recovery,
+        max_pending_node_bytes: 4 << 20,
+    }
+    .verify(&first.record)
+    .unwrap();
+    let objects = IncrementalObjectStore::open(
+        &store,
+        MemoryClass::Recovery,
+        &mut physical_io(),
+        &cancelled,
+    )
+    .unwrap();
+    let original = objects
+        .read_object_owned(
+            &first.record.facts[0].id,
+            4096,
+            &mut ObjectIo {
+                physical: &mut physical_io(),
+                logical: &mut logical_io(),
+                class: MemoryClass::Recovery,
+                cancelled: &cancelled,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        original.as_slice(),
+        oasis7_wasm_abi::encode_canonical_cbor(&event).unwrap()
+    );
+    let resumed = contribute(&world, &next, next_parent, &store, &recovery);
+    assert_eq!(resumed.record, expected.record);
+    assert_eq!(resumed.new_nodes, expected.new_nodes);
+    assert!(!world.state.agents.contains_key("bob"));
 }
 
 fn install_fixture_pages(

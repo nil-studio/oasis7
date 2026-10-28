@@ -63,7 +63,7 @@ where
 }
 
 impl World {
-    /// Stage body-attribute or move state changes and the exact original fact.
+    /// Stage supported agent state changes and the exact original fact.
     /// No hot journal scan/copy, tick consensus reconstruction or state hash.
     /// The caller supplies a borrowed original envelope and the common txn.
     pub fn contribute_iws_agent_event<
@@ -94,7 +94,8 @@ impl World {
                 DomainEvent::BodyAttributesUpdated {
                     agent_id, reason, ..
                 } => (agent_id, reason.as_str()),
-                DomainEvent::AgentMoved { agent_id, .. } => (agent_id, ""),
+                DomainEvent::AgentMoved { agent_id, .. }
+                | DomainEvent::AgentRegistered { agent_id, .. } => (agent_id, ""),
                 _ => {
                     return Err(BodyMutationError::Invalid(
                         "unsupported incremental agent event",
@@ -128,6 +129,22 @@ impl World {
             let (allocated, next, era) = Self::preview_next_event_id(sequence.next, sequence.era);
             if event.id != allocated {
                 return Err(BodyMutationError::Invalid("event allocator precondition"));
+            }
+            if let DomainEvent::AgentRegistered {
+                pos,
+                registration_contract_version,
+                ..
+            } = domain
+            {
+                super::incremental_agent_registration::contribute_registration(
+                    agent_id,
+                    pos,
+                    *registration_contract_version,
+                    event.time,
+                    txn,
+                    context.values,
+                    &mut context.mutation,
+                )?;
             }
             let frontier_key =
                 MailboxKeyV1::new(agent_id, None).map_err(BodyMutationError::Invalid)?;
@@ -243,6 +260,7 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
+                DomainEvent::AgentRegistered { .. } => {} // initial fields were staged before mailbox append
                 _ => unreachable!("event kind was checked before any contribution"),
             }
             let next_ref = write_field_bytes(

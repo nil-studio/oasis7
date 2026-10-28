@@ -15,6 +15,7 @@ pub use provider_outcome::AgentIntentReference;
 mod execution_identity;
 pub mod incremental_agent_genesis;
 mod incremental_agent_move;
+mod incremental_agent_registration;
 pub mod incremental_body;
 pub mod incremental_body_event;
 pub mod incremental_commit;

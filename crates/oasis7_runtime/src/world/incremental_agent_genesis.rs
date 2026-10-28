@@ -152,30 +152,45 @@ impl World {
         agent: &str,
         context: &mut AgentGenesisContext<'_, W, C, F, L>,
     ) -> Result<u64, BodyMutationError> {
-        let _metadata = context
-            .mutation
-            .memory
-            .reserve(16 * 1024, MemoryClass::Ordinary)
-            .map_err(ExecutionError::Memory)?;
         let cell = self
             .state
             .agents
             .get(agent)
             .ok_or(BodyMutationError::Invalid("genesis agent absent"))?;
-        let mut visitor = Visitor {
-            agent,
-            context,
-            emitted: 0,
-        };
-        visit_agent_cell(agent, cell, &mut visitor).map_err(|e| match e {
-            AgentVisitError::Invalid(e) => BodyMutationError::Invalid(e),
-            AgentVisitError::Sink(e) => e,
-        })?;
-        if (visitor.context.mutation.cancelled)() {
-            return Err(ValueTreeError::Cancelled.into());
-        }
-        Ok(visitor.emitted)
+        write_agent_cell_fields(agent, cell, context)
     }
+}
+
+/// Lower a newly constructed or borrowed cell using the same typed field
+/// writer. It does not inspect or copy any other agent or World collection.
+pub(super) fn write_agent_cell_fields<
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(Ns, &[u8], [u8; 32]) -> Result<(), BodyMutationError>,
+    L: FnMut(u64, &DomainEvent) -> Result<[u8; 32], BodyMutationError>,
+>(
+    agent: &str,
+    cell: &oasis7_world_state::AgentCell,
+    context: &mut AgentGenesisContext<'_, W, C, F, L>,
+) -> Result<u64, BodyMutationError> {
+    let _metadata = context
+        .mutation
+        .memory
+        .reserve(16 * 1024, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    let mut visitor = Visitor {
+        agent,
+        context,
+        emitted: 0,
+    };
+    visit_agent_cell(agent, cell, &mut visitor).map_err(|e| match e {
+        AgentVisitError::Invalid(e) => BodyMutationError::Invalid(e),
+        AgentVisitError::Sink(e) => e,
+    })?;
+    if (visitor.context.mutation.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    Ok(visitor.emitted)
 }
 
 #[cfg(test)]

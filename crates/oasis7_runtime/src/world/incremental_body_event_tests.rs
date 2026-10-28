@@ -532,3 +532,6 @@ mod commit;
 
 #[path = "incremental_agent_move_tests.rs"]
 mod moves;
+
+#[path = "incremental_agent_registration_tests.rs"]
+mod registration;

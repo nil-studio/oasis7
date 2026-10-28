@@ -693,3 +693,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 连续移动读取先前 overlay，last_active 已相同或坐标未变时不产生额外状态写入，原事件及 mailbox occurrence 仍完整保留。缺字段/页、标量类型错误、错误时钟、取消、预算耗尽或原件持久化失败均使整个外层事务不能 seal，包含此前已暂存的无关写入。临时页不代表提交，World cache 不安装。
 
 局部验证包括连续移动的精确原事件、直接坐标预期值、旧 cache 与认证位置不同时仍使用 overlay、i64 极值、完整 TransitionRecord 重建，以及缺字段/时钟/取消/额度/晚原件失败。真实存储方法 `physical_move_reopens_and_continues_from_authenticated_positions` 持久化首次移动页与原事件，重开后核对 transition 和原 bytes，再从同一认证父根继续第二次移动并与不中断分支比较。这只证明该 reducer 及既有页/原对象适配器，尚非完整 World 恢复、正式 head/authority 接受、scheduler/provider 续跑或独立故障域验收。
+
+
+### 12.23 注册原事件与初始字段写集
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.21–§12.22。`contribute_iws_agent_event` 继续接入 AgentRegistered。它沿用既有 registration contract 判别和工业身份限制、AgentState 初始 body/resource/slot 值，以及注册时 idle activity；不从新副本中的任意默认 JSON 推断字段，不创建或安装第二个 World。
+
+注册先核对认证世界时钟，并在分配初始模型前取得固定 64 KiB 加身份字符串余量的共享预算。临时单 cell 复用与创世相同的借用字段写入器；每个待写 typed key 必须在当前父/overlay 中不存在，随后进入同一事务写集。body、坐标、初始槽位、resource、activity、intent present 和空 mailbox frontier 均写入对应 namespace。只检查这些待写键，不通过扫描整个状态查找可疑孤立键；完整父状态的合法字段集合仍由正式恢复/语义接线证明，不能用本入口代替。注册重用旧身份、覆盖已存在字段或同事务重复注册均不能 seal。
+
+空 frontier 暂存后，同一原事件管线分配本次 event ID/era，追加注册原事件的 mailbox 引用并前移 tail，持久保留原 canonical envelope 与事实顺序。随后移动可直接读取刚注册 cell 的 overlay 字段，无需在 World cache 中先插入 agent。初始模型、输出页均属临时材料；缺额、取消、错误版本、工业身份拒绝、局部字段冲突及晚期原件失败使全部外层写入失效，不安装部分 agent。
+
+局部验证用原 PreparedCorePolicyEvent 的注册和移动结果作为预期 cell，与增量两次事件的全部对应 typed 字段、两项 mailbox occurrence 和原件 digest 逐项比较，并核对唯一额外写入为 event allocator。反例覆盖既有 agent、部分字段已存在、未知版本、工业身份限制、写集额度、取消和原件失败。实际文件方法 `physical_registration_reopens_new_fields_and_moves_without_materialized_agent` 写入全部注册字段页和原事件，重开后验证首次 transition/原 bytes，再继续对该 agent 移动并与不中断分支逐 record/新页比较。这里不将单 cell 的恢复依赖读回扩大为整个 World 恢复、注册动作授权、正式 head 发布、模块续跑或 §11 规模验收结论；其余 Runtime 字段、语义闭包与正式端点仍待接线。
