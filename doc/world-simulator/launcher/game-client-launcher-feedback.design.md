@@ -92,7 +92,7 @@ Web 门控与代理结果真实；没有 native 文件回落。验证输入与�
 <a id="feedback-local-file-design"></a>
 ## 本地保存设计
 
-对应[文件身份合同](game-client-launcher-feedback.prd.md#feedback-local-file-identity)，在现有本地回落边界内先完成内容构造，再用独占创建获取本次文件。时间戳用于阅读和排序，冲突时选择新的候选名称并在有界次数内重试；不能用覆盖写入解决冲突。成功必须在完整内容写入后返回实际路径，失败保留原错误，不报告完整保存。只可清理本次独占创建但未完成的文件，不碰预存路径。
+对应[文件身份合同](game-client-launcher-feedback.prd.md#feedback-local-file-identity)，在现有本地回落边界内先完成内容构造，再用独占创建获取本次文件。时间戳用于阅读和排序；冲突时选择新候选名称，在有界次数内重试，不能用覆盖写入解决冲突。成功必须在完整内容写入后返回实际路径，失败保留原错误，不报告完整保存。只可清理本次独占创建但未完成的文件，不碰预存路径。
 
 同一固定 main 的 `crates/oasis7_client_launcher/src/feedback_entry.rs::submit_feedback_report` 使用秒级时间戳加 kind 形成路径并调用 `fs::write`；两次同名写入可能覆盖，因此仅提高时钟精度不能满足并发和预存文件条件。目标实现不改 Ready 门控、远端优先、Web proxy 或字段语义，也不增加 fsync/断电恢复保证。
 

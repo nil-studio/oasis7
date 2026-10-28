@@ -11,7 +11,7 @@
 - 想确认 blockchain explorer 的当前只读查询、七视图与状态呈现边界：先读 `game-client-launcher-blockchain-explorer.prd.md`；它不构成 mainnet、readiness、公开服务、结算或 validator 承诺
 - 想确认 launcher 的语言/配置清晰度、blocked/observer 状态与响应式自引导边界：先读 `game-client-launcher-guided-configuration-and-usability.prd.md`；它不构成玩家入口、network readiness 或发布承诺
 - 想确认 launcher 与 chain runtime、execution world、stale session/recovery 或 browser/WASM runtime compatibility 的边界：先读 `game-client-launcher-runtime-session-continuity.prd.md`；native/Web 控制请求、结果和诊断表现再读 control-plane authority
-- 想精确找某份 launcher 专题文档，而不是按问题阅读：回到 `../prd.index.md`
+- 想按准确文件名查找 launcher 专题文档：回到 `../prd.index.md`
 
 ## 入口分工
 - Viewer 的默认可信 WS 目标来自 `--web-bind`，会话注册与 Runtime 在线探测仍使用独立的 `--live-bind`。
@@ -75,7 +75,7 @@
   - 语言/配置问题、blocked/observer 状态与响应式自引导应该从哪里开始
 
 ## 定向检索边界
-- 如果你已经知道准确文件名，直接回 `../prd.index.md`。
+- 已知准确文件名时，直接回 `../prd.index.md`。
 - 如果问题涉及当前本地 launcher/playtest 操作口径，先读本页相关 PRD/design/manual 与 PR、实际 CI 与评审记录（Issue 按需），再决定是否进入某个历史专题。
 - 如果问题需要判断 runtime 正确性、hosted auth、chain behavior 或 release readiness，本页只提供文档入口，结论必须回到对应专业角色和当前任务证据。
 - 四组 2026-03 跨表面动作源三件套已由 `game-client-launcher-cross-surface-action-parity.prd.md` 收敛并删除；追溯仅使用 Git 与 GitHub PR、实际 CI 与评审记录（Issue 按需）。其余历史完成专题除非仍是当前 operator 入口，不再提升为默认首读路径。
