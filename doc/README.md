@@ -68,7 +68,7 @@
 - `doc/<module>/**/*.md`：专题设计、实现方案、复盘与历史说明。
 - `doc/<module>/README.md`：模块目录索引（按主题子目录导航）。
 - PR、实际 CI 与评审记录（Issue 按需）：维护执行过程与验证事实。旧 `task_uid` 仅按历史记录追溯，不依赖退役 `.pm` 映射作为当前入口。
-- `doc/devlog/README.md`：历史归档摘要入口；原始 `doc/devlog/2026-*.md` daily 文件已删除，日级细节从 PR、实际 CI 与评审记录（Issue 按需）、Git history 与相关模块 PR、实际 CI 与评审记录（Issue 按需） 追溯，不再作为运行态真值。
+- `doc/devlog/README.md`：历史归档摘要入口；原始 `doc/devlog/2026-*.md` daily 文件已删除，日级细节从 Git history、相关模块 PR、实际 CI 与评审记录（Issue 按需）追溯，不再作为运行态真值。
 - `doc/.governance/*-allowlist.txt`：文档组织门禁基线（根目录与模块根目录平铺文件冻结清单）。
 - `doc/**/archive/` 不作为默认文档结构；历史专题仅在模块目录内保留并在索引中标注。少量 manifest-backed evidence asset archive（例如退役视觉证据图片）只作追溯证据，不作为当前 release / viewer / gameplay 首读入口。
 
@@ -84,5 +84,5 @@
 - 新功能或行为变更先明确要求与验收，并更新实际受影响的产品或专业主责条款；实现、测试和相关文档在同一交付范围内维护，事实记录使用 PR、实际 CI 与评审记录（Issue 按需）。
 - 新增或实质修改的跨层要求使用同一全局 Trace ID 关联声明、设计和任务，保留已有 PRD-ID 与局部锚点；Task 可以直接是 PR，简单编辑不为凑齐层级新建要求或任务。追踪约定从 `doc/engineering/doc-governance/README.md` 进入。
 - 设计内容应优先收敛到对应产品模块或专业模块中可长期维护的模块级 `design.md` / 权威专题；避免为短期小功能新建带日期的设计碎片。既有碎片宜按语义合并、修复引用并在安全时删除；只有承担可独立长期治理职责的专题，才保留窄范围的专题设计文档，而不以临时任务范围建档。
-- `doc/` 根目录只保留当前总入口；历史路径、已删除入口与迁移过程从 Git history 和 PR、实际 CI 与评审记录（Issue 按需） 追溯，不在活跃导航重复列举。
+- `doc/` 根目录只保留当前总入口；历史路径、已删除入口与迁移过程从 Git history 和 PR、实际 CI 与评审记录（Issue 按需）追溯，不在活跃导航重复列举。
 - 模块根入口、专题落位、README 职责与 legacy redirect 的共享治理规则统一从 `doc/engineering/doc-governance/README.md` 进入，再按问题下钻到规范正文或对应专题。
