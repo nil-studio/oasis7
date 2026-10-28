@@ -668,6 +668,7 @@ impl World {
             | Action::ApproveGovernanceValidatorAdmission { .. }
             | Action::ActivateGovernanceValidatorAdmission { .. }
             | Action::RevokeGovernanceValidatorAdmission { .. }
+                | Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
             | Action::OpenEconomicContract { .. }
             | Action::AcceptEconomicContract { .. }
             | Action::SettleEconomicContract { .. } => {
@@ -701,18 +702,6 @@ impl World {
                 }
                 Ok(body)
             }
-        }
-    }
-
-    fn select_material_consume_ledger_with_world_fallback(
-        &self,
-        preferred_ledger: MaterialLedgerId,
-        consume: &[MaterialStack],
-    ) -> MaterialLedgerId {
-        if self.has_materials_in_ledger(&preferred_ledger, consume) {
-            preferred_ledger
-        } else {
-            MaterialLedgerId::world()
         }
     }
 

@@ -460,6 +460,12 @@ pub enum Action {
         node_id: String,
         reason: String,
     },
+    RotateGovernanceValidatorFinalityKeyV1 {
+        controller_account_id: String,
+        body: FinalityKeyRotationBodyV1,
+        old_key_proof: FinalityKeyRotationProofV1,
+        new_key_proof: FinalityKeyRotationProofV1,
+    },
     OpenEconomicContract {
         creator_agent_id: String,
         contract_id: String,
@@ -831,6 +837,10 @@ impl Action {
                 ..
             }
             | Action::RevokeGovernanceValidatorAdmission {
+                controller_account_id,
+                ..
+            }
+            | Action::RotateGovernanceValidatorFinalityKeyV1 {
                 controller_account_id,
                 ..
             } => Some(controller_account_id.as_str()),

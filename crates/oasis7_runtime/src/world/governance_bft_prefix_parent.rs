@@ -92,6 +92,7 @@ impl World {
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
             schedule: BftGovernanceSchedule::V2(schedule.clone()),
             controller_registry: Some(registry),
+            rotation_parent: self.capture_finality_key_rotation_parent()?,
             formal_handoff: Some(binding),
             execution: None,
         }));

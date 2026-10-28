@@ -140,6 +140,16 @@ impl FormalBftHeaderExecutionV3 {
         Ok(executed)
     }
 
+    /// Detached test preview through the same execution, authorization, manifest
+    /// and commitment pipeline. This cannot publish or install a canonical cut.
+    #[cfg(test)]
+    pub(crate) fn preview_candidate_world_for_test(
+        &self,
+        private_actions: &[u8],
+    ) -> Result<RuntimeWorld, String> {
+        self.execute(private_actions).map(|executed| executed.world)
+    }
+
     fn execute(&self, private_actions: &[u8]) -> Result<ExecutedFormalHeaderV3, String> {
         let actions_digest = actions_cbor_digest_v3(private_actions)?;
         let actions = decode_private_actions_v3(private_actions)?;

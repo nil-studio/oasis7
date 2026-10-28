@@ -80,6 +80,7 @@ mod gameplay_layer;
 mod gameplay_loop;
 mod governance;
 mod governance_authorization;
+mod governance_finality_key_rotation;
 mod governance_bft_parent;
 mod governance_history;
 mod governance_history_snapshot;

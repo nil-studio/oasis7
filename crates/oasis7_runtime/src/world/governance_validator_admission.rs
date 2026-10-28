@@ -195,6 +195,7 @@ impl World {
                 | GovernanceValidatorAdmissionStatus::ApprovedCandidate => {}
             }
         }
+        self.project_finality_key_rotations(&mut registry, admissions, effective_epoch)?;
         self.validate_governance_finality_signer_registry(registry)
             .map(Some)
     }

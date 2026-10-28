@@ -476,6 +476,26 @@ impl World {
                     },
                 ))
             }
+            Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => {
+                let result = authorization
+                    .ok_or_else(|| WorldError::GovernancePolicyInvalid {
+                        reason: "rotation requires controller authorization".into(),
+                    })
+                    .and_then(|proof| self.prepare_finality_key_rotation(action, proof));
+                match result {
+                    Ok(record) => Ok(WorldEventBody::Governance(
+                        GovernanceEvent::ValidatorFinalityKeyRotated {
+                            authorization: record.authorized_action,
+                        },
+                    )),
+                    Err(error) => Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec![format!("finality rotation rejected: {error:?}")],
+                        },
+                    })),
+                }
+            }
             Action::RevokeGovernanceValidatorAdmission {
                 controller_account_id,
                 candidate_id,

@@ -6362,6 +6362,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "libc",
+ "oasis7_agent_api",
  "oasis7_cas",
  "oasis7_consensus",
  "oasis7_formal_protocol",

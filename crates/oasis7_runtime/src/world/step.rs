@@ -124,6 +124,7 @@ impl World {
                 | Action::ApproveGovernanceValidatorAdmission { .. }
                 | Action::ActivateGovernanceValidatorAdmission { .. }
                 | Action::RevokeGovernanceValidatorAdmission { .. }
+                | Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
                 | Action::OpenEconomicContract { .. }
                 | Action::AcceptEconomicContract { .. }
                 | Action::SettleEconomicContract { .. }

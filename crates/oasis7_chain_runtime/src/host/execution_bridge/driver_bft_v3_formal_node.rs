@@ -274,6 +274,27 @@ impl FormalBftHeaderNodeDriverV3 {
         }
         Ok(())
     }
+    /// Test-only detached World from the original qualified-parent execution.
+    /// It does not retain a candidate, append a QC or install a canonical head.
+    #[cfg(test)]
+    pub(crate) fn preview_candidate_world_for_test(
+        &mut self,
+        context: NodeBftBuildContextV3,
+    ) -> Result<RuntimeWorld, String> {
+        self.exact_parent(&context.execution)?;
+        if self.private.candidate(context.execution.height)?.is_some() {
+            return Err("Node height has an original private candidate to resume".into());
+        }
+        if !self.membership_enabled {
+            return Err("test World membership preview requires explicit opt-in".into());
+        }
+        let actions_cbor =
+            serde_cbor::to_vec(&context.actions).map_err(|_| "encode private Node actions")?;
+        self.execution
+            .origin
+            .preview_candidate_world_for_test(&actions_cbor)
+    }
+
     fn private_candidate(
         &self,
         value: &BftHeaderValueV3,
