@@ -2,7 +2,7 @@
 
 审计轮次: 11
 
-本页只负责把读者路由到脚本模块的权威文档。脚本参数、工作流门禁和
+本页只提供脚本模块的权威文档入口。脚本参数、工作流门禁和
 任务完成状态不在这里复制，避免入口页与实现或规范分别演进。
 
 ## 按意图选择入口
@@ -33,4 +33,4 @@
 - 模块根目录只保留 `README.md`、`prd.md`、`design.md` 和 `prd.index.md`；任务过程归对应 PR、实际 CI 与评审记录（Issue 按需）。
 - 新脚本专题按 `governance/`、`precommit/` 或既有匹配主题目录落位；WASM 发布设计与任务归入 world-runtime canonical pipeline，历史参数更正只回写其 evidence，不恢复旧 nightly 路由。不要在模块根目录新增专题文件。
 - 新增、移动或退役仍需独立维护的专题时，同步更新对应专题 README 与 `doc/scripts/prd.index.md`。
-- 历史完成记录留在 PR、实际 CI 与评审记录（Issue 按需） 或 evidence 文档；已被当前规范吸收的一次性交接说明不再作为 live 导航入口。
+- 历史完成记录留在 PR、实际 CI 与评审记录（Issue 按需）或 evidence 文档；已被当前规范吸收的一次性交接说明不再作为 live 导航入口。

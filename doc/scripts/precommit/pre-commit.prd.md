@@ -57,7 +57,7 @@ test -x .git/hooks/pre-commit && echo "pre-commit hook installed"
 ## 失败修复
 - legacy hook 调用该入口应始终静默成功；如果它失败或有输出，先运行 `bash scripts/pre-commit.test.sh` 验证兼容契约。
 - Rust 格式漂移或显式 `commit` tier 失败时，运行 `./scripts/fix-precommit.sh`，审查它更新的暂存 diff，再针对剩余失败签名处理。
-- `required` 或 CI 失败不是“pre-commit 失败”；其分层、覆盖和修复路由 `doc/testing/ci/ci-tiered-execution.prd.md`、`doc/testing/ci/ci-test-coverage.prd.md` 与对应失败签名管理。
+- `required` 或 CI 失败不是“pre-commit 失败”；其分层、覆盖和修复路由由 `doc/testing/ci/ci-tiered-execution.prd.md`、`doc/testing/ci/ci-test-coverage.prd.md` 与对应失败签名管理。
 
 ## 里程碑
 - **当前态**：legacy pre-commit 保持静默 no-op，显式格式修复与 `commit` tier 诊断由 `scripts/fix-precommit.sh` 承载，CI tier 定义留在 `doc/testing/ci/`。

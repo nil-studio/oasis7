@@ -6,8 +6,8 @@
 
 ## 1. 规范定位
 本规范是仓库 `doc/` 文档树的顶层组织约定，用于回答两个问题：
-1. 一个新文档应该放在哪个目录；
-2. 一个新文档应该承担什么职责。
+1. 新文档应放在哪个目录；
+2. 新文档应承担什么职责。
 
 产品文档的内容合同、REQ/AC 追踪、玩家体验与证据边界由配对的 [`product-documentation-standard.design.md`](product-documentation-standard.design.md) 承接；专业技术设计的内容合同与验证映射由 [`system-design-writing-standard.design.md`](system-design-writing-standard.design.md) 承接，任务记录和组合验收由 [`project-management-record-standard.design.md`](project-management-record-standard.design.md) 承接；本文继续拥有目录落位、文件职责、入口与专题可达性。共同规则维护现有四模块产品树，不新增第五模块。
 
@@ -18,7 +18,7 @@
 ### 2.1 目录按对象
 目录用于表达“正在描述什么对象”，而不是“这是一类什么文档”。
 
-对象层级从大到小分三层：
+对象从大到小分三层：
 - 模块：如 `doc/world-runtime/`、`doc/world-simulator/`。
 - 专题：如 `doc/world-simulator/launcher/`、`doc/game/gameplay/`。
 - 分册：专题内部因复杂度拆出的子目录或分册集合。
@@ -48,7 +48,7 @@
 - `foo.design.md`
 - 可选 Issue（跟踪）
 
-这样可以保证“一眼知道这些文档是同一个专题的不同视角”。
+这样可以保证读者一眼识别同一专题的不同视角。
 
 <a id="doc-authority-resolution"></a>
 ### 2.5 权威裁决与有界修复
@@ -128,7 +128,7 @@ doc/<module>/
 - 通用的目录落位规则；
 - 各模块都相同的维护约定模板。
 
-这些共享规则统一回链到本规范正文，而不是在每个模块 README 中散写一遍。
+这些共享规则统一回链到本规范正文，不在各模块 README 重复维护。
 
 ### 3.4 产品组合层的薄覆盖例外
 
@@ -324,7 +324,7 @@ doc/<module>/<topic>/
 - `*integration*.md`
 - `*overview*.md`
 
-这些名字可以作为 `*.design.md` 的分册名存在，但不再承担“统一入口类型”的角色。
+这些名字可以作为 `*.design.md` 的分册名，但不再作为统一入口类型。
 
 ## 7. 引用关系规范
 文档间应形成固定的引用链：
@@ -365,7 +365,7 @@ doc/README.md
 新增文档前，按以下顺序判断：
 1. 这是哪个模块/专题对象？先确定目录。
 2. 这份文档回答的是 Why/What/Done 还是 How/Structure/Contract 还是 How/When/Who？再确定后缀。
-3. 如果同时涉及需求、设计、执行，拆成多份文档，而不是写成一份混合文档。
+3. 如果同时涉及需求、设计、执行，拆成多份文档，不混写在一份文档中。
 4. 如果是操作步骤，判断是 `manual` 还是 `runbook`，不要落到 `design`。
 
 ## 10. 推荐模板组合

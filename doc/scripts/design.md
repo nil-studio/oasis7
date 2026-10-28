@@ -17,7 +17,7 @@
 | inventory | `doc/scripts/prd.index.md` | 提供仍独立维护专题的精确文件索引 |
 | topic truth | `precommit/`；WASM 发布进入 `doc/world-runtime/wasm/wasm-deterministic-build-pipeline.prd.md` | 仅在需要独立专业权威时承载当前规范；通用治理语义归入模块稳定文档，旧 nightly/build-std 只从 world-runtime WASM evidence 追溯 |
 
-工程任务生命周期不属于 scripts 模块的第二套设计层；它统一引用
+scripts 模块不另行设计工程任务生命周期，统一引用
 `doc/engineering/workflow/source-of-truth.md`。
 
 ## 能力结构

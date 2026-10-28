@@ -124,7 +124,7 @@ python3 scripts/doc-core-content-check.py --repo-root <worktree-path> --full-cor
 
 ### 4.1 歧义裁决记录
 
-遇到目录归属、产品/专业权威或例外存续歧义时，在当前 PR 与实际验证记录 中记录：观察到的路径/段落、候选分类与理由、涉及的专业权威、建议裁决、裁决 owner、同步文件集、验证命令和 residual risk。领域语义由对应 domain owner 裁决；`repository_health_engineer` 裁定结构一致性；负责人整合实际结果。
+遇到目录归属、产品/专业权威或例外存续歧义时，在当前 PR 与实际验证记录中写明：观察到的路径/段落、候选分类与理由、涉及的专业权威、建议裁决、裁决 owner、同步文件集、验证命令和 residual risk。领域语义由对应 domain owner 裁决；`repository_health_engineer` 裁定结构一致性；负责人整合实际结果。
 
 裁决落定后按此顺序同步：canonical Design（若规则改变）→ registry（若一级目录或例外改变）→ landing README/index → 本手册（仅操作步骤变化时）→ checker/test。最后将实际输出和未解决风险追加到同一 PR 或已有验证记录，避免把裁决另写成新的本地台账。
 
@@ -158,5 +158,5 @@ python3 scripts/doc-core-content-check.py --repo-root <worktree-path> --full-cor
 - 规则变更已先落入 canonical Design。
 - 根目录 registry、根 README、例外生命周期和 checker 一致。
 - 产品层仍只有四个模块入口，且专业权威没有被产品文本取代。
-- Git、PR 与实际 CI 记录 记录任务、状态与证据；仓库未新增 project ledger。
+- Git、PR 与实际 CI 记录承载任务、状态与证据；仓库未新增 project ledger。
 - 验证输出已附回当前 PR 或已有验证记录，并按需路由 QA/domain review。

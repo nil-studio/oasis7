@@ -18,7 +18,7 @@
 | `doc/scripts/precommit/pre-commit.prd.md` | 操作契约已收口于 PRD，不再维护独立 design | 对应 PR、实际 CI 与评审记录（Issue 按需） |
 
 ## 说明
-- 本索引用于保证模块专题文档在根入口文档树中可达。
+- 本索引确保模块专题文档在根入口文档树中可达。
 - 通用脚本入口、参数、worktree harness、bootstrap、PR closure 与 local landing 的稳定语义已归入 `doc/scripts/{prd,design}.md`；可变任务状态与执行证据归入实际 PR/已有 Task，Issue 按需。
 - 专题稳定语义按实际职责使用 PRD、design 与 evidence/runbook；按[专业设计关系规范](../engineering/doc-governance/system-design-writing-standard.design.md#product-system-design-relations)链接适用义务，不要求固定文件组合或一对一任务配对。
 - 首次选择 pre-commit 的当前门禁契约或失败修复流程时，先读
