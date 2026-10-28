@@ -10,7 +10,7 @@
 - 想先理解项目级总览、跨模块边界与当前唯一全局口径：`doc/core/prd.md`
 - 想看当前任务、最新进展和下一步：进入对应 PR、实际 CI 与评审记录（Issue 按需）。
 - 想按主题或文件名继续下钻，而不是从活跃专题列表逐条找：`doc/core/prd.index.md`
-- 想确认跨模块优先级规则：读 `doc/core/prd.md`；想确认当前执行任务与下一步：进入对应 PR、实际 CI 与评审记录（Issue 按需）。
+- 想确认跨模块优先级规则：读 `doc/core/prd.md`。
 - 想先看玩家访问模式与 execution lane 的产品契约：`doc/product/player-entry-distribution/prd.md`
 - 想先看“统一持久大世界”默认产品模型与术语契约：`doc/product/world-infrastructure/prd.md`
 - 想追溯 ROUND 审计、2026-03 版本候选 readiness / go-no-go 或任务收口依据：按需进入 Git history
@@ -36,7 +36,7 @@
 ## 模块职责
 - 提供项目级设计总览、模块地图、关键链路与术语口径。
 - 维护跨模块治理基线、候选级 readiness / go-no-go 审计留痕与文档总入口同步。
-- 维护项目级设计阅读顺序、跨模块优先级规则与历史审计来源导航；当前任务排序和下一步只在 Git、PR 与实际 CI 记录 更新。
+- 维护项目级设计阅读顺序、跨模块优先级规则与历史审计来源导航；当前任务排序和下一步只在 Git、PR 与实际 CI 记录中更新。
 
 ## 热点子域导航
 - 历史 ROUND 审查、go/no-go、readiness board 与 audit-progress 记录已从活跃文档树退役，按 Git history 和 PR、实际 CI 与评审记录（Issue 按需） 追溯。

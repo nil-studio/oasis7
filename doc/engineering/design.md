@@ -7,7 +7,7 @@
 - 对应文件级索引: `doc/engineering/prd.index.md`
 
 ## 1. 设计定位
-`engineering` 模块的 `design.md` 承担工程治理的总体设计入口：
+`engineering` 模块的 `design.md` 是工程治理的总体设计入口：
 - 说明工程规则如何从规范文档落到门禁、索引、迁移与审读流程；
 - 说明文档治理、角色协作与质量门之间的关系；
 - 指明工程规范专题的衔接方式，并保留结构治理轮（如 ROUND-006）的历史来源。
@@ -29,7 +29,7 @@
 
 ### 3.2 工程治理执行链路
 - 规范定义：`doc/engineering/doc-governance/*`、`doc/engineering/rust-governance/*`、`doc/engineering/governance/*`
-- 项目追踪：按需使用 Issue/Project；结果查看 PR、实际 CI 与评审记录（Issue 按需）
+- 项目追踪：按需使用 Issue/Project；结果查看 PR、实际 CI 与评审记录
 - 过程记录：PR、实际 CI 与评审记录（Issue 按需）；历史 `.pm/tasks/*` 记录见[固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl)，不是当前任务入口
 - 静态校验：`scripts/doc-governance-check.sh`
 - ROUND 台账：Git history
