@@ -12,12 +12,12 @@
 ## 1. Executive Summary
 - 当前 `crates/oasis7_viewer/software_safe_src/legacy_core.js` 同时承载状态、auth、反馈、控制发送、DOM 渲染与 bootstrap，多职责耦合导致主入口继续演进时改动半径过大。
 - 当前 `viewer.js` 是 canonical 生成 bundle；`dist/software_safe.js` 是显式 `import "./viewer.js"` 的 generated compat alias。`build:viewer` 先构建 bundle，再由 finalize 从 canonical 页面与 claim fixture 写入 dist aliases 及 `dist/pixel-world-bridge/` 生成输入；不得再从 compat 文件反向复制 canonical bundle。
-- 本专题要同时解决两类工程债：把 `legacy_core.js` 下沉成多模块实现；把 Web 生成产物收口为明确的单一真值流程，避免继续由 compat 名称承担 canonical 语义。
+- 本专题要解决两类工程债：把 `legacy_core.js` 下沉成多模块实现；把 Web 生成产物收口为明确的单一真值流程，避免继续由 compat 名称承担 canonical 语义。
 
 ## 目标
 - 将 `software_safe_src` 主入口实现从单个 `legacy_core.js` god module 拆成职责明确的子模块，同时保留现有对外 API 与测试入口。
 - 将 Viewer Web 生成 bundle 的 canonical 真值收口到 `viewer.js`，把 `software_safe.js` 降级为兼容 alias，而不是反过来。
-- 将 `dist/pixel-world-bridge/` 生成目录纳入与主 bundle 同一条显式 finalize 流，统一表达“哪些文件是源码真值，哪些文件是 generated artifacts，哪些文件只是 compat alias”。
+- 将 `dist/pixel-world-bridge/` 生成目录纳入与主 bundle 同一条显式 finalize 流，明确区分源码真值、generated artifacts 与 compat alias。
 
 ## 范围
 - 范围内：

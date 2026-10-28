@@ -27,7 +27,7 @@
 - 世界活跃不等于玩家进展；如果没有 accepted intent 或玩家造成的 world change，UI 应明确显示尚无 player-facing leverage。
 
 ## Player Mental Model
-玩家进入 pixel-world 时，应该按以下顺序建立理解：
+玩家进入 pixel-world 时，应依次理解：
 
 1. 当前目标是什么。
 2. 哪个 agent 或设施是我现在最该关注的对象。

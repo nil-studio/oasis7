@@ -8,7 +8,7 @@
 ## 1. Executive Summary
 - Provide a deterministic, low-friction way to generate `snapshot.json` + `journal.json` for the viewer.
 - Enable a minimal end-to-end run: generate demo data -> start viewer server -> open UI client.
-- Keep the demo data small but with at least a few events for the event list.
+- Keep demo data small, with at least a few events for the event list.
 
 ## 2. User Experience & Functionality
 

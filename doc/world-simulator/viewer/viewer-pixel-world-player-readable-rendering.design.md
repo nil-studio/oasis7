@@ -52,7 +52,7 @@ ActionBinding = explicit authorized subject + action/goal context | unavailable
 ReceiptBinding = original-operation agent binding | authorized player scope | unknown
 ```
 
-这是设计类型，不声称已有同名实现。焦点与原操作分别传递，不能一个可选字符串承担三种意义；JS只消费Rust与已有授权UI状态，mock的buildTestRustRenderState不能进入生产。
+这是设计类型，不声称已有同名实现。焦点与原操作分别传递，不能由一个可选字符串承担三种意义；JS只消费Rust与已有授权UI状态，mock的buildTestRustRenderState不能进入生产。
 
 <a id="subject-binding"></a>
 ### 4.2 主体解析与不可变关联

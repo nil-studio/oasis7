@@ -70,4 +70,8 @@ Owner：viewer_engineer / qa_engineer。消费者为隔离 visual-test 构建中
 
 ## 12. 决策、风险与未决范围
 
-保留稳定语义观测，淘汰历史 UI DSL；不能为自动化方便扩大 live 控制或给 release 注入 API。当前源码的未锚定正则与未捕获 count 转换异常是[已知实现差距](viewer-web-semantic-test-api.prd.md#当前-step-parser-的实现差距)；完整 grammar、非法输入不发包与 no-throw 仍是目标，须修复并补独立负例，不能以当前实现放宽合同。文档补录不宣称当前 API、IME 或 fatal 回归已运行；历史验收边界维持不变。
+保留稳定语义观测，淘汰历史 UI DSL；不能为自动化方便扩大 live 控制或给 release 注入 API。
+
+当前源码的未锚定正则与未捕获 count 转换异常是[已知实现差距](viewer-web-semantic-test-api.prd.md#当前-step-parser-的实现差距)；完整 grammar、非法输入不发包与 no-throw 仍是目标，须修复并补独立负例，不能以当前实现放宽合同。
+
+文档补录不宣称当前 API、IME 或 fatal 回归已运行；历史验收边界维持不变。

@@ -14,7 +14,7 @@
 
 ## 目标
 - 在不改变 `createPixelWorldBridge()` / `mount|update|unmount` / `camera_state_changed` / `hover_entity` / `select_entity` 契约的前提下，显著减少 `pixel_world_bridge` 每帧重建成本。
-- 为后续继续做 CPU culling、spatial hit test、真正相机下沉和 shader grid 提供更稳定的代码结构。
+- 为后续 CPU culling、spatial hit test、真正相机下沉和 shader grid 提供更稳定的代码结构。
 
 ## 2. User Experience & Functionality
 - 范围内：

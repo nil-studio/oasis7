@@ -8,7 +8,7 @@
 ## ROUND-002 物理合并
 - 本文件为主文档（当前权威入口）。
 - `immersion-phase8~10` 内容已物理合并入本文件，对应阶段文档已合并并从仓库移除（不再保留 archive 目录）。
-- `immersion-phase2~7` 旧阶段三件套已在后续文档治理中退役删除；其完成态只作为历史阶段证据保留在 core review logs、git history 与 PR、实际 CI 与评审记录（Issue 按需），当前 release / 体验收口入口统一读本文件与GitHub task issue evidence。
+- `immersion-phase2~7` 旧阶段三件套已在后续文档治理中退役删除；其完成态只作为历史阶段证据保留在 core review logs、git history 与 PR、实际 CI 与评审记录（Issue 按需），当前 release / 体验收口入口统一读本文件与 GitHub task issue evidence。
 
 ## 1. Executive Summary
 - 将 `oasis7_viewer` 默认体验从“调试工具”切换为“可发行游戏前端”。
@@ -24,13 +24,13 @@ Player shell、World Feed v1 DTO/anchor，以及 Director 的服务端核验与 
 边界已经落地；真实受信 issuer 尚未接入，因此生产环境的 Director 成功进入仍为
 `capability_blocked`。
 
-- **Player shell（默认）**：全舞台世界棋盘、紧凑且只读的权威 HUD、低存在感 的边缘 dock，以及按需打开的 contextual console。世界是首屏最大视觉主体。
-- **Director（显式选择）**：仅供操作员/调试使用的模式，可保留密集的三列工具， 但只改变可见性和工具密度，不改变玩法语义、进度或回执因果。入口先请求 `/api/public/director/capability`，只有服务端返回可验证、短时 grant 才开放；端点 当前在无可信 issuer 时明确返回不可用。
-- **Dock 路由**：`World / Targets / Command` 是主路径；`Search` 是 Targets dock 内的 `#entity-search` 兼容过滤能力，`Diagnostics` 为次级路径。 Search 只过滤当前权威列表中的可见目标，不执行动作，也不声称提供独立快照查询。 选择对象只负责居中、高亮并打开上下文，不能直接执行动作。
-- **Contextual console**：打开后的顺序固定为 primary command/chat、selected context、gameplay details、diagnostics/raw state。它是按需展开的行动/解释层， 不是常驻的监控面板。
-- **Fullscreen HUD**：默认 Player 以一个主导性的 `Next Move` 动作区承载主 CTA 与内联 blocker；`Objective`、`Player Leverage` 和当前 Agent 合为从属上下文区。桌面两区并列， 窄屏先显示 `Next Move`、再显示上下文，DOM 与键盘阅读顺序相容。 `More / Diagnostics` 保持可达的次级入口；不恢复旧三张等权卡片。
-- **因果与权威**：`Action Receipt` 是唯一的玩家因果反馈面；World Feed v1 是已实现 的环境上下文投影，不能暗示玩家成功，也不能替代缺失的 receipt。HUD 只能格式化 权威的 commercial/runtime projection，不得合成进度、指标、阻塞、receipt 或动作可行性。
-- **跨屏与可访问性**：桌面、平板、移动端保持同一概念路径；键盘焦点、关闭/ `Escape`、CJK 和长文本必须可读且无横向溢出。空、不可用和加载状态必须诚实地 给出原因与下一步。
+- **Player shell（默认）**：全舞台世界棋盘、紧凑且只读的权威 HUD、低存在感的边缘 dock，以及按需打开的 contextual console。世界是首屏最大视觉主体。
+- **Director（显式选择）**：仅供操作员/调试使用的模式，可保留密集的三列工具，但只改变可见性和工具密度，不改变玩法语义、进度或回执因果。入口先请求 `/api/public/director/capability`，只有服务端返回可验证、短时 grant 才开放；端点当前在无可信 issuer 时明确返回不可用。
+- **Dock 路由**：`World / Targets / Command` 是主路径；`Search` 是 Targets dock 内的 `#entity-search` 兼容过滤能力，`Diagnostics` 为次级路径。Search 只过滤当前权威列表中的可见目标，不执行动作，也不声称提供独立快照查询。选择对象只负责居中、高亮并打开上下文，不能直接执行动作。
+- **Contextual console**：打开后的顺序固定为 primary command/chat、selected context、gameplay details、diagnostics/raw state。它是按需展开的行动/解释层，不是常驻的监控面板。
+- **Fullscreen HUD**：默认 Player 以一个主导性的 `Next Move` 动作区承载主 CTA 与内联 blocker；`Objective`、`Player Leverage` 和当前 Agent 合为从属上下文区。桌面两区并列，窄屏先显示 `Next Move`、再显示上下文，DOM 与键盘阅读顺序相容。`More / Diagnostics` 保持可达的次级入口；不恢复旧三张等权卡片。
+- **因果与权威**：`Action Receipt` 是唯一的玩家因果反馈面；World Feed v1 是已实现的环境上下文投影，不能暗示玩家成功，也不能替代缺失的 receipt。HUD 只能格式化权威的 commercial/runtime projection，不得合成进度、指标、阻塞、receipt 或动作可行性。
+- **跨屏与可访问性**：桌面、平板、移动端保持同一概念路径；键盘焦点、关闭/`Escape`、CJK 和长文本必须可读且无横向溢出。空、不可用和加载状态必须诚实地给出原因与下一步。
 
 ### Staged implementation boundary
 本轮把目标命名为 **World-native Player**，是当前 fullscreen world-first shell 的渐进升级，
@@ -157,7 +157,7 @@ causal contracts，并补充自己的 headed/a11y evidence。P1-A 的 unavailabl
 
 ### P1-B World semantic presentation（当前切片已实现）
 
-P1-B 负责把已经由权威 world projection 发布的实体语义组织成稳定的 stage visual language，
+P1-B 将已由权威 world projection 发布的实体语义组织成稳定的 stage visual language，
 不把渲染器状态或视觉推断当作 world truth：
 
 - 只格式化既有 Agent、Location、Facility、Territory、Organization、Depot、Module 的

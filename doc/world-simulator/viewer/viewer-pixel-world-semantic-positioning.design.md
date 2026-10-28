@@ -88,4 +88,6 @@ Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；局部承接[REQ-AGENT
 
 ## 目标、范围与风险
 
-稀疏快照保持可解释且确定的表现位置；world truth 与关系 authority 均由原 owner 持有。不增加 runtime 字段、wasm API、关系规则或第二 JS renderer。派生位置可能被误读为真坐标，故保留来源 badge；同地点重叠仍是既有表现风险，不在本次新增避碰算法。2026-10-15 文档核对 main `b57e30eaaa0f3eb48c273eb62363d2ac2ada8981` 的 Rust/source 与测试定义；旧 2026-10-12 基线、历史 P1-B headed 结果及本次静态核对各自独立，没有新行为或浏览器通过声明。
+稀疏快照保持可解释且确定的表现位置；world truth 与关系 authority 均由原 owner 持有。不增加 runtime 字段、wasm API、关系规则或第二 JS renderer。派生位置可能被误读为真坐标，故保留来源 badge；同地点重叠仍是既有表现风险，不在本次新增避碰算法。
+
+2026-10-15 文档核对 main `b57e30eaaa0f3eb48c273eb62363d2ac2ada8981` 的 Rust/source 与测试定义；旧 2026-10-12 基线、历史 P1-B headed 结果及本次静态核对各自独立，没有新行为或浏览器通过声明。

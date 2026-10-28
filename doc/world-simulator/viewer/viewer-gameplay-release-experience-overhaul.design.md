@@ -21,7 +21,7 @@
 
 ### 2.1 需求承接与分配表
 
-本表承接首局方案、分支指引、吸引力样例以及 Viewer 性能要求；未触及的 shell、权限及发布条款保持其原有适用范围。
+本表承接首局方案、分支指引、吸引力样例以及 Viewer 性能要求；未触及的 shell、权限及发布条款保持原有适用范围。
 
 | 上游 requirement / acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
@@ -83,7 +83,7 @@
 | S7 Feed 空增量 | `world_feed_transport`→`world_feed_state`→`world_feed_panel` 与 HUD；非空→同 cursor 空、多页 replay、追平、首次空、gap/unavailable | reducer 单测不代签 transport/panel；空页不证明 LIVE |
 | G3 页面内 Retry | `pixel_world_runtime_module_wasm` 和 Host 集成：同模块首次 503、下一次正确 bytes、连续失败、成功复用和并发 single-flight；可见变化再做 S6 | 测试 reset/重载不证明页面内恢复；mock bytes 不证明 GPU readiness |
 
-这些都是后续行为验证的选择规则；本次只修改合同，不启动 Runtime/provider 或宣称浏览器验收。
+这些是后续行为验证的选择规则；本次只修改合同，不启动 Runtime/provider 或宣称浏览器验收。
 
 ### Expanded visual contract (target handoff)
 - Player HUD 的层级固定为条件性 attention、`Objective`、一个主导性的 `Next Move`
@@ -374,7 +374,9 @@ goal、action discovery、branch、lane 与 fallback 消费同一查询事实。
 
 兼容迁移先引入内部 query，再迁移上述消费者，沿用现有 wire DTO adapter 与 UI 结构。旧 snapshot 缺 canonical settlement/line/recovery 证据保持未知，不从余额/计数重建首产物，不把缺省 optional 强转 true 或一概 false；必要时用既有缺省/原因展示表达未知，不能以兼容为名发布可执行承诺。保留 owner-bound 首产物投影及 canonical stable predicate，不加第二事实库，不更改全局阶段。API 与 Viewer 应适配同一事实合同，但共享 DTO 不证明真实路由已接线或端到端 parity。
 
-实现边界：`WorldState::gameplay_capability_query` 统一 owner-bound 首产物、当前稳定线与派生进度；`World::gameplay_capability_query` 仅对已有当前配方复用只读 `builtin_recipe_quote`，以 `current_recipe_run` 表达实际配方候选，不将它改名为 repair。未开放的 repair/rebuild/pivot 保留 `unknown`。既有已鉴权 Service projection 在 `world_rule_status.gameplay_capability` 发布结果，`GameClient::industry` 沿既有签名 `/v1/world/view-json` 读取；Viewer 的 `player_gameplay.gameplay_capability` 适配同一查询。个人事实归属与执行资格分开：Service 仅在当前 caller key 匹配 owner 时评估 native 配方候选，委托读取不继承 owner 执行权；缺对应权限判断保留 unknown。查询的 subject/goal/source tick 与外层签名读取的 world/scope/read version 一起定位依据，旧 snapshot 缺字段不重建建议。现有签名与 formal projection 验证语义不变，条件报价也不是新的 canonical 授权或完整执行证明，提交仍重验。
+实现边界：`WorldState::gameplay_capability_query` 统一 owner-bound 首产物、当前稳定线与派生进度；`World::gameplay_capability_query` 仅对已有当前配方复用只读 `builtin_recipe_quote`，以 `current_recipe_run` 表达实际配方候选，不将它改名为 repair。未开放的 repair/rebuild/pivot 保留 `unknown`。既有已鉴权 Service projection 在 `world_rule_status.gameplay_capability` 发布结果，`GameClient::industry` 沿既有签名 `/v1/world/view-json` 读取；Viewer 的 `player_gameplay.gameplay_capability` 适配同一查询。
+
+个人事实归属与执行资格分开：Service 仅在当前 caller key 匹配 owner 时评估 native 配方候选，委托读取不继承 owner 执行权；缺对应权限判断保留 unknown。查询的 subject/goal/source tick 与外层签名读取的 world/scope/read version 一起定位依据，旧 snapshot 缺字段不重建建议。现有签名与 formal projection 验证语义不变，条件报价也不是新的 canonical 授权或完整执行证明，提交仍重验。
 
 当前查询尚无赞助依赖判定，呈现为 `unverified`，不恢复旧 snapshot 的 sponsorship 标志。普通 step/play、快照观察和经济提示只描述推进、回读与操作指引；当前恢复路径使用 query 的状态/原因，不将旧 narrative 或 fallback label 当作可行性。已确认的生产 failure disposition 仍独立保留原损失与合法动作边界。公开实体缺失仅依据公开 model 计数；个人归属说明来自 query 的 resolved subject，不从选中目标或个人可见性过滤推断世界为空。合法认领入口与已绑定同步规则保持独立。
 

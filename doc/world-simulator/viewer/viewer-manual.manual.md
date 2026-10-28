@@ -10,7 +10,7 @@
 ## 目标
 - 提供 `viewer` Viewer Web 主入口的统一操作手册，并说明 `software_safe` 兼容 alias。
 - 统一 live server、Web 静态入口、agent-browser 闭环与常见排查步骤。
-- 明确当前仓库已不再提供退役的第二 Viewer 工具链。
+- 明确当前仓库不再提供退役的第二 Viewer 工具链。
 
 ## 适用范围
 - live server：`crates/oasis7_viewer_runtime --bin oasis7_viewer_live`
@@ -40,7 +40,9 @@ base_url = https://api.letai.run/v1
 token_key = <自己的有效项目 token>
 ```
 
-配置规范化见[现有 helper](../../../scripts/ensure-letai-local-token-config.sh)：已有 `token_key/api_key` 时生成本地规范化配置；只有 `platform_key` 时会调用平台 API 创建或更新测试用户/项目。真实 provider smoke 与 Agent 决策会使用账号额度。脚本的 `--auto-topup-usd` 默认金额为 `0.1` USD；遇到额度错误，且最终配置或继承环境同时提供平台 key 与用户 ID 时，bridge 才会尝试补充平台用户额度。启动前确认已有平台环境与账号额度策略，具体条件见[自动补额实现](../../../crates/oasis7_provider_local_bridge/src/bin/oasis7_provider_local_bridge/letai_direct_topup.rs)。不要提交凭据文件或把密钥贴进 Issue。
+配置规范化见[现有 helper](../../../scripts/ensure-letai-local-token-config.sh)：已有 `token_key/api_key` 时生成本地规范化配置；只有 `platform_key` 时会调用平台 API 创建或更新测试用户/项目。
+
+真实 provider smoke 与 Agent 决策会使用账号额度。脚本的 `--auto-topup-usd` 默认金额为 `0.1` USD；遇到额度错误，且最终配置或继承环境同时提供平台 key 与用户 ID 时，bridge 才会尝试补充平台用户额度。启动前确认已有平台环境与账号额度策略，具体条件见[自动补额实现](../../../crates/oasis7_provider_local_bridge/src/bin/oasis7_provider_local_bridge/letai_direct_topup.rs)。不要提交凭据文件或把密钥贴进 Issue。
 
 可以先检查本地启动条件：
 

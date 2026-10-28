@@ -30,7 +30,11 @@
 
 ### 当前 step parser 的实现差距
 
-`legacy_core.js::parseStepCount` 当前的 `step` 正则为未锚定的 `/step\s*[:=]\s*(\d+)/i`，可从带前后缀的字符串中提取数字，也可能从小数形式截取整数部分；匹配分支没有再次检查有限性。object 路径直接读取 `payload.count` 并执行 `Number` 转换，getter、Symbol 或自定义转换可以抛错。`sendControl`/`runSteps` 调用 parser 时没有把这些异常统一转为 rejected feedback。因此上面的完整 grammar/no-throw/非法输入不发包仍是目标合同，不能由当前源码或普通有效输入用例推定已实现；需要覆盖前后缀、非有限值与抛错转换的独立负例。这里只澄清现状，不放宽拒绝目标，也不改变 live 控制或测试构建边界。
+`legacy_core.js::parseStepCount` 当前的 `step` 正则为未锚定的 `/step\s*[:=]\s*(\d+)/i`，可从带前后缀的字符串中提取数字，也可能从小数形式截取整数部分；匹配分支没有再次检查有限性。
+
+object 路径直接读取 `payload.count` 并执行 `Number` 转换，getter、Symbol 或自定义转换可以抛错。`sendControl`/`runSteps` 调用 parser 时没有把这些异常统一转为 rejected feedback。
+
+因此上面的完整 grammar/no-throw/非法输入不发包仍是目标合同，不能由当前源码或普通有效输入用例推定已实现；需要覆盖前后缀、非有限值与抛错转换的独立负例。这里只澄清现状，不放宽拒绝目标，也不改变 live 控制或测试构建边界。
 
 ### Chat 输入验证边界
 
