@@ -94,7 +94,7 @@
 - 位置：
   - `crates/oasis7/src/simulator/llm_agent/tests.rs`
   - `crates/oasis7/src/simulator/llm_agent/tests_part2.rs`
-  - 可按需要继续扩展 `crates/oasis7/src/simulator/llm_agent/tests.rs` 或新增分段测试文件
+  - 可按需继续扩展 `crates/oasis7/src/simulator/llm_agent/tests.rs` 或新增分段测试文件
 - 用例设计：
   - 用例 A（成功主链路）：
     - mock 决策序列：`build_factory`（失败: insufficient hardware）-> `refine_compound` -> `build_factory`（成功）-> `schedule_recipe`（成功）。
@@ -248,7 +248,7 @@
 ## 6. Validation & Decision Record
 
 - 本文记录可复核的策略/协议约束和验证方法；历史执行任务、状态与
-  原始运行记录由对应 PR 与实际验证记录 与 Git history 追溯。
+  原始运行记录由对应 PR、实际验证记录与 Git history 追溯。
 - 离线 mock 回归和单次在线抽样分别证明其明确覆盖的行为，不能彼此
   替代，也不能单独证明跨 provider 稳定性、成本边界或默认启用资格。
 

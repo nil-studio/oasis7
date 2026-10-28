@@ -39,7 +39,7 @@
 
 
 ## 1. Executive Summary
-- Problem Statement: 当前 provider-backed Local Provider 路径（兼容 alias=`agent_direct_connect/provider_loopback_http`）真实试玩与 parity 采证虽然已经回答了“能否接入”“是否接近内置 agent 体验”，但默认工作流仍容易把 agent 可玩性验证与图形界面、GPU/浏览器环境耦合起来，导致自动化回归、低配部署与失败分诊成本偏高。若不把“图形界面是可选调试层而非主执行依赖”写成正式产品要求，后续 agent 直连玩法能力会继续被 GUI 环境稳定性绑架。
+- Problem Statement: 当前 provider-backed Local Provider 路径（兼容 alias=`agent_direct_connect/provider_loopback_http`）真实试玩与 parity 采证虽然已经回答了“能否接入”“是否接近内置 agent 体验”，但默认工作流仍容易将 agent 可玩性验证与图形界面、GPU/浏览器环境耦合，导致自动化回归、低配部署与失败分诊成本偏高。若不把“图形界面是可选调试层而非主执行依赖”写成正式产品要求，后续 agent 直连玩法能力会继续受 GUI 环境稳定性制约。
 - Proposed Solution: 为当前 provider-backed Local Provider 路径定义双轨执行 lane：`player_parity` 保留受约束、接近玩家的信息视角，用于评估“像不像玩家在玩”；`headless_agent` 提供不依赖图形界面的结构化观测与统一动作接口，用于稳定自动化、回归和低配环境运行。
 - Success Criteria:
   - SC-1: 在无 GUI / 无 GPU / 无浏览器环境下，`headless_agent` 能完成首期 `P0` Local Provider 核心玩法 smoke，成功率不低于 95%。

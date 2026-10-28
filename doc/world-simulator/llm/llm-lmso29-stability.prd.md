@@ -78,7 +78,7 @@
 ## 6. Validation & Decision Record
 
 - 本文保留 prompt-budget、协议兼容和稳定性约束；历史任务状态、运行
-  产物与执行证据由 PR 与实际验证记录 和 Git history 管理。
+  产物与执行证据由 PR、实际验证记录和 Git history 管理。
 - 当前输入完整性按 [builtin 确定性验收](decision-provider-contract.prd.md#ac-builtin-input-integrity)
   检查最终 Responses 请求及配置不足时的调用阻断；本专题的 peak/soft-cap 单测和
   稳定性统计分别保留其证明范围，不替代该验收。

@@ -16,7 +16,7 @@ Native Launcher 探测的[响应预算与安全诊断](provider-loopback-http-co
 下文 Launcher 流程描述图形配置入口，不把 Launcher/Viewer 变成持续执行依赖。下文首期六动作、单 NPC 和 mock required 范围仅验证本地 adapter 合同，不能替代产品首局的生产、恢复与回访结果。远程传输、凭据和部署的实现仍由对应专业合同维护，本次产品目标细化不改变其安全边界或实现状态。
 
 ## 1. Executive Summary
-- Problem Statement: `Decision Provider` 标准层已经明确了“外部 provider 可参与 Agent 决策，但不得替代 runtime 权威”的边界；但若要回答“安装在用户机器上的 `Local Provider` 怎么玩这个游戏”，还缺一份面向真实用户安装场景的接入方案，尤其是本地发现、握手、配置、玩家-agent 绑定、决策接口、失败恢复与最小可玩范围。
+- Problem Statement: `Decision Provider` 标准层已明确“外部 provider 可参与 Agent 决策，但不得替代 runtime 权威”的边界；但若要回答“安装在用户机器上的 `Local Provider` 怎么玩这个游戏”，还缺一份面向真实用户安装场景的接入方案，尤其是本地发现、握手、配置、玩家-agent 绑定、决策接口、失败恢复与最小可玩范围。
 - Proposed Solution: 首期采用“`Local Provider` 本地进程 + `localhost HTTP/JSON`”方案。`Local Provider` 在用户机器上以本地服务形式运行，仅监听 `127.0.0.1`；world-simulator 侧通过 `Local ProviderAdapter` 调用其本地 HTTP API。target lane 固定使用 `/v1/world-simulator/decision-context` 的 `ContinuousAgentRequestContextV1` / `ContinuousAgentResponseContextV1` outer wrapper，以及 `/v1/world-simulator/feedback-context` 的 `FeedbackEnvelopeV1`；运行时仍由本地 runtime/kernel 权威执行动作、校验规则并产出 trace。旧 `/v1/world-simulator/decision` 与 `/v1/world-simulator/feedback` 路由只保留为 legacy compatibility-only 输入，不得被当作 target cognition proof。Launcher / Viewer 仅负责配置、发现与可观测性展示。在真实用户机缺少原生 world-simulator provider 时，允许通过 `oasis7_provider_local_bridge` 这一 loopback-only 兼容桥，把已安装的 `Local Provider Gateway/CLI` 转译成 `/v1/provider/info`、`/v1/provider/health` 与上述四个 world-simulator 路由，作为 `experimental` 的首期可跑实现。
 - Success Criteria:
   - SC-1: 用户在本机安装并启动 `Local Provider` 后，可在 launcher 中发现并选择 `Local Provider(Local HTTP)` 作为 agent provider。
@@ -183,7 +183,7 @@ Native Launcher 探测的[响应预算与安全诊断](provider-loopback-http-co
   - NFR-6: `DecisionRequest.agent_profile` 必须可经 `ProviderBackedAgentBehavior -> Local ProviderAdapter -> local HTTP` 完整透传，并体现在 parity summary / trace 归档中。
   - NFR-7: `oasis7_provider_local_bridge` 只能绑定 `127.0.0.1`，且必须支持显式端口/agent/profile 配置，默认地址保持 `127.0.0.1:5841`。
   - NFR-8: 兼容桥必须把 `Local Provider` 原始文本输出保存在 `trace_payload.transcript/output_summary`，并把 parse/repair 结果反映到 `schema_repair_count` 与最近错误。
-  - NFR-9: 兼容桥派生的 Local Provider session id 必须带上 `provider_config_ref` 作用域，至少要把 benchmark run / runtime live 进程彼此隔离，避免 `loc-2` 之类的历史上下文泄漏到新的世界样本。
+  - NFR-9: 兼容桥派生的 Local Provider session id 必须带上 `provider_config_ref` 作用域，至少将 benchmark run / runtime live 进程彼此隔离，避免 `loc-2` 之类的历史上下文泄漏到新的世界样本。
   - NFR-10: 仓库必须提供可复用的轻量 Local Provider runtime agent bootstrap（workspace 模板 + setup 脚本），用于把 world-simulator 决策路径与用户日常聊天/运营 workspace 隔离，降低 system prompt 体积与 session 污染风险。
   - NFR-11: world-simulator 兼容桥派生的 Local Provider `sessionKey` 应优先使用 `subagent:` 作用域，显式触发 Local Provider minimal prompt mode，避免把 NPC 决策误走成 full personal-assistant prompt。
   - NFR-12: `run-launcher-stack.sh --bundle-dir` 在 release bundle 检测失败时必须立即非零退出；禁止在 bundle 路径为空、无法规范化或缺少 `run-game.sh` 时继续启动，避免把错误目录伪装成可用 bundle。

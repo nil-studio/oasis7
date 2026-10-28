@@ -78,7 +78,11 @@ Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；[上游要求](../../p
 
 旧 `/v1/agent-client/capabilities`、model-connections/probe/activate/lease/stop/forget 不是新路径必需 API。浏览器本地管理提供对应用户动作，合法世界接口仍要求原认证、签名和服务端授权；缺失浏览器可用的统一接口时该玩法明确阻塞，不自造 wire 合同或绕权。
 
-浏览器首次使用须有合法的 owner → canonical participant → Task → goal 接线，不能假定普通网页认领或导入账号认证密钥已经建立规范任务。已绑定账号先读取原参与者，owner 不匹配时停止，不新建替代 Agent 或自动换权。未绑定的新账号可在模型 Key 表单之前，明确确认创建规范参与者，再使用同一已安装网页 owner signer 签名创建 Task 与发布目标；每个世界写入先持久原件、提交后按原件查询，未知时不更换 operation。该准备动作不调用模型、不自动登记 executor 或启动运行；准备后展示世界、Agent、Task 和目标，由玩家分别确认 executor 与收费运行。刷新使用同一 owner 会话恢复材料，丢失 owner 身份不以账号 cookie 冒充所有权。
+浏览器首次使用须有合法的 owner → canonical participant → Task → goal 接线，不能假定普通网页认领或导入账号认证密钥已经建立规范任务。已绑定账号先读取原参与者，owner 不匹配时停止，不新建替代 Agent 或自动换权。
+
+未绑定的新账号可在模型 Key 表单之前，明确确认创建规范参与者，再使用同一已安装网页 owner signer 签名创建 Task 与发布目标；每个世界写入先持久原件、提交后按原件查询，未知时不更换 operation。
+
+该准备动作不调用模型、不自动登记 executor 或启动运行；准备后展示世界、Agent、Task 和目标，由玩家分别确认 executor 与收费运行。刷新使用同一 owner 会话恢复材料，丢失 owner 身份不以账号 cookie 冒充所有权。
 
 Participant 登记、Task 创建与 goal publication 的持久原件必须区分 `not_sent`（可靠记录证明尚未进入实际 POST 边界）与 `may_have_sent`。新原件与 `not_sent` 一次持久化；完成当前登录/CSRF 和 owner 授权核对后，在实际 POST 前以本原件的原子条件更新持久化为 `may_have_sent`，写入失败不得发送。标记后即使 Stop 或传输失败也保持可能已发；旧 schema 或缺可靠标记的原件保守归为可能已发，不能从 Unknown、无 receipt 或近期快照倒推出未发。所有槽位分别记录阶段；同账号跨页竞争只能有一个原子更新成功，失败者只核对原件。
 
@@ -88,7 +92,9 @@ schema 2 的发送许可与共用操作生命周期保持同一事务：`not_sen
 
 浏览器 Game Client 的协议校验由独立 Rust/WASM 桥复用 `oasis7_client_api` 的 canonical CBOR、BLAKE3、Ed25519 与 typed validator，不复用渲染 WASM 的信任或以 JS 数值重编码替代签名原文。请求/响应原文在桥中校验后才投影为页面状态。服务公钥和 world/genesis pin 来自部署端唯一注入的 runtime config，不能从 URL、模型建议或未认证快照安装。独立 executor 的非可导出 CryptoKey 与原签名操作/恢复索引存于按账号、世界、Agent 隔离的 IndexedDB；模型 Key 仍只存 localStorage。owner 通过现有 Delegation 与 GameExecutorControl Bind 显式登记 executor，登录身份不直接冒充 executor。
 
-浏览器复用固定同源 `/api/public/hosted-account/v2` 的 participant、entry-owner/control 与 entry-executor/control 网关；部署将 World Service、world/genesis、服务公钥、identity namespace 和 participant issuer 公钥固定注入 runtime config。网关沿用登录 Cookie、CSRF、owner/admission/read 授权与路由白名单，不接收模型凭证；浏览器保留原签名、核验 typed 世界回执，登录本身不授予 executor 权限。请求和响应受大小、总期限和取消限制。启用前核对三类既有网关能力，缺失时禁用；CSP 仅在启用浏览器 BYOK 时精确增加供应商域名。部署显式设置 `OASIS7_BROWSER_BYOK_ENABLED=1`；默认关闭，开启要求 participant-entry、owner-control、executor-control 三个既有启用标记均为 1，以及完整的既有 participant trust、issuer 与 identity namespace/epoch 配置。关闭标记后不注入浏览器信任配置，也不增加模型 CSP 域名。
+浏览器复用固定同源 `/api/public/hosted-account/v2` 的 participant、entry-owner/control 与 entry-executor/control 网关；部署将 World Service、world/genesis、服务公钥、identity namespace 和 participant issuer 公钥固定注入 runtime config。网关沿用登录 Cookie、CSRF、owner/admission/read 授权与路由白名单，不接收模型凭证；浏览器保留原签名、核验 typed 世界回执，登录本身不授予 executor 权限。请求和响应受大小、总期限和取消限制。启用前核对三类既有网关能力，缺失时禁用；CSP 仅在启用浏览器 BYOK 时精确增加供应商域名。
+
+部署显式设置 `OASIS7_BROWSER_BYOK_ENABLED=1`；默认关闭，开启要求 participant-entry、owner-control、executor-control 三个既有启用标记均为 1，以及完整的既有 participant trust、issuer 与 identity namespace/epoch 配置。关闭标记后不注入浏览器信任配置，也不增加模型 CSP 域名。
 
 <a id="model-management-reconciliation"></a>
 
@@ -122,7 +128,9 @@ Harness 与 Provider 必须显式约定历史模式，不能由适配器是否�
 
 在 `ProviderConversation` 模式，同一 Context 首次决策发送完整当前任务、目标、授权观察和能力；后续决策仅提供继续当前 Context 的小型指示及本轮新增工具结果。工具结果以原 supplier call ID 通道交付一次，不再把累计 transcript 复制进 user prompt。Provider 保留先前 assistant 工具调用、必要推理字段及有序结果；多工具批次中未执行调用也须按原 ID 完成因果链。取得合法的新 Context 后，首轮必须发送完整新上下文，不能用旧 Context 的历史替代当前切点、目标或 fence；换 Context 也不自动清空仍属该模型会话的必要协议历史。
 
-模型输入容量以实际候选请求为准：Provider 的 `preflight(&self, request)` 必须在不修改会话、不发送、不预留物理调用预算的情况下，构造包含现有必要历史与本轮新增输入的完整候选，检查真实编码字节数和保守 token 上界。调用者快照模式默认校验请求本身；结构化会话模式不能只校验新增片段。浏览器 Harness 在持久调用预留前执行等价预检（Rust 对应接缝为 durable host 的 `reserve_model_call`）；浏览器适配器在执行入口再次校验，发送前仍独立复核当前 Stop、页面运行许可与 fence，预检不构成执行许可。
+模型输入容量以实际候选请求为准：Provider 的 `preflight(&self, request)` 必须在不修改会话、不发送、不预留物理调用预算的情况下，构造包含现有必要历史与本轮新增输入的完整候选，检查真实编码字节数和保守 token 上界。调用者快照模式默认校验请求本身；结构化会话模式不能只校验新增片段。
+
+浏览器 Harness 在持久调用预留前执行等价预检（Rust 对应接缝为 durable host 的 `reserve_model_call`）；浏览器适配器在执行入口再次校验，发送前仍独立复核当前 Stop、页面运行许可与 fence，预检不构成执行许可。
 
 实际候选无法容纳时返回 typed `input_limit`，不静默截断、摘要替换必要历史、丢弃工具结果、抬高限制或降级协议。本地预检拒绝不计物理请求、不制造 unknown usage、不消耗持久物理调用预留；已完成预留后的竞态或发送结果不明仍保守计入原预算，不以该合同自动退款。容量证据只记录非敏感的历史模式、编码大小、配置限额和拒绝阶段，不记录完整 prompt 或凭证。
 
@@ -138,7 +146,9 @@ OpenRouter Responses 按官方无状态合同携带必要历史，使用 `store:
 
 Trace refs: O7-REQ-26cefe7a-deb5-4b21-845a-a2d4556f7dca；[上游要求](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-002)。
 
-保存前明确说明 Key 持久保存在本站 localStorage，同源脚本/XSS、浏览器扩展或主机访问者可能读取；刷新/关页不清除，不承诺加密保险箱。Key 仅在所选供应商请求中使用，不上传 Oasis7 后端、不写世界、日志、异常原文、APM、分析、分享、导出、Service Worker 缓存或应用备份。清空输入框不等于已删除 localStorage。避免额外副本，移除内存引用不承诺 JS 内存绝对清零。运行日志和错误仅输出固定分类及最小非敏感用量。
+保存前明确说明 Key 持久保存在本站 localStorage，同源脚本/XSS、浏览器扩展或主机访问者可能读取；刷新/关页不清除，不承诺加密保险箱。Key 仅在所选供应商请求中使用，不上传 Oasis7 后端、不写世界、日志、异常原文、APM、分析、分享、导出、Service Worker 缓存或应用备份。
+
+清空输入框不等于已删除 localStorage。避免额外副本，移除内存引用不承诺 JS 内存绝对清零。运行日志和错误仅输出固定分类及最小非敏感用量。
 
 检查、重试与运行共用本次有界预算；发送前先持久化次数和最大 token 预留，usage 未知保留预留，不按零返还。Key 替换、刷新、Stop 或切换页不重置同 run 预算；损坏/丢失无法核实时停止，不能宣称跨清站点数据仍能强制账户费用上限。本地次数/token/并发/时间限制仅约束守约客户端，不是供应商账户或世界授权的安全边界。金额仅在定价、路由和全部收费维度已验证时计算，否则显示未知/估算。
 
@@ -164,7 +174,9 @@ Trace refs: O7-REQ-d3d63078-ef30-45fb-8ae6-2f6db1f46c34；[上游要求](../../p
 
 Stop 先撤销运行 generation/持久停止标记再取消待发工作，保留 Key；Forget 同样停止再删除 Key；退出账号停止并删除对应 Key。旧代模型响应永久失去新提交资格，取消不改写世界结果。跨页停止在发布失效标记后才能显示本地已停止，无法确认其他执行方时说明限制；不伪报已经取消原世界作业或撤销供应商 Key。
 
-提交前写入原 run/Context/operation/nonce 与预算预留；写不成就不发送。刷新、重开、换 Key/供应商或锁接管后先以现有合法权限只读核对全部未决原件，不调用模型、不重发效果、不换 nonce、不新建替代 Context、不重置预算。分别呈现已生效但响应丢失、Pending、Rejected、HistoryUnavailable、部分结算的已确认范围；读不到保持未知，无权限 fail closed。连接成功、模型输出、successful_effects、同 owner 的产物或最新快照均不构成本 run 原件证明，引用已有 Action Receipt/成果面，不另建事实源。
+提交前写入原 run/Context/operation/nonce 与预算预留；写不成就不发送。刷新、重开、换 Key/供应商或锁接管后先以现有合法权限只读核对全部未决原件，不调用模型、不重发效果、不换 nonce、不新建替代 Context、不重置预算。
+
+分别呈现已生效但响应丢失、Pending、Rejected、HistoryUnavailable、部分结算的已确认范围；读不到保持未知，无权限 fail closed。连接成功、模型输出、successful_effects、同 owner 的产物或最新快照均不构成本 run 原件证明，引用已有 Action Receipt/成果面，不另建事实源。
 
 新页默认不恢复旧模型会话；只有原件已核对、完整 fence 仍有效、原预算可恢复且当前 Context 所需协议历史可从合法证据重建时，才由玩家明确继续。必要历史缺失/超限则阻塞，不以重启或丢弃工具历史续跑；新 Context 必须遵循现有 Harness/Runtime 过期收口合同，不能为解阻塞自动创建。#4836 的目标映射/未知结果与 #4837 的历史恢复仍需各自实现及验收。未提供原件查询时显示本页能力限制与受支持执行端路径；没有合法路径就明确暂不可用并停止新效果，不画假查询按钮。
 
@@ -180,7 +192,9 @@ localStorage 命名空间不能防御同源恶意脚本。部署应采用严格 
 
 目标浏览器路径与旧托管路径不可悄悄互相回退。实施时用明确能力选择新路径，同步旧入口/调用方及运行说明，停止旧服务器模型循环并处理旧未决原件后再由玩家确认新页运行；不能双执行或把旧 Key 从服务器导出到浏览器。旧模式在退出支持前的凭证销毁和已有操作核对责任继续有效，不恢复旧托管模式作为 CORS 失败兜底。
 
-启用浏览器模式时，旧模型后端须在进程启动时固定为 `management_only`，跨所有账号会话禁止创建、模型检查、激活、续租及内部执行启动，只保留读取、Stop、Forget。现有管理列表按完整登录会话隔离，不能用其空结果宣称账号范围无旧执行；新客户端须核验服务端明确的执行政策。迁移采用先停止旧 Launcher、确认其进程与 cgroup 已退出，再启动新实例的非滚动切换；新实例的内存执行管理器为空且旧启动入口被硬门禁关闭。不得把此政策或进程终止当作未决世界原件已经结算；原件仍按原授权查询，未知仍保持未知。启动后不支持把该政策热切回旧托管执行。
+启用浏览器模式时，旧模型后端须在进程启动时固定为 `management_only`，跨所有账号会话禁止创建、模型检查、激活、续租及内部执行启动，只保留读取、Stop、Forget。现有管理列表按完整登录会话隔离，不能用其空结果宣称账号范围无旧执行；新客户端须核验服务端明确的执行政策。
+
+迁移采用先停止旧 Launcher、确认其进程与 cgroup 已退出，再启动新实例的非滚动切换；新实例的内存执行管理器为空且旧启动入口被硬门禁关闭。不得把此政策或进程终止当作未决世界原件已经结算；原件仍按原授权查询，未知仍保持未知。启动后不支持把该政策热切回旧托管执行。
 
 供应商 CORS、页面 CSP、工具协议和浏览器 Game Client 各自是发行前置。初期按实际已验组合启用；不支持 OpenRouter 或浏览器能力时保持明确禁用。页面 CSP 必须允许固定供应商，不能放宽全部脚本/网络来源。回滚禁用新开始并停止所有活动代，删除本地 Key 的失败须可见；保留已授权可读的非敏感原件索引，不回滚世界事实。旧托管验收手册和 runbook 仅证明其原路径，浏览器迁移时应更新适用消费者，不能照旧标记通过。
 
