@@ -28,8 +28,12 @@ class GraphTests(unittest.TestCase):
 
     def test_context_exclusion_requires_negative_and_positive_database_witnesses(self):
         paths=cfg.CONTEXT_PATHS
-        good=[[paths[0],0,0],[paths[1],50,10],[paths[2],70,20]]
+        good=[[p,0,0] if p in cfg.EXCLUDED_CONTEXT_PATHS else [p,50,10] for p in paths]
         self.assertEqual(cfg.validate_context_exclusion(good)["status"],"EXCLUSION_AST_VERIFIED")
+        for index in range(len(paths)):
+            bad=[row[:] for row in good]
+            bad[index][1:]=[1,1] if paths[index] in cfg.EXCLUDED_CONTEXT_PATHS else [0,0]
+            with self.assertRaises(RuntimeError):cfg.validate_context_exclusion(bad)
         for bad in (good[:2],good+[good[0]],[[paths[0],1,1],*good[1:]],[[paths[0],0,0],[paths[1],0,0],good[2]],[["other.rs",0,0],*good[1:]],[[paths[0],False,0],*good[1:]]):
             with self.assertRaises(RuntimeError):cfg.validate_context_exclusion(bad)
 
