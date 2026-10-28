@@ -27,7 +27,7 @@ fn encode<T: Serialize>(v: &T) -> Result<Vec<u8>, String> {
     serde_cbor::to_vec(v).map_err(|_| "public chunk encode".into())
 }
 impl Frame {
-    pub fn new(
+    pub fn encode_chunk(
         context: &str,
         bytes: &[u8],
         digest: &str,
@@ -64,7 +64,7 @@ impl Frame {
             || frame.offset >= frame.total
             || frame.bytes_hex.is_empty()
             || frame.bytes_hex.len() > CHUNK * 2
-            || frame.bytes_hex.len() % 2 != 0
+            || !frame.bytes_hex.len().is_multiple_of(2)
         {
             return Err("public chunk identity/size rejected".into());
         }
@@ -253,15 +253,14 @@ impl Inbox {
                     message,
                 },
             ));
-            if self.completed.len() >= 256 {
-                if let Some(oldest) = self
+            if self.completed.len() >= 256
+                && let Some(oldest) = self
                     .completed
                     .iter()
                     .min_by_key(|(_, (_, d))| *d)
                     .map(|(k, _)| k.clone())
-                {
-                    self.completed.remove(&oldest);
-                }
+            {
+                self.completed.remove(&oldest);
             }
             self.completed.insert(key, (p.total, p.deadline));
         }

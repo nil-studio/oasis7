@@ -1,4 +1,4 @@
-//! Explicit single-validator qualified-H wire-3 runtime. No peer ingress.
+//! Qualified-H wire-3 runtime with explicitly configured separate peer planes.
 use crate::runtime_util::lock_state;
 use crate::{NodeError, NodeRuntime};
 use oasis7_distfs::protected_bft_v3::{BftSignerBindingV3, RemoteBftSignerProviderV3};
@@ -7,6 +7,8 @@ use std::sync::{Arc, atomic::Ordering};
 mod actions;
 #[path = "node_bft_v3_completions.rs"]
 mod completions;
+#[path = "node_bft_v3_private_exchange.rs"]
+pub(crate) mod private_exchange;
 pub(super) fn validate_single_action(action: &crate::NodeConsensusAction) -> Result<(), NodeError> {
     actions::validate_single_action(action)
 }
@@ -19,9 +21,16 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
 }
 #[derive(Clone)]
 pub(crate) struct SelectedNodeBftConfigV3 {
+    pub network: Option<PeerConfigV3>,
     pub binding: BftSignerBindingV3,
     pub provider: Arc<RemoteBftSignerProviderV3>,
     pub capacity_exhausted: Arc<std::sync::atomic::AtomicBool>,
+}
+#[derive(Clone)]
+pub(super) struct PeerConfigV3 {
+    pub transport: Arc<dyn crate::NodeBftPeerTransportV3>,
+    pub exchange: Arc<dyn private_exchange::NodeBftPrivateCandidateExchangeV3>,
+    pub execution: Arc<private_exchange::NodeBftPeerExecutionStateV3>,
 }
 #[derive(Debug, Clone, Default)]
 pub struct NodeBftStatusV3 {
@@ -53,8 +62,40 @@ impl NodeRuntime {
             return Err(error("another consensus profile is already selected"));
         }
         let selected = SelectedNodeBftConfigV3 {
+            network: None,
             binding,
             provider,
+            capacity_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        startup::validate_runtime(&self, &selected)?;
+        self.bft_v3_config = Some(selected);
+        Ok(self)
+    }
+    pub fn with_tendermint_v3_network(
+        mut self,
+        binding: BftSignerBindingV3,
+        provider: Arc<RemoteBftSignerProviderV3>,
+        transport: Arc<dyn crate::NodeBftPeerTransportV3>,
+        exchange: Arc<dyn private_exchange::NodeBftPrivateCandidateExchangeV3>,
+        execution: Arc<private_exchange::NodeBftPeerExecutionStateV3>,
+    ) -> Result<Self, NodeError> {
+        if self.running.load(Ordering::SeqCst) || self.worker.is_some() {
+            return Err(NodeError::AlreadyRunning {
+                node_id: self.config.node_id.clone(),
+            });
+        }
+        if self.bft_config.is_some() || self.bft_v2_config.is_some() || self.bft_v3_config.is_some()
+        {
+            return Err(error("another consensus profile is already selected"));
+        }
+        let selected = SelectedNodeBftConfigV3 {
+            binding,
+            provider,
+            network: Some(PeerConfigV3 {
+                transport,
+                exchange,
+                execution,
+            }),
             capacity_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         startup::validate_runtime(&self, &selected)?;

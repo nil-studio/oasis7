@@ -175,7 +175,7 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_history_cli::read_bounded(path, maximum)
 }
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header node --config ABS (--actions ABS | --print-binding); bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nOffline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header node --config ABS (--actions ABS | --print-binding | --serve [--actions ABS]); bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nNetwork Node operation requires --serve and explicit network configuration. Offline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]

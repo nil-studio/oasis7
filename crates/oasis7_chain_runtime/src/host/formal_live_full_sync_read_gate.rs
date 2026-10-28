@@ -22,6 +22,13 @@ use std::{
 
 const MAX_HISTORY_BYTES: usize = 64 * 1024 * 1024;
 
+#[cfg(feature = "node-libp2p")]
+#[path = "formal_bft_private_read_gate.rs"]
+mod bft_private_read_gate;
+
+#[path = "formal_full_sync_remote_evidence.rs"]
+pub(crate) mod remote_evidence;
+
 pub(crate) fn validate_full_sync_read_mode_gate_pair(
     mode: crate::formal_live_config::FullSyncProviderReadAuthorizationModeV1,
     has_gate: bool,
@@ -47,13 +54,15 @@ pub(crate) struct FullSyncIssuerReadEvidenceRequestV3 {
     pub provider_public_key: String,
     pub provider_incarnation: String,
     pub target: FullSyncIssuerTargetV2,
+    pub target_generation: u64,
     pub started_at: Instant,
     pub deadline: Instant,
 }
 
 /// Raw query, observation, and complete history. Every member is verified by
 /// the provider before it can affect the installed state or authorize a reply.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct FullSyncIssuerReadEvidenceV3 {
     pub query: SignedFullSyncIssuerQueryV3,
     pub observation: SignedFullSyncIssuerObservationV3,
@@ -90,10 +99,20 @@ pub(crate) struct BftCandidateReadSubjectV1 {
     pub policy_digest: String,
     pub grant_generation: u64,
 }
+/// Scope from an independently verified canonical BFT private-record reader.
+/// This data does not qualify a cut; the Node must prove the exact retained
+/// certificate and actual execution before invoking the permission gate.
+pub(crate) struct BftCommittedReadScopeV1 {
+    pub world: WorldIdentity,
+    pub chain_id: String,
+    pub authority_epoch: u64,
+}
 enum ReadPurpose<'a> {
     Legacy {
         grant: &'a FormalNodeReadGrantV1,
-        requested: &'a FormalFullSyncCutV1,
+        requested_world: &'a WorldIdentity,
+        requested_chain: &'a str,
+        requested_authority_epoch: u64,
         subject_public_key: &'a str,
     },
     Candidate(&'a BftCandidateReadSubjectV1),
@@ -111,10 +130,23 @@ impl ReadPurpose<'_> {
             },
         }
     }
-    fn scope(&self) -> (&WorldIdentity, &str) {
+    fn scope(&self) -> (&WorldIdentity, &str, u64) {
         match self {
-            Self::Legacy { requested, .. } => (&requested.world, &requested.chain_id),
-            Self::Candidate(subject) => (&subject.world, &subject.chain_id),
+            Self::Legacy {
+                requested_world,
+                requested_chain,
+                requested_authority_epoch,
+                ..
+            } => (requested_world, requested_chain, *requested_authority_epoch),
+            Self::Candidate(subject) => {
+                (&subject.world, &subject.chain_id, subject.authority_epoch)
+            }
+        }
+    }
+    fn generation(&self) -> u64 {
+        match self {
+            Self::Legacy { grant, .. } => grant.body.grant_epoch,
+            Self::Candidate(subject) => subject.grant_generation,
         }
     }
 }
@@ -201,10 +233,12 @@ impl FullSyncV3ReadGate {
         self.authorize_target_with_response(
             ReadPurpose::Legacy {
                 grant,
-                requested,
+                requested_world: &requested.world,
+                requested_chain: &requested.chain_id,
+                requested_authority_epoch: requested.authority_epoch,
                 subject_public_key,
             },
-            make_response,
+            |_| make_response(),
         )
     }
 
@@ -214,16 +248,38 @@ impl FullSyncV3ReadGate {
     pub(crate) fn authorize_candidate_with_response<T>(
         &self,
         subject: &BftCandidateReadSubjectV1,
-        make_response: impl FnOnce() -> FormalReadResult<T>,
+        make_response: impl FnOnce(Instant) -> FormalReadResult<T>,
     ) -> FormalReadResult<T> {
         self.authorize_target_with_response(ReadPurpose::Candidate(subject), make_response)
+    }
+
+    /// Canonical private BFT history uses the existing full-state grant and
+    /// its current V3 target/lease, never the pending-candidate purpose.
+    pub(crate) fn authorize_bft_committed_with_response<T>(
+        &self,
+        grant: &FormalNodeReadGrantV1,
+        scope: &BftCommittedReadScopeV1,
+        subject_public_key: &str,
+        make_response: impl FnOnce(Instant) -> FormalReadResult<T>,
+    ) -> FormalReadResult<T> {
+        self.authorize_target_with_response(
+            ReadPurpose::Legacy {
+                grant,
+                requested_world: &scope.world,
+                requested_chain: &scope.chain_id,
+                requested_authority_epoch: scope.authority_epoch,
+                subject_public_key,
+            },
+            make_response,
+        )
     }
 
     fn authorize_target_with_response<T>(
         &self,
         purpose: ReadPurpose<'_>,
-        make_response: impl FnOnce() -> FormalReadResult<T>,
+        make_response: impl FnOnce(Instant) -> FormalReadResult<T>,
     ) -> FormalReadResult<T> {
+        self.validate_purpose_identity(&purpose)?;
         let started_at = Instant::now();
         let deadline = started_at
             .checked_add(Duration::from_millis(
@@ -240,6 +296,7 @@ impl FullSyncV3ReadGate {
             provider_public_key: self.provider_public_key.clone(),
             provider_incarnation: self.provider_incarnation.clone(),
             target,
+            target_generation: purpose.generation(),
             started_at,
             deadline,
         };
@@ -325,7 +382,30 @@ impl FullSyncV3ReadGate {
             &evidence.observation,
             request.started_at,
         )?;
-        let reply = make_response()?;
+        let target_state = selected.target_state(&purpose.target()).ok_or_else(|| {
+            FormalReadError::Integrity("authorized V3 read target disappeared".into())
+        })?;
+        let expires = target_state
+            .expires_unix_ms
+            .ok_or_else(|| FormalReadError::Integrity("authorized target expiry absent".into()))?
+            .min(lease.lease.body.expires_unix_ms);
+        let strict_time_budget = expires
+            .checked_sub(evidence.observation.body.protected_time.latest_unix_ms)
+            .and_then(|remaining| remaining.checked_sub(1))
+            .ok_or_else(|| {
+                FormalReadError::GrantRejected("V3 read release interval exhausted".into())
+            })?
+            .min(self.v3_policy.body().max_authorization_staleness_ms);
+        let release_deadline = request
+            .started_at
+            .checked_add(Duration::from_millis(strict_time_budget))
+            .filter(|deadline| Instant::now() < *deadline)
+            .ok_or_else(|| {
+                FormalReadError::GrantRejected("V3 read release deadline exhausted".into())
+            })?;
+        // The callback constructs immutable bytes and installs this narrowing
+        // deadline on the transport. It must not send before the final check.
+        let reply = make_response(release_deadline)?;
         self.check_time_bounds(
             &purpose,
             &selected,
@@ -334,6 +414,60 @@ impl FullSyncV3ReadGate {
             request.started_at,
         )?;
         Ok(reply)
+    }
+
+    /// Reject an unauthenticated grant or foreign scope before asking a remote
+    /// issuer to reconstruct history. Time and current generation are still
+    /// checked against fresh signed evidence after this static admission.
+    fn validate_purpose_identity(&self, purpose: &ReadPurpose<'_>) -> FormalReadResult<()> {
+        let policy = self.v3_policy.body();
+        let expected_world = WorldIdentity {
+            world_id: policy.world.world_id.clone(),
+            genesis_digest: policy.world.genesis_digest.clone(),
+        };
+        let (world, chain, epoch) = purpose.scope();
+        if world != &expected_world
+            || chain != policy.world.chain_id
+            || epoch != policy.authority_epoch
+        {
+            return Err(FormalReadError::RequestRejected(
+                "V3 read request is outside the pinned World".into(),
+            ));
+        }
+        if !policy.allowed_roles.contains(&purpose.target().role) {
+            return Err(FormalReadError::GrantRejected(
+                "V3 issuer policy does not allow the requested read purpose".into(),
+            ));
+        }
+        match purpose {
+            ReadPurpose::Legacy {
+                grant,
+                subject_public_key,
+                ..
+            } => grant
+                .verify_identity_and_signature(
+                    &self.trust.issuer_public_key,
+                    &expected_world,
+                    &policy.world.chain_id,
+                    subject_public_key,
+                    &grant.body.role,
+                    policy.authority_epoch,
+                )
+                .map_err(|error| {
+                    FormalReadError::GrantRejected(format!("verify read grant identity: {error}"))
+                }),
+            ReadPurpose::Candidate(subject) => {
+                if subject.policy_digest != self.v3_policy.policy_digest()
+                    || subject.grant_generation == 0
+                {
+                    return Err(FormalReadError::GrantRejected(
+                        "candidate read policy or grant generation mismatch".into(),
+                    ));
+                }
+                validate_hex_identity(&subject.node_public_key, "candidate reader key")
+                    .map_err(FormalReadError::GrantRejected)
+            }
+        }
     }
 
     pub(crate) fn validate_service_binding(
@@ -383,8 +517,11 @@ impl FullSyncV3ReadGate {
             genesis_digest: policy_world.genesis_digest.clone(),
         };
         let target = purpose.target();
-        let (world, chain_id) = purpose.scope();
-        if world != &expected_world || chain_id != policy_world.chain_id {
+        let (world, chain_id, epoch) = purpose.scope();
+        if world != &expected_world
+            || chain_id != policy_world.chain_id
+            || epoch != self.v3_policy.body().authority_epoch
+        {
             return Err(FormalReadError::RequestRejected(
                 "V3 read request is outside the pinned World".into(),
             ));
@@ -401,7 +538,7 @@ impl FullSyncV3ReadGate {
         })?;
         if !target_state.active {
             return Err(FormalReadError::GrantRejected(
-                "V3 read target is revoked or inactive".into(),
+                "full-sync V3 target is revoked or inactive".into(),
             ));
         }
         let (target_not_before, target_expires) = match (

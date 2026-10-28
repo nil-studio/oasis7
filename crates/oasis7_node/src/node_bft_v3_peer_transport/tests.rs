@@ -133,6 +133,21 @@ fn public_vote_uses_two_noise_tcp_swarms_and_nonblocking_queue() {
     assert_eq!(received[0].message, msg);
     assert!(a.published().is_empty() && b.published().is_empty());
     assert!(ta.send_public(&PeerId::random().to_string(), &msg).is_err());
+    assert!(
+        NodeBftLibp2pPeerTransportV3::new(a.clone(), context(), vec![b.peer_id().to_string()])
+            .is_err()
+    );
+    drop(ta);
+    let rebuilt =
+        NodeBftLibp2pPeerTransportV3::new(a.clone(), context(), vec![b.peer_id().to_string()])
+            .unwrap();
+    tb.send_public(&a.peer_id().to_string(), &msg).unwrap();
+    let mut recovered = Vec::new();
+    wait(|| {
+        recovered.extend(rebuilt.drain_public(128).unwrap());
+        !recovered.is_empty()
+    });
+    assert_eq!(recovered[0].message, msg);
 }
 #[test]
 fn assembly_rejects_order_conflict_budget_and_keeps_original_deadline() {
@@ -142,36 +157,42 @@ fn assembly_rejects_order_conflict_budget_and_keeps_original_deadline() {
     let digest = message_digest(&ctx, &raw);
     let peer = PeerId::random();
     let mut inbox = Inbox::new();
-    let mut f = Frame::decode(&Frame::new(&ctx, &raw, &digest, 0).unwrap(), &ctx).unwrap();
+    let mut f = Frame::decode(&Frame::encode_chunk(&ctx, &raw, &digest, 0).unwrap(), &ctx).unwrap();
     // Exact retransmission returns ACK and does not create another completed event.
     inbox.receive(peer, f, &c).unwrap();
-    f = Frame::decode(&Frame::new(&ctx, &raw, &digest, 0).unwrap(), &ctx).unwrap();
+    f = Frame::decode(&Frame::encode_chunk(&ctx, &raw, &digest, 0).unwrap(), &ctx).unwrap();
     inbox.receive(peer, f, &c).unwrap();
     assert_eq!(inbox.drain(128).len(), 1);
     assert!(Frame::decode(&vec![0; 65537], &ctx).is_err());
     assert!(Frame::decode(&[0xbb, 255, 255, 255, 255, 255, 255, 255, 255], &ctx).is_err());
-    assert!(Frame::decode(&Frame::new(&ctx, &raw, &digest, 0).unwrap(), &h(99)).is_err());
+    assert!(
+        Frame::decode(
+            &Frame::encode_chunk(&ctx, &raw, &digest, 0).unwrap(),
+            &h(99)
+        )
+        .is_err()
+    );
     let large = vec![0u8; CHUNK * 3];
     let d = message_digest(&ctx, &large);
     let mut i = Inbox::new();
     assert!(
         i.receive(
             peer,
-            Frame::decode(&Frame::new(&ctx, &large, &d, CHUNK).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &large, &d, CHUNK).unwrap(), &ctx).unwrap(),
             &c
         )
         .is_err()
     );
     i.receive(
         peer,
-        Frame::decode(&Frame::new(&ctx, &large, &d, 0).unwrap(), &ctx).unwrap(),
+        Frame::decode(&Frame::encode_chunk(&ctx, &large, &d, 0).unwrap(), &ctx).unwrap(),
         &c,
     )
     .unwrap();
     let deadlines = i.deadlines_for_test();
     i.receive(
         peer,
-        Frame::decode(&Frame::new(&ctx, &large, &d, 0).unwrap(), &ctx).unwrap(),
+        Frame::decode(&Frame::encode_chunk(&ctx, &large, &d, 0).unwrap(), &ctx).unwrap(),
         &c,
     )
     .unwrap();
@@ -180,14 +201,14 @@ fn assembly_rejects_order_conflict_budget_and_keeps_original_deadline() {
     assert!(
         i.receive(
             peer,
-            Frame::decode(&Frame::new(&ctx, &large, &d, CHUNK).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &large, &d, CHUNK).unwrap(), &ctx).unwrap(),
             &c
         )
         .is_err()
     );
     i.receive(
         peer,
-        Frame::decode(&Frame::new(&ctx, &large, &d, 0).unwrap(), &ctx).unwrap(),
+        Frame::decode(&Frame::encode_chunk(&ctx, &large, &d, 0).unwrap(), &ctx).unwrap(),
         &c,
     )
     .unwrap();
@@ -196,7 +217,7 @@ fn assembly_rejects_order_conflict_budget_and_keeps_original_deadline() {
     assert!(
         i.receive(
             peer,
-            Frame::decode(&Frame::new(&ctx, &changed, &d, 0).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &changed, &d, 0).unwrap(), &ctx).unwrap(),
             &c
         )
         .is_err()
@@ -213,7 +234,7 @@ fn public_partial_capacity_is_global_and_per_peer() {
     for n in 1..=2 {
         i.receive(
             peer,
-            Frame::decode(&Frame::new(&ctx, &raw, &h(n), 0).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &raw, &h(n), 0).unwrap(), &ctx).unwrap(),
             &c,
         )
         .unwrap();
@@ -221,7 +242,7 @@ fn public_partial_capacity_is_global_and_per_peer() {
     assert!(
         i.receive(
             peer,
-            Frame::decode(&Frame::new(&ctx, &raw, &h(3), 0).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &raw, &h(3), 0).unwrap(), &ctx).unwrap(),
             &c
         )
         .is_err()
@@ -229,7 +250,7 @@ fn public_partial_capacity_is_global_and_per_peer() {
     for n in 3..=8 {
         i.receive(
             PeerId::random(),
-            Frame::decode(&Frame::new(&ctx, &raw, &h(n), 0).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &raw, &h(n), 0).unwrap(), &ctx).unwrap(),
             &c,
         )
         .unwrap();
@@ -237,7 +258,7 @@ fn public_partial_capacity_is_global_and_per_peer() {
     assert!(
         i.receive(
             PeerId::random(),
-            Frame::decode(&Frame::new(&ctx, &raw, &h(9), 0).unwrap(), &ctx).unwrap(),
+            Frame::decode(&Frame::encode_chunk(&ctx, &raw, &h(9), 0).unwrap(), &ctx).unwrap(),
             &c
         )
         .is_err()

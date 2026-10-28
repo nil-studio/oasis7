@@ -116,8 +116,9 @@ pub use libp2p_net::error_mapping::{
 
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
 pub use libp2p_net::{
-    AUTHENTICATED_REQUEST_MAX_BYTES, AUTHENTICATED_RESPONSE_MAX_BYTES, AuthenticatedPeerAdmission,
-    AuthenticatedPeerHandler, AuthenticatedPeerRequestContext, DiscoveryWorkMetricsSnapshot,
+    AUTHENTICATED_REQUEST_MAX_BYTES, AUTHENTICATED_RESPONSE_MAX_BYTES,
+    AuthenticatedHandlerRegistration, AuthenticatedPeerAdmission, AuthenticatedPeerHandler,
+    AuthenticatedPeerRequestContext, DiscoveryWorkMetricsSnapshot,
     Libp2pControlPlaneMetricsSnapshot, Libp2pNetwork, Libp2pNetworkConfig,
     Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot, LiveAutoNatStatus,
     LiveHolePunchState, LivePublicPortReachability, LiveTransportKind, LiveTransportTransition,

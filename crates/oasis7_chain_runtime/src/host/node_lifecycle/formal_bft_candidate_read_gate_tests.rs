@@ -35,7 +35,7 @@ fn candidate_gate_requires_a_separately_issued_purpose() {
         let gate = test_gate(&f, source, PROVIDER_INCARNATION);
         let calls = AtomicU64::new(0);
         assert!(
-            gate.authorize_candidate_with_response(&subject(&f), || {
+            gate.authorize_candidate_with_response(&subject(&f), |_| {
                 calls.fetch_add(1, Ordering::SeqCst);
                 Ok(vec![7])
             })
@@ -51,13 +51,13 @@ fn candidate_gate_releases_only_with_current_lease_and_stops_after_revoke() {
     let gate = test_gate(&f, source.clone(), PROVIDER_INCARNATION);
     let who = subject(&f);
     let before = gate
-        .authorize_candidate_with_response(&who, || Ok(vec![7, 8]))
+        .authorize_candidate_with_response(&who, |_| Ok(vec![7, 8]))
         .unwrap();
     assert_eq!(before, vec![7, 8]);
     source.revoke_target(&f);
     let calls = AtomicU64::new(0);
     assert!(
-        gate.authorize_candidate_with_response(&who, || {
+        gate.authorize_candidate_with_response(&who, |_| {
             calls.fetch_add(1, Ordering::SeqCst);
             Ok(vec![9])
         })
@@ -80,28 +80,28 @@ fn candidate_gate_checks_policy_generation_world_incarnation_and_clock() {
             _ => who.node_public_key = public(99),
         }
         assert!(
-            gate.authorize_candidate_with_response(&who, || Ok(vec![7]))
+            gate.authorize_candidate_with_response(&who, |_| Ok(vec![7]))
                 .is_err()
         );
     }
     let wrong_incarnation = test_gate(&f, source.clone(), PROVIDER_INCARNATION + 1);
     assert!(
         wrong_incarnation
-            .authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+            .authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_err()
     );
     assert!(
-        gate.authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+        gate.authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_ok()
     );
     source.set_time(f.lease_expires);
     assert!(
-        gate.authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+        gate.authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_err()
     );
     source.set_time(f.lease_not_before.saturating_sub(1));
     assert!(
-        gate.authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+        gate.authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_err()
     );
 }
@@ -112,19 +112,33 @@ fn candidate_gate_does_not_release_on_unavailable_or_trimmed_evidence() {
     let gate = test_gate(&f, source.clone(), PROVIDER_INCARNATION);
     source.set_unavailable(true);
     assert!(
-        gate.authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+        gate.authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_err()
     );
     source.set_unavailable(false);
     source.return_bad_nonce(true);
     assert!(
-        gate.authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+        gate.authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_err()
     );
     source.return_bad_nonce(false);
     source.remove_committed_lease();
     assert!(
-        gate.authorize_candidate_with_response(&subject(&f), || Ok(vec![7]))
+        gate.authorize_candidate_with_response(&subject(&f), |_| Ok(vec![7]))
             .is_err()
     );
+}
+
+#[test]
+fn candidate_gate_rejects_response_construction_past_lease_expiry() {
+    let f = candidate_fixture();
+    let source = Arc::new(SignedEvidenceSource::new(&f, f.lease_expires - 20));
+    let gate = test_gate(&f, source, PROVIDER_INCARNATION);
+    let result = gate.authorize_candidate_with_response(&subject(&f), |deadline| {
+        assert!(deadline <= Instant::now() + Duration::from_millis(20));
+        // Only build bytes here; no socket receives data before the final check.
+        std::thread::sleep(Duration::from_millis(25));
+        Ok(vec![7])
+    });
+    assert!(result.is_err());
 }

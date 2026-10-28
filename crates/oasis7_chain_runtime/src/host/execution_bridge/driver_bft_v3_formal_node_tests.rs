@@ -23,14 +23,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[path = "driver_bft_v3_node_multivalue_tests.rs"]
-mod node_multivalue_tests;
 #[path = "driver_bft_v3_node_batch_tests.rs"]
 mod node_batch_tests;
 #[path = "driver_bft_v3_node_cli_tests.rs"]
 mod node_cli_tests;
 #[path = "driver_bft_v3_node_identity_tests.rs"]
 mod node_identity_tests;
+#[path = "driver_bft_v3_node_multivalue_tests.rs"]
+mod node_multivalue_tests;
 #[path = "driver_bft_v3_node_publication_failure_tests.rs"]
 mod node_publication_failure_tests;
 #[path = "driver_bft_v3_provider_retry_tests.rs"]
@@ -242,6 +242,25 @@ impl NodeExecutionHook for ActualHook {
         c: &NodeBftExecutionContextV3,
     ) -> Result<Option<NodeBftPrivateCandidateV3>, String> {
         self.0.lock().unwrap().pending_bft_v3_private_candidate(c)
+    }
+    fn export_bft_v3_private_candidate(
+        &mut self,
+        value: &BftHeaderValueV3,
+    ) -> Result<oasis7_node::NodeBftPrivateCandidatePackageV3, String> {
+        self.0
+            .lock()
+            .unwrap()
+            .export_bft_v3_private_candidate(value)
+    }
+    fn retain_received_bft_v3_private_candidate(
+        &mut self,
+        context: &NodeBftExecutionContextV3,
+        package: &oasis7_node::NodeBftPrivateCandidatePackageV3,
+    ) -> Result<String, String> {
+        self.0
+            .lock()
+            .unwrap()
+            .retain_received_bft_v3_private_candidate(context, package)
     }
     fn load_bft_v3_private_candidate(
         &mut self,
@@ -647,3 +666,7 @@ fn read_generated_cut(
     );
     server.stop().unwrap();
 }
+
+#[cfg(feature = "node-libp2p")]
+#[path = "driver_bft_v3_node_network_tests.rs"]
+mod node_network_tests;

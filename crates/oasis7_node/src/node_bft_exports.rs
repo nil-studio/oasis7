@@ -46,3 +46,16 @@ pub use crate::execution_hook::{
     NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
 };
 pub use crate::node_bft_v3_runtime::NodeBftStatusV3;
+
+pub use crate::node_bft_v3_runtime::private_exchange::{
+    NodeBftPeerExecutionStateV3, NodeBftPeerExecutionViewV3, NodeBftPrivateCandidateExchangeV3,
+    NodeBftPrivateCandidateFetchV3, NodeBftPrivateFetchKindV3, NodeBftPrivateFetchRequestV3,
+    NodeBftSharedExecutionHookV3, NodeBftSharedSignerV3,
+};
+
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::{
+    NodeBftCommittedReadAuthorizationV3, NodeBftCommittedReadCredentialsV3,
+    NodeBftLibp2pPrivateCandidateExchangeV3, NodeBftPrivateExchangeConfigV3,
+    NodeBftPrivateReadAuthorizationV3, NodeBftPrivateReadGateV3, NodeBftPrivateReadScopeV3,
+};

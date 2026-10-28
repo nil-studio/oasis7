@@ -177,20 +177,60 @@ pub(super) fn dispatch_inbound_request(
             );
             return;
         }
+        let release = registration
+            .authenticated
+            .as_ref()
+            .map(|auth| super::authenticated_reply::ReplyGuard::new(auth.alive.clone()));
         let selected = if let Some(auth) = &registration.authenticated {
-            if request.payload.len() > auth.max_bytes {
+            if !auth.alive.load(std::sync::atomic::Ordering::Acquire) {
+                Err(super::authenticated_requests::rejected(
+                    "authenticated handler owner closed",
+                ))
+            } else if request.payload.len() > auth.max_bytes {
                 Err(super::authenticated_requests::rejected(
                     "authenticated request exceeds byte bound",
                 ))
             } else {
-                admission_budget.authenticated.admit(peer).and_then(|()| (auth.admission)(&peer, &request.payload)).map(|()| {
+                auth.callbacks().and_then(|callbacks| {
+                    admission_budget.authenticated.admit_routed(
+                        peer,
+                        &request.payload,
+                        &callbacks.admission,
+                    )?;
                     let auth = Arc::clone(auth);
-                    Arc::new(move |base: &oasis7_proto::distributed_net::NetworkRequestContext, payload: &[u8]| {
-                        let context = super::authenticated_requests::AuthenticatedPeerRequestContext::new(base.clone(), peer);
-                        let reply = (auth.handler)(&context, payload)?;
-                        if reply.len() > super::authenticated_requests::AUTHENTICATED_RESPONSE_MAX_BYTES { return Err(super::authenticated_requests::rejected("authenticated response exceeds hard byte bound")); }
-                        Ok(reply)
-                    }) as Handler
+                    let release = release
+                        .clone()
+                        .expect("authenticated registration has release guard");
+                    Ok(Arc::new(
+                        move |base: &oasis7_proto::distributed_net::NetworkRequestContext,
+                              payload: &[u8]| {
+                            if !auth.alive.load(std::sync::atomic::Ordering::Acquire) {
+                                return Err(super::authenticated_requests::rejected(
+                                    "authenticated handler owner closed",
+                                ));
+                            }
+                            let context =
+                                super::authenticated_requests::AuthenticatedPeerRequestContext::new(
+                                    base.clone(),
+                                    peer,
+                                    release.clone(),
+                                );
+                            let reply = (callbacks.handler)(&context, payload)?;
+                            if !auth.alive.load(std::sync::atomic::Ordering::Acquire) {
+                                return Err(super::authenticated_requests::rejected(
+                                    "authenticated handler owner closed",
+                                ));
+                            }
+                            if reply.len()
+                                > super::authenticated_requests::AUTHENTICATED_RESPONSE_MAX_BYTES
+                            {
+                                return Err(super::authenticated_requests::rejected(
+                                    "authenticated response exceeds hard byte bound",
+                                ));
+                            }
+                            Ok(reply)
+                        },
+                    ) as Handler)
                 })
             }
         } else {
@@ -219,6 +259,7 @@ pub(super) fn dispatch_inbound_request(
             request.payload,
             dispatch_now_ms,
             handler,
+            release,
         ) {
             let protocol = rejected.protocol;
             let peer = rejected.peer;

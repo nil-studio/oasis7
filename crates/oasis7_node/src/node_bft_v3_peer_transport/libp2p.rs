@@ -71,6 +71,7 @@ pub struct NodeBftLibp2pPeerTransportV3 {
     outbound: Arc<(Mutex<Outbound>, Condvar)>,
     counters: Arc<Counters>,
     workers: Vec<JoinHandle<()>>,
+    registration: Option<oasis7_net::AuthenticatedHandlerRegistration>,
     errors: Arc<Mutex<VecDeque<String>>>,
 }
 impl NodeBftLibp2pPeerTransportV3 {
@@ -115,6 +116,7 @@ impl NodeBftLibp2pPeerTransportV3 {
             outbound: outbound.clone(),
             counters,
             workers: Vec::new(),
+            registration: None,
             errors: errors.clone(),
         };
         // Resources exist before the immutable handler is published. Any failure
@@ -132,38 +134,40 @@ impl NodeBftLibp2pPeerTransportV3 {
         }
         let admission_allowed = allowed.clone();
         let callback_outbound = outbound.clone();
-        network
-            .register_authenticated_context_handler_with_admission(
-                PROTOCOL,
-                64 * 1024,
-                Box::new(move |peer, _| {
-                    if admission_allowed.contains(peer) {
-                        Ok(())
-                    } else {
-                        Err(rejected("unconfigured public peer route"))
-                    }
-                }),
-                Box::new(move |transport, bytes| {
-                    transport
-                        .request_context()
-                        .check_cancelled(|| rejected("public chunk cancelled"))?;
-                    let frame = Frame::decode(bytes, &digest)
-                        .map_err(|_| rejected("public chunk rejected"))?;
-                    let mut state = inbox
-                        .lock()
-                        .map_err(|_| rejected("public inbox poisoned"))?;
-                    if stopped(&callback_outbound) {
-                        return Err(rejected("public transport stopped"));
-                    }
-                    transport
-                        .request_context()
-                        .check_cancelled(|| rejected("public chunk cancelled"))?;
-                    state
-                        .receive(transport.peer_id(), frame, &context)
-                        .map_err(|_| rejected("public assembly rejected"))
-                }),
-            )
-            .map_err(|_| "public authenticated handler registration rejected")?;
+        owner.registration = Some(
+            network
+                .register_authenticated_context_handler_with_admission(
+                    PROTOCOL,
+                    64 * 1024,
+                    Box::new(move |peer, _| {
+                        if admission_allowed.contains(peer) {
+                            Ok(())
+                        } else {
+                            Err(rejected("unconfigured public peer route"))
+                        }
+                    }),
+                    Box::new(move |transport, bytes| {
+                        transport
+                            .request_context()
+                            .check_cancelled(|| rejected("public chunk cancelled"))?;
+                        let frame = Frame::decode(bytes, &digest)
+                            .map_err(|_| rejected("public chunk rejected"))?;
+                        let mut state = inbox
+                            .lock()
+                            .map_err(|_| rejected("public inbox poisoned"))?;
+                        if stopped(&callback_outbound) {
+                            return Err(rejected("public transport stopped"));
+                        }
+                        transport
+                            .request_context()
+                            .check_cancelled(|| rejected("public chunk cancelled"))?;
+                        state
+                            .receive(transport.peer_id(), frame, &context)
+                            .map_err(|_| rejected("public assembly rejected"))
+                    }),
+                )
+                .map_err(|_| "public authenticated handler registration rejected")?,
+        );
         Ok(owner)
     }
     fn enqueue(&self, targets: &[PeerId], message: &BftPublicPeerMessageV3) -> Result<(), String> {
@@ -233,6 +237,10 @@ impl NodeBftPeerTransportV3 for NodeBftLibp2pPeerTransportV3 {
 }
 impl Drop for NodeBftLibp2pPeerTransportV3 {
     fn drop(&mut self) {
+        if let Some(registration) = &self.registration {
+            registration.close();
+        }
+
         if let Ok(mut q) = self.outbound.0.lock() {
             q.stop = true;
             q.queues.clear();
@@ -272,13 +280,13 @@ fn sender(
                 };
             }
         };
-        if let Err(reason) = send(&network, peer, &parcel, &q, &context) {
-            if let Ok(mut e) = errors.lock() {
-                if e.len() >= 128 {
-                    e.pop_front();
-                }
-                e.push_back(reason);
+        if let Err(reason) = send(&network, peer, &parcel, &q, &context)
+            && let Ok(mut e) = errors.lock()
+        {
+            if e.len() >= 128 {
+                e.pop_front();
             }
+            e.push_back(reason);
         }
     }
 }
@@ -294,7 +302,7 @@ fn send(
         if stopped(q) || Instant::now() >= p.deadline {
             return Err("public send cancelled/deadline".into());
         }
-        let frame = Frame::new(context, &p.bytes, &p.digest, offset)?;
+        let frame = Frame::encode_chunk(context, &p.bytes, &p.digest, offset)?;
         let next = p.bytes.len().min(offset + CHUNK);
         loop {
             if stopped(q) || Instant::now() >= p.deadline {

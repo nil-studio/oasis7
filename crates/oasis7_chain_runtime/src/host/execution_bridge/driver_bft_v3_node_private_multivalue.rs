@@ -196,7 +196,7 @@ impl NodePrivateStore {
     pub(in super::super) fn export(
         &self,
         value: &BftHeaderValueV3,
-    ) -> Result<(NodeBftPrivateCandidateV3, Vec<(String, Vec<u8>)>), String> {
+    ) -> Result<NodeBftPrivateCandidatePackageV3, String> {
         let (slot, path) = self
             .exact_slot(value)?
             .ok_or("original Node candidate unavailable")?;
@@ -221,7 +221,10 @@ impl NodePrivateStore {
             })
             .collect::<Result<_, _>>()?;
         formal_dependencies::validate_nodes(&nodes)?;
-        Ok((candidate, nodes.into_iter().collect()))
+        Ok(NodeBftPrivateCandidatePackageV3 {
+            candidate,
+            dependency_nodes: nodes.into_iter().collect(),
+        })
     }
     pub(in super::super) fn retain_received(
         &mut self,

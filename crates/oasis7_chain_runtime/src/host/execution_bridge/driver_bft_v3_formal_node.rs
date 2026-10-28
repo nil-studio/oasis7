@@ -23,6 +23,7 @@ pub(crate) struct FormalBftHeaderNodeDriverV3 {
     configured_binding: Option<String>,
     cursor_height: u64,
     installed_world: RuntimeWorld,
+    peer_network: bool,
 }
 impl FormalBftHeaderNodeDriverV3 {
     pub(crate) fn open_from_handoff(
@@ -32,6 +33,29 @@ impl FormalBftHeaderNodeDriverV3 {
         target: BftProfileTargetV2,
         material: ClosedRecord,
         source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+    ) -> Result<Self, String> {
+        Self::open_with_network_mode(records, store, anchor, target, material, source, false)
+    }
+    /// Multi-validator admission is explicit and must be paired with the
+    /// runtime's authenticated public and separately authorized private paths.
+    pub(crate) fn open_from_handoff_with_peer_network(
+        records: &Path,
+        store: LocalCasStore,
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: ClosedRecord,
+        source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+    ) -> Result<Self, String> {
+        Self::open_with_network_mode(records, store, anchor, target, material, source, true)
+    }
+    fn open_with_network_mode(
+        records: &Path,
+        store: LocalCasStore,
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: ClosedRecord,
+        source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+        peer_network: bool,
     ) -> Result<Self, String> {
         validate_storage_paths(records, store.root())?;
         let (mut private, retained_source) =
@@ -46,11 +70,11 @@ impl FormalBftHeaderNodeDriverV3 {
             true,
         )?;
         let initial_schedule = execution.origin.schedule.clone();
-        if initial_schedule.active_set().validators().len() != 1
+        if (!peer_network && initial_schedule.active_set().validators().len() != 1)
             || initial_schedule.pending_transition().is_some()
         {
             return Err(
-                "native header Node requires one validator and no pending transition".into(),
+                "native header Node requires explicit peer networking for multiple validators and does not yet admit pending transitions".into(),
             );
         }
         let cursor_height = execution.origin.handoff.handoff_position();
@@ -78,6 +102,7 @@ impl FormalBftHeaderNodeDriverV3 {
             .reserve_external_material(private.usage()?)?;
         let installed_world = execution.origin.parent_world.clone();
         Ok(Self {
+            peer_network,
             installed_world,
             execution,
             private,
@@ -121,7 +146,7 @@ impl FormalBftHeaderNodeDriverV3 {
             || binding.material_identity != self.material_identity
             || binding.handoff().target_digest() != self.handoff().target_digest()
             || binding.handoff().activation_digest() != self.handoff().activation_digest()
-            || self.initial_schedule.active_set().validators().len() != 1
+            || (!self.peer_network && self.initial_schedule.active_set().validators().len() != 1)
             || self.initial_schedule.pending_transition().is_some()
         {
             return Err(
@@ -365,11 +390,7 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         value: &BftHeaderValueV3,
     ) -> Result<NodeBftPrivateCandidatePackageV3, String> {
         self.require_configured()?;
-        let (candidate, dependency_nodes) = self.private.export(value)?;
-        Ok(NodeBftPrivateCandidatePackageV3 {
-            candidate,
-            dependency_nodes,
-        })
+        self.private.export(value)
     }
     fn retain_received_bft_v3_private_candidate(
         &mut self,
