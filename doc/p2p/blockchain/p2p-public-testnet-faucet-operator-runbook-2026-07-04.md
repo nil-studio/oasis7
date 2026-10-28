@@ -82,7 +82,7 @@ sudo systemctl status --no-pager oasis7-public-testnet-faucet.service
 
 The unit expects the local sequencer/API service to be reachable at `OASIS7_PUBLIC_TESTNET_FAUCET_UPSTREAM`. If the upstream is unhealthy, the faucet may start but claims must remain blocked until upstream-backed claim submission is verified.
 
-The current faucet cooldown guard is process memory state. A service restart clears in-memory IP/account cooldown records, so this guard is sufficient for testnet faucet readiness only when paired with operator monitoring and the documented amount/cooldown limits. Do not describe it as persistent anti-abuse storage.
+The current faucet cooldown guard is stored in process memory. A service restart clears in-memory IP/account cooldown records, so this guard is sufficient for testnet faucet readiness only when paired with operator monitoring and the documented amount/cooldown limits. Do not describe it as persistent anti-abuse storage.
 
 The service is plain HTTP. If stronger public-surface protection is required, put TLS, reverse-proxy rate limiting, access logs, or WAF controls in front of the service and record that as separate evidence.
 

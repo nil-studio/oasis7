@@ -97,7 +97,7 @@ full/state-sync 等服务角色可以按网络规则参与，但取得包含私�
 
 主网进入至少需要：受控 custody、registry-first governance、可审计的 rotation/revocation/failover、冻结创世与 QA pass、formal network-tier 的 mainnet prerequisites，以及独立的产品/公开口径复核。任何单一 topic 或 rehearsal 成功都不构成主网进入授权。
 
-本专题不定义 network-tier manifest、public endpoint、faucet、release procedure、实际 mint、密钥托管后端或运行时实现。它也不替代 QA 放行、LiveOps 对外表述或产品真值。
+本专题不定义 network-tier manifest、public endpoint、faucet、release procedure、实际 mint、密钥托管后端或运行时实现，也不替代 QA 放行、LiveOps 对外表述或产品真值。
 
 ## 里程碑
 

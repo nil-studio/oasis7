@@ -3,7 +3,9 @@
 
 本分册承接 [governed bootstrap Phase C0](public-testnet-governed-bootstrap.runbook.md#85-phase-c0---routine-ci-package-update) 的引擎特定维护限制；该 runbook 仍是 public-testnet topology/deployment/rollout/recovery authority。本分册不授予部署批准。
 
-本节只适用于 [执行器兼容说明](../../world-runtime/wasm/wasm-executor.design.md#wasmtime-49-coordinated-release) 所述升级：结构化失败进入 tick hash，禁止同一 world 的不同引擎目标版本进程重叠 author 或独立 execute/validate tick。当前无自动 fleet fence；该升级不适用 Phase C0 的运行中 validator-first/observer-later 顺序或 Linux/Windows/macOS 自动重启、单节点回滚路径。现有 identity/checkpoint/closure/admission/recovery gates 全部保留；若 wrapper 需要运行中的旧 provider、无法在全停条件完成校验或 hold 自动启动/回滚，保持 `hold` 并另取独立授权且审读的执行计划，不得绕过 wrapper 或降低 gates。PR 合入不授权部署或证明现场安全；缺证阻断部署，合入仍由独立 review/完整 CI 裁定。
+本节只适用于 [执行器兼容说明](../../world-runtime/wasm/wasm-executor.design.md#wasmtime-49-coordinated-release) 所述升级：结构化失败进入 tick hash，禁止同一 world 的不同引擎目标版本进程重叠 author 或独立 execute/validate tick。当前无自动 fleet fence；该升级不适用 Phase C0 的运行中 validator-first/observer-later 顺序或 Linux/Windows/macOS 自动重启、单节点回滚路径。
+
+现有 identity/checkpoint/closure/admission/recovery gates 全部保留；若 wrapper 需要运行中的旧 provider、无法在全停条件完成校验或 hold 自动启动/回滚，保持 `hold` 并另取独立授权且审读的执行计划，不得绕过 wrapper 或降低 gates。PR 合入不授权部署或证明现场安全；缺证阻断部署，合入仍由独立 review/完整 CI 裁定。
 
 1. 授权 coordinator 固定完整 host/service/process 执行 inventory，涵盖 validators、sequencers 及实际执行验证的 observers、embedded/full nodes；未知执行者或不可控 restart/admission 来源使维护保持 `hold`。记录目标 source commit、各 platform package/buildinfo/hash、lockfile 精确 Wasmtime 版本 binding、共同 committed parent height/hash 与 backup/checkpoint；跨平台须同 source/dependency，不要求 binary SHA 相同。
 

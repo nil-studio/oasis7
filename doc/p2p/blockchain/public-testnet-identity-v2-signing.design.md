@@ -23,8 +23,8 @@ independent verifier. The provider and verifier consume the same immutable
 canonical payload bytes. Private key material stays outside the repository,
 sidecar, planner, adapter, logs, and ordinary CLI arguments.
 
-This is a new authority/tooling contract, not a reuse of an existing domain
-key. The runtime `identity-receipt` command remains a raw metadata producer;
+This new authority/tooling contract does not reuse an existing domain key.
+The runtime `identity-receipt` command remains a raw metadata producer;
 the rebuild-proof signer/verifier, node-consensus/feedback signer, finality
 signers, and rollback signer are not identity-v2 signers. The current fixture
 keys in `scripts/fixtures/oasis7-governance-root.v1.json` remain fixture-only
@@ -156,8 +156,7 @@ absence of the external authority still blocks production signing.
 
 ## 4. Canonical payload and context
 
-The signed payload is a finalized JSON object with exactly these fields and no
-others:
+The signed payload is a finalized JSON object with exactly these fields:
 
 ```json
 {

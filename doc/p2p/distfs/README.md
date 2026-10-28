@@ -24,6 +24,6 @@
 
 ## 维护规则
 - 新增 DistFS 专题时，先判断是否属于既有专业权威；历史完成态应语义吸收到对应当前专题并保留 provenance，不新建默认 phase 入口。
-- 如果新增内容引入新的通用边界，应先拆出新的主入口，再更新本页分流。
+- 新增内容若引入新的通用边界，应先拆出新主入口，再更新本页分流。
 - 三个 2026-03 feedback 源三件套已在语义回填和活跃引用修复后删除；追溯仅使用 Git 与 `.pm` task evidence。当前首读与专业合同以 `distfs-feedback-ledger-and-replication` 三件套为准。
 - 六组 2026-02 DistFS/network closure 源三件套的有效语义已分别归入本页 current authority、World Runtime WASM authority 与 P2P 根负向边界；过时 API/完成态不保留为当前入口。

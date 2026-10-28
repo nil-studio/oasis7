@@ -2,7 +2,7 @@
 
 ## 1. 问题、目标与非目标
 
-将共识纯逻辑集中于唯一core，避免node/pos重复规则漂移，同时保护ordered payload及committed replay。
+将共识纯逻辑集中到唯一 core，避免 node/pos 的重复规则漂移，同时保护 ordered payload 及 committed replay。
 
 Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；固定审读基线 f9d5a552d9af04c1b1398262808198a58e560230，2026-09-26。本设计消费下表有限关系；旧章节保留作兼容详细条款，新增DES细化原义务而不改算法/schema/默认值/产品承诺。任务实际source/integration/tested tree/config/environment/window/结果由GitHub Issue/Project evidence维护，本文不伪造候选/通过结果。
 
@@ -84,7 +84,7 @@ NodePosAttestation、NodePosPendingProposal<TAction,TStatus>、NodePosDecision<T
 
 ## 7. 状态、事务与持久化
 
-pending→decision的原更新顺序不可变化；拒绝decision动作显式失败或requeue，不静默丢失。commit与runtime state apply的原子/持久证明归runtime/node。抽取没有新增QC/锁/round持久状态，旧snapshot/replay兼容必须回归，不能拿crate编译当恢复。
+pending→decision的原更新顺序不可变化；拒绝decision动作显式失败或requeue，不静默丢失。commit与runtime state apply的原子/持久证明归runtime/node。抽取没有新增QC/锁/round持久状态，旧snapshot/replay兼容必须回归，crate 编译不代表恢复。
 
 accepted、applied、persisted、published必须分别具备各自证据；workflow done/文档active不属于运行状态。外部receipt/journal/state root生命周期和recovery由runtime authority；本地观察不能提供更强保证。
 
