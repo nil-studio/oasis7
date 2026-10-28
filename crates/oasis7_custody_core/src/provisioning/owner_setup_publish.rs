@@ -77,6 +77,15 @@ impl AccountProvisionApprovalState {
         candidate: &OwnerSetupCandidateV1,
         expected: &OwnerSetupSigningBundleV1,
     ) -> Result<()> {
+        self.validate_owner_setup_candidate_scoped(id, candidate, expected, None)
+    }
+    pub(super) fn validate_owner_setup_candidate_scoped(
+        &self,
+        id: &str,
+        candidate: &OwnerSetupCandidateV1,
+        expected: &OwnerSetupSigningBundleV1,
+        signature_scope: Option<&mut RestoreSignatureScope>,
+    ) -> Result<()> {
         self.validate_owner_setup_original(id, &candidate.original, &expected.action)?;
         let key = &self
             .provision
@@ -98,7 +107,13 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        validate_owner_setup_signature_fact(OwnerSetupSignatureFact::Read(o, key))?;
+        match signature_scope {
+            Some(scope) => validate_owner_setup_signature_fact_scoped(
+                OwnerSetupSignatureFact::Read(o, key),
+                scope,
+            )?,
+            None => validate_owner_setup_signature_fact(OwnerSetupSignatureFact::Read(o, key))?,
+        }
         Ok(())
     }
     pub fn claim_owner_setup_send(

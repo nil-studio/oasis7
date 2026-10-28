@@ -7,6 +7,7 @@ impl AccountProvisionApprovalState {
         stage: OwnerSetupStageV1,
         o: &OwnerSetupOutboxV1,
         r: &ApprovalAdmissionRecord,
+        signature_scope: &mut RestoreSignatureScope,
     ) -> Result<()> {
         let v = self.owner_setups.get(id).ok_or_else(invalid)?;
         let consumed = r.consumed_at().ok_or_else(invalid)?;
@@ -108,7 +109,7 @@ impl AccountProvisionApprovalState {
                 original: original.clone(),
                 observation: observation.clone(),
             };
-            self.validate_owner_setup_candidate(
+            self.validate_owner_setup_candidate_scoped(
                 id,
                 &candidate,
                 &OwnerSetupSigningBundleV1 {
@@ -116,15 +117,19 @@ impl AccountProvisionApprovalState {
                     observation: self.owner_setup_read_request(id, stage)?,
                     participant_access: self.owner_setup_stage_access(id, stage)?,
                 },
+                Some(&mut *signature_scope),
             )?;
-            validate_owner_setup_signature_fact(OwnerSetupSignatureFact::Original(
-                original,
-                &self
-                    .provision
-                    .role_key(Role::Owner)
-                    .ok_or_else(invalid)?
-                    .public_key,
-            ))?;
+            validate_owner_setup_signature_fact_scoped(
+                OwnerSetupSignatureFact::Original(
+                    original,
+                    &self
+                        .provision
+                        .role_key(Role::Owner)
+                        .ok_or_else(invalid)?
+                        .public_key,
+                ),
+                &mut *signature_scope,
+            )?;
             let at = o.published_at.ok_or_else(invalid)?.0;
             source_fresh(source, at)?;
             self.validate_owner_setup_access(
@@ -188,10 +193,13 @@ impl AccountProvisionApprovalState {
                 at.0,
                 r.input().request.context.service_epoch,
             )?;
-            validate_owner_setup_signature_fact(OwnerSetupSignatureFact::World(
-                &evidence.world,
-                &v.plan.world_identity.service_public_key,
-            ))?;
+            validate_owner_setup_signature_fact_scoped(
+                OwnerSetupSignatureFact::World(
+                    &evidence.world,
+                    &v.plan.world_identity.service_public_key,
+                ),
+                &mut *signature_scope,
+            )?;
         }
         let mut expected = Operation::admit(
             ledger::stage_operation_id(&v.plan, stage)?,
@@ -281,7 +289,12 @@ impl AccountProvisionApprovalState {
                         return Err(invalid());
                     }
                 }
-                self.validate_owner_setup_result(id, stage, result)?;
+                self.validate_owner_setup_result_scoped(
+                    id,
+                    stage,
+                    result,
+                    Some(&mut *signature_scope),
+                )?;
                 let nonce = match result {
                     OwnerSetupResultV1::Canonical {
                         from_lookup: true, ..
@@ -311,13 +324,14 @@ impl AccountProvisionApprovalState {
             if source != &fact.source {
                 return Err(invalid());
             }
-            self.validate_owner_setup_archive(
+            self.validate_owner_setup_archive_scoped(
                 id,
                 stage,
                 fact,
                 &OwnerSetupArchiveContext {
                     world_public_key: &v.plan.world_identity.service_public_key,
                 },
+                Some(&mut *signature_scope),
             )?;
         }
         if o.last_observation.is_some() != o.last_observation_session.is_some()
@@ -333,7 +347,12 @@ impl AccountProvisionApprovalState {
             {
                 return Err(invalid());
             }
-            self.validate_owner_setup_result(id, stage, observation)?;
+            self.validate_owner_setup_result_scoped(
+                id,
+                stage,
+                observation,
+                Some(&mut *signature_scope),
+            )?;
             let fact = observation.canonical_fact().ok_or_else(invalid)?;
             if o.canonical_history.get(&fact.source) != Some(&fact) {
                 return Err(invalid());

@@ -135,6 +135,20 @@ fn setup_normal_completed_restore_developer_signature_metrics() {
         "{}",
         json!({"normal_completed_restore_signature_metrics":{"stage_counts":counts,"bytes":bytes.len(),"summary":summary}})
     );
+    // Separate synchronous OwnerSetup-only exact-success scope, not a full-account count.
+    oasis7_custody_core::signature_metrics::begin_scope();
+    let local = state.owner_setup_restore_signature_metrics().unwrap();
+    let local_sdk = oasis7_custody_core::signature_metrics::take_summary();
+    assert!(local.repeated_successes > 0);
+    assert_eq!(local.failures, 0);
+    assert_eq!(local.calls, local.successes);
+    assert_eq!(local.overflow_tuples, 0);
+    // Nested SDK checks remain uncached; this is the explicitly scoped subset.
+    assert!(local_sdk.strict_attempts >= local.calls - local.repeated_successes);
+    eprintln!(
+        "{}",
+        json!({"owner_setup_success_scope":{"scope":local,"sdk_subset_and_nested":local_sdk}})
+    );
     // This is a baseline measurement, not a claim all duplicates are redundant:
     // archived facts and nested authority evidence can legitimately repeat tuples.
 }
