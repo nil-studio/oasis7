@@ -3,8 +3,8 @@
 use oasis7_wasm_sdk::{
     LifecycleStage, WasmModuleLifecycle, export_wasm_module,
     wire::{
-        GeoPosCm, ModuleCallInput, ModuleEffectIntent, ModuleEmit, ModuleOutput, decode_action,
-        decode_input, empty_output, encode_output, parse_json_geo_pos_cm,
+        GeoPosCm, ModuleCallInput, ModuleEmit, ModuleOutput, decode_input, empty_output,
+        encode_output, parse_json_geo_pos_cm,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ struct AgentPowerState {
 struct PowerState {
     #[serde(default)]
     agents: BTreeMap<String, AgentPowerState>,
+    #[serde(default)]
+    last_settled_event_id: Option<u64>,
 }
 
 fn decode_power_state(state_bytes: Option<&[u8]>) -> PowerState {
@@ -67,7 +69,7 @@ fn space_distance_cm(a: GeoPos, b: GeoPos) -> i64 {
         .max(0.0) as i64
 }
 
-fn decode_domain_event(event_bytes: &[u8]) -> Option<(String, Value)> {
+fn decode_domain_event(event_bytes: &[u8]) -> Option<(u64, String, Value)> {
     let event: Value = serde_cbor::from_slice(event_bytes).ok()?;
     if event
         .get("body")
@@ -80,7 +82,7 @@ fn decode_domain_event(event_bytes: &[u8]) -> Option<(String, Value)> {
     let payload = event.get("body")?.get("payload")?;
     let event_type = payload.get("type")?.as_str()?.to_string();
     let data = payload.get("data")?.clone();
-    Some((event_type, data))
+    Some((event.get("id")?.as_u64()?, event_type, data))
 }
 
 fn movement_cost(distance_cm: i64, per_km_cost: i64) -> i64 {
@@ -105,7 +107,12 @@ fn radiation_harvest_per_tick(pos: GeoPos) -> i64 {
     1_i64.saturating_add(bounded_bonus)
 }
 
-fn update_storage_state_from_event(state: &mut PowerState, event_type: &str, data: &Value) -> bool {
+fn update_storage_state_from_event(
+    state: &mut PowerState,
+    event_id: u64,
+    event_type: &str,
+    data: &Value,
+) -> bool {
     let mut changed = match event_type {
         "AgentRegistered" => {
             let Some(agent_id) = data.get("agent_id").and_then(Value::as_str) else {
@@ -137,22 +144,38 @@ fn update_storage_state_from_event(state: &mut PowerState, event_type: &str, dat
             }
         }
         "AgentMoved" => {
+            if state
+                .last_settled_event_id
+                .is_some_and(|last| event_id <= last)
+            {
+                return false;
+            }
             let Some(agent_id) = data.get("agent_id").and_then(Value::as_str) else {
                 return false;
             };
             let Some(to) = data.get("to").and_then(parse_geo_pos) else {
                 return false;
             };
-            if let Some(agent_state) = state.agents.get_mut(agent_id) {
-                if agent_state.pos != to {
-                    agent_state.pos = to;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
+            let Some(from) = data.get("from").and_then(parse_geo_pos) else {
+                return false;
+            };
+            let Some(agent_state) = state.agents.get_mut(agent_id) else {
+                return false;
+            };
+            // Only a fresh authoritative move from our actual position settles.
+            // Journal recovery restores recorded state updates without calling us.
+            if agent_state.pos != from || from == to {
+                return false;
             }
+            let cost = movement_cost(space_distance_cm(from, to), 3);
+            assert!(
+                cost <= agent_state.level,
+                "movement outcome exceeds admitted battery"
+            );
+            agent_state.level -= cost;
+            state.last_settled_event_id = Some(event_id);
+            agent_state.pos = to;
+            true
         }
         _ => false,
     };
@@ -188,7 +211,7 @@ fn apply_storage_harvest(state: &mut PowerState) -> bool {
 }
 
 fn build_storage_action_output(input: &ModuleCallInput, mut state: PowerState) -> Vec<u8> {
-    let mut changed = apply_storage_harvest(&mut state);
+    let changed = apply_storage_harvest(&mut state);
     let Some((action_id, action)) = action_envelope(input) else {
         return encode_output(empty_output());
     };
@@ -260,10 +283,6 @@ fn build_storage_action_output(input: &ModuleCallInput, mut state: PowerState) -
             "storage insufficient for move: need {move_cost}, have {}",
             agent_state.level
         )]);
-    } else {
-        agent_state.level = agent_state.level.saturating_sub(move_cost);
-        agent_state.pos = to;
-        changed = true;
     }
 
     let new_state = if changed {
@@ -287,10 +306,10 @@ fn build_storage_event_output(input: &ModuleCallInput, mut state: PowerState) ->
     let Some(event_bytes) = input.event.as_deref() else {
         return encode_output(empty_output());
     };
-    let Some((event_type, data)) = decode_domain_event(event_bytes) else {
+    let Some((event_id, event_type, data)) = decode_domain_event(event_bytes) else {
         return encode_output(empty_output());
     };
-    let changed = update_storage_state_from_event(&mut state, &event_type, &data);
+    let changed = update_storage_state_from_event(&mut state, event_id, &event_type, &data);
     let new_state = if changed {
         encode_power_state(&state)
     } else {
@@ -380,3 +399,93 @@ impl WasmModuleLifecycle for BuiltinWasmModule {
 }
 
 export_wasm_module!(BuiltinWasmModule);
+
+#[cfg(test)]
+mod settlement_tests {
+    use super::*;
+
+    fn position(x_cm: i64) -> GeoPos {
+        GeoPos {
+            x_cm,
+            y_cm: 0,
+            z_cm: 0,
+        }
+    }
+
+    fn state() -> PowerState {
+        PowerState {
+            agents: BTreeMap::from([(
+                "a".into(),
+                AgentPowerState {
+                    pos: position(0),
+                    level: 6,
+                },
+            )]),
+            last_settled_event_id: None,
+        }
+    }
+
+    #[test]
+    fn preaction_keeps_actual_position_and_only_harvests() {
+        let input: ModuleCallInput = serde_json::from_value(json!({
+            "ctx": { "module_id": MODULE_ID, "time": 1 },
+            "action": serde_cbor::to_vec(&json!({ "id": 1, "action": { "type": "MoveAgent", "data": { "agent_id": "a", "to": position(100_000) } } })).unwrap()
+        })).unwrap();
+        let output: Value =
+            serde_cbor::from_slice(&build_storage_action_output(&input, state())).unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(output["new_state"].clone()).unwrap();
+        let after = decode_power_state(Some(&bytes));
+        assert_eq!(after.agents["a"].pos, position(0));
+        assert_eq!(after.agents["a"].level, 7);
+    }
+
+    #[test]
+    fn successful_outcome_debits_once_and_duplicate_is_noop() {
+        let mut state = state();
+        let moved = json!({ "agent_id": "a", "from": position(0), "to": position(100_000) });
+        assert!(update_storage_state_from_event(
+            &mut state,
+            10,
+            "AgentMoved",
+            &moved
+        ));
+        assert_eq!(state.agents["a"].level, 3);
+        assert_eq!(state.agents["a"].pos, position(100_000));
+        assert!(!update_storage_state_from_event(
+            &mut state,
+            10,
+            "AgentMoved",
+            &moved
+        ));
+        assert_eq!(state.agents["a"].level, 3);
+    }
+    #[test]
+    fn stale_duplicate_after_return_to_origin_does_not_charge_again() {
+        let mut state = state();
+        state.agents.get_mut("a").unwrap().level = 12;
+        let outward = json!({ "agent_id": "a", "from": position(0), "to": position(100_000) });
+        let returning = json!({ "agent_id": "a", "from": position(100_000), "to": position(0) });
+        assert!(update_storage_state_from_event(
+            &mut state,
+            10,
+            "AgentMoved",
+            &outward
+        ));
+        assert!(update_storage_state_from_event(
+            &mut state,
+            20,
+            "AgentMoved",
+            &returning
+        ));
+        let restored = decode_power_state(encode_power_state(&state).as_deref());
+        assert_eq!(restored, state);
+        assert!(!update_storage_state_from_event(
+            &mut state,
+            10,
+            "AgentMoved",
+            &outward
+        ));
+        assert_eq!(state.agents["a"].pos, position(0));
+        assert_eq!(state.agents["a"].level, 6);
+    }
+}

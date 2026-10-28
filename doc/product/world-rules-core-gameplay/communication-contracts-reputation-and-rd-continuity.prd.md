@@ -9,7 +9,7 @@
 - Last reviewed：2026-09-26
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
-本文是长期产品分册，定义沟通、合同、争端、情境声誉与研究开发归因的产品边界。它不定义聊天/Agent UI、合同字段、抵押数值、争端随机算法、证据格式、仲裁规则、声誉分数、身份技术、专利/法律结论、版税比例或当前实现/readiness。
+本长期产品分册定义沟通、合同、争端、情境声誉与研究开发归因的产品边界，不定义聊天/Agent UI、合同字段、抵押数值、争端随机算法、证据格式、仲裁规则、声誉分数、身份技术、专利/法律结论、版税比例或当前实现/readiness。
 
 ## 设计适用性与生命周期闭合
 
@@ -37,9 +37,9 @@
 
 #### 2.1.1 持续服务承诺的预览、检查点与恢复
 
-- 维护、运输和协作等跨时间服务不是“接受即完成”的 hard atomic 交换。玩家或 Agent 在接受前必须能比较一份只读的 `service_commitment_preview` 目标语义：对方及授权来源、服务目的、范围与期限、首个检查点价值、前置成本与 collateral、持续义务、失败暴露、退出/修复选项、无合同替代路径、推荐动作，以及报价所依据的权威状态与有效边界。预览与 `offered` 都属于未绑定阶段，不预留资产或资格，不锁定、不排队、不增加债务/collateral/奖励/优先级，也不改变声誉、权限或继受关系；报价所依据的授权、条件或权威状态在提交前变化、不确定或过期时，只能重新报价或原子拒绝，不能把陈旧预览表述为保证。本目标语义不声称当前 preview 或玩家 surface 已实现或 ready。
+- 维护、运输和协作等跨时间服务不是“接受即完成”的 hard atomic 交换。玩家或 Agent 在接受前必须能比较一份只读的 `service_commitment_preview` 目标语义：对方及授权来源、服务目的、范围与期限、首个检查点价值、前置成本与 collateral、持续义务、失败暴露、退出/修复选项、无合同替代路径、推荐动作，以及报价所依据的权威状态与有效边界。预览与 `offered` 都属于未绑定阶段，不预留资产或资格，不锁定、不排队、不增加债务/collateral/奖励/优先级，也不改变声誉、权限或继受关系。报价所依据的授权、条件或权威状态在提交前变化、不确定或过期时，只能重新报价或原子拒绝，不能把陈旧预览表述为保证。本目标语义不声称当前 preview 或玩家 surface 已实现或 ready。
 - 产品结果按概念顺序表达为 `non_binding_draft -> offered -> accepted_pending_validation -> active -> checkpoint_due -> fulfilled | partial | defaulted | terminated | disputed`；这些是产品层结果标签，不冻结 runtime enum、schema、金额、UI 或法律结论。`non_binding_draft` 是合同前沟通类别，只有授权完整的 offer 才能进入 `accepted_pending_validation`；接受待校验仍不产生绑定或世界效果。只有有效授权、明确接受和权威校验 receipt 同时成立，合同才进入 `active` 并创建约定义务。
-- `checkpoint_due` 只是约定检查点已到的可读条件，不自动产生处罚、违约、债务或资产转移。每个检查点和状态转换都必须留下可审计 receipt，分别说明已交付价值、未履行范围、已发生义务、collateral 暴露和可执行下一步。`partial` 只适用于可违约持续服务，且必须分别记录已完成与未完成范围；它不能伪装为 hard atomic 成功。排队、在途、客户端显示或未确认重试不能伪装为 `fulfilled`；`defaulted` 必须来自合同预先声明的条件、证据和权威判断，而不是法律结论；`fulfilled` 或 `terminated` 也不抹去已发生义务与历史 receipt，且不触发静默续期。
+- `checkpoint_due` 只是约定检查点已到的可读条件，不自动产生处罚、违约、债务或资产转移。每个检查点和状态转换都必须留下可审计 receipt，分别说明已交付价值、未履行范围、已发生义务、collateral 暴露和可执行下一步。`partial` 只适用于可违约持续服务，且必须分别记录已完成与未完成范围，不能伪装为 hard atomic 成功。排队、在途、客户端显示或未确认重试不能伪装为 `fulfilled`。`defaulted` 必须来自合同预先声明的条件、证据和权威判断，而不是法律结论；`fulfilled` 或 `terminated` 也不抹去已发生义务与历史 receipt，且不触发静默续期。
 - 检查点部分履行或失败时，只冻结对应范围内新的高风险承诺，保留已确认结果、已发生成本和未决责任。玩家必须能在原合同范围内明确选择 `repair/reperform`、`terminate/settle`、`dispute/preserve` 或 `replace_with_explicit_successor`；无安全路径时则明确停止或重新规划。修复/重新履行只覆盖未满足范围，不能重放已完成效果；同一合同 lineage 的 retry、reconnect 或重复提交必须幂等，不能产生第二次交付、扣款、优先级或义务。续期不得自动发生，必须基于当前权威状态重新报价、明确接受并生成新的 receipt；它只创建本次新披露的范围、成本与义务，不继承旧优先级或静默转移责任。不得把失败变成隐藏欠费、把 collateral 变成自由奖励，或通过反复取消/重签洗掉合同 lineage、失败记录与排队边界。
 - `dispute/preserve` 继承 2.2 的最小保全边界：只保护直接争议的资产、collateral、权限或不可逆效果，记录范围、原因和 receipt，并让无争议、到期且可安全履行的义务继续执行；它不能升级为全面冻结、单方控制或隐藏风险转移。显式继受是当事人另行同意、经权威校验并留下 receipt 的延续事件，而不是自动状态迁移；控制权变化期间冻结新的高风险承诺，同时保留旧合同历史、托管资产、债权和责任链，不继承个人 credential 或情境声誉。
 

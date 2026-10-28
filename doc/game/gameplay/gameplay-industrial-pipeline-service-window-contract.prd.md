@@ -7,15 +7,15 @@
 
 ## 1. Conditional service window
 
-只有专业 profile 支持时，玩家才可获得只读 `pipeline_service_window_preview`，把 stage duration/ready boundary、join/output-bundle gate、edge transit、buffer admission 与 terminal settlement 组合成同一 conditional window；否则明确为 best-effort。
+仅在专业 profile 支持时，玩家才可获得只读 `pipeline_service_window_preview`，把 stage duration/ready boundary、join/output-bundle gate、edge transit、buffer admission 与 terminal settlement 组合成同一 conditional window；否则明确为 best-effort。
 
-预览至少说明 none/soft/hard window policy、start trigger、target event、各 segment 的条件性时界与 root risk，以及 factory slot、edge throughput、destination buffer 与 terminal capacity 的 lease scope/amount/expiry；terminal capacity 未持有、仅条件成立或 non-reserved 时必须明确显示，不能把它包装成端到端 hard guarantee。玩家比较 `commit_window`、`run_best_effort`、`relax_or_requote_window`、改道或延期；preview 不锁容量、不保证精确 ETA 或未来条件。
+预览至少说明 none/soft/hard window policy、start trigger、target event、各 segment 的条件性时界与 root risk，以及 factory slot、edge throughput、destination buffer 与 terminal capacity 的 lease scope/amount/expiry；terminal capacity 未持有、仅条件成立或 non-reserved 时必须明确显示，不得表述为端到端 hard guarantee。玩家比较 `commit_window`、`run_best_effort`、`relax_or_requote_window`、改道或延期；preview 不锁容量、不保证精确 ETA 或未来条件。
 
 ## 2. 提交、lease 与迟到恢复
 
 提交按同一快照重验完整 path 与 lease chain：hard window 任一 mandatory segment 无法满足时在首个/下一个 sink 前延期或原子拒绝；soft window 只能以可读 late 结果继续。
 
-Lease 到期在开始前只释放未消费 hold 一次，开始后的 WIP/transit/output 继续服从既有 interruption/terminal 合同并保留 provenance；玩家按 profile 比较 accept-late、hold/quarantine、alternate terminal、reroute/requote、reduce、defer/abandon，不获得自动退款或静默续期。Stage on-time 但 transit/terminal late 必须保留 production receipt、没有 on-time delivery receipt，并指出 root segment。
+Lease 到期在开始前只释放未消费 hold 一次，开始后的 WIP/transit/output 继续服从既有 interruption/terminal 合同并保留 provenance；玩家按 profile 比较 accept-late、hold/quarantine、alternate terminal、reroute/requote、reduce、defer/abandon，不获得自动退款或静默续期。Stage on-time 但 transit/terminal late 时，必须保留 production receipt，不产生 on-time delivery receipt，并指出 root segment。
 
 ## 3. Service-window 验收
 

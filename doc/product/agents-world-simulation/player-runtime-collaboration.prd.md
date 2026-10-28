@@ -300,7 +300,7 @@ Trace ID: O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685
 - 实现状态：部分实现
 - 实现与验证依据：[交付 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定静态源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L295)核实原生当前executor fence读回/校验及消费。历史prepared-world固定候选 `b59d010556e39beaf1928eb1e95aa9aad099e180` 的两次真实目标决策、正式Skill使用及原结果回放只由[历史运行记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)支持；其中原cleanup失败保持不变，不能外推当前main或完整首局。剩余每个Runtime持续运行、等待/唤醒、离线更新和组合恢复，不推导端到端完成。
 - 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：实际driver启动/等待唤醒/恢复与协作fence的运行设计组合仍须核对；collab-runtime-journey为同任务验收设计，不代替完整运行合同。；实现/验证：每个Runtime持续运行、等待/唤醒、离线更新和组合恢复。
+- 剩余范围：设计：实际driver启动/等待唤醒/恢复与协作fence的运行设计组合仍须核对；collab-runtime-journey为同任务验收设计，不代替完整运行合同；实现/验证：每个Runtime持续运行、等待/唤醒、离线更新和组合恢复。
 
 - 要求：每个受支持 Runtime 组合必须提供实际启动、接收更新、等待/唤醒与恢复路径，准确区分观战连接、执行方可用性、任务状态和世界状态；执行方停止后不得承诺新决策，停止或替换执行方必须保留世界历史并重新核验资格。
 - 理由：Skill 是说明而非常驻进程，关闭 GUI 与关闭执行方是不同操作。

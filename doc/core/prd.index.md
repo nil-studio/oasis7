@@ -12,7 +12,7 @@
 ## 首读分流
 - 想先回答 core 模块在管什么、哪些口径是全局唯一真值：先读 `doc/core/prd.md`
 - 想先回答当前在推进什么、最近完成了什么、下一步是什么：进入对应 PR、实际 CI 与评审记录（Issue 按需）。
-- 想确认跨模块优先级规则：读 `doc/core/prd.md`；想确认当前执行任务与下一步：进入对应 PR、实际 CI 与评审记录（Issue 按需）。
+- 想确认跨模块优先级规则：读 `doc/core/prd.md`。
 - 想直接进入玩家访问模式 / execution lane 的产品契约：先读 `doc/product/player-entry-distribution/prd.md`
 - 想直接进入统一持久大世界默认产品模型与术语契约：先读 `doc/product/world-infrastructure/prd.md`
 - 想追溯 ROUND 审计、2026-03 版本候选 readiness / go-no-go 或任务收口依据：按需读 Git history

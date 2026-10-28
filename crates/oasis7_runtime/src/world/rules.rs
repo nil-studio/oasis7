@@ -8,6 +8,7 @@ use super::super::{
     WorldEventBody, WorldEventId, merge_rule_decisions,
 };
 use super::World;
+use super::module_routing_runtime::MovementRulePhase;
 
 const RULE_DECISION_EMIT_KIND: &str = "rule.decision";
 
@@ -70,13 +71,34 @@ impl World {
         &mut self,
         envelope: &ActionEnvelope,
         sandbox: &mut dyn ModuleSandbox,
+    ) -> Result<(RuleDecision, Option<ResourceDelta>), WorldError> {
+        if matches!(envelope.action, super::super::Action::MoveAgent { .. }) {
+            let general =
+                self.evaluate_rule_decision_phase(envelope, MovementRulePhase::General, sandbox)?;
+            let mut priced = envelope.clone();
+            if general.verdict == RuleVerdict::Modify
+                && let Some(action) = general.override_action.clone()
+            {
+                priced.action = action;
+            }
+            let pricing =
+                self.evaluate_rule_decision_phase(&priced, MovementRulePhase::Pricing, sandbox)?;
+            let rejection_cost = general.cost.clone();
+            let decision = self.merge_action_rule_decisions(envelope.id, vec![general, pricing])?;
+            return Ok((decision, Some(rejection_cost)));
+        }
+        self.evaluate_rule_decision_phase(envelope, MovementRulePhase::All, sandbox)
+            .map(|decision| (decision, None))
+    }
+
+    fn evaluate_rule_decision_phase(
+        &mut self,
+        envelope: &ActionEnvelope,
+        phase: MovementRulePhase,
+        sandbox: &mut dyn ModuleSandbox,
     ) -> Result<RuleDecision, WorldError> {
         let mut capture = CapturingSandbox::new(sandbox);
-        self.route_action_to_modules_with_stage(
-            envelope,
-            ModuleSubscriptionStage::PreAction,
-            &mut capture,
-        )?;
+        self.route_movement_preaction_phase(envelope, phase, &mut capture)?;
 
         let mut decisions = Vec::new();
         for output in capture.outputs {
@@ -99,10 +121,18 @@ impl World {
             }
         }
 
-        match merge_rule_decisions(envelope.id, decisions) {
+        self.merge_action_rule_decisions(envelope.id, decisions)
+    }
+
+    fn merge_action_rule_decisions(
+        &self,
+        action_id: u64,
+        decisions: Vec<RuleDecision>,
+    ) -> Result<RuleDecision, WorldError> {
+        match merge_rule_decisions(action_id, decisions) {
             Ok(merged) => Ok(merged),
             Err(err) => Ok(RuleDecision {
-                action_id: envelope.id,
+                action_id,
                 verdict: RuleVerdict::Deny,
                 override_action: None,
                 cost: ResourceDelta::default(),

@@ -428,9 +428,9 @@
   "module_sets": {
     "m1": {
       "identity_file": "m1_builtin_modules.source-rule2-candidate.identity.json",
-      "identity_sha256": "e2fac6cba2311d7225e7d7d1a1ee8c627281646a042517aa4c7d7781fdb41720",
+      "identity_sha256": "e02d0cb78e7492cd2d244fce67f312b7a7011458d03b7004e14d7e066d27bf11",
       "hash_file": "m1_builtin_modules.source-rule2-candidate.sha256",
-      "hash_sha256": "b03632047d393747cf11339245eaa744a85531fa60903e3e5ba92eb1b0c68afc",
+      "hash_sha256": "9e6aeea92080bc983bd0b54f7c3b234cc78cbb06a238b7b3511f84f6842e3b26",
       "module_count": 10,
       "build_manifest_hash": "46be7265791b5bebe7f8f78c92d5508fff3217090520b98c2bd434bc3df94448"
     },

@@ -9,14 +9,14 @@
 - Last reviewed：`2026-10-12`
 - 专业域权威：[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)、Agent 与入口/Viewer 的 [`doc/world-simulator/prd.md`](../../world-simulator/prd.md)；入口动作的具体跨表面契约见 [`客户端启动器跨表面受控动作契约`](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)
 
-本文定义分布式共识底层之上的确定性世界执行层。它是基础设施内部的上层：接收已签名意图、在版本化规则边界内确定性重执行、提交已最终化结果，并向游戏、Agent 与玩家入口提供稳定协议；它不定义那些消费者的规则、行为或界面。
+本文定义基础设施内部的确定性世界执行层。该层位于分布式共识底层之上，接收已签名意图、在版本化规则边界内确定性重执行、提交已最终化结果，并向游戏、Agent 与玩家入口提供稳定协议；不定义这些消费者的规则、行为或界面。
 
 <a id="使用者情境正常路径与选择"></a>
 ### 使用者体验、正常路径与决策
 
 玩家提交行动后需要知道它是否真正生效，Agent 需要基于真实结果继续规划，验证者需要确认同一输入确实得到相同结果。正常路径是：消费者确认目标 `world_id`、已验证可服务状态和协议兼容性，签名并提交 intent；活动验证者按同一版本、有序输入和父状态重执行，在可验证最终性成立后形成 committed receipt，消费者再据此更新世界结论。客户端 compatibility declaration 只说明客户端是否能理解协议，执行版本仍按 §2.2 的 canonical block 与激活边界确定。
 
-未得到已提交结果时，使用者可以查看请求、等待或重新规划；专业域支持安全撤回/替代时才可选择该动作。等待可能延迟行动，激活后的重新校验可能使旧计划不再适用；原请求和替代请求仍须分别呈现真实状态，不能用重提换取免费取消、旧报价、优先级或第二次效果。已经消费的投入、可用的退出处置和实际成本由相关专业合同决定，本专题不承诺完成时间或返还。失效、拒绝、过期和恢复后的选择见 §2.1/§2.2。
+未得到已提交结果时，使用者可以查看请求、等待或重新规划；仅在专业域支持安全撤回/替代时，才可选择该动作。等待可能延迟行动，激活后的重新校验可能使旧计划不再适用；原请求和替代请求仍须分别呈现真实状态，不能用重提换取免费取消、旧报价、优先级或第二次效果。已消费的投入、可用的退出处置和实际成本由相关专业合同决定，本专题不承诺完成时间或返还。失效、拒绝、过期和恢复后的选择见 §2.1/§2.2。
 
 ### 阅读术语
 
@@ -40,7 +40,7 @@
 ## 2. 消费者和部署边界
 
 - gameplay、Agent 和 Viewer/玩家入口是基础设施的并发消费者，不是基础设施内的产品循环。游戏提交 intent 并投影 committed state；它不直接写入或以未最终化状态推进权威世界。
-- 普通玩家运行游戏加 light companion；operator 运行 full infrastructure node；development/local test 运行游戏加 embedded 或 full local node。所有 profile 使用同一版本化 game/infrastructure 协议，只改变共识、存储、执行和验证职责。
+- 普通玩家运行游戏与 light companion；operator 运行 full infrastructure node；development/local test 运行游戏与 embedded 或 full local node。所有 profile 使用同一版本化 game/infrastructure 协议，只改变共识、存储、执行和验证职责。
 - 最终性不可用时权威 progression fail closed；pending signed intent 在最终化前无世界效果。local development world 必须使用不同 `world_id`，且永不合入全局历史。
 
 ### 2.1 Finality 中断时的待决 intent 连续性
@@ -52,7 +52,7 @@
 
 ### 2.2 治理激活与在途 intent 的版本边界
 
-- 运行时 manifest 的激活边界是 canonical 世界事实；玩家、Agent、客户端提交时间、本地队列或节点软件版本都不能自行绑定世界语义。请求中携带的 manifest/runtime version 只能作为**非权威 compatibility declaration**，用于检查提交端是否能理解当前协议，不能选择或锁定世界规则。一个 intent 只有在首次进入**已 committed 且 finality-verified 的 canonical execution block** 时才确定执行版本：该 block 位于激活边界之前则使用旧 manifest，位于激活边界或之后则使用新 manifest；candidate/proposed block 不能产生版本选择或世界效果。等待中的请求不会因为本地已经提交或旧节点仍在运行而自动锁定旧规则。
+- 运行时 manifest 的激活边界是 canonical 世界事实；玩家、Agent、客户端提交时间、本地队列或节点软件版本都不能自行绑定世界语义。请求携带的 manifest/runtime version 只能作为**非权威 compatibility declaration**，用于检查提交端是否能理解当前协议，不能选择或锁定世界规则。一个 intent 只有在首次进入**已 committed 且 finality-verified 的 canonical execution block** 时才确定执行版本：该 block 位于激活边界之前则使用旧 manifest，位于激活边界或之后则使用新 manifest；candidate/proposed block 不能产生版本选择或世界效果。待决请求不会因本地已提交或旧节点仍在运行而自动锁定旧规则。
 - 激活边界前提交、但尚未取得 committed receipt 的请求，若在新 manifest 下首次进入已 committed/finalized 的 canonical block，必须按新 manifest 的当前权限、资源和前置条件重新裁决；不兼容时只能原子拒绝/过期并给出可读原因，或由玩家/Agent 通过明确的、新版本兼容声明的新请求重新规划。不得静默翻译 payload、沿用旧报价/资格、部分应用旧规则后再套新规则，或让重连把它伪装成已结算。
 - 玩家可以查看待决请求、等待 canonical 结果、改道或在专业域允许时撤回/替换；不能把客户端版本、旧缓存、提交回执或本地倒计时当成执行版本、成本、权限、优先级或完成保证。跨版本重提若意图替代原待决请求，必须明确关联为 linked replacement，进入原请求的同一 intent lineage 和互斥成员集合，服从 2.1 的首个有效 committed receipt 原子胜者规则，旧/新 intent 至多产生一次世界效果；未明确关联的新 intent 才能在专业域确认不互斥时独立执行，不能借旧请求或历史 receipt 获得第二次效果。
 - 已 committed 的历史结果永远按其所在 block 的 manifest 重放；恢复、审计和 replay 不得用当前 manifest 重新解释旧 receipt，也不得因激活而追溯改写成本、权限、资源或责任。若激活证明、版本工件或兼容性检查缺失/冲突，执行与恢复必须 fail closed，不产生部分世界效果，保留已确认历史并把未确认请求留在真实的待决/拒绝/重新规划路径。
@@ -66,7 +66,7 @@
 <a id="4-叶子需求与可观察验收"></a>
 ## 4. 叶子要求与可观察验收
 
-这些叶子把本专题的四类可独立失败义务映射到现有 DE 汇总标准；它们只表达产品可观察结果和证据边界，不复制 runtime/P2P 的字段、状态机或 schema。
+这些叶子将本专题的四类可独立失败义务映射到现有 DE 汇总标准，只表达产品可观察结果和证据边界，不复制 runtime/P2P 的字段、状态机或 schema。
 
 <a id="req-dwe-001"></a>
 ### REQ-DWE-001：同输入确定性提交
@@ -197,7 +197,7 @@ Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc；唯一要求声明：[
 | DWE-004 的激活证明、工件可用性、首次已提交区块选版、跨版本 linked replacement 与历史 replay 如何共同验证？ | runtime、适用 WASM/模块 owner、P2P、消费者 owner 与 QA；需要激活窗口、历史版本、失败关闭和消费者重规划判定 | 条款及同候选验证设计可定位后复核；缺证/冲突时仍按正文拒绝或无效果待决，不锁定旧版本、不静默翻译 |
 | DWE-001 的 required 局部检查与 SC-4 的 full 组合证据如何区分？ | runtime/P2P 与 QA；需要全部活动验证者及 replay 的适用范围和证据身份 | 验证设计明确范围后确认；局部检查不能代签组合条件，DWE-004/DE-4 仍按 full 验收 |
 
-问题的历史接收来源为[已关闭的文档迁移协调任务 #3935](https://github.com/eng-cc/oasis7/issues/3935)；该任务已关闭，不恢复其当前义务；任务、依赖和解决进度由 Git、PR 与实际 CI 记录维护，本表不维护第二台账。下面的“验证证据”导航描述不表示测试已接入或已执行，准确专业设计及验证回链尚须复核。
+问题的历史接收来源为[已关闭的文档迁移协调任务 #3935](https://github.com/eng-cc/oasis7/issues/3935)，不恢复其当前义务。任务、依赖和解决进度由 Git、PR 与实际 CI 记录维护，本表不维护第二台账。下面的“验证证据”导航描述不表示测试已接入或已执行，准确专业设计及验证回链尚须复核。
 
 ## 全量语义追踪
 

@@ -20,7 +20,7 @@
 | 确认 | 玩家确认一个选项；提交前 fresh revalidate factory、recipe、profile、mitigation capacity 与既有 terminal obligations | 成功只形成一次可追溯 operation intent；profile/容量/终端漂移只能 fresh requote 或无 sink 的 atomic reject，不得静默运行、降级、清理、改道或给予区域 credit |
 | 结算/恢复 | 读取 production、externality disposition 与 terminal 分层结果；遇 blocker 时执行 profile 支持的 hold、reduce、defer 或 mitigation recovery | known-contained run 至多产生一次 linked production result 与一次 externality disposition；失败保留已消费/占用/损失价值，WIP/transit/buffer/terminal-pending 按 profile 单次处置；安全运行完成后动力是交付、服务或下一配方，而非免费重复吞吐 |
 
-`production`、`externality/mitigation` 与 `delivery/terminal` 是独立事实：外部性处置不能改变材料数量/质量，production receipt 不能冒充 mitigation、cleanup 或 terminal settlement。只有 profile 明确的 boundary 才能产生相应 progression；本合同不授予 regional credit、治理资格或危机 containment 权利。
+`production`、`externality/mitigation` 与 `delivery/terminal` 是独立事实：外部性处置不能改变材料数量/质量，production receipt 不能冒充 mitigation、cleanup 或 terminal settlement。只有 profile 明确的 boundary 才能产生对应 progression；本合同不授予 regional credit、治理资格或危机 containment 权利。
 
 ## 3. 失败恢复与状态守恒
 
@@ -32,7 +32,7 @@
 
 当前证据没有 factory/recipe externality profile、mitigation ledger 或 industrial impact receipt；runtime 的 `LocationProfile.radiation_emission_per_tick` 与辐射采集计算只是 radiation-source 窄路径，不能支持工业 externality current claim。因而本合同当前只能标为 `target-contract`，不能宣称生产已受污染/缓解规则治理。
 
-目标 evidence 需要 fresh composite fixture 证明同一 root/revision 从 profile 读取、玩家选择、提交、生产、externality disposition 到 terminal/下一动作的可追溯链；M4/runtime/QA 必须提供 authority、容量、receipt、持久化与 replay 证据后，才能把某个 profile 标为 current-evidence-backed。
+目标 evidence 需要 fresh composite fixture，证明同一 root/revision 从 profile 读取、玩家选择、提交、生产、externality disposition 到 terminal/下一动作全程可追溯；M4/runtime/QA 必须提供 authority、容量、receipt、持久化与 replay 证据后，才能把某个 profile 标为 current-evidence-backed。
 
 ## 5. Exactly-once 与跨 surface parity
 
@@ -42,7 +42,16 @@
 
 ## 6. Required / full acceptance
 
-`test_tier_required` 至少覆盖：profile-less legacy unchanged；声明 `industrial_externality` 且 known-contained、mitigation capacity full、mandatory authority unknown 四态；preview 无世界效果；`run_with_existing_mitigation`、`run_reduced_or_defer`、`hold_for_treatment_or_legal_disposition` 只有 profile 支持时可选并披露吞吐、buffer、时间与下一复查代价；提交 fresh revalidation 与 drift atomic reject；production、externality disposition、terminal settlement 分层；WIP/transit/buffer/terminal-pending 单次处置，terminal-pending 的 quantity/recipient/destination/admission/capacity obligation/provenance 与 settlement 边界保持不变；重复 submit、reconnect、Agent retry、restore、reorder、replay 不复制效果；Viewer/pure API/Agent parity。
+`test_tier_required` 至少覆盖：
+
+- profile-less legacy unchanged；声明 `industrial_externality` 且 known-contained、mitigation capacity full、mandatory authority unknown 四态；
+- preview 无世界效果；
+- `run_with_existing_mitigation`、`run_reduced_or_defer`、`hold_for_treatment_or_legal_disposition` 只有 profile 支持时可选并披露吞吐、buffer、时间与下一复查代价；
+- 提交 fresh revalidation 与 drift atomic reject；
+- production、externality disposition、terminal settlement 分层；
+- WIP/transit/buffer/terminal-pending 单次处置，terminal-pending 的 quantity/recipient/destination/admission/capacity obligation/provenance 与 settlement 边界保持不变；
+- 重复 submit、reconnect、Agent retry、restore、reorder、replay 不复制效果；
+- Viewer/pure API/Agent parity。
 
 `test_tier_full` 延后至 M4/runtime 的多阶段、长时与区域影响 authority；未来可覆盖多个 operation 争用 mitigation、profile cutover、持久化恢复及 compensation，但不得把该目标测试写成当前实现通过。
 

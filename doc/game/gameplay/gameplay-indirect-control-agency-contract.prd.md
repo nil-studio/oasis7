@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-- Problem Statement: oasis7 当前正式主路线已经明确是“通过 agent 间接控制文明”，但还缺少一份正式合同来回答：玩家在不直接操纵每一步执行的前提下，什么时候仍然会觉得“这是我在控制”，而不是“我只是在旁观 AI 自己决定”。缺少这份合同会让 retention、Viewer 表达、action contract 与 playability verdict 继续各说各话。
+- Problem Statement: oasis7 当前正式主路线是“通过 agent 间接控制文明”，但仍需正式合同说明：玩家不直接操纵每一步时，何时会觉得“这是我在控制”，而非“我只是在旁观 AI 自己决定”。缺少这份合同，retention、Viewer 表达、action contract 与 playability verdict 就无法统一判断。
 - Proposed Solution: 新增 `PRD-GAME-014`，把间接控制的 control-feeling 正式拆成一组可验证的交互保证：`intent legibility before/at commit`、`execution acknowledgement with causality`、`interrupt/reprioritize/recover hooks`、`bounded consequence readability`。同时明确这些保证怎样映射到 headed Web/UI、pure API、runtime canonical 语义与 QA gate。
 - Success Criteria:
   - SC-1: `game` 根 PRD、`gameplay` 主文档与本专题对“间接控制下何谓玩家仍然在控制”采用统一口径，不再只停留在笼统的“有 goal/progress/blocker/next_step”描述。
@@ -32,7 +32,7 @@ Trace refs: O7-REQ-e3193bfb-799b-4a55-bb9d-c7fa59e90185; O7-REQ-ebb0248c-1dca-4d
 - User Personas:
   - 新玩家 / 试玩玩家：需要在不直接操控每一步的前提下，仍然感觉“我的决定真的改变了世界”。
   - 回流玩家：需要快速恢复上一次意图、当前执行状态、阻塞原因与最短下一步，而不是重新猜测 agent 在做什么。
-  - `producer_system_designer`: 需要把“间接控制是否仍然像控制”冻结成正式可裁决合同。
+  - `producer_system_designer`: 需要将“间接控制是否仍然像控制”冻结为可裁决的正式合同。
   - `viewer_engineer`: 需要知道哪些首屏与反馈语义是正式能力地板，而不是可有可无的 polish。
   - `runtime_engineer` / `agent_engineer`: 需要知道哪些 canonical 状态、ack、override、blocked reason 与 resume hook 是产品合同，而不是实现细节。
   - `qa_engineer`: 需要一个比“能点按钮、有日志”更强的 playability 验收基准。
@@ -129,7 +129,7 @@ Trace refs: O7-REQ-ebb0248c-1dca-4d58-a283-8d198fb6cf63；产品适用承接：[
 <a id="ac-5"></a>
 #### AC-5：验收条款
 
-验收：headed Web/UI 与 pure API 都必须具备同等级的 agency surface；API 可以更简洁，但不允许缺少 accepted intent、主因果、阻塞分类或 next-step 语义。
+验收：headed Web/UI 与 pure API 都必须具备同等级的 agency surface；API 可以更简洁，但不得缺少 accepted intent、主因果、阻塞分类或 next-step 语义。
 
 <a id="ac-6"></a>
 #### AC-6：验收条款
@@ -176,7 +176,7 @@ Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376；产品适用承接：[
 ### Non-Goals
   - 不把 oasis7 改成第一人称直接操作或逐块建造游戏。
   - 不在本专题中直接修复 active-LLM provider、runtime freeze 或 capability gate 本身；这些仍由对应实现任务负责。
-  - 不把“更多按钮”误当作 control-feeling 改善；本专题关注的是 agency 合同，而不是动作数量膨胀。
+  - 不把“更多按钮”误当作 control-feeling 改善；本专题关注 agency 合同，而非增加动作数量。
   - 不要求 v1 引入复杂概率预览、未来分支树模拟器或完整 plan diff 可视化。
   - 不要求 v1 做完整记忆编辑器、向量检索、外部记忆 backend 或全量遗忘权治理；本专题只要求最小可读摘要与纠正提示。
 
@@ -267,7 +267,7 @@ Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376；产品适用承接：[
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
 | --- | --- | --- | --- |
 | DEC-CFC-001 | 将 control-feeling 定义为一组 interaction guarantees，而不是一句“间接控制也要有控制感” | 继续让留存、Viewer、runtime、QA 各自用模糊语言描述 | issue #164 的问题不是缺观点，而是缺一份可裁决、可实现、可测试的正式合同。 |
-| DEC-CFC-002 | 把 accepted intent、主因果、打断重排、续玩恢复列为 agency 地板 | 只要求“世界在动”或“有 next_step 提示” | 玩家真正缺的不是更多世界变化，而是缺“这是我造成的、我现在能改什么”的稳定心智模型。 |
+| DEC-CFC-002 | 把 accepted intent、主因果、打断重排、续玩恢复列为 agency 地板 | 只要求“世界在动”或“有 next_step 提示” | 玩家缺的不是更多世界变化，而是对“这是我造成的、我现在能改什么”的稳定理解。 |
 | DEC-CFC-003 | 本专题承接 `PRD-GAME-012` 第 4 条 lane，但不替代 trust/capability gate | 直接把 issue #164 写成 retention gate verdict 本身 | control-feeling 是 formal gate 的前置合同，不是 gate 结果本身；混写会再次污染 verdict 语义。 |
 | DEC-CFC-004 | 继续坚持间接控制主路线，通过更强的 agency surface 解决“像旁观 AI”的问题 | 直接把产品方向改成更多 direct control 或 embodied 操作 | 当前主问题是间接控制表达不够完整，而不是缺一套完全不同的直接控制产品方向。 |
 | DEC-CFC-005 | 将长期记忆纳入 control-feeling 地板，要求玩家可读摘要、来源、当前用途和纠正提示 | 只做长期记忆持久化 roundtrip，或暴露完整 prompt/log 让玩家自行判断 | 记忆会改变 agent 行动；玩家需要理解和修正其影响，但不应被迫阅读隐私敏感或过长的内部 trace。 |

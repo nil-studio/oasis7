@@ -17,7 +17,7 @@
 
 ## 1. 产品承诺
 
-权威世界基础设施是 oasis7 的区块链/分布式系统与确定性世界运行时基础。它提供一个可验证的权威世界历史：合法激活的提交权威 profile 决定何时提交，网络和存储复制并提供 hash-bound 状态材料，确定性执行把已排序输入转成世界状态，恢复重建同一历史而非第二个世界。
+权威世界基础设施是 oasis7 的区块链/分布式系统与确定性世界运行时基础。它提供可验证的权威世界历史：合法激活的提交权威 profile 决定何时提交，网络和存储复制并提供 hash-bound 状态材料，确定性执行把已排序输入转成世界状态，恢复重建同一历史而非第二个世界。
 
 它是下层 provider，而不是设施、市场、区域、frontier、组织治理或玩家循环的产品入口。世界规则与玩法系统、智能体、世界模拟与交互、玩家接入与发行在此基础上组合各自产品语义；它们都不能借由本模块的技术能力直接扩张为权威写入权。
 
@@ -25,7 +25,7 @@
 
 玩家希望知道一次行动是否真的改变了目标世界，Agent 需要据此决定下一动作，节点运营者需要知道副本何时可以提供可信状态。正常路径是：消费者先确认目标世界身份与可用性，读取已验证的状态，再按适用协议提交意图；按合法 profile 验证同一有序输入的提交证明，持久提交条件成立后产生已提交结果，消费者核对其 receipt 才更新世界结论。提交被入口接受只是请求进入处理路径，不是资源、权限、生产完成或交付的保证。
 
-当当前条件不能得到证明时，使用者可以查看最后可信状态、等待、重新验证或重新规划；撤回、替代和补偿只能采用专业合同明确支持的路径。等待可能延迟行动，重新规划可能放弃原计划，但重连和重提不会免费解除已经提交的义务、返还已消费投入或取得新的优先级。实际资源成本、损失和可退出条件由相应玩法及专业合同定义，本模块不增加费用或完成时间承诺。
+当无法证明当前条件时，使用者可以查看最后可信状态、等待、重新验证或重新规划；撤回、替代和补偿只能采用专业合同明确支持的路径。等待可能延迟行动，重新规划可能放弃原计划，但重连和重提不会免费解除已经提交的义务、返还已消费投入或取得新的优先级。实际资源成本、损失和可退出条件由相应玩法及专业合同定义，本模块不增加费用或完成时间承诺。
 
 ### 阅读术语
 
@@ -92,7 +92,7 @@
 
 ### Finality 缺失时的意图连续性
 
-当已签名并送出、尚待 finality 的 intent 等待最终确认，而 finality 变为不可用、陈旧或无法验证时，玩家与 Agent 可以继续观察最后一个已验证的世界状态，并保留该 intent 作为**尚无世界效果的待决请求**；这不授予资源、控制权、资格、声誉、阶段完成或任何依赖该 intent 的后续结果。提交被接收、本地排队或界面仍显示该请求，都不能被表达为执行成功或对完成时间的承诺。
+已签名并送出的 intent 等待 finality 时，若 finality 变为不可用、陈旧或无法验证，玩家与 Agent 可以继续观察最后一个已验证的世界状态，并保留该 intent 作为**尚无世界效果的待决请求**；这不授予资源、控制权、资格、声誉、阶段完成或任何依赖该 intent 的后续结果。提交被接收、本地排队或界面仍显示该请求，都不能被表达为执行成功或对完成时间的承诺。
 
 恢复后，待决请求必须先按当时仍有效的权限与前置条件重新进入 canonical 顺序；它可能被执行、拒绝、过期或需要替换，且只有可验证的 committed receipt 才能改变玩家/Agent 的世界结论。产品体验必须让消费者区分“仍待决且未生效”与“已无效、被拒绝或须重新规划”，并提供查看恢复状态、等待下一次可验证结果或在对应专业域允许时明确撤回/替换/重提的路径。不得静默重放失效控制、重复执行同一请求，或在恢复前后把本地推测包装成权威结果。
 
@@ -108,7 +108,7 @@
 
 玩家在该状态下可以查看最后一个已验证 receipt 与明确的世界不可用/待恢复说明；这不是新行动、资产转移、控制权、Agent 授权、组织资格或已完成进度的恢复承诺。已经 committed 的历史仍以其原 receipt 为准；未 final 的 intent 继续遵守上文的待决规则，不因恢复目标不明而被静默确认、取消、重放或迁移。恢复完成后，只有同一 `world_id` 的验证链重新成立，消费者才可按 committed state 恢复结论。
 
-若原 `world_id` 无法被证明恢复，产品不得自行把玩家、资产、Agent、组织或历史复制到替代世界，也不得把替代世界称作自动升级、灾备恢复或无损迁移。是否建立新世界、是否提供受治理的迁移方案及其同意、结算和申诉规则，是需要独立跨模块决策的产品变更；在该决策及其专业合同与证据完成前，唯一安全路径是维持隔离并如实报告不可用。具体 identity 检验、checkpoint 格式、停止服务/投票机制、endpoint 行为和界面/API 字段仍由 P2P、runtime、Viewer 与测试专业域拥有。
+若无法证明原 `world_id` 已恢复，产品不得自行把玩家、资产、Agent、组织或历史复制到替代世界，也不得把替代世界称作自动升级、灾备恢复或无损迁移。是否建立新世界、是否提供受治理的迁移方案及其同意、结算和申诉规则，是需要独立跨模块决策的产品变更；在该决策及其专业合同与证据完成前，唯一安全路径是维持隔离并如实报告不可用。具体 identity 检验、checkpoint 格式、停止服务/投票机制、endpoint 行为和界面/API 字段仍由 P2P、runtime、Viewer 与测试专业域拥有。
 
 ### 恢复后的重新服务闸门
 
@@ -126,7 +126,7 @@
 
 ### 工业流水线的跨域执行边界
 
-工厂、配方、原材料和物流不是四条可以各自结算、最后再拼成“生产完成”的本地流程。它们只有在同一条可验证世界历史中形成一条因果流水线时，才可以产生玩家或 Agent 能据此行动的工业结果。本节只定义基础设施与工业消费者之间的组合边界，不定义配方比例、产能、价格、物流算法、排队或玩家体验；工业生命周期与材料适用性仍由 [`世界规则与玩法系统`](../world-rules-core-gameplay/prd.md) 及其链接的 M4 / runtime 专业合同拥有。
+工厂、配方、原材料和物流不是四条可以各自结算、最后再拼成“生产完成”的本地流程。只有在同一条可验证世界历史中形成一条因果流水线，它们才能产生玩家或 Agent 可据此行动的工业结果。本节只定义基础设施与工业消费者之间的组合边界，不定义配方比例、产能、价格、物流算法、排队或玩家体验；工业生命周期与材料适用性仍由 [`世界规则与玩法系统`](../world-rules-core-gameplay/prd.md) 及其链接的 M4 / runtime 专业合同拥有。
 
 - **单一流水线身份：** 在工业动作跨过“已接受”边界时，权威世界必须为该次操作建立一个不可变的 root identity，并将它绑定到同一 `world_id`、当前版本化执行规则和 parent committed state。工厂能力/位置、配方版本、原料来源与目标账本、物流 path/edge 以及其 revision/segment 只作为该 root 的可追溯上下文；具体字段、事件和 receipt schema 由 [`world-runtime industrial execution status and authority matrix`](../../world-runtime/prd.md#industrial-execution-status-and-authority-matrix) 定义，产品层不复制 schema。
 - **跨阶段守恒：** 工厂启动、配方输入 join、原料 handoff、运输/到达、buffer 或产物交付等 child effect 必须保留 root、所属 revision/segment 与直接 parent/child 关系。首个不可逆 input sink、运输/目的账本 credit 或产出进度前，root、版本、来源/目的地或 parent 关系缺失、冲突或无法验证时，必须原子 fail closed；预览、推荐、pending 或本地排队不得产生上述世界效果。
@@ -468,7 +468,7 @@ Trace ID: O7-REQ-f25099a9-5f30-466e-939a-48ac57cbead2
 - 系统设计状态：部分覆盖
 - 系统设计依据：[发布构建按平台可复现接收](../../world-runtime/module/online-module-release-legality-closure-2026-03-08.design.md#sr2-release-node-evidence-receiver)；仅该独立结果，未闭合专业及跨 owner 组合仍按原条款保留。
 - 实现状态：部分实现
-- 实现与验证依据：summary verifier 校验同 module 的 build hash 与 manifest hash、identity/receipt 集合和 canonical platform/build recipe；flow 可要求 cross-host-closed。 [scripts/ci-verify-m1-wasm-summaries.py L94-L159](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/ci-verify-m1-wasm-summaries.py#L94-L159)；[scripts/module-release-node-attestation-flow.sh](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/module-release-node-attestation-flow.sh)。测试定义：仅设计/脚本入口，尚未核到足以覆盖本条的独立测试定义。。[相关历史交付/跟踪 #4102](https://github.com/nil-studio/oasis7/issues/4102)；本轮仅静态审读，测试定义不等于执行通过，未取得本条全部适用验收的实际运行记录。
+- 实现与验证依据：summary verifier 校验同 module 的 build hash 与 manifest hash、identity/receipt 集合和 canonical platform/build recipe；flow 可要求 cross-host-closed。 [scripts/ci-verify-m1-wasm-summaries.py L94-L159](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/ci-verify-m1-wasm-summaries.py#L94-L159)；[scripts/module-release-node-attestation-flow.sh](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/module-release-node-attestation-flow.sh)。测试定义：仅设计/脚本入口，尚未核到足以覆盖本条的独立测试定义。[相关历史交付/跟踪 #4102](https://github.com/nil-studio/oasis7/issues/4102)；本轮仅静态审读，测试定义不等于执行通过，未取得本条全部适用验收的实际运行记录。
 - 核对日期与基线：2026-10-17；需求与实现源码 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub 固定源码审读，未运行业务、部署或真人验收；入口、原验收条件与测试层级保持本条原文。
 - 剩余范围：设计仅为已有目标与有限接收；本轮实现与验证细化：节点实际同平台重复构建、跨平台 keyed token 适用性、不可复现结果阻断生产上线与最终签名合法性组合未核清；比较现成 summary 不是完成复构建。
 

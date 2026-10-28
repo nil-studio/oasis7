@@ -200,7 +200,7 @@
 
 ## 2.5 前期工业引导成就闭环
 
-前期引导不应该围绕“造了一个建筑”，而应该围绕“建立了持续运转的经营与生产能力”。
+前期引导不应围绕“造了一个建筑”，而应围绕“建立了持续运转的经营与生产能力”。
 
 在当前世界观下，玩家作为文明的战略引导者，最早期、最可感知的一组成就应围绕工业成长展开：
 
@@ -306,7 +306,7 @@
 - `BuildFactory` 的 construction/activation 前置必须在提交前给出可比较选择：玩家比较 `build_now`、`prepare_inputs`、`move_to_site`、`restore_power_first` 与 `defer`，并看到 owner/location 共址与 chunk readiness、factory kind/recipe fit、电力与 hardware 成本、建设后余额、首个工业目标关联和下一步。成功收益是一次可追溯的工厂能力/配方入口；位置、owner、kind、重复 ID、chunk 或资源失败时原子拒绝且不扣资源、不生成设施，玩家可补料/补电、改站点或延后。preview 只读且不绕过 owner/location、免费建造或重复 replay；正向只产生一次 `FactoryBuilt`，负向/重连/重试保持原状态。详细站点/拓扑选择由 [工厂选址与拓扑合同](./gameplay-industrial-factory-site-selection-contract.prd.md) 承接，gameplay 负责玩家取舍与恢复语义，product/M4 分别负责产品承诺与路径事实；该补充不冻结建设公式、activation 状态机、runtime 字段或当前实现完成声明。
 - `BuildFactory` 报价的当前冻结范围只包括玩家可读事实与 anti-abuse：目标 owner/site/location、factory kind/id、candidate/config/world revision、稳定 quote correlation、owner/location/chunk/recipe-fit/existing-or-pending ID blocker、owner-held electricity 与全部 construction input obligations 的 kind/quantity/ledger/before/after、construction power mode、profile 选定的建设完成或激活 output boundary、首个工业目标关联及下一复查点。只展示专业合同真实支持的 `build_now` / `prepare_inputs` / `move_to_site` / `restore_power_first` / `defer`，每项说明目标/范围、追加成本与仍占用、预计结果/复查时延、风险/损失、可撤回性与推荐理由。报价不预留资源或容量，不推进 tick、账本或设施；`electricity_after` 只表示预计扣除后余额，不得被展示为 runway、maintenance safety 或未来 reservation。
 - 在成本/资源映射、power mode、output boundary 与 authority revision 回写到 [`world-runtime` status matrix](../../world-runtime/prd.md#industrial-execution-status-and-authority-matrix) 前，任何实现公式都只是未冻结输入，不能被 surface 当作当前产品保证。提交必须对同一 revision 的 fresh state 重验；漂移只能按当前状态至多一次结算并产出 receipt，或 atomic reject 且无 sink、设施或义务。重复提交、重连、retry 与 replay 不得复制扣款、`FactoryBuilt`、激活、PowerPlant 输出、稳定进度或奖励；建设 sink、recipe power、maintenance 与 Agent battery runway 必须分开表达。`test_tier_required` 需覆盖正常/任一输入不足/地点与 existing-or-pending ID blocker、无 mutation quote、漂移重验、单次 receipt、四类 power mode 的 sink/hold/revalidation/best-effort 与争用/unknown、PowerPlant 在 profile output boundary 后才输出及 Viewer/pure API parity；本补充不冻结公式、runtime schema、队列、UI 或当前实现完成声明。
-- 首次 compound extraction/mining 必须把采集收成提交前路线选择：玩家比较 `mine_now`、`reduce_batch`、`move_to_other_frag`、`wait_for_replenish` 与 `restore_power_first`，并看到 target frag、预计材料混合/compound、采集电力成本、frag/location 剩余预算或上限、第一配方关联和复查点。成功收益是按已披露成本获得可精炼 compound（以 `compound_mass_g` 表示）；超量会消耗稀缺 frag/地点预算并延迟后续目标，数量/共址/chunk/预算/单次或地点上限/电力失败必须原子无消耗，玩家可减量、换点、等待补种、补电或调运。preview 不采集、不推进 tick、不隐藏自动采矿或免费 compound；正向只产生一次 `CompoundMined` 并按实际元素扣减，负向/重连/重复/replay 保持原资源与预算。该补充不改采矿配方、产率、上限、资源守恒或当前 runtime/Viewer 实现声明。
+- 首次 compound extraction/mining 必须在采集提交前提供路线选择：玩家比较 `mine_now`、`reduce_batch`、`move_to_other_frag`、`wait_for_replenish` 与 `restore_power_first`，并看到 target frag、预计材料混合/compound、采集电力成本、frag/location 剩余预算或上限、第一配方关联和复查点。成功收益是按已披露成本获得可精炼 compound（以 `compound_mass_g` 表示）；超量会消耗稀缺 frag/地点预算并延迟后续目标，数量/共址/chunk/预算/单次或地点上限/电力失败必须原子无消耗，玩家可减量、换点、等待补种、补电或调运。preview 不采集、不推进 tick、不隐藏自动采矿或免费 compound；正向只产生一次 `CompoundMined` 并按实际元素扣减，负向/重连/重复/replay 保持原资源与预算。该补充不改采矿配方、产率、上限、资源守恒或当前 runtime/Viewer 实现声明。
 - 高负载工厂或维护 sink 影响首条稳定产线时，玩家的提交前取舍必须分成两条不能互相冒充的信号：`ScheduleRecipe` 当前的 `electricity_cost / electricity_after` 与 `runway_before_ticks / runway_after_ticks / downtime_threshold_ppm / continue_production_risk` 是排程账本可负担性与 Agent idle-battery 安全信号；它不代表工厂维护 runway。当前排程不扣 battery，所以两个 runway 值相等；`maintenance_pressure_delta = unchanged` 也不构成维护消耗、折旧变化或“可安全继续生产”的证据。因而仅当 player-facing surface 已暴露该 quote 时，玩家才能据此在 `restore_power_before_scheduling` 与 `schedule_now` 之间决定；当前尚无 Viewer/LLM 闭环证据，也不能把 `recommended_maintenance_action` 误读成已经可用的维修系统。
 - `ScheduleRecipe` 的接受不是可被换目标或断线抹掉的瞬时点击。提交前比较必须说明接受时投入/能源何时形成 sink 或 hold、预期产出与副产物去向、预计完成阶段，以及当前规则是否允许开始前取消、开始后中止、部分保留或 salvage；没有对应 runtime 能力与证据时必须明确“不可用”，不能用通用取消按钮、Agent 改道或本地清队列伪造退出。
 - `ScheduleRecipe` 之前必须完成配方生命周期决策；六态的玩家选择、机会成本、旧工作处置、successor/`W=0`、current/target cutline 与验收见 [工业配方生命周期决策合同](./gameplay-industrial-recipe-lifecycle-decision-contract.prd.md)。Product SC-24 继续拥有六态与转换 truth，本路由不把通用 `recipe-fit` blocker 或同名版本提升为可排程资格。
@@ -329,30 +329,30 @@
 - 精炼的玩家收益必须按真实净变化解释。当前 simulator 的旧 compound/hardware 字段名均使用 `Data` 账本，before 是动作前可用于 BuildFactory 的全部有效余额，after 是扣投入再加产出的净余额；不得先扣投入再伪称 before，也不能把 gross output 当作两份独立库存。现行产率上限保证产出不大于投入，因此该模型的净 Data 不会增加，`enough_to_advance` / `partial_progress` 对缩小建厂 Data 缺口不适用；三种分类词表仍保留，但本模型须以 `poor_power_tradeoff` 说明无改善或净损失并允许暂缓，推荐量也遵守该净效果。公式、默认 2500 Data 分叉反例及验证见 [M4 报价合同](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#industrial-quote-ledger-semantics)，不改产率或恢复旧 ResourceKind。
 - 精炼失败成本、恢复与验收必须可读：compound/electricity 不足、零硬件产出、owner/chunk 前置或报价状态漂移时，提交原子拒绝且不扣资源、不生成 hardware，玩家可减量、补采/调运 compound、先 `BuyPower`/`harvest_radiation`、等待后重报或回到当前目标重排；quote 只读、不推进 tick/账本、不预留资源，不得用推荐绕过 owner、资源守恒或 `RefineCompound` 的现有拒绝条件。当前合法精炼成功样例只产生一次 `CompoundRefined`，并证明净 Data 保持或减少、建厂缺口不会缩小，不能要求不可达的 `enough_to_advance` / `partial_progress` 正例；低电/低 compound/零产出拒绝时保持原资源，重连、重复提交与回放不得复制已有转换、hardware、里程碑或恢复奖励。该补充只冻结玩家选择、机会成本、失败恢复与 anti-abuse 验收，不改精炼公式/产率/电力数值、动作 ABI 或当前实现完成声明。
 - `market_quotes` 若影响排产或材料采购，必须展示 `market_quote_decision_preview`：`recommended_source`、`local_vs_world_cost_delta`、`tax_contribution`、`transit_contribution`、`remaining_shortfall`、`cost_pressure_class`、`recommendation_rationale` 与 `next_cost_reduction_action`；推荐结果可落到本地采购、外部调运、延后、治理调整或拆分来源，玩家不应只看到 `effective_cost_index_ppm`。该合同只补玩家提交前的来源取舍，不扩展订单簿、撮合交易或市场数值重平衡。
-- `market_quote_decision_preview` 必须把采购/排产前的市场信息收成明确的玩家动作：玩家比较 `submit_with_local_supply`、`reduce_requested_amount`、`use_local_materials`、`source_missing_materials` 或 `wait_and_requote`，并看到 `submission_allowed`、`total_shortfall_amount`、`market_pressure`、`conditional_notice`、每种材料的 local/world 可用量、world cover、shortfall、transit loss、governance tax、effective cost 和 `next_action`。当前 `ScheduleRecipe` 只消费 factory input ledger；世界供给只是采购/调运的来源信息，须经受支持的显式补料使材料实际入厂，再重报价和提交。`submit_with_world_supply` 不能作为当前直接排产成功路径；世界覆盖不保证取得库存、固定价格、即时到货或长期资格。
+- `market_quote_decision_preview` 必须将采购/排产前的市场信息转为明确的玩家动作：玩家比较 `submit_with_local_supply`、`reduce_requested_amount`、`use_local_materials`、`source_missing_materials` 或 `wait_and_requote`，并看到 `submission_allowed`、`total_shortfall_amount`、`market_pressure`、`conditional_notice`、每种材料的 local/world 可用量、world cover、shortfall、transit loss、governance tax、effective cost 和 `next_action`。当前 `ScheduleRecipe` 只消费 factory input ledger；世界供给只是采购/调运的来源信息，须经受支持的显式补料使材料实际入厂，再重报价和提交。`submit_with_world_supply` 不能作为当前直接排产成功路径；世界覆盖不保证取得库存、固定价格、即时到货或长期资格。
 - 市场缺口与允许状态必须来自同一消费账本和材料集合：先聚合同类重复需求，再逐种计算 `max(requested - selected_available, 0)`，最后相加；一种材料盈余不能抵销另一种短缺。对 `ScheduleRecipe` 的准入报价，`selected_available` 是该 factory input ledger 的可消费余额，不能由发起 Agent 或 world ledger 的库存替代；独立行情的 world cover 也不能清零该排产缺口。材料足够不等于其余排产前置已通过。Viewer/pure API/Agent 的分项、总缺口、`submission_allowed` 与推荐理由保持同义，不能显示负缺口或“材料不足但推荐提交”；收到报价即刷新其读面，详细实现边界见 [M4 设计](../../world-simulator/m4/industrial-resource-flow-contract.design.md#industrial-quote-calculation-design)。
 - 市场报价失败成本与恢复路径必须在提交前可读：`submission_allowed=false`、来源库存不足、世界供给不足、权限/ownership、配方前置或报价条件变化时，整次排产原子拒绝且不部分扣料、不静默切换账本、不把推荐当结果；玩家必须能减少数量、补充/改用材料、改走本地服务、等待后重新报价或回到当前目标重排。quote 是只读、确定、conditional 的当前快照，不预留库存、不推进 tick、不生成 escrow；提交时按当前库存、税费、运输、权限与前置重新校验。
 - 市场 quote anti-abuse 与验收：factory input ledger 足够且其他前置通过的正向样例显示 `submit_with_local_supply`，后续 receipt 只消费一次该账本库存；工厂不足而 world-covered 的样例只能提示来源、税费/运输条件与补料下一步，直接排产仍拒绝。通过受支持的显式补料实际入厂后，须重新报价与校验，方可提交并产生一次配方结果；local/world 均不足的负向样例显示 `reduce_or_source_materials`、shortfall 与补救动作，且不产生部分生产；报价后状态漂移必须原子拒绝并保留原库存/任务，重报价后才能重试；重连、重复提交与回放不复制材料消费、配方启动或奖励。该补充只冻结玩家选择、失败恢复与边界，不冻结价格/税费/运输公式、市场制度或当前实现完成声明。
 - `TransferMaterial` 若影响首条稳定产线或当前配方阻塞，必须展示 `logistics_transfer_quote` / `transfer_impact_preview`：预计到达量、损耗、到达 tick、优先级理由、吞吐占用、调运前后阻塞变化和推荐调运动作；玩家不应只在 `MaterialTransitCompleted` 后才发现这批材料是否赶上产线。
-- `TransferMaterial` 的 quote 必须把一次调运收成可比较、可恢复的玩家决策，而不是“发起后再看结果”：玩家先比较 `submit_transfer`、`wait_for_transit_capacity`、`reduce_amount_or_source_materials` 或改走本地/替代来源，再显式确认。quote 至少同时显示 `submission_feasible`、`max_transferable_amount`、`source_amount_before/after`、`destination_expected_amount_after`、`expected_loss_amount`、`expected_received_amount`、`ticks_until_arrival/ready_at`、`inflight_before/inflight_capacity`、`effective_priority/priority_reason` 与 `conditional`；`remaining_shortfall` 与 `recommended_transfer_action` 可由当前配方阻塞上下文派生到玩家 surface，不把它们伪装成新的 runtime quote 字段。成功收益是按损耗后的实际到达量解除当前配方缺口、保住稳定产线候选或打开下一次交付选择，不保证请求量全额抵达或立即产出。
+- `TransferMaterial` 的 quote 必须将一次调运呈现为可比较、可恢复的玩家决策，而不是“发起后再看结果”：玩家先比较 `submit_transfer`、`wait_for_transit_capacity`、`reduce_amount_or_source_materials` 或改走本地/替代来源，再显式确认。quote 至少同时显示 `submission_feasible`、`max_transferable_amount`、`source_amount_before/after`、`destination_expected_amount_after`、`expected_loss_amount`、`expected_received_amount`、`ticks_until_arrival/ready_at`、`inflight_before/inflight_capacity`、`effective_priority/priority_reason` 与 `conditional`；`remaining_shortfall` 与 `recommended_transfer_action` 可由当前配方阻塞上下文派生到玩家 surface，不把它们伪装成新的 runtime quote 字段。成功收益是按损耗后的实际到达量解除当前配方缺口、保住稳定产线候选或打开下一次交付选择，不保证请求量全额抵达或立即产出。
 - 物流理由必须保留 producer 的语义：合法 direct/no-route 不显示 Path unavailable；`route_priority`、material default、`explicit_priority` 与 keyword fallback 分别说明来源，不能一律称物料默认。`submission_feasible=false` 时 ETA 明确不可用或标注成立条件，不显示为必然到达；正常 direct、真正不可用路径、各优先级来源及旧零距离兼容分别验收，不新增 blocker projection 或物流算法。
 - 调运失败成本和恢复路径必须在提交前可读：跨区调运承担明确的损耗、等待与吞吐占用；距离超限、库存不足、无可用在途容量、权限/账本不符或报价快照失效时，动作原子拒绝且不扣减、不产生部分在途货物，surface 必须说明原因与下一步（等待容量后重新报价、减少数量、改用其他来源/路线、先修复权限或回到当前目标重排）。不能把“已接受”、排队或推荐动作伪装成货物已到达，也不能静默降额、后台重试或改道并继续计入稳定窗口。
 - quote 是只读、确定且带条件的当前快照：不预留材料、不占用吞吐、不推进 tick；提交时必须用当前权威库存、距离、容量、优先级和权限重新校验。若报价后状态发生漂移，整笔提交失败并保留原库存/在途状态，玩家必须看到旧 quote 已失效并能重新报价；同一 accepted intent 的重连、重复投递或回放不得复制第二笔调运或第二次产线推进，若当前 runtime 没有可证明的 lineage/idempotency 能力，surface 不得自动重提而应先展示既有结果或要求新的显式决策。
 - `TransferMaterial` 物流闭环验收至少覆盖：跨站正向样例能从 quote 读出损耗、到达 tick、实际收到量和配方缺口变化，并在一次完成 receipt 后只解除一次缺口；吞吐已满时显示 `wait_for_transit_capacity`、发送/接收量为零且不扣料，容量释放后重新报价；请求量超过来源库存时显示 `reduce_amount_or_source_materials` 且不部分扣减；距离超限或权限失败不产生世界效果并给出修复/改道动作；报价后库存或容量漂移时原子拒绝、保留全部原状态；重连、重复提交与回放不复制调运、损耗、到达或稳定窗口进度。该补充只冻结玩家动作、收益、失败、恢复与 anti-abuse 验收，不新增物流算法、价格/损耗/吞吐数值、runtime 字段或当前实现完成声明。
 - 数据采集、跨 Agent 数据转移或数据合约若受电力成本或访问许可约束，提交前必须说明预计电力成本、数据 owner、recipient/use、许可状态与拒绝后的授权或替代路径；玩家不应只看到 access denied，也不得为提升可读性绕过 owner consent。
-- 数据型工业前置必须把授权与替代路径收成玩家可比较的动作：在 `data_access_preview` / `data_transfer_preview` 中展示预计电力成本、owner、recipient/使用主体、purpose、scope、授权有效性、预计 sink/收益和下一步，玩家比较 `request_authorization`、`narrow_purpose_or_scope`、`use_local_owned_data`、`transfer_from_authorized_source` 与 `defer_or_abandon`。成功收益是让已授权 Data 合法支撑当前验证、配方、模块调用或工业交付；缩小用途或改用本地来源的收益是降低权限/等待风险，代价是可能减少目标覆盖，不得把预览当作已经获得访问权。
+- 数据型工业前置必须将授权与替代路径呈现为玩家可比较的动作：在 `data_access_preview` / `data_transfer_preview` 中展示预计电力成本、owner、recipient/使用主体、purpose、scope、授权有效性、预计 sink/收益和下一步，玩家比较 `request_authorization`、`narrow_purpose_or_scope`、`use_local_owned_data`、`transfer_from_authorized_source` 与 `defer_or_abandon`。成功收益是让已授权 Data 合法支撑当前验证、配方、模块调用或工业交付；缩小用途或改用本地来源的收益是降低权限/等待风险，代价是可能减少目标覆盖，不得把预览当作已经获得访问权。
 - Data-access 失败成本、恢复与验收必须沿完整生命周期可读：授权过期、撤销、scope 变化、owner/recipient 不符、数据或电力不足、结算前无法证明有效时，提交必须原子拒绝或进入明确待决，不产生 Data sink、访问收益或隐性义务；玩家可重新授权、缩小用途、改用合法来源、等待状态确认或放弃。预览只读且不授予权限、不转移/消费 Data、不让 Agent 自动继承越界授权；只有一次 receipt 支持的结算才能产生一次使用/转移结果，重连、重试、重复提交与 receipt replay 不得复制结果或复活失效授权。正向样例须能追溯 owner、recipient、purpose、scope、授权依据和实际结果；负向/恢复样例须保持资源与未结算状态、显示替代动作，并证明已结算合法 provenance 不因后续撤销被抹除。该补充只冻结工业玩家选择、失败恢复、可追溯 AC 与 anti-abuse 边界，不新增许可状态机、权限字段、数据经济/电力公式或当前 runtime/Viewer 实现完成声明。
 - `ValidateProductWithModule` / `ProductValidated` 现在通过 `task_c0177461965146a8a1f7bfb99caf9b16`（GitHub #2599）提供已签名、只读且提交前可重复请求的 `product_validation_quote`，并在 Viewer 的 quote card 展示 `product_id`、用途/战略角色、可交易性、验证前后阶段、解锁/价值等级、推荐行动、缺失前置与可达推进/恢复路径；提交后的 `validation_unlock_preview` 继续解释已验证产品的用途与下一步。quote 不提交验证、不执行任意 WASM 模块、不生成 receipt 或改变权威状态。阶段前提在 quote 中是建议；除非 runtime 的实际提交规则阻止，不能把它描述为已禁用提交。该闭环不新增科技树、成就系统、产品链或数值平衡。
 - `BuyPower` / `harvest_radiation` / 等待发电若用于恢复低电、临界电力或停机风险，必须展示 `power_survival_quote` / `energy_recovery_preview`：补电量、成本、恢复后状态、可行动 runway、下一步动作可负担性、防停机原因和推荐补电动作；玩家不应只看到缺电拒绝或补电事件。
-- `power_survival_quote` / `energy_recovery_preview` 必须把低电恢复收成有边界的路线选择：玩家比较 `buy_power`、`harvest_radiation`、`wait_for_generation` 与 `defer_or_reduce_next_action`（有合法来源时也可比较已授权转移），并看到 `power_state_before/after`、恢复量估计、price/time cost、`survival_runway_ticks`、下一动作可负担性、停机避免理由、来源/权限条件和下一复查点。成功收益是恢复到能执行当前主目标的状态并保住可解释 runway；等待或降载的收益是节省交易/位置机会成本，但可能延迟交付，不保证下一 tick 自动足够。
+- `power_survival_quote` / `energy_recovery_preview` 必须将低电恢复呈现为有边界的路线选择：玩家比较 `buy_power`、`harvest_radiation`、`wait_for_generation` 与 `defer_or_reduce_next_action`（有合法来源时也可比较已授权转移），并看到 `power_state_before/after`、恢复量估计、price/time cost、`survival_runway_ticks`、下一动作可负担性、停机避免理由、来源/权限条件和下一复查点。成功收益是恢复到能执行当前主目标的状态并保住可解释 runway；等待或降载的收益是节省交易/位置机会成本，但可能延迟交付，不保证下一 tick 自动足够。
 - 电力报价的可读历史与当前可提交性分开：普通 snapshot 不得无条件抹去刚收到的结果；相关条件变化时保留该报价的来源/输入并显式标 stale 或失效，重新提交仍重验。请求 `price=0` 若表示按当前市场价解析，应保留原价格选择与有效报价价格各自语义，不能仅因解析后的正价格不等于 0 就判为输入改变；真实价格或其它依赖漂移仍失效。该合同不改变 self-sale、价格或执行规则；报价/执行一致性须独立核对。
 - 低电恢复的失败成本、恢复与验收必须可读：买电可能因资金、卖方/权限或余额失败，采集可能因辐射不可用、过热或上限只得到较少电力，等待可能在临界状态下让下一动作不可负担并扩大停机机会成本；无论哪种失败都不得静默扣电、发电或推进 tick，玩家可减少请求、改采集/合法来源、先降载、等待一个有界复查点或重排目标。quote 必须只读、确定且不把 `electricity_after` 伪装成长期 runway/不停机保证；不得绕过 owner/location 电力边界、用无限等待或连续同参数 harvest 刷资源。正向 normal/critical 样例须显示恢复后状态与下一步并在提交后只产生一次可追溯电力事件；资金不足、辐射不可用、thermal overload、报价失效、重连/重复/replay 样例保持原状态并给出替代路径。该补充只冻结玩家取舍、失败恢复与 anti-abuse 验收，不重平衡电价、发电/消耗、阈值、容量或当前 Viewer/LLM 完成声明。
 - `SellPower` 若用于短期变现或缓解现金流，必须展示 `power_sale_quote` / `energy_liquidity_preview`：售电量、预期收入、售电后状态、剩余 runway、下一动作可负担性、产线中断风险和推荐售电动作；玩家不应只看到卖电收入而不知道是否牺牲能源稳定。
-- `power_sale_quote` / `energy_liquidity_preview` 必须把售电收成可比较的提交前决策：玩家至少比较 `sell_now`、`sell_less`、`hold_power` 与 `restore_power_before_sale`，并看到 `sale_amount`、损耗后实际交付量、预期收入、售电后电力状态、`remaining_runway_ticks`、下一动作可负担性、`production_interrupt_risk`、`recommended_sale_action` 与风险理由。成功收益是把明确承担的电力余额转成当前目标所需的现金/结算机会；少卖或持有的收益是保住下一动作和稳定产线，不保证固定价格、立即结算或长期流动性。
+- `power_sale_quote` / `energy_liquidity_preview` 必须将售电呈现为可比较的提交前决策：玩家至少比较 `sell_now`、`sell_less`、`hold_power` 与 `restore_power_before_sale`，并看到 `sale_amount`、损耗后实际交付量、预期收入、售电后电力状态、`remaining_runway_ticks`、下一动作可负担性、`production_interrupt_risk`、`recommended_sale_action` 与风险理由。成功收益是把明确承担的电力余额转成当前目标所需的现金/结算机会；少卖或持有的收益是保住下一动作和稳定产线，不保证固定价格、立即结算或长期流动性。
 - 售电推荐的 canonical `recommended_sale_action` 为 `sell_full`（按本次请求量出售 / Sell the requested amount）、`sell_partial`（减少出售量 / Reduce the sale amount）、`defer_sale`（暂缓出售 / Defer the sale）。中文、英文与 Agent 消费均识别这三个 producer token，`sell_full` 不表示卖尽全部持有电力；真正未知 token 仍保守提示重新报价。使用真实 Rust quote producer 产生三个分支的跨语言 fixture，不能只用前端自造别名证明一致；推荐仍只读，不保证成交、不自动出售。
 - 售电失败成本与恢复必须可读：售电过量可能把电力推入 critical/shutdown、打断生产并牺牲后续产出或交付机会；金额、价格、ownership、权限、范围、余额或报价漂移不满足时，提交必须原子拒绝且不扣电、不发收入，玩家可减量、持有、先 `BuyPower`/`harvest_radiation`、等待后重报或重排当前目标。quote 只读且不推进 tick、账本或结算；不得免费造能量/现金、绕过卖方 ownership/许可或位置池规则、静默部分成交/自动重试，重复提交和回放不得复制 `PowerTransferred`、收入或里程碑。正向验收须证明安全卖出只产生一次可追溯结算并显示售后 runway；临界样例须显式警告并支持减量/持有；余额不足、权限失败、报价失效与重连样例保持原状态且给出恢复动作。该补充只冻结玩家动作、收益、失败恢复与验收语义，不新增价格/损耗/税费/结算公式、流动性制度或当前实现完成声明。
 - `FragmentsReplenished` / 运行期 frag 补种若影响缺料恢复或第一工业目标，必须展示 `resource_replenishment_quote` / `fragment_refill_preview`：当前 frag/chunk 剩余量、下一次补种 tick、预计补种量、等待成本、第一工业目标关联和推荐资源行动；玩家不应只在后台补种事件后才知道该不该等、换目标或改路线。
-- `resource_replenishment_quote` / `fragment_refill_preview` 必须把等待与绕行收成同一提交前选择：玩家比较 `wait_current_chunk`、`move_to_other_frag_or_chunk`、`switch_alternative_material_route` 与 `reprioritize_goal`，并看到当前 frag/chunk 剩余摘要、补种是否启用、`next_replenish_tick` / `ticks_until_replenish`、预计补种量、`wait_cost_summary`、材料提示（非保证掉落）、第一工业目标关联、下一次复查点和 `recommended_resource_action`。等待的收益是保留当前位置与目标关系并等待可能的本地补种；移动/切线的收益是用明确的时间、电力、路线或加工代价换取更快的进度，不保证补种量或替代材料等价。
+- `resource_replenishment_quote` / `fragment_refill_preview` 必须将等待与绕行纳入同一提交前选择：玩家比较 `wait_current_chunk`、`move_to_other_frag_or_chunk`、`switch_alternative_material_route` 与 `reprioritize_goal`，并看到当前 frag/chunk 剩余摘要、补种是否启用、`next_replenish_tick` / `ticks_until_replenish`、预计补种量、`wait_cost_summary`、材料提示（非保证掉落）、第一工业目标关联、下一次复查点和 `recommended_resource_action`。等待的收益是保留当前位置与目标关系并等待可能的本地补种；移动/切线的收益是用明确的时间、电力、路线或加工代价换取更快的进度，不保证补种量或替代材料等价。
 - 补种失败成本与恢复必须可读：补种关闭、无下一 tick、chunk 已满或估计量为零时继续等待会拖延目标；移动会承担时间/电力/位置与路线风险，切换材料可能增加加工、质量或市场机会成本。预览只读、确定且不生成 frag、不改库存/账本、不推进 tick；不能把估计量当成保证、用等待绕过生成周期/守恒或后台自动采集/传送。正向验收须在启用且未到 tick 时显示等待成本与 recheck，实际 `FragmentsReplenished` 后才产生一次可追溯增量；关闭/已满/无 tick 的负向样例必须推荐移动或切线而不是无限等待；等待未触发或重连/重复提交/回放时保持原状态并可重新分类为移动、切线或重排。该补充只冻结玩家动作、机会成本、恢复与 anti-abuse 验收，不修改补种周期/比例、材料守恒、目标规则、runtime/viewer 字段或当前实现完成声明。
 
 ### 2.5.1 首个工业目标结算边界：权威合同见 [工业首产物结算合同](./gameplay-industrial-starter-completion-contract.prd.md)；代表性配方执行 walkthrough 见 [代表性工业配方执行 Walkthrough 合同](./gameplay-industrial-representative-execution-walkthrough.prd.md)，本节只保留路由摘要，不重复规则。
@@ -389,7 +389,7 @@
 
 ### 2.7.1 PRD-GAME-012 稳定 early-retention 合同
 
-产品承诺统一见 [`首局与持续游玩`](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md)。本节拥有不随短期任务日期变化的 gameplay 专业合同；当前 verdict、task trace 与复跑边界统一由对应 PR 与实际验证记录 和 `doc/testing/evidence/` 确认。
+产品承诺统一见 [`首局与持续游玩`](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md)。本节拥有不随短期任务日期变化的 gameplay 专业合同；当前 verdict、task trace 与复跑边界统一由对应 PR、实际验证记录和 `doc/testing/evidence/` 确认。
 
 #### Gate 与 verdict 隔离
 
@@ -450,7 +450,7 @@
 
 oasis7 的世界不是无尺度表格。
 
-当前正式口径必须同时成立两件事：
+当前正式口径必须同时满足两点：
 
 1. 世界物理真值有尺度，而且当前 canonical 空间坐标、距离与尺寸继续以厘米整数合同落地。
 2. 玩家当前默认玩的不是 Minecraft 式第一人称逐块编辑，而是“通过目标、动作链和组织能力间接改变一个有物理尺度的世界”。
@@ -473,10 +473,10 @@ oasis7 的世界不是无尺度表格。
 这意味着：
 
 - `1cm` 是世界真值合同，不自动等于“玩家已经拥有 1cm 级直接操作主玩法”。
-- coarse-grained 子系统不是违背尺度设计，而是需要被正式声明和审计。
+- coarse-grained 子系统不违背尺度设计，但需正式声明并接受审计。
 - Viewer 的 marker 放大、semantic map、2D 抽象不等于世界尺寸改变。
 - 过细动作只能映射到 canonical 可执行替代动作；没有安全替代时，必须安全停止、解释边界并给出下一次可决策点，不能由 UI 伪造动作或只返回无解释失败。
-- 未来如果要引入 embodied / block-editing 候选能力，必须先证明它强化的是当前间接控制文明模拟主路线，具备对应专业域合同与验证，并经显式跨域决策；不得把产品切成第二套游戏或提前写成当前承诺。
+- 未来若引入 embodied / block-editing 候选能力，必须先证明它强化的是当前间接控制文明模拟主路线，具备对应专业域合同与验证，并经显式跨域决策；不得把产品切成第二套游戏或提前写成当前承诺。
 
 产品承诺见 [`doc/product/world-rules-core-gameplay/prd.md`](../../product/world-rules-core-gameplay/prd.md)；本节保留玩法侧四层尺度合同与未来候选 guard。
 
@@ -494,14 +494,14 @@ oasis7 当前正式主路线不是 direct control，而是 indirect control。
 
 这不等于玩家应该接受“AI 自己做决定，我只看结果”。
 
-当前正式口径要求，玩家在间接控制主路线里仍然必须持续回答 4 个问题：
+按当前正式口径，玩家在间接控制主路线中仍必须持续回答 4 个问题：
 
 1. 我刚刚让系统做了什么。
 2. 系统有没有接受这件事。
 3. 为什么现在这样推进、没推进或改道。
 4. 我现在最有效的下一步是什么。
 
-如果任一问题不能在 headed Web/UI 或 pure API 的正式玩家 surface 上被直接回答，那么即便世界还在推进，也不能视为 control-feeling 合格。
+任一问题若不能在 headed Web/UI 或 pure API 的正式玩家 surface 上被直接回答，即便世界仍在推进，也不能视为 control-feeling 合格。
 
 因此当前 gameplay 正式冻结 4 条 guarantees：
 
@@ -522,11 +522,11 @@ oasis7 当前正式主路线不是 direct control，而是 indirect control。
 - 暂不把 `--no-llm` 调试 lane 重新定义为正式游玩入口。
 - 暂不把 Prompt Ops / operator-only 入口作为默认玩家主路径。
 
-early-retention 产品承诺见 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，专业玩法合同见本文件 2.7.1，当前 verdict 由同候选 PR 与实际验证记录 与 `doc/testing/evidence/` 确认。
+early-retention 产品承诺见 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，专业玩法合同见本文件 2.7.1，当前 verdict 由同候选 PR、实际验证记录和 `doc/testing/evidence/` 确认。
 
 ## 2.11 纯 API 客户端等价
 
-纯 API 客户端不应该只是“能看日志、能发 step”的调试通道，而应是正式玩家入口之一。
+纯 API 客户端不应只是“能看日志、能发 step”的调试通道，而应是正式玩家入口之一。
 
 设计原则：
 
@@ -717,7 +717,7 @@ early-retention 产品承诺见 `doc/product/world-rules-core-gameplay/first-ses
 
 ### 首次社交接触预览合同
 
-第 4~7 天的首次社交入口必须在玩家确认前提供 `first_contact_preview` / `social_contact_quote`，把“接触其他玩家”收成一个可理解、可延后的下一步，而不是默认加入组织、承担治理义务或开启宏观外交。每个候选接触必须展示：
+第 4~7 天的首次社交入口必须在玩家确认前提供 `first_contact_preview` / `social_contact_quote`，将“接触其他玩家”呈现为可理解、可延后的下一步，而不是默认加入组织、承担治理义务或开启宏观外交。每个候选接触必须展示：
 
 - `contact_purpose`：本次要解决的当前本地问题，例如出售少量产出、请求一次运输协助或交换路线/价格信息。
 - `expected_mutual_value`：玩家与对方各自立即可见的收益，不得只写“建立关系”。
@@ -835,8 +835,8 @@ Trace ID: O7-REQ-3f259d96-508e-462d-a8c9-e1851e85e1ed
 - 玩法与目标基线：`doc/game/gameplay/gameplay-top-level-design.prd.md`；工程实现边界见 `doc/world-runtime/prd.md`。
 - Gameplay 生产落地证据：
   - 玩家侧治理、战争、危机与元进度合同由本文对应章节、`doc/game/gameplay/gameplay-war-politics-mvp-baseline.design.md` 和当前测试矩阵承接；战争仍不是当前玩家-facing 主线。
-  - 生命周期协议、tick 推进、模块 bootstrap/readiness 与 replay/恢复边界由 `doc/world-runtime/prd.md#gameplay-生命周期协议边界` 承接；历史 layer closure 实现过程从 Git history 与 PR 与实际验证记录 追溯。
-  - 模块驱动生产切片的完成状态由本专题 T3、下方测试矩阵、当前代码与回归测试共同承接；原增量 closure 三件套已退役，历史实现过程从 Git history 与 PR 与实际验证记录 追溯。
+  - 生命周期协议、tick 推进、模块 bootstrap/readiness 与 replay/恢复边界由 `doc/world-runtime/prd.md#gameplay-生命周期协议边界` 承接；历史 layer closure 实现过程从 Git history、PR 和实际验证记录追溯。
+  - 模块驱动生产切片的完成状态由本专题 T3、下方测试矩阵、当前代码与回归测试共同承接；原增量 closure 三件套已退役，历史实现过程从 Git history、PR 和实际验证记录追溯。
 - 测试入口与执行规范：`testing-manual.md`（S1/S2/S3/S6/S7）。
 
 ---

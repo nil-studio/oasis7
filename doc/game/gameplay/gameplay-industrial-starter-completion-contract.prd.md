@@ -9,11 +9,11 @@
 
 首个制成品必须在排程预览或确认前绑定唯一的玩家语义 `starter_completion_profile`。预览至少说明 evidence grade、完成边界、`next_action`、`next_recheck` 与 `progression_effect`。`RecipeScheduled`、accepted 或库存变化都不是生产完成证据。
 
-本合同支持两个显式 profile：`production_only` 把匹配的生产 receipt 作为首产物完成；`terminal-admission` 要求匹配的 delivery/terminal settlement receipt。未声明或无法由 authority 证明 profile 时，必须 fail closed。
+本合同支持两个显式 profile：`production_only` 以匹配的生产 receipt 判定首产物完成；`terminal-admission` 要求匹配的 delivery/terminal settlement receipt。未声明或无法由 authority 证明 profile 时，必须 fail closed。
 
 ## 2. 玩家闭环
 
-玩家先选择目标 profile，查看配方、原材料、能源、物流/终端前置和当前 blocker，再确认排程。成功收益是获得可追溯的生产结果或终端资格，并看到下一步工业用途、交易预览或交付选择；失败成本必须是可读的等待、容量、权限、材料、能源、路线或机会成本，而不是静默扣除。
+玩家先选择目标 profile，查看配方、原材料、能源、物流/终端前置和当前 blocker，再确认排程。成功后，玩家获得可追溯的生产结果或终端资格，并看到下一步工业用途、交易预览或交付选择；失败成本必须是可读的等待、容量、权限、材料、能源、路线或机会成本，而不是静默扣除。
 
 玩家下一步只能来自权威阶段：等待匹配 receipt、补料/补电、修复前置、取得容量、交付、持有、改道、重报价或延期。系统不得把推荐、排队、accepted 或 terminal pending 伪装成完成，不得自动销毁、改道、退款或发放未结算收益。
 
@@ -29,9 +29,9 @@
 
 ## 4. Current/target evidence cutline
 
-当前复用基线已不是旧 simulator 的排程扣减链。`crates/oasis7_world_state/src/state/starter_industrial.rs` 定义 canonical profile、revision、completion boundary 和纯读 feasibility；`industry_transition/recipe_lifecycle.rs` 在匹配 Smelter/recipe、owner-bound output ledger、合法正批次与正量 `iron_ingot` 生产结算时写入持久 `StarterIndustrialMilestoneV1`。feasibility 消费该持久事实，只开放 Assembler 候选，避免短期 receipt 列表裁剪成为另一套进度权威。`viewer/runtime_live/gameplay_snapshot.rs` 投影同一 feasibility，`viewer/gameplay_actions.rs` 提供正式 starter 入口。这些是代码复用事实，不是同候选全入口通过结论。
+当前复用基线已不是旧 simulator 的排程扣减链。`crates/oasis7_world_state/src/state/starter_industrial.rs` 定义 canonical profile、revision、completion boundary 和纯读 feasibility；`industry_transition/recipe_lifecycle.rs` 在匹配 Smelter/recipe、owner-bound output ledger、合法正批次与正量 `iron_ingot` 生产结算时写入持久 `StarterIndustrialMilestoneV1`。feasibility 消费该持久事实，只开放 Assembler 候选，避免短期 receipt 列表裁剪成为另一套进度权威。`viewer/runtime_live/gameplay_snapshot.rs` 投影同一 feasibility，`viewer/gameplay_actions.rs` 提供正式 starter 入口。这些代码复用事实不等于同候选全入口通过。
 
-当前选定路线为 `starter-industrial-smelter-to-assembler-v1` / `production_only`。正式推荐与可用性仍由同候选 fresh composite runtime + QA 证据判定：真实入口完成合法建厂、输入/电力、周期与 owner-bound 铁锭结算；核验 Viewer、pure API、Agent 的 profile revision/parity，以及重复提交、回复丢失、重连、receipt 裁剪、恢复和 replay。缺当前 authority 时返回 `no_safe_starter_chain` 并保留 blocker/复查路径。稳定窗口与 terminal delivery 独立验收；文档旧切线修正不意味着全链通过，也不能将已有 runtime milestone 一概降回仅 accepted 的旧结论。
+当前选定路线为 `starter-industrial-smelter-to-assembler-v1` / `production_only`。正式推荐与可用性仍由同候选 fresh composite runtime + QA 证据判定：真实入口完成合法建厂、输入/电力、周期与 owner-bound 铁锭结算；核验 Viewer、pure API、Agent 的 profile revision/parity，以及重复提交、回复丢失、重连、receipt 裁剪、恢复和 replay。缺当前 authority 时返回 `no_safe_starter_chain` 并保留 blocker/复查路径。稳定窗口与 terminal delivery 独立验收；修正文档旧切线不意味着全链通过，也不能将已有 runtime milestone 一概降回仅 accepted 的旧结论。
 
 ## 5. Exactly-once、replay 与跨 surface 验收
 
@@ -45,4 +45,4 @@
 
 ## 6. 非目标与 residual risk
 
-本合同不新增 runtime/API/schema 字段，不规定物流或终端算法，不拍价格、税费、运输、产消或奖励数值，不设计 UI 布局，也不宣称当前 Viewer、pure API、Agent、runtime 或 QA 已完成。`production_only` 降低首局冷启动歧义，但会把物流/终端动机推迟到下一 beat；后续实现仍需验证 receipt authority、恢复动作和三端 parity。
+本合同不新增 runtime/API/schema 字段，不规定物流或终端算法，不设定价格、税费、运输、产消或奖励数值，不设计 UI 布局，也不宣称当前 Viewer、pure API、Agent、runtime 或 QA 已完成。`production_only` 降低首局冷启动歧义，但会把物流/终端动机推迟到下一 beat；后续实现仍需验证 receipt authority、恢复动作和三端 parity。

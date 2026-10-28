@@ -7,7 +7,7 @@
 
 ## 1. 玩家问题与成功收益
 
-来源结算或物流抵达只证明批次存在，不证明其仍适用于当前 recipe。Required input 缺失、数量不足、质量/保管不适用或权威未决时，玩家需要知道是在等标准料、同料换源、接受 profile 合法异料、换配方、减量/延期，还是 pivot，而不是看到一个泛化的“材料不足”。
+来源结算或物流抵达只证明批次存在，不证明其仍适用于当前 recipe。Required input 缺失、数量不足、质量/保管不适用或权威未决时，玩家需要区分可选路径：等待标准料、同料换源、接受 profile 合法异料、换配方、减量/延期或 pivot，而不能只看到“材料不足”。
 
 成功收益只有两类：保留当前 recipe 并解除合法 input blocker，或以已披露的额外投入、损耗和因果变化建立一个可执行的新 candidate。Preview、替代 decision、batch 到达或 join-ready 都不是生产、交付、terminal settlement、稳定 `W` 或奖励；这些仍须各自的权威 receipt。
 
@@ -30,7 +30,7 @@ Preview 不锁来源或容量，不创建 hold/join/conversion，不扣输入，
 | `reduce_or_defer` | 减少当前承诺或保留未来选择 | 吞吐、交付、hold 与目标延迟；减量仍服从 canonical cycle/quantization，不静默裁剪 input |
 | `pivot` | 将可保留投入转向另一个合法用途 | 原目标进度、专用投入、重新配置与新用途资格的实际保留/损失 |
 
-不支持的混批、降级用途、免费换料、自动 replacement 或自动换配方不展示。推荐只能解释哪项真实选择更能保护当前目标、已投入价值或恢复弹性；没有安全选择时返回 `no_legal_substitute` 与下一决策/复查条件。
+不展示不受支持的混批、降级用途、免费换料、自动 replacement 或自动换配方。推荐只能说明哪项真实选择更能保护当前目标、已投入价值或恢复弹性；没有安全选择时返回 `no_legal_substitute` 与下一决策/复查条件。
 
 ## 4. Decision、conversion 与因果隔离
 
@@ -38,7 +38,7 @@ Preview 不锁来源或容量，不创建 hold/join/conversion，不扣输入，
 
 Decision 本身只记录一次选择，不产生 sink、credit、conversion、`W` 或奖励。只有专业 authority 实际结算 conversion 时，才产生一个与 decision/root 关联的 exactly-once settlement/provenance receipt；重复 decision、拆分提交或切换候选不能制造材料、舍入余量、refund、顺位或奖励。
 
-只有 profile 明示且材料身份变化后，产出因果、质量、power、时间、byproduct、terminal 与 value class 全部不变，才可保留 pinned recipe 并建立一个 child decision。任一因果项变化，或玩家换配方时，必须建立 parent-linked 新 candidate、从 `W=0` 开始；旧 receipt、reservation、queue priority、actual、delivery、progression 与 reward 不迁移。
+只有 profile 明示且材料身份变化后，产出因果、质量、power、时间、byproduct、terminal 与 value class 全部不变，才可保留 pinned recipe 并建立一个 child decision。任一因果项变化或玩家换配方时，必须建立 parent-linked 新 candidate、从 `W=0` 开始；旧 receipt、reservation、queue priority、actual、delivery、progression 与 reward 不迁移。
 
 ## 5. Sink 前后与失败恢复
 

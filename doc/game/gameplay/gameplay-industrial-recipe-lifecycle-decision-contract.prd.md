@@ -7,7 +7,7 @@
 
 ## 1. Current/target evidence cutline
 
-当前窄证据只有静态 recipe plan 与 `ScheduleRecipe` 接受/`RecipeScheduled` 路径，不能证明 `pending_validation / validated_pending_admission / active / restricted / retiring / retired` 六态 player surface、准入、受控退役、successor conversion 或 Viewer/Agent parity 已实现。本文全部六态玩法为 `target-contract`；只有 fresh runtime + Product/M4 + gameplay + Viewer/pure API/Agent + QA composite evidence 才能升级为 current claim。
+当前窄证据仅覆盖静态 recipe plan 与 `ScheduleRecipe` 接受/`RecipeScheduled` 路径，不能证明 `pending_validation / validated_pending_admission / active / restricted / retiring / retired` 六态 player surface、准入、受控退役、successor conversion 或 Viewer/Agent parity 已实现。本文全部六态玩法为 `target-contract`；只有 fresh runtime + Product/M4 + gameplay + Viewer/pure API/Agent + QA composite evidence 才能升级为 current claim。
 
 `not_licensed / incompatible / expired / unknown` 只能作为 authority/blocker reason，不是新的生命周期状态。客户端、Viewer、Agent 推荐、同名配方、下载/模拟结果或旧 receipt 都不能推断状态、激活版本、扩大作用域或复活 retired recipe。
 
@@ -30,7 +30,7 @@ Preview 不验证、准入、激活、退役、锁定容量、创建 hold、排�
 | `retiring` | 对既有工作选择 profile 支持的 drain/finish、hold、quarantine、return、rework、salvage、reroute、terminate，或显式确认 successor | 不接受新排程；保全或处置旧价值会承担时间、容量、损耗与交付成本。退出本身不发奖励，successor 必须 fresh validation、parent-linked 且 `W=0` |
 | `retired` | 查看历史/最终处置/successor lineage，选择当前有效新版本或其他工业目标 | 终态且不可排程、激活或复活；新版本/候选从自己的 authority 与 `W=0` 开始，历史读取无世界效果 |
 
-每个非 active 状态只展示 profile 真实支持的动作，并说明下一决策点。只有一个安全动作时说明其他路径不可用；补证、等待、继续、授权、处置或 successor 均无安全路径时返回 `no_safe_recipe_lifecycle_fallback`，不得自动换配方、免费转换、静默降级或伪造退款。
+每个非 active 状态只展示 profile 真实支持的动作，并说明下一决策点。只有一个安全动作时，说明其他路径不可用；补证、等待、继续、授权、处置或 successor 均无安全路径时返回 `no_safe_recipe_lifecycle_fallback`，不得自动换配方、免费转换、静默降级或伪造退款。
 
 ## 4. 既有工作的处置边界
 

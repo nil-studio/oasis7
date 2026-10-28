@@ -8,7 +8,7 @@
 
 ## 1. 决策目标与边界
 
-建厂不是一次“地点可建/不可建”的付款检查。玩家在确认 `BuildFactory` 前，必须能理解所选站点如何改变原料输入、产物输出、能源、容量、终端机会和未来扩张；站点选择必须成为“选择 → 建设 receipt → 下一工业目标”的可追踪小循环。站点候选是当前工业目标与同一 authority snapshot 派生的只读产品结果，不是新的世界实体。
+建厂不只是“地点可建/不可建”的付款检查。玩家在确认 `BuildFactory` 前，必须能理解所选站点如何改变原料输入、产物输出、能源、容量、终端机会和未来扩张；站点选择必须成为“选择 → 建设 receipt → 下一工业目标”的可追踪小循环。站点候选是当前工业目标与同一 authority snapshot 派生的只读产品结果，不是新的世界实体。
 
 若 recipe 尚未固定，recipe-specific path、capacity、loss、buffer/terminal fit 与 production power 只能作为 advisory estimate；它们不得伪装成普遍建厂前置。recipe 固定后，只有 profile 明示为 construction prerequisite 的 topology 才能阻断提交。任何 site/path authority 缺失均显示 `site_unknown` 或 `unknown/degraded`，不得按最近地点、零损耗、无限容量或 Agent 推荐补齐。
 
@@ -24,7 +24,7 @@
 | `use_another_legal_site` | 用站点比较换取更近原料、更近终端、更好容量或更高扩张弹性 | 迁移/移动机会成本只在尚未建厂时可比较；已接受工作不得因此自动迁移 |
 | `defer` | 保留当前资源，等待更好的 authority、容量、路线或目标证据 | 延迟能力与交付机会；不能无限等待，必须有 `next_recheck` 或转入 `no_safe_site_fallback` |
 
-每个候选至少展示：站点/地点/chunk 与 owner/作用域前置；输入来源到工厂的有效 path/edge；产物到目的账本或 terminal 的有效 path/edge；capacity、预计 loss、power、输入/输出 buffer、terminal fit；建设成本、仍占用价值、首个工业目标关联、未来扩张/换线机会成本、primary blocker、`next_action`、`next_recheck` 与 recommendation reason。`build_at_site` 只有在 profile 与所需事实均可证明时可选择；其他候选只能显示为解释性 blocker 或 advisory，不得偷偷降级成可建。
+每个候选至少展示：站点/地点/chunk 与 owner/作用域前置；输入来源到工厂的有效 path/edge；产物到目的账本或 terminal 的有效 path/edge；capacity、预计 loss、power、输入/输出 buffer、terminal fit；建设成本、仍占用价值、首个工业目标关联、未来扩张/换线机会成本、primary blocker、`next_action`、`next_recheck` 与 recommendation reason。`build_at_site` 只有在 profile 与所需事实均可证明时可选择；其他候选只能显示为解释性 blocker 或 advisory，不得静默降级为可建。
 
 ## 3. 选择到结算的闭环
 
@@ -44,7 +44,7 @@
 
 当前 bounded runtime evidence 仅证明 `BuildFactory` 携带 owner、`location_id`、factory id/kind，并校验 location 存在、owner 共址/chunk 与通用建设资源；它不证明玩家可比较的 site topology、输入/输出路径、capacity/loss、terminal fit 或扩张价值。当前 `BuildFactory` 结果不得被表述为完整站点决策闭环。
 
-目标 evidence 必须由同一 fresh site/goal snapshot 与 runtime + Viewer/QA 组合证据证明：至少两个合法站点的相反取舍可读，提交会绑定所选站点与当前 topology context，owner/site/chunk 或 profile 明示的 construction/topology prerequisite 漂移会重报/原子拒绝，而 recipe 未固定时的 advisory topology 漂移不会阻断建厂并会在 recipe discovery/排程重新读取，建设后下一工业动作与 site choice 有可追溯因果。取得该证据前，`site_unknown`/`unknown/degraded` 与 `no_safe_site_fallback` 优先于“推荐建厂”或当前 readiness claim；本合同不把目标规则当成 current implementation。
+目标 evidence 必须以同一 fresh site/goal snapshot 与 runtime + Viewer/QA 组合证据证明：至少两个合法站点的相反取舍可读，提交会绑定所选站点与当前 topology context，owner/site/chunk 或 profile 明示的 construction/topology prerequisite 漂移会重报/原子拒绝，而 recipe 未固定时的 advisory topology 漂移不会阻断建厂并会在 recipe discovery/排程重新读取，建设后下一工业动作与 site choice 有可追溯因果。取得该证据前，`site_unknown`/`unknown/degraded` 与 `no_safe_site_fallback` 优先于“推荐建厂”或当前 readiness claim；本合同不把目标规则当成 current implementation。
 
 ## 6. Exactly-once、replay 与跨 surface parity
 
@@ -54,7 +54,17 @@
 
 ## 7. Required acceptance
 
-`test_tier_required` 至少覆盖：同一工业目标下两个合法站点（原料近但输出拥挤；终端近但输入损耗较高）的候选比较；site/path/capacity/power/buffer/terminal authority 缺失时的 `site_unknown`/`unknown/degraded`；报价后 owner、地点、chunk 或 profile 明示的 construction/topology prerequisite 漂移会 fresh requote/atomic reject；recipe 未固定时 advisory path/capacity/power/buffer/terminal 漂移不阻断建厂，并在 recipe discovery/排程重新读取；建厂成功只产生一次 receipt 并打开真实下一步；无合法站点时 `no_safe_site_fallback`；已接受/WIP/in-transit/buffer/terminal-pending 工作不静默迁移，terminal-pending 保留 recipient/destination/admission/capacity obligation/provenance 并只接受一次合法处置；重复提交、重连、Agent retry、snapshot restore 与 replay 不复制效果；Viewer/pure API/Agent 对候选、取舍、blocker、旧工作 identity/处置、下一步与复查点保持一致。
+`test_tier_required` 至少覆盖：
+
+- 同一工业目标下两个合法站点（原料近但输出拥挤；终端近但输入损耗较高）的候选比较；
+- site/path/capacity/power/buffer/terminal authority 缺失时的 `site_unknown`/`unknown/degraded`；
+- 报价后 owner、地点、chunk 或 profile 明示的 construction/topology prerequisite 漂移会 fresh requote/atomic reject；
+- recipe 未固定时 advisory path/capacity/power/buffer/terminal 漂移不阻断建厂，并在 recipe discovery/排程重新读取；
+- 建厂成功只产生一次 receipt 并打开真实下一步；
+- 无合法站点时 `no_safe_site_fallback`；
+- 已接受/WIP/in-transit/buffer/terminal-pending 工作不静默迁移，terminal-pending 保留 recipient/destination/admission/capacity obligation/provenance 并只接受一次合法处置；
+- 重复提交、重连、Agent retry、snapshot restore 与 replay 不复制效果；
+- Viewer/pure API/Agent 对候选、取舍、blocker、旧工作 identity/处置、下一步与复查点保持一致。
 
 `test_tier_full` 另覆盖三站点以上的共享边/终端容量争用、recipe 固定前后的 advisory/prerequisite 分界、拓扑变化期间的 WIP/in-transit/buffer/terminal-pending 处置、支持的 relocation/cutover profile 与 parent linkage；本合同要求结果可解释，但不把这些目标测试视为当前实现通过。
 

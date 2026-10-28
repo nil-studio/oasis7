@@ -4,13 +4,13 @@
 - 上层产品映射：工业提案、模拟、试点与准入消费 [`REQ-WR-GR-009`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-009) / [`AC-WR-GR-009`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-009)；创作者许可与开放消费 [`REQ-WR-GR-010`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010) / [`AC-WR-GR-010`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-010)；OC 转让与世界资格隔离消费 [`REQ-WR-GR-011`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-011) / [`AC-WR-GR-011`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-011)。需求、报价与生产/交付结算消费 [`REQ-SC31-009`](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#req-sc31-009) 及 [`AC-SC31-010`](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#ac-sc31-010) / [`AC-SC31-011`](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#ac-sc31-011)；常态市场与危机边界消费 [`REQ-WR-ES-004`](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md#req-wr-es-004) / [`AC-WR-ES-004`](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md#ac-wr-es-004)。
 - 主题 authority：本文件拥有工业能力创建、跨区市场交易与结算的玩家动作、机会成本、失败恢复、progression 和可玩性验收，以及 §6.4 紧急保供首版政策的数值与分配规则；产品层拥有世界承诺与保护边界，`world-runtime` / `world-simulator` / `p2p` / QA 各自拥有执行事实、确定性、资产状态和验证证据。
 - 设计适用性：`simple-topic-exemption`（`PRD-only-sufficient`）。本文只承载 Why / What / Done、玩家循环、风险与验收，不新增 API、schema、状态机、结算算法或 UI 布局；配对例外在 [`doc/game/prd.index.md`](../prd.index.md) 登记。
-- 当前执行：可变 task 状态与当前实现证据由 Git、PR、实际 CI 和评审记录 拥有；本文件不宣称当前已实现、已平衡、已可交易、已发布或已满足 release readiness。
+- 当前执行：可变 task 状态与当前实现证据由 Git、PR、实际 CI 和评审记录承载；本文件不宣称当前已实现、已平衡、已可交易、已发布或已满足 release readiness。
 
 - 配套专业系统设计：[跨区物流与 escrow 结算](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)承接 AC-GAME-018-04..06 的物流、结算与读面；[紧急保供授权、冻结分配与结算](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-001)承接 §6.4 的执行合同。工业创建和许可准入不在这两份设计范围，产品设计豁免保持原意。
 
 ## 1. 目标与范围
 
-工业创建和跨区交易都应给玩家留下可归因的选择，而不是一个“提交后世界自动变好”的黑箱。玩家要能理解一项新工业能力如何从提案走到受限试点和治理准入，也要能理解一批货物如何从可见报价走到真实路线、目的地接收和分阶段结算。
+工业创建和跨区交易都应给玩家留下可归因的选择，而不是一个“提交后世界自动变好”的黑箱。玩家要能理解新工业能力如何从提案进入受限试点和治理准入，以及货物如何从可见报价经过真实路线、目的地接收和分阶段结算。
 
 本合同覆盖四个相连但不可混淆的玩家问题：
 
@@ -50,7 +50,7 @@ OC 与世界资格分离现在有明确的 active 产品接收边界：工业/�
 | 原型/受限试点 | 在明确 scope、期限、资源上限和退出条件下验证“能否运行”和风险 | 不取得永久许可、全球市场资格、世界规则写入或外部价值 | 降低范围、暂停、回收未消费投入、记录失败证据并重提 |
 | 治理准入 | 证据、审查结果、允许用途/区域/期限、复核点和撤销条件 | 不取得范围外权力、永久垄断或绕过公共安全/既有权利 | 补证、申诉、重提、等待复核或回退到既有能力 |
 
-玩家至少能比较 `continue_proposal`、`refine_scope`、`run_deterministic_simulation`、`start_limited_pilot`、`request_admission`、`defer` 与 `abandon` 的时间、资源、锁定、风险和保留价值。准入或试点成功只让声明范围内的下一动作可用；任何表面、Agent 或离线文本不得把其中一个阶段跳写成最后阶段。
+玩家至少能比较 `continue_proposal`、`refine_scope`、`run_deterministic_simulation`、`start_limited_pilot`、`request_admission`、`defer` 与 `abandon` 的时间、资源、锁定、风险和保留价值。准入或试点成功只让声明范围内的下一动作可用；任何 surface、Agent 或离线文本不得将其中某一阶段直接表述为最后阶段。
 
 ### 3.2 失败恢复和滥用边界
 
@@ -127,7 +127,7 @@ Trace refs: O7-REQ-918d9050-5f73-40ad-b9d4-aba87233bdd1, O7-REQ-18fe18ca-4920-4f
 | 单次授权 | 生效区间为开始含、到期不含，最长 `600` ticks；无自动续期。开始 tick 必须对齐收集窗口。 |
 | 提前恢复阈值 | 连续 `3` 个观测窗口的常态供给未覆盖比例均低于 `10%` 时，关闭新分配；用低于进入阈值的退出线避免来回震荡。证据停止更新超过 `60` ticks 时也停止新分配。 |
 
-每个观测点的需求是合格最低义务之和，必须分别记录两种覆盖。`normal_coverage` 仅含受益方合法可用的常态库存与非保供已确认承诺，并扣除制造等其他义务占用；危机进入与恢复退出只用它计算常态缺口。`effective_coverage` 再计入已履行和所有保供活跃承诺，仅用于计算本次还可分配多少，不能把本计划刚发出的救助当成市场恢复。保供来源库存/承诺保持 provenance，到期或转库不能洗成常态供给。
+每个观测点的需求是合格最低义务之和，必须分别记录两种覆盖。`normal_coverage` 仅含受益方合法可用的常态库存与非保供已确认承诺，并扣除制造等其他义务占用；危机进入与恢复退出只用它计算常态缺口。`effective_coverage` 再计入已履行和所有保供活跃承诺，仅用于计算本次还可分配多少，不能把本计划刚发出的救助视为市场恢复。保供来源库存/承诺保持 provenance，到期或转库不能洗成常态供给。
 
 计入任一种覆盖的在途量均须有真实货物、容量、目的地接收依据并能在对应消耗区间前到达。一个资源批次或承诺只能覆盖一个数量区间；未来产能、待售广告、客户端估算、重复物流记录及无法证明可达的在途货物不算供给。证据须保留相应 world/state root、义务/主体/地点集合和资源事实；只提交汇总百分比不合格。
 
@@ -141,7 +141,7 @@ Trace refs: O7-REQ-918d9050-5f73-40ad-b9d4-aba87233bdd1, O7-REQ-18fe18ca-4920-4f
 
 收集窗口为 `[60k, 60(k+1))`，到边界即关闭。每个主体可以补全自己的申请，但最后一次内容必须在关闭前取得权威登记；替换会保留原请求 lineage，不能同时生效两份。迟到、网络重试或重连不加入已关闭批次，玩家需显式选择下一窗口。资格、需求、地点范围、实际资源池、政策、报价与资金同时冻结；冻结后不得加入新请求、换政策或改供给池。
 
-在同一资源种类、交付地点、消耗区间和优先级内，对可核验剩余需求按量同比例分配：先取每主体精确份额的整数下界，再按小数余数从大到小分配剩余的最小资源单位；余数相同时按危机前已登记的控制主体身份字节序决胜。多条最低义务先聚合主体额度，再按义务身份字节序拆分，不能通过拆申请扩大份额。这是公开的确定性规则，不使用 lottery、随机 seed、请求到达顺序或管理员顺序。供给足够才进入下一优先级；余量不足以完成全部需求时返回真实部分分配。
+在同一资源种类、交付地点、消耗区间和优先级内，对可核验剩余需求按量同比例分配：先取每主体精确份额的整数下界，再按小数余数从大到小分配剩余的最小资源单位；余数相同时按危机前已登记的控制主体身份字节序决胜。多条最低义务先聚合主体额度，再按义务身份字节序拆分，不能通过拆申请扩大份额。此规则公开且确定，不使用 lottery、随机 seed、请求到达顺序或管理员顺序。供给足够才进入下一优先级；余量不足以完成全部需求时返回真实部分分配。
 
 资源池以已存在且供应方自愿绑定到该地点的可交付供给为限。相互冲突的库存、路线、目的地容量和资金必须在冻结前形成可同时兑现的供给计划；无法证明该条件时整批阻断，不由评估器猜测运输能力。跨地点共用的资源先按相同“消耗区间、优先级、比例、稳定身份余数”规则确定各地点可用量，再做地点内分配；不得让某地点因提交更快占走其他地点的份额。常态已承诺资源优先履行其原合同，不得被保供追回。
 

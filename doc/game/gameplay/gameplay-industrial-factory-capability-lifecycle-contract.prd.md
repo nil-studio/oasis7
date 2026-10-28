@@ -7,7 +7,7 @@
 
 ## 1. Candidate、profile 与状态边界
 
-只有当前工厂 capability candidate/profile 明确支持某个动作、作用域、成本/停机说明、受影响的 recipe/目标和旧工作 disposition 时，surface 才能展示该动作。每次预览绑定 factory/capability、recipe-fit、owner、scope、authority/config revision 与 next recheck；profile 缺失、过期、冲突或未追踪时显示 `unknown/not_tracked`，涉及不可逆 sink 的候选必须停止在预览、重新报价或原子拒绝。
+只有当前工厂 capability candidate/profile 明确支持某个动作及其作用域，并说明成本/停机、受影响的 recipe/目标和旧工作 disposition 时，surface 才能展示该动作。每次预览绑定 factory/capability、recipe-fit、owner、scope、authority/config revision 与 next recheck；profile 缺失、过期、冲突或未追踪时显示 `unknown/not_tracked`，涉及不可逆 sink 的候选必须停止在预览、重新报价或原子拒绝。
 
 玩家可读状态可表达 `operational`、`reconfiguration_pending`、`reconfiguring`、`degraded`、`retiring`、`retired`；这些是产品/玩法表达，不冻结 runtime enum。`degraded` 只有 profile 明确允许并标记风险时才可接受新工作；`retiring` 与 `retired` 不接受新排程，保留历史，不因退出本身发放稳定进度或里程碑。
 
@@ -56,9 +56,21 @@ Cutover 前后的 factory、candidate、recipe、work、reservation、receipt、
 
 ## 7. Current/target evidence cutline 与验收
 
-当前证据仅支持既有 Build/Maintain/Recycle/Pause/Schedule 窄路径；没有与 SC-25 完整对应的 upgrade/reconfigure capability action、组合 lifecycle surface 或 composite receipt。因此本合同是 `target-contract`，不能宣称当前 capability lifecycle 已实现。
+当前证据仅支持既有 Build/Maintain/Recycle/Pause/Schedule 窄路径；没有完整对应 SC-25 的 upgrade/reconfigure capability action、组合 lifecycle surface 或 composite receipt。因此本合同是 `target-contract`，不能宣称当前 capability lifecycle 已实现。
 
-`test_tier_required` 至少覆盖：两种 profile-supported capability 选择；六类动作的只读 preview 与 unsupported 隐藏；成本/停机/容量/物流/终端/旧工作影响；fresh revalidation 与 drift requote/atomic reject；causal 与 non-causal 变更；单一 parent-linked cutover 与 successor `W=0`；`retiring/retired` 禁止新排程；五类旧工作各一次 disposition，其中 terminal-pending 保留 recipient/destination/admission/capacity obligation/provenance 且不提前结算或静默改绑；successor 不自动迁移；重复 submit/reconnect/retry/restore/replay 无重复效果；Viewer/pure API/Agent 对五类 bucket 保持 parity。
+`test_tier_required` 至少覆盖：
+
+- 两种 profile-supported capability 选择；
+- 六类动作的只读 preview 与 unsupported 隐藏；
+- 成本/停机/容量/物流/终端/旧工作影响；
+- fresh revalidation 与 drift requote/atomic reject；
+- causal 与 non-causal 变更；
+- 单一 parent-linked cutover 与 successor `W=0`；
+- `retiring/retired` 禁止新排程；
+- 五类旧工作各一次 disposition，其中 terminal-pending 保留 recipient/destination/admission/capacity obligation/provenance 且不提前结算或静默改绑；
+- successor 不自动迁移；
+- 重复 submit/reconnect/retry/restore/replay 无重复效果；
+- Viewer/pure API/Agent 对五类 bucket 保持 parity。
 
 `test_tier_full` 延后至 M4/runtime/QA 提供多阶段升级、并发容量、部分失败、持久化恢复与 successor conversion 的 composite evidence 后执行；测试目标不是当前通过声明。
 

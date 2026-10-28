@@ -140,7 +140,7 @@ Sites 指挥中心及其他独立仓库组件可以先由本仓库的主责设�
 
 #### 有依据的工程导览
 
-首版至少提供“Agent 行动如何到达世界处理”和“协议如何形成生成产物”两条可用阅读路线，入口直接放在地图旁。前者从[客户端与世界边界](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)解释执行方、Game Client、服务端准入与 Runtime 的分工；后者沿协议 profile、manifest、真实输出及明确消费者。路线覆盖到哪里就说明到哪里，不能将 bootstrap profile 扩成全部 Game API，或把 Simulator 接入权威 Runtime 的必经链。
+首版至少提供“Agent 行动如何到达世界处理”和“协议如何形成生成产物”两条可用阅读路线，入口直接放在地图旁。前者从[客户端与世界边界](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)解释执行方、Game Client、服务端准入与 Runtime 的分工；后者沿协议 profile、manifest、真实输出及明确消费者。路线覆盖到哪里就说明到哪里，不能将 bootstrap profile 扩成全部 Game API，或把 Simulator 视为接入权威 Runtime 的必经环节。
 
 路线是有版本的轻量阅读配方，引用当前快照中已有节点/边和准确来源，由受控 adapter 维护少量模板，不复制另一份图。每步解释输入、责任、输出或边界，突出当前对象，支持上一步、下一步、打开依据和回全局；必要分支明确列出，不默认播放动画。步骤次序先表示阅读顺序，只有原文明确支持时才另外说明运行/事务先后，不能从图连通自动推导一次实际成功请求。
 

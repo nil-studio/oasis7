@@ -466,7 +466,7 @@ def cache_begin(root, selection='all'):
     root = root.resolve()
     return dict(schema_version=CACHE_SCHEMA, checkout=str(root),
                 target=str((root / 'target').resolve()), inputs=_cache_inputs(root),
-                selection=selection, packages={}, files=[], directories=[], complete=False)
+                selection=selection, packages={}, input_owners={}, files=[], directories=[], complete=False)
 
 
 def _cache_relative(state, path):
@@ -480,6 +480,100 @@ def _cache_relative(state, path):
     return name
 
 
+def _cache_defer_unhashed_library(state, message, package, filenames):
+    """Local dylib/cdylib outputs do not carry Cargo's unit hash."""
+    kinds = set(message['target']['kind'])
+    if (message['profile']['test'] is not False or not kinds <= CACHE_LIBRARY_KINDS
+            or not kinds.intersection(('dylib', 'cdylib'))):
+        return False
+    name = message['target']['name'].replace('-', '_')
+    pattern = re.compile(r'(?:lib)?' + re.escape(name) + r'\.(?:rlib|rmeta|so|dylib|dll|dll\.lib|dll\.a|lib|a|pdb)')
+    paths = [Path(filename) for filename in filenames]
+    profiles = {p.parent.parent if p.parent.name == 'deps' else p.parent for p in paths}
+    if len(profiles) != 1 or any(not pattern.fullmatch(p.name) for p in paths):
+        raise ValueError('unsupported unhashed library output layout: ' + package + '/' + name)
+    profile = profiles.pop()
+    # Cargo replaces these outputs and their package-scoped fingerprint when
+    # subsequent feature variants run. Retain the last observation, not a
+    # union of incompatible versions of the same public filenames.
+    key = (profile / name).as_posix()
+    pending = state.setdefault('unhashed_libraries', {})
+    entry = dict(package=package, name=name, profile=profile.as_posix(),
+                 filenames=filenames, features=message['features'],
+                 manifest_path=message['manifest_path'])
+    if key in pending and (pending[key]['manifest_path'] != entry['manifest_path']
+                           or pending[key]['package'] != package):
+        raise ValueError('unhashed library output collision: ' + package + '/' + name)
+    pending[key] = entry
+    return True
+
+
+def _cache_finish_unhashed_libraries(state):
+    """Resolve complete fingerprints only after Cargo has finished writing them."""
+    target = Path(state['target'])
+    selected, directories = [], []
+    for entry in state.get('unhashed_libraries', {}).values():
+        package, name, profile = entry['package'], entry['name'], Path(entry['profile'])
+        owner = package + '/' + name
+        fingerprint_root = _cache_path(target, (profile / '.fingerprint').as_posix())
+        marker = 'lib-' + name
+        candidates = []
+        for candidate in fingerprint_root.iterdir():
+            if not re.fullmatch(re.escape(package) + r'-[0-9a-f]{16}', candidate.name):
+                continue
+            relative = candidate.relative_to(target).as_posix()
+            candidate = _cache_path(target, relative)
+            if not candidate.is_dir():
+                continue
+            # Test/build-script fingerprints are not this library's owner.
+            if not _cache_path(target, relative + '/' + marker).exists():
+                continue
+            unit_hash = candidate.name.rsplit('-', 1)[-1]
+            # Check-mode and other hashed library units can coexist in the
+            # dependency cache. Their concrete outputs identify them, so they
+            # must not be assigned to this unhashed artifact.
+            deps = _cache_path(target, (profile / 'deps').as_posix())
+            hashed = re.compile(r'(?:lib)?' + re.escape(name) + '-' + unit_hash + r'(?:\..+)?')
+            if any(hashed.fullmatch(p.name) for p in deps.iterdir()):
+                continue
+            candidates.append(relative)
+        if len(candidates) != 1:
+            raise ValueError('cannot identify a unique unhashed Cargo library unit: ' + owner)
+        directory = candidates[0]
+        for suffix in (marker, marker + '.json', 'dep-' + marker, 'invoked.timestamp'):
+            path = _cache_path(target, directory + '/' + suffix)
+            if not path.is_file():
+                raise ValueError('incomplete unhashed Cargo library fingerprint: ' + owner)
+        metadata = json.loads(_cache_path(target, directory + '/' + marker + '.json').read_text())
+        features = metadata.get('features') if isinstance(metadata, dict) else None
+        if not isinstance(features, str) or json.loads(features) != entry['features']:
+            raise ValueError('unhashed Cargo library features changed: ' + owner)
+        for filename in entry['filenames']:
+            output = _cache_path(target, filename)
+            if not output.is_file():
+                raise ValueError('missing unhashed Cargo library output: ' + filename)
+            selected.append(filename)
+            # JSON may report the uplifted path. Preserve the concrete deps
+            # output as well, but only when Cargo's hard link proves ownership.
+            concrete = profile / 'deps' / output.name
+            if Path(filename) != concrete:
+                path = _cache_path(target, concrete.as_posix())
+                if not path.is_file() or not os.path.samefile(output, path):
+                    raise ValueError('unbound unhashed Cargo library output: ' + filename)
+                selected.append(concrete.as_posix())
+            public_dep = output.with_suffix('.d')
+            if output.parent.name != 'deps' and public_dep.exists():
+                selected.append(_cache_relative(state, public_dep))
+        dep_info = (profile / 'deps' / (name + '.d')).as_posix()
+        if not _cache_path(target, dep_info).is_file():
+            raise ValueError('missing unhashed Cargo library dep-info: ' + owner)
+        selected.append(dep_info)
+        directories.append(directory)
+    # No partial set is committed if any pending unit failed validation.
+    state['files'].extend(selected)
+    state['directories'].extend(directories)
+
+
 def cache_record(state, message):
     """Select concrete Cargo units, including both build-script unit hashes."""
     reason = message.get('reason')
@@ -489,6 +583,14 @@ def cache_record(state, message):
         root = Path(state['checkout'])
         if not manifest.is_relative_to(root):
             return
+        manifest_name = manifest.relative_to(root).as_posix()
+        manifest = _cache_path(root, manifest_name)
+        generators = state.setdefault('input_owners', {}).setdefault(manifest_name, [])
+        if set(message['target']['kind']).intersection(('custom-build', 'proc-macro')):
+            source = Path(message['target']['src_path']).relative_to(root).as_posix()
+            _cache_path(root, source)
+            if source not in generators:
+                generators.append(source)
         if state.get('selection', 'all') == 'libraries':
             kinds = set(message['target']['kind'])
             if ('custom-build' not in kinds and (message['profile']['test'] is not False
@@ -525,8 +627,10 @@ def cache_record(state, message):
                     match = pattern.fullmatch(candidate.name)
                     if match and candidate.is_file() and os.path.samefile(public, candidate):
                         hashed.append((profile, match.group(1)))
+            if not hashed and _cache_defer_unhashed_library(state, message, package, filenames):
+                return
             if len(set(hashed)) != 1:
-                raise ValueError('cannot identify a unique local Cargo output unit')
+                raise ValueError('cannot identify a unique local Cargo output unit: ' + package + '/' + target_name)
             profile, unit_hash = hashed[0]
             for candidate in (target_root / profile / 'deps').iterdir():
                 if any(candidate.name == prefix or candidate.name.startswith(prefix + '.')
@@ -550,8 +654,10 @@ def cache_record(state, message):
 
 
 def cache_finish(state):
+    state['complete'] = False
     if _cache_inputs(Path(state['checkout'])) != state['inputs']:
         raise ValueError('source inputs changed during the build')
+    _cache_finish_unhashed_libraries(state)
     state['files'] = sorted(set(state['files']))
     state['directories'] = sorted(set(state['directories']))
     state['complete'] = True
@@ -664,7 +770,8 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
         if _cache_inputs(root) != state['inputs']:
             raise ValueError('source inputs changed while staging')
         manifest = dict(schema_version=CACHE_SCHEMA, checkout=str(root), target=str(target),
-                        inputs=state['inputs'], files=files, directories=directories)
+                        inputs=state['inputs'], files=files, directories=directories,
+                        input_owners=state.get('input_owners'))
         (cache / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
         report['save'] = True
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -672,6 +779,69 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
     finally:
         report['elapsed_seconds'] = round(time.monotonic() - started, 3)
     return report
+
+
+def _cache_input_refresh(root, inputs, current, owners, report):
+    """Preserve unaffected mtimes; make path changes visible to Cargo itself."""
+    for name in inputs:
+        _cache_path(root, name)
+        if Path(name).parts[0] in ('.git', 'target'):
+            raise ValueError('invalid cache source input: ' + name)
+    added, removed = set(current) - set(inputs), set(inputs) - set(current)
+    report['input_path_changes'] = {
+        key: dict(count=len(paths), paths=sorted(paths)[:50], truncated=len(paths) > 50)
+        for key, paths in (('added', added), ('removed', removed))
+    }
+    if not added and not removed:
+        return set(), set()
+    # Old snapshots have no observed Cargo ownership. Keep their old closed
+    # behavior on a path-set change, rather than guessing from directory names.
+    if not isinstance(owners, dict) or not owners:
+        raise ValueError('path changes require Cargo input ownership metadata')
+    roots, generators = set(), set()
+    for manifest, sources in owners.items():
+        _cache_path(root, manifest)
+        if (Path(manifest).name != 'Cargo.toml' or manifest not in inputs
+                or manifest not in current or not isinstance(sources, list)):
+            raise ValueError('invalid or changed Cargo input owner: ' + manifest)
+        roots.add(Path(manifest).parent)
+        for source in sources:
+            _cache_path(root, source)
+            if source not in inputs:
+                raise ValueError('unrecorded Cargo generator input: ' + source)
+            generators.add(source)
+    delta = added | removed
+    if any(Path(name).name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml')
+           or '.cargo' in Path(name).parts for name in delta):
+        raise ValueError('Cargo configuration paths changed')
+    old_dirs = {parent for name in inputs for parent in Path(name).parents}
+    new_dirs = {parent for name in current for parent in Path(name).parents}
+    common_dirs = old_dirs & new_dirs
+    scopes, directories = set(), set()
+    for name in delta:
+        path = Path(name)
+        owners_for_path = [owner for owner in roots if path.is_relative_to(owner)]
+        if owners_for_path:
+            # Package-wide promotion also catches newly ambiguous Rust module
+            # layouts and auto-discovered targets absent from old dep-info.
+            scope = max(owners_for_path, key=lambda owner: len(owner.parts))
+        else:
+            # Retain every input, including documents and ignored files. A
+            # previously observed sibling subtree is the conservative boundary
+            # for an input outside Cargo packages; a new top-level tree widens
+            # to the checkout root, never to an unproven exclusion list.
+            scope = next(parent for parent in path.parents if parent in common_dirs)
+        scopes.add(scope)
+        directories.update(parent for parent in path.parents if parent in new_dirs)
+    # Build scripts and proc macros can observe directory membership outside
+    # their package. Recompile their observed entry sources on every path-set
+    # change, leaving Cargo to propagate dirtiness to dependent units.
+    refresh = {name for name in current if name in generators
+               or any(Path(name).is_relative_to(scope) for scope in scopes)}
+    report['refreshed_input_scopes'] = sorted(scope.as_posix() for scope in scopes)[:50]
+    report['refreshed_input_scope_count'] = len(scopes)
+    report['refreshed_generator_inputs'] = len(generators & set(current))
+    return refresh, directories
 
 
 def cache_restore(root, cache, maximum=8 * 1024 ** 3):
@@ -693,8 +863,6 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
         if set(actual) != {'manifest.json', *('target/' + name for name in files)}:
             raise ValueError('cache payload is incomplete or has extra files')
         current = _cache_inputs(root)
-        if set(current) != set(inputs):
-            raise ValueError('source input paths were added, removed or renamed')
         now = time.time_ns()
         for metadata in [*files.values(), *directories.values(), *inputs.values()]:
             if (not isinstance(metadata, dict) or type(metadata['mtime_ns']) is not int or not 0 < metadata['mtime_ns'] < now
@@ -704,6 +872,8 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
             if (type(metadata['bytes']) is not int or metadata['bytes'] < 0
                     or not isinstance(metadata['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', metadata['sha256'])):
                 raise ValueError('invalid cache file length or checksum')
+        refresh, input_directories = _cache_input_refresh(
+            root, inputs, current, manifest.get('input_owners'), report)
         if not 0 < sum(item['bytes'] for item in files.values()) <= maximum:
             raise ValueError('cache payload exceeds budget or is empty')
         for name, metadata in files.items():
@@ -726,18 +896,29 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
                     raise ValueError('cache overlaps an incomplete existing Cargo unit')
         _cache_copy(cache / 'target', target, files, directories)
         written = True
-        changed = 0
+        changed = matched = refreshed = 0
         # Validation rejects future metadata; this stamp is strictly newer than
         # every restored Cargo freshness reference, including build-script runs.
         stamp = time.time_ns()
-        for name, metadata in inputs.items():
-            same = all(current[name][key] == metadata[key] for key in ('bytes', 'mode', 'sha256'))
+        for name in current:
+            metadata = inputs.get(name)
+            same = metadata is not None and all(
+                current[name][key] == metadata[key] for key in ('bytes', 'mode', 'sha256'))
             changed += not same
+            matched += same
+            dirty = not same or name in refresh
+            refreshed += dirty
             path = _cache_path(root, name)
-            value = metadata['mtime_ns'] if same else stamp
+            value = stamp if dirty else metadata['mtime_ns']
             os.utime(path, ns=(value, value))
-        report.update(restored=True, changed_inputs=changed, matched_inputs=len(inputs) - changed,
-                      raw_bytes=sum(item['bytes'] for item in files.values()))
+        # A removed input stays absent. Stamp surviving parent directories so
+        # rerun-if-changed directory observers see removals as well as additions.
+        for directory in input_directories:
+            path = root if directory == Path('.') else _cache_path(root, directory.as_posix())
+            if path.is_dir():
+                os.utime(path, ns=(stamp, stamp))
+        report.update(restored=True, changed_inputs=changed, matched_inputs=matched,
+                      refreshed_inputs=refreshed, raw_bytes=sum(item['bytes'] for item in files.values()))
     except (OSError, ValueError, KeyError, TypeError) as error:
         if written:
             for name in files:

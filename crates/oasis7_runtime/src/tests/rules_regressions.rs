@@ -276,3 +276,41 @@ fn rule_same_override_is_applied() {
     let agent = world.state().agents.get("agent-1").unwrap();
     assert_eq!(agent.state.pos, pos(4, 0));
 }
+
+#[test]
+fn rejected_move_override_from_non_move_preserves_general_rule_cost() {
+    let mut world = World::new();
+    world.set_policy(PolicySet::allow_all());
+    world.set_resource_balance(ResourceKind::Electricity, 5);
+    install_rule_modules(&mut world, "action.register_agent", &["general.rule"]);
+
+    let action_id = world.submit_action(Action::RegisterAgent {
+        agent_id: "agent-1".to_string(),
+        pos: pos(0, 0),
+    });
+    let mut decision = rule_decision_with_notes(
+        action_id,
+        RuleVerdict::Modify,
+        Some(Action::MoveAgent {
+            agent_id: "agent-1".to_string(),
+            to: pos(1, 0),
+        }),
+        &["general attempt cost"],
+    );
+    decision.cost.entries.insert(ResourceKind::Electricity, -2);
+    let mut sandbox = MapSandbox::new(BTreeMap::from([(
+        "general.rule".to_string(),
+        rule_decision_output(decision),
+    )]));
+    world.step_with_modules(&mut sandbox).unwrap();
+
+    assert!(!world.state().agents.contains_key("agent-1"));
+    assert!(world.journal().events.iter().any(|event| matches!(
+        &event.body,
+        WorldEventBody::Domain(DomainEvent::ActionRejected {
+            reason: RejectReason::AgentNotFound { agent_id },
+            ..
+        }) if agent_id == "agent-1"
+    )));
+    assert_eq!(world.resource_balance(ResourceKind::Electricity), 3);
+}
