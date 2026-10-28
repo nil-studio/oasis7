@@ -1,5 +1,7 @@
 //! Persistent world values, sparse reducers, and concrete codecs.
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_projection;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod agent_cell;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod agent_claims;

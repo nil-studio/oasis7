@@ -494,3 +494,24 @@ producer 在分配前核对具体 source 的预算池身份，拒绝用另一个
 共享 Merkle 层原有 String 错误合同保持；会话另保留首次原 `PageStoreError`，消费者在失败路径直接取得其 typed 原因，不从报错文本推断 Missing、损坏、额度或取消。缺少实际引用页返回错误；业务 absent 只来自经过验证的空路径。执行 read 错误仍按 §12.5 poison 原事务，错误后解除资源压力或取消标记不能使其 seal。会话不选择 head，不以页已发布或差量根相等替代原 authority、owner/域/代资格及完整闭包。
 
 组件验收命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store::state::tests -- --test-threads=1`。覆盖真实页上的 put/delete、重开后读取、从落盘原 TransitionRecord 重建 C<T 非空后缀（独立重放池只装 C 的状态页，不读取 T 的状态页），然后以完全相同读写产生一致记录和最终节点；另验证目录落盘重开后的 height/commit 证明、缺页/资源/取消后不输出可 seal 事务、载体保留计费，以及普通额度耗尽时的恢复原页安装。这是通用状态/目录组件的实际文件系统路径；fixture 的合成 parent 身份、原件与状态引用不构成原提交资格，不代签 Runtime 全字段、J1/J2、外部效果、完整工件恢复、世界发布、复制、GC 或规模性能验收。
+
+### 12.10 Runtime 字段所有权与借用准备入口
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.2 的逐字段覆盖。字段所有权清单位于 `oasis7_world_state::incremental_projection` 与 `oasis7_runtime::world::incremental_projection`；它们直接穷尽匹配当前 WorldState、World 和 Snapshot，不使用 `..`，新增或移除字段必须同步分类才能编译。Snapshot 仅提供字段到真实 Runtime 源的关系，代码不为完成清单而构建 Snapshot，也不把其派生 last ID、历史计数或 journal commitment 当作 allocator/新格式身份。
+
+`World::visit_iws_genesis_fields` 借用实际字段：map/set 按项提供，ledger/nonce 的嵌套 map 与权限集合按复合语义键拆项，module state/工件以原二进制切片提供；不会 clone World、完整状态、字节工件或历史。它只服务创世准备及字段覆盖核对，不能放入普通 commit/save。普通提交仍须由实际 mutation 入口产生 read/write-set，不能遍历全部字段再 diff、序列化或 hash 整个状态。本入口没有启用新格式、导入旧世界、选择 head 或发布接受回执的能力。
+
+| 字段组 | 新格式语义所有权与准备边界 |
+| --- | --- |
+| WorldState 的实体、余额、产业/市场和模块 instance/state | 业务；nonce、原处置/settlement 去重与治理授权分别归授权根，next/era/order provenance 归 allocator，绝对任务时间和 delivery cursor 归 scheduler。模块市场所有权是业务，不因名称含 artifact 就授予工件或执行权限。逐字段明细以编译约束的清单为准。 |
+| Runtime 的原 next event/action/intent/proposal 值与 era、治理 penalty allocator | 保留真实 next 值及顺序，不能用 Snapshot 的 last_event_id 或集合最大值重建。 |
+| pending actions/effects、inflight、module schedule/cursor、capability 与 rollback 控制 | 有序队列按借用顺序提供，原 nonce/outcome/receipt link 保留；枚举位置只用于准备，不冻结成会在 pop 后整体重编号的运行态 wire。 |
+| registry records/active、原模块 bytes、manifest/环境与 release 配置 | 工件/执行材料按项借用；借用视图不替代原 bytes、profile、scope 和完整工件闭包核验。 |
+| 物流 SLA 与 threat heatmap | 现有消费者用它们参与后续 release/governance 决策，不能因旧 Snapshot 未携带就当作可丢缓存。新读者须保留或经精确根绑定重建，本准备清单归入确定性业务字段。 |
+| module routing metrics、运行容量与 backpressure | 路由只取确定性计数；queue 容量和会影响后续 gate 的队列处置计数保留。墙钟 duration、热 journal 上限/淘汰量及局部 dispatch-blocked 观测属于进程/缓存策略，不进入确定性字段。各投影亦穷尽匹配子结构，不能静默漏掉新增成员。 |
+| cognition | 拆分 scheduler、continuation/effects、idempotency、journal frontier；历史事件/原 response 走历史 owner。commit/receipt/root-view 和绑定原件走独立 proof owner，含 commit_record_id 的 retention store 走独立保留 owner，避免把本次证明回填 RootSet。未知顶层或 journal 成员、错误集合形状和 schema 明确拒绝。 |
+| signer、编译/模块/订阅缓存、reader、当前 driver cursor 与进程凭据 | 只提供不含值的 process descriptor；secret 不交给 Serialize。需要的原执行环境和独立 authority/cursor 仍由相应 owner 认证，不能凭“不序列化进程字段”省略恢复前置。 |
+
+visitor 的目标是语义分类与借用交接，不是已经冻结的字段 wire。sink 拥有其分配、磁盘和编码准入；历史/证明 callback 收到借用，不自动扫描或序列化历史，也不能被通用状态 sink 塞入 RootSet。cognition 原 DTO 的 finality/status/receipt 关联、当前 RootSet/commit 引用及其他复合控制字段，仍须完成适用版本的 typed context/codec 转换、mutation 接线和保留 owner 接线，才能允许新格式创世；清单覆盖或 callback 成功不代签这些条件。
+
+局部验收：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_projection::tests -- --test-threads=1`。核对实际 World 字段归属、Snapshot 源关系、binary pointer 相同、逐项嵌套键、serde 省略空字段仍被覆盖、历史/证明分离、未知字段拒绝、sink 错误不修改源，以及改变墙钟/热历史策略不改变确定性字段。该命令未启用 wasmtime，不验证普通事务接线、J1/J2、真实模块执行、旧世界导入或完整世界恢复。
