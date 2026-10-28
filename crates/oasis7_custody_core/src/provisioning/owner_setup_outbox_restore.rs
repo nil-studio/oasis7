@@ -282,10 +282,6 @@ impl AccountProvisionApprovalState {
                     }
                 }
                 self.validate_owner_setup_result(id, stage, result)?;
-                validate_owner_setup_signature_fact(OwnerSetupSignatureFact::Result(
-                    result,
-                    &v.plan.world_identity.service_public_key,
-                ))?;
                 let nonce = match result {
                     OwnerSetupResultV1::Canonical {
                         from_lookup: true, ..
