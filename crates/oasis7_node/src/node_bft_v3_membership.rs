@@ -90,11 +90,19 @@ pub(super) fn install(
         .as_ref()
         .ok_or_else(|| error("wire-3 membership is not enabled in provider"))?;
     // A validated durable receipt remains valid after this install's tip.
+    // Another legitimate caller may have completed the same installation with
+    // its own request identity. Preserve that original instead of attempting a
+    // second installation merely to obtain the Node's preferred request ID.
     if membership.receipts.iter().any(|r| {
-        r.body.request_id == request_id
+        r.body.binding_digest == checkpoint.state.binding_digest
+            && r.body.runtime_instance_id == selected.binding.operator_instance_id
+            && r.body.local_validator_id == selected.binding.local_validator_id
+            && r.body.source_height == source_height
+            && r.body.confirmation_height == confirmation.execution_commitment.height
             && r.body.activation_height == schedule.last_activation_height()
             && r.body.active_validator_set_hash == schedule.active_set().set_hash()
             && r.body.local_signing_public_key == key
+            && r.body.installed_head_height <= result.height
     }) {
         return Ok(());
     }
