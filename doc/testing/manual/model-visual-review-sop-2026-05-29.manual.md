@@ -14,7 +14,7 @@
 - 不适用于仅凭截图无法判断的 runtime contract、经济参数、安全权限、链上状态、LLM provider 活性或真实玩家留存结论。
 
 ## 强制触发条件
-- 只要本轮改动触达可视化相关代码、样式、资源或可见输出，就默认触发截图加模型视觉评审。
+- 只要本轮改动涉及可视化相关代码、样式、资源或可见输出，就默认触发截图加模型视觉评审。
 - 典型强制触发面包括：
   - UI component、DOM 结构、CSS / layout / spacing / typography / color / icon / asset 改动
   - 首屏、导航、侧栏、面板、表单、按钮、状态提示、receipt、blocker、empty/loading/error state 改动

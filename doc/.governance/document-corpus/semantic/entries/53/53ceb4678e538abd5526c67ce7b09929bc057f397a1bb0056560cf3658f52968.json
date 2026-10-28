@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "dc528e91d42228107ff675f8a93dd11a277f08fb5295bb36478cfa73a54d1800",
+    "content_sha256": "37fa047e144fe407a2f7177bc50140b047cf7e20a2a3eac5fc1eba3ff2809efd",
     "current_authority": "doc/readme/prd.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",

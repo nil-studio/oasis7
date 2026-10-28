@@ -5,7 +5,9 @@
 
 ### 2.1 需求承接与分配表
 
-本轮仅补有限结果与重核关系。Trace refs: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1；O7-REQ-1d9a996e-dd9d-4d59-9b3b-b79191f17676。引用既有产品声明，不创建 Trace ID。真实 authority/session/config/mode 重验仍由[会话重新验证](game-client-launcher-runtime-session-continuity.design.md#session-revalidation)拥有；Web runtime 失败沿用该设计 §5.2。根产品部分覆盖/部分实现、当前尝试诊断、凭据/权限、Web 与世界恢复缺口不变。以下专业行不是通用 N/A：分别保留具体工程合同与验收方法，不借产品 ID 代表 schema、清理、目录、metadata 或机器能力覆盖。
+本轮仅补有限结果与重核关系。Trace refs: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1；O7-REQ-1d9a996e-dd9d-4d59-9b3b-b79191f17676。引用既有产品声明，不创建 Trace ID。真实 authority/session/config/mode 重验仍由[会话重新验证](game-client-launcher-runtime-session-continuity.design.md#session-revalidation)拥有；Web runtime 失败沿用该设计 §5.2。
+
+根产品部分覆盖/部分实现、当前尝试诊断、凭据/权限、Web 与世界恢复缺口不变。以下专业行不是通用 N/A：分别保留具体工程合同与验收方法，不借产品 ID 代表 schema、清理、目录、metadata 或机器能力覆盖。
 
 | 上游 requirement / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |

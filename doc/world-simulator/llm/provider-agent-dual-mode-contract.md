@@ -34,7 +34,7 @@
 ## 4. Observation Contract（冻结版）
 
 ### 4.1 顶层元数据
-所有模式都必须携带以下字段：
+所有模式必须携带以下字段：
 - `mode`: `player_parity` | `headless_agent`
 - `observation_schema_version`: 首期固定为 `oc_dual_obs_v1`
 - `action_schema_version`: 首期固定为 `oc_dual_act_v1`

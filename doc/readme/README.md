@@ -43,7 +43,7 @@
 
 ## 高密度提示
 - 本页不维护容易漂移的文件数量快照；当前模块库存与热点子目录统一以 `./scripts/doc-inventory-report.sh` 为准。这一层入口不再尝试把 canonical、material 与 execution 专题全部摊平展示。
-- 需要完整活跃专题清单时，进入 `doc/readme/prd.index.md`；进入 `governance/`、`gap/` 或 `production/` 时，优先先读各自的 `README.md` 再继续下钻；需要素材包、执行记录或历史专题时，再按具体子域进入。
+- 需要完整活跃专题清单时，进入 `doc/readme/prd.index.md`；进入 `governance/`、`gap/` 或 `production/` 时，优先读各自的 `README.md` 再继续下钻；需要素材包、执行记录或历史专题时，再按具体子域进入。
 
 ## 根目录收口
 - 模块根目录主入口保留：`README.md`、`prd.md`、`design.md`、PR、实际 CI 与评审记录（Issue 按需）、`prd.index.md`。

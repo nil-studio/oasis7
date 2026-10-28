@@ -70,7 +70,11 @@ shortfall_before = max(B - data_before, 0)
 shortfall_after = max(B - data_after, 0)
 ```
 
-before 不能使用 `D-M`，after 不能从已经截零的 before 只减 gross H。`partial_progress` 要求 `0 < shortfall_after < shortfall_before`；`enough_to_advance` 要求原缺口为正且本次消除该缺口。当前 `EconomyConfig::sanitized` 的产率上限及 `compute_refine_compound_outputs` 保证合法输入的 `H <= M`，因此 `data_after <= D`；这两种目标进展分类在当前共享 Data 模型不可达，不能要求其正例或为凑正例改变产率/资源种类。合法转换成功与改善建厂前置分别验收，无改善或恶化走 `poor_power_tradeoff` 并解释净损失。`recommended_refine_amount` 用同一净效果评估，没有有益的合法精炼量时推荐暂缓，不生成 amount=0 的非法精炼动作。保留现有公式和字段名，不重建独立 compound/hardware ResourceKind。
+before 不能使用 `D-M`，after 不能从已经截零的 before 只减 gross H。`partial_progress` 要求 `0 < shortfall_after < shortfall_before`；`enough_to_advance` 要求原缺口为正且本次消除该缺口。
+
+当前 `EconomyConfig::sanitized` 的产率上限及 `compute_refine_compound_outputs` 保证合法输入的 `H <= M`，因此 `data_after <= D`；这两种目标进展分类在当前共享 Data 模型不可达，不能要求其正例或为凑正例改变产率/资源种类。
+
+合法转换成功与改善建厂前置分别验收，无改善或恶化走 `poor_power_tradeoff` 并解释净损失。`recommended_refine_amount` 用同一净效果评估，没有有益的合法精炼量时推荐暂缓，不生成 amount=0 的非法精炼动作。保留现有公式和字段名，不重建独立 compound/hardware ResourceKind。
 
 回归从同一合法 snapshot 分叉，以真实 BuildFactory 可负担性核对 before/after；2500 Data、50 Electricity 的默认反例应显示 `0 -> 3`，不再把 5→3 作为预期。合法转换成功须验证净 Data 不增加、缺口不缩小与分类/推荐一致；低电力、最小产出、overflow、已有目标资源与只读不改变世界继续独立验证。
 
@@ -78,7 +82,11 @@ before 不能使用 `D-M`，after 不能从已经截零的 before 只减 gross H
 
 `market_quote_decision_preview` 消费规范化、按当前材料同一性聚合的需求；每个 kind 先得到 `max(requested - selected_available, 0)`，再进行有溢出保护的总和。独立行情仍按现行 `build_material_market_quotes` 比较 local/world 来源；具体 `ScheduleRecipe` 的缺口与 allowed 则必须使用其实际消费账本，不能把市场覆盖判断当作排产准入。signed `saturating_sub` 仅防溢出，不能替代逐项截零。
 
-报价若用于 ScheduleRecipe，preferred consume ledger 必须与该 factory/recipe 实际 input ledger 一致。当前直接和 module-backed 新提交均从 factory input ledger 扣料；Agent 只表示发起主体时，不能用其余额代替 factory 库存，world ledger 有料也不能绕过该准入。工厂短缺时 `submission_allowed=false`，world cover 只支持提示受支持的显式补料；材料实际入厂后重新报价与校验，不能通过 `submit_with_world_supply` 隐式补料或切换消费账本。独立市场查询须明示账本与条件边界。DTO 从同一排产结果生成 contributions、total shortfall、allowed 与 recommendation，Viewer/Agent 在报价到达时读取这份结果，不等额外 snapshot 才展示，也不重算不同账本的短缺；此处是报价修正目标，不宣称现有消费者已满足。
+报价若用于 ScheduleRecipe，preferred consume ledger 必须与该 factory/recipe 实际 input ledger 一致。当前直接和 module-backed 新提交均从 factory input ledger 扣料；Agent 只表示发起主体时，不能用其余额代替 factory 库存，world ledger 有料也不能绕过该准入。
+
+工厂短缺时 `submission_allowed=false`，world cover 只支持提示受支持的显式补料；材料实际入厂后重新报价与校验，不能通过 `submit_with_world_supply` 隐式补料或切换消费账本。独立市场查询须明示账本与条件边界。
+
+DTO 从同一排产结果生成 contributions、total shortfall、allowed 与 recommendation，Viewer/Agent 在报价到达时读取这份结果，不等额外 snapshot 才展示，也不重算不同账本的短缺；此处是报价修正目标，不宣称现有消费者已满足。
 
 Focused fixtures 分别覆盖本地富余、世界富余、一盈一缺、精确覆盖、普通短缺、重复材料聚合；所有分项/总量非负，盈余不抵销短缺，allowed 与推荐一致。另以 Agent/factory 余额不同及 factory 短缺/world 富余的反例证明实际消费 ledger：补料前排产拒绝且两边库存不变，受支持的显式补料实际入厂后才可重报价、校验并提交。quote 调用不得产生 sink、hold 或世界更新。UI 到达即刷新需 consumer 自己的独立测试，内核通过不能代签。
 
@@ -148,7 +156,9 @@ Trace refs: O7-REQ-baa1e6b2-1a46-47a3-b75c-a0e9cf8b154c；承接[合法执行单
 - 到期逐 stack 的 product validation、attempt/receipt、`FactoryProductionBlocked` 与 settlement 仍保留：其他谓词、运行中规则变化或未来状态可能使已接受任务失败，预检不是最终 validation receipt。未安装适用 validator 的 native 路径不套用示例上限；既有 blocked/WIP 继续原处置，不自动拆分、退款、重启或生成产物。
 - 迁移仅作用于启用新准入规则后的新提交；历史 `RecipeStarted`、input/power sink、validation receipt 与 blocked 事件保持原义。恢复/replay 重建原任务和结果，不用当前上限重判历史准入、不重新运行 validator 或复制 sink/产物。实现若需新规则元数据/版本，须沿既有治理激活与历史版本合同接入；本文不新增 schema 或热替换已安装 artifact 的授权。
 
-验证目标（尚未执行）：在资源充分且安装匹配内置铁 validator 的压力初态下，166 批对应 498 铁，不因 500 单 stack 上限拒绝；167 批对应 501 铁，quote 与实际 submit 均拒绝，input/power/slot/job 无新增变化。498 正例仍须满足所有其他主/副产物规则。另测副产物独立超限、恰好等于上限、同 kind 多个 stack、不适用/缺失/自定义 validator、报价后版本漂移、模块与 native 排产入口；比较拒绝审计与业务无变化，不要求整个 tick 静止。成功任务仍完成一次验证/结算；旧 WIP/blocked 的 snapshot restore/replay 不重新准入或补偿。Viewer/API/Agent 应表达同一 blocker 和未知边界。
+验证目标（尚未执行）：在资源充分且安装匹配内置铁 validator 的压力初态下，166 批对应 498 铁，不因 500 单 stack 上限拒绝；167 批对应 501 铁，quote 与实际 submit 均拒绝，input/power/slot/job 无新增变化。498 正例仍须满足所有其他主/副产物规则。
+
+另测副产物独立超限、恰好等于上限、同 kind 多个 stack、不适用/缺失/自定义 validator、报价后版本漂移、模块与 native 排产入口；比较拒绝审计与业务无变化，不要求整个 tick 静止。成功任务仍完成一次验证/结算；旧 WIP/blocked 的 snapshot restore/replay 不重新准入或补偿。Viewer/API/Agent 应表达同一 blocker 和未知边界。
 
 ## 11. 验证设计与可追溯性
 

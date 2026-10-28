@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "c313a98296960940a388377146483ac85b62f061b1445977d770fb49cd7a0776",
+    "content_sha256": "d59b19d4ad2472353cd5a6b377bdcbb934b6e093505d984578e626a93f0fdc59",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "wasm_platform_engineer",
     "disposition": "retain_current_interface_authority",

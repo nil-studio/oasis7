@@ -12,7 +12,7 @@
   - SC-1: 明确 `module_required`、`module_full`、`integration_required`、`release_full` 四档 claim boundary。
   - SC-2: 每档都有现有命令入口、产物目录、通过标准和不可声明边界。
   - SC-3: 多节点验证至少覆盖 sequencer、storage、observer/validator 角色，且检查 committed height、consensus hash、peer heads、gap sync、blob closure、observer catch-up。
-  - SC-4: 任何 release/public-testnet 级结论必须要求同窗口 real-env 或 public_testnet readiness lane 证据。
+  - SC-4: 任何 release/public-testnet 级结论都必须有同窗口 real-env 或 public_testnet readiness lane 证据。
 
 ## 2. User Experience & Functionality
 - User Personas:

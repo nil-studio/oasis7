@@ -164,6 +164,7 @@ pub struct TestSessionAuthorityV1 {
     pub source_oracle_reads: BTreeMap<String, u8>,
     pub source_funding: BTreeMap<String, SessionSourceFundingV1>,
     pub purpose_transports: BTreeMap<String, SessionPurposeV1>,
+    pub purpose_http_admissions: BTreeMap<String, SessionPurposeHttpAdmissionV1>,
     pub roots: BTreeMap<SessionPurposeV1, SessionRootV1>,
     pub control: Option<OperationBudgets>,
     pub identity_transport: Option<BudgetLedger>,
@@ -299,7 +300,15 @@ impl AccountProvisionApprovalState {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
         let key = proof.transport_attempt_digest();
         if let Some(purpose) = purpose {
-            if s.purpose_transports.get(&key) != Some(&purpose) {
+            if !s
+                .purpose_http_admissions
+                .get(ingress_attempt_id)
+                .is_some_and(|a| {
+                    a.signed_attempt_digest == key
+                        && a.purpose == purpose
+                        && a.hop == SessionControlHopV1::Host
+                })
+            {
                 return Err(invalid());
             }
         } else if s.control_transports.get(ingress_attempt_id) != Some(&SessionControlHopV1::Host)
@@ -399,3 +408,6 @@ pub use client_http::*;
 
 #[path = "test_session_expiry.rs"]
 mod expiry;
+
+#[path = "test_session_purpose_http.rs"]
+mod purpose_http;

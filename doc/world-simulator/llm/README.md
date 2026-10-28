@@ -2,8 +2,8 @@
 
 This directory contains durable requirements and contracts for in-world Agent
 decision providers. It is not a task board: mutable delivery facts belong to
-Git, PRs and actual verification records; Issues and Projects are used when
-tracking needs them, as defined by the development workflow.
+Git, PRs and actual verification records; Issues and Projects are used as needed
+for tracking, as defined by the development workflow.
 
 ## Product outcome
 
@@ -164,7 +164,7 @@ it does not claim the browser migration is implemented or enable unattended host
   Runtime's internal implementation. Runtime-private beliefs cannot become
   authoritative world facts without the world's validated outcome.
 - Prompt/module history, memory digests, raw provider output, token counts,
-  latency, and retries are diagnostic or evaluation inputs.  They do not by
+  latency, and retries are diagnostic or evaluation inputs. They do not by
   themselves prove parity, cost, replay closure, release readiness, or default
   enablement.
 - Legacy DTOs and heuristic fallback are compatibility-only lanes: they require
@@ -178,10 +178,10 @@ it does not claim the browser migration is implemented or enable unattended host
   endpoint grants or discovers world authority.
 - Evaluation evidence must retain a fixed scenario/fixture/profile/provider/
   adapter/protocol/timeout epoch, per-scenario artifacts, and repeated samples
-  for nondeterministic providers.  Aggregate counts or historical samples do
+  for nondeterministic providers. Aggregate counts or historical samples do
   not replace the current PRD-specific gates.
 - `player_parity` evidence must not include headless-only information; a
-  headless success does not establish player-experience parity.  Dual-mode
+  headless success does not establish player-experience parity. Dual-mode
   contract completion likewise does not grant default enablement; that remains
   subject to the parity PRD's behavior and latency gates.
 - Running without a GUI assumes the external Runtime is still online and its

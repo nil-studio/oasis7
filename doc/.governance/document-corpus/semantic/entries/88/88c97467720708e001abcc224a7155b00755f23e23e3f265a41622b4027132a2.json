@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "d2976ffc557b854de639ab6aaa7913224a5716a4809c697bb8ca911cbfeff84c",
+    "content_sha256": "261b7fa153ecfa2afe3d00ebb6a22d1498c50062245911fe3b348c4ef31f6ff0",
     "current_authority": "testing-manual.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_current_procedure",

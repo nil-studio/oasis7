@@ -1,5 +1,8 @@
 //! Account-local native stage transitions. All authority/config inputs are Rust-owned.
 use super::*;
+#[cfg(feature = "approval-harness")]
+#[path = "activation_diagnostic.rs"]
+pub(crate) mod activation_diagnostic;
 #[path = "test_session_alarm_store.rs"]
 pub mod alarm;
 #[path = "provision_native_history_store.rs"]
@@ -211,7 +214,7 @@ impl OwnerProvisionApprovalStore {
         current: &F,
         event: &str,
         reference: &str,
-        mut transition: T,
+        transition: T,
     ) -> Result<R>
     where
         F: Fn() -> Result<NativeStageCurrent>,
@@ -222,25 +225,66 @@ impl OwnerProvisionApprovalStore {
             u64,
         ) -> Result<R>,
     {
-        let initial = read(&self.state, KEY)?;
+        self.native_step_traced(
+            current,
+            event,
+            reference,
+            transition,
+            #[cfg(feature = "approval-harness")]
+            None,
+        )
+    }
+    fn native_step_traced<F, R, T>(
+        &self,
+        current: &F,
+        event: &str,
+        reference: &str,
+        mut transition: T,
+        #[cfg(feature = "approval-harness")] diagnostic: Option<&activation_diagnostic::Trace>,
+    ) -> Result<R>
+    where
+        F: Fn() -> Result<NativeStageCurrent>,
+        T: FnMut(
+            &mut AccountProvisionApprovalState,
+            &NativeStageScope<'_>,
+            &ProvisionApprovalContext<'_>,
+            u64,
+        ) -> Result<R>,
+    {
+        let report = |stage: &'static str, error| {
+            #[cfg(feature = "approval-harness")]
+            if let Some(trace) = diagnostic {
+                trace.fail(stage);
+            }
+            #[cfg(not(feature = "approval-harness"))]
+            let _ = stage;
+            error
+        };
+        let initial = read(&self.state, KEY).map_err(|e| report("sql.initial_read", e))?;
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
             let _performance = super::performance::callback(event, &old, &self.state);
-            let (mut next, previous) = self.reader.transition(&old)?;
-            let trusted = current()?;
-            let time = now()?;
+            let (mut next, previous) = self
+                .reader
+                .transition(&old)
+                .map_err(|e| report("sql.restore", e))?;
+            let trusted = current().map_err(|e| report("sql.current", e))?;
+            let time = now().map_err(|e| report("sql.clock", e))?;
             let result = transition(
                 &mut next.state,
                 &trusted.scope.as_core(),
                 &trusted.provision.as_core(),
                 time,
-            )?;
+            )
+            .map_err(|e| report("sql.transition", e))?;
             let array = if next.state == previous {
-                validate_inventory(&inventory, next.state.draft(), false)?;
+                validate_inventory(&inventory, next.state.draft(), false)
+                    .map_err(|e| report("sql.inventory_read", e))?;
                 unchanged(&old)
             } else {
-                validate_inventory(&inventory, next.state.draft(), true)?;
+                validate_inventory(&inventory, next.state.draft(), true)
+                    .map_err(|e| report("sql.inventory_write", e))?;
                 next.audit_sequence =
                     DecimalU64(next.audit_sequence.0.checked_add(1).ok_or_else(rejected)?);
                 let audit = serde_json::to_string(&(
@@ -260,7 +304,8 @@ impl OwnerProvisionApprovalStore {
             Ok(array)
         };
         let closure = Closure::borrow_mut(&mut callback);
-        update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
+        update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())
+            .map_err(|e| report("sql.commit", e))?;
         drop(closure);
         returned.ok_or_else(rejected)
     }
@@ -315,7 +360,7 @@ impl OwnerProvisionApprovalStore {
         reference: &str,
         deadline: oasis7_custody_core::time_units::UnixMillis,
         checks: C,
-        mut transition: T,
+        transition: T,
     ) -> Result<R>
     where
         F: Fn() -> Result<NativeStageCurrent>,
@@ -333,28 +378,92 @@ impl OwnerProvisionApprovalStore {
             &mut NativeExactCache,
         ) -> Result<R>,
     {
-        let snapshot = self.snapshot()?;
-        let trusted = current()?;
+        self.native_verified_with_alarm_traced(
+            current,
+            (event, reference),
+            deadline,
+            checks,
+            transition,
+            #[cfg(feature = "approval-harness")]
+            None,
+        )
+        .await
+    }
+    async fn native_verified_with_alarm_traced<F, R, C, T>(
+        &self,
+        current: &F,
+        audit: (&str, &str),
+        deadline: oasis7_custody_core::time_units::UnixMillis,
+        checks: C,
+        mut transition: T,
+        #[cfg(feature = "approval-harness")] diagnostic: Option<&activation_diagnostic::Trace>,
+    ) -> Result<R>
+    where
+        F: Fn() -> Result<NativeStageCurrent>,
+        C: Fn(
+            &AccountProvisionApprovalState,
+            &NativeStageScope<'_>,
+            &ProvisionApprovalContext<'_>,
+            u64,
+        ) -> Result<Vec<ExactSignatureChecks>>,
+        T: FnMut(
+            &mut AccountProvisionApprovalState,
+            &NativeStageScope<'_>,
+            &ProvisionApprovalContext<'_>,
+            u64,
+            &mut NativeExactCache,
+        ) -> Result<R>,
+    {
+        let (event, reference) = audit;
+        let report = |stage: &'static str, error| {
+            #[cfg(feature = "approval-harness")]
+            if let Some(trace) = diagnostic {
+                trace.fail(stage);
+            }
+            #[cfg(not(feature = "approval-harness"))]
+            let _ = stage;
+            error
+        };
+        let snapshot = self.snapshot().map_err(|e| report("store.restore", e))?;
+        let trusted = current().map_err(|e| report("current.before", e))?;
         let checks_before = checks(
             &snapshot.state,
             &trusted.scope.as_core(),
             &trusted.provision.as_core(),
             now()?,
-        )?;
+        )
+        .map_err(|e| report("core.checks.before", e))?;
         let mut verified = Vec::with_capacity(checks_before.len());
         for exact in checks_before {
-            verified.push(verify(exact).await?);
+            verified.push(
+                verify(exact)
+                    .await
+                    .map_err(|e| report("strict_crypto", e))?,
+            );
         }
         let mut cache = NativeExactCache(verified);
         self.prearm_test_session_commit(deadline, || {
-            self.native_step(current, event, reference, |state, scope, context, time| {
-                for exact in checks(state, scope, context, time)? {
-                    cache.verify(&exact).map_err(|_| rejected())?;
-                }
-                transition(state, scope, context, time, &mut cache)
-            })
+            self.native_step_traced(
+                current,
+                event,
+                reference,
+                |state, scope, context, time| {
+                    for exact in checks(state, scope, context, time)
+                        .map_err(|e| report("core.checks.final", e))?
+                    {
+                        cache
+                            .verify(&exact)
+                            .map_err(|_| report("core.cache.final", rejected()))?;
+                    }
+                    transition(state, scope, context, time, &mut cache)
+                        .map_err(|e| report("core.transition.final", e))
+                },
+                #[cfg(feature = "approval-harness")]
+                diagnostic,
+            )
         })
         .await
+        .map_err(|e| report("alarm.prearm_or_commit", e))
     }
     pub fn claim_native_origin_inspection<F>(
         &self,

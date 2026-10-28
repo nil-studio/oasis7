@@ -29,7 +29,7 @@ capability discovery 已落地”必须等自动 wiring 与真实 Agent E2E 通�
 - Decision Provider 标准层：在本地定义稳定的 request / response / feedback / trace 契约，作为唯一 provider 集成点。
 - Provider Adapter 层：为 `Local Provider`、本地 mock provider、未来其他 agent framework 分别实现适配器。
 - Memory / Trace 桥接层：把 provider transcript、tool trace、diagnostics、memory write intent 收敛到本地 `AgentMemory` 与 `AgentDecisionTrace`。
-- 验证与评估层：通过 golden fixtures、错误签名与 QoS 指标，对不同 provider 进行横向评估。
+- 验证与评估层：通过 golden fixtures、错误签名与 QoS 指标，横向评估不同 provider。
 
 ### 2.1 需求承接与分配表
 
@@ -255,7 +255,9 @@ retry/reconnect/restore/replay neither double-charge nor create replay credit.
 <a id="des-builtin-default-system-prompt"></a>
 #### 默认配置到实际请求
 
-对应 [builtin 默认 prompt PRD](decision-provider-contract.prd.md#builtin-default-system-prompt)。本次选择保留现有策略，修正 PRD 把短样例误写成 fallback 的说法。默认值的两个现存位置为 `crates/oasis7/src/simulator/llm_defaults.rs` 与 `crates/oasis7/src/simulator/llm_agent.rs` 的 `DEFAULT_LLM_SYSTEM_PROMPT`；两者须与 PRD 独立文本一致。`LlmAgentConfig::from_env_with` 处理空值 fallback，TOML 读取沿原有效配置优先级，`effective_system_prompt` 再应用 runtime override，`PromptAssembler` 消费最终 `base_system_prompt`。
+对应 [builtin 默认 prompt PRD](decision-provider-contract.prd.md#builtin-default-system-prompt)。本次保留现有策略，修正 PRD 把短样例误写成 fallback 的说法。
+
+默认值的两个现存位置为 `crates/oasis7/src/simulator/llm_defaults.rs` 与 `crates/oasis7/src/simulator/llm_agent.rs` 的 `DEFAULT_LLM_SYSTEM_PROMPT`；两者须与 PRD 独立文本一致。`LlmAgentConfig::from_env_with` 处理空值 fallback，TOML 读取沿原有效配置优先级，`effective_system_prompt` 再应用 runtime override，`PromptAssembler` 消费最终 `base_system_prompt`。
 
 检查默认值时分别捕获 env-only、合法 TOML 省略/空白字段且无其他有效配置来源的实际请求；检查覆盖时提供不同的 TOML/env/runtime 文本，并验证当前优先级及清除 runtime override 后回到解析配置。不能只测常量相等而绕开 assembler，也不能用 config.example 中显式短句证明默认值。复用离线 capture fixture 即可，不需要模型凭据或付费请求。这个文档决定不修改 prompt profile、ProviderBacked 配置或 local bridge 的独立 prompt，也不代签输入完整性和最终预算验收。
 
@@ -321,7 +323,9 @@ provider response validator 或诊断 trace 均只能保持 `partial`。
 4. 估算口径须在实现与 fixture 中明确；`chars/4` 一类估算不等同真实 tokenizer。安全余量保留其用途，不能通过重命名统计项隐藏超限。工具集、schema、后追加文本或估算器改变时重新计算，超出预留上界视为预算检查失败。
 5. 允许发出请求之前，对将要序列化发送的完整 payload 校验必要语义和最终估算/预留总量。校验应先于新的 `complete`/HTTP 调用；若 assembler 与 transport 分层，则最终校验必须覆盖两者所有新增内容。该路径只发送已通过检查的同一份 payload。
 
-必要最小输入超过容量时返回稳定的“输入配置不足”原因，并沿既有可诊断错误/无动作 `Wait` 路径结束当前决定过程。诊断至少包含 profile、窗口/预留/有效容量、必要输入和最终输入的估算或上界、失败原因；不记录敏感原文。错误原因与 C0 调用次数耗尽可区分，具体编码由实现映射到既有错误体系。不得再发起该次模型请求、自动扩大预算、静默切换 profile 或以缺反馈候选继续；此前已发生的只读查询与诊断可保留，不被宣称为回滚或 committed world effect。恢复需要明确修正输入/profile 后重新发起，不能无条件重试相同不可容纳输入。
+必要最小输入超过容量时返回稳定的“输入配置不足”原因，并沿既有可诊断错误/无动作 `Wait` 路径结束当前决定过程。诊断至少包含 profile、窗口/预留/有效容量、必要输入和最终输入的估算或上界、失败原因；不记录敏感原文。错误原因与 C0 调用次数耗尽可区分，具体编码由实现映射到既有错误体系。
+
+不得再发起该次模型请求、自动扩大预算、静默切换 profile 或以缺反馈候选继续；此前已发生的只读查询与诊断可保留，不被宣称为回滚或 committed world effect。恢复需要明确修正输入/profile 后重新发起，不能无条件重试相同不可容纳输入。
 
 <a id="des-builtin-parameter-consistency"></a>
 

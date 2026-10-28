@@ -86,7 +86,7 @@ native 与 Web 复用同一 launcher UI 与控制面语义；Web 经既有 `/api
 
 - 数据不可用、链未就绪、查询失败或最近窗口不足时，explorer 的结果可能为空或失败；界面必须忠实呈现状态，不能把空白或历史缓存表示为成功。
 - 同一只读 UI 不能证明 runtime、共识、结算或网络性质；若文档未跟随实现更新，容易再次产生 authority 漂移。
-- 历史命名只能通过 Git 与 PR 与实际验证记录 追溯；任何将 “public chain” / “mainnet-grade” 外推为当前承诺的解释都无效。
+- 历史命名只能通过 Git、PR 与实际验证记录追溯；任何将 “public chain” / “mainnet-grade” 外推为当前承诺的解释都无效。
 
 ## 验收与追溯
 

@@ -39,7 +39,7 @@
 
 ## 3. 当前状态、目标状态与差距
 
-本表是固定基线源码事实与目标差距，不是执行台账。已迁出文件链接固定在原基线；当前共享客户端实现见 [SDK](../../../crates/oasis7_game_client/src/device_client.rs)，交付及剩余范围见 [Game API 当前实施范围](external-agent-game-api.design.md)。
+本表记录固定基线的源码事实与目标差距，不是执行台账。已迁出文件链接固定在原基线；当前共享客户端实现见 [SDK](../../../crates/oasis7_game_client/src/device_client.rs)，交付及剩余范围见 [Game API 当前实施范围](external-agent-game-api.design.md)。
 
 | 对象 | 固定基线事实及定位 | 目标与差距 |
 | --- | --- | --- |
@@ -55,7 +55,7 @@
 
 <a id="des-agc-001"></a>
 
-工程检查的测试归属：Game Client 协议/cache 单测禁止经 dev helper 回拉后端；Harness 与 Provider Local Bridge 的宿主禁令按 normal/build 生产闭包检查，测试仍编译实际 dev 输入，真实 World 集成留 Service/宿主，不将生产约束自动扩大到 dev。
+工程检查的测试归属：Game Client 协议/cache 单测禁止经 dev helper 回拉后端；Harness 与 Provider Local Bridge 的宿主禁令按 normal/build 生产闭包检查，测试仍编译实际 dev 输入，真实 World 集成留在 Service/宿主，不将生产约束自动扩大到 dev。
 
 ### DES-AGC-001：职责、依赖与复用边界
 
@@ -67,7 +67,9 @@ Provider loopback 消息由 `oasis7_agent_api` 统一声明：`DecisionRequest`�
 
 `oasis7_provider_local_bridge` 直接消费 Agent API、Client API 与 Simulator 的动作/事件数据类型，不依赖核心宿主，默认 features 为空；不转发 Wasmtime、libp2p 或 Viewer 宿主 features。Provider tools 的 demo 实际创建 World/WorldKernel、执行 runtime gameplay bridge 并读取世界结果，因此保留宿主依赖和对应默认 features；不能将运行世界的 demo 与纯 HTTP bridge 的依赖要求混同。
 
-独立读取的 `WorldReadProjectionV1` 保存原投影语义值作为规范签名及 commitment 的输入，并另行解析窄的 `WorldReadObservationV1`；不在客户端构造完整可执行 World。HTTP 只恢复既有公开 factory-build/material-transit action map 的数字 key，不转换数字形态的 Agent 或 governance 字符串 ID。这里保持规范 CBOR 签名与规范 JSON 投影承诺，不承诺任意普通 CBOR map 字段顺序。`DeviceClient::capabilities` 经既有原始 `/view` 读取使用该 DTO，同时执行原任务投影的 owner、task fence、feedback lineage、world/scope 和信任 pin 校验。普通 DTO 不能构造 verified view 或回读凭据；收到、pending、committed 及未知结果后按原 operation identity 查询的边界保持不变。
+独立读取的 `WorldReadProjectionV1` 保存原投影语义值作为规范签名及 commitment 的输入，并另行解析窄的 `WorldReadObservationV1`；不在客户端构造完整可执行 World。HTTP 只恢复既有公开 factory-build/material-transit action map 的数字 key，不转换数字形态的 Agent 或 governance 字符串 ID。这里保持规范 CBOR 签名与规范 JSON 投影承诺，不承诺任意普通 CBOR map 字段顺序。
+
+`DeviceClient::capabilities` 经既有原始 `/view` 读取使用该 DTO，同时执行原任务投影的 owner、task fence、feedback lineage、world/scope 和信任 pin 校验。普通 DTO 不能构造 verified view 或回读凭据；收到、pending、committed 及未知结果后按原 operation identity 查询的边界保持不变。
 
 
 ```text
@@ -112,7 +114,9 @@ SDK 和 Harness 的受支持 feature/target 依赖闭包不得反向包含主 `o
 
 完整目标、软约束和必需工具结果必须进入获授权模型上下文；不能为接旧 Harness 摘要而静默截断为旧长度。原始 `world-agent-state/v1` 不能强转成旧 ProviderObservation；缺少公开投影时先补主责接口或声明 unsupported，不读取 shadow World 的隐藏字段。不同 lane 的观察限界原样保留。
 
-模型历史的唯一归属由 [DES-BYOK-005](self-supplied-model-connection.design.md#des-byok-005) 明确：调用者快照模式每轮完整输入；Provider 结构化会话模式在首次/新 Context 提供完整当前输入，同一 Context 后续只递交增量和原 supplier ID 工具结果，不叠加累计 transcript。完整编码的输入预检在持久物理调用预留之前；typed `input_limit` 保留原件并明确阻塞，不自动新 slot、清历史或重置预算。该阻塞不取消已经受理的世界作业，Stop/fence 控制继续独立生效。
+模型历史的唯一归属由 [DES-BYOK-005](self-supplied-model-connection.design.md#des-byok-005) 明确：调用者快照模式每轮完整输入；Provider 结构化会话模式在首次/新 Context 提供完整当前输入，同一 Context 后续只递交增量和原 supplier ID 工具结果，不叠加累计 transcript。
+
+完整编码的输入预检在持久物理调用预留之前；typed `input_limit` 保留原件并明确阻塞，不自动新 slot、清历史或重置预算。该阻塞不取消已经受理的世界作业，Stop/fence 控制继续独立生效。
 
 当前 native Context 租期消费既有上限及 grant 到期限制，现有 profile 最多 16 ticks；客户端不续租、不改变世界时钟，也不自动用新 base 重签旧请求。长推理返回时先验证可用性；已过期则按 §7 保留原结果和终结/到期条件，再取得新 Context 重新规划。若持续世界推进使合法决策不能完成，应测量并由 Runtime/agent owner 另审活性方案，不松 TTL、tick 或 deadline 掩盖缺陷。
 
@@ -154,7 +158,11 @@ SDK 统一严格编码、签名、世界/主体/服务绑定验证、有限响�
 
 原 action 结果未知时只查原结果或按合同重投完全相同请求，不重新报价、换 action 或捕获新身份来替代该副作用。明确拒绝不必然释放活动 Context；原 outcome 也可能拒绝，按既有终结/租期条件收口后才取新 Context。查询权限被撤销时保持未知，不擅自恢复旧授权。
 
-过期 Context 的外部 CLI 恢复必须显式收口活动 turn，不能假设新建 Context 会自动清理。先查询原 prefix/action/outcome：prefix 必须已权威提交，且本地无竞争 action 或其他 outcome 原件；未知或 pending 先恢复原件。原 Context 严格超过 `valid_until_tick`、当前已验签任务仍 Active 且完整 fence 与原 Context 一致时，CLI 才可用缓存公共 prefix 身份和当前已验签 Runtime base 首次生成 `outcome --reason context_expired`，不解密过期私有正文，不续租或恢复过期业务授权。该 outcome 发送前持久化；后续只查询或重投完全相同原件，换 reason／base／nonce 均不能覆盖。只有该终止结果已 committed，当前任务仍授权，才捕获新 Context；拒绝、未知或 Stop 不代表可继续。Runtime 仍最终校验过期、fence 和终止准入。
+过期 Context 的外部 CLI 恢复必须显式收口活动 turn，不能假设新建 Context 会自动清理。先查询原 prefix/action/outcome：prefix 必须已权威提交，且本地无竞争 action 或其他 outcome 原件；未知或 pending 先恢复原件。
+
+原 Context 严格超过 `valid_until_tick`、当前已验签任务仍 Active 且完整 fence 与原 Context 一致时，CLI 才可用缓存公共 prefix 身份和当前已验签 Runtime base 首次生成 `outcome --reason context_expired`，不解密过期私有正文，不续租或恢复过期业务授权。该 outcome 发送前持久化；后续只查询或重投完全相同原件，换 reason／base／nonce 均不能覆盖。
+
+只有该终止结果已 committed，当前任务仍授权，才捕获新 Context；拒绝、未知或 Stop 不代表可继续。Runtime 仍最终校验过期、fence 和终止准入。
 
 只读恢复保留原身份与权限边界：原结果轮询只查询缓存请求；准备阶段只可重投已持久化的同一签名。传输失败、HTTP 503 和已分类的有界 cooldown 可在调用窗口内恢复，普通 403/409/429、签名或主体验证失败不自动重试。context read 仅在服务端重验当前权限、fence 与 TTL 后确认交付切点变化时返回 `task_context_read_delivery_drift`；factory/recipe quote 仅用 `task_quote_base_drift` / `task_quote_delivery_drift` 区分已知只读基准竞态。SDK 对这些固定路由/状态/代码的有限重读不续期、不换 Context/nonce、不改变业务选择；已有 action/outcome 时优先恢复原件，不再次报价。此机制不能消除响应返回到行动准入之间的世界变化，权威 `stale_base` 拒绝仍按原结果处理，后续新决策由执行方策略负责。
 
@@ -196,7 +204,9 @@ canonical 远端 cognition 的 `stale_base` 恢复反馈只在现有签名、任
 
 Stop 后该恢复 port 只保留当前权限允许的原件查询，不开始发送、重放或终止写；撤权后连查询也可能不可用。历史 fence 可用于结果关联，不恢复当前执行资格。服务端仍在提交/执行边界重验，客户端 `allowed next action` 只是当前观察下的建议，不是写授权。
 
-native port 返回 ContextReady、ActionCommitted、ContextTerminated 等可区分结果，并保留 Pending/Unknown/Rejected/Expired 与具体终止原因；沿用 Unknown→PendingOriginal 的调用者停止/报告语义；无业务效果的预算终止、abort、expiry retirement 不计为行动成功，也不合并其继续行为。Harness 继续拥有全 run slots 扫描屏障、immutable initial-run binding、预算、停止原因与继续/停止决策：后续 slot 未知必须阻止前面 slot 的过期终止；当前 fence 必须同时符合 initial-run 与 Context；终止 committed 后仍重检 Stop/取消。客户端只处理有界操作意图，不接管整个 run 策略。预算存储的合法使用无需随恢复封装一并迁移。
+native port 返回 ContextReady、ActionCommitted、ContextTerminated 等可区分结果，并保留 Pending/Unknown/Rejected/Expired 与具体终止原因；沿用 Unknown→PendingOriginal 的调用者停止/报告语义；无业务效果的预算终止、abort、expiry retirement 不计为行动成功，也不合并其继续行为。
+
+Harness 继续拥有全 run slots 扫描屏障、immutable initial-run binding、预算、停止原因与继续/停止决策：后续 slot 未知必须阻止前面 slot 的过期终止；当前 fence 必须同时符合 initial-run 与 Context；终止 committed 后仍重检 Stop/取消。客户端只处理有界操作意图，不接管整个 run 策略。预算存储的合法使用无需随恢复封装一并迁移。
 
 兼容迁移分为 native 包装与 browser participant/owner 两个可独立验证的切片，均消费同一 phase/disposition/next-action 合同；保留必要包装，不改加密格式、原始签名字节、存储身份、TTL、预算和 endpoint。旧记录缺 phase 一律保守未知；损坏/冲突/缺失不能静默换 nonce、补原件或声称无副作用。原 action 的 query-only、原 outcome 的收口、entry 的合法 exact replay 分别验证，不由统一方法扩张写权限。
 
@@ -229,7 +239,7 @@ Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；O7-REQ-a27895ed-2ca4-4
 <a id="des-agc-005"></a>
 ### DES-AGC-005：独立执行、身份与费用隔离
 
-同仓库模块边界优先于进程/仓库拆分。第一方执行器可由现有 launcher 组织启动；模型并发 worker 不逐 tick 启 CLI，不以创建大量微服务取得逻辑解耦。后续独立进程由实际隔离/容量收益决定，不改变公共合同。
+同仓库模块边界优先于进程/仓库拆分。第一方执行器可由现有 launcher 组织启动；模型并发 worker 不逐 tick 启 CLI，不靠创建大量微服务实现逻辑解耦。后续独立进程由实际隔离/容量收益决定，不改变公共合同。
 
 界面明确实际执行方、运行位置、启动/阻塞/停止、模型预算来源与当前合法 Agent。关闭 Viewer 不应销毁已独立运行的执行器；执行器退出不能伪报持续思考。没有独立托管能力就不声称云端仍在执行。进程/心跳与权威任务状态分别读取，不能用健康接口代签目标完成。
 
@@ -256,7 +266,7 @@ Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；O7-REQ-a27895ed-2ca4-4
 <a id="des-agc-006"></a>
 ### DES-AGC-006：按能力收口与旧路径退役
 
-迁移顺序是：盘点消费者与能力 → 抽 SDK/合同依赖且 CLI 行为不变 → 内置首个完整闭环走普通客户端 → 逐项迁移保留能力 → 关闭已迁移入口的旧 runner/callback → 删除无独立消费者的接线。首个闭环不是全量迁移的验收替代。
+迁移顺序：盘点消费者与能力 → 抽 SDK/合同依赖且 CLI 行为不变 → 内置首个完整闭环走普通客户端 → 逐项迁移保留能力 → 关闭已迁移入口的旧 runner/callback → 删除无独立消费者的接线。首个闭环不是全量迁移的验收替代。
 
 | 迁移对象 | 保留或迁出规则 | 关闭条件 |
 | --- | --- | --- |
@@ -270,11 +280,11 @@ Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；O7-REQ-a27895ed-2ca4-4
 
 `oasis7_game_client::legacy_profile::LegacyClientProfile` 默认使用保留原始签名/commitment 输入的 `WorldReadProjectionV1`，独立客户端无需 Runtime/World Service/Simulator。服务端 `ServiceClientProfile` 只将同一个客户端 profile 的投影参数绑定为旧完整 projection，保留现有宿主消费者；等这些 World 投影消费者迁完后才能删除该别名。Viewer/Provider 的 lease request → ReserveLease → durable signed checkpoint → Submit/Lookup 链路继续复用原签名 payload、nonce 与操作身份。continuation admission、transition、budget、resume 和 terminal/replan handoff 继续使用旧 profile；native task profile 的 unsupported legacy 解码拒绝保持不变。合同独立发布不是新执行能力、全量默认切换或旧 adapter 全部退役。
 
-每项能力映射至少说明原调用点、公开合同、目标路径、观察/权限范围、验证与保留/退役理由；可变台账在实现 Issue/PR，长期文档只保留支持边界。纯 DTO 共享、仅跑 mock、仅移文件或仅通过首样例都不满足全量收口。
+每项能力映射至少说明原调用点、公开合同、目标路径、观察/权限范围、验证与保留/退役理由；可变台账放在实现 Issue/PR，长期文档只保留支持边界。纯 DTO 共享、仅跑 mock、仅移文件或仅通过首样例都不满足全量收口。
 
 没有与全部保留能力对应的证据，不把新路径设为全量默认。新旧 profile 可以显式共存，但同一 Agent 不允许两个写入者；不能在运行失败后偷偷转旧通道。外部标准 HTTP 首期目标及两个真实 Runtime 的独立验收继续有效，Rust SDK 的成功不把公共 API 降级成 CLI-only 产品。
 
-客户端格式/类型迁移优先 wire 不变；如必须改变 schema 或历史变体，先明确读/写版本和部署兼容，再同步所有消费者。保留旧历史解码不等于允许旧身份发新请求。回滚只回到能读当前历史且符合当前授权的已知构建；不能撤销已提交成果、复活旧 epoch 或重发未知行动。不满足兼容时停用执行器并前向修复，不恢复特权路径。
+客户端格式/类型迁移优先保持 wire 不变；如必须改变 schema 或历史变体，先明确读/写版本和部署兼容，再同步所有消费者。保留旧历史解码不等于允许旧身份发新请求。回滚只回到能读当前历史且符合当前授权的已知构建；不能撤销已提交成果、复活旧 epoch 或重发未知行动。不满足兼容时停用执行器并前向修复，不恢复特权路径。
 
 ## 11. 验证设计与可追溯性
 

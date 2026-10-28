@@ -9,11 +9,11 @@
 审计轮次: 1
 
 ## 1. Executive Summary
-- Problem Statement: 当前 world-simulator 的 Agent 能力已经具备 `Observation -> AgentBehavior::decide -> AgentDecision -> runtime 校验/执行 -> DecisionTrace` 的完整闭环，但“世界内 Agent 契约”与“具体 LLM / agent 框架实现”仍高度耦合。若未来要评估 `Local Provider` 这类外部 agent framework 参与游戏模拟，缺少一个稳定的中间标准层，会导致接入成本高、风险边界不清、验证口径分散。
+- Problem Statement: 当前 world-simulator 的 Agent 已具备 `Observation -> AgentBehavior::decide -> AgentDecision -> runtime 校验/执行 -> DecisionTrace` 的完整闭环，但“世界内 Agent 契约”与“具体 LLM / agent 框架实现”仍高度耦合。若未来要评估 `Local Provider` 这类外部 agent framework 参与游戏模拟，缺少一个稳定的中间标准层，会导致接入成本高、风险边界不清、验证口径分散。
 - Proposed Solution: 在 world-simulator 的 Agent 层与具体 provider 之间维护 `Decision Provider` 标准层，冻结 `ObservationEnvelope / DecisionRequest / DecisionResponse / FeedbackEnvelope / TraceEnvelope` 这组内部契约；`Local Provider` 通过 adapter 作为可插拔外部 provider 接入，仅负责“决策建议与工具编排”，不替代 runtime 权威规则执行。当前已有 provider typed bridge 与显式 runtime seam；本轮设计升级把下一阶段重点放在 runtime 自动生成 subject-bound catalog/context、受信 semantic schema、typed args host encoding，以及未知制度 E2E 证明，不把这些目标误报为当前 production wiring。
 - Success Criteria:
   - SC-1: 明确 `runtime authoritative / provider advisory` 边界，任何外部 provider 都不得直接修改世界状态或绕过 kernel 校验。
-  - SC-2: 形成一套 provider-agnostic 的决策标准层契约，能够同时兼容现有本地 `LlmAgentBehavior` 与未来 `Local ProviderAdapter`。
+  - SC-2: 形成一套 provider-agnostic 的决策标准层契约，可同时兼容现有本地 `LlmAgentBehavior` 与未来 `Local ProviderAdapter`。
   - SC-3: 定义 `Local Provider` 可行性评估矩阵，覆盖动作映射、工具编排、记忆策略、错误语义、时延/成本与可观测性。
   - SC-4: 形成阶段化落地路线：`MockProvider -> Local Provider PoC -> 低频 NPC 试点 -> 扩面评估`。
   - SC-5: 外部 provider 的非法输出、超时、格式错或 schema 漂移均有统一失败策略，并可映射到 `Wait` 或 `ActionRejected`。
@@ -117,7 +117,7 @@
 事实。provider/transport failure 与恢复未决分别映射为 `failed` 与 `pending`。
 - Acceptance Criteria:
   - AC-1: 建立 `Decision Provider` 标准层专题文档，明确数据契约、边界、风险与验证口径。
-  - AC-2: 明确 `Local Provider` 的角色定位为“外部 provider / adapter”，而非 runtime / kernel 替代物。
+  - AC-2: 明确 `Local Provider` 的角色为“外部 provider / adapter”，而非 runtime / kernel 替代物。
   - AC-3: 文档中定义至少一条可执行 PoC 路线，要求先通过 `MockProvider` 与 fixture 验证，再进入 `Local Provider` 试点。
   - AC-4: 文档中冻结低频 NPC PoC 的最小动作映射策略：先在低频、低破坏性动作集上试点（例如 `wait`、`move`、`chat`、有限查询）；该试点的动作范围不能代替上游产品首局验收。
   - AC-5: 文档中定义统一失败策略与 trace 回写规范，保持与 `AgentDecisionTrace`、`ActionRejected`、viewer 调试面一致。

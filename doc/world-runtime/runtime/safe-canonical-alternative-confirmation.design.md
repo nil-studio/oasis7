@@ -74,7 +74,9 @@
 
 确认者必须在提交时具有对该目标与范围的当前控制/授权。范围只能来自其现有合法权限，不能因确认额外获得资源、组织或治理权。runtime 重验 confirmer、候选有效性、成本/风险范围和必要 authority；拒绝、过期、旧 generation、已替换目标、权限收缩或不支持的风险类型不形成执行授权。
 
-接受确认的同一事务锁定该 lineage 的选定候选，并创建唯一 `AlternativeAuthorizationV1`；此时仍不产生玩法效果。两个并发确认选择不同候选时，只有第一个有效提交可锁定选择，另一项明确返回冲突和原选择。对同候选的不同确认 ID 也不生成第二份授权；相同 confirmation identity 且同内容返回原结果，异内容冲突。若需要改选，只有尚未绑定 execution 的 lineage 才可通过显式取消旧授权、新 generation 和新确认处理；已绑定者只能恢复原执行，确知无效果后的新尝试遵循[新请求边界](#alternative-consumption)，不能覆盖原绑定。
+接受确认的同一事务锁定该 lineage 的选定候选，并创建唯一 `AlternativeAuthorizationV1`；此时仍不产生玩法效果。两个并发确认选择不同候选时，只有第一个有效提交可锁定选择，另一项明确返回冲突和原选择。对同候选的不同确认 ID 也不生成第二份授权；相同 confirmation identity 且同内容返回原结果，异内容冲突。
+
+若需要改选，只有尚未绑定 execution 的 lineage 才可通过显式取消旧授权、新 generation 和新确认处理；已绑定者只能恢复原执行，确知无效果后的新尝试遵循[新请求边界](#alternative-consumption)，不能覆盖原绑定。
 
 拒绝整组替代记录原请求下的拒绝，不自动选其他候选。候选有效期和确认授权期限使用权威世界时间 `[from, until)`，并且授权不能比被确认候选或基础 authority 的期限更长。尚未开始或已失效的权限都不能被确认补签。
 
@@ -133,7 +135,11 @@
 
 V1 每个原请求最多 8 个途经点，原目标最多 4096 UTF-8 字节；身份字段最多 256 字节。每 lineage 最多 8 代候选、完整单条控制记录最多 131072 字节，每世界最多 1024 个 lineage；容量用尽明确拒绝新记录，不删除历史去重事实、不截断安全说明或原件。超限整体拒绝，不截断授权说明。`SafeAlternativeCommandV1` 固定世界、genesis、branch、reorg、Agent、owner binding/generation 和独立 client operation ID。`Propose`、`Confirm`、`Execute`、`Cancel`、`Read` 分别使用 `safe_alternative.<operation>.v1` 签名域。原 chat 或工具签名不能重用为确认。所有入口消费同一 canonical 状态，native 模型工具不能签 owner 确认。
 
-确认仍只记录授权；执行使用固定授权与 execution identity，首效果前重新检查当前 owner、位置及相关规则。候选只能使用现有 canonical runtime 可核实的移动语义；若相关规则可能改变目标、成本或后果且不能界定，则停止评估。模拟器的分阶段移动不自动获得该能力。V1 在存在 module instance 或 active module registry 时返回 `evaluation_unavailable`，因为当前没有可以证明模块成本、改写与订阅后果的只读权威报价；不把内核零成本套用于模块世界。无关经济政策变化不失效候选，目标位置变为禁止位置或其他相关范围变化则拒绝后续效果。授权记录纳入现有 capability authorization root，旧版本若忽略记录会在恢复校验时失败；代价是发布控制元数据后，已捕获的 provider context 可能需要按既有新鲜度规则重新读取。候选预览仍不取得资源 hold、队列资格或玩法效果。未接入的入口和动作继续保持不可用；V1 编码存在不表示 SC-5 全部入口与 full 验收已通过。
+确认仍只记录授权；执行使用固定授权与 execution identity，首效果前重新检查当前 owner、位置及相关规则。候选只能使用现有 canonical runtime 可核实的移动语义；若相关规则可能改变目标、成本或后果且不能界定，则停止评估。模拟器的分阶段移动不自动获得该能力。
+
+V1 在存在 module instance 或 active module registry 时返回 `evaluation_unavailable`，因为当前没有可以证明模块成本、改写与订阅后果的只读权威报价；不把内核零成本套用于模块世界。无关经济政策变化不失效候选，目标位置变为禁止位置或其他相关范围变化则拒绝后续效果。
+
+授权记录纳入现有 capability authorization root，旧版本若忽略记录会在恢复校验时失败；代价是发布控制元数据后，已捕获的 provider context 可能需要按既有新鲜度规则重新读取。候选预览仍不取得资源 hold、队列资格或玩法效果。未接入的入口和动作继续保持不可用；V1 编码存在不表示 SC-5 全部入口与 full 验收已通过。
 
 ## 7. 状态、事务与持久化
 
@@ -190,9 +196,9 @@ snapshot/journal 共同保留原 request/digest、eligibility/no-effect 证明�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [canonical 替代比较](../../product/world-rules-core-gameplay/prd.md#root-sc5-altcompare)；Trace refs: O7-REQ-d76b49a6-01a7-46db-968b-23bfd35fc295 | [原请求与候选](#alternative-candidates) | 单/多候选全部比较维度、安全未知和无安全候选停止。 | `ALT-VERIFY-001`；原 required 固定候选与各入口真实 producer/reader。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的只读前后状态、比较数据和真实 surface captures。 | 文档和模型 fixture 不证明生产接入或真人理解。 |
-| [替代的明确授权与无效果预览](../../product/world-rules-core-gameplay/prd.md#root-sc5-altauth)；Trace refs: O7-REQ-7326a105-57ef-4cf4-823c-2755c539671b | [明确确认协议](#alternative-confirmation) | 精确范围独立确认，首效果前当前授权及单次消费。 | `ALT-VERIFY-001`、`002`；required 正负例及原 full 权限收缩/替换。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实确认消息、授权/执行绑定、原子前后差分。 | 普通 owner 签名、quote、test-only proposed 不代签。 |
-| [替代失效与单次结果](../../product/world-rules-core-gameplay/prd.md#root-sc5-altrepeat)；Trace refs: O7-REQ-ea9640b0-fb39-4fde-9ec1-69e25c448ba5 | [唯一执行与结果协议](#alternative-consumption) | 重连/并发/拒绝/失效无重复或隐式执行；完整原请求因果可读。 | `ALT-VERIFY-002`、`003`；required 恢复与 full 跨入口关联，固定实际 candidate/runtime/authority。；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的唯一执行/receipt、资源及持久化对账和各入口观察。 | 本文没有运行证据；不证明未知外部 adapter、全部间接控制或发布。 |
+| [canonical 替代比较](../../product/world-rules-core-gameplay/prd.md#root-sc5-altcompare)；Trace refs: O7-REQ-d76b49a6-01a7-46db-968b-23bfd35fc295 | [原请求与候选](#alternative-candidates) | 单/多候选全部比较维度、安全未知和无安全候选停止。 | `ALT-VERIFY-001`；原 required 固定候选与各入口真实 producer/reader；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的只读前后状态、比较数据和真实 surface captures。 | 文档和模型 fixture 不证明生产接入或真人理解。 |
+| [替代的明确授权与无效果预览](../../product/world-rules-core-gameplay/prd.md#root-sc5-altauth)；Trace refs: O7-REQ-7326a105-57ef-4cf4-823c-2755c539671b | [明确确认协议](#alternative-confirmation) | 精确范围独立确认，首效果前当前授权及单次消费。 | `ALT-VERIFY-001`、`002`；required 正负例及原 full 权限收缩/替换；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实确认消息、授权/执行绑定、原子前后差分。 | 普通 owner 签名、quote、test-only proposed 不代签。 |
+| [替代失效与单次结果](../../product/world-rules-core-gameplay/prd.md#root-sc5-altrepeat)；Trace refs: O7-REQ-ea9640b0-fb39-4fde-9ec1-69e25c448ba5 | [唯一执行与结果协议](#alternative-consumption) | 重连/并发/拒绝/失效无重复或隐式执行；完整原请求因果可读。 | `ALT-VERIFY-002`、`003`；required 恢复与 full 跨入口关联，固定实际 candidate/runtime/authority；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的唯一执行/receipt、资源及持久化对账和各入口观察。 | 本文没有运行证据；不证明未知外部 adapter、全部间接控制或发布。 |
 
 ## 12. 决策、长期风险与未决问题
 
@@ -203,4 +209,4 @@ snapshot/journal 共同保留原 request/digest、eligibility/no-effect 证明�
 | 原结果未知先恢复，不生成新替代执行 | 避免双重承诺；恢复不可用时会明确阻塞。runtime / harness。 | 原 operation 查询/retention 改变时复核；缺原件前不允许放宽。 |
 | 候选构造可迭代，合法性与已发布摘要必须确定 | 保留模型建议价值且不让模型成为 authority；无可验证候选时停止。gameplay / Agent / runtime。 | 扩展可支持 canonical 行为或风险分类时先提供真实能力及验收样例。 |
 
-本设计已经确定逻辑协议，具体 wire 编码、资源限额和接入 API 版本需在实现中保持这些合同并验证兼容；未完成入口不得宣称已支持。权限和持久化实现变更按[开发流程规范](../../engineering/workflow/source-of-truth.md)接受独立评审，文档补齐不替代实际验证。
+本设计已确定逻辑协议，具体 wire 编码、资源限额和接入 API 版本需在实现中保持这些合同并验证兼容；未完成入口不得宣称已支持。权限和持久化实现变更按[开发流程规范](../../engineering/workflow/source-of-truth.md)接受独立评审，文档补齐不替代实际验证。

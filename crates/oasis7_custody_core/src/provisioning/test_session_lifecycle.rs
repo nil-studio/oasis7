@@ -330,7 +330,15 @@ impl AccountProvisionApprovalState {
             current.source_operation_id,
             purpose.source_funding(),
         )?;
-        if !id(attempt_id) || action.transport_attempts.iter().any(|v| v == attempt_id) {
+        if !id(attempt_id)
+            || self
+                .test_sessions
+                .get(session_id)
+                .ok_or_else(invalid)?
+                .purpose_http_admissions
+                .contains_key(attempt_id)
+            || action.transport_attempts.iter().any(|v| v == attempt_id)
+        {
             return Err(ProvisionApprovalError::Conflict);
         }
         verifier.verify(&self.test_session_live_checks(session_id, purpose, current, now)?)?;
@@ -364,6 +372,7 @@ impl AccountProvisionApprovalState {
             || s.consumed_at.is_none()
             || self.frozen()
             || s.control_transports.contains_key(attempt_id)
+            || s.purpose_http_admissions.contains_key(attempt_id)
             || now.get()
                 >= admission::pairing(&s.input.request.intent)?
                     .3
@@ -403,7 +412,13 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<()> {
         self.test_session_local(id, purpose, now)?;
-        if !id_nonempty(attempt_id)
+        if self
+            .test_sessions
+            .get(id)
+            .ok_or_else(invalid)?
+            .purpose_http_admissions
+            .contains_key(attempt_id)
+            || !id_nonempty(attempt_id)
             || self
                 .test_sessions
                 .get(id)
@@ -426,24 +441,5 @@ impl AccountProvisionApprovalState {
         next.validate_persistence()?;
         *self = next;
         Ok(())
-    }
-    pub fn charge_test_session_purpose_http_attempt(
-        &mut self,
-        id: &str,
-        purpose: SessionPurposeV1,
-        proof: &HttpPossessionReceipt,
-        now: UnixMillis,
-    ) -> Result<()> {
-        if purpose == SessionPurposeV1::TerminationPlan {
-            return Err(invalid());
-        }
-        let s = self.test_session_local(id, purpose, now)?;
-        roots::authenticated_receipt(s, purpose, proof, now)?;
-        self.reserve_test_session_purpose_transport(
-            id,
-            purpose,
-            &proof.transport_attempt_digest(),
-            now,
-        )
     }
 }

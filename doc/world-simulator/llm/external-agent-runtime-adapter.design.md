@@ -6,7 +6,7 @@
 - 产品入口：[外部 Runtime 游玩](../../product/agents-world-simulation/external-agent-runtime-play.prd.md)；[玩家与 Runtime 协作](../../product/agents-world-simulation/player-runtime-collaboration.prd.md)。
 - 系统总入口：[LLM / external runtime 系统入口](README.md)；写作规范：[系统设计规范](../../engineering/doc-governance/system-design-writing-standard.design.md)。
 
-本文中的新组件、路由、记录和测试场景均为后续实施输入。`accepted` 只表示所属权威已受理，世界效果必须读取既有权威回执；文档合入不代表这些接口已经上线。
+本文的新组件、路由、记录和测试场景均为后续实施输入。`accepted` 只表示所属权威已受理，世界效果必须读取既有权威回执；文档合入不代表这些接口已经上线。
 
 ## 1. 问题、目标与非目标
 
@@ -99,7 +99,7 @@ executor 仍使用独立短范围凭据和真实 delegation，复用原控制/�
 
 **OpenClaw driver**：使用用户已授权 Gateway 的 WS/RPC 会话，固定 agent/session 与调用关联；提交、等待/读取结果和会话历史映射为同一运行记录。Gateway token 只在 worker 本地，网页不直连用户 Gateway。CLI 路径仅作明确选择的 profile：`openclaw agent` 的 timeout 以秒为单位，worker 的整体预算独立控制。Gateway transport timeout 可能意味着任务已经接受，必须先核对原 run/session；禁止自动改跑 `--local` 或重建 session 来“恢复”。没有可靠完成/取消读回能力时标记 run_unknown，暂停新调用而不是重复推理。
 
-以上 method 和命令来自官方接口，但其实际可用性需要每个目标版本单独验证。驱动 manifest 记录 runtime version、协议/schema hash、模型/profile、sandbox/approval policy、resume/cancel/result-query 支持和已验证平台；不把 README 中的名称作为兼容保证。
+以上 method 和命令来自官方接口，但其实际可用性需按目标版本分别验证。驱动 manifest 记录 runtime version、协议/schema hash、模型/profile、sandbox/approval policy、resume/cancel/result-query 支持和已验证平台；不把 README 中的名称作为兼容保证。
 
 ## 6. 接口与数据合同
 
@@ -146,7 +146,7 @@ GameRequest 是一个受限 HTTP 请求适配工具，不是完整游戏 CLI 产
 
 发行资产包含 source commit、Skill 版本、每文件 SHA-256、API major、driver profile 和所需能力；来源应由受信 release/签名发布链验证，不能只拿同一不可信下载站的 checksum 自证。安装明确选择目标 Runtime 的受支持 skill root，不覆盖用户同名内容；拒绝越界路径、符号链接逃逸和自动高权限安装。升级原子替换、会话下一轮重新确认有效 Skill 版本；不兼容 API 则停止，不静默使用旧说明。
 
-Skill 必须教会：确认目标世界/身份 → 获取当前 task/goal → 动态发现能力 → 保留原 operation ID → 查询结果 → 区分问答/授权 → 处理 stop、版本变化和历史缺口。常驻、后台及付费条件用明确说明表达；Skill 不含 token、系统密码、自动充值或停不下来的无限循环脚本。
+Skill 必须教会：确认目标世界/身份 → 获取当前 task/goal → 动态发现能力 → 保留原 operation ID → 查询结果 → 区分问答/授权 → 处理 stop、版本变化和历史缺口。明确说明常驻、后台及付费条件；Skill 不含 token、系统密码、自动充值或停不下来的无限循环脚本。
 
 ## 7. 状态、事务与持久化
 

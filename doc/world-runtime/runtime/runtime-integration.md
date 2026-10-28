@@ -114,16 +114,24 @@ Agent-owned session/turn/provider/context/memory/goal 合同见
 - 审计导出支持 `module_call_failed` 与 `governance` 记录
 
 ## 集成合同的适用设计视图
-owner runtime_engineer；本分册是 active runtime integration design，旧“草案”标题和接口清单保留其历史/混合成熟度，不宣告每个接口已持久完成。审读输入 eng-cc/oasis7@f9d5a552d9af04c1b1398262808198a58e560230，当前实现以对应源码入口为准，测试定义不等于已运行。目标是 sandbox/module/LLM 输出经统一 Kernel/proof/transaction 边界；非目标是重定义 ABI、Agent cognition、BFT 或消费者 DTO。
+owner runtime_engineer；本分册是 active runtime integration design，旧“草案”标题和接口清单保留其历史/混合成熟度，不宣告每个接口已持久完成。审读输入 eng-cc/oasis7@f9d5a552d9af04c1b1398262808198a58e560230，当前实现以对应源码入口为准，测试定义不等于已运行。
+
+目标是 sandbox/module/LLM 输出经统一 Kernel/proof/transaction 边界；非目标是重定义 ABI、Agent cognition、BFT 或消费者 DTO。
 
 <a id="integration-module-boundary"></a>
 ### Module 输入输出与外部 authority
-wasm_hash 唯一加载键、cache/LRU、Canonical CBOR、memory/alloc/reduce/call、输出 limits、pure new_state 拒绝及全部错误码仍按旧文。wire/default/extension/schema 的权威为 [WASM interface](../wasm/wasm-interface.md)、[executor PRD](../wasm/wasm-executor.prd.md)；sandbox 只隔离计量，不赋资源/策略/最终性。ModuleContext 的当前 manifest hash 是已选版本的上下文，不是客户端选版权。历史调用需要 [root version 设计](../design.md#runtime-version-design) 的原 block manifest/artifact binding，missing/mismatch 失败关闭；cache hit/编译成功不证明 activation。epoch/watchdog 本地安全界不变成 consensus clock。
+wasm_hash 唯一加载键、cache/LRU、Canonical CBOR、memory/alloc/reduce/call、输出 limits、pure new_state 拒绝及全部错误码仍按旧文。wire/default/extension/schema 的权威为 [WASM interface](../wasm/wasm-interface.md)、[executor PRD](../wasm/wasm-executor.prd.md)；sandbox 只隔离计量，不赋资源/策略/最终性。
+
+ModuleContext 的当前 manifest hash 是已选版本的上下文，不是客户端选版权。历史调用需要 [root version 设计](../design.md#runtime-version-design) 的原 block manifest/artifact binding，missing/mismatch 失败关闭；cache hit/编译成功不证明 activation。epoch/watchdog 本地安全界不变成 consensus clock。
+
 Action/Event 从 envelope/ctx.stage 输入，按 instance_id 确定排序/隔离，legacy module_id fallback 只用于旧无实例记录。pre_action/post_action/post_event 及无效 subscriptions 规则保持原文。旧 post_event “已落盘”指 canonical event append/routing 后的阶段；没有 filesystem generation proof 时不能据此声明 fsync/durable commit。output/cap_ref/required_caps/policy/limits preflight 在 root stage；失败丢弃业务输出，既有单独 ModuleCallFailed audit 的有界顺序保持 root §5/6 原文，不扩展为完整 receipt 原子性。
 
 <a id="integration-state-persistence"></a>
 ### 状态、事务与持久化
-reducer state/new_state、module instance/registry、scheduler wake、pending effect 是不同持久事实；输入输出是候选，Kernel apply 后才为 canonical。目标统一 buffer 同时 prepare module state、费用、effects/emits、allocator/queue/journal/consensus，publish 前不改 live state；当前 direct/trusted 和 governed proposal typed stages 已有有界保证，step cloned boundary/其他生命周期/receipt/outbox/generation 整体仍 partial。事务失败不能消费 queue/费用/ID，infrastructure failure 不伪装业务拒绝。持久化用 [root generation/replay 合同](../design.md#runtime-pending-design) 及 ModuleStore integrity；replay 原事件/state 不重新调用 LLM，外部 effect 由目标 durable outbox postcommit 投递。通用 signed pending/lineage/service schemas 未完成，现有 effect queue 不能代签。
+reducer state/new_state、module instance/registry、scheduler wake、pending effect 是不同持久事实；输入输出是候选，Kernel apply 后才为 canonical。目标统一 buffer 同时 prepare module state、费用、effects/emits、allocator/queue/journal/consensus，publish 前不改 live state；当前 direct/trusted 和 governed proposal typed stages 已有有界保证，step cloned boundary/其他生命周期/receipt/outbox/generation 整体仍 partial。事务失败不能消费 queue/费用/ID，infrastructure failure 不伪装业务拒绝。
+
+持久化用 [root generation/replay 合同](../design.md#runtime-pending-design) 及 ModuleStore integrity；replay 原事件/state 不重新调用 LLM，外部 effect 由目标 durable outbox postcommit 投递。通用 signed pending/lineage/service schemas 未完成，现有 effect queue 不能代签。
+
 LLM observation/decision/provider/context/memory/goal 依赖原 cognition/harness authority，推理失败/accepted acknowledgement 不产生世界效果。消费者受 [pending](../design.md#runtime-pending-design)、[lineage](../design.md#runtime-lineage-design)、[service](../design.md#runtime-recovery-design)、[world scope](../design.md#runtime-world-scope-design) 约束，只以 committed receipt 改结论，本节不新增 DTO/UI。
 
 <a id="module-tick-journal-replay"></a>

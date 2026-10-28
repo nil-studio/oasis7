@@ -69,7 +69,7 @@ Runtime、consensus 与 node 的权威状态不得因整数越界、隐式窄化
 - 涉及 replay/recovery 的路径必须验证拒绝结果可观测，且不会生成新的 committed history。
 - rollover 必须验证边界分配、snapshot roundtrip 与缺失 era 字段的 legacy load；它只消除溢出失效，纯 `u64` ID 在不同 era 极端远期仍可能复用，不能表述为全链路复合 ID 唯一性。
 - Action allocator 必须通过 [J1 计划验收](runtime-numeric-safety.design.md#numeric-action-allocator-validation)：从合法 finalized checkpoint C<T 加完整非空 suffix 恢复，在权限、资源、版本与输入相同的对照中，新 recipe 正常完成一次且不复用既有 settled job；另独立验证多事件/拒绝、预分配/pending、rollover、旧 tail 与各恢复入口。root 相同或“效果至多一次”不能替代该正向续跑结果。
-- 文档或实现若改变受检失败、rollover、clamp 三者之一，必须同步更新本文、对应 design、相关测试与 PR 与实际验证记录。
+- 文档或实现若改变受检失败、rollover、clamp 三者之一，必须同步更新本文、对应 design、相关测试、PR 与实际验证记录。
 
 ## 5. 里程碑
 

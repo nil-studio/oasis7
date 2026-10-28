@@ -80,11 +80,17 @@ WasmObservationWindowV1 是 target diagnostic projection：`{schema_version:"Was
 
 同 node/process 窗口以 cumulative snapshot 求 checked delta；observed_since 改变或 counter 回退即缩窗且标 reset，不跨 restart 求负 delta。start<=end；no traffic 样本不给 percentile；bucket-derived percentile 只能从同窗口固定 buckets 计算且注明 bucket 精度，不能伪造精确 latency。metrics lock poisoned/unavailable 返回 bounded degraded reason，执行主路径继续；top_hotspots<=10，裁剪显式 truncated，禁止 raw payload/trace/keys/auth proof。默认 status<=64KiB、top-N<=128KiB、instrumentation overhead目标<=10% 沿用 PRD NFR，不用本次未运行宣称达标。
 
-当前 executor `call_wall_ms_buckets` 与 router `prepare_ms_buckets` / `match_ms_buckets` 按首个满足 `elapsed_ms <= threshold` 的桶递增，因此每个 label 表示互斥频数；有限上界依次为 1、5、10、25、50、100、250、500、1000ms，首桶包含 `[0,1]`，后续有限桶依次为 `(previous_threshold, upper_threshold]`，`gt_1000_ms` 为 `>1000`。不能按 cumulative upper-bound counts 解释。仓库本地 monitor 对同窗各桶取非负 delta，将有限桶与 overflow delta 求和为样本数 `N`，p50/p95 使用 nearest-rank `r=ceil(N*p/100)=(N*p+99)//100`，按阈值顺序累加频数至首个达到 `r` 的桶；输出桶边界和全窗 `samples=N`，不插值。`N=0` 时 percentile 为空；rank 落入 overflow 时上界为空、下界为 1000ms。`observed_since_unix_ms` 改变或已有被监测 aggregate counter 回退时，reset 样本成为新窗口基线，不跨 reset 计数；monitor 不另行推断 histogram-map 回退。
+当前 executor `call_wall_ms_buckets` 与 router `prepare_ms_buckets` / `match_ms_buckets` 按首个满足 `elapsed_ms <= threshold` 的桶递增，因此每个 label 表示互斥频数；有限上界依次为 1、5、10、25、50、100、250、500、1000ms，首桶包含 `[0,1]`，后续有限桶依次为 `(previous_threshold, upper_threshold]`，`gt_1000_ms` 为 `>1000`。不能按 cumulative upper-bound counts 解释。
+
+仓库本地 monitor 对同窗各桶取非负 delta，将有限桶与 overflow delta 求和为样本数 `N`，p50/p95 使用 nearest-rank `r=ceil(N*p/100)=(N*p+99)//100`，按阈值顺序累加频数至首个达到 `r` 的桶；输出桶边界和全窗 `samples=N`，不插值。
+
+`N=0` 时 percentile 为空；rank 落入 overflow 时上界为空、下界为 1000ms。`observed_since_unix_ms` 改变或已有被监测 aggregate counter 回退时，reset 样本成为新窗口基线，不跨 reset 计数；monitor 不另行推断 histogram-map 回退。
 
 以上 p50/p95 是本地、未版本化 monitor summary 的派生值，沿用 `window.executor.p50_call_ms` / `p95_call_ms`、`window.router.p50_match_ms` / `p95_match_ms` 路径及 `{bucket_label,upper_bound_ms,lower_bound_ms,samples}` 对象形状。status snapshot 的 producer 字段及 JSON 数字格式保持现状；本地 monitor 修复不会激活 `WasmObservationWindowV1`、加入 status schema/version 字段或改变 endpoint 表示。`WasmObservationWindowV1` 仍是后续 consumer 显式协商的 target diagnostic projection。
 
-当前源码复核于 `f97f2253cdcb163bf984e3c90d59d792fe1c9b19`（2026-10-15），仅静态核读。当前已有 code locations 为 build suite timing、executor/router shared snapshots、status_payload.wasm 和 monitor/module_observe。它们仅 located implementation anchors：`tools/wasm_build_suite/src/lib.rs`、`crates/oasis7_wasm_executor/src/lib.rs`、`crates/oasis7_wasm_router/src/lib.rs`、`crates/oasis7_chain_runtime/src/host/status_payload.rs`、`scripts/oasis7-node-wasm-metrics-monitor.test.sh`、`tools/wasm_module_observe`；本次未执行。module observe contract/perf 不等于 functional/release/DC5 proof。观测 restart/reset、zero traffic、degraded lock、top11 clipping、dry_run missing timing、repeat0 rejection、changed locator equal bytes 必须各有 fixture。新字段 consumer 显式版本协商；rollback 原 reader 不能静默误解新版本，也不得影响执行状态。
+当前源码复核于 `f97f2253cdcb163bf984e3c90d59d792fe1c9b19`（2026-10-15），仅静态核读。当前已有 code locations 为 build suite timing、executor/router shared snapshots、status_payload.wasm 和 monitor/module_observe。它们仅 located implementation anchors：`tools/wasm_build_suite/src/lib.rs`、`crates/oasis7_wasm_executor/src/lib.rs`、`crates/oasis7_wasm_router/src/lib.rs`、`crates/oasis7_chain_runtime/src/host/status_payload.rs`、`scripts/oasis7-node-wasm-metrics-monitor.test.sh`、`tools/wasm_module_observe`；本次未执行。
+
+module observe contract/perf 不等于 functional/release/DC5 proof。观测 restart/reset、zero traffic、degraded lock、top11 clipping、dry_run missing timing、repeat0 rejection、changed locator equal bytes 必须各有 fixture。新字段 consumer 显式版本协商；rollback 原 reader 不能静默误解新版本，也不得影响执行状态。
 
 
 ## 7. 状态、事务与持久化
@@ -238,7 +244,7 @@ oasis7_wasm_router        |
   - 读取 status samples
   - 适合计算窗口 delta、bucket 派生 p50/p95、top hotspot
 
-这三层明确分工，避免“单次构建耗时”和“进程累计执行耗时”混在一个 schema 里。
+三层分工明确，避免在同一 schema 中混合“单次构建耗时”和“进程累计执行耗时”。
 
 <a id="obs-build"></a>
 ### 5.2 Build Timing Contract
@@ -342,7 +348,11 @@ oasis7_wasm_router        |
 <a id="obs-summary"></a>
 ### 5.7 External Summary Script
 
-当前 monitor 的三种时间口径必须分开：reset-aware runtime窗口至少需要两份可用executor/router样本，从最后reset样本缩窗；stage热点与percentile来自该窗口delta。module hotspot取latest cumulative bounded top-N，不对两个topN集合做差；build timing也是latest snapshot，build timestamp churn不重置runtime窗口。对应测试分别为check_module_hotspot_window、check_build_timestamp_churn_keeps_runtime_window与check_single_sample_compat。
+当前 monitor 的三种时间口径必须分开：reset-aware runtime窗口至少需要两份可用executor/router样本，从最后reset样本缩窗；stage热点与percentile来自该窗口delta。
+
+module hotspot取latest cumulative bounded top-N，不对两个topN集合做差；build timing也是latest snapshot，build timestamp churn不重置runtime窗口。
+
+对应测试分别为check_module_hotspot_window、check_build_timestamp_churn_keeps_runtime_window与check_single_sample_compat。
 新增 repo-owned summary 入口，职责是：
 - 读取多次 `/v1/chain/status` 采样
 - 识别 `observed_since_unix_ms` reset
@@ -362,7 +372,9 @@ oasis7_wasm_router        |
 <a id="obs-capacity"></a>
 ### 5.8 Cardinality 与 Payload Guardrails
 
-当前executor最多跟踪256个独立module键，超额聚合到额外overflow键；输出按wall_ms_total、calls_total、module_id稳定排序后取top10，ID按UTF-8边界限制120 bytes。此结构上界不等于完整status满足64/128KiB，不证明truncated目标已实现。poisoned snapshot返回不可用原因，update锁失败直接返回；尚需真实主调用测试证明执行不中断。
+当前executor最多跟踪256个独立module键，超额聚合到额外overflow键；输出按wall_ms_total、calls_total、module_id稳定排序后取top10，ID按UTF-8边界限制120 bytes。
+
+此结构上界不等于完整status满足64/128KiB，不证明truncated目标已实现。poisoned snapshot返回不可用原因，update锁失败直接返回；尚需真实主调用测试证明执行不中断。
 默认 guardrails：
 - 禁止 `trace_id`
 - 禁止原始 input/output bytes

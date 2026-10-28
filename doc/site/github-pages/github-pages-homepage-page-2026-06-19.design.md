@@ -32,7 +32,7 @@ docs hub, story reader, release page, or viewer runtime surface.
 <a id="2-first-viewport-requirements"></a>
 ## 2. First Viewport Requirements（首屏设计条款）
 
-The first viewport must make these points visible without requiring a scroll:
+The first viewport must make these points visible without scrolling:
 
 - `oasis7` is an AI Agent civilization simulation game.
 - The world is a fractured asteroid-belt civilization under resource pressure.

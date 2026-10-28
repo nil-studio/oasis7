@@ -8,11 +8,11 @@
 - 想先回答 world-simulator 在做什么、覆盖哪些边界：`doc/world-simulator/prd.md`
 - 想看当前执行任务、负责人、测试层级与最新完成态：对应 GitHub task issue / Project。
 - 想确认 Viewer / player-facing surface 的统一视觉设计规范：`doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md`；涉及 brand book、token、icon/status、资产准入和截图矩阵时读 `doc/world-simulator/viewer/viewer-brand-system-2026-06-05.design.md`
-- 想先进入 Viewer 热点子域，而不是在专题文件中盲扫：`doc/world-simulator/viewer/README.md`
-- 想先进入 Launcher 热点子域，而不是在专题文件中盲扫：`doc/world-simulator/launcher/README.md`
+- 想按问题进入 Viewer 热点子域：`doc/world-simulator/viewer/README.md`
+- 想按问题进入 Launcher 热点子域：`doc/world-simulator/launcher/README.md`
 - 想先进入场景初始化、seed/location 或 asteroid-fragment 主题，而不是在场景专题三件套中逐项找：`doc/world-simulator/scenario/README.md`
 - 想执行 Viewer、走 Web 闭环或查操作步骤：`doc/world-simulator/viewer/viewer-manual.manual.md`
-- 想按子域或文件名继续下钻，而不是从长表里逐行找：`doc/world-simulator/prd.index.md`
+- 想按子域或文件名继续查找：`doc/world-simulator/prd.index.md`
 - 想给仓库外读者分享公开可读手册：`site/doc/cn/viewer-manual.html` / `site/doc/en/viewer-manual.html`
 
 ## 入口
@@ -55,7 +55,7 @@
 
 ## 高密度提示
 - 本页不维护容易漂移的文件数量快照；当前模块库存与热点子目录统一以 `./scripts/doc-inventory-report.sh` 为准。
-- 模块级入口只负责把你送到 `viewer/README.md` 或 `launcher/README.md`，不再在根入口直接承担子域分流。
+- 模块级入口只负责引导至 `viewer/README.md` 或 `launcher/README.md`，不再在根入口直接承担子域分流。
 - 需要完整活跃专题清单时，进入 `doc/world-simulator/prd.index.md`；需要历史回溯时，再按具体任务或专题路径进入。
 
 ## 根目录 legacy

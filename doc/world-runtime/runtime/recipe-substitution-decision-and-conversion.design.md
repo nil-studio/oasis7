@@ -8,7 +8,7 @@
 
 ## 1. 问题、目标与非目标
 
-同材料更换来源、异材料替代与换配方具有不同的资格和产出因果。普通排产直接消费输入，不能兼任“记录一次替代选择”的动作；仅看到选择成功也不能声称材料已经转换。本设计冻结候选判定、明确确认、独立 decision、实际 conversion、数量/残余结算与恢复的完整关系。
+同材料更换来源、异材料替代与换配方具有不同的资格和产出因果。普通排产直接消费输入，不能兼任“记录一次替代选择”的动作；选择成功也不代表材料已经转换。本设计冻结候选判定、明确确认、独立 decision、实际 conversion、数量/残余结算与恢复的完整关系。
 
 成功结果是合法候选逐项可解释，preview 与 decision-only 不产生 sink、credit、conversion、稳定 `W` 或 reward；只有 profile 明示且实际发生的转换产生独立 linked settlement/provenance。任何切换、拆分、并发、重连和恢复都不能复制原料、转换、产物或进度。
 
@@ -153,7 +153,7 @@ decision-only 事务只写选择、child、幂等与 decision receipt。每次�
 
 恢复必须同时载入 decision/confirmation、converter/profile 的固定版本、root/revision/input/join、源 lot 消费与残余、已结输出、WIP/remaining obligations、授权/撤销、时间与 receipt/去重索引。缺任何必需依赖时可诊断读取但不执行；不能用新版比例重新计算旧 WIP、以当前余额反推未 sink，或从 decision 补造 settlement。canonical replay 重建已记录效果，不发新转换/物流请求、不增加时间、稳定 `W` 或奖励。
 
-同一个源 lot 在转换、普通 join、return 与 salvage 之间通过同一账本/工作图争用；同 tick 稳定顺序及 expected revision 决定合法赢家，失败方不得观察部分输出。源消费与目的可消费资格共同可追溯；conversion settlement 只授予其声明范围的材料使用，不自动完成 production、terminal、需求扣减或 reward。
+同一源 lot 在转换、普通 join、return 与 salvage 之间通过同一账本/工作图争用；同 tick 稳定顺序及 expected revision 决定合法赢家，失败方不得观察部分输出。源消费与目的可消费资格共同可追溯；conversion settlement 只授予其声明范围的材料使用，不自动完成 production、terminal、需求扣减或 reward。
 
 ## 8. 部署、安全与运行约束
 

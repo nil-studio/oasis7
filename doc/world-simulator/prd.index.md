@@ -6,7 +6,7 @@
 
 ## 用途
 - 本页是 `world-simulator` 的文件级索引，优先用于按文件名精确检索、确认配对关系与维持互链可达性。
-- 如果你是第一次进入本模块，先读 `doc/world-simulator/README.md`；需要规格或执行真值时，分别读 `prd.md` / 对应 GitHub task issue。
+- 首次进入本模块，先读 `doc/world-simulator/README.md`；需要规格或执行真值时，分别读 `prd.md` / 对应 GitHub task issue。
 
 ## 入口
 - 模块 PRD：`doc/world-simulator/prd.md`
@@ -57,9 +57,9 @@
 - historical world-simulator PRD review checklist snapshot（后续已删除；当前 world-simulator 技术入口见 `doc/world-simulator/README.md`、`doc/world-simulator/prd.index.md` 与 `doc/world-simulator/prd.md`，任务真值见 GitHub）
 - Viewer 旧控制反馈三件套与二次历史归档说明均已删除；当前正式控制反馈的产品结果读 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，Viewer/API 合同读 `doc/world-simulator/prd.md`，间接控制玩法规则读 `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`；原始 retired slug 只从 Git history / GitHub task issue evidence 追溯。
 - Viewer Chat prompt-presets、profile editing、scroll 与 Agent Prompt default-value prefill 历史专题已迁入 `doc/product/agents-world-simulation/agent-conversation-and-prompt-control.{prd,design}.md` 并物理删除；当前 surface、AgentChat、PromptControl、profile/override、鉴权与验证仍以 `doc/world-simulator/prd.md`、Viewer 手册和专业实现证据为准，任务状态读 GitHub，历史 EGUI 布局不得外推为当前能力。
-- Viewer EGUI 控制区高级调试折叠三件套已退役删除；该 2026-02 已完成专题的历史审计证据从 Git history 与 PR 与实际验证记录 追溯，当前 Viewer 操作与 Web 闭环入口改读 `doc/world-simulator/viewer/viewer-manual.manual.md` 与 `doc/world-simulator/viewer/README.md`。
+- Viewer EGUI 控制区高级调试折叠三件套已退役删除；该 2026-02 已完成专题的历史审计证据从 Git history、PR 与实际验证记录追溯，当前 Viewer 操作与 Web 闭环入口改读 `doc/world-simulator/viewer/viewer-manual.manual.md` 与 `doc/world-simulator/viewer/README.md`。
 - Launcher native legacy cleanup 三件套已退役删除；该 2026-03 已完成专题只作为 `oasis7_client_launcher` native cleanup 历史证据保留在 git history 与 PR、实际 CI 与评审记录（Issue 按需），不能被外推为当前 web launcher/control-plane 字段退役结论。
-- 已删除的 intent/distributed/runtime closure 与 M4 market/hardware/data/governance closure 由 Git history 与 PR 与实际验证记录 追溯；当前阅读入口继续走下方活跃专题、Git、PR 与实际 CI 记录 与长期 world-simulator、P2P、runtime、gameplay 权威。
+- 已删除的 intent/distributed/runtime closure 与 M4 market/hardware/data/governance closure 通过 Git history、PR 与实际验证记录追溯；当前阅读入口继续走下方活跃专题、Git、PR、实际 CI 记录与长期 world-simulator、P2P、runtime、gameplay 权威。
 - kernel rule-hook、Wasm readiness/executor/sandbox bridge/module-governance、Rust-to-Wasm build-suite、simulator `PowerStorage`、内建 `Compound/Hardware` hard-migration 与 runtime required 十项临时 ignore 九组 completed 三件套已退役删除。当前 simulator adapter / resource removal boundary 读 `doc/world-simulator/design.md` 与 `m4/industrial-resource-flow-contract.prd.md`；ABI、executor、artifact lifecycle 与 canonical build 读 `doc/world-runtime/wasm/` 和 `doc/world-runtime/prd.md`，历史实施只从 Git history / GitHub task issue evidence 追溯。
 
 若需要判断当前需求、执行状态或专题配对关系，分别以 `doc/world-simulator/prd.md`、GitHub task issue / Project 与本索引的活跃专题清单为准。
@@ -109,7 +109,7 @@
 - 文档配对规则：`*.prd.md` 与同名 `*.design.md`；GitHub Issue / Project evidence 维护可变任务状态与历史实施证据。
 - 默认入口面先在 `README.md` / `prd.index.md` 收紧；若热点子域进入后仍无首读入口，则继续追加路径级治理。当前 `viewer/README.md` 即为 `viewer/` 的首个已执行子域入口。
 - ROUND-002 物理合并（gameplay release）：`viewer-gameplay-release-experience-overhaul` 为主文档，`immersion-phase2~10` 均已收敛到该主文档、审计日志、git history 与 PR、实际 CI 与评审记录（Issue 按需）；旧阶段三件套已从仓库移除（不再保留 archive）。
-- 专业权威合并（runtime-to-Web）：event-driven phase8/9/10、runtime-world LLM bridge、Viewer/node decouple、两轮 build pruning 与 runtime-fatal 的当前语义已分别归入 control-plane、world-simulator、DecisionProvider、Launcher session continuity、single-source build truth、semantic test API 与 Viewer manual；18 个历史源文件已删除，日期化完成态与 byte-size 样本仅从 Git/PR 与实际验证记录 追溯。
+- 专业权威合并（runtime-to-Web）：event-driven phase8/9/10、runtime-world LLM bridge、Viewer/node decouple、两轮 build pruning 与 runtime-fatal 的当前语义已分别归入 control-plane、world-simulator、DecisionProvider、Launcher session continuity、single-source build truth、semantic test API 与 Viewer manual；18 个历史源文件已删除，日期化完成态与 byte-size 样本仅从 Git/PR 与实际验证记录追溯。
 
 ## 补充验收模板
 - `doc/world-simulator/prd/acceptance/provider-agent-parity-scenario-matrix.md`

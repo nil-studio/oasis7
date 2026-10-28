@@ -122,7 +122,9 @@ Trace ID: O7-REQ-6bf0b127-1fdf-4912-9106-48f146b9f867
 
 **闭包与有界发现。** 保留上节模块、Cargo 本地依赖、workspace manifest、lockfile、包内 Cargo/build/src/wit/.cargo/assets 的输入覆盖；额外输入不能靠“构建参数已记录”替代内容摘要。第一阶段只纳入实际依赖的已知共享模板：`crates/oasis7_builtin_wasm_modules/_templates/` 下 `m4_factory_module_template.rs`、`m4_product_module_template.rs`、`m4_recipe_module_template.rs`。各 wrapper 只纳入自己实际 include 的模板，不把三文件统一附给所有模块，也不扫描整个仓库或默认信任任意包外路径。
 
-额外依赖由受版本管理的精确路径/依赖边声明限定，读取者校验声明与支持的字面量 `include!`、`include_str!`、`include_bytes!` 输入一致，递归至已声明的传递输入；同文件去重、循环显式拒绝。声明自身是该模块的输入；与该模块无关的其他声明不能改变其摘要。第一阶段已知三模板没有传递 include；今后引入传递文件、包外 build-script 数据或生成源码输入，必须先增加精确声明并覆盖回归，不能默默漏掉。路径相对于声明的固定源码根，用 `/` 标签；include 的 `..` 只用于相对源文件解析，归一化后必须是允许的精确文件且仍在源码根内。拒绝绝对路径、越界、symlink 逃逸、非 UTF-8/歧义路径、丢失/不可读文件；不以 lossy path 编码消除差异。不得跟随未知目录递归或任意读取宿主环境。
+额外依赖由受版本管理的精确路径/依赖边声明限定，读取者校验声明与支持的字面量 `include!`、`include_str!`、`include_bytes!` 输入一致，递归至已声明的传递输入；同文件去重、循环显式拒绝。声明自身是该模块的输入；与该模块无关的其他声明不能改变其摘要。第一阶段已知三模板没有传递 include；今后引入传递文件、包外 build-script 数据或生成源码输入，必须先增加精确声明并覆盖回归，不能默默漏掉。
+
+路径相对于声明的固定源码根，用 `/` 标签；include 的 `..` 只用于相对源文件解析，归一化后必须是允许的精确文件且仍在源码根内。拒绝绝对路径、越界、symlink 逃逸、非 UTF-8/歧义路径、丢失/不可读文件；不以 lossy path 编码消除差异。不得跟随未知目录递归或任意读取宿主环境。
 
 这不是通用 Rust 宏求值器。当前受支持 lane 只接受能静态核对的字面量 include 和明确声明的构建输入；`concat!`/环境驱动路径、未知生成输入或不支持的宏形态不能以“未发现文件”声称闭包完整，应返回 unsupported-input 并停止生成新规则 receipt。build script 不能靠列出 `build.rs` 本身就证明其外部文件已覆盖。新增支持的解析/声明形式属于规则变更，必须同时更新 producer、消费者与测试；不扩大为所有任意 Rust 项目的完整依赖推断。
 
@@ -153,13 +155,17 @@ OASIS7_WASM_BUILDER_AUTO_BUILD=0 \
   --identity-path crates/oasis7_runtime/src/world/artifacts/m1_storage_power_v0_2_0.identity.json
 ```
 
-manual/release sync 默认仍使用原发布路径，Runtime bootstrap include、受信 main 已接受的当前六个 hash/identity 文件、原版本身份/签名与 activation 验证职责保持原样；必要主线集成若含独立已验收的 release 更新，仅同步主线原 bytes 的冻结 pin，不由 candidate 生成器重建或改写，历史版本仍按原记录保留；这里不变的范围不包括无条件接纳历史 summary/report 为当前 gate 或新 proof assembly 输入；candidate CI 同时验证这些文件的冻结摘要及 legacy reader 兼容。candidate summary 显式携带 purpose/baseline digest，所有消费者拒绝 unknown/mixed，不能把工程构建证据升级为发布授权。CI 只显式选择 candidate 模式，保持全部 freshness 与跨宿主证据要求；缺少真实宿主仍是 pending。新 baseline 不是 governing version 或 activation，旧签名不移植；生产采用新身份仍须另行授权的新完整 manifest/version、签名与治理发布。
+manual/release sync 默认仍使用原发布路径，Runtime bootstrap include、受信 main 已接受的当前六个 hash/identity 文件、原版本身份/签名与 activation 验证职责保持原样；必要主线集成若含独立已验收的 release 更新，仅同步主线原 bytes 的冻结 pin，不由 candidate 生成器重建或改写，历史版本仍按原记录保留；这里不变的范围不包括无条件接纳历史 summary/report 为当前 gate 或新 proof assembly 输入；candidate CI 同时验证这些文件的冻结摘要及 legacy reader 兼容。
+
+candidate summary 显式携带 purpose/baseline digest，所有消费者拒绝 unknown/mixed，不能把工程构建证据升级为发布授权。CI 只显式选择 candidate 模式，保持全部 freshness 与跨宿主证据要求；缺少真实宿主仍是 pending。新 baseline 不是 governing version 或 activation，旧签名不移植；生产采用新身份仍须另行授权的新完整 manifest/version、签名与治理发布。
 
 **Candidate-only 镜像身份。** 显式 `--candidate-build` 复用既有 wrapper、Suite 与共享 BuildManifest：从实际 Dockerfile、`.dockerignore`、入口脚本、固定构建参数、Cargo workspace/lock 及两个 producer 包（`wasm_build_suite`、`oasis7_wasm_build`）的内容记录计算 `producer-content` recipe v1。必须由 Cargo metadata 核对真实本地依赖恰为这两个包，并拒绝未支持的 include/config/build 输入；不能只用文件名白名单声称闭包完整。固定 arguments 显式包含 `GUEST_CARGO_BUILD_JOBS=2`，candidate wrapper 实际传入容器环境 `CARGO_BUILD_JOBS=2`，不继承 host jobs 值，Suite 的 candidate producer 入口也核对实际环境精确为 2，缺失/不同值拒绝；这是 guest 构建并发策略，不能冒称限制 Dockerfile 内 native producer 安装阶段。recipe 是所声明 producer 内容与指令的摘要，不是 OCI/image bytes 摘要；可变 FROM/apt 输入仍由真实 execution image ID 区分，不能把旧配置 pin `f353…` 改称内容 hash。
 
 实际 Dockerfile 以固定 COPY 清单复制 manifest/lock、crates、三个 vendor、三个 tools 目录与 wrapper，在 `/opt/oasis7` 安装 Suite，最后切到 `/workspace`；不是 `COPY .`。root `.cargo` 不复制进 image，Suite 在 producer metadata 的 `/opt/oasis7` 工作目录核对并拒绝映像根 Cargo config；新增 COPY/ADD、未知 RUN/ENV、Dockerfile parser directive（syntax/escape/check）或工作目录形态须先显式支持，不能继承 guest config。
 
-wrapper 自己用原 Dockerfile/固定 args 构建任务 tag、用每次独占 `--iidfile` 捕获该次 build 的 immutable ID，再 inspect 该 ID 核对 recipe labels/amd64/ID 并运行同一 ID；任务 tag 的并发 retag 不得改变该次执行选择；不覆盖普通 builder tag，不允许环境变量伪造 normal ref/digest；candidate output/staging 在 mkdir/mktemp/write 前逐祖先拒绝 symlink 与非目录，不能靠 lexical root 前缀把写入导向其他目录。Suite 独立复核映像内 `/opt/oasis7` producer records；Dockerfile/ignore 未复制入映像时只如实保留 wrapper provenance，不能提升为独立密码学证明。构建前后 recipe 比较只检测普通变化，不宣称原子 snapshot。生成 baseline 位于 Runtime artifacts，输出/target 不属于两个 producer 包输入，不形成自身 hash 递归；新本地依赖或未知外部输入形式须显式升级规则。
+wrapper 自己用原 Dockerfile/固定 args 构建任务 tag、用每次独占 `--iidfile` 捕获该次 build 的 immutable ID，再 inspect 该 ID 核对 recipe labels/amd64/ID 并运行同一 ID；任务 tag 的并发 retag 不得改变该次执行选择；不覆盖普通 builder tag，不允许环境变量伪造 normal ref/digest；candidate output/staging 在 mkdir/mktemp/write 前逐祖先拒绝 symlink 与非目录，不能靠 lexical root 前缀把写入导向其他目录。
+
+Suite 独立复核映像内 `/opt/oasis7` producer records；Dockerfile/ignore 未复制入映像时只如实保留 wrapper provenance，不能提升为独立密码学证明。构建前后 recipe 比较只检测普通变化，不宣称原子 snapshot。生成 baseline 位于 Runtime artifacts，输出/target 不属于两个 producer 包输入，不形成自身 hash 递归；新本地依赖或未知外部输入形式须显式升级规则。
 
 candidate receipt4/metadata 显式携带 purpose、manifest3、`builder_recipe`（版本、种类、内容 hash/args/records）与 `builder_execution`（版本、实际 ref/ID、platform），拒绝与旧 `builder_image_*` 字段混配。manifest3 只绑定同规则 recipe 与既有 tooling/source-rule 输入，实际 execution selector/ID 独立逐 receipt/metadata 核对并保留；跨宿主可报告不同 execution IDs，只比较 recipe/source/build/WASM 一致，不冒称 image 字节相同或发布通过。旧 release receipt3/BuildManifest 序列化及黄金 hash 不变；legacy 没有的 execution ID 不补造。candidate descriptor/summary/bundle/report 同步版本与 purpose，unknown/mixed 拒绝；node flow 与 direct proof packager 都拒绝 candidate/unknown 发布证据，旧六文件、Runtime 默认 include、原版本身份/签名及 activation 验证职责不变。当前 evidence assembly 需要显式 purpose-bound 输入，不能外推成所有历史 CLI envelope 兼容。
 
@@ -330,7 +336,7 @@ Docker daemon 只属于受控 builder 或开发主机，普通 runtime binary co
 审计轮次: 3
 
 ## 1. 设计定位
-本设计把 oasis7 的 WASM 发布级构建从“宿主机护栏 + keyed hash 对账”升级为“Docker canonical builder”。设计目标不是否定现有脚本和 build suite，而是把它们放进同一个 pinned 容器镜像里，让宿主平台不再参与发布 hash 的生成。
+本设计把 oasis7 的 WASM 发布级构建从“宿主机护栏 + keyed hash 对账”升级为“Docker canonical builder”。目标不是否定现有脚本和 build suite，而是把它们放进同一个 pinned 容器镜像，让宿主平台不再参与发布 hash 的生成。
 
 实施任务、候选状态和 CI run 历史不在本文维护；它们由 GitHub task issue /
 Project 和 Git history 追溯。可长期复用的验证入口收敛在
@@ -445,7 +451,7 @@ canonical packaged wasm
 
 <a id="build-suite-detail"></a>
 ### 5.3 Containerized Build Suite
-`tools/wasm_build_suite` 不需要被替换，但需要重新定位：
+`tools/wasm_build_suite` 无需替换，但需重新定位：
 - 过去：host 工具。
 - 未来：container-internal canonical builder。
 
@@ -536,7 +542,7 @@ runtime 的最终消费模型不变，仍是 binary-first：
 3. 校验 identity / signature / receipt 绑定。
 4. 注册 artifact 并执行。
 
-真正变化的是：
+变化在于：
 - canonical hash 现在来自 Docker builder。
 - runtime 不再需要解释多个宿主平台发布 hash。
 
@@ -709,7 +715,7 @@ CI/report 只能提供开发期或候选期证据；真正进入 `ModuleReleaseS
 4. 若入口没有进入 hardened policy，不允许给出 production-ready 结论。
 
 #### 5.9.3 可验证证据面
-除了行为拒绝测试，还需要有显式配置证据：
+除行为拒绝测试外，还需要显式配置证据：
 - `status.json` / `summary.md` / release gate 报告中写出 effective policy
 - 节点验收脚本断言四个布尔值均为 `false`
 - 若任一值为 `true`，报告必须输出 `production_release_policy_not_hardened`
