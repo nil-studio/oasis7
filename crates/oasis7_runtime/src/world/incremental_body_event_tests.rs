@@ -539,3 +539,6 @@ mod registration;
 
 #[path = "incremental_scheduler_tests.rs"]
 mod scheduler;
+
+#[path = "incremental_module_state_tests.rs"]
+mod module_states;

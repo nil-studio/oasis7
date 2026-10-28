@@ -7,7 +7,7 @@ use oasis7_distfs::incremental_page_store::{
 };
 use std::sync::atomic::AtomicBool;
 
-fn physical_io() -> PageIoBudget {
+pub(super) fn physical_io() -> PageIoBudget {
     PageIoBudget {
         reads_remaining: 100_000,
         read_bytes_remaining: 128 << 20,
@@ -15,16 +15,16 @@ fn physical_io() -> PageIoBudget {
         write_bytes_remaining: 128 << 20,
     }
 }
-fn logical_io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget {
+pub(super) fn logical_io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget {
     oasis7_formal_protocol::incremental_value::ValueIoBudget {
         nodes_remaining: 100_000,
         read_bytes_remaining: 128 << 20,
         write_bytes_remaining: 128 << 20,
     }
 }
-struct Directory(std::path::PathBuf);
+pub(super) struct Directory(pub(super) std::path::PathBuf);
 impl Directory {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -384,7 +384,7 @@ fn module_wake_reopens_and_continues_from_the_same_absolute_schedule() {
     assert!(world.module_tick_schedule.is_empty());
 }
 
-fn install_fixture_pages(
+pub(super) fn install_fixture_pages(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
     state: &Pages,

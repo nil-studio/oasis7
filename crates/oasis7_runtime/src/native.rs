@@ -125,6 +125,7 @@ pub use formal_retained_history::{
     FormalRetainedHistoryRootV1, RetainedHistoryReadError, VerifiedFormalRetainedHistoryParentV1,
 };
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
+pub use world::incremental_module_state::ModuleStateEventContext;
 pub use world::incremental_scheduler_recovery::{
     ModuleScheduleReadContext, VerifiedModuleScheduleContent,
 };

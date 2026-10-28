@@ -784,3 +784,20 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 恢复过程使用固定 workspace、不收集整张 schedule，分别消费 state/value/index 额度，支持原 Recovery class。返回结果继续持有 512-byte 输出 charge，只表示该精确 Scheduler 内容的模块 schedule 子集已核对，不是完整世界、authority、回执或服务 marker。源码显式导出读上下文与 mutation context/error 供后续 driver 使用；正式 driver/consensus/frozen/端点、六根 material owner 汇总、每轮 due 快照/执行顺序与完整 invocation/J2 仍须继续接线。不能每次普通提交调用这一全扫描来替代合格父闭包的增量维持。
 
 局部方法覆盖认证旧根与 cache 不一致、先 clear 后回调、同事务连续改写后的精确索引 pair、无变化/挂起/缺失/未来、显式空索引、缺描述符/页/坏值、标量与索引错位、额外和跨时间重复 instance、十个额度维度的精确及少一、晚取消、source unwind、跨池及部分索引持久化错误/取消/unwind 对整个事务的中止。实际文件重开后先以 original TransitionRecord 核对变化，再在 ordinary admission 已满、仅原 4 MiB recovery 预留可用时完成该子集一致性检查；继续同一绝对 wake 的 clear/业务写入，并与不中断分支逐 record/新状态页比较。回调仍为 fixture，未运行完整模块 ABI、Pure、费用、routing metrics 或 provider oracle；全局资源和固定 H/S 规模验收仍待完成。
+
+
+### 12.30 模块不透明状态与原 ModuleStateUpdated 事件
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 的 module_states、§12.28–12.29 的调度路径。实际 tick 的 Reducer 输出经 ModuleStateUpdated 改写 module_states；本节补该事件的存储贡献，不以 fixture 回调代签模块调用、Pure、费用或 effects。
+
+Business 键为 `oasis7.iws.module-state-key.v1\0`、大端 UTF-8 byte 长度 u16 和原 state_key，总长最多 1024 bytes。event.module_id 在既有调用路径中可能是稳定 instance 的 state_key，不能从中删除版本/instance 片段、trim、改大小写或重新查成全局 module ID。空字符串键仍可表达原 map 的空键；键自身含非空域，符合状态 key 合同。值为原不透明 state bytes 的 value 引用，无 serde 包装、摘要替代或模块解释。空 payload 是一个真实存在的空值，不能变成 absent。创世 helper 借用原 map 逐项写值，独立条目额度与 value/取消检查有效；输出接收者负责准入与规范排序。
+
+contribute_iws_module_state_event 只接收该原 WorldEvent variant，在一个 ExecutionTransaction 中核对同池、event.time/认证 world time 与 event allocator，流式写原 state 值，再共同更新实际 before/after 的 Business 叶及 next/era，追加完整原件的 Event fact。沿用既有 0→1、最大 event ID rollover 与 era 饱和语义。该事件不生成 Domain mailbox 项，不扫描旧 blob、module_states 全表或 journal，不安装 World cache。同一 payload 没有业务变化时，原事件与 allocator 进度仍然保留。调用授权、模块版本/工件、ABI、Pure 输出限制、capability/policy、费用及其余原结果事实由实际执行 owner 接通后核定，不能由这个 reducer 函数授予。
+
+原件必须保持既有 encode_canonical_cbor 的 WorldEvent 表示。原 ModuleStateUpdate.state 是 Vec<u8>，其 ABI 表示为整数数组，不是 CBOR byte string；不能为节省空间改变原件身份。专用流式 plan 穷尽解构 WorldEvent 与 ModuleStateUpdate，按原规范 map 次序写固定 envelope、元数据前后段与逐个最短 u8 编码。只保存固定 prefix、按原字符串长度准入的 suffix 和借用 state，不构造随状态字节数增长的 ciborium Value::Array，也不 clone 整个 event/state。原字符串总 bytes 加固定 32 KiB workspace 先同池准入，suffix 额外固定余量包含 headers；16 KiB 哈希缓冲在此余量内。完整编码长度 checked 计算并先受 max_event_bytes 限制，摘要逐块计算，随后向 original owner 提供可取消的借用 Read、精确长度与预期平面 ID。
+
+original owner 必须使用同一进程 pool，完整消费并持久化原 bytes，返回仅表示临时物料准备。提前成功但未消费完整输入明确拒绝，持久化错误、读中/读后取消、unwind 或 fact 额度不足使包括此前外层业务在内的整次事务不能 seal。取消 reader 使用不被 Read 自动重试吞掉的 IO 错误，并保留 Cancelled 原因。已写值页/原件不授予 selected head、receipt 或 cache-install 能力。实际 IncrementalObjectStore 仍按原 flat digest/长度完整读回；原对象定位和元数据不能替代原件内容。
+
+局部方法将流式原件与维护中的 ABI 编码器逐字节比较，覆盖所有 u8、整数/数组长度的 23/24、255/256、65535/65536 边界、0/MAX ID、None/Action/Effect 原因、Unicode/NUL 和任意 Read 分块；编码规则漂移必须判红，不能静默回退。还覆盖连续更新、同内容但新事件、缺失到空值、旧 cache 与认证值不一致、genesis 条目额度、原件精确/少一 bytes、allocator rollover、值/事实额度、坏键/时钟/allocator、跨池、提前成功、持久化失败及取消/unwind 对整次事务的中止。
+
+实际页方法在 12 MiB 共享池（含 3 MiB recovery 预留）中先为 2 MiB 输入 event 取得 charge，使用不同 64 KiB 区段的内容准备、持久化并重开原件及 state。大原件 oracle 使用维护中 ABI 的小 skeleton 与 256 项 u8 scalar palette 流式逐字节核对，不调用被测 reader 或构造大 CBOR 模型；原始 state 也流式逐字节核对。随后清空 materialized module_states，继续第二个合法状态事件，与不中断分支逐 record/新状态页比较。这是该事件及存储组件的局部重开/继续证据，尚非完整 World 的 C<T 历史重放、真实模块 tick/Pure/费用/effects、provider oracle、固定 H/S、全进程 RSS 或正式发布验收。

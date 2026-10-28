@@ -19,6 +19,8 @@ mod incremental_agent_registration;
 pub mod incremental_body;
 pub mod incremental_body_event;
 pub mod incremental_commit;
+mod incremental_module_original;
+pub mod incremental_module_state;
 pub mod incremental_projection;
 pub mod incremental_scheduler;
 mod incremental_scheduler_index;
