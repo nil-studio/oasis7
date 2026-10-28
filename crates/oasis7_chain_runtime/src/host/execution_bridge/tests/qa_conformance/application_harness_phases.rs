@@ -1,25 +1,41 @@
 use super::*;
 use std::process::Command;
 
+pub(super) struct ApplicationOutputValidationInputs<'a> {
+    pub(super) fixture: &'a Fixture,
+    pub(super) app_dir: &'a Path,
+    pub(super) output: &'a std::process::Output,
+    pub(super) metadata: Option<&'a provider_metadata::MetadataServer>,
+    pub(super) mode: IsolatedApplicationMode<'a>,
+    pub(super) admission_submit_baseline: usize,
+}
+
 pub(super) fn validate_application_output_and_remove_fixture(
-    fixture: &Fixture,
-    app_dir: &Path,
-    output: &std::process::Output,
-    metadata: Option<&provider_metadata::MetadataServer>,
-    admission_mode: &str,
-    admission_submit_baseline: usize,
-    hosted: bool,
-    release: bool,
-    wake: bool,
-    drift: bool,
-    service_probe: bool,
-    metadata_probe: bool,
+    inputs: ApplicationOutputValidationInputs<'_>,
 ) {
+    let ApplicationOutputValidationInputs {
+        fixture,
+        app_dir,
+        output,
+        metadata,
+        mode,
+        admission_submit_baseline,
+    } = inputs;
+    let IsolatedApplicationMode {
+        admission_mode,
+        hosted,
+        release,
+        wake,
+        drift,
+        service_probe,
+        metadata_probe,
+        ..
+    } = mode;
     if hosted {
         if admission_mode == "hosted-wait" {
             application_hosted_wait::report(
-                &fixture,
-                &app_dir,
+                fixture,
+                app_dir,
                 metadata
                     .as_ref()
                     .unwrap()
@@ -36,7 +52,7 @@ pub(super) fn validate_application_output_and_remove_fixture(
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
-            application_stream_boundaries::validate_repeated_receipts(&fixture, &app_dir);
+            application_stream_boundaries::validate_repeated_receipts(fixture, app_dir);
         }
         if admission_mode == "fresh-admission" {
             let models = metadata
@@ -120,16 +136,16 @@ pub(super) fn validate_application_output_and_remove_fixture(
             "hosted child selected no required proof"
         );
         if matches!(admission_mode, "fresh-admission" | "fresh-metadata") {
-            application_completion::verify_canonical_completion(&fixture, &app_dir);
+            application_completion::verify_canonical_completion(fixture, app_dir);
         }
         if service_probe {
-            application_fairness::validate_canonical_identity(&fixture);
+            application_fairness::validate_canonical_identity(fixture);
         }
         println!("{stdout}");
     } else if release {
-        application_release::validate_output(&fixture, &output);
+        application_release::validate_output(fixture, output);
     } else {
-        application_harness::validate_output(&fixture, &output, wake, drift);
+        application_harness::validate_output(fixture, output, wake, drift);
         if wake && !drift {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let terminal_feedback_id = stdout
@@ -139,7 +155,7 @@ pub(super) fn validate_application_output_and_remove_fixture(
             metadata
                 .as_ref()
                 .expect("genuine Wait/wake requires a separate provider endpoint")
-                .assert_canonical_terminal_feedback_delivery(&fixture, terminal_feedback_id);
+                .assert_canonical_terminal_feedback_delivery(fixture, terminal_feedback_id);
         }
     }
     fs::remove_dir_all(app_dir).unwrap();
@@ -221,12 +237,12 @@ pub(super) fn run_memory_crash_mode(
         // committed() requires the signed original identity and rejects canonical rejection.
         let _settled_commit = fixture.committed(&settlement);
         if admission_mode == "memory-crash-tamper" {
-            application_memory_tamper::verify_processes(&fixture, &checkpoint, command, &app_dir);
+            application_memory_tamper::verify_processes(fixture, &checkpoint, command, app_dir);
             fs::remove_dir_all(app_dir).unwrap();
             return true;
         }
         if admission_mode == "memory-crash-gate" {
-            application_memory_authority::verify_actual_checkpoint_gate(&fixture, &checkpoint);
+            application_memory_authority::verify_actual_checkpoint_gate(fixture, &checkpoint);
             fs::remove_dir_all(app_dir).unwrap();
             return true;
         }
@@ -234,7 +250,7 @@ pub(super) fn run_memory_crash_mode(
             .env("PRE2_APP_ADMISSION", "memory-recover")
             .output()
             .unwrap();
-        application_fairness::validate_canonical_identity(&fixture);
+        application_fairness::validate_canonical_identity(fixture);
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let revision = stdout
@@ -248,7 +264,7 @@ pub(super) fn run_memory_crash_mode(
                 .env("PRE2_EXPECT_MEMORY_REVISION", revision)
                 .output()
                 .unwrap();
-            application_fairness::validate_canonical_identity(&fixture);
+            application_fairness::validate_canonical_identity(fixture);
         }
     }
     false

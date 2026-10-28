@@ -325,7 +325,7 @@ fn build_chain_status_consensus_health_fixture() -> super::status_payload::Chain
         recent_errors: vec!["request failed: Timeout".to_string()],
     };
 
-    let payload = build_chain_status_payload(
+    build_chain_status_payload(
         snapshot,
         Path::new("/tmp/execution-world"),
         None,
@@ -390,8 +390,7 @@ fn build_chain_status_consensus_health_fixture() -> super::status_payload::Chain
         },
         sample_transfer_metrics(),
         replication,
-    );
-    payload
+    )
 }
 
 #[test]

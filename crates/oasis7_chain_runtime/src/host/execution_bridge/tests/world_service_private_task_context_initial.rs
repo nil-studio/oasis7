@@ -19,6 +19,20 @@ pub(super) struct RecoveredTaskContextFixture {
     pub(super) get: oasis7_client_api::world_service::SignedReadRequest<TaskContextGetV1>,
 }
 
+pub(super) struct PrepareAndReopenTaskContextInputs<'a> {
+    pub(super) dir: &'a std::path::Path,
+    pub(super) private: &'a std::path::Path,
+    pub(super) runtime: &'a Arc<Mutex<oasis7_node::NodeRuntime>>,
+    pub(super) signer: &'a crate::feedback_submit_api::FeedbackSubmitSigner,
+    pub(super) store: PrivateGoalStore,
+    pub(super) world: &'a WorldIdentity,
+    pub(super) proof: &'a oasis7_client_api::world_service::SignedReadRequest<TaskContextPrepareV1>,
+    pub(super) goal: &'a oasis7_client_api::world_service::private_goal::SignedGoalPrepareV1,
+    pub(super) delegate: &'a str,
+    pub(super) authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
+    pub(super) other_provider: bool,
+}
+
 pub(super) fn prepare_initial_task_context(
     dir: &std::path::Path,
     driver: &mut NodeRuntimeExecutionDriver,
@@ -169,18 +183,21 @@ pub(super) fn prepare_initial_task_context(
 }
 
 pub(super) fn prepare_and_reopen_task_context(
-    dir: &std::path::Path,
-    private: &std::path::Path,
-    runtime: &Arc<Mutex<oasis7_node::NodeRuntime>>,
-    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
-    mut store: PrivateGoalStore,
-    world: &WorldIdentity,
-    proof: &oasis7_client_api::world_service::SignedReadRequest<TaskContextPrepareV1>,
-    goal: &oasis7_client_api::world_service::private_goal::SignedGoalPrepareV1,
-    delegate: &str,
-    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
-    other_provider: bool,
+    inputs: PrepareAndReopenTaskContextInputs<'_>,
 ) -> RecoveredTaskContextFixture {
+    let PrepareAndReopenTaskContextInputs {
+        dir,
+        private,
+        runtime,
+        signer,
+        mut store,
+        world,
+        proof,
+        goal,
+        delegate,
+        authority_mode,
+        other_provider,
+    } = inputs;
     let prepared = consumer(dir, runtime, signer, &store, world, |client| {
         client.prepare_task_context(proof).unwrap()
     });

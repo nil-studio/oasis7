@@ -67,10 +67,9 @@ pub(super) fn capture_original_result_and_inject_old_owner_fault(
                 h,
             )?
             .ok_or("SIGKILL fixture requires the actual qualified H proof")?;
-        let boundary =
-            fixed_lookup::qualified_lineage(&case, &signed, &owner_client, &boundary_proof)
-                .map_err(|error| format!("select actual SIGKILL boundary H: {error}"))?
-                .boundary;
+        let boundary = fixed_lookup::qualified_lineage(case, signed, owner_client, &boundary_proof)
+            .map_err(|error| format!("select actual SIGKILL boundary H: {error}"))?
+            .boundary;
         if boundary.head().position != h
             || boundary_proof
                 .decision
@@ -101,8 +100,8 @@ pub(super) fn capture_original_result_and_inject_old_owner_fault(
         let interrupted = formal_live_runtime::query_operation_owner(
             &case.runtime_config_path,
             original_operation,
-            &original_request_digest,
-            &config_digest,
+            original_request_digest,
+            config_digest,
             Some(&owner.instance.incarnation),
         )?
         .ok_or("SIGKILL owner receipt disappeared")?;

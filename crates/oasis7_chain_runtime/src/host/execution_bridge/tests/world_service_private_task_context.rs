@@ -21,8 +21,8 @@ mod initial;
 #[path = "world_service_private_task_context_stack.rs"]
 mod stack;
 use initial::{
-    InitialTaskContextFixture, RecoveredTaskContextFixture, prepare_and_reopen_task_context,
-    prepare_initial_task_context,
+    InitialTaskContextFixture, PrepareAndReopenTaskContextInputs, RecoveredTaskContextFixture,
+    prepare_and_reopen_task_context, prepare_initial_task_context,
 };
 use stack::{
     boxed_context_driver_fixture, boxed_context_driver_restart, boxed_context_value,
@@ -142,7 +142,7 @@ fn verify_live_task_evidence_retention(
         super::super::super::world_service_read::pin_at_height(
             &dir.join("records"),
             &dir.join("store"),
-            &world,
+            world,
             4
         )
         .is_ok()
@@ -195,19 +195,19 @@ fn complete_context_scenario_with_revision(
         prepared,
         original_context_file,
         get,
-    } = prepare_and_reopen_task_context(
-        &dir,
-        &private,
-        &runtime,
-        &signer,
+    } = prepare_and_reopen_task_context(PrepareAndReopenTaskContextInputs {
+        dir: &dir,
+        private: &private,
+        runtime: &runtime,
+        signer: &signer,
         store,
-        &world,
-        &proof,
-        &goal,
-        &delegate,
+        world: &world,
+        proof: &proof,
+        goal: &goal,
+        delegate: &delegate,
         authority_mode,
         other_provider,
-    );
+    });
     let ReplacementTaskContext {
         goal: _g2,
         prepared: g2_context,
@@ -389,19 +389,21 @@ fn complete_context_scenario_with_revision(
         oasis7_agent_api::world_action::GeoPos::new(3, 0, 0)
     );
     verify_retained_evidence_and_fail_closed_on_missing_history(
-        &dir,
-        &cas,
-        &world,
-        expiry_height,
-        &g2_context,
-        authority_mode,
-        &fence,
-        &delegate,
-        &signer,
-        &store,
-        &runtime,
-        &owner,
-        AGE,
+        RetainedEvidenceVerificationInputs {
+            dir: &dir,
+            cas: &cas,
+            world: &world,
+            expiry_height,
+            g2_context: &g2_context,
+            authority_mode,
+            fence: &fence,
+            delegate: &delegate,
+            signer: &signer,
+            store: &store,
+            runtime: &runtime,
+            owner: &owner,
+            age: AGE,
+        },
     );
     verify_stop_fences_delivery_and_cleanup(StopDeliveryContext {
         dir,

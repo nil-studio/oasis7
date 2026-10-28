@@ -371,16 +371,17 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         .as_ref()
         .map(|server| server.endpoint.as_str())
         .unwrap_or(config.endpoint.as_str());
-    let mut command = build_isolated_application_child_command(
-        mode,
-        &executable,
-        &app_dir,
-        &profile,
-        provider_url,
-        config,
-        &original,
-        &denied,
-    );
+    let mut command =
+        build_isolated_application_child_command(IsolatedApplicationChildCommandInputs {
+            mode,
+            executable: &executable,
+            app_dir: &app_dir,
+            profile: &profile,
+            provider_url,
+            config,
+            original: &original,
+            denied: &denied,
+        });
     let observer_stop = Arc::new(AtomicBool::new(false));
     let pending_observer = (admission_mode == "pending-cadence")
         .then(|| application_hosted_unpublished_cadence::observe_parent(&fixture, &app_dir));
@@ -694,20 +695,14 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     ) {
         return;
     }
-    validate_application_output_and_remove_fixture(
-        &fixture,
-        &app_dir,
-        &output,
-        metadata.as_ref(),
-        admission_mode,
+    validate_application_output_and_remove_fixture(ApplicationOutputValidationInputs {
+        fixture: &fixture,
+        app_dir: &app_dir,
+        output: &output,
+        metadata: metadata.as_ref(),
+        mode,
         admission_submit_baseline,
-        hosted,
-        release,
-        wake,
-        drift,
-        service_probe,
-        metadata_probe,
-    );
+    });
 }
 
 fn run_application_child_and_report(
@@ -770,16 +765,30 @@ fn run_application_child_and_report(
     output
 }
 
+struct IsolatedApplicationChildCommandInputs<'a> {
+    mode: IsolatedApplicationMode<'a>,
+    executable: &'a std::path::Path,
+    app_dir: &'a std::path::Path,
+    profile: &'a str,
+    provider_url: &'a str,
+    config: &'a oasis7_game_client::remote_world_service::WorldServiceClientConfig,
+    original: &'a SubmitIntentRequest<WorldServicePayloadV1>,
+    denied: &'a std::path::Path,
+}
+
 fn build_isolated_application_child_command(
-    mode: IsolatedApplicationMode<'_>,
-    executable: &std::path::Path,
-    app_dir: &std::path::Path,
-    profile: &str,
-    provider_url: &str,
-    config: &oasis7_game_client::remote_world_service::WorldServiceClientConfig,
-    original: &SubmitIntentRequest<WorldServicePayloadV1>,
-    denied: &std::path::Path,
+    inputs: IsolatedApplicationChildCommandInputs<'_>,
 ) -> std::process::Command {
+    let IsolatedApplicationChildCommandInputs {
+        mode,
+        executable,
+        app_dir,
+        profile,
+        provider_url,
+        config,
+        original,
+        denied,
+    } = inputs;
     let mut command = application_sandbox::command(executable, app_dir, profile);
     command
         .args([

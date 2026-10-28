@@ -178,24 +178,43 @@ pub(super) fn advance_context_until_expired(
     expiry_height
 }
 
+pub(super) struct RetainedEvidenceVerificationInputs<'a> {
+    pub(super) dir: &'a Path,
+    pub(super) cas: &'a LocalCasStore,
+    pub(super) world: &'a WorldIdentity,
+    pub(super) expiry_height: u64,
+    pub(super) g2_context: &'a PreparedTaskContextV1,
+    pub(super) authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
+    pub(super) fence: &'a GameTaskFenceV1,
+    pub(super) delegate: &'a str,
+    pub(super) signer: &'a crate::feedback_submit_api::FeedbackSubmitSigner,
+    pub(super) store: &'a PrivateGoalStore,
+    pub(super) runtime: &'a Arc<Mutex<oasis7_node::NodeRuntime>>,
+    pub(super) owner: &'a str,
+    pub(super) age: u64,
+}
+
 pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
-    dir: &Path,
-    cas: &LocalCasStore,
-    world: &WorldIdentity,
-    expiry_height: u64,
-    g2_context: &PreparedTaskContextV1,
-    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
-    fence: &GameTaskFenceV1,
-    delegate: &str,
-    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
-    store: &PrivateGoalStore,
-    runtime: &Arc<Mutex<oasis7_node::NodeRuntime>>,
-    owner: &str,
-    age: u64,
+    inputs: RetainedEvidenceVerificationInputs<'_>,
 ) {
+    let RetainedEvidenceVerificationInputs {
+        dir,
+        cas,
+        world,
+        expiry_height,
+        g2_context,
+        authority_mode,
+        fence,
+        delegate,
+        signer,
+        store,
+        runtime,
+        owner,
+        age,
+    } = inputs;
     // Settled and expired contexts no longer authorize writes, but their exact
     // receipts remain recoverable for the current live task fence beyond hot history.
-    checkpoint::run_execution_bridge_retention_maintenance(&dir.join("records"), &cas, 1).unwrap();
+    checkpoint::run_execution_bridge_retention_maintenance(&dir.join("records"), cas, 1).unwrap();
     let retained = [
         age + 10,
         age + 11,
@@ -222,7 +241,7 @@ pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
             super::super::super::world_service_read::pin_at_height(
                 &dir.join("records"),
                 &dir.join("store"),
-                &world,
+                world,
                 height,
             )
             .is_ok(),
@@ -255,14 +274,14 @@ pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
             ),
             fence: (*fence).clone(),
         },
-        &delegate,
+        delegate,
     )
     .unwrap();
     let (status, error) = http(
-        &dir,
-        &runtime,
-        &signer,
-        Some(&store),
+        dir,
+        runtime,
+        signer,
+        Some(store),
         TASK_SNAPSHOT_PATH,
         &snapshot_request,
         "",
@@ -278,14 +297,14 @@ pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
             agent_id: "agent-a".into(),
             task_id: fence.task_id.clone(),
         },
-        &owner,
+        owner,
     )
     .unwrap();
     let (status, error) = http(
-        &dir,
-        &runtime,
-        &signer,
-        Some(&store),
+        dir,
+        runtime,
+        signer,
+        Some(store),
         oasis7::world_service::private_goal_read::GOAL_CURRENT_PATH,
         &owner_request,
         "",
@@ -299,7 +318,7 @@ pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
     let unknown = cache_dir.join("unexpected.json");
     std::fs::write(&unknown, b"{}").unwrap();
     assert!(
-        checkpoint::run_execution_bridge_retention_maintenance(&dir.join("records"), &cas, 1)
+        checkpoint::run_execution_bridge_retention_maintenance(&dir.join("records"), cas, 1)
             .is_err()
     );
     std::fs::remove_file(unknown).unwrap();
@@ -480,18 +499,18 @@ pub(super) fn publish_replacement_goal(
     g2.client_nonce = "56".repeat(32);
     g2.content.goal_text = "G2 move two cells with new complete goal".into();
     g2.goal_digest = game_goal_version_digest(&g2.task_id, g2.goal_revision, &g2.content).unwrap();
-    let g2 = sign_goal_prepare(g2, &owner).unwrap();
+    let g2 = sign_goal_prepare(g2, owner).unwrap();
     let g2_receipt = store.prepare(&g2).unwrap();
     commit(
         driver,
         age + 10,
         request(
-            &world,
+            world,
             WorldServicePayloadV1::GameGoalPublish(
                 sign_read_request(
                     GAME_GOAL_PUBLISH_DOMAIN,
                     publication(&g2, &g2_receipt, "g2-publish".into()).unwrap(),
-                    &owner,
+                    owner,
                 )
                 .unwrap(),
             ),
@@ -499,10 +518,10 @@ pub(super) fn publish_replacement_goal(
     );
     assert_eq!(
         http(
-            &dir,
-            &runtime,
-            &signer,
-            Some(&store),
+            dir,
+            runtime,
+            signer,
+            Some(store),
             TASK_CONTEXT_READ_PATH,
             &get,
             ""
@@ -556,10 +575,10 @@ pub(super) fn publish_replacement_goal(
             client_operation_id: "g2-context".into(),
             client_nonce: "78".repeat(32),
         },
-        &delegate,
+        delegate,
     )
     .unwrap();
-    let g2_context = consumer(&dir, &runtime, &signer, &store, &world, |client| {
+    let g2_context = consumer(dir, runtime, signer, store, world, |client| {
         client.prepare_task_context(&g2_prepare).unwrap()
     });
     assert_eq!(
@@ -574,9 +593,9 @@ pub(super) fn publish_replacement_goal(
         driver,
         age + 11,
         request(
-            &world,
+            world,
             WorldServicePayloadV1::Scheduler(
-                sign_read_request("scheduler", public_prefix(&g2_context).unwrap(), &delegate)
+                sign_read_request("scheduler", public_prefix(&g2_context).unwrap(), delegate)
                     .unwrap(),
             ),
         ),
@@ -588,14 +607,14 @@ pub(super) fn publish_replacement_goal(
             context: g2_context.identity.clone(),
             prepare_operation_id: g2_prepare.request.client_operation_id.clone(),
         },
-        &delegate,
+        delegate,
     )
     .unwrap();
-    let g2_captured = consumer(&dir, &runtime, &signer, &store, &world, |client| {
+    let g2_captured = consumer(dir, runtime, signer, store, world, |client| {
         client.read_task_context(&g2_get).unwrap()
     });
     let g2_action = request(
-        &world,
+        world,
         WorldServicePayloadV1::Cognition(
             sign_read_request(
                 "cognition",
@@ -607,14 +626,14 @@ pub(super) fn publish_replacement_goal(
                     },
                 )
                 .unwrap(),
-                &delegate,
+                delegate,
             )
             .unwrap(),
         ),
     );
     commit(driver, age + 12, g2_action.clone());
     assert!(
-        game_task_tests::recorded(&driver, &g2_action)
+        game_task_tests::recorded(driver, &g2_action)
             .rejected
             .is_none()
     );
@@ -685,7 +704,7 @@ fn admit_initial_context_prefix(inputs: InitialPrefixInputs<'_>) {
         prefix_revision,
         age,
     } = inputs;
-    let mut prefix = public_prefix(&prepared).unwrap();
+    let mut prefix = public_prefix(prepared).unwrap();
     prefix.task_prefix_binding_revision = prefix_revision;
     // A valid bound executor cannot extend a public context past the lease
     // simply by bypassing encrypted preparation and signing another prefix.
@@ -694,7 +713,7 @@ fn admit_initial_context_prefix(inputs: InitialPrefixInputs<'_>) {
         unreachable!()
     };
     context.valid_until_tick.0 += 1;
-    let overlong = sign_read_request("scheduler", overlong, &delegate).unwrap();
+    let overlong = sign_read_request("scheduler", overlong, delegate).unwrap();
     assert!(
         derive_correlation(
             (*world).clone(),
@@ -733,35 +752,33 @@ fn admit_initial_context_prefix(inputs: InitialPrefixInputs<'_>) {
         assert!(!public.contains(secret));
     }
     let submit = request(
-        &world,
-        WorldServicePayloadV1::Scheduler(
-            sign_read_request("scheduler", prefix, &delegate).unwrap(),
-        ),
+        world,
+        WorldServicePayloadV1::Scheduler(sign_read_request("scheduler", prefix, delegate).unwrap()),
     );
     commit(driver, age + 7, submit.clone());
     assert!(
-        game_task_tests::recorded(&driver, &submit)
+        game_task_tests::recorded(driver, &submit)
             .rejected
             .is_none(),
         "canonical action rejection: {:?}",
-        game_task_tests::recorded(&driver, &submit).rejected
+        game_task_tests::recorded(driver, &submit).rejected
     );
     // A distinct preparation uses a fresh public base, but cannot open a second live turn.
     let mut competing = proof.request.clone();
     competing.client_operation_id = "competing-context".into();
-    let competing = sign_read_request(TASK_CONTEXT_PREPARE_PATH, competing, &delegate).unwrap();
-    let competing = consumer(&dir, &runtime, &signer, &store, &world, |client| {
+    let competing = sign_read_request(TASK_CONTEXT_PREPARE_PATH, competing, delegate).unwrap();
+    let competing = consumer(dir, runtime, signer, store, world, |client| {
         client.prepare_task_context(&competing).unwrap()
     });
     let competing_submit = request(
-        &world,
+        world,
         WorldServicePayloadV1::Scheduler(
-            sign_read_request("scheduler", public_prefix(&competing).unwrap(), &delegate).unwrap(),
+            sign_read_request("scheduler", public_prefix(&competing).unwrap(), delegate).unwrap(),
         ),
     );
     commit(driver, age + 8, competing_submit.clone());
     assert!(
-        game_task_tests::recorded(&driver, &competing_submit)
+        game_task_tests::recorded(driver, &competing_submit)
             .rejected
             .is_some()
     );
@@ -802,18 +819,18 @@ fn read_and_verify_initial_context_capture(
         age,
     } = inputs;
     // A pending capture remains usable even when a full maintenance window excludes its height.
-    checkpoint::run_execution_bridge_retention_maintenance(&dir.join("records"), &cas, 1).unwrap();
+    checkpoint::run_execution_bridge_retention_maintenance(&dir.join("records"), cas, 1).unwrap();
     assert!(
         super::super::super::world_service_read::pin_at_height(
             &dir.join("records"),
             &dir.join("store"),
-            &world,
+            world,
             age + 7
         )
         .is_ok()
     );
-    let captured = consumer(&dir, &runtime, &signer, &store, &world, |client| {
-        client.read_task_context(&get).unwrap()
+    let captured = consumer(dir, runtime, signer, store, world, |client| {
+        client.read_task_context(get).unwrap()
     });
     assert_eq!(captured.capture_commit.position, age + 7);
     assert_eq!(
@@ -833,10 +850,10 @@ fn read_and_verify_initial_context_capture(
     missing["snapshot_ref"] = serde_json::Value::Null;
     std::fs::write(&capture_path, serde_json::to_vec(&missing).unwrap()).unwrap();
     let (status, error) = http(
-        &dir,
-        &runtime,
-        &signer,
-        Some(&store),
+        dir,
+        runtime,
+        signer,
+        Some(store),
         TASK_CONTEXT_READ_PATH,
         &get,
         "",
@@ -847,14 +864,14 @@ fn read_and_verify_initial_context_capture(
     std::fs::write(&capture_path, capture_bytes).unwrap();
     // Authenticated capture cannot conceal a missing or corrupted encrypted record.
     let context_file = original_context_file;
-    let encrypted = std::fs::read(&context_file).unwrap();
-    std::fs::write(&context_file, b"corrupt").unwrap();
+    let encrypted = std::fs::read(context_file).unwrap();
+    std::fs::write(context_file, b"corrupt").unwrap();
     assert_eq!(
         http(
-            &dir,
-            &runtime,
-            &signer,
-            Some(&store),
+            dir,
+            runtime,
+            signer,
+            Some(store),
             TASK_CONTEXT_READ_PATH,
             &get,
             ""
@@ -862,7 +879,7 @@ fn read_and_verify_initial_context_capture(
         .0,
         503
     );
-    std::fs::write(&context_file, &encrypted).unwrap();
+    std::fs::write(context_file, &encrypted).unwrap();
     for field in 0..4 {
         let mut bad = prepared.clone();
         match field {
@@ -881,7 +898,7 @@ fn read_and_verify_initial_context_capture(
             }
             _ => bad.prepare_proof.request.client_nonce = "12".repeat(32),
         };
-        assert!(bad.validate_against(&proof).is_err());
+        assert!(bad.validate_against(proof).is_err());
     }
     captured
 }
@@ -935,18 +952,16 @@ fn apply_captured_context_and_publish_replacement(
     )
     .unwrap();
     let submit = request(
-        &world,
-        WorldServicePayloadV1::Cognition(
-            sign_read_request("cognition", action, &delegate).unwrap(),
-        ),
+        world,
+        WorldServicePayloadV1::Cognition(sign_read_request("cognition", action, delegate).unwrap()),
     );
     commit(driver, age + 9, submit.clone());
     assert!(
-        game_task_tests::recorded(&driver, &submit)
+        game_task_tests::recorded(driver, &submit)
             .rejected
             .is_none(),
         "canonical action rejection: {:?}",
-        game_task_tests::recorded(&driver, &submit).rejected
+        game_task_tests::recorded(driver, &submit).rejected
     );
     assert_eq!(
         driver.execution_world.state().agents["agent-a"].state.pos,
@@ -954,10 +969,10 @@ fn apply_captured_context_and_publish_replacement(
     );
     assert_eq!(
         http(
-            &dir,
-            &runtime,
-            &signer,
-            Some(&store),
+            dir,
+            runtime,
+            signer,
+            Some(store),
             TASK_CONTEXT_READ_PATH,
             &get,
             ""
@@ -975,23 +990,23 @@ fn apply_captured_context_and_publish_replacement(
     ] {
         assert!(!canonical.contains(secret));
     }
-    let replacement = publish_replacement_goal(ReplacementGoalInputs {
+
+    publish_replacement_goal(ReplacementGoalInputs {
         driver,
-        dir: &dir,
-        world: &world,
-        owner: &owner,
-        runtime: &runtime,
-        signer: &signer,
-        store: &store,
-        get: &get,
-        cas: &cas,
-        prepared: &prepared,
-        goal: &goal,
+        dir,
+        world,
+        owner,
+        runtime,
+        signer,
+        store,
+        get,
+        cas,
+        prepared,
+        goal,
         authority_mode,
-        delegate: &delegate,
+        delegate,
         age,
-    });
-    replacement
+    })
 }
 
 pub(super) fn verify_initial_context_capture(

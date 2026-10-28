@@ -86,21 +86,9 @@ impl World {
         }
 
         match &command.operation {
-            Op::Propose {
-                original,
-                valid_until_tick,
-                predecessor_request_id,
-                ..
-            } => self.project_safe_alternative_proposal(
-                signed,
-                key,
-                previous,
-                now,
-                &command_digest,
-                original,
-                valid_until_tick,
-                predecessor_request_id,
-            ),
+            Op::Propose { .. } => {
+                self.project_safe_alternative_proposal(signed, key, previous, now, &command_digest)
+            }
             _ => self.project_safe_alternative_existing_operation(
                 signed,
                 key,
@@ -118,11 +106,17 @@ impl World {
         previous: Option<&Value>,
         now: u64,
         command_digest: &str,
-        original: &oasis7_client_api::safe_alternative::FineGrainedMoveRequestV1,
-        valid_until_tick: &u64,
-        predecessor_request_id: &Option<String>,
     ) -> Result<(String, Value), String> {
         let command = &signed.request;
+        let Op::Propose {
+            original,
+            valid_until_tick,
+            predecessor_request_id,
+            ..
+        } = &command.operation
+        else {
+            unreachable!("proposal routed to proposal projector")
+        };
         let original_digest = digest(&serde_json::to_value(original).map_err(|e| e.to_string())?);
         if let Some(old) = previous {
             if old["original_digest"] != original_digest
@@ -199,24 +193,8 @@ impl World {
         }
 
         match &command.operation {
-            Op::Confirm {
-                generation,
-                candidate_id,
-                candidate_digest,
-                confirmation_id,
-                valid_until_tick,
-                ..
-            } => {
-                if self.apply_safe_alternative_confirmation(
-                    &mut record,
-                    signed,
-                    now,
-                    *generation,
-                    candidate_id,
-                    candidate_digest,
-                    confirmation_id,
-                    *valid_until_tick,
-                )? {
+            Op::Confirm { .. } => {
+                if self.apply_safe_alternative_confirmation(&mut record, signed, now)? {
                     return Ok((key, record));
                 }
             }
@@ -271,12 +249,23 @@ impl World {
         record: &mut Value,
         signed: &SignedReadRequest<SafeAlternativeCommandV1>,
         now: u64,
-        generation: u64,
-        candidate_id: &str,
-        candidate_digest: &str,
-        confirmation_id: &str,
-        valid_until_tick: u64,
     ) -> Result<bool, String> {
+        let Op::Confirm {
+            generation,
+            candidate_id,
+            candidate_digest,
+            confirmation_id,
+            valid_until_tick,
+            ..
+        } = &signed.request.operation
+        else {
+            unreachable!("confirmation routed to confirmation projector")
+        };
+        let generation = *generation;
+        let valid_until_tick = *valid_until_tick;
+        let candidate_id = candidate_id.as_str();
+        let candidate_digest = candidate_digest.as_str();
+        let confirmation_id = confirmation_id.as_str();
         let confirmation = json!({"confirmation_id":confirmation_id,"candidate_id":candidate_id,"candidate_digest":candidate_digest,"generation":generation,"valid_until_tick":valid_until_tick,"signed":signed});
         if !record["confirmation"].is_null() {
             if record["confirmation"] == confirmation {

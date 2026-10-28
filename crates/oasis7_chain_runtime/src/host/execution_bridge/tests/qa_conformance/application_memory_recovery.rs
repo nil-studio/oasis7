@@ -52,7 +52,7 @@ fn restore_or_reject_original_memory_checkpoint(
 ) -> Option<ViewerRuntimeLiveServer> {
     let original_bytes = mode
         .starts_with("memory-reject-")
-        .then(|| fs::read(&store).unwrap());
+        .then(|| fs::read(store).unwrap());
     let created = ViewerRuntimeLiveServer::new(config.clone());
     if matches!(
         mode,
@@ -94,7 +94,7 @@ fn restore_or_reject_original_memory_checkpoint(
                 panic!("tampered original artifact must be rejected during constructor restore")
             }
         }
-        let retained = fs::read(&store).unwrap();
+        let retained = fs::read(store).unwrap();
         assert_eq!(
             Some(&retained),
             original_bytes.as_ref(),
