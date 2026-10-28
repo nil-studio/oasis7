@@ -3,7 +3,7 @@
 审计轮次: 1
 
 ## 目的
-- 为 `RTMIN-2` 提供 legacy network-rehearsal rehearsal QA gate 模板。
+- 为 `RTMIN-2` 提供 legacy network-rehearsal QA gate 模板。
 - 固定历史 `public_testnet_rehearsal`、`staging`、`canary` 三层 rehearsal 轨道的最小 lane、`pass/partial/block` 判定与证据回写格式。
 - 让 `qa_engineer`、`runtime_engineer`、`liveops_community` 在同一 candidate bundle 上给出一致结论。
 - 本模板不得用于新的 active product/player-facing world claim；新测试环境应走 formal network tier / test environment candidate 证据链。

@@ -3,7 +3,7 @@
 审计轮次: example
 
 ## Purpose
-- This template exists so repo-owned `network_tier_manifest` examples can point to a template-scoped evidence placeholder.
+- This template provides a template-scoped evidence placeholder for repo-owned `network_tier_manifest` examples.
 - It is intentionally a `skeleton` placeholder, not live `public_testnet` proof.
 
 ## Current Verdict

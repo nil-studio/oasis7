@@ -4,8 +4,8 @@
 
 ## 目的
 - 提供统一的发布证据包结构；`TASK-TESTING-003` 保留为原模板来源，不要求复制模板时新建任务。
-- 将命令、日志、截图、结论、风险与 `PRD-ID / 实际 PR、CI 或评审来源` 映射收敛到同一份模板中。
-- 让 `producer_system_designer`、`qa_engineer`、模块 owner 在 go/no-go 评审时可直接消费同一份证据。
+- 将命令、日志、截图、结论、风险与 `PRD-ID / 实际 PR、CI 或评审来源` 映射汇总到同一份模板中。
+- 让 `producer_system_designer`、`qa_engineer`、模块 owner 在 go/no-go 评审时可直接使用同一份证据。
 
 ## 使用说明
 - 每个发布候选、阶段收口评审或高风险专项回归都应复制本模板并回填实际值。

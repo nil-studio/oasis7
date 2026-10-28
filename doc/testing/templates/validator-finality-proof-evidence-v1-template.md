@@ -1,7 +1,7 @@
 # Validator Finality Proof Evidence V1 Template
 
 Purpose: record one bounded `WorldFinalityProofV1` external verifier sample for
-validator-set hash, stake threshold, finality-vote target binding, and
+validator-set hash, stake threshold, finality-vote target binding,
 fork/misbehavior evidence, live Ed25519 finality vote verification, and bounded
 validator-set transition execution plus governance-certificate semantics. This
 is optional, non-promotional evidence.
