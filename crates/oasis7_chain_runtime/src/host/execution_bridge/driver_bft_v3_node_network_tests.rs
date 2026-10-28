@@ -128,15 +128,15 @@ fn network_case_membership(
         .map(|(i, d)| {
             let mut binding = binding_for(d, i as u8);
             if check_membership {
-                // Actual debug World replay and native protected-journal checks
-                // exceed the 2-second model clock used by fixed-set fixtures.
-                // Preserve the 180-second acceptance deadline and allow real
-                // elapsed-time rounds to contain those actual consumers.
+                // Private acquisition has a 60-second operation budget below.
+                // Allow that operation and actual debug World validation inside
+                // a proposal window; measured cold replay can exceed 30 seconds.
+                // Vote windows and all production/default fixtures are separate.
                 binding.timeouts = oasis7_consensus::tendermint_v1::BftTimeoutsV1 {
-                    propose_ms: 30_000,
+                    propose_ms: 90_000,
                     prevote_ms: 30_000,
                     precommit_ms: 30_000,
-                    round_delta_ms: 5_000,
+                    round_delta_ms: 10_000,
                 };
             }
             binding

@@ -295,9 +295,18 @@ pub(super) fn exercise(
         node.stop().unwrap();
     }
     isolation.store(false, std::sync::atomic::Ordering::Release);
-    for node in nodes.iter_mut() {
-        node.start().unwrap();
-    }
+    // Independent nodes replay their own original histories concurrently. Keep
+    // the protected elapsed clock and original timers running throughout;
+    // startup of one node must not serialize every other native provider.
+    thread::scope(|scope| {
+        let starts = nodes
+            .iter_mut()
+            .map(|node| scope.spawn(move || node.start()))
+            .collect::<Vec<_>>();
+        for start in starts {
+            start.join().unwrap().unwrap();
+        }
+    });
     wait_height(nodes, snapshots, 6);
     for node in nodes.iter() {
         node.submit_consensus_action_payload(9807, payload("membership-after-restart"))
