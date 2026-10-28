@@ -671,6 +671,36 @@ impl<C: LlmCompletionClient> LlmAgentBehavior<C> {
             "environment.current_observation" => {
                 self.environment_current_observation_module(observation)
             }
+            "memory.short_term.recent" | "memory.long_term.search" => {
+                self.prompt_memory_module(request)
+            }
+            "world.rules.guide" => Self::prompt_world_rules_guide_module(request),
+            "module.lifecycle.status"
+            | "power.order_book.status"
+            | "module.market.status"
+            | "social.state.status" => Self::prompt_status_module(request, observation),
+            other => Err(format!("unsupported module: {other}")),
+        };
+
+        match result {
+            Ok(data) => serde_json::json!({
+                "ok": true,
+                "module": request.module,
+                "result": data,
+            }),
+            Err(err) => serde_json::json!({
+                "ok": false,
+                "module": request.module,
+                "error": err,
+            }),
+        }
+    }
+
+    fn prompt_memory_module(
+        &self,
+        request: &LlmModuleCallRequest,
+    ) -> Result<serde_json::Value, String> {
+        match request.module.as_str() {
             "memory.short_term.recent" => {
                 let limit = parse_limit_arg(request.args.get("limit"), 3, 8);
                 let mut entries: Vec<MemoryEntry> =
@@ -716,6 +746,14 @@ impl<C: LlmCompletionClient> LlmAgentBehavior<C> {
                 serde_json::to_value(entries)
                     .map_err(|err| format!("serialize long-term memory failed: {err}"))
             }
+            _ => unreachable!("unsupported module reached its specialized dispatcher"),
+        }
+    }
+
+    fn prompt_world_rules_guide_module(
+        request: &LlmModuleCallRequest,
+    ) -> Result<serde_json::Value, String> {
+        match request.module.as_str() {
             "world.rules.guide" => {
                 let topic = request
                     .args
@@ -838,6 +876,15 @@ impl<C: LlmCompletionClient> LlmAgentBehavior<C> {
                     "guide": guide,
                 }))
             }
+            _ => unreachable!("unsupported module reached its specialized dispatcher"),
+        }
+    }
+
+    fn prompt_status_module(
+        request: &LlmModuleCallRequest,
+        observation: &Observation,
+    ) -> Result<serde_json::Value, String> {
+        match request.module.as_str() {
             "module.lifecycle.status" => {
                 let module_id_filter = request
                     .args
@@ -939,20 +986,7 @@ impl<C: LlmCompletionClient> LlmAgentBehavior<C> {
                     "edges": edges,
                 }))
             }
-            other => Err(format!("unsupported module: {other}")),
-        };
-
-        match result {
-            Ok(data) => serde_json::json!({
-                "ok": true,
-                "module": request.module,
-                "result": data,
-            }),
-            Err(err) => serde_json::json!({
-                "ok": false,
-                "module": request.module,
-                "error": err,
-            }),
+            _ => unreachable!("unsupported module reached its specialized dispatcher"),
         }
     }
 

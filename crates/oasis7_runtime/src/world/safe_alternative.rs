@@ -71,112 +71,134 @@ impl World {
         signed: &SignedReadRequest<SafeAlternativeCommandV1>,
     ) -> Result<(String, Value), String> {
         validate_owner(self, signed)?;
-        let c = &signed.request;
-        let key = lineage_key(c);
+        let command = &signed.request;
+        let key = lineage_key(command);
         let now = self.state.time;
         let previous = self.capability_revocation_state.safe_alternatives.get(&key);
-        let command_digest = digest(&json!(c));
+        let command_digest = digest(&json!(command));
         if let Some(old) = previous
-            && let Some(recorded) = old["command_digests"].get(&c.client_operation_id)
+            && let Some(recorded) = old["command_digests"].get(&command.client_operation_id)
         {
             if *recorded != command_digest {
                 return Err("identity_conflict".into());
             }
             return Ok((key, old.clone()));
         }
-        if let Op::Propose {
-            original,
-            valid_until_tick,
-            predecessor_request_id,
-            ..
-        } = &c.operation
-        {
-            let original_digest =
-                digest(&serde_json::to_value(original).map_err(|e| e.to_string())?);
-            if let Some(old) = previous {
-                if old["original_digest"] != original_digest
-                    || old["binding"]["operation"] != json!(c.operation)
-                {
-                    return Err("identity_conflict".into());
-                }
-                return Ok((key, old.clone()));
-            }
-            if self.capability_revocation_state.safe_alternatives.len()
-                >= MAX_SAFE_ALTERNATIVE_LINEAGES
-            {
-                return Err("evaluation_unavailable".into());
-            }
-            if *valid_until_tick <= now {
-                return Err("candidate_stale".into());
-            }
-            let evaluation_unavailable =
-                !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty();
-            if let Some(predecessor) = predecessor_request_id {
-                let mut predecessor_command = c.clone();
-                predecessor_command.operation = Op::Read {
-                    request_id: predecessor.clone(),
-                };
-                let valid = self
-                    .capability_revocation_state
-                    .safe_alternatives
-                    .get(&lineage_key(&predecessor_command))
-                    .is_some_and(|r| r["outcome"]["status"] == "rejected");
-                if !valid {
-                    return Err("original_outcome_unknown".into());
-                }
-            }
-            let agent = self
-                .state
-                .agents
-                .get(&c.agent_id)
-                .ok_or("authority_changed")?;
-            let mut candidates = Vec::new();
-            for to in &original.waypoints {
-                if evaluation_unavailable {
-                    continue;
-                }
-                if candidates.iter().any(|v: &Value| v["to"] == json!(to)) {
-                    continue;
-                }
-                let location = format!("{}:{}:{}", to.x_cm, to.y_cm, to.z_cm);
-                if self
-                    .state
-                    .gameplay_policy
-                    .forbidden_location_ids
-                    .contains(&location)
-                {
-                    continue;
-                }
-                let mut candidate = json!({"candidate_id":format!("endpoint-{}",candidates.len()+1),"to":to,
-                    "goal":"Move directly to this endpoint; omit the requested path and arrival time",
-                    "scope":{"agent_id":c.agent_id,"from":agent.state.pos,"to":to,"maximum_effects":1},
-                    "cost_upper_bound":0,"risk":"position_change","consequences":"Immediate canonical relocation only; no route or arrival guarantee",
-                    "retractability":"A later move requires separate authority; this move is not undone by cancelling",
-                    "recommendation":"Supported direct endpoint with no resource charge",
-                    "required_authority":"current_agent_owner","valid_until_tick":valid_until_tick});
-                candidate["candidate_digest"] = json!(digest(&candidate));
-                candidates.push(candidate);
-            }
-            let state = if evaluation_unavailable {
-                "evaluation_unavailable"
-            } else if candidates.is_empty() {
-                "no_safe_alternative"
-            } else {
-                "awaiting_confirmation"
-            };
-            return Ok((
-                key.clone(),
-                json!({"request_id":c.operation.request_id(),"agent_id":c.agent_id,"original":original,"original_digest":original_digest,
-                "command_digests":{c.client_operation_id.clone():command_digest},"propose_signed":signed,"owner_public_key":signed.subject_public_key,"binding":c,"set_id":format!("{key}:generation:1"),"content_digest":digest(&json!(candidates)),"generation":1,"state":state,"blocker":if evaluation_unavailable {json!("module_evaluation_unavailable")} else {Value::Null},"valid_from_tick":now,"valid_until_tick":valid_until_tick,
-                "initial_position":agent.state.pos,"policy_digest":digest(&json!(self.state.gameplay_policy)),
-                "predecessor_request_id":predecessor_request_id,"original_no_effect":true,"candidates":candidates,"confirmation":null,"authorization":null,"outcome":null}),
-            ));
+
+        match &command.operation {
+            Op::Propose {
+                original,
+                valid_until_tick,
+                predecessor_request_id,
+                ..
+            } => self.project_safe_alternative_proposal(
+                signed,
+                key,
+                previous,
+                now,
+                &command_digest,
+                original,
+                valid_until_tick,
+                predecessor_request_id,
+            ),
+            _ => self.project_safe_alternative_existing_operation(
+                signed,
+                key,
+                previous,
+                now,
+                &command_digest,
+            ),
         }
-        let mut r = previous.cloned().ok_or("original_not_eligible")?;
-        if r["owner_public_key"] != signed.subject_public_key {
+    }
+
+    fn project_safe_alternative_proposal(
+        &self,
+        signed: &SignedReadRequest<SafeAlternativeCommandV1>,
+        key: String,
+        previous: Option<&Value>,
+        now: u64,
+        command_digest: &str,
+        original: &oasis7_client_api::safe_alternative::FineGrainedMoveRequestV1,
+        valid_until_tick: &u64,
+        predecessor_request_id: &Option<String>,
+    ) -> Result<(String, Value), String> {
+        let command = &signed.request;
+        let original_digest = digest(&serde_json::to_value(original).map_err(|e| e.to_string())?);
+        if let Some(old) = previous {
+            if old["original_digest"] != original_digest
+                || old["binding"]["operation"] != json!(command.operation)
+            {
+                return Err("identity_conflict".into());
+            }
+            return Ok((key, old.clone()));
+        }
+        if self.capability_revocation_state.safe_alternatives.len() >= MAX_SAFE_ALTERNATIVE_LINEAGES
+        {
+            return Err("evaluation_unavailable".into());
+        }
+        if *valid_until_tick <= now {
+            return Err("candidate_stale".into());
+        }
+        let evaluation_unavailable =
+            !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty();
+        if let Some(predecessor) = predecessor_request_id {
+            let mut predecessor_command = command.clone();
+            predecessor_command.operation = Op::Read {
+                request_id: predecessor.clone(),
+            };
+            let valid = self
+                .capability_revocation_state
+                .safe_alternatives
+                .get(&lineage_key(&predecessor_command))
+                .is_some_and(|record| record["outcome"]["status"] == "rejected");
+            if !valid {
+                return Err("original_outcome_unknown".into());
+            }
+        }
+        let agent = self
+            .state
+            .agents
+            .get(&command.agent_id)
+            .ok_or("authority_changed")?;
+        let candidates = self.build_safe_alternative_candidates(
+            &command.agent_id,
+            &agent.state.pos,
+            &original.waypoints,
+            None,
+            *valid_until_tick,
+            evaluation_unavailable,
+        );
+        let state = if evaluation_unavailable {
+            "evaluation_unavailable"
+        } else if candidates.is_empty() {
+            "no_safe_alternative"
+        } else {
+            "awaiting_confirmation"
+        };
+        Ok((
+            key.clone(),
+            json!({"request_id":command.operation.request_id(),"agent_id":command.agent_id,"original":original,"original_digest":original_digest,
+            "command_digests":{command.client_operation_id.clone():command_digest},"propose_signed":signed,"owner_public_key":signed.subject_public_key,"binding":command,"set_id":format!("{key}:generation:1"),"content_digest":digest(&json!(candidates)),"generation":1,"state":state,"blocker":if evaluation_unavailable {json!("module_evaluation_unavailable")} else {Value::Null},"valid_from_tick":now,"valid_until_tick":valid_until_tick,
+            "initial_position":agent.state.pos,"policy_digest":digest(&json!(self.state.gameplay_policy)),
+            "predecessor_request_id":predecessor_request_id,"original_no_effect":true,"candidates":candidates,"confirmation":null,"authorization":null,"outcome":null}),
+        ))
+    }
+
+    fn project_safe_alternative_existing_operation(
+        &self,
+        signed: &SignedReadRequest<SafeAlternativeCommandV1>,
+        key: String,
+        previous: Option<&Value>,
+        now: u64,
+        command_digest: &str,
+    ) -> Result<(String, Value), String> {
+        let command = &signed.request;
+        let mut record = previous.cloned().ok_or("original_not_eligible")?;
+        if record["owner_public_key"] != signed.subject_public_key {
             return Err("authority_changed".into());
         }
-        match &c.operation {
+
+        match &command.operation {
             Op::Confirm {
                 generation,
                 candidate_id,
@@ -185,176 +207,285 @@ impl World {
                 valid_until_tick,
                 ..
             } => {
-                let confirmation = json!({"confirmation_id":confirmation_id,"candidate_id":candidate_id,"candidate_digest":candidate_digest,"generation":generation,"valid_until_tick":valid_until_tick,"signed":signed});
-                if !r["confirmation"].is_null() {
-                    if r["confirmation"] == confirmation {
-                        return Ok((key, r));
-                    }
-                    return Err(
-                        if r["confirmation"]["confirmation_id"] == *confirmation_id {
-                            "identity_conflict"
-                        } else {
-                            "execution_already_bound"
-                        }
-                        .into(),
-                    );
+                if self.apply_safe_alternative_confirmation(
+                    &mut record,
+                    signed,
+                    now,
+                    *generation,
+                    candidate_id,
+                    candidate_digest,
+                    confirmation_id,
+                    *valid_until_tick,
+                )? {
+                    return Ok((key, record));
                 }
-                if r["state"] != "awaiting_confirmation" {
-                    return Err("confirmation_rejected".into());
-                }
-                if Some(*generation) != r["generation"].as_u64()
-                    || now >= r["valid_until_tick"].as_u64().unwrap_or(0)
-                    || *valid_until_tick <= now
-                    || *valid_until_tick > r["valid_until_tick"].as_u64().unwrap_or(0)
-                {
-                    return Err("candidate_stale".into());
-                }
-                let candidate = r["candidates"]
-                    .as_array()
-                    .and_then(|v| v.iter().find(|v| v["candidate_id"] == *candidate_id))
-                    .ok_or("candidate_stale")?;
-                if candidate["candidate_digest"] != *candidate_digest {
-                    return Err("identity_conflict".into());
-                }
-                self.validate_alternative_scope(&r, candidate, now)?;
-                r["confirmation"] = confirmation;
-                r["authorization"] = json!({"authorization_id":format!("alternative-auth-{}",digest(&r["confirmation"])),"state":"available","execution_id":null,"action_id":null});
-                r["state"] = json!("confirmed");
             }
             Op::Execute {
                 authorization_id,
                 execution_id,
                 ..
             } => {
-                if r["authorization"].is_null() {
-                    return Err("confirmation_required".into());
-                }
-                if r["authorization"]["authorization_id"] != *authorization_id {
-                    return Err("identity_conflict".into());
-                }
-                if !r["authorization"]["execution_id"].is_null() {
-                    if r["authorization"]["execution_id"] == *execution_id {
-                        return Ok((key, r));
-                    }
-                    return Err("execution_already_bound".into());
-                }
-                if r["state"] != "confirmed"
-                    || now >= r["confirmation"]["valid_until_tick"].as_u64().unwrap_or(0)
-                {
-                    return Err("authorization_expired_or_revoked".into());
-                }
-                let candidate = r["candidates"]
-                    .as_array()
-                    .and_then(|v| {
-                        v.iter()
-                            .find(|v| v["candidate_id"] == r["confirmation"]["candidate_id"])
-                    })
-                    .ok_or("candidate_stale")?;
-                self.validate_alternative_scope(&r, candidate, now)?;
-                let mut allocator = self.clone();
-                let action_id = allocator.allocate_next_action_id();
-                r["authorization"]["execution_id"] = json!(execution_id);
-                r["authorization"]["action_id"] = json!(action_id);
-                r["authorization"]["state"] = json!("bound");
-                r["state"] = json!("execution_bound");
-                r["execution_signed"] = json!(signed);
-            }
-            Op::Cancel { .. } => {
-                if r["outcome"].is_null() {
-                    r["state"] = json!("declined");
-                    if !r["authorization"].is_null() {
-                        r["authorization"]["state"] = json!("revoked");
-                    }
+                if self.apply_safe_alternative_execution(
+                    &mut record,
+                    signed,
+                    now,
+                    authorization_id,
+                    execution_id,
+                )? {
+                    return Ok((key, record));
                 }
             }
+            Op::Cancel { .. } => Self::apply_safe_alternative_cancellation(&mut record),
             Op::Reevaluate {
                 valid_until_tick, ..
-            } => {
-                if !r["authorization"]["execution_id"].is_null() {
-                    return Err("execution_already_bound".into());
-                }
-                if *valid_until_tick <= now {
-                    return Err("candidate_stale".into());
-                }
-                let generation = r["generation"].as_u64().unwrap_or(0) + 1;
-                if generation > MAX_SAFE_ALTERNATIVE_GENERATIONS {
-                    return Err("evaluation_unavailable".into());
-                }
-                let mut history = r["history"].as_array().cloned().unwrap_or_default();
-                let mut old = r.clone();
-                old.as_object_mut().unwrap().remove("history");
-                history.push(old);
-                let agent = self
-                    .state
-                    .agents
-                    .get(&c.agent_id)
-                    .ok_or("authority_changed")?;
-                let evaluation_unavailable = !self.state.module_instances.is_empty()
-                    || !self.module_registry.active.is_empty();
-                r["generation"] = json!(generation);
-                r["valid_until_tick"] = json!(valid_until_tick);
-                r["valid_from_tick"] = json!(now);
-                r["initial_position"] = json!(agent.state.pos);
-                r["policy_digest"] = json!(digest(&json!(self.state.gameplay_policy)));
-                let original: oasis7_client_api::safe_alternative::FineGrainedMoveRequestV1 =
-                    serde_json::from_value(r["original"].clone()).map_err(|_| "outcome_unknown")?;
-                let mut candidates = Vec::new();
-                for to in original.waypoints {
-                    if evaluation_unavailable {
-                        continue;
-                    }
-                    let location = format!("{}:{}:{}", to.x_cm, to.y_cm, to.z_cm);
-                    if self
-                        .state
-                        .gameplay_policy
-                        .forbidden_location_ids
-                        .contains(&location)
-                        || candidates.iter().any(|v: &Value| v["to"] == json!(to))
-                    {
-                        continue;
-                    }
-                    let mut candidate = json!({"candidate_id":format!("generation-{generation}-endpoint-{}",candidates.len()+1),"to":to,
-                        "goal":"Move directly to this endpoint; omit the requested path and arrival time",
-                        "scope":{"agent_id":c.agent_id,"from":agent.state.pos,"to":to,"maximum_effects":1},
-                        "cost_upper_bound":0,"risk":"position_change","consequences":"Immediate canonical relocation only; no route or arrival guarantee",
-                        "retractability":"A later move requires separate authority; this move is not undone by cancelling",
-                        "recommendation":"Supported direct endpoint with no resource charge","required_authority":"current_agent_owner","valid_until_tick":valid_until_tick});
-                    candidate["candidate_digest"] = json!(digest(&candidate));
-                    candidates.push(candidate);
-                }
-                r["reevaluation_signed"] = json!(signed);
-                r["content_digest"] = json!(digest(&json!(candidates)));
-                r["set_id"] = json!(format!("{key}:generation:{generation}"));
-                r["candidates"] = json!(candidates);
-                r["history"] = json!(history);
-                r["confirmation"] = Value::Null;
-                r["authorization"] = Value::Null;
-                r["outcome"] = Value::Null;
-                r["blocker"] = if evaluation_unavailable {
-                    json!("module_evaluation_unavailable")
-                } else {
-                    Value::Null
-                };
-                r["state"] = json!(if evaluation_unavailable {
-                    "evaluation_unavailable"
-                } else if r["candidates"].as_array().unwrap().is_empty() {
-                    "no_safe_alternative"
-                } else {
-                    "awaiting_confirmation"
-                });
+            } => self.reevaluate_safe_alternative(
+                &mut record,
+                signed,
+                command,
+                &key,
+                now,
+                *valid_until_tick,
+            )?,
+            Op::Read { .. } => {}
+            Op::Propose { .. } => {
+                unreachable!("proposal routed to proposal projector")
             }
-            Op::Read { .. } | Op::Propose { .. } => {}
         }
-        if r["command_digests"].is_null() {
-            r["command_digests"] = json!({});
+
+        if record["command_digests"].is_null() {
+            record["command_digests"] = json!({});
         }
-        r["command_digests"][&c.client_operation_id] = json!(command_digest);
-        if serde_json::to_vec(&r).map_err(|e| e.to_string())?.len()
+        record["command_digests"][&command.client_operation_id] = json!(command_digest);
+        if serde_json::to_vec(&record)
+            .map_err(|e| e.to_string())?
+            .len()
             > MAX_SAFE_ALTERNATIVE_RECORD_BYTES
         {
             return Err("evaluation_unavailable".into());
         }
-        Ok((key, r))
+        Ok((key, record))
+    }
+
+    fn apply_safe_alternative_confirmation(
+        &self,
+        record: &mut Value,
+        signed: &SignedReadRequest<SafeAlternativeCommandV1>,
+        now: u64,
+        generation: u64,
+        candidate_id: &str,
+        candidate_digest: &str,
+        confirmation_id: &str,
+        valid_until_tick: u64,
+    ) -> Result<bool, String> {
+        let confirmation = json!({"confirmation_id":confirmation_id,"candidate_id":candidate_id,"candidate_digest":candidate_digest,"generation":generation,"valid_until_tick":valid_until_tick,"signed":signed});
+        if !record["confirmation"].is_null() {
+            if record["confirmation"] == confirmation {
+                return Ok(true);
+            }
+            return Err(
+                if record["confirmation"]["confirmation_id"] == confirmation_id {
+                    "identity_conflict"
+                } else {
+                    "execution_already_bound"
+                }
+                .into(),
+            );
+        }
+        if record["state"] != "awaiting_confirmation" {
+            return Err("confirmation_rejected".into());
+        }
+        if Some(generation) != record["generation"].as_u64()
+            || now >= record["valid_until_tick"].as_u64().unwrap_or(0)
+            || valid_until_tick <= now
+            || valid_until_tick > record["valid_until_tick"].as_u64().unwrap_or(0)
+        {
+            return Err("candidate_stale".into());
+        }
+        let candidate = record["candidates"]
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["candidate_id"] == candidate_id)
+            })
+            .ok_or("candidate_stale")?;
+        if candidate["candidate_digest"] != candidate_digest {
+            return Err("identity_conflict".into());
+        }
+        self.validate_alternative_scope(record, candidate, now)?;
+        record["confirmation"] = confirmation;
+        record["authorization"] = json!({"authorization_id":format!("alternative-auth-{}",digest(&record["confirmation"])),"state":"available","execution_id":null,"action_id":null});
+        record["state"] = json!("confirmed");
+        Ok(false)
+    }
+
+    fn apply_safe_alternative_execution(
+        &self,
+        record: &mut Value,
+        signed: &SignedReadRequest<SafeAlternativeCommandV1>,
+        now: u64,
+        authorization_id: &str,
+        execution_id: &str,
+    ) -> Result<bool, String> {
+        if record["authorization"].is_null() {
+            return Err("confirmation_required".into());
+        }
+        if record["authorization"]["authorization_id"] != authorization_id {
+            return Err("identity_conflict".into());
+        }
+        if !record["authorization"]["execution_id"].is_null() {
+            if record["authorization"]["execution_id"] == execution_id {
+                return Ok(true);
+            }
+            return Err("execution_already_bound".into());
+        }
+        if record["state"] != "confirmed"
+            || now
+                >= record["confirmation"]["valid_until_tick"]
+                    .as_u64()
+                    .unwrap_or(0)
+        {
+            return Err("authorization_expired_or_revoked".into());
+        }
+        let candidate = record["candidates"]
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["candidate_id"] == record["confirmation"]["candidate_id"])
+            })
+            .ok_or("candidate_stale")?;
+        self.validate_alternative_scope(record, candidate, now)?;
+        let mut allocator = self.clone();
+        let action_id = allocator.allocate_next_action_id();
+        record["authorization"]["execution_id"] = json!(execution_id);
+        record["authorization"]["action_id"] = json!(action_id);
+        record["authorization"]["state"] = json!("bound");
+        record["state"] = json!("execution_bound");
+        record["execution_signed"] = json!(signed);
+        Ok(false)
+    }
+
+    fn apply_safe_alternative_cancellation(record: &mut Value) {
+        if record["outcome"].is_null() {
+            record["state"] = json!("declined");
+            if !record["authorization"].is_null() {
+                record["authorization"]["state"] = json!("revoked");
+            }
+        }
+    }
+
+    fn reevaluate_safe_alternative(
+        &self,
+        record: &mut Value,
+        signed: &SignedReadRequest<SafeAlternativeCommandV1>,
+        command: &SafeAlternativeCommandV1,
+        key: &str,
+        now: u64,
+        valid_until_tick: u64,
+    ) -> Result<(), String> {
+        if !record["authorization"]["execution_id"].is_null() {
+            return Err("execution_already_bound".into());
+        }
+        if valid_until_tick <= now {
+            return Err("candidate_stale".into());
+        }
+        let generation = record["generation"].as_u64().unwrap_or(0) + 1;
+        if generation > MAX_SAFE_ALTERNATIVE_GENERATIONS {
+            return Err("evaluation_unavailable".into());
+        }
+        let mut history = record["history"].as_array().cloned().unwrap_or_default();
+        let mut old = record.clone();
+        old.as_object_mut().unwrap().remove("history");
+        history.push(old);
+        let agent = self
+            .state
+            .agents
+            .get(&command.agent_id)
+            .ok_or("authority_changed")?;
+        let evaluation_unavailable =
+            !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty();
+        record["generation"] = json!(generation);
+        record["valid_until_tick"] = json!(valid_until_tick);
+        record["valid_from_tick"] = json!(now);
+        record["initial_position"] = json!(agent.state.pos);
+        record["policy_digest"] = json!(digest(&json!(self.state.gameplay_policy)));
+        let original: oasis7_client_api::safe_alternative::FineGrainedMoveRequestV1 =
+            serde_json::from_value(record["original"].clone()).map_err(|_| "outcome_unknown")?;
+        let candidates = self.build_safe_alternative_candidates(
+            &command.agent_id,
+            &agent.state.pos,
+            &original.waypoints,
+            Some(generation),
+            valid_until_tick,
+            evaluation_unavailable,
+        );
+        record["reevaluation_signed"] = json!(signed);
+        record["content_digest"] = json!(digest(&json!(candidates)));
+        record["set_id"] = json!(format!("{key}:generation:{generation}"));
+        record["candidates"] = json!(candidates);
+        record["history"] = json!(history);
+        record["confirmation"] = Value::Null;
+        record["authorization"] = Value::Null;
+        record["outcome"] = Value::Null;
+        record["blocker"] = if evaluation_unavailable {
+            json!("module_evaluation_unavailable")
+        } else {
+            Value::Null
+        };
+        record["state"] = json!(if evaluation_unavailable {
+            "evaluation_unavailable"
+        } else if record["candidates"].as_array().unwrap().is_empty() {
+            "no_safe_alternative"
+        } else {
+            "awaiting_confirmation"
+        });
+        Ok(())
+    }
+
+    fn build_safe_alternative_candidates(
+        &self,
+        agent_id: &str,
+        from: &oasis7_agent_api::world_action::GeoPos,
+        waypoints: &[oasis7_agent_api::world_action::GeoPos],
+        generation: Option<u64>,
+        valid_until_tick: u64,
+        evaluation_unavailable: bool,
+    ) -> Vec<Value> {
+        let mut candidates = Vec::new();
+        for to in waypoints {
+            if evaluation_unavailable {
+                continue;
+            }
+            let location = format!("{}:{}:{}", to.x_cm, to.y_cm, to.z_cm);
+            if self
+                .state
+                .gameplay_policy
+                .forbidden_location_ids
+                .contains(&location)
+                || candidates
+                    .iter()
+                    .any(|candidate: &Value| candidate["to"] == json!(to))
+            {
+                continue;
+            }
+            let candidate_id = match generation {
+                Some(generation) => {
+                    format!("generation-{generation}-endpoint-{}", candidates.len() + 1)
+                }
+                None => format!("endpoint-{}", candidates.len() + 1),
+            };
+            let mut candidate = json!({"candidate_id":candidate_id,"to":to,
+                "goal":"Move directly to this endpoint; omit the requested path and arrival time",
+                "scope":{"agent_id":agent_id,"from":from,"to":to,"maximum_effects":1},
+                "cost_upper_bound":0,"risk":"position_change","consequences":"Immediate canonical relocation only; no route or arrival guarantee",
+                "retractability":"A later move requires separate authority; this move is not undone by cancelling",
+                "recommendation":"Supported direct endpoint with no resource charge",
+                "required_authority":"current_agent_owner","valid_until_tick":valid_until_tick});
+            candidate["candidate_digest"] = json!(digest(&candidate));
+            candidates.push(candidate);
+        }
+        candidates
     }
     fn validate_alternative_scope(
         &self,

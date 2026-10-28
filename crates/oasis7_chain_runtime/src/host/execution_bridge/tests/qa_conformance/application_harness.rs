@@ -129,6 +129,7 @@ pub(super) fn run_isolated_application(
     );
 }
 
+#[derive(Clone, Copy)]
 struct IsolatedApplicationMode<'a> {
     wake: bool,
     drift: bool,
@@ -366,44 +367,16 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         .as_ref()
         .map(|server| server.endpoint.as_str())
         .unwrap_or(config.endpoint.as_str());
-    let mut command = application_sandbox::command(&executable, &app_dir, &profile);
-    command
-        .args([
-            "--ignored",
-            "--exact",
-            "execution_bridge_real_tests::real_execution_bridge::tests::qa_conformance::application_process_probe",
-            "--nocapture",
-        ])
-        .current_dir(&app_dir)
-        .env("OASIS7_AGENT_DECISION_SOURCE", "provider_backed")
-        .env("OASIS7_AGENT_PROVIDER_BACKEND", "provider_local_mock")
-        .env("OASIS7_AGENT_PROVIDER_CONTRACT", "worldsim_provider_v1")
-        .env("OASIS7_AGENT_PROVIDER_TRANSPORT", "loopback_http")
-        .env("OASIS7_AGENT_PROVIDER_PROFILE", "oasis7_p0_low_freq_npc")
-        .env("OASIS7_AGENT_EXECUTION_LANE", "headless_agent")
-        .env("OASIS7_AGENT_PROVIDER_URL", provider_url)
-        .env_remove("OASIS7_AGENT_PROVIDER_AUTH_TOKEN")
-        .env("PRE2_APP_WAKE", if wake { "1" } else { "0" })
-        .env("PRE2_APP_WAKE_DRIFT", if drift { "1" } else { "0" })
-        .env("PRE2_APP_FAIRNESS",if service_probe {"1"} else {"0"})
-        .env("PRE2_APP_PERIODIC_FAIRNESS", if admission_mode == "periodic-fairness" { "1" } else { "0" })
-        .env("PRE2_APP_ADMISSION", admission_mode)
-        .env("PRE2_APP_METADATA",if metadata_probe {"1"} else {"0"})
-        .env("PRE2_METADATA_DIR", &app_dir)
-        .env("PRE2_APP_HOSTED", if hosted { "1" } else { "0" })
-        .env("PRE2_APP_RELEASE", if release { "1" } else { "0" })
-        .env("PRE2_APP_ENDPOINT", &config.endpoint)
-        .env("PRE2_APP_TRUST", &config.trusted_service_public_key)
-        .env(
-            "PRE2_APP_WORLD",
-            serde_json::to_string(&config.expected_world).unwrap(),
-        )
-        .env("PRE2_APP_OWNER", &config.read_private_key_hex)
-        .env(
-            "PRE2_APP_REQUEST",
-            serde_json::to_string(&original).unwrap(),
-        )
-        .env("PRE2_DENIED_NODE_ROOT", &denied);
+    let mut command = build_isolated_application_child_command(
+        mode,
+        &executable,
+        &app_dir,
+        &profile,
+        provider_url,
+        config,
+        &original,
+        &denied,
+    );
     let observer_stop = Arc::new(AtomicBool::new(false));
     let pending_observer = (admission_mode == "pending-cadence")
         .then(|| application_hosted_unpublished_cadence::observe_parent(&fixture, &app_dir));
@@ -489,55 +462,14 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     let ack_external_models_before = metadata
         .as_ref()
         .map(|m| m.decision_count.load(Ordering::SeqCst));
-    let mut output = if matches!(
+    let mut output = run_application_child_and_report(
+        &mut command,
+        &fixture,
+        &app_dir,
         admission_mode,
-        "fresh-admission"
-            | "fresh-metadata"
-            | "repeated-turns"
-            | "hosted-wait"
-            | "hosted-wait-write-failure"
-            | "hosted-resume-write-failure"
-    ) {
-        application_completion::run_child(&mut command, &app_dir)
-    } else {
-        command.output().unwrap()
-    };
-    if admission_mode == "slow-consumer" {
-        application_stream_budget_diagnostics::relay(&output);
-    }
-    if !output.status.success() {
-        eprintln!(
-            "fixture_failure_stages={}",
-            fixture.stage_diagnostics.snapshot()
-        );
-        if admission_mode == "pending-cadence" {
-            // Report the actual child failure before the observer's join can
-            // replace it with a secondary readiness or sampling assertion.
-            eprintln!(
-                "pending_cadence_child_exit={} ready={} gated={} sampled={} released={}\nchild_stdout:\n{}\nchild_stderr:\n{}",
-                output.status,
-                app_dir.join("pending-cadence-ready").exists(),
-                app_dir.join("pending-cadence-gated").exists(),
-                app_dir.join("pending-cadence-sampled").exists(),
-                app_dir.join("pending-cadence-released").exists(),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-    }
-    if hosted
-        && (metadata_probe
-            || matches!(
-                admission_mode,
-                "fresh-admission" | "fresh-metadata" | "fresh-paused" | "repeated-turns"
-            ))
-    {
-        println!(
-            "hosted_probe_child_exit={}\nchild_stderr:\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+        hosted,
+        metadata_probe,
+    );
     if admission_mode.starts_with("memory-ack-") {
         assert_eq!(
             metadata
@@ -1104,6 +1036,130 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         }
     }
     fs::remove_dir_all(app_dir).unwrap();
+}
+
+fn run_application_child_and_report(
+    command: &mut std::process::Command,
+    fixture: &Fixture,
+    app_dir: &std::path::Path,
+    admission_mode: &str,
+    hosted: bool,
+    metadata_probe: bool,
+) -> std::process::Output {
+    let output = if matches!(
+        admission_mode,
+        "fresh-admission"
+            | "fresh-metadata"
+            | "repeated-turns"
+            | "hosted-wait"
+            | "hosted-wait-write-failure"
+            | "hosted-resume-write-failure"
+    ) {
+        application_completion::run_child(command, app_dir)
+    } else {
+        command.output().unwrap()
+    };
+    if admission_mode == "slow-consumer" {
+        application_stream_budget_diagnostics::relay(&output);
+    }
+    if !output.status.success() {
+        eprintln!(
+            "fixture_failure_stages={}",
+            fixture.stage_diagnostics.snapshot()
+        );
+        if admission_mode == "pending-cadence" {
+            // Report the actual child failure before the observer's join can
+            // replace it with a secondary readiness or sampling assertion.
+            eprintln!(
+                "pending_cadence_child_exit={} ready={} gated={} sampled={} released={}\nchild_stdout:\n{}\nchild_stderr:\n{}",
+                output.status,
+                app_dir.join("pending-cadence-ready").exists(),
+                app_dir.join("pending-cadence-gated").exists(),
+                app_dir.join("pending-cadence-sampled").exists(),
+                app_dir.join("pending-cadence-released").exists(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    if hosted
+        && (metadata_probe
+            || matches!(
+                admission_mode,
+                "fresh-admission" | "fresh-metadata" | "fresh-paused" | "repeated-turns"
+            ))
+    {
+        println!(
+            "hosted_probe_child_exit={}\nchild_stderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    output
+}
+
+fn build_isolated_application_child_command(
+    mode: IsolatedApplicationMode<'_>,
+    executable: &std::path::Path,
+    app_dir: &std::path::Path,
+    profile: &str,
+    provider_url: &str,
+    config: &oasis7_game_client::remote_world_service::WorldServiceClientConfig,
+    original: &SubmitIntentRequest<WorldServicePayloadV1>,
+    denied: &std::path::Path,
+) -> std::process::Command {
+    let mut command = application_sandbox::command(executable, app_dir, profile);
+    command
+        .args([
+            "--ignored",
+            "--exact",
+            "execution_bridge_real_tests::real_execution_bridge::tests::qa_conformance::application_process_probe",
+            "--nocapture",
+        ])
+        .current_dir(app_dir)
+        .env("OASIS7_AGENT_DECISION_SOURCE", "provider_backed")
+        .env("OASIS7_AGENT_PROVIDER_BACKEND", "provider_local_mock")
+        .env("OASIS7_AGENT_PROVIDER_CONTRACT", "worldsim_provider_v1")
+        .env("OASIS7_AGENT_PROVIDER_TRANSPORT", "loopback_http")
+        .env("OASIS7_AGENT_PROVIDER_PROFILE", "oasis7_p0_low_freq_npc")
+        .env("OASIS7_AGENT_EXECUTION_LANE", "headless_agent")
+        .env("OASIS7_AGENT_PROVIDER_URL", provider_url)
+        .env_remove("OASIS7_AGENT_PROVIDER_AUTH_TOKEN")
+        .env("PRE2_APP_WAKE", if mode.wake { "1" } else { "0" })
+        .env("PRE2_APP_WAKE_DRIFT", if mode.drift { "1" } else { "0" })
+        .env(
+            "PRE2_APP_FAIRNESS",
+            if mode.service_probe { "1" } else { "0" },
+        )
+        .env(
+            "PRE2_APP_PERIODIC_FAIRNESS",
+            if mode.admission_mode == "periodic-fairness" {
+                "1"
+            } else {
+                "0"
+            },
+        )
+        .env("PRE2_APP_ADMISSION", mode.admission_mode)
+        .env(
+            "PRE2_APP_METADATA",
+            if mode.metadata_probe { "1" } else { "0" },
+        )
+        .env("PRE2_METADATA_DIR", app_dir)
+        .env("PRE2_APP_HOSTED", if mode.hosted { "1" } else { "0" })
+        .env("PRE2_APP_RELEASE", if mode.release { "1" } else { "0" })
+        .env("PRE2_APP_ENDPOINT", &config.endpoint)
+        .env("PRE2_APP_TRUST", &config.trusted_service_public_key)
+        .env(
+            "PRE2_APP_WORLD",
+            serde_json::to_string(&config.expected_world).unwrap(),
+        )
+        .env("PRE2_APP_OWNER", &config.read_private_key_hex)
+        .env(
+            "PRE2_APP_REQUEST",
+            serde_json::to_string(original).unwrap(),
+        )
+        .env("PRE2_DENIED_NODE_ROOT", denied);
+    command
 }
 
 fn application_fixture(wake: bool, drift: bool, ordinary_wait: bool) -> Fixture {

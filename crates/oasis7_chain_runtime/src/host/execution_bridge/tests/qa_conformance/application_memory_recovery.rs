@@ -45,17 +45,11 @@ pub(super) fn verify_memory_process(client: &RemoteWorldServiceClient, mode: &st
         .join()
         .unwrap();
 }
-fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
-    let root = std::path::PathBuf::from(std::env::var("PRE2_METADATA_DIR").unwrap());
-    let store = std::env::var_os("PRE2_MEMORY_STORE")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| root.join("native-memory-lineage.json"));
-    let config = application_hosted::server_config(
-        client,
-        true,
-        Duration::from_secs(60),
-        Some(store.clone()),
-    );
+fn restore_or_reject_original_memory_checkpoint(
+    mode: &str,
+    store: &std::path::Path,
+    config: oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerConfig,
+) -> Option<ViewerRuntimeLiveServer> {
     let original_bytes = mode
         .starts_with("memory-reject-")
         .then(|| fs::read(&store).unwrap());
@@ -122,9 +116,108 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
             "native_memory_process_constructor_rejected kind={mode} private_bytes_unchanged=true memory_unchanged=true listener_started=false"
         );
         println!("PRE2_NATIVE_MEMORY_TAMPER_REJECTED");
-        return;
+        return None;
     }
-    let mut server = created.unwrap();
+    Some(created.unwrap())
+}
+
+fn send_ordered_memory_recovery_requests(socket: &mut TcpStream, mode: &str) {
+    let mut requests = vec![
+        serde_json::json!({"type":"hello_v2","client":"PRE2 native memory process","version":2,"capabilities":[]}),
+        serde_json::json!({"type":"subscribe","streams":["snapshot"],"event_kinds":[]}),
+        serde_json::json!({"type":"request_snapshot"}),
+        serde_json::json!({"type":"live_control","mode":{"mode":"play"},"request_id":901}),
+        serde_json::json!({"type":"hello_v2","client":"PRE2 memory after genuine Play","version":2,"capabilities":[]}),
+        serde_json::json!({"type":"request_snapshot"}),
+    ];
+    if !mode.starts_with("memory-crash")
+        && !matches!(mode, "memory-ack-before" | "memory-ack-after")
+    {
+        requests.insert(
+            4,
+            serde_json::json!({"type":"live_control","mode":{"mode":"pause"},"request_id":902}),
+        );
+    }
+    for request in requests {
+        let mut bytes = serde_json::to_vec(&request).unwrap();
+        bytes.push(b'\n');
+        socket.write_all(&bytes).unwrap();
+    }
+}
+
+fn await_memory_recovery_handshake(socket: &TcpStream) -> bool {
+    socket
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    let mut reader = BufReader::new(socket.try_clone().unwrap());
+    let handshake_deadline = Instant::now() + Duration::from_secs(3);
+    let mut hello_acks = 0;
+    let mut handshake = false;
+    let mut line = String::new();
+    while Instant::now() < handshake_deadline {
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if !line.ends_with('\n') {
+                    continue;
+                }
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if value["type"] == "hello_ack" {
+                        hello_acks += 1;
+                    }
+                    if hello_acks >= 2 && value["type"] == "snapshot" {
+                        handshake = true;
+                        break;
+                    }
+                }
+                line.clear();
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) => {}
+            Err(_) => break,
+        }
+    }
+    println!("native_memory_actual_recovery_ordered_handshake={handshake} hello_acks={hello_acks}");
+    handshake
+}
+
+fn wait_for_memory_recovery_summary(
+    shared: &Arc<Mutex<ViewerRuntimeLiveServer>>,
+    mode: &str,
+    deadline: Instant,
+) -> serde_json::Value {
+    loop {
+        let summary = shared.lock().unwrap().test_canonical_provider_summary();
+        if summary["terminal_states"]["agent-a"]["status"] == "committed"
+            || (mode.starts_with("memory-reject-")
+                && summary["hosted_service_memory_failure"] == "restored_memory_checkpoint_invalid")
+            || Instant::now() >= deadline
+        {
+            break summary;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
+    let root = std::path::PathBuf::from(std::env::var("PRE2_METADATA_DIR").unwrap());
+    let store = std::env::var_os("PRE2_MEMORY_STORE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("native-memory-lineage.json"));
+    let config = application_hosted::server_config(
+        client,
+        true,
+        Duration::from_secs(60),
+        Some(store.clone()),
+    );
+    let Some(mut server) =
+        restore_or_reject_original_memory_checkpoint(mode, &store, config.clone())
+    else {
+        return;
+    };
     if mode.starts_with("memory-crash") || mode.starts_with("memory-ack-") {
         let action = oasis7_simulator::Action::MoveAgent {
             agent_id: "agent-a".into(),
@@ -166,27 +259,7 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
     let serving = shared.clone();
     let worker =
         thread::spawn(move || ViewerRuntimeLiveServer::test_serve_shared_stream(serving, accepted));
-    let mut requests = vec![
-        serde_json::json!({"type":"hello_v2","client":"PRE2 native memory process","version":2,"capabilities":[]}),
-        serde_json::json!({"type":"subscribe","streams":["snapshot"],"event_kinds":[]}),
-        serde_json::json!({"type":"request_snapshot"}),
-        serde_json::json!({"type":"live_control","mode":{"mode":"play"},"request_id":901}),
-        serde_json::json!({"type":"hello_v2","client":"PRE2 memory after genuine Play","version":2,"capabilities":[]}),
-        serde_json::json!({"type":"request_snapshot"}),
-    ];
-    if !mode.starts_with("memory-crash")
-        && !matches!(mode, "memory-ack-before" | "memory-ack-after")
-    {
-        requests.insert(
-            4,
-            serde_json::json!({"type":"live_control","mode":{"mode":"pause"},"request_id":902}),
-        );
-    }
-    for request in requests {
-        let mut bytes = serde_json::to_vec(&request).unwrap();
-        bytes.push(b'\n');
-        socket.write_all(&bytes).unwrap();
-    }
+    send_ordered_memory_recovery_requests(&mut socket, mode);
     let deadline = Instant::now() + Duration::from_secs(10);
     if mode == "memory-ack-missing-runner" {
         while !root.join("feedback-ack-missing-runner-refused").exists()
@@ -277,52 +350,8 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
         let result = worker.join().unwrap();
         panic!("native memory crash boundary not reached, actual serving result={result:?}");
     }
-    socket
-        .set_read_timeout(Some(Duration::from_millis(50)))
-        .unwrap();
-    let mut reader = BufReader::new(socket.try_clone().unwrap());
-    let handshake_deadline = Instant::now() + Duration::from_secs(3);
-    let mut hello_acks = 0;
-    let mut handshake = false;
-    let mut line = String::new();
-    while Instant::now() < handshake_deadline {
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {
-                if !line.ends_with('\n') {
-                    continue;
-                }
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                    if value["type"] == "hello_ack" {
-                        hello_acks += 1;
-                    }
-                    if hello_acks >= 2 && value["type"] == "snapshot" {
-                        handshake = true;
-                        break;
-                    }
-                }
-                line.clear();
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                ) => {}
-            Err(_) => break,
-        }
-    }
-    println!("native_memory_actual_recovery_ordered_handshake={handshake} hello_acks={hello_acks}");
-    let summary = loop {
-        let summary = shared.lock().unwrap().test_canonical_provider_summary();
-        if summary["terminal_states"]["agent-a"]["status"] == "committed"
-            || (mode.starts_with("memory-reject-")
-                && summary["hosted_service_memory_failure"] == "restored_memory_checkpoint_invalid")
-            || Instant::now() >= deadline
-        {
-            break summary;
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
+    let handshake = await_memory_recovery_handshake(&socket);
+    let summary = wait_for_memory_recovery_summary(&shared, mode, deadline);
     shutdown_application_socket(&socket);
     let result = worker.join().unwrap();
     println!(

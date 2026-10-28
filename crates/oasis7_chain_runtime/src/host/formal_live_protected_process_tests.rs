@@ -262,6 +262,80 @@ fn run_protected_runtime_availability_case(
     )
 }
 
+fn prepare_fixture_world_identity(
+    world: &mut oasis7_runtime::World,
+    genesis_mode: bool,
+    identity: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
+    owner_key: &SigningKey,
+    fixture_case: FixtureCase,
+) -> Result<(), String> {
+    if !genesis_mode {
+        world.submit_action(Action::RegisterAgent {
+            agent_id: "agent".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        });
+        world
+            .step()
+            .map_err(|error| format!("execute Wasmtime observer on actual action: {error:?}"))?;
+        world.submit_action(Action::ClaimStarterOc {
+            agent_id: "agent".into(),
+            player_id: "owner".into(),
+            public_key: Some(hex::encode(owner_key.verifying_key().to_bytes())),
+        });
+        world
+            .step()
+            .map_err(|error| format!("claim canonical fixture owner: {error:?}"))?;
+        world
+            .install_capability_agent_identity("agent", "owner", 1)
+            .map_err(|error| format!("install canonical fixture owner: {error:?}"))?;
+    }
+    world
+        .bind_cognition_runtime(&identity.world_id, "main", 0, None, "pending", 0)
+        .map_err(|error| format!("bind existing formal World: {error:?}"))?;
+    if !genesis_mode {
+        if fixture_case == FixtureCase::FullNodeStorage {
+            world.install_test_provider_capability_fixture_with_lifetime(
+                "agent",
+                full_node_storage_tests::capability_lifetime_ticks()?,
+            )
+        } else {
+            world.install_test_provider_capability_fixture("agent")
+        }
+        .map_err(|error| format!("install Runtime-owned provider authority fixture: {error:?}"))?;
+    }
+    Ok(())
+}
+
+fn snapshot_and_restore_fixture_world(
+    world: oasis7_runtime::World,
+    identity: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
+    genesis_mode: bool,
+) -> Result<(oasis7_runtime::World, usize), String> {
+    let snapshot = world.snapshot_with_chain_resource_context(
+        oasis7_runtime::ChainResourceDerivationContext {
+            world_id: &identity.world_id,
+            chain_id: &identity.chain_id,
+            genesis_ref: Some(&identity.genesis_digest),
+            created_at_height: 0,
+            manifest_height: 0,
+            commit_block_hash: None,
+            tick: world.state().time,
+        },
+        fixtures::h(10),
+        fixtures::h(11),
+    );
+    let world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
+        .map_err(|error| format!("restore fixture World identity: {error:?}"))?;
+    if (genesis_mode && world.state().time != 0) || (!genesis_mode && world.state().time == 0) {
+        return Err(format!(
+            "fixture World time {} does not match genesis mode {genesis_mode}",
+            world.state().time
+        ));
+    }
+    let module_emits_initial = wasm_emit_count(&world);
+    Ok((world, module_emits_initial))
+}
+
 fn run_protected_runtime_fixture(
     genesis_mode: bool,
     crash_phase: Option<&str>,
@@ -315,62 +389,15 @@ fn run_protected_runtime_fixture(
     let (_seed_world, mut initial_trust, seed_anchor, _) =
         fixtures::actual_world_initial_fixture_with_execution_policy(execution_policy_digest);
     let identity = seed_anchor.authority().definition().world.clone();
-    if !genesis_mode {
-        world.submit_action(Action::RegisterAgent {
-            agent_id: "agent".into(),
-            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
-        });
-        world
-            .step()
-            .map_err(|error| format!("execute Wasmtime observer on actual action: {error:?}"))?;
-        world.submit_action(Action::ClaimStarterOc {
-            agent_id: "agent".into(),
-            player_id: "owner".into(),
-            public_key: Some(hex::encode(owner_key.verifying_key().to_bytes())),
-        });
-        world
-            .step()
-            .map_err(|error| format!("claim canonical fixture owner: {error:?}"))?;
-        world
-            .install_capability_agent_identity("agent", "owner", 1)
-            .map_err(|error| format!("install canonical fixture owner: {error:?}"))?;
-    }
-    world
-        .bind_cognition_runtime(&identity.world_id, "main", 0, None, "pending", 0)
-        .map_err(|error| format!("bind existing formal World: {error:?}"))?;
-    if !genesis_mode {
-        if fixture_case == FixtureCase::FullNodeStorage {
-            world.install_test_provider_capability_fixture_with_lifetime(
-                "agent",
-                full_node_storage_tests::capability_lifetime_ticks()?,
-            )
-        } else {
-            world.install_test_provider_capability_fixture("agent")
-        }
-        .map_err(|error| format!("install Runtime-owned provider authority fixture: {error:?}"))?;
-    }
-    let snapshot = world.snapshot_with_chain_resource_context(
-        oasis7_runtime::ChainResourceDerivationContext {
-            world_id: &identity.world_id,
-            chain_id: &identity.chain_id,
-            genesis_ref: Some(&identity.genesis_digest),
-            created_at_height: 0,
-            manifest_height: 0,
-            commit_block_hash: None,
-            tick: world.state().time,
-        },
-        fixtures::h(10),
-        fixtures::h(11),
-    );
-    let world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
-        .map_err(|error| format!("restore fixture World identity: {error:?}"))?;
-    if (genesis_mode && world.state().time != 0) || (!genesis_mode && world.state().time == 0) {
-        return Err(format!(
-            "fixture World time {} does not match genesis mode {genesis_mode}",
-            world.state().time
-        ));
-    }
-    let module_emits_initial = wasm_emit_count(&world);
+    prepare_fixture_world_identity(
+        &mut world,
+        genesis_mode,
+        &identity,
+        &owner_key,
+        fixture_case,
+    )?;
+    let (world, module_emits_initial) =
+        snapshot_and_restore_fixture_world(world, &identity, genesis_mode)?;
 
     let mut definition = seed_anchor.authority().definition().clone();
     let recovery = seed_anchor.authority().policy().clone();

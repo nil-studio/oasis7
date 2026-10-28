@@ -28,6 +28,14 @@ predicate oasisNode(int a, int scope, string loc) {
     a = CfgInput::idOfAstNode(n) and s = n.getEnclosingCfgScope() and
     scope = CfgInput::idOfCfgScope(s) and loc = s.getLocation().toString())
 }
+predicate oasisScopeIdentity(int id, string path, string loc, string kind, string label, int expanded) {
+  exists(CfgInput::CfgScope s |
+    id = CfgInput::idOfCfgScope(s) and
+    path = s.getLocation().getFile().getAbsolutePath() and
+    loc = s.getLocation().toString() and
+    kind = s.getAPrimaryQlClass() and label = s.toString() and
+    expanded = count(int x | x=1 and s.isFromMacroExpansion()))
+}
 predicate oasisStart(int a) {
   exists(CfgInput::AstNode n | CfgImpl::Reachability::startsSplits(n) and
     a = CfgInput::idOfAstNode(n))
@@ -90,6 +98,36 @@ def validate_context_exclusion(rows):
     if any(observed[p]["ast_nodes"]==0 for p in CONTEXT_PATHS if p not in EXCLUDED_CONTEXT_PATHS):raise RuntimeError("retained context source AST missing")
     return {"status":"EXCLUSION_AST_VERIFIED","files":observed,
             "scope":"Database AST location witnesses only; not proof of absent Rust Analyzer work or complete Rust coverage"}
+
+
+DERIVED_SCOPE_PATHS = (
+    "crates/oasis7_world_state/src/events/domain_event.rs",
+    "crates/oasis7_agent_api/src/world_action/action.rs",
+    "crates/oasis7_world_state/src/state.rs",
+    "crates/oasis7/src/simulator/llm_agent/decision_flow.rs",
+)
+
+
+def scope_identity_query(source):
+    paths=",".join(json.dumps(str(source / p)) for p in DERIVED_SCOPE_PATHS)
+    return IMPORT + "from int id, string path, string loc, string kind, string label, int expanded\n" + \
+        "where oasisScopeIdentity(id,path,loc,kind,label,expanded) and path in ["+paths+"]\n" + \
+        "select id,path,loc,kind,label,expanded\n"
+
+
+def validate_scope_identities(rows, source):
+    expected={str(source / p) for p in DERIVED_SCOPE_PATHS}
+    seen=set();observed=set()
+    if len(rows)>10000:raise RuntimeError("scope identity row bound")
+    for row in rows:
+        if (len(row)!=6 or type(row[0]) is not int or row[0]<0 or row[0] in seen
+                or any(not isinstance(v,str) or not v or len(v)>4096 for v in row[1:5]) or row[1] not in expected
+                or type(row[5]) is not int or row[5] not in (0,1)):
+            raise RuntimeError("invalid scope identity row")
+        seen.add(row[0]);observed.add(row[1])
+    if observed!=expected:raise RuntimeError("incomplete scope identity source coverage")
+    return {"status":"SCOPE_IDENTITIES_RECORDED","rows":len(rows),
+            "scope":"Raw AST labels only; join opaque scope IDs within this database, never across runs"}
 
 
 def patch_text(name, text):
@@ -246,6 +284,7 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     for key in ('codeql','database','source','output','work'):ap.add_argument('--'+key,type=Path,required=True)
     ap.add_argument('--verify-context-exclusion',action='store_true')
+    ap.add_argument('--scope-identities',action='store_true')
     ap.add_argument('--check-only',action='store_true');ap.add_argument('--deadline',type=float,required=True);ap.add_argument('--threads',type=int,default=4);ap.add_argument('--ram',type=int,required=True)
     args=ap.parse_args();out=args.output;out.mkdir(exist_ok=True);args.work.mkdir(exist_ok=True)
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-8*1024**2
@@ -253,6 +292,7 @@ def main():
     terminal={'status':'INCOMPLETE','full_rust_coverage':'HOLD','production_capacity':'UNKNOWN','security_upload':False,'closure_cardinality':'NOT_MEASURED'}
     originals={}
     if args.verify_context_exclusion:terminal['context_exclusion_verification']='NOT_REACHED'
+    if args.scope_identities:terminal['scope_identities']='NOT_REACHED'
     def run(argv,name):
         runtime.run(list(map(str,argv)),args.source,out/(name+'.log'),end,min(900,max(0,end-time.monotonic())),out,
                     {k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN')},file_limit=command_file_limit(argv))
@@ -296,11 +336,13 @@ def main():
             info=json.loads((out/('info-'+name+'.log')).read_text())
             sets=info.get('result-sets') if isinstance(info,dict) else None
             if not isinstance(sets,list) or len(sets)!=1 or sets[0].get('name')!='#select' or type(sets[0].get('rows')) is not int or sets[0]['rows']<0:raise RuntimeError('invalid BQRS result-set identity')
-            if sets[0]['rows']>(EDGE_CAP if name=='edges' else 1000000):raise RuntimeError('BQRS row cap before decode')
+            row_cap=EDGE_CAP if name=='edges' else 10000 if name=='scope-identities' else 1000000
+            if sets[0]['rows']>row_cap:raise RuntimeError('BQRS row cap before decode')
             dest=out/(name+'.json')
             run([args.codeql,'bqrs','decode',b,'--format=json','--output='+str(dest)],'decode-'+name)
             return decode_rows(dest,info)
         checks=[('summary',SUMMARY),('edges',edge_query([0]))]
+        if args.scope_identities:checks.insert(0,('scope-identities',scope_identity_query(args.source)))
         if args.verify_context_exclusion:
             files={p:runtime.digest(args.source/p) for p in CONTEXT_PATHS}
             runtime.save(out/'context-exclusion-source.json',files,out)
@@ -319,6 +361,12 @@ def main():
                 runtime.save(out/'context-exclusion-rows.json',observed,out)
                 runtime.save(out/'context-exclusion-report.json',validate_context_exclusion(observed),out)
                 terminal['context_exclusion_verification']='PASS'
+            if args.scope_identities:
+                runtime.save(out/'scope-identity-source.json',{p:runtime.digest(args.source/p) for p in DERIVED_SCOPE_PATHS},out)
+                identities=evaluate('scope-identities',scope_identity_query(args.source))
+                runtime.save(out/'scope-identity-rows.json',identities,out)
+                runtime.save(out/'scope-identity-report.json',validate_scope_identities(identities,args.source),out)
+                terminal['scope_identities']='PASS'
             rows=evaluate('summary',SUMMARY);selected,skipped=choose_scopes(rows)
             runtime.save(out/'selection.json',{'selected':selected,'skipped':skipped,'summary_rows':len(rows),'global_checks':[r for r in rows if r[0]<0],'selected_start_counts':{r[0]:r[3] for r in rows if r[0] in selected},'edge_cap':EDGE_CAP,'scope_cap':TOP},out)
             if not selected:raise RuntimeError('no bounded scope admitted; retained aggregate evidence')

@@ -31,6 +31,62 @@ pub(super) enum HealthyOwnerFaultMode {
     OldOwnerSigkillAfterH,
 }
 
+fn assert_unarmed_cli_cancellation(
+    runtime_binary: &std::ffi::OsString,
+    root: &Path,
+    request_path: &Path,
+    store: &Path,
+) -> Result<(), String> {
+    let _ = cli(
+        runtime_binary,
+        root,
+        &["plan", "--request", utf8(request_path)?],
+    )?;
+    let submitted = cli(
+        runtime_binary,
+        root,
+        &[
+            "submit",
+            "--request",
+            utf8(request_path)?,
+            "--store",
+            utf8(store)?,
+        ],
+    )?;
+    let cancelled = cli_revision(
+        runtime_binary,
+        root,
+        "cancel",
+        store,
+        "healthy-cli-cancel-before-arm",
+        &submitted,
+    )?;
+    if cancelled["state"] != "cancelled" || cancelled["dispatched"] != false {
+        return Err("before-arm CLI cancellation dispatched a native effect".into());
+    }
+    Ok(())
+}
+
+fn wait_for_original_commit_before_arm(
+    owner_client: &RemoteWorldServiceClient,
+    request: &SubmitIntentRequest<WorldServicePayloadV1>,
+    owner_config: &oasis7::world_service::client::WorldServiceClientConfig,
+) -> Result<oasis7_client_api::world_service::CommitRef, String> {
+    let original_deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        match lookup_original_commit(owner_client, request) {
+            Ok(commit) => return Ok(commit),
+            Err(error) if Instant::now() >= original_deadline => {
+                return Err(format!(
+                    "original request was not committed before arm: {error}; {}",
+                    cli_support::original_commit_failure_status(owner_config)
+                ));
+            }
+            Err(_) => thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
 #[test]
 #[ignore = "shipping runtime and endpoint processes; requires OASIS7_CHAIN_RUNTIME_BIN/OASIS7_FORMAL_ENDPOINT_TEST_BIN"]
 fn formal_protected_healthy_durable_set_operation_cli_owner_and_original_result() {
@@ -154,33 +210,7 @@ pub(super) fn exercise_with_fault(
         }}
     });
     io::write(&request_path, &request)?;
-    let _ = cli(
-        &runtime_binary,
-        &case.root,
-        &["plan", "--request", utf8(&request_path)?],
-    )?;
-    let cancelled = cli(
-        &runtime_binary,
-        &case.root,
-        &[
-            "submit",
-            "--request",
-            utf8(&request_path)?,
-            "--store",
-            utf8(&store)?,
-        ],
-    )?;
-    let cancelled = cli_revision(
-        &runtime_binary,
-        &case.root,
-        "cancel",
-        &store,
-        "healthy-cli-cancel-before-arm",
-        &cancelled,
-    )?;
-    if cancelled["state"] != "cancelled" || cancelled["dispatched"] != false {
-        return Err("before-arm CLI cancellation dispatched a native effect".into());
-    }
+    assert_unarmed_cli_cancellation(&runtime_binary, &case.root, &request_path, &store)?;
     let owner_client = RemoteWorldServiceClient::new(case.owner_client_config.clone())
         .map_err(|e| e.to_string())?;
     assert_volatile_admission(
@@ -191,19 +221,11 @@ pub(super) fn exercise_with_fault(
     )?;
     // Commit the original request while the old owner can still publish Normal
     // records. Arming H freezes that cut; later admission alone is volatile.
-    let original_deadline = Instant::now() + Duration::from_secs(20);
-    let before_arm_commit = loop {
-        match lookup_original_commit(&owner_client, &case.owner_request) {
-            Ok(commit) => break commit,
-            Err(error) if Instant::now() >= original_deadline => {
-                return Err(format!(
-                    "original request was not committed before arm: {error}; {}",
-                    cli_support::original_commit_failure_status(&case.owner_client_config)
-                ));
-            }
-            Err(_) => thread::sleep(Duration::from_millis(100)),
-        }
-    };
+    let before_arm_commit = wait_for_original_commit_before_arm(
+        &owner_client,
+        &case.owner_request,
+        &case.owner_client_config,
+    )?;
     case.scenario_deadline
         .report_stage("original request committed before arm")?;
     // The history-page resume API intentionally starts from a fresh C0 cache.
