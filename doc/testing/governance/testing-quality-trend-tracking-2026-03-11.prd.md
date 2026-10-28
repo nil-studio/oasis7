@@ -70,7 +70,7 @@
   - `doc/testing/evidence/release-evidence-bundle-task-game-018-2026-03-10.md`
   - `doc/world-runtime/evidence/runtime-storage-gate-sample-2026-03-10.md`
   - `doc/testing/evidence/testing-quality-trend-baseline-2026-03-11.md`
-  - PR、实际 CI 与评审记录（Issue 按需） and git history for retired launcher usability samples
+  - 退役 launcher 可用性样本的 PR、实际 CI、评审记录（Issue 按需）及 Git history
 - Edge Cases & Error Handling:
   - 样本只有最终结论、缺失首次结论：标记 `incomplete_sample`，不得纳入首次通过率分子。
   - 问题在同日发现并修复：修复时长记 `0d`，但仍计入逃逸率。

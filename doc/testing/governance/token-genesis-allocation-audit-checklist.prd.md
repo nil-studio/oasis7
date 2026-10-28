@@ -19,7 +19,7 @@
 ## 2. User Experience & Functionality
 - User Personas:
   - `qa_engineer`：需要一份可重复执行的创世配置审计清单。
-  - `producer_system_designer`：需要知道当前 Token 创世是否可冻结，还是必须继续挡回去。
+  - `producer_system_designer`：需要知道当前 Token 创世是否可冻结，还是必须继续阻断。
   - `runtime_engineer`：需要把参数表映射到 runtime 真实现时，有一份外部 QA 门禁作为交叉检查。
 - User Scenarios & Frequency:
   - 创世配置草案形成后执行一次 required-tier 审计。

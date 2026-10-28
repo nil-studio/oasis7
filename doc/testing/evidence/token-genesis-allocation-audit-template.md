@@ -8,7 +8,7 @@
 - 评审版本 / commit:
 - 当前结论: `pass` / `block` / `conditional_draft_only`
 
-> 此文件是可重复填写的模板，不是已执行审计、更不是 mint、分配或发布放行证据。真实控制主体/多签、个人受益拆分或执行细节缺失时，结论只能是 `conditional_draft_only` 或 `block`。
+> 此文件是可重复填写的模板，不是已执行审计，也不构成 mint、分配或发布的放行证据。真实控制主体/多签、个人受益拆分或执行细节缺失时，结论只能是 `conditional_draft_only` 或 `block`。
 
 ## 创世参数表
 | bucket_id | ratio_bps | recipient | start_epoch | cliff_epochs | linear_unlock_epochs | genesis_liquid | controller | 备注 |

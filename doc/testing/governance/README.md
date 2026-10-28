@@ -23,5 +23,5 @@
 ## 维护规则
 
 - 新增或退役 `governance/` 专题时：更新 `doc/testing/prd.index.md` 的文件级可达性；若其改变首读问题或 canonical authority，同时更新本页的一行分流。
-- 专题正文、证据和历史留痕仍留在其专业 authority、Git history 与 PR 与实际验证记录；本页不是新的规则正文或状态汇总面。
+- 专题正文、证据和历史留痕仍留在其专业 authority、Git history、PR 和实际验证记录；本页不是新的规则正文或状态汇总面。
 - `L4A`、`L4B`、`L5` 的语义、角色越权边界与 release/claim 结论以 `doc/testing/prd.md` 和 `testing-manual.md` 为准，导航文字不得覆盖它们。

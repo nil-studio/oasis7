@@ -29,9 +29,9 @@
   - 回归测试：每次改动 LLM 调度路径时验证指标口径稳定。
   - 日常调试：运行 `oasis7_llm_agent_demo` 时查看实时指标输出。
 - User Stories:
-  - PRD-TESTING-GOV-LLMSKIP-001: As a 测试维护者, I want skipped-tick metrics emitted in demo and reports, so that I can track how often LLM calls are skipped.
-  - PRD-TESTING-GOV-LLMSKIP-002: As a 脚本维护者, I want stress summaries and aggregated outputs to include the same metric fields, so that automation remains stable.
-  - PRD-TESTING-GOV-LLMSKIP-003: As a 性能分析者, I want a fixed ratio definition based on `active_ticks`, so that cross-run comparisons are consistent.
+  - PRD-TESTING-GOV-LLMSKIP-001: 测试维护者需要 demo 和报告输出 skipped-tick 指标，以跟踪 LLM 调用被跳过的频率。
+  - PRD-TESTING-GOV-LLMSKIP-002: 脚本维护者需要压测汇总和聚合输出包含相同指标字段，以保持自动化稳定。
+  - PRD-TESTING-GOV-LLMSKIP-003: 性能分析者需要以 `active_ticks` 为分母的固定占比定义，以保持跨运行比较一致。
 - Critical User Flows:
   1. Flow-LLMSKIP-001: `demo tick 执行 -> trace 采样判定是否 skipped -> 更新计数与占比`
   2. Flow-LLMSKIP-002: `report.json 持久化 -> stress 脚本读取 report/log -> 输出 summary/TSV/聚合 JSON`

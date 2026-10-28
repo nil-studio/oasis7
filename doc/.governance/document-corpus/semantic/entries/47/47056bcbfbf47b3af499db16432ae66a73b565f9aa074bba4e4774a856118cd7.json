@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "c6c508b80c666f7ca1868944ee7cfef487a22aa10d6bf68aaa363f080c8bba2e",
+    "content_sha256": "e172e28b71f6fa6003a1dc96ef6802fe53c437faad88ec8bfe7295e36662d419",
     "current_authority": "doc/testing/governance/testing-quality-trend-tracking-2026-03-11.prd.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_current_authority",

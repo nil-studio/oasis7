@@ -8,7 +8,7 @@
 
 ## 1. 问题、目标与非目标
 
-开发 Codex 不能只读源码和跑固定请求就宣称“Agent 可以玩”。目标是在游戏 Skill/API 及受支持 Runtime 可用后，由开发主 Agent 派出独立试玩 subagent，读取同一份玩家 Skill，启动或连接隔离候选、实际自主玩游戏、记录失败与体验反馈，主 Agent 再复现、修复、增加普通回归并针对新候选复测。
+开发 Codex 不能只读源码和跑固定请求就宣称“Agent 可以玩”。目标是：游戏 Skill/API 及受支持 Runtime 可用后，开发主 Agent 派出独立试玩 subagent。试玩者读取同一份玩家 Skill，启动或连接隔离候选，实际自主游玩并记录失败与体验反馈；主 Agent 再复现、修复、增加普通回归，并针对新候选复测。
 
 本设计承接既有 L4B embodied-agent 自测，不新增证据等级、正式 player 角色、通用任务平台或所有 PR 必跑的模型门禁。脚本探针、L4A 静态/模拟评审、真实自主试玩、真实 Web/native 操作和 L5 外部玩家证据不能互相代签。试玩通过不证明游戏有趣、安全完备或可发行。仓库合入规则仍由[开发流程](../../engineering/workflow/source-of-truth.md)拥有。
 
@@ -105,7 +105,7 @@ API 自主试玩与视觉自测是两个维度。Web 按现有 S6/agent-browser 
 <a id="selftest-feedback-loop"></a>
 ### 5.5 反馈、修复和有界复测
 
-子任务返回报告，主 Agent先验真，再分类：confirmed_bug、suspected_bug、agent_strategy_failure、expected_rejection、environment_blocker、harness_fault、usability_observation。缺资源的合法拒绝或策略失败不是自动代码 bug；源码问题的猜测须在诊断时核实。
+子任务返回报告，主 Agent 先验真，再分类：confirmed_bug、suspected_bug、agent_strategy_failure、expected_rejection、environment_blocker、harness_fault、usability_observation。缺资源的合法拒绝或策略失败不是自动代码 bug；源码问题的猜测须在诊断时核实。
 
 确认缺陷 → 提取最小步骤及确定性协议/状态回放 → 在普通单元/合同/集成测试中先证明能检出原问题 → 修复 → 重跑该回归 → 构建新候选 → 用新试玩子会话复测受影响路径。反馈同时分流到代码、正式玩家 Skill、API 可发现性、UI 或测试环境的实际主责；修正玩家 Skill 必须改同一发行源、更新版本/hash 并重新做无提示接入，不在测试提示词里偷偷添加内部解法。复现不了保留样本、条件与不确定性，不为了绿灯改目标、换 fixture、抬预算或删除失败。
 
