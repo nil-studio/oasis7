@@ -260,6 +260,9 @@ impl IdentityService {
                 ("POST", "/custody/managed-bindings/session-status") => {
                     self.managed_session_status(sid.as_deref(), &payload, now)
                 }
+                ("POST", "/custody/managed-bindings/session-lifetime") => {
+                    self.managed_session_lifetime(sid.as_deref(), &payload, now)
+                }
                 ("POST", "/custody/managed-bindings/invalidation") => {
                     self.managed_invalidation(&owner, &payload, origin)
                 }

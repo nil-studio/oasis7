@@ -6,6 +6,8 @@ use oasis7_agent_api::game::{
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
+#[cfg(feature = "signature-metrics")]
+pub mod signature_metrics;
 
 /// Kept strictly outside WorldServicePayloadV1. Debug is absent so body and
 /// enumerable signature material cannot accidentally enter ordinary logs.
@@ -88,6 +90,8 @@ pub fn verify_owner_signature_strict<T: Serialize>(
     subject_public_key: &str,
     signature_hex: &str,
 ) -> Result<(), String> {
+    #[cfg(feature = "signature-metrics")]
+    let mut metrics = signature_metrics::Call::new();
     let canonical = |value: &str, length: usize| {
         value.len() == length
             && value
@@ -112,11 +116,17 @@ pub fn verify_owner_signature_strict<T: Serialize>(
         .map_err(|_| "invalid private goal signature")?;
     // This private owner boundary requires strict Ed25519 verification,
     // including canonical scalar/point encodings and non-small-order R.
-    key.verify_strict(
-        &signing_bytes(domain, request)?,
-        &Signature::from_bytes(&signature),
-    )
-    .map_err(|_| "invalid private goal owner signature".into())
+    let canonical = signing_bytes(domain, request)?;
+    #[cfg(feature = "signature-metrics")]
+    metrics.strict_attempt(&public_key, &signature, &canonical);
+    let result = key
+        .verify_strict(&canonical, &Signature::from_bytes(&signature))
+        .map_err(|_| "invalid private goal owner signature".into());
+    #[cfg(feature = "signature-metrics")]
+    if result.is_ok() {
+        metrics.success();
+    }
+    result
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -23,6 +23,9 @@ pub use participant::*;
 #[path = "owner_setup.rs"]
 mod owner_setup;
 pub use owner_setup::*;
+#[path = "pairing_invites.rs"]
+mod pairing_invites;
+pub use pairing_invites::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionApprovalError {
@@ -117,6 +120,9 @@ pub struct AccountProvisionApprovalState {
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
     owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
+    pairing_invites: BTreeMap<String, PairingInviteRecordV1>,
+    session_inventory: SessionInventoryV1,
+    test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -153,6 +159,12 @@ struct RawAccountProvisionApprovalState {
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
     #[serde(default)]
     owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
+    #[serde(default)]
+    pairing_invites: BTreeMap<String, PairingInviteRecordV1>,
+    #[serde(default)]
+    session_inventory: SessionInventoryV1,
+    #[serde(default)]
+    test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -176,6 +188,9 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             participant_provisions: raw.participant_provisions,
             owner_setups: raw.owner_setups,
             owner_setup_reconciles: raw.owner_setup_reconciles,
+            pairing_invites: raw.pairing_invites,
+            session_inventory: raw.session_inventory,
+            test_sessions: raw.test_sessions,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -204,6 +219,9 @@ impl AccountProvisionApprovalState {
             participant_provisions: BTreeMap::new(),
             owner_setups: BTreeMap::new(),
             owner_setup_reconciles: BTreeMap::new(),
+            pairing_invites: BTreeMap::new(),
+            session_inventory: SessionInventoryV1::Known,
+            test_sessions: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -543,6 +561,8 @@ impl AccountProvisionApprovalState {
         self.validate_managed_login_persistence()?;
         self.validate_owner_setup_persistence()?;
         self.validate_owner_setup_reconcile_persistence()?;
+        self.validate_pairing_invite_persistence()?;
+        self.validate_test_session_persistence()?;
         self.validate_history_persistence()?;
         for record in self.book.records() {
             binding(&self.draft, record.input())?;

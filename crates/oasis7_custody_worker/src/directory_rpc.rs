@@ -97,6 +97,31 @@ extern "C" {
         env: &Env,
         raw: &str,
     ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch,js_name=testSessionBasis)]
+    pub(crate) async fn test_session_basis(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch,js_name=testSessionInvite)]
+    pub(crate) async fn test_session_invite(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch,js_name=prepareTestSession)]
+    pub(crate) async fn prepare_test_session(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch,js_name=approveTestSession)]
+    pub(crate) async fn approve_test_session(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch,js_name=continueTestSession)]
+    pub(crate) async fn continue_test_session(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = ownerSetupBasis)]
     pub(crate) async fn owner_setup_basis(
         env: &Env,

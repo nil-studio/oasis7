@@ -18,6 +18,7 @@ pub(crate) enum NativePrivateRoute {
     BindingOptions,
     BindingComplete,
     SessionStatus,
+    SessionLifetime,
     ParticipantPolicyOriginal,
     ParticipantAuthorize,
     ParticipantSubmit,
@@ -37,6 +38,7 @@ impl NativePrivateRoute {
             Self::BindingOptions => "/custody/managed-bindings/options",
             Self::BindingComplete => "/custody/managed-bindings/complete",
             Self::SessionStatus => "/custody/managed-bindings/session-status",
+            Self::SessionLifetime => "/custody/managed-bindings/session-lifetime",
             Self::ParticipantPolicyOriginal => "/participant/policy-original",
             Self::ParticipantAuthorize => "/participant/authorize",
             Self::ParticipantSubmit => "/participant/submit",
@@ -163,7 +165,11 @@ impl NativeProvisionTransport {
         } else {
             !original_body.is_empty()
         })?;
-        if route == NativePrivateRoute::SessionStatus || route.participant() {
+        if matches!(
+            route,
+            NativePrivateRoute::SessionStatus | NativePrivateRoute::SessionLifetime
+        ) || route.participant()
+        {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::ManagedSession))?;
         } else if !get {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::Preauth))?;

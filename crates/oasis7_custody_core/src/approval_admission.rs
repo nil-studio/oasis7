@@ -740,3 +740,7 @@ mod private_debug_tests {
         );
     }
 }
+
+#[path = "http_pop_checks.rs"]
+mod http_pop_checks;
+pub(crate) use http_pop_checks::http_pop_signature_checks;

@@ -740,6 +740,23 @@ impl IdentityService {
         payload: &Value,
         now: u64,
     ) -> Result<Value, StoreError> {
+        self.managed_session_observation(sid, payload, now, false)
+    }
+    pub(in super::super) fn managed_session_lifetime(
+        &mut self,
+        sid: Option<&str>,
+        payload: &Value,
+        now: u64,
+    ) -> Result<Value, StoreError> {
+        self.managed_session_observation(sid, payload, now, true)
+    }
+    fn managed_session_observation(
+        &mut self,
+        sid: Option<&str>,
+        payload: &Value,
+        now: u64,
+        lifetime: bool,
+    ) -> Result<Value, StoreError> {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Request {
@@ -796,6 +813,20 @@ impl IdentityService {
                 session_ref: session.session_id, nonce: request.nonce.clone(), generation: DecimalU64(pending.as_ref().map_or(1, |p| p.value.generation)),
                 active, frozen: !pin_current || pending.as_ref().is_some_and(|p| p.value.frozen), pending: !pin_current || pending.is_some(), observed_at: DecimalU64(now), expires_at: DecimalU64(now.checked_add(5_000).ok_or(StoreError::Corrupt)?),
             };
+            if lifetime {
+                let lifetime = ManagedNativeSessionLifetimeV1 {
+                    api_version: 1,
+                    status,
+                    session_expires_at: DecimalU64(session.expires_at),
+                    session_idle_expires_at: DecimalU64(session.idle_expires_at),
+                };
+                let signed = SignedManagedNativeSessionLifetimeV1 {
+                    signature: URL_SAFE_NO_PAD.encode(config.key.sign(&lifetime.signing_bytes().map_err(|_| reject("authentication_failed"))?).to_bytes()),
+                    key_id: config.key_id.clone(),
+                    lifetime,
+                };
+                return serde_json::to_value(signed).map_err(|_| StoreError::Corrupt);
+            }
             let signed = SignedManagedNativeSessionStatusV1 { signature: URL_SAFE_NO_PAD.encode(config.key.sign(&status.signing_bytes().map_err(|_| reject("authentication_failed"))?).to_bytes()), key_id: config.key_id.clone(), status };
             serde_json::to_value(signed).map_err(|_| StoreError::Corrupt)
         })

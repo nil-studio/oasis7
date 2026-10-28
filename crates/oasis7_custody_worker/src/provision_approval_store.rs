@@ -256,7 +256,7 @@ impl OwnerProvisionApprovalStore {
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
-            let _performance = performance::callback(event, &old);
+            let _performance = performance::callback(event, &old, &self.state);
             let (mut next, previous) = self.reader.transition(&old)?;
             validate_inventory(&inventory, next.state.draft(), true)?;
             let result = transition(&mut next.state, now()?)?;
@@ -360,7 +360,7 @@ impl OwnerProvisionApprovalStore {
         let mut returned = None;
         let mut callback = |old: String, inventory: String| -> Result<Array> {
             #[cfg(feature = "approval-harness")]
-            let _performance = performance::callback(event, &old);
+            let _performance = performance::callback(event, &old, &self.state);
             let (mut next, previous) = self.reader.transition(&old)?;
             let trusted = current()?;
             let result = transition(&mut next.state, &trusted.as_core(), now()?)?;

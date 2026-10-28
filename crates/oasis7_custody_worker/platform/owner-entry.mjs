@@ -1,6 +1,15 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import RustWorker from './index.js';
 export class OwnerNativePermits extends WorkerEntrypoint {
+  async clientChallenge(raw) { return new RustWorker(this.ctx,this.env).owner_client_challenge(this.env,raw); }
+  async clientClaim(raw) { return new RustWorker(this.ctx,this.env).owner_client_claim(this.env,raw); }
+  async clientInitialize(raw) { return new RustWorker(this.ctx,this.env).owner_client_initialize(this.env,raw); }
+  async clientToolsList(raw) { return new RustWorker(this.ctx,this.env).owner_client_tools_list(this.env,raw); }
+  async clientHeartbeat(raw) { return new RustWorker(this.ctx,this.env).owner_client_heartbeat(this.env,raw); }
+  async clientFinish(raw) { return new RustWorker(this.ctx,this.env).owner_client_finish(this.env,raw); }
+  async clientAbort(raw) { return new RustWorker(this.ctx,this.env).owner_client_abort(this.env,raw); }
+  async signTestSessionPreflight(raw) { return new RustWorker(this.ctx,this.env).owner_sign_test_session_preflight(this.env,raw); }
+  async testSession(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_identity_call(this.env,raw); }
   async call(raw) { return new RustWorker(this.ctx, this.env).owner_native_call(this.env, raw); }
   async recover(raw) { return new RustWorker(this.ctx, this.env).owner_native_recovery_call(this.env, raw); }
   async participant(raw) { return new RustWorker(this.ctx, this.env).owner_participant_identity_call(this.env, raw); }
@@ -14,6 +23,11 @@ export { AccountAuthority, ManagerAssociations, RoleKeyVault } from './index.js'
 // Default ingress exposes fetch only, never the generated Rust management RPCs.
 export default { fetch(request, env, ctx) { return new RustWorker(ctx, env).fetch(request); } };
 export class OwnerManagement extends WorkerEntrypoint {
+  async testSessionInvite(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_invite(this.env,raw); }
+  async testSessionBasis(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_basis(this.env,raw); }
+  async prepareTestSession(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_prepare(this.env,raw); }
+  async approveTestSession(raw) { return new RustWorker(this.ctx,this.env).owner_approve_test_session(this.env,raw); }
+  async continueTestSession(raw) { return new RustWorker(this.ctx,this.env).owner_continue_test_session(this.env,raw); }
   async reserveDraft(raw) { return new RustWorker(this.ctx, this.env).owner_reserve_draft(this.env, raw); }
   async getDraft(raw) { return new RustWorker(this.ctx, this.env).owner_read_draft(this.env, raw); }
   async freezeManager(raw) { return new RustWorker(this.ctx, this.env).owner_freeze_manager(this.env, raw); }
@@ -42,6 +56,7 @@ export class IdentityKeyPermits extends WorkerEntrypoint {
   async verifyKeyPermit(raw) { return new RustWorker(this.ctx, this.env).owner_identity_key_permit(this.env, raw); }
 }
 export class OwnerKeyPermits extends WorkerEntrypoint {
+  async verifyTestSessionPermit(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_key_call(this.env,raw); }
   async verifyKeyPermit(raw) { return new RustWorker(this.ctx, this.env).owner_owner_key_permit(this.env, raw); }
   async verifyParticipantPermit(raw) { return new RustWorker(this.ctx, this.env).owner_participant_key_call(this.env, raw); }
   async verifyOwnerSetupPermit(raw) { return new RustWorker(this.ctx, this.env).owner_setup_key_call(this.env, raw); }

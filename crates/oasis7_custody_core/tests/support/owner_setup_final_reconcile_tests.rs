@@ -1,6 +1,47 @@
 use super::*;
 #[test]
 fn reconcile_final_new_signed_read_pair_replays_its_own_provenance_to_prepared() {
+    let (s, _, _, completed, old) = prepared_by_reconcile();
+    assert_eq!(s.provision().stage(), ProvisionStage::Prepared);
+    assert_eq!(completed.original, old.original);
+    assert_eq!(completed.source, old.source);
+    assert_eq!(completed.claimed_at, old.claimed_at);
+    assert_eq!(
+        s.owner_setup_reconcile_progress("reconcile-one")
+            .unwrap()
+            .transport_remaining,
+        DecimalU64(0)
+    );
+    assert_eq!(
+        s.owner_setup_reconcile_progress("reconcile-one")
+            .unwrap()
+            .original_transport_remaining,
+        DecimalU64(0)
+    );
+    assert_eq!(
+        serde_json::from_value::<AccountProvisionApprovalState>(serde_json::to_value(&s).unwrap())
+            .unwrap(),
+        s
+    );
+    for provenance in [
+        serde_json::Value::Null,
+        json!({"kind":"normal"}),
+        json!({"kind":"reconcile","reconcile_id":"reconcile-one","attempt_id":"wrong-attempt"}),
+    ] {
+        let mut raw = serde_json::to_value(&s).unwrap();
+        raw["owner_setups"]["setup-one"]["stages"]["final_observation"]["result_provenance"] =
+            provenance;
+        assert!(serde_json::from_value::<AccountProvisionApprovalState>(raw).is_err());
+    }
+}
+
+pub(super) fn prepared_by_reconcile() -> (
+    AccountProvisionApprovalState,
+    ApprovalAdmissionContext,
+    NativeBindingPinV1,
+    OwnerSetupOutboxV1,
+    OwnerSetupOutboxV1,
+) {
     let input = final_dispatched();
     let (mut s, c, pin, _, permit) = publish_reconcile(approve_reconcile(
         input,
@@ -153,35 +194,5 @@ fn reconcile_final_new_signed_read_pair_replays_its_own_provenance_to_prepared()
             &mut StrictCrypto,
         )
         .unwrap();
-    assert_eq!(s.provision().stage(), ProvisionStage::Prepared);
-    assert_eq!(completed.original, old.original);
-    assert_eq!(completed.source, old.source);
-    assert_eq!(completed.claimed_at, old.claimed_at);
-    assert_eq!(
-        s.owner_setup_reconcile_progress("reconcile-one")
-            .unwrap()
-            .transport_remaining,
-        DecimalU64(0)
-    );
-    assert_eq!(
-        s.owner_setup_reconcile_progress("reconcile-one")
-            .unwrap()
-            .original_transport_remaining,
-        DecimalU64(0)
-    );
-    assert_eq!(
-        serde_json::from_value::<AccountProvisionApprovalState>(serde_json::to_value(&s).unwrap())
-            .unwrap(),
-        s
-    );
-    for provenance in [
-        serde_json::Value::Null,
-        json!({"kind":"normal"}),
-        json!({"kind":"reconcile","reconcile_id":"reconcile-one","attempt_id":"wrong-attempt"}),
-    ] {
-        let mut raw = serde_json::to_value(&s).unwrap();
-        raw["owner_setups"]["setup-one"]["stages"]["final_observation"]["result_provenance"] =
-            provenance;
-        assert!(serde_json::from_value::<AccountProvisionApprovalState>(raw).is_err());
-    }
+    (s, c, pin, completed, old)
 }
