@@ -7,11 +7,13 @@
 
 ## 1. Executive Summary
 
-world-simulator 仍保留 `AgentRunner::tick` 的同步 simulator 基线；但在 native runtime-live lane，`RuntimeDecisionRunner::Builtin` 与 `RuntimeDecisionRunner::ProviderBacked` 现在都使用同一个 `AsyncAgentRunner`。Provider 的 `Wait` 结果会经过 Harness proposal/current-context 校验、Runtime admission、durable wake selection/readback，再恢复下一次 cognition turn；等待 provider 时 world 不被阻塞。这是当前可观察的 native wiring，不等于完整的 remote paired、restart/reconnect 或 release 证明。
+world-simulator 仍保留 `AgentRunner::tick` 的同步 simulator 基线；但在 native runtime-live lane，`RuntimeDecisionRunner::Builtin` 与 `RuntimeDecisionRunner::ProviderBacked` 现在都使用同一个 `AsyncAgentRunner`。Provider 的 `Wait` 结果会经过 Harness proposal/current-context 校验、Runtime admission、durable wake selection/readback，再恢复下一次 cognition turn；等待 provider 时 world 不被阻塞。
+
+这是当前可观察的 native wiring，不等于完整的 remote paired、restart/reconnect 或 release 证明。
 
 本专题冻结一个 provider-neutral 的 Continuous Agent Harness 合同。Harness 负责一次 Agent session 内的感知组装、记忆检索、目标/continuation 投影、provider 调用、候选决策规范化、反馈路由和 memory write intent policy；Runtime 仍是世界事实、动作语义、授权、前置条件、提交、receipt、replay 与最终副作用的唯一权威。Harness 的任何成功都不等于世界状态已经改变。
 
-产品上的完成标准是用户携带的外部 Runtime 在有效授权和预算内持续推进游戏目标，具体首期 Runtime、代表性首局和恢复旅程由[上游产品 PRD](../../product/agents-world-simulation/external-agent-runtime-play.prd.md)定义。OpenClaw 与 Codex 分别验收；本专题的 lifecycle、Mock/loopback 或低频 NPC 技术通过不能代替任何一个 Runtime 的完整产品证据。无 GUI 持续执行以外部 Runtime 在线为前提，不隐含云托管、离线推理或授权自动续期。
+产品完成标准是：用户携带的外部 Runtime 在有效授权和预算内持续推进游戏目标，具体首期 Runtime、代表性首局和恢复旅程由[上游产品 PRD](../../product/agents-world-simulation/external-agent-runtime-play.prd.md)定义。OpenClaw 与 Codex 分别验收；本专题的 lifecycle、Mock/loopback 或低频 NPC 技术通过不能代替任何一个 Runtime 的完整产品证据。无 GUI 持续执行以外部 Runtime 在线为前提，不隐含云托管、离线推理或授权自动续期。
 
 本文是 durable authority，不是任务板。实现状态、任务分工和验证历史仍属于 Git、PR 与实际 CI 记录；本文的 `current/partial/target/proven` 只描述能力证明边界，不描述任务进度。
 
@@ -33,7 +35,7 @@ world-simulator 仍保留 `AgentRunner::tick` 的同步 simulator 基线；但�
 | durable turn/replay | `AgentDecisionTrace` 是 diagnostics/observability payload | `replay_id` 可随 request 传递 | cognition journal/replay 与 runtime paired contract 对齐 | replay 不重新调用 provider、不重复 action/memory/effect | journal schema/实现明确留给 paired runtime docs |
 | cognition economy | latency/token/cost 在 trace 中可见 | 可作评测输入 | cognition reserve/settle 单独设计，Harness 只传递预算与诊断 | 需独立 economy fixture 与 runtime receipt 证明 | P0 不引入 `CognitionLease` 或资源扣账 |
 
-当前没有任何一行的目标能力可标记为 `proven`。存在的实现、DTO 或测试只能支持 `current`/`partial`，不能把生产闭环、回放闭合或多 Agent 隔离提前写成已交付。
+当前表中任何一项目标能力都不能标记为 `proven`。存在的实现、DTO 或测试只能支持 `current`/`partial`，不能把生产闭环、回放闭合或多 Agent 隔离提前写成已交付。
 
 deterministic mock/loopback 可以证明 schema、identity、顺序和负例的设计验收，但不能证明真实
 provider 的 paired 行为等价、Runtime journal/receipt 在 restart/reconnect 后的恢复，或 release
@@ -187,7 +189,9 @@ provider_invocation_key = H_v1(
 - provider config/profile revision、adapter/protocol version；
 - 本 request 的 bounded decision budget（timeout/token/repair budget 的规范化值，若它是 provider contract 的一部分）。
 
-canonical encoding 必须固定字段顺序、长度前缀、UTF-8 规范化、map key 排序和缺省值；list 默认保留语义顺序，只有 schema 明确声明 order-insensitive/set-like 时才按 canonical element bytes 排序，未声明语义不得猜测排序。不允许用 wall-clock、endpoint、secret、transport attempt 或原始 provider output 参与 identity。配置、world head、观察、能力 context、memory 或 goal 任一 authority input 变化，必须创建新 request，不能静默重绑。
+canonical encoding 必须固定字段顺序、长度前缀、UTF-8 规范化、map key 排序和缺省值；list 默认保留语义顺序，只有 schema 明确声明 order-insensitive/set-like 时才按 canonical element bytes 排序，未声明语义不得猜测排序。不允许用 wall-clock、endpoint、secret、transport attempt 或原始 provider output 参与 identity。
+
+配置、world head、观察、能力 context、memory 或 goal 任一 authority input 变化，必须创建新 request，不能静默重绑。
 
 `request_digest` 的输入固定为 `ContinuousAgentRequestContextV1` 去掉输出字段
 `request_digest` 和 transport-only 字段 `transport_attempt` 后的 canonical bytes，并使用
@@ -219,7 +223,9 @@ silently reinterpret a V1 full-response digest as the V2 semantic digest.
 | 已得到合法逻辑结果，或已确定不可重试/预算耗尽的稳定失败 | 冻结并幂等重放原逻辑结果/稳定失败，不为重复投递重新调用上游 | 正常 `Wait` 是可确定的逻辑结果；不能因它不执行动作而无限重试 |
 | 最终结果确定后，同 identity 出现不同成功语义 | `response_identity_collision`，不覆盖原结果 | 保留成功语义碰撞保护、request digest 检查及原预算；不能删除 digest 校验来允许恢复 |
 
-Harness/Runtime 已把请求终结为失败、取消或失效后，不得利用 retryable 标记复活原 turn；后续工作遵循新 turn 的准入合同。反馈只消费匹配的 Runtime disposition；attempt 诊断不得替代或污染恢复后对应结果的反馈。配置持久化时，重启必须保留“未决 attempt / 已确定结果”的区别及剩余预算、请求关联；不能把暂态错误恢复成已确定失败，也不能遗失已确定结果后再次调用。实现与离线验证见[配对设计](continuous-agent-harness.design.md#harness-retryable-attempt-design)，本次文档补充不表示恢复缺陷已修复。
+Harness/Runtime 已把请求终结为失败、取消或失效后，不得利用 retryable 标记复活原 turn；后续工作遵循新 turn 的准入合同。反馈只消费匹配的 Runtime disposition；attempt 诊断不得替代或污染恢复后对应结果的反馈。
+
+配置持久化时，重启必须保留“未决 attempt / 已确定结果”的区别及剩余预算、请求关联；不能把暂态错误恢复成已确定失败，也不能遗失已确定结果后再次调用。实现与离线验证见[配对设计](continuous-agent-harness.design.md#harness-retryable-attempt-design)，本次文档补充不表示恢复缺陷已修复。
 
 Harness 与 Runtime 的 canonical wire mapping 使用 paired runtime PRD 的
 `Cross-contract identity mapping`：`agent_subject == agent_id`，session/turn/request 使用
@@ -392,7 +398,7 @@ sequence+digest 是幂等 duplicate；相同 sequence+不同 digest 是 `feedbac
 <a id="harness-feedback-session-watermark"></a>
 ### 7.1 有效 session 的反馈水位与容量
 
-有界 recent 摘要保留与 session 排序水位是不同责任。只要原 session 仍有效并允许新 turn，已 ACK 的连续序列水位、必要的去重/tombstone 与投影状态必须延续；淘汰旧摘要、旧 request cache 或其他 session 的记录，不能使该 session 从 sequence 1 重新开始。缺少摘要可以少带历史，缺少可靠水位必须显式停止该 projection，不能继续成功接纳新 turn 后把其正常反馈永久留在 held。
+有界 recent 摘要保留与 session 排序水位是不同责任。只要原 session 仍有效并允许新 turn，已 ACK 的连续序列水位、必要的去重/tombstone 与投影状态必须延续；淘汰旧摘要、旧 request cache 或其他 session 的记录，不能使该 session 从 sequence 1 重新开始。缺少摘要可以少带历史，缺少可靠水位必须显式停止该 projection，不能继续成功接纳新 turn，却把其正常反馈永久留在 held。
 
 容量不足时，适配器必须在下一次 turn 准入前选择维持该 session 的水位，或明确关闭其 projection 并要求 host 走受支持的 session 关闭/重建路径。旧 session 不得静默复用；新 session 由 trusted host 颁发新身份。真正乱序仍按原 gap/hold 合同处理，不能跳过未知事实、接受任意较大的 seq 作为恢复办法。已 ACK 的反馈不再位于 Runtime 待投递 outbox，适配器不能假设它会自动重送来修复自行丢失的水位。
 
@@ -456,11 +462,15 @@ P0 的 `MemoryWriteIntentPolicyV1` 冻结为：scope wire enum 为
 `turn_private | session_private`；`agent_private_long_term` 默认返回 `memory_scope_denied`，
 延后到 P2/独立 memory authority，不属于 P0 proven 行为。每 turn 最多 8 个 intent，
 每个 summary 最多 512 UTF-8 bytes，每个 intent 最多 8 个 tag、每个 tag 最多 64 bytes，
-canonical intent bytes 总计最多 4096 bytes。target policy 中 `summary` 是可选字段：省略时
+canonical intent bytes 总计最多 4096 bytes。
+
+target policy 中 `summary` 是可选字段：省略时
 使用显式 `present=false` 编码；若出现则先做 Unicode NFC、trim，必须非空且不得含 NUL/控制
 字符。`tags` 可以是显式空列表或按 schema 省略（省略固定编码为 canonical empty list）；
 每个 tag 先 NFC/trim 后必须非空且不得含 NUL/控制字符，随后按 canonical UTF-8 bytes 排序
-并去重。`intent_digest` 的输入为
+并去重。
+
+`intent_digest` 的输入为
 `intent_digest = H_v1("oasis7.cognition.memory-write-intent.v1", canonical(payload))`，其中
 payload 固定包含 policy version、Agent/session/turn、`request_digest`、scope、canonical
 summary presence/value、canonical tags 和 host-assigned provenance；排除 intent_digest 自身、
@@ -472,6 +482,7 @@ transport attempt 与 raw provider transcript。adapter 不得用空 summary、J
 `memory_no_committed_outcome`、`memory_intent_duplicate` 和 `memory_digest_mismatch`。
 provider 不得自报 `runtime_fact` provenance；只有 Runtime committed receipt 才能授予
 world-fact provenance。上述 policy 是 Agent-private P0 gate，不等于 GoalGraph 或共享记忆。
+
 兼容 lane 可把旧 `scope=short_term` 显式映射为 `turn_private` 并记录
 `memory_scope_alias_used`；旧 DTO 的 summary 必须为非空字符串。target lane 不接受该 alias，
 必须返回 `memory_scope_denied`；空 tags 仍允许，但空 tag element 必须返回 `memory_tag_invalid`。
@@ -479,11 +490,15 @@ world-fact provenance。上述 policy 是 Agent-private P0 gate，不等于 Goal
 
 ## 9. Goal 与 continuation 边界
 
-P0 将既有 short/long goal 字符串及 provider `goal_summary/blocked_reason` 归一为只读的 `GoalSnapshot`（含 revision、摘要、blocked 状态和 digest），以便 request identity 稳定。projection precedence 固定为 trusted host Agent config/runtime goal projection > legacy provider `goal_summary/blocked_reason`；provider 字段不能覆盖已有 host 值。各摘要先 NFC+trim，short/long 各最多 512 UTF-8 bytes，blocked_reason 最多 256 bytes；超限返回 `goal_snapshot_too_large`，不得静默截断。无值使用 revision=0、空摘要、无 blocked_reason 的显式 empty snapshot。Harness 可以提出 goal update intent，但 Runtime/world outcome 才能证明目标是否达成。
+P0 将既有 short/long goal 字符串及 provider `goal_summary/blocked_reason` 归一为只读的 `GoalSnapshot`（含 revision、摘要、blocked 状态和 digest），以便 request identity 稳定。projection precedence 固定为 trusted host Agent config/runtime goal projection > legacy provider `goal_summary/blocked_reason`；provider 字段不能覆盖已有 host 值。
+
+各摘要先 NFC+trim，short/long 各最多 512 UTF-8 bytes，blocked_reason 最多 256 bytes；超限返回 `goal_snapshot_too_large`，不得静默截断。无值使用 revision=0、空摘要、无 blocked_reason 的显式 empty snapshot。Harness 可以提出 goal update intent，但 Runtime/world outcome 才能证明目标是否达成。
 
 完整 GoalGraph、依赖关系、belief memory、长期偏好纠正和玩家可见目标语义明确 deferred beyond P0，不能以字符串升级为已完成 GoalGraph。
 
-Continuation 的 policy、proposal、bounds、advance/invalidate 语义由 Harness 拥有；它仍然只是 bounded cognition hint，而非 Runtime transaction 或 world truth。Runtime 拥有 durable schedule、wake、crash recovery 和最终执行时机。Continuation 至少绑定：原始 turn/request、action/plan kind、remaining budget、baseline observation/goal/policy digest、允许的 precondition summary 和 expiry。只有 Runtime 接受并返回可继续的 outcome，Harness 才能减少 budget 并继续；stale head/observation/goal/policy、reject、timeout、expiry 或 identity mismatch 必须清除/暂停 continuation 并重新决策。Builtin 与 ProviderBacked 必须共享该语义。
+Continuation 的 policy、proposal、bounds、advance/invalidate 语义由 Harness 拥有；它仍然只是 bounded cognition hint，而非 Runtime transaction 或 world truth。Runtime 拥有 durable schedule、wake、crash recovery 和最终执行时机。
+
+Continuation 至少绑定：原始 turn/request、action/plan kind、remaining budget、baseline observation/goal/policy digest、允许的 precondition summary 和 expiry。只有 Runtime 接受并返回可继续的 outcome，Harness 才能减少 budget 并继续；stale head/observation/goal/policy、reject、timeout、expiry 或 identity mismatch 必须清除/暂停 continuation 并重新决策。Builtin 与 ProviderBacked 必须共享该语义。
 
 Harness 提交唯一 wire schema `ContinuationProposalV1`；它由 Harness 分配
 `continuation_proposal_id`，并使用 canonical `origin_request_digest` 绑定来源 request，禁止

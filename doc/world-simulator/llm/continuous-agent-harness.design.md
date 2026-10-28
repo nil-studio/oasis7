@@ -41,7 +41,9 @@
 
 Harness owns cognition state and protocol safety. Runtime owns live truth and every authoritative side effect. Adapter owns transport, model selection, provider-specific transcript and bounded retry mechanics, but not identity authority or action execution.
 
-Native `RuntimeDecisionRunner::{Builtin, ProviderBacked}` already shares the async runner and ordinary-`Wait` admission/wake/resume seam; simulator compatibility and wasm32 `AgentRunner` retain their separate synchronous qualification. This observed wiring does not prove complete target identity, feedback, memory or recovery convergence. Both arms must satisfy the same target Harness lifecycle and verified memory, continuation and error contracts. The paired [Runtime current/partial qualification](../../world-runtime/runtime/agent-cognition-lifecycle.prd.md#1-目标与边界) retains world/journal/scheduler authority. Historical source locators were `viewer/runtime_live/llm_sidecar_runner.rs:211–229`, `llm_sidecar_async.rs:490–529`, and `llm_sidecar_cognition_wait.rs:419–592`; they are retained as provenance, not current line evidence. At fixed source `35961e32b7e7ad3469b7cd7db2e718fb1d6795b1`, inspect [`ensure_runner_initialized`](https://github.com/nil-studio/oasis7/blob/35961e32b7e7ad3469b7cd7db2e718fb1d6795b1/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runner.rs#L246-L263) for native Builtin/ProviderBacked `AsyncAgentRunner` construction, [`next_async_provider_decision`](https://github.com/nil-studio/oasis7/blob/35961e32b7e7ad3469b7cd7db2e718fb1d6795b1/crates/oasis7/src/viewer/runtime_live/llm_sidecar_async.rs#L364-L399) for non-blocking `poll_completed`, and [`admit_provider_wait_continuation`](https://github.com/nil-studio/oasis7/blob/35961e32b7e7ad3469b7cd7db2e718fb1d6795b1/crates/oasis7/src/viewer/runtime_live/llm_sidecar_cognition_wait.rs) for the existing Wait admission seam. Located code and bounded fixtures are not execution, canonical-world progress, full durable recovery or proven evidence.
+Native `RuntimeDecisionRunner::{Builtin, ProviderBacked}` already shares the async runner and ordinary-`Wait` admission/wake/resume seam; simulator compatibility and wasm32 `AgentRunner` retain their separate synchronous qualification. This observed wiring does not prove complete target identity, feedback, memory or recovery convergence. Both arms must satisfy the same target Harness lifecycle and verified memory, continuation and error contracts. The paired [Runtime current/partial qualification](../../world-runtime/runtime/agent-cognition-lifecycle.prd.md#1-目标与边界) retains world/journal/scheduler authority.
+
+Historical source locators were `viewer/runtime_live/llm_sidecar_runner.rs:211–229`, `llm_sidecar_async.rs:490–529`, and `llm_sidecar_cognition_wait.rs:419–592`; they are retained as provenance, not current line evidence. At fixed source `35961e32b7e7ad3469b7cd7db2e718fb1d6795b1`, inspect [`ensure_runner_initialized`](https://github.com/nil-studio/oasis7/blob/35961e32b7e7ad3469b7cd7db2e718fb1d6795b1/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runner.rs#L246-L263) for native Builtin/ProviderBacked `AsyncAgentRunner` construction, [`next_async_provider_decision`](https://github.com/nil-studio/oasis7/blob/35961e32b7e7ad3469b7cd7db2e718fb1d6795b1/crates/oasis7/src/viewer/runtime_live/llm_sidecar_async.rs#L364-L399) for non-blocking `poll_completed`, and [`admit_provider_wait_continuation`](https://github.com/nil-studio/oasis7/blob/35961e32b7e7ad3469b7cd7db2e718fb1d6795b1/crates/oasis7/src/viewer/runtime_live/llm_sidecar_cognition_wait.rs) for the existing Wait admission seam. Located code and bounded fixtures are not execution, canonical-world progress, full durable recovery or proven evidence.
 
 ### 2.1 需求承接与分配表
 
@@ -274,7 +276,7 @@ digest contract 标为 `proven`。
 
 Runtime action/module envelope 另有 runtime-owned `envelope_digest/envelope_idempotency_key`，用于提交和副作用幂等；它不等于也不替代 `request_digest` 或 `provider_invocation_key`，具体定义留给 paired runtime docs。
 
-Observation、memory、goal、capability schema 等大字段以已经验证的 content digest 进入 identity；digest 的来源 bytes 必须可从 fixture 或 trusted host 复现。若 digest 版本、字段或 authority input 不可解释，拒绝 request，而不是使用兼容猜测。
+Observation、memory、goal、capability schema 等大字段以已验证的 content digest 进入 identity；digest 的来源 bytes 必须可从 fixture 或 trusted host 复现。若 digest 版本、字段或 authority input 不可解释，拒绝 request，而不是使用兼容猜测。
 
 ### 4.2 Retry 与 collision
 
@@ -298,7 +300,9 @@ Observation、memory、goal、capability schema 等大字段以已经验证的 c
 
 `provider_error.retryable` 必须结合请求是否仍未决与剩余预算解释。含 retryable 错误的 fallback Wait 不能被误认成正常 Wait 的最终结果；没有 provider error 的合法 Wait 则不能被误认成尚待完成的 attempt。保留 `cognition_response_digest` 的现行 v2 算法及成功碰撞保护，不排除 `provider_error` 字段，也不扩大预算来掩盖错误→成功的恢复路径。
 
-请求关联须能覆盖未决 attempt 到最终结果的演进，不能依赖先冻结暂态错误摘要才能接受后续 feedback。只有匹配的 Runtime feedback 能影响 context/memory/continuation；attempt 错误本身只作诊断。配置反馈持久化时，请求状态、最终结果及关联的更新应按同一持久化边界发布；失败保留可重试的旧状态并给出明确错误，重启不得丢失已确定结果或重置预算。旧持久化 schema 的处理继续服从 §3.2 的显式版本规则，不通过猜测旧摘要重建逻辑结果。
+请求关联须覆盖未决 attempt 到最终结果的演进，不能以先冻结暂态错误摘要为接受后续 feedback 的前提。只有匹配的 Runtime feedback 能影响 context/memory/continuation；attempt 错误本身只作诊断。
+
+配置反馈持久化时，请求状态、最终结果及关联的更新应按同一持久化边界发布；失败保留可重试的旧状态并给出明确错误，重启不得丢失已确定结果或重置预算。旧持久化 schema 的处理继续服从 §3.2 的显式版本规则，不通过猜测旧摘要重建逻辑结果。
 
 离线验收通过真实 HTTP bridge 与 adapter、隔离 mock invoker：第一次可重试错误，第二次分别返回合法 Wait 和 Act；session/turn/request/request_digest 不变，仅 `transport_attempt` 增长，不能得到 collision/400。另证不可重试和耗尽停止、终态重放无新 invocation、不同成功语义仍碰撞，以及配置持久化后的 attempt 重启和最终反馈关联。这些样例不调用真实 provider。
 
@@ -503,11 +507,13 @@ digest 是 `feedback_identity_collision`，fail closed。
 
 新 turn 的准入、请求反馈关联和 projection 可用性必须在同一个生命周期判断下成立。容量不足以保存新 session 时，保留原有效 session 并拒绝/背压新的准入，或按受支持流程显式关闭选定 projection；不能先成功接纳 turn，再因被淘汰的水位将正常下一 seq 永久 held。关闭结果必须让 host 可区分并停止旧 session 的新工作；重建用新 session 身份，不从“这个 key 当前不存在”推断旧 session 已获重新开始许可。
 
-真正 seq gap 仍进入 bounded held，补齐缺失 seq 后按 Runtime 顺序连续释放；相同 id/seq/digest 的重复不能二次投影，held duplicate 的成功 ACK 只表示已保留该消息，不能伪造已经进入 recent。缺口超 retention 或无法证明原水位时显式关闭 projection，不能接受任意更大的 seq 跳过事实。Runtime 已 ACK 的旧消息可能不再存在于 outbox，容量策略不得依赖它们自动重送。
+真正的 seq gap 仍进入 bounded held，补齐缺失 seq 后按 Runtime 顺序连续释放；相同 id/seq/digest 的重复不能二次投影，held duplicate 的成功 ACK 只表示已保留该消息，不能伪造已经进入 recent。缺口超 retention 或无法证明原水位时显式关闭 projection，不能接受任意更大的 seq 跳过事实。Runtime 已 ACK 的旧消息可能不再存在于 outbox，容量策略不得依赖它们自动重送。
 
 持久化状态应包含上述连续水位/关闭事实、held 与仍需关联的请求；更新失败不得对外承诺已完成投影。accepted-request cache 可独立有界淘汰，但不能删除仍需反馈的关联或使有效 session 水位归零；无法保留的请求按显式关闭/拒绝处理，不把新请求的正常反馈归为永久未知。重启加载沿现有 schema 兼容边界校验，不能把缺失水位当作 0。
 
-行为回归必须覆盖 A seq1 已 ACK，其他合法 subject/session 累计引发容量压力，再以 A 原 session 新 turn 产生 seq2 并重试。无须假设大量并发 Agent；其他 Agent 依次关闭/开启 session 即可形成该压力。预期只能是 seq2 正确连续投影，或 A 新 turn 在调用 provider 前收到明确关闭/重建结果；同时覆盖重启、真正乱序补洞、duplicate、旧 session 关闭、新 session/跨 Agent 隔离，以及 accepted cache 与摘要独立淘汰。只检查 65 个 partition 的数量或加载成功不能证明该合同。
+行为回归必须覆盖 A seq1 已 ACK，其他合法 subject/session 累计引发容量压力，再以 A 原 session 新 turn 产生 seq2 并重试。无须假设大量并发 Agent；其他 Agent 依次关闭/开启 session 即可形成该压力。
+
+预期只能是 seq2 正确连续投影，或 A 新 turn 在调用 provider 前收到明确关闭/重建结果；同时覆盖重启、真正乱序补洞、duplicate、旧 session 关闭、新 session/跨 Agent 隔离，以及 accepted cache 与摘要独立淘汰。只检查 65 个 partition 的数量或加载成功不能证明该合同。
 
 检查失败的 feedback 只生成 bounded diagnostic (`late_feedback`、`unknown_feedback`、`cross_agent_feedback` 或 `duplicate_feedback`)。它不会进入 prompt、memory、continuation，也不会被全局 recent buffer 复用。多 Agent 交错 fixture 必须验证在相同到达顺序和不同到达顺序下，双方 context 仍只包含自己的反馈。
 
@@ -748,7 +754,9 @@ Runtime contract；Harness 只消费该 Runtime-owned projection，不得生成�
 sentinel。Runtime 必须验证 proposal_digest，随后把 Runtime-owned schedule correlation 投影为
 continuation_digest；adapter 不得用 raw JSON、空字符串或本地 null 替代。
 
-Continuation 的 policy、proposal、bounds、advance/invalidate 语义由 Harness 拥有；它只能作为下一 turn 的 bounded hint。Runtime 拥有 durable schedule、wake、crash recovery 和最终执行时机，并在每次接受 candidate 时检查 live action semantics/preconditions。Harness 每次继续前检查 observation/goal/policy digest 和 remaining budget。receipt reject、stale、timeout、expiry、reorg/finality invalidation 或 changed digest 清除 continuation；不得自动换成相似 action，不得绕过 provider 或 Runtime。Builtin 与 ProviderBacked 共享该状态机。
+Continuation 的 policy、proposal、bounds、advance/invalidate 语义由 Harness 拥有；它只能作为下一 turn 的 bounded hint。Runtime 拥有 durable schedule、wake、crash recovery 和最终执行时机，并在每次接受 candidate 时检查 live action semantics/preconditions。
+
+Harness 每次继续前检查 observation/goal/policy digest 和 remaining budget。receipt reject、stale、timeout、expiry、reorg/finality invalidation 或 changed digest 清除 continuation；不得自动换成相似 action，不得绕过 provider 或 Runtime。Builtin 与 ProviderBacked 共享该状态机。
 
 GoalGraph、belief memory、长期 preference correction 和 player-facing goal explanation deferred beyond P0；它们不能通过扩展 `GoalSnapshot` 字符串被隐式宣称已交付。
 
@@ -769,7 +777,7 @@ Adapter 将 transport/model-specific failures 映射到稳定 Harness errors：
 | `memory_intent_rejected` | scope/size/provenance/dedupe policy failure | 丢弃该 intent，保留 rejection trace |
 | `runtime_denied` | Runtime authoritative validation reject | 使用拒绝 receipt，清除不兼容 continuation |
 
-所有失败都必须是 deterministic、可诊断、无未授权副作用。禁止以“模型大概理解了”作为重试/解析/动作 fallback 的理由。
+所有失败都必须是 deterministic、可诊断，且无未授权副作用。禁止以“模型大概理解了”作为重试/解析/动作 fallback 的理由。
 
 ## 11. Rollout design
 
@@ -855,7 +863,9 @@ The merged GWSC semantic validator already requires unequal migration versions; 
 | rollout | 行为/延迟/成本/稳定性 | fixed scenario/profile/provider/adapter/protocol epoch，per-scenario artifacts 和 repeated samples | 均值不能掩盖单场景 failure |
 | proven | 同一 epoch 的成功+负例闭环 | artifact digest、identity binding、副作用检查、reviewed fixture manifest | 未覆盖 provider/module/goal 不可继承 proven |
 
-最低诊断字段：session/turn/request ids、request/response digest、provider/adapter/protocol version、base head、outcome/error code、attempt count、native model/tool budget limits and consumed counts、latency/token/cost diagnostics、feedback lineage、memory intent disposition、continuation disposition。C0 counters 只表示 native Harness protocol admission；opaque ProviderBacked usage 必须由其 adapter 自行提供，不能从该字段推断。token/latency/cost 在 P0 只是 diagnostics/evaluation inputs；不代表资源扣账或发布证据。
+最低诊断字段：session/turn/request ids、request/response digest、provider/adapter/protocol version、base head、outcome/error code、attempt count、native model/tool budget limits and consumed counts、latency/token/cost diagnostics、feedback lineage、memory intent disposition、continuation disposition。
+
+C0 counters 只表示 native Harness protocol admission；opaque ProviderBacked usage 必须由其 adapter 自行提供，不能从该字段推断。token/latency/cost 在 P0 只是 diagnostics/evaluation inputs；不代表资源扣账或发布证据。
 
 可执行入口固定为：文档阶段运行 `./scripts/doc-governance-check.sh`；P0.1 实现阶段运行
 `env -u RUSTC_WRAPPER cargo test -p oasis7_provider_local_bridge --bin oasis7_provider_local_bridge -- decision_identity`
