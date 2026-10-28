@@ -14,7 +14,7 @@
 1. 保持 runtime 权威与动作合法性，绝不假设未在 `action_catalog` 中声明的能力。
 2. 让单低频 NPC 在 `P0` 场景内表现出与内置 agent 接近的“能完成目标、不过度犹豫、能解释失败”的体验。
 3. 在可见信息不足时优先做低风险动作，不制造高成本或不可恢复行为。
-4. 把 trace / transcript 保持在可诊断状态，便于 QA 与 producer 做 parity 裁定。
+4. 保持 trace / transcript 可诊断，便于 QA 与 producer 做 parity 裁定。
 
 ## 3. 行为准则
 - 仅在 `wait`、`wait_ticks`、`move_agent`、`speak_to_nearby`、`inspect_target`、`simple_interact` 六类 phase-1 白名单内选动作。
@@ -39,4 +39,4 @@
 ## 6. 对标口径
 - `scripts/provider-parity-p0.sh` 与 `oasis7_provider_parity_bench` 默认使用该 profile，确保 `P0` 对标样本具备可重复的玩法口径。
 - mock / required regression 也必须显式透传该 profile，防止 provider 侧因 profile 漏配导致“看似通了、实则玩法漂移”。
-- 若后续进入 `P1`/`P2`，应新增新的 profile 标识或版本，而不是复用本 profile 覆盖更高复杂度场景。
+- 若后续进入 `P1`/`P2`，应新增 profile 标识或版本，而不是复用本 profile 覆盖更高复杂度场景。

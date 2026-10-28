@@ -10,7 +10,7 @@
 - 审读基线：本文只定义长期系统设计与验证方法；实现现状、候选提交、测试结果和任务状态必须从关联 PR、实际 CI 与评审记录读取。
 - Last reviewed：2026-10-09
 
-本文把玩家意图、Agent 解释、runtime 权威执行、Viewer/API 投影和 QA 证据组织成一条可追踪的间接控制因果链。产品 PRD 拥有玩家承诺与 REQ/AC，`PRD-GAME-014` 拥有玩法 guarantee、字段语义与失败签名，本文拥有跨组件技术边界、状态映射、恢复合同和验证设计；它不复制产品要求、任务台账或当前完成度。
+本文把玩家意图、Agent 解释、runtime 权威执行、Viewer/API 投影和 QA 证据组织成一条可追踪的间接控制因果链。产品 PRD 拥有玩家承诺与 REQ/AC，`PRD-GAME-014` 拥有玩法 guarantee、字段语义与失败签名，本文拥有跨组件技术边界、状态映射、恢复合同和验证设计；不复制产品要求、任务台账或当前完成度。
 
 补充的 Agent authority 承接范围是授权来源与范围复核、有效期内累计额度、控制权变化后对未生效行动的重新评估，以及异议/override 到权威结果的因果归因。runtime 需要持久化这些事实的最小身份、版本和引用以支持幂等提交与恢复；玩家/组织授权语义、组织治理规则、经济条件和责任含义仍由产品与玩法 authority 冻结。玩家/组织授权不等同 WASM capability grant；本文定义共享因果链如何关联现有 intent 与领域结算 receipt，不取代领域 receipt，也不建立并行的 player-facing receipt schema、状态机或授权来源。
 
@@ -26,7 +26,7 @@
 - 让 Agent 自治、授权、转让后重配置、异议/override 与责任连续性产品条款拥有明确的 runtime 设计与验证映射；
 - 明确每个事实的 producer、authority、consumer、持久化与恢复边界；
 - 让 Viewer 与 pure API 从同一权威事实投影四类 invariant：accepted intent、execution status、primary reason、next step；
-- 把要求、设计条款、验证方法和实际 PR 验证记录 串成可查询链路。
+- 将要求、设计条款、验证方法和实际 PR 验证记录串成可查询链路。
 
 ### 1.2 非目标
 
@@ -146,7 +146,7 @@ agency surface 必须把玩法语义映射到当前 runtime authority，而不�
 <a id="des-wr-ia-005"></a>
 ### DES-WR-IA-005：有界后果可读性
 
-对每个关键结果，投影层必须能从权威事实解释 `cost`、`progress/world change`、`primary reason` 与 `next step`。这是一张足够支持下一决策的摘要，不是完整预测器；原始日志、调试字段和次级事件不能取代主因果，也不能遮蔽无进展。
+投影层必须能从权威事实解释每个关键结果的 `cost`、`progress/world change`、`primary reason` 与 `next step`。这是足以支持下一决策的摘要，不是完整预测器；原始日志、调试字段和次级事件不能取代主因果，也不能遮蔽无进展。
 
 <a id="des-wr-ia-006"></a>
 ### DES-WR-IA-006：resume anchor 与回流恢复
@@ -417,6 +417,6 @@ Profile 判定可保留为小型具名 policy，独立于 grant 业务身份/生
 长期风险与未决问题：
 
 - 哪些意图类型、入口、版本和环境进入第一批可验证范围，由 `producer_system_designer` 联合各专业 owner 在实际 task 中冻结；未绑定者保持 unsupported/unknown。
-- 具体 intent/idempotency/continuation identity、bounded-response 时间窗口和 receipt schema 由对应专业 authority 设计并版本化；在此之前本文不声称已实现。
+- 具体 intent/idempotency/continuation identity、bounded-response 时间窗口和 receipt schema 由对应专业 authority 设计并版本化；在此之前，本文不声称已实现。
 - Gameplay PRD 的 acceptance 与 NFR 已补稳定 HTML anchor；如果后续出现逐条机器消费需求，再由 gameplay owner 为 AC/NFR 单项补充稳定 anchor 与迁移映射。
 - 最大风险是只补 UI 文案或只恢复文档，却没有 canonical truth 与同候选证据；这种状态必须继续报告为设计已定义、实现未验证。当前测试只覆盖 canonical intent、override/reprioritize、wait quote、continuation 和 memory receipt 的若干切面；完整 causal receipt 与同候选 Viewer/pure API parity 仍未证明。

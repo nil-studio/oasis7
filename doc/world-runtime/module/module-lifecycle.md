@@ -187,7 +187,11 @@ fn apply_governed_proposal(changes: ModuleChangeSet) -> Result<()> {
 }
 ```
 
-当前 typed prepared publication 覆盖 governed proposal apply：在 immutable base 上预演 registry、artifact、tick schedule、prepared-subscription cache invalidation、manifest、proposal status、event id/era、bounded journal/backpressure 与最终 tick consensus；排序后的 lifecycle events 之后固定追加 `ManifestUpdated`、`Governance::Applied`，全部成功后才通过单一不可失败 seam 安装。任一预演或 post-prepare failure 都不发布中间态，register/upgrade/activate/deactivate 的 authority-drift 回归与混合成功批次的连续 event、registry/active、Tick schedule、manifest/governance 顺序及最终 consensus 回归共同约束该合同。它不等同于完整 lifecycle transaction；非 proposal 入口、persisted instance state 对齐、恢复/回放、durable external effect 与 receipt/outbox 仍是 `partial` / `target`。
+当前 typed prepared publication 覆盖 governed proposal apply：在 immutable base 上预演 registry、artifact、tick schedule、prepared-subscription cache invalidation、manifest、proposal status、event id/era、bounded journal/backpressure 与最终 tick consensus；排序后的 lifecycle events 之后固定追加 `ManifestUpdated`、`Governance::Applied`，全部成功后才通过单一不可失败 seam 安装。
+
+任一预演或 post-prepare failure 都不发布中间态，register/upgrade/activate/deactivate 的 authority-drift 回归与混合成功批次的连续 event、registry/active、Tick schedule、manifest/governance 顺序及最终 consensus 回归共同约束该合同。
+
+它不等同于完整 lifecycle transaction；非 proposal 入口、persisted instance state 对齐、恢复/回放、durable external effect 与 receipt/outbox 仍是 `partial` / `target`。
 
 **ModuleChangeSet 校验规则（示意）**
 - `module_id` 在 `register/activate/deactivate/upgrade` 内不得重复冲突。
@@ -421,7 +425,7 @@ Observer 和普通 reader 先核对所选 generation、全部 manifest 身份与
 | [4-technical-specifications](online-module-release-legality-closure-2026-03-08.prd.md#4-technical-specifications) | provider proof versus world finality and idempotency | [sr2-external-contract](module-lifecycle.md#sr2-external-contract) | WASM/runtime/P2P/QA exact receiver 与 candidate readback | 无 provider exactly-once / production full proof |
 
 ## 3. 当前状态、目标状态与差距
-当前上述 typed prepared proposal 仅保证其限定入口的不可失败安装和固定事件序列；稳定 instance/install_target/市场状态与历史 serde defaults 保持原合同。目标 PendingIntentV1、IntentDecisionV1、VersionActivationV1、ExternalEffectReceiptV1、ExternalReceiptVerificationV1、SchemaMigrationV1、ModuleStateMigratedV1 尚无完整实现证明；本节不可使 absent Rust types 变成 current。
+当前上述 typed prepared proposal 仅保证其限定入口的不可失败安装和固定事件序列；稳定 instance/install_target/市场状态与历史 serde defaults 保持原合同。目标 PendingIntentV1、IntentDecisionV1、VersionActivationV1、ExternalEffectReceiptV1、ExternalReceiptVerificationV1、SchemaMigrationV1、ModuleStateMigratedV1 尚无完整实现证明；本节不能把尚不存在的 Rust types 表述为 current。
 
 ## 4. 边界与结构
 WASM 输出仅是 intent。Runtime 从不可变世界基线选择 activation、验证资源和权利、准备 registry/state/resources/journal/receipt；P2P 验证包含证明；持久层发布 committed transaction；consumer 读取权威 decision。所有原始请求、历史 artifact、schema、schedule、activation 与 receipt 字节是 replay owner 的不可变输入，缓存不是 authority。
@@ -430,30 +434,41 @@ WASM 输出仅是 intent。Runtime 从不可变世界基线选择 activation、�
 <a id="sr2-pending-contract"></a>
 ### PendingIntentV1 与 IntentDecisionV1：目标单一字段 authority
 共享类型与 canonical profile 引用 [interface types](../wasm/wasm-interface.md#sr2-types)。字段均 required，只有带 `?` 的字段可省略；禁止 null、unknown property/version/enum。
+
 `PendingIntentV1={schema_version:"PendingIntentV1",scope:WorldScopeV1,intent_id:Id,request_hash:Hash32,payload_hash:Hash32,subject_id:Id,target_hash:Hash32,lineage_id:Id,member_generation:U64,relation:original|linked_replacement|withdrawal|independent,exclusive_set_id?:Id,predecessor_intent_id?:Id,predecessor_request_hash?:Hash32,compatibility_declaration_hash:Hash32,accepted_position:JournalPositionV1,expiry_boundary?:U64,disposition:pending}`。
+
 `IntentDecisionV1={schema_version:"IntentDecisionV1",scope:WorldScopeV1,intent_id:Id,request_hash:Hash32,lineage_id:Id,member_generation:U64,disposition:committed_effect|rejected|expired|replan_required|terminated_without_effect,reason_code?:Id,decision_position:JournalPositionV1,execution_receipt_ref?:ContentRefV1,winner_intent_id?:Id,winner_receipt_ref?:ContentRefV1}`。
+
 Pending authenticated body 从不附加选定 version、winner 或 receipt；终态在 durable decision index 中另存。Admission 校验 world/subject/target、显式授权 exclusive set、exact predecessor ID/hash 与 checked successor member_generation；dangling/cycle/gap/overflow/conflicting bytes 拒绝。相同 world/subject/intent/request_hash 重试返回原状态；相同 key 改字节冲突。Generation 不是 priority、capability generation 或 key epoch。
+
 PendingRequestCoreV1 是 PendingIntentV1 删除 request_hash/accepted_position/disposition 后全部其余 present fields 的精确投影，schema_version 保留 PendingIntentV1；不是新增 current wire。member_generation 必须先由 runtime assignment/validation，再计算 accepted request_hash=H("oasis7/intent-request/v1",PendingRequestCoreV1)，intent_id 保留；这个 admitted commitment 不替代 caller authentication，不让 caller 自授 generation/authority。accepted_position 是 admission journal provenance，不进入 request hash。
+
 IntentDecisionCoreV1 是 IntentDecisionV1 全部 present fields 的 canonical 投影，schema_version 保留；没有 selfdigest/signature 字段。execution_receipt_ref/winner_receipt_ref 的 ContentRef 只引用 block-independent ModuleExecutionReceiptCoreV1 canonical bytes，digest=SHA256(CanonicalCBOR(receipt_core))、byte_length=这些 exact bytes 长度，locator 排除；不能引用同一 containing block 的 finalized wrapper bytes。Receiver fetch/verify core bytes 后单独计算 domain-separated receipt_id，读取 detached finalized wrapper 并验证 inclusion/receipt_id/execution_id/activation 匹配。decision commitment=H("oasis7/intent-decision/v1",IntentDecisionCoreV1)，因此同 block winner/loser decision 不通过 finality wrapper 形成递归哈希。Raw content digest 与 receipt_id 是不同值，不得互换。
+
 canonical order 的第一个成功有效 receipt 事务同时发布 winner 与 explicit exclusive losers；独立 intents 不受影响。committed_effect 必须有 execution_receipt_ref；其他 dispositions 禁止该 ref 且必须 reason_code；exclusive loser 必须 winner ID/ref。reject/expire/replan 只结束自身。无效果 withdrawal 为 terminated_without_effect，不是 winner；其 predecessor linkage 保留在原 pending 请求。Finality outage 只能保留 pending/local audit，不能伪造 finalized rejection。恢复重新检查 expiry、权限、资源、target 与新 governing manifest；不延期、不继承旧 quote，不改 payload。
 
 ## 6. 接口与数据合同
 <a id="sr2-activation-contract"></a>
 ### VersionActivationV1：目标单一字段 authority
 `VersionActivationV1={schema_version:"VersionActivationV1",scope:WorldScopeV1,activation_id:Hash32,proposal_id:Id,prior_activation_id?:Hash32,base_manifest_hash:Hash32,new_manifest_hash:Hash32,from_execution_version:Id,to_execution_version:Id,effective_canonical_height:U64,metering_schedule_version:Id,metering_schedule_hash:Hash32,artifact_identities:[{module_id:Id,module_version:Id,wasm_hash:Hash32,artifact_identity_hash:Hash32}],compatibility_declaration_hash:Hash32,migrations:[SchemaMigrationV1],governance_receipt_ref:ContentRefV1,finality_binding:{canonical_block_hash:Hash32,canonical_block_height:U64,certificate:ContentRefV1}}`。
+
 Core 是上述对象删除 activation_id/finality_binding 后的精确字段集；`activation_id=H("oasis7/version-activation/v1",core)`，证书 detached 验证 exact core 和边界，不能递归 hash containing block。artifacts 按完整 module/version/hash tuple 排序去重；migrations 按 object_kind/namespace/name/instance_id/entity_id 排序去重。first finality-verified canonical inclusion 的 height 在 inclusive boundary 上选择新版本；submission time、candidate block、安装和 compatibility 声明不能选择版本。Missing/conflicting boundary、未知版本、不可达旧 artifact 或证书不符均 fail closed。
 
 <a id="sr2-external-contract"></a>
 ### ExternalEffectReceiptV1 与 ExternalReceiptVerificationV1：目标单一字段 authority
 `ExternalEffectReceiptV1={schema_version:"ExternalEffectReceiptV1",scope:WorldScopeV1,receipt_id:Hash32,effect_intent_id:Id,request_hash:Hash32,parent_execution_receipt_id:Hash32,provider_id:Id,provider_key_epoch:U64,status:succeeded|failed,result_payload_hash:Hash32,request_payload_hash:Hash32,response_payload_hash:Hash32,provider_proof:ContentRefV1,canonical_inclusion?:{canonical_block_hash:Hash32,canonical_block_height:U64,journal_position:JournalPositionV1,receipts_root:Hash32,authority_snapshot_hash:Hash32,finality_proof:ContentRefV1}}`。
+
 `ExternalReceiptVerificationV1={receipt_id:Hash32,verdict:unverified|verified_canonical|reorged|suspended,reason_code?:Id}` 是有界验证投影，继承 exact receipt scope，不重写 immutable provider result。
+
 receipt core 删除 receipt_id/canonical_inclusion；`receipt_id=H("oasis7/external-effect-receipt/v1",core)`。Raw provider receipt 无 inclusion，不算 committed。Provider succeeded/failed 和验证状态是两条轴；failed 不制造 module committed_success。验证次序见 [release trust](online-module-release-legality-closure-2026-03-08.design.md#sr2-release-trust)。重复 exact bytes 返回原 decision；同 ID 不同 bytes、unknown intent、错 world/request/provider/key、proof/hash/root/branch 不符拒绝；outbox 重试保持 effect_intent_id，provider 不幂等时不能保证现实世界 exactly-once。当前 local EffectReceipt 和 receipt_leaf_hash 不证明此新 trust wire。
 
 ## 7. 状态、事务与持久化
 <a id="sr2-migration-publication"></a>
 ### SchemaMigrationV1 / ModuleStateMigratedV1 的原子发布
 字段 authority 为 [interface migration](../wasm/wasm-interface.md#sr2-migration-contract)，本节拥有 publication/replay 语义。每个 object/namespace/name/instance/entity 匹配 exact from/to version+schema hash，PositiveU64 不同且精确声明，numeric ordering 不授予迁移权。Preflight immutable base 的旧 artifact/state、权限、manifest 与 bound；无 I/O sandbox 生成 bounded canonical output，只可写目标 namespace。Event adapter 不修改原 caller/time/cause/kernel identity。
+
 所有对象先 staged，包括 registry、instance bytes、active manifest、schedule、cache invalidation、state/resources、journal/event era、migration event 与 receipt；任一步失败保留全部原 bytes/root/fees/artifacts/events。成功单一不可失败安装；durable commit 后才公开 world effect，crash after reservation/before commit 回到 no effect 或完整 transaction，after durable commit 返回原 receipt，禁止重跑 committed WASM。
+
 ModuleStateMigratedCoreV1 是 ModuleStateMigratedV1 exact field projection，只删除 canonical_block_hash/canonical_block_height，schema_version 仍为 ModuleStateMigratedV1；没有新 event wire 或 own ID 字段；`H("oasis7/module-state-migrated/v1",core)` commits exact schema migration、scope、from/to state hash、base/governing manifest、activation、caused_by、journal position；detached canonical wrapper 不递归输入 containing block。Intent request/decision 分别使用 `oasis7/intent-request/v1`、`oasis7/intent-decision/v1` domain，删除 own digest 与签名/locators；Hash32/ContentRef 的 canonical 编码按 interface 唯一 profile。
 
 ## 8. 部署、安全与运行约束

@@ -98,7 +98,7 @@ Windows 活跃子进程停止须独立验证，Unix/mock/no-op 不代签。
 <a id="launcher-machine-action"></a>
 
 - `POST /api/gui-agent/action` 接收严格的枚举 action 与 JSON payload；不支持的 action、缺失/非法 payload 和被当前状态拒绝的请求必须返回可分类结果。
-- 动作响应保持统一的 `ok`、`action`、可选 `error_code`/`error`/`data` 以及最新 `state` 结构，方便调用方在不解析 Web UI 的情况下继续诊断或恢复。
+- 动作响应保持统一的 `ok`、`action`、可选 `error_code`/`error`/`data` 以及最新 `state` 结构，便于调用方不解析 Web UI 即可继续诊断或恢复。
 <a id="launcher-query"></a>
 
 - 查询代理只可经服务端已声明的目标和参数映射；机器接口不提供任意 URL 或任意命令穿透。
@@ -109,7 +109,7 @@ Windows 活跃子进程停止须独立验证，Unix/mock/no-op 不代签。
 
 `gui-agent` 是 operator-plane HTTP JSON 接口，不是玩家世界操作面，也不授予 runtime 直接写入权。`hosted_public_join` 对已枚举的 operator 路由使用 peer-IP gate；该事实不表示所有 API 都是私有的、服务仅绑定 loopback，或已经具备认证、RBAC、TLS、rate limit、公开可用性或任何 network/readiness/SLA 结论。wildcard bind 和公开路由仍按各自当前实现及部署配置处理。
 
-本专题同样不承诺 transfer 可用性、永久动作覆盖，或将 GUI-agent 与 `DecisionProvider`、自治 Agent 等同。涉及 runtime 执行、身份、安全部署或世界状态语义的变更，必须回到相应专业 authority 和当前任务证据。
+本专题不承诺 transfer 可用性、永久动作覆盖，或将 GUI-agent 与 `DecisionProvider`、自治 Agent 等同。涉及 runtime 执行、身份、安全部署或世界状态语义的变更，必须回到相应专业 authority 和当前任务证据。
 
 ## 里程碑
 

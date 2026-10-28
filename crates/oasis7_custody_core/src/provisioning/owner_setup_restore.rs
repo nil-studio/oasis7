@@ -1,6 +1,18 @@
 use super::*;
 impl AccountProvisionApprovalState {
     pub(in crate::provisioning) fn validate_owner_setup_persistence(&self) -> Result<()> {
+        self.validate_owner_setup_persistence_scoped(&mut RestoreSignatureScope::default())
+    }
+    #[cfg(feature = "signature-metrics")]
+    pub fn owner_setup_restore_signature_metrics(&self) -> Result<RestoreSignatureSummary> {
+        let mut scope = RestoreSignatureScope::default();
+        self.validate_owner_setup_persistence_scoped(&mut scope)?;
+        Ok(scope.summary())
+    }
+    fn validate_owner_setup_persistence_scoped(
+        &self,
+        signature_scope: &mut RestoreSignatureScope,
+    ) -> Result<()> {
         if self.owner_setups.len() > 1 {
             return Err(ProvisionApprovalError::InvalidPersistence);
         }
@@ -133,7 +145,7 @@ impl AccountProvisionApprovalState {
                 if !nonces.insert(o.session_nonce.clone()) {
                     return Err(invalid());
                 }
-                self.validate_owner_setup_outbox(id, *stage, o, r)?;
+                self.validate_owner_setup_outbox(id, *stage, o, r, signature_scope)?;
             }
             if v.transport.as_ref() != Some(&budget) {
                 return Err(invalid());

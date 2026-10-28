@@ -29,11 +29,15 @@
 - 再按项目文档任务拆解推进实现与验证。
 
 ## 零信任适用设计视图
-owner runtime_engineer，WASM/签名/P2P 联审；eng-cc/oasis7 审读基线 f9d5a552d9af04c1b1398262808198a58e560230。旧 §§1–5 retained active contract 与历史 proposal wording 分开；目标是 artifact authenticity/certificate bound atomic apply/anchored receipt/structured trap，无新 PKI/BFT/业务/ABI/schema。测试定义与历史迁移 green 均不是实际 security proof。
+owner 为 runtime_engineer，由 WASM/签名/P2P 联审；eng-cc/oasis7 审读基线为 f9d5a552d9af04c1b1398262808198a58e560230。旧 §§1–5 的 retained active contract 与历史 proposal wording 分开；目标是 artifact authenticity/certificate bound atomic apply/anchored receipt/structured trap，无新 PKI/BFT/业务/ABI/schema。
+
+测试定义与历史迁移 green 均不是实际 security proof。
 
 <a id="hardening-artifact-boundary"></a>
 ### 工件 admission、加载与信任
-producer supplies content-addressed bytes/ModuleArtifactIdentity 与 authority-approved signer/public key；validate/shadow/register 和 load/persist 都按同一 authenticity/trust/hash 检查，identity 必填、不接受 unsigned。missing/invalid/hash/trust failure 不安装模块或悄换 bytes，旧非法工件需显式迁移批准，不能运行时自动补签。WASM owns [ABI/artifact/executor authority](../wasm/wasm-interface.md)，cache compiled representation 不是 canonical artifact 或 activation permission。current module_store hydration owned replacement 全部验证再 install，late sorted record failure 保持 registry/artifact/cache，legacy no-store compatibility 不授予新 unsigned 资格。
+producer supplies content-addressed bytes/ModuleArtifactIdentity 与 authority-approved signer/public key；validate/shadow/register 和 load/persist 都按同一 authenticity/trust/hash 检查，identity 必填、不接受 unsigned。missing/invalid/hash/trust failure 不安装模块或悄换 bytes，旧非法工件需显式迁移批准，不能运行时自动补签。
+
+WASM owns [ABI/artifact/executor authority](../wasm/wasm-interface.md)，cache compiled representation 不是 canonical artifact 或 activation permission。current module_store hydration owned replacement 全部验证再 install，late sorted record failure 保持 registry/artifact/cache，legacy no-store compatibility 不授予新 unsigned 资格。
 
 <a id="hardening-governance-boundary"></a>
 ### 当前治理 API 与原子顺序
@@ -42,13 +46,19 @@ current apply_proposal(proposal_id) 受 local policy，explicit proof path apply
 
 <a id="hardening-receipt-boundary"></a>
 ### Receipt 签名、历史与失败
-HmacSha256 历史 compatibility retained；Ed25519 单签 signer 必填，ThresholdEd25519 V1 participants/minimum signature-set validation 并核 threshold/participants，不声明真实 aggregate crypto。签名 payload 必须 bind consensus_height/receipts_root；错 anchor/signature/auth linkage 不消费 pending、不写部分业务 receipt。current ingestion typed stage 是有界发布证明，现 DTO 未完成 receipt-domain descriptor/idempotency ledger，签名成功不证明 duplicate dedup 或互斥 winner。历史 replay 依原 receipt/block manifest，不当前算法/manifest 重解释；信任材料缺失保留诊断 fail closed，不隐式用 HMAC downgrade。
+保留 HmacSha256 历史 compatibility；Ed25519 单签 signer 必填，ThresholdEd25519 V1 使用 participants/minimum signature-set validation 并核对 threshold/participants，不声明真实 aggregate crypto。签名 payload 必须 bind consensus_height/receipts_root；错 anchor/signature/auth linkage 不消费 pending、不写部分业务 receipt。
+
+current ingestion typed stage 是有界发布证明，现 DTO 未完成 receipt-domain descriptor/idempotency ledger，签名成功不证明 duplicate dedup 或互斥 winner。历史 replay 依据原 receipt/block manifest，不按当前算法/manifest 重新解释；信任材料缺失时保留诊断并 fail closed，不隐式用 HMAC downgrade。
 
 <a id="hardening-trap-boundary"></a>
 <a id="trap、状态事务持久化与演进"></a>
 ### Trap、状态/事务/持久化与演进风险
 Wasmtime OutOfFuel→OutOfFuel，Interrupt→Interrupted，其余 Trap/Timeout/InvalidOutput 等 current error vocabulary 保持；executor init/codec/output/limits 拒绝不同于 governance rejection，watchdog local timeout 不作为 deterministic clock。sandbox 无 I/O/world authority，module/fees/state/events root stage 后发布；失败 business delta 丢弃后既有格式 ModuleCallFailed 单独 atomic audit 的 current 局部语义保留。
-state 包括 trust registry/proposal/manifest/module/receipt anchor；transaction stage 与持久 generation 是独立边界，后者服从 root §6.2.3 和 ModuleStore/restoration 合同，不能由 Applied append 推导 durable fsync。旧 ABI/event/HMAC reading compatibility 保留，迁移缺签名工件须 explicit authority approval；资源/output/call/cache bounds 使用现有 WASM limits，不新设阈值。observability 返回结构化错误/审计而不额外泄露 secret/payload，status 不驱动 apply。残余是完整激活历史/crypto aggregate/full BFT/统一 outbox proof，安全材料/ABI/epoch/消费者或入口变化触发 runtime/WASM/P2P/QA 复核。
+state 包括 trust registry/proposal/manifest/module/receipt anchor；transaction stage 与持久 generation 是独立边界，后者服从 root §6.2.3 和 ModuleStore/restoration 合同，不能由 Applied append 推导 durable fsync。
+
+旧 ABI/event/HMAC reading compatibility 保留，迁移缺签名工件须 explicit authority approval；资源/output/call/cache bounds 使用现有 WASM limits，不新设阈值。observability 返回结构化错误/审计而不额外泄露 secret/payload，status 不驱动 apply。
+
+残余是完整激活历史/crypto aggregate/full BFT/统一 outbox proof，安全材料/ABI/epoch/消费者或入口变化触发 runtime/WASM/P2P/QA 复核。
 
 ### 2.1 需求承接与分配表
 

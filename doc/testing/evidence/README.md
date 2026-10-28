@@ -32,7 +32,7 @@
 - 治理前快照（2026-04-17）:
   - `doc/testing/evidence/`: 49 份 Markdown
   - `doc/testing/`: 178 份 Markdown
-- 当前子域属于 `testing` 模块最高密度热点路径；本页的目标是压缩首读路径，而不是在本批直接减少文件数。
+- 当前子域属于 `testing` 模块最高密度热点路径；本页旨在缩短首读路径，不在本批直接减少文件数。
 - 本轮清单快照（2026-08-02）: 124 个 evidence 对象，其中 81 份 Markdown、28 个 JSON、9 张 PNG、4 个 TSV、2 个 TXT；Markdown 数量已达到并超过下述 lifecycle review trigger，故已发起逐对象分类复核。
 
 ## 首读主题簇
@@ -126,13 +126,13 @@
   - 当前 provider/Web entry/onboarding 合同须从本页顶部列出的专业 authority 进入
 
 ## 定向检索边界
-- 如果你已经知道准确文件名，直接回 `../prd.index.md` 或按文件名打开目标 evidence，不要指望本页替代完整索引。
-- 本页负责“先看哪一类 evidence”，不负责复述 evidence 文件里的事实结论。
-- 如果某个主题未来形成正式主文档或专题三件套，应优先进入主文档，而不是继续把散落 evidence 文件维持为默认首读入口。
+- 已知准确文件名时，回到 `../prd.index.md` 或按文件名打开目标 evidence；本页不替代完整索引。
+- 本页只说明“先看哪一类 evidence”，不复述文件中的事实结论。
+- 若某个主题未来形成正式主文档或专题三件套，应优先进入主文档，不再以散落的 evidence 文件为默认首读入口。
 
 ## 维护约定
 - 新增 `evidence/` 文件后，若改变了默认首读路径，应同步更新本页。
 - 本页只维护簇级入口，不维护完整文件清单。
-- 若未来 `evidence/` 内部继续分裂出更高密度簇，再另开簇内治理专题，而不是把本页扩写成长表。
+- 若未来 `evidence/` 内形成更高密度簇，另开簇内治理专题，不把本页扩写成长表。
 - `qa_engineer` 决定每份证据的有效性、保留与删除语义；`repository_health_engineer` 负责密度、导航和阈值治理。
 - lifecycle review trigger：Markdown 文件数达到 80、任何 active evidence 超过 180 天仍被默认首读引用、或同一 claim 的三份以上 evidence 未明确 current/historical 边界时，发起聚合、归档或删除复核。触发器不授权批量删除，也不替代 release 或领域 owner 的结论。

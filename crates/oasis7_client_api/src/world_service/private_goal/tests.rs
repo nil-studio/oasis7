@@ -160,6 +160,25 @@ fn private_goal_prepare_valid_signature_does_not_grant_foreign_or_stale_control(
 }
 
 #[test]
+fn private_goal_prepare_batch_still_rechecks_every_current_control_field() {
+    #[cfg(feature = "signature-metrics")]
+    signature_metrics::begin_scope();
+    with_owner_signature_verification_batch(
+        private_goal_prepare_valid_signature_does_not_grant_foreign_or_stale_control,
+    );
+    #[cfg(feature = "signature-metrics")]
+    {
+        let metrics = signature_metrics::take_summary();
+        assert!(metrics.memo_hits > 0);
+        assert!(metrics.strict_attempts > 0);
+        assert!(
+            metrics.failures > 0,
+            "changed private content must still fail"
+        );
+    }
+}
+
+#[test]
 fn private_goal_prepare_all_metadata_fields_are_signed_and_envelope_has_no_debug() {
     let signed = sign_goal_prepare(request(), &key()).unwrap();
     for field in 0..13 {

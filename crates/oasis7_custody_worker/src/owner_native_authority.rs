@@ -126,6 +126,68 @@ pub(super) async fn observe(
         inspection_only,
     })
 }
+/// Only the TestSession Owner factory's already-paid third oracle uses this
+/// pair. Neither readonly input depends on the other's response; all normal
+/// source, gate, Fence and final Current checks retain their original clocks.
+pub(super) async fn observe_paid_test_session_factory(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
+    let manager = manager(&input, signed);
+    let rpc = ApproveRpc {
+        manager_session: manager.clone(),
+        provision_id: draft.entry.provision_id.clone(),
+        request: oasis7_custody_core::provisioning::ProvisionApproveRequestV1 {
+            api_version: 1,
+            input: input.clone(),
+        },
+    };
+    let (gate_result, fence_result) = paid_factory_reads(gate(env, &rpc, draft), fence(env)).await;
+    let gate = gate_result?;
+    let (fence, fence_started) = fence_result?;
+    Ok(Observations {
+        input,
+        manager,
+        gate,
+        fence,
+        fence_started,
+        inspection_only: false,
+    })
+}
+// Await both fixed reads, including errors, without spawning or repolling a
+// completed future. The Fence helper records time before its own actual RPC.
+async fn paid_factory_reads<A, B>(a: A, b: B) -> (A::Output, B::Output)
+where
+    A: std::future::Future,
+    B: std::future::Future,
+{
+    use std::{future::poll_fn, task::Poll};
+    let (mut a, mut b) = (std::pin::pin!(a), std::pin::pin!(b));
+    let (mut first, mut second) = (None, None);
+    poll_fn(|cx| {
+        if first.is_none() {
+            if let Poll::Ready(value) = a.as_mut().poll(cx) {
+                first = Some(value);
+            }
+        }
+        if second.is_none() {
+            if let Poll::Ready(value) = b.as_mut().poll(cx) {
+                second = Some(value);
+            }
+        }
+        if first.is_some() && second.is_some() {
+            Poll::Ready((
+                first.take().expect("completed paid Directory read"),
+                second.take().expect("completed paid Fence read"),
+            ))
+        } else {
+            Poll::Pending
+        }
+    })
+    .await
+}
 /// The HTTP/service boundary supplies real fresh manager metadata; no native verification is fabricated.
 pub(super) async fn observe_fresh_manager(
     env: &Env,

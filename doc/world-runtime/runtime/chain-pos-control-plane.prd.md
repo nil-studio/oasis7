@@ -27,7 +27,7 @@
 
 ## 1. Executive Summary
 
-- 本专题是链 PoS 时间、tick 节拍、控制面参数与状态可观测性的唯一 runtime 专业 authority。它吸收同一实现域中已完成的 slot clock、subslot pacing 与 time-anchor 对齐专题的现行合同；历史实现过程由 Git history 与 PR 与实际验证记录 追溯，不再以已完成专题作为当前入口。
+- 本专题是链 PoS 时间、tick 节拍、控制面参数与状态可观测性的唯一 runtime 专业 authority。它吸收同一实现域中已完成的 slot clock、subslot pacing 与 time-anchor 对齐专题的现行合同；历史实现过程由 Git history、PR 与实际验证记录追溯，不再以已完成专题作为当前入口。
 - 本专题定义 runtime 当前行为，不定义 validator 经济、stake、奖励、主网承诺、节点实际运维拓扑或玩家规则。
 - Success Criteria:
   - SC-1: 相同 `now_ms/genesis/slot_duration_ms/ticks_per_slot` 输入在节点上得到相同 `logical_tick/slot/tick_phase`。
@@ -126,12 +126,12 @@ Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；[REQ-DWE-001](../../pr
 
 <a id="pos-accept-restart-monotonic"></a>
 #### 重启单调连续性的专业接受
-- persistedconfig/counters一致，restart不倒退重复计；inconsistentfail closed保留诊断；设计接受与未运行验证见配对设计的 pos-case-restart-monotonic。
+- persisted config/counters 一致，restart 不倒退、不重复计数；不一致时 fail closed 并保留诊断；设计接受与未运行验证见配对设计的 pos-case-restart-monotonic。
 
 Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4；[REQ-DCS-002](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002) 经 [root recovery receiver](../design.md#runtime-recovery-design)，仅承接persisted counters/config 的连续性子义务。不代签非空事件后缀正向续跑、独立故障域或服务资格；原 test_tier_full 组合仍须 runtime/P2P/ops/QA 判定。原条文、独立验收和未证明范围不变；本引用不改变产品状态，不新增实现或执行证据。
 
 <a id="pos-accept-replay-recorded"></a>
 #### 按记录重放的专业接受
-- replay只按snapshot/events/log，不当前wall clock补proposal/block/event；设计接受与未运行验证见配对设计的 pos-case-replay-recorded。
+- replay 只按 snapshot/events/log，不按当前 wall clock 补 proposal/block/event；设计接受与未运行验证见配对设计的 pos-case-replay-recorded。
 
 Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4；[REQ-DCS-002](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002) 经 [root recovery receiver](../design.md#runtime-recovery-design)，仅承接按已记录时间/状态后果重放且不补造历史的连续性子义务。不代签完整控制状态恢复、非空事件后缀正向续跑或服务资格；原 test_tier_full 组合保持。原条文、独立验收和未证明范围不变；本引用不改变产品状态，不新增实现或执行证据。

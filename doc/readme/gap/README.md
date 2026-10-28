@@ -15,4 +15,4 @@
 
 ## 保留与清理边界
 
-- 退役源文件只从 Git history 与 PR 与实际验证记录 追溯；新增或退役专题时，先完成专业权威吸收与引用修复，再同步本页与 `doc/readme/prd.index.md`。
+- 退役源文件只从 Git history、PR 与实际验证记录追溯；新增或退役专题时，先完成专业权威吸收与引用修复，再同步本页与 `doc/readme/prd.index.md`。

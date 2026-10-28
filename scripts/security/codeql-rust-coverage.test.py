@@ -63,13 +63,13 @@ class RustCoverageTests(unittest.TestCase):
         self.assertNotIn("_templates", ignored)
         self.assertNotIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_TARGET:", workflow)
 
-    def test_generated_tauri_context_is_the_only_new_rust_exclusion(self):
+    def test_generated_context_and_fixture_are_exact_rust_exclusions(self):
         excluded="tools/oasis7-command-center/src-tauri/src/generated_context.rs"
         for name in ("codeql.yml","codeql-rust-capacity.yml","codeql-rust-cfg-diagnostic.yml"):
             text=(ROOT/".github/workflows"/name).read_text()
             block=re.split(r"(?m)^      - ",text.split("paths-ignore:\n",1)[1],maxsplit=1)[0]
             paths=re.findall(r"^              - (.+)$",block,re.M)
-            self.assertEqual(paths,["third_party/**","target/**","node_modules/**","dist/**",".pm/**",excluded],name)
+            self.assertEqual(paths,["third_party/**","target/**","node_modules/**","dist/**",".pm/**",excluded,"crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs"],name)
         main=(ROOT/"tools/oasis7-command-center/src-tauri/src/main.rs").read_text()
         self.assertNotIn("tauri::generate_context!",main)
         self.assertIn(".build(generated_context::create())",main)
@@ -81,6 +81,20 @@ class RustCoverageTests(unittest.TestCase):
         self.assertNotIn("panic!",source)
         substantive=[line.strip() for line in source.splitlines() if line.strip() and not line.lstrip().startswith("//")]
         self.assertEqual(substantive,["pub(super) fn create() -> tauri::Context<tauri::Wry> {","tauri::generate_context!()","}"])
+
+    def test_projection_fixture_keeps_real_test_callers_in_scope(self):
+        parent = ROOT / "crates/oasis7_runtime/src/tests/agent_cognition_live_persistence.rs"
+        source = parent.read_text()
+        fixture = parent.with_name("agent_cognition_live_persistence_projection_fixture.rs").read_text()
+        self.assertIn('#[path = "agent_cognition_live_persistence_projection_fixture.rs"]', source)
+        self.assertIn("use projection_fixture::cognition_projection;", source)
+        self.assertIn("let cognition = cognition_projection(prefix);", source)
+        self.assertNotIn("fn cognition_projection(", source)
+        self.assertIn("pub(super) fn cognition_projection(prefix: &str) -> Value", fixture)
+        self.assertNotIn("#[test]", fixture)
+        self.assertNotRegex(fixture, r"\bassert(?:_eq|_ne)?!")
+        self.assertNotIn("cfg(", fixture)
+        self.assertIn("fn real_world_load_recovers_every_crash_prefix_without_provider_or_duplicate_effect", source)
 
     def test_extra_include_array_resolves_to_existing_checkout_templates(self):
         workflow = (ROOT / ".github/workflows/codeql.yml").read_text()

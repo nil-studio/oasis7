@@ -71,7 +71,11 @@ containment 限制扩散并保护基本连续性；恢复项目产生独立的�
 
 Offer/pending 不产生 hold 或 sink。accepted commitment 只有在明确资源授权、准确 payer/ledger、数量和释放规则已经提交后，才能产生 `ResourceObligationV1` 的有限 hold/custody；接受不表示目标已修复。真实工作可由已有领域协议执行，投入消耗归其原 receipt；对已消耗资源不能再当作余额扣一次。运输中、未结算或证据未知时保留 waiting_evidence/blocked 与下一步，不计为已完成贡献。
 
-跨入口幂等键为 `(world, authenticated_contributor, contribution_intent_key)`，绑定原 project/milestone/payload digest；同键重读，同键不同目标拒绝。另有全域 `ContributionClaimIndexV1` 对真实 source effect/quantity slice 记录 claimed/consumed/released，防止更换 contribution id 或项目重复认领同一材料或已完成工作。claim role 必须来自 source authority 已发布的受限枚举，并绑定 source receipt 的固定 claim budget，不由 caller、项目或 policy revision 选择/新增。不可分 source effect 在所有互斥用途角色上共享一个唯一 claim budget；不可用更换 role 再认领一次。可分量只有 source authority/profile 显式允许时才可按稳定 lot slice 认领，各 project/role 共用该 source 的 checked 总量和重叠检查；独立角色只有在原权威明确证明对应不同、不重叠的 source effect 时才可使用不同 budget，不能按项目各复制一份额度。资源在其它领域的消费也须在同一资源 authority 下反映，项目索引不能凭空锁定已不属于自己的材料。
+跨入口幂等键为 `(world, authenticated_contributor, contribution_intent_key)`，绑定原 project/milestone/payload digest；同键重读，同键不同目标拒绝。另有全域 `ContributionClaimIndexV1` 对真实 source effect/quantity slice 记录 claimed/consumed/released，防止更换 contribution id 或项目重复认领同一材料或已完成工作。
+
+claim role 必须来自 source authority 已发布的受限枚举，并绑定 source receipt 的固定 claim budget，不由 caller、项目或 policy revision 选择/新增。不可分 source effect 在所有互斥用途角色上共享一个唯一 claim budget；不可用更换 role 再认领一次。
+
+可分量只有 source authority/profile 显式允许时才可按稳定 lot slice 认领，各 project/role 共用该 source 的 checked 总量和重叠检查；独立角色只有在原权威明确证明对应不同、不重叠的 source effect 时才可使用不同 budget，不能按项目各复制一份额度。资源在其它领域的消费也须在同一资源 authority 下反映，项目索引不能凭空锁定已不属于自己的材料。
 
 <a id="recovery-milestone"></a>
 ### 5.3 里程碑判定到实际效果
@@ -80,7 +84,7 @@ Offer/pending 不产生 hold 或 sink。accepted commitment 只有在明确资�
 2. decision 可为 qualified、not_qualified 或 unknown；只有 qualified 且其全部 required evidence 可重验时才可被消费。decision 本身无 target/credit/reward effect，不能先改项目 completed 再等待执行。证据变化产生 linked 新 decision，旧记录不改写，不能靠新 decision 重置已消费标记。
 3. `ApplyRecoveryMilestone` 从 fresh canonical state 重验项目未终止、授权/资格/scope、期限、source claim、资源义务、目标写权/版本及 effect budget。该操作用 `(project_id, milestone_id, effect_slot_id)` 作稳定效果键；policy/project revision 不在唯一键中，不能换 revision 再发同一效果。一个 milestone 可包含预先定义且数量有限的 effect slots，默认整体原子，不能将失败子项静默丢弃。slot 的目标和效果绑定在项目开放时固定，caller 不能自行命名；后继 revision 不得通过删除/更名旧 slot 重置消费。真正新增效果须重新授权新 slot，仍计入原项目累计效果/资源预算，旧 slot 与实际消耗保留。
 4. 同一事务原子提交 source claim 消费、必要资源 sink 或已有 sink 引用、目标有限 delta、个人权益（仅当 policy 有明确资格且有资金来源）、milestone/贡献状态、`RecoveryMilestoneReceiptV1`、预算实际消耗与 journal/outbox。所有适用投入和效果守恒；只使用实际被消费的贡献，未用 surplus 保留/释放，不能按请求量计效果。
-5. receipt 记录每个 effect 的 before/after、单位/量、目标 authority、参与主体、source/decision refs 和 commit identity。目标 domain writer 必须能验证“确实恢复了哪个状态或能力”；只改变项目进度计数不算修复服务、物流、能力或公共条件。仅所有 required milestones 和未决资源义务都结清后，项目可 recovery_completed。
+5. receipt 记录每个 effect 的 before/after、单位/量、目标 authority、参与主体、source/decision refs 和 commit identity。目标 domain writer 必须能验证“确实恢复了哪个状态或能力”；只改变项目进度计数不算修复服务、物流、能力或公共条件。只有所有 required milestones 和未决资源义务都结清后，项目才可 recovery_completed。
 
 聚合项目可能先取得多项 contribution evidence 后才产生一个 milestone 效果，每项贡献的 credit allocation 固定在该 receipt；不能让每个贡献者各重放整个公共修复。后续 correction/compensation 必须新建受权记录并链接旧 receipt，明确可修正部分及资金/资源来源；不能原地撤销既有历史或再次消费相同 source。
 
@@ -204,6 +208,6 @@ Snapshot 保存完整 project/policy/participation/eligibility、contribution、
 
 ## 12. 决策、长期风险与未决问题
 
-选择独立项目、贡献、里程碑判定和实际效果记录，避免把一个 crisis status 或 success 布尔值承载资格与结算。选择 source claim 索引和稳定 effect slot 双重去重，解决“换贡献 ID/换项目重复认领”和“换政策 revision 重发效果”两个不同问题。选择目标 writer 与资源/receipt 同事务，使项目完成对应实际能力恢复；代价是每类可恢复对象都需提供明确的有界 delta 和事务接口，缺接口的类型保持不支持。
+选择独立项目、贡献、里程碑判定和实际效果记录，避免用一个 crisis status 或 success 布尔值承载资格与结算。选择 source claim 索引和稳定 effect slot 双重去重，解决“换贡献 ID/换项目重复认领”和“换政策 revision 重发效果”两个不同问题。选择目标 writer 与资源/receipt 同事务，使项目完成对应实际能力恢复；代价是每类可恢复对象都需提供明确的有界 delta 和事务接口，缺接口的类型保持不支持。
 
 具体 policy 的贡献种类、资格参数、预算、奖励、效果上限、期限和撤回/申诉规则由 gameplay/治理 owner 在开放前发布并绑定版本；本文不自行选择。资源与 target owner 必须为其支持类型提供可验证 receipt、单位/守恒、权限和恢复 reducer；missing/unknown 一律禁止相关 effect。Runtime/WASM owner 负责编码和 schema 兼容；QA 在同候选 AC-6/7 full 证据后才能支持实现完成结论。新政策或新 target kind 触发相应资格、scope、资源和恢复合同复核，不能借扩展记录绕过同一世界历史与非参与者保护。

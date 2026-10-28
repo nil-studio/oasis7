@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "c78b1d3f0de7e0d274b785d4348e82e9f1c0a872297e77e9595c158c9abc1a15",
+    "content_sha256": "52825494178ccc99d465df08e938fc1e50e338531019f227add05dd37608a4cf",
     "current_authority": "doc/world-runtime/wasm/wasm-deterministic-build-pipeline.prd.md",
     "decision_owner": "wasm_platform_engineer",
     "disposition": "retain_current_authority",

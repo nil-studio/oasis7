@@ -113,6 +113,7 @@ jobs:
               - dist/**
               - .pm/**
               - tools/oasis7-command-center/src-tauri/src/generated_context.rs
+              - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
       - id: prepare
         name: ${{ inputs.mode == 'official-default-research' && 'Freeze official suite, source, graphs and resources' || 'Freeze suite, whole source, graphs, resources and witness inputs' }}
         timeout-minutes: 8

@@ -35,7 +35,7 @@ Simulator 原生 Action、Agent、WorldModel 与 Runtime 模型各自保持现�
 `simulator::chain_resource` 从内核模型、配置和 journal 构建 API 资源 manifest/delta；Runtime 派生位于其自己的模块。共享 DTO 的字段、默认值、canonical 排序与 hash 算法保持不变；旧组合 snapshot 的 Runtime、player、chain 字段仍须完整保存，不能用裁剪后的读取值覆盖完整归档。
 
 ## 1. 设计定位
-`world-simulator` 模块的 `design.md` 负责描述世界模拟、Viewer、Launcher、LLM 与场景系统的总体设计入口。
+`world-simulator` 模块的 `design.md` 描述世界模拟、Viewer、Launcher、LLM 与场景系统的总体设计入口。
 
 ## 2. 阅读顺序
 1. `doc/world-simulator/prd.md`

@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "4b1044337b7a350663b8b6d67540f6acc80002c676b55667d13fa3324a4eca21",
+    "content_sha256": "c3eb150c9d8c9b495c148e9977cffd50910a976b48e768e7088a1010ae442b9b",
     "current_authority": "doc/world-runtime/governance/zero-trust-governance-receipt-hardening-2026-02-26.prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_target_contract",

@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "c66ccc389775d913a8ee79ec368598c3aa4bcdccbd4f9163fb9bf096cede8e6a",
+    "content_sha256": "d55e9aaad163726e844a6d09c749413ff7e2ae1c6d5f494a44375bd3e1451ac5",
     "current_authority": "doc/world-simulator/viewer/viewer-manual.manual.md",
     "decision_owner": "viewer_engineer",
     "disposition": "retain_current_authority",

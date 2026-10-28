@@ -61,7 +61,7 @@ The preset normalizes platform credentials into a temporary project token
 config, forwards platform user/key and auto-topup configuration, starts the
 Rust-direct LetAI provider bridge, and launches the runtime/Viewer/local
 standalone chain stack. It does not connect to formal/public testnet. This
-path depends on the checkout/build and provider configuration being available;
+path requires an available checkout/build and provider configuration;
 these instructions do not certify unattended cold-start on a clean machine.
 
 Pass extra launcher flags after `--` only for diagnostics:

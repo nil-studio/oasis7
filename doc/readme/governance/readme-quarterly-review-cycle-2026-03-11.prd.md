@@ -2,7 +2,7 @@
 
 - 执行模板: `doc/readme/governance/readme-quarterly-review-template-2026-03-11.md`
 - 修复模板: `doc/readme/governance/readme-remediation-log-template-2026-03-11.md`
-- 历史设计与完成态项目包装已退役；实施追溯使用 Git history 与 PR 与实际验证记录。
+- 历史设计与完成态项目包装已退役；实施追溯使用 Git history、PR 与实际验证记录。
 
 审计轮次: 4
 

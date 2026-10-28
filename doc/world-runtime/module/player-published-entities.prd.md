@@ -87,7 +87,7 @@
   - 模块执行返回非法输出 -> 触发 `ModuleCallFailed`，不影响已发布 profile。
 - Non-Functional Requirements:
   - NFR-1: 三节点测试场景下发布审批 `p95 <= 60s`。
-  - NFR-2: `wasm-1` ABI 兼容性保持向后兼容。
+  - NFR-2: 保持 `wasm-1` ABI 向后兼容。
   - NFR-3: 单次发布支持 `<= 50` 个 profile 变更（产品+配方+工厂合计）。
   - NFR-4: 单个 wasm artifact `<= 10MB`，发布时校验输出大小与模块 limits。
   - NFR-5: 发布与 profile 落账事件回放一致率 100%。

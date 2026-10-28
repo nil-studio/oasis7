@@ -1,5 +1,5 @@
 use super::*;
-use ws::private_goal::verify_owner_signature_strict;
+
 impl AccountProvisionApprovalState {
     pub fn owner_setup_archive_checks(
         &self,
@@ -59,6 +59,16 @@ impl AccountProvisionApprovalState {
         fact: &OwnerSetupCanonicalFactV1,
         context: &OwnerSetupArchiveContext<'_>,
     ) -> Result<()> {
+        self.validate_owner_setup_archive_scoped(id, stage, fact, context, None)
+    }
+    pub(super) fn validate_owner_setup_archive_scoped(
+        &self,
+        id: &str,
+        stage: OwnerSetupStageV1,
+        fact: &OwnerSetupCanonicalFactV1,
+        context: &OwnerSetupArchiveContext<'_>,
+        signature_scope: Option<&mut RestoreSignatureScope>,
+    ) -> Result<()> {
         let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
         let o = setup.stages.get(&stage).ok_or_else(invalid)?;
         if context.world_public_key != setup.plan.world_identity.service_public_key
@@ -74,13 +84,22 @@ impl AccountProvisionApprovalState {
         {
             return Err(ProvisionApprovalError::Conflict);
         }
-        self.validate_owner_setup_canonical_observation(id, stage, fact)
+        self.validate_owner_setup_canonical_observation_scoped(id, stage, fact, signature_scope)
     }
     pub(super) fn validate_owner_setup_canonical_observation(
         &self,
         id: &str,
         stage: OwnerSetupStageV1,
         fact: &OwnerSetupCanonicalFactV1,
+    ) -> Result<()> {
+        self.validate_owner_setup_canonical_observation_scoped(id, stage, fact, None)
+    }
+    pub(super) fn validate_owner_setup_canonical_observation_scoped(
+        &self,
+        id: &str,
+        stage: OwnerSetupStageV1,
+        fact: &OwnerSetupCanonicalFactV1,
+        signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
         let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
         let o = setup.stages.get(&stage).ok_or_else(invalid)?;
@@ -107,11 +126,12 @@ impl AccountProvisionApprovalState {
                 return Err(invalid());
             }
         }
-        verify_owner_signature_strict(
+        verify_owner_setup_restore_signature(
             domain,
             &(&fact.response.request_digest, &fact.response.payload),
             &setup.plan.world_identity.service_public_key,
             &fact.response.signature_hex,
+            signature_scope,
         )
         .map_err(|_| invalid())?;
         Ok(())

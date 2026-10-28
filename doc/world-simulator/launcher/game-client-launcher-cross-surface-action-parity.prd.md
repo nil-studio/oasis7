@@ -52,7 +52,7 @@ Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；产品上游为 [REQ-E
 
 ## 接口 / 数据
 
-具体 API、字段、错误码和结果结构仍由 Launcher、runtime 与 WASM 的现有专业 authority 定义；本契约只要求其呈现不丢失 executable/blocked/result/recovery 的含义。
+具体 API、字段、错误码和结果结构仍由 Launcher、runtime 与 WASM 的现有专业 authority 定义；本契约只要求呈现时保留 executable/blocked/result/recovery 的含义。
 
 ## 里程碑
 

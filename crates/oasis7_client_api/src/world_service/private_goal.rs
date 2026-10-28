@@ -6,8 +6,10 @@ use oasis7_agent_api::game::{
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
+mod signature_memo;
 #[cfg(feature = "signature-metrics")]
 pub mod signature_metrics;
+pub use signature_memo::with_owner_signature_verification_batch;
 
 /// Kept strictly outside WorldServicePayloadV1. Debug is absent so body and
 /// enumerable signature material cannot accidentally enter ordinary logs.
@@ -82,6 +84,115 @@ impl SignedGoalPrepareV1 {
     }
 }
 
+/// Owned SDK signing image. It proves nothing until `verify_strict` succeeds.
+/// No Deserialize, Debug, public constructor fields or caller verification flag.
+pub struct PreparedOwnerSignature {
+    domain: String,
+    original_public_key: String,
+    original_signature: String,
+    signature: [u8; 64],
+    key: VerifyingKey,
+    canonical_bytes: Vec<u8>,
+}
+impl PreparedOwnerSignature {
+    pub fn domain(&self) -> &str {
+        &self.domain
+    }
+    pub fn profile(&self) -> &'static str {
+        "ed25519-verify-strict/oasis7.world-service.v1"
+    }
+    pub fn public_key_hex(&self) -> &str {
+        &self.original_public_key
+    }
+    pub fn signature_hex(&self) -> &str {
+        &self.original_signature
+    }
+    pub fn signature_bytes(&self) -> &[u8; 64] {
+        &self.signature
+    }
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+    /// Verifies precisely the owned bytes returned by canonical_bytes, with no serialization.
+    pub fn verify_strict(&self) -> Result<(), String> {
+        #[cfg(feature = "signature-metrics")]
+        let mut metrics = signature_metrics::Call::new();
+        let public_key = self.key.to_bytes();
+        if signature_memo::contains(&public_key, &self.signature, &self.canonical_bytes) {
+            #[cfg(feature = "signature-metrics")]
+            {
+                metrics.memo_hit();
+                metrics.success();
+            }
+            return Ok(());
+        }
+        #[cfg(feature = "signature-metrics")]
+        metrics.strict_attempt(&public_key, &self.signature, &self.canonical_bytes);
+        let result = self
+            .key
+            .verify_strict(
+                &self.canonical_bytes,
+                &Signature::from_bytes(&self.signature),
+            )
+            .map_err(|_| "invalid private goal owner signature".into());
+        if result.is_ok() {
+            signature_memo::record_success(public_key, self.signature, &self.canonical_bytes);
+            #[cfg(feature = "signature-metrics")]
+            metrics.success();
+        }
+        result
+    }
+}
+/// Preserves the strict envelope/key validation order and encodes the SDK signing
+/// image exactly once. Successful preparation alone is not a verification call.
+pub fn prepare_owner_signature_strict<T: Serialize>(
+    domain: &str,
+    request: &T,
+    subject_public_key: &str,
+    signature_hex: &str,
+) -> Result<PreparedOwnerSignature, String> {
+    let result = (|| {
+        let canonical = |value: &str, length: usize| {
+            value.len() == length
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        };
+        if !canonical(subject_public_key, 64) || !canonical(signature_hex, 128) {
+            return Err("invalid owner signature encoding".into());
+        }
+        let public_key: [u8; 32] = hex::decode(subject_public_key)
+            .map_err(|_| "invalid private goal owner key")?
+            .try_into()
+            .map_err(|_| "invalid private goal owner key")?;
+        let key =
+            VerifyingKey::from_bytes(&public_key).map_err(|_| "invalid private goal owner key")?;
+        if key.is_weak() {
+            return Err("weak private goal owner key".into());
+        }
+        let signature: [u8; 64] = hex::decode(signature_hex)
+            .map_err(|_| "invalid private goal signature")?
+            .try_into()
+            .map_err(|_| "invalid private goal signature")?;
+        let canonical_bytes = signing_bytes(domain, request)?;
+        Ok(PreparedOwnerSignature {
+            domain: domain.into(),
+            original_public_key: subject_public_key.into(),
+            original_signature: signature_hex.into(),
+            signature,
+            key,
+            canonical_bytes,
+        })
+    })();
+    // Old public verify counts malformed envelopes/weak keys/encoding failures as
+    // one failed call, with zero strict attempts. Successful prepare is counted
+    // only by verify_strict, so the wrapper never double counts.
+    #[cfg(feature = "signature-metrics")]
+    if result.is_err() {
+        drop(signature_metrics::Call::new());
+    }
+    result
+}
 /// Narrow shared cryptographic boundary for private goal proofs and public owner
 /// goal publications. This does not change generic World Service verification.
 pub fn verify_owner_signature_strict<T: Serialize>(
@@ -90,44 +201,12 @@ pub fn verify_owner_signature_strict<T: Serialize>(
     subject_public_key: &str,
     signature_hex: &str,
 ) -> Result<(), String> {
-    #[cfg(feature = "signature-metrics")]
-    let mut metrics = signature_metrics::Call::new();
-    let canonical = |value: &str, length: usize| {
-        value.len() == length
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    };
-    if !canonical(subject_public_key, 64) || !canonical(signature_hex, 128) {
-        return Err("invalid owner signature encoding".into());
-    }
-    let public_key: [u8; 32] = hex::decode(subject_public_key)
-        .map_err(|_| "invalid private goal owner key")?
-        .try_into()
-        .map_err(|_| "invalid private goal owner key")?;
-    let key =
-        VerifyingKey::from_bytes(&public_key).map_err(|_| "invalid private goal owner key")?;
-    if key.is_weak() {
-        return Err("weak private goal owner key".into());
-    }
-    let signature: [u8; 64] = hex::decode(signature_hex)
-        .map_err(|_| "invalid private goal signature")?
-        .try_into()
-        .map_err(|_| "invalid private goal signature")?;
-    // This private owner boundary requires strict Ed25519 verification,
-    // including canonical scalar/point encodings and non-small-order R.
-    let canonical = signing_bytes(domain, request)?;
-    #[cfg(feature = "signature-metrics")]
-    metrics.strict_attempt(&public_key, &signature, &canonical);
-    let result = key
-        .verify_strict(&canonical, &Signature::from_bytes(&signature))
-        .map_err(|_| "invalid private goal owner signature".into());
-    #[cfg(feature = "signature-metrics")]
-    if result.is_ok() {
-        metrics.success();
-    }
-    result
+    prepare_owner_signature_strict(domain, request, subject_public_key, signature_hex)?
+        .verify_strict()
 }
+#[cfg(test)]
+#[path = "private_goal/strict_prepared_tests.rs"]
+mod strict_prepared_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreparedGoalError {

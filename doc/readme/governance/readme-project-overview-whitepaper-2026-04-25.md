@@ -4,7 +4,7 @@
 >
 > 目标读者：第一次接触 `oasis7` 的开发者、评审者、潜在合作方与外部观察者。
 >
-> 文档边界：本文档用于用一份长说明解释“项目是什么、为什么值得做、系统如何工作、当前做到哪一步”。它不是新的规格真值，不替代 `README.md`、`doc/product/world-rules-core-gameplay/prd.md`、`doc/core/prd.md`、`doc/game/**` 或任何模块 PRD / project。
+> 文档边界：本文用一份长说明解释“项目是什么、为什么值得做、系统如何工作、当前做到哪一步”。它不是新的规格真值，不替代 `README.md`、`doc/product/world-rules-core-gameplay/prd.md`、`doc/core/prd.md`、`doc/game/**` 或任何模块 PRD / project。
 
 ---
 
