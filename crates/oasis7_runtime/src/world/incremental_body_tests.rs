@@ -7,7 +7,7 @@ use oasis7_world_state::{AgentCell, AgentState};
 use std::collections::BTreeMap;
 
 #[derive(Default)]
-struct Pages(BTreeMap<String, Vec<u8>>);
+pub(in crate::world) struct Pages(pub(in crate::world) BTreeMap<String, Vec<u8>>);
 impl MerkleNodeReader for Pages {
     type Node = Vec<u8>;
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Vec<u8>>, String> {
@@ -32,14 +32,14 @@ impl ValueNodeWriter for Sink {
         }
     }
 }
-fn io() -> ValueIoBudget {
+pub(in crate::world) fn io() -> ValueIoBudget {
     ValueIoBudget {
         nodes_remaining: 100,
         read_bytes_remaining: 100_000,
         write_bytes_remaining: 100_000,
     }
 }
-fn limits() -> TransactionLimits {
+pub(in crate::world) fn limits() -> TransactionLimits {
     TransactionLimits {
         max_reads: 16,
         max_writes: 16,
@@ -47,7 +47,7 @@ fn limits() -> TransactionLimits {
         max_pending_node_bytes: 4 * 1024 * 1024,
     }
 }
-fn fixture(memory: &MemoryBudget) -> (World, ExecutionParent, Pages) {
+pub(in crate::world) fn fixture(memory: &MemoryBudget) -> (World, ExecutionParent, Pages) {
     let mut world = World::new();
     world.state.time = 11;
     let mut agent = AgentState::new(

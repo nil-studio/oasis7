@@ -27,6 +27,8 @@ pub mod governance;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_agent_body;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_event_fields;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_projection;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod main_token;

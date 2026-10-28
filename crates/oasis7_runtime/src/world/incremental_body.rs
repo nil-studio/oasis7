@@ -20,6 +20,7 @@ pub enum BodyMutationError {
     Value(ValueTreeError),
     Invalid(&'static str),
     Rejected(String),
+    Original(Box<dyn std::error::Error + Send + Sync>),
 }
 impl From<ExecutionError> for BodyMutationError {
     fn from(error: ExecutionError) -> Self {
@@ -38,10 +39,20 @@ impl std::fmt::Display for BodyMutationError {
             Self::Value(error) => error.fmt(f),
             Self::Invalid(reason) => write!(f, "invalid IWS body mutation: {reason}"),
             Self::Rejected(reason) => write!(f, "rejected body update: {reason}"),
+            Self::Original(error) => write!(f, "original event storage: {error}"),
         }
     }
 }
-impl std::error::Error for BodyMutationError {}
+impl std::error::Error for BodyMutationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Execution(error) => Some(error),
+            Self::Value(error) => Some(error),
+            Self::Original(error) => Some(error.as_ref()),
+            Self::Invalid(_) | Self::Rejected(_) => None,
+        }
+    }
+}
 
 pub struct BodyMutationContext<'a, W, C> {
     pub sink: &'a mut W,
@@ -66,7 +77,7 @@ pub fn write_body_value<W: ValueNodeWriter, C: FnMut() -> bool>(
     write_field_bytes(&value.canonical_bytes(), context)
 }
 
-fn write_field_bytes<W: ValueNodeWriter, C: FnMut() -> bool>(
+pub(super) fn write_field_bytes<W: ValueNodeWriter, C: FnMut() -> bool>(
     bytes: &[u8],
     context: &mut BodyMutationContext<'_, W, C>,
 ) -> Result<[u8; 32], BodyMutationError> {
@@ -181,4 +192,4 @@ impl PreparedBodyAttributesUpdate {
 
 #[cfg(test)]
 #[path = "incremental_body_tests.rs"]
-mod tests;
+pub(super) mod tests;

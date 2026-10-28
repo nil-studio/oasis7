@@ -530,3 +530,21 @@ WorldState.time 独立于 simulation tick/commit height，归 Allocator namespac
 `ValueStreamWriter` 为 serializer 提供 push `Write` 入口，以相同固定 chunk/fanout 构造原值树；调用 Write/flush 的边界不改变身份，flush 不提前封闭短 chunk。完整字段 bytes 不驻留，固定 frontier/buffer 先申请共享 workspace，再逐节点申请 charge；最大逻辑值长度、节点/输入/encoded bytes 额度和取消显式处理。write/flush 的失败和捕获的 sink/cancel unwind 均禁止 finish 输出 descriptor。上层 serializer 自身的失败也必须返回外层 contribute，不能捕获后以部分编码 finish。此接口目前按普通额度构建，不代签恢复导入或大可变值局部更新。
 
 局部验收：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_body::tests -- --test-threads=1`；验证实际 World/prepared reducer、与外层 allocator 写共用一笔事务、原 clock/body 读取、新值 digest/transition 重建、无源修改，以及过时 body/time、sink、额度、取消、业务拒绝、跨池和缺失 Agent 错误后整笔不可 seal。协议组件另对 push/pull 的逐页身份、不同分片/flush、超 64 MiB push 在 1 MiB 共享池中的流式文件写入/窄读、错误/unwind 后不可 finish 和嵌套事务 poison 做回归。本段仍非完整事件提交、World driver、原 authority、J1/J2、持久化发布或规模验收。
+
+
+### 12.12 body 原事件、allocator 与 mailbox 的同事务贡献
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 的原执行路径与单事务。`World::contribute_iws_body_event` 接收原 `WorldEvent::Domain(BodyAttributesUpdated)` envelope，复用现有 body guard、prepared reducer 与 rolling event ID 预览规则，在调用者的同一事务内暂存 body、event allocator、mailbox append/frontier 并追加原序 event fact。其他事件形状明确拒绝。当前只完成这条 typed 事件路径；旧 publication、tick consensus、原 authority 与接受发布尚未切换，新世界仍未激活。
+
+| 字段 | 固定编码与语义 |
+| --- | --- |
+| next_event_id 与 era，Allocator | key 为 `oasis7.iws.event-sequence-key.v1\0`；value 为 `oasis7.iws.event-sequence.v1\0` 加 next/era 两个大端 `u64`。从事务当前值派生 allocated/next/era，沿用现有 next 至少为 1、MAX 回到 1 且 era 饱和递增的原规则，不从 journal 最大 ID 推断。event.id 必须等于 allocated，event.time 必须等于经 §12.11 认证的 reducer clock。 |
+| Agent mailbox frontier，Scheduler | key 为 `oasis7.iws.mailbox-key.v1\0`、kind=0、`u16` UTF-8 ID byte 长度和原 Agent ID；value 为 `oasis7.iws.mailbox-frontier.v1\0` 加 head/tail 两个大端 `u64`，要求 head≤tail。 |
+| Agent mailbox 项，Scheduler | key 使用相同 framing、kind=1，并在 ID 后加稳定 ordinal 的大端 `u64`；完整 key 最多 1024 bytes。追加位置为旧 tail，要求认证 absent，再将 tail checked 加一；不得覆盖原项。消费移动 head，不能对剩余项整体重编号；消费入口仍须接线。 |
+| mailbox 内容引用 | value 为 `oasis7.iws.mailbox-event.v1\0` 加原 WorldEvent 的 32-byte flat digest，再经通用值树取得状态叶引用。实际投递读取原 envelope 的 Domain payload；原件必须由 history owner 完整保留并认证，不能凭此引用或物理 locator 直接接受。 |
+
+只读取 event sequence、mailbox frontier 和目标 body 三个定长值树，外加时钟原引用与追加位置的认证 absent。body 从事务当前引用读取，而不是从未安装的 World cache 读取；同一父事务连续两次更新同一 Agent 时，第二次看见前一次 body、allocator 和 mailbox 写，最终同键变化合并但两个原 event fact 都按序保留。队列 head/tail 无论数值多大都不扫描旧 mailbox；准备过程中不复制热 journal，不重新 hash 全状态或当前 tick 历史。
+
+原事件使用现有 ABI canonical CBOR 编码，原 flat BLAKE3 digest 同时绑定 fact 与 mailbox 内容引用。该 typed envelope 只有固定 scalar 与 Agent ID、reason、可选 effect cause 三个字符串，先按其长度为原 canonical value model、排序临时空间和 growable output 申请共享额度；结构与变体穷尽匹配使新增动态成员必须重新审查计费。caller 的借用原输入另由其 owner 计费。操作最大事件 bytes 明确准入，实际 bytes 超限则失败；本路径不宣称通用巨大事件也已流式编码。原件 callback 在同池 charged bytes 仍存活时接收原 bytes/expected ID；callback 的职责是按期望原身份持久化，失败必须上抛。其成功不代替完整闭包或接受回执。原件发布或 fact 额度在所有状态写已暂存后失败，整笔事务仍 poison，不能 seal 部分状态。
+
+局部命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_ -- --test-threads=1`。覆盖与旧 publication 产生相同的原 envelope/canonical bytes、四叶同事务变化、固定值读取次数、非零大 ordinal、event era 回卷、连续贡献、晚期原件/fact 失败、错误 ID/time/大小拒绝，以及 codec 边界。实际文件系统 fixture 将相同 Runtime 贡献接到 `IncrementalPageStore`/`IncrementalObjectStore`，重开后核对原事件 bytes/解码、transition 重建与下一次实际 body 贡献记录和新页完全相同。fixture 的初始字段/parent/authority 为测试构造，不是完整 World 创世或原提交资格；它没有证明全字段闭包、跨进程世界恢复、J1/J2、tick consensus、复制、GC 或规定规模性能。

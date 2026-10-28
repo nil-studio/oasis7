@@ -14,6 +14,7 @@ mod source_compiler;
 pub use provider_outcome::AgentIntentReference;
 mod execution_identity;
 pub mod incremental_body;
+pub mod incremental_body_event;
 pub mod incremental_projection;
 #[cfg(test)]
 pub(crate) use agent_intent::derive_agent_chat_request_digest;
