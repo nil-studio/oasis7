@@ -59,7 +59,7 @@ python3 .agents/skills/evaluating-development-methods/scripts/trial.py compare \
   --candidate /tmp/oasis7-method-trial-pilot/candidate.json
 ```
 
-输出为 JSON，按固定计划的完整样本和重复次数报告 `planned_pairs`、`coverage`、逐次 `pairs`、`outcomes` 和度量覆盖。方向从候选相对 H0 判断：
+输出为 JSON，按固定计划中的全部样本和重复次数报告 `planned_pairs`、`coverage`、逐次 `pairs`、`outcomes` 和度量覆盖。按候选相对 H0 的结果判定：
 
 | 配对结果 | 含义 |
 | --- | --- |
@@ -72,12 +72,12 @@ python3 .agents/skills/evaluating-development-methods/scripts/trial.py compare \
 
 `metrics` 每项保留 `known_sum`、`observed`、`planned` 与 `total`，已知和包括失败尝试。覆盖不完整时 `total` 为 `null`；任一侧总量不完整时，相应 `candidate_minus_baseline` 也为 `null`，不能用已知和推断全部成本节省。
 
-同时核对原始逐次输出，不只看汇总。质量相同但成本降低、正确性提高但耗时上升、覆盖不足等分别解释；局部比较明确其样本范围，不代替全量分母。少量样本不给稳定泛化或统计显著性结论。
+同时核对原始逐次输出，不只看汇总。质量相同但成本降低、正确性提高但耗时上升、覆盖不足等分别解释；局部比较明确其样本范围，不代替全量分母。不凭少量样本得出稳定泛化或统计显著性结论。
 
 报告固定标记 `evaluation_scope=contract_fixture`、`evidence_verified=false`、`adoption=not_decided`。脚本只检查指定答案字段，不能证明完整开发质量、隔离、授权、证据真实性或经验可迁移；成功退出不等于采用候选。上下文、计划或套件不一致时拒绝比较，先解决不一致再取得所需执行结果。
 
 ## 4. 结束与经验
 
-H0 是保留现行方法，候选无明确收益或存在关键退化时可选择 H0。证据不足以形成可迁移经验时写 `NO_ENTRY` 并说明限制；它只表示不新增长期经验，不表示试验程序失败，也不表示原开发任务停止。
+H0 是保留现行方法，候选无明确收益或存在关键退化时可选择 H0。证据不足以形成可迁移经验时写 `NO_ENTRY` 并说明限制；它只表示不新增长期经验，不表示试验程序失败或原开发任务停止。
 
 确定性 fixture 只验证导出、解析、计分和汇总工具。没有真实模型/开发任务对照时，报告“工具验证完成，方法效果未验证”，不能用 fixture 的 win/loss 宣称开发效率提高。原始证据、经验归属和清理遵循 Skill 主体及通用规范。
