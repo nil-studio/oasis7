@@ -33,12 +33,12 @@ Source image contract:
 - Views must be orthographic, centered, and uncropped.
 - Use transparent or plain white backgrounds; avoid shadows, floor planes,
   contact pads, labels, and perspective camera drift.
-- Top view is looking down at the robot head/shoulders; bottom view is looking
+- Top view looks down at the robot head/shoulders; bottom view looks
   up from below the feet.
 
 Outputs:
 
-- `robot_1cm_voxel.obj`: surface mesh made from exposed voxel faces.
+- `robot_1cm_voxel.obj`: surface mesh of exposed voxel faces.
 - `robot_1cm_voxel.mtl`: quantized per-face RGB materials sampled from the input views.
 - `robot_1cm_voxels.json.gz`: full occupied voxel coordinate and per-face color list.
 - `robot_1cm_voxel_metadata.json`: dimensions, voxel count, mask boxes, limits.
@@ -116,7 +116,7 @@ Method:
 The script performs six-view silhouette carving. A voxel remains occupied only
 when its projection falls inside all relevant front/back/left/right/top/bottom
 masks. This gives deterministic physical consistency at the voxel level, but it
-cannot recover hidden internal parts that are not visible in the input views.
+cannot recover internal parts that are not visible in the input views.
 
 Source validation:
 
