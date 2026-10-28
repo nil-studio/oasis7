@@ -1,5 +1,8 @@
 //! Setup source inspection and fixed-stage Account dispatch.
 use super::*;
+#[cfg(feature = "approval-harness")]
+#[path = "setup_diagnostic.rs"]
+mod diagnostic;
 use oasis7_custody_core::provisioning::*;
 
 fn source(
@@ -144,6 +147,31 @@ pub(super) async fn dispatch(
     }
     let id = &rpc.request.setup_id;
     let stage = rpc.stage;
+    #[cfg(feature = "approval-harness")]
+    let diagnostic = matches!(
+        &rpc.action,
+        OwnerSetupRuntimeAction::ClaimLookup | OwnerSetupRuntimeAction::RecordResult { .. }
+    )
+    .then(|| {
+        let source_observed = saved
+            .state
+            .owner_setup_outbox(id, stage)
+            .and_then(|o| o.source.verification.as_ref())
+            .map(|s| s.verification.observed_at.0);
+        diagnostic::Trace::new("owner", stage, source_observed)
+    });
+    macro_rules! stage_result {
+        ($code:literal,$value:expr) => {{
+            let result = $value;
+            #[cfg(feature = "approval-harness")]
+            if result.is_err() {
+                if let Some(trace) = &diagnostic {
+                    trace.fail($code);
+                }
+            }
+            result
+        }};
+    }
     store.owner_setup_outbox(id, stage).map_err(|_| denied())?;
     if let OwnerSetupRuntimeAction::ArchiveCanonical { fact } = rpc.action {
         let world = setup_authority::public_world(env)?;
@@ -215,35 +243,57 @@ pub(super) async fn dispatch(
             Ok(serde_json::to_string(&permit)?)
         }
         OwnerSetupRuntimeAction::ClaimLookup => {
-            store
-                .reserve_owner_setup_lookup(id, stage)
-                .map_err(|_| denied())?;
-            let observed = observe(state, env, id, Some(stage), false).await?;
-            let permit = store
-                .claim_owner_setup_lookup(id, stage, || {
-                    setup_authority::current(state, env, &observed, true)
-                })
-                .await
-                .map_err(|_| denied())?;
+            stage_result!(
+                "lookup.local_reservation",
+                store.reserve_owner_setup_lookup(id, stage)
+            )
+            .map_err(|_| denied())?;
+            let observed = stage_result!(
+                "lookup.observe",
+                observe(state, env, id, Some(stage), false).await
+            )?;
+            let permit = stage_result!(
+                "lookup.store",
+                store
+                    .claim_owner_setup_lookup(id, stage, || {
+                        stage_result!(
+                            "lookup.current",
+                            setup_authority::current(state, env, &observed, true)
+                        )
+                    })
+                    .await
+            )
+            .map_err(|_| denied())?;
             Ok(serde_json::to_string(&permit)?)
         }
         OwnerSetupRuntimeAction::RecordResult { result, session } => {
-            store
-                .reserve_owner_setup_callback(id, stage)
-                .map_err(|_| denied())?;
-            let observed = observe(state, env, id, Some(stage), false).await?;
-            store
-                .complete_owner_setup_stage(
-                    id,
-                    OwnerSetupCompletionV1 {
-                        stage,
-                        result: *result,
-                        session: *session,
-                    },
-                    || setup_authority::current(state, env, &observed, true),
-                )
-                .await
-                .map_err(|_| denied())?;
+            stage_result!(
+                "result.local_reservation",
+                store.reserve_owner_setup_callback(id, stage)
+            )
+            .map_err(|_| denied())?;
+            let observed = stage_result!(
+                "result.observe",
+                observe(state, env, id, Some(stage), false).await
+            )?;
+            stage_result!(
+                "result.store",
+                store
+                    .complete_owner_setup_stage(
+                        id,
+                        OwnerSetupCompletionV1 {
+                            stage,
+                            result: *result,
+                            session: *session,
+                        },
+                        || stage_result!(
+                            "result.current",
+                            setup_authority::current(state, env, &observed, true)
+                        ),
+                    )
+                    .await
+            )
+            .map_err(|_| denied())?;
             let progress = store
                 .snapshot()
                 .map_err(|_| denied())?

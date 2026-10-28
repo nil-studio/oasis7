@@ -117,9 +117,12 @@ pub(crate) async fn dispatch(
                 .reserve_test_session_preflight_oracle(id, source, role)
                 .map_err(|_| denied())?;
             let started = clock()?;
-            let observed =
-                session_authority::runtime_observe(env, &saved, &rpc.request, source, false)
-                    .await?;
+            let observed = if role == Role::Owner && oracle_ticket == 3 {
+                session_authority::runtime_observe_paid_factory(env, &saved, &rpc.request, source)
+                    .await?
+            } else {
+                session_authority::runtime_observe(env, &saved, &rpc.request, source, false).await?
+            };
             let (permit, signing) = store
                 .test_session_preflight_permit(id, role, access.map(|v| *v), || {
                     Ok(TestSessionPreflightOwned {
@@ -247,6 +250,21 @@ async fn activate(
         .reserve_test_session_source_read(id, &descriptor.source_operation_id)
         .map_err(|_| denied())?;
     let started = clock()?;
+    #[cfg(feature = "approval-harness")]
+    let diagnostic = crate::provision_approval_store::native::activation_diagnostic::Trace::new(
+        started,
+        s.sources
+            .get(&descriptor.source_operation_id)
+            .and_then(|source| source.verification.as_ref())
+            .map(|signed| signed.verification.observed_at.0),
+    );
+    let report = |stage: &'static str, error| {
+        #[cfg(feature = "approval-harness")]
+        diagnostic.fail(stage);
+        #[cfg(not(feature = "approval-harness"))]
+        let _ = stage;
+        error
+    };
     let attestation_request = serde_json::to_string(&TestSessionAttestationRequest {
         session: s.session.clone(),
         lifetime: lifetime.clone(),
@@ -265,17 +283,19 @@ async fn activate(
         ),
     )
     .await;
-    let attestation: TestSessionPrivateAttestation =
-        serde_json::from_str(&super::super::super::text(attested.map_err(|_| denied())?)?)
-            .map_err(|_| denied())?;
-    let enrolled = enrolled?;
-    let observed = observed?;
+    let attestation: TestSessionPrivateAttestation = serde_json::from_str(
+        &super::super::super::text(attested.map_err(|_| report("join.attestation", denied()))?)
+            .map_err(|e| report("attestation.text", e))?,
+    )
+    .map_err(|_| report("attestation.decode", denied()))?;
+    let enrolled = enrolled.map_err(|e| report("join.enrollment", e))?;
+    let observed = observed.map_err(|e| report("join.observation", e))?;
     if attestation.session_ref != s.session.session_ref
         || attestation.private_sid_generation != s.session.private_sid_generation
         || attestation.private_sid_generation != generation
         || attestation.lifetime_digest != lifetime.lifetime.digest().map_err(|_| denied())?
     {
-        return Err(denied());
+        return Err(report("attestation.exact", denied()));
     }
     store
         .activate_test_session(
@@ -285,9 +305,11 @@ async fn activate(
             attestation.private_sid_generation,
             descriptor.source_operation_id,
             || session_authority::approval_current(state, env, &observed, &enrolled, started),
+            #[cfg(feature = "approval-harness")]
+            &diagnostic,
         )
         .await
-        .map_err(|_| denied())?;
+        .map_err(|_| report("activate.store", denied()))?;
     progress(store, id)
 }
 

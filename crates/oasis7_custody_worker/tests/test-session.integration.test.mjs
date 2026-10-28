@@ -9,6 +9,7 @@ import {withRoleRuntime,persistedRuntime} from './fixtures/role_runtime_native_s
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const mode='native-participant-owner-setup-real-fence-test-session';
 const origin='https://localhost';
+const setupDiagnostic=process.env.OASIS7_OWNER_SETUP_DIAGNOSTIC==='true';
 const key=createPrivateKey({key:Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'),Buffer.alloc(32,18)]),type:'pkcs8',format:'der'});
 const publicKey=createPublicKey(key).export({format:'der',type:'spki'}).subarray(-32).toString('hex');
 // Independent deterministic CBOR for public metadata; the real Core rejects any
@@ -25,13 +26,14 @@ let identityCloseReadTrap=false;
 let accountAlarmFixtureActive=false;
 let accountAlarmFault=null;
 let activationReadDelay=false;
+let paidDirectoryBarrier=null;
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
   let configuredRoles=0;
   for(const worker of options.workers){
     if(!['identity','owner'].includes(worker.name))continue;
     configuredRoles++;
-    if(worker.name==='owner' && ownerDiagnosticActive && process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true') {
+    if(worker.name==='owner' && ownerDiagnosticActive && (process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true'||setupDiagnostic)) {
       const ownerRoot=resolve(root,'artifacts/owner')+'/';
       const diagnosticRoot=resolve(root,'artifacts/approval-harness')+'/';
       let wrappers=0;
@@ -47,6 +49,11 @@ function configureOptions(options){
         return module;
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
+    }
+    if(paidDirectoryBarrier&&worker.name==='owner'){
+      worker.bindings={...worker.bindings,FIXTURE_PAID_DIRECTORY_MODE:paidDirectoryBarrier};
+      worker.serviceBindings={...worker.serviceBindings,FIXTURE_FENCE_CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'}};
+      worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/paid_directory_fence_barrier.mjs')},...worker.modules];
     }
     if(activationReadDelay&&worker.name==='owner'){
       worker.bindings={...worker.bindings,FIXTURE_ACTIVATION_READ_DELAY:'true',FIXTURE_ACTIVATION_READ_MODE:typeof activationReadDelay==='string'?activationReadDelay:'together'};
@@ -70,7 +77,7 @@ function configureOptions(options){
     }
     if(worker.name==='identity')worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_runtime.mjs')},...worker.modules.filter(m=>!m.path.endsWith('/native_revocation_scheduler.mjs'))];
     else worker.serviceBindings={...worker.serviceBindings,IDENTITY_TEST_SESSIONS:{name:'identity',entrypoint:'IdentityTestSessions'},TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'}};
-    if(worker.name==='identity' && identityDiagnosticActive && process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true') {
+    if(worker.name==='identity' && identityDiagnosticActive && (process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true'||setupDiagnostic)) {
       const productionRoot=resolve(root,'artifacts/identity')+'/';
       const diagnosticRoot=resolve(root,'artifacts/native-harness')+'/';
       let wrappers=0;
@@ -186,7 +193,7 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
   for name,e in obj(obj(setup).get('stages')).items():
    if name not in ['create_task','prepare_goal','publish_goal','delegation','bind','final_observation']:continue
    e=obj(e);history=obj(e.get('canonical_history'))
-   stages.append({'stage':name,'source':source(e.get('source')),'oracle_reads':e.get('oracle_reads') if type(e.get('oracle_reads')) is int else None,'times':{k:stamp(e.get(k)) for k in ['published_at','admission_callback_claimed_at','admitted_at','claimed_at','callback_claimed_at','completed_at','last_observed_at']},'has_result':e.get('result') is not None,'has_last_observation':e.get('last_observation') is not None,'canonical_history_count':len(history),'archived_sources':[k for k in ['submit','lookup'] if k in history]})
+   stages.append({'stage':name,'source':source(e.get('source')),'oracle_reads':e.get('oracle_reads') if type(e.get('oracle_reads')) is int else None,'times':{k:stamp(e.get(k)) for k in ['published_at','admission_callback_claimed_at','admitted_at','claimed_at','callback_claimed_at','completed_at','last_observed_at','lookup_reserved_at','lookup_claimed_at']},'has_result':e.get('result') is not None,'has_last_observation':e.get('last_observation') is not None,'canonical_history_count':len(history),'archived_sources':[k for k in ['submit','lookup'] if k in history],'archived_outcomes':{k:(obj(obj(obj(history[k]).get('response')).get('payload')).get('outcome') or {}).get('status') if (obj(obj(obj(history[k]).get('response')).get('payload')).get('outcome') or {}).get('status') in ['received','pending','committed','rejected','expired','unknown','history_unavailable'] else 'unknown_shape' for k in ['submit','lookup'] if k in history}})
   out['setups'].append({'stages':stages})
 print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
@@ -194,7 +201,7 @@ print(json.dumps(out,separators=(',',':')))
 }
 async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
-  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;
+  ownerDiagnosticActive=setupDiagnostic;identityDiagnosticActive=setupDiagnostic;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;paidDirectoryBarrier=null;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -428,25 +435,40 @@ function clientClaimChallenge(basis,runtime){
   return {ingress_attempt_id:'source-exhausted-actual-ingress',http:{selector:{api_version:1,custody_account_id:runtime.account,provision_id:runtime.provisionId,session_id:basis.session_id},original:{session_id:basis.session_id,method:'POST',target_uri:target,headers:Object.entries(headers).map(([name,value])=>({name,value})),body,nonce_hint:null}}};
 }
 function clientAdmissionCounters(runtime,id){
-  return JSON.parse(execFileSync('python3',['-c',`
+  let scan;
+  try{scan=JSON.parse(execFileSync('python3',['-c',`
 import json,sqlite3,sys
 from pathlib import Path
 out=None
+counts={'files':0,'opened':0,'table':0,'row':0,'account':0,'session':0,'decode_errors':0,'sqlite_codes':{}}
 for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ counts['files']+=1;db=None
  try:
-  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True);counts['opened']+=1
+  if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='custody_records'").fetchone():counts['table']+=1
   row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
   if not row:continue
+  counts['row']+=1
   state=json.loads(row[0])['state']
   if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
-  session=state['test_sessions'][sys.argv[3]]
+  counts['account']+=1
+  session=state['test_sessions'].get(sys.argv[3])
+  if session is None:continue
+  counts['session']+=1
   out={'host_admissions':len(session['client_http_admissions']),'sources':len(session['sources'])}
- except sqlite3.OperationalError:continue
+ except sqlite3.Error as error:
+  code=getattr(error,'sqlite_errorcode',None)
+  label=str(code & 255) if type(code) is int and (code & 255) in (1,5,6,8,11,14,26) else 'other'
+  counts['sqlite_codes'][label]=counts['sqlite_codes'].get(label,0)+1
+ except (ValueError,KeyError,TypeError,UnicodeDecodeError):counts['decode_errors']+=1
  finally:
-  if 'db' in locals():db.close()
-assert out is not None
-print(json.dumps(out,separators=(',',':')))
-`,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+  if db is not None:db.close()
+print(json.dumps({'counters':out,'scan':counts},separators=(',',':')))
+`,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
+  catch{assert.fail('fixed readonly client admission counter scan failed');}
+  if(scan.counters===null)console.error(JSON.stringify({client_admission_sql_scan_failure:scan.scan}));
+  assert.notEqual(scan.counters,null,'actual Account session counters must remain present after suspend');
+  return scan.counters;
 }
 test('direct authenticated client admission keeps Host charge when native source budget is exhausted',{timeout:300000},async()=>{
   await withActiveSession(async(runtime,basis,selectedMode)=>{
@@ -847,5 +869,34 @@ for(const barrierMode of ['together','over_window','reject_policy'])test(`actual
       const finalState=stored(runtime,basis.session_id);assert.equal(finalState.approved,false);assert.deepEqual(finalState.roots,[]);
     }
     assert.equal((after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),2,'the exact two prepaid Root status calls cannot refresh or retry');
+  }});
+});
+
+for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(`actual paid factory Directory and Fence overlap ${fault} after SQL ticket3`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    paidDirectoryBarrier=fault;
+    try{
+      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});const status=response.status;
+      const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
+      if(status!==200){await response.arrayBuffer();const observedAt=Date.now();await runtime.suspend();console.error(JSON.stringify({paid_directory_fence_failure:{status,facts,diagnostic_started_at:observedAt,state:continueFailureState(runtime,basis.session_id)}}));}
+      if(fault==='together'){
+        assert.equal(status,200,'fixed paid Directory/Fence reads must complete within unchanged freshness');
+        const progress=await response.json();assert.equal(progress.stage,'active');assert.equal(progress.purposes.length,3);
+      }else{
+        assert.equal(status,503,'failed/frozen/stale independent readonly input must prevent grant');
+        if(fault==='reject_gate'){assert.equal(facts.gate_status,200);assert.equal(facts.gate_faulted,true);}
+        if(fault==='freeze_fence')assert.equal(facts.fence_disabled,true);
+        if(fault==='over_window'){assert.equal(facts.released,'bounded_timeout');assert.ok(facts.elapsed_ms>=5000);}
+        const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
+        assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
+        assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
+      }
+      assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);assert.equal(facts.paid_confirmations,2);assert.equal(facts.oracle_ticket,3);assert.equal(facts.source_ticket,3);
+      if(fault!=='over_window'){assert.equal(facts.released,'independent_reads_started');assert.ok(facts.elapsed_ms<5000);}
+      assert.equal((after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),2);
+      assert.equal((after['/participant/policy-original']??0)-(before['/participant/policy-original']??0),1);
+      assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),1);
+    }finally{paidDirectoryBarrier=null;}
   }});
 });

@@ -141,6 +141,34 @@ pub(super) async fn runtime_observe(
     observe(env, saved, input, signed, inspection_only).await
 }
 
+/// Caller is the fixed Owner/ticket3 branch after its SQL reservation returns.
+pub(super) async fn runtime_observe_paid_factory(
+    env: &Env,
+    saved: &ProvisionApprovalSnapshot,
+    request: &TestSessionSelectorV1,
+    source: &str,
+) -> Result<authority::Observations> {
+    enabled(env)?;
+    let input = input(saved, request)?;
+    let session = saved
+        .state
+        .test_sessions()
+        .get(&request.session_id)
+        .ok_or_else(denied)?;
+    let signed = session
+        .sources
+        .get(source)
+        .and_then(|s| s.verification.as_ref())
+        .or_else(|| {
+            session
+                .book
+                .original(&request.session_id)
+                .and_then(|o| o.verification())
+        })
+        .ok_or_else(denied)?;
+    authority::observe_paid_test_session_factory(env, saved.state.draft(), input, signed).await
+}
+
 use crate::directory_config::DirectoryConfig;
 pub(super) async fn management_read<R, F>(
     state: &JsValue,
