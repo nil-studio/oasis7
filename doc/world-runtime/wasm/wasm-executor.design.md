@@ -8,7 +8,7 @@
 任务拆解、当前阶段和发布候选状态由 GitHub task issue / Project 承接；本设计
 只定义稳定的执行器契约。可复用的实现和回归入口见
 [`evidence.md`](evidence.md)。
-定义 WASM 执行器接入设计，统一执行入口、宿主交互、资源限制与错误回传。
+本设计统一 WASM 执行器的执行入口、宿主交互、资源限制与错误回传。
 
 ## 2. 设计结构
 - 执行入口层：定义模块加载、实例化与调用入口。
@@ -130,13 +130,19 @@ Host 承认 immutable world baseline、active manifest、artifact、schedule 与
 8. validate all prepare steps、durability/journal/backpressure 与 canonical append。单一不可失败 publication seam 安装；durable commit 后输出 original receipt，detached inclusion 同时绑定 execution_id/receipt_id/version/activation。同 wrapper 错 block 不可接受。
 9. Retry same immutable key/hash 返回 pending/decision/receipt；changed body 拒绝。Crash before durable seam no effect 或完整 committed transaction；after durable seam 不重跑 WASM、重扣费或发送新 effect identity。
 
-Failure matrix：decode/identity/trust/gate/precondition/execution/output/usage/prepare 任一失败均不发布新的 state/effects/charges/success receipt；only verified canonical decision 可以结束 pending。任何 post-prepare injected failure 保持 registry/instance/artifact/schedule/resources/event era/journal/receipt 原基线。Publish 是已准备的不可失败安装，不能在半发布后调用 fallible validator；持久恢复须通过 transaction commit marker 区分完整与未提交。
+Failure matrix：decode/identity/trust/gate/precondition/execution/output/usage/prepare 任一失败均不发布新的 state/effects/charges/success receipt；only verified canonical decision 可以结束 pending。任何 post-prepare injected failure 保持 registry/instance/artifact/schedule/resources/event era/journal/receipt 原基线。
+
+Publish 是已准备的不可失败安装，不能在半发布后调用 fallible validator；持久恢复须通过 transaction commit marker 区分完整与未提交。
 
 49.0.4 是修复 [组件流类型 panic](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-9pvw-hwfg-92h5) 与 [aarch64 大型 `br_table` 错误跳转](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-mghf-wjfp-p5xm) 的补丁基线。当前 Core WASM 路径未启用 component，但 Cranelift 修复适用于执行器；补丁版本也不能据此推断混合执行确定性。49.0.3 与 49.0.4 的切换继续遵守完整执行集合停机、精确版本回读和禁止旧目标混合加入的维护边界。依赖更新不授予部署或正式世界激活；执行器 feature、fuel/epoch/NaN 配置与缓存兼容校验保持原合同。
 
 ## 6. 接口与数据合同
 唯一字段 authority：[types](wasm-interface.md#sr2-types)、[execution cores/wrappers](wasm-interface.md#sr2-execution-contract)、[metering](wasm-interface.md#sr2-metering-contract)、[migration](wasm-interface.md#sr2-migration-contract)；runtime pending/activation/external authority：[lifecycle](../module/module-lifecycle.md#sr2-pending-contract)。
-`H(domain,body)=SHA256(UTF8(domain)||0x00||CanonicalCBOR(body))`，execution/result、receipt、intent/request/decision、external effect、activation、migrated、attachment 各使用明确 versioned domain。Canonical CBOR shortest unsigned integer、definite length、canonical encoded-key map order、unique keys/no floats，semantic arrays 保序，sets 按 complete key 排序去重；ContentRef commits digest+byte_length，locator 不属于 authority。Id UTF8 1..256 BYTES 无归一化；所有 U64 lossless canonical decimal JSON string、checked max18446744073709551615；counts0|1 为显式 JSON integer exception。Local timestamp/self-id/signatures/递归 containing-block proofs 不进入 core。
+`H(domain,body)=SHA256(UTF8(domain)||0x00||CanonicalCBOR(body))`，execution/result、receipt、intent/request/decision、external effect、activation、migrated、attachment 各使用明确 versioned domain。
+
+Canonical CBOR shortest unsigned integer、definite length、canonical encoded-key map order、unique keys/no floats，semantic arrays 保序，sets 按 complete key 排序去重；ContentRef commits digest+byte_length，locator 不属于 authority。
+
+Id UTF8 1..256 BYTES 无归一化；所有 U64 lossless canonical decimal JSON string、checked max18446744073709551615；counts0|1 为显式 JSON integer exception。Local timestamp/self-id/signatures/递归 containing-block proofs 不进入 core。
 ExecutionIdentity wrapper scope 只继承 execution_core；ModuleExecutionReceipt wrapper 只继承 receipt_core.execution_core，无 duplicate scope。仅 committed_success 是 execution receipt；no-effect rejected/expired/replan/terminated 属 IntentDecision，不允许 committed_rejection 偷渡。
 
 ## 7. 状态、事务与持久化

@@ -91,7 +91,9 @@ read current state
 | 来源与 action/queue 关联 | 区分 fresh allocation 与对先前 allocation 的引用；绑定原 action envelope/队列条目及消费处置。显式 ID/预分配路径必须能识别其宿主分配来源，不能把 ID 数字大小当作新分配证明；已在 checkpoint 或前序记录计入的来源不得二次推进。 |
 | 所属原子边界与顺序 | 记录标识其真正的分配/入队事务和持久切点。来源记录、cursor、队列插入/移除/既有驱逐处置按各自既有事务边界一起发布；分配顺序由该控制历史确定，不由后来按优先级执行 action 或其业务事件的排列推断。 |
 
-分配记录本身不表示业务 action 成功或取得 finality。已经持久化的分配，即使随后形成业务 `ActionRejected`，仍是一次已发生分配；若分配与入队所在事务在发布前失败，则二者均不出现。若 action 在较早事务已经分配并入队，后续 `step()` 失败必须保留 step 前的 cursor/queue，不能把此前的分配也回退。对没有业务事件的分配、未执行 pending 或既有 backpressure 驱逐，只能依靠完整 checkpoint/来源记录恢复；不能声称它们天然可从 `CausedBy::Action` 重建。本合同不修改既有队列容量、驱逐政策或错误优先级。
+分配记录本身不表示业务 action 成功或取得 finality。已经持久化的分配，即使随后形成业务 `ActionRejected`，仍是一次已发生分配；若分配与入队所在事务在发布前失败，则二者均不出现。若 action 在较早事务已经分配并入队，后续 `step()` 失败必须保留 step 前的 cursor/queue，不能把此前的分配也回退。
+
+对没有业务事件的分配、未执行 pending 或既有 backpressure 驱逐，只能依靠完整 checkpoint/来源记录恢复；不能声称它们天然可从 `CausedBy::Action` 重建。本合同不修改既有队列容量、驱逐政策或错误优先级。
 
 #### 重建算法与恢复切点
 

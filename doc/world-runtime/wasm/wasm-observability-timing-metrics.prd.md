@@ -54,7 +54,11 @@ Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；产品承接子范围�
 | [NFR-6原文](#sr2-obligation-nfr-6) | NFR-6: 模块级明细若存在，默认上限不得超过 top 10，且不得包含原始 payload 内容。 | [NFR-6本域合同](wasm-observability-timing-metrics.design.md#sr2-metrics-contract)；下方原详细设计继续规定条款内的具体limits/policy/tooling | [partial验证入口](../../../scripts/oasis7-node-wasm-metrics-monitor.test.sh)；§11.1精确target场景；本次仅文档采纳，运行proof未执行 |
 | [PRD-WORLD_RUNTIME-037原文](#sr2-obligation-prd-world_runtime-037) | &#124; PRD-WORLD_RUNTIME-037 &#124; wasm-module-observability-standardization &#124; test_tier_required &#124; observe runner tests、代表模块 spec、wrapper shell check、JSON/Markdown summary &#124; 模块级 contract/perf 证据与新模块接入 &#124; | [PRD-WORLD_RUNTIME-037本域合同](wasm-observability-timing-metrics.design.md#sr2-metrics-contract)；下方原详细设计继续规定条款内的具体limits/policy/tooling | [partial验证入口](../../../scripts/oasis7-node-wasm-metrics-monitor.test.sh)；§11.1精确target场景；本次仅文档采纳，运行proof未执行 |
 
-目标 acceptance 另外要求：有效 ModuleExecutionReceiptV1 仅 committed_success；canonical no-effect由runtime IntentDecisionV1区分；world branch、member_generation、decimal U64与UTF8byte bound全链一致；receipt core不包含递归blockproof。migration/state/schedule/replay精确字段由interface独占，运行发布点由lifecycle/executor独占。观测不可进入计费/世界hash；Docker构建proof与external release finality独立；SDK旧wasm-1 optional/default不变。完整DC5 attachment由GWSC/schema接收，SC9全部8cells与provider/headed proof不裁剪。
+目标 acceptance 另外要求：有效 ModuleExecutionReceiptV1 仅 committed_success；canonical no-effect由runtime IntentDecisionV1区分；world branch、member_generation、decimal U64与UTF8byte bound全链一致；receipt core不包含递归blockproof。
+
+migration/state/schedule/replay精确字段由interface独占，运行发布点由lifecycle/executor独占。观测不可进入计费/世界hash；Docker构建proof与external release finality独立；SDK旧wasm-1 optional/default不变。
+
+完整DC5 attachment由GWSC/schema接收，SC9全部8cells与provider/headed proof不裁剪。
 
 
 - 对应设计文档: `doc/world-runtime/wasm/wasm-observability-timing-metrics.design.md`
@@ -194,7 +198,7 @@ Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；产品承接子范围�
   - 无模块执行流量：`metrics_available=false` 或 counters 保持 0，脚本不得伪造 p95。
   - 指标 schema 升级：必须保持 machine-readable 向后兼容或显式版本字段，避免 summary 脚本静默误读。
   - build dry-run：允许没有真实 timing，但必须显式标记而不是输出伪 `0ms success`。
-  - top-N 裁剪：若模块级明细超过上限，必须保留 `truncated=true` 或等价信号，禁止静默丢弃且不告知。
+  - top-N 裁剪：若模块级明细超过上限，必须保留 `truncated=true` 或等价信号，禁止静默丢弃。
 - Non-Functional Requirements:
 <a id="sr2-obligation-nfr-1"></a>
 ### NFR-1 原始条款

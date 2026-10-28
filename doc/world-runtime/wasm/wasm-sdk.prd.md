@@ -35,7 +35,11 @@ Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc；产品承接子范围�
 | --- | --- | --- | --- |
 | [PRD-WORLD_RUNTIME-042原文](#sr2-obligation-prd-world_runtime-042) | &#124; PRD-WORLD_RUNTIME-042 &#124; test_tier_required &#124; SDK tests、可用时 wasm32 check、builtin wire usage scan、required-tier build &#124; SDK ABI、builtin 模块编译与 wire 兼容 &#124; | [PRD-WORLD_RUNTIME-042本域合同](wasm-sdk.design.md#sr2-sdk-contract)；下方原详细设计继续规定条款内的具体limits/policy/tooling | [partial验证入口](../../../testing-manual.md)；§11.1精确target场景；本次仅文档采纳，运行proof未执行 |
 
-目标 acceptance 另外要求：有效 ModuleExecutionReceiptV1 仅 committed_success；canonical no-effect由runtime IntentDecisionV1区分；world branch、member_generation、decimal U64与UTF8byte bound全链一致；receipt core不包含递归blockproof。migration/state/schedule/replay精确字段由interface独占，运行发布点由lifecycle/executor独占。观测不可进入计费/世界hash；Docker构建proof与external release finality独立；SDK旧wasm-1 optional/default不变。完整DC5 attachment由GWSC/schema接收，SC9全部8cells与provider/headed proof不裁剪。
+目标 acceptance 另外要求：有效 ModuleExecutionReceiptV1 仅 committed_success；canonical no-effect由runtime IntentDecisionV1区分；world branch、member_generation、decimal U64与UTF8byte bound全链一致；receipt core不包含递归blockproof。
+
+migration/state/schedule/replay精确字段由interface独占，运行发布点由lifecycle/executor独占。观测不可进入计费/世界hash；Docker构建proof与external release finality独立；SDK旧wasm-1 optional/default不变。
+
+完整DC5 attachment由GWSC/schema接收，SC9全部8cells与provider/headed proof不裁剪。
 
 
 - 对应设计文档：`doc/world-runtime/wasm/wasm-sdk.design.md`
@@ -49,9 +53,13 @@ Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc；产品承接子范围�
 <a id="sdk-current-scope"></a>
 ### 1.1 现状与适用条件
 
-模块作者当前可以使用默认 core 的 `no_std + alloc` 生命周期与导出能力，或启用依赖 `std` 的 `wire` 来复用共享 CBOR 类型。`no_std + wire` 仍是兼容目标，尚不能作为当前支持能力。当前 `encode_output` 返回 `Vec<u8>` 并保留内部 `expect`；`decode_input`、`decode_action` 已返回 `Result`。固定源码、代表 builtin 消费者与这些边界的对应关系见[设计现状表](wasm-sdk.design.md#sdk-current-capabilities)。
+模块作者当前可以使用默认 core 的 `no_std + alloc` 生命周期与导出能力，或启用依赖 `std` 的 `wire` 来复用共享 CBOR 类型。`no_std + wire` 仍是兼容目标，尚不能作为当前支持能力。
 
-本轮静态核查尚未识别出被 `no_std + wire` 缺失阻断的实际消费者，也未取得当前 `ModuleOutput` 类型触发编码错误的已知输入；这不证明所有第三方模块或资源边界均已验证。保留 no_std wire 与编码错误显式返回的目标，由 `wasm_platform_engineer` 按实际 no_std 消费者、codec 演进或可复现失败的需要落实[演进条件](wasm-sdk.design.md#sdk-evolution-triggers)。文档澄清不新增发布门禁，不把这些未实现目标自动列为当前玩家接入或持久世界交付的阻塞条件。
+当前 `encode_output` 返回 `Vec<u8>` 并保留内部 `expect`；`decode_input`、`decode_action` 已返回 `Result`。固定源码、代表 builtin 消费者与这些边界的对应关系见[设计现状表](wasm-sdk.design.md#sdk-current-capabilities)。
+
+本轮静态核查尚未识别出被 `no_std + wire` 缺失阻断的实际消费者，也未取得当前 `ModuleOutput` 类型触发编码错误的已知输入；这不证明所有第三方模块或资源边界均已验证。
+
+保留 no_std wire 与编码错误显式返回的目标，由 `wasm_platform_engineer` 按实际 no_std 消费者、codec 演进或可复现失败的需要落实[演进条件](wasm-sdk.design.md#sdk-evolution-triggers)。文档澄清不新增发布门禁，不把这些未实现目标自动列为当前玩家接入或持久世界交付的阻塞条件。
 
 ## 2. 范围
 

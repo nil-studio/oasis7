@@ -67,16 +67,24 @@ SDK 接收端分开 legacy `wasm-1` wire 与 interface 的 [target records](wasm
 | 非 canonical map / malformed bytes | byte-exact reencode equality，不偷偷 normalize authenticated input | builtin 必须显式选择原有 fallback；不返回伪空 success |
 | 缺 wasm32 target | 明确 skipped 或失败 | 禁止将 host std check 当 no_std WASM pass |
 
-目标存储 codec 仅保存 bytes/refs，authority 与 replay ownership 归 runtime；SDK 无持久化 winner/activation 状态。升级先建立旧 fixtures，再分别启用新 consumer，逐项比较 export、defaults、wire byte lengths 和 domain IDs；回滚到当前 wasm-1 consumer，不重写历史 target receipt bytes。保留的 feature 隔离目标是 std 仅供 host/test 显式启用，wire/serde 不引入隐式 std；当前 wire 会启用 std，不能把该目标视为现状。输入长度先验证再 alloc，使用现行 ModuleLimits；codec error bounded，不输出 secret payload。
+目标存储 codec 仅保存 bytes/refs，authority 与 replay ownership 归 runtime；SDK 无持久化 winner/activation 状态。升级先建立旧 fixtures，再分别启用新 consumer，逐项比较 export、defaults、wire byte lengths 和 domain IDs；回滚到当前 wasm-1 consumer，不重写历史 target receipt bytes。
+
+保留的 feature 隔离目标是 std 仅供 host/test 显式启用，wire/serde 不引入隐式 std；当前 wire 会启用 std，不能把该目标视为现状。
+
+输入长度先验证再 alloc，使用现行 ModuleLimits；codec error bounded，不输出 secret payload。
 
 <a id="sdk-feature-codec-evolution"></a>
 ### 6.2 Feature 与编码接口的演进边界
 
 本节细化[版本化 consumer codec 合同](#sr2-sdk-contract)中的 feature 与编码接口；其 target records、运行时 authority 和兼容要求继续由主合同约束。
 
-no_std wire 扩展先以实际消费者明确 target、允许的依赖与不支持 std 的原因，再调整 wire 到 std 的 feature 依赖和 serde/CBOR/JSON 的 alloc 配置。core、wire、显式 std 与 std+wire 分别检查，实际模块的依赖也须满足其 no_std 条件；只修改 SDK 的 cfg 或让现有 std builtin 编译成功，均不足以证明目标。扩展不要求所有现有 builtin 改为 no_std，不改生命周期导出或 wasm-1 字段。
+no_std wire 扩展先以实际消费者明确 target、允许的依赖与不支持 std 的原因，再调整 wire 到 std 的 feature 依赖和 serde/CBOR/JSON 的 alloc 配置。core、wire、显式 std 与 std+wire 分别检查，实际模块的依赖也须满足其 no_std 条件；只修改 SDK 的 cfg 或让现有 std builtin 编译成功，均不足以证明目标。
 
-编码错误目标按 API 与消费者共同演进：先保留旧输出字节/default/export fixtures，再使编码 helper 返回显式 Result，同批更新 builtin 调用点和 `crates/oasis7_builtin_wasm_modules/_templates/`。实施时明确每个入口如何把编码错误交给现行模块失败/运行时拒绝边界；既有领域 fallback 须说明业务含义，不能以 `empty_output()`、空 Vec 或 None 冒充编码成功。变更 Rust 返回类型需要消费者迁移，但不得夹带 wire ABI、字段默认值、effects/emits 顺序或 output_bytes 口径变化。若尚无可达的编码失败输入，记录该证据限制；不把资源耗尽猜测当作已知反例。
+扩展不要求所有现有 builtin 改为 no_std，不改生命周期导出或 wasm-1 字段。
+
+编码错误目标按 API 与消费者共同演进：先保留旧输出字节/default/export fixtures，再使编码 helper 返回显式 Result，同批更新 builtin 调用点和 `crates/oasis7_builtin_wasm_modules/_templates/`。实施时明确每个入口如何把编码错误交给现行模块失败/运行时拒绝边界；既有领域 fallback 须说明业务含义，不能以 `empty_output()`、空 Vec 或 None 冒充编码成功。
+
+变更 Rust 返回类型需要消费者迁移，但不得夹带 wire ABI、字段默认值、effects/emits 顺序或 output_bytes 口径变化。若尚无可达的编码失败输入，记录该证据限制；不把资源耗尽猜测当作已知反例。
 
 
 <a id="sdk-legacy"></a>
@@ -171,7 +179,9 @@ Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc；既有产品要求：[
 选择单authority typedtarget而非重复wire，是为避免scope/hash/版本漂移。已知风险是implementation缺失、proof不可读、U64/UTF8投影误读、递归hash与历史误作新候选证据；WASM/runtime/QA分别按本页case和runtimereceiver解除。触发器为新ABI/schedule/schema、trust epoch、activation或consumer变更；需重新冻结合同与专业联审。SC9八fullcells及activeLLM/provider API parity、真实desktop+narrow/headed证据保持产品/QAauthority，不因本页文档完成消除。
 
 <a id="sdk-evolution-triggers"></a>
-SDK 的补充演进条件由 `wasm_platform_engineer` 维护：实际模块/第三方消费者提出不支持 std 的 target 和最小需求时，按 SDK-02 实施 no_std wire；codec 演进、消费者需要可恢复的编码错误，或出现可复现序列化失败时，按 SDK-03 实施编码错误与调用点迁移。当前未发现上述消费者阻塞或编码失败反例，保留目标及其验收，不承诺排期，也不将本文整理升级为玩家接入、持久世界或发布的新 gate。实施选择不改变已有适用的 ABI、required/full 或发布义务。
+SDK 的补充演进条件由 `wasm_platform_engineer` 维护：实际模块/第三方消费者提出不支持 std 的 target 和最小需求时，按 SDK-02 实施 no_std wire；codec 演进、消费者需要可恢复的编码错误，或出现可复现序列化失败时，按 SDK-03 实施编码错误与调用点迁移。
+
+当前未发现上述消费者阻塞或编码失败反例，保留目标及其验收，不承诺排期，也不将本文整理升级为玩家接入、持久世界或发布的新 gate。实施选择不改变已有适用的 ABI、required/full 或发布义务。
 
 
 - 对应需求文档：`doc/world-runtime/wasm/wasm-sdk.prd.md`
