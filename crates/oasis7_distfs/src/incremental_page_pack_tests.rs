@@ -16,7 +16,7 @@ fn persist(store: &IncrementalPageStore, pages: &[([u8; 32], Vec<u8>)]) {
         .map(|(id, bytes)| (*id, bytes.as_slice()))
         .collect();
     store
-        .put_small_page_batch(
+        .put_page_batch(
             &refs,
             MemoryClass::Ordinary,
             &mut physical_io(),
@@ -71,6 +71,90 @@ fn direct_pack_wire_and_untrusted_locator_are_exact() {
 }
 
 #[test]
+fn general_batch_preserves_frozen_cuts_across_multiple_frame_packs_and_limits_bytes() {
+    fn gear(state: u64, byte: u8) -> u64 {
+        let value = (byte as u64 + 1).wrapping_mul(0x9e3779b185ebca87);
+        state
+            .rotate_left(1)
+            .wrapping_add(value ^ value.rotate_left(23))
+    }
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
+    let _input = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory, PageCompression::Raw).unwrap();
+    let mut pages = Vec::new();
+    for n in 0u64..255 {
+        let mut page = vec![17; 4096];
+        page[..8].copy_from_slice(&n.to_be_bytes());
+        let prefix = page[..4093]
+            .iter()
+            .fold(0, |state, byte| gear(state, *byte));
+        let mut found = None;
+        'search: for a in 0..=255u8 {
+            for b in 0..=255u8 {
+                let state = gear(gear(prefix, a), b);
+                for c in 0..=255u8 {
+                    if gear(state, c) & 16383 == 0 {
+                        found = Some((a, b, c));
+                        break 'search;
+                    }
+                }
+            }
+        }
+        let (a, b, c) = found.expect("three-byte boundary patch");
+        page[4093..].copy_from_slice(&[a, b, c]);
+        page.push(n as u8);
+        assert_eq!(
+            frame_codec::chunks(&page)
+                .iter()
+                .map(|s| s.len())
+                .collect::<Vec<_>>(),
+            vec![4096, 1]
+        );
+        pages.push((*blake3::hash(&page).as_bytes(), page));
+    }
+    persist(&store, &pages);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let inodes: std::collections::BTreeSet<_> = fs::read_dir(store.root().join("frames"))
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().ino())
+            .collect();
+        assert_eq!(inodes.len(), 2); // 510 original frames, max 256 per pack
+    }
+    for n in [0, 127, 254] {
+        assert_eq!(
+            store
+                .read_page(
+                    &pages[n].0,
+                    4097,
+                    MemoryClass::Recovery,
+                    &mut physical_io(),
+                    &AtomicBool::new(false)
+                )
+                .unwrap()
+                .as_slice(),
+            pages[n].1
+        );
+    }
+    let mut over: Vec<_> = pages.iter().map(|(id, b)| (*id, b.as_slice())).collect();
+    over.push(over[0]);
+    let mut io = physical_io();
+    assert!(matches!(
+        store.put_page_batch(
+            &over,
+            MemoryClass::Ordinary,
+            &mut io,
+            &AtomicBool::new(false)
+        ),
+        Err(PageStoreError::ResourceLimited("page batch bytes"))
+    ));
+    assert_eq!(io.writes_remaining, physical_io().writes_remaining);
+}
+
+#[test]
 fn arbitrary_raw_frame_starting_with_pack_magic_preserves_its_original_bytes() {
     let fixture = Fixture::new();
     let memory = MemoryBudget::new(8 << 20, 0).unwrap();
@@ -100,6 +184,67 @@ fn arbitrary_raw_frame_starting_with_pack_magic_preserves_its_original_bytes() {
             .as_slice(),
         bytes.as_slice()
     );
+}
+
+#[test]
+fn repeated_frames_within_one_page_do_not_repeat_physical_pack_reads() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 3 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory, PageCompression::Raw).unwrap();
+    let bytes = vec![0x5a; 65536];
+    assert!(frame_codec::chunks(&bytes).len() > 8);
+    let id = *blake3::hash(&bytes).as_bytes();
+    store
+        .put_page_batch(
+            &[(id, bytes.as_slice())],
+            MemoryClass::Ordinary,
+            &mut physical_io(),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+    let before = physical_io();
+    let mut io = before.clone();
+    assert_eq!(
+        store
+            .read_page(
+                &id,
+                65536,
+                MemoryClass::Ordinary,
+                &mut io,
+                &AtomicBool::new(false)
+            )
+            .unwrap()
+            .as_slice(),
+        bytes
+    );
+    assert!(
+        before.reads_remaining - io.reads_remaining < 16,
+        "one recipe and one unique frame"
+    );
+    // The cache key must include the complete verified descriptor, not only
+    // its stored ID. A checksum-correct forged original hash still fails.
+    let path = store.root().join("recipes").join(hex::encode(id));
+    let encoded = files::read(
+        &path,
+        recipe::MAX_RECIPE_BYTES,
+        &mut physical_io(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    let (_, mut frames) = recipe::decode(&id, &encoded).unwrap();
+    frames[1].original[0] ^= 1;
+    fs::write(path, recipe::encode(&id, bytes.len(), &frames).unwrap()).unwrap();
+    assert!(matches!(
+        store.read_page(
+            &id,
+            65536,
+            MemoryClass::Ordinary,
+            &mut physical_io(),
+            &AtomicBool::new(false)
+        ),
+        Err(PageStoreError::Corrupt(_))
+    ));
 }
 
 #[test]
@@ -268,7 +413,7 @@ fn bounded_admission_cancellation_and_partial_publication_can_retry_exact_pages(
         .unwrap();
     let mut io = physical_io();
     assert!(matches!(
-        store.put_small_page_batch(
+        store.put_page_batch(
             &refs,
             MemoryClass::Ordinary,
             &mut io,
@@ -278,7 +423,7 @@ fn bounded_admission_cancellation_and_partial_publication_can_retry_exact_pages(
     ));
     assert_eq!(io.writes_remaining, physical_io().writes_remaining);
     assert!(matches!(
-        store.put_small_page_batch(
+        store.put_page_batch(
             &refs,
             MemoryClass::Ordinary,
             &mut io,
@@ -287,7 +432,7 @@ fn bounded_admission_cancellation_and_partial_publication_can_retry_exact_pages(
         Err(PageStoreError::Cancelled)
     ));
     assert!(matches!(
-        store.put_small_page_batch(
+        store.put_page_batch(
             &refs,
             MemoryClass::Recovery,
             &mut io,
@@ -298,7 +443,7 @@ fn bounded_admission_cancellation_and_partial_publication_can_retry_exact_pages(
     let mut io = physical_io();
     io.writes_remaining = 2; // durable frame pack, then one link
     assert!(matches!(
-        store.put_small_page_batch(
+        store.put_page_batch(
             &refs,
             MemoryClass::Recovery,
             &mut io,
@@ -308,7 +453,7 @@ fn bounded_admission_cancellation_and_partial_publication_can_retry_exact_pages(
     ));
     assert!(fs::read_dir(store.root().join("staging")).unwrap().count() > 0);
     store
-        .put_small_page_batch(
+        .put_page_batch(
             &refs,
             MemoryClass::Recovery,
             &mut physical_io(),

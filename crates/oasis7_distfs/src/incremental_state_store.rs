@@ -115,13 +115,13 @@ impl StatePageSession<'_> {
             batch.push((id, bytes));
             if batch.len() == pack::MAX_ENTRIES {
                 self.store
-                    .put_small_page_batch(&batch, self.class, io, &self.cancelled)?;
+                    .put_page_batch(&batch, self.class, io, &self.cancelled)?;
                 batch.clear();
             }
         }
         if !batch.is_empty() {
             self.store
-                .put_small_page_batch(&batch, self.class, io, &self.cancelled)?;
+                .put_page_batch(&batch, self.class, io, &self.cancelled)?;
         }
         Ok(())
     }

@@ -5,6 +5,9 @@ use oasis7_formal_protocol::{
     incremental_history::{FactSetV1, WorldScopeV1},
 };
 
+#[path = "incremental_object_batch_tests.rs"]
+mod batch;
+
 #[test]
 fn canonical_history_fact_set_larger_than_a_page_reopens_with_its_original_identity() {
     let fixture = Fixture::new();

@@ -719,3 +719,16 @@ raw frame 允许任意原 bytes，可能恰好以 pack 标记开头。此歧义�
 编码 workspace 为 128 KiB 加每个条目的 1200+2048+512 bytes 余量，再加既有 raw/zstd codec workspace；不固定申请一个超出恢复预留的大缓冲。原 ordinary 满额、4 MiB recovery 预留的恢复页写入继续使用原预算测试。实际每段读、索引探测和最终 probe 均先扣读取额度；pack 总写 bytes 在创建前准入，每次硬链接另消费工作额度。取消、预算或进程终止后的部分名字/私有文件只代表临时物料，不能发布 head；重试核对实际赢家的原内容并补齐其耐久屏障，不覆盖另一种合法 raw/zstd 表示，不自动删除不明 staging。
 
 局部方法：`incremental_page_store::pack::tests` 核对独立 wire 向量、raw/zstd 的 256 页精确读回与共享 inode、点读精确及少一额度、坏 header/index/span/成员、raw 标记歧义、普通额度耗尽与 recovery 预留、途中耗尽重试、并发单页与 pack 选择，以及六个真实 SIGKILL 边界后的重开/重试。既有 page/object/value/六根状态闭包及原件验证继续使用同一 reader。注册的真实物理测试用于前后核对原字段、原事件和重开后的移动；单项耗时观察不替代固定 H/S、RSS、独立持久域或全负载测量。大值写入 batching、可恢复 pack 维护/回收、全部 typed roots 和全局物理指标仍未完成，当前整个 store 的共享保留租约与无删除边界保持有效。
+
+
+### 12.25 原对象的大值页批量写入
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.24。pack 后端扩展到 VALUE_MAX_NODE_BYTES 范围的页，每批最多 256 页且原页总 bytes 不超过 1 MiB。物理 cuts 继续调用原 frozen gear codec，不把整大页强行作为一个 frame；唯一 frames 超过 256 时分成多个有界 frame pack，并在全部 frame 屏障完成后发布对应 recipe pack。规范 value 页、frame 原内容与原 page/对象 ID 不变。
+
+编码前先按总原页 bytes、每页 recipe 上限和由最小 4 KiB cut 推导的 frame 数取得同池 workspace，加上既有 codec workspace；不按整原对象大小申请。小 Merkle 页仍经过原 StatePageSession 的 1200-byte 校验。value 普通单页 session 保持其同步语义；本节将批量写入接入原对象 write_object 内部，未把所有 Runtime value writer 改为隐式延迟。
+
+原对象私有 writer 先取得 64 KiB 元数据余量，持有 producer 的 ReservedValue 页而不复制整原件。待写队列最多 256 项、256 KiB；下一页超限时先 flush 已有队列，最终 flush 成功后才发布原对象 locator，之后仍完整读回核对原平面 digest/长度。队列内相同 page ID 仅在原 bytes 完全相等时复用；原输入流及有序 value 引用、事实 occurrence 的逻辑额度仍完整消费。locator、root 和成功对象 ID 不会由一个尚未 flush 的队列产生。错误、取消和来源 unwind 释放队列 charge；此前已耐久的临时 pack 保留原身份，不能清成空世界或被解释为接受结果。
+
+批量目录中重复 frame 的索引开销曾使既有大事实流读取额度不足，原反例先判红后修复。单次 read_page 现在只在该页范围复用已校验的 decoded frame，key 包含完整 stored/original digest、length 和 compressed 判别；不按 stored ID 单独猜测内容。条目最多 17、唯一 decoded 总 bytes 不超过该页长度，由已有 decode workspace 准入，返回或失败即释放，不形成全局缓存。所有 occurrence 仍按原顺序复制并核对最终 page digest。format 读取仍单独消费额度；原预算反例按唯一 descriptor 的实际物理读数修正，少掉 format 那一读仍须失败，未增大原事实流的 IO allowance。
+
+局部方法：新增 general_batch 测试独立构造 4 KiB cut 边界，验证 510 个唯一 frames 跨两个 pack、恢复原页及 1 MiB 批次上限。original batch 测试覆盖显式 flush/队列和 charge 释放、最终 flush 无额度、import 摘要不符、取消/unwind、raw/zstd 重导入身份不变，以及三个中间批次 SIGKILL 窗口下无 locator、原身份重试。实际大值在 8 MiB 共享池（3 MiB recovery 预留）中流式写入并重开 64 MiB+17 bytes，逐个 64 KiB 区间有独立位置内容，使用独立分块平面摘要 oracle 全量核对并检查 recipe 硬链接共享；不以重复单页模拟唯一大值工作集。重复 frame 回归还使用 checksum 正确但 original digest 被篡改的 descriptor，确认局部复用不会绕过内容校验。本节仍不代表 Runtime 全字段写入、维护/GC、正式发布、独立持久域或固定 H/S/RSS 验收完成。

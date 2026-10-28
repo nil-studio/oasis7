@@ -9,6 +9,7 @@ const HEADER: usize = MAGIC.len() + 23;
 const ROW: usize = 44;
 pub(super) const MAX_ENTRIES: usize = 256;
 pub(super) const MAX_PACK_BYTES: usize = 4 << 20;
+pub(super) const MAX_BATCH_BYTES: usize = 1 << 20;
 
 fn kind(directory: &str) -> Result<u8> {
     match directory {
@@ -265,9 +266,9 @@ fn publish(
 }
 
 impl IncrementalPageStore {
-    /// Bounded small Merkle pages only. The producer retains its original
-    /// shared charge; this function admits all temporary encoded members.
-    pub(super) fn put_small_page_batch(
+    /// Borrowed pages retain their producer charge. Admit all encoded members
+    /// and metadata before allocation; physical cuts reuse the frozen codec.
+    pub(super) fn put_page_batch(
         &self,
         pages: &[([u8; 32], &[u8])],
         class: MemoryClass,
@@ -276,14 +277,25 @@ impl IncrementalPageStore {
     ) -> Result<()> {
         check_cancelled(cancelled)?;
         if pages.len() > MAX_ENTRIES {
-            return Err(PageStoreError::ResourceLimited("small page batch"));
+            return Err(PageStoreError::ResourceLimited("page batch entries"));
+        }
+        let mut input_bytes = 0usize;
+        let mut frame_bound = 0usize;
+        for (_, bytes) in pages {
+            if bytes.is_empty() || bytes.len() > VALUE_MAX_NODE_BYTES {
+                return Err(PageStoreError::Corrupt("batch page bound"));
+            }
+            input_bytes += bytes.len();
+            frame_bound += bytes.len().div_ceil(4096);
+        }
+        if input_bytes > MAX_BATCH_BYTES {
+            return Err(PageStoreError::ResourceLimited("page batch bytes"));
         }
         let _workspace = self.memory.reserve(
             (128 << 10)
-                + pages.len()
-                    * (oasis7_formal_protocol::incremental_state::STATE_MAX_PAGE_BYTES
-                        + recipe::MAX_RECIPE_BYTES
-                        + 512)
+                + input_bytes
+                + pages.len() * recipe::MAX_RECIPE_BYTES
+                + frame_bound * 512
                 + if matches!(self.compression, PageCompression::Zstd) {
                     ENCODE_WORKSPACE
                 } else {
@@ -298,32 +310,37 @@ impl IncrementalPageStore {
         for (id, bytes) in pages {
             check_cancelled(cancelled)?;
             if bytes.is_empty()
-                || bytes.len() > oasis7_formal_protocol::incremental_state::STATE_MAX_PAGE_BYTES
+                || bytes.len() > VALUE_MAX_NODE_BYTES
                 || blake3::hash(bytes).as_bytes() != id
             {
-                return Err(PageStoreError::Corrupt("small page length/hash"));
+                return Err(PageStoreError::Corrupt("batch page length/hash"));
             }
             if files::exists(&self.root.join("recipes").join(hex::encode(id)))? {
                 self.check_existing(id, bytes, class, io, cancelled)?;
                 continue;
             }
-            let (frame, stored) =
-                frame_codec::encode(bytes, matches!(self.compression, PageCompression::Zstd))?;
-            if frame_codec::decode(&frame, &stored)
-                .map_err(|_| PageStoreError::Corrupt("packed frame encoding"))?
-                .as_slice()
-                != *bytes
-            {
-                return Err(PageStoreError::Corrupt("packed page encoding"));
-            }
-            if let Some(old) = frames.insert(frame.stored, stored.clone())
-                && old != stored
-            {
-                return Err(PageStoreError::Corrupt("packed frame collision"));
+            let mut descriptors = Vec::with_capacity(recipe::MAX_FRAMES);
+            for chunk in frame_codec::chunks(bytes) {
+                check_cancelled(cancelled)?;
+                let (frame, stored) =
+                    frame_codec::encode(chunk, matches!(self.compression, PageCompression::Zstd))?;
+                if frame_codec::decode(&frame, &stored)
+                    .map_err(|_| PageStoreError::Corrupt("packed frame encoding"))?
+                    .as_slice()
+                    != chunk
+                {
+                    return Err(PageStoreError::Corrupt("packed page encoding"));
+                }
+                if let Some(old) = frames.insert(frame.stored, stored.clone())
+                    && old != stored
+                {
+                    return Err(PageStoreError::Corrupt("packed frame collision"));
+                }
+                descriptors.push(frame);
             }
             recipes.push(Entry {
                 id: *id,
-                bytes: recipe::encode(id, bytes.len(), &[frame])?,
+                bytes: recipe::encode(id, bytes.len(), &descriptors)?,
             });
         }
         recipes.sort_unstable_by_key(|entry| entry.id);
@@ -334,7 +351,9 @@ impl IncrementalPageStore {
             .into_iter()
             .map(|(id, bytes)| Entry { id, bytes })
             .collect();
-        publish(&self.root, "frames", &frames, io, cancelled)?;
+        for group in frames.chunks(MAX_ENTRIES) {
+            publish(&self.root, "frames", group, io, cancelled)?;
+        }
         let raced = publish(&self.root, "recipes", &recipes, io, cancelled)?;
         for (id, bytes) in pages {
             check_cancelled(cancelled)?;

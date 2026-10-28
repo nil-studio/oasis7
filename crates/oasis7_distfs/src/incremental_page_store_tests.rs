@@ -379,7 +379,11 @@ fn memory_io_cancellation_and_live_reader_charges_are_enforced() {
     let recipe_bytes = fs::read(fixture.store().join("recipes").join(hex::encode(id))).unwrap();
     let (_, frames) = recipe::decode(&id, &recipe_bytes).unwrap();
     let mut excludes_format = physical_io();
-    excludes_format.reads_remaining = frames.len() as u64 + 1;
+    let unique_frames: std::collections::BTreeSet<_> = frames
+        .iter()
+        .map(|frame| (frame.stored, frame.original, frame.length, frame.compressed))
+        .collect();
+    excludes_format.reads_remaining = unique_frames.len() as u64 + 1;
     assert!(
         matches!(
             store.read_page(

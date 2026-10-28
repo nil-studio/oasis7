@@ -273,12 +273,23 @@ impl IncrementalPageStore {
         }
         let charge = self.memory.reserve(length + 128, class)?;
         let mut output = Vec::with_capacity(length);
+        // At most MAX_FRAMES entries, with total decoded bytes <= this page's
+        // declared length. The existing decode workspace admits this local
+        // reuse; no cache or carrier escapes into another operation/class.
+        let mut decoded_frames: Vec<(FrameDescriptor, Vec<u8>)> =
+            Vec::with_capacity(recipe::MAX_FRAMES);
         for frame in frames {
+            check_cancelled(cancelled)?;
+            if let Some((_, decoded)) = decoded_frames.iter().find(|(known, _)| known == &frame) {
+                output.extend_from_slice(decoded);
+                continue;
+            }
             let path = self.root.join("frames").join(hex::encode(frame.stored));
             let stored = files::read(&path, frame_codec::FRAME_BYTES, io, cancelled)?;
             let decoded = frame_codec::decode(&frame, &stored)
                 .map_err(|_| PageStoreError::Corrupt("physical frame"))?;
             output.extend_from_slice(&decoded);
+            decoded_frames.push((frame, decoded));
         }
         check_cancelled(cancelled)?;
         if output.len() != length
