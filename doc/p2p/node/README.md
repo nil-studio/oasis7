@@ -68,8 +68,8 @@
   - real-env triad evidence 现在的 canonical 监控命令是什么
 
 ## 定向检索边界
-- 如果你已经知道准确文件名，直接回 `../prd.index.md`，不要指望本页替代完整索引。
-- 如果你追的是某个奖励阶段、closure test、audit hardening 或 release 说明，允许直接进相应 supporting spec，但不要把它们重新当作默认首读入口。
+- 已知准确文件名时，直接回 `../prd.index.md`；本页不替代完整索引。
+- 查找某个奖励阶段、closure test、audit hardening 或 release 说明时，允许直接进相应 supporting spec，但不要把它们重新当作默认首读入口。
 - 如果某个主题已经出现“主文档 + 增量子文档”的主从关系，应优先进入主文档，而不是从子文档倒推现行口径。
 
 ## 维护约定

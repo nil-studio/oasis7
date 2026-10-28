@@ -2,7 +2,7 @@
 
 ## 1. 问题、目标与非目标
 
-把local identity、conditional signer map、signed replication的验证/持久/观察顺序固定，避免假进展和corrupt authoritative recovery默认化。
+固定 local identity、conditional signer map、signed replication 的验证/持久/观察顺序，避免假进展和 corrupt authoritative recovery 默认化。
 
 Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；固定审读基线 f9d5a552d9af04c1b1398262808198a58e560230，2026-09-26。本设计消费下表有限关系；旧章节保留作兼容详细条款，新增DES细化原义务而不改算法/schema/默认值/产品承诺。任务实际source/integration/tested tree/config/environment/window/结果由GitHub Issue/Project evidence维护，本文不伪造候选/通过结果。
 
@@ -42,7 +42,7 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 
 ## 4. 边界与结构
 
-config bootstrap只本地dev；consensus/governance/custody各自authority。NodeRuntime持有network handle和guard/state，network仅运输，ops读取runtime status不重定义truth。FileReplicationRecord必须world/topic/source/signature/ordering适用。
+config bootstrap 仅用于本地 dev；consensus/governance/custody 各有自己的 authority。NodeRuntime 持有 network handle 和 guard/state，network 仅运输，ops 读取 runtime status，不重定义 truth。FileReplicationRecord 必须满足适用的 world/topic/source/signature/ordering 要求。
 
 ### des-nir-bootstrap
 
@@ -72,9 +72,13 @@ Trace refs: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e；唯一专业声明：[
 
 Trace refs: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e。初始化互斥和运行互斥是不同生命周期：正式 v2 在任何启动历史读取、网络请求、writer 打开或服务线程启动前，重新验证已配置的完整身份，依固定顺序取得同一 key 路径及 writer 数据目录的运行期 OS 排他锁。初始化 helper 返回后释放的锁不能代替此租约。锁载体永久保留；busy 时立即阻断，不能因 PID、超时或更换 writer 目录绕过。
 
-非秘密 key 绑定持久保存规范 key 路径、node ID、root public key、派生 PeerId、实际受信 world/chain/genesis 三元组及 profile；writer 目录绑定另保存其规范路径与所属的同一身份域。网络域来自已验证的正式锚，不来自远端自述或自行补出的 network ID。角色不属于身份绑定；取得租约不授予 writer、读取、治理或投票权限。首次启动可收录已有合法身份，后续只接受完全一致的身份域与已有目录绑定；损坏、错域、换 key 路径／node ID 或原密钥丢失须保留原件并阻断，不自动覆盖绑定或换 key。同 key 的生命周期锁覆盖所有 writer 目录；旧所有者退出后，同身份可为尚无运行身份归属记录的 writer 目录登记归属，实际 writer 权限仍须由原正式 authority／恢复证明验证。此规则保留既有 protected signer handoff：Node 身份可连续，而合法 successor writer 使用新目录；不能把身份绑在唯一 writer 路径上误拒绝恢复。已有完整身份与尚未建立运行绑定的升级仅允许在所有旧运行者停止后执行；新旧版本混跑没有此保证。
+非秘密 key 绑定持久保存规范 key 路径、node ID、root public key、派生 PeerId、实际受信 world/chain/genesis 三元组及 profile；writer 目录绑定另保存其规范路径与所属的同一身份域。网络域来自已验证的正式锚，不来自远端自述或自行补出的 network ID。角色不属于身份绑定；取得租约不授予 writer、读取、治理或投票权限。
 
-运行锁分别为 `<key>.runtime-identity-v1.lock` 和 writer 目录的 `.node-runtime-identity-v1.lock`；记录分别为 `<key>.runtime-identity-v1.json` 和 `.node-runtime-identity-v1.json`，严格版本 1、拒绝未知字段，最大 16 KiB，锁与记录均要求私有 owner/mode。key 邻接记录保存身份域，writer 目录记录保存路径及身份域，防止一个 key 换域或另一 key 接管既有 writer 目录；两处不假装原子，崩溃后只续写完全一致的缺失记录。无归属记录的目录可包含首次升级／合法恢复的已有数据；租约不检查这些数据的权威性，实际 FormalWriter 必须继续验证历史与当前 authority 后才能运行。目录登记不改写已有归属记录，也不授予 authority。绑定使用同目录私有临时文件、文件同步、原子发布及目录同步。写入／同步结果未知时保持原材料，下一次持锁核对同一绑定；不输出成功。租约必须随实际 execution hook、效果签名 worker 与后台运行所有者存活，不能只放在外层启动函数中：停止超时或外层对象退出，而后台执行仍可推进时，锁仍须保留。全部运行所有者退出后由 OS 释放；重启核对同一身份和绑定后才恢复。
+首次启动可收录已有合法身份，后续只接受完全一致的身份域与已有目录绑定；损坏、错域、换 key 路径／node ID 或原密钥丢失须保留原件并阻断，不自动覆盖绑定或换 key。同 key 的生命周期锁覆盖所有 writer 目录；旧所有者退出后，同身份可为尚无运行身份归属记录的 writer 目录登记归属，实际 writer 权限仍须由原正式 authority／恢复证明验证。此规则保留既有 protected signer handoff：Node 身份可连续，而合法 successor writer 使用新目录；不能把身份绑在唯一 writer 路径上误拒绝恢复。已有完整身份与尚未建立运行绑定的升级仅允许在所有旧运行者停止后执行；新旧版本混跑没有此保证。
+
+运行锁分别为 `<key>.runtime-identity-v1.lock` 和 writer 目录的 `.node-runtime-identity-v1.lock`；记录分别为 `<key>.runtime-identity-v1.json` 和 `.node-runtime-identity-v1.json`，严格版本 1、拒绝未知字段，最大 16 KiB，锁与记录均要求私有 owner/mode。key 邻接记录保存身份域，writer 目录记录保存路径及身份域，防止一个 key 换域或另一 key 接管既有 writer 目录；两处不假装原子，崩溃后只续写完全一致的缺失记录。无归属记录的目录可包含首次升级／合法恢复的已有数据；租约不检查这些数据的权威性，实际 FormalWriter 必须继续验证历史与当前 authority 后才能运行。目录登记不改写已有归属记录，也不授予 authority。绑定使用同目录私有临时文件、文件同步、原子发布及目录同步。写入／同步结果未知时保持原材料，下一次持锁核对同一绑定；不输出成功。
+
+租约必须随实际 execution hook、效果签名 worker 与后台运行所有者存活，不能只放在外层启动函数中：停止超时或外层对象退出，而后台执行仍可推进时，锁仍须保留。全部运行所有者退出后由 OS 释放；重启核对同一身份和绑定后才恢复。
 
 本切片只接通正式 profile-v2 的实际启动与后台执行路径。既有正式 signer handoff 仍使用其签名恢复证明、精确旧实例停止和受保护 epoch 验证，不由新目录身份登记代替。legacy standalone／DevLocal 生命周期、搬迁 key 路径或改写已有目录绑定的迁移／轮换、独立复制 bare key 的跨目录／跨机排重、防整机回滚、真实断电验证仍不在已实现范围。复制已有目录绑定到其他路径因规范路径不一致而拒绝；相邻锁不是全局 key 注册表或跨机 fencing。迁移入口不得静默改写已有绑定。
 
@@ -125,7 +129,7 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4。局部承接 [REQ-DCS-
 
 enabled节点读当前config→缺key可创建→严格map验证→normal signature→binding→source/world/order→apply→persist guards→publish observation。任何拒绝停止该记录不记成功；startup required recovery load失败blocked。disabled不创建身份，重复/stale不应用。
 
-拒绝保留可定位原因；timeout/retry受原策略有界限制。并发冲突遵循原guard/precondition/共识authority，不能因接线或重连获得新权限。取消/替代只有外部专业合同明确支持时成立，本设计不新建取消或补偿schema。
+拒绝时保留可定位原因；timeout/retry 受原策略的有界限制。并发冲突遵循原guard/precondition/共识authority，不能因接线或重连获得新权限。取消/替代只有外部专业合同明确支持时成立，本设计不新建取消或补偿schema。
 
 ## 6. 接口与数据合同
 
@@ -225,7 +229,7 @@ blocked start, not a default-state recovery.
 | Replication handle | Inject the node replication network and isolate its world/topic route | Injection is not a deployed libp2p or public-reachability claim. |
 | Replication ingest | Verify source/signature, apply record, persist ordering guards, then observe progress | Invalid, stale, duplicate, or failed records cannot update status as success. |
 | Recovery | Load required node/PoS and replication state | Corruption is surfaced and blocks the applicable start; restarting does not repair root cause. |
-| Observability | Expose failure/progress to the runtime status and operations evidence path | The triad monitor only samples/projections; it does not redefine runtime truth. |
+| Observability | Expose failure/progress to the runtime status and operations evidence path | The triad monitor only samples and projects data; it does not redefine runtime truth. |
 
 ## Security and operating boundary
 

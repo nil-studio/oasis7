@@ -111,7 +111,7 @@
   - OSRM-4：回写状态文档与 devlog 收口。
 - Technical Risks:
   - 统计语义若与调用方预期不一致（例如 `total` 是否按轮次或按 head 条目），会导致面板误判；需在文档中固定“按报告次数计数”。
-  - 若后续扩展更多模式，存在字段膨胀风险；需要保持结构可扩展并保持向后兼容。
+  - 后续扩展更多模式可能导致字段膨胀；需保持结构可扩展且向后兼容。
 
 ## 6. Validation & Decision Record
 <a id="observer-metrics-reactivation-test-plan"></a>

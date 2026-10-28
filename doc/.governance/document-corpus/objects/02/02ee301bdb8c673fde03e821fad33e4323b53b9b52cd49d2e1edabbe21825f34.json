@@ -2,7 +2,7 @@
   "record": {
     "authority_entry": "doc/p2p/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "431898b003a8a00c01c239781f24f0661a3e18b1ee1a8577091dce804ddf19e3",
+    "content_sha256": "a9cab011fb7a453c3822c05e016b0214eac1299e367207c35f83f4dcc40f4f3e",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "active_candidate",
     "object_kind": "prd",

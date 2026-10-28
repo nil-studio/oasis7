@@ -1,6 +1,6 @@
 # P2P 分布式运行时文档
 
-本目录保留分布式运行时的导航边界。原四组历史 PRD/design/project 已在 2026-07-28 完成语义回填并退役；当前规范、设计和追踪分别进入 P2P 根三件套，历史原文从 Git 与 GitHub task evidence 追溯。
+本目录保留分布式运行时的导航边界。四组历史 PRD/design/project 已于 2026-07-28 完成语义回填并退役；当前规范、设计和追踪分别进入 P2P 根三件套，历史原文从 Git 与 GitHub task evidence 追溯。
 
 ## 从这里开始
 

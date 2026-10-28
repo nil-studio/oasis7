@@ -98,7 +98,7 @@
   - OSSM-4：状态文档与 devlog 收口。
 - Technical Risks:
   - 模式过多可能引入调用歧义，需保持命名清晰。
-  - 回退策略若吞掉网络错误，定位问题成本会提升，需要保留错误上下文。
+  - 回退策略若吞掉网络错误，会增加定位成本，需保留错误上下文。
   - 最大当前风险是历史合同与 current-facing 文档漂移；重新实现并暴露前必须由 runtime owner 建 task、接入 facade、补定向测试并更新本权威。
 
 ## 6. Validation & Decision Record

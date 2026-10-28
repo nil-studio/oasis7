@@ -38,7 +38,9 @@
 
 ## 6. 本次规范化范围、上下游与状态
 
-本次仅规范化既有经济合同的身份、需求接收和验证计划；原设计正文、参数、接口、签名策略、权限、计划和实现声明原样保留。产品结果由世界规则根定位，专业 PRD 继续拥有规则/数值；P2P/runtime、治理维护者与 QA 分别负责技术、治理和验收，涉及贡献奖励的资格/审批仍归 README reward governance。这里的设计关系和 planned 方法不启用资产、不授权交易，也不是本轮业务测试或生产证据。
+本次仅规范化既有经济合同的身份、需求接收和验证计划；原设计正文、参数、接口、签名策略、权限、计划和实现声明原样保留。
+
+产品结果由世界规则根定位，专业 PRD 继续拥有规则/数值；P2P/runtime、治理维护者与 QA 分别负责技术、治理和验收，涉及贡献奖励的资格/审批仍归 README reward governance。这里的设计关系和 planned 方法不启用资产、不授权交易，也不是本轮业务测试或生产证据。
 
 - 当前基线：2026-10-15，固定文档提交 `cde57786e711b03a9c9fa2a5174aba357e8350d5`；本次只核对文档关系，当前实现与完整验收未核实。
 - 目标：原独立经济结果可从产品条款追至专业规则、有限设计和真实验证入口。
@@ -61,28 +63,36 @@
 
 Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；[专业接受](node-contribution-points.prd.md#economic-contract-points-eligibility) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-eligibility)。
 
-为自身 Agent 模拟是基础义务，不直接获奖励；代跑离线节点、世界维护、有效存储和合格在线仅按原专业规则进入积分计算。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不能推出所有玩家获益、实际采样可信或公开网络安全。
+为自身 Agent 模拟是基础义务，不直接获奖励；代跑离线节点、世界维护、有效存储和合格在线仅按原专业规则进入积分计算。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不能推出所有玩家获益、实际采样可信或公开网络安全。
 
 <a id="des-economic-points-allocation"></a>
 ### 固定双池的确定性且不重复分配
 
 Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；[专业接受](node-contribution-points.prd.md#economic-contract-points-allocation) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-allocation)。
 
-两个固定 epoch 池分别按原合格正得分分配，独立存储池启用时主池排除存储权重；允许未分配余额，保持守恒、排序、惩罚效果和累计单调。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不调整预算/权重/阈值，不证明实际数值平衡。
+两个固定 epoch 池分别按原合格正得分分配，独立存储池启用时主池排除存储权重；允许未分配余额，保持守恒、排序、惩罚效果和累计单调。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不调整预算/权重/阈值，不证明实际数值平衡。
 
 <a id="des-economic-points-recovery"></a>
 ### epoch结算与恢复不重复入账
 
 Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；[专业接受](node-contribution-points.prd.md#economic-contract-points-recovery) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-recovery)。
 
-同一 epoch/node 结算幂等；采样或快照写入不直接增加奖励，恢复、重复tick与replay只能复现结果；不可读collector状态须可观测降级，不是资产对账成功。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：runtime closure草案未完整吸收；不证明已结算资产安全恢复或生产custody。
+同一 epoch/node 结算幂等；采样或快照写入不直接增加奖励，恢复、重复tick与replay只能复现结果；不可读collector状态须可观测降级，不是资产对账成功。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：runtime closure草案未完整吸收；不证明已结算资产安全恢复或生产custody。
 
 <a id="des-economic-points-asset-gates"></a>
 ### 积分与独立资产路径保持门禁
 
 Trace refs: O7-REQ-45b12bd9-9d07-4bbf-86bc-2a85af07d5f5；[专业接受](node-contribution-points.prd.md#economic-contract-points-asset-gates) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-asset-gates)。
 
-积分进入PowerCredit与主链Token bridge是两条独立受治理路径，不是自动兑换或同一池；多激励并用仍需独立审查重复奖励。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不启用资产，不调整兑换比例或发行分桶，不证明兑付readiness。
+积分进入PowerCredit与主链Token bridge是两条独立受治理路径，不是自动兑换或同一池；多激励并用仍需独立审查重复奖励。
+
+本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不启用资产，不调整兑换比例或发行分桶，不证明兑付readiness。
 
 ## 8. 验证设计
 
