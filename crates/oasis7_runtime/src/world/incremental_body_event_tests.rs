@@ -535,3 +535,6 @@ mod moves;
 
 #[path = "incremental_agent_registration_tests.rs"]
 mod registration;
+
+#[path = "incremental_scheduler_tests.rs"]
+mod scheduler;

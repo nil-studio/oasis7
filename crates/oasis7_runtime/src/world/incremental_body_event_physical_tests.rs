@@ -210,6 +210,143 @@ fn physical_registration_reopens_new_fields_and_moves_without_materialized_agent
     assert!(!world.state.agents.contains_key("bob"));
 }
 
+fn scheduler_step(
+    world: &World,
+    parent: ExecutionParent,
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    directive: Option<oasis7_wasm_abi::ModuleTickLifecycleDirective>,
+) -> ReservedValue<oasis7_formal_protocol::incremental_execution::PreparedTransition> {
+    let source = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut sink = store.value_session(physical_io());
+    let values = store.value_session(physical_io());
+    let live = parent.fence().unwrap();
+    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &source, memory, limits()).unwrap();
+    let mut quota = logical_io();
+    let mut ctx = BodyMutationContext {
+        sink: &mut sink,
+        memory,
+        io: &mut quota,
+        cancelled: || false,
+    };
+    // This isolated driver explicitly advances its authenticated clock in the
+    // common transaction; it is not a complete production tick implementation.
+    let clock = oasis7_world_state::incremental_agent_body::world_time_bytes_v1(world.state.time);
+    let id = write_field_bytes(&clock, &mut ctx).unwrap();
+    txn.write(
+        Ns::Allocator,
+        oasis7_world_state::incremental_agent_body::WORLD_TIME_KEY_V1,
+        Some(id),
+    )
+    .unwrap();
+    assert!(
+        world
+            .contribute_iws_due_module_tick(
+                "m#1",
+                &mut txn,
+                &values,
+                &mut ctx,
+                |instance, now, txn, ctx| {
+                    assert_eq!((instance, now), ("m#1", world.state.time));
+                    let key =
+                        oasis7_world_state::incremental_scheduler_fields::ModuleWakeKeyV1::new(
+                            instance,
+                        )
+                        .unwrap();
+                    assert_eq!(txn.read(Ns::Scheduler, key.as_bytes())?, None);
+                    let id = write_field_bytes(&now.to_be_bytes(), ctx)?;
+                    txn.write(Ns::Business, b"module-result", Some(id))?;
+                    Ok(directive)
+                }
+            )
+            .unwrap()
+    );
+    let guard = txn.guard();
+    txn.seal(&guard, &live, 0).unwrap()
+}
+
+#[test]
+fn module_wake_reopens_and_continues_from_the_same_absolute_schedule() {
+    use oasis7_wasm_abi::ModuleTickLifecycleDirective as D;
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (mut world, mut parent, mut state) = fixture(&memory);
+    let mut values = Values::default();
+    seed(
+        &world,
+        &mut parent,
+        &mut state,
+        &mut values,
+        &memory,
+        EventSequenceV1 { next: 1, era: 0 },
+        MailboxFrontierV1 { head: 0, tail: 0 },
+    );
+    world.module_tick_schedule.insert("m#1".into(), 5);
+    world.module_tick_schedule.insert("m#2".into(), 20);
+    super::scheduler::seed_schedules(&world, &mut parent, &mut state, &mut values, &memory);
+    write_field_bytes(
+        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
+        &mut BodyMutationContext {
+            sink: &mut values,
+            memory: &memory,
+            io: &mut logical_io(),
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    let root = directory.0.join("scheduler-pages");
+    let store = IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap();
+    install_fixture_pages(&store, &memory, &state, &values);
+    world.module_tick_schedule.clear(); // all normal point updates use the overlay
+    let first = scheduler_step(
+        &world,
+        parent.clone(),
+        &store,
+        &memory,
+        Some(D::WakeAfterTicks { ticks: 2 }),
+    );
+    let mut source = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    source.persist_transition_pages(&first).unwrap();
+    let next_parent = ExecutionParent {
+        commit: [8; 32],
+        roots: first.record.after.clone(),
+        authority: parent.authority,
+    };
+    world.state.time = 13;
+    let expected = scheduler_step(&world, next_parent.clone(), &store, &memory, None);
+    drop(source);
+    drop(store);
+    let recovery = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let store = IncrementalPageStore::open(
+        &root,
+        recovery.clone(),
+        PageCompression::Raw,
+        MemoryClass::Recovery,
+    )
+    .unwrap();
+    let source = store
+        .state_session(physical_io(), MemoryClass::Recovery)
+        .unwrap();
+    TransitionVerifier {
+        parent: &parent,
+        operation: [4; 32],
+        source: &source,
+        memory: &recovery,
+        class: MemoryClass::Recovery,
+        max_pending_node_bytes: 4 << 20,
+    }
+    .verify(&first.record)
+    .unwrap();
+    let resumed = scheduler_step(&world, next_parent, &store, &recovery, None);
+    assert_eq!(resumed.record, expected.record);
+    assert_eq!(resumed.new_nodes, expected.new_nodes);
+    assert!(world.module_tick_schedule.is_empty());
+}
+
 fn install_fixture_pages(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,

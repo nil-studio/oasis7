@@ -265,7 +265,7 @@ fields! {
     pending_actions => ordered, Ordered, FieldDestination::State(Namespace::Scheduler);
     pending_effects => ordered, Ordered, FieldDestination::State(Namespace::Effects);
     inflight_effects => map, Map, FieldDestination::State(Namespace::Effects);
-    module_tick_schedule => map, Map, FieldDestination::State(Namespace::Scheduler);
+    module_tick_schedule => module_wakes, ByteMap, FieldDestination::State(Namespace::Scheduler);
     module_tick_routing_metrics => routing, Value, FieldDestination::State(Namespace::Scheduler);
     capabilities => map, Map, FieldDestination::State(Namespace::Authorization);
     capability_grants_v2 => map, Map, FieldDestination::State(Namespace::Authorization);

@@ -149,3 +149,4 @@ mod cognition_receipt_binding;
 pub mod segmentation;
 
 pub mod incremental_agent_fields;
+pub mod incremental_scheduler_fields;

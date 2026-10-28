@@ -16,6 +16,18 @@ use oasis7_agent_api::world_action::ModuleInstallTarget;
 
 pub use oasis7_world_state::world::runtime_values::*;
 
+pub(super) fn wake_after_directive(
+    now: u64,
+    directive: Option<&ModuleTickLifecycleDirective>,
+) -> Option<u64> {
+    match directive {
+        Some(ModuleTickLifecycleDirective::WakeAfterTicks { ticks }) => {
+            Some(now.saturating_add((*ticks).max(1)))
+        }
+        Some(ModuleTickLifecycleDirective::Suspend) | None => None,
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ModuleTickRoutingMetrics {
     pub(super) missing_invocation_count: u64,
@@ -312,12 +324,8 @@ impl World {
             )?;
             invoked += 1;
 
-            match output.tick_lifecycle {
-                Some(ModuleTickLifecycleDirective::WakeAfterTicks { ticks }) => {
-                    let wake_after = ticks.max(1);
-                    staged.schedule_tick(instance_id, now.saturating_add(wake_after));
-                }
-                Some(ModuleTickLifecycleDirective::Suspend) | None => {}
+            if let Some(wake) = wake_after_directive(now, output.tick_lifecycle.as_ref()) {
+                staged.schedule_tick(instance_id, wake);
             }
         }
         staged.record_tick_routing_metrics(

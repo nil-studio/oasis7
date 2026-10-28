@@ -132,6 +132,29 @@ fn field_catalogs_cover_runtime_state_and_snapshot_without_building_a_snapshot()
 }
 
 #[test]
+fn module_wakes_use_fixed_bytes_and_reject_unencodable_instance_keys() {
+    let mut world = World::new();
+    world.module_tick_schedule.insert("m#1".into(), 0);
+    world.module_tick_schedule.insert("m#2".into(), u64::MAX);
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    let owner = (FieldOwner::Runtime, "module_tick_schedule");
+    assert_eq!(sink.fields[&owner].shape, FieldShape::ByteMap);
+    assert_eq!(
+        sink.bytes["module_tick_schedule"].1,
+        oasis7_world_state::incremental_scheduler_fields::MODULE_WAKE_BYTES
+    );
+    assert!(!sink.values.contains_key(&owner));
+    world.module_tick_schedule.insert("x".repeat(1024), 7);
+    let before = world.module_tick_schedule.clone();
+    assert!(matches!(
+        world.visit_iws_genesis_fields(&mut Capture::default()),
+        Err(ProjectionError::Invalid("module wake key length"))
+    ));
+    assert_eq!(world.module_tick_schedule, before);
+}
+
+#[test]
 fn maps_and_binary_values_are_borrowed_per_entry_including_skipped_empty_fields() {
     use oasis7_world_state::MaterialLedgerId;
     let mut world = World::new();

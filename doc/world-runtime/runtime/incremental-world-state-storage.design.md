@@ -732,3 +732,16 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4
 批量目录中重复 frame 的索引开销曾使既有大事实流读取额度不足，原反例先判红后修复。单次 read_page 现在只在该页范围复用已校验的 decoded frame，key 包含完整 stored/original digest、length 和 compressed 判别；不按 stored ID 单独猜测内容。条目最多 17、唯一 decoded 总 bytes 不超过该页长度，由已有 decode workspace 准入，返回或失败即释放，不形成全局缓存。所有 occurrence 仍按原顺序复制并核对最终 page digest。format 读取仍单独消费额度；原预算反例按唯一 descriptor 的实际物理读数修正，少掉 format 那一读仍须失败，未增大原事实流的 IO allowance。
 
 局部方法：新增 general_batch 测试独立构造 4 KiB cut 边界，验证 510 个唯一 frames 跨两个 pack、恢复原页及 1 MiB 批次上限。original batch 测试覆盖显式 flush/队列和 charge 释放、最终 flush 无额度、import 摘要不符、取消/unwind、raw/zstd 重导入身份不变，以及三个中间批次 SIGKILL 窗口下无 locator、原身份重试。实际大值在 8 MiB 共享池（3 MiB recovery 预留）中流式写入并重开 64 MiB+17 bytes，逐个 64 KiB 区间有独立位置内容，使用独立分块平面摘要 oracle 全量核对并检查 recipe 硬链接共享；不以重复单页模拟唯一大值工作集。重复 frame 回归还使用 checksum 正确但 original digest 被篡改的 descriptor，确认局部复用不会绕过内容校验。本节仍不代表 Runtime 全字段写入、维护/GC、正式发布、独立持久域或固定 H/S/RSS 验收完成。
+
+
+### 12.26 模块唤醒字段与同事务消费
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 的 module_tick_schedule、稳定 instance 与绝对 wake/clear 控制状态。原字段在创世投影中使用固定 bytes，仍归 Runtime/Scheduler，不再将此字段的 u64 值交给通用 serde 入口。
+
+键为 `oasis7.iws.module-wake-key.v1\0` + UTF-8 byte 长度 u16 + 原 instance ID；长度大端、整体不超过状态 key 的 1024-byte 上限，空 ID、截断、尾随和非法 UTF-8 拒绝。ID 不 trim、不改写为 module ID 或版本；生命周期 owner 负责选择既有语义下的稳定 instance。值为 `oasis7.iws.module-wake.v1\0` + 绝对 simulation time u64（大端），0 与 u64 最大值均合法；不存在由状态叶 absent 表达，不能用 0 代替 clear。World 的借用创世 writer 逐项写值，并有独立条目额度、取消检查和临时输出边界，不 clone 整张 map。
+
+`contribute_iws_module_wake` 供已完成 owner 校验的激活、更新或 clear 使用，读取认证 parent/overlay 的世界时钟及当前值，只写实际变化的键。`contribute_iws_due_module_tick` 对调用者提供的一个 instance 点查：不存在或未来 wake 不执行；到期则先在同一 ExecutionTransaction 清除旧键，再调用受信执行准备回调，最后按回调 directive 重排。回调、此前外层业务及调度写集共用同一个事务；取消、预算、字段内容错误、旧时钟、跨池或回调失败使整次事务不能 seal，World cache 不安装。
+
+唤醒时间计算与现有 tick 路由共用同一个函数：WakeAfterTicks 的相对间隔至少为 1，以当前绝对时钟饱和相加；Suspend/无 directive 不额外重排，保留既有回调中其他合法控制写入的语义。稳定 instance 的另一个版本或同 module 的其他 instance 不被顺带清除。这些点贡献不枚举 due set；正式 driver 仍须从精确根提供有界、完整且每轮去重的 due 集合，特别是最大时钟饱和后不能在同一轮重复消费新写的唤醒。
+
+本节尚未接入认证 due 索引、完整 module invocation/工件绑定、Pure 的 state 限制、费用/原结果事实及确定性 routing metrics；不能用这些函数代签完整路由或 J2。局部方法覆盖独立 wire 向量/UTF-8/key 上限、实际 map 的固定字节创世、条目额度、overlay 与旧 cache 不一致、执行前 clear、零延迟/溢出、挂起、缺失/未来键、坏值、写入不足及晚失败。既有模块路由测试核对共享计算的消费者。实际文件方法 `module_wake_reopens_and_continues_from_the_same_absolute_schedule` 持久化首次 wake 与业务写集，重开后验证 transition，再由隔离 driver 显式暂存新时钟并执行到期 clear，与不中断分支逐 record/新页比较；回调为 fixture，不是实际 WASM/费用或完整世界恢复验收。
