@@ -285,3 +285,64 @@ fn private_goal_prepare_rejects_small_order_r_for_nonweak_owner() {
     assert!(forged.verify().is_err());
     assert!(forged.validate_against(&control(&forged.request)).is_err());
 }
+
+#[test]
+fn scoped_goal_chain_nested_repeats_crypto_but_never_skips_receipt_semantics() {
+    use crate::world_service::{private_goal_read::*, request_digest, sign_service_response};
+    let original = sign_goal_prepare(request(), &key()).unwrap();
+    let salt = [19u8; 32];
+    let receipt = PreparedGoalReceiptV1 {
+        schema_revision: 1,
+        goal_ref: prepared_goal_commitment(&salt, &original).unwrap(),
+        reference_salt: hex::encode(salt),
+        owner_proof: original.clone(),
+    };
+    let service = hex::encode([31; 32]);
+    let pin = sign_read_request("pin", (), &service)
+        .unwrap()
+        .subject_public_key;
+    let response = sign_service_response(
+        GOAL_PREPARE_PATH,
+        request_digest(GOAL_PREPARE_PATH, &original).unwrap(),
+        receipt.clone(),
+        &service,
+    )
+    .unwrap();
+    let mut scope = StrictOwnerSignatureScope::default();
+    #[cfg(feature = "signature-metrics")]
+    signature_metrics::begin_scope();
+    verify_prepare_response_with_signature_scope(&original, &response, &pin, &mut scope).unwrap();
+    verify_prepare_response_with_signature_scope(&original, &response, &pin, &mut scope).unwrap();
+    let observed = scope.summary();
+    assert_eq!(
+        (
+            observed.nested_calls,
+            observed.nested_repeats,
+            observed.strict_attempts,
+            observed.tracked_tuples
+        ),
+        (4, 2, 2, 2)
+    );
+    #[cfg(feature = "signature-metrics")]
+    assert_eq!(signature_metrics::take_summary().strict_attempts, 2);
+    let mut bad = receipt;
+    bad.reference_salt = "ab".repeat(32);
+    let semantic = sign_service_response(
+        GOAL_PREPARE_PATH,
+        response.request_digest.clone(),
+        bad,
+        &service,
+    )
+    .unwrap();
+    assert!(
+        verify_prepare_response_with_signature_scope(&original, &semantic, &pin, &mut scope)
+            .is_err()
+    );
+    // The newly signed packet and its owner proof are cryptographically valid;
+    // the repeated semantic commitment check must nevertheless reject it.
+    assert_eq!(scope.summary().failures, 0);
+    verify_prepare_response(&original, &response, &pin).unwrap();
+}
+
+#[path = "current_scoped_tests.rs"]
+mod current_scoped_tests;

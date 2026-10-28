@@ -219,7 +219,9 @@ impl AccountProvisionApprovalState {
             funding,
         } = reservation;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        if s.purpose_http_admissions.contains_key(operation_id) {
+        if s.purpose_http_admissions.contains_key(operation_id)
+            || Self::termination_attempt_occupied(s, operation_id)
+        {
             return Err(ProvisionApprovalError::Conflict);
         }
         if let Some(old) = s.sources.get(operation_id) {

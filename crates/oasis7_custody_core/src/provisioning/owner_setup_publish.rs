@@ -84,9 +84,14 @@ impl AccountProvisionApprovalState {
         id: &str,
         candidate: &OwnerSetupCandidateV1,
         expected: &OwnerSetupSigningBundleV1,
-        signature_scope: Option<&mut RestoreSignatureScope>,
+        mut signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
-        self.validate_owner_setup_original(id, &candidate.original, &expected.action)?;
+        self.validate_owner_setup_original_scoped(
+            id,
+            &candidate.original,
+            &expected.action,
+            signature_scope.as_deref_mut(),
+        )?;
         let key = &self
             .provision
             .role_key(Role::Owner)
@@ -215,11 +220,12 @@ impl AccountProvisionApprovalState {
         *self = next;
         Ok(())
     }
-    pub(super) fn validate_owner_setup_original(
+    pub(super) fn validate_owner_setup_original_scoped(
         &self,
         id: &str,
         original: &OwnerSetupOriginalV1,
         expected: &OwnerSetupSigningRequestV1,
+        signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
         let v = self.owner_setups.get(id).ok_or_else(invalid)?;
         let key = &self
@@ -272,7 +278,11 @@ impl AccountProvisionApprovalState {
                 if s.subject_public_key != *key || s.request != *r {
                     return Err(invalid());
                 }
-                s.verify().map_err(|_| invalid())?;
+                match signature_scope {
+                    Some(scope) => s.verify_with_signature_scope(scope.sdk()),
+                    None => s.verify(),
+                }
+                .map_err(|_| invalid())?;
             }
             (
                 OwnerSetupOriginalV1::FinalObservation { owner, goal },

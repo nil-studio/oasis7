@@ -117,7 +117,7 @@ pub(crate) async fn dispatch(
                 .reserve_test_session_preflight_oracle(id, source, role)
                 .map_err(|_| denied())?;
             let started = clock()?;
-            let observed = if role == Role::Owner && oracle_ticket == 3 {
+            let observed = if role == Role::Owner && matches!(oracle_ticket, 3 | 4) {
                 session_authority::runtime_observe_paid_factory(env, &saved, &rpc.request, source)
                     .await?
             } else {
@@ -153,12 +153,12 @@ pub(crate) async fn dispatch(
             let (source_ticket, oracle_ticket) = store
                 .reserve_test_session_preflight_oracle(id, source, role)
                 .map_err(|_| denied())?;
-            if oracle_ticket != 5 {
+            if role != Role::Owner || oracle_ticket != 5 {
                 return Err(denied());
             }
             let started = clock()?;
             let observed =
-                session_authority::runtime_observe(env, &saved, &rpc.request, source, false)
+                session_authority::runtime_observe_paid_factory(env, &saved, &rpc.request, source)
                     .await?;
             json(
                 store

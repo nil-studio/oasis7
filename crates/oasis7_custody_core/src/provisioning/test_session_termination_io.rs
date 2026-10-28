@@ -95,6 +95,12 @@ impl AccountProvisionApprovalState {
         if !id_nonempty(attempt) {
             return Err(invalid());
         }
+        if Self::session_transport_attempt_occupied(
+            self.test_sessions.get(id).ok_or_else(invalid)?,
+            attempt,
+        ) {
+            return Err(ProvisionApprovalError::Conflict);
+        }
         let mut next = self.clone();
         let s = next.test_sessions.get_mut(id).ok_or_else(invalid)?;
         if s.closing.is_none() {
@@ -125,6 +131,11 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<OwnerSetupOriginalV1> {
+        // Legacy API can claim a write only; readonly recovery requires the
+        // atomic, specifically linked paid lookup API below.
+        if lookup {
+            return Err(invalid());
+        }
         verifier.verify(&self.termination_current_checks(id, kind, current, now)?)?;
         let mut next = self.clone();
         let slot = next
@@ -132,22 +143,12 @@ impl AccountProvisionApprovalState {
             .get_mut(id)
             .and_then(|s| s.termination_slots.get_mut(&kind))
             .ok_or_else(invalid)?;
-        if slot.transport_attempts.is_empty()
-            || slot.result.is_some()
-            || if lookup {
-                slot.lookup_claimed_at.is_some() || slot.claimed_at.is_none()
-            } else {
-                slot.claimed_at.is_some()
-            }
+        if slot.transport_attempts.is_empty() || slot.result.is_some() || slot.claimed_at.is_some()
         {
             return Err(invalid());
         }
         let original = slot.signed.as_ref().ok_or_else(invalid)?.as_ref().clone();
-        if lookup {
-            slot.lookup_claimed_at = Some(now)
-        } else {
-            slot.claimed_at = Some(now)
-        }
+        slot.claimed_at = Some(now);
         next.validate_persistence()?;
         *self = next;
         Ok(original)
@@ -163,19 +164,53 @@ impl AccountProvisionApprovalState {
         id: &str,
         kind: TerminationOperationV1,
         result: &OwnerSetupResultV1,
-        current: &TestSessionLiveCurrent<'_, '_>,
+        current: &TestSessionTerminationCurrent<'_, '_, '_>,
         now: UnixMillis,
     ) -> Result<ExactSignatureChecks> {
-        self.require_session_source_funding(
-            id,
-            current.source_operation_id,
-            SessionSourceFundingV1::TerminationPlan,
-        )?;
-        let checks =
-            self.test_session_live_checks(id, SessionPurposeV1::TerminationPlan, current, now)?;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
         let slot = s.termination_slots.get(&kind).ok_or_else(invalid)?;
         self.validate_termination_result(s, slot, result)?;
+        let source = result.canonical_fact().ok_or_else(invalid)?.source;
+        if slot.observations.get(&source) != Some(result) {
+            return Err(invalid());
+        }
+        // A selected exact archived terminal fact can be currently admitted.
+        // Rejection proves known failure, not the poststate of a successful effect;
+        // nonterminal responses remain immutable facts only.
+        let OwnerSetupResultV1::Canonical { response, .. } = result else {
+            return Err(invalid());
+        };
+        if !matches!(
+            response.payload.outcome,
+            ws::IntentOutcome::Committed { .. } | ws::IntentOutcome::Rejected { .. }
+        ) {
+            return Err(invalid());
+        }
+        let checks = self.termination_current_checks_with_stop_result(
+            id,
+            kind,
+            current,
+            now,
+            if kind == TerminationOperationV1::Stop
+                && matches!(
+                    response.payload.outcome,
+                    ws::IntentOutcome::Committed { .. }
+                )
+            {
+                Some(result)
+            } else {
+                None
+            },
+        )?;
+        if let TerminationPayloadV1::Revoke(expected) = &slot.payload
+            && matches!(
+                response.payload.outcome,
+                ws::IntentOutcome::Committed { .. }
+            )
+            && current.world.response.payload.signer_delegation.as_ref() != Some(expected)
+        {
+            return Err(invalid());
+        }
         Ok(append_owner_setup_checks(
             checks,
             OwnerSetupSignatureFact::Result(result, &s.termination.world.service_public_key),
@@ -267,14 +302,29 @@ impl AccountProvisionApprovalState {
         id: &str,
         kind: TerminationOperationV1,
         result: OwnerSetupResultV1,
-        current: &TestSessionLiveCurrent<'_, '_>,
+        current: &TestSessionTerminationCurrent<'_, '_, '_>,
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<()> {
-        verifier.verify(
-            &self.test_session_termination_result_checks(id, kind, &result, current, now)?,
-        )?;
         let mut next = self.clone();
+        let world_public_key = next
+            .test_sessions
+            .get(id)
+            .ok_or_else(invalid)?
+            .termination
+            .world
+            .service_public_key
+            .clone();
+        next.archive_test_session_termination_fact(
+            id,
+            kind,
+            result.clone(),
+            &world_public_key,
+            verifier,
+        )?;
+        verifier.verify(
+            &next.test_session_termination_result_checks(id, kind, &result, current, now)?,
+        )?;
         let slot = next
             .test_sessions
             .get_mut(id)
@@ -299,3 +349,6 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+#[path = "test_session_termination_recovery.rs"]
+mod recovery;

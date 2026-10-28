@@ -2,6 +2,7 @@
 use super::authority::request_digest;
 use super::private_goal::PreparedGoalReceiptV1;
 use super::private_goal::SignedGoalPrepareV1;
+use super::private_goal::{StrictOwnerSignatureScope, verify_owner_signature_with_scope};
 use super::*;
 use oasis7_agent_api::game::{GameGoalPublishV1, GameTaskControlV1};
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,12 @@ pub struct CurrentGoalResponse {
 pub fn verify_current_request(
     request: &SignedReadRequest<CurrentGoalRequest>,
 ) -> Result<(), String> {
+    verify_current_request_with_scope(request, None)
+}
+fn verify_current_request_with_scope(
+    request: &SignedReadRequest<CurrentGoalRequest>,
+    scope: Option<&mut StrictOwnerSignatureScope>,
+) -> Result<(), String> {
     let r = &request.request;
     if r.schema_revision != 1
         || [
@@ -40,11 +47,12 @@ pub fn verify_current_request(
     {
         return Err("invalid current goal request".into());
     }
-    super::private_goal::verify_owner_signature_strict(
+    verify_owner_signature_with_scope(
         GOAL_CURRENT_PATH,
         r,
         &request.subject_public_key,
         &request.signature_hex,
+        scope,
     )
 }
 pub fn verify_prepare_response(
@@ -52,15 +60,32 @@ pub fn verify_prepare_response(
     response: &SignedServiceResponse<PreparedGoalReceiptV1>,
     configured_service_key: &str,
 ) -> Result<(), String> {
+    verify_prepare_response_with_scope(original, response, configured_service_key, None)
+}
+pub fn verify_prepare_response_with_signature_scope(
+    original: &SignedGoalPrepareV1,
+    response: &SignedServiceResponse<PreparedGoalReceiptV1>,
+    configured_service_key: &str,
+    scope: &mut StrictOwnerSignatureScope,
+) -> Result<(), String> {
+    verify_prepare_response_with_scope(original, response, configured_service_key, Some(scope))
+}
+fn verify_prepare_response_with_scope(
+    original: &SignedGoalPrepareV1,
+    response: &SignedServiceResponse<PreparedGoalReceiptV1>,
+    configured_service_key: &str,
+    mut scope: Option<&mut StrictOwnerSignatureScope>,
+) -> Result<(), String> {
     verify_private_response(
         GOAL_PREPARE_PATH,
         &request_digest(GOAL_PREPARE_PATH, original)?,
         response,
         configured_service_key,
+        scope.as_deref_mut(),
     )?;
     response
         .payload
-        .validate_against(original)
+        .validate_against_with_scope(original, scope)
         .map_err(|e| e.to_string())
 }
 pub fn publication(
@@ -68,8 +93,16 @@ pub fn publication(
     receipt: &PreparedGoalReceiptV1,
     publish_operation_id: String,
 ) -> Result<GameGoalPublishV1, String> {
+    publication_with_scope(original, receipt, publish_operation_id, None)
+}
+fn publication_with_scope(
+    original: &SignedGoalPrepareV1,
+    receipt: &PreparedGoalReceiptV1,
+    publish_operation_id: String,
+    scope: Option<&mut StrictOwnerSignatureScope>,
+) -> Result<GameGoalPublishV1, String> {
     receipt
-        .validate_against(original)
+        .validate_against_with_scope(original, scope)
         .map_err(|e| e.to_string())?;
     let r = &original.request;
     let publish = GameGoalPublishV1 {
@@ -98,12 +131,29 @@ pub fn verify_current_response(
     response: &SignedServiceResponse<CurrentGoalResponse>,
     configured_service_key: &str,
 ) -> Result<(), String> {
-    verify_current_request(original)?;
+    verify_current_response_with_scope(original, response, configured_service_key, None)
+}
+pub fn verify_current_response_with_signature_scope(
+    original: &SignedReadRequest<CurrentGoalRequest>,
+    response: &SignedServiceResponse<CurrentGoalResponse>,
+    configured_service_key: &str,
+    scope: &mut StrictOwnerSignatureScope,
+) -> Result<(), String> {
+    verify_current_response_with_scope(original, response, configured_service_key, Some(scope))
+}
+fn verify_current_response_with_scope(
+    original: &SignedReadRequest<CurrentGoalRequest>,
+    response: &SignedServiceResponse<CurrentGoalResponse>,
+    configured_service_key: &str,
+    mut scope: Option<&mut StrictOwnerSignatureScope>,
+) -> Result<(), String> {
+    verify_current_request_with_scope(original, scope.as_deref_mut())?;
     verify_private_response(
         GOAL_CURRENT_PATH,
         &request_digest(GOAL_CURRENT_PATH, original)?,
         response,
         configured_service_key,
+        scope.as_deref_mut(),
     )?;
     let r = &original.request;
     let p = &response.payload;
@@ -139,12 +189,14 @@ pub fn verify_current_response(
             reference.validate()?;
             commit.validate().map_err(|e| e.to_string())?;
             let proof = &goal.owner_proof.request;
-            let public = publication(
+            let public = publication_with_scope(
                 &goal.owner_proof,
                 goal,
                 reference.publish_operation_id.clone(),
+                scope.as_deref_mut(),
             )?;
-            goal.validate_publish(&public).map_err(|e| e.to_string())?;
+            goal.validate_publish_with_scope(&public, scope)
+                .map_err(|e| e.to_string())?;
             if reference.goal_ref != goal.goal_ref
                 || reference.goal_revision != proof.goal_revision
                 || reference.prepare_operation_id != proof.client_operation_id
@@ -186,14 +238,16 @@ fn verify_private_response<T: Serialize>(
     digest: &str,
     response: &SignedServiceResponse<T>,
     key: &str,
+    scope: Option<&mut StrictOwnerSignatureScope>,
 ) -> Result<(), String> {
     if response.request_digest != digest {
         return Err("private response request mismatch".into());
     }
-    super::private_goal::verify_owner_signature_strict(
+    verify_owner_signature_with_scope(
         path,
         &(&response.request_digest, &response.payload),
         key,
         &response.signature_hex,
+        scope,
     )
 }
