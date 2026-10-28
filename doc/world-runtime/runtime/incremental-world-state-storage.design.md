@@ -353,3 +353,17 @@ Trace refs: O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4
 put/delete 均携带原 value digest 或明确 absent 的前置条件。构造与独立重建验证只读取实际 key 路径；输出按 digest 排序的最终新可达节点，排除认证父树已有节点和同批临时路径。物理池命中不改变输出。事务 pending bytes 是操作额度，超限报告受限，不改变逻辑树形或产生不同的成功根。presence/absence proof 最多包含 257 个有序节点；缺页、损坏或未完成证明不返回业务不存在。
 
 冻结向量由 `oasis7_formal_protocol::incremental_state::tests::state_profile_vectors` 承载；独立全量 map/逐层重建 oracle 核对 put、替换、删除及新旧节点集合差。原业务索引的递归兼容 oracle 保留，用于核对共享路径算法调整不改变旧格式字节。
+
+### 12.4 v1 大值树与有界范围读取
+
+Trace refs: O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.1 的 ValueChunkTree 与 §8.2 的工作量/内存边界。逻辑值按固定 64 KiB 切块，只有末块可不足；空值有一个长度为零的叶块。索引 fanout 固定为 128，逐层从左至右组成等高子树；除末子树外，每个子树覆盖其深度的完整容量。最小高度的根不保留冗余单子节点层。物理 CDC、压缩或 pack 不参与该构造，不能由网络 buffer 或额度改变逻辑切块。
+
+所有整数为大端，所有对象 ID 为原始 BLAKE3 32 bytes。值节点编码为 `oasis7.iws.value-tree.v1\0` + `u32` payload 长度 + payload。叶 payload 是 tag=0（`u8`）+ 原 bytes；索引 payload 是 tag=1 + depth（`u8`）+ 逻辑总长度（`u64`）+ child count（`u16`）+ 按原顺序排列的 child（`u64` 长度 + digest）。child count 为 1..128，depth 为 1..7，child 深度必须恰少一层；总长度、非末子树完整长度和末子树范围均核对。节点编码超过 65,600 bytes、未知格式、截断、尾随内容、错误长度或 digest 均拒绝。
+
+ValueRoot 编码为 `oasis7.iws.value-root.v1\0` + `u32(41)` + 顶层节点 ID + 逻辑长度（`u64`）+ depth（`u8`），其 digest 是状态叶的 value 引用。总逻辑长度使用 `u64`，depth 最大 7；这不是一次操作可物化的长度。root 与各索引页通过 typed 边进入保留闭包。根校验、树节点校验、范围完成与完整闭包完成分别判定，窄读成功不代签整值完整或持久资格。
+
+构造只保留固定块和每层至多 127 个待封闭引用；读取先按已认证索引选择交叠子树，再访问交叠块，不读取/解码全部前缀。输入长度明确绑定本次对象，构造不消耗其后的另一对象。范围越界和算术溢出拒绝；读取输出在操作成功前为临时结果，取消、缺页、IO/内存受限不能返回业务不存在或完整复制成功。
+
+共享 reservation 基础位于 `oasis7_proto::memory_budget`，CAS 保留同一类型的重导出；写入、读取与缓存使用同一个进程池。值树写入先申请 512 KiB 工作空间，读取申请 128 KiB；编码输出在分配前另申请额度，sink/缓存/reader 接管其 charge，最后一个持有者释放后才归还。读取拒绝另一预算池或低于实际 Vec capacity 的 carrier。适配器的输入、输出、元数据和物理解码缓冲另按所属阶段计费；这些固定逻辑工作空间不替代 allocator retained、RSS 或设备 IO 测量。节点数、输入/encoded read bytes、encoded write/输出 bytes 作为操作额度提前扣除，恢复使用总额内专用预留；原 authority 与资格独立检查。
+
+编码向量和独立逐层重建模型见 `oasis7_formal_protocol::incremental_value::tests`；实际文件系统的超 64 MiB 流与窄读方法见同模块 `streaming_tests`。这些组件证据不代替 §11 的新世界接线、完整历史、跨进程恢复、全进程计费和必要故障域验收。

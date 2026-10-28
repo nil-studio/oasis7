@@ -7,3 +7,4 @@ pub mod snapshot_delta;
 pub mod native_environment;
 mod merkle;
 pub mod incremental_state;
+pub mod incremental_value;

@@ -136,6 +136,10 @@ impl<T> ReservedValue<T> {
     pub fn reserved_bytes(&self) -> usize {
         self.reservation.bytes()
     }
+
+    pub fn uses_budget(&self, budget: &MemoryBudget) -> bool {
+        Arc::ptr_eq(&self.reservation.pool, &budget.0)
+    }
 }
 
 impl<T> std::ops::Deref for ReservedValue<T> {

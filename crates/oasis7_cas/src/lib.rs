@@ -26,7 +26,7 @@ pub use local_blob_codec::{BlobReadReceipt, decode_local_blob_into};
 mod challenge;
 mod challenge_scheduler;
 mod compressed_range_cache;
-pub mod memory_budget;
+pub use oasis7_proto::memory_budget;
 mod manifest;
 mod pin_store;
 mod retention;
