@@ -247,19 +247,29 @@ async fn activate(
         .reserve_test_session_source_read(id, &descriptor.source_operation_id)
         .map_err(|_| denied())?;
     let started = clock()?;
+    let attestation_request = serde_json::to_string(&TestSessionAttestationRequest {
+        session: s.session.clone(),
+        lifetime: lifetime.clone(),
+    })?;
+    // These fixed readonly inputs depend only on the same saved originals. Start
+    // all three after prepayment; retain the common earliest observation bound.
+    let (attested, enrolled, observed) = activation_inputs(
+        attest(env, &attestation_request),
+        session_authority::enrollment(env, enrollment_id(&s.input)?),
+        session_authority::runtime_observe(
+            env,
+            saved,
+            request,
+            &descriptor.source_operation_id,
+            false,
+        ),
+    )
+    .await;
     let attestation: TestSessionPrivateAttestation =
-        serde_json::from_str(&super::super::super::text(
-            attest(
-                env,
-                &serde_json::to_string(&TestSessionAttestationRequest {
-                    session: s.session.clone(),
-                    lifetime: lifetime.clone(),
-                })?,
-            )
-            .await
-            .map_err(|_| denied())?,
-        )?)
-        .map_err(|_| denied())?;
+        serde_json::from_str(&super::super::super::text(attested.map_err(|_| denied())?)?)
+            .map_err(|_| denied())?;
+    let enrolled = enrolled?;
+    let observed = observed?;
     if attestation.session_ref != s.session.session_ref
         || attestation.private_sid_generation != s.session.private_sid_generation
         || attestation.private_sid_generation != generation
@@ -267,15 +277,6 @@ async fn activate(
     {
         return Err(denied());
     }
-    let enrolled = session_authority::enrollment(env, enrollment_id(&s.input)?).await?;
-    let observed = session_authority::runtime_observe(
-        env,
-        saved,
-        request,
-        &descriptor.source_operation_id,
-        false,
-    )
-    .await?;
     store
         .activate_test_session(
             id,
@@ -288,6 +289,46 @@ async fn activate(
         .await
         .map_err(|_| denied())?;
     progress(store, id)
+}
+
+// Poll every independent read without spawning tasks or introducing a runtime
+// dependency. Completed futures are never polled again, including error results.
+async fn activation_inputs<A, B, C>(a: A, b: B, c: C) -> (A::Output, B::Output, C::Output)
+where
+    A: std::future::Future,
+    B: std::future::Future,
+    C: std::future::Future,
+{
+    use std::future::poll_fn;
+    use std::task::Poll;
+    let (mut a, mut b, mut c) = (std::pin::pin!(a), std::pin::pin!(b), std::pin::pin!(c));
+    let (mut first, mut second, mut third) = (None, None, None);
+    poll_fn(|cx| {
+        if first.is_none() {
+            if let Poll::Ready(value) = a.as_mut().poll(cx) {
+                first = Some(value);
+            }
+        }
+        if second.is_none() {
+            if let Poll::Ready(value) = b.as_mut().poll(cx) {
+                second = Some(value);
+            }
+        }
+        if third.is_none() {
+            if let Poll::Ready(value) = c.as_mut().poll(cx) {
+                third = Some(value);
+            }
+        }
+        match (&first, &second, &third) {
+            (Some(_), Some(_), Some(_)) => Poll::Ready((
+                first.take().expect("completed attestation read"),
+                second.take().expect("completed enrollment read"),
+                third.take().expect("completed authority read"),
+            )),
+            _ => Poll::Pending,
+        }
+    })
+    .await
 }
 
 fn progress(store: &OwnerProvisionApprovalStore, id: &str) -> Result<String> {

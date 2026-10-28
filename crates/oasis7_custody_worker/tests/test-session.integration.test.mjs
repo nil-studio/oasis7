@@ -24,6 +24,7 @@ let identitySecretsDisabled=false;
 let identityCloseReadTrap=false;
 let accountAlarmFixtureActive=false;
 let accountAlarmFault=null;
+let activationReadDelay=false;
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
   let configuredRoles=0;
@@ -46,6 +47,10 @@ function configureOptions(options){
         return module;
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
+    }
+    if(activationReadDelay&&worker.name==='owner'){
+      worker.bindings={...worker.bindings,FIXTURE_ACTIVATION_READ_DELAY:'true',FIXTURE_ACTIVATION_READ_MODE:typeof activationReadDelay==='string'?activationReadDelay:'together'};
+      worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/activation_read_delay_runtime.mjs')},...worker.modules];
     }
     if(accountAlarmFault&&worker.name==='owner'){
       worker.bindings={...worker.bindings,FIXTURE_TEST_SESSION_ALARM_FAULT:accountAlarmFault};
@@ -148,9 +153,9 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,id],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
-async function withActiveSession(run,{lostInitial=false,approvalFault=null}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
-  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;
+  ownerDiagnosticActive=false;identityDiagnosticActive=false;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -192,6 +197,7 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null}={}){
     const consumed=await json(await runtime.managementFetch('/test-sessions/approve',{api_version:1,input:{operation_id:basis.session_id,request,approval},plan}));
     assert.equal(consumed.stage,'consumed_pending_preflight');assert.deepEqual(consumed.purposes,[]);assert.equal(consumed.identity_control_http_remaining,'159');
     await runtime.suspend();const beforeState=stored(runtime,basis.session_id);assert.equal(beforeState.consumed,true);assert.deepEqual(beforeState.roots,[]);assert.equal(beforeState.approved,false);
+    if(preflightCase){await preflightCase(runtime,basis,selectedMode);return;}
     await runtime.restart(selectedMode);
     const before=runtime.nativeRequests();
     const activeResponse=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
@@ -711,4 +717,57 @@ test('unknown real Account inventory keeps its earlier alarm and strict public r
       assert.deepEqual(runtime.nativeRequests(),native);assert.deepEqual(publicClientCounters(runtime,basis.session_id),counters,'unknown inventory cannot spend session budgets or dispatch');
     }finally{accountAlarmFault=null;}
   });
+});
+
+
+test('actual activation independent readonly inputs complete together under the original freshness window',{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('the controlled preflight callback owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    activationReadDelay=true;
+    try{
+      await runtime.restart(selectedMode);
+      const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;
+      const reads=await runtime.activationReadDelayStatus();
+      const after=runtime.nativeRequests();
+      const paths={'/custody/management-session-status':1,'/custody/approvals/verify':1,'/participant/policy-original':1,'/participant/authorize':1,'/custody/managed-bindings/session-status':2,'/custody/managed-bindings/session-lifetime':1,'/participant/owner-view':1};
+      if(status!==200){
+        await response.arrayBuffer();await runtime.suspend();
+        const native_request_deltas=Object.fromEntries(Object.keys(paths).map(path=>[path,(after[path]??0)-(before[path]??0)]));
+        console.error(JSON.stringify({activation_read_delay_failure:{status,...reads,native_request_deltas,state:continueFailureState(runtime,basis.session_id)}}));
+      }
+      assert.equal(status,200,'activation must succeed with both actual independent readonly inputs inside its unchanged freshness window');
+      for(const [path,count] of Object.entries(paths))assert.equal((after[path]??0)-(before[path]??0),count,'the controlled delay must preserve actual native hop counts');
+      assert.equal(reads.history_reads,1);assert.equal(reads.enrollment_reads,1,'successful activation must invoke both actual fixed bindings exactly once');
+      assert.equal(reads.released,'independent_reads_started');assert.ok(reads.elapsed_ms<5000,'the batching delay is released only when both independent requests start');
+      const result=await response.json();assert.equal(result.stage,'active');assert.equal(result.purposes.length,3);assert.equal(result.identity_control_http_remaining,'152');
+      const roots=Object.fromEntries(result.purposes.map(p=>[p.purpose,p.transport_remaining]));assert.deepEqual(roots,{execution:'400',reconcile_read:'300',termination_plan:'24'});
+    }finally{activationReadDelay=false;}
+  }});
+});
+
+for(const fault of ['reject_history','over_window'])test(`actual concurrent activation rejects ${fault} without granting roots`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('the controlled preflight callback owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    activationReadDelay=fault;
+    try{
+      await runtime.restart(selectedMode);
+      const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;await response.arrayBuffer();
+      const reads=await runtime.activationReadDelayStatus();
+      const after=runtime.nativeRequests();
+      assert.equal(reads.history_reads,1);assert.equal(reads.enrollment_reads,1,'both concurrent fixed readonly inputs must actually start');
+      if(fault==='reject_history'){
+        assert.equal(reads.history_completed,1,'the fault never replaces the actual private history read');
+        assert.equal(reads.history_rejected,true);assert.equal(reads.released,'independent_reads_started');assert.ok(reads.elapsed_ms<5000);
+      }else{
+        assert.equal(reads.history_rejected,false);assert.equal(reads.released,'bounded_timeout');assert.ok(reads.elapsed_ms>=5000);
+      }
+      assert.equal(status,503,'failed or stale readonly input cannot authorize activation');
+      const paths={'/custody/management-session-status':1,'/custody/approvals/verify':1,'/participant/policy-original':1,'/participant/authorize':1,'/custody/managed-bindings/session-status':2,'/custody/managed-bindings/session-lifetime':1,'/participant/owner-view':1};
+      for(const [path,count] of Object.entries(paths))assert.equal((after[path]??0)-(before[path]??0),count,'concurrent rejection cannot add native refreshes or retry business');
+      await runtime.suspend();const finalState=stored(runtime,basis.session_id);
+      assert.equal(finalState.consumed,true);assert.equal(finalState.approved,false);assert.deepEqual(finalState.roots,[]);assert.equal(finalState.credentials,0);assert.equal(finalState.terminations,0);assert.equal(finalState.reads,5);assert.deepEqual(finalState.source_reads,[7]);
+    }finally{activationReadDelay=false;}
+  }});
 });
