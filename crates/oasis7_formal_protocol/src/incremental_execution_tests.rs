@@ -693,3 +693,68 @@ fn caught_reader_panic_cannot_reenable_partial_seal() {
         "caught panic must leave transaction aborted"
     );
 }
+
+#[test]
+fn external_contribution_failures_cannot_seal_partial_reducers() {
+    for mode in 0..4 {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut txn =
+            ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            txn.contribute::<(), ExecutionError>(|txn| {
+                txn.write(StateNamespaceV1::Business, b"debit", Some([1; 32]))?;
+                match mode {
+                    0 => Err(ExecutionError::ResourceLimited("serializer/sink")),
+                    1 => panic!("sink panic"),
+                    2 => {
+                        let _ = txn.read(StateNamespaceV1::Business, &[0; 1025]);
+                        Ok(())
+                    }
+                    _ => {
+                        let _ = txn.contribute::<(), ExecutionError>(|_| {
+                            Err(ExecutionError::Invalid("nested reducer"))
+                        });
+                        Ok(())
+                    }
+                }
+            })
+        }));
+        assert!(!matches!(outcome, Ok(Ok(()))));
+        let guard = txn.guard();
+        assert!(matches!(
+            txn.seal(&guard, &live, 0),
+            Err(ExecutionError::Aborted)
+        ));
+        assert_eq!(memory.used(), 64); // only retained guard identity
+    }
+}
+
+#[test]
+fn successful_nested_contributions_share_overlay_and_revision() {
+    let pages = Pages::default();
+    let memory = memory();
+    let parent = empty_parent();
+    let live = parent.fence().unwrap();
+    let mut txn = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+    let old = txn.guard();
+    txn.contribute::<(), ExecutionError>(|txn| {
+        txn.write(StateNamespaceV1::Business, b"debit", Some([1; 32]))?;
+        txn.contribute(|txn| {
+            assert_eq!(
+                txn.read(StateNamespaceV1::Business, b"debit")?,
+                Some([1; 32])
+            );
+            txn.write(StateNamespaceV1::Business, b"credit", Some([2; 32]))
+        })
+    })
+    .unwrap();
+    assert!(matches!(
+        txn.validate_guard(&old, &live),
+        Err(ExecutionError::StaleGuard)
+    ));
+    let guard = txn.guard();
+    assert_eq!(txn.seal(&guard, &live, 0).unwrap().record.writes.len(), 2);
+}

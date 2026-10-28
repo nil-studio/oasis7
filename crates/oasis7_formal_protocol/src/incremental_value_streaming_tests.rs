@@ -162,3 +162,50 @@ fn value_above_old_sixty_four_mib_limit_streams_under_one_mib_of_reservations() 
     std::fs::write(path, index_bytes).unwrap();
     assert_eq!(memory.used(), 0);
 }
+
+#[test]
+fn push_serializer_above_sixty_four_mib_keeps_bounded_workspace() {
+    let memory = MemoryBudget::new(1024 * 1024, 256 * 1024).unwrap();
+    let mut files = Files::new(memory.clone());
+    let size = 64 * 1024 * 1024 + 17;
+    let mut quota = ValueIoBudget {
+        nodes_remaining: 2048,
+        read_bytes_remaining: size,
+        write_bytes_remaining: size + 1024 * 1024,
+    };
+    let mut writer =
+        ValueStreamWriter::new(&mut files, &memory, &mut quota, size, || false).unwrap();
+    let mut input = Pattern { position: 0 };
+    let mut buffer = [0; 4093];
+    let mut remaining = size;
+    while remaining > 0 {
+        let len = remaining.min(buffer.len() as u64) as usize;
+        input.read_exact(&mut buffer[..len]).unwrap();
+        writer.write_all(&buffer[..len]).unwrap();
+        remaining -= len as u64;
+    }
+    let root = writer.finish().unwrap();
+    assert_eq!(root.0.logical_len, size);
+    assert!(files.peak_charge.get() <= 768 * 1024);
+    assert_eq!(memory.used(), 0);
+    let mut output = Vec::new();
+    let mut io = ValueIoBudget {
+        nodes_remaining: 32,
+        read_bytes_remaining: 256 * 1024,
+        write_bytes_remaining: 17,
+    };
+    ValueReadContext {
+        source: &files,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        io: &mut io,
+    }
+    .read_range(&root, size - 17, 17, &mut output, || false)
+    .unwrap();
+    assert_eq!(
+        output,
+        ((size - 17)..size)
+            .map(|i| (i % 251) as u8)
+            .collect::<Vec<_>>()
+    );
+}

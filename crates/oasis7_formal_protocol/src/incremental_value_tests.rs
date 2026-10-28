@@ -514,3 +514,102 @@ fn operation_allowances_accept_exact_work_and_reject_one_less_in_each_dimension(
         }
     }
 }
+
+#[test]
+fn push_serializer_boundaries_match_pull_identity_and_pages() {
+    for length in [
+        0,
+        1,
+        VALUE_CHUNK_BYTES,
+        VALUE_CHUNK_BYTES + 17,
+        VALUE_CHUNK_BYTES * 129 + 7,
+    ] {
+        let data: Vec<_> = (0..length).map(|i| (i % 251) as u8).collect();
+        let (expected, pull, memory) = build(&data);
+        for step in [1, 4093, VALUE_CHUNK_BYTES + 3] {
+            // Bytewise test need not repeat the multi-MiB case.
+            if step == 1 && length > VALUE_CHUNK_BYTES + 17 {
+                continue;
+            }
+            let mut push = Store::new();
+            let mut quota = io();
+            let mut writer =
+                ValueStreamWriter::new(&mut push, &memory, &mut quota, length as u64, || false)
+                    .unwrap();
+            for chunk in data.chunks(step) {
+                writer.write_all(chunk).unwrap();
+                writer.flush().unwrap();
+            }
+            let root = writer.finish().unwrap();
+            assert_eq!(root, expected);
+            assert_eq!(
+                push.nodes.keys().collect::<Vec<_>>(),
+                pull.nodes.keys().collect::<Vec<_>>()
+            );
+            for (id, bytes) in &push.nodes {
+                assert_eq!(bytes.as_slice(), pull.nodes[id].as_slice());
+            }
+        }
+    }
+}
+
+#[test]
+fn failed_push_cannot_finish_even_when_cause_disappears() {
+    let memory = MemoryBudget::new(2 * 1024 * 1024, 256 * 1024).unwrap();
+    for mode in 0..3 {
+        let mut store = Store::new();
+        let mut quota = io();
+        if mode == 1 {
+            quota.nodes_remaining = 0;
+        }
+        let cancel = Cell::new(false);
+        let mut writer = ValueStreamWriter::new(
+            &mut store,
+            &memory,
+            &mut quota,
+            if mode == 1 {
+                VALUE_CHUNK_BYTES as u64
+            } else {
+                1
+            },
+            || cancel.get(),
+        )
+        .unwrap();
+        match mode {
+            0 => assert!(writer.write_all(&[0; 2]).is_err()),
+            1 => {
+                // A full chunk requires node admission during Write.
+                assert!(writer.write_all(&vec![0; VALUE_CHUNK_BYTES]).is_err());
+            }
+            _ => {
+                cancel.set(true);
+                assert!(writer.write_all(b"x").is_err());
+                cancel.set(false);
+            }
+        }
+        assert!(writer.finish().is_err());
+        assert!(store.nodes.is_empty());
+    }
+    assert_eq!(memory.used(), 0);
+}
+
+#[test]
+fn caught_cancellation_panic_does_not_restore_push_writer() {
+    let memory = MemoryBudget::new(2 * 1024 * 1024, 0).unwrap();
+    let mut store = Store::new();
+    let mut quota = io();
+    let panic_once = Cell::new(true);
+    let mut writer = ValueStreamWriter::new(&mut store, &memory, &mut quota, 10, || {
+        if panic_once.replace(false) {
+            panic!("cancel hook panic");
+        }
+        false
+    })
+    .unwrap();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| writer.write_all(b"x"))).is_err()
+    );
+    assert!(writer.finish().is_err());
+    assert!(store.nodes.is_empty());
+    assert_eq!(memory.used(), 0);
+}

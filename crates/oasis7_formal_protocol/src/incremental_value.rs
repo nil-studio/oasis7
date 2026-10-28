@@ -11,7 +11,10 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryLimitExceeded
 
 #[path = "incremental_value_codec.rs"]
 mod codec;
+#[path = "incremental_value_stream_writer.rs"]
+mod stream_writer;
 use codec::{Node, decode_node, encode_index, encode_leaf, expected_size, span};
+pub use stream_writer::ValueStreamWriter;
 
 pub const VALUE_CHUNK_BYTES: usize = 64 * 1024;
 pub const VALUE_FANOUT: usize = 128;

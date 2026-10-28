@@ -95,6 +95,36 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         }
     }
 
+    pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        self.memory.same_pool(memory)
+    }
+
+    /// Contribute a nested reducer/codec/storage operation to this overlay.
+    /// Any error (including a caught unwind or a swallowed inner transaction
+    /// error) permanently poisons the complete transaction. Durable provisional
+    /// pages may remain; they never make a failed partial debit publishable.
+    pub fn contribute<T, E: From<ExecutionError>>(
+        &mut self,
+        action: impl FnOnce(&mut Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        if self.aborted {
+            return Err(ExecutionError::Aborted.into());
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| action(self)));
+        match result {
+            Ok(Ok(value)) if !self.aborted => Ok(value),
+            Ok(Ok(_)) => Err(ExecutionError::Aborted.into()),
+            Ok(Err(error)) => {
+                self.aborted = true;
+                Err(error)
+            }
+            Err(payload) => {
+                self.aborted = true;
+                std::panic::resume_unwind(payload)
+            }
+        }
+    }
+
     /// Constant-size comparison: no state serialization, history scan or hash.
     pub fn validate_guard(
         &self,

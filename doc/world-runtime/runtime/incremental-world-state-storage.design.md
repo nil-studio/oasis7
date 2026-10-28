@@ -515,3 +515,18 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 visitor 的目标是语义分类与借用交接，不是已经冻结的字段 wire。sink 拥有其分配、磁盘和编码准入；历史/证明 callback 收到借用，不自动扫描或序列化历史，也不能被通用状态 sink 塞入 RootSet。cognition 原 DTO 的 finality/status/receipt 关联、当前 RootSet/commit 引用及其他复合控制字段，仍须完成适用版本的 typed context/codec 转换、mutation 接线和保留 owner 接线，才能允许新格式创世；清单覆盖或 callback 成功不代签这些条件。
 
 局部验收：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_projection::tests -- --test-threads=1`。核对实际 World 字段归属、Snapshot 源关系、binary pointer 相同、逐项嵌套键、serde 省略空字段仍被覆盖、历史/证明分离、未知字段拒绝、sink 错误不修改源，以及改变墙钟/热历史策略不改变确定性字段。该命令未启用 wasmtime，不验证普通事务接线、J1/J2、真实模块执行、旧世界导入或完整世界恢复。
+
+
+### 12.11 typed body 子字段与嵌套贡献失败边界
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1 的单事务与 §6.2 的逐字段读写。`World::contribute_iws_body_attributes_update` 是现有 body reducer 的新格式贡献入口：复用 `validate_body_kernel_view` 与 `PreparedBodyAttributesUpdate`，借用调用者的同一个 `ExecutionTransaction`，仅暂存目标 Agent 的 body/last_active 子字段。它不遍历其他 Agent、mailbox、intent、Snapshot 或历史，不安装缓存、不追加原事件、不推进 event allocator、不发布接受结果；这些仍是尚未完成的外层 driver 责任。旧入口继续原行为，新格式未激活。
+
+body 叶按 WorldState / agents / body 拆分，属于 Business namespace，不能把整个 AgentCell（含 mailbox、receipt context）塞入该叶。key 为 `oasis7.iws.agent-body-key.v1\0`、`u16` UTF-8 Agent ID byte 长度和原 bytes；ID 非空，完整 key 最多 1024 bytes。value 为 `oasis7.iws.agent-body-value.v1\0`，随后依次为 mass_kg、radius_cm、thrust_limit、cross_section_cm2、last_active 五个大端 `u64`。body 结构用穷尽匹配约束新增字段；decode 严格拒绝错误 domain、长度与尾随。该叶不声明整个 agents 字段的其余成员已完成 lowering。
+
+WorldState.time 独立于 simulation tick/commit height，归 Allocator namespace；key 为 `oasis7.iws.world-time-key.v1\0`，value 为 `oasis7.iws.world-time-value.v1\0` 加原 time 的大端 `u64`。贡献入口在共享 read-set 中核对该时钟与当前 body 的原 ValueRoot digest，才允许写新 body 叶；缓存过时、父叶缺失或同键已暂存其他值时拒绝，不凭进程缓存覆盖认证视图。前值验证以丢弃 sink 计算固定小值身份，仍消费实际逻辑工作额度；仅新值页交给实际 provisional sink。新世界 genesis 及恢复还须完成这些键与其他字段的一致 lowering，不能混用 §12.10 的语义 visitor 原 AgentCell 序列化结果。
+
+`ExecutionTransaction::contribute` 包住一个嵌套 reducer/codec/storage 操作，任一错误或 unwind 永久 poison 整笔事务。内层 read/write 或内层 contribute 已失败，即使调用者吞掉错误并返回成功，外层仍失败，之前暂存的 debit 不能 seal。临时页可以成为待回收孤儿，但不能因此取得提交资格。入口先核对共享预算池，准备的 Agent ID 分配在申请额度之后进行。
+
+`ValueStreamWriter` 为 serializer 提供 push `Write` 入口，以相同固定 chunk/fanout 构造原值树；调用 Write/flush 的边界不改变身份，flush 不提前封闭短 chunk。完整字段 bytes 不驻留，固定 frontier/buffer 先申请共享 workspace，再逐节点申请 charge；最大逻辑值长度、节点/输入/encoded bytes 额度和取消显式处理。write/flush 的失败和捕获的 sink/cancel unwind 均禁止 finish 输出 descriptor。上层 serializer 自身的失败也必须返回外层 contribute，不能捕获后以部分编码 finish。此接口目前按普通额度构建，不代签恢复导入或大可变值局部更新。
+
+局部验收：`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --no-default-features --lib world::incremental_body::tests -- --test-threads=1`；验证实际 World/prepared reducer、与外层 allocator 写共用一笔事务、原 clock/body 读取、新值 digest/transition 重建、无源修改，以及过时 body/time、sink、额度、取消、业务拒绝、跨池和缺失 Agent 错误后整笔不可 seal。协议组件另对 push/pull 的逐页身份、不同分片/flush、超 64 MiB push 在 1 MiB 共享池中的流式文件写入/窄读、错误/unwind 后不可 finish 和嵌套事务 poison 做回归。本段仍非完整事件提交、World driver、原 authority、J1/J2、持久化发布或规模验收。

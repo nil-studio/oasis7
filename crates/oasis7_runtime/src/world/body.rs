@@ -13,13 +13,13 @@ use crate::agent_state::{BodyKernelView, BodySlotType, CargoEntityEntry};
 /// same fields without changing the public operation contract.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PreparedBodyAttributesUpdate {
-    agent_id: String,
-    body_view: BodyKernelView,
-    last_active: WorldTime,
+    pub(super) agent_id: String,
+    pub(super) body_view: BodyKernelView,
+    pub(super) last_active: WorldTime,
 }
 
 impl PreparedBodyAttributesUpdate {
-    fn new(agent_id: String, body_view: BodyKernelView, last_active: WorldTime) -> Self {
+    pub(super) fn new(agent_id: String, body_view: BodyKernelView, last_active: WorldTime) -> Self {
         Self {
             agent_id,
             body_view,
