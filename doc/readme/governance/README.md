@@ -75,7 +75,7 @@
   - Moltbook 渠道推广和持续运营该看哪里
   - 已批准主贴、首评、reply boundary 与 follow-up 素材在哪
   - 当前信任修复 / repair certification 讨论链从哪里进入
-  - 2026-03 promotion plan 与三组专题包装已退役；历史平台观察、排期和草稿从 Git history 与 PR 与实际验证记录 追溯
+  - 2026-03 promotion plan 与三组专题包装已退役；历史平台观察、排期和草稿从 Git history、PR 与实际验证记录追溯
 
 ### 4. Limited playable technical preview 贡献奖励与台账执行
 - 首读入口:
@@ -125,7 +125,7 @@
 ### 已删除世界规则入口收敛专题
 - 已删除：`readme-world-rules-consolidation.{prd,design,project}.md`
 - 当前承接：根 `../../../README.md` 只维护公开摘要与权威入口，`../../product/README.md` 维护四模块产品树和产品/专业边界，[世界规则与玩法系统产品 PRD](../../product/world-rules-core-gameplay/prd.md)维护长期玩家承诺、世界不变量与跨域验收。
-- 追溯边界：该三件套只记录一次已完成的 README 导航收敛、旧 `world-rule.md` 路由与任务过程；历史里程碑从 Git history 与 PR 与实际验证记录 追溯，不在产品树保留迁移包装。
+- 追溯边界：该三件套只记录一次已完成的 README 导航收敛、旧 `world-rule.md` 路由与任务过程；历史里程碑从 Git history、PR 与实际验证记录追溯，不在产品树保留迁移包装。
 
 ### 已删除资源模型口径修订专题
 - 已删除：`readme-resource-model-layering.{prd,design,project}.md`
