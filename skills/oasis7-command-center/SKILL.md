@@ -41,7 +41,7 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 4. 按[视图刷新方法](references/view-model.md)核对目标、规范及交付关系；需要原会话定位时读取[Codex 外部接续方法](references/external-handoff.md)。刷新不启动模型任务。
 5. 复用适合的组件和已有工具方法。UI 设计 Skill 适合且可用时按需采用；不要为看板改造世界运行时、公共 `site/` 或玩家 Viewer。
 
-实施、调试、验证和评审按需使用 `.agents/skills/README.md`，不串固定角色链。一个清楚目的尽量在一个 PR 原子完成；只读查询不创建分支、Issue 或远程记录。
+实施、调试、验证和评审按需使用 `.agents/skills/README.md`，不串固定角色链。同一明确目的尽量在一个 PR 中原子完成；只读查询不创建分支、Issue 或远程记录。
 
 ## 刷新、决策与执行
 
