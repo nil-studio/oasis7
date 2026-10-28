@@ -92,9 +92,9 @@ fn history_rejects_declared_overflow_duplicates_wrong_ids_and_non_rotation_actio
     );
     assert!(serde_json::from_str::<History>(&format!("{{\"different-id\":{json}}}")).is_err());
     let mut invalid = r.clone();
-    invalid.authorized_action.action = Box::new(Action::QueryObservation {
+    *invalid.authorized_action.action = Action::QueryObservation {
         agent_id: "agent".into(),
-    });
+    };
     assert!(invalid.validate().is_err());
     let mut invalid = r.clone();
     invalid.applied_at_tick += 1;
