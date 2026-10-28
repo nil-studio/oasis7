@@ -12,7 +12,7 @@
 - 配套专业系统设计：[`Indirect Control Agency Execution and Continuation`](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010)（DES-WR-IA-010..012，授权范围、待决行动复核与责任因果映射）
 - Last reviewed：2026-09-13
 
-本文定义玩家或组织如何为 Agent 设定并持续管理自治与委托：授权如何持续、待决行动如何受授权变化影响、Agent 如何提出异议，以及结果如何归因。Agent 的取得、维护、容量、转让条件与关联经济权利由[世界规则与玩法系统的 Agent 资产专题](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#agent-asset-economy)负责；本专题不把这些经济条件重新立法。它不定义 runtime 状态机、授权字段、签名、模型行为、界面、数值成本或测试步骤；跨组件 technical authority、pending-action recheck 与 receipt 因果边界见配套专业系统设计。
+本文定义玩家或组织如何为 Agent 设定并持续管理自治与委托：授权如何持续、待决行动如何受授权变化影响、Agent 如何提出异议，以及结果如何归因。Agent 的取得、维护、容量、转让条件与关联经济权利由[世界规则与玩法系统的 Agent 资产专题](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#agent-asset-economy)负责；本专题不重新规定这些经济条件，也不定义 runtime 状态机、授权字段、签名、模型行为、界面、数值成本或测试步骤。跨组件 technical authority、pending-action recheck 与 receipt 因果边界见配套专业系统设计。
 
 ## 设计适用性与生命周期闭合
 
@@ -47,7 +47,7 @@ Agent 的稳定身份、来源和已影响世界的历史不能被交易、组�
 - Agent 可以为有效授权内的高后果行动准备方案或发起待决请求，但在权威世界确认结果前，这不构成资源已暴露、权利已移交、损失已发生或旧 owner 可继续控制的承诺。客户端排队、Agent 记忆、局部预留或“已送出”提示都不能绕过该边界。
 - 授权到期或撤销、控制权转让生效，或出现新的世界/安全硬边界时，尚未产生权威世界效果的待决行动必须按当时有效的授权和前置条件重新评估。它只能明确地继续、被拒绝、过期、取消，或在有权主体作出新的确认后以新请求继续；不得静默沿用失效授权、自动重放，或把旧请求伪装成新 owner 的选择。
 - 已有权威世界结果不会因后续撤销、到期或转让被改写为未发生。玩家能查看该结果所依据的授权/确认、实际生效时点和后续授权变化；撤销是面向未来的控制，不是删除历史、逃避已生效义务或追溯收回他人已取得的权利。
-- 当待决请求因授权变化而无法继续时，玩家能做的是等待可验证结果、明确取消，或在仍有相应权限时重新确认/调整目标；玩家不能通过重新连接、切换客户端、复制请求或短暂转让 Agent 来保留旧授权的优先权、预算或世界效果。具体待决状态、去重、确认、取消和 receipt 字段仍由 `world-runtime`、`world-simulator` 与 P2P 专业合同定义。
+- 当待决请求因授权变化而无法继续时，玩家的可行选择是等待可验证结果、明确取消，或在仍有相应权限时重新确认/调整目标；不能通过重新连接、切换客户端、复制请求或短暂转让 Agent 来保留旧授权的优先权、预算或世界效果。具体待决状态、去重、确认、取消和 receipt 字段仍由 `world-runtime`、`world-simulator` 与 P2P 专业合同定义。
 
 ## 3. 转让后的授权连续性与重配置
 
@@ -122,7 +122,7 @@ Trace refs: O7-REQ-be254f99-9b66-47b1-ad7f-4a356d296b2a；承接[REQ-AGENT-AUTH-
 
 ## 6.1 叶级 owner、authority、evidence 与 test tier 追踪
 
-本表把每个新叶级产品关系导航到专业 owner、权威文档和未来验证证据；它不把产品语义提升为当前实现、支持或发布/readiness 结论。
+本表将每个新叶级产品关系关联到专业 owner、权威文档和未来验证证据，不将产品语义等同于当前实现、支持或发布/readiness 结论。
 
 | REQ / AC 关系 | 专业 owner 与真实边界 | 专业域 PRD-ID | 专业权威（可导航） | 验证证据（应提供，不预示当前结果） | 测试层级 |
 | --- | --- | --- | --- | --- | --- |

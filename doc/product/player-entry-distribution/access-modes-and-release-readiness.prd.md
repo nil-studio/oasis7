@@ -21,7 +21,7 @@
 - 历史设计判定记录：历史分类见 [Issue #3680 C4 设计判定](https://github.com/eng-cc/oasis7/issues/3680#issuecomment-5652452993)，历史闭合要求见 [Issue #3680 accepted repair](https://github.com/eng-cc/oasis7/issues/3680#issuecomment-5652870280)。
 ## 1. 产品目标
 
-玩家能够选择一个被明确支持的入口，理解该入口当前是可玩、仅观察还是被阻塞，并在同一版本和模式下完成发现、进入、核验、失败恢复与继续游玩。团队只有在同一候选版本的入口、运行恢复、QA 和公开沟通证据共同成立后，才能评估扩大阶段或对外 claim。
+玩家能够选择明确支持的入口，理解其当前是可玩、仅观察还是被阻塞，并在同一版本和模式下完成发现、进入、核验、失败恢复与继续游玩。团队只有在同一候选版本的入口、运行恢复、QA 和公开沟通证据共同成立后，才能评估扩大阶段或对外 claim。
 
 ## 2. 玩家访问模式
 
@@ -38,7 +38,7 @@ Native 或 Web Launcher 是已声明 `viewer` / `pure_api` 路径的交付、控
 
 ### 2.2 受控 Launcher 动作
 
-当当前专业 authority 支持时，Launcher 可让玩家对配置、设置、反馈或转账等受控动作看到真实的 `executable`、`blocked`、`result` 与恢复下一步；不同平台可以使用不同输入字段、存储或控制面适配。该产品边界要求语义真实而非界面同一：不得把浏览器存储或控制面可达解释为 WASM authority、授权、安全持久化或运行时成功；也不得把 runtime 的 submit acceptance/action ID 解释为 settlement、最终确认、完整持久历史、100% parity、primary-mode playability 或发行就绪。当前专业实现边界见 [跨表面受控动作契约](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)。
+在当前专业 authority 支持时，Launcher 可向玩家呈现配置、设置、反馈或转账等受控动作的真实 `executable`、`blocked`、`result` 与恢复下一步；不同平台可以使用不同输入字段、存储或控制面适配。该产品边界要求语义真实，而非界面相同：不得把浏览器存储或控制面可达解释为 WASM authority、授权、安全持久化或运行时成功；也不得把 runtime 的 submit acceptance/action ID 解释为 settlement、最终确认、完整持久历史、100% parity、primary-mode playability 或发行就绪。当前专业实现边界见 [跨表面受控动作契约](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)。
 
 ## 3. 入口能力等价
 
@@ -207,7 +207,7 @@ Trace ID: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270
 - Limited preview 是面向候选版本的受控、可纠偏、可撤回体验，不等于 public launch、广泛可用或阶段自动升级。
 - 每轮 preview 必须绑定同一候选版本、primary mode、受支持入口、claim envelope 与正式反馈入口；入口不可达或被迫 fallback 时必须如实标记 blocked，不能改写为成功。
 - 反馈按 `Blocking / Opportunity / Idea` 分类，并记录 owner、处置结论与下一步。可复现的 blocking 信号必须让同一候选重新进入受影响专业域与 QA gate，旧 gate pass 不能代签。
-- 正式反馈入口必须如实呈现当前可用性；可提交时，玩家能够确认提交结果；入口不可用或提交未完成时，必须如实呈现且不得计作成功。只有当前专业 authority 与已验证入口表面已经支持时，才可向玩家给出恢复下一步；本分册不声称当前尚未实现的禁用 CTA 状态恢复引导。该承诺不包含公开反馈账本、必达交付、保存期限、审核或调解、人工支持或逐条答复。
+- 正式反馈入口必须如实呈现当前可用性；可提交时，玩家能够确认提交结果；入口不可用或提交未完成时须明确说明，不得计作成功。只有当前专业 authority 与已验证入口表面支持时，才可向玩家给出恢复下一步；本分册不声称当前尚未实现的禁用 CTA 状态恢复引导。该承诺不包含公开反馈账本、必达交付、保存期限、审核或调解、人工支持或逐条答复。
 - claim drift 必须在同轮纠正并留下记录；单次 callout、互动数量或无阻塞反馈都不能单独证明发行就绪。
 - QA 可以建议 pause、conditional 或 downgrade；producer 基于反馈与 QA 结论决定 continue / hold / reassess。渠道切换不改变阶段，公开状态仍只由根 `README.md` 拥有。
 - 收集反馈时只索取复现和分流所需的最小信息；不得把账号、私密渠道内容、敏感配置/凭据或其他不必要的个人信息写入公开证据。

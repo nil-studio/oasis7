@@ -9,7 +9,7 @@
 - 专业域权威：[Decision Provider](../../world-simulator/llm/decision-provider-contract.prd.md)、[Continuous Agent Harness](../../world-simulator/llm/continuous-agent-harness.prd.md)、[双轨执行](../../world-simulator/llm/provider-agent-dual-mode.prd.md)、[Runtime lifecycle](../../world-runtime/runtime/agent-cognition-lifecycle.prd.md)
 - Last reviewed：2026-10-10
 
-本设计组织配对 PRD 的用户经历、信息层级和恢复解释。首期**推荐**外部 Runtime 通过官方 Skill 学会并主动调用标准 Game API；Provider Bridge 只是可以弃用的既有实验适配，并非新的产品接口权威。所有行为义务和首期范围由配对 PRD 拥有；以下状态是体验表达，不新增协议枚举、CLI 参数、组件布局或实现状态机，也不表示当前已支持 OpenClaw/Codex。
+本设计组织配对 PRD 的用户经历、信息层级和恢复解释。首期**推荐**外部 Runtime 通过官方 Skill 学会并主动调用标准 Game API；Provider Bridge 只是可弃用的既有实验适配，不是新的产品接口权威。所有行为义务和首期范围由配对 PRD 拥有；以下状态是体验表达，不新增协议枚举、CLI 参数、组件布局或实现状态机，也不表示当前已支持 OpenClaw/Codex。
 
 ## 1. 设计命题
 
@@ -27,7 +27,7 @@
 
 连接就绪后先区分稳定参与主体、游戏角色和当前执行实例，再展示该主体可控制的 Agent 与既有义务。自身角色允许有权主体选择目标；他人角色仅使用玩家授权的目标和范围。如果没有角色，按现行规则进入正常注册/初始绑定、经济认领或观察路径，不把所有首次角色取得都显示为付费 claim。认领与维护条件消费[所有权主责](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#1-产品承诺)，连接软件本身不授予实体或资源。
 
-启动前给出一个完整的委托摘要：目标世界与 Agent、高层目标、允许范围、预算的可执行部分、持续运行条件。日常行动由 Runtime 在该范围内自行选择；严重后果和额外授权消费[自治与委托主责](agent-authority-ownership-and-accountability.prd.md#2-授权与自治边界)，避免把正常游玩变成连续的逐动作批准。
+启动前给出完整委托摘要：目标世界与 Agent、高层目标、允许范围、预算的可执行部分、持续运行条件。日常行动由 Runtime 在该范围内自行选择；严重后果和额外授权消费[自治与委托主责](agent-authority-ownership-and-accountability.prd.md#2-授权与自治边界)，避免把正常游玩变成连续的逐动作批准。
 
 <a id="autonomous-entry-experience"></a>
 #### 无预置角色的机器入场
@@ -58,9 +58,9 @@ Runtime 从可信 Skill/公开发现入口识别世界和能力，完成适用�
 
 玩家向已有 Runtime 表达“使用 oasis7 Skill，连接我获授权的世界 Agent，开始首项工业目标”。Skill 先说明自己的来源和适配范围，Runtime 使用已有的工具调用能力验证游戏 API 版本、认证/委托、当前目标和能力目录；任何需授权的步骤由有权玩家确认。Skill 不是能修改世界的实体，不复制模型密钥，也不依赖向 Prompt 贴长期 token。
 
-当 Runtime 得到合法授权后，自己进行“观察 → 确定下一动作 → 向 Game API 提交 → 读取 pending/committed/rejected/failed 或增量事件 → 更新自身计划”的循环。用户不需要知道 `provider_loopback_http` 的启动参数，也不需要为了玩游戏跑一套模型 Provider 回调服务。世界并不替 Runtime 运行它的私有多 Agent 工作流；外部推理停止时，世界继续但不会凭空有新外部认知。
+Runtime 获得合法授权后，自行进行“观察 → 确定下一动作 → 向 Game API 提交 → 读取 pending/committed/rejected/failed 或增量事件 → 更新自身计划”的循环。用户无需了解 `provider_loopback_http` 的启动参数，也无需为玩游戏运行一套模型 Provider 回调服务。世界不替 Runtime 运行其私有多 Agent 工作流；外部推理停止时，世界继续但不会凭空有新外部认知。
 
-在首次访问中，默认只呈现“连接目标/有效身份、受控 Agent、当前目标、关键世界反馈、阻塞/恢复”。只有用户需要排错时才展开 Skill 版本、Game API 协议状态、网络/认证错误和诊断；不把 HTTPS 连上、Skill 文档已下载或 MCP 已识别某个工具当作已进入可玩的 Agent 会话。
+首次访问时，默认只呈现“连接目标/有效身份、受控 Agent、当前目标、关键世界反馈、阻塞/恢复”。只有用户需要排错时才展开 Skill 版本、Game API 协议状态、网络/认证错误和诊断；不把 HTTPS 连上、Skill 文档已下载或 MCP 已识别某个工具当作已进入可玩的 Agent 会话。
 
 ### 2.5 大世界 Web/客户端可视化体验
 

@@ -39,7 +39,7 @@
 
 - 选择预设后先进入可编辑草稿；玩家仍需显式发送。
 - 新增、编辑或删除预设只改变当前专业 authority 所声明的预设存储范围。
-- 若预设不持久化，应在离开或刷新前说明，而不是让玩家从丢失结果倒推。
+- 若预设不持久化，应在离开或刷新前说明，而不是让玩家丢失预设后才知道。
 
 ### 3.2 加载与编辑 Agent Prompt
 
@@ -60,7 +60,7 @@
 - 普通对话使用直接发送反馈；Prompt/目标调整使用更强的目标确认和结果状态。
 - 仅当专业 authority 返回实际应用结果时才能显示 applied。只有 acceptance 时，继续显示 pending/accepted 或等价状态。
 - applied 只表示当前 authority 已确认的本次应用范围；除非另有对应 authority 证据，入口不得把它外推为永久保存、跨会话持久化或跨入口同步，并应让玩家看见该范围边界。
-- 对于非 `control-lost` 的 rejected/blocked，必须保留原因为玩家可理解的摘要，并提供重新鉴权、刷新当前值、修正输入、选择受支持模式或稍后重试等真实下一步；`control-lost` 只能沿 3.3 的 authority-safe 路径处理。当前 canonical Web surface 将高级 Prompt 设置默认收起，并在展开后提供 preview/apply/rollback 与最近反馈；这不自动要求其他 surface 具有同等控件。
+- 对于非 `control-lost` 的 rejected/blocked，必须以玩家可理解的摘要保留原因，并提供重新鉴权、刷新当前值、修正输入、选择受支持模式或稍后重试等真实下一步；`control-lost` 只能沿 3.3 的 authority-safe 路径处理。当前 canonical Web surface 将高级 Prompt 设置默认收起，并在展开后提供 preview/apply/rollback 与最近反馈；这不自动要求其他 surface 具有同等控件。
 
 ## 4. 响应式与输入设计
 
