@@ -16,6 +16,10 @@ use crate::{
     incremental_state::{MerkleNodeReader, STATE_MAX_PAGE_BYTES},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+#[path = "incremental_fact_material.rs"]
+mod fact_material;
+pub use fact_material::*;
+
 use std::{
     cell::{Cell, RefCell},
     sync::Arc,

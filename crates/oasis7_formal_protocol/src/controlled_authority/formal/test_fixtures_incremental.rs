@@ -36,6 +36,10 @@ impl Setup {
     }
 }
 pub fn setup() -> Setup {
+    setup_with_memory(MemoryBudget::new(32 << 20, 4 << 20).unwrap())
+}
+
+pub fn setup_with_memory(memory: MemoryBudget) -> Setup {
     let (mut certificate, _, legacy, _) = fixture::initial();
     let config = GenesisConfigV1 {
         world_id: "world".into(),
@@ -84,7 +88,6 @@ pub fn setup() -> Setup {
     };
     let authority = verify_initial_activation(&certificate, &trust).unwrap();
     let input_id = *blake3::hash(&initial_activation_input_bytes(&certificate).unwrap()).as_bytes();
-    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let history = HeaderPreparation {
         config: &config,
         catalog: &CatalogRootV1::empty(scope).unwrap(),

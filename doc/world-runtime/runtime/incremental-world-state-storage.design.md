@@ -599,3 +599,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 Merkle source read 另有独立计数，每次父目录重建、transition 验证、候选目录构建与新页读回均在 source read 前检查取消和额度。adapter 以独立 stop 标记返回 typed Cancelled/ResourceLimited，不解析底层 String 错误；计数直接更新 caller 的 Cell 视图，捕获 source unwind 也不能退还已发生的读取工作。固定 metadata workspace 在任何解析/扩张前取得；FactSet、TransitionRecord、重建阶段及 catalog delta 保留各自 charge。输出 `CheckedCommitCore` 只持有仍计费的结构材料，没有 Clone/可变访问或接受/回执构造能力。它证明当前结构检查成功，不证明完整物料：原事实 bytes/类型语义、value 树与创世状态闭包、projection、执行环境及历史工件、业务执行合法性、实际 fsync/独立域、保护根租约、frozen/恢复写前材料和原子选择仍是后续完整 verifier/endpoint 的义务。旧 Snapshot 入口继续拒绝新材料；不得仅凭此 core 结果签发最终回执或取得服务资格。
 
 局部方法：`env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib incremental_material::tests -- --test-threads=1`，覆盖原字节/计费持有、非空差量、实际新状态页缺失、签名有效但 checkpoint 错配/原输入漏记、原件替换、原件/新页缺失、精确额度与少一额度、取消/跨池/class。实际来源方法为 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store::objects::tests::material -- --test-threads=1`：用同一原协议测试 signer 和实际 header producer 将结构原件/目录页写入真实存储，重开后通过原对象 adapter 验证，并核对 carrier charge 及 ordinary class 边界。测试没有签发端点回执，也未证明完整世界/原事实与工件闭包、完整恢复或真实故障域。
+
+
+### 12.16 当前事实原件的流式身份验证
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；承接 §5.1 与 §12.15。`verify_fact_originals` 消费结构检查得到的不可变 `CheckedCommitCore`，按 FactSet 原序读取每次 Input、Result、Event 原件。重复 digest 仍逐次读取、计数和扣额度；不排序、去重或展开旧历史。独立 hash sink 核对实际输出 bytes 的完整 flat digest，以及 reader 返回的长度；来源 locator、局部 chunk 或返回成功都不能代替原身份检查。空原件也按一次事实检查。
+
+`OriginalObjectStreamReader` 继承同池原对象接口，实际来源是 `IncrementalObjectStore::original_reader`，继续借用物理/逻辑 IO 额度并限定 ordinary class。每个事实先扣 occurrence 和至多 max_fact_bytes 的剩余总原 bytes 额度；成功才退还未消费部分，缺失、晚失败、取消或捕获来源 unwind 都不退还本次准入。独立 sink 最多每次 hash 64 KiB，持续检查取消与长度上限；即使来源忽略 Write 错误并返回成功，stop 状态仍导致 typed Cancelled/ResourceLimited，不能返回部分检查结果。固定工作空间在 hash 前取得共享 ordinary reservation，不分配整个原件。
+
+返回的 `CheckedFactOriginals` 只绑定该 body、FactSet、三种 occurrence 数和原 bytes 总数，不提供 Clone、反序列化或接受/回执构造能力。它证明当前事实原件的字节身份，不验证事实类型、业务语义、所有状态 value、历史工件、独立耐久域或服务资格。完整 endpoint/frozen/恢复验证及发布仍须接通；新世界仍未激活。
+
+局部方法：协议库 `incremental_material::tests::fact_originals` 覆盖精确额度、原序/重复/空原件、缺失/替换、输出后失败、谎报长度、忽略 sink 错误、取消及 unwind 不退额度。实际来源 `incremental_page_store::objects::tests::material::large_fact_streams_after_reopen_with_less_memory_than_original` 使用 8 MiB 共享池（保留 3 MiB recovery），写入并重开 64 MiB+17 bytes 原件；整件拥有方式无法准入，而按同一 FactSet 的流式校验可在普通预算内完成。这是原字节读回与 reservation 的组件证据，不是进程 RSS、固定 H/S 规模、完整世界恢复、业务/provider oracle 或真实故障域验收。

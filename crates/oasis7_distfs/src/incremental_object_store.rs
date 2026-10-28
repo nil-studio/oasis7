@@ -473,3 +473,21 @@ impl oasis7_formal_protocol::incremental_material::OriginalObjectReader
         self.store.read_object_owned(id, max_bytes, self.io)
     }
 }
+
+impl oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader
+    for ObjectReadSession<'_, '_, '_, '_>
+{
+    fn stream_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: u64,
+        memory: &MemoryBudget,
+        mut output: &mut dyn Write,
+    ) -> Result<u64> {
+        if !memory.same_pool(&self.store.pages.memory) || self.io.class != MemoryClass::Ordinary {
+            return Err(PageStoreError::Corrupt("live original stream pool/class"));
+        }
+        self.store
+            .read_object_into(id, max_bytes, &mut output, self.io)
+    }
+}

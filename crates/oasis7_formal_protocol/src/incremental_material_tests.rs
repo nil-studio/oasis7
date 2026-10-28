@@ -626,3 +626,6 @@ fn caught_source_unwind_does_not_refund_merkle_allowance() {
     assert_eq!(quota.merkle_reads_remaining, 9999);
     assert_eq!(s.memory.used(), before);
 }
+
+#[path = "incremental_fact_material_tests.rs"]
+mod fact_originals;
