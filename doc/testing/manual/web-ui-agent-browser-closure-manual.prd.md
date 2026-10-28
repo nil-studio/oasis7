@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 - Problem Statement: Web UI 验收若缺少统一启动、采样、门禁与故障分级，且未区分 Viewer 页面与 launcher 控制面的驱动优先级，容易出现“看起来可用但证据不可复现”的假通过。
-- Proposed Solution: 保留 agent-browser 作为 Viewer 页面默认闭环方案，但把“逐步执行命令与证据采样”下沉到 `web-ui-agent-browser-closure-manual.manual.md`；本 PRD 只维护边界、成功标准与发布/阻断口径。同时显式规定 `oasis7_web_launcher` / launcher Web 控制面先用 GUI Agent 驱动产品动作，再用页面做状态与字段校验，并统一接入当前 repo-owned Web 回归脚本与 fail-fast 处置。
+- Proposed Solution: 保留 agent-browser 作为 Viewer 页面默认闭环方案，但把“逐步执行命令与证据采样”下沉到 `web-ui-agent-browser-closure-manual.manual.md`；本 PRD 只维护边界、成功标准与发布/阻断口径。同时显式规定 `oasis7_web_launcher` / launcher Web 控制面先用 GUI Agent 驱动产品动作，再用页面校验状态与字段，并统一接入当前 repo-owned Web 回归脚本与 fail-fast 处置。
 - Success Criteria:
   - SC-1: S6 Web 闭环流程可由手册命令一键复现，并明确区分 Viewer 与 launcher 控制面两类 surface。
   - SC-2: Viewer 默认 `open ... --headed`，并附带 `--use-angle=gl,--ignore-gpu-blocklist`；实际命中 software renderer 时按 [S6 renderer/验收目的分流](../../../testing-manual.md#testing-software-renderer-scope)，只允许 `viewer` / compat alias 的最小 DOM 闭环继续，不能据此完成 GPU、完整视觉、producer 或 release/playability 验收。
@@ -26,7 +26,7 @@
 ## 2. User Experience & Functionality
 - User Personas:
   - Web 闭环执行者：按手册运行 agent-browser 并归档证据。
-  - 启动器控制面执行者：通过 GUI Agent 驱动 `oasis7_web_launcher` 产品动作，并用页面做结果核对。
+  - 启动器控制面执行者：通过 GUI Agent 驱动 `oasis7_web_launcher` 产品动作，并用页面核对结果。
   - 发布负责人：用一键脚本快速判断是否可放行。
   - 故障值守人员：根据 fail-fast 等级快速定位问题归属。
 - User Scenarios & Frequency:

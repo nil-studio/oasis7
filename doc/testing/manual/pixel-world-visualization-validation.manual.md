@@ -58,7 +58,11 @@ Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；O7-REQ-9cb09cbd-3c98-4
 
 将current、last-known、unknown、conflict、expired分别与只读、无副作用预览、owner目标保存/激活、适用审批和executor实际世界动作组合。owner操作固定主体/方案及expected revision；实际executor动作另固定原Context/fence。分别在预览前、预览后提交前、各自权威接受边界和commit后reply前注入变化。
 
-必须验证：旧请求最后到达不覆盖新视点/对象/权限；几何来源不等于时效；互相冲突的当前观察不被客户端“最新响应”选成真值；陈旧信息最多支撑明确标注的预览。owner目标保存/激活由原owner API重验权限及task/goal版本；补测executor未绑定或离线时合法激活仍成功并显示awaiting_executor，不将executor Context作为前置。审批单独按其身份、scope、版本及适用条件验证，不从离线目标激活推导任意审批可离线通过。实际世界动作由原API/Runtime在事务边界重验执行主体、Context、控制/目标版本、fence及适用世界条件；转让、撤权或版本变化应拒绝或要求重新确认，不自动批准调整后的方案。
+必须验证：
+
+- 旧请求最后到达不覆盖新视点/对象/权限；几何来源不等于时效；互相冲突的当前观察不被客户端“最新响应”选成真值；陈旧信息最多支撑明确标注的预览。
+- owner目标保存/激活由原owner API重验权限及task/goal版本；补测executor未绑定或离线时合法激活仍成功并显示awaiting_executor，不将executor Context作为前置。审批单独按其身份、scope、版本及适用条件验证，不从离线目标激活推导任意审批可离线通过。
+- 实际世界动作由原API/Runtime在事务边界重验执行主体、Context、控制/目标版本、fence及适用世界条件；转让、撤权或版本变化应拒绝或要求重新确认，不自动批准调整后的方案。
 
 另测stop/撤销/原操作查询：它们按自己的服务器授权工作，不因GPU不可用或观察陈旧被统一阻断；真正撤权时仍拒绝。commit后响应丢失，必须保留原键和recovery_required，回查同一结果，不重新报价、换Agent或新建副作用。
 

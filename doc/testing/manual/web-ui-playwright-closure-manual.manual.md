@@ -2,7 +2,7 @@
 
 ## 定位
 
-本手册是 Playwright 实跑测试系列的入口文档，用来管理从真实浏览器进入游戏、执行玩家操作、等待 runtime/provider 返回、并归档证据的端到端测试。
+本手册是 Playwright 实跑测试系列的入口，管理从真实浏览器进入游戏、执行玩家操作、等待 runtime/provider 返回、并归档证据的端到端测试。
 
 它和 `doc/testing/manual/web-ui-agent-browser-closure-manual.manual.md` 的关系：
 - `agent-browser` manual 仍是通用 Web UI 闭环与截图采证入口。
@@ -19,7 +19,7 @@ Playwright 实跑系列长期目标是形成一套可重复执行的玩家操作
 4. 覆盖 runtime / live websocket / viewer state / provider / message-flow 等链路。
 5. 输出 screenshot、state、summary、console log 与明确 pass/fail。
 
-这类测试回答的是“这条玩家操作链路在真实本地运行时是否闭环”。它不能单独证明游戏好玩，也不能替代 `L4B` embodied-agent playtest、内部真人校准或 `L5` 真实人类 / 线上样本。
+这类测试回答“这条玩家操作链路在真实本地运行时是否闭环”。它不能单独证明游戏好玩，也不能替代 `L4B` embodied-agent playtest、内部真人校准或 `L5` 真实人类 / 线上样本。
 
 ## 当前入口
 

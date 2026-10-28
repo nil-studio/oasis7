@@ -12,7 +12,9 @@
 
 创建专用 OSS bucket/prefix，默认私有、禁止匿名读写。不要把真实账号 ID、私有 bucket、角色 ARN 或凭据提交仓库。公网 CI 上传 endpoint 必须符合 GitHub runner 网络能力；ECS 同地域优先使用对应 OSS 内网 HTTPS endpoint。
 
-CI 使用 [阿里云 OIDC Action](https://github.com/aliyun/configure-aliyun-credentials-action)换取短期 STS。RAM trust 必须固定 GitHub issuer、audience、仓库 `nil-studio/oasis7`、main ref 和 Preview 发布入口；GitHub Environment 同时限制 main。不可把所有分支、PR 或任意 workflow 纳入角色。角色额外允许专用 bucket 的 `oss:GetBucketVersioning` 核对其从未启用版本化（Enabled/Suspended 均拒绝，因为该模式的禁止覆盖头不生效）；仅允许所选 prefix 下 release 对象的创建/读取和 `channels/preview.json` 的读取/更新；不要授予 DeleteObject、全 bucket 管理或 ECS 权限。该发布工作流是频道的唯一写者，其他写者不得绕过同一串行域；OSS 普通 PutObject 不提供本工具所需的 If-Match CAS。
+CI 使用 [阿里云 OIDC Action](https://github.com/aliyun/configure-aliyun-credentials-action)换取短期 STS。RAM trust 必须固定 GitHub issuer、audience、仓库 `nil-studio/oasis7`、main ref 和 Preview 发布入口；GitHub Environment 同时限制 main。不可把所有分支、PR 或任意 workflow 纳入角色。
+
+角色额外允许专用 bucket 的 `oss:GetBucketVersioning` 核对其从未启用版本化（Enabled/Suspended 均拒绝，因为该模式的禁止覆盖头不生效）；仅允许所选 prefix 下 release 对象的创建/读取和 `channels/preview.json` 的读取/更新；不要授予 DeleteObject、全 bucket 管理或 ECS 权限。该发布工作流是频道的唯一写者，其他写者不得绕过同一串行域；OSS 普通 PutObject 不提供本工具所需的 If-Match CAS。
 
 ECS 挂载只读实例 RAM 角色，仅 `GetObject` 所选 release 前缀与频道，无发布写权限、不配置长期 access key。实例元数据使用 IMDSv2；更新器不需要 ListObjects。云侧最小策略和 trust 必须经具备权限能力的独立审阅，并分别验证允许/拒绝路径后启用。
 
@@ -34,7 +36,9 @@ sudo /opt/oasis7-preview-updater-venv/bin/python scripts/ecs-preview-install.py 
 
 安装前将候选受信 updater 工具放入固定 root 所有目录，并在配置中设置 `verifier_command` 为该目录的 `ecs-preview-verify.py --config <本配置> --device <已有设备配置>`（通过专用 Python 调用）。安装后可改为安装器打印的版本目录；不要指向会被游戏 release 切换的脚本。签名读设备配置沿用原 world/genesis/service key/agent 身份和 signer，不新建身份。内置验证器检查实际进程、公开准入 API、Web 全部资源、Skill 和四次签名 canonical tick；对 chain 写入兼容性返回 unknown，chain 更新失败必须按恢复流程核对，不自动回退未知写入。
 
-配置结构见 [配置示例](../../../scripts/ecs-preview-config.example.json)。所有示例路径、身份和契约均须替换为本机实际值；配置不含密钥，签名读取使用现有本机身份。`verifier_command` 是 root 配置的固定命令，接收 stdin JSON、stdout 仅输出一份 JSON 健康证据（诊断日志走 stderr）；接口见下节，不能从频道接收命令。默认维护锁为 `/var/lib/oasis7-preview-updater/deploy.lock`，安装器在受信祖先下创建缺失目录，权限为 `0700`；不要改用通常为 `1777` 的 `/run/lock`，也不要更改其共享权限。安装 preflight 失败时不启用 timer、不初始化或替换世界。首次接管旧手工布局需先在维护锁内完成独立路径适配；不能让安装器猜测旧机器布局。
+配置结构见 [配置示例](../../../scripts/ecs-preview-config.example.json)。所有示例路径、身份和契约均须替换为本机实际值；配置不含密钥，签名读取使用现有本机身份。`verifier_command` 是 root 配置的固定命令，接收 stdin JSON、stdout 仅输出一份 JSON 健康证据（诊断日志走 stderr）；接口见下节，不能从频道接收命令。
+
+默认维护锁为 `/var/lib/oasis7-preview-updater/deploy.lock`，安装器在受信祖先下创建缺失目录，权限为 `0700`；不要改用通常为 `1777` 的 `/run/lock`，也不要更改其共享权限。安装 preflight 失败时不启用 timer、不初始化或替换世界。首次接管旧手工布局需先在维护锁内完成独立路径适配；不能让安装器猜测旧机器布局。
 
 `compatibility_file` 默认保留管理员独立审核的精确 from/to 组件 source、三个契约和非空依据，适用于跨兼容族、chain 更新及明确回退。`rollback_allowed` 只允许已知兼容的程序回退；chain 已不兼容写入、迁移或写入未知时仍禁止普通回退。
 
@@ -59,7 +63,11 @@ sudo /opt/oasis7-preview-updater-venv/bin/python scripts/ecs-preview-install.py 
 }
 ```
 
-`allowed_inputs` 必须替换为本机实际已审阅的精确文件路径，不是通配符或默认信任所有 viewer 代码。先确认既有 Viewer 连接外部 chain、不直接持有/迁移世界与身份存储，管理员明确接受这些文件后续显示代码的变更风险。主机重建包内完整 Git commit/tree 证明，核对全部受跟踪输入；新增/删除输入、其他文件变化以及 chain/launcher/game_client 任一程序字节变化均拒绝，只允许 viewer native 程序改变。完整输入树同时包含文档、CI、Web/Skill，修改它们也不会自然获准，必须在适用独立授权后更新；此策略不自动忽略所谓非代码文件。它提供一个真实可用、范围保守的 player-only 自动兼容通道，不保证所有程序更新可自动批准。初次接管旧包若没有输入证明，可先用一次精确许可升级至有证明的基线；后续符合已审核范围的升级无需逐次 SSH。超出范围的变化须补独立兼容依据，timer 保持旧服务。
+`allowed_inputs` 必须替换为本机实际已审阅的精确文件路径，不是通配符或默认信任所有 viewer 代码。先确认既有 Viewer 连接外部 chain、不直接持有/迁移世界与身份存储，管理员明确接受这些文件后续显示代码的变更风险。主机重建包内完整 Git commit/tree 证明，核对全部受跟踪输入；新增/删除输入、其他文件变化以及 chain/launcher/game_client 任一程序字节变化均拒绝，只允许 viewer native 程序改变。
+
+完整输入树同时包含文档、CI、Web/Skill，修改它们也不会自然获准，必须在适用独立授权后更新；此策略不自动忽略所谓非代码文件。它提供一个真实可用、范围保守的 player-only 自动兼容通道，不保证所有程序更新可自动批准。
+
+初次接管旧包若没有输入证明，可先用一次精确许可升级至有证明的基线；后续符合已审核范围的升级无需逐次 SSH。超出范围的变化须补独立兼容依据，timer 保持旧服务。
 
 确认本机配置及验证入口已完成后启用：
 
@@ -221,7 +229,11 @@ sudo bash -euc '
 
 锁路径与更新器配置一致；shell 持有同一独占锁并将 fd 9 传入工具，不嵌套独立取锁。命令应直接运行，不能再套一个已持锁但未传 fd 的父进程。工具核对正在运行的 launcher 字节与此 release 一致，拒绝用待升级版本代替当前版本。初始化及公网校验成功后，才能启用 timer；失败时恢复首次接管前保存的站点配置/include，检查并 reload，保留原游戏版本且不启用 timer。这是一次性接管步骤，后续升级和回退不再单独调用 activate。
 
-工具将精确路径 alias 到此 release 的文件，稳定 URL 使用 `no-cache`；仅 GET / HEAD。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保留相对路径；`/skills/` 和 `/skills/oasis7-play/` 转至发现页，旧 `/skills/oasis7.md` 转至正式入口。它不开放任意文件目录或 API。写入使用原子替换，旧 include 保存在同目录 `.previous`；随后 `nginx -t`、reload 并从公网逐字节核对 Skill、全部引用、清单和发现页。reload 返回时旧 worker 可能仍在响应，因此激活验证最多等待 20 秒收敛；仅对版本字节不匹配或 HTTP 502 / 503 / 504 重试，每次重新验证整套文件，不能拼接多次局部成功。重定向、其他 HTTP 错误或 TLS / 连接错误立即失败，慢响应同样受总时限约束；独立 `verify` 命令仍单次严格校验。任一步失败都恢复旧 include、检查并 reload；回滚失败保留实际错误，不能宣称发布成功。失败期间不把旧 Skill 视为新游戏版本验收通过。
+工具将精确路径 alias 到此 release 的文件，稳定 URL 使用 `no-cache`；仅 GET / HEAD。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保留相对路径；`/skills/` 和 `/skills/oasis7-play/` 转至发现页，旧 `/skills/oasis7.md` 转至正式入口。它不开放任意文件目录或 API。
+
+写入使用原子替换，旧 include 保存在同目录 `.previous`；随后 `nginx -t`、reload 并从公网逐字节核对 Skill、全部引用、清单和发现页。reload 返回时旧 worker 可能仍在响应，因此激活验证最多等待 20 秒收敛；仅对版本字节不匹配或 HTTP 502 / 503 / 504 重试，每次重新验证整套文件，不能拼接多次局部成功。重定向、其他 HTTP 错误或 TLS / 连接错误立即失败，慢响应同样受总时限约束；独立 `verify` 命令仍单次严格校验。
+
+任一步失败都恢复旧 include、检查并 reload；回滚失败保留实际错误，不能宣称发布成功。失败期间不把旧 Skill 视为新游戏版本验收通过。
 
 后续每次自动升级由固定验证器检查公开准入接口、运行程序、Web/Skill 和真实签名世界推进。代理策略变更仍在相同维护锁内独立验证，不借部署扩大 API 白名单。
 
