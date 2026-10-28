@@ -78,7 +78,7 @@
 
 单个 receipt、可达 HTTP endpoint、完整历史链或 blob closure 不能证明恢复后的世界可以接受新写入。目标是将相同候选、世界/历史分支和 canonical 窗口的 execution、state-sync、intent 结果与消费者样本连接为可回读的结构化附件，逐一判定 DC-5 的服务状态、重审、零/单次 receipt 与真实下一步。成功条件是全部 schema 与语义检查以及相应 required/full 环境证据同时成立。
 
-本文实际定义 QA target attachment schema 和验证算法、场景及 evidence receiver；它不实现 runtime、最终性、迁移、消费者、schema validator 工具或新 workflow。文档结构、fixture 验证与实现/full proof 分别成立。以下例子与 schema 的 shape pass 永不表示 DC-5 或 SC-9 已通过。
+本文定义 QA target attachment schema 和验证算法、场景及 evidence receiver；它不实现 runtime、最终性、迁移、消费者、schema validator 工具或新 workflow。文档结构、fixture 验证与实现/full proof 分别成立。以下例子与 schema 的 shape pass 永不表示 DC-5 或 SC-9 已通过。
 
 ## 2. 上游约束与相关角色
 
@@ -147,7 +147,7 @@ Pending request commitment core 排除自己的 request_hash、accepted_position
 <a id="sr2-dc5-semantic-validator"></a>
 ### Target semantic receiver（实现与运行证明仍未提供）
 
-以下是本篇真实验证设计算法，不是声称存在的新工具。schema-only cannot pass DC-5：
+以下是本篇的验证算法设计，不表示已有对应工具。schema-only cannot pass DC-5：
 
 1. Parse/version/unknown-field validation 后，验证所有 Id UTF-8 bytes、U64 最大值/转换、Git object kind、窗口 start<=end 与 last trusted/head 连续性。严格检测原始 JSON duplicate keys，schema 解析后的 map 无法检测被 parser 覆盖的 key；拒绝不合 canonical profile 的编码。
 2. fetch 每个 ContentRef 原 bytes，复算 digest/length，保留只读原件；执行与 sync packet 的 scope/candidate/window 必须 exact equality，execution_version/protocol/test contract 对应实测版本。缺少任何 linked attachment、template/not_collected/partial 或读回不确定阻断。

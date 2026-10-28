@@ -3,7 +3,7 @@
 - Owner role：`qa_engineer`；协作：`runtime_engineer`、`agent_engineer`、`gameplay_designer`。
 - 生命周期：`active` 验收计划；Last reviewed：2026-10-19；**全部场景尚未执行**，不是实现、测试通过、玩家理解或发布证据。
 - 产品要求：[REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004)；产品验收：[AC-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-004)。
-- 配套合同：[Agent 工业制造系统设计](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-validation)；唯一政策输入：[agent-manufacturing-v1](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-manufacturing-v1)。本手册将既有七组验证计划落到稳定验收源，不另定配方、费用、权限或时间政策。
+- 配套合同：[Agent 工业制造系统设计](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-validation)；唯一政策输入：[agent-manufacturing-v1](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-manufacturing-v1)。本手册为既有七组验证计划提供稳定验收源，不另定配方、费用、权限或时间政策。
 
 Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 
