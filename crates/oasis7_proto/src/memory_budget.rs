@@ -60,6 +60,10 @@ impl MemoryBudget {
         self.0.used.load(Ordering::Acquire)
     }
 
+    pub fn same_pool(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Nonblocking admission avoids deadlock while an operation holds pages.
     /// Callers reserve their complete next allocation before expanding work.
     pub fn reserve(

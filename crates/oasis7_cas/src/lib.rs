@@ -21,6 +21,7 @@ const COMPRESSED_BLOB_HEADER_LEN: usize = 16 + COMPRESSED_BLOB_HASH_HEX_LEN;
 const COMPRESSIBLE_BLOB_MIN_BYTES: usize = 1024;
 const COMPRESSED_BLOB_ZSTD_LEVEL: i32 = 3;
 const COMPRESSED_RANGE_CACHE_ENTRY_MAX_BYTES: u64 = compressed_range_cache::ENTRY_MAX_BYTES;
+pub mod frame_codec;
 mod local_blob_codec;
 pub use local_blob_codec::{BlobReadReceipt, decode_local_blob_into};
 mod challenge;

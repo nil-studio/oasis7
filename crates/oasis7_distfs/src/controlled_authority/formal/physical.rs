@@ -314,24 +314,20 @@ fn decode_frame(root: &Path, frame: &Frame) -> Result<Vec<u8>, FormalError> {
     if blake3::hash(&stored).to_hex().as_str() != frame.stored {
         return Err(invalid("physical stored checksum"));
     }
-    let bytes = if frame.compressed {
-        let mut decoder = zstd::stream::read::Decoder::new(stored.as_slice()).map_err(io)?;
-        decoder.window_log_max(16).map_err(io)?;
-        let mut output = Vec::new();
-        decoder
-            .take(frame.length as u64 + 1)
-            .read_to_end(&mut output)
-            .map_err(io)?;
-        output
-    } else {
-        stored
+    let descriptor = oasis7_cas::frame_codec::FrameDescriptor {
+        stored: hex::decode(&frame.stored)
+            .map_err(io)?
+            .try_into()
+            .map_err(|_| invalid("physical frame ID"))?,
+        original: hex::decode(&frame.original)
+            .map_err(io)?
+            .try_into()
+            .map_err(|_| invalid("physical frame ID"))?,
+        length: frame.length,
+        compressed: frame.compressed,
     };
-    if bytes.len() != frame.length as usize
-        || blake3::hash(&bytes).to_hex().as_str() != frame.original
-    {
-        return Err(invalid("physical decoded length/checksum"));
-    }
-    Ok(bytes)
+    oasis7_cas::frame_codec::decode(&descriptor, &stored)
+        .map_err(|_| invalid("physical decoded length/checksum"))
 }
 fn range(
     root: &Path,
@@ -478,13 +474,8 @@ pub(crate) fn persist_guarded(
     let mut frames = Vec::new();
     let mut fresh = BTreeMap::new();
     for chunk in chunker::chunks(&payload) {
-        let compressed = zstd::bulk::compress(chunk, 3).map_err(io)?;
-        let (bytes, is_compressed) = if compressed.len() < chunk.len() {
-            (compressed, true)
-        } else {
-            (chunk.to_vec(), false)
-        };
-        let stored = blake3::hash(&bytes).to_hex().to_string();
+        let (descriptor, bytes) = oasis7_cas::frame_codec::encode(chunk, true).map_err(io)?;
+        let stored = hex::encode(descriptor.stored);
         let path = root.join(FRAMES).join(&stored);
         match fs::symlink_metadata(&path) {
             Ok(_) => {
@@ -502,7 +493,7 @@ pub(crate) fn persist_guarded(
             stored,
             original: blake3::hash(chunk).to_hex().to_string(),
             length: chunk.len() as u32,
-            compressed: is_compressed,
+            compressed: descriptor.compressed,
         });
     }
     let recipe = Recipe {

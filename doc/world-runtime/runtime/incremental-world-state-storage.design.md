@@ -454,3 +454,19 @@ latest checkpoint 为本次 checkpoint 或精确沿用父目录 pointer；它使
 `catalog-proof` 编码为 root digest、query（tag=1 + height 或 tag=2 + commit）、`u16` node count、按实际访问顺序排列的 digest + `u16` 原节点 byte 长度 + bytes。最多 514 个节点、每节点最多 1024 bytes、packet 最大 600 KiB；解码先匹配受权 root/query，再分配节点序列。height 点查最多 257 个节点，commit 点查先验证 locator 再验证 height，最多 514 个节点；证明不能缺页、带多余节点、重排或跨根/范围复用。构造/解码先申请 2 MiB 操作工作空间，验证申请 64 KiB，保留的 packet/条目接管实际容量 charge；IO/时间/取消由读者适配器在这些路径边界继续计费。
 
 HeaderPreparation 校验 config、parent body、parent prefix、RootSet 和原 TransitionRecord 的 scope/高度/operation/authority/前后根绑定，再按原件 → segment/prefix → checkpoint → body 的依赖方向形成内容。Catalog extension 可以准备候选 bytes，但必须在原证书获准后才能成为已接受目录并由 selector 选择；任何本地 hash、对象写入或证明测试均不自授接受资格。固定编码向量、缺页/篡改负例及增长目录下固定旧位置的读取计数见 `oasis7_formal_protocol::incremental_history::tests`；它们不代签真实 authority、持久化、全量闭包、复制或故障域验收。
+
+### 12.7 有界物理页发布
+
+Trace refs: O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.3 的独立 frame 与 §8.2 的有界发布。`IncrementalPageStore` 是 DistFS 的单页物理适配器，直接承接 `ValueNodeReader`/`ValueNodeWriter`，不提供世界 head、接受证书或删除接口。大型原工件的完整对象接口、类型闭包、受保护根及维护仍须继续接入，不能以此替代。
+
+每页保存原 canonical bytes 的 BLAKE3 身份，输入非空且不超过 65,600 bytes（64 KiB value data 加冻结节点 envelope 上界）。物理切分复用既有 gear v1：最小 4096、mask 14 bits、最大 65,536 bytes；frame 复用 level-3 zstd 或原 raw，压缩不能节省时保留 raw。两者规则抽到 `oasis7_cas::frame_codec`，既有 formal v1 recipe/selector 不改格式；新页不经过旧整包累计 API。decoder 限制 window log 为 16，按声明长度分配，并以有界最后一字节探测拒绝超长输出。
+
+新页使用独立物理 recipe：`oasis7.iws.page-recipe.v1\0`、原 page ID（32 bytes）、原长度（`u32`）、frame count（`u8`），随后每 frame 的 stored/original digest、原长度（`u32`）和 raw=0/zstd=1 tag；尾部为此前 recipe bytes 的 BLAKE3。整数大端。recipe 最大 2048 bytes，最多 17 frames，总覆盖长度恰等于页长；未知 domain/tag、跨页 ID、过量 count、截断或额外 bytes 均拒绝。这是可替代的物理表示，recipe/压缩身份不代替逻辑页身份。
+
+Create 只创建不存在的专用目录，Open 不创建或修复缺失目录、格式标记和固定 lease。受控路径要求原 owner、非组/其他用户可写的普通目录/文件，拒绝 symlink；Unix 打开最终文件使用 `O_NOFOLLOW` 并核对 inode。live handle 持有固定空文件的共享内核 lease，操作重新核对其身份；独占维护占用时 Open 受限返回，不按 PID/TTL 推断过期，不无限等待。相同 OS 用户绕过 lease 主动修改目录不在合作协议保障内。
+
+每 frame 先在私有 staging 写入并 fsync，再以不可覆写 hard link 发布，sync 最终文件及所属目录后才清理本次 staging。全部 frame 耐久后才发布 recipe，随后重读重建并验证原 page hash；同 hash 的并发 raw/zstd 发布允许选择任一有效原表示，不能覆盖已选 bytes。中断残留只作为未引用材料保留，不由 Open 猜测补交或删掉。frame-only 残留不是可读页；错误/取消后的调用者须查询或重试相同原页，不能据错误推断磁盘未产生任何材料。这里不宣称整个业务提交的原子性或跨故障域耐久性。
+
+路径元数据、单次 raw/压缩写入和物理解码分别先从同一共享池申请保守 workspace（512 KiB / 16 MiB / 2 MiB）；codec scratch、页/recipe/frame 缓冲包含在对应阶段，输出 Vec/Arc 保留独立 charge 至最后持有者释放。物理操作额度分别限制文件读写次数和 bytes，包括 recipe、frame、重读及最终 overrun 探测；取消在页/frame 边界检查，恢复可以使用总额内的专用 reserve。此保守准入不代替 native allocator、RSS、实际设备 IO、临时磁盘累计或维护峰值测量。
+
+组件验收命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store::tests -- --test-threads=1`。真实临时文件系统覆盖重开、跨逻辑块窄读、重复/并发表示发布、frame-only 中断重试、六个 frame/recipe 发布边界的真实进程 kill 与重开、缺失/损坏、危险路径、内存/IO/取消及 live Arc 计费。进程 kill 不等于断电；它们不代签断电、ENOSPC、整世界恢复、受保护根/GC 或 §11 的规模验收。
