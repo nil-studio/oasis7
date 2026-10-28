@@ -2,9 +2,9 @@ use super::*;
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext, write_value};
 use std::sync::atomic::AtomicU64;
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-struct Fixture(PathBuf);
+pub(super) struct Fixture(pub(super) PathBuf);
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         loop {
             let root = std::env::temp_dir().join(format!(
                 "oasis7-iws-pages-{}-{}",
@@ -18,7 +18,7 @@ impl Fixture {
             }
         }
     }
-    fn store(&self) -> PathBuf {
+    pub(super) fn store(&self) -> PathBuf {
         self.0.join("store")
     }
 }
@@ -27,7 +27,7 @@ impl Drop for Fixture {
         fs::remove_dir_all(&self.0).unwrap();
     }
 }
-fn physical_io() -> PageIoBudget {
+pub(super) fn physical_io() -> PageIoBudget {
     PageIoBudget {
         reads_remaining: 100000,
         read_bytes_remaining: 1 << 30,
@@ -35,14 +35,14 @@ fn physical_io() -> PageIoBudget {
         write_bytes_remaining: 1 << 30,
     }
 }
-fn logical_io() -> ValueIoBudget {
+pub(super) fn logical_io() -> ValueIoBudget {
     ValueIoBudget {
         nodes_remaining: 100000,
         read_bytes_remaining: 1 << 30,
         write_bytes_remaining: 1 << 30,
     }
 }
-fn charged(memory: &MemoryBudget, bytes: Vec<u8>) -> ReservedValue<Vec<u8>> {
+pub(super) fn charged(memory: &MemoryBudget, bytes: Vec<u8>) -> ReservedValue<Vec<u8>> {
     memory
         .reserve(bytes.capacity(), MemoryClass::Ordinary)
         .unwrap()
@@ -543,19 +543,7 @@ fn publication_crash_worker() {
 
 #[test]
 fn killed_publisher_reopens_and_retries_the_same_page_at_each_filesystem_boundary() {
-    use std::{
-        process::{Child, Command},
-        time::{Duration, Instant},
-    };
-    struct OwnedChild(Child);
-    impl Drop for OwnedChild {
-        fn drop(&mut self) {
-            if !matches!(self.0.try_wait(), Ok(Some(_))) {
-                self.0.kill().expect("kill owned page publisher");
-                self.0.wait().expect("reap owned page publisher");
-            }
-        }
-    }
+    use std::{process::Command, time::Duration};
     for (kind, step) in [
         ("frames", 1),
         ("frames", 2),
@@ -570,34 +558,26 @@ fn killed_publisher_reopens_and_retries_the_same_page_at_each_filesystem_boundar
             IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
                 .unwrap(),
         );
-        let mut child = OwnedChild(
-            Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "incremental_page_store::tests::publication_crash_worker",
-                    "--ignored",
-                    "--nocapture",
-                    "--test-threads=1",
-                ])
-                .env("OASIS7_IWS_PAGE_CRASH_ROOT", fixture.store())
-                .env("OASIS7_IWS_PAGE_CRASH_POINT", format!("{kind}-{step}"))
-                .spawn()
-                .unwrap(),
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "incremental_page_store::tests::publication_crash_worker",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("OASIS7_IWS_PAGE_CRASH_ROOT", fixture.store())
+            .env("OASIS7_IWS_PAGE_CRASH_POINT", format!("{kind}-{step}"));
+        assert!(
+            !crate::test_process::kill_at_marker(
+                &mut command,
+                &fixture.0.join("paused"),
+                Duration::from_secs(15)
+            )
+            .unwrap()
+            .success()
         );
-        let deadline = Instant::now() + Duration::from_secs(15);
-        while !fixture.0.join("paused").exists() {
-            assert!(
-                child.0.try_wait().unwrap().is_none(),
-                "publisher exited before {kind}-{step}"
-            );
-            assert!(
-                Instant::now() < deadline,
-                "publisher did not reach {kind}-{step}"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        child.0.kill().unwrap();
-        assert!(!child.0.wait().unwrap().success());
         let store = IncrementalPageStore::open(
             &fixture.store(),
             memory.clone(),
@@ -619,9 +599,15 @@ fn killed_publisher_reopens_and_retries_the_same_page_at_each_filesystem_boundar
         } else {
             assert!(matches!(read, Err(PageStoreError::Missing(_))));
         }
+        files::take_sync_counts();
         store
             .put_page(id, &bytes, &mut physical_io(), &AtomicBool::new(false))
             .unwrap();
+        let synced = files::take_sync_counts();
+        assert!(
+            synced.0 > 0 && synced.1 > 0,
+            "retry must synchronize the selected frames and recipe, even when the recipe was already visible"
+        );
         assert_eq!(
             store
                 .read_page(

@@ -20,6 +20,8 @@ use std::{
 
 #[path = "incremental_page_store_files.rs"]
 mod files;
+#[path = "incremental_object_store.rs"]
+pub mod objects;
 #[path = "incremental_page_store_recipe.rs"]
 mod recipe;
 
@@ -211,6 +213,20 @@ impl IncrementalPageStore {
         if stored.as_slice() != bytes {
             return Err(PageStoreError::Corrupt("immutable page differs"));
         }
+        // An earlier publisher may have died after link() but before its
+        // directory/file barriers. Readable bytes alone do not reestablish
+        // durability. Sync the actually selected representation's closure,
+        // including the winner of a concurrent raw/zstd recipe publication.
+        let recipe_path = self.root.join("recipes").join(hex::encode(id));
+        let encoded = files::read(&recipe_path, recipe::MAX_RECIPE_BYTES, io, cancelled)?;
+        let (_, frames) = recipe::decode(id, &encoded)?;
+        for frame in frames {
+            check_cancelled(cancelled)?;
+            files::sync(&self.root.join("frames").join(hex::encode(frame.stored)))?;
+        }
+        files::sync(&self.root.join("frames"))?;
+        files::sync(&recipe_path)?;
+        files::sync(&self.root.join("recipes"))?;
         Ok(())
     }
 

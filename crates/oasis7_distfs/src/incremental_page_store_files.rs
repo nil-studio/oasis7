@@ -25,10 +25,10 @@ fn metadata(metadata: &fs::Metadata, directory: bool) -> Result<()> {
     }
     Ok(())
 }
-fn directory(path: &Path) -> Result<()> {
+pub(super) fn directory(path: &Path) -> Result<()> {
     metadata(&fs::symlink_metadata(path)?, true)
 }
-fn create_directory(path: &Path) -> Result<()> {
+pub(super) fn create_directory(path: &Path) -> Result<()> {
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     builder.mode(0o700);
@@ -57,7 +57,7 @@ fn open_regular(path: &Path) -> Result<File> {
     }
     Ok(file)
 }
-fn sync(path: &Path) -> Result<()> {
+pub(super) fn sync(path: &Path) -> Result<()> {
     let before = fs::symlink_metadata(path)?;
     // System ancestors need not be owned by the store. Their directory fsync
     // is still required when creating a fresh child, with O_NOFOLLOW.
@@ -71,7 +71,28 @@ fn sync(path: &Path) -> Result<()> {
         return Err(PageStoreError::Corrupt("physical sync identity"));
     }
     file.sync_all()?;
+    #[cfg(test)]
+    SYNC_COUNTS.with(|counts| {
+        let mut next = counts.get();
+        match path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+        {
+            Some("frames") => next.0 += 1,
+            Some("recipes") => next.1 += 1,
+            _ => {}
+        }
+        counts.set(next);
+    });
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! { static SYNC_COUNTS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0,0)) }; }
+#[cfg(test)]
+pub(super) fn take_sync_counts() -> (usize, usize) {
+    SYNC_COUNTS.with(|counts| counts.replace((0, 0)))
 }
 pub(super) fn create_store(root: &Path) -> Result<()> {
     create_directory(root)?;

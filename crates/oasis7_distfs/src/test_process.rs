@@ -41,6 +41,35 @@ fn wait_owned(command: &mut Command, budget: Duration) -> io::Result<ExitStatus>
     }
 }
 
+/// Kill and reap this exact child at an owned fresh filesystem barrier. A
+/// premature exit or timeout is an error; cleanup also runs on assertion panic.
+pub(crate) fn kill_at_marker(
+    command: &mut Command,
+    marker: &std::path::Path,
+    budget: Duration,
+) -> io::Result<ExitStatus> {
+    let deadline = Instant::now() + budget;
+    let mut child = OwnedChild(command.spawn()?);
+    loop {
+        if let Some(status) = child.0.try_wait()? {
+            return Err(io::Error::other(format!(
+                "child exited before publication barrier: {status}"
+            )));
+        }
+        if marker.try_exists()? {
+            child.0.kill()?;
+            return child.0.wait();
+        }
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "publication barrier deadline expired",
+            ));
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// True in the parent after a successful exact worker, false in that worker.
 /// The worker owns its fixture, so unrelated parent spawn/fork calls cannot
 /// inherit its locks. Failures and the outer deadline remain test failures.

@@ -470,3 +470,17 @@ Create 只创建不存在的专用目录，Open 不创建或修复缺失目录�
 路径元数据、单次 raw/压缩写入和物理解码分别先从同一共享池申请保守 workspace（512 KiB / 16 MiB / 2 MiB）；codec scratch、页/recipe/frame 缓冲包含在对应阶段，输出 Vec/Arc 保留独立 charge 至最后持有者释放。物理操作额度分别限制文件读写次数和 bytes，包括 recipe、frame、重读及最终 overrun 探测；取消在页/frame 边界检查，恢复可以使用总额内的专用 reserve。此保守准入不代替 native allocator、RSS、实际设备 IO、临时磁盘累计或维护峰值测量。
 
 组件验收命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store::tests -- --test-threads=1`。真实临时文件系统覆盖重开、跨逻辑块窄读、重复/并发表示发布、frame-only 中断重试、六个 frame/recipe 发布边界的真实进程 kill 与重开、缺失/损坏、危险路径、内存/IO/取消及 live Arc 计费。进程 kill 不等于断电；它们不代签断电、ENOSPC、整世界恢复、受保护根/GC 或 §11 的规模验收。
+
+重复发布必须同步实际选中的完整 frame 闭包、recipe 和所属目录，再返回耐久成功。先前进程可能在 hard link 可见后、fsync 前退出，或另一个 writer 尚在完成其 barrier；“页已可读”不能证明这些步骤完成。此规则适用于同 ID 重试和并发 raw/zstd winner，不以缓存命中替代。六窗口 kill 回归同时核对重试确实经过选中 frame/recipe 的 sync barrier；无 barrier 的旧重试路径在 recipe 已可见窗口判红。
+
+### 12.8 原不可变对象的流式物理表示
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §6.1 的原内容 digest 与 §8.2 的有界工件接口。`IncrementalObjectStore` 借用同一页池、预算与 live lease，保存历史 canonical 记录和原工件，不重新 hash 全部历史。首次导入按明确原长度读取并流式计算原 BLAKE3，后续对象 bytes 不被提前消费；期望原摘要不符时不发布 locator，已写页仅为未接受材料。
+
+该能力显式 Create/Open：Create 在页池中创建 `objects` 目录和 `objects-format` 标记（原 bytes 为 `oasis7.iws.object-aliases.v1\n`），Open 不补建缺失能力或猜测中断创建已完成。页池原格式和 frame/recipe 编码保持；这是独立的物理对象定位能力，不激活新世界。locator 使用 `oasis7.iws.object-locator.v1\0`、原对象 ID（32 bytes）、原长度（`u64` 大端）、ValueRoot descriptor ID（32 bytes）及此前 bytes 的 BLAKE3；固定长度且不超过 256 bytes。locator 仍用 §12.7 的 staging、不可覆写发布和耐久 barrier。先形成全部值树页、descriptor 及原摘要，再发布 locator 并独立重读核对完整原内容。
+
+locator 校验和与 ValueRoot 在这里只认证物理重建结构，不能直接授权原 flat digest 下的局部范围。原对象读取须验证 locator 绑定、ValueRoot 长度、全部所需原 bytes 及其完整原摘要；没有该证据时不开放 flat-ID range。已由合法逻辑根直接承诺的 ValueRoot 范围仍走 §12.4 的路径接口。`read_object_into` 的输出在最终成功前为临时结果，不能边解码边修改 reducer；调用者须使用已计费的私有文件/临时 sink。`read_object_owned` 在分配前申请完整记录上界及输出 charge，只在原摘要验证后返回，适用于有界 canonical 记录；大工件使用流式临时 sink，额度不足不能回退到未计费 Vec。
+
+对象 metadata workspace 为 64 KiB，句柄保留 4 KiB 元数据准入，页/codec/输出沿用共享池和阶段计费。逻辑树与物理文件分别消耗显式操作额度，取消和恢复读取沿用原总额内 reserve；完整原摘要只能在第一次导入或实际读取完整原件时计算，不用 locator 代替原摘要认证。`persist_history_material` 逐件承接 `HeaderPreparation` 产物的事实集合、TransitionRecord、segment/prefix、可选 checkpoint 与 body，并核对其相互内容 ID；不构造全历史包。它返回内容 ID，不返回接受/完整闭包回执；RootSet、状态页、事实内容、执行工件与原证书仍由所属消费者提供并认证。
+
+组件验收命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib incremental_page_store:: -- --test-threads=1`。覆盖实际 header producer、超过单页的完整 FactSet 原 bytes/ID、locator 被替换但校验和有效的拒绝、空值/精确长度、共享预算及持有者计费、三窗口原对象发布进程 kill 和原身份续做。超 64 MiB 重复工件组在 8 MiB 总 reservation、3 MiB 恢复预留下完成真实页存储导入与流式读回，整对象 owned 读取被内存准入拒绝；它只证明该重复 fixture 的有界路径，不代签随机数据容量、RSS、设备 IO、满盘、断电、世界恢复或真实故障域。
