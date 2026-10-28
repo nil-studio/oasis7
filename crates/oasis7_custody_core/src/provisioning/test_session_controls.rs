@@ -28,6 +28,7 @@ impl AccountProvisionApprovalState {
         }
         if s.purpose_http_admissions
             .contains_key(admission.ingress_attempt_id)
+            || Self::termination_attempt_occupied(s, admission.ingress_attempt_id)
             || !super::id_nonempty(admission.ingress_attempt_id)
         {
             return Err(invalid());
@@ -93,7 +94,8 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<()> {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        if s.purpose_http_admissions.contains_key(attempt_id)
+        if Self::termination_attempt_occupied(s, attempt_id)
+            || s.purpose_http_admissions.contains_key(attempt_id)
             || s.input.request.context != current.approval.authority
             || current.approval.frozen
             || current

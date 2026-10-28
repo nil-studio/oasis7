@@ -117,6 +117,14 @@ pub enum TerminationPayloadV1 {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct TerminationLookupClaimV1 {
+    pub attempt_id: String,
+    pub claimed_at: UnixMillis,
+    pub original_digest: String,
+    pub paid_transport_index: u32,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TerminationOriginalV1 {
     pub operation_id: String,
     pub payload: TerminationPayloadV1,
@@ -127,6 +135,10 @@ pub struct TerminationOriginalV1 {
     pub observations: BTreeMap<OwnerSetupCanonicalSourceV1, OwnerSetupResultV1>,
     pub transport_attempts: Vec<String>,
     pub lookup_claimed_at: Option<UnixMillis>,
+    // Legacy never-claimed slots carry no new grant; claimed missing-link slots
+    // are rejected by strict restore, never reconstructed from generic paid IDs.
+    #[serde(default)]
+    pub lookup_paid_claim: Option<TerminationLookupClaimV1>,
 }
 impl AccountProvisionApprovalState {
     pub fn test_session_termination_basis(
@@ -390,6 +402,7 @@ impl AccountProvisionApprovalState {
             observations: BTreeMap::new(),
             transport_attempts: Vec::new(),
             lookup_claimed_at: None,
+            lookup_paid_claim: None,
         };
         let mut next = self.clone();
         let s = next.test_sessions.get_mut(id).ok_or_else(invalid)?;

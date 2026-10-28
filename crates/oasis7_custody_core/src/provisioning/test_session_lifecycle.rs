@@ -330,7 +330,10 @@ impl AccountProvisionApprovalState {
             current.source_operation_id,
             purpose.source_funding(),
         )?;
-        if !id(attempt_id)
+        if Self::termination_attempt_occupied(
+            self.test_sessions.get(session_id).ok_or_else(invalid)?,
+            attempt_id,
+        ) || !id(attempt_id)
             || self
                 .test_sessions
                 .get(session_id)
@@ -373,6 +376,7 @@ impl AccountProvisionApprovalState {
             || self.frozen()
             || s.control_transports.contains_key(attempt_id)
             || s.purpose_http_admissions.contains_key(attempt_id)
+            || Self::termination_attempt_occupied(s, attempt_id)
             || now.get()
                 >= admission::pairing(&s.input.request.intent)?
                     .3
@@ -412,6 +416,12 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<()> {
         self.test_session_local(id, purpose, now)?;
+        if Self::termination_attempt_occupied(
+            self.test_sessions.get(id).ok_or_else(invalid)?,
+            attempt_id,
+        ) {
+            return Err(invalid());
+        }
         if self
             .test_sessions
             .get(id)

@@ -15,6 +15,7 @@ impl AccountProvisionApprovalState {
         roots::authenticated_receipt(s, purpose, admission.possession, now)?;
         let ingress = admission.ingress_attempt_id;
         if !id_nonempty(ingress)
+            || Self::termination_attempt_occupied(s, ingress)
             || s.control_transports.contains_key(ingress)
             || s.client_http_admissions.contains_key(ingress)
             || s.purpose_transports.contains_key(ingress)

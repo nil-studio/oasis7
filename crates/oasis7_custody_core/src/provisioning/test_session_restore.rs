@@ -220,6 +220,51 @@ impl AccountProvisionApprovalState {
                             {
                                 return Err(invalid());
                             }
+                            for attempt in &o.transport_attempts {
+                                if !id_nonempty(attempt)
+                                    || s.termination_slots
+                                        .values()
+                                        .flat_map(|slot| &slot.transport_attempts)
+                                        .filter(|v| *v == attempt)
+                                        .count()
+                                        != 1
+                                    || s.sources.contains_key(attempt)
+                                    || s.source_funding.contains_key(attempt)
+                                    || s.actions
+                                        .values()
+                                        .any(|a| a.transport_attempts.contains(attempt))
+                                    || s.purpose_transports.contains_key(attempt)
+                                    || s.purpose_http_admissions.contains_key(attempt)
+                                    || s.control_transports.contains_key(attempt)
+                                    || s.client_http_admissions.contains_key(attempt)
+                                {
+                                    return Err(invalid());
+                                }
+                            }
+                            match (&o.lookup_claimed_at, &o.lookup_paid_claim) {
+                                (None, None) => {}
+                                (Some(at), Some(paid))
+                                    if *at == paid.claimed_at
+                                        && at.get() >= o.claimed_at.ok_or_else(invalid)?.get()
+                                        && at.get() < cleanup
+                                        && o.transport_attempts
+                                            .iter()
+                                            .filter(|v| *v == &paid.attempt_id)
+                                            .count()
+                                            == 1
+                                        && paid.paid_transport_index > 0
+                                        && o.transport_attempts
+                                            .get(paid.paid_transport_index as usize)
+                                            == Some(&paid.attempt_id)
+                                        && paid.original_digest
+                                            == digest(&(
+                                                "oasis7.custody.termination-known-lookup.v1",
+                                                id,
+                                                kind,
+                                                o.signed.as_ref().ok_or_else(invalid)?,
+                                            ))? => {}
+                                _ => return Err(invalid()),
+                            }
                             match (&o.payload, kind) {
                                 (TerminationPayloadV1::Stop(r), TerminationOperationV1::Stop) => {
                                     r.validate().map_err(|_| invalid())?;
