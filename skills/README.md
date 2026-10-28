@@ -1,7 +1,7 @@
 # Non-Default Specialist Skill Library
 
-Root `skills/` stores specialist guidance that should remain referenceable but
-should not be default-loaded as an active oasis7 skill entrypoint.
+Root `skills/` stores specialist guidance that should remain referenceable
+but not be default-loaded as an active oasis7 skill entrypoint.
 
 Use this surface for:
 
