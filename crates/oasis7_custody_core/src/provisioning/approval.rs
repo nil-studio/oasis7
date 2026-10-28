@@ -559,7 +559,9 @@ impl AccountProvisionApprovalState {
     fn validate_persistence(&self) -> Result<()> {
         validate_draft(&self.draft)?;
         self.validate_managed_login_persistence()?;
-        self.validate_owner_setup_persistence()?;
+        // Stack-local pure-crypto scope: never stored, returned or held over await.
+        let mut setup_signatures = RestoreSignatureScope::default();
+        self.validate_owner_setup_persistence_scoped(&mut setup_signatures)?;
         self.validate_owner_setup_reconcile_persistence()?;
         self.validate_pairing_invite_persistence()?;
         self.validate_test_session_persistence()?;
@@ -617,7 +619,7 @@ impl AccountProvisionApprovalState {
         }
         native_phases.extend(recovered);
         native_phases.extend(self.participant_phase_replay()?);
-        native_phases.extend(self.owner_setup_phase_replay()?);
+        native_phases.extend(self.owner_setup_phase_replay_scoped(&mut setup_signatures)?);
         self.provision.validate_approval_progress(
             &self.draft,
             nonce,

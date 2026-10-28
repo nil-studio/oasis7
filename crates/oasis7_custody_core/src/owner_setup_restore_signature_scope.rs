@@ -1,64 +1,24 @@
-//! Synchronous restore-only bounded reuse of complete exact successful crypto tuples.
-use oasis7_client_api::world_service::private_goal::PreparedOwnerSignature;
-#[derive(Default, Clone, Copy, serde::Serialize)]
-pub struct RestoreSignatureSummary {
-    pub calls: u64,
-    pub successes: u64,
-    pub failures: u64,
-    pub repeated_successes: u64,
-    pub tracked_tuples: u64,
-    pub overflow_tuples: u64,
-}
+//! One synchronous restore scope, shared with only the fixed SDK goal chain.
+#[cfg(any(test, feature = "signature-metrics"))]
+pub use oasis7_client_api::world_service::private_goal::StrictOwnerSignatureSummary as RestoreSignatureSummary;
+use oasis7_client_api::world_service::private_goal::{
+    PreparedOwnerSignature, StrictOwnerSignatureScope,
+};
 #[derive(Default)]
 pub(crate) struct RestoreSignatureScope {
-    entries: Vec<PreparedOwnerSignature>,
-    bytes: usize,
-    summary: RestoreSignatureSummary,
+    sdk: StrictOwnerSignatureScope,
 }
 impl RestoreSignatureScope {
-    const MAX_ENTRIES: usize = 256;
-    const MAX_BYTES: usize = 2 * 1024 * 1024;
     pub(crate) fn verify(&mut self, prepared: PreparedOwnerSignature) -> Result<(), String> {
-        self.summary.calls += 1;
-        // Only a prior successful strict verification of this complete exact
-        // SDK-owned tuple can be reused, within this one synchronous restore.
-        if self.entries.iter().any(|old| exact(old, &prepared)) {
-            self.summary.repeated_successes += 1;
-            self.summary.successes += 1;
-            return Ok(());
-        }
-        if let Err(error) = prepared.verify_strict() {
-            self.summary.failures += 1;
-            return Err(error);
-        }
-        self.summary.successes += 1;
-        let bytes = prepared.canonical_bytes().len()
-            + prepared.domain().len()
-            + prepared.public_key_hex().len()
-            + prepared.signature_hex().len()
-            + prepared.profile().len();
-        if self.entries.len() >= Self::MAX_ENTRIES
-            || bytes > Self::MAX_BYTES.saturating_sub(self.bytes)
-        {
-            self.summary.overflow_tuples += 1;
-            return Ok(());
-        }
-        self.bytes += bytes;
-        self.entries.push(prepared);
-        self.summary.tracked_tuples += 1;
-        Ok(())
+        self.sdk.verify_prepared_reusing(prepared)
+    }
+    pub(crate) fn sdk(&mut self) -> &mut StrictOwnerSignatureScope {
+        &mut self.sdk
     }
     #[cfg(any(test, feature = "signature-metrics"))]
     pub(crate) fn summary(&self) -> RestoreSignatureSummary {
-        self.summary
+        self.sdk.summary()
     }
-}
-fn exact(a: &PreparedOwnerSignature, b: &PreparedOwnerSignature) -> bool {
-    a.profile() == b.profile()
-        && a.domain() == b.domain()
-        && a.public_key_hex() == b.public_key_hex()
-        && a.signature_hex() == b.signature_hex()
-        && a.canonical_bytes() == b.canonical_bytes()
 }
 #[cfg(test)]
 mod tests {
@@ -250,55 +210,15 @@ mod tests {
             (scope.summary().failures, scope.summary().tracked_tuples),
             (5, 0)
         );
-        // Capacity overflow still verifies each miss and never grants trust to
-        // another occurrence of that unrecorded tuple.
-        let overflow_a = prepared("overflow", 1, 42);
-        let overflow_b = prepared("overflow", 1, 42);
-        let overflow_bad = prepare_owner_signature_strict(
-            "overflow",
-            &2u64,
-            &good.subject_public_key,
-            &good.signature_hex,
-        )
-        .unwrap();
-        let mut full = RestoreSignatureScope {
-            bytes: RestoreSignatureScope::MAX_BYTES,
-            ..Default::default()
-        };
-        #[cfg(feature = "signature-metrics")]
-        crate::signature_metrics::begin_scope();
-        full.verify(overflow_a).unwrap();
-        full.verify(overflow_b).unwrap();
-        assert!(full.verify(overflow_bad).is_err());
-        #[cfg(feature = "signature-metrics")]
-        {
-            let sdk = crate::signature_metrics::take_summary();
-            assert_eq!((sdk.strict_attempts, sdk.failures), (3, 1));
-        }
-        assert_eq!(
-            (
-                full.summary().tracked_tuples,
-                full.summary().repeated_successes,
-                full.summary().overflow_tuples
-            ),
-            (0, 0, 2)
-        );
-        // Force only the bounded storage capacity, never a verification result.
-        scope.bytes = RestoreSignatureScope::MAX_BYTES;
-        scope.verify(prepared("scope-a", 1, 42)).unwrap();
-        assert_eq!(
-            (scope.summary().successes, scope.summary().overflow_tuples),
-            (1, 1)
-        );
-        assert_eq!(scope.summary().tracked_tuples, 0);
-        scope.bytes = 0;
-        for i in 0..=RestoreSignatureScope::MAX_ENTRIES {
+        // Opaque SDK scope owns the one shared entry/byte cap. Its unit tests
+        // exercise both caps; Core cannot fabricate capacity or success entries.
+        for i in 0..=StrictOwnerSignatureScope::MAX_ENTRIES {
             scope.verify(prepared("scope-a", i as u64, 42)).unwrap();
         }
         assert_eq!(
             scope.summary().tracked_tuples,
-            RestoreSignatureScope::MAX_ENTRIES as u64
+            StrictOwnerSignatureScope::MAX_ENTRIES as u64
         );
-        assert_eq!(scope.summary().overflow_tuples, 2);
+        assert_eq!(scope.summary().overflow_tuples, 1);
     }
 }

@@ -9,6 +9,10 @@ use zeroize::Zeroizing;
 #[cfg(feature = "signature-metrics")]
 pub mod signature_metrics;
 
+#[path = "private_goal/strict_scope.rs"]
+mod strict_scope;
+pub use strict_scope::{StrictOwnerSignatureScope, StrictOwnerSignatureSummary};
+
 /// Kept strictly outside WorldServicePayloadV1. Debug is absent so body and
 /// enumerable signature material cannot accidentally enter ordinary logs.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +43,18 @@ impl SignedGoalPrepareV1 {
     /// Proves only the declared signer and exact private proposal. A valid
     /// signature alone never establishes current World owner authority.
     pub fn verify(&self) -> Result<(), String> {
+        self.verify_with_scope(None)
+    }
+    pub fn verify_with_signature_scope(
+        &self,
+        scope: &mut StrictOwnerSignatureScope,
+    ) -> Result<(), String> {
+        self.verify_with_scope(Some(scope))
+    }
+    pub(super) fn verify_with_scope(
+        &self,
+        scope: Option<&mut StrictOwnerSignatureScope>,
+    ) -> Result<(), String> {
         self.request.validate().map_err(str::to_owned)?;
         if self.subject_public_key != self.request.owner_public_key
             || self.signature_hex.len() != 128
@@ -49,11 +65,12 @@ impl SignedGoalPrepareV1 {
         {
             return Err("invalid private goal signature envelope".into());
         }
-        verify_owner_signature_strict(
+        verify_owner_signature_with_scope(
             GAME_GOAL_PREPARE_DOMAIN,
             &self.request,
             &self.subject_public_key,
             &self.signature_hex,
+            scope,
         )
     }
 
@@ -61,7 +78,14 @@ impl SignedGoalPrepareV1 {
     /// World authority and recheck it at admission/delivery. This pure proof
     /// comparison does not perform those checks or prepare/activate a goal.
     pub fn validate_against(&self, current: &GameTaskControlV1) -> Result<(), String> {
-        self.verify()?;
+        self.validate_against_with_scope(current, None)
+    }
+    fn validate_against_with_scope(
+        &self,
+        current: &GameTaskControlV1,
+        scope: Option<&mut StrictOwnerSignatureScope>,
+    ) -> Result<(), String> {
+        self.verify_with_scope(scope)?;
         let request = &self.request;
         if current.schema_revision != 1
             || request.world_id != current.world_id
@@ -192,6 +216,20 @@ pub fn verify_owner_signature_strict<T: Serialize>(
     prepare_owner_signature_strict(domain, request, subject_public_key, signature_hex)?
         .verify_strict()
 }
+pub(super) fn verify_owner_signature_with_scope<T: Serialize>(
+    domain: &str,
+    request: &T,
+    key: &str,
+    signature: &str,
+    scope: Option<&mut StrictOwnerSignatureScope>,
+) -> Result<(), String> {
+    match scope {
+        None => verify_owner_signature_strict(domain, request, key, signature),
+        Some(scope) => scope.verify_prepared_nested(prepare_owner_signature_strict(
+            domain, request, key, signature,
+        )?),
+    }
+}
 #[cfg(test)]
 #[path = "private_goal/strict_prepared_tests.rs"]
 mod strict_prepared_tests;
@@ -225,11 +263,17 @@ pub struct PreparedGoalReceiptV1 {
 }
 impl PreparedGoalReceiptV1 {
     pub fn validate(&self) -> Result<(), PreparedGoalError> {
+        self.validate_with_scope(None)
+    }
+    pub(super) fn validate_with_scope(
+        &self,
+        scope: Option<&mut StrictOwnerSignatureScope>,
+    ) -> Result<(), PreparedGoalError> {
         if self.schema_revision != 1 {
             return Err(PreparedGoalError::Invalid);
         }
         self.owner_proof
-            .verify()
+            .verify_with_scope(scope)
             .map_err(|_| PreparedGoalError::Invalid)?;
         let salt = decode_salt(&self.reference_salt)?;
         if self.goal_ref != prepared_goal_commitment(&salt, &self.owner_proof)? {
@@ -244,7 +288,14 @@ impl PreparedGoalReceiptV1 {
         &self,
         original: &SignedGoalPrepareV1,
     ) -> Result<(), PreparedGoalError> {
-        self.validate()?;
+        self.validate_against_with_scope(original, None)
+    }
+    pub(super) fn validate_against_with_scope(
+        &self,
+        original: &SignedGoalPrepareV1,
+        scope: Option<&mut StrictOwnerSignatureScope>,
+    ) -> Result<(), PreparedGoalError> {
+        self.validate_with_scope(scope)?;
         if &self.owner_proof != original {
             return Err(PreparedGoalError::Conflict);
         }
@@ -252,7 +303,14 @@ impl PreparedGoalReceiptV1 {
     }
 
     pub fn validate_publish(&self, publish: &GameGoalPublishV1) -> Result<(), PreparedGoalError> {
-        self.validate()?;
+        self.validate_publish_with_scope(publish, None)
+    }
+    pub(super) fn validate_publish_with_scope(
+        &self,
+        publish: &GameGoalPublishV1,
+        scope: Option<&mut StrictOwnerSignatureScope>,
+    ) -> Result<(), PreparedGoalError> {
+        self.validate_with_scope(scope)?;
         publish.validate().map_err(|_| PreparedGoalError::Invalid)?;
         let r = &self.owner_proof.request;
         if self.goal_ref != publish.goal_ref

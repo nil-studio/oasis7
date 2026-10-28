@@ -1,15 +1,13 @@
 use super::*;
 impl AccountProvisionApprovalState {
-    pub(in crate::provisioning) fn validate_owner_setup_persistence(&self) -> Result<()> {
-        self.validate_owner_setup_persistence_scoped(&mut RestoreSignatureScope::default())
-    }
     #[cfg(feature = "signature-metrics")]
     pub fn owner_setup_restore_signature_metrics(&self) -> Result<RestoreSignatureSummary> {
         let mut scope = RestoreSignatureScope::default();
         self.validate_owner_setup_persistence_scoped(&mut scope)?;
+        self.owner_setup_phase_replay_scoped(&mut scope)?;
         Ok(scope.summary())
     }
-    fn validate_owner_setup_persistence_scoped(
+    pub(in crate::provisioning) fn validate_owner_setup_persistence_scoped(
         &self,
         signature_scope: &mut RestoreSignatureScope,
     ) -> Result<()> {

@@ -244,8 +244,18 @@ impl AccountProvisionApprovalState {
                 OwnerSetupOriginalV1::PrepareGoal(original),
                 OwnerSetupResultV1::PreparedGoal(response),
             ) => {
-                ws::private_goal_read::verify_prepare_response(original, response, key)
-                    .map_err(|_| invalid())?;
+                match signature_scope.as_deref_mut() {
+                    Some(scope) => {
+                        ws::private_goal_read::verify_prepare_response_with_signature_scope(
+                            original,
+                            response,
+                            key,
+                            scope.sdk(),
+                        )
+                    }
+                    None => ws::private_goal_read::verify_prepare_response(original, response, key),
+                }
+                .map_err(|_| invalid())?;
                 verify_owner_setup_restore_signature(
                     ws::private_goal_read::GOAL_PREPARE_PATH,
                     &(&response.request_digest, &response.payload),
@@ -280,8 +290,18 @@ impl AccountProvisionApprovalState {
                     signature_scope.as_deref_mut(),
                 )
                 .map_err(|_| invalid())?;
-                ws::private_goal_read::verify_current_response(goal_request, goal, key)
-                    .map_err(|_| invalid())?;
+                match signature_scope.as_deref_mut() {
+                    Some(scope) => {
+                        ws::private_goal_read::verify_current_response_with_signature_scope(
+                            goal_request,
+                            goal,
+                            key,
+                            scope.sdk(),
+                        )
+                    }
+                    None => ws::private_goal_read::verify_current_response(goal_request, goal, key),
+                }
+                .map_err(|_| invalid())?;
                 verify_owner_setup_restore_signature(
                     ws::private_goal_read::GOAL_CURRENT_PATH,
                     &(&goal.request_digest, &goal.payload),
@@ -356,8 +376,9 @@ impl AccountProvisionApprovalState {
         }
         Ok(())
     }
-    pub(in crate::provisioning) fn owner_setup_phase_replay(
+    pub(in crate::provisioning) fn owner_setup_phase_replay_scoped(
         &self,
+        signature_scope: &mut RestoreSignatureScope,
     ) -> Result<Vec<(ProvisionStage, PhaseOriginal, Option<String>)>> {
         let mut phases = Vec::new();
         for (id, v) in &self.owner_setups {
@@ -388,10 +409,11 @@ impl AccountProvisionApprovalState {
                         final_outbox,
                     )?;
                 } else {
-                    self.validate_owner_setup_result(
+                    self.validate_owner_setup_result_scoped(
                         id,
                         OwnerSetupStageV1::FinalObservation,
                         result,
+                        Some(&mut *signature_scope),
                     )?;
                 }
                 phases.push((
