@@ -18,9 +18,13 @@
 
 ## 分批控制
 
-`OASIS7_CODEQL_BATCH_MODES` 缺省 `{}`，八个 unit/profile 批次全部 disabled。它是 repository variable JSON object，例如 `{"actions-repo/default":"baseline"}` 仅允许该目标批次参加默认分支维护（含获授权的首次验收试运行，不代表已验收）；`observe` 仅可用于 default profile，并且全局 mode 也必须为 observe 才允许其合格 PR。删除键停该批，default值从observe降baseline停其PR，global off停全部后续计划。非法/重复键、未知组合、非字符串值或extended observe使规划失败。
+`OASIS7_CODEQL_BATCH_MODES` 缺省 `{}`，八个 unit/profile 批次全部 disabled。它是 repository variable JSON object，例如 `{"actions-repo/default":"baseline"}` 仅允许该目标批次参加默认分支维护（含获授权的首次验收试运行，不代表已验收）；`observe` 仅可用于 default profile，并且全局 mode 也必须为 observe 才允许其合格 PR。删除键可停用该批次；default 值从 observe 降为 baseline 可停止该批次的 PR 扫描；global off 停止全部后续计划。非法/重复键、未知组合、非字符串值或 extended observe 使规划失败。
 
-manual/schedule仍提出完整四语言候选范围，但实际矩阵受当前profile批次配置约束；未启用范围逐项标明原因，不能当扫描成功。改变全局mode不会自动绕过批次限制。首次交付控制能力不设置外部变量、不发起扫描或上传。首次验收时，经覆盖设置和扫描的授权仅将目标键设为baseline并读回，在可信默认分支试运行；此时pending acceptance，配置不是验收通过，PR仍禁用，失败删除键回退。真实hosted验收完成后才声明已验收并持续运营；native位置切片、fixture、局部helper或其他批次PASS不代签。分批控制不改变八批整体healthy、category、权限、并发或required政策。
+manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 profile 批次配置约束；未启用范围逐项标明原因，不能当扫描成功。改变全局 mode 不会自动绕过批次限制。首次交付控制能力不设置外部变量、不发起扫描或上传。
+
+首次验收时，经覆盖设置和扫描的授权，仅将目标键设为 baseline 并读回，在可信默认分支试运行；此时为 pending acceptance，配置不代表验收通过，PR 仍禁用，失败时删除键回退。真实 hosted 验收完成后才声明已验收并持续运营；native 位置切片、fixture、局部 helper 或其他批次 PASS 不代签。
+
+分批控制不改变八批整体 healthy、category、权限、并发或 required 政策。
 
 ## 可信计划与权限
 
@@ -123,7 +127,9 @@ Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-c
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前固定业务源码为已合入 Tauri 生成上下文排除的 `c036927d33b917a036a731f071209e16f6deb033`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，仍按 45 分钟完整 default 与公共见证合同验收。旧业务版本仅可显式选取，旧结果不能代签本配置。其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前固定业务源码为已合入 Tauri 生成上下文排除的 `c036927d33b917a036a731f071209e16f6deb033`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，仍按 45 分钟完整 default 与公共见证合同验收。旧业务版本仅可显式选取，旧结果不能代签本配置。
+
+其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
 
 分析后的独立 `capture` 步骤先保存已有数据库日志，再分别读取 HEAD、工作区状态和 Git 根，不能由身份或资源错误跳过。`database-log-capture.json` 列出原始长度、已保存字节及摘要、变化/截断/未到达原因；部分证据可解释失败，但不能支持完整验收。步骤 outcome、最初失败与后续采证错误分别记录；失败后不继续 CodeQL 解码或公共见证。官方 Action 的进程清理保持 `UNKNOWN_RUNNER_OWNED`，需最终 runner 日志回读，不能套用 helper 自有进程组的清理结果。
 

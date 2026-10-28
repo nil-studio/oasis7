@@ -7,7 +7,7 @@
 - 对应文件级索引: `doc/testing/prd.index.md`
 
 ## 1. 设计定位
-`testing` 模块的 `design.md` 负责描述测试分层、验证策略、证据采集与发布门禁的总体设计。
+`testing` 模块的 `design.md` 描述测试分层、验证策略、证据采集与发布门禁的总体设计。
 
 ## 2. 阅读顺序
 1. `doc/testing/prd.md`
@@ -29,7 +29,7 @@
 | [L4 scaffold 输出](prd.md#l4-scaffold-output) | 路径通过 argv 传入序列化器，JSON stdout 与 manifest 一致且保留目录保护。 | [Scaffold 序列化](design.md#l4-scaffold-serialization) | prepare-playability-l4-review.sh 与其 stdout/manifest 消费者。 | 离线 scaffold 成功不完成 L4A/L4B。 |
 
 ## 3. 设计结构
-- 分层层：`test_tier_required` / `test_tier_full` 的职责分工。
+- 测试分层：`test_tier_required` / `test_tier_full` 的职责分工。
 - 证据层：测试结果、失败签名、门禁与复审记录。
 - 发布层：go/no-go、回归范围与阻断结论。
 - 性能证据层：`performance-coverage-gap-matrix-2026-06-09.md` 统一当前 runtime/LLM observability、Viewer Web browser metrics、tier 与 report-only/blocking 边界；历史 native probe schema 不反向定义当前 Web harness。
@@ -59,7 +59,11 @@
 
 The [QA receiver contract](prd.md#qa-infrastructure-receiver) is the stable entry for combining product obligations, professional contracts, scenes, and test-tier evidence. For each scene/cell/specimen, freeze the exact clause fragment and source identity, candidate/base/tested tree, world/branch/root/window/configuration, applicable domain owner, execution state, dependency/topology and provider identity, ordered phases, artifact locator/bytes/digest, oracle, verdict, and residual proof boundary. Keep `planned`, `located`, `implemented`, and `executed` as independent state fields.
 
-The verification path is source clause → named scene and phase → actual environment/dependency → professional oracle → raw evidence artifact and readback → tier-specific verdict. First bind the candidate and source; then enumerate required cases/cells; capture a no-mutation baseline; validate artifact identity and bytes; run structural checks separately from canonical, trust, semantic, and cross-consumer checks; compare same-candidate before/outage/fresh/recovery/retry/replay observations; and finally check that the selected tier's real environment is present. Missing mandatory identity, phase, cell, proof, archive readback, or environment is blocked/unverified. A contradictory observed invariant is failed with its exact signature. A shape-only pass remains shape-verified. Pass applies only to the declared scope when all its assertions and required environment are observed. Archive failures and successes append-only. This method does not turn a fixture, a link, a schema, or a previous candidate's pass into current execution or release evidence.
+The verification path is source clause → named scene and phase → actual environment/dependency → professional oracle → raw evidence artifact and readback → tier-specific verdict.
+
+First bind the candidate and source; then enumerate required cases/cells; capture a no-mutation baseline; validate artifact identity and bytes; run structural checks separately from canonical, trust, semantic, and cross-consumer checks; compare same-candidate before/outage/fresh/recovery/retry/replay observations; and finally check that the selected tier's real environment is present.
+
+Missing mandatory identity, phase, cell, proof, archive readback, or environment is blocked/unverified. A contradictory observed invariant is failed with its exact signature. A shape-only pass remains shape-verified. Pass applies only to the declared scope when all its assertions and required environment are observed. Archive failures and successes append-only. This method does not turn a fixture, a link, a schema, or a previous candidate's pass into current execution or release evidence.
 
 The root QA scene families are `V-FINALITY`, `V-RECOVERY`, `V-EXECUTION`, `V-INDUSTRIAL`, `V-OUTAGE`, `V-WORLD-SCOPE`, and `V-CONSUMER`; their source and oracle mapping is in the [testing PRD](prd.md#qa-infrastructure-scene-families). They retain all distinct product SC/narrative, DCS/DWE REQ/AC, P2P/runtime DC/DE, and GWSC 17/10/8 axes. Gameplay owns industrial quantities and W/window meaning; Runtime/WASM own execution and migration semantics; P2P owns finality and topology proof; Ops establishes the observed environment; Agent/Viewer own consumer observations; QA joins evidence without replacing those authorities.
 

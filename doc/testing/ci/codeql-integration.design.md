@@ -90,7 +90,7 @@ CQ-R01–CQ-R09 是本专题下列锚点保留的 CodeQL 专业合同，不是�
 
 ### 4.1 三层概念必须分开
 
-**代码包**用于识别变更归属。例如 Cargo package、Python 模块集合、前端 package、workflow/local action。**分析单元**用于决定一个 CodeQL database 的稳定范围。**实施工作包**用于多人或多 Agent 并行交付。
+**代码包**识别变更归属，例如 Cargo package、Python 模块集合、前端 package、workflow/local action。**分析单元**确定一个 CodeQL database 的稳定范围。**实施工作包**用于多人或多 Agent 并行交付。
 
 三者不必一一对应。一个共享依赖很深的 Rust workspace 可以包含很多代码包，但初始只形成一个 Rust 分析单元；同时整个接入仍能分成多个实施工作包并行开发。
 
@@ -119,15 +119,21 @@ repository variable `OASIS7_CODEQL_BATCH_MODES` 为可信运营配置，使用 J
 
 全局 `OASIS7_CODEQL_MODE` 继续作为上限：off 禁止全部；baseline 仅允许配置中已启用批次的默认分支维护扫描；observe 另外允许配置为 observe 的 default 批次参与合格 PR。仅将全局模式升为 observe 不会让仅 baseline 的批次参加 PR。每个请求 profile 仅从原影响路由/全量维护候选中与有效批次配置取交集，保留原稳定全语言上下文和 category、查询集、并发槽位、权限及超时。
 
-计划显式分别记录 requested/candidate units、selected units 与每个未选 unit 的原因（无影响、全局关闭、profile批次未启用、PR仅baseline）。有受影响范围但全部被运营配置禁用时状态为 disabled，不能用 not_applicable 冒充无影响；真实无影响仍是 not_applicable。扫描配置变更先保守选择四个候选单元，再按可信运营配置限制实际执行，禁用范围明确披露，不将其算作成功覆盖。可信 planner/policy 缺失的 bootstrap 同样解析并遵守批次配置，不能绕过空配置启动四语言。workflow 还须独立核对每行 unit/profile/category 与全局和批次模式，候选输出不能自启用。
+计划显式分别记录 requested/candidate units、selected units 与每个未选 unit 的原因（无影响、全局关闭、profile批次未启用、PR仅baseline）。有受影响范围但全部被运营配置禁用时状态为 disabled，不能用 not_applicable 冒充无影响；真实无影响仍是 not_applicable。扫描配置变更先保守选择四个候选单元，再按可信运营配置限制实际执行，禁用范围明确披露，不将其算作成功覆盖。可信 planner/policy 缺失的 bootstrap 同样解析并遵守批次配置，不能绕过空配置启动四语言。
+
+workflow 还须独立核对每行 unit/profile/category 与全局和批次模式，候选输出不能自启用。
 
 未登记且不能识别为已有归属/明确豁免的输入必须使规划失败；不能以自动全语言回退隐藏范围规则缺口。Git身份、配置解析、符号链接或批次配置不可信时同样失败，不输出假空矩阵。现有配置变更、嵌入输入、跨语言影响保守并集规则保持。
 
-首次验收使用同一可信控制入口：在覆盖设置与扫描动作的授权下，将目标批次配置为 baseline，读回变量并仅在可信默认分支manual/schedule试运行；该配置仅允许验收执行，批次仍是 pending acceptance，不代表已经验收或正式持续运营，PR仍禁用。失败删除该键回退，禁止绕allowlist启动。取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行；default的PR observe还需其PR路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。回退可删除本批配置键、将default从observe降baseline或全局off，读回配置和新计划；不删除alerts/analysis、不改required保护，已有运行另行按授权处理。
+首次验收使用同一可信控制入口：在覆盖设置与扫描动作的授权下，将目标批次配置为 baseline，读回变量并仅在可信默认分支manual/schedule试运行；该配置仅允许验收执行，批次仍是 pending acceptance，不代表已经验收或正式持续运营，PR仍禁用。失败删除该键回退，禁止绕allowlist启动。
+
+取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行；default的PR observe还需其PR路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。
+
+回退可删除本批配置键、将default从observe降baseline或全局off，读回配置和新计划；不删除alerts/analysis、不改required保护，已有运行另行按授权处理。
 
 ### 4.3 Rust 为什么不按每 crate 拆 job
 
-根 workspace 已包含核心 runtime、network、consensus、protocol、WASM 等相关 crate。将一个 crate 单独 checkout 或只保留它的 diff 文件，可能丢失调用方、共享类型、宏、build inputs 或跨包数据流；另一方面，给每个 crate 单独构建整个 workspace，会成倍重复提取成本。
+根 workspace 已包含核心 runtime、network、consensus、protocol、WASM 等相关 crate。将一个 crate 单独 checkout 或只保留它的 diff 文件，可能丢失调用方、共享类型、宏、build inputs 或跨包数据流；为每个 crate 分别构建整个 workspace，则会成倍重复提取成本。
 
 因此首版保留 `rust-repo` 单元。包识别器仍必须列出所有 `Cargo.toml`，处理 workspace members/exclude、workspace 继承、本地 path dependency、target/build/dev dependency 与 patch，不能只读根 members 后就认定覆盖结束。
 
@@ -140,13 +146,13 @@ repository variable `OASIS7_CODEQL_BATCH_MODES` 为可信运营配置，使用 J
 拆分后必须满足：
 
 1. 所有维护中的 package 都落入一个明确单元，新增 manifest 不能静默漏扫。
-2. 每个单元完整保留其需要的本地依赖与构建元数据；无法证明独立则合并单元。
+2. 每个单元完整保留所需的本地依赖与构建元数据；无法证明独立则合并单元。
 3. 单元范围固定；不能同一 category 本次扫 A、下次扫 B。
 4. PR 与 main 的默认档使用同一组单元和 category，便于对比。
 5. 采用分片后，定时扩展档保留跨单元完整检查；明确披露 PR 分片没有证明的跨边界范围。
 6. 以 `extraction_duration`、`runner_minutes` 和覆盖样本衡量收益，不以 job 数衡量并行效果。
 
-若提取器对 manifests 的实际处理仍使多个 shard 重复加载大部分全仓，撤回分片，保留一个 Rust 数据库；不要用更多 job 掩盖重复工作。
+若提取器对 manifests 的实际处理仍使多个 shard 重复加载仓库的大部分内容，撤回分片，保留一个 Rust 数据库；不要用更多 job 掩盖重复工作。
 
 ## 5. 按需规划与输入身份
 
@@ -309,7 +315,7 @@ PR 和定时默认基线使用内置默认查询：不额外指定自定义 pack
 
 每日扩展档使用 `security-extended`。对当前查询包明确支持的语言，可以在扩展档验证 `local` threat model，以纳入 CLI 参数、环境和本地文件等来源；支持范围、额外告警和耗时必须单独确认，不能默认它覆盖所有项目 CLI 威胁。PR 默认档不因该扩展而改变。[E10]
 
-不首批启用自定义查询平台或海量质量规则。扫描“全面”指四语言、维护中源码、关键上下文、定时更广查询和明确缺口，并非所有可能规则都挤进每次 PR。
+不首批启用自定义查询平台或海量质量规则。扫描“全面”指四语言、维护中源码、关键上下文、定时更广查询和明确缺口，不要求每次 PR 运行所有可能的规则。
 
 ### 7.2 Rust
 
@@ -355,9 +361,13 @@ Rust 公共模型的有界诊断承接 [CQ-R03](#cq-r03)、[CQ-R05](#cq-r05) 与
 
 超时后的日志采证可在原日志读取截止内先观察有界稳定窗口：最多 5 秒、连续至少 1 秒元数据与日志集合不变，保留至少 1 秒给实际复制；不足稳定窗口时直接标记未稳定并尽剩余预算保存字节。每次观察重新 nofollow 打开路径，累计扫描最多 8192 项、每次最多 128 个日志，沿用深度和路径长度上限；替换、路径不安全、持续变化、预算或扫描上限均保留 PARTIAL。窗口稳定后仍执行原初始长度、文件与路径前后身份、压缩及摘要校验；复制期间再变化同样拒绝完整快照。该窗口只减少末尾写入与复制竞争，不证明写入者退出、终态日志齐全或 Action 清理；不发送终止信号，不扩展原采证/总 job 预算，不修改旧运行的 PARTIAL 结论。
 
-日志采集总落盘上限仍为 128 MiB，整个 artifact 仍为 256 MiB。小日志保持原字节；超过 16 MiB、初始长度不超过 512 MiB 且总原始读取不超过 1 GiB 的日志，可用 level-1 gzip 流式完整保存，单个压缩文件最多 64 MiB。分别记录原始和压缩字节数、SHA、编码及原始坐标；只有读满初始长度、gzip trailer 完成且打开文件与路径的前后身份一致，才为 COMPLETE。超出读取上限的日志继续在原 16 MiB 单文件上限内保存首尾片段，记录偏移与省略区间；任何超时、容量、写入、源变化或 trailer 错误保留已有部分并标记 PARTIAL，不能将部分压缩流当作完整日志。消费者以有界块和行流式解压，校验压缩及原始 SHA、长度、EOF/CRC/trailer 和原截止，不整份展开到内存。查询进度只汇总完整行，不跨省略区间拼接；覆盖解析保持同一连续流中的列表状态。缩略、未闭合列表或部分日志的缺失集合仍为未知。
+日志采集总落盘上限仍为 128 MiB，整个 artifact 仍为 256 MiB。小日志保持原字节；超过 16 MiB、初始长度不超过 512 MiB 且总原始读取不超过 1 GiB 的日志，可用 level-1 gzip 流式完整保存，单个压缩文件最多 64 MiB。分别记录原始和压缩字节数、SHA、编码及原始坐标；只有读满初始长度、gzip trailer 完成且打开文件与路径的前后身份一致，才为 COMPLETE。超出读取上限的日志继续在原 16 MiB 单文件上限内保存首尾片段，记录偏移与省略区间；任何超时、容量、写入、源变化或 trailer 错误保留已有部分并标记 PARTIAL，不能将部分压缩流当作完整日志。
 
-工作区 clean gate 与 tracked 状态分开呈现。准备开始根据已维护 manifest 清单，直接记录各候选 Cargo.lock 的初始存在性及有界 nofollow 摘要，包括 ignored 文件；候选最多 256 个、每文件读取最多 1 MiB、每次观察总读取最多 16 MiB，缺失父目录或不安全路径不记为不存在；每次既有 metadata 调用后和分析前保存身份及锁文件观察，并关联该次既有 metadata 原始输出与解析图摘要，不额外重解图。发现输入变脏时准备失败，分析不得启动。首次观察阶段只能缩小来源区间，不能证明精确写入者或解析影响；没有同一上下文的可比后图时解析影响保持 UNKNOWN。运行中新出现的未跟踪 Cargo.lock 记录精确路径、有限内容摘要、初始是否存在及可证来源；不能仅凭文件名认定由提取器生成或不影响依赖解析。未经验证的来源及解析影响保持 UNKNOWN，清洁检查仍失败，不白名单忽略 vendor，也不删除或改写该文件。分析后再次比较初始锁文件状态与摘要，ignored 锁文件新增或变化同样拒绝验收；缺少完整可比观察也不得放行。tracked 状态没有变化不代替冻结输入内容复核。
+消费者以有界块和行流式解压，校验压缩及原始 SHA、长度、EOF/CRC/trailer 和原截止，不整份展开到内存。查询进度只汇总完整行，不跨省略区间拼接；覆盖解析保持同一连续流中的列表状态。缩略、未闭合列表或部分日志的缺失集合仍为未知。
+
+工作区 clean gate 与 tracked 状态分开呈现。准备开始根据已维护 manifest 清单，直接记录各候选 Cargo.lock 的初始存在性及有界 nofollow 摘要，包括 ignored 文件；候选最多 256 个、每文件读取最多 1 MiB、每次观察总读取最多 16 MiB，缺失父目录或不安全路径不记为不存在；每次既有 metadata 调用后和分析前保存身份及锁文件观察，并关联该次既有 metadata 原始输出与解析图摘要，不额外重解图。发现输入变脏时准备失败，分析不得启动。首次观察阶段只能缩小来源区间，不能证明精确写入者或解析影响；没有同一上下文的可比后图时解析影响保持 UNKNOWN。
+
+运行中新出现的未跟踪 Cargo.lock 记录精确路径、有限内容摘要、初始是否存在及可证来源；不能仅凭文件名认定由提取器生成或不影响依赖解析。未经验证的来源及解析影响保持 UNKNOWN，清洁检查仍失败，不白名单忽略 vendor，也不删除或改写该文件。分析后再次比较初始锁文件状态与摘要，ignored 锁文件新增或变化同样拒绝验收；缺少完整可比观察也不得放行。tracked 状态没有变化不代替冻结输入内容复核。
 
 独立 workspace 的 Cargo.lock 是冻结输入，不因它同时被主 workspace 作为 path dependency 使用而共享主解析上下文。容量入口在分析前解析维护 manifest 的 `[workspace]` 声明，要求每个独立 workspace 的锁均已存在且纳入原始输入观察；缺失、未知或无法解析时列出原因并停止，不现场生成锁、不忽略 vendor、不把新锁加入旧 source SHA 的白名单。正式补锁与依赖解析复核属于业务输入变更，使用新的显式业务版本。
 
@@ -374,7 +384,9 @@ Rust 公共模型的有界诊断承接 [CQ-R03](#cq-r03)、[CQ-R05](#cq-r05) 与
 
 研究终态使用 `RESEARCH_*`，单列官方 Action 分析 outcome、逐结果校验、输入/覆盖与证据状态；分析成功不自动通过 dirty、部分日志或结果验证门槛。研究完成也只证明冻结配置下的官方工作负载，生产 45 分钟容量与完整 Rust 覆盖继续 UNKNOWN/HOLD，不使用容量余量判据放行。运行一次即停止，不自动重试；无 SARIF/数据库上传、批次启用、外部设置或资源清理。若需向上游共享数据库，必须另获覆盖该披露动作的授权。
 
-单独定位已记录的 Cargo check 失败时，使用默认关闭的手动 `CodeQL Rust Cargo Check` 入口：固定原业务提交、原分析 Cargo 1.99 的 release/commit/host 身份，以及从旧调用摘要核对的 compile-time-deps、features/targets 和 locked 参数。整个 job 从真实启动计最多 15 分钟，唯一 check 最多 10 分钟；复用外置 helper 闭包、源身份检查与有界进程收集，保留独立 stdout/stderr、退出码、进程组清理结果和摘要清单，artifact 上限 16 MiB。Rust >=1.97 的原解析方式使用现有锁的私有副本与 `CARGO_RESOLVER_LOCKFILE_PATH`，源与副本变动均须记录。使用新 runner 的私有 target，明确不复现原多 manifest 的共享 target 历史；成功、不同失败或未完成不能追认旧错误原因。禁止 CodeQL 提取、查询、解码、SARIF/数据库上传；一次运行即停，具体错误形成修复依据后再决定验证，不盲重跑。 针对已确认的原生库发现失败，可在同一总预算内为一次修复验证安装 GTK 3、WebKitGTK 4.1 与 D-Bus 开发依赖：原生准备（安装及版本探针）共用最多 180 秒且早于总截止 90 秒的截止，使用发行版包源，不改变 Cargo features、targets 或锁约束；记录包版本与原失败所需 pkg-config 模块版本。准备失败则不启动 check，保留独立安装 stdout/stderr 与终态；发现通过仅说明该 runner 的前置就绪，不代替真实 check 或 CodeQL 覆盖。特权包管理命令使用自身超时；普通 helper 的进程组清理观测不代签 root apt 子树已空。
+单独定位已记录的 Cargo check 失败时，使用默认关闭的手动 `CodeQL Rust Cargo Check` 入口：固定原业务提交、原分析 Cargo 1.99 的 release/commit/host 身份，以及从旧调用摘要核对的 compile-time-deps、features/targets 和 locked 参数。整个 job 从真实启动计最多 15 分钟，唯一 check 最多 10 分钟；复用外置 helper 闭包、源身份检查与有界进程收集，保留独立 stdout/stderr、退出码、进程组清理结果和摘要清单，artifact 上限 16 MiB。Rust >=1.97 的原解析方式使用现有锁的私有副本与 `CARGO_RESOLVER_LOCKFILE_PATH`，源与副本变动均须记录。使用新 runner 的私有 target，明确不复现原多 manifest 的共享 target 历史；成功、不同失败或未完成不能追认旧错误原因。禁止 CodeQL 提取、查询、解码、SARIF/数据库上传；一次运行即停，具体错误形成修复依据后再决定验证，不盲重跑。
+
+针对已确认的原生库发现失败，可在同一总预算内为一次修复验证安装 GTK 3、WebKitGTK 4.1 与 D-Bus 开发依赖：原生准备（安装及版本探针）共用最多 180 秒且早于总截止 90 秒的截止，使用发行版包源，不改变 Cargo features、targets 或锁约束；记录包版本与原失败所需 pkg-config 模块版本。准备失败则不启动 check，保留独立安装 stdout/stderr 与终态；发现通过仅说明该 runner 的前置就绪，不代替真实 check 或 CodeQL 覆盖。特权包管理命令使用自身超时；普通 helper 的进程组清理观测不代签 root apt 子树已空。
 
 容量入口的 prepare 阶段复用单 check 已验证的原生依赖准备，在冻结源码、独立锁及资源记录通过之后、metadata 与官方提取之前安装相同发行版包并检查相同 pkg-config 模块。四条命令共用最多 180 秒且早于容量总截止 120 秒的准备截止，仍计入整个 job 的 45 分钟预算与原 256 MiB artifact 上限；不另执行 Cargo check。准备非零、超时或证据失败即阻止 metadata 和分析，已有安装/模块输出及 prepare 终态由原失败采证路径封存。安装实际版本保留，普通 helper 清理不代签 root 子树已空；此环境准备不改变 features、targets、业务 pin、官方 bundle、查询集或覆盖要求。
 
