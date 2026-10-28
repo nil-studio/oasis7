@@ -462,3 +462,6 @@ fn typed_page_edges_bind_hash_and_reject_wrong_domain_length_or_unknown_namespac
         assert!(bad.verified_links().is_err(), "index={index}");
     }
 }
+
+#[path = "incremental_state_scan_tests.rs"]
+mod scan_tests;

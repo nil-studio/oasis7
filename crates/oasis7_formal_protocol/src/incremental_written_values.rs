@@ -1,7 +1,9 @@
 //! Candidate delta values. Full genesis/current-state closure is a separate
 //! obligation: absence of a transition cannot produce this delta-only marker.
 use super::*;
-use crate::incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError};
+use crate::incremental_value::{
+    ValueClosureSummary, ValueNodeReader, ValueReadContext, ValueTreeError,
+};
 
 pub struct WrittenValueBudget {
     pub values_remaining: u64,
@@ -62,15 +64,8 @@ pub fn verify_written_values<R: ValueNodeReader>(
         let Some(id) = write.mutation.after else {
             continue;
         };
-        if budget.values_remaining == 0 {
-            return Err(ValueTreeError::ResourceLimited("written value occurrences"));
-        }
-        let admitted = budget.max_value_bytes.min(budget.logical_bytes_remaining);
-        budget.values_remaining -= 1;
-        budget.logical_bytes_remaining -= admitted;
-        let summary = context.verify_closure(&id, admitted, &mut cancelled)?;
+        let summary = check_value_reference(context, &id, budget, &mut cancelled)?;
         let length = summary.root().0.logical_len;
-        budget.logical_bytes_remaining += admitted - length;
         result.values += 1;
         result.logical_bytes =
             result
@@ -89,3 +84,27 @@ pub fn verify_written_values<R: ValueNodeReader>(
     }
     Ok(charge.retain(result))
 }
+
+fn check_value_reference<R: ValueNodeReader>(
+    context: &mut ValueReadContext<'_, R>,
+    id: &[u8; 32],
+    budget: &mut WrittenValueBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ValueClosureSummary, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if budget.values_remaining == 0 {
+        return Err(ValueTreeError::ResourceLimited("value occurrences"));
+    }
+    let admitted = budget.max_value_bytes.min(budget.logical_bytes_remaining);
+    budget.values_remaining -= 1;
+    budget.logical_bytes_remaining -= admitted;
+    let summary = context.verify_closure(id, admitted, &mut cancelled)?;
+    budget.logical_bytes_remaining += admitted - summary.root().0.logical_len;
+    Ok(summary)
+}
+
+#[path = "incremental_full_state_values.rs"]
+mod full_state;
+pub use full_state::*;

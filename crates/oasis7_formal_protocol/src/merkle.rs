@@ -106,6 +106,41 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         Ok(Some(node))
     }
 
+    /// Complete fixed-root scan. The caller admits bounded DFS metadata and
+    /// governs source reads and visitor work. No growing visited/node map.
+    pub(crate) fn visit_leaves<E>(
+        &mut self,
+        root: &str,
+        mut visit: impl FnMut(&C::Leaf) -> Result<(), E>,
+    ) -> Result<u64, VisitError<E>> {
+        let mut stack = Vec::with_capacity(DEPTH + 1);
+        stack.push((root.to_owned(), 0usize, [0u8; 32]));
+        let mut count = 0u64;
+        while let Some((id, depth, path)) = stack.pop() {
+            let Some(node) = self.read(&id, depth).map_err(VisitError::Tree)? else {
+                continue;
+            };
+            match node {
+                Node::Branch { left, right, .. } => {
+                    let mut right_path = path;
+                    right_path[depth / 8] |= 0x80 >> (depth % 8);
+                    stack.push((right, depth + 1, right_path));
+                    stack.push((left, depth + 1, path));
+                }
+                Node::Leaf(leaf) => {
+                    if C::key(&leaf).map_err(VisitError::Tree)? != path {
+                        return Err(VisitError::Tree("Merkle scan key/path mismatch".into()));
+                    }
+                    visit(&leaf).map_err(VisitError::Visitor)?;
+                    count = count
+                        .checked_add(1)
+                        .ok_or_else(|| VisitError::Tree("Merkle scan leaf overflow".into()))?;
+                }
+            }
+        }
+        Ok(count)
+    }
+
     pub(crate) fn lookup(&mut self, root: &str, key: &[u8; 32]) -> Result<Option<C::Leaf>, String> {
         let mut current = root.to_owned();
         for depth in 0..=DEPTH {
@@ -263,4 +298,9 @@ pub(crate) fn build_empty_hashes<C: Codec>(empty_leaf: &[u8]) -> Result<Vec<Stri
         .to_string();
     }
     Ok(hashes)
+}
+
+pub(crate) enum VisitError<E> {
+    Tree(String),
+    Visitor(E),
 }

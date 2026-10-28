@@ -133,7 +133,7 @@ fn budget() -> CoreBudget {
     CoreBudget {
         objects_remaining: 32,
         original_bytes_remaining: 1024 * 1024,
-        new_pages_remaining: 2048,
+        new_pages_remaining: 4096,
         merkle_reads_remaining: 10000,
     }
 }
@@ -420,6 +420,15 @@ fn execution_sources(
         Some(value),
     )
     .unwrap();
+    for namespace in [
+        crate::incremental_state::StateNamespaceV1::Allocator,
+        crate::incremental_state::StateNamespaceV1::Scheduler,
+        crate::incremental_state::StateNamespaceV1::Authorization,
+        crate::incremental_state::StateNamespaceV1::Effects,
+        crate::incremental_state::StateNamespaceV1::Artifacts,
+    ] {
+        txn.write(namespace, b"control", Some(value)).unwrap();
+    }
     txn.append_fact(ExecutionFactRefV1 {
         kind: ExecutionFactKindV1::Input,
         id: [61; 32],

@@ -452,3 +452,87 @@ fn recovery_session_can_install_original_pages_while_ordinary_admission_is_full(
     );
     drop(ordinary);
 }
+
+#[test]
+fn full_six_namespace_state_and_value_scan_after_real_store_reopen() {
+    use oasis7_formal_protocol::{
+        incremental_state::{StateScanBudget, StateScanContext},
+        incremental_value::ValueReadContext,
+    };
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(16 << 20, 3 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let id = value(&store, &memory, b"shared current value");
+    let mut pages = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let parent = ExecutionParent {
+        commit: [6; 32],
+        roots: RootSetV1::empty("full-state".into(), [3; 32]).unwrap(),
+        authority: authority(),
+    };
+    let mut txn =
+        ExecutionTransaction::begin(parent.clone(), [7; 32], &pages, &memory, limits()).unwrap();
+    for root in &parent.roots.state {
+        txn.write(root.namespace, b"current", Some(id)).unwrap();
+    }
+    let guard = txn.guard();
+    let prepared = txn.seal(&guard, &parent.fence().unwrap(), 1).unwrap();
+    pages.persist_transition_pages(&prepared).unwrap();
+    let roots = prepared.record.after.clone();
+    drop(prepared);
+    drop(pages);
+    drop(store);
+    let store = IncrementalPageStore::open(
+        &fixture.store(),
+        memory.clone(),
+        PageCompression::Raw,
+        MemoryClass::Recovery,
+    )
+    .unwrap();
+    let state = store
+        .state_session(physical_io(), MemoryClass::Recovery)
+        .unwrap();
+    let values = store.value_session(physical_io());
+    let mut logical = logical_io();
+    logical.write_bytes_remaining = 0;
+    let mut read = ValueReadContext {
+        source: &values,
+        memory: &memory,
+        class: MemoryClass::Recovery,
+        io: &mut logical,
+    };
+    let mut quota = StateScanBudget {
+        nodes_remaining: 6 * 257,
+        read_bytes_remaining: 1 << 24,
+        leaves_remaining: 6,
+    };
+    let before = memory.used();
+    let mut total = 0;
+    for root in &roots.state {
+        total += StateScanContext {
+            source: &state,
+            memory: &memory,
+            class: MemoryClass::Recovery,
+            io: &mut quota,
+        }
+        .visit_entries(
+            root,
+            |entry| {
+                assert_eq!(entry.value, id);
+                let summary = read.verify_closure(&entry.value, 100, || false)?;
+                assert_eq!(summary.root().0.logical_len, 20);
+                Ok::<_, oasis7_formal_protocol::incremental_value::ValueTreeError>(())
+            },
+            || false,
+        )
+        .unwrap();
+    }
+    assert_eq!(total, 6);
+    assert_eq!((quota.nodes_remaining, quota.leaves_remaining), (0, 0));
+    assert_eq!(logical.nodes_remaining, 100000 - 12);
+    assert_eq!(logical.write_bytes_remaining, 0);
+    assert_eq!(memory.used(), before);
+}

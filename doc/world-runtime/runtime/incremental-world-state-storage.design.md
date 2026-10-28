@@ -623,3 +623,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 输出 `CheckedWrittenValues` 只绑定当前 body、value occurrence、逻辑 bytes 和实际页 occurrence 总数，没有 Clone、反序列化或接受能力。它不证明父/创世全部状态闭包、字段类型与业务规则、历史工件、持久域、保护根或最终回执；旧材料与新世界仍未激活。创世/恢复的全部状态枚举，以及完整 endpoint 物料接线仍需后续完成；普通提交不得通过全状态枚举补此差量检查。
 
 局部方法：协议库 `incremental_value::tests::closure_tests` 与 `incremental_material::tests::written_value_tests` 覆盖重复页 occurrence、空值缺叶、窄读未经过的叶缺失、精确节点/读取额度与少一额度、最大逻辑长度、取消、来源 unwind、实际 transition after 引用及创世/class 拒绝。真实来源方法为 `incremental_page_store::tests::complete_value_closure_reopens_above_sixty_four_mib_under_small_pool`：在 8 MiB 共享池（3 MiB recovery 预留）中写入、重开并遍历 64 MiB+17 bytes value 的 1036 个页 occurrence，不申请整件值、不消费输出额度；另核对途中取消的已消费读取和 workspace 释放。该证据只覆盖 value 闭包与真实页适配器，不能代替固定 H/S、进程 RSS、完整世界恢复、provider oracle 或独立故障域验收。
+
+
+### 12.18 创世及恢复的全部状态/value 枚举
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §5.1、§8 与 §12.17。`StateScanContext::visit_entries` 用于显式创世、bootstrap 或恢复的固定根扫描，不由普通提交调用。它复用已有 sparse Merkle 内容与深度校验，按 key hash 路径顺序枚举；叶的 namespace 和 key digest 必须与该根和实际 256-bit 路径一致，扫描完成后核对声明的 leaf_count。仅有合法 hash 的错位叶、错误深度、错误 namespace 或错误 count 均不能返回完整扫描结果。
+
+扫描先取得固定 128 KiB 共享 workspace，待访问引用最多 257 项；不保存随状态大小增长的节点集合，不复制完整状态。实际来源必须显式声明同一预算池和所选 ordinary/recovery class。每次读前扣节点和受剩余 bytes 限制的准入，成功仅退还未用部分；缺失、底层失败及来源 unwind 不退已准入工作。叶访问有独立条目额度，源读取和 visitor 前后均检查取消；空根无需页但仍检查取消。错误和缺失不是合法空树。visitor 借用单个已验证路径的叶，其副作用在全部扫描成功前仍属临时结果，不能安装活 World 或发布 head。
+
+`verify_state_values` 消费已检查结构 core，对 RootSet 的六类根逐一完整扫描，并复用 §12.17 同一个 value 引用验证/额度入口检查每个叶的完整 descriptor 和数据后代。它适用于创世与显式恢复，可以选择 recovery class；同一 value 被多个业务或控制叶引用时按 occurrence 检查和计数。普通提交继续使用 `verify_written_values`，不会因此全扫 S 或 H。输出 `CheckedStateValues` 只绑定该 body、六类叶数、逻辑 bytes 和 value 页 occurrence；无 Clone、反序列化或最终接受能力。失败不返回部分标记，也不证明事实语义、字段解码、模块/执行环境工件、历史全闭包、租约、独立持久域或可服务资格。
+
+局部方法：`incremental_state::tests::scan_tests` 用独立整树构造与直接 profile key 编码核对根和顺序，覆盖精确/少一额度、错路径/深度/namespace/count、缺页、visitor 失败、空根、取消、跨池及 unwind 已消费额度。`incremental_material::tests::written_value_tests::full_state_checks_all_six_namespaces_and_each_repeated_value` 从原协议候选结构 core 枚举七个真实引用（业务两项、五类控制各一项），分别验证 ordinary/recovery class、每次原值及缺叶拒绝。实际来源 `incremental_page_store::state::tests::full_six_namespace_state_and_value_scan_after_real_store_reopen` 将同一事务六根及 value 写入真实页 store，重开后用 recovery class 完整枚举 1542 个状态页和十二个 value 页 occurrence，核对精确节点/叶额度、无输出及计费释放。测试中的创世/authority/字段语义为隔离 fixture，不代表完整世界恢复、后续业务或 J1/J2/provider oracle 已通过；实际端点和全部 Runtime 字段仍待接线。
