@@ -1,6 +1,6 @@
 # engineering/doc-governance 专题入口
 
-本目录是 `doc/` 文档树治理的唯一上游分流入口，收拢文档组织、路径落位、入口减重与存量维护成本治理。读者应先从这里判断问题属于哪一类，再进入当前 authority；不要把同一治理规则继续复制到模块 README 或零散专题里。
+本目录是 `doc/` 文档树治理的唯一上游分流入口，涵盖文档组织、路径落位、入口减重与存量维护成本治理。先按问题类型进入当前 authority，不要把同一治理规则复制到模块 README 或零散专题里。
 
 ## 首读路径
 - 专业系统设计的十二段骨架、需求承接、验证映射与证据边界：`doc/engineering/doc-governance/system-design-writing-standard.design.md`
@@ -55,4 +55,4 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本节承接[全局要
 - 新增 doc-governance 专题时，同批更新 `doc/engineering/prd.index.md`，并在本页补一行“按治理问题分流”。
 - corpus inventory v3 的 storage/admission 细则见配套 design；本页和维护手册只保留导航与操作步骤，通用权限和合入规则以 workflow source of truth 为准，不把历史 activation 包装恢复为普通任务前置。
 - 一次性路径治理完成且目标 landing page 已承接首读分流与维护触发器后，退役该专题三件套，并在 `doc/engineering/prd.index.md` 的历史审计留痕记录替代入口；不要保留已经过期的缺口描述或 follow-up 排期。
-- 历史证据、旧审读轮次和任务过程仍保留在 PR、实际 CI 与评审记录（Issue 按需）、Git history 与 git history；不要为减重而批量改写历史文件。
+- 历史证据、旧审读轮次和任务过程仍保留在 PR、实际 CI 与评审记录（Issue 按需）及 Git history；不要为减重而批量改写历史文件。
