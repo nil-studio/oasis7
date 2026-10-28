@@ -54,6 +54,50 @@ pub(crate) fn retain_for_proposal(
     }
 }
 
+/// Discard only locally decidable stale/malformed input. This deliberately
+/// does not invoke an execution hook: failures reading/verifying the current
+/// World or storage remain fatal in the V3 batch-validation path.
+pub(crate) fn retain_for_bft_v3_parent(
+    action: &NodeConsensusAction,
+    context: &crate::NodeBftExecutionContextV3,
+    highwater: &mut std::collections::BTreeMap<String, u64>,
+) -> bool {
+    let (controller, nonce) = match payload_nonce(&action.payload_cbor) {
+        Ok(None) => return true,
+        Err(_) => return false,
+        Ok(Some(pair)) => pair,
+    };
+    let Ok(envelope) = decode_local_consensus_action_payload_envelope(&action.payload_cbor) else {
+        return false;
+    };
+    let Some(LocalConsensusActionAuthEnvelope::GovernanceAction(value)) = envelope.auth else {
+        return false;
+    };
+    let Ok(proof) =
+        serde_json::from_value::<oasis7_agent_api::world_action::GovernanceAuthorizationV1>(value)
+    else {
+        return false;
+    };
+    if proof.validate().is_err()
+        || proof.world_id != context.scope.world_id
+        || proof.chain_id != context.scope.chain_id
+        || proof.genesis_digest != context.scope.genesis_hash
+        || proof.parent_position.checked_add(1) != Some(context.height)
+        || proof.parent_record_id != context.parent_commit_ref
+        || proof.parent_state_root != context.parent_state_root
+        || context.height < proof.valid_from_position
+        || context.height > proof.valid_through_position
+    {
+        return false;
+    }
+    let previous = highwater.entry(controller).or_default();
+    if nonce <= *previous {
+        return false;
+    }
+    *previous = nonce;
+    true
+}
+
 /// Return true when governance validation fully handles the payload.
 pub(super) fn validate(envelope: &LocalConsensusActionPayloadEnvelope) -> Result<bool, NodeError> {
     let governance_proof = match envelope.auth.as_ref() {

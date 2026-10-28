@@ -222,13 +222,13 @@ impl Worker {
             {
                 Some(original) => original,
                 None => {
-                    let actions = self
-                        .pending
-                        .lock()
-                        .map_err(|_| error("wire-3 pending queue poisoned"))?
-                        .clone();
-                    let actions = super::actions::select_prefix(
-                        actions,
+                    let actions = super::actions::select_current(
+                        &mut *self
+                            .pending
+                            .lock()
+                            .map_err(|_| error("wire-3 pending queue poisoned"))?,
+                        &self.pending_bytes,
+                        &expected,
                         self.config.max_engine_pending_consensus_actions,
                     )?;
                     hook.validate_bft_v3_action_batch(&self.schedule, &actions)
