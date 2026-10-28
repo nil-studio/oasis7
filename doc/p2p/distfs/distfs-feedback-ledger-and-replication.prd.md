@@ -11,7 +11,7 @@
 
 ## 范围
 
-本专题覆盖 feedback store、签名与基础 anti-abuse、announce/fetch 复制和其受限 NodeRuntime 接线；不改变共识、finality、state-sync 或恢复机制。
+本专题覆盖 feedback store、签名与基础 anti-abuse、announce/fetch 复制及其受限 NodeRuntime 接线；不改变共识、finality、state-sync 或恢复机制。
 
 <a id="feedback-interface-data"></a>
 ## 接口 / 数据

@@ -68,7 +68,11 @@ Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39。
 
 成功 pin 返回后，遵守此协议的 prune 和文件删除不得移除该 blob，直到对应 pin 被显式撤销；全局 pin 的 read-modify-write 同样串行，避免并发增加丢失。blob put 也与删除串行，但裸 put 不授予保留资格；put 与后续 pin 之间允许 GC 先行，pin 必须在锁内重查存在性，缺失返回错误，调用者不能发布依赖该 pin 的提交。直接文件系统修改、旧版进程及不支持可靠 OS 锁的文件系统不在本地协调保证内，启用并发维护前须升级全部访问者。
 
-Runtime sidecar、节点复制 orphan/legacy sweep 和 attempt duplicate 回收也必须在同一 guard 下读取 pins 并删除。sidecar 在完成 CAS put/staging 后取得 guard，先重验新 generation 的闭包，再读取当前索引、合并并发布新索引、按该索引 sweep、写回 GC 结果；guard 不能在最后索引写回前释放，旧实例不能用旧快照覆盖新 generation。未取得 guard 前若 staging/blob 已被回收，重验失败且不得发布新索引；此接缝不把尚未发布材料变为已保留根，也不授予一般 GC 对专用 sidecar 根的回收资格。attempt 在资格、双端独立闭包及持久 retire fence 确认后，才由该私有存储的所有者撤销 `execution_bridge_v1` 内与精确 duplicate 输出重合的内部 pin；变更的 shard 和父目录先 fsync。其他 scope、全局 pin、无关内部引用和文件索引均保留；输出若仍被这些引用保护则等待后续维护，不能标为 Reclaimed。损坏成员修复在锁内重算 hash，已经恢复正确的成员不能因调用者的旧观察再次被删；真正损坏的成员可被清除后按原 hash 重新获取，原 pin 不被撤销。
+Runtime sidecar、节点复制 orphan/legacy sweep 和 attempt duplicate 回收也必须在同一 guard 下读取 pins 并删除。sidecar 在完成 CAS put/staging 后取得 guard，先重验新 generation 的闭包，再读取当前索引、合并并发布新索引、按该索引 sweep、写回 GC 结果；guard 不能在最后索引写回前释放，旧实例不能用旧快照覆盖新 generation。未取得 guard 前若 staging/blob 已被回收，重验失败且不得发布新索引；此接缝不把尚未发布材料变为已保留根，也不授予一般 GC 对专用 sidecar 根的回收资格。
+
+attempt 在资格、双端独立闭包及持久 retire fence 确认后，才由该私有存储的所有者撤销 `execution_bridge_v1` 内与精确 duplicate 输出重合的内部 pin；变更的 shard 和父目录先 fsync。其他 scope、全局 pin、无关内部引用和文件索引均保留；输出若仍被这些引用保护则等待后续维护，不能标为 Reclaimed。
+
+损坏成员修复在锁内重算 hash，已经恢复正确的成员不能因调用者的旧观察再次被删；真正损坏的成员可被清除后按原 hash 重新获取，原 pin 不被撤销。
 
 `prune_unpinned` 保留既有按容量淘汰语义：只保护 effective pins，可淘汰有文件索引但未 pin 的 blob，随后 audit 报告 missing；delete/orphan sweep 额外保护索引引用。此区别不改变配额或保留策略。完整同步的耐久 pin 发布器在同一 guard 内执行容量预检、blob fsync 和原子 shard 发布；其 GC 调用前后的容量采样不是并发写入下的全局容量事务，超限仍明确报错。该锁不是网络锁、世界根闭包证明、磁盘掉电耐久性或 checkpoint/历史 GC 授权。
 
