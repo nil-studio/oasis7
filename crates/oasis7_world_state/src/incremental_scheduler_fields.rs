@@ -3,12 +3,16 @@
 const KEY: &[u8] = b"oasis7.iws.module-wake-key.v1\0";
 const VALUE: &[u8] = b"oasis7.iws.module-wake.v1\0";
 pub const MODULE_WAKE_BYTES: usize = VALUE.len() + 8;
+pub const MODULE_WAKE_INDEX_KEY_V1: &[u8] = b"oasis7.iws.module-wake-index-key.v1\0";
 
 pub struct ModuleWakeKeyV1 {
     bytes: [u8; 1024],
     length: usize,
 }
 impl ModuleWakeKeyV1 {
+    pub fn is_wake_key(bytes: &[u8]) -> bool {
+        bytes.starts_with(KEY)
+    }
     pub fn new(instance: &str) -> Result<Self, &'static str> {
         if instance.is_empty() || instance.len() > 1024 - KEY.len() - 2 {
             return Err("module wake key length");

@@ -744,7 +744,7 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 
 唤醒时间计算与现有 tick 路由共用同一个函数：WakeAfterTicks 的相对间隔至少为 1，以当前绝对时钟饱和相加；Suspend/无 directive 不额外重排，保留既有回调中其他合法控制写入的语义。稳定 instance 的另一个版本或同 module 的其他 instance 不被顺带清除。这些点贡献不枚举 due set；正式 driver 仍须从精确根提供有界、完整且每轮去重的 due 集合，特别是最大时钟饱和后不能在同一轮重复消费新写的唤醒。
 
-本节尚未接入认证 due 索引、完整 module invocation/工件绑定、Pure 的 state 限制、费用/原结果事实及确定性 routing metrics；不能用这些函数代签完整路由或 J2。局部方法覆盖独立 wire 向量/UTF-8/key 上限、实际 map 的固定字节创世、条目额度、overlay 与旧 cache 不一致、执行前 clear、零延迟/溢出、挂起、缺失/未来键、坏值、写入不足及晚失败。既有模块路由测试核对共享计算的消费者。实际文件方法 `module_wake_reopens_and_continues_from_the_same_absolute_schedule` 持久化首次 wake 与业务写集，重开后验证 transition，再由隔离 driver 显式暂存新时钟并执行到期 clear，与不中断分支逐 record/新页比较；回调为 fixture，不是实际 WASM/费用或完整世界恢复验收。
+初始点贡献的认证 due 索引及标量一致性维护由 §12.28–12.29 补充；完整 module invocation/工件绑定、Pure 的 state 限制、费用/原结果事实及确定性 routing metrics 仍待完成，不能用这些函数代签完整路由或 J2。局部方法覆盖独立 wire 向量/UTF-8/key 上限、实际 map 的固定字节创世、条目额度、overlay 与旧 cache 不一致、执行前 clear、零延迟/溢出、挂起、缺失/未来键、坏值、写入不足及晚失败。既有模块路由测试核对共享计算的消费者。实际文件方法 `module_wake_reopens_and_continues_from_the_same_absolute_schedule` 持久化首次 wake 与业务写集，重开后验证 transition，再由隔离 driver 显式暂存新时钟并执行到期 clear，与不中断分支逐 record/新页比较；回调为 fixture，不是实际 WASM/费用或完整世界恢复验收。
 
 
 ### 12.27 认证键范围遍历基础
@@ -753,7 +753,7 @@ Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4
 
 遍历仍使用最多 257 项 DFS 栈，不保存随总叶数增长的 visited map，也不收集完整结果。该内部原语不自行声明 IO/内存准入：调用者沿用已准入 workspace、带额度 source 和有界 visitor，任何错误均只保留临时输出；完整扫描调用方原有取消、额度和计数核对保持有效。局部测试使用独立逐层分区构树与排序区间 oracle，覆盖每个 bit/byte 边界、闭区间端点、单点、空区间结果、空树、反向边界、范围内缺页、范围外未读取的缺页、坏摘要/深度/叶路径及 visitor 立即失败。单点在多分支树中恰读 257 个路径节点，未遍历其余叶子。
 
-本节只提供认证读取基础。普通状态键仍是摘要键，不能直接把其区间当作绝对 wake 顺序；按时间排序的索引、索引与标量字段的同事务双向约束、完整且每轮去重的 due 集合，以及实际 module driver/J2 仍须继续实现。范围结果不授予接受、持久发布、恢复完成或服务能力。
+本节只提供认证读取基础。普通状态键仍是摘要键，不能直接把其区间当作绝对 wake 顺序；按时间排序的索引及与标量字段的同事务维护由 §12.28–12.29 补充；完整且每轮去重的 due 集合，以及实际 module driver/J2 仍须继续实现。范围结果不授予接受、持久发布、恢复完成或服务能力。
 
 
 ### 12.28 按绝对时间排序的认证 wake 内容索引
@@ -766,6 +766,21 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 
 visit_due 对 time key 的闭区间 [0, now] 做认证范围读取，再逐个读取到期 bucket，顺序为 wake、完整 instance 摘要。读取结果仍是临时内容，不能把这个顺序直接当作实际模块执行顺序；原 routing 的优先级、稳定 instance 与轮次规则仍由 owner 接入。两层 DFS 共用 256 KiB workspace，同池 Ordinary/Recovery 与 node/byte/bucket/instance 额度；逐个 source 调用前消费读取额度，错误或 unwind 不退还已准入工作。取消、visitor 失败、源错误及计数矛盾不返回部分成功；每个到期 bucket 核对完整成员数，完整最大时间读取还核对全根 buckets/entries。未来 bucket 不读取，其缺页不能影响请求区间；已请求缺页不能被当作合法空 schedule。
 
-Runtime 必须将根描述符绑定在 Scheduler 状态、与标量 wake 在同一事务维护，并在创世/恢复核定其双向一致性。此索引的独立 update 要求已合格父索引且 old_wake 来自相同事务的实际标量字段；它不能靠一个 pair 点读证明该 instance 在所有其他时间均不存在。本节未完成该 owner 接线、正式 due 快照/每轮去重、实际 invocation 或 J2。typed page edges 和 StatePageSession 的同池 pack 持久化入口只是保留闭包的基础，尚未接入六根恢复的索引闭包 owner、GC 或正式 head 发布。
+Runtime 必须将根描述符绑定在 Scheduler 状态、与标量 wake 在同一事务维护，并在创世/恢复核定其双向一致性。此索引的独立 update 要求已合格父索引且 old_wake 来自相同事务的实际标量字段；它不能靠一个 pair 点读证明该 instance 在所有其他时间均不存在。§12.29 补充该 owner 的点贡献和恢复内容检查；正式 due 快照/每轮去重、实际 invocation 或 J2 仍未完成。typed page edges 和 StatePageSession 的同池 pack 持久化入口只是保留闭包的基础，尚未接入六根恢复的索引闭包 owner、GC 或正式 head 发布。
 
 局部方法用独立 wire/逐层递归树和逻辑 map 核对创建、同桶新增、跨桶迁移、清除、空树、幂等、精确最终新页及旧根保留；还覆盖 0/MAX、完整 UTF-8 上限、未知格式、错误 kind/摘要/叶路径/count、范围内缺页、未来缺页剪枝、未来桶增长时已请求读取量不变、精确/少一各维额度、晚取消、visitor 失败、源 unwind 保持额度消费、跨池与 recovery 预留。实际 raw/zstd 页测试持久化根描述符为 value，重开后核对 due 集合并继续更新，和不中断 delta 逐项一致；每个显式操作阶段有独立有限物理 allowance，阶段内不重置。raw 使用 16 MiB 池、zstd 使用 32 MiB 池（均含 4 MiB recovery 预留），后者受既有 16 MiB codec workspace 约束；16 MiB 配置的 zstd 写入先明确拒绝，不以取消 charge 放宽。本方法不证明全局 IO/RSS、固定 H/S、原模块行为、完整世界续跑或独立故障域验收。
+
+
+### 12.29 模块 wake 标量与索引的共同事务及恢复一致性
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.26–12.28。Scheduler 固定键 `oasis7.iws.module-wake-index-key.v1\0` 保存 value 引用，其原内容为 §12.28 的规范 ScheduleIndexV1 描述符。空模块 schedule 也须显式写入空索引描述符；缺键、缺页或非法格式不能回退成空索引。普通点贡献不再只改 wake 标量，既有入口统一接入同一索引维护路径，未增加一个可绕过约束的旧格式分支。
+
+实际 before 来自同一 ExecutionTransaction overlay 的标量字段；索引描述符也从该 overlay 点读。先按实际 before/目标 after 构造索引 delta，把最终新页交给同池 writer，再将新描述符的 value 引用和 wake 标量写入同一事务。到期消费先共同 clear 标量与索引 pair，再执行受信准备回调；重排按回调后的 overlay 重新读取 before 并共同写入绝对 wake。无变化时仍核对现有 pair，未来或缺失 wake 不执行回调。根值 reader 必须能读取此事务已经交给 writer 的内容；读不到就失败，不能退回旧 cache。World 的 materialized schedule 不安装临时结果。
+
+索引页复用原 value/page CAS 与 pool。SchedulePageWriter 的默认实现保留 producer charge，逐页取得新 charge 后交给现有 value writer；真实 ValuePageSession 使用 StatePageSession 相同的有限 pack writer，不把一批小 Merkle 页退回逐页 fsync。两者核对同池及每页 typed hash/编码；physical writer 保留原屏障与实际读回语义。Runtime 在读取前扣 node/byte 额度、写入前扣整批 node/byte 额度，错误和 unwind 不退还已开始工作；值与索引的复制输出额度沿用 ValueIoBudget。context 取消在准备、交 writer 前后和回调后核对。缺根、内容矛盾、额度不足、跨池、存储部分写入、回调错误或 unwind 均通过 contribute 永久中止包括此前外层写入在内的整个事务；已写页仍只是临时物料，不能选 head。
+
+创世 helper 借用原 module_tick_schedule，按条目额度逐项准备标量和索引，最后发出必需根描述符；输出接收者仍负责全 namespace 的规范排序和准入。普通提交只改所需路径，不做全表一致性扫描。独立 ModuleScheduleReadContext 仅用于创世/恢复 owner 校验：第一遍完整 Scheduler 状态取得认证描述符并计数合法 wake 标量键；完整最大时间索引遍历验证所有时间/instance 页与精确 counts；第二遍完整 Scheduler 状态逐个读取固定 wake 值并证明其 pair 在索引内。全部标量 pair 均存在、索引完整且条目数相同，证明无缺失或额外 pair，包括同一 instance 在不同 wake 的重复。其他 Scheduler 字段仍交各自 owner，不能因这一子集通过就声明整个控制根可续跑。
+
+恢复过程使用固定 workspace、不收集整张 schedule，分别消费 state/value/index 额度，支持原 Recovery class。返回结果继续持有 512-byte 输出 charge，只表示该精确 Scheduler 内容的模块 schedule 子集已核对，不是完整世界、authority、回执或服务 marker。源码显式导出读上下文与 mutation context/error 供后续 driver 使用；正式 driver/consensus/frozen/端点、六根 material owner 汇总、每轮 due 快照/执行顺序与完整 invocation/J2 仍须继续接线。不能每次普通提交调用这一全扫描来替代合格父闭包的增量维持。
+
+局部方法覆盖认证旧根与 cache 不一致、先 clear 后回调、同事务连续改写后的精确索引 pair、无变化/挂起/缺失/未来、显式空索引、缺描述符/页/坏值、标量与索引错位、额外和跨时间重复 instance、十个额度维度的精确及少一、晚取消、source unwind、跨池及部分索引持久化错误/取消/unwind 对整个事务的中止。实际文件重开后先以 original TransitionRecord 核对变化，再在 ordinary admission 已满、仅原 4 MiB recovery 预留可用时完成该子集一致性检查；继续同一绝对 wake 的 clear/业务写入，并与不中断分支逐 record/新状态页比较。回调仍为 fixture，未运行完整模块 ABI、Pure、费用、routing metrics 或 provider oracle；全局资源和固定 H/S 规模验收仍待完成。

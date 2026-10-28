@@ -5,10 +5,12 @@ use super::{
     World,
     incremental_body::{BodyMutationContext, BodyMutationError, write_field_bytes},
     incremental_body_event::read_fixed,
+    incremental_scheduler_index as index,
     module_tick_runtime::wake_after_directive,
 };
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionError, ExecutionTransaction},
+    incremental_schedule::{ScheduleIndexV1, SchedulePageWriter},
     incremental_state::{MerkleNodeReader, StateNamespaceV1 as Ns},
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
@@ -16,7 +18,9 @@ use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_wasm_abi::ModuleTickLifecycleDirective;
 use oasis7_world_state::{
     incremental_agent_body::{WORLD_TIME_KEY_V1, world_time_bytes_v1},
-    incremental_scheduler_fields::{MODULE_WAKE_BYTES, ModuleWakeKeyV1, ModuleWakeV1},
+    incremental_scheduler_fields::{
+        MODULE_WAKE_BYTES, MODULE_WAKE_INDEX_KEY_V1, ModuleWakeKeyV1, ModuleWakeV1,
+    },
 };
 
 fn cancelled<W, C: FnMut() -> bool>(
@@ -67,23 +71,13 @@ fn read_wake<R: MerkleNodeReader, V: ValueNodeReader, W, C: FnMut() -> bool>(
             .0,
     ))
 }
-fn put_wake<R: MerkleNodeReader, W: ValueNodeWriter, C: FnMut() -> bool>(
-    key: &[u8],
-    wake: u64,
-    txn: &mut ExecutionTransaction<'_, R>,
-    context: &mut BodyMutationContext<'_, W, C>,
-) -> Result<(), BodyMutationError> {
-    let id = write_field_bytes(&ModuleWakeV1(wake).canonical_bytes(), context)?;
-    txn.write(Ns::Scheduler, key, Some(id))?;
-    Ok(())
-}
 impl World {
     /// Stage an owner-validated activation/update/clear using exact overlay
     /// state. This method does not itself authorize the lifecycle operation.
     pub fn contribute_iws_module_wake<
         R: MerkleNodeReader,
         V: ValueNodeReader,
-        W: ValueNodeWriter,
+        W: ValueNodeWriter + ValueNodeReader + SchedulePageWriter,
         C: FnMut() -> bool,
     >(
         &self,
@@ -97,12 +91,7 @@ impl World {
             let key = ModuleWakeKeyV1::new(instance).map_err(BodyMutationError::Invalid)?;
             check_clock(self.state.time, txn, values, context)?;
             let before = read_wake(key.as_bytes(), txn, values, context)?;
-            if before != wake {
-                match wake {
-                    Some(wake) => put_wake(key.as_bytes(), wake, txn, context)?,
-                    None => txn.write(Ns::Scheduler, key.as_bytes(), None)?,
-                }
-            }
+            index::stage(instance, before, wake, txn, values, context)?;
             cancelled(context)
         })
     }
@@ -121,7 +110,7 @@ impl World {
     where
         R: MerkleNodeReader,
         V: ValueNodeReader,
-        W: ValueNodeWriter,
+        W: ValueNodeWriter + ValueNodeReader + SchedulePageWriter,
         C: FnMut() -> bool,
         F: FnOnce(
             &str,
@@ -136,17 +125,19 @@ impl World {
             check_clock(now, txn, values, context)?;
             let wake = read_wake(key.as_bytes(), txn, values, context)?;
             if wake.is_none_or(|wake| wake > now) {
+                index::stage(instance, wake, wake, txn, values, context)?;
                 cancelled(context)?;
                 return Ok(false);
             }
-            txn.write(Ns::Scheduler, key.as_bytes(), None)?;
+            index::stage(instance, wake, None, txn, values, context)?;
             let directive = execute(instance, now, txn, context)?;
             if !txn.uses_budget(context.memory) {
                 return Err(BodyMutationError::Invalid("scheduler transaction pool"));
             }
             cancelled(context)?;
             if let Some(next) = wake_after_directive(now, directive.as_ref()) {
-                put_wake(key.as_bytes(), next, txn, context)?;
+                let before = read_wake(key.as_bytes(), txn, values, context)?;
+                index::stage(instance, before, Some(next), txn, values, context)?;
             }
             cancelled(context)?;
             Ok(true)
@@ -156,7 +147,7 @@ impl World {
     /// Borrowed full field preparation for genesis only. Emitted pages/writes
     /// remain provisional and the receiver admits its own output metadata.
     pub fn write_iws_module_schedule_genesis<
-        W: ValueNodeWriter,
+        W: ValueNodeWriter + ValueNodeReader + SchedulePageWriter,
         C: FnMut() -> bool,
         F: FnMut(&[u8], [u8; 32]) -> Result<(), BodyMutationError>,
     >(
@@ -171,6 +162,7 @@ impl World {
             .reserve(16 * 1024, MemoryClass::Ordinary)
             .map_err(ExecutionError::Memory)?;
         let mut count = 0u64;
+        let mut root = ScheduleIndexV1::empty()?;
         for (instance, wake) in &self.module_tick_schedule {
             cancelled(context)?;
             *remaining_entries =
@@ -180,12 +172,17 @@ impl World {
                         "module schedule genesis entries",
                     ))?;
             let key = ModuleWakeKeyV1::new(instance).map_err(BodyMutationError::Invalid)?;
+            let delta = index::build(&root, instance, None, Some(*wake), context)?;
+            index::persist(&delta, context)?;
+            root = delta.after.clone();
             let id = write_field_bytes(&ModuleWakeV1(*wake).canonical_bytes(), context)?;
             emit(key.as_bytes(), id)?;
             count = count
                 .checked_add(1)
                 .ok_or(BodyMutationError::Invalid("module schedule count"))?;
         }
+        let id = write_field_bytes(&root.canonical_bytes()?, context)?;
+        emit(MODULE_WAKE_INDEX_KEY_V1, id)?;
         cancelled(context)?;
         Ok(count)
     }

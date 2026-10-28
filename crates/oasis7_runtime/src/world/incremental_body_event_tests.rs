@@ -28,6 +28,7 @@ impl Default for Values {
         }
     }
 }
+impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for Values {}
 impl ValueNodeWriter for Values {
     fn put_node(
         &mut self,

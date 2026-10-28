@@ -341,6 +341,43 @@ fn module_wake_reopens_and_continues_from_the_same_absolute_schedule() {
     }
     .verify(&first.record)
     .unwrap();
+    {
+        use oasis7_formal_protocol::{
+            incremental_schedule::ScheduleScanBudget, incremental_state::StateScanBudget,
+        };
+        let values = store.value_session(physical_io());
+        let ordinary = recovery
+            .reserve((28 << 20) - recovery.used(), MemoryClass::Ordinary)
+            .unwrap();
+        let mut state_io = StateScanBudget {
+            nodes_remaining: 50_000,
+            read_bytes_remaining: 64 << 20,
+            leaves_remaining: 1000,
+        };
+        let mut value_io = logical_io();
+        let mut index_io = ScheduleScanBudget {
+            nodes_remaining: 50_000,
+            read_bytes_remaining: 64 << 20,
+            buckets_remaining: 1000,
+            instances_remaining: 1000,
+        };
+        let content = crate::ModuleScheduleReadContext {
+            state_root: &next_parent.roots.state[2],
+            state_source: &source,
+            values: &values,
+            memory: &recovery,
+            class: MemoryClass::Recovery,
+            state_io: &mut state_io,
+            value_io: &mut value_io,
+            index_io: &mut index_io,
+        }
+        .verify(|| false)
+        .unwrap();
+        assert_eq!(content.scalar_entries, 2);
+        assert_eq!(content.index.entries, 2);
+        drop(content);
+        drop(ordinary);
+    }
     let resumed = scheduler_step(&world, next_parent, &store, &recovery, None);
     assert_eq!(resumed.record, expected.record);
     assert_eq!(resumed.new_nodes, expected.new_nodes);

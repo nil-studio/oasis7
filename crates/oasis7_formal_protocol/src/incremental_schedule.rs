@@ -20,6 +20,32 @@ pub use scan::{ScheduleScanBudget, ScheduleScanContext};
 pub const SCHEDULE_MAX_PAGE_BYTES: usize = 1200;
 pub const SCHEDULE_MAX_INSTANCE_BYTES: usize = 1024;
 const ROOT_MAGIC: &[u8] = b"oasis7.iws.schedule-index-root.v1\0";
+pub const SCHEDULE_ROOT_BYTES: usize = ROOT_MAGIC.len() + 4 + 48;
+
+/// Provisional immutable pages only. The producer charge and exact pool must
+/// remain live through persistence; implementations may batch physical IO.
+pub trait SchedulePageWriter: crate::incremental_value::ValueNodeWriter {
+    fn put_schedule_pages(
+        &mut self,
+        delta: &ReservedValue<ScheduleDeltaV1>,
+        memory: &MemoryBudget,
+    ) -> Result<(), crate::incremental_value::ValueTreeError> {
+        use crate::incremental_value::ValueTreeError;
+        if !delta.uses_budget(memory) {
+            return Err(ValueTreeError::Invalid("schedule producer pool"));
+        }
+        for page in &delta.new_nodes {
+            page.verified_links()
+                .map_err(|_| ValueTreeError::Invalid("schedule producer page"))?;
+            let charge = memory.reserve(page.bytes.len(), MemoryClass::Ordinary)?;
+            self.put_node(
+                *blake3::hash(&page.bytes).as_bytes(),
+                charge.retain(page.bytes.clone()),
+            )?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -68,6 +94,41 @@ enum Leaf {
     Instance(String),
 }
 impl ScheduleIndexV1 {
+    /// Authenticated pair membership. Callers admit fixed path workspace and
+    /// source IO. This alone cannot prove absence at every other wake.
+    pub fn contains(
+        &self,
+        wake: u64,
+        instance: &str,
+        source: &impl MerkleNodeReader,
+    ) -> Result<bool, ExecutionError> {
+        self.validate()?;
+        let key = instance_key(instance).map_err(ExecutionError::Tree)?;
+        let mut times = Updater::<ScheduleCodec<1>, _>::new(
+            source,
+            empty::<1>().map_err(ExecutionError::Tree)?,
+            0,
+        );
+        let Some(Leaf::Time { root, .. }) = times
+            .lookup(&self.node_root, &time_key(wake))
+            .map_err(ExecutionError::Tree)?
+        else {
+            return Ok(false);
+        };
+        let mut instances = Updater::<ScheduleCodec<2>, _>::new(
+            source,
+            empty::<2>().map_err(ExecutionError::Tree)?,
+            0,
+        );
+        match instances
+            .lookup(&root, &key)
+            .map_err(ExecutionError::Tree)?
+        {
+            Some(Leaf::Instance(found)) if found == instance => Ok(true),
+            None => Ok(false),
+            _ => Err(ExecutionError::Invalid("schedule instance collision/type")),
+        }
+    }
     pub fn empty() -> Result<Self, ExecutionError> {
         Ok(Self {
             buckets: 0,

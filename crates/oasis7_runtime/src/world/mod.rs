@@ -21,6 +21,8 @@ pub mod incremental_body_event;
 pub mod incremental_commit;
 pub mod incremental_projection;
 pub mod incremental_scheduler;
+mod incremental_scheduler_index;
+pub mod incremental_scheduler_recovery;
 #[cfg(test)]
 pub(crate) use agent_intent::derive_agent_chat_request_digest;
 pub use execution_identity::WorldExecutionStateIdentity;

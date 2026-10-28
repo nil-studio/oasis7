@@ -1,6 +1,19 @@
 use super::*;
 use oasis7_wasm_abi::ModuleTickLifecycleDirective as D;
-use oasis7_world_state::incremental_scheduler_fields::{ModuleWakeKeyV1, ModuleWakeV1};
+use oasis7_world_state::incremental_scheduler_fields::{
+    MODULE_WAKE_INDEX_KEY_V1, ModuleWakeKeyV1, ModuleWakeV1,
+};
+
+#[path = "incremental_scheduler_consistency_tests.rs"]
+mod consistency;
+
+fn io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget {
+    oasis7_formal_protocol::incremental_value::ValueIoBudget {
+        nodes_remaining: 50_000,
+        read_bytes_remaining: 16 << 20,
+        write_bytes_remaining: 16 << 20,
+    }
+}
 
 pub(super) fn seed_schedules(
     world: &World,
@@ -30,6 +43,7 @@ pub(super) fn seed_schedules(
         )
         .unwrap();
     assert_eq!(count as usize, world.module_tick_schedule.len());
+    writes.sort_by(|a, b| a.key.cmp(&b.key));
     let delta = StateDeltaV1::build(parent.roots.state[2].clone(), writes, state, 4 << 20).unwrap();
     parent.roots.state[2] = delta.after;
     for node in delta.new_nodes {
@@ -50,6 +64,28 @@ fn decoded(id: [u8; 32], values: &Values, memory: &MemoryBudget) -> u64 {
         .read_range(&root, 0, root.0.logical_len, &mut bytes, || false)
         .unwrap();
     ModuleWakeV1::from_canonical_bytes(&bytes).unwrap().0
+}
+fn decoded_index(
+    id: [u8; 32],
+    values: &Values,
+    memory: &MemoryBudget,
+) -> oasis7_formal_protocol::incremental_schedule::ScheduleIndexV1 {
+    let mut quota = io();
+    let mut reader = ValueReadContext {
+        source: values,
+        memory,
+        class: MemoryClass::Ordinary,
+        io: &mut quota,
+    };
+    let root = reader.load_root(&id).unwrap();
+    assert!(root.0.logical_len <= 128);
+    let _charge = memory.reserve(128, MemoryClass::Ordinary).unwrap();
+    let mut bytes = Vec::with_capacity(128);
+    reader
+        .read_range(&root, 0, root.0.logical_len, &mut bytes, || false)
+        .unwrap();
+    oasis7_formal_protocol::incremental_schedule::ScheduleIndexV1::from_canonical_bytes(&bytes)
+        .unwrap()
 }
 #[test]
 fn schedule_genesis_has_fixed_values_exact_instances_and_provisional_entry_limits() {
@@ -81,6 +117,9 @@ fn schedule_genesis_has_fixed_values_exact_instances_and_provisional_entry_limit
     );
     assert_eq!(remaining, 0);
     for (key, id) in fields {
+        if key == MODULE_WAKE_INDEX_KEY_V1 {
+            continue;
+        }
         let instance = ModuleWakeKeyV1::instance_from_bytes(&key).unwrap();
         assert_eq!(decoded(id, &values, &memory), before[instance]);
     }
@@ -152,6 +191,21 @@ fn due_execution_reads_overlay_clears_first_and_schedules_absolute_stable_instan
                 |instance, now, txn, ctx| {
                     assert_eq!((instance, now), ("m#1", 11));
                     assert_eq!(txn.read(Ns::Scheduler, key.as_bytes())?, None);
+                    let index = decoded_index(
+                        txn.read(Ns::Scheduler, MODULE_WAKE_INDEX_KEY_V1)?.unwrap(),
+                        &source,
+                        &memory,
+                    );
+                    assert_eq!(index.entries, 1);
+                    let mut quota = io();
+                    let reader = crate::world::incremental_scheduler_index::IndexReader::new(
+                        &source,
+                        &memory,
+                        MemoryClass::Ordinary,
+                        &mut quota,
+                    );
+                    assert!(!index.contains(7, "m#1", &reader)?);
+                    assert!(index.contains(20, "m#2", &reader)?);
                     let id = write_field_bytes(b"business result", ctx)?;
                     txn.write(Ns::Business, b"module-result", Some(id))?;
                     Ok(Some(D::WakeAfterTicks { ticks: 0 }))
@@ -182,7 +236,26 @@ fn due_execution_reads_overlay_clears_first_and_schedules_absolute_stable_instan
         .unwrap();
     assert_eq!(decoded(wake.mutation.before.unwrap(), &source, &memory), 5);
     assert_eq!(decoded(wake.mutation.after.unwrap(), &source, &memory), 12);
-    assert_eq!(prepared.record.writes.len(), 2);
+    assert_eq!(prepared.record.writes.len(), 3);
+    let index_write = prepared
+        .record
+        .writes
+        .iter()
+        .find(|w| w.mutation.key == MODULE_WAKE_INDEX_KEY_V1)
+        .unwrap();
+    let index = decoded_index(index_write.mutation.after.unwrap(), &source, &memory);
+    assert_eq!(index.entries, 2);
+    let mut index_quota = io();
+    let index_reader = crate::world::incremental_scheduler_index::IndexReader::new(
+        &source,
+        &memory,
+        MemoryClass::Ordinary,
+        &mut index_quota,
+    );
+    assert!(index.contains(12, "m#1", &index_reader).unwrap());
+    assert!(!index.contains(5, "m#1", &index_reader).unwrap());
+    assert!(!index.contains(7, "m#1", &index_reader).unwrap());
+    assert!(index.contains(20, "m#2", &index_reader).unwrap());
     assert_eq!(world.module_tick_schedule, before);
     TransitionVerifier {
         parent: &parent,
@@ -263,8 +336,14 @@ fn suspension_absence_and_saturated_directives_preserve_existing_tick_rules() {
         );
         let guard = txn.guard();
         let prepared = txn.seal(&guard, &live, 0).unwrap();
-        assert_eq!(prepared.record.writes.len(), 1);
-        assert_eq!(prepared.record.writes[0].mutation.after, None);
+        assert_eq!(prepared.record.writes.len(), 2);
+        let wake = prepared
+            .record
+            .writes
+            .iter()
+            .find(|w| ModuleWakeKeyV1::is_wake_key(&w.mutation.key))
+            .unwrap();
+        assert_eq!(wake.mutation.after, None);
     }
 }
 
