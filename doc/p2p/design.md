@@ -474,6 +474,8 @@ Provider backend 须新增同一原 binding 下的 `prepare_successor_window`／
 | `Adopted` | 独立重开重验成功后，专用 adopted CAS 记录 exact evidence，才解除签写闸门。查询原结果不再次 commit 或重发世界效果。 |
 | `Superseded`／明确冲突 | 仅在已读取并验证真实当前状态，证明原 prepared CAS 未提交且其 expected state 已被其他合法事务改变后，持久明确拒绝该 prepared；如仍需安装，按真实当前状态以新 request 重新 prepare。不能覆盖旧 intent，也不能把无法确定的 commit 当作未提交。 |
 
+当前 whole-State V1 public adapter 只接受精确唯一的 canonical 原 S（object 为实际 reread 的原 S ref，identity_digest 为原 expected_state_digest），完整 State 保留全部 history／journal／proofs；slot 索引及多对象须有真实 typed 持久读取校验后才启用，private DriverVerifier 不替 public object 验收，单 object 前置不代表跨窗功能完成。
+
 Prepared／InstalledPending 冻结新共识签名、治理换钥 proof 和原 journal 的写入；原 Proposal／Vote／治理 proof 及已启动 timer 只按原结果取回，不重新签名或重启计时。独立授权的 CandidateRead 持钥 proof 不占 T+1 共识签名槽，恢复闭包仍可使用其既有当前 key、scope 与 grant 校验；finality checkpoint 不新增读取权限。
 
 同 logical request ID/body 精确返回原 intent/receipt；异 body 拒绝。原 expected revision/state digest 只约束原 prepare／commit CAS；请求换 owner 后不把旧 expected revision 冒充当前可写 revision。CAS 成功但响应丢失视为 unknown，启动及签名前须先解析该原 request 的持久状态并完成适用恢复；解析不了则停签，不能继续 T+1。sequence 只增一，minimum 不降低，同高度不同 head/digest 拒绝；旧 lease、跳过前驱及遗漏已知原决定均拒绝。新 checkpoint 不是可重新使用 acquire 重绑到新 H 的入口；lease fencing、protected time floor 和签名槽历史独立保留。

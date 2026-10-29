@@ -232,9 +232,11 @@ impl BftSignerServiceV3 {
                         digest: blake3::hash(&bytes).to_hex().to_string(),
                         bytes: bytes.len() as u64,
                     };
-                    if !manifest.entries.iter().any(|e| e.object == reference) {
-                        return Err(invalid("successor manifest omits exact pre-prepare state"));
-                    }
+                    validate_whole_state_public_manifest(
+                        manifest,
+                        &reference,
+                        &body.expected_state_digest,
+                    )?;
                     body.checkpoint.usage.validate_after(&extension.usage)?;
                     if body
                         .checkpoint

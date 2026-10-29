@@ -449,7 +449,7 @@ fn request(
         first_height: c.height,
         last_height: c.height,
         entries: vec![BftSuccessorWindowArchiveEntryV1 {
-            identity_digest: hash(89),
+            identity_digest: state.state_digest.clone(),
             object,
         }],
         usage,
@@ -1002,6 +1002,97 @@ fn successor_window_pending_transaction_cannot_start_an_unstarted_active_timer()
     assert!(lease.start_height_timer(cp.state.revision).is_err());
     assert_eq!(lease.checkpoint().unwrap().state, cp.state);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    drop(lease);
+    server.join().unwrap();
+}
+
+#[test]
+fn successor_window_whole_state_adapter_rejects_unverified_public_objects_before_reserving() {
+    let (binding, snapshot) = fixture();
+    let archive = Arc::new(Archive::default());
+    let (provider, server) = native_successor(&binding, &snapshot, archive.clone(), None);
+    let mut lease = provider.acquire(&binding).unwrap();
+    let cp = lease.checkpoint().unwrap();
+    let (body, manifest) = request(&binding, &cp);
+    for change in 0..3 {
+        let mut bad_manifest = manifest.clone();
+        let mut bad_body = body.clone();
+        match change {
+            0 => bad_manifest.entries.push(BftSuccessorWindowArchiveEntryV1 {
+                identity_digest: hash(99),
+                object: reference(b"this public object is absent from storage"),
+            }),
+            1 => bad_manifest.entries[0].object.digest = hash(98),
+            _ => bad_manifest.entries[0].identity_digest = hash(97),
+        }
+        bad_manifest
+            .entries
+            .sort_by(|a, b| a.identity_digest.cmp(&b.identity_digest));
+        bad_body.checkpoint.public_archive_root = bad_manifest.digest().unwrap();
+        assert!(
+            lease
+                .prepare_successor_window(bad_body, bad_manifest)
+                .is_err(),
+            "unverified public manifest change {change} was accepted"
+        );
+        assert_eq!(
+            lease.checkpoint().unwrap().state,
+            cp.state,
+            "rejection must precede reservation CAS"
+        );
+        assert!(archive.states.lock().unwrap().is_empty());
+    }
+    let (record, _) = lease.prepare_successor_window(body, manifest).unwrap();
+    let mut reserved = BftSuccessorWindowStateV1::empty();
+    reserved.active_request_id = Some(record.request.intent.body.checkpoint.request_id.clone());
+    reserved.usage = record.request.intent.body.checkpoint.usage;
+    reserved.reservation = Some(
+        crate::protected_bft_v3::successor_state::BftSuccessorWindowReservationV1 {
+            body: record.request.intent.body.clone(),
+            manifest: record.manifest.clone(),
+            original_public_state: record.original_public_state.clone(),
+            previous: None,
+        },
+    );
+    reserved.validate(&binding, Some(&public(33))).unwrap();
+    // Even a correctly provider-signed forged request must not make an
+    // unsupported public object trusted during cold StoredRequest validation.
+    for change in 0..3 {
+        let mut bad = record.clone();
+        match change {
+            0 => bad.manifest.entries.push(BftSuccessorWindowArchiveEntryV1 {
+                identity_digest: hash(99),
+                object: reference(b"absent public object"),
+            }),
+            1 => bad.manifest.entries[0].object.digest = hash(98),
+            _ => bad.manifest.entries[0].identity_digest = hash(97),
+        }
+        bad.manifest
+            .entries
+            .sort_by(|a, b| a.identity_digest.cmp(&b.identity_digest));
+        let mut body = bad.request.intent.body.clone();
+        body.checkpoint.public_archive_root = bad.manifest.digest().unwrap();
+        bad.request.intent = BftSuccessorWindowInstallIntentV1::sign(
+            body,
+            &Handle {
+                key: key(33),
+                disabled: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            bad.validate(&binding, &public(33)).is_err(),
+            "cold validation accepted public manifest change {change}"
+        );
+        let mut bad_reserved = reserved.clone();
+        let reservation = bad_reserved.reservation.as_mut().unwrap();
+        reservation.body = bad.request.intent.body.clone();
+        reservation.manifest = bad.manifest.clone();
+        assert!(
+            bad_reserved.validate(&binding, Some(&public(33))).is_err(),
+            "cold reservation accepted public manifest change {change}"
+        );
+    }
     drop(lease);
     server.join().unwrap();
 }

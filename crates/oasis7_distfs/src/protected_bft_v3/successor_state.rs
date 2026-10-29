@@ -28,19 +28,16 @@ impl BftSuccessorWindowStoredRequestV1 {
         body.checkpoint.source.validate_for_binding(binding)?;
         self.original_public_state.validate()?;
         self.manifest.validate_for_checkpoint(&body.checkpoint)?;
-        if self.manifest.kind != BftSuccessorWindowArchiveKindV1::Public {
-            return Err(invalid("successor provider archive is not public"));
-        }
+        validate_whole_state_public_manifest(
+            &self.manifest,
+            &self.original_public_state,
+            &body.expected_state_digest,
+        )?;
         if self.prepared_revision
             != body
                 .expected_revision
                 .checked_add(2)
                 .ok_or_else(|| invalid("successor prepared revision overflow"))?
-            || !self
-                .manifest
-                .entries
-                .iter()
-                .any(|e| e.object == self.original_public_state)
             || self
                 .request
                 .receipt
@@ -178,6 +175,11 @@ impl BftSuccessorWindowStateV1 {
                 .manifest
                 .validate_for_checkpoint(&reservation.body.checkpoint)?;
             reservation.original_public_state.validate()?;
+            validate_whole_state_public_manifest(
+                &reservation.manifest,
+                &reservation.original_public_state,
+                &reservation.body.expected_state_digest,
+            )?;
             validate_manifest_predecessor(
                 binding,
                 &reservation.manifest,
@@ -186,11 +188,6 @@ impl BftSuccessorWindowStateV1 {
             )?;
             reservation.body.checkpoint.usage.validate_after(&usage)?;
             if ids.contains(reservation.body.checkpoint.request_id.as_str())
-                || !reservation
-                    .manifest
-                    .entries
-                    .iter()
-                    .any(|e| e.object == reservation.original_public_state)
                 || reservation
                     .previous
                     .as_ref()
@@ -216,6 +213,24 @@ impl BftSuccessorWindowStateV1 {
         }
         Ok(())
     }
+}
+/// The V1 store has typed durable IO only for the complete original public
+/// State. Extra manifest objects cannot be promised without a typed verifier.
+pub(crate) fn validate_whole_state_public_manifest(
+    manifest: &BftSuccessorWindowArchiveManifestV1,
+    original_public_state: &BftSuccessorWindowArchiveRefV1,
+    expected_state_digest: &str,
+) -> Result<(), BftSignerErrorV3> {
+    if manifest.kind != BftSuccessorWindowArchiveKindV1::Public
+        || manifest.entries.len() != 1
+        || manifest.entries[0].object != *original_public_state
+        || manifest.entries[0].identity_digest != expected_state_digest
+    {
+        return Err(invalid(
+            "successor whole-State public archive must contain exactly the original state identity/object",
+        ));
+    }
+    Ok(())
 }
 fn validate_manifest_predecessor(
     binding: &BftSignerBindingV3,
