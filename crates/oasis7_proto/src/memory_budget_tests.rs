@@ -47,6 +47,8 @@ fn eviction_does_not_release_reader_owned_charge_and_split_transfers_accounting(
     let mut charge = budget.reserve(100, MemoryClass::Ordinary).unwrap();
     let output_charge = charge.split(60).unwrap();
     assert!(charge.split(41).is_err());
+    assert_eq!(charge.bytes(), 40);
+    assert_eq!(budget.used(), 100);
     let cached = Arc::new(output_charge.retain(vec![0u8; 60]));
     let reader = cached.clone();
     drop(cached);
