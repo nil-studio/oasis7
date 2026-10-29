@@ -67,12 +67,19 @@ impl From<MemoryLimitExceeded> for ExecutionError {
 pub(crate) fn validate_source_budget(
     source: &impl MerkleNodeReader,
     memory: &MemoryBudget,
+    class: MemoryClass,
 ) -> Result<(), ExecutionError> {
     if source
         .allocation_budget()
         .is_some_and(|source| !source.same_pool(memory))
     {
         return Err(ExecutionError::Invalid("Merkle source memory pool"));
+    }
+    if source
+        .allocation_class()
+        .is_some_and(|source_class| source_class != class)
+    {
+        return Err(ExecutionError::Invalid("Merkle source memory class"));
     }
     Ok(())
 }

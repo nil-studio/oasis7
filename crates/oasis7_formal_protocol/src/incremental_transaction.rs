@@ -59,7 +59,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         memory: &'a MemoryBudget,
         limits: TransactionLimits,
     ) -> Result<Self, ExecutionError> {
-        validate_source_budget(source, memory)?;
+        validate_source_budget(source, memory, MemoryClass::Ordinary)?;
         if limits.max_reads > EXECUTION_MAX_READS
             || limits.max_writes > EXECUTION_MAX_WRITES
             || limits.max_facts > EXECUTION_MAX_FACTS
@@ -189,6 +189,10 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         if self.reads == self.limits.max_reads {
             return Err(ExecutionError::ResourceLimited("read-set entries"));
         }
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(ExecutionError::ResourceLimited("transaction revision"))?;
         let charge = self
             .memory
             .reserve(key.len() + 512, MemoryClass::Ordinary)?;
@@ -207,6 +211,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             },
         );
         self.reads += 1;
+        self.revision = revision;
         Ok(before)
     }
 
@@ -225,11 +230,11 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         key: &[u8],
         value: Option<[u8; 32]>,
     ) -> Result<(), ExecutionError> {
+        self.read_inner(namespace, key)?;
         let revision = self
             .revision
             .checked_add(1)
             .ok_or(ExecutionError::ResourceLimited("transaction revision"))?;
-        self.read_inner(namespace, key)?;
         let entry = self.entries[namespace_index(namespace)]
             .get_mut(key)
             .ok_or(ExecutionError::Invalid("read-set lost entry"))?;

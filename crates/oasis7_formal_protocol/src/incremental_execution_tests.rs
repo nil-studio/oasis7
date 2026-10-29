@@ -758,3 +758,93 @@ fn successful_nested_contributions_share_overlay_and_revision() {
     let guard = txn.guard();
     assert_eq!(txn.seal(&guard, &live, 0).unwrap().record.writes.len(), 2);
 }
+
+#[test]
+fn first_parent_read_invalidates_guard_but_repeated_tracked_read_does_not() {
+    let pages = Pages::default();
+    let memory = memory();
+    let parent = empty_parent();
+    let live = parent.fence().unwrap();
+    let mut txn = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+    let before_read = txn.guard();
+    assert_eq!(
+        txn.read(StateNamespaceV1::Business, b"lookup").unwrap(),
+        None
+    );
+    assert!(matches!(
+        txn.validate_guard(&before_read, &live),
+        Err(ExecutionError::StaleGuard)
+    ));
+    let after_read = txn.guard();
+    assert_eq!(
+        txn.read(StateNamespaceV1::Business, b"lookup").unwrap(),
+        None
+    );
+    txn.validate_guard(&after_read, &live).unwrap();
+    assert!(matches!(
+        txn.seal(&before_read, &live, 0),
+        Err(ExecutionError::StaleGuard)
+    ));
+}
+
+#[test]
+fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
+    struct Classified<'a> {
+        pages: &'a Pages,
+        memory: &'a MemoryBudget,
+        class: MemoryClass,
+    }
+    impl MerkleNodeReader for Classified<'_> {
+        type Node = Vec<u8>;
+        fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
+            self.pages.read_node(id, max)
+        }
+        fn allocation_budget(&self) -> Option<&MemoryBudget> {
+            Some(self.memory)
+        }
+        fn allocation_class(&self) -> Option<MemoryClass> {
+            Some(self.class)
+        }
+    }
+    let pages = Pages::default();
+    let memory = memory();
+    let parent = empty_parent();
+    let recovery = Classified {
+        pages: &pages,
+        memory: &memory,
+        class: MemoryClass::Recovery,
+    };
+    assert!(matches!(
+        ExecutionTransaction::begin(parent.clone(), [1; 32], &recovery, &memory, limits()),
+        Err(ExecutionError::Invalid(_))
+    ));
+    let live = parent.fence().unwrap();
+    let txn =
+        ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
+    let guard = txn.guard();
+    let prepared = txn.seal(&guard, &live, 0).unwrap();
+    for (source_class, verifier_class) in [
+        (MemoryClass::Recovery, MemoryClass::Ordinary),
+        (MemoryClass::Ordinary, MemoryClass::Recovery),
+    ] {
+        let source = Classified {
+            pages: &pages,
+            memory: &memory,
+            class: source_class,
+        };
+        let before = memory.used();
+        assert!(matches!(
+            TransitionVerifier {
+                parent: &parent,
+                operation: [1; 32],
+                source: &source,
+                memory: &memory,
+                class: verifier_class,
+                max_pending_node_bytes: 32 << 20
+            }
+            .verify(&prepared.record),
+            Err(ExecutionError::Invalid(_))
+        ));
+        assert_eq!(memory.used(), before);
+    }
+}
