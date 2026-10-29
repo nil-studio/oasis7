@@ -42,6 +42,83 @@ predicate oasisStart(int a) {
 }
 """
 IMPORT = 'import codeql.rust.controlflow.internal.ControlFlowGraphImpl\n'
+BLOCK_WRAPPER = r"""
+// Aggregate the original positive closure, not getAnElement's added self member.
+private predicate oasisBlockPair(CfgInput::AstNode a, CfgInput::AstNode b) {
+  CfgImpl::Reachability::startsSplits(a) and
+  CfgImpl::Reachability::splitsBlockContains(a, b)
+}
+private int oasisOwnerCount(CfgInput::AstNode n) {
+  result = count(CfgInput::CfgScope s | s = n.getEnclosingCfgScope())
+}
+private predicate oasisUniqueOwner(CfgInput::AstNode n, CfgInput::CfgScope s) {
+  oasisOwnerCount(n) = 1 and s = n.getEnclosingCfgScope()
+}
+predicate oasisBlockCounts(int scope, int pairs) {
+  exists(CfgInput::CfgScope s |
+    scope = CfgInput::idOfCfgScope(s) and
+    exists(CfgInput::AstNode a | CfgImpl::Reachability::startsSplits(a) and oasisUniqueOwner(a,s)) and
+    pairs = count(CfgInput::AstNode a, CfgInput::AstNode b |
+      oasisBlockPair(a,b) and oasisUniqueOwner(a,s)) and pairs > 0)
+  or scope = -1 and pairs = count(CfgInput::AstNode a, CfgInput::AstNode b |
+    oasisBlockPair(a,b) and oasisOwnerCount(a) = 0)
+  or scope = -2 and pairs = count(CfgInput::AstNode a, CfgInput::AstNode b |
+    oasisBlockPair(a,b) and oasisOwnerCount(a) > 1)
+  or scope = -3 and pairs = count(CfgInput::AstNode a, CfgInput::AstNode b | oasisBlockPair(a,b))
+  or scope = -4 and pairs = count(CfgInput::AstNode a, CfgInput::AstNode b |
+    oasisBlockPair(a,b) and exists(CfgInput::CfgScope s, CfgInput::CfgScope t |
+      oasisUniqueOwner(a,s) and oasisUniqueOwner(b,t) and s != t))
+  or scope = -5 and pairs = count(CfgInput::AstNode a, CfgInput::AstNode b |
+    oasisBlockPair(a,b) and oasisOwnerCount(b) = 0)
+  or scope = -6 and pairs = count(CfgInput::AstNode a, CfgInput::AstNode b |
+    oasisBlockPair(a,b) and oasisOwnerCount(b) > 1)
+}
+"""
+BLOCK_COUNTS = IMPORT + 'from int scope, int pairs where oasisBlockCounts(scope,pairs) select scope,pairs\n'
+
+
+def block_identity_query(selected):
+    if not selected or len(selected)>TOP or len(set(selected))!=len(selected) or any(type(s) is not int or s<0 for s in selected):
+        raise RuntimeError('invalid block identity selection')
+    return IMPORT + 'from int id,string path,string loc,string kind,string label,int expanded\n' + \
+        'where oasisScopeIdentity(id,path,loc,kind,label,expanded) and id in [' + ','.join(map(str,selected)) + ']\n' + \
+        'select id,path,loc,kind,label,expanded\n'
+
+
+def validate_block_counts(rows):
+    if len(rows)>1000000:raise RuntimeError('block count row cap')
+    values={}
+    for row in rows:
+        if len(row)!=2 or any(type(v) is not int for v in row) or row[0]<-6 or row[1]<0 or row[0] in values or (row[0]>=0 and row[1]==0):
+            raise RuntimeError('invalid or duplicate block count')
+        values[row[0]]=row[1]
+    if set(k for k in values if k<0)!=set(range(-6,0)):raise RuntimeError('missing block audit')
+    scopes={k:v for k,v in values.items() if k>=0};known=sum(scopes.values());total=values[-3]
+    if known+values[-1]+values[-2]!=total:raise RuntimeError('block owner partition does not reconcile')
+    if any(values[k]>total for k in range(-6,0)) or values[-4]+values[-5]+values[-6]>total:
+        raise RuntimeError('invalid block target audits')
+    selected=sorted(scopes,key=lambda s:(-scopes[s],s))[:TOP]
+    return {'status':'LOGICAL_BLOCK_CONTRIBUTIONS_RECORDED','total_pairs':total,'known_owner_pairs':known,
+            'source_attribution':'PARTIAL' if values[-1]+values[-2] else 'COMPLETE',
+            'unknown_owner_pairs':values[-1],'ambiguous_owner_pairs':values[-2],
+            'cross_scope_pairs':values[-4],'unknown_target_pairs':values[-5],'ambiguous_target_pairs':values[-6],
+            'positive_scope_count':len(scopes),'selected':selected,'selected_counts':{str(s):scopes[s] for s in selected},
+            'other_known_pairs':known-sum(scopes[s] for s in selected),
+            'domain':'startsSplits(a) and splitsBlockContains(a,b); positive closure, no added reflexive members',
+            'evaluator_internal_rows':'NOT_MEASURED','identity_rule':'join opaque IDs only in this database'}
+
+
+def validate_block_identities(rows, selected):
+    observed={}
+    for row in rows:
+        if len(row)!=6 or type(row[0]) is not int or row[0] not in selected or row[0] in observed or \
+                any(not isinstance(v,str) or not v or len(v.encode())>4096 for v in row[1:5]) or \
+                type(row[5]) is not int or row[5] not in (0,1):
+            raise RuntimeError('invalid block scope identity')
+        observed[row[0]]={'path':row[1],'location':row[2],'kind':row[3],'label':row[4],'scope_macro_expanded':row[5]}
+    if set(observed)!=set(selected):raise RuntimeError('incomplete block scope identities')
+    return observed
+
 SUMMARY = IMPORT + r"""
 from int s, string loc, int edges, int starts
 where
@@ -130,17 +207,21 @@ def validate_scope_identities(rows, source):
             "scope":"Raw AST labels only; join opaque scope IDs within this database, never across runs"}
 
 
-def patch_text(name, text):
+def patch_text(name, text, block_contributions=False):
     if name == 'codeql/controlflow':
         for old in ('private module Reachability {', 'private predicate startsSplits(AstNode n)',
                     'private predicate intraSplitsSucc(AstNode pred, AstNode succ)'):
             if text.count(old) != 1:
                 raise RuntimeError('patch anchor not unique: ' + old)
             text = text.replace(old, old.removeprefix('private '))
+        if block_contributions:
+            old='private predicate splitsBlockContains(AstNode start, AstNode n)'
+            if text.count(old)!=1:raise RuntimeError('block closure anchor not unique')
+            text=text.replace(old,old.removeprefix('private '))
         return text
     if name != 'codeql/rust-all' or 'oasisEdge' in text:
         raise RuntimeError('unsupported or already patched input')
-    return text + WRAPPER
+    return text + WRAPPER + (BLOCK_WRAPPER if block_contributions else '')
 
 
 def choose_scopes(rows):
@@ -285,6 +366,7 @@ def main():
     for key in ('codeql','database','source','output','work'):ap.add_argument('--'+key,type=Path,required=True)
     ap.add_argument('--verify-context-exclusion',action='store_true')
     ap.add_argument('--scope-identities',action='store_true')
+    ap.add_argument('--split-block-contributions',action='store_true')
     ap.add_argument('--check-only',action='store_true');ap.add_argument('--deadline',type=float,required=True);ap.add_argument('--threads',type=int,default=4);ap.add_argument('--ram',type=int,required=True)
     args=ap.parse_args();out=args.output;out.mkdir(exist_ok=True);args.work.mkdir(exist_ok=True)
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-8*1024**2
@@ -293,8 +375,11 @@ def main():
     originals={}
     if args.verify_context_exclusion:terminal['context_exclusion_verification']='NOT_REACHED'
     if args.scope_identities:terminal['scope_identities']='NOT_REACHED'
-    def run(argv,name):
-        runtime.run(list(map(str,argv)),args.source,out/(name+'.log'),end,min(900,max(0,end-time.monotonic())),out,
+    if args.split_block_contributions:
+        terminal.update(split_block_counts='NOT_REACHED',split_block_identities='NOT_REACHED',block_identity_reserve_seconds=120)
+    def run(argv,name,reserve=0):
+        command_end=end-reserve
+        runtime.run(list(map(str,argv)),args.source,out/(name+'.log'),command_end,min(900,max(0,command_end-time.monotonic())),out,
                     {k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN')},file_limit=command_file_limit(argv))
     try:
         if end<=time.monotonic() or args.threads!=4 or args.ram<=0:raise RuntimeError('resource/deadline admission')
@@ -309,9 +394,9 @@ def main():
             target=packs/name/closure[name]['version']
             if not target.exists():
                 shutil.copytree(root,target,symlinks=False,ignore=shutil.ignore_patterns("*.qlx","*.bqrs",".cache",".codeql",".pack-cache",".compilation-cache"))
-                q=target/rel;q.write_text(patch_text(name,q.read_text()))
+                q=target/rel;q.write_text(patch_text(name,q.read_text(),args.split_block_contributions))
             q=target/rel
-            if q.read_text()!=patch_text(name,p.read_text()):raise RuntimeError('private patch changed')
+            if q.read_text()!=patch_text(name,p.read_text(),args.split_block_contributions):raise RuntimeError('private patch changed')
             closure[name]=dict(closure[name],root=str(target))
             patchlog[name]={'original':str(p),'original_sha256':sha,'copy':str(q),'patched_sha256':runtime.digest(q)}
         runtime.save(out/'private-patches.json',patchlog,out)
@@ -326,22 +411,23 @@ def main():
         cache=args.work/'compilation-cache';cache.mkdir(exist_ok=True)
         options=['--additional-packs='+additional,'--compilation-cache='+str(cache),'--no-default-compilation-cache']
         query=args.work/'queries';query.mkdir(exist_ok=True);(query/'qlpack.yml').write_text('name: oasis7/rust-cfg-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.24\n')
-        def evaluate(name,text):
+        def evaluate(name,text,reserve=0):
             q=query/(name+'.ql');q.write_text(text)
-            run([args.codeql,'resolve','library-path','--query='+str(q),'--format=json','--additional-packs='+additional],'library-'+name)
+            run([args.codeql,'resolve','library-path','--query='+str(q),'--format=json','--additional-packs='+additional],'library-'+name,reserve)
             model.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query,name,closure,'oasis7/rust-cfg-diagnostic')
             b=out/(name+'.bqrs')
-            run([args.codeql,'query','run',q,'--database='+str(args.database),'--output='+str(b),'--threads=4','--ram='+str(args.ram),*options],name)
-            run([args.codeql,'bqrs','info',b,'--format=json'],'info-'+name)
+            run([args.codeql,'query','run',q,'--database='+str(args.database),'--output='+str(b),'--threads=4','--ram='+str(args.ram),*options],name,reserve)
+            run([args.codeql,'bqrs','info',b,'--format=json'],'info-'+name,reserve)
             info=json.loads((out/('info-'+name+'.log')).read_text())
             sets=info.get('result-sets') if isinstance(info,dict) else None
             if not isinstance(sets,list) or len(sets)!=1 or sets[0].get('name')!='#select' or type(sets[0].get('rows')) is not int or sets[0]['rows']<0:raise RuntimeError('invalid BQRS result-set identity')
-            row_cap=EDGE_CAP if name=='edges' else 10000 if name=='scope-identities' else 1000000
+            row_cap=EDGE_CAP if name=='edges' else 10000 if name in ('scope-identities','block-identities') else 1000000
             if sets[0]['rows']>row_cap:raise RuntimeError('BQRS row cap before decode')
             dest=out/(name+'.json')
-            run([args.codeql,'bqrs','decode',b,'--format=json','--output='+str(dest)],'decode-'+name)
+            run([args.codeql,'bqrs','decode',b,'--format=json','--output='+str(dest)],'decode-'+name,reserve)
             return decode_rows(dest,info)
-        checks=[('summary',SUMMARY),('edges',edge_query([0]))]
+        checks=([('block-counts',BLOCK_COUNTS),('block-identities',block_identity_query([0]))]
+                if args.split_block_contributions else [('summary',SUMMARY),('edges',edge_query([0]))])
         if args.scope_identities:checks.insert(0,('scope-identities',scope_identity_query(args.source)))
         if args.verify_context_exclusion:
             files={p:runtime.digest(args.source/p) for p in CONTEXT_PATHS}
@@ -367,17 +453,33 @@ def main():
                 runtime.save(out/'scope-identity-rows.json',identities,out)
                 runtime.save(out/'scope-identity-report.json',validate_scope_identities(identities,args.source),out)
                 terminal['scope_identities']='PASS'
-            rows=evaluate('summary',SUMMARY);selected,skipped=choose_scopes(rows)
-            runtime.save(out/'selection.json',{'selected':selected,'skipped':skipped,'summary_rows':len(rows),'global_checks':[r for r in rows if r[0]<0],'selected_start_counts':{r[0]:r[3] for r in rows if r[0] in selected},'edge_cap':EDGE_CAP,'scope_cap':TOP},out)
-            if not selected:raise RuntimeError('no bounded scope admitted; retained aggregate evidence')
-            edges=evaluate('edges',edge_query(selected))
-            expected={r[0]:r[2] for r in rows if r[0] in selected}
-            actual={s:sum(r[2]==s for r in edges) for s in selected}
-            if actual!=expected:raise RuntimeError('scope edge result incomplete or inconsistent')
-            runtime.save(out/'graph-report.json',graph_report(edges,selected,end),out)
+            if args.split_block_contributions:
+                terminal['split_block_counts']='RUNNING'
+                report=validate_block_counts(evaluate('block-counts',BLOCK_COUNTS,reserve=120))
+                runtime.save(out/'block-contributions.json',report,out)
+                terminal['split_block_counts']='PASS'
+                selected=report['selected']
+                if selected and end-time.monotonic()<60:raise RuntimeError('NOT_REACHED block identity admission window')
+                terminal['split_block_identities']='RUNNING'
+                identities=validate_block_identities(evaluate('block-identities',block_identity_query(selected)),selected) if selected else {}
+                report['scope_identities']=identities
+                runtime.save(out/'block-contributions.json',report,out)
+                terminal['split_block_identities']='PASS'
+                terminal['split_block_contributions']='PASS'
+            else:
+                rows=evaluate('summary',SUMMARY);selected,skipped=choose_scopes(rows)
+                runtime.save(out/'selection.json',{'selected':selected,'skipped':skipped,'summary_rows':len(rows),'global_checks':[r for r in rows if r[0]<0],'selected_start_counts':{r[0]:r[3] for r in rows if r[0] in selected},'edge_cap':EDGE_CAP,'scope_cap':TOP},out)
+                if not selected:raise RuntimeError('no bounded scope admitted; retained aggregate evidence')
+                edges=evaluate('edges',edge_query(selected))
+                expected={r[0]:r[2] for r in rows if r[0] in selected}
+                actual={s:sum(r[2]==s for r in edges) for s in selected}
+                if actual!=expected:raise RuntimeError('scope edge result incomplete or inconsistent')
+                runtime.save(out/'graph-report.json',graph_report(edges,selected,end),out)
             terminal['status']='DIAGNOSTIC_COMPLETED'
     except Exception as exc:
         terminal['error']=str(exc)
+        for key in ('split_block_counts','split_block_identities'):
+            if terminal.get(key)=='RUNNING':terminal[key]='INCOMPLETE'
     finally:
         verify_originals(terminal, originals)
         runtime.save(out/'cfg-terminal.json',terminal,out,terminal=True)

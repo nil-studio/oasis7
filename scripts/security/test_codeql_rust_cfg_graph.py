@@ -11,6 +11,46 @@ from pathlib import Path
 import codeql_rust_cfg_graph as cfg
 
 class GraphTests(unittest.TestCase):
+    def test_block_counts_reconcile_owner_partition_before_ranking(self):
+        audits=[[-1,3],[-2,2],[-3,10],[-4,1],[-5,2],[-6,1]]
+        result=cfg.validate_block_counts([[9,2],[7,3],*audits])
+        self.assertEqual(result['selected'],[7,9])
+        self.assertEqual(result['known_owner_pairs'],5)
+        self.assertEqual(result['source_attribution'],'PARTIAL')
+        for bad in ([[9,1],*audits],[[9,5],*audits,[-1,3]],[[9,5],*audits[:-1]],
+                    [[True,5],*audits],[[9,5],*audits,[-7,0]],[[9,0],[8,5],*audits],
+                    [[9,5],*audits[:-2],[-5,9],[-6,9]]):
+            with self.assertRaises(RuntimeError):cfg.validate_block_counts(bad)
+        with self.assertRaises(RuntimeError):cfg.validate_block_counts([[1,1]]*1000001)
+
+    def test_block_ranking_preserves_unselected_contributions_and_ties(self):
+        rows=[[s,2] for s in range(25)]
+        result=cfg.validate_block_counts([*reversed(rows),[-1,0],[-2,0],[-3,50],[-4,0],[-5,0],[-6,0]])
+        self.assertEqual(result['selected'],list(range(20)))
+        self.assertEqual(result['other_known_pairs'],10)
+        self.assertEqual(result['positive_scope_count'],25)
+        self.assertEqual(result['source_attribution'],'COMPLETE')
+
+    def test_block_identity_must_match_this_run_selected_ids(self):
+        good=[[7,'/frozen/a.rs','a.rs@1:1:3:1','Function','fn a',1]]
+        self.assertEqual(cfg.validate_block_identities(good,[7])[7]['label'],'fn a')
+        for bad in ([],good+good,[[8,*good[0][1:]]],[[7,'x'*4097,*good[0][2:]]],[[7,*good[0][1:5],True]]):
+            with self.assertRaises(RuntimeError):cfg.validate_block_identities(bad,[7])
+        for selected in ([],[1,1],[True],list(range(21))):
+            with self.assertRaises(RuntimeError):cfg.block_identity_query(selected)
+
+    def test_block_closure_is_opt_in_and_does_not_export_pair_endpoints(self):
+        original='private module Reachability {\nprivate predicate startsSplits(AstNode n) {}\nprivate predicate intraSplitsSucc(AstNode pred, AstNode succ) {}\nprivate predicate splitsBlockContains(AstNode start, AstNode n) = fastTC(intraSplitsSucc/2)(start,n)\n}'
+        raw=cfg.patch_text('codeql/controlflow',original)
+        measured=cfg.patch_text('codeql/controlflow',original,True)
+        self.assertIn('private predicate splitsBlockContains',raw)
+        self.assertNotIn('private predicate splitsBlockContains',measured)
+        self.assertEqual(measured,raw.replace('private predicate splitsBlockContains','predicate splitsBlockContains'))
+        self.assertNotIn('oasisBlockCounts',cfg.patch_text('codeql/rust-all','original'))
+        self.assertIn('oasisBlockCounts',cfg.patch_text('codeql/rust-all','original',True))
+        self.assertNotIn('getAnElement',cfg.BLOCK_COUNTS)
+        self.assertIn('select scope,pairs',cfg.BLOCK_COUNTS)
+
     def test_evaluator_pagefile_is_not_an_evidence_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); evidence=root/"evidence"; evidence.mkdir()
