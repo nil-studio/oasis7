@@ -1,0 +1,116 @@
+name: Native Cache Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/native-cache-diagnostic.yml
+      - scripts/ci-cache-diagnostic.py
+      - scripts/test-ci-cache-diagnostic.py
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Native producer whose first compilation is diagnosed
+        type: choice
+        required: true
+        default: formal
+        options: [ordinary, formal]
+
+permissions:
+  contents: read
+
+cache-mode: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: native-cache-diagnostic-${{ github.event_name }}-${{ github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  collector-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - run: python3 -B scripts/test-ci-cache-diagnostic.py -v
+
+  diagnose:
+    needs: collector-tests
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SCOPE: ${{ inputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Use the primary Rust workflow environment without copying its pins
+        run: python3 -B scripts/ci-cache-diagnostic.py prepare --output "$RUNNER_TEMP/native-cache-diagnostic"
+      - name: Install and normalize the same pinned Rust toolchains
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+          python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Restore shared native dependencies without publishing
+        id: dependency
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-shared-native-trusted-v3
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+      - name: Resolve the existing producer workspace cache identity
+        id: identity
+        run: |
+          python3 scripts/ci-workspace-cache.py identity --scope "$SCOPE" \
+            --report "$RUNNER_TEMP/native-cache-diagnostic/workspace-identity.json"
+          test -s "$RUNNER_TEMP/native-cache-diagnostic/workspace-identity.json"
+      - name: Restore the compatible workspace archive without publishing
+        id: workspace
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/diagnostic-workspace-cache/workspace-units.tar.zst
+          key: ${{ steps.identity.outputs.key }}
+          restore-keys: ${{ steps.identity.outputs.prefix }}
+      - name: Validate the workspace archive using the existing restore contract
+        env:
+          REQUESTED_KEY: ${{ steps.identity.outputs.key }}
+          MATCHED_KEY: ${{ steps.workspace.outputs.cache-matched-key }}
+          CACHE_HIT: ${{ steps.workspace.outputs.cache-hit }}
+        run: |
+          python3 scripts/ci-workspace-cache.py restore --scope "$SCOPE" \
+            --cache "$RUNNER_TEMP/diagnostic-workspace-cache" \
+            --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
+            --report "$RUNNER_TEMP/native-cache-diagnostic/workspace-restore.json"
+      - name: Install the same native libraries as the primary producers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Observe first compilation and same-job warm control
+        env:
+          DEPENDENCY_EXACT_HIT: ${{ steps.dependency.outputs.cache-hit }}
+        run: |
+          python3 -B scripts/ci-cache-diagnostic.py run --scope "$SCOPE" --seconds 1200 \
+            --output "$RUNNER_TEMP/native-cache-diagnostic"
+      - name: Upload bounded diagnostic metadata, including failed experiments
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-cache-diagnostic-${{ inputs.scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-cache-diagnostic/*.json
+          retention-days: 7
+          if-no-files-found: warn
