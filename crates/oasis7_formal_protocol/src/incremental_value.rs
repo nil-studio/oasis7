@@ -223,6 +223,79 @@ fn persist(
     Ok(id)
 }
 
+// Check cancellation at each adapter boundary, including Interrupted retries.
+// Node material remains provisional if an adapter cancels after writing it.
+struct CancelSink<'a, W, C> {
+    sink: &'a mut W,
+    cancelled: &'a mut C,
+}
+impl<W, C: FnMut() -> bool> CancelSink<'_, W, C> {
+    fn check(&mut self) -> Result<(), ValueTreeError> {
+        if (self.cancelled)() {
+            Err(ValueTreeError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+impl<W: ValueNodeWriter, C: FnMut() -> bool> ValueNodeWriter for CancelSink<'_, W, C> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        self.check()?;
+        self.sink.put_node(id, bytes)?;
+        self.check()
+    }
+}
+fn read_cancelled(
+    input: &mut impl Read,
+    mut bytes: &mut [u8],
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), ValueTreeError> {
+    while !bytes.is_empty() {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        let result = input.read(bytes);
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        match result {
+            Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into()),
+            Ok(n) if n <= bytes.len() => bytes = &mut bytes[n..],
+            Ok(_) => return Err(ValueTreeError::Invalid("input adapter byte count")),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+fn write_cancelled(
+    output: &mut impl Write,
+    mut bytes: &[u8],
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), ValueTreeError> {
+    while !bytes.is_empty() {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        let result = output.write(bytes);
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        match result {
+            Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into()),
+            Ok(n) if n <= bytes.len() => bytes = &bytes[n..],
+            Ok(_) => return Err(ValueTreeError::Invalid("output adapter byte count")),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 /// Consume exactly `logical_len` bytes from the input stream. Following bytes
 /// belong to the caller's next object and are neither consumed nor hashed.
 pub fn write_value(
@@ -233,6 +306,11 @@ pub fn write_value(
     io: &mut ValueIoBudget,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ValueRootV1, ValueTreeError> {
+    let mut sink = CancelSink {
+        sink,
+        cancelled: &mut cancelled,
+    };
+    sink.check()?;
     let _workspace = memory.reserve(VALUE_BUILD_WORKSPACE_BYTES, MemoryClass::Ordinary)?;
     let mut frontier: Vec<Vec<ValueNodeRefV1>> = (0..=VALUE_MAX_DEPTH)
         .map(|_| Vec::with_capacity(VALUE_FANOUT))
@@ -240,18 +318,16 @@ pub fn write_value(
     let mut buffer = vec![0; VALUE_CHUNK_BYTES];
     let mut remaining = logical_len;
     loop {
-        if cancelled() {
-            return Err(ValueTreeError::Cancelled);
-        }
+        sink.check()?;
         let size = remaining.min(VALUE_CHUNK_BYTES as u64) as usize;
         if io.read_bytes_remaining < size as u64 {
             return Err(ValueTreeError::ResourceLimited("input allowance"));
         }
         io.read_bytes_remaining -= size as u64;
-        input.read_exact(&mut buffer[..size])?;
+        read_cancelled(input, &mut buffer[..size], &mut *sink.cancelled)?;
         let charge = memory.reserve(codec::LEAF_OVERHEAD + size, MemoryClass::Ordinary)?;
         let bytes = encode_leaf(&buffer[..size]);
-        let id = persist(bytes, charge, sink, io)?;
+        let id = persist(bytes, charge, &mut sink, io)?;
         push(
             ValueNodeRefV1 {
                 id,
@@ -259,7 +335,7 @@ pub fn write_value(
                 depth: 0,
             },
             &mut frontier,
-            sink,
+            &mut sink,
             memory,
             io,
         )?;
@@ -277,17 +353,15 @@ pub fn write_value(
         if count == 1 {
             break frontier[level][0];
         }
-        if cancelled() {
-            return Err(ValueTreeError::Cancelled);
-        }
+        sink.check()?;
         let children = std::mem::replace(&mut frontier[level], Vec::with_capacity(VALUE_FANOUT));
-        let parent = make_parent(&children, sink, memory, io)?;
-        push(parent, &mut frontier, sink, memory, io)?;
+        let parent = make_parent(&children, &mut sink, memory, io)?;
+        push(parent, &mut frontier, &mut sink, memory, io)?;
     };
     let root = ValueRootV1(root);
     root.validate()?;
     let charge = memory.reserve(codec::ROOT_BYTES, MemoryClass::Ordinary)?;
-    persist(root.canonical_bytes()?, charge, sink, io)?;
+    persist(root.canonical_bytes()?, charge, &mut sink, io)?;
     Ok(root)
 }
 
@@ -355,6 +429,8 @@ impl<R: ValueNodeReader> ValueReadContext<'_, R> {
         ValueRootV1::from_canonical_bytes(&bytes)
     }
 
+    /// Authenticate the descriptor with load_root(expected_id) before using a
+    /// state-leaf value reference; this method checks against the supplied root.
     pub fn read_range(
         &mut self,
         root: &ValueRootV1,
@@ -373,6 +449,9 @@ impl<R: ValueNodeReader> ValueReadContext<'_, R> {
             .filter(|end| *end <= root.0.logical_len)
             .ok_or(ValueTreeError::Invalid("range outside value"))?;
         let _workspace = memory.reserve(VALUE_READ_WORKSPACE_BYTES, class)?;
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
         if length == 0 {
             return Ok(0);
         }
@@ -383,6 +462,9 @@ impl<R: ValueNodeReader> ValueReadContext<'_, R> {
                 return Err(ValueTreeError::Cancelled);
             }
             let bytes = read_verified_node(&reference, source, memory, class, io)?;
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled);
+            }
             match decode_node(&bytes, &reference)? {
                 Node::Leaf(data) => {
                     let from = offset.saturating_sub(start) as usize;
@@ -391,7 +473,7 @@ impl<R: ValueNodeReader> ValueReadContext<'_, R> {
                         return Err(ValueTreeError::ResourceLimited("range output allowance"));
                     }
                     io.write_bytes_remaining -= (to - from) as u64;
-                    output.write_all(&data[from..to])?;
+                    write_cancelled(output, &data[from..to], &mut cancelled)?;
                     written += (to - from) as u64;
                 }
                 Node::Index(children) => {
@@ -409,6 +491,9 @@ impl<R: ValueNodeReader> ValueReadContext<'_, R> {
                     stack.extend(selected.into_iter().rev());
                 }
             }
+        }
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
         }
         if written != length {
             return Err(ValueTreeError::Invalid("incomplete range"));

@@ -3,6 +3,9 @@ use super::*;
 use std::cell::Cell;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct Files {
     path: PathBuf,
@@ -17,8 +20,11 @@ impl Files {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("oasis7-iws-value-{}-{nonce}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "oasis7-iws-value-{}-{nonce}-{}",
+            std::process::id(),
+            FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir(&path).unwrap();
         Self {
             path,

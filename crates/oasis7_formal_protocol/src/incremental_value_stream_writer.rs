@@ -65,7 +65,11 @@ impl<'a, W: ValueNodeWriter, C: FnMut() -> bool> ValueStreamWriter<'a, W, C> {
             codec::LEAF_OVERHEAD + self.buffer.len(),
             MemoryClass::Ordinary,
         )?;
-        let id = persist(encode_leaf(&self.buffer), charge, self.sink, self.io)?;
+        let mut sink = CancelSink {
+            sink: self.sink,
+            cancelled: &mut self.cancelled,
+        };
+        let id = persist(encode_leaf(&self.buffer), charge, &mut sink, self.io)?;
         push(
             ValueNodeRefV1 {
                 id,
@@ -73,7 +77,7 @@ impl<'a, W: ValueNodeWriter, C: FnMut() -> bool> ValueStreamWriter<'a, W, C> {
                 depth: 0,
             },
             &mut self.frontier,
-            self.sink,
+            &mut sink,
             self.memory,
             self.io,
         )?;
@@ -103,6 +107,9 @@ impl<'a, W: ValueNodeWriter, C: FnMut() -> bool> ValueStreamWriter<'a, W, C> {
                 self.emit_chunk()?;
             }
         }
+        if (self.cancelled)() {
+            return Err(ValueTreeError::Cancelled);
+        }
         Ok(())
     }
 
@@ -111,10 +118,12 @@ impl<'a, W: ValueNodeWriter, C: FnMut() -> bool> ValueStreamWriter<'a, W, C> {
         if !self.buffer.is_empty() || self.length == 0 {
             self.emit_chunk()?;
         }
+        let mut sink = CancelSink {
+            sink: self.sink,
+            cancelled: &mut self.cancelled,
+        };
         let reference = loop {
-            if (self.cancelled)() {
-                return Err(ValueTreeError::Cancelled);
-            }
+            sink.check()?;
             let level = self
                 .frontier
                 .iter()
@@ -125,15 +134,15 @@ impl<'a, W: ValueNodeWriter, C: FnMut() -> bool> ValueStreamWriter<'a, W, C> {
             }
             let children =
                 std::mem::replace(&mut self.frontier[level], Vec::with_capacity(VALUE_FANOUT));
-            let parent = make_parent(&children, self.sink, self.memory, self.io)?;
-            push(parent, &mut self.frontier, self.sink, self.memory, self.io)?;
+            let parent = make_parent(&children, &mut sink, self.memory, self.io)?;
+            push(parent, &mut self.frontier, &mut sink, self.memory, self.io)?;
         };
         let root = ValueRootV1(reference);
         root.validate()?;
         let charge = self
             .memory
             .reserve(codec::ROOT_BYTES, MemoryClass::Ordinary)?;
-        persist(root.canonical_bytes()?, charge, self.sink, self.io)?;
+        persist(root.canonical_bytes()?, charge, &mut sink, self.io)?;
         Ok(root)
     }
 }

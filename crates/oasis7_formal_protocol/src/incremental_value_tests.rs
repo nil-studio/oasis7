@@ -616,3 +616,157 @@ fn caught_cancellation_panic_does_not_restore_push_writer() {
 
 #[path = "incremental_value_closure_tests.rs"]
 mod closure_tests;
+
+#[test]
+fn pull_and_range_observe_cancel_on_final_io_and_before_interrupted_retries() {
+    use std::rc::Rc;
+    struct Input {
+        cancel: Rc<Cell<bool>>,
+        calls: usize,
+        interrupted: bool,
+    }
+    impl Read for Input {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.calls += 1;
+            self.cancel.set(true);
+            if self.interrupted && self.calls == 1 {
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            out.fill(7);
+            Ok(out.len())
+        }
+    }
+    for interrupted in [false, true] {
+        let memory = MemoryBudget::new(2 << 20, 0).unwrap();
+        let cancel = Rc::new(Cell::new(false));
+        let mut input = Input {
+            cancel: cancel.clone(),
+            calls: 0,
+            interrupted,
+        };
+        let mut store = Store::new();
+        let mut quota = io();
+        assert!(matches!(
+            write_value(&mut input, 1, &mut store, &memory, &mut quota, || cancel
+                .get()),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert_eq!(input.calls, 1);
+        assert!(store.nodes.is_empty());
+    }
+    struct Output {
+        cancel: Rc<Cell<bool>>,
+        calls: usize,
+        interrupted: bool,
+    }
+    impl Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.calls += 1;
+            self.cancel.set(true);
+            if self.interrupted && self.calls == 1 {
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let (root, store, memory) = build(&[7]);
+    for interrupted in [false, true] {
+        let cancel = Rc::new(Cell::new(false));
+        let mut output = Output {
+            cancel: cancel.clone(),
+            calls: 0,
+            interrupted,
+        };
+        let result = ValueReadContext {
+            source: &store,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut io(),
+        }
+        .read_range(&root, 0, 1, &mut output, || cancel.get());
+        assert!(matches!(result, Err(ValueTreeError::Cancelled)));
+        assert_eq!(output.calls, 1);
+    }
+    store.reads.set(0);
+    assert!(matches!(
+        ValueReadContext {
+            source: &store,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut io()
+        }
+        .read_range(&root, 0, 0, &mut Vec::new(), || true),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert_eq!(store.reads.get(), 0);
+}
+
+#[test]
+fn sink_cancel_at_leaf_or_final_descriptor_never_returns_a_pull_or_push_root() {
+    use std::rc::Rc;
+    struct Cancels {
+        store: Store,
+        cancelled: Rc<Cell<bool>>,
+        leaf: bool,
+    }
+    impl ValueNodeWriter for Cancels {
+        fn put_node(
+            &mut self,
+            id: [u8; 32],
+            bytes: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            let cancel = self.leaf || ValueRootV1::from_canonical_bytes(&bytes).is_ok();
+            self.store.put_node(id, bytes)?;
+            if cancel {
+                self.cancelled.set(true);
+            }
+            Ok(())
+        }
+    }
+    for push in [false, true] {
+        let memory = MemoryBudget::new(2 << 20, 0).unwrap();
+        let cancelled = Rc::new(Cell::new(false));
+        let mut sink = Cancels {
+            store: Store::new(),
+            cancelled: cancelled.clone(),
+            leaf: false,
+        };
+        let mut quota = io();
+        let result = if push {
+            let mut writer =
+                ValueStreamWriter::new(&mut sink, &memory, &mut quota, 1, || cancelled.get())
+                    .unwrap();
+            writer.write_all(&[7]).unwrap();
+            writer.finish()
+        } else {
+            write_value(&mut &[7][..], 1, &mut sink, &memory, &mut quota, || {
+                cancelled.get()
+            })
+        };
+        assert!(matches!(result, Err(ValueTreeError::Cancelled)));
+        assert_eq!(sink.store.nodes.len(), 2); // material exists, no successful root
+    }
+    let memory = MemoryBudget::new(2 << 20, 0).unwrap();
+    let cancelled = Rc::new(Cell::new(false));
+    let mut sink = Cancels {
+        store: Store::new(),
+        cancelled: cancelled.clone(),
+        leaf: true,
+    };
+    let mut quota = io();
+    let mut writer = ValueStreamWriter::new(
+        &mut sink,
+        &memory,
+        &mut quota,
+        VALUE_CHUNK_BYTES as u64,
+        || cancelled.get(),
+    )
+    .unwrap();
+    assert!(writer.write_all(&[7; VALUE_CHUNK_BYTES]).is_err());
+    cancelled.set(false);
+    assert!(matches!(writer.finish(), Err(ValueTreeError::Cancelled)));
+    assert_eq!(sink.store.nodes.len(), 1);
+}
