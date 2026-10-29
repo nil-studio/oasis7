@@ -74,6 +74,9 @@ Targets, details, and diagnostics remain reachable routes, not equal-weight
 columns competing with the Player stage.
 
 ### 2.3 Reading Order
+The lists below describe attention priority, not top-to-bottom placement. Next Move
+and Action Receipt remain in the lower HUD shown in §2.6 and §10.4.
+
 Desktop first viewport:
 
 1. Compact stage identity and current objective.
@@ -107,8 +110,8 @@ The page should behave as a command-table shell:
 - Contextual console: command/chat first, then selected context, gameplay details,
   auth/economy, and diagnostics/raw state.
 
-The command band and receipt may bracket the board, but they must not compress
-the board into a secondary widget.
+The command band and independent receipt stay in the lower HUD, with Next Move
+above the receipt. They must not compress the world into a secondary widget.
 
 The [shell's current implementation boundary](viewer-gameplay-release-experience-overhaul.prd.md#current-implementation-boundary)
 owns HUD placement: one primary Next Move region and subordinate Objective /
@@ -721,6 +724,7 @@ module-state verification are still required before any completion claim.
 | J7 查看世界动态 | 展开 World Feed | 明确“世界动态”，保留事件来源/时间与支持的关联；有合法事件锚点才允许地图定位 | gap/replay/reorg/unavailable 各自解释；没有 receipt_ref 不补造行动关联；无锚点仍可读事件 |
 | J8 图形失败恢复 | 启动不可用或 ready 后失效 | 标明渲染器不可用及原因；停止旧图命中/动画；保留获准 Targets、原回执、文字与合法安全控制 | 显式重试；恢复后重验当前授权视图，不恢复旧私有画面，不重放世界动作；不绘制 JS 替代世界 |
 | J9 诊断与返回 | More→Diagnostics；Director 另需服务器能力 | 默认诊断折叠；普通查看不授予 Director；成功/拒绝均保留明确返回 Player | stale/revoked/denied 立即清理受限信息；不能凭本地开关持久保留权限 |
+| J10 退出、刷新与再次进入 | 退出先清理旧会话私有内容；再入沿 hosted_public_join 恢复当前身份及读取资格 | 按当前授权重新读取世界身份、当前目标、主要 blocker、最近可信原结果和下一决策；焦点回到可用的 Player 入口，不恢复旧私有画面 | 读取受阻则等待、重新认证或安全返回；原操作无法核对时仍显示结果未知，不从空回执推定未执行，不自动重发；不承诺跨会话草稿持久化 |
 
 <a id="uiux-context-identity"></a>
 ### 10.3 选择、草稿与原操作的三种身份
@@ -759,6 +763,7 @@ module-state verification are still required before any completion claim.
 - 键盘顺序按当前活动路线：标题/关闭→主要内容→动作→辅助说明。关闭恢复 invoker；invoker 消失则返回对应导航或舞台标题。焦点环不能被容器裁切或低对比边框吞掉。
 - Escape 先关闭最内层 surface，再退出 Focus；compositionstart 至 compositionend 期间及 keyCode 229 的兼容输入不触发发送或关闭。Enter / Shift+Enter 按多行编辑处理，均不发送；只有显式 Send Chat 提交。组合输入与连续键入不得重复插入或提交。
 - 舞台快捷键只在舞台适用焦点内响应；文本输入、contenteditable、浏览器快捷键和 IME 不被截获。控件 disabled 的原因紧邻显示，不能要求点击 disabled 才知道原因。
+- 指针事件归属沿 [Chat 输入验收](viewer-manual.manual.md#当前-agent-chat-与高级-prompt-设置)：输入区、Targets/Command 抽屉及控件内的点击、拖拽、滚轮不能穿透到世界相机或拾取，正文仍可选择复制。舞台平移拖动与点击选择必须区分，拖动结束不再追加一次选择；指针取消或捕获丢失后结束本次手势，不沿用旧拖动状态。后续验证覆盖鼠标、触控、抽屉滚动、拖出边界与取消后再次点击；本稿不设新的手势像素阈值，也不声明当前实现已通过。
 - 拖动/双指缩放不是唯一操作：提供等价的缩放、总览、定位、退出跟随和候选选择。触控目标优先 44×44 CSS px 的可用点击区，相邻控件有间隔；小符号可扩大命中但不伪装物理面积。
 - 普通文字按 4.5:1、大字按 3:1、重要图形边界/焦点按 3:1 检查设计配色；这些是验收目标，不是本稿的认证。颜色状态同时带短文本、图形或位置。
 - 世界 canvas 的可访问替代为同一授权模型的 Targets/只读检查与原回执，不再画独立语义世界。动态加载只通报相关状态变化，不逐帧播报所有 Agent。
@@ -871,6 +876,7 @@ module-state verification are still required before any completion claim.
 | [REQ-AGENT-STAGE-004](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-004) | Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a；受影响 Web 视口、输入和图形恢复呈现 | [恢复](#uiux-state-feedback) | Viewer / QA；现有平台合同 | 仅细化 Web 设计；原生容器及平台支持不由本稿确立 |
 | [REQ-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-005) | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；只读观察与合法间接指导、草稿/预览/生效区分 | [旅程](#uiux-primary-journeys) | Agent / Runtime 权限与幂等；Viewer | 不新增直接世界动作、通用撤销或回滚 |
 | [REQ-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-005) | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；只读观察与合法间接指导、草稿/预览/生效区分 | [身份](#uiux-context-identity) | Agent / Runtime 权限与幂等；Viewer | 不新增直接世界动作、通用撤销或回滚 |
+| [REQ-AGENT-SURFACE-001](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-001) | Trace refs: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef；退出再入/刷新后重找目标、blocker、可信原结果和下一决策，失败时有安全入口 | [旅程 J10](#uiux-primary-journeys) | Viewer / Runtime 当前身份与读取资格 | 不新增会话、草稿持久化或原结果查询协议 |
 | [REQ-AGENT-SURFACE-003](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-003) | Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6；个人反馈只属于当前玩家；匿名/其他玩家不污染本人结果 | [身份](#uiux-context-identity) | Runtime / Viewer 反馈隔离 | 不通过当前选择、Feed 或客户端缓存推导归属 |
 | [REQ-AGENT-SURFACE-003](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-003) | Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6；个人反馈只属于当前玩家；匿名/其他玩家不污染本人结果 | [状态](#uiux-state-feedback) | Runtime / Viewer 反馈隔离 | 不通过当前选择、Feed 或客户端缓存推导归属 |
 | [Player shell 当前布局](viewer-gameplay-release-experience-overhaul.prd.md#current-implementation-boundary) | 单一 Next Move 主区、Objective / Player Leverage 从属上下文；窄屏主区第一行 | [本设计布局条款](#33-command-strip) | viewer_engineer；game_visual_interaction_designer | 不新增布局决策、DTO、玩法或发布承诺；未扩展 target 合同 |
@@ -889,6 +895,7 @@ module-state verification are still required before any completion claim.
 | [REQ-AGENT-STAGE-004](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-004) | [恢复](#uiux-state-feedback) | [AC-AGENT-STAGE-004](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-004)；Web 桌面/平板/窄屏/低高度、CJK/键盘/IME、启动和 ready 后失败 | 静态视口与文案检查；后续 [PW-ACCESSIBILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-accessibility)、PW-RECOVERY/PLATFORM，真实受支持组合逐项验证 | PR 静态稿；后续截图、焦点/IME操作及恢复记录 | 静态设计不证明浏览器 a11y、真实 GPU 或 native |
 | [REQ-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-005) | [旅程](#uiux-primary-journeys) | [AC-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-005)；观察不执行；明确主体；拒绝/重验不自动批准新方案 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)；静态标注检查；后续专项手册 PW-IDENTITY/FRESHNESS，以自己的/无权 Agent、转让/撤权和延迟原结果验证 | PR 流程稿；后续权限负例与世界结果对账 | 不证明服务器授权、幂等或实际世界效果 |
 | [REQ-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-005) | [身份](#uiux-context-identity) | [AC-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-005)；观察不执行；明确主体；拒绝/重验不自动批准新方案 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)；静态标注检查；后续专项手册 PW-IDENTITY/FRESHNESS，以自己的/无权 Agent、转让/撤权和延迟原结果验证 | PR 流程稿；后续权限负例与世界结果对账 | 不证明服务器授权、幂等或实际世界效果 |
+| [REQ-AGENT-SURFACE-001](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-001) | [旅程 J10](#uiux-primary-journeys) | [AC-AGENT-SURFACE-001](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#ac-agent-surface-001)；退出/刷新/再入后四个决策锚点可读，查询受阻不猜测原结果 | 本稿逐步审读 J10；后续 [PW-FRESHNESS](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-freshness) 及上游恢复场景，覆盖重新认证成功/失败、权限收窄与原结果未知 | 当前 PR 静态旅程核对；后续同候选会话/授权/原结果记录 | 不证明跨会话恢复实现、实际读取资格或幂等 |
 | [REQ-AGENT-SURFACE-003](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-003) | [身份](#uiux-context-identity) | [AC-AGENT-SURFACE-003](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#ac-agent-surface-003)；两名玩家和匿名失败相互隔离；切换身份清理旧反馈 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)；静态状态与标注审读；后续按上游 AC 的两玩家/匿名、刷新/重连/身份切换组合，以真实权限和反馈读取核对 | PR 设计稿；后续同候选反馈隔离测试及真实结果 | 不证明多人 Runtime、匿名失败路由或授权恢复 |
 | [REQ-AGENT-SURFACE-003](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-003) | [状态](#uiux-state-feedback) | [AC-AGENT-SURFACE-003](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#ac-agent-surface-003)；两名玩家和匿名失败相互隔离；切换身份清理旧反馈 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)；静态状态与标注审读；后续按上游 AC 的两玩家/匿名、刷新/重连/身份切换组合，以真实权限和反馈读取核对 | PR 设计稿；后续同候选反馈隔离测试及真实结果 | 不证明多人 Runtime、匿名失败路由或授权恢复 |
 | [Player shell 当前布局](viewer-gameplay-release-experience-overhaul.prd.md#current-implementation-boundary) | [本设计布局条款](#33-command-strip) | 当前操作条款与主合同一致，不能要求恢复三张平级卡片或 Next Move 第二行 | 对同候选主合同与 `crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx`、`crates/oasis7_viewer/viewer_terminal_shell.css` 做静态对照；未来可见改动另按 [Viewer S6 手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md) 的视觉矩阵取得真实桌面/窄屏及输入证据 | 本 PR 的 source/diff 与限定静态核对；没有新增浏览器证据 | 源码接线不证明新 S6、真实玩家体验、完整 renderer/a11y 或发布通过 |
