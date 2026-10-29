@@ -840,3 +840,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 重建逐项写入不可变临时页，不保留随实例/模块总量增长的内存 map。固定 64 KiB metadata、扫描 workspace、每次更新先准入 1 MiB workspace 与 256 KiB pending 上限，同一 pool 和指定 Ordinary/Recovery class 生效。源状态扫描、额外行完整性证明、临时树读取/写入、scalar 值 IO 和单值大小均有有限额度。页已写但最终扫描失败时不返回任何部分合格内容。实际 StatePageSession 复用原持久 pack/readback；临时小计数页固定采用已有 Raw 编码，避免为短期恢复 workspace 强制申请 16 MiB Zstd 编码 workspace；正式页的压缩配置和 wire 不变。
 
 成功只返回保留 charge 的实例数/模块数内容结果，不授予完整 World、selected/durable head、服务、执行或 publication 权限。临时页不能加入正式 retained-root/lease 注册表；后续维护 owner 仍需按正式根可达性治理这些未引用临时物料。完整恢复流程、其余字段 owner、普通变更 owner 接线和全局规模/IO/RSS 验收仍未完成，不能由该子集检查代签。
+
+
+### 12.34 模块选择字段与实例优先查询
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.31–12.33。Runtime.module_registry.active 和 WorldState.installed_module_targets 分别按原 module ID 点寻址，均位于既有语义投影声明的 Artifacts namespace。key 使用独立 module-selection-key/v1 域、字段 tag、原 UTF-8 bytes 的 u16 长度与原 bytes，总长不超过 1024；不 trim、拼接版本、拆分 @ 或改大小写。value 使用独立 module-selection-value/v1 域与相同字段 tag；active version 为 u64 byte 长度加 UTF-8，target 保留 SelfAgent=0 或 LocationInfrastructure=1 加同样长度和原 location。空文本仍保留，错误类型、未知 tag、错域/长度、非法 UTF-8 和尾随拒绝。
+
+创世入口借用两个原 map，逐条消费条目/单值/逻辑与物理 IO 额度并更新临时 Artifacts 根，不收集全表 writes。入口要求 base 不含该字段家族；不存在的 map 项由完整父家族资格表达，不以一个 marker 推定完整性。普通贡献按一个字段读实际 before 并写 after/删除，错误、取消、跨池或外层事实失败使整个事务不能 seal；生命周期权限、原件事实和其余联动变化仍由实际 owner 在同一事务补齐。
+
+选择查询先点读精确 invocation ID 的 instance identity 和 Active：停用实例直接返回无选择，不访问 registry active、record 或全局 target；启用实例读取八成员内容并保留其原 module ID、version、instance ID 和 target。identity 不存在时查询 §12.32 的计数；只要该 module ID 有任何已存实例（含停用实例），就返回无选择。计数为零才点读原 active version；缺失表示无全局选择，存在才读取可选 installed target，缺 target 按原语义取 SelfAgent。所有访问均经过同一 ExecutionTransaction parent/overlay，不从 cache 或 registry map 补缺失字段；一次选择失败会使此前外层业务不能 seal。
+
+成功输出仅为保留 charge 的查表内容：包含查询 ID、分支、record 查找所需 module ID/version 和目标。它不解码或核定 ModuleRecord.manifest，不检查 record 是否存在，也不授权调用。完整选择器必须在该内容之后核定认证 record、manifest/工件、SHA256 与原件身份、Pure/Reducer、policy/capability、费用和执行结果；不能把这个中间输出当作 ActiveModuleInvocation 或 prepared invocation。完整父表资格、恢复汇总和真实 tick/服务调用仍待接线。

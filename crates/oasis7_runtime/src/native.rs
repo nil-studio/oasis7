@@ -464,3 +464,7 @@ pub use world::{
 pub use world::incremental_module_instance_recovery::{
     InstanceScratchBudget, ModuleInstanceRecoveryContext, VerifiedModuleInstanceContent,
 };
+
+pub use world::incremental_module_selection::{
+    PreparedModuleSelectionContent, contribute_module_selection_field,
+};

@@ -25,6 +25,7 @@ pub mod incremental_module_instance_genesis;
 pub mod incremental_module_instance_recovery;
 mod incremental_module_original;
 pub mod incremental_module_read;
+pub mod incremental_module_selection;
 pub mod incremental_module_state;
 pub mod incremental_projection;
 pub mod incremental_scheduler;

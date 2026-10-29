@@ -35,7 +35,7 @@ impl PreparedModuleInstanceFields {
     }
 }
 impl<V: ValueNodeReader, C: FnMut() -> bool> ModuleReadContext<'_, V, C> {
-    fn check<R: MerkleNodeReader>(
+    pub(super) fn check<R: MerkleNodeReader>(
         &mut self,
         txn: &ExecutionTransaction<'_, R>,
     ) -> Result<(), BodyMutationError> {

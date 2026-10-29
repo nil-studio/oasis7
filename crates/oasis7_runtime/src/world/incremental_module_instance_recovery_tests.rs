@@ -290,6 +290,16 @@ fn real_reopened_instance_family_verifies_with_only_recovery_reserve_and_no_cach
             row.module_id = module_id.into();
             world.state.module_instances.insert(key.into(), row);
         }
+        world
+            .module_registry
+            .active
+            .insert("global".into(), "stored version".into());
+        world.state.installed_module_targets.insert(
+            "global".into(),
+            oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
+                location_id: "stored place".into(),
+            },
+        );
         let expected_rows = world.state.module_instances.len() as u64;
         let expected_modules = world
             .state
@@ -320,11 +330,28 @@ fn real_reopened_instance_family_verifies_with_only_recovery_reserve_and_no_cach
             .unwrap();
         parent.roots.state[0] = (*root).clone();
         drop(root);
+        let root = world
+            .write_iws_module_selection_genesis(
+                parent.roots.state[5].clone(),
+                &mut BodyMutationContext {
+                    sink: &mut sink,
+                    memory: &memory,
+                    io: &mut genesis_io(),
+                    cancelled: || false,
+                },
+                &mut 2,
+                4096,
+            )
+            .unwrap();
+        parent.roots.state[5] = (*root).clone();
+        drop(root);
         drop(sink);
         drop(store);
         drop(values);
         drop(pages);
         world.state.module_instances.clear();
+        world.module_registry.active.clear();
+        world.state.installed_module_targets.clear();
         let store =
             IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
                 .unwrap();
@@ -383,6 +410,39 @@ fn real_reopened_instance_family_verifies_with_only_recovery_reserve_and_no_cach
         assert_eq!(memory.used(), before);
         assert!(scratch.remaining_io().unwrap().writes_remaining < physical_io().writes_remaining);
         drop(ordinary_full);
+        let ordinary_state = store
+            .state_session(physical_io(), MemoryClass::Ordinary)
+            .unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [4; 32],
+            &ordinary_state,
+            &memory,
+            limits(),
+        )
+        .unwrap();
+        let mut value_io = genesis_io();
+        let mut selection = crate::ModuleReadContext {
+            values: &source,
+            memory: &memory,
+            io: &mut value_io,
+            max_value_bytes: 4096,
+            cancelled: || false,
+        };
+        assert!(
+            selection
+                .select_module_content("map-key", &mut txn)
+                .unwrap()
+                .is_none()
+        );
+        let selected = selection
+            .select_module_content("global", &mut txn)
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.module_id(), "global");
+        assert_eq!(selected.record_version(), "stored version");
+        assert_eq!(selected.target(), T::LocationInfrastructure("stored place"));
+        assert!(!selected.is_instance());
     }
 }
 
