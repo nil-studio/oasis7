@@ -258,6 +258,58 @@ fn governance_history_zero_event_successor_checks_projection_and_exact_snapshot(
             .contains("projection mismatch")
     );
 }
+
+#[test]
+fn governance_history_rejects_rotation_map_insertion_deletion_and_rewrite_without_events() {
+    use oasis7_agent_api::world_action::{
+        FinalityKeyRotationBodyV1, FinalityKeyRotationProofV1, FinalityKeyRotationRoleV1,
+        GovernanceAuthorizedActionV1,
+    };
+    // Synthetic qualified snapshots isolate this reducer's map-equality oracle.
+    // These shape-only facts do not claim a successful authorized rotation.
+    let original = world();
+    let authorization = original.governance_authorization_for_next_commit(1).unwrap();
+    let decision_height = authorization.parent_position + 1;
+    let body = FinalityKeyRotationBodyV1 {
+        schema_version: 1, authorization: authorization.clone(),
+        rotation_id: "projection-only".into(), candidate_id: "candidate".into(),
+        node_id: "node".into(), expected_generation: 0,
+        old_public_key_hex: "1".repeat(64), new_public_key_hex: "2".repeat(64),
+        decision_height, activation_height: decision_height + 2, target_epoch: 1,
+    };
+    let proof = |role| FinalityKeyRotationProofV1 {
+        schema_version: 1, role, signature_hex: "0".repeat(128),
+    };
+    let action = Action::RotateGovernanceValidatorFinalityKeyV1 {
+        controller_account_id: "controller".into(), body,
+        old_key_proof: proof(FinalityKeyRotationRoleV1::OldKeyAuthorization),
+        new_key_proof: proof(FinalityKeyRotationRoleV1::NewKeyPossession),
+    };
+    let record = crate::governance::FinalityKeyRotationRecordV1 {
+        authorized_action: GovernanceAuthorizedActionV1 {
+            action: Box::new(action), authorization,
+        },
+        applied_at_tick: decision_height,
+    };
+    record.validate().unwrap();
+    let mut inserted = original.clone();
+    inserted.state.governance_finality_key_rotations.insert("projection-only".into(), record);
+    attach(&mut inserted, 1001);
+    assert!(verify(&original, &inserted).unwrap_err().contains("projection mismatch"));
+
+    let mut retained = inserted.clone();
+    attach(&mut retained, 1000);
+    let mut deleted = retained.clone();
+    deleted.state.governance_finality_key_rotations.clear();
+    attach(&mut deleted, 1001);
+    assert!(verify(&retained, &deleted).unwrap_err().contains("projection mismatch"));
+    let mut rewritten = retained.clone();
+    let record = rewritten.state.governance_finality_key_rotations.get_mut("projection-only").unwrap();
+    let Action::RotateGovernanceValidatorFinalityKeyV1 { new_key_proof, .. } = record.authorized_action.action.as_mut() else { unreachable!() };
+    new_key_proof.signature_hex = "3".repeat(128);
+    attach(&mut rewritten, 1001);
+    assert!(verify(&retained, &rewritten).unwrap_err().contains("projection mismatch"));
+}
 #[test]
 fn governance_history_rejects_missing_out_of_order_and_bad_time_events() {
     let (parent, next) = pair();

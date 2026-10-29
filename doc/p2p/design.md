@@ -336,6 +336,24 @@ V2 以 provider 的受保护 journal 作为签名前 WAL 的唯一持久权威�
 
 同步/恢复须验证完整集合转换链并固定可信 checkpoint/minimum。长期离线的节点不能只依赖已退出 key 对“最新历史”的自证：BFT 激活配置须规定可信 checkpoint 的有效期及旧 key/stake 安全约束，有效期不得超过该约束可保证的期限；超期或约束不明时停止自动追随，重新取得独立认证的同世界 checkpoint。此信任条件及当前各集合的实际故障域须进入部署验收，不能由算法论文代签。
 
+##### des-p2p-bft-finality-key-rotation-v1
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本条规定正式 wire 3 的正常 finality 换钥合同。治理主体及状态合同见[正常 finality 换钥](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-finality-key-rotation)。本切片只接受具有真实原 Admission 记录且已 effective active 的节点；只有 bootstrap registry、缺少原 Admission 的 active 节点仍拒绝，不生成 synthetic admission。该遗留路径保留为 #4975 后续义务。
+
+同一 Node ID 的正常轮换采用独立 typed Rotate 动作，完整决定与授权按上述安全治理合同校验。排程仍使用本节的确定性 epoch 映射，且 `activation_epoch.checked_mul(epoch_length_ticks) == decision_height.checked_add(2)`、`decision_height == h` 必须恰好成立；该动作只能在这个精确决策高度最终提交，溢出、迟到或尚未到 h 均拒绝，不能任意高度提交后静默等待下一 epoch。在 h 最终承诺，h/h+1 只由旧集合验证，h+2 起新 key 才取得该节点的投票权。延迟 ACK 不推迟全网切换，未安装的新 key 停签；旧 key 只验证适用的历史，不签边界后的新消息。已有 pending transition 时不排第二个轮换，h+1 必须重新实际执行并核对同一目标集合。
+
+两份 key proof 的角色域、无循环原像和 controller 完整动作授权按安全治理合同执行。保护签名服务只接受这个有界原像和已独立 provision 的对应不可导出 key；签名接口不得接收任意调用方字节、私有动作或通用 detached payload。原 proof 决定保存在独立、有界的受保护 archive 中，最多 64 条，每个 body/role 一条；同 rotation ID/role 的不同 body 拒绝，满额拒绝且不自动清空。新的 fenced lease 可冷恢复 exact 已归档 proof；旧 key 退出后也只能只读返回这个原 signature，不再调用 key，新的旧-key proof 则拒绝。该 archive 不占 proposal/vote 槽、不设置全局 pending lock，也不授予治理、当前投票或私有读取权限；Runtime 仍以 rotation ID、controller nonce、generation 与 canonical transition 保证一次性效果。旧 key 遗失、撤销后的重新准入和紧急恢复不走此正常轮换动作。
+
+轮换只改变 effective finality registry 的 signer key 与其 generation，不改 service/node identity、主账户绑定、operator、stake 或 manifest；不得调用无 owner 授权的 identity setter，也不得从新 finality key 重新派生账户。状态保留原 Admission、原授权动作及轮换历史，按目标 epoch 解析尚未生效与已生效的 key；不能用最新的未来记录覆盖旧 active Admission，从而提前换钥或临时移除节点。实际 V3 driver、protected journal/schedule、h+1 确认及精确 durable install receipt 全部一致后才完成本机采用；同 Node ID 不豁免新 key 的 provision、安装或旧实例 fencing。
+
+兼容性按原规则与显式新能力分开：没有轮换记录的旧 Snapshot/Action 编码保持原值；新记录进入规范状态根、投影及原 Journal，恢复使用原 parent/策略/proof，而不是按当前 key 重写旧决定。新动作及 Snapshot 中的非空轮换状态必须受明确的规则/格式能力准入约束；旧 reader 不得忽略字段后继续 serving/voting。旧 raw Admission 的身份匹配与拒绝换钥边界保持，不把它重解释为 Rotate。验收必须有同一真实 admitted Node ID 的成功轮换、h/h+1/h+2 与新 key 安装/冷恢复正例，并验证服务身份和账户等不变量；仅检查旧入口拒绝不同 key 不构成轮换成功。错误 parent/policy/nonce/generation、旧/新 proof、重复 key、bootstrap 无 Admission、边界过期、缺安装材料及容量耗尽均须拒绝且无部分效果。
+
+
+实现入口为 `Action::RotateGovernanceValidatorFinalityKeyV1`、`BftSignerLeaseV3::sign_finality_rotation_proof` 与 `NodeRuntime::request_bft_v3_finality_key_rotation_proofs`。Node 的专用有界队列将两份 proof 的持久 CAS 与原共识 worker 串行化，每次更新本机 checkpoint；已知的同 ID 不同 body 冲突直接拒绝，未知 RPC/CAS 结果停签。正常换钥不开放任意字节签名或新增公开 HTTP/CLI 端点。
+
+本地回归 `wire3_actual_node_typed_rotation_changes_only_finality_key_and_installs_new_key_before_decisive_qc` 覆盖真实 Node proof 入口、实际 World 的 h7/h8/h9 转换、新 key 安装后参与必要 quorum，以及原件冷恢复。错误 proof/generation 的负例执行同一 qualified parent 的实际 detached World 预演，不冒充已提交业务结果。该场景的其他 quorum 签名由受控 fixture 提供，witness、backend 与 clock 为内存替身；它不代表四个独立故障域持续运行或物理不可导出 custody 验收。后续 checkpoint、bootstrap 节点正常换钥与 issuer policy/key rotation 仍保留各自的实现及验收义务。
+
+
 #### 本次工程垂直切片：固定集合 NodeRuntime BFT
 
 显式 BFT voter 仍须遵守既有本地角色策略：选择器和启动入口均要求 `network_policy.node_role_claim=ValidatorCore`。Sequencer 以及显式配置该 claim 的 Storage 可以参与；Observer 和仅声明 FullStorage 的节点拒绝参与签名，选择器不隐式覆盖角色或网络策略。

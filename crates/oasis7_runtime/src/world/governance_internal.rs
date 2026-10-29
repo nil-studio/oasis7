@@ -588,7 +588,8 @@ impl World {
         if matches!(event, GovernanceEvent::ValidatorAdmissionSubmitted { .. }
             | GovernanceEvent::ValidatorAdmissionApproved { .. }
             | GovernanceEvent::ValidatorAdmissionActivated { .. }
-            | GovernanceEvent::ValidatorAdmissionRevoked { .. }) {
+            | GovernanceEvent::ValidatorAdmissionRevoked { .. }
+                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }) {
             let prepared = self.prepare_governance_registry_event(event)?;
             prepared.install(&mut self.state);
             return Ok(());
@@ -898,6 +899,11 @@ impl World {
                 *revoked_at_epoch,
                 reason,
             )?,
+            GovernanceEvent::ValidatorFinalityKeyRotated { .. } => {
+                return Err(WorldError::GovernancePolicyInvalid {
+                    reason: "rotation bypassed prepared registry publication".into(),
+                });
+            }
             GovernanceEvent::RestrictedStarterClaimAdminRegistryUpdated {
                 controller_account_id,
                 previous_admin_account_ids,

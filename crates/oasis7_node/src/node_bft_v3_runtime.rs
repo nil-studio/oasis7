@@ -14,6 +14,8 @@ pub(super) fn validate_single_action(action: &crate::NodeConsensusAction) -> Res
 }
 #[path = "node_bft_v3_membership.rs"]
 mod membership;
+#[path = "node_bft_v3_rotation.rs"]
+mod rotation;
 #[path = "node_bft_v3_startup.rs"]
 mod startup;
 #[path = "node_bft_v3_worker.rs"]
@@ -25,6 +27,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
 pub(crate) struct SelectedNodeBftConfigV3 {
     pub network: Option<PeerConfigV3>,
     pub membership_enabled: bool,
+    pub rotation_requests: Arc<rotation::RotationQueue>,
     pub binding: BftSignerBindingV3,
     pub provider: Arc<RemoteBftSignerProviderV3>,
     pub capacity_exhausted: Arc<std::sync::atomic::AtomicBool>,
@@ -67,6 +70,7 @@ impl NodeRuntime {
         let selected = SelectedNodeBftConfigV3 {
             network: None,
             membership_enabled: false,
+            rotation_requests: Arc::new(rotation::RotationQueue::default()),
             binding,
             provider,
             capacity_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -96,6 +100,7 @@ impl NodeRuntime {
             binding,
             provider,
             membership_enabled: false,
+            rotation_requests: Arc::new(rotation::RotationQueue::default()),
             network: Some(PeerConfigV3 {
                 transport,
                 exchange,
@@ -128,6 +133,7 @@ impl NodeRuntime {
             binding,
             provider,
             membership_enabled: true,
+            rotation_requests: Arc::new(rotation::RotationQueue::default()),
             network: Some(PeerConfigV3 {
                 transport,
                 exchange,

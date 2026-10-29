@@ -33,6 +33,9 @@ pub struct BftDriverAppliedReceiptV3 {
 #[serde(deny_unknown_fields)]
 pub struct BftSignerStateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finality_rotation_proofs: Option<super::rotation::BftFinalityRotationProofArchiveV3>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub membership_install: Option<super::membership::BftMembershipInstallStateV3>,
     pub schema_version: u32,
     pub binding_digest: String,
@@ -50,6 +53,9 @@ pub struct BftSignerStateV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerCandidateV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finality_rotation_proofs: Option<super::rotation::BftFinalityRotationProofArchiveV3>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub membership_install: Option<super::membership::BftMembershipInstallStateV3>,
     #[serde(deserialize_with = "bounded_history")]
@@ -69,6 +75,7 @@ impl BftSignerStateV3 {
             binding,
             0,
             BftSignerCandidateV3 {
+                finality_rotation_proofs: None,
                 membership_install: None,
                 history: Vec::new(),
                 completed_journals: Vec::new(),
@@ -84,6 +91,7 @@ impl BftSignerStateV3 {
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
+            finality_rotation_proofs: candidate.finality_rotation_proofs,
             membership_install: candidate.membership_install,
             schema_version: 3,
             binding_digest: binding.digest()?,
@@ -101,6 +109,7 @@ impl BftSignerStateV3 {
     }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
+            finality_rotation_proofs: self.finality_rotation_proofs.clone(),
             membership_install: self.membership_install.clone(),
             history: self.history.clone(),
             journal: self.journal.clone(),
@@ -180,6 +189,8 @@ pub(crate) struct CheckpointProofInputV3<'a> {
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
+    finality_rotation_proofs: &'a Option<super::rotation::BftFinalityRotationProofArchiveV3>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     membership_install: &'a Option<super::membership::BftMembershipInstallStateV3>,
     schema_version: u32,
     binding_digest: &'a str,
@@ -193,6 +204,7 @@ struct StateDigestInput<'a> {
 impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
+            finality_rotation_proofs: &s.finality_rotation_proofs,
             membership_install: &s.membership_install,
             schema_version: s.schema_version,
             binding_digest: &s.binding_digest,
@@ -309,6 +321,7 @@ pub(crate) fn validate_state(
         }
     }
     super::membership::validate_records(binding, state, _provider_public_key)?;
+    super::rotation::validate_archive(binding, state)?;
     let validator = schedule
         .active_set()
         .validator(&binding.local_validator_id)
@@ -408,6 +421,7 @@ pub(crate) fn validate_candidate_transition(
         return Err(invalid("BFT V3 history is not an exact prefix extension"));
     }
     super::membership::validate_change(binding, old, candidate, _provider)?;
+    super::rotation::validate_change(binding, previous, candidate)?;
     let added = candidate.history.len() - old.history.len();
     if added > 1 {
         return Err(invalid("BFT V3 candidate appends more than one QC"));
@@ -502,7 +516,8 @@ pub(crate) fn validate_candidate_transition(
                     ));
                 }
             }
-            _ if candidate.membership_install != old.membership_install
+            _ if (candidate.membership_install != old.membership_install
+                || candidate.finality_rotation_proofs != old.finality_rotation_proofs)
                 && candidate.journal == old.journal => {}
             _ => {
                 return Err(invalid(

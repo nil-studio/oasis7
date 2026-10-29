@@ -159,6 +159,7 @@ impl Default for WorldState {
             governance_finality_signer_registry: None,
             governance_authorization_nonces: BTreeMap::new(),
             governance_validator_admissions: BTreeMap::new(),
+            governance_finality_key_rotations: BTreeMap::new(),
             governance_main_token_controller_registry: None,
             reward_signature_governance_policy: RewardSignatureGovernancePolicy::default(),
         }

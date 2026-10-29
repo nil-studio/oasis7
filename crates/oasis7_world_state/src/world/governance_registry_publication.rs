@@ -6,6 +6,7 @@ pub struct PreparedGovernanceRegistryEvent {
     pub event: GovernanceEvent,
     pub controller_registry: Option<GovernanceMainTokenControllerRegistry>,
     pub admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+    pub rotations: BTreeMap<String, crate::FinalityKeyRotationRecordV1>,
     pub authorization_nonces: BTreeMap<String, u64>,
     pub identity_bindings: BTreeMap<String, String>,
     pub account_bindings: BTreeMap<String, String>,
@@ -19,6 +20,7 @@ impl PreparedGovernanceRegistryEvent {
     pub fn install(self, world: &mut WorldState) {
         world.governance_main_token_controller_registry = self.controller_registry;
         world.governance_validator_admissions = self.admissions;
+        world.governance_finality_key_rotations = self.rotations;
         world.governance_authorization_nonces = self.authorization_nonces;
         world.node_identity_bindings = self.identity_bindings;
         world.node_main_token_account_bindings = self.account_bindings;

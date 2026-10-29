@@ -8,6 +8,7 @@ license = "MIT"
 path = "src/lib.rs"
 
 [dependencies]
+oasis7_agent_api = { path = "../oasis7_agent_api" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_cas = { path = "../oasis7_cas" }
 oasis7_consensus = { path = "../oasis7_consensus" }
