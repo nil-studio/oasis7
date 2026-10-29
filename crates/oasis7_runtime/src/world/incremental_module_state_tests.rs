@@ -7,6 +7,9 @@ use std::io::Read;
 #[path = "incremental_module_state_physical_tests.rs"]
 mod physical;
 
+#[path = "incremental_module_read_tests.rs"]
+mod reads;
+
 fn module_event(id: u64, state: Vec<u8>) -> WorldEvent {
     WorldEvent {
         id,

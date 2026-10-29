@@ -179,7 +179,12 @@ impl Write for RawStateOracle<'_> {
 fn funded_large_module_event_reopens_original_state_and_continues_without_cache() {
     let directory = Directory::new();
     let memory = MemoryBudget::new(12 << 20, 3 << 20).unwrap();
-    let (mut world, parent, pages, values) = setup(&memory);
+    let (mut world, mut parent, mut pages, mut values) = setup(&memory);
+    world
+        .state
+        .module_instances
+        .insert("map-key".into(), super::reads::instance());
+    super::reads::seed_instances(&world, &mut parent, &mut pages, &mut values, &memory);
     let charge = memory
         .reserve((2 << 20) + 4096, MemoryClass::Ordinary)
         .unwrap();
@@ -214,6 +219,7 @@ fn funded_large_module_event_reopens_original_state_and_continues_without_cache(
     drop(state);
     drop(store);
     world.state.module_states.clear();
+    world.state.module_instances.clear();
     let recovery = MemoryBudget::new(12 << 20, 3 << 20).unwrap();
     let store = IncrementalPageStore::open(
         &path,
@@ -285,6 +291,36 @@ fn funded_large_module_event_reopens_original_state_and_continues_without_cache(
         .unwrap();
     oracle.finish();
     assert_eq!(*oracle.hash.finalize().as_bytes(), first.record.facts[0].id);
+    {
+        use oasis7_world_state::incremental_module_instance_fields::{
+            ModuleInstanceFieldV1 as F, ModuleInstanceScalarRefV1 as S,
+        };
+        let mut txn =
+            ExecutionTransaction::begin(next.clone(), [4; 32], &state, &recovery, limits())
+                .unwrap();
+        let mut quota = logical_io();
+        let mut context = crate::ModuleReadContext {
+            values: &source,
+            memory: &recovery,
+            io: &mut quota,
+            max_value_bytes: 8 << 20,
+            cancelled: || false,
+        };
+        let instance = context.read_instance("map-key", &mut txn).unwrap().unwrap();
+        assert_eq!(instance.field(F::InstanceId), S::Text("module#stable-2"));
+        assert_eq!(instance.field(F::Active), S::Bool(false));
+        assert_eq!(instance.field(F::InstalledAt), S::U64(u64::MAX));
+        let raw = context
+            .read_state(
+                "module#stable-2",
+                &oasis7_wasm_abi::ModuleKind::Reducer,
+                &mut txn,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(raw.as_slice(), update.state);
+        assert!(raw.uses_budget(&recovery));
+    }
     let resumed = step(
         &world,
         &module_event(2, vec![0, 24, 255]),
@@ -295,4 +331,5 @@ fn funded_large_module_event_reopens_original_state_and_continues_without_cache(
     assert_eq!(resumed.record, expected.record);
     assert_eq!(resumed.new_nodes, expected.new_nodes);
     assert!(world.state.module_states.is_empty());
+    assert!(world.state.module_instances.is_empty());
 }

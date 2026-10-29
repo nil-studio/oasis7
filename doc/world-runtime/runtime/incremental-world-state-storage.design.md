@@ -801,3 +801,20 @@ original owner 必须使用同一进程 pool，完整消费并持久化原 bytes
 局部方法将流式原件与维护中的 ABI 编码器逐字节比较，覆盖所有 u8、整数/数组长度的 23/24、255/256、65535/65536 边界、0/MAX ID、None/Action/Effect 原因、Unicode/NUL 和任意 Read 分块；编码规则漂移必须判红，不能静默回退。还覆盖连续更新、同内容但新事件、缺失到空值、旧 cache 与认证值不一致、genesis 条目额度、原件精确/少一 bytes、allocator rollover、值/事实额度、坏键/时钟/allocator、跨池、提前成功、持久化失败及取消/unwind 对整次事务的中止。
 
 实际页方法在 12 MiB 共享池（含 3 MiB recovery 预留）中先为 2 MiB 输入 event 取得 charge，使用不同 64 KiB 区段的内容准备、持久化并重开原件及 state。大原件 oracle 使用维护中 ABI 的小 skeleton 与 256 项 u8 scalar palette 流式逐字节核对，不调用被测 reader 或构造大 CBOR 模型；原始 state 也流式逐字节核对。随后清空 materialized module_states，继续第二个合法状态事件，与不中断分支逐 record/新状态页比较。这是该事件及存储组件的局部重开/继续证据，尚非完整 World 的 C<T 历史重放、真实模块 tick/Pure/费用/effects、provider oracle、固定 H/S、全进程 RSS 或正式发布验收。
+
+
+### 12.31 模块实例细粒度字段与调用状态点读
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.30。实际调用需要实例与 registry manifest/工件选择，再按 Pure/Reducer 决定输入 state。本节补实例字段和状态点读，不把原 materialized cache 当作认证字段，也不推定完整 invocation 已完成。
+
+module_instances 按原 map key 分为八个 Business 字段：1 instance_id、2 module_id、3 module_version、4 wasm_hash、5 owner_agent_id、6 install_target、7 active、8 installed_at。键为 `oasis7.iws.module-instance-key.v1\0`、原 map key 的 UTF-8 byte 长度 u16、原 bytes 与字段 tag u8，整体最多 1024 bytes。空 map key 可表达；实际 instance_id 仍是单独字段，不能默默改成 map key。值为 `oasis7.iws.module-instance-value.v1\0` 加相同字段 tag：五个文本字段使用大端 u64 byte 长度与原 UTF-8；target tag=0 表示 SelfAgent，tag=1 后接同样 framing 的原 location_id；Active 只接受 0/1；InstalledAt 为大端 u64。未知字段/target/bool、截断、非法 UTF-8、错字段值和尾随拒绝，地址、版本、hash 与空 location 不 trim 或改写。存储类型检查不替代安装权限、artifact hash 或生命周期校验。
+
+ModuleInstanceState 的借用 visitor 穷尽解构全部成员；语义创世清单委托到八个子字段，不再对整条 instance 交给通用 serde。具体 genesis writer 按实例额度逐项、按字段/值额度流式写入，接收者仍准入并规范排序其临时输出。单字段 scalar writer 供实际 owner 继续贡献变化使用，Active 更新不需要重写其他字段或不透明 module state。父实例表的完整八字段/不存在语义仍须由完整字段 owner 在创世/恢复核定，尚未以单个 identity 叶代签全表完整性。
+
+ModuleReadContext 复用同一事务的认证 parent/overlay 和实际 value reader。完整实例点读要求 identity 及其余七个字段，返回的 immutable content 逐字段保留 buffer charge，借用 getter 不分离原 buffer。缺少 identity 仅在已合格父表下表达不存在；identity 已存在但其他成员缺失明确失败。也可单独读取 Active 等所需字段，避免为一次状态判断加载整个实例或原大 blob。max_value_bytes、节点/读取/输出额度与同池 Ordinary 准入在读入完整单值前生效；总驻留仍受共同 pool 限制，任何错误、晚取消或 source unwind 均中止此前外层事务，不返回部分实例。
+
+调用状态的 Pure 分支返回 None，不访问 state key、value source 或增加该状态的读集。Reducer 在认证 absent 时返回带 charge 的空 buffer，存在则从 §12.30 的精确 state_key 读取原不透明 bytes，不从 World cache 补值；真实空值还必须验证实际 typed empty data 叶，不能靠零长度 range shortcut 把缺叶当作空内容。kind 必须来自调用者已经核定的 manifest；这个点读函数不选择 manifest，也不授予执行能力。当前完整单值读取为构造既有有界调用输入服务，超过 max_value_bytes 或可用 pool 时明确拒绝，不能绕过同池预算另建临时 pool。
+
+局部方法覆盖独立字段 wire、八成员穷尽、原 map key 与 instance_id 不同、空键/空文本/空 location、NUL/Unicode/0/MAX、错类型/字段/长度，cache 清空后认证读取、单 Active overlay 改写仅访问所需字段、Pure 的零状态读取、Reducer 的 absent/empty/缺 data 差异、精确/少一 IO 与 read-set 额度、坏行/值、跨池、晚取消、source unwind 和 genesis 条目/字段/接收者失败。实际 2 MiB 模块状态文件方法还持久化八个实例字段，重开并清空 module_instances/module_states cache 后，通过该读上下文核对实例及带 charge 的完整 state，再继续原状态事件。
+
+完整选择器还需要 registry/manifest/工件 owner，以及按 module ID 反向关联所有实例的索引；既有语义中，即使实例停用，只要该 module ID 已有关联实例，也会抑制全局 active fallback，不能用一次缺失实例点查猜测不存在。正式 due 集合/轮次、真实 Sandbox 调用、Pure/费用/effects、全字段一致性与服务发布仍未接通。本节的 typed metadata/content 不形成 prepared invocation、authority 或完整 J2 证明。

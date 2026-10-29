@@ -95,6 +95,10 @@ pub fn scalar<V: Serialize + ?Sized, S: GenesisFieldVisitor>(
 // macro does not define a codec or grant a successful genesis activation.
 #[macro_export]
 macro_rules! visit_iws_field {
+    ($sink:expr, $field:expr, $value:expr, module_instances) => {{
+        let _ = $field;
+        $crate::incremental_module_instance_fields::visit_instances_projection($value, $sink)
+    }};
     ($sink:expr, $field:expr, $value:expr, module_wakes) => {{
         use $crate::incremental_projection::ProjectionError;
         use $crate::incremental_scheduler_fields::{ModuleWakeKeyV1, ModuleWakeV1};

@@ -82,7 +82,7 @@ fields! {
     module_artifact_owners => map, Map, FieldDestination::State(Namespace::Business);
     module_artifact_listings => map, Map, FieldDestination::State(Namespace::Business);
     module_artifact_bids => map, Map, FieldDestination::State(Namespace::Business);
-    module_instances => map, Map, FieldDestination::State(Namespace::Business);
+    module_instances => module_instances, Children, FieldDestination::Children;
     module_admission_freezes => map, Map, FieldDestination::State(Namespace::Authorization);
     module_release_requests => map, Map, FieldDestination::State(Namespace::Authorization);
     module_release_manifest_mappings => map, Map, FieldDestination::State(Namespace::Authorization);
