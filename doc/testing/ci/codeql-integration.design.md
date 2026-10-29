@@ -309,6 +309,8 @@ Rust 求值日志的闭包行数不能直接代表独占耗时、实际物理存
 
 闭包贡献归因使用独立 opt-in 选项，runner 私有副本仅额外暴露原 `splitsBlockContains`，统计 `startsSplits(a) and splitsBlockContains(a,b)` 的逻辑正长度可达对，不添加 `getAnElement()` 的自成员。第一查询只输出各唯一源 scope 的计数及全局、无 owner、多 owner、跨 scope 和目标归属审计，不导出 pair；完整计数表至多一百万行，必须先核对 owner 分区总和，再按贡献选 top20。第一查询须至少为身份查询再保留120秒，身份查询启动时剩余不足60秒则拒绝并保留计数、将身份标为NOT_REACHED；最终收尾截止保持原状。第二查询仅为本数据库选中 ID 取路径、位置、标签、种类和 scope 宏展开标记，至多一万行且字符串至多4096字节，缺失或重复身份拒绝。UNKNOWN贡献和未选scope合计保留。此逻辑统计不等于历史 evaluator 的编译中间关系行数，也不能跨数据库连接 opaque ID；新查询可能重新物化大闭包，沿同一45分钟截止失败即保留不完整证据，不自动重试。旧输入边模式的默认查询、top20和十万边上限保持。
 
+官方默认工作负载的耗时归因使用独立、默认关闭的手动 `codeql-rust-cfg-diagnostic.yml` 的显式 `profile=true` 分支。固定 e205 业务输入和官方 2.27.3 bundle，复用采集隔离、完整默认 suite 清单及生产自动资源；55分钟 actual job、提取前冻结至多40分钟共享提取/查询截止，且至少给后续阶段预留600秒。只执行官方默认查询，不追加公共见证或 decode，不上传结果或数据库。复用现有 FIFO 捕获 `--evaluator-log-minify`，关闭 tuple-counting 以降低观测开销；查询写入上限184MiB，摘要阶段恢复248MiB，总证据256MiB，保留64MiB摘要空间和8MiB收尾空间。触及cap即failclosed，不截去早期事件后伪称完整。实际analysis起点、固定端点和分配秒数先保存至artifact；摘要最多60秒且截止不晚于job总截止前480秒，以保留输入复核、capture、封存及上传时间；仅清洁成功或清洁超时允许官方 `generate log-summary`；不安全退出保留原始证据、摘要NOT_RUN。运行前另冻结Action实际config-queries并与完整默认清单逐项一致；摘要成功不代查询完成，header/footer/截断和主失败分别记录，日志不完整或两份摘要未全部生成时workflow失败，查询成功状态另行保留，谓词elapsed不称独占CPU，profile开销和关闭tuple-counting都属于测量设置，不算性能收益；out证据cap不等于数据库/BQRS写入限制。
+
 ## 7. 查询、提取、缓存与扫描覆盖
 
 ### 7.1 两档查询

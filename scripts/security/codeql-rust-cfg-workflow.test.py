@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-TEXT = (ROOT / '.github/workflows/codeql-rust-cfg-diagnostic.yml').read_text()
+TEXT = (ROOT / '.github/workflows/codeql-rust-cfg-diagnostic.yml').read_text().split('  evaluator_profile:',1)[0]
 
 
 class CfgWorkflow(unittest.TestCase):
