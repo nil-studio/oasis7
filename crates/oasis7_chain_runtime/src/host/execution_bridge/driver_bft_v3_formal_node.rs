@@ -196,7 +196,7 @@ impl FormalBftHeaderNodeDriverV3 {
         let key = ParentMemoKey::new(
             &self.material_identity,
             &self.execution.ledger.origin_digest()?,
-            &self.execution.ledger.material_pin_digest()?,
+            self.execution.ledger.material_pin_digest()?,
             self.cursor_height,
             self.execution
                 .ledger
@@ -206,13 +206,13 @@ impl FormalBftHeaderNodeDriverV3 {
                 .collect::<Result<Vec<_>, _>>()?,
             &origin_nodes,
         )?;
-        if let Some(memo) = &self.parent_memo {
-            if memo.key == key {
-                #[cfg(test)]
-                let _measure_hit = stage_timing::Span::new("driver.parent_memo_hit");
-                self.execution.origin = memo.parent.fork_for_preview()?;
-                return Ok(());
-            }
+        if let Some(memo) = &self.parent_memo
+            && memo.key == key
+        {
+            #[cfg(test)]
+            let _measure_hit = stage_timing::Span::new("driver.parent_memo_hit");
+            self.execution.origin = memo.parent.fork_for_preview()?;
+            return Ok(());
         }
         // A failed replacement must never revive a previous parent's memo.
         self.parent_memo = None;
