@@ -193,7 +193,7 @@ pub(super) fn event_kind_label(body: &WorldEventBody) -> &'static str {
 
 pub(super) fn action_kind_label(action: &Action) -> &'static str {
     match action {
-        Action::ScheduleEssentialRecipe {..} => "action.economy.schedule_essential_recipe",
+        Action::ScheduleEssentialRecipe { .. } => "action.economy.schedule_essential_recipe",
         Action::WorldRule { .. } => "action.world_rule",
         Action::WorldServiceIntent { .. } => "action.world_service.intent",
         Action::RegisterAgent { .. } => "action.register_agent",
@@ -295,7 +295,12 @@ pub(super) fn action_kind_label(action: &Action) -> &'static str {
         Action::ActivateGovernanceValidatorAdmission { .. } => {
             "action.governance.activate_validator_admission"
         }
-        Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => "action.governance.rotate_validator_finality_key_v1",
+        Action::RotateGovernanceBootstrapFinalityKeyV1 { .. } => {
+            "action.governance.rotate_bootstrap_finality_key_v1"
+        }
+        Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => {
+            "action.governance.rotate_validator_finality_key_v1"
+        }
         Action::RevokeGovernanceValidatorAdmission { .. } => {
             "action.governance.revoke_validator_admission"
         }

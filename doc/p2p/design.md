@@ -353,6 +353,10 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 
 本地回归 `wire3_actual_node_typed_rotation_changes_only_finality_key_and_installs_new_key_before_decisive_qc` 覆盖真实 Node proof 入口、实际 World 的 h7/h8/h9 转换、新 key 安装后参与必要 quorum，以及原件冷恢复。错误 proof/generation 的负例执行同一 qualified parent 的实际 detached World 预演，不冒充已提交业务结果。该场景的其他 quorum 签名由受控 fixture 提供，witness、backend 与 clock 为内存替身；它不代表四个独立故障域持续运行或物理不可导出 custody 验收。后续 checkpoint、bootstrap 节点正常换钥与 issuer policy/key rotation 仍保留各自的实现及验收义务。
 
+##### Bootstrap finality 来源扩展目标
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。没有原 Admission 的 bootstrap validator 通过[独立来源合同](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-bootstrap-finality-key-rotation)承接正常换钥，当前仍待实现与验收。它绑定 qualified parent 中原始 registry 的摘要与原 key，不伪造 Admission，不重解释 V1，也不修改 service identity 或账户。运行接线须同时覆盖 typed old/new proof、World 原子 publication、按来源连续的历史投影、真实 Node/provider 安装与旧实例 fencing；原 h/h+1/h+2、controller 和 quorum 规则不变。只有类型或 helper 不构成该扩展完成。
+
 
 #### 本次工程垂直切片：固定集合 NodeRuntime BFT
 

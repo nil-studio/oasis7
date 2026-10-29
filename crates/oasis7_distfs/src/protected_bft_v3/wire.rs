@@ -73,6 +73,12 @@ pub(crate) enum BftSignerCommandV3 {
         body: Box<oasis7_agent_api::world_action::FinalityKeyRotationBodyV1>,
         role: oasis7_agent_api::world_action::FinalityKeyRotationRoleV1,
     },
+    SignBootstrapFinalityRotationProof {
+        expected_revision: u64,
+        expected_state_digest: String,
+        body: Box<oasis7_agent_api::world_action::BootstrapFinalityKeyRotationBodyV1>,
+        role: oasis7_agent_api::world_action::BootstrapFinalityKeyRotationRoleV1,
+    },
     SignCandidateRead {
         body: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadBodyV3>,
     },
@@ -168,6 +174,9 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     FinalityRotationProofSigned {
         proof: Box<oasis7_agent_api::world_action::FinalityKeyRotationProofV1>,
+    },
+    BootstrapFinalityRotationProofSigned {
+        proof: Box<oasis7_agent_api::world_action::BootstrapFinalityKeyRotationProofV1>,
     },
     CandidateReadSigned {
         proof: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadProofV3>,

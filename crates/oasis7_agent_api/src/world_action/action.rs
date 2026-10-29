@@ -466,6 +466,12 @@ pub enum Action {
         old_key_proof: FinalityKeyRotationProofV1,
         new_key_proof: FinalityKeyRotationProofV1,
     },
+    RotateGovernanceBootstrapFinalityKeyV1 {
+        controller_account_id: String,
+        body: BootstrapFinalityKeyRotationBodyV1,
+        old_key_proof: BootstrapFinalityKeyRotationProofV1,
+        new_key_proof: BootstrapFinalityKeyRotationProofV1,
+    },
     OpenEconomicContract {
         creator_agent_id: String,
         contract_id: String,
@@ -837,6 +843,10 @@ impl Action {
                 ..
             }
             | Action::RevokeGovernanceValidatorAdmission {
+                controller_account_id,
+                ..
+            }
+            | Action::RotateGovernanceBootstrapFinalityKeyV1 {
                 controller_account_id,
                 ..
             }

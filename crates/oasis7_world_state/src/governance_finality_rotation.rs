@@ -62,12 +62,46 @@ impl FinalityKeyRotationRecordV1 {
     }
 }
 
+pub(crate) trait RotationRecord {
+    fn validate_record(&self) -> Result<(), String>;
+    fn rotation_id(&self) -> Result<&str, String>;
+}
+impl RotationRecord for FinalityKeyRotationRecordV1 {
+    fn validate_record(&self) -> Result<(), String> {
+        self.validate()
+    }
+    fn rotation_id(&self) -> Result<&str, String> {
+        self.body().map(|b| b.rotation_id.as_str())
+    }
+}
+/// Both retained sources share one budget; callers check before reserving a slot.
+pub fn validate_finality_key_rotation_history_capacity(
+    admitted: usize,
+    bootstrap: usize,
+) -> Result<(), String> {
+    if admitted
+        .checked_add(bootstrap)
+        .is_none_or(|n| n > MAX_FINALITY_KEY_ROTATION_RECORDS_V1)
+    {
+        return Err("combined rotation history count exceeds bound".into());
+    }
+    Ok(())
+}
 pub(crate) fn deserialize_finality_key_rotations<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<BTreeMap<String, FinalityKeyRotationRecordV1>, D::Error> {
-    struct Rotations;
-    impl<'de> de::Visitor<'de> for Rotations {
-        type Value = BTreeMap<String, FinalityKeyRotationRecordV1>;
+    deserialize_rotation_records(d)
+}
+pub(crate) fn deserialize_rotation_records<
+    'de,
+    R: RotationRecord + Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+>(
+    d: D,
+) -> Result<BTreeMap<String, R>, D::Error> {
+    struct Rotations<R>(std::marker::PhantomData<R>);
+    impl<'de, R: RotationRecord + Deserialize<'de>> de::Visitor<'de> for Rotations<R> {
+        type Value = BTreeMap<String, R>;
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str("at most 256 unique exact finality rotation records")
         }
@@ -92,9 +126,9 @@ pub(crate) fn deserialize_finality_key_rotations<'de, D: serde::Deserializer<'de
                         "rotation history ID exceeds identity bounds",
                     ));
                 }
-                let record: FinalityKeyRotationRecordV1 = map.next_value()?;
-                record.validate().map_err(de::Error::custom)?;
-                if record.body().map_err(de::Error::custom)?.rotation_id != key {
+                let record: R = map.next_value()?;
+                record.validate_record().map_err(de::Error::custom)?;
+                if record.rotation_id().map_err(de::Error::custom)? != key {
                     return Err(de::Error::custom(
                         "rotation history key differs from original body",
                     ));
@@ -104,11 +138,11 @@ pub(crate) fn deserialize_finality_key_rotations<'de, D: serde::Deserializer<'de
             Ok(records)
         }
     }
-    d.deserialize_map(Rotations)
+    d.deserialize_map(Rotations(std::marker::PhantomData))
 }
 
-pub(crate) fn serialize_finality_key_rotations<S: serde::Serializer>(
-    records: &BTreeMap<String, FinalityKeyRotationRecordV1>,
+pub(crate) fn serialize_rotation_records<R: RotationRecord + Serialize, S: serde::Serializer>(
+    records: &BTreeMap<String, R>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     if records.len() > MAX_FINALITY_KEY_ROTATION_RECORDS_V1 {
@@ -117,13 +151,10 @@ pub(crate) fn serialize_finality_key_rotations<S: serde::Serializer>(
         ));
     }
     for (key, record) in records {
-        record.validate().map_err(serde::ser::Error::custom)?;
-        if &record
-            .body()
-            .map_err(serde::ser::Error::custom)?
-            .rotation_id
-            != key
-        {
+        record
+            .validate_record()
+            .map_err(serde::ser::Error::custom)?;
+        if record.rotation_id().map_err(serde::ser::Error::custom)? != key {
             return Err(serde::ser::Error::custom(
                 "rotation history key differs from original body",
             ));
@@ -136,9 +167,9 @@ pub(crate) struct FinalityKeyRotationHistoryRef<'a>(
 );
 impl Serialize for FinalityKeyRotationHistoryRef<'_> {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        serialize_finality_key_rotations(self.0, s)
+        serialize_rotation_records(self.0, s)
     }
 }
 #[cfg(test)]
 #[path = "governance_finality_rotation_tests.rs"]
-mod tests;
+pub(super) mod tests;

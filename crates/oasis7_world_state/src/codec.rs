@@ -47,13 +47,28 @@ pub fn snapshot_json_pretty(snapshot: &Snapshot) -> Result<Vec<u8>, serde_json::
     serde_json::to_vec_pretty(snapshot)
 }
 pub fn snapshot_from_json(bytes: &[u8]) -> Result<Snapshot, serde_json::Error> {
-    serde_json::from_slice(bytes)
+    let snapshot: Snapshot = serde_json::from_slice(bytes)?;
+    validate_rotation_capacity(&snapshot)
+        .map_err(<serde_json::Error as serde::de::Error>::custom)?;
+    Ok(snapshot)
 }
 pub fn snapshot_cbor(snapshot: &Snapshot) -> Result<Vec<u8>, serde_cbor::Error> {
     serde_cbor::to_vec(snapshot)
 }
 pub fn snapshot_from_cbor(bytes: &[u8]) -> Result<Snapshot, serde_cbor::Error> {
-    serde_cbor::from_slice(bytes)
+    let snapshot: Snapshot = serde_cbor::from_slice(bytes)?;
+    validate_rotation_capacity(&snapshot)
+        .map_err(<serde_cbor::Error as serde::de::Error>::custom)?;
+    Ok(snapshot)
+}
+fn validate_rotation_capacity(snapshot: &Snapshot) -> Result<(), String> {
+    crate::governance::validate_finality_key_rotation_history_capacity(
+        snapshot.state.governance_finality_key_rotations.len(),
+        snapshot
+            .state
+            .governance_bootstrap_finality_key_rotations
+            .len(),
+    )
 }
 pub fn snapshot_canonical_cbor(snapshot: &Snapshot) -> Result<Vec<u8>, WorldError> {
     crate::util::to_canonical_cbor(snapshot)

@@ -88,7 +88,8 @@ pub(super) fn decode_committed_actions(
                             | RuntimeAction::ApproveGovernanceValidatorAdmission { .. }
                             | RuntimeAction::ActivateGovernanceValidatorAdmission { .. }
                             | RuntimeAction::RevokeGovernanceValidatorAdmission { .. }
-                    | RuntimeAction::RotateGovernanceValidatorFinalityKeyV1 { .. }
+                            | RuntimeAction::RotateGovernanceValidatorFinalityKeyV1 { .. }
+                            | RuntimeAction::RotateGovernanceBootstrapFinalityKeyV1 { .. }
                     }
                 );
                 if admission != governance_authorization.is_some() {

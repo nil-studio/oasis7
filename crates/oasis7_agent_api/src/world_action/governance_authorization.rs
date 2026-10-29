@@ -76,6 +76,10 @@ pub fn governance_validator_admission_controller(action: &Action) -> Option<&str
             controller_account_id,
             ..
         }
+        | Action::RotateGovernanceBootstrapFinalityKeyV1 {
+            controller_account_id,
+            ..
+        }
         | Action::RotateGovernanceValidatorFinalityKeyV1 {
             controller_account_id,
             ..
@@ -153,6 +157,23 @@ impl GovernanceAuthorizationV1 {
             old_key_proof
                 .validate_for(body, super::FinalityKeyRotationRoleV1::OldKeyAuthorization)?;
             new_key_proof.validate_for(body, super::FinalityKeyRotationRoleV1::NewKeyPossession)?;
+        }
+        if let Action::RotateGovernanceBootstrapFinalityKeyV1 {
+            body,
+            old_key_proof,
+            new_key_proof,
+            ..
+        } = action
+        {
+            body.validate_authorization(self)?;
+            old_key_proof.validate_for(
+                body,
+                super::BootstrapFinalityKeyRotationRoleV1::OldKeyAuthorization,
+            )?;
+            new_key_proof.validate_for(
+                body,
+                super::BootstrapFinalityKeyRotationRoleV1::NewKeyPossession,
+            )?;
         }
         serde_cbor::to_vec(&(
             "oasis7.governance.authorization.v1",

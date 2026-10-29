@@ -730,6 +730,13 @@ pub struct WorldState {
     )]
     pub governance_finality_key_rotations:
         BTreeMap<String, super::governance::FinalityKeyRotationRecordV1>,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "super::governance::deserialize_bootstrap_finality_key_rotations"
+    )]
+    pub governance_bootstrap_finality_key_rotations:
+        BTreeMap<String, super::governance::BootstrapFinalityKeyRotationRecordV1>,
     #[serde(default)]
     pub governance_main_token_controller_registry: Option<GovernanceMainTokenControllerRegistry>,
     /// Successful controller nonces commit atomically with governance effects.

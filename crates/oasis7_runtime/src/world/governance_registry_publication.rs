@@ -13,14 +13,35 @@ impl World {
         let mut controller_registry = self.state.governance_main_token_controller_registry.clone();
         let mut admissions = self.state.governance_validator_admissions.clone();
         let mut rotations = self.state.governance_finality_key_rotations.clone();
+        let mut bootstrap_rotations = self
+            .state
+            .governance_bootstrap_finality_key_rotations
+            .clone();
         let mut identity_bindings = self.state.node_identity_bindings.clone();
         let mut account_bindings = self.state.node_main_token_account_bindings.clone();
         match event {
+            GovernanceEvent::BootstrapFinalityKeyRotated { authorization } => {
+                let record = self.prepare_bootstrap_finality_key_rotation(
+                    &authorization.action,
+                    &authorization.authorization,
+                )?;
+                let id = record
+                    .body()
+                    .map_err(|reason| WorldError::GovernancePolicyInvalid { reason })?
+                    .rotation_id
+                    .clone();
+                bootstrap_rotations.insert(id, record);
+            }
             GovernanceEvent::ValidatorFinalityKeyRotated { authorization } => {
                 let record = self.prepare_finality_key_rotation(
-                    &authorization.action, &authorization.authorization,
+                    &authorization.action,
+                    &authorization.authorization,
                 )?;
-                let id = record.body().map_err(|reason| WorldError::GovernancePolicyInvalid { reason })?.rotation_id.clone();
+                let id = record
+                    .body()
+                    .map_err(|reason| WorldError::GovernancePolicyInvalid { reason })?
+                    .rotation_id
+                    .clone();
                 rotations.insert(id, record);
             }
             GovernanceEvent::RestrictedStarterClaimAdminRegistryUpdated {
@@ -306,6 +327,7 @@ impl World {
             controller_registry,
             admissions,
             rotations,
+            bootstrap_rotations,
             identity_bindings,
             account_bindings,
         })
