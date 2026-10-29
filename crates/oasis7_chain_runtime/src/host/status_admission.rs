@@ -1,6 +1,8 @@
 //! Bounded HTTP safety admission, independent of World authorization.
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
+#[cfg(test)]
+use std::net::TcpListener;
 use std::net::{IpAddr, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -218,6 +220,45 @@ pub(crate) fn start_test_server(
     runtime: Arc<Mutex<oasis7_node::NodeRuntime>>,
     signer: super::feedback_submit_api::FeedbackSubmitSigner,
 ) -> Result<super::status_server_support::ChainStatusServer, String> {
+    let address: std::net::SocketAddr = endpoint
+        .strip_prefix("http://")
+        .unwrap_or(endpoint)
+        .parse()
+        .map_err(|error| format!("test status endpoint: {error}"))?;
+    let host = address.ip().to_string();
+    start_test_server_with_binding(root, host.as_str(), address.port(), None, runtime, signer)
+}
+
+#[cfg(test)]
+pub(crate) fn start_test_server_with_listener(
+    root: &std::path::Path,
+    listener: TcpListener,
+    runtime: Arc<Mutex<oasis7_node::NodeRuntime>>,
+    signer: super::feedback_submit_api::FeedbackSubmitSigner,
+) -> Result<super::status_server_support::ChainStatusServer, String> {
+    let address = listener
+        .local_addr()
+        .map_err(|error| format!("test status listener address: {error}"))?;
+    let host = address.ip().to_string();
+    start_test_server_with_binding(
+        root,
+        host.as_str(),
+        address.port(),
+        Some(listener),
+        runtime,
+        signer,
+    )
+}
+
+#[cfg(test)]
+fn start_test_server_with_binding(
+    root: &std::path::Path,
+    host: &str,
+    port: u16,
+    prebound_listener: Option<TcpListener>,
+    runtime: Arc<Mutex<oasis7_node::NodeRuntime>>,
+    signer: super::feedback_submit_api::FeedbackSubmitSigner,
+) -> Result<super::status_server_support::ChainStatusServer, String> {
     let options = super::CliOptions::default();
     let reward_config = super::reward_runtime_worker::RewardRuntimeWorkerConfig {
         enabled: false,
@@ -238,17 +279,13 @@ pub(crate) fn start_test_server(
         reward_distfs_probe_config: super::distfs_probe_runtime::DistfsProbeRuntimeConfig::default(
         ),
     };
-    let address: std::net::SocketAddr = endpoint
-        .strip_prefix("http://")
-        .unwrap_or(endpoint)
-        .parse()
-        .map_err(|error| format!("test status endpoint: {error}"))?;
     let policy = super::build_node_network_policy(&options);
     let storage_metrics =
         super::storage_metrics::init_shared_storage_metrics(options.storage_profile);
     super::status_server_support::start_chain_status_server(
-        &address.ip().to_string(),
-        address.port(),
+        host,
+        port,
+        prebound_listener,
         runtime,
         Arc::new(oasis7_node::Libp2pReplicationNetwork::new(
             oasis7_node::Libp2pReplicationNetworkConfig::default(),
