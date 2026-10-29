@@ -14,6 +14,9 @@ pub(super) fn validate_single_action(action: &crate::NodeConsensusAction) -> Res
 }
 #[path = "node_bft_v3_membership.rs"]
 mod membership;
+#[cfg(any(test, feature = "test-hooks"))]
+#[path = "node_bft_v3_stage_timing.rs"]
+mod stage_timing;
 #[path = "node_bft_v3_startup.rs"]
 mod startup;
 #[path = "node_bft_v3_worker.rs"]
