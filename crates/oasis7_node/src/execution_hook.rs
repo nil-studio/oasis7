@@ -685,6 +685,24 @@ pub trait NodeExecutionHook: Send {
         Err("wire-3 execution is unsupported by this hook".into())
     }
 
+    /// Export only an exact original retained value and its recorded closure.
+    fn export_bft_v3_private_candidate(
+        &mut self,
+        _value: &oasis7_consensus::tendermint_v3::BftHeaderValueV3,
+    ) -> Result<crate::NodeBftPrivateCandidatePackageV3, String> {
+        Err("wire-3 original private candidate export is unsupported by this hook".into())
+    }
+
+    /// Independently execute against the strict local parent, then retain the
+    /// exact received value without changing the local original selection.
+    fn retain_received_bft_v3_private_candidate(
+        &mut self,
+        _context: &NodeBftExecutionContextV3,
+        _package: &crate::NodeBftPrivateCandidatePackageV3,
+    ) -> Result<String, String> {
+        Err("wire-3 received private candidate retention is unsupported by this hook".into())
+    }
+
     /// Recover the original private reservation before deriving a new value
     /// from the volatile queue. Missing recovery support is not an empty slot.
     fn pending_bft_v3_private_candidate(
@@ -692,6 +710,19 @@ pub trait NodeExecutionHook: Send {
         _context: &NodeBftExecutionContextV3,
     ) -> Result<Option<NodeBftPrivateCandidateV3>, String> {
         Err("wire-3 private candidate recovery is unsupported by this hook".into())
+    }
+
+    /// Resolve only independently retained local metadata for a compact peer target.
+    fn enable_bft_v3_membership_execution(&mut self) -> Result<(), String> {
+        Err("wire-3 membership execution is unsupported by this hook".into())
+    }
+
+    fn lookup_bft_v3_public_value(
+        &mut self,
+        _height: u64,
+        _header_id: &str,
+    ) -> Result<Option<oasis7_consensus::tendermint_v3::BftHeaderValueV3>, String> {
+        Err("wire-3 retained public value lookup is unsupported by this hook".into())
     }
 
     fn load_bft_v3_private_candidate(

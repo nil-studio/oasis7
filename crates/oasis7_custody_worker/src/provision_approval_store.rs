@@ -35,7 +35,7 @@ type Result<T> = std::result::Result<T, JsValue>;
 #[wasm_bindgen(module = "/platform/sql.mjs")]
 extern "C" {
     #[wasm_bindgen(catch, js_name = accountTransition)]
-    fn update(
+    fn update_raw(
         state: &JsValue,
         key: &str,
         initial: &str,
@@ -43,6 +43,19 @@ extern "C" {
     ) -> Result<String>;
     #[wasm_bindgen(catch, js_name = readTextRecord)]
     fn read(state: &JsValue, key: &str) -> Result<String>;
+}
+
+// This FFI invokes its Rust SQL callback synchronously. The scope ends before
+// any later await; SQL, Current, clock, inventory and every transition still run.
+fn update(
+    state: &JsValue,
+    key: &str,
+    initial: &str,
+    transition: &js_sys::Function,
+) -> Result<String> {
+    oasis7_custody_core::with_owner_signature_verification_batch(|| {
+        update_raw(state, key, initial, transition)
+    })
 }
 
 /// Owned trusted reads allow every admission phase to obtain fresh authority/configuration.

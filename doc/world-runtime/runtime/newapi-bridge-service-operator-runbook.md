@@ -11,7 +11,7 @@
 - `POST /v1/bridge/deposit-route`
 - `POST /v1/bridge/reconcile`
 
-对当前 runtime 自动映射来说，最低要求只需 `POST /v1/bridge/bind` 能成功把 `token_key` 写进 state。
+当前 runtime 自动映射的最低要求是 `POST /v1/bridge/bind` 能成功把 `token_key` 写进 state。
 
 ## 仓库资产
 
@@ -53,7 +53,7 @@
 - `OASIS7_NEWAPI_BRIDGE_ROUTE_TTL_SECONDS`
 
 - `OASIS7_NEWAPI_BRIDGE_LETAI_PARENT_CHANNEL_ID` 为空时，bridge-service 不向 LetAI project upsert 请求传 `parent_channel_id`，由平台侧默认渠道策略决定 project token 归属。
-- 只有当 operator 明确需要把生成的 project token 绑定到指定 LetAI channel 时，才设置 `OASIS7_NEWAPI_BRIDGE_LETAI_PARENT_CHANNEL_ID`。
+- 只有 operator 明确需要将生成的 project token 绑定到指定 LetAI channel 时，才设置 `OASIS7_NEWAPI_BRIDGE_LETAI_PARENT_CHANNEL_ID`。
 
 ## 启动后最小验证
 
@@ -74,7 +74,7 @@ curl -sS -X POST http://127.0.0.1:5852/v1/bridge/bind \
 
 ## 全链路测试用户模式
 
-早期测试环境可以先使用假邮箱作为 hosted login / QA persona 标签。假邮箱不要求真实收信，但必须清楚标记为非生产，并避免与真实用户冲突。
+早期测试环境可使用假邮箱作为 hosted login / QA persona 标签。假邮箱不要求真实收信，但必须清楚标记为非生产，并避免与真实用户冲突。
 
 推荐映射：
 
@@ -116,7 +116,7 @@ curl -sS -X POST http://127.0.0.1:5852/v1/bridge/bind \
 
 ## 与 Remote Provider Bridge 串接
 
-remote provider bridge 可读取同一份受控 state，但自动映射的 selector 仅用于路由，
+remote provider bridge 可读取同一受控 state，但自动映射的 selector 仅用于路由，
 不是调用者认证。先按 [Remote Provider Bridge 认证与授权前提](provider-remote-https-bridge-operator-runbook.md#认证与授权前提)
 核实独立认证与 caller → selector 授权绑定，或严格可信调用边界；未核实前不得将
 下面配置用于公网入口。全局 bridge auth token 在自动映射分支不构成额外校验，
@@ -135,7 +135,7 @@ OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH=/etc/oasis7/newapi-bridge/bridge-stat
 --agent-provider-auth-token newapi_user_ref:<newapi_user_ref>
 ```
 
-provider bridge 会自动解析到对应的 `token_key`。
+provider bridge 会自动解析出对应的 `token_key`。
 
 ## 测试步骤入口
 

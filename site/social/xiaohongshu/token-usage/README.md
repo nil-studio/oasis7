@@ -1,7 +1,7 @@
 # Xiaohongshu Package: token-usage
 
 ## Package Truth
-- This directory is the canonical package folder for this Xiaohongshu content slice.
+- This is the canonical folder for this Xiaohongshu content package.
 - Keep copy, publishing boundary, source visuals, and exported upload assets together here.
 - Channel-wide policy and daily operating rules remain in `doc/readme/governance/readme-xiaohongshu-liveops-runbook-2026-03-23.md`.
 

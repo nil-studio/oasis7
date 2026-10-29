@@ -42,6 +42,7 @@ pub(super) type Admission = Arc<dyn Fn(&[u8]) -> Result<(), WorldError> + Send +
 pub(super) struct HandlerRegistration {
     pub handler: Handler,
     pub admission: Option<Admission>,
+    pub authenticated: Option<Arc<super::authenticated_requests::Registration>>,
 }
 
 pub(super) enum CommandOutcome {
@@ -93,6 +94,11 @@ pub(super) enum Command {
         payload: Vec<u8>,
         peer: PeerId,
         response: CommandResponseSender<Vec<u8>>,
+    },
+    RegisterAuthenticatedHandler {
+        protocol: String,
+        registration: super::authenticated_requests::Registration,
+        response: CommandResponseSender<()>,
     },
     RegisterHandler {
         protocol: String,
@@ -840,13 +846,35 @@ pub(super) fn handle_command(
             );
             CommandOutcome::Continue
         }
+        Some(Command::RegisterAuthenticatedHandler {
+            protocol,
+            registration,
+            response,
+        }) => {
+            let result = super::authenticated_requests::install(handlers, protocol, registration);
+            let _ = response.send(result);
+            CommandOutcome::Continue
+        }
         Some(Command::RegisterHandler {
             protocol,
             handler,
             admission,
             response,
         }) => {
-            handlers.insert(protocol, HandlerRegistration { handler, admission });
+            if super::authenticated_requests::reserved(&protocol) {
+                let _ = response.send(Err(super::authenticated_requests::rejected(
+                    "reserved authenticated namespace",
+                )));
+                return CommandOutcome::Continue;
+            }
+            handlers.insert(
+                protocol,
+                HandlerRegistration {
+                    handler,
+                    admission,
+                    authenticated: None,
+                },
+            );
             let _ = response.send(Ok(()));
             CommandOutcome::Continue
         }

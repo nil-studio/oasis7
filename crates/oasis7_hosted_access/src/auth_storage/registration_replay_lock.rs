@@ -38,14 +38,30 @@ pub(super) struct RegistrationReplayProcessLock {
     lock_dir: PathBuf,
     token: String,
     pid: u32,
-    // Close only: explicit unlock would release a fork parent's shared flock.
+    // Lifetime locks close only. A synchronous transaction owner may instead
+    // release its critical section before unrelated forked descriptors close.
     _kernel_lock: std::fs::File,
+    release_transaction: bool,
 }
 
 /// Same-host exclusive guard. The permanent `<path>.lock.guard` must never be removed.
 /// Requires trusted local storage and quiescing old directory-only writers on upgrade.
 pub struct ExclusiveDirectoryProcessLock {
     _guard: RegistrationReplayProcessLock,
+}
+
+/// Same-host synchronous critical section using the process lock's exact anchor.
+/// Unlike a runtime lifetime guard, its owner releases the lock on return or
+/// unwind. Never delegate this transaction's writing to a forked child.
+pub struct ExclusiveDirectoryTransactionLock {
+    _guard: RegistrationReplayProcessLock,
+}
+
+impl ExclusiveDirectoryTransactionLock {
+    pub fn try_acquire(path: &Path) -> Result<Self, String> {
+        RegistrationReplayProcessLock::acquire_with_release(path, false, true)
+            .map(|guard| Self { _guard: guard })
+    }
 }
 
 impl ExclusiveDirectoryProcessLock {
@@ -61,6 +77,14 @@ impl RegistrationReplayProcessLock {
     }
 
     fn acquire_with_wait(ledger_path: &Path, wait: bool) -> Result<Self, String> {
+        Self::acquire_with_release(ledger_path, wait, false)
+    }
+
+    fn acquire_with_release(
+        ledger_path: &Path,
+        wait: bool,
+        release_transaction: bool,
+    ) -> Result<Self, String> {
         let target = super::registration_replay_kernel_lock::normalized_target(ledger_path)?;
         let lock_dir = replay_lock_dir(&target);
         let parent = lock_dir.parent().unwrap_or_else(|| Path::new("."));
@@ -88,6 +112,7 @@ impl RegistrationReplayProcessLock {
                         token,
                         pid: std::process::id(),
                         _kernel_lock: kernel_lock,
+                        release_transaction,
                     };
                     if let Err(err) = sync_lock_parent_directory(parent) {
                         drop(guard);
@@ -152,11 +177,18 @@ impl Drop for RegistrationReplayProcessLock {
         let owns_lock = fs::read(owner_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<RegistrationReplayLockOwner>(&bytes).ok())
-            .is_some_and(|owner| owner.token == self.token);
+            .is_some_and(|owner| owner.token == self.token && owner.pid == self.pid);
         if owns_lock {
             let parent = self.lock_dir.parent().unwrap_or_else(|| Path::new("."));
             if fs::remove_dir_all(&self.lock_dir).is_ok() {
                 let _ = sync_parent_directory(parent);
+                if self.release_transaction {
+                    // Keep exclusion through owner cleanup: unlocking first
+                    // could let a new owner publish a directory we then delete.
+                    // The PID check above prevents a fork child from releasing
+                    // the acquiring parent's shared open-file description.
+                    let _ = self._kernel_lock.unlock();
+                }
             }
         }
     }

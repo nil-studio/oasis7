@@ -1,3 +1,4 @@
+use crate::error::WorldError;
 use libp2p::Multiaddr;
 use libp2p::identity::Keypair;
 use std::path::PathBuf;
@@ -46,6 +47,19 @@ pub struct Libp2pNetworkConfig {
 }
 
 impl Libp2pNetworkConfig {
+    /// Installs an existing Ed25519 secret. libp2p consumes/clears the supplied
+    /// secret bytes; this operation never generates a replacement identity.
+    pub fn with_ed25519_identity(mut self, secret: &mut [u8]) -> Result<Self, WorldError> {
+        self.keypair = Some(Keypair::ed25519_from_bytes(secret).map_err(|_| {
+            WorldError::NetworkRequestFailed {
+                code: oasis7_proto::distributed::DistributedErrorCode::ErrBadRequest,
+                message: "invalid configured libp2p Ed25519 identity".into(),
+                retryable: false,
+            }
+        })?);
+        Ok(self)
+    }
+
     pub(super) fn rendezvous_enabled(&self) -> bool {
         self.enable_rendezvous
             || self

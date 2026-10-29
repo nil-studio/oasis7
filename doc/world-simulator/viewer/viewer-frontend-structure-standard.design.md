@@ -51,7 +51,7 @@ app
 - `shared` 负责纯 helper、constants、fixtures、storage adapters、browser capability helpers。
 
 ## 目录演进
-当前 `software_safe_src/` 已经包含多个职责模块。新任务不需要先创建完整目录树；当同类文件超过 3 个或 import 边界开始泄漏时，再引入目录：
+当前 `software_safe_src/` 已包含多个职责模块。新任务无需先创建完整目录树；当同类文件超过 3 个或 import 边界开始泄漏时，再引入目录：
 
 ```text
 software_safe_src/

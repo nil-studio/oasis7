@@ -7,7 +7,7 @@
 
 
 ## ROUND-002 口径归属（2026-03-05）
-- `testing-manual.md` 是当前 `required` / `full` 命令和测试层级矩阵的执行入口；本 PRD 记录覆盖目标与设计决策，不取代手册中的命令真值。
+- `testing-manual.md` 是当前 `required` / `full` 命令和测试层级矩阵的执行入口；本 PRD 记录覆盖目标与设计决策，不替代手册的权威命令。
 - 其它文档（含本 PRD 与 `pre-commit.prd.md`）引用 [`testing-manual.md`](../../../testing-manual.md)，不维护第二份当前命令清单。
 
 ## 1. Executive Summary
@@ -24,7 +24,7 @@
 - User Personas:
   - CI 维护者：需要可控且可复现的覆盖清单。
   - 开发者：需要稳定的门禁反馈，不被环境抖动误伤。
-  - 发布负责人：需要确认关键链路在发布前被充分验证。
+  - 发布负责人：需要确认发布前已充分验证关键链路。
 - User Scenarios & Frequency:
   - PR 门禁：默认执行 required，验证核心路径。
   - 每日全量：执行 full，覆盖重型特性与联测。

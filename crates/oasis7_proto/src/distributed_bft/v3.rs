@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{BFT_MAX_ACTIONS_CBOR_BYTES_V1, domain_framed, hash_hex};
 
+mod candidate_read;
 mod signatures;
+pub use candidate_read::*;
 pub use signatures::*;
 
 pub const BFT_PROTOCOL_VERSION_V3: u16 = 3;

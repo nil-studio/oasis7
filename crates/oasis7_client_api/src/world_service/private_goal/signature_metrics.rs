@@ -7,6 +7,7 @@ const MAX_TUPLES: usize = 1024;
 pub struct SignatureMetricsSummary {
     pub calls: u64,
     pub strict_attempts: u64,
+    pub memo_hits: u64,
     pub successes: u64,
     pub failures: u64,
     pub canonical_bytes: u64,
@@ -91,6 +92,11 @@ impl Call {
                 s.summary.overflow_tuples = s.summary.overflow_tuples.saturating_add(1);
             }
         });
+    }
+    pub(super) fn memo_hit(&self) {
+        if self.active {
+            update(|s| s.summary.memo_hits = s.summary.memo_hits.saturating_add(1));
+        }
     }
     pub(super) fn success(&mut self) {
         self.succeeded = true;

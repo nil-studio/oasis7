@@ -25,6 +25,10 @@ fn spawn(root: &Path, ledger: &Path) -> Child {
 }
 
 fn spawn_mode(root: &Path, ledger: &Path, fork_drop: bool) -> Child {
+    spawn_mode_kind(root, ledger, fork_drop, false)
+}
+
+fn spawn_mode_kind(root: &Path, ledger: &Path, fork_drop: bool, transaction: bool) -> Child {
     fs::create_dir_all(root).unwrap();
     Command::new(std::env::current_exe().unwrap())
         .args([
@@ -34,6 +38,10 @@ fn spawn_mode(root: &Path, ledger: &Path, fork_drop: bool) -> Child {
         ])
         .env("OASIS7_TEST_STALE_BARRIER", root)
         .env("OASIS7_TEST_LOCK_LEDGER", ledger)
+        .env(
+            "OASIS7_TEST_LOCK_TRANSACTION",
+            if transaction { "1" } else { "0" },
+        )
         .env(
             "OASIS7_TEST_LOCK_FORK_DROP",
             if fork_drop { "1" } else { "0" },
@@ -50,7 +58,12 @@ fn lock_child() {
         return;
     };
     let ledger = PathBuf::from(std::env::var_os("OASIS7_TEST_LOCK_LEDGER").unwrap());
-    match ExclusiveDirectoryProcessLock::try_acquire(&ledger) {
+    let acquired = if std::env::var("OASIS7_TEST_LOCK_TRANSACTION").as_deref() == Ok("1") {
+        ExclusiveDirectoryTransactionLock::try_acquire(&ledger).map(|guard| guard._guard)
+    } else {
+        ExclusiveDirectoryProcessLock::try_acquire(&ledger).map(|guard| guard._guard)
+    };
+    match acquired {
         Ok(guard) => {
             #[cfg(unix)]
             if std::env::var("OASIS7_TEST_LOCK_FORK_DROP").unwrap() == "1" {
@@ -79,6 +92,29 @@ fn lock_child() {
         }
     }
     fs::write(root.join("done"), b"yes").unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn transaction_child_drop_cannot_release_the_acquiring_parent() {
+    let _test_guard = super::tests::TEST_LOCK.lock().unwrap();
+    let root = std::env::temp_dir().join(format!("oasis7-transaction-fork-{}", new_lock_token()));
+    let ledger = root.join("world");
+    let control = root.join("control");
+    let mut parent = spawn_mode_kind(&control, &ledger, true, true);
+    // The spawned process has already forked, dropped the inherited guard in
+    // that child and reaped it before acknowledging its own live ownership.
+    wait_file(&control.join("acquired"));
+    let still_exclusive = ExclusiveDirectoryProcessLock::try_acquire(&ledger).is_err();
+    let transaction_exclusive = ExclusiveDirectoryTransactionLock::try_acquire(&ledger).is_err();
+    fs::write(control.join("finish"), b"go").unwrap();
+    assert!(parent.wait().unwrap().success());
+    let next = ExclusiveDirectoryTransactionLock::try_acquire(&ledger).unwrap();
+    assert!(ExclusiveDirectoryProcessLock::try_acquire(&ledger).is_err());
+    drop(next);
+    assert!(ledger.with_extension("lock.guard").is_file());
+    fs::remove_dir_all(root).unwrap();
+    assert!(still_exclusive && transaction_exclusive);
 }
 
 #[test]

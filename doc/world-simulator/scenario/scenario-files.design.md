@@ -4,7 +4,7 @@
 - 当前任务状态与历史变更：GitHub PR、实际验证记录与 Git history；Issue 按需。
 
 ## 1. 设计定位
-定义场景文件化设计，把内置 `WorldScenario` 迁移为 JSON 场景文件并作为单一权威来源。
+本设计将内置 `WorldScenario` 迁移为 JSON 场景文件，并以场景文件作为单一权威来源。
 
 ## 2. 设计结构
 - 文件模型层：用场景 JSON 描述 seed、地点生成与可选碎片配置。

@@ -60,45 +60,45 @@ restart 读取一致的 persisted snapshot 单调继续；不一致保留诊断 
 
 <a id="pos-case-shared-formula"></a>
 #### 共享genesis与整数logical_tick/slot/phase公式跨节点同输入同结果，missed accounting不补历史
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-config-rejection"></a>
 #### duration/ticks正值、phase<tps，explicit非法CLI字段级拒绝；default config权威与透传
 
 产品层 N/A；reason: 本条是默认参数解析、显式非法参数拒绝与launcher无损透传的内部配置一致性验收，不独立设立产品时序或协议权利；scope: 仅duration/ticks/phase合法性、默认配置权威与启动参数透传；不排除共享输入确定性、全部guard、恢复/服务/经济与发布的既有产品义务。仅免新增产品叶分配，不免本条专业验收。
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-phase-guards"></a>
 #### steady phase gate、next_slot条件及全部pending/replication/participation/proposer/signature/execution/finality guard
 
 产品层 N/A；reason: 本条细化runtime内部phase与next_slot检查和既有guard组合，不独立定义产品提交权或新增协议准入；scope: 仅steady phase、next_slot及原pending/replication/participation/proposer/signature/execution/finality guard执行；root DWE/DCS与服务闸门仍全部适用，不放宽任何guard或验收条件。仅免独立产品叶分配，不免本条专业验收。
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-edge-nonsticky"></a>
 #### strict next_slot<current本tick恢复edge，guard blocked即丢弃，next tick无继承
 
 产品层 N/A；reason: 本条规定runtime内部tick-local strict-lag一次性边沿的生命周期，不独立创建产品补块或重试权；scope: 仅strict next_slot<current本tickedge、blocked丢弃及next tick无继承；全部既有guard、root DWE/DCS、恢复与服务约束仍适用。仅免独立产品叶分配，不免本条专业验收。
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-admission-window"></a>
 #### future/stale与target epoch不匹配拒绝，不借jitter放宽
 
 产品层 N/A；reason: 本条执行既有future/stale/target epoch负向输入校验，不独立定义validator资格或产品服务等级；scope: 仅原future/stale窗口与target epoch不匹配拒绝，不能借jitter放宽；root DWE/DCS、共识资格、恢复/服务和完整guard仍适用。仅免独立产品叶分配，不免本条专业验收。
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-readonly-status"></a>
 #### status immutable timing/counters，只读不推进slot/续租/制造evidence；poll≠slot
 
 产品层 N/A；reason: 本条约束runtime immutable诊断读取的无副作用实现，不独立给出产品服务可用性或世界进度承诺；scope: 仅原timing/counters读取不推进slot、不续租、不制造evidence及poll不等于slot；root DWE/DCS、恢复服务闸门与业务权限边界仍适用。仅免独立产品叶分配，不免本条专业验收。
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-restart-monotonic"></a>
 #### persistedconfig/counters一致，restart不倒退重复计；inconsistentfail closed保留诊断
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 <a id="pos-case-replay-recorded"></a>
 #### replay只按snapshot/events/log，不当前wall clock补proposal/block/event
-本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要同config/now/genesis/snapshot比较，不授予BFT/manifest/service/W权限。
+本分项按 [时间状态](#pos-timing-state) 与 [持久只读](#pos-persistence-readonly) 的输入、guards、失败/恢复边界执行；需要在相同 config/now/genesis/snapshot 下比较，不授予 BFT/manifest/service/W 权限。
 
 ### 2.1 需求承接与分配表
 
@@ -126,7 +126,7 @@ restart 读取一致的 persisted snapshot 单调继续；不一致保留诊断 
 
 局部 source 定义范围：[chain_pos_defaults.rs](../../../crates/oasis7/src/chain_pos_defaults.rs) 的 `parse_chain_pos_timing_defaults` 检查 duration/ticks 非零及 phase<ticks；inline tests `repo_chain_pos_defaults_parse_to_current_profile` 与 `repo_chain_pos_defaults_reject_invalid_phase` 分别核对当前配置和 phase==ticks 拒绝。默认数值仍由 `config/chain-pos-defaults.env` 提供，不在本设计冻结；这些定义未运行，不证明跨节点共享公式或全部 guard。下表 config-rejection 行另以真实 CLI phase 拒绝测试作为局部验证 source，未覆盖的零 duration/ticks CLI、透传及组合目标继续保留。
 
-所有下列行为验证在本次文档编辑中未运行。定义/计划与当前实现、实际执行、发布分别成立；执行须另固定 source/integration/tested tree、config/world/entry/environment/window、exit/result/artifacts，并回 PR 与实际验证记录。target场景尚无完整runner时明确保持待证明，现有test/manual只是有界接收入口，不能伪称已实现或通过。
+下列所有行为验证在本次文档编辑中均未运行。定义/计划与当前实现、实际执行、发布分别成立；执行须另固定 source/integration/tested tree、config/world/entry/environment/window、exit/result/artifacts，并回 PR 与实际验证记录。target 场景尚无完整 runner 时仍待证明；现有 test/manual 只是有界接收入口，不能伪称已实现或通过。
 
 | 上游 requirement / acceptance | 本设计条款 | 独立 obligation / 条件 | 验证 source / ID、层级及候选环境 | 证据目标 | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |

@@ -192,13 +192,23 @@ pub(super) fn operation_lock(destination: &Path, id: &str) -> Result<OperationWr
     Ok(OperationWriter(lock))
 }
 
+pub(super) fn world_fence(
+    world: &Path,
+) -> Result<oasis7::runtime_host::auth_storage::ExclusiveDirectoryTransactionLock, String> {
+    oasis7::runtime_host::auth_storage::ExclusiveDirectoryTransactionLock::try_acquire(world)
+        .map_err(|error| {
+            format!(
+                "acquire migration execution world writer lock for {} failed: {error}",
+                world.display()
+            )
+        })
+}
+
 pub(super) fn apply(source: &Path, destination: &Path, id: &str) -> Result<Receipt, String> {
     let preview = source::plan(source, destination, id)?;
     // The SAME fence is held by legacy run_chain_runtime. A live source cannot
     // be imported, and we never signal a PID or infer stop from a process list.
-    let _world_fence = crate::world_writer_lock::acquire_live_world_writer_lock(
-        &preview.paths["--execution-world-dir"],
-    )?;
+    let _world_fence = world_fence(&preview.paths["--execution-world-dir"])?;
     let plan = source::plan(source, destination, id)?;
     if io::digest(&preview)? != io::digest(&plan)? {
         return Err("source changed before migration writer fence".into());

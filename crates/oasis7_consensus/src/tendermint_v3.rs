@@ -1,6 +1,7 @@
 //! Qualified-H header-only protocol state and protected signing decisions.
 //! Application execution and private candidate retention belong to the Node.
 mod engine;
+mod peer_message;
 mod public_proposal;
 mod signing_journal;
 
@@ -9,6 +10,7 @@ pub use engine::{
     BFT_MAX_PROPOSAL_EQUIVOCATIONS_V3, BftConsensusActionV3, BftConsensusMachineV3,
     BftProposalIntentV3, BftStepV3, BftVoteIntentV3,
 };
+pub use peer_message::*;
 pub use public_proposal::{BftHeaderValueV3, BftPublicProposalV3};
 pub type BftProposalV3 = BftPublicProposalV3;
 pub use oasis7_formal_protocol::bft::{

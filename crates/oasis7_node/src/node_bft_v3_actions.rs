@@ -74,6 +74,32 @@ pub(super) fn select_prefix(
     actions.truncate(count);
     Ok(actions)
 }
+/// Select from the live queue immediately before constructing a new proposal.
+pub(super) fn select_current(
+    pending: &mut Vec<NodeConsensusAction>,
+    pending_bytes: &std::sync::atomic::AtomicUsize,
+    context: &crate::NodeBftExecutionContextV3,
+    engine_limit: usize,
+) -> Result<Vec<NodeConsensusAction>, NodeError> {
+    pending.sort_by_key(|a| a.action_id);
+    let mut highwater = std::collections::BTreeMap::new();
+    let mut released = 0usize;
+    pending.retain(|action| {
+        let keep =
+            crate::node_runtime_core::retain_for_bft_v3_parent(action, context, &mut highwater);
+        if !keep {
+            released = released.saturating_add(action.payload_cbor.len());
+        }
+        keep
+    });
+    // Another submitter may already own a reservation while waiting for this
+    // queue lock. Release only removed payloads, preserving that reservation.
+    crate::consensus_support::release_action_payload_bytes(pending_bytes, released);
+    select_prefix(pending.clone(), engine_limit)
+}
+#[cfg(test)]
+#[path = "node_bft_v3_governance_queue_tests.rs"]
+mod governance_queue_tests;
 #[cfg(test)]
 mod tests {
     use super::*;

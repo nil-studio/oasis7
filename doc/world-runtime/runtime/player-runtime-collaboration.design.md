@@ -10,7 +10,7 @@
 
 ## 1. 问题、目标与非目标
 
-Web 发布目标不能等同于 Codex/OpenClaw 已收到或世界已执行。需要一份跨设备、跨执行进程可恢复的游戏任务，明确目标、消息、审批与当前执行方，且不能产生第二个拥有世界写权的任务平台。
+Web 发布目标不等于 Codex/OpenClaw 已收到或世界已执行。需要可跨设备、跨执行进程恢复的游戏任务，明确目标、消息、审批与当前执行方，且不能产生第二个拥有世界写权的任务平台。
 
 本设计负责 task/goal/executor fence、协作消息、授权申请、版本冲突、持久化与补送。世界动作和 grant 的最终判定仍使用现有 Runtime；模型上下文属于外部 Runtime，跨 Runtime 私有记忆无损迁移、无限期托管和把聊天解析成批准不在范围内。
 
@@ -84,7 +84,7 @@ Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；承接 [REQ-EXT-002](.
 5. Harness 捕获该激活版本的上下文。边界记录 `context_presented`；执行器返回合法提案、等待或阻塞时记录 `decision_submitted`，世界 admission 验证时记录 `decision_context_validated`。这些只证明版本关联，不能证明模型内部语义服从；界面不得把单纯自报升级为“已实际执行”。
 6. 目标再次变化使旧 context 不可用于新的副作用；旧提案必须重新取得上下文并作出新决策。已经受理的待决动作按当时及提交时有效的授权与 Runtime 规则重验，已结算成果不撤销。
 
-自然语言偏好与可强制授权分离。预算、对象范围、风险限制和撤销必须以 typed grant/control 字段表达并由 Runtime 校验，不能寄望模型阅读一段 Prompt 来强制执行。
+自然语言偏好与可强制授权分离。预算、对象范围、风险限制和撤销必须以 typed grant/control 字段表达并由 Runtime 校验，不能依赖模型阅读 Prompt 来强制执行。
 
 <a id="collab-approval"></a>
 ### 5.2 申请、明确批准与世界执行
@@ -100,7 +100,7 @@ approved 表示权威决定已提交并产生引用现有授权体系的 grant�
 <a id="collab-content"></a>
 ### 5.3 汇报、问答与任务完成
 
-Report 包含 task、目标版本、来源执行方、reported_at/received_at、phase、summary、blocker、next_actor 与 evidence_refs。服务器只校验引用存在与读取权限，不信任任意 URL 或未经回读的 receipt 字符串。UI 清楚标记“执行器汇报/估计”和服务器接收时间；不保存或展示模型内部推理链与秘密。
+Report 包含 task、目标版本、来源执行方、reported_at/received_at、phase、summary、blocker、next_actor 与 evidence_refs。服务器只校验引用是否存在及读取权限，不信任任意 URL 或未经回读的 receipt 字符串。UI 清楚标记“执行器汇报/估计”和服务器接收时间；不保存或展示模型内部推理链与秘密。
 
 Question/Answer 使用稳定 question_id、message_id、in_reply_to、goal revision 和 actor。提问或回答是协作消息，不写世界。旧目标的问题被新版本替代后，迟到答案留为 stale history；要影响新任务必须有明确的新问题或目标修改，不自动搬运批准。
 
@@ -108,7 +108,7 @@ Question/Answer 使用稳定 question_id、message_id、in_reply_to、goal revis
 
 ## 6. 接口与数据合同
 
-HTTP 路由由 Game API 设计拥有；本节定义它们调用的 RuntimePort 命令与记录。所有整数 revision/seq/epoch 用 JSON 十进制字符串，类型未知、内容超限和相同消息 ID 异内容一律拒绝。成功响应包含 operation/ref 和目前权威状态，不把内存写入当已持久化。
+HTTP 路由由 Game API 设计拥有；本节定义它们调用的 RuntimePort 命令与记录。所有整数 revision/seq/epoch 用 JSON 十进制字符串，类型未知、内容超限和相同消息 ID 异内容一律拒绝。成功响应包含 operation/ref 和当前权威状态，不把内存写入当已持久化。
 
 ```text
 TaskSnapshotV1 = {world_binding, task_id, agent_id, owner_revision,
@@ -143,7 +143,7 @@ ApprovalRequestV1 = {approval_id, request_revision, task_id,
 
 `PrivateGoalStore::prepare` 将完整原始 proof、独立生成的私有 32 字节随机盐和 salted commitment 引用放在单份不可覆盖的加密记录内。文件名为 operator 密钥派生的 keyed operation locator，作用域包括 world/genesis、task/Agent、owner key/binding/generation、branch/reorg 和准备 operation ID；不包含正文、digest、nonce 或 revision。同操作相同 proof 重试返回原记录，不同 proof 冲突；响应丢失、并发发布与重启都重读原胜者，没有第二份权威索引事务。引用为 canonical CBOR `["oasis7/private-goal-reference/v1", salt_lowercase_hex, SignedGoalPrepareV1]` 的 BLAKE3 lowercase hex；盐和完整 proof 始终保持私有，因此不是可枚举正文地址。客户端保留原 proof，验证准备响应的配置服务签名和请求关联，再调用 `validate_against(original)` 重算引用；不能只信服务提供的引用字符串。
 
-owner 另以 `game_goal_publish/v1` domain 签署 `GameGoalPublishV1`，只公开 owner/world/history/task fences、expected/new revision、不透明引用、准备操作 ID 和独立发布操作 ID。普通 `/v1/world/submit` 与 `/lookup` 沿用持久关联与 canonical receipts。执行时重验当前 owner、严格签名、版本前驱和同块 staged 控制记录；成功提交同时推进 task/latest/active goal revision，任务仍 suspended 且 executor 未绑定。公共状态不记录 private proof、盐或正文 digest。激活记录只保存 committed height 和发布关联；读取历史 pin 取得真实 CommitRef，避免把参与 state hash 的 receipt 再引用自己的 root。共识不读取节点私有文件，canonical 激活不保证正文副本可用；缺失正文使私有回读及后续 Context 阻塞，不改变已提交历史。 `GameGoalPublish` 是新增 canonical payload，旧节点不能解析它或恢复包含其回执的历史；首次发布前必须升级所有相关执行、验证和恢复节点，已有新发布历史不能回滚至旧 binary。读取 schema revision 3 不构成节点能力协商或 mixed-version 升级屏障。
+owner 另以 `game_goal_publish/v1` domain 签署 `GameGoalPublishV1`，只公开 owner/world/history/task fences、expected/new revision、不透明引用、准备操作 ID 和独立发布操作 ID。普通 `/v1/world/submit` 与 `/lookup` 沿用持久关联与 canonical receipts。执行时重验当前 owner、严格签名、版本前驱和同块 staged 控制记录；成功提交同时推进 task/latest/active goal revision，任务仍 suspended 且 executor 未绑定。公共状态不记录 private proof、盐或正文 digest。激活记录只保存 committed height 和发布关联；读取历史 pin 取得真实 CommitRef，避免把参与 state hash 的 receipt 再引用自己的 root。共识不读取节点私有文件，canonical 激活不保证正文副本可用；缺失正文使私有回读及后续 Context 阻塞，不改变已提交历史。`GameGoalPublish` 是新增 canonical payload，旧节点不能解析它或恢复包含其回执的历史；首次发布前必须升级所有相关执行、验证和恢复节点，已有新发布历史不能回滚至旧 binary。读取 schema revision 3 不构成节点能力协商或 mixed-version 升级屏障。
 
 原生 chain status 服务提供默认关闭的 owner 目标子集：POST `/v1/world/private-goal/prepare` 与 `/v1/world/private-goal/current`。必须同时配置 `OASIS7_PRIVATE_GOAL_DIR` 和 `OASIS7_PRIVATE_GOAL_KEY_FILE`，实际 listener 必须是 loopback；专用目录和密钥路径不得位于公共 world/records/CAS 存储内。密钥是 operator-owned、mode 0600、无链接的精确 32 字节文件，祖先分量禁止符号链接；密钥不进入公共配置或快照。明文 loopback 传输要求所有可监听本机端口的进程受信，不能只依赖同 UID 文件隔离；客户端发送正文前未认证 HTTP 对端，配置服务公钥只验证回复，不保护已发送正文。不受信多用户部署须使用发送前验证服务端的 TLS 或等效传输，不能暴露公开明文私有入口。私有客户端禁用代理、重定向并限制回复至配置值与 64 KiB 的较小值。入口拒绝 query、Origin、Authorization 与转发 header，响应 no-store。准备先检查当前 owner/world/task/history，再查询原操作；已发布的原 proof 可以重试，新的准备才比较当前 expected revision。回读先检查当前 owner，再验证历史激活、私有 proof/承诺/绑定，并在交付前重新 pin 当前控制与世界分支。返回完整当前 owner 目标、当前读取 CommitRef 和历史 activation CommitRef；它明确不是完整 TaskSnapshot，也不授予认知或执行权限。
 
@@ -251,7 +251,7 @@ Stop 的效果是持久失效当前执行许可并阻断新受限提案，保留
 
 ## 9. 质量与容量
 
-复用 Game API LimitsV1：goal 4 KiB，message/report 8 KiB，单页列表合计最多 200，单响应 2 MiB。每 task 首期最多 256 个未答问题加待决申请；超过时在接受新项前返回 quota_exceeded，不丢弃已接受项。201 个同类或合计 256 个合法待决项通过[同切点分页](#collab-snapshot-pages)完整读取；分页数量限制不是待决项准入限制。完整编码、单项可装入性、pin 配额和失效处理按 §6.1 执行，不能指望 after-S 找回 S 前被遗漏的待决项。保留索引是可重建投影，pending 的 source 必须持久。
+复用 Game API LimitsV1：goal 4 KiB，message/report 8 KiB，单页列表合计最多 200，单响应 2 MiB。每 task 首期最多 256 个未答问题加待决申请；超过时在接受新项前返回 quota_exceeded，不丢弃已接受项。201 个同类或合计 256 个合法待决项通过[同切点分页](#collab-snapshot-pages)完整读取；分页数量限制不是待决项准入限制。完整编码、单项可装入性、pin 配额和失效处理按 §6.1 执行，不能依赖 after-S 找回 S 前被遗漏的待决项。保留索引是可重建投影，pending 的 source 必须持久。
 
 恢复目标是同一完整 checkpoint 中已确认 control operation 不丢失；这是目标，不是现有线上 RPO 声明。并发验证必须含两个 owner 窗口、两个 executor、目标更新/撤销与世界 commit 交错。事件读取不能阻塞 World::step，report 洪泛不得挤占 stop/撤销的有界控制队列。
 

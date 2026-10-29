@@ -155,3 +155,34 @@ pub(crate) fn owner_setup_archive_signature_checks(
         checks: vec![check],
     })
 }
+
+/// Fixed signed termination fact only; no live authority or side effect grant.
+pub(crate) fn termination_archive_signature_checks(
+    id: &str,
+    kind: crate::provisioning::TerminationOperationV1,
+    original: &OwnerSetupOriginalV1,
+    result: &OwnerSetupResultV1,
+    key: &str,
+) -> Result<ExactSignatureChecks> {
+    let checks = ExactSignatureChecks {
+        operation_id: id.into(),
+        body_digest: canonical_digest(
+            "oasis7.custody.termination-archive-fact.v1",
+            &(id, kind, original, result),
+        )?,
+        context_digest: canonical_digest(
+            "oasis7.custody.termination-archive-pin.v1",
+            &(id, kind, key),
+        )?,
+        verify_nonce: canonical_digest(
+            "oasis7.custody.termination-archive-original.v1",
+            &(id, kind, original),
+        )?,
+        verification_digest: Some(canonical_digest(
+            "oasis7.custody.termination-archive-result.v1",
+            result,
+        )?),
+        checks: Vec::new(),
+    };
+    append_owner_setup_checks(checks, OwnerSetupSignatureFact::Result(result, key))
+}

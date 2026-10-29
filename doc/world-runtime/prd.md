@@ -6,7 +6,7 @@
 
 ## 目标
 - 建立 world-runtime 模块设计主文档，统一需求边界、技术方案与验收标准。
-- 确保 world-runtime 模块后续改动可追溯到 PRD-ID、GitHub task、测试和 Git history。
+- 确保 world-runtime 后续改动可追溯到 PRD-ID、GitHub task、测试和 Git history。
 
 ## 范围
 - 覆盖 world-runtime 模块当前能力设计、接口边界、测试口径与演进路线。
@@ -268,7 +268,7 @@ gameplay cycle 采用 stage-scoped preparation，而不是从 tick 初始态生�
 | 统一 transaction | trusted capability command 与公开 `step()` / `step_with_modules()` / committed-context tick wrapper 已有 staged 发布边界和失败不发布回归；内部阶段、direct command、install/upgrade、恢复/迁移及外部 effect 仍未统一。 | 所有有 world effect 的 command/tick 入口共享 `ExecutionTransaction`（或等价 staged boundary），单点提交或稳定拒绝。 | native 与 module 入口在相同 parent/input 下产生等价 commitment、journal、snapshot 与 replay 结果，并覆盖 commit 前失败无半个效果。 |
 | module instance | install、upgrade、tick、event 与持久化已保留稳定 instance identity；direct/trusted command、相关更新事件和 catalog 仍存在 `module_id` 全局寻址缺口。 | 授权、执行、state、事件、receipt 与 machine catalog 以稳定逻辑主键 `(world_id, module_id, instance_id)` 定位，并单独绑定当前 `artifact_hash/schema_version/activation_epoch`。 | 双实例不串写；同一 instance 升级后逻辑主键不变，历史 binding 可回放且不被当前 artifact 覆盖。 |
 
-首个 Institution Migration Test 必须遵循本文档顶部所链接 product authority 的 SC-32：只有治理批准的 activation boundary 能在 Alliance/EconomicContract 中择一转为唯一 pilot。稳定 fixture contract ID 为 `institution-migration-v1`；每次证明产出 content-addressed manifest、input/root、execution receipts、snapshot/replay/recovery report 和 legacy-conformance report。runtime fixture 只负责生成 immutable artifacts 与 digest；负责人将 digest 记录到 PR 与实际验证记录，专业评审检查真实结果。最低验收合同为：
+首个 Institution Migration Test 必须遵循本文顶部链接的 product authority 的 SC-32：只有治理批准的 activation boundary 能在 Alliance/EconomicContract 中择一转为唯一 pilot。稳定 fixture contract ID 为 `institution-migration-v1`；每次证明产出 content-addressed manifest、input/root、execution receipts、snapshot/replay/recovery report 和 legacy-conformance report。runtime fixture 只负责生成 immutable artifacts 与 digest；负责人将 digest 记录到 PR 与实际验证记录，专业评审检查真实结果。最低验收合同为：
 
 1. 模块具有受治理的 manifest、artifact hash、schema/version、稳定 `instance_id` 和 activation 状态；缺失或不匹配时不得执行。
 2. command 经过同一权限、预算、quote/resolution、最终 affordability 和 Kernel apply 管线；module 不得直接写 canonical `WorldState`、journal 或外部 effect。
@@ -282,7 +282,7 @@ Migration Test 未通过前，native vertical slice 只能标为 `current`/`comp
 
 #### ExecutionTransaction 的优先级与范围
 
-统一 `ExecutionTransaction` 是 runtime 架构 **P0**：这里的 P0 表示必须先确立统一状态转换边界，不等同于已经发生线上事故或要求一次性重写所有状态结构。它的范围包括 `step()`、`step_with_modules()`、native compatibility action、WASM/module command、tick directive、direct/trusted command、module install/upgrade 以及任何会改变 canonical world 的恢复/迁移写入。只读 quote/resolve 可以在 transaction 之前运行，但必须绑定 parent、manifest、input root 和 freshness，且不得产生 world effect。
+统一 `ExecutionTransaction` 是 runtime 架构 **P0**：P0 表示必须先确立统一状态转换边界，不等同于已经发生线上事故或要求一次性重写所有状态结构。它的范围包括 `step()`、`step_with_modules()`、native compatibility action、WASM/module command、tick directive、direct/trusted command、module install/upgrade 以及任何会改变 canonical world 的恢复/迁移写入。只读 quote/resolve 可以在 transaction 之前运行，但必须绑定 parent、manifest、input root 和 freshness，且不得产生 world effect。
 
 Transaction 的最小职责是暂存 parent state、logical time、resource reservation/debit、module instance state、pending effect、tick schedule、journal/event 和 sequence counters；module call、Kernel preflight、schema/capability/output 校验只读写暂存视图。成功路径在一个 commit point 原子发布 state/event/receipt 与 durable outbox records；只有确认未跨相应提交点（持久路径为 `NotCommitted`）的失败路径才能丢弃暂存值并发布稳定的 rejected/fault disposition。已提交或提交未知时按[普通 generation 合同](#runtime-generation-persistence-contract)安装或核对原结果，不恢复旧 World 的写能力。外部不可回滚副作用只能在 commit 后由 outbox 按 receipt 驱动；必须有持久幂等键、dispatch/ack 状态、crash-safe 重投和 replay 不重执行合同。该边界不要求本轮引入 ECS、shard、动态 World Database 或替换现有 snapshot shape。
 
@@ -461,7 +461,7 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 - `gameplay_modules()` 与 `gameplay_mode_readiness(mode)` 返回确定排序的 active-set / coverage snapshot；readiness 只表示 runtime operational coverage，不是玩家体验、视觉或发布验收。
 - Base module governance 负责通用 identity、version、artifact、interface/export、subscription、capability 与 limit 校验，只把 Gameplay contract 和变更后 active-set slot 冲突交给 gameplay layer。这是内部实现职责拆分，不创建新的 ABI 或规则语义边界；公开协议仍以本页和 `doc/world-runtime/wasm/wasm-interface.md` 为准。
 - 发生 tick-consensus drift 时，runtime 恢复必须让受影响 action 得到显式处置（保留、replay，或带恢复路径的拒绝），不得静默丢失。可执行 governed rollback v2 的 custody、C/T reconciliation、nonce、journal/root 校验与 all-clear 流程仍由现行 rollback runbook 承载；历史 release `Go`、RTO/RPO 或一次性 soak 结果不得充当当前 release authority。
-- 生命周期事件与状态仍受本 PRD 的确定性、receipt、replay、恢复与 ABI 兼容合同约束；持久化保留和恢复细则见 `doc/world-runtime/runtime/runtime-storage-footprint-governance.prd.md`。历史 closure 的实现过程从 Git history 与 PR 与实际验证记录 追溯，不再作为长期 runtime 权威入口。
+- 生命周期事件与状态仍受本 PRD 的确定性、receipt、replay、恢复与 ABI 兼容合同约束；持久化保留和恢复细则见 `doc/world-runtime/runtime/runtime-storage-footprint-governance.prd.md`。历史 closure 的实现过程从 Git history、PR 与实际验证记录追溯，不再作为长期 runtime 权威入口。
 - 对激活且订阅 `tick` 的模块，runtime 只在 logical time 到期时调用，并将 schedule 随 snapshot/replay 持久化；一次 tick 调用在暂存视图消费旧 schedule，成功时只有模块明确请求 wake 才建立下一次调度，`suspend` 或缺省指令不再调度。整条 route 失败丢弃暂存、保留原 schedule，并返回既有结构化错误/失败审计，不承诺自动重试。ABI wire shape、最小 wake clamp、tick context 与失败约定以 `doc/world-runtime/wasm/wasm-interface.md` 为准。
 - 链 PoS 的时间锚、slot/tick 相位、严格滞后恢复、控制面参数、status 与 restart/replay 边界由 `doc/world-runtime/runtime/chain-pos-control-plane.prd.md` 唯一承接；它不定义 validator 经济、节点运维或发布结论。
 
@@ -801,7 +801,7 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 - Raw economic-contract open、accept、settle 与 expire 必须以完整事件绑定的 sparse delta 发布，原子覆盖 contract、重叠参与者 AgentCell、world resource treasury、reputation、pair cooldown、reward windows 与 compatibility materials；只按既有 raw `agent_id` 路由一次，保留 open overwrite、expired payload parties、raw notes/deltas 等宽松语义，不下沉 action policy，tick expiry 继续按 contract ID 排序逐事件发布。
 - Raw alliance form/join/leave/dissolve 与 war declare/conclude 必须先形成完整事件绑定的 sparse delta。该 delta 原子覆盖 touched alliances、wars、participants、reputation 与 compatibility materials；prospective root 只加入既有 raw actor 的单次路由，conclusion 保持无路由。所有成员、资源和 outcome 的既有校验顺序必须在 publication 前完成，失败不得留下 alliance/war/resource/activity 半写入。
 - Raw governance proposal、crisis、meta-progress 与 product-validation publication 分别使用窄的 full-event projector：proposal 保留 duplicate-open votes 与 recast 语义，crisis 保留 legacy resolve/spawn/timeout payload authority，meta self-target 合并为一个 AgentCell，product requester 缺失仍提交 validation 且不路由。所有 prospective roots 仅覆盖对应 map 与既有单次 mailbox route。
-- 本节吸收已完成 README gap 专题中的仍有效 runtime 合同；历史里程碑、旧路径与完成状态从 Git history 和 PR 与实际验证记录 追溯。
+- 本节吸收已完成 README gap 专题中的仍有效 runtime 合同；历史里程碑、旧路径与完成状态从 Git history、PR 与实际验证记录追溯。
 
 <a id="module-store-persistence-and-recovery-contract"></a>
 本锚点是旧 ModuleStore persistence and recovery contract 的兼容定位，原有 load/save/late-record/error/cache/instance 条款保持原节全文，接受关系消费该节而非通用工业矩阵。
@@ -865,4 +865,4 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 承接产品根 SC-10 [基础不变量](../product/world-infrastructure/prd.md#基础不变量)。提交前消费者区分 global-authoritative 与隔离 local/development 目标；intent/committed receipt/result 绑定同 world。缺失/错 world 或 local receipt reuse/replay 不接受、不产生、不呈现 global effect；local 历史永不合入 global。见 [身份设计](design.md#runtime-world-scope-design)。scope 呈现由 Agent/Viewer/API 专业 authority 定义，runtime 不新增 UX/schema。
 
 ### 专业验收接收边界
-上面每一专业接受都由 root design 的 §2.1 与 §11.1 分配到真实条款和验证场景。既有其他 PRD/AC/历史 Test Plan 不删除、不因新增产品关系被覆盖。pending、lineage、version、service gate 及完整工业 root/hold 仍是 target；现有分散的 typed publication/current bridge 属 current/partial。定义测试、文档 active、PR merged 与实际执行证据是独立事实；完整 SC/DC/DE 组合结果需要同一 candidate/config/world/entry/environment/evidence window 的 runtime/P2P/ops/consumer/QA 证据。
+上述各项专业接受由 root design 的 §2.1 与 §11.1 分配到真实条款和验证场景。既有其他 PRD/AC/历史 Test Plan 不删除、不因新增产品关系被覆盖。pending、lineage、version、service gate 及完整工业 root/hold 仍是 target；现有分散的 typed publication/current bridge 属 current/partial。定义测试、文档 active、PR merged 与实际执行证据是独立事实；完整 SC/DC/DE 组合结果需要同一 candidate/config/world/entry/environment/evidence window 的 runtime/P2P/ops/consumer/QA 证据。

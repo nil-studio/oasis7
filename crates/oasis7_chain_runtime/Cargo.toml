@@ -38,6 +38,7 @@ zeroize = "1"
 libc = "0.2"
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
+oasis7_net = { version = "0.1.0", path = "../oasis7_net", default-features = false, optional = true }
 oasis7_wasm_executor = { version = "0.1.0", path = "../oasis7_wasm_executor", default-features = false }
 oasis7_wasm_router = { version = "0.1.0", path = "../oasis7_wasm_router" }
 ctrlc = { version = "3.4", features = ["termination"] }
@@ -54,7 +55,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [features]
 default = ["wasmtime", "node-libp2p"]
-node-libp2p = ["oasis7_node/libp2p"]
+node-libp2p = ["oasis7_node/libp2p", "dep:oasis7_net", "oasis7_net/libp2p"]
 wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]

@@ -73,6 +73,7 @@ pub(super) struct CompletedResponse {
     pub peer: libp2p::PeerId,
     pub queued_at_ms: i64,
     pub reply: Result<Vec<u8>, WorldError>,
+    auth_release: Option<super::authenticated_reply::ReplyGuard>,
     _reservation: InFlightReservation,
 }
 
@@ -86,6 +87,7 @@ pub(super) struct Job {
     handler: Handler,
     reservation: InFlightReservation,
     cancelled: Arc<AtomicBool>,
+    auth_release: Option<super::authenticated_reply::ReplyGuard>,
 }
 
 pub(super) struct RejectedResponse {
@@ -139,6 +141,7 @@ impl ResponseWorkers {
 
     #[expect(
         clippy::result_large_err,
+        clippy::too_many_arguments,
         reason = "RejectedResponse carries the response channel and wire context together for immediate rejection"
     )]
     pub(super) fn schedule(
@@ -149,6 +152,7 @@ impl ResponseWorkers {
         payload: Vec<u8>,
         queued_at_ms: i64,
         handler: Handler,
+        auth_release: Option<super::authenticated_reply::ReplyGuard>,
     ) -> Result<(), RejectedResponse> {
         let response_bytes = match response_reservation_bytes(protocol.as_str(), payload.as_slice())
         {
@@ -180,6 +184,7 @@ impl ResponseWorkers {
             handler,
             reservation,
             cancelled: Arc::new(AtomicBool::new(false)),
+            auth_release,
         })
         .map_err(|job| RejectedResponse {
             channel: job.channel,
@@ -203,11 +208,24 @@ impl ResponseWorkers {
         event_errors: &Arc<Mutex<Vec<String>>>,
         max_error_messages: usize,
     ) {
+        let reply = if completed
+            .auth_release
+            .as_ref()
+            .is_some_and(|guard| guard.check().is_err())
+        {
+            Err(WorldError::NetworkRequestFailed {
+                code: oasis7_proto::distributed::DistributedErrorCode::ErrNotAvailable,
+                message: "authenticated reply release conditions changed".into(),
+                retryable: true,
+            })
+        } else {
+            completed.reply
+        };
         let response = response(
             budget,
             completed.peer,
             completed.protocol.as_str(),
-            completed.reply,
+            reply,
             now_ms,
             traffic_metrics,
         );
@@ -409,7 +427,13 @@ fn spawn_workers(
                         ),
                     Arc::clone(&job.cancelled),
                 );
-                let reply = (job.handler)(&context, &job.payload);
+                let reply = if let Some(guard) = &job.auth_release {
+                    guard
+                        .initialize(&context)
+                        .and_then(|()| (job.handler)(&context, &job.payload))
+                } else {
+                    (job.handler)(&context, &job.payload)
+                };
                 // Backpressure is confined to this worker; the swarm loop drains completions.
                 if futures::executor::block_on(completed.send(CompletedResponse {
                     channel: job.channel,
@@ -417,6 +441,7 @@ fn spawn_workers(
                     peer: job.peer,
                     queued_at_ms: job.queued_at_ms,
                     reply,
+                    auth_release: job.auth_release,
                     _reservation: job.reservation,
                 }))
                 .is_err()

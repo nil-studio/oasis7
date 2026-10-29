@@ -212,7 +212,7 @@ actual world state are not valid for Viewer product surfaces.
 
 ## 6. Screenshot and Visual Evidence Matrix
 Any visible change must choose the smallest row set that covers its risk. A
-large visual-system change must run all required rows. Every triggered review retains target screenshots, including mobile when required by the parent spec; DOM/test/smoke output supplements those images. One screenshot may cover several selected rows when each risk is visible. A row does not create a separate screenshot obligation when the same image already covers it.
+large visual-system change must run all required rows. Every triggered review retains target screenshots, including mobile when required by the parent spec; DOM/test/smoke output supplements those images. One screenshot may cover several selected rows without separate images for each row, provided each risk is visible.
 
 | Row | Viewport/state | Required for | Evidence |
 | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "1710b7aa4ef05bb4b9c14f635e41f4dbfb56732fd461c4fc4a5a635e31611891",
+    "content_sha256": "f38b36f668d7b20fb746b67b840b0a155d227c2a940d824818f5e4142ed9e746",
     "current_authority": "doc/product/world-infrastructure/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_authority",

@@ -9,7 +9,7 @@
 维护 `pixel_world_bridge` 的增量更新结构，保持当前 Web 宿主合同与 wasm-only 出货边界。grid/location/agent 已采用按类型 reconcile；以下承接剩余的局部重复工作与视觉回归判定缺口，不把早期整场景重建问题重新列为当前事实。
 
 ## 2. 设计结构
-- 共享态同步层：继续沿用 `render_version + input_events` 的宿主同步模式。
+- 共享态同步层：沿用 `render_version + input_events` 的宿主同步模式。
 - runtime cache 层：沿用 grid key、location entity map、agent entity map。
 - scene update 层：按类型增量更新、按需回收；`static_reconcile` 与仅动画更新分开。
 - hit-test cache 层：保留现有矩形命中模型，由 dirty 状态和缓存 key 决定重建。

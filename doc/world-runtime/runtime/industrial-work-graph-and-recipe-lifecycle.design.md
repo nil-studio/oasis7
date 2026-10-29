@@ -6,7 +6,7 @@
 
 ## 1. 问题、目标与非目标
 
-现有普通 recipe job、材料与电力扣减、部分物流预留和完成回执不能表达多阶段工作图，也不能表达配方版本的六状态准入。目标是使一个工业承诺从接受、齐套、加工、运输、缓冲到终端处置始终保留身份、资源义务和单次效果，并让配方状态变化通过明确接口处置存量工作。
+现有普通 recipe job、材料与电力扣减、部分物流预留和完成回执不能表达多阶段工作图或配方版本的六状态准入。目标是使一个工业承诺从接受、齐套、加工、运输、缓冲到终端处置始终保留身份、资源义务和单次效果，并让配方状态变化通过明确接口处置存量工作。
 
 阶段 A 交付 SC-20/21 的工业工作图和 receipt authority；阶段 B 交付 SC-24 的配方准入状态机，只通过不可变 `RecipeVersionRefV1`、准入判定与六类工作处置接口消费 A。两者可以分阶段实施，不能由 A 完成推导 B 完成，也不能把配方治理和工作执行合为一个 authority 枚举。本文不制定配比、价格、产能数值、公平策略参数、奖励或维护政策；不实现额外 Agent 制造、完整首局、部署、全部工业产品验证或工厂升级。
 
@@ -42,7 +42,7 @@
 
 Runtime 拥有目标记录的校验、顺序、准入、事务提交和恢复；M4 只提供版本化领域判定与 effects proposal，不能直接改 canonical ledger、图或 journal。配方治理给出版本有效范围与转换授权，不能写入工业 hold 或伪造工作完成。所有 native/module/API 入口消费同一 reducer，不能各保存一份工作真值。
 
-实现可以把领域记录承载于版本化 module instance state；这一存储选择不改变 Runtime 对提交、receipt 及恢复的权威，也不授权模块直接写 Kernel。不得为本专题复制一套共识、节点存储或泛治理状态机。外部性、产品验证、需求结算等独立权威通过 `ChildRefV1` 和它们自己的 receipt 关联；此处的 production receipt 不替它们做判定。
+实现可将领域记录存于版本化 module instance state；这一存储选择不改变 Runtime 对提交、receipt 及恢复的权威，也不授权模块直接写 Kernel。不得为本专题复制一套共识、节点存储或泛治理状态机。外部性、产品验证、需求结算等独立权威通过 `ChildRefV1` 和各自的 receipt 关联；此处的 production receipt 不替它们做判定。
 
 <a id="industrial-identity"></a>
 ### 4.1 身份与因果
@@ -81,7 +81,7 @@ Runtime 拥有目标记录的校验、顺序、准入、事务提交和恢复；
 
 `ReservationV1` 的单位、数量和持有范围由 profile 定义，同资源上 `held + consumed_for_boundary <= capacity`。partial 还必须通过 recipe quantum/rounding 策略，零合法 cycle 不扣料；unmet 和 residual 留在原 intent。释放、过期或上游到达以 `(trigger_event_id, allocation_domain_id)` 生成一次重评，先原子释放未消费义务，再在新 snapshot 重评仍有效 contender；已消费量不回滚。重复 trigger 不新建轮次，新 trigger 不能复评已终态项。
 
-重试、重连和恢复保留原接受时点、稳定 tie key、累计等待与上轮理由，不刷新顺位。每次未分配都保存 policy reason 和下一重评条件；在容量反复可用时，要按 profile 的等待保护实际取得分配或显式终止/重规划，不能长期只输出同一个无解释 deferred。一次 round 超过配置的 contender/资源上限时不取前 N 偷换完整集合，应无效果返回容量边界错误或使用事先声明的独立 allocation domain 分区。
+重试、重连和恢复保留原接受时点、稳定 tie key、累计等待与上轮理由，不刷新顺位。每次未分配都保存 policy reason 和下一重评条件；在容量反复可用时，要按 profile 的等待保护实际取得分配或显式终止/重规划，不能长期只输出无解释的同一 deferred。一次 round 超过配置的 contender/资源上限时不取前 N 偷换完整集合，应无效果返回容量边界错误或使用事先声明的独立 allocation domain 分区。
 
 <a id="industrial-window"></a>
 ### 5.3 服务窗口
@@ -186,7 +186,7 @@ Start、stage finish、transit launch/arrival、buffer admission 和 terminal se
 | `retiring` | 禁止 | D：hold/release/replan/terminate | D：finish/pause/hold/rework/salvage/terminate | D：finish/hold/return/reroute/reject | D：hold/handoff/conversion/reject | D：原合法承诺继续或 hold/return/reroute/handoff/reject |
 | `retired` | 禁止 | 仅历史结果 | 仅历史结果 | 仅历史结果 | 仅历史结果 | 仅已记录最终处置；不得有待执行义务 |
 
-R 使用与相同 bucket 的 D 相同的受支持动作集合，并可在当前条件允许时继续原生产；任何选择都不能以终止为名销毁库存或释放已消费量。`reject/terminate` 只终止对应未发生动作；对已存在材料仍须保持合法 custody 或显式处置，不能把错误返回当材料删除。没有 finish/drain 能力时仍可独立选择合法 hold/return 等安全路径；缺少全部合法处置时拒绝转换而保留旧状态。
+R 使用同一 bucket 的 D 所支持的动作集合，并可在当前条件允许时继续原生产；任何选择都不能以终止为名销毁库存或释放已消费量。`reject/terminate` 只终止对应未发生动作；对已存在材料仍须保持合法 custody 或显式处置，不能把错误返回当材料删除。没有 finish/drain 能力时仍可独立选择合法 hold/return 等安全路径；缺少全部合法处置时拒绝转换而保留旧状态。
 
 successor 只是导航关系。实际转换必须有明确授权、fresh compatibility、quantity/loss 和 parent-linked conversion receipt；不能继承旧 root、reservation、排队顺位、W 或终端结算。terminal-pending 无论哪条合法处置都保留 quantity、recipient、destination、admission、capacity obligation 与 provenance，目的地改变需新的受权 handoff/reroute，并记录原义务如何关闭。
 
@@ -223,7 +223,7 @@ snapshot 保存图、parent-binding revisions、receipt 消费索引、allocator
 
 ## 11. 验证设计与可追溯性
 
-测试方法遵循 [testing-manual](../../../testing-manual.md)及原 SC §5.1；各实现候选记录 native/module、API/Viewer/Agent 的真实覆盖。下面定义测试目标，不把源码测试存在、文档检查或局部 route 能力当作已通过。required 与 full 仍按每条上游适用条件执行；full 包含多阶段、多窗口、持久化、重连/乱序/replay 和授权消费者一致性。
+测试方法遵循 [testing-manual](../../../testing-manual.md)及原 SC §5.1；各实现候选记录 native/module、API/Viewer/Agent 的真实覆盖。以下定义测试目标；源码测试存在、文档检查或局部 route 能力不表示这些目标已通过。required 与 full 仍按每条上游适用条件执行；full 包含多阶段、多窗口、持久化、重连/乱序/replay 和授权消费者一致性。
 
 ### 11.1 验证映射表
 

@@ -88,8 +88,14 @@ impl World {
     pub(crate) fn governance_effective_validator_admission_records(
         admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
     ) -> BTreeMap<String, &GovernanceValidatorAdmissionRecord> {
+        Self::select_governance_validator_admission_records(admissions.values())
+    }
+
+    fn select_governance_validator_admission_records<'a>(
+        records: impl Iterator<Item = &'a GovernanceValidatorAdmissionRecord>,
+    ) -> BTreeMap<String, &'a GovernanceValidatorAdmissionRecord> {
         let mut effective = BTreeMap::new();
-        for record in admissions.values() {
+        for record in records {
             let candidate = effective.entry(record.node_id.clone()).or_insert(record);
             let candidate_order = (
                 candidate.last_transition_tick,
@@ -152,7 +158,21 @@ impl World {
         let Some(mut registry) = self.state.governance_finality_signer_registry.clone() else {
             return Ok(None);
         };
-        for record in Self::governance_effective_validator_admission_records(admissions).values() {
+        // Administrative progress must not shadow the last effective authority
+        // decision. In particular, a newer application cannot remove a prior
+        // revocation and thereby restore a bootstrap binding from the base.
+        let authority_records = Self::select_governance_validator_admission_records(
+            admissions.values().filter(|record| match record.status {
+                GovernanceValidatorAdmissionStatus::Revoked => true,
+                GovernanceValidatorAdmissionStatus::Active
+                | GovernanceValidatorAdmissionStatus::ProbationReady => {
+                    record.activation_epoch.unwrap_or(effective_epoch) <= effective_epoch
+                }
+                GovernanceValidatorAdmissionStatus::Applied
+                | GovernanceValidatorAdmissionStatus::ApprovedCandidate => false,
+            }),
+        );
+        for record in authority_records.values() {
             match record.status {
                 GovernanceValidatorAdmissionStatus::Revoked => {
                     registry.signer_bindings.remove(record.node_id.as_str());

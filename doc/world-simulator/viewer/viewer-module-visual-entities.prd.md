@@ -14,8 +14,8 @@
 
 ## 1. Executive Summary
 
-- 为“模块驱动的新生事物”提供统一承载，避免每新增一种模块能力就新增一套专用 simulator 实体与 viewer 渲染分支。
-- 将可视化语义下沉为 **runtime/simulator 可发布的数据实体**：模块只需要上报“我想在世界中可视化什么”，viewer 统一渲染。
+- 为“模块驱动的新生事物”提供统一承载，避免为每种新模块能力新增一套专用 simulator 实体与 viewer 渲染分支。
+- 将可视化语义下沉为 **runtime/simulator 可发布的数据实体**：模块只需上报“我想在世界中可视化什么”，viewer 统一渲染。
 - 与“默认电力设施语义下沉为场景配置”保持一致：基础供能由 runtime 预置模块承担，模拟器只维护通用世界状态与可视化载体。
 
 ## 2. User Experience & Functionality

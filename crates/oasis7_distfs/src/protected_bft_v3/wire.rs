@@ -34,6 +34,21 @@ pub(crate) enum BftSignerCommandV3 {
         expected_generation: u64,
         prepare_nonce: String,
     },
+    EnableMembership {
+        expected_revision: u64,
+        expected_state_digest: String,
+    },
+    PrepareTransitionInstall {
+        expected_revision: u64,
+        expected_state_digest: String,
+        request_id: String,
+        transition_source_height: u64,
+        runtime_instance_id: String,
+    },
+    CompleteTransitionInstall {
+        intent: Box<super::install::BftTransitionInstallIntentV3>,
+        acknowledgement: Box<super::install::BftSignedTransitionInstallAckV3>,
+    },
     Checkpoint,
     ProtectedTime,
     StartHeightTimer {
@@ -51,6 +66,9 @@ pub(crate) enum BftSignerCommandV3 {
     SignVote {
         expected_revision: u64,
         intent: Box<oasis7_consensus::tendermint_v3::BftVoteIntentV3>,
+    },
+    SignCandidateRead {
+        body: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadBodyV3>,
     },
     ConfirmApplied {
         expected_revision: u64,
@@ -141,6 +159,16 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     VoteSigned {
         vote: Box<BftVoteV3>,
+    },
+    CandidateReadSigned {
+        proof: Box<oasis7_proto::distributed_bft::v3::BftCandidateReadProofV3>,
+    },
+    MembershipEnabled,
+    InstallPreparedPending {
+        intent: Box<super::install::BftTransitionInstallIntentV3>,
+    },
+    InstallPreparedCompleted {
+        receipt: Box<super::install::BftTransitionInstallReceiptV3>,
     },
     CertificateAppended,
     AppliedConfirmed,

@@ -26,8 +26,10 @@ impl AccountProvisionApprovalState {
         {
             roots::authenticated_receipt(s, SessionPurposeV1::ReconcileRead, proof, now)?;
         }
-        if s.purpose_http_admissions
-            .contains_key(admission.ingress_attempt_id)
+        if Self::tool_nonce_internal_attempt(s, admission.ingress_attempt_id)
+            || s.purpose_http_admissions
+                .contains_key(admission.ingress_attempt_id)
+            || Self::termination_attempt_occupied(s, admission.ingress_attempt_id)
             || !super::id_nonempty(admission.ingress_attempt_id)
         {
             return Err(invalid());
@@ -93,7 +95,9 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<()> {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        if s.purpose_http_admissions.contains_key(attempt_id)
+        if Self::tool_nonce_internal_attempt(s, attempt_id)
+            || Self::termination_attempt_occupied(s, attempt_id)
+            || s.purpose_http_admissions.contains_key(attempt_id)
             || s.input.request.context != current.approval.authority
             || current.approval.frozen
             || current
@@ -287,7 +291,7 @@ impl AccountProvisionApprovalState {
                 .roots
                 .get(&SessionPurposeV1::Execution)
                 .ok_or_else(invalid)?;
-            let reason = if session_control_exhausted(s) {
+            let reason = if session_control_exhausted(s) || session_purpose_transport_exhausted(s) {
                 Some(TestSessionClosingReasonV1::BudgetExhausted)
             } else if now.get() >= root.deadline.get() {
                 Some(TestSessionClosingReasonV1::Deadline)

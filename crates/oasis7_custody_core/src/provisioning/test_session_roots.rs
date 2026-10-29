@@ -120,6 +120,7 @@ impl AccountProvisionApprovalState {
             || (purpose == SessionPurposeV1::Execution
                 && (s.closing.is_some()
                     || session_control_exhausted(s)
+                    || session_purpose_transport_exhausted(s)
                     || s.lease_until.is_none_or(|v| now.get() >= v.get())))
         {
             return Err(invalid());
@@ -219,7 +220,10 @@ impl AccountProvisionApprovalState {
             funding,
         } = reservation;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        if s.purpose_http_admissions.contains_key(operation_id) {
+        if Self::tool_nonce_internal_attempt(s, operation_id)
+            || s.purpose_http_admissions.contains_key(operation_id)
+            || Self::termination_attempt_occupied(s, operation_id)
+        {
             return Err(ProvisionApprovalError::Conflict);
         }
         if let Some(old) = s.sources.get(operation_id) {

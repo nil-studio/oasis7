@@ -42,9 +42,11 @@ fn seed_governance_world(world: &mut World) {
                     "msig.genesis.v1".to_string(),
                     GovernanceThresholdSignerPolicy {
                         threshold: 1,
-                        allowed_public_keys: BTreeSet::from([
-                            hex::encode(crate::world::governance_authorization_test_support::fixture_key().verifying_key().to_bytes()),
-                        ]),
+                        allowed_public_keys: BTreeSet::from([hex::encode(
+                            crate::world::governance_authorization_test_support::fixture_key()
+                                .verifying_key()
+                                .to_bytes(),
+                        )]),
                     },
                 ),
                 (
@@ -72,7 +74,9 @@ fn submit_candidate(world: &mut World, candidate_id: &str, node_id: &str, public
         operator_owner: "ops.team".to_string(),
         public_manifest_hash: format!("manifest:{candidate_id}"),
     });
-    world.step_governance_fixture().expect("submit validator admission");
+    world
+        .step_governance_fixture()
+        .expect("submit validator admission");
 }
 
 #[test]
@@ -90,13 +94,17 @@ fn validator_admission_lifecycle_updates_effective_registry_and_allows_reapply_a
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-c".to_string(),
     });
-    world.step_governance_fixture().expect("approve validator admission");
+    world
+        .step_governance_fixture()
+        .expect("approve validator admission");
     world.submit_governance_fixture_action(Action::ActivateGovernanceValidatorAdmission {
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-c".to_string(),
         activation_epoch: 0,
     });
-    world.step_governance_fixture().expect("activate validator admission");
+    world
+        .step_governance_fixture()
+        .expect("activate validator admission");
 
     let active_registry = world
         .resolve_governance_effective_finality_signer_registry()
@@ -121,7 +129,9 @@ fn validator_admission_lifecycle_updates_effective_registry_and_allows_reapply_a
         node_id: "validator-c".to_string(),
         reason: "operator rotation".to_string(),
     });
-    world.step_governance_fixture().expect("revoke validator admission");
+    world
+        .step_governance_fixture()
+        .expect("revoke validator admission");
 
     let revoked_registry = world
         .resolve_governance_effective_finality_signer_registry()
@@ -153,13 +163,17 @@ fn validator_admission_lifecycle_updates_effective_registry_and_allows_reapply_a
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-c-reapply".to_string(),
     });
-    world.step_governance_fixture().expect("approve reapply validator admission");
+    world
+        .step_governance_fixture()
+        .expect("approve reapply validator admission");
     world.submit_governance_fixture_action(Action::ActivateGovernanceValidatorAdmission {
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-c-reapply".to_string(),
         activation_epoch: 0,
     });
-    world.step_governance_fixture().expect("activate reapply validator admission");
+    world
+        .step_governance_fixture()
+        .expect("activate reapply validator admission");
 
     let reactivated_registry = world
         .resolve_governance_effective_finality_signer_registry()
@@ -193,13 +207,17 @@ fn validator_admission_probation_becomes_effective_once_activation_epoch_is_due(
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-future".to_string(),
     });
-    world.step_governance_fixture().expect("approve future validator admission");
+    world
+        .step_governance_fixture()
+        .expect("approve future validator admission");
     world.submit_governance_fixture_action(Action::ActivateGovernanceValidatorAdmission {
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-future".to_string(),
         activation_epoch: 1,
     });
-    world.step_governance_fixture().expect("schedule future validator admission");
+    world
+        .step_governance_fixture()
+        .expect("schedule future validator admission");
 
     let probationary = world
         .governance_validator_admissions()
@@ -220,7 +238,9 @@ fn validator_admission_probation_becomes_effective_once_activation_epoch_is_due(
     );
 
     for _ in 0..7 {
-        world.step_governance_fixture().expect("advance governance epoch");
+        world
+            .step_governance_fixture()
+            .expect("advance governance epoch");
     }
 
     let post_epoch_registry = world
@@ -255,7 +275,9 @@ fn validator_admission_activate_with_already_due_epoch_becomes_active_immediatel
         controller_account_id: "msig.genesis.v1".to_string(),
         candidate_id: "candidate-late".to_string(),
     });
-    world.step_governance_fixture().expect("approve late validator admission");
+    world
+        .step_governance_fixture()
+        .expect("approve late validator admission");
     for _ in 0..15 {
         world
             .step_governance_fixture()
@@ -308,11 +330,170 @@ fn validator_admission_rejects_zero_stake() {
         operator_owner: "ops.team".to_string(),
         public_manifest_hash: "manifest:zero".to_string(),
     });
-    world.step_governance_fixture().expect("reject zero stake admission");
+    world
+        .step_governance_fixture()
+        .expect("reject zero stake admission");
 
     assert!(
         !world
             .governance_validator_admissions()
             .contains_key("candidate-zero")
     );
+}
+
+#[test]
+fn revoked_bootstrap_validator_stays_ineligible_through_reapplication_until_due_activation() {
+    let mut world = World::new();
+    seed_governance_world(&mut world);
+    // Keep a surviving signer so revocation does not violate the registry's
+    // independent minimum-signer policy.
+    let mut bootstrap = world.governance_finality_signer_registry().unwrap().clone();
+    bootstrap.threshold = 1;
+    world
+        .set_governance_finality_signer_registry(bootstrap.clone())
+        .unwrap();
+    let bootstrap_snapshot = world.snapshot();
+    let bootstrap_journal = world.journal().clone();
+    let identity = world
+        .node_identity_public_key("validator-a")
+        .unwrap()
+        .to_string();
+    let account = world
+        .state()
+        .node_main_token_account_bindings
+        .get("validator-a")
+        .cloned();
+
+    world.submit_governance_fixture_action(Action::RevokeGovernanceValidatorAdmission {
+        controller_account_id: "msig.genesis.v1".into(),
+        candidate_id: "bootstrap-a-revocation".into(),
+        node_id: "validator-a".into(),
+        reason: "retire bootstrap admission".into(),
+    });
+    world.step_governance_fixture().unwrap();
+    let revoked = world.governance_validator_admissions()["legacy-revoked:validator-a"].clone();
+    assert_eq!(revoked.status, GovernanceValidatorAdmissionStatus::Revoked);
+    assert!(
+        !world
+            .resolve_governance_effective_finality_signer_registry()
+            .unwrap()
+            .unwrap()
+            .signer_bindings
+            .contains_key("validator-a")
+    );
+
+    submit_candidate(&mut world, "candidate-a-reapply", "validator-a", &identity);
+    let mut pending_authority = Vec::new();
+    for expected in [
+        GovernanceValidatorAdmissionStatus::Applied,
+        GovernanceValidatorAdmissionStatus::ApprovedCandidate,
+        GovernanceValidatorAdmissionStatus::ProbationReady,
+    ] {
+        if expected == GovernanceValidatorAdmissionStatus::ApprovedCandidate {
+            world.submit_governance_fixture_action(Action::ApproveGovernanceValidatorAdmission {
+                controller_account_id: "msig.genesis.v1".into(),
+                candidate_id: "candidate-a-reapply".into(),
+            });
+            world.step_governance_fixture().unwrap();
+        } else if expected == GovernanceValidatorAdmissionStatus::ProbationReady {
+            world.submit_governance_fixture_action(Action::ActivateGovernanceValidatorAdmission {
+                controller_account_id: "msig.genesis.v1".into(),
+                candidate_id: "candidate-a-reapply".into(),
+                activation_epoch: 1,
+            });
+            world.step_governance_fixture().unwrap();
+        }
+        assert_eq!(
+            world.governance_validator_admissions()["candidate-a-reapply"].status,
+            expected
+        );
+        assert_eq!(
+            world.governance_validator_admissions()["legacy-revoked:validator-a"],
+            revoked
+        );
+        let before_read = world.snapshot();
+        let current = world
+            .resolve_governance_effective_finality_signer_registry()
+            .unwrap()
+            .unwrap();
+        let restored = World::from_snapshot(before_read.clone(), world.journal().clone()).unwrap();
+        let reopened = restored
+            .resolve_governance_effective_finality_signer_registry()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            reopened, current,
+            "snapshot restore must preserve the effective rights"
+        );
+        assert_eq!(
+            world.snapshot(),
+            before_read,
+            "projection must not rewrite canonical records or authorization nonces"
+        );
+        assert_eq!(
+            restored.snapshot().state.governance_validator_admissions,
+            before_read.state.governance_validator_admissions
+        );
+        pending_authority.push((
+            expected,
+            current.signer_bindings.contains_key("validator-a"),
+            current.validator_stakes.contains_key("validator-a"),
+        ));
+        assert_eq!(
+            world.node_identity_public_key("validator-a"),
+            Some(identity.as_str())
+        );
+        assert_eq!(
+            world
+                .state()
+                .node_main_token_account_bindings
+                .get("validator-a"),
+            account.as_ref()
+        );
+    }
+
+    // The new, explicitly authorized activation restores authority only at its
+    // boundary, with the new stake rather than the bootstrap fallback stake.
+    while world.state().time < 10 {
+        world.step_governance_fixture().unwrap();
+    }
+    let activated = world
+        .resolve_governance_effective_finality_signer_registry()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        activated.signer_bindings.get("validator-a"),
+        Some(&identity)
+    );
+    assert_eq!(activated.validator_stakes.get("validator-a"), Some(&25));
+    assert_eq!(
+        world.governance_finality_signer_registry(),
+        Some(&bootstrap)
+    );
+    assert_eq!(
+        world.governance_validator_admissions()["legacy-revoked:validator-a"],
+        revoked
+    );
+
+    // An already captured historical World retains its then-valid bootstrap
+    // authority. Restoring history must not grant that authority to current state.
+    let historical = World::from_snapshot(bootstrap_snapshot.clone(), bootstrap_journal).unwrap();
+    assert_eq!(
+        historical
+            .resolve_governance_effective_finality_signer_registry()
+            .unwrap(),
+        Some(bootstrap)
+    );
+    assert!(
+        bootstrap_snapshot
+            .state
+            .governance_validator_admissions
+            .is_empty()
+    );
+    for (status, signer_present, stake_present) in pending_authority {
+        assert!(
+            !signer_present && !stake_present,
+            "pending reapplication must not undo bootstrap revocation: {status:?}"
+        );
+    }
 }

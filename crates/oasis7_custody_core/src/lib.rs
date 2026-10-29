@@ -28,3 +28,6 @@ pub mod client_enrollment;
 /// Opt-in bounded diagnostics; never an authorization or signature-result cache.
 #[cfg(feature = "signature-metrics")]
 pub use oasis7_client_api::world_service::private_goal::signature_metrics;
+
+/// Pure exact-signature fact reuse in one synchronous operation; never authority.
+pub use oasis7_client_api::world_service::private_goal::with_owner_signature_verification_batch;

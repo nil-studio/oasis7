@@ -88,6 +88,8 @@ pub struct SessionRootV1 {
 )]
 pub enum SessionChallengeKindV1 {
     Tool,
+    /// Persisted only by the metadata issuer; never accepted as a client request kind.
+    ToolMetadata,
     Control(SessionControlKindV1),
     CredentialClaim,
 }
@@ -165,6 +167,10 @@ pub struct TestSessionAuthorityV1 {
     pub source_funding: BTreeMap<String, SessionSourceFundingV1>,
     pub purpose_transports: BTreeMap<String, SessionPurposeV1>,
     pub purpose_http_admissions: BTreeMap<String, SessionPurposeHttpAdmissionV1>,
+    #[serde(default)]
+    pub tool_nonce_ingresses: BTreeMap<String, SessionToolNonceIngressV1>,
+    #[serde(default)]
+    pub tool_nonce_links: BTreeMap<String, SessionToolNonceLinkV1>,
     pub roots: BTreeMap<SessionPurposeV1, SessionRootV1>,
     pub control: Option<OperationBudgets>,
     pub identity_transport: Option<BudgetLedger>,
@@ -277,6 +283,15 @@ impl SessionPurposeV1 {
     }
 }
 
+pub(super) fn session_purpose_transport_exhausted(s: &TestSessionAuthorityV1) -> bool {
+    [SessionPurposeV1::Execution, SessionPurposeV1::ReconcileRead]
+        .iter()
+        .any(|purpose| {
+            s.roots
+                .get(purpose)
+                .is_some_and(|root| root.budgets.transport.remaining() == Ok(0))
+        })
+}
 pub(super) fn session_control_exhausted(s: &TestSessionAuthorityV1) -> bool {
     s.control
         .as_ref()
@@ -411,3 +426,7 @@ mod expiry;
 
 #[path = "test_session_purpose_http.rs"]
 mod purpose_http;
+
+#[path = "test_session_tool_nonce.rs"]
+mod tool_nonce;
+pub use tool_nonce::{SessionToolNonceIngressV1, SessionToolNonceLinkV1};

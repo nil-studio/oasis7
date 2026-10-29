@@ -11,7 +11,7 @@
 - 其它文档只引用标签语义，不重复描述 case 标签边界；命令级 `commit` / `required` / `full` 触发策略以 `ci-tiered-execution.prd.md` 为准。
 
 ## 1. Executive Summary
-- Problem Statement: 仅以“整套 `cargo test`”作为门禁粒度会拉长反馈链路，难以在 required 阶段快速定位关键回归。
+- Problem Statement: 仅按“整套 `cargo test`”设置门禁粒度会拉长反馈链路，难以在 required 阶段快速定位关键回归。
 - Proposed Solution: 将 CI 分层细化到 test case 级别，使用 `test_tier_required`/`test_tier_full` 标签驱动 `required` / `full` 执行路径，并让默认 `commit` baseline 保持命令级轻量门禁。
 - Success Criteria:
   - SC-1: `required` 门禁聚焦最小 smoke case 且执行时长下降。
@@ -48,7 +48,7 @@
 - Acceptance Criteria:
   - AC-1: `required` 由 feature 标签筛选 smoke case，不再硬编码 `--test` 清单。
   - AC-2: `full` 保持 `libp2p`、`wasmtime`、viewer 联测路径。
-- AC-3: 文档明确“`commit` 命令级轻量基线 + `required/full` case 级筛选”策略。
+  - AC-3: 文档明确“`commit` 命令级轻量基线 + `required/full` case 级筛选”策略。
   - AC-4: 回归验证与任务日志完整可追溯。
 - Non-Goals:
   - 不做 changed-files 动态选测。

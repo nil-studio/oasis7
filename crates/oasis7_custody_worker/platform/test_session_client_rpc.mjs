@@ -9,6 +9,7 @@ export async function ownerClientCall(env, operation, raw) {
   const binding = env.OWNER_NATIVE_PERMITS;
   switch (operation) {
     case "challenge": return binding.clientChallenge(raw);
+    case "tool-nonce": return binding.clientToolNonce(raw);
     case "claim": return binding.clientClaim(raw);
     case "initialize": return binding.clientInitialize(raw);
     case "tools-list": return binding.clientToolsList(raw);

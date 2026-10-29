@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_set_sha256": "dae3e0dce7d6d18b5c2fa88091526422934800f48286e9909fe393ba84ed0c32",
+    "content_set_sha256": "cfe7309858258fb2e1ada56d7f2c51d81fcb8b74a7825f123c8f17b11f639625",
     "current_authority": "doc/testing/templates/README.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_active_template_or_example",

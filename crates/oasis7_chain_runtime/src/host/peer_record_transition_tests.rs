@@ -15,6 +15,36 @@ const MISSING_RECEIVER_OPEN_ERROR: &str = concat!(
     "receiver directory is missing; restore the original receiver ",
     "state instead of reinitializing",
 );
+const RECEIVER_BUSY_ERROR: &str = "receiver directory is already in use:";
+const PUBLICATION_BUSY_ERROR: &str = "publication directory is already in use:";
+
+fn reopen_after_network_drop<T>(mut open: impl FnMut() -> Result<T, String>) -> T {
+    // Drop requests asynchronous swarm shutdown. Only reacquiring its original
+    // durable directory leases proves completion; a fixed sleep does not.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match open() {
+            Ok(network) => {
+                assert!(
+                    Instant::now() <= deadline,
+                    "network reopen exceeded its fixed deadline"
+                );
+                return network;
+            }
+            Err(error) => {
+                assert!(
+                    error.contains(RECEIVER_BUSY_ERROR) || error.contains(PUBLICATION_BUSY_ERROR),
+                    "unexpected restart failure: {error}"
+                );
+                assert!(
+                    Instant::now() < deadline,
+                    "network directory owner did not stop: {error}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct PublisherStateView {
@@ -294,7 +324,6 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
         super::create_default_replication_network(&ordinary_options, &root_keypair, &paths)
             .expect("host-to-node network startup should apply explicit withdrawal");
     drop(withdrawn_network);
-    std::thread::sleep(Duration::from_millis(150));
 
     let withdrawn = read_publisher_state(&publisher_directory);
     assert_eq!(withdrawn.state, PeerRecordPublicationStateV2::Tombstone);
@@ -323,12 +352,11 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
     assert_eq!(withdrawn_publication.sequence, withdrawn_sequence);
 
     ordinary_options.withdraw_peer_record_publication = false;
-    let restarted_network =
+    let restarted_network = reopen_after_network_drop(|| {
         super::create_default_replication_network(&ordinary_options, &root_keypair, &paths)
-            .expect("ordinary restart should open the same durable publisher state");
+    });
     std::thread::sleep(Duration::from_millis(150));
     drop(restarted_network);
-    std::thread::sleep(Duration::from_millis(150));
     let after_restart = read_publisher_state(&publisher_directory);
     assert_eq!(after_restart.state, PeerRecordPublicationStateV2::Tombstone);
     assert_eq!(after_restart.last_sequence, withdrawn_sequence);
@@ -346,8 +374,10 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
     resume_config.republish_interval_ms = 250;
     resume_config.discovery_query_interval_ms = 0;
     resume_config.allow_local_handler_fallback_when_no_peers = true;
-    let resumed_network = Libp2pReplicationNetwork::try_new(resume_config)
-        .expect("node-to-net startup should apply resume and open the publisher");
+    let resumed_network = reopen_after_network_drop(|| {
+        Libp2pReplicationNetwork::try_new(resume_config.clone())
+            .map_err(|error| format!("{error:?}"))
+    });
 
     let resume_deadline = Instant::now() + Duration::from_secs(3);
     let resumed = loop {
@@ -368,8 +398,10 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
         );
         std::thread::sleep(Duration::from_millis(20));
     };
+    // Force a real busy first attempt, independently of scheduler speed.
+    // The retry must respect this live owner and resume only after it drops.
+    let mut retained_owner = Some(resumed_network.clone());
     drop(resumed_network);
-    std::thread::sleep(Duration::from_millis(150));
 
     assert_eq!(resumed.0.state, PeerRecordPublicationStateV2::Live);
     let resumed_publication = resumed
@@ -384,9 +416,23 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
     assert!(resumed_publication.sequence > withdrawn_sequence);
 
     ordinary_options.resume_peer_record_publication = false;
-    let ordinary_after_resume =
-        super::create_default_replication_network(&ordinary_options, &root_keypair, &paths)
-            .expect("ordinary restart after resume opens durable state");
+    let mut observed_busy_owner = false;
+    let ordinary_after_resume = reopen_after_network_drop(|| {
+        let opened =
+            super::create_default_replication_network(&ordinary_options, &root_keypair, &paths);
+        if opened
+            .as_ref()
+            .is_err_and(|error| error.contains(RECEIVER_BUSY_ERROR))
+        {
+            observed_busy_owner = true;
+            drop(retained_owner.take());
+        }
+        opened
+    });
+    assert!(
+        observed_busy_owner,
+        "a retained original owner must prevent reopening"
+    );
     drop(ordinary_after_resume);
     std::thread::sleep(Duration::from_millis(150));
     let reopened = read_publisher_state(&publisher_directory);

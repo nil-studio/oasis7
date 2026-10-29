@@ -15,6 +15,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "node-libp2p")]
+#[path = "formal_bft_header_node_network.rs"]
+mod network;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -35,6 +39,9 @@ struct Config {
     requester_signing_key_path: PathBuf,
     provider_timeout_ms: u64,
     completion_timeout_ms: u64,
+    #[cfg(feature = "node-libp2p")]
+    #[serde(default)]
+    network: Option<network::Config>,
 }
 
 /// Public operator descriptor only. A provider must independently admit H;
@@ -49,6 +56,8 @@ struct Prepared {
     driver: FormalBftHeaderNodeDriverV3,
     binding: BftSignerBindingV3,
     requester: ed25519_dalek::SigningKey,
+    #[cfg(feature = "node-libp2p")]
+    initial_trust: oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1,
 }
 
 #[derive(Serialize)]
@@ -71,7 +80,15 @@ pub(super) fn run<'a>(
     let mut config = None;
     let mut actions = None;
     let mut print_binding = false;
+    let mut serve = false;
     while let Some(option) = args.next() {
+        if option == "--serve" {
+            if serve {
+                return Err("duplicate header Node option".into());
+            }
+            serve = true;
+            continue;
+        }
         if option == "--print-binding" {
             if print_binding {
                 return Err("duplicate header Node option".into());
@@ -98,6 +115,9 @@ pub(super) fn run<'a>(
     }
     let config = config.ok_or("bft-header node requires --config")?;
     if print_binding {
+        if serve {
+            return Err("header Node --print-binding cannot be combined with --serve".into());
+        }
         if actions.is_some() {
             return Err("header Node --print-binding cannot be combined with --actions".into());
         }
@@ -108,11 +128,10 @@ pub(super) fn run<'a>(
         );
         return Ok(());
     }
-    let report = from_paths(
-        &config,
-        &actions.ok_or("bft-header node requires --actions")?,
-        shutdown,
-    )?;
+    if !serve && actions.is_none() {
+        return Err("bft-header node requires --actions or --serve".into());
+    }
+    let report = from_paths(&config, actions.as_deref(), serve, shutdown)?;
     println!(
         "{}",
         serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?
@@ -122,18 +141,39 @@ pub(super) fn run<'a>(
 
 fn from_paths(
     config_path: &Path,
-    actions_path: &Path,
+    actions_path: Option<&Path>,
+    serve: bool,
     shutdown: Option<Arc<AtomicBool>>,
 ) -> Result<Report, String> {
     let config = load_config(config_path)?;
+    #[cfg(feature = "node-libp2p")]
+    if config.network.is_some() && !serve {
+        return Err("header Node network configuration requires --serve".into());
+    }
+    if serve {
+        #[cfg(feature = "node-libp2p")]
+        if config.network.is_none() {
+            return Err("header Node --serve requires explicit network configuration".into());
+        }
+        #[cfg(not(feature = "node-libp2p"))]
+        return Err("header Node --serve requires node-libp2p".into());
+    }
     let trust = config
         .provider_trust
         .clone()
         .ok_or("header Node actions require explicit pinned provider_trust")?;
-    let input = read_private(actions_path, BFT_MAX_ACTIONS_CBOR_BYTES_V1 as u64)?;
-    let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(&input)
-        .map_err(|_| "header Node canonical private actions rejected")?;
-    if actions.is_empty()
+    let actions = if let Some(actions_path) = actions_path {
+        let input = read_private(actions_path, BFT_MAX_ACTIONS_CBOR_BYTES_V1 as u64)?;
+        let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(&input)
+            .map_err(|_| "header Node canonical private actions rejected")?;
+        if actions.is_empty() {
+            return Err("header Node action file must be nonempty".into());
+        }
+        actions
+    } else {
+        Vec::new()
+    };
+    if (!serve && actions.is_empty())
         || actions
             .iter()
             .any(|a| a.submitter_player_id != config.player_id)
@@ -144,6 +184,8 @@ fn from_paths(
         driver,
         binding,
         requester,
+        #[cfg(feature = "node-libp2p")]
+        initial_trust,
     } = prepare(&config)?;
     let provider = Arc::new(
         RemoteBftSignerProviderV3::new(
@@ -156,36 +198,100 @@ fn from_paths(
         .map_err(|_| "header Node explicit remote signer trust rejected")?,
     );
     let node_config = NodeConfig::new(
-        config.validator_id,
+        config.validator_id.clone(),
         binding.scope.world_id.clone(),
         NodeRole::Sequencer,
     )
-    .and_then(|c| c.with_player_id(config.player_id))
+    .and_then(|c| c.with_player_id(config.player_id.clone()))
     .map_err(|_| "header Node identity rejected")?
     .with_replication(
-        NodeReplicationConfig::new(config.replication_directory)
+        NodeReplicationConfig::new(config.replication_directory.clone())
             .map_err(|_| "header Node replication storage rejected")?,
     );
-    let mut runtime = NodeRuntime::new(node_config)
-        .with_replication_network_consensus_enabled(false)
+    let runtime = NodeRuntime::new(node_config).with_replication_network_consensus_enabled(false);
+    #[cfg(feature = "node-libp2p")]
+    let mut runtime = if let Some(network) = &config.network {
+        network::configure(runtime, driver, binding, provider, network, initial_trust)?
+    } else {
+        runtime
+            .with_execution_hook(driver)
+            .with_tendermint_v3(binding, provider)
+            .map_err(|_| "header Node runtime configuration rejected")?
+    };
+    #[cfg(not(feature = "node-libp2p"))]
+    let mut runtime = runtime
         .with_execution_hook(driver)
         .with_tendermint_v3(binding, provider)
         .map_err(|_| "header Node runtime configuration rejected")?;
     runtime
         .start()
         .map_err(|_| "header Node actual startup recovery rejected")?;
-    let result = submit_and_wait(
-        &runtime,
-        &actions,
-        Duration::from_millis(config.completion_timeout_ms),
-        shutdown,
-    );
+    let result = if serve {
+        serve_until_shutdown(&runtime, &actions, shutdown)
+    } else {
+        submit_and_wait(
+            &runtime,
+            &actions,
+            Duration::from_millis(config.completion_timeout_ms),
+            shutdown,
+        )
+    };
     let stopped = runtime
         .stop()
         .map_err(|_| "header Node could not stop cleanly");
     let report = result?;
     stopped?;
     Ok(report)
+}
+
+fn serve_until_shutdown(
+    runtime: &NodeRuntime,
+    actions: &[oasis7_node::NodeConsensusAction],
+    shutdown: Option<Arc<AtomicBool>>,
+) -> Result<Report, String> {
+    let shutdown = match shutdown {
+        Some(shutdown) => shutdown,
+        None => {
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let signal = shutdown.clone();
+            ctrlc::set_handler(move || signal.store(true, Ordering::Release))
+                .map_err(|_| "header Node shutdown handler unavailable")?;
+            shutdown
+        }
+    };
+    for action in actions {
+        runtime
+            .submit_consensus_action_payload(action.action_id, action.payload_cbor.clone())
+            .map_err(|_| "header Node private action admission rejected")?;
+    }
+    let signal = runtime.committed_action_batches_handle();
+    let mut receipts = Vec::new();
+    loop {
+        for batch in runtime.drain_committed_action_batches() {
+            if receipts.len() >= 64 {
+                return Err("header Node report history capacity reached".into());
+            }
+            receipts.push(Receipt {
+                height: batch.height,
+                header_id: batch.block_hash,
+                action_root: batch.action_root,
+                action_count: batch.actions.len(),
+            });
+        }
+        if runtime
+            .bft_v3_status()
+            .is_some_and(|s| s.blocked_reason.is_some())
+        {
+            return Err("header Node blocked while serving".into());
+        }
+        if shutdown.load(Ordering::Acquire) {
+            return Ok(Report {
+                schema_version: "oasis7.formal_bft_header_node_receipt.v3",
+                receipts,
+            });
+        }
+        signal.wait_for_batches(Duration::from_millis(25));
+    }
 }
 
 fn load_config(config_path: &Path) -> Result<Config, String> {
@@ -251,7 +357,10 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         &config.requester_signing_key_path,
     )
     .map_err(|_| "header Node requester key rejected")?;
-    let anchor = load_qualified_handoff_anchor(&config.trust_config_path)
+    let trust = load_handoff_trust_config(&config.trust_config_path)
+        .map_err(|_| "header Node qualified H trust rejected")?;
+    let anchor = trust
+        .verified_anchor()
         .map_err(|_| "header Node qualified H trust rejected")?;
     if !config.handoff_material_path.is_absolute() {
         return Err("header Node H material path must be absolute".into());
@@ -263,7 +372,15 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
     let source = Arc::new(CasBusinessIndexReader {
         store: store.clone(),
     });
-    let driver = FormalBftHeaderNodeDriverV3::open_from_handoff(
+    #[cfg(feature = "node-libp2p")]
+    let open_driver = if config.network.is_some() {
+        FormalBftHeaderNodeDriverV3::open_from_handoff_with_peer_network
+    } else {
+        FormalBftHeaderNodeDriverV3::open_from_handoff
+    };
+    #[cfg(not(feature = "node-libp2p"))]
+    let open_driver = FormalBftHeaderNodeDriverV3::open_from_handoff;
+    let driver = open_driver(
         &config.records_directory,
         store,
         anchor,
@@ -287,6 +404,8 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         driver,
         binding,
         requester,
+        #[cfg(feature = "node-libp2p")]
+        initial_trust: trust.initial_trust,
     })
 }
 
@@ -409,6 +528,16 @@ mod tests {
             .unwrap_err()
             .contains("duplicate")
         );
+    }
+    #[test]
+    fn serving_mode_rejects_duplicate_or_binding_mode_before_loading() {
+        for args in [
+            vec!["--config", "/missing", "--serve", "--serve"],
+            vec!["--config", "/missing", "--serve", "--print-binding"],
+        ] {
+            let error = run(args.into_iter(), None).unwrap_err();
+            assert!(error.contains("duplicate") || error.contains("cannot be combined"));
+        }
     }
     #[test]
     fn public_receipt_omits_private_payloads() {

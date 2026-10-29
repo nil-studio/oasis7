@@ -27,8 +27,22 @@ let accountAlarmFixtureActive=false;
 let accountAlarmFault=null;
 let activationReadDelay=false;
 let paidDirectoryBarrier=null;
+let toolNonceFixtureActive=false;
+let toolNonceFaultMode=null;
+const toolNonceSignalNames=["sql_fee_confirmed","sql_update_fault","reply_lost","actions_context"];
+let toolNonceSignals=Object.fromEntries(toolNonceSignalNames.map(name=>[name,0]));
+const toolNoncePortNames=["public","provider","realm","owner","account"];
+let toolNoncePorts=Object.fromEntries(toolNoncePortNames.map(name=>[name,0]));
 function configureOptions(options){
   assert.equal(options.workers[0]?.name,'identity','public dispatchFetch must target the actual Identity ingress');
+  if(toolNonceFixtureActive)options.handleStructuredLogs=record=>{
+    const name=toolNoncePortNames.find(name=>record.message.trim()===`fixture.tool_nonce.${name}`);
+    if(name){toolNoncePorts[name]++;return;}
+    const signal=toolNonceSignalNames.find(name=>record.message.trim()===`fixture.tool_nonce.${name}`);
+    if(signal){toolNonceSignals[signal]++;return;}
+    if(record.level==='error'||record.level==='warn')console.error(record.message);
+    else console.log(record.message);
+  };
   let configuredRoles=0;
   for(const worker of options.workers){
     if(!['identity','owner'].includes(worker.name))continue;
@@ -51,7 +65,10 @@ function configureOptions(options){
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
     }
     if(paidDirectoryBarrier&&worker.name==='owner'){
-      worker.bindings={...worker.bindings,FIXTURE_PAID_DIRECTORY_MODE:paidDirectoryBarrier};
+      const paidMode=typeof paidDirectoryBarrier==='string'?paidDirectoryBarrier:paidDirectoryBarrier.mode;
+      const paidTicket=typeof paidDirectoryBarrier==='string'?3:paidDirectoryBarrier.ticket;
+      assert.ok([3,4,5].includes(paidTicket));
+      worker.bindings={...worker.bindings,FIXTURE_PAID_DIRECTORY_MODE:paidMode,FIXTURE_PAID_DIRECTORY_TICKET:String(paidTicket)};
       worker.serviceBindings={...worker.serviceBindings,FIXTURE_FENCE_CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'}};
       worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/paid_directory_fence_barrier.mjs')},...worker.modules];
     }
@@ -92,6 +109,10 @@ function configureOptions(options){
       });
       assert.equal(wrappers,1,'diagnostic Identity must select the actual provider wrapper');
     }
+  }
+  if(toolNonceFixtureActive)for(const worker of options.workers){
+    if(worker.name==='identity')worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/tool_nonce_identity_runtime.mjs')},...worker.modules];
+    if(worker.name==='owner'){worker.bindings={...worker.bindings,...(toolNonceFaultMode?{FIXTURE_TOOL_NONCE_FAULT:toolNonceFaultMode}:{})};worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/tool_nonce_owner_runtime.mjs')},...worker.modules];}
   }
   assert.equal(configuredRoles,2,'test session V4 hook must configure actual Identity and Owner');
   return options;
@@ -199,8 +220,12 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
-async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
+  toolNonceFixtureActive=toolNonceFixture;
+  toolNonceFaultMode=null;
+  toolNonceSignals=Object.fromEntries(toolNonceSignalNames.map(name=>[name,0]));
+  toolNoncePorts=Object.fromEntries(toolNoncePortNames.map(name=>[name,0]));
   ownerDiagnosticActive=setupDiagnostic;identityDiagnosticActive=setupDiagnostic;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;paidDirectoryBarrier=null;
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
@@ -254,6 +279,11 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     await runtime.restart(selectedMode);
     const before=runtime.nativeRequests();
     const activeResponse=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+    if(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true') {
+      const metrics=await runtime.readAccountRestoreCallbacks();
+      console.error(JSON.stringify({restore_profile:{attribution_complete:metrics.attribution_complete,observed_callback_count:metrics.observed_callback_count,samples:metrics.recent_callbacks.map(sample=>({event:sample.event,bytes:sample.bytes,decode_count:sample.decode_count,event_clock_ms:sample.event_clock_ms,strict_counts:Object.fromEntries(Object.entries(sample.strict_signature_metrics?.summary??{}).filter(([,value])=>typeof value==='number'))}))}}));
+    }
+
     if(activeResponse.status!==200){
       const status=activeResponse.status;
       try{await activeResponse.arrayBuffer();}catch{} // Discard without printing body or errors.
@@ -609,13 +639,18 @@ test('public scoped client claims credentials and heartbeats without borrowing p
   });
 });
 
-async function claimCloseCredentials(runtime,basis,label){
+async function claimCloseCredentials(runtime,basis,label,returnAll=false){
   const body={api_version:1,enrollment_id:basis.client_pairing.enrollment_id,test_session_id:basis.session_id,request_id:`${label}-claim`,purposes:['execute','read'],replace:false,expected_generation:null};
   const challenge={api_version:1,session_id:basis.session_id,request_id:`${label}-claim-challenge`,purpose:'execution',kind:{kind:'credential_claim'},logical_request_id:body.request_id,operation_request_digest:digest('oasis7.custody.test-session-claim.v1',body)};
   const nonce=await liveClientCall(runtime,publicClientProof(basis,runtime,{tail:'proof-challenges',body:challenge,requestId:challenge.request_id,tag:'oasis7-custody-challenge-v1'}));
   const claimed=await liveClientCall(runtime,publicClientProof(basis,runtime,{tail:`client-enrollments/${body.enrollment_id}/claim`,body,requestId:body.request_id,tag:'oasis7-custody-enroll-v1',nonce:nonce.nonce,nonceUntil:nonce.expires_at}));
   assert.equal(claimed.status,'claimed');
   const execute=claimed.credentials.find(v=>v.purpose==='execution');assert.equal(typeof execute?.token,'string');assert.equal(execute.token.length,43);
+  if(returnAll){
+    const tokens=new Map(claimed.credentials.map(item=>[item.purpose,item.token]));
+    assert.equal(tokens.size,2);assert.equal(typeof tokens.get('reconcile_read'),'string');assert.equal(tokens.get('reconcile_read').length,43);
+    return tokens;
+  }
   return execute.token;
 }
 async function liveClientCall(runtime,proof){
@@ -872,6 +907,49 @@ for(const barrierMode of ['together','over_window','reject_policy'])test(`actual
   }});
 });
 
+
+
+test('actual Account activation reuses exact strict facts within its synchronous SQL callback',{timeout:300000},async()=>{
+  const previousEnvironment=process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC;
+  const previousOwnerDiagnostic=ownerDiagnosticActive;
+  try {
+    process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC='true';
+    await withActiveSession(async()=>assert.fail('the controlled preflight callback owns this case'),{
+      preflightCase:async(runtime,basis,selectedMode)=>{
+        await runtime.restart(selectedMode);
+        const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+        assert.equal(response.status,200,'real native/World preflight must activate under the unchanged freshness rules');
+        const progress=await response.json();
+        assert.equal(progress.stage,'active');
+        assert.deepEqual(progress.purposes.map(purpose=>purpose.purpose).sort(),['execution','reconcile_read','termination_plan']);
+        const metrics=await runtime.readAccountRestoreCallbacks();
+        assert.equal(metrics.evidence_scope,'actual_Account_actor_synchronous_SQL_callbacks_only');
+        assert.equal(metrics.actor_identity_available,true,'metrics must belong to this actual Account actor');
+        assert.equal(metrics.attribution_complete,true,'actual callback attribution must be complete');
+        const sample=metrics.recent_callbacks.findLast(callback=>callback.event==='test_session_activated');
+        assert.ok(sample,'the real activation SQL callback must be observed');
+        assert.equal(sample.strict_signature_metrics?.scope,'owned_sdk_private_goal_strict');
+        assert.equal(sample.strict_signature_metrics?.summary_available,true);
+        const summary=sample.strict_signature_metrics.summary;
+        for(const name of ['calls','strict_attempts','memo_hits','failures']) {
+          assert.ok(Number.isSafeInteger(summary[name])&&summary[name]>=0,'signature counters must be bounded numbers');
+        }
+        assert.ok(summary.strict_attempts>0,'actual strict cryptography must still execute');
+        assert.ok(summary.calls>summary.strict_attempts,'repeated immutable facts must avoid duplicate cryptography');
+        assert.ok(summary.memo_hits>0,'the central synchronous SQL scope must be active');
+        assert.equal(summary.calls,summary.strict_attempts+summary.memo_hits,'all valid activation calls must be accounted for');
+        assert.equal(summary.failures,0,'a memo hit cannot hide a failed strict verification');
+        // Do not print samples: their private diagnostic fields include snapshot digests.
+      },
+    });
+  } finally {
+    if(previousEnvironment===undefined)delete process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC;
+    else process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC=previousEnvironment;
+    ownerDiagnosticActive=previousOwnerDiagnostic;
+  }
+});
+
+
 for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(`actual paid factory Directory and Fence overlap ${fault} after SQL ticket3`,{timeout:300000},async()=>{
   await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
     paidDirectoryBarrier=fault;
@@ -899,4 +977,280 @@ for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(
       assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),1);
     }finally{paidDirectoryBarrier=null;}
   }});
+
+});
+
+
+for(const ticket of [4,5])for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(`actual paid role Directory and Fence overlap ${fault} after SQL ticket${ticket}`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    paidDirectoryBarrier={ticket,mode:fault};
+    try{
+      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
+      if(status!==200){
+        await response.arrayBuffer();
+        const observedAt=Date.now();await runtime.suspend();
+        console.error(JSON.stringify({paid_role_directory_fence_failure:{selected_ticket:ticket,status,facts,diagnostic_started_at:observedAt,state:continueFailureState(runtime,basis.session_id)}}));
+      }
+      if(fault==='together'){
+        // Old serial behavior can leave RF unstarted, then the5100ms fixture
+        // releases the real Directory call and it correctly returns409 because
+        // the source is stale. This final target is the intended scheduling RED.
+        assert.equal(status,200,'already-paid independent role Directory/Fence must overlap within unchanged freshness');
+        const progress=await response.json();assert.equal(progress.stage,'active');assert.equal(progress.purposes.length,3);
+      }else{
+        assert.equal(status,503,'failed/frozen/stale actual readonly input must prevent grant');
+        if(fault==='reject_gate'){assert.equal(facts.gate_status,200);assert.equal(facts.gate_faulted,true);}
+        if(fault==='freeze_fence')assert.equal(facts.fence_disabled,true);
+        if(fault==='over_window'){assert.equal(facts.released,'bounded_timeout');assert.ok(facts.elapsed_ms>=5000);}
+        const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
+        assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
+        assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
+      }
+      assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);
+      assert.equal(facts.paid_confirmations,2);assert.equal(facts.oracle_ticket,ticket);assert.equal(facts.source_ticket,ticket);
+      if(fault!=='over_window'){assert.equal(facts.released,'independent_reads_started');assert.ok(facts.elapsed_ms<5000);}
+      // Both earlier Root statuses/policy/authorize were actually sent once.
+      // No Native5s operation is outstanding inside this Account-only barrier;
+      // its bounded_timeout is the fixture5100, not a Native timeout claim.
+      assert.equal((after['/custody/managed-bindings/session-status']??0)-(before['/custody/managed-bindings/session-status']??0),2);
+      assert.equal((after['/participant/policy-original']??0)-(before['/participant/policy-original']??0),1);
+      assert.equal((after['/participant/authorize']??0)-(before['/participant/authorize']??0),1);
+    }finally{paidDirectoryBarrier=null;}
+  }});
+});
+
+
+for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure prevents Directory and Fence I/O`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    paidDirectoryBarrier={ticket,mode:'prepay_sql_fail'};
+    try{
+      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;await response.arrayBuffer();
+      const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
+      assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
+      // These prove the actual target candidate reached the real SQLite UPDATE,
+      // not a fixture assertPaid throwing before Rust tried to pay.
+      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+      assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
+      assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
+      assert.equal(facts.record_unchanged,true);assert.equal(facts.roots_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
+      // In this mode observers only count+forward: they do NOT assert paid state
+      // or block a remote call. Zero therefore comes from production sequencing.
+      assert.equal(facts.gate_reads,0);assert.equal(facts.fence_reads,0);assert.equal(facts.paid_confirmations,0);
+      assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
+      assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
+      const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
+    }finally{paidDirectoryBarrier=null;}
+  }});
+});
+
+async function waitToolNoncePorts(expected){
+  const deadline=Date.now()+1500;
+  while(Date.now()<deadline){
+    if(toolNoncePortNames.every(name=>toolNoncePorts[name]===expected[name]))return;
+    await new Promise(resolve=>setTimeout(resolve,20));
+  }
+  assert.deepEqual(toolNoncePorts,expected,'fixed physical-port logs must flush without retrying business HTTP');
+}
+function toolNonceState(runtime,id,nonceRequestId){
+  return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys,hashlib
+from pathlib import Path
+out=None
+def remaining(v):return int(v['limit'])-int(v['spent'])-sum(map(int,v['reservations'].values()))
+def clean(v):
+ if isinstance(v,dict):return not any(k.lower() in {'headers','authorization','cookie','csrf','token','raw_body','original_bytes','signature','signature_input','sid'} for k in v) and all(clean(x) for x in v.values())
+ if isinstance(v,list):return all(clean(x) for x in v)
+ return True
+for p in Path(sys.argv[1]).rglob('*.sqlite'):
+ try:
+  db=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+  row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+  if not row:continue
+  state=json.loads(row[0])['state']
+  if state['draft']['entry']['custody_account_id']!=sys.argv[2]:continue
+  s=state['test_sessions'][sys.argv[3]]
+  links=s.get('tool_nonce_links',{});ingresses=s.get('tool_nonce_ingresses',{});link=links.get(sys.argv[4])
+  audits=[json.loads(r[0]) for r in db.execute("SELECT payload FROM custody_audit WHERE record_id='custody-provision-approval-v1'")]
+  event=lambda event:sum(isinstance(v,list) and len(v)>1 and v[1]==event for v in audits)
+  triggers=db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='fixture_tool_nonce_second_update_fail'").fetchone()[0]
+  out={'audit_count':len(audits),'fee_audits':event('test_session_tool_nonce_fee'),'issued_audits':event('test_session_tool_nonce_issued'),'fault_triggers':triggers,'control':{k:remaining(v) for k,v in s['control'].items()},'native':remaining(s['identity_transport']),'sources':len(s['sources']),'actions':len(s['actions']),'roots':{k:{b:remaining(v) for b,v in r['budgets'].items()} for k,r in s['roots'].items()},'fees':len(ingresses),'links':len(links),'private_history_clean':clean(links) and clean(ingresses),'nonce_hash':hashlib.sha256(link['nonce'].encode()).hexdigest() if link else None,'created_at':link['created_at'] if link else None,'expires_at':link['expires_at'] if link else None}
+ except sqlite3.OperationalError:continue
+ finally:
+  if 'db' in locals():db.close()
+assert out is not None
+print(json.dumps(out,separators=(',',':')))
+`,runtime.persist,runtime.account,id,nonceRequestId],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+}
+function assertToolNonceFeeDelta(before,after,purpose,fees){
+  assert.deepEqual(after.control,before.control);assert.equal(after.native,before.native);
+  assert.equal(after.sources,before.sources);assert.equal(after.actions,before.actions);
+  for(const [name,root] of Object.entries(before.roots)){
+    assert.equal(after.roots[name].requests,root.requests);assert.equal(after.roots[name].business,root.business);
+    assert.equal(root.transport-after.roots[name].transport,name===purpose?fees:0);
+  }
+  assert.equal(after.private_history_clean,true,'metadata history must contain no raw HTTP proof or private bearer material');
+}
+test('public Tool metadata nonce charges three execution hops and replays the original nonce without Native authority',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis)=>{
+    // The actual existing Control challenge/claim path privately returns both credentials.
+    const token=await claimCloseCredentials(runtime,basis,'tool-metadata');
+    await waitToolNoncePorts({public:0,provider:2,realm:2,owner:0,account:0});
+    const action={api_version:1,session_id:basis.session_id,request_id:'metadata-business-move',action:{kind:'execute',request:{tool:'move',position_cm:['100','0','100']}}};
+    const body={api_version:1,session_id:basis.session_id,request_id:'metadata-nonce-move',purpose:'execution',kind:{kind:'tool'},logical_request_id:action.request_id,operation_request_digest:digest('oasis7.custody.test-session-tool-request.v1',action)};
+    const signed=publicClientProof(basis,runtime,{tail:'proof-challenges',body,requestId:body.request_id,tag:'oasis7-custody-challenge-v1',token});
+    const before=toolNonceState(runtime,basis.session_id,body.request_id),native=runtime.nativeRequests();
+    const response=await runtime.publicClientFetch(signed.path,signed.init);
+    assert.equal(response.status,200,'a valid literal Tool metadata proof must reach the dedicated metadata-only ingress');
+    const first=await response.json();
+    assert.equal(first.kind?.kind,'tool_metadata');assert.equal(first.purpose,'execution');
+    assert.equal(typeof first.nonce,'string');assert.equal(first.nonce.length,43);
+    const decoded=Buffer.from(first.nonce,'base64url');assert.equal(decoded.length,32);assert.equal(decoded.toString('base64url')===first.nonce,true);
+    await waitToolNoncePorts({public:1,provider:3,realm:3,owner:1,account:1});
+    const once=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(before,once,'execution',3);assert.equal(once.fees-before.fees,1);assert.equal(once.links-before.links,1);
+    assert.equal(once.nonce_hash===createHash('sha256').update(first.nonce).digest('hex'),true);
+    assert.equal(once.expires_at,first.expires_at);assert.deepEqual(runtime.nativeRequests(),native,'metadata issuance must not call Native or obtain a Source/Root grant');
+    assert.ok(signed.expires*1000-Date.now()>1000,'the exact signed body must retain its original proof window');
+    const retryResponse=await runtime.publicClientFetch(signed.path,signed.init);
+    assert.equal(retryResponse.status,200,'a second actual ingress has its own fixed three fees');
+    const retry=await retryResponse.json();
+    assert.equal(retry.nonce===first.nonce,true);assert.equal(retry.expires_at,first.expires_at);assert.equal(retry.created_at,first.created_at);
+    await waitToolNoncePorts({public:2,provider:4,realm:4,owner:2,account:2});
+    const twice=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(once,twice,'execution',3);assert.equal(twice.fees-once.fees,1);assert.equal(twice.links,once.links);
+    assert.equal(twice.nonce_hash,once.nonce_hash);assert.equal(twice.created_at,once.created_at);assert.equal(twice.expires_at,once.expires_at);
+    assert.deepEqual(runtime.nativeRequests(),native);
+  },{toolNonceFixture:true});
+});
+
+function metadataToolRequest(basis,label,purpose='execution'){
+  const action={api_version:1,session_id:basis.session_id,request_id:`${label}-business`,action:purpose==='execution'?{kind:'execute',request:{tool:'move',position_cm:['11','22','33']}}:{kind:'read_close_state'}};
+  const body={api_version:1,session_id:basis.session_id,request_id:`${label}-nonce`,purpose,kind:{kind:'tool'},logical_request_id:action.request_id,operation_request_digest:digest('oasis7.custody.test-session-tool-request.v1',action)};
+  return {action,body};
+}
+async function waitToolNonceSignals(expected){
+  const deadline=Date.now()+1500;
+  while(Date.now()<deadline){if(Object.entries(expected).every(([name,count])=>toolNonceSignals[name]===count))return;await new Promise(resolve=>setTimeout(resolve,20));}
+  for(const [name,count] of Object.entries(expected))assert.equal(toolNonceSignals[name],count,`fixed ${name} observation must reach the real boundary`);
+}
+test('public Tool metadata rejects unauthenticated originals and does not open execution or private RPC entrypoints',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis)=>{
+    const tokens=await claimCloseCredentials(runtime,basis,'metadata-negative',true);
+    const {action,body}=metadataToolRequest(basis,'metadata-negative');
+    const options={tail:'proof-challenges',body,requestId:body.request_id,tag:'oasis7-custody-challenge-v1',token:tokens.get('execution')};
+    const valid=publicClientProof(basis,runtime,options);
+    const before=toolNonceState(runtime,basis.session_id,body.request_id),native=runtime.nativeRequests(),world=runtime.worldResults().length;
+    const wrongToken=publicClientProof(basis,runtime,{...options,token:tokens.get('reconcile_read')});
+    const wrongBody=publicClientProof(basis,runtime,options);wrongBody.init.body=JSON.stringify({...body,logical_request_id:'changed-business'});
+    const wrongUri=publicClientProof(basis,runtime,{...options,tail:'actions'});
+    const wrongProfile=publicClientProof(basis,runtime,{...options,tag:'oasis7-mcp-challenge-v1'});
+    const wrongHost=publicClientProof(basis,runtime,options);
+    for(const [name,proof,hostFault] of [['token',wrongToken,false],['body',wrongBody,false],['signed-target',wrongUri,false],['profile',wrongProfile,false],['literal-host',wrongHost,true]]){
+      const response=await (hostFault?runtime.publicClientHostFault(valid.path,proof.init):runtime.publicClientFetch(valid.path,proof.init));
+      assert.equal(response.status,409,`${name}: an invalid authenticating original must be rejected before fee admission`);
+      await response.arrayBuffer();
+      assert.deepEqual(toolNonceState(runtime,basis.session_id,body.request_id),before);
+      assert.deepEqual(runtime.nativeRequests(),native);assert.equal(runtime.worldResults().length,world);
+    }
+    for(const [name,extra] of [['internal-kind',{...body,kind:{kind:'tool_metadata'}}],['unknown-field',{...body,unexpected_authority:true}]]){
+      const proof=publicClientProof(basis,runtime,{...options,body:extra});
+      const response=await runtime.publicClientFetch(proof.path,proof.init);
+      assert.equal(response.status,400,`${name}: closed public DTO must reject`);await response.arrayBuffer();
+      assert.deepEqual(toolNonceState(runtime,basis.session_id,body.request_id),before);
+    }
+    const put=await runtime.publicClientFetch(valid.path,{...valid.init,method:'PUT'});assert.ok([400,405].includes(put.status),'unsupported method must fail closed before Account admission');await put.arrayBuffer();
+    assert.deepEqual(toolNonceState(runtime,basis.session_id,body.request_id),before);
+    // A genuine metadata nonce is necessary for the execution-off probe; anonymous
+    // malformed input would not prove the approved execution route stays closed.
+    const positive=await clientJson(await runtime.publicClientFetch(valid.path,valid.init));
+    const paid=toolNonceState(runtime,basis.session_id,body.request_id);assertToolNonceFeeDelta(before,paid,'execution',3);
+    const actionProof=publicClientProof(basis,runtime,{tail:'actions',body:action,requestId:action.request_id,tag:'oasis7-custody-client-v1',token:tokens.get('execution'),nonce:positive.nonce,nonceUntil:positive.expires_at});
+    // No Actions route is registered. The existing management-prefix fallback
+    // treats this unmatched provision suffix as GET-only, rejecting POST before
+    // any manager authentication or business admission. This is a real signed
+    // request with a valid capability/nonce, but the fallback does not run Tool
+    // PoP authentication; 405 proves no execution entry, not authenticated Actions.
+    assert.equal(await runtime.fixedToolIngressProbe('actions',actionProof.init),405,'the current GET-only management fallback must keep the unregistered Actions POST closed');
+    await waitToolNonceSignals({actions_context:1});
+    assert.equal(await runtime.fixedToolIngressProbe('owner_http'),404);
+    assert.equal(await runtime.fixedToolIngressProbe('owner_rpc_name'),404);
+    assert.deepEqual(toolNonceState(runtime,basis.session_id,body.request_id),paid);
+    assert.deepEqual(runtime.nativeRequests(),native);assert.equal(runtime.worldResults().length,world);
+  },{toolNonceFixture:true});
+});
+test('public Tool metadata second SQL failure preserves the first three fees and a new ingress can explicitly retry',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    const token=await claimCloseCredentials(runtime,basis,'metadata-sql-failure');
+    toolNonceFaultMode='sql_once';await runtime.restart(selectedMode);
+    const {body}=metadataToolRequest(basis,'metadata-sql-failure');
+    const signed=publicClientProof(basis,runtime,{tail:'proof-challenges',body,requestId:body.request_id,tag:'oasis7-custody-challenge-v1',token});
+    const before=toolNonceState(runtime,basis.session_id,body.request_id),native=runtime.nativeRequests(),world=runtime.worldResults().length;
+    const rejected=await runtime.publicClientFetch(signed.path,signed.init);
+    assert.equal(rejected.status,409,'the real second SQLite UPDATE must fail');await rejected.arrayBuffer();
+    await waitToolNonceSignals({sql_fee_confirmed:1,sql_update_fault:1});
+    const failed=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(before,failed,'execution',3);assert.equal(failed.fees-before.fees,1);
+    assert.equal(failed.links,before.links);assert.equal(failed.nonce_hash,null);
+    assert.equal(failed.fee_audits-before.fee_audits,1);assert.equal(failed.issued_audits,before.issued_audits);
+    assert.equal(failed.audit_count-before.audit_count,1,'the issuance audit is rolled back with state');assert.equal(failed.fault_triggers,0,'trigger DDL must also roll back');
+    assert.deepEqual(runtime.nativeRequests(),native);assert.equal(runtime.worldResults().length,world);
+    assert.ok(signed.expires*1000-Date.now()>1000,'explicit second ingress must use the still-valid original proof');
+    const retry=await clientJson(await runtime.publicClientFetch(signed.path,signed.init));
+    assert.equal(retry.kind?.kind,'tool_metadata');
+    const after=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(failed,after,'execution',3);assert.equal(after.fees-failed.fees,1);assert.equal(after.links-failed.links,1);
+    assert.equal(after.fee_audits-failed.fee_audits,1);assert.equal(after.issued_audits-failed.issued_audits,1);assert.equal(after.fault_triggers,0);
+    assert.deepEqual(runtime.nativeRequests(),native);assert.equal(runtime.worldResults().length,world);
+  },{toolNonceFixture:true});
+});
+test('public Tool metadata recovers an actually committed lost reply after restart without replacing its nonce',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    const token=await claimCloseCredentials(runtime,basis,'metadata-lost-reply');
+    toolNonceFaultMode='drop_reply';await runtime.restart(selectedMode);
+    const {body}=metadataToolRequest(basis,'metadata-lost-reply');
+    const signed=publicClientProof(basis,runtime,{tail:'proof-challenges',body,requestId:body.request_id,tag:'oasis7-custody-challenge-v1',token});
+    const before=toolNonceState(runtime,basis.session_id,body.request_id),native=runtime.nativeRequests(),world=runtime.worldResults().length;
+    const lost=await runtime.publicClientFetch(signed.path,signed.init);
+    assert.equal(lost.status,409,'a committed reply is deliberately lost, not replaced by a fixture success');await lost.arrayBuffer();
+    await waitToolNonceSignals({reply_lost:1});
+    await runtime.suspend();
+    // Read only safe hash/times from actual committed SQLite, never the private
+    // returned nonce/token/body. No second successful response has reached Node.
+    const committed=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(before,committed,'execution',3);assert.equal(committed.links-before.links,1);
+    assert.equal(committed.fee_audits-before.fee_audits,1);assert.equal(committed.issued_audits-before.issued_audits,1);
+    assert.equal(typeof committed.nonce_hash,'string');assert.equal(committed.nonce_hash.length,64);
+    toolNonceFaultMode=null;await runtime.restart(selectedMode);
+    assert.ok(signed.expires*1000-Date.now()>1000,'recovery must stay within the original absolute proof deadline');
+    const recovered=await clientJson(await runtime.publicClientFetch(signed.path,signed.init));
+    assert.equal(createHash('sha256').update(recovered.nonce).digest('hex')===committed.nonce_hash,true);
+    assert.equal(recovered.created_at,committed.created_at);assert.equal(recovered.expires_at,committed.expires_at);
+    const after=toolNonceState(runtime,basis.session_id,body.request_id);
+    assertToolNonceFeeDelta(committed,after,'execution',3);assert.equal(after.links,committed.links);assert.equal(after.fees-committed.fees,1);
+    assert.equal(after.issued_audits,committed.issued_audits);assert.equal(after.fee_audits-committed.fee_audits,1);
+    assert.equal(after.nonce_hash,committed.nonce_hash);assert.equal(after.created_at,committed.created_at);assert.equal(after.expires_at,committed.expires_at);
+    assert.deepEqual(runtime.nativeRequests(),native);assert.equal(runtime.worldResults().length,world);
+  },{toolNonceFixture:true});
+});
+test('public Tool metadata uses only ReconcileRead funds with Native and private key/session access unavailable',{timeout:300000},async()=>{
+  await withActiveSession(async(runtime,basis,selectedMode)=>{
+    const tokens=await claimCloseCredentials(runtime,basis,'metadata-read-offline',true);
+    const {body}=metadataToolRequest(basis,'metadata-read-offline','reconcile_read');
+    identitySecretsDisabled=true;identityCloseReadTrap=true;runtime.setNativeUnavailable(true);
+    try{
+      await runtime.restart(selectedMode);
+      assert.deepEqual(await runtime.probeClientCloseTrap(),{rejected:409,attempts:1,after_reset:0},'actual private actor trap must be effective before metadata');
+      const before=toolNonceState(runtime,basis.session_id,body.request_id),native=runtime.nativeRequests(),world=runtime.worldResults().length;
+      const signed=publicClientProof(basis,runtime,{tail:'proof-challenges',body,requestId:body.request_id,tag:'oasis7-custody-challenge-v1',token:tokens.get('reconcile_read'),purpose:'reconcile_read'});
+      const nonce=await clientJson(await runtime.publicClientFetch(signed.path,signed.init));assert.equal(nonce.purpose,'reconcile_read');assert.equal(nonce.kind?.kind,'tool_metadata');
+      const after=toolNonceState(runtime,basis.session_id,body.request_id);
+      assertToolNonceFeeDelta(before,after,'reconcile_read',3);assert.equal(after.links-before.links,1);assert.equal(after.fees-before.fees,1);
+      assert.deepEqual(runtime.nativeRequests(),native);assert.equal(runtime.worldResults().length,world);
+      await runtime.suspend();assert.equal(closeSessionState(runtime,basis.session_id).private_read_attempts,0,'metadata must not access the bound deny-all SID actor');
+    }finally{identitySecretsDisabled=false;identityCloseReadTrap=false;runtime.setNativeUnavailable(false);}
+  },{toolNonceFixture:true});
 });

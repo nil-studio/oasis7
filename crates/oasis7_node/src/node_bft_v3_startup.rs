@@ -13,16 +13,20 @@ pub(super) fn lock_hook(
     hook.lock()
         .map_err(|_| error("wire-3 execution hook poisoned"))
 }
-pub(super) fn singleton(
+pub(super) fn validate_schedule(
     schedule: &BftHeaderHeightScheduleV3,
-    local: &str,
+    selected: &SelectedNodeBftConfigV3,
 ) -> Result<(), NodeError> {
-    if schedule.active_set().validators().len() != 1
-        || schedule.active_set().validator(local).is_none()
-        || schedule.pending_transition().is_some()
+    if !selected.membership_enabled
+        && (schedule
+            .active_set()
+            .validator(&selected.binding.local_validator_id)
+            .is_none()
+            || schedule.pending_transition().is_some()
+            || schedule.last_activation_height() > 0)
     {
         return Err(error(
-            "this wire-3 Node supports exactly one active local validator and no transition",
+            "wire-3 local validator must be active and membership transitions are not enabled",
         ));
     }
     Ok(())
@@ -33,7 +37,26 @@ pub(super) fn validate_runtime(
 ) -> Result<(), NodeError> {
     let b = &selected.binding;
     b.validate().map_err(|_| error("wire-3 binding rejected"))?;
-    singleton(b.initial_schedule(), &b.local_validator_id)?;
+    validate_schedule(b.initial_schedule(), selected)?;
+    if let Some(network) = &selected.network {
+        if network.transport.context() != &BftPeerContextV3::from_handoff(b.handoff()) {
+            return Err(error("wire-3 peer transport differs from qualified H"));
+        }
+        if network.transport.peers().is_empty() || network.transport.peers().len() > 256 {
+            return Err(error("wire-3 peer routes missing or oversized"));
+        }
+        network.exchange.validate_binding(b).map_err(error)?;
+        if super::membership::active_key(selected, b.initial_schedule()).is_some() {
+            network
+                .exchange
+                .ensure_local_ready(b.initial_schedule())
+                .map_err(error)?;
+        }
+    } else if b.initial_schedule().active_set().validators().len() != 1 {
+        return Err(error(
+            "wire-3 multiple validators require explicit public and private peer planes",
+        ));
+    }
     runtime
         .config
         .network_policy
@@ -59,12 +82,14 @@ pub(super) fn validate_runtime(
     if replication.consensus_signer()?.is_some() {
         return Err(error("wire-3 Node refuses a local consensus signing key"));
     }
-    if !b.provisioned_signing_keys.iter().any(|key| {
-        b.initial_schedule()
-            .active_set()
-            .validator(&b.local_validator_id)
-            .is_some_and(|v| v.public_key_hex == key.public_key_hex)
-    }) {
+    if !selected.membership_enabled
+        && !b.provisioned_signing_keys.iter().any(|key| {
+            b.initial_schedule()
+                .active_set()
+                .validator(&b.local_validator_id)
+                .is_some_and(|v| v.public_key_hex == key.public_key_hex)
+        })
+    {
         return Err(error(
             "wire-3 local validator has no provisioned protected key",
         ));
@@ -76,13 +101,15 @@ pub(super) fn candidate(
     hook: &Hook,
     schedule: &BftHeaderHeightScheduleV3,
     value: &BftHeaderValueV3,
+    selected: &SelectedNodeBftConfigV3,
 ) -> Result<NodeBftPrivateCandidateV3, NodeError> {
-    singleton(schedule, &config.node_id)?;
+    validate_schedule(schedule, selected)?;
     value
         .validate_for_schedule(schedule)
         .map_err(|_| error("wire-3 public value differs from schedule"))?;
-    if value.execution_commitment.transition.is_some()
-        || value.execution_commitment.transition_ref.is_some()
+    if !selected.membership_enabled
+        && (value.execution_commitment.transition.is_some()
+            || value.execution_commitment.transition_ref.is_some())
     {
         return Err(error("wire-3 Node transition activation is not enabled"));
     }
@@ -90,7 +117,7 @@ pub(super) fn candidate(
     let private = hook
         .load_bft_v3_private_candidate(value)
         .map_err(|_| error("wire-3 original private candidate missing"))?;
-    validate_private(config, &mut **hook, schedule, &private)?;
+    validate_private(config, &mut **hook, schedule, &private, selected)?;
     if private.public_value != *value {
         return Err(error("wire-3 loaded private value changed"));
     }
@@ -101,21 +128,23 @@ pub(super) fn validate_private(
     hook: &mut dyn NodeExecutionHook,
     schedule: &BftHeaderHeightScheduleV3,
     candidate: &NodeBftPrivateCandidateV3,
+    selected: &SelectedNodeBftConfigV3,
 ) -> Result<(), NodeError> {
     candidate
         .public_value
         .validate_for_schedule(schedule)
         .map_err(|_| error("wire-3 private candidate schedule rejected"))?;
-    if candidate
-        .public_value
-        .execution_commitment
-        .transition
-        .is_some()
-        || candidate
+    if !selected.membership_enabled
+        && (candidate
             .public_value
             .execution_commitment
-            .transition_ref
+            .transition
             .is_some()
+            || candidate
+                .public_value
+                .execution_commitment
+                .transition_ref
+                .is_some())
     {
         return Err(error("wire-3 Node transitions are not enabled"));
     }
@@ -185,6 +214,21 @@ pub(super) fn restore(
     hook: &Hook,
     config: &crate::NodeConfig,
 ) -> Result<(BftConsensusMachineV3, Vec<BftConsensusActionV3>), NodeError> {
+    if super::membership::active_key(selected, schedule).is_none() {
+        if checkpoint.state.journal.is_some() {
+            return Err(error("wire-3 inactive follower has a signing journal"));
+        }
+        return Ok((
+            BftConsensusMachineV3::new(
+                schedule.clone(),
+                selected.binding.local_validator_id.clone(),
+                0,
+                selected.binding.timeouts,
+            )
+            .map_err(error)?,
+            Vec::new(),
+        ));
+    }
     let journal = checkpoint
         .state
         .journal
@@ -192,11 +236,11 @@ pub(super) fn restore(
         .ok_or_else(|| error("wire-3 protected journal missing"))?;
     for event in &journal.events {
         if let BftSigningJournalEventV3::Proposal { proposal, .. } = event {
-            candidate(config, hook, schedule, &proposal.block)?;
+            candidate(config, hook, schedule, &proposal.block, selected)?;
         }
     }
     if let Some(intent) = &journal.pending_proposal_intent {
-        candidate(config, hook, schedule, &intent.block)?;
+        candidate(config, hook, schedule, &intent.block, selected)?;
     }
     replay_bft_signing_journal_with_effects_v3(
         journal,
@@ -216,11 +260,19 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .bft_v3_config
         .clone()
         .ok_or_else(|| error("wire-3 mode missing"))?;
+    if let Some(network) = &selected.network {
+        network.execution.stop_serving();
+    }
     validate_runtime(runtime, &selected)?;
     let hook = runtime
         .execution_hook
         .clone()
         .ok_or_else(|| error("wire-3 requires actual execution hook"))?;
+    if selected.membership_enabled {
+        lock_hook(&hook)?
+            .enable_bft_v3_membership_execution()
+            .map_err(|_| error("wire-3 driver membership opt-in rejected"))?;
+    }
     lock_hook(&hook)?
         .configure_bft_v3_execution(&selected.binding)
         .map_err(|_| error("wire-3 durable configuration rejected"))?;
@@ -291,6 +343,14 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     let mut checkpoint = lease
         .checkpoint()
         .map_err(|_| error("wire-3 checkpoint unavailable"))?;
+    if selected.membership_enabled
+        && checkpoint.state.membership_install.is_none()
+        && checkpoint.state.pending_driver_apply.is_none()
+    {
+        checkpoint = lease
+            .enable_membership(checkpoint.state.revision, &checkpoint.state.state_digest)
+            .map_err(|_| error("wire-3 protected membership enable rejected"))?;
+    }
     let history = checkpoint.state.history.clone();
     let initial_pending_apply = checkpoint.state.pending_driver_apply.clone();
     if history.len() > 64 {
@@ -308,13 +368,14 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     }
     let mut schedule = selected.binding.initial_schedule().clone();
     let mut recovery_batches = Vec::new();
+    let mut actual_tip = None;
     for certificate in &history {
         let token = verify_commit_certificate_token_v3(&schedule, certificate).map_err(error)?;
         let value = BftHeaderValueV3 {
             header: certificate.header.clone(),
             execution_commitment: certificate.execution_commitment.clone(),
         };
-        let private = candidate(&runtime.config, &hook, &schedule, &value)?;
+        let private = candidate(&runtime.config, &hook, &schedule, &value, &selected)?;
         let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(
             &private.actions_cbor,
         )
@@ -323,6 +384,24 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             .commit_bft_v3_certificate(token.clone())
             .map_err(|_| error("wire-3 actual history install rejected"))?;
         validate_result(&token, &result)?;
+        if let Some(membership) = &checkpoint.state.membership_install {
+            for receipt in membership
+                .receipts
+                .iter()
+                .filter(|r| r.body.installed_head_height == result.height)
+            {
+                let b = &receipt.body;
+                if b.installed_head_commit_ref != result.header_id
+                    || b.installed_state_root != result.state_root
+                    || b.installed_manifest_hash != result.post_manifest_hash
+                    || b.driver_install_digest != result.driver_install_digest
+                {
+                    return Err(error(
+                        "wire-3 membership receipt differs from actual replay",
+                    ));
+                }
+            }
+        }
         let cached = cached_recovery
             .iter()
             .find(|batch| batch.height == result.height);
@@ -383,11 +462,17 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
                 )
                 .map_err(|_| error("wire-3 pending install confirmation rejected"))?;
         }
+        actual_tip = Some(result);
         schedule = token.next_height_schedule().clone();
-        singleton(&schedule, &selected.binding.local_validator_id)?;
+        validate_schedule(&schedule, &selected)?;
     }
     if checkpoint.state.pending_driver_apply.is_some() {
         return Err(error("wire-3 pending driver apply was not reconciled"));
+    }
+    if selected.membership_enabled && checkpoint.state.membership_install.is_none() {
+        checkpoint = lease
+            .enable_membership(checkpoint.state.revision, &checkpoint.state.state_digest)
+            .map_err(|_| error("wire-3 protected membership enable rejected"))?;
     }
     // Preserve confirmed notification eligibility even if later current-journal
     // validation fails. A subsequent start replays and compares this cache again.
@@ -411,7 +496,20 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         return Err(error("wire-3 replay tip context mismatch"));
     }
     restore(&selected, &schedule, &checkpoint, &hook, &runtime.config)?;
-    if history.len() < 64
+    if let Some(result) = &actual_tip {
+        super::membership::install(&selected, &schedule, result, &mut *lease, &mut checkpoint)?;
+    }
+
+    if let Some(network) = &selected.network
+        && super::membership::active_key(&selected, &schedule).is_some()
+    {
+        network
+            .exchange
+            .ensure_local_ready(&schedule)
+            .map_err(error)?;
+    }
+    if super::membership::active_key(&selected, &schedule).is_some()
+        && history.len() < 64
         && checkpoint
             .state
             .journal
@@ -427,7 +525,8 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         config: runtime.config.clone(),
         selected,
         hook,
-        lease,
+        lease: Arc::new(Mutex::new(lease)),
+        peers: worker::peer::PeerRuntime::default(),
         checkpoint,
         schedule,
         machine,
@@ -442,6 +541,11 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     let (stop_tx, stop_rx) = mpsc::channel();
     let running = runtime.running.clone();
     let state = runtime.state.clone();
+    let peer_state = worker
+        .selected
+        .network
+        .as_ref()
+        .map(|n| n.execution.clone());
     crate::runtime_util::lock_state(&runtime.state).last_error = None;
     runtime.running.store(true, Ordering::SeqCst);
     let spawn = runtime
@@ -449,6 +553,9 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .spawn(move || {
             if let Err(e) = worker.run(stop_rx) {
                 crate::runtime_util::lock_state(&state).last_error = Some(e.to_string());
+            }
+            if let Some(peer_state) = peer_state {
+                peer_state.stop_serving();
             }
             running.store(false, Ordering::SeqCst);
         });

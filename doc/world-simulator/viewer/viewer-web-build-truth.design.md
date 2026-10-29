@@ -68,7 +68,7 @@
 <a id="风险控制"></a>
 ## 10. 风险与权衡
 - 先保留 facade import path，避免一次性改动 `main.jsx` / `pixel_world_host.jsx` / tests 的所有 import。
-- compat alias 改成显式 wrapper，避免因为 alias 文件也被重新生成而产生第二份 bundle 真值。
+- compat alias 改成显式 wrapper，避免 alias 文件重新生成时产生第二份 bundle 真值。
 - 不在本轮修改 `viewer` / `software_safe` taxonomy，只收口生成产物和源码边界。
 
 ## 11. 验证与证据

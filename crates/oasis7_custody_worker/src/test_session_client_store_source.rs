@@ -177,6 +177,9 @@ impl OwnerProvisionApprovalStore {
         rpc: &TestSessionClientAdmissionRpc,
         operation: SessionClientOperation,
     ) -> Result<SessionPurposeV1> {
+        if matches!(operation, SessionClientOperation::ToolNonce) {
+            return Err(rejected());
+        }
         self.client_proof_transaction(
             env,
             rpc,
@@ -194,6 +197,7 @@ impl OwnerProvisionApprovalStore {
                     )
                     .map_err(|_| client_diagnostic("host_charge", rejected()))?;
                 match operation {
+                    SessionClientOperation::ToolNonce => Err(rejected()),
                     SessionClientOperation::Challenge => {
                         let request: SessionChallengeRequestV1 =
                             serde_json::from_str(&rpc.http.original.body)

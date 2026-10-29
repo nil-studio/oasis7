@@ -50,7 +50,7 @@ systemd 模板默认使用低权限专用用户:
 - remote provider bridge: `oasis7-provider`
 - newapi bridge: `oasis7-newapi`
 
-部署时需要先创建对应 user/group，并把 env/state 文件权限授权给这些用户。
+部署时须先创建对应 user/group，并把 env/state 文件权限授权给这些用户。
 
 ## ECS 目录建议
 
@@ -85,9 +85,9 @@ openssl rand -hex 32
 
 ## Per-User Token Key Mode
 
-若要做到“每个用户一个 `token_key`”，当前参考装配支持按 `bridge bearer token -> route label -> upstream token_key/model/base_url` 路由。
+当前参考装配可实现“每个用户一个 `token_key`”：按 `bridge bearer token -> route label -> upstream token_key/model/base_url` 路由。
 
-还支持自动映射模式：`bridge bearer token -> newapi bridge state -> token_key`。这里 Authorization bearer 字段承载路由 selector，不是调用者拥有该用户的证明；满足下述安全前提后，才可省去单独维护的 auth-routes / llm-routes JSON。
+还支持自动映射模式：`bridge bearer token -> newapi bridge state -> token_key`。此处 Authorization bearer 字段承载路由 selector，不是调用者拥有该用户的证明；满足下述安全前提后，才可省去单独维护的 auth-routes / llm-routes JSON。
 
 需要两份 JSON:
 
@@ -120,7 +120,7 @@ OASIS7_REMOTE_LLM_ROUTES_PATH=/etc/oasis7/remote-provider-llm-routes.json
 
 当前 `http_bridge_support.rs::authorize_request` 先使用非空静态 auth route map；
 仅在该 map 为空时进入自动映射分支。该分支解析 selector 并查询 state，不再叠加
-`OASIS7_PROVIDER_BRIDGE_AUTH_TOKEN` 的比较。配置这个全局 token 不能被当作自动映射
+`OASIS7_PROVIDER_BRIDGE_AUTH_TOKEN` 的比较。配置该全局 token 不能被当作自动映射
 的第二层认证；state 中的 active binding / token_key 也只证明路由可用。
 
 部署 owner 必须先核实：入口已独立认证调用主体并约束其可选 selector，或整个入口
@@ -163,9 +163,9 @@ python3 scripts/provider-remote-https/manage-user-route.py upsert-user \
 
 脚本行为:
 
-- 若该用户还没有 bridge token，会自动生成一个随机 bearer token。
-- 若该用户已存在 bridge token，默认沿用原 token，只更新上游 `api_key/model/base_url`。
-- 若需要轮换 bridge token，加 `--rotate-bridge-token`。
+- 若用户没有 bridge token，脚本会生成随机 bearer token。
+- 若用户已有 bridge token，默认沿用原 token，只更新上游 `api_key/model/base_url`。
+- 需要轮换 bridge token 时，加 `--rotate-bridge-token`。
 - 运行成功后会输出该用户应使用的 bridge bearer token 和一条 `curl` 样例。
 
 ## 本机验证
@@ -273,7 +273,7 @@ curl -sS -H "Authorization: Bearer <token>" https://t2t.oasis7.tech/v1/provider/
 该脚本同时验证 `/v1/provider/info`、`/v1/provider/health`、target
 `POST /v1/world-simulator/decision-context` 与配对的
 `POST /v1/world-simulator/feedback-context`。`<runtime-issued-context-pairs.json>`
-必须是由 Runtime 产生的 JSON wrapper artifact，根对象为
+必须是 Runtime 产生的 JSON wrapper artifact，根对象为
 `{"requests":[{"decision_context":<ContinuousAgentRequestContextV1>,
 "feedback_context":<FeedbackEnvelopeV1>}]}`；脚本会在发出请求前拒绝 bare DTO、缺失
 identity/capability context、非 canonical digest、错配 feedback 或不足的 pair 数量。
@@ -318,7 +318,7 @@ env -u RUSTC_WRAPPER cargo run -p oasis7_launcher_backend --bin oasis7_game_laun
 
 ## 当前已知边界
 
-- 该参考装配复用了 `oasis7_provider_local_bridge` 的 provider contract 和 prompt/decision parser，因此 `provider_id` 仍会表现为 `provider_local_bridge`。
+- 该参考装配复用 `oasis7_provider_local_bridge` 的 provider contract 和 prompt/decision parser，因此 `provider_id` 仍会表现为 `provider_local_bridge`。
 - `provider_health` 默认通过 `OASIS7_REMOTE_LLM_HEALTH_URL` 做 upstream 探针；若 LetAI/兼容服务不支持该路径，需要显式改成可用的健康检查地址。
 - 在未提供真实 LetAI `api_key/model` 前，ECS 端只能部署模板和二进制，不能完成最终 smoke。
 - 自动映射示例使用显式 `newapi_user_ref:<user_ref>` / `bridge_user_id:<id>`。当前

@@ -237,3 +237,21 @@ fn setup_normal_completed_restore_rejects_corrupt_signatures_in_all_result_varia
         );
     }
 }
+
+#[cfg(feature = "signature-metrics")]
+#[test]
+fn setup_restore_scope_does_not_survive_a_new_deserialize() {
+    let state = normal_completed();
+    let bytes = serde_json::to_vec(&state).unwrap();
+    let mut attempts = Vec::new();
+    for _ in 0..2 {
+        oasis7_custody_core::signature_metrics::begin_scope();
+        let restored = serde_json::from_slice::<AccountProvisionApprovalState>(&bytes).unwrap();
+        let measured = oasis7_custody_core::signature_metrics::take_summary();
+        assert_eq!(restored, state);
+        assert!(measured.strict_attempts > 0);
+        assert_eq!(measured.failures, 0);
+        attempts.push(measured.strict_attempts);
+    }
+    assert_eq!(attempts[0], attempts[1]);
+}

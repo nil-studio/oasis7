@@ -11,7 +11,7 @@
 
 ## 1. 目标与边界
 
-当前 runtime 可以执行确定性 world tick、持久化 world journal、snapshot/replay，并且 AgentIntentV2 已有 authority、request digest 与幂等 transition 基础。同步 simulator/兼容 runner 仍可能在 tick 调用栈内等待 provider；native runtime-live 的 Builtin 与 ProviderBacked 则都接入 AsyncAgentRunner，由 worker 调用决策并非阻塞地轮询结果。普通 ActionEnvelope 仍没有把决策绑定到产生它的 world 版本；native 接线也不证明完整 durable scheduler、远端恢复或全量非阻塞验收。本 PRD 把两条时间线明确分开：
+当前 runtime 可以执行确定性 world tick、持久化 world journal、snapshot/replay，AgentIntentV2 也已有 authority、request digest 与幂等 transition 基础。同步 simulator/兼容 runner 仍可能在 tick 调用栈内等待 provider；native runtime-live 的 Builtin 与 ProviderBacked 则都接入 AsyncAgentRunner，由 worker 调用决策并非阻塞地轮询结果。普通 ActionEnvelope 仍没有把决策绑定到产生它的 world 版本；native 接线也不证明完整 durable scheduler、远端恢复或全量非阻塞验收。本 PRD 把两条时间线明确分开：
 
 1. world timeline 只由 runtime scheduler 与 deterministic execution pipeline 推进；
 2. cognition timeline 可以等待、重试或恢复外部 provider，但绝不能阻塞或直接写 canonical world。
@@ -67,7 +67,9 @@
 5. envelope 进入同一 runtime action validation/commit pipeline；
 6. accepted/rejected disposition 与 world receipt 关联，scheduler 依 receipt 或 failure event 推进 turn/continuation。
 
-同一 agent 默认至多一个 active turn；如果未来允许并发，必须为每个 turn 独立 mailbox、identity、base snapshot、budget 与 continuation，不得依靠全局 feedback 或共享可变 context 串联。Scheduler enqueue 必须 non-blocking；bounded queue 满时只产生 durable pending/deferred disposition（例如 scheduler_backpressure），由后续 wake/recovery 重试，不得阻塞 world worker 或同步调用 provider。ready set 只使用 §3.1 固定的唯一 total comparator；每个 logical tick 受 `max_total_wakes_per_tick` 与 `max_wakes_per_agent_per_tick` 限制，agent 之间按 stable round-robin cursor 服务，pending 项可按 bounded aging 提升但不得越过 validity/reorg 检查。queue full 必须保留 wake identity 与下次 retry 序号；释放容量后的 retry 仍按该 comparator 且不得造成 starvation。
+同一 agent 默认至多一个 active turn；如果未来允许并发，必须为每个 turn 独立 mailbox、identity、base snapshot、budget 与 continuation，不得依靠全局 feedback 或共享可变 context 串联。
+
+Scheduler enqueue 必须 non-blocking；bounded queue 满时只产生 durable pending/deferred disposition（例如 scheduler_backpressure），由后续 wake/recovery 重试，不得阻塞 world worker 或同步调用 provider。ready set 只使用 §3.1 固定的唯一 total comparator；每个 logical tick 受 `max_total_wakes_per_tick` 与 `max_wakes_per_agent_per_tick` 限制，agent 之间按 stable round-robin cursor 服务，pending 项可按 bounded aging 提升但不得越过 validity/reorg 检查。queue full 必须保留 wake identity 与下次 retry 序号；释放容量后的 retry 仍按该 comparator 且不得造成 starvation。
 
 公平性 v1 fixture 配置固定为：`max_total_wakes_per_tick=8`、
 `max_wakes_per_agent_per_tick=1`、`aging_after_ticks=2`、`max_starvation_ticks=4`，并固定
@@ -505,8 +507,8 @@ WakeConditionV1 {
 `wake_conditions=[]` 在 v1 一律 rejected 为 `wake_conditions_empty`；不把空列表解释为
 立即唤醒、永久保持或任意 provider callback。列表最多 16 项、每项 canonical bytes ≤ 768 bytes、
 总 canonical bytes ≤ 4096 bytes、嵌套深度为 1；所有项必须成立（all-of）且按 canonical condition
-bytes 排序。Runtime 将所有 `at_or_after_tick`
-中的 tick 取最大值与当前 logical tick 的最大值，写入派生的 `next_wake_tick`；无 tick 条件时
+bytes 排序。Runtime 取所有 `at_or_after_tick`
+中的 tick 和当前 logical tick 的最大值，写入派生的 `next_wake_tick`；无 tick 条件时
 `next_wake_tick` 为空，表示 event/receipt/state-predicate 驱动的 schedule；scheduler 在相关
 committed event、receipt link 或 committed state-head 变化时重新求值，不能用 wall clock 代替
 event-driven wake。求值固定读取同一个 committed world head，并在 wake event 中记录 evaluation
@@ -556,7 +558,7 @@ AgentIntentV2 继续拥有 player/authenticated intent 的 intent_id、intent_ti
 
 queued、running、waiting_provider、response_recorded、ready_to_submit、accepted、rejected_stale、rejected_precondition、rejected_authority、rejected_capability、rejected_duplicate、retry_scheduled、failed_provider、failed_persist、cognition_failed、cancelled、recovery_pending、completed 是可观察的 lifecycle 状态。Runtime canonical FeedbackEnvelope status 仅为 committed/rejected/failed/pending；产品层 no-effect 结果映射为 rejected + reject_reason=no_effect，不建立 no_effect status。状态迁移必须由上述 durable event 驱动；未知迁移 fail closed。
 
-Runtime disposition 到目标 FeedbackEnvelope 的映射必须是稳定的：
+Runtime disposition 到目标 FeedbackEnvelope 的映射必须稳定：
 
 | Runtime disposition | FeedbackEnvelope.status | reject_reason | receipt / WorldReceiptLinked |
 | --- | --- | --- | --- |

@@ -542,7 +542,7 @@ fn command_failure_context(
     err.with_network_failure(facts)
 }
 
-fn block_on_command_response<T>(
+pub(super) fn block_on_command_response<T>(
     receiver: mpsc::Receiver<Result<T, WorldError>>,
     operation: &str,
 ) -> Result<T, WorldError> {

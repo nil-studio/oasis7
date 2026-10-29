@@ -664,3 +664,48 @@ fn completed_migration_writer_releases_lock_while_fork_child_keeps_descriptor() 
         assert!(acquired_after_writer_release);
     }
 }
+
+#[test]
+fn completed_migration_world_fence_releases_while_fork_child_keeps_descriptor() {
+    use crate::node_operations::admission_tests::InheritedDescriptors;
+    for unwind in [false, true] {
+        let root = fs::canonicalize("/tmp").unwrap().join(format!(
+            "oasis7-migration-world-fork-{}",
+            io::random_id().unwrap()
+        ));
+        io::private_dir(&root).unwrap();
+        let world = root.join("world");
+        let writer = transaction::world_fence(&world).unwrap();
+        assert!(transaction::world_fence(&world).is_err());
+        let inherited = InheritedDescriptors::fork();
+        if unwind {
+            assert!(
+                std::panic::catch_unwind(move || {
+                    let _writer = writer;
+                    panic!("injected migration unwind");
+                })
+                .is_err()
+            );
+        } else {
+            drop(writer);
+        }
+        let child_kept_descriptors = inherited.is_waiting();
+        let next = transaction::world_fence(&world);
+        let reopened_before_child_exit = next.is_ok();
+        let exclusive_before_child_exit = transaction::world_fence(&world).is_err();
+        drop(inherited);
+        let exclusive_after_child_exit = transaction::world_fence(&world).is_err();
+        drop(next);
+        let final_writer = transaction::world_fence(&world);
+        let reopened_after_release = final_writer.is_ok();
+        drop(final_writer);
+        fs::remove_dir_all(root).unwrap();
+        assert!(child_kept_descriptors);
+        assert!(
+            reopened_before_child_exit,
+            "completed migration must release its World fence before an unrelated child execs"
+        );
+        assert!(exclusive_before_child_exit && exclusive_after_child_exit);
+        assert!(reopened_after_release);
+    }
+}

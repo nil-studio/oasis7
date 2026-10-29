@@ -688,7 +688,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
             "startup reconciled node pos state from execution latest",
         );
     }
-    drop(startup_reconcile_bind_guard);
+    let status_listener = startup_reconcile_bind_guard.into_status_listener();
 
     let publication_lifecycle_observer = publication_lifecycle::PublicationLifecycleObserver::new(
         config.node_id.clone(),
@@ -836,6 +836,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
     let mut status_server = start_chain_status_server(
         status_host.as_str(),
         status_port,
+        Some(status_listener),
         Arc::clone(&runtime),
         Arc::clone(&replication_network),
         options.clone(),
@@ -908,25 +909,38 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
 
 #[derive(Debug)]
 struct StartupReconcileBindGuard {
-    _tcp_listeners: Vec<TcpListener>,
-    _udp_sockets: Vec<UdpSocket>,
+    status_listener: TcpListener,
+    replication_tcp_listeners: Vec<TcpListener>,
+    udp_sockets: Vec<UdpSocket>,
+}
+
+impl StartupReconcileBindGuard {
+    fn into_status_listener(self) -> TcpListener {
+        let Self {
+            status_listener,
+            replication_tcp_listeners,
+            udp_sockets,
+        } = self;
+        drop(replication_tcp_listeners);
+        drop(udp_sockets);
+        status_listener
+    }
 }
 
 fn reserve_startup_reconcile_bind_guard(
     options: &CliOptions,
 ) -> Result<StartupReconcileBindGuard, String> {
-    let mut tcp_listeners = Vec::new();
+    let mut replication_tcp_listeners = Vec::new();
     let mut udp_sockets = Vec::new();
     let (status_host, status_port) =
         parse_host_port(options.status_bind.as_str(), "--status-bind")?;
-    tcp_listeners.push(
+    let status_listener =
         TcpListener::bind((status_host.as_str(), status_port)).map_err(|err| {
             format!(
                 "startup reconcile preflight failed: status bind {} unavailable: {err}",
                 options.status_bind
             )
-        })?,
-    );
+        })?;
     if let Some(gossip_bind) = options.node_gossip_bind {
         udp_sockets.push(UdpSocket::bind(gossip_bind).map_err(|err| {
             format!(
@@ -943,13 +957,14 @@ fn reserve_startup_reconcile_bind_guard(
     for listen_addr in listen_addrs {
         startup_reconcile::reserve_replication_listen_addr(
             listen_addr.as_str(),
-            &mut tcp_listeners,
+            &mut replication_tcp_listeners,
             &mut udp_sockets,
         )?;
     }
     Ok(StartupReconcileBindGuard {
-        _tcp_listeners: tcp_listeners,
-        _udp_sockets: udp_sockets,
+        status_listener,
+        replication_tcp_listeners,
+        udp_sockets,
     })
 }
 
@@ -1126,6 +1141,9 @@ mod peer_record_receiver_tests;
 #[cfg(test)]
 #[path = "host/peer_record_transition_tests.rs"]
 mod peer_record_transition_tests;
+#[cfg(test)]
+#[path = "host/status_listener_handoff_tests.rs"]
+mod status_listener_handoff_tests;
 #[cfg(test)]
 #[path = "host/oasis7_chain_runtime_status_payload_chain_proof_tests.rs"]
 mod status_payload_chain_proof_tests;
