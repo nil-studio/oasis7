@@ -1128,3 +1128,6 @@ mod public_archive_tests;
 
 #[path = "archive_query_tests.rs"]
 mod archive_query_tests;
+
+#[path = "checkpoint_authentication_tests.rs"]
+mod checkpoint_authentication_tests;

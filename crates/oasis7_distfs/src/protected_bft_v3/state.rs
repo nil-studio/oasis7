@@ -168,6 +168,22 @@ pub(crate) struct VerifiedBftSignerStateV3 {
     pub(crate) state: BftSignerStateV3,
     pub(crate) schedule: BftHeaderHeightScheduleV3,
 }
+/// Authentication alone grants no verified schedule or signing authority.
+/// Kept separate so cold recovery can authenticate a bounded control envelope
+/// before it obtains the archived context required for full State validation.
+pub(crate) struct AuthenticatedBftSignerCheckpointV3<'a> {
+    checkpoint: &'a BftSignerCheckpointV3,
+    binding: &'a BftSignerBindingV3,
+}
+impl AuthenticatedBftSignerCheckpointV3<'_> {
+    fn validate_state(self) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        validate_state(
+            self.binding,
+            Some(&self.checkpoint.provider_public_key),
+            &self.checkpoint.state,
+        )
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerCheckpointV3 {
@@ -195,6 +211,23 @@ impl BftSignerCheckpointV3 {
         expected_generation: u64,
         provider_public_key: &str,
     ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        self.authenticate(
+            binding,
+            expected_challenge,
+            expected_request_digest,
+            expected_generation,
+            provider_public_key,
+        )?
+        .validate_state()
+    }
+    pub(crate) fn authenticate<'a>(
+        &'a self,
+        binding: &'a BftSignerBindingV3,
+        expected_challenge: &str,
+        expected_request_digest: &str,
+        expected_generation: u64,
+        provider_public_key: &str,
+    ) -> Result<AuthenticatedBftSignerCheckpointV3<'a>, BftSignerErrorV3> {
         if self.challenge != expected_challenge
             || self.request_digest != expected_request_digest
             || self.lease_generation != expected_generation
@@ -202,14 +235,28 @@ impl BftSignerCheckpointV3 {
         {
             return Err(invalid("BFT V3 checkpoint freshness or lease binding"));
         }
-        let verified = validate_state(binding, Some(provider_public_key), &self.state)?;
+        binding.validate()?;
+        if self.state.schema_version != 3 || self.state.binding_digest != binding.digest()? {
+            return Err(invalid(
+                "BFT V3 authenticated checkpoint H binding mismatch",
+            ));
+        }
+        self.state.encoded_len()?;
+        if digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&self.state))?
+            != self.state.state_digest
+        {
+            return Err(invalid("BFT V3 authenticated checkpoint digest mismatch"));
+        }
         verify_signature(
             CHECKPOINT_DOMAIN_V3,
             &self.signable_body(),
             &self.provider_signature_hex,
             provider_public_key,
         )?;
-        Ok(verified)
+        Ok(AuthenticatedBftSignerCheckpointV3 {
+            checkpoint: self,
+            binding,
+        })
     }
 }
 #[derive(Serialize)]
