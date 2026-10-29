@@ -1,6 +1,7 @@
 import { requestGameplayResult, receiveGameplayResult } from "./viewer_gameplay_result_recovery.js";
 import { getGameplayRecoveryScope, gameplaySendContextCurrent } from "./viewer_gameplay_recovery_scope.js";
 import { normalizeGameplayActionRequest } from "./viewer_feedback_actions.js";
+import { createLiveControlStateController, LIVE_CONTROL_STATE_CAPABILITY } from "./viewer_live_control_state.js";
 import { matchesGameplayReply, recoverGameplayFeedback, settleGameplayOriginal } from "./viewer_gameplay_receipt_feedback.js";
 import { quoteDependencyFingerprint, coordinateDependentQuotes } from "./viewer_quote_dependencies.js";
 import { safeAlternativeMarkup, bindSafeAlternativeLegacy } from "./viewer_safe_alternative_legacy.js";
@@ -98,6 +99,7 @@ let viewerPromptControlModule = null;
 let viewerControlLossModule = null;
 let semanticSendLoop = null;
 const pendingControlFeedback = new Map();
+const liveControlState = createLiveControlStateController(state, pendingControlFeedback);
 const pendingSemanticCommands = [];
 let pendingSessionRegisterWaiter = null;
 const elements = {};
@@ -450,7 +452,7 @@ const canonicalOwnerRead = createCanonicalOwnerReadModule({ state, sendJson, sig
 const safeAlternative = createSafeAlternativeModule({ state, sendJson, render, refreshOwner: () => canonicalOwnerRead.refresh(undefined, true) });
 const viewerAgentChatAuthModule = createViewerAgentChatAuthModule({ buildAuthEnvelope, nextAuthNonce, signAuthPayload, state });
 
-function resetViewerProtocolForConnection() { canonicalOwnerRead.reset(); viewerPromptControlModule?.resetForConnection(); }
+function resetViewerProtocolForConnection() { canonicalOwnerRead.reset(); viewerPromptControlModule?.resetForConnection(); liveControlState.reset(); }
 function promptControlCapabilitySelected() { return viewerPromptControlModule?.capabilitySelected() === true; }
 function promptControlResultSelected() { return viewerPromptControlModule?.resultSelected() === true; }
 function promptControlReadinessError(agentId) { return viewerPromptControlModule?.readinessError(agentId) || null; }
@@ -1313,6 +1315,7 @@ function sendViewerControl(action, payload) {
     feedback.stage = "queued";
     feedback.effect = "queued, check getState().lastControlFeedback for world delta";
     pendingControlFeedback.set(currentRequestId, feedback);
+    liveControlState.sent(feedback);
     state.lastControlFeedback = feedback;
     render();
     return snapshotControlFeedback(feedback);
@@ -1597,6 +1600,7 @@ function handleControlCompletionAck(ack) {
   if (!acceptRuntimeAckIdentity(ack)) return;
   const feedback = pendingControlFeedback.get(ack?.request_id);
   if (!feedback) return;
+  liveControlState.blocked(ack);
   feedback.deltaLogicalTime = Number(ack?.delta_logical_time || 0);
   feedback.deltaEventSeq = Number(ack?.delta_event_seq || 0);
   if (ack?.status === "advanced") {
@@ -3413,6 +3417,7 @@ function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket &&
       state.server = message.server || null;
       state.worldId = message.world_id || null;
       state.controlProfile = message.control_profile || "playback";
+      liveControlState.hello(message);
       hydrateChatHistoryFromStorage();
       if (!initialSnapshotRequested) {
         initialSnapshotRequested = true;
@@ -3424,6 +3429,9 @@ function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket &&
         void syncHostedPlayerSessionOnConnect().catch((error) => { state.auth.error = String(error); render(); });
         render();
       }).catch((error) => { state.auth.error = String(error); render(); });
+      break;
+    case "live_control_state":
+      liveControlState.receive(message.state);
       break;
     case "snapshot":
       handleSnapshot(message.snapshot);
@@ -3508,7 +3516,7 @@ function attachSocket(ws) {
     initialSnapshotRetryCount = 0;
     clearHelloAckTimer();
     clearInitialSnapshotRetryTimer();
-    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, "gameplay_result_lookup_v1", "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
+    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, LIVE_CONTROL_STATE_CAPABILITY, "gameplay_result_lookup_v1", "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
     scheduleHelloAckTimeout(ws);
     syncHostedSessionRefreshLoop();
     render();

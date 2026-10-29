@@ -56,6 +56,7 @@ impl ViewerRuntimeLiveServer {
             }
 
             let mut output = response_outbox::ResponseOutbox::new(limits);
+            self.publish_live_control_state(&mut session, &mut output, None, false)?;
             if self.authoritative_recovery_write_fence.is_none()
                 && self.chain_link_enabled()
                 && session.initial_snapshot_sent

@@ -21,6 +21,15 @@ pub(in crate::viewer::runtime_live) struct HostedWait {
     rejection: Option<IntentResponse<serde_json::Value>>,
 }
 impl HostedWait {
+    pub(in crate::viewer::runtime_live) fn owns_provider_context(
+        &self,
+        active: &ProviderContextState,
+    ) -> bool {
+        self.decision.cognition.as_ref().is_some_and(|c| {
+            super::service_orphan_recovery::same_provider_context(active, &c.request)
+        })
+    }
+
     fn validate_decision(decision: &async_support::RuntimeLlmDecision) -> Result<(), String> {
         let cognition = decision
             .cognition

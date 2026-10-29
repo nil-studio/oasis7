@@ -1191,3 +1191,6 @@ mod tests;
 
 #[path = "llm_sidecar_service_feedback_ack.rs"]
 pub(in crate::viewer::runtime_live) mod service_feedback_ack;
+
+#[path = "llm_sidecar_service_orphan_recovery.rs"]
+pub(in crate::viewer::runtime_live) mod service_orphan_recovery;

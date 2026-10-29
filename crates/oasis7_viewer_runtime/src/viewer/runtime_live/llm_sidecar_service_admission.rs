@@ -873,3 +873,12 @@ mod feedback_admission_tests;
 #[cfg(test)]
 #[path = "llm_sidecar_reserve_rejection_tests.rs"]
 mod reserve_rejection_tests;
+
+impl HostedAdmission {
+    pub(in crate::viewer::runtime_live) fn owns_provider_context(
+        &self,
+        active: &ProviderContextState,
+    ) -> bool {
+        super::service_orphan_recovery::same_provider_context(active, &self.context)
+    }
+}

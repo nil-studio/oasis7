@@ -663,9 +663,11 @@ impl RuntimeLlmSidecar {
             .map(|wake| (wake.wake_id.clone(), wake))
             .collect();
         if self.provider_service_required {
+            self.classify_hosted_orphans();
             self.pending_runtime_wakes = pending_runtime_wakes;
             self.provider_lineage_binding = checkpoint.runtime_binding;
             self.provider_lineage_restored = true;
+            self.persist_provider_lineage()?;
             // Signed pending intents are validated before installation. Only
             // canonical Lookup/read-view may reconcile them after restart.
             return Ok(());

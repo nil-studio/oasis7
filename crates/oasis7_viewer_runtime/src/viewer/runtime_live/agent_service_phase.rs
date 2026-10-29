@@ -14,6 +14,7 @@ mod direct;
 
 #[derive(Clone)]
 pub(super) enum HostedServicePhase {
+    Orphan(super::control_plane::llm_sidecar::service_orphan_recovery::OrphanPhase),
     Act {
         pending: PendingProviderServiceIntent,
         submit: bool,
@@ -149,6 +150,11 @@ impl crate::viewer::ViewerRuntimeLiveServer {
             .is_some_and(|original| original != &current_config)
         {
             return Err("hosted service original configuration changed; checkpoint fenced".into());
+        }
+        if self.llm_sidecar.hosted_service_phase.is_none()
+            && self.llm_sidecar.provider_service_pending.is_empty()
+        {
+            self.llm_sidecar.begin_hosted_orphan_recovery();
         }
         if self.llm_sidecar.hosted_wait.is_some() {
             return self.prepare_hosted_wait_io();
@@ -290,6 +296,9 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                 .with_query_state(self.world_service_query_state.clone());
         }
         let operation = match &phase {
+            HostedServicePhase::Orphan(orphan) => {
+                self.llm_sidecar.hosted_orphan_operation(orphan)?
+            }
             HostedServicePhase::Act { pending, submit } => {
                 original_intent_io(&pending.correlation, &pending.payload, *submit)
             }
@@ -440,6 +449,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         self.llm_sidecar.hosted_service_inflight = Some(token.clone());
         // After dispatch reservation any worker failure must recover by Lookup.
         match self.llm_sidecar.hosted_service_phase.as_mut() {
+            Some(HostedServicePhase::Orphan(orphan)) => orphan.submit = false,
             Some(HostedServicePhase::Act { submit, .. })
             | Some(HostedServicePhase::ActSettle { submit, .. })
             | Some(HostedServicePhase::HandoffWake { submit, .. })
@@ -481,6 +491,9 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         }
         let response = result.response?;
         match phase {
+            HostedServicePhase::Orphan(orphan) => {
+                self.apply_hosted_orphan_response(orphan, response)?
+            }
             HostedServicePhase::Act { pending, .. } => {
                 let Some(response) = original_response(response)? else {
                     return Ok(AgentServiceProgress::Advanced);

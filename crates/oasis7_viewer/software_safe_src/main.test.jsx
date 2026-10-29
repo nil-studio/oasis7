@@ -1,3 +1,4 @@
+import { registerViewerLiveControlTests } from "./test_support/viewer_live_control_cases.jsx";
 import { bindLocalTestAgent, bindFirstSnapshotAgentForTest, bindUnboundLocalPlayerForTest } from "./test_support/viewer_player_auth_fixture.js";
 import { fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1102,72 +1103,7 @@ describe("viewer web ui automation baseline", () => {
       .toBeInTheDocument();
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
-  it("exposes Player Pause and sends the standard live control without Director authority", async () => {
-    const { sockets, sentMessages } = installMockWebSocket();
-    const snapshot = sampleSnapshot({
-      player_gameplay: {
-        ...sampleSnapshot().player_gameplay,
-        available_actions: [{
-          action_id: "pause_play", label: "Pause live play", protocol_action: "live_control.pause",
-          target_agent_id: null, disabled_reason: null,
-        }],
-      },
-    });
-    const { core } = await renderViewerApp({
-      search: "/software_safe.html?test_api=1&connect=1&hosted_bootstrap=0&locale=en&ws=ws://127.0.0.1:5011",
-      autoBindSnapshotAgent: false, snapshot,
-    });
-    sockets[0].open();
-    sockets[0].receive({ type: "hello_ack", server: "test-live", world_id: "test-world", control_profile: "live" });
-    core.injectSnapshot(snapshot);
-    sentMessages.length = 0;
-    const pause = screen.getAllByRole("button", { name: "Pause live play" })[0];
-    expect(pause).toHaveTextContent("Pause Live Play");
-    expect(pause).toBeEnabled();
-    fireEvent.click(pause);
-    expect(sentMessages.filter((message) => message.type === "live_control")).toEqual([
-      expect.objectContaining({ mode: { mode: "pause" }, request_id: expect.any(Number) }),
-    ]);
-    expect(sentMessages.some((message) => message.type === "gameplay_action" || message.type === "director_capability")).toBe(false);
-  }, HEAVY_UI_TEST_TIMEOUT_MS);
-
-  it.each([
-    ["provider unavailable", false],
-    ["cognition allowance unavailable", false],
-    ["runtime snapshot is missing agents/locations", true],
-  ])("keeps global Player Pause clickable when %s without a bound Agent", async (reason, empty) => {
-    const { sockets, sentMessages } = installMockWebSocket();
-    const snapshot = sampleSnapshot({
-      ...(empty ? { model: { agents: {}, locations: {}, agent_prompt_profiles: {}, agent_execution_debug_contexts: {} } } : {}),
-      player_gameplay: {
-        ...sampleSnapshot().player_gameplay,
-        blocker_kind: empty ? "runtime_snapshot_empty_entities" : "runtime_unavailable",
-        blocker_detail: reason,
-        available_actions: [{
-          action_id: "pause_play", label: "Pause live play", protocol_action: "live_control.pause",
-          target_agent_id: null, disabled_reason: reason,
-        }, {
-          action_id: "resume_play", label: "Resume live play", protocol_action: "live_control.play",
-          target_agent_id: null, disabled_reason: reason,
-        }],
-      },
-    });
-    const { core } = await renderViewerApp({
-      search: "/software_safe.html?test_api=1&connect=1&hosted_bootstrap=0&locale=en&ws=ws://127.0.0.1:5011",
-      autoBindSnapshotAgent: false, snapshot,
-    });
-    sockets[0].open();
-    sockets[0].receive({ type: "hello_ack", server: "test-live", world_id: "test-world", control_profile: "live" });
-    core.injectSnapshot(snapshot);
-    sentMessages.length = 0;
-    const pause = screen.getAllByRole("button", { name: "Pause live play" })[0];
-    expect(pause).toBeEnabled();
-    expect(screen.getAllByRole("button", { name: "Resume live play" }).every((button) => button.disabled)).toBe(true);
-    fireEvent.click(pause);
-    expect(sentMessages.filter((message) => message.type === "live_control")).toEqual([
-      expect.objectContaining({ mode: { mode: "pause" }, request_id: expect.any(Number) }),
-    ]);
-  }, HEAVY_UI_TEST_TIMEOUT_MS);
+  registerViewerLiveControlTests({ installMockWebSocket, sampleSnapshot, renderViewerApp, HEAVY_UI_TEST_TIMEOUT_MS });
 
   it("keeps published live-control recovery actions clickable while first-agent sync is pending", async () => {
     await renderViewerApp({

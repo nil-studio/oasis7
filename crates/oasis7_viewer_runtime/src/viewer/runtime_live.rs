@@ -83,6 +83,7 @@ mod control_feedback;
 mod control_mode;
 #[path = "runtime_live/control_plane.rs"]
 mod control_plane;
+mod control_state;
 #[path = "runtime_live/control_utils.rs"]
 mod control_utils;
 #[path = "runtime_live/decision_trace.rs"]
@@ -188,6 +189,7 @@ pub struct ViewerRuntimeLiveServer {
     world: RuntimeWorld,
     initial_world_time: u64,
     auto_play_paused: bool,
+    control_state: control_state::ControlStatePublisher,
     next_auto_play_step_at: Option<Instant>,
     last_chain_committed_height: u64,
     verified_world_view: Option<crate::world_service::verified_view::VerifiedWorldView>,
@@ -420,6 +422,7 @@ impl ViewerRuntimeLiveServer {
         let next_virtual_event_id = latest_runtime_event_seq(&world).saturating_add(1).max(1);
         let mut server = Self {
             auto_play_paused: !config.auto_play_on_connect,
+            control_state: control_state::ControlStatePublisher::new(!config.auto_play_on_connect)?,
             config,
             world,
             initial_world_time,
@@ -890,6 +893,7 @@ impl ViewerRuntimeLiveServer {
             let driven = {
                 let mut server = lock_shared_server(&shared)?;
                 agent_presence.observe(&mut server, &session);
+                server.publish_live_control_state(&mut session, &mut output, None, false)?;
                 if server.authoritative_recovery_write_fence.is_none()
                     && server.config.world_service.is_none()
                 {

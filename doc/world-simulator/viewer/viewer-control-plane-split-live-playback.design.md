@@ -14,6 +14,32 @@
 
 ## 具体协议编解码边界
 
+<a id="live-control-state-design"></a>
+### Live 调度状态观察
+
+Trace refs: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef；上游为
+[Live 调度控制合同](viewer-control-plane-split-live-playback.prd.md#live-control-observation)。
+Viewer 服务为新决策调度保存独立的随机 process observation epoch 与单调 revision；epoch
+不授予任何权限。revision 从 1 开始，限于 JSON 安全整数；所有共享调度修改入口统一更新观察，
+同状态重复请求返回同 revision。安全暂停必须先停止新决策；若版本耗尽而无法发布真实状态，
+永久失效本进程观察并关闭已协商该能力的连接，不复用旧版本或在连接中重置 epoch。失效后
+协商连接的 Resume 不得重新启用新决策；未协商旧客户端保留原协议行为。`LiveControlState` 固定 scope 为
+`viewer_new_decisions`，不携带世界快照、私有目标或模型内容。
+
+仅 HelloV2 协商 `live_control_state_v1` 的 live session 接收 `live_control_state`。
+握手和显式快照请求强制发布，周期循环仅在该 session 尚未观察当前 revision 时发布；成功
+Play/Pause 带原 request_id 立即发布。Step 原 completion ACK 不改语义；若 Step 改变调度
+策略，当前控制状态另行同步，不把零世界增量标作 Advanced。
+
+Web 先按当前 socket/连接代次过滤，再固定首次 epoch。较低 revision 不改当前策略；同
+revision 冲突使观察失效。确认按原 request_id 和原 play/pause 意图匹配；迟到确认不得完成
+新请求。断连或旧 peer 未协商时显示未确认。可见文案区分“Viewer 新决策已暂停/已启用”
+与世界时钟、既有任务及在途模型请求；不能显示伪造行动回执。
+
+验证覆盖 handler 成功 Play/Pause 的原请求关联、无世界增量、重复请求、另一连接周期同步、
+重连、旧 epoch/较低 revision/同 revision 冲突、迟到确认与旧 peer 无新消息。Web 必须经
+真实 handler→接收状态→可见文案测试；正式浏览器证据与模型/世界结果另外核对。
+
 `oasis7_viewer_codec` 依赖 `oasis7(default-features=false)`、`oasis7_proto` 与请求合同 owner `oasis7_client_api`，持有具体 `ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>` 的非泛型 JSON writer、字符串包装和请求解析入口。Viewer runtime 依赖 codec，并 re-export 同一响应类型，保留既有公开路径和 native/WASM 条件类型。具体 archive 类型仍归 `oasis7::simulator`；codec 不拆分 archive 或空间投影，也不启用新的 Runtime/Node features。
 
 普通和带原请求 nonce 的 flatten envelope 编码均在 codec 中生成；nonce 为 None 时省略。公开 writer 参数保持 `&mut dyn Write`。Runtime live 使用直接编码入口；Offline TCP 使用 codec 内的 8 KiB 有界缓冲入口；Event 响应复用直写入口，避开 Linux 大 Event 实测的额外缓冲开销；具体开销机制未归因，字符串包装复用同一缓冲 serializer、请求 1 KiB 缓冲，并在未排出块时直接复用尾部 Vec。这避免原具体 BufWriter 和 Vec 路径逐片段虚分派的实测退化。普通响应有两种固定 writer 实例（动态 writer 与 `BufWriter<&mut dyn Write>`），均留在 codec 库内，不向上层导出泛型序列化树；实例数量取舍须一并测量冷构建与运行时成本。

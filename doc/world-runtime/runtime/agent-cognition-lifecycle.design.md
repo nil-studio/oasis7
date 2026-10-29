@@ -566,6 +566,20 @@ response artifact, receipt, idempotency record or commit projection is missing/m
 only from `WorldCommitRecordV1`; if the record is ambiguous, enter recovery_pending and expose the
 structured fault. Do not issue an unrecorded provider call or re-run a world effect.
 
+### 5.2.1 Hosted worker loss after dispatch
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；本条细化同一恢复要求的本地执行器丢失边界，不宣称完整 AC-EXT-008 验收。
+
+上表 `RequestDispatched` 的重试许可要求原执行器的持久调用预算及可恢复 provider outcome 合同仍然可用。Hosted `AsyncAgentRunner` 进程丢失后，仅有 active marker、原 request、Reserved lease 和 canonical dispatch prefix，不能证明外部请求未计费，也不授权重调模型。恢复必须保留原 invocation、lease、retry_seq、transport_attempt、base binding 和当前 authority；单独的本地 marker 不得被清除以开启新请求。
+
+恢复先查原 canonical 请求及受信 Agent scope read-view。`ProviderPrefix` 在一个 canonical 操作内产生 TurnStarted、ContextCaptured、RequestDispatched；不得虚构三个独立 scheduler 提交。恢复必须使用实际生产者保留的 immutable signed payload/correlation；缺失原请求或无法验证当前 owner/delegation/fence、世界和 branch/finality binding 时，持久记录 `model_outcome_unknown` 并保持 recovery pending，不能重签原操作或从事件猜造 Lookup key。已有 response、commit、receipt 或 continuation 必须转入其原结果恢复路径。
+
+在原 prefix、原 Reserved lease 与当前权限均由 canonical evidence 证实，且无 response/commit 时，允许用已有 `ProviderFailure` 操作和 `cognition_failed` 原因终止已丢失的本地执行器。独立持久恢复原因必须为 `executor_lost_after_dispatch:model_outcome_unknown`：它只陈述本地执行器丢失，不声称外部模型失败、未返回或未计费。Runtime 既有 after-response 拒绝是迟到响应竞争的最终保护；被拒绝时保留原 terminal 请求和阻断原因，不生成新 nonce 尝试绕过。
+
+首次 terminal 和 settlement 请求必须在发送前持久化其签名与 correlation，崩溃后先 Lookup 原请求。Pending/Received/未知 transport outcome 均保留原请求；只有受信的原 key Unknown 才允许重发同一签名 payload。原 fixed cognition unit 按 reserved amount=1 保守 SettleLease，禁止 ReleaseLease、退款或伪称外部 cost 已知；外部 durable call ledger 已消耗的调用保持不变。terminal 与 settlement 的精确 committed receipts 以及后续受信 read-view 必须确认原请求已终结、原 lease 已 Settled、consumed=1、released/refunded=0，才能持久退休同一 orphan 并恢复正常新 turn 的 eligibility。模型原请求永不重发；新 turn 仍受正常 policy、预算和当前权限约束。
+
+验收必须包含原 marker/lease/request 的恢复、原 key Lookup、各 checkpoint 崩溃重入、迟到 response、已知 Rejected、权限变化和缺失原 correlation。只显示 quarantine 不算正向恢复完成；合法 terminal 与 settlement 回读后必须证明正常 admission 可以继续。外部 provider 没有可恢复 outcome 时，其实际响应与费用仍明确未知，不能以本地终止代签其结果。
+
 ### 5.3 Commit and delivery guarantees
 
 The provider invocation, actor wake, queue delivery and receipt notification are at-least-once. The provider is expected to deduplicate the stable provider_invocation_key, but runtime cannot make an external service exactly-once. The runtime guarantees exactly-once for envelope_idempotency_key at the `WorldCommitRecordV1` finalize boundary. Journal sequence, world event, debit/effect and execution receipt are not replayed as a second business effect. Replay reads the response/receipt and never performs provider I/O.

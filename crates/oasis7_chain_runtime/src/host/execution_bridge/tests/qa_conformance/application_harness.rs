@@ -726,7 +726,7 @@ fn run_application_child_and_report(
     } else {
         command.output().unwrap()
     };
-    if admission_mode == "slow-consumer" {
+    if matches!(admission_mode, "slow-consumer" | "periodic-fairness") {
         application_stream_budget_diagnostics::relay(&output);
     }
     if !output.status.success() {
