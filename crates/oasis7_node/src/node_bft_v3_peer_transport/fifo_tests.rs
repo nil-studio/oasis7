@@ -27,6 +27,7 @@ fn case(expire: bool) {
     let first = proposal();
     let first_bytes = encode_bft_public_peer_message_v3(&context, &first).unwrap();
     let first_digest = message_digest(&digest, &first_bytes);
+    let first_frame = Frame::encode_chunk(&digest, &first_bytes, &first_digest, 0).unwrap();
     let held = Arc::new(AtomicBool::new(true));
     let rejected_count = Arc::new(AtomicUsize::new(0));
     let inbox = Arc::new(Mutex::new(Inbox::new()));
@@ -40,9 +41,8 @@ fn case(expire: bool) {
             PROTOCOL,
             64 * 1024,
             Box::new(move |_, bytes| {
-                let frame =
-                    Frame::decode(bytes, &admit_context).map_err(|_| rejected("test frame"))?;
-                if frame.digest == first_digest && gate.load(Ordering::Acquire) {
+                Frame::decode(bytes, &admit_context).map_err(|_| rejected("test frame"))?;
+                if bytes == first_frame && gate.load(Ordering::Acquire) {
                     rejects.fetch_add(1, Ordering::AcqRel);
                     return Err(WorldError::NetworkRequestFailed {
                         code: oasis7_proto::distributed::DistributedErrorCode::ErrRateLimited,
