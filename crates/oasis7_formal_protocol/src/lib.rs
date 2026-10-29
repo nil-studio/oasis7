@@ -12,3 +12,4 @@ pub mod incremental_state;
 mod merkle;
 
 pub mod incremental_history;
+pub mod incremental_schedule;
