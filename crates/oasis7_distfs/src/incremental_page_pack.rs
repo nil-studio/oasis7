@@ -268,7 +268,7 @@ fn publish(
 impl IncrementalPageStore {
     /// Borrowed pages retain their producer charge. Admit all encoded members
     /// and metadata before allocation; physical cuts reuse the frozen codec.
-    pub(super) fn put_page_batch(
+    pub fn put_page_batch(
         &self,
         pages: &[([u8; 32], &[u8])],
         class: MemoryClass,
