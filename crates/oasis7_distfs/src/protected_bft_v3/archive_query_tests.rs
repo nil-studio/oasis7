@@ -308,7 +308,7 @@ fn archive_query_tcp_bounded_chunks_reassemble_and_reject_changed_coordinates_wi
             request_id: id,
             checkpoint_digest: digest,
             segment_root: record.manifest.digest().unwrap(),
-            minimum_lower_bound: minimum,
+            minimum_lower_bound: Box::new(minimum),
         },
         object: record.original_public_state.clone(),
         offset: 0,
@@ -452,7 +452,7 @@ fn archive_chunk_signed_malformed_summary_is_rejected() {
                 request_id: "summary".into(),
                 checkpoint_digest: "cd".repeat(32),
                 segment_root: "34".repeat(32),
-                minimum_lower_bound: minimum,
+                minimum_lower_bound: Box::new(minimum),
             },
             object: BftSuccessorWindowArchiveRefV1 {
                 digest: "56".repeat(32),

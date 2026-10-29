@@ -35,6 +35,8 @@ pub struct BftSignerStateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub successor_window: Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_window: Option<super::active_window::BftSignerActiveWindowV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_finality_rotation_proofs:
         Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
 
@@ -62,6 +64,8 @@ pub struct BftSignerCandidateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub successor_window: Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_window: Option<super::active_window::BftSignerActiveWindowV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_finality_rotation_proofs:
         Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
 
@@ -88,6 +92,7 @@ impl BftSignerStateV3 {
             0,
             BftSignerCandidateV3 {
                 successor_window: None,
+                active_window: None,
                 bootstrap_finality_rotation_proofs: None,
                 finality_rotation_proofs: None,
                 membership_install: None,
@@ -104,8 +109,17 @@ impl BftSignerStateV3 {
         revision: u64,
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
+        Self::from_candidate_with_active_context(binding, revision, candidate, None)
+    }
+    pub(crate) fn from_candidate_with_active_context(
+        binding: &BftSignerBindingV3,
+        revision: u64,
+        candidate: BftSignerCandidateV3,
+        context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
+    ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
             successor_window: candidate.successor_window,
+            active_window: candidate.active_window,
             bootstrap_finality_rotation_proofs: candidate.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: candidate.finality_rotation_proofs,
             membership_install: candidate.membership_install,
@@ -120,13 +134,15 @@ impl BftSignerStateV3 {
             state_digest: String::new(),
         };
         state.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&state))?;
-        validate_state(binding, None, &state)?;
+        validate_state_with_active_context(binding, None, &state, context)?;
         Ok(state)
     }
-    pub(crate) fn with_successor_window(
+    pub(crate) fn with_successor_window_context(
         &self,
         binding: &BftSignerBindingV3,
         extension: super::successor_state::BftSuccessorWindowStateV1,
+        context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
+        rebase: bool,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut next = self.clone();
         next.revision = self
@@ -134,13 +150,34 @@ impl BftSignerStateV3 {
             .checked_add(1)
             .ok_or_else(|| invalid("successor state revision overflow"))?;
         next.successor_window = Some(extension);
+        if rebase {
+            let base = context
+                .as_ref()
+                .ok_or_else(|| invalid("active rebase lacks verified archive context"))?;
+            let cut = base.checkpoint().body().cut.height;
+            if self.pending_driver_apply.is_some()
+                || self.history.last().map(|c| c.execution_commitment.height) != Some(cut)
+            {
+                return Err(invalid(
+                    "active rebase differs from exact frozen applied cut",
+                ));
+            }
+            next.active_window = Some(super::active_window::BftSignerActiveWindowV1 {
+                schema_version: 1,
+                checkpoint_digest: base.checkpoint().digest().into(),
+            });
+            next.history.clear();
+            next.completed_journals.clear();
+            next.applied_installs.clear();
+        }
         next.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&next))?;
-        validate_state(binding, None, &next)?;
+        validate_state_with_active_context(binding, None, &next, context)?;
         Ok(next)
     }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
             successor_window: self.successor_window.clone(),
+            active_window: self.active_window.clone(),
             bootstrap_finality_rotation_proofs: self.bootstrap_finality_rotation_proofs.clone(),
             finality_rotation_proofs: self.finality_rotation_proofs.clone(),
             membership_install: self.membership_install.clone(),
@@ -167,6 +204,8 @@ impl BftSignerStateV3 {
 pub(crate) struct VerifiedBftSignerStateV3 {
     pub(crate) state: BftSignerStateV3,
     pub(crate) schedule: BftHeaderHeightScheduleV3,
+    pub(crate) active_context:
+        Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
 }
 /// Authentication alone grants no verified schedule or signing authority.
 /// Kept separate so cold recovery can authenticate a bounded control envelope
@@ -176,6 +215,17 @@ pub(crate) struct AuthenticatedBftSignerCheckpointV3<'a> {
     binding: &'a BftSignerBindingV3,
 }
 impl AuthenticatedBftSignerCheckpointV3<'_> {
+    pub(crate) fn validate_with_active_context(
+        self,
+        context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
+    ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        validate_state_with_active_context(
+            self.binding,
+            Some(&self.checkpoint.provider_public_key),
+            &self.checkpoint.state,
+            context,
+        )
+    }
     fn validate_state(self) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
         validate_state(
             self.binding,
@@ -271,6 +321,8 @@ struct StateDigestInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     successor_window: &'a Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    active_window: &'a Option<super::active_window::BftSignerActiveWindowV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bootstrap_finality_rotation_proofs:
         &'a Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -290,6 +342,7 @@ impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
             successor_window: &s.successor_window,
+            active_window: &s.active_window,
             bootstrap_finality_rotation_proofs: &s.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: &s.finality_rotation_proofs,
             membership_install: &s.membership_install,
@@ -309,6 +362,22 @@ pub(crate) fn validate_state(
     _provider_public_key: Option<&str>,
     state: &BftSignerStateV3,
 ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+    validate_state_with_active_context(binding, _provider_public_key, state, None)
+}
+pub(crate) fn validate_state_with_active_context(
+    binding: &BftSignerBindingV3,
+    _provider_public_key: Option<&str>,
+    state: &BftSignerStateV3,
+    context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
+) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+    let context = if state.active_window.is_some() {
+        let context = context
+            .ok_or_else(|| invalid("active window requires authenticated archive context"))?;
+        context.validate_anchor(state)?;
+        Some(context)
+    } else {
+        None
+    };
     binding.validate()?;
     if state.schema_version != 3 || state.binding_digest != binding.digest()? {
         return Err(invalid("BFT V3 state schema or H binding mismatch"));
@@ -329,7 +398,10 @@ pub(crate) fn validate_state(
         &(&state.completed_journals, &state.journal),
         BFT_SIGNER_MAX_JOURNAL_BYTES_V3,
     )?;
-    let mut schedule = binding.initial_schedule().clone();
+    let mut schedule = context.as_ref().map_or_else(
+        || binding.initial_schedule().clone(),
+        |c| c.checkpoint().schedule().clone(),
+    );
     for (certificate, archived) in state.history.iter().zip(&state.completed_journals) {
         match (archived, journal_for_schedule(binding, &schedule)?) {
             (Some(journal), Some(expected)) => {
@@ -409,10 +481,23 @@ pub(crate) fn validate_state(
     }
     if let Some(window) = &state.successor_window {
         window.validate(binding, _provider_public_key)?;
+        if window
+            .minimum
+            .as_ref()
+            .is_some_and(|m| schedule.height() <= m.height)
+        {
+            return Err(invalid(
+                "BFT V3 active schedule regressed below protected minimum",
+            ));
+        }
     }
-    super::membership::validate_records(binding, state, _provider_public_key)?;
-    super::rotation::validate_archive(binding, state)?;
-    super::bootstrap_rotation::validate_archive(binding, state)?;
+    if let Some(context) = &context {
+        context.validate_governance_records(binding, state, _provider_public_key)?;
+    } else {
+        super::membership::validate_records(binding, state, _provider_public_key)?;
+        super::rotation::validate_archive(binding, state)?;
+        super::bootstrap_rotation::validate_archive(binding, state)?;
+    }
     super::rotation::validate_shared_archives(
         &state.finality_rotation_proofs,
         &state.bootstrap_finality_rotation_proofs,
@@ -454,6 +539,7 @@ pub(crate) fn validate_state(
     Ok(VerifiedBftSignerStateV3 {
         state: state.clone(),
         schedule,
+        active_context: context,
     })
 }
 pub(super) fn journal_for_schedule(
@@ -517,7 +603,8 @@ pub(crate) fn validate_candidate_transition(
     _provider: &str,
 ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
     let old = &previous.state;
-    if candidate.successor_window != old.successor_window
+    if candidate.active_window != old.active_window
+        || candidate.successor_window != old.successor_window
         || old
             .successor_window
             .as_ref()
@@ -645,8 +732,18 @@ pub(crate) fn validate_candidate_transition(
         .revision
         .checked_add(1)
         .ok_or_else(|| invalid("BFT V3 revision overflow"))?;
-    let next = BftSignerStateV3::from_candidate(binding, revision, candidate.clone())?;
-    validate_state(binding, Some(_provider), &next)
+    let next = BftSignerStateV3::from_candidate_with_active_context(
+        binding,
+        revision,
+        candidate.clone(),
+        previous.active_context.clone(),
+    )?;
+    validate_state_with_active_context(
+        binding,
+        Some(_provider),
+        &next,
+        previous.active_context.clone(),
+    )
 }
 pub(crate) fn validate_digest(value: &str) -> Result<(), BftSignerErrorV3> {
     if value.len() != 64

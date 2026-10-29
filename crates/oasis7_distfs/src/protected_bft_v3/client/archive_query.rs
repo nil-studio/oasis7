@@ -5,6 +5,10 @@ use crate::protected_bft_v3::successor_window::*;
 use std::time::Instant;
 
 impl RemoteBftSignerLeaseV3 {
+    pub(super) fn archive_reserved_response_bytes(&self) -> u64 {
+        self.archive_observation.as_ref().map_or(0, |o| o.counter)
+    }
+
     pub(super) fn archive_timeout(&self, deadline: Instant) -> Result<(), BftSignerErrorV3> {
         let left = deadline
             .checked_duration_since(Instant::now())
@@ -85,7 +89,7 @@ impl RemoteBftSignerLeaseV3 {
         }
         record.validate(&self.binding, &self.trust.provider_public_key)?;
         self.archive_timeout(deadline)?;
-        let mut predecessor: Option<VerifiedBftSuccessorWindowV1> = None;
+        let mut chain = super::super::active_window::BftSuccessorArchiveChainVerifierV1::new();
         let mut result = None;
         let mut chunks = 0usize;
         let mut counter = self.archive_observation.as_ref().map_or(0, |o| o.counter);
@@ -101,42 +105,17 @@ impl RemoteBftSignerLeaseV3 {
                 &mut counter,
             )?;
             self.archive_timeout(deadline)?;
-            let expected = &entry.request.intent.body;
-            let previous_minimum = predecessor
-                .as_ref()
-                .map(|p| p.body().minimum())
-                .transpose()?;
-            if original.revision != expected.expected_revision
-                || original.state_digest != expected.expected_state_digest
-                || original.successor_window.as_ref().is_some_and(|w| {
-                    w.reservation.is_some()
-                        || w.requests.as_slice() != &window.requests[..n]
-                        || w.minimum != previous_minimum
-                })
-                || (n != 0 && original.successor_window.is_none())
-            {
-                return Err(invalid(
-                    "archive original State history/revision/binding conflict",
-                ));
-            }
-            let verified = super::super::state::validate_state(
+            let verified = chain.verify_next(
                 &self.binding,
-                Some(&self.trust.provider_public_key),
+                &self.trust.provider_public_key,
+                entry,
                 &original,
             )?;
-            super::super::successor_public_archive::validate_actual_public_manifest(
-                &entry.manifest,
-                &original,
-            )?;
-            let token = expected.checkpoint.bind_verified_state(
-                &self.binding,
-                &verified,
-                predecessor.as_ref(),
-            )?;
-            if entry.request.status == BftSuccessorWindowStatusV1::Adopted {
-                predecessor = Some(token);
-            }
-            result = Some(ValidatedBftSuccessorOriginalStateV1 { state: original });
+            result = Some(ValidatedBftSuccessorOriginalStateV1 {
+                state: original,
+                provider_public_key: self.trust.provider_public_key.clone(),
+                active_context: verified.active_context,
+            });
             self.archive_timeout(deadline)?;
         }
         result.ok_or_else(|| invalid("archive original reassembly missing"))
@@ -173,20 +152,19 @@ impl RemoteBftSignerLeaseV3 {
         &mut self,
         body: &BftSuccessorArchiveChunkBodyV1,
     ) -> Result<(), BftSignerErrorV3> {
-        if let Some(previous) = &self.archive_observation {
-            if !archive_state_at_least(
+        if let Some(previous) = &self.archive_observation
+            && (!archive_state_at_least(
                 body.actual_revision,
                 &body.actual_state_digest,
                 &body.minimum,
                 previous.revision,
                 &previous.digest,
                 &previous.minimum,
-            ) || body.reserved_response_bytes <= previous.counter
-            {
-                return Err(invalid(
-                    "archive observation revision/minimum/counter regressed or forked",
-                ));
-            }
+            ) || body.reserved_response_bytes <= previous.counter)
+        {
+            return Err(invalid(
+                "archive observation revision/minimum/counter regressed or forked",
+            ));
         }
         self.archive_observation = Some(ArchiveObservation {
             revision: body.actual_revision,
@@ -198,7 +176,7 @@ impl RemoteBftSignerLeaseV3 {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn archive_read_state(
+    pub(super) fn archive_read_state(
         &mut self,
         record: &BftSuccessorWindowStoredRequestV1,
         minimum: &BftSuccessorWindowMinimumV1,
@@ -256,7 +234,7 @@ impl RemoteBftSignerLeaseV3 {
                     request_id: record.request.intent.body.checkpoint.request_id.clone(),
                     checkpoint_digest,
                     segment_root,
-                    minimum_lower_bound: minimum.clone(),
+                    minimum_lower_bound: Box::new(minimum.clone()),
                 }
             };
             let read = BftSuccessorArchiveReadV1 {

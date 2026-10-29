@@ -21,10 +21,10 @@ impl BftSignerServiceV3 {
         let token_digest = lease_digest(&credential.token)?;
         read.target
             .validate(&self.binding, credential.generation, &token_digest)?;
-        if let BftSuccessorArchiveReadTargetV1::SigningIdentity { query } = &read.target {
-            if query.challenge != request.body.challenge {
-                return Err(invalid("archive inner query challenge conflict"));
-            }
+        if let BftSuccessorArchiveReadTargetV1::SigningIdentity { query } = &read.target
+            && query.challenge != request.body.challenge
+        {
+            return Err(invalid("archive inner query challenge conflict"));
         }
         // Legacy namespaces cannot implicitly initialize a fresh transfer budget.
         if snapshot.successor_archive_transfer.is_none() {
@@ -166,7 +166,7 @@ pub(super) fn write_response<S: std::io::Write>(
     stream: &mut S,
     response: &[u8],
     deadline: Option<Instant>,
-    deadline_policy: &mut Option<&mut dyn FnMut(&mut S, Option<Instant>) -> std::io::Result<()>>,
+    deadline_policy: &mut DeadlinePolicy<'_, S>,
 ) -> Result<(), BftSignerErrorV3> {
     let Some(deadline) = deadline else {
         return stream

@@ -495,11 +495,29 @@ Prepared／InstalledPending 冻结新共识签名、治理换钥 proof 和原 jo
 
 Prepare 前后失败保留旧合法 cut 与原 pending 状态；minimum 未提交前不能先删除旧材料。minimum 已提交而 pointer/ACK 未完成时，启动只恢复该已保存 checkpoint 的同一安装，禁止选旧 pointer 或重置 journal。原材料缺失、archive／semantic root／scope 冲突或 provider 结果不确定时停签并报告 exact blocker，旧历史可读性不升级 current serving。安装完成但响应／通知丢失仍沿原身份查回，不重复产生玩家结果或把所有历史 receipt 再发布一遍。
 
+##### V3 私有执行活动段
+
+V3 私有窗口使用独立版本化 active segment。原 H Origin、carrier、private instance 与 material identity 保持原字节；新段的 Origin 绑定原身份、受保护原 request/checkpoint/minimum、前驱 archive 及实际 T record/cut，first_height=T+1。每段记录与候选仍受 64 高度及原 512 MiB 子界限约束，累计 archive usage 不清零。旧 v1 编码与其 H-relative 64 高度合同保持不变；新格式由未知 consumer 拒绝，不得忽略活动段后回退 H。
+
+新段只由完整私有 archive 链从 H 实际重放产生的不可反序列化 `VerifiedPrivateSuccessorBase` 打开；磁盘 pointer 或 T Snapshot 不能构造此能力。T+1 原候选、WAL 与依赖必须和原 protected journal 逐项一致保留。第二个及后续 archive 只承载本段有界材料并验证原前驱链，不将新 Snapshot 当作独立信任根。冷开先验证原 H 身份/carriers 并认证 provider minimum，再验证 archive 链和不可变安装 pointer，之后才扫描所选活动段；缺前驱、过旧 minimum、未知 WAL、候选不符或 carrier 替换均阻断，不能回退 H 或重建新候选绕过原决定。该分段不授权物理删除或 GC，仍须另行满足复制、pin 与独立重建资格。
+
 ##### h/h+1/h+2 与跨窗原决定
 
 Checkpoint 不改变任何已提交的成员或 admitted/bootstrap finality 轮换时刻。新窗口即使从 h 的 cut 开始，T+1 schedule 仍携带 pending S_new 与原 h 决定；h+1 用 S_old 签并重验同一转换，h+2 仍只用 S_new。在 h+1 切窗时，确认链、实际已安装 head、原 install intent/receipt、当前 key 与 authority epoch 的认证引用必须保留；新 key 缺实际安装证据仍停签，旧 key 不因重基重新取得权重。迟到节点可从 archive 定位原确认链并补同一安装，不要求 h+1 仍是 hot tip。正常换钥的 controller nonce、原 typed proof、代际和来源记录留在原 canonical World，checkpoint 不重新授权。
 
 目标实现从已应用的第 32 个窗口高度起发起切窗，给原窗口 64 上限留有空间；若已到第 63 个高度且 h+2 跨到第 65 个，必须通过上述 pending schedule/证据携带接续，不能以“无 pending cut 才支持”冻结该已提交决定，不能推迟 activation 或禁止其原确认。新的未决定输入可在本机安装期间暂停接收／保持 queued，但不能更改已决定 payload、nonce 或原 canonical 排程。无法安全完成安装或 archive 真正触限时按合同停止本机新签写；这是可见容量／材料 blocker，不能假称 pending 不适用或修改全网 h+2 来掩盖它。
+
+##### Provider 活动窗口表示与认证上下文
+
+Provider 活动窗口是显式部署能力：启用时先核对同一受保护 backend 已 provision 的版本化 transfer ledger，缺失就在打开或 prepare 前拒绝，不能先推进 minimum 再发现不能冷读。状态的可选 `active_window` 只保存版本与精确 Adopted checkpoint digest；缺省保留旧编码和从 H 重放的行为。已有 active marker 的 custody 不接受关闭能力的 provider 重开，也不能在后继 Adopt 时保留旧 marker。generic mutation 不能改变 marker。
+
+活动 private segment 的初始化必须先于 Adopt：以原 InstalledPending 身份持久准备精确 carrier/init intent、Origin 和原 T+1 private WAL，再建立安装 pointer；独立 adopted verifier fresh reread 并核对这些对象。Adopted evidence 的可选 `active_segment_origin` 保存 WindowOrigin 规范 bytes 的 CAS ref，覆盖同一原 base/checkpoint、first T+1、ledger identity 与 carrier token/inode；旧 None 编码保持，但显式 rebase 必须 Some。Provider 只在可信独立 verifier 验证该精确 readback 后持久承诺引用，不能凭调用者字段批准。冷 active open 只打开承诺的现有 carrier，缺失、替换或旧未承诺 active 记录明确阻断，不以目录不存在或重启重新 provision。该字段不是允许删除 archive 的证明。 活动 Origin 同时承诺 records、活动段父目录、segment、ledger 与 private 目录的 device/inode；运行中保留 NOFOLLOW 打开的目录 descriptor，并在 I/O 前后核对，不把保留子文件 inode 的父目录替换当作同一载体。窗口初始化的 base/Origin/carrier、原候选 WAL 与 CAS 元数据使用永久保守预留，进入原 checkpoint 的累计 material usage：基础初始化元数据预留 8 MiB，每个候选再按 `4 × (2 × actions_bytes + 128 × dependency_refs + 16 KiB)` 计费，并保留对应对象额度；该预留与既有 public manifest 预留分开，仍受 512 MiB 单次私有材料及 4 GiB 合并上限约束，不在创建新段、重启或初始化完成后退款。
+
+独立 driver adopted readback 验证成功后，同一专用 Adopt CAS 记录新 marker，并把 hot certificate、completed journal 和 applied receipt 表示重基到 T 之后的有界 suffix；该冻结时刻 suffix 为空。原 T+1 journal 的 timer、round、lock/valid、pending intent 与全部签名事件逐字保留，原 binding、source、request/intent/receipt、minimum 和累计 material/transfer 预算不变。新的 hot replay 只从完整原 archive 链认证所得 T+1 schedule 开始，继续遵守原每段 64 高度及字节限制，不从反序列化 schedule 或 marker 自授能力。
+
+冷 provider 和客户端先从 H 顺序认证各段原 S、原请求与前驱，再构造不可反序列化的活动上下文；旧 membership receipt、proof parent 和 h/h+1 边界的 driver receipt 从该上下文验证，当前 ACK 仍必须匹配当前完整 journal/WAL。客户端可先认证 control checkpoint envelope 以执行连接绑定、收费、有截止时间的 archive fetch，但取得完整上下文并重验 State、最低水位及最后已观察 archive floor 前，不向调用者返回 lease 或签写能力。活动上下文 API 和历史 InstalledPending 重建结果都不是普通 checkpoint summary 的另一种反序列化入口。
+
+本表示变换保留全部原 S 和 private archive 对象；它不删除物理材料，也不宣称已满足冗余归档的 GC 条件。Node 启动、private 活动段及实际第 65 条世界提交仍须独立接通和验收，本 provider 子范围不代签它们。
 
 ##### 认证原结果查询与 GC
 

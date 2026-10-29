@@ -46,6 +46,9 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 /// Provider endpoint for the independent dynamic-set V3 signer protocol.
 /// Backends must supply atomic generation fencing and durable monotonic time;
 /// this service makes no hardware or nonrollback claim about an implementation.
+type DeadlinePolicy<'a, S> =
+    Option<&'a mut dyn FnMut(&mut S, Option<std::time::Instant>) -> std::io::Result<()>>;
+
 pub struct BftSignerServiceV3 {
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     successor_support: Option<BftSuccessorWindowSupportV1>,
@@ -165,7 +168,17 @@ impl BftSignerServiceV3 {
         let binding_digest = binding.digest()?;
         let snapshot = backend.load_provisioned(&binding_digest)?;
         validate_snapshot_shape(&snapshot, None, None)?;
-        let verified = validate_state(&binding, Some(&provider_public_key), &snapshot.state)?;
+        let verified = if let Some(support) = &successor_support {
+            support.validate_backend_capability(&snapshot)?;
+            support.validate_public_state(
+                &binding,
+                &snapshot.state,
+                &provider_public_key,
+                support.deadline(std::time::Instant::now())?,
+            )?
+        } else {
+            validate_state(&binding, Some(&provider_public_key), &snapshot.state)?
+        };
         if verified.schedule.height() < binding.initial_schedule().height()
             || snapshot.lease_generation == 0
             || snapshot.protected_time_floor_ms < 0
@@ -247,9 +260,7 @@ impl BftSignerServiceV3 {
     fn serve_connection_with_deadline_policy<S: Read + Write>(
         &self,
         stream: &mut S,
-        mut deadline_policy: Option<
-            &mut dyn FnMut(&mut S, Option<std::time::Instant>) -> std::io::Result<()>,
-        >,
+        mut deadline_policy: DeadlinePolicy<'_, S>,
     ) -> Result<(), BftSignerErrorV3> {
         let mut session = BftSignerSessionV3::default();
         let served = self.serve_loop(stream, &mut session, &mut deadline_policy);
@@ -265,9 +276,7 @@ impl BftSignerServiceV3 {
         &self,
         stream: &mut S,
         session: &mut BftSignerSessionV3,
-        deadline_policy: &mut Option<
-            &mut dyn FnMut(&mut S, Option<std::time::Instant>) -> std::io::Result<()>,
-        >,
+        deadline_policy: &mut DeadlinePolicy<'_, S>,
     ) -> Result<(), BftSignerErrorV3> {
         loop {
             let mut header = [0u8; 4];
@@ -1152,5 +1161,30 @@ fn random_nonce() -> Result<String, BftSignerErrorV3> {
         Err(invalid(
             "BFT V3 provider currently requires a Unix CSPRNG implementation",
         ))
+    }
+}
+
+impl BftSignerServiceV3 {
+    pub(super) fn validate_provider_state(
+        &self,
+        state: &BftSignerStateV3,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        if let Some(support) = &self.successor_support {
+            let deadline =
+                deadline.map_or_else(|| support.deadline(std::time::Instant::now()), Ok)?;
+            support.validate_public_state(
+                &self.binding,
+                state,
+                &self.provider_key.public_key_hex(),
+                deadline,
+            )
+        } else {
+            validate_state(
+                &self.binding,
+                Some(&self.provider_key.public_key_hex()),
+                state,
+            )
+        }
     }
 }

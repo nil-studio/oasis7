@@ -51,14 +51,29 @@ impl BftSignerServiceV3 {
                 },
             );
         }
+        if expected_revision <= state.revision && state.active_window.is_some() {
+            let support = self
+                .successor_support
+                .as_ref()
+                .ok_or_else(|| invalid("successor support unavailable"))?;
+            let deadline = runtime
+                .successor_deadline
+                .map_or_else(|| support.deadline(std::time::Instant::now()), Ok)?;
+            if let Some(proposal) = support.find_archived_result(&self.binding, state, &self.provider_key.public_key_hex(), deadline, |original| {
+                original.journal.iter().chain(original.completed_journals.iter().flatten()).find_map(|journal| journal.events.iter().find_map(|event| {
+                    if let oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Proposal { proposal, local: true, .. } = event {
+                        let mut header = proposal.header.clone(); header.signature_hex.clear();
+                        if header == intent.header && proposal.block == intent.block && proposal.valid_round_evidence == intent.valid_round_evidence { return Some(proposal.as_ref().clone()); }
+                    } None
+                }))
+            })? {
+                return self.state_reply(snapshot, request, request_digest, BftSignerReplyKindV3::ProposalSigned { proposal: Box::new(proposal) });
+            }
+        }
         if expected_revision != state.revision {
             return Err(invalid("BFT V3 proposal signing revision is stale"));
         }
-        let verified = validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            state,
-        )?;
+        let verified = self.validate_provider_state(state, runtime.successor_deadline)?;
         validate_signing_install_gate(&self.binding, state, &verified.schedule)?;
         let journal = state
             .journal
@@ -175,14 +190,27 @@ impl BftSignerServiceV3 {
                 },
             );
         }
+        if expected_revision <= state.revision && state.active_window.is_some() {
+            let support = self
+                .successor_support
+                .as_ref()
+                .ok_or_else(|| invalid("successor support unavailable"))?;
+            let deadline = runtime
+                .successor_deadline
+                .map_or_else(|| support.deadline(std::time::Instant::now()), Ok)?;
+            if let Some(vote) = support.find_archived_result(&self.binding, state, &self.provider_key.public_key_hex(), deadline, |original| {
+                original.journal.iter().chain(original.completed_journals.iter().flatten()).find_map(|journal| journal.events.iter().find_map(|event| {
+                    if let oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Vote { vote, local: true, .. } = event
+                        && vote.height == intent.height && vote.round == intent.round && vote.phase == intent.phase && vote.value == intent.value && vote.validator_id == intent.validator_id && vote.schedule_policy_hash == intent.schedule_policy_hash { return Some(vote.as_ref().clone()); } None
+                }))
+            })? {
+                return self.state_reply(snapshot, request, request_digest, BftSignerReplyKindV3::VoteSigned { vote: Box::new(vote) });
+            }
+        }
         if expected_revision != state.revision {
             return Err(invalid("BFT V3 vote signing revision is stale"));
         }
-        let verified = validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            state,
-        )?;
+        let verified = self.validate_provider_state(state, runtime.successor_deadline)?;
         validate_signing_install_gate(&self.binding, state, &verified.schedule)?;
         let journal = state
             .journal
@@ -316,19 +344,16 @@ impl BftSignerServiceV3 {
                 "BFT V3 state CAS returned an invalid snapshot; provider poisoned",
             ));
         }
-        let verified = match validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            &snapshot.state,
-        ) {
-            Ok(verified) => verified,
-            Err(error) => {
-                runtime.poisoned = true;
-                return Err(invalid(format!(
-                    "BFT V3 state CAS committed invalid state; provider poisoned: {error}"
-                )));
-            }
-        };
+        let verified =
+            match self.validate_provider_state(&snapshot.state, runtime.successor_deadline) {
+                Ok(verified) => verified,
+                Err(error) => {
+                    runtime.poisoned = true;
+                    return Err(invalid(format!(
+                        "BFT V3 state CAS committed invalid state; provider poisoned: {error}"
+                    )));
+                }
+            };
         runtime.verified = Some(verified);
         runtime.observe_archive_transfer(&snapshot)?;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
@@ -461,7 +486,7 @@ impl BftSignerServiceV3 {
                 "BFT V3 backend monotonic floor or generation regressed",
             ));
         }
-        runtime.observe_archive_transfer(&snapshot)?;
+        runtime.observe_archive_transfer(snapshot)?;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
         runtime.observed_generation = snapshot.lease_generation;
         runtime.verified = Some(verified);
@@ -477,11 +502,7 @@ impl BftSignerServiceV3 {
             runtime.observed_archive_transfer,
             snapshot,
         )?;
-        let verified = validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            &snapshot.state,
-        )?;
+        let verified = self.validate_provider_state(&snapshot.state, runtime.successor_deadline)?;
         self.verify_successor_archives(&snapshot.state, runtime.successor_deadline)?;
         if let Some(previous) = &runtime.verified {
             if snapshot.state.revision < previous.state.revision {
@@ -493,22 +514,24 @@ impl BftSignerServiceV3 {
                 }
             } else {
                 let candidate = snapshot.state.candidate();
-                let monotonic =
-                    if snapshot.state.successor_window != previous.state.successor_window {
-                        super::super::successor_state::validate_successor_only_transition(
-                            &self.binding,
-                            previous,
-                            &snapshot.state,
-                            &self.provider_key.public_key_hex(),
-                        )?
-                    } else {
-                        validate_candidate_transition(
-                            &self.binding,
-                            previous,
-                            &candidate,
-                            &self.provider_key.public_key_hex(),
-                        )?
-                    };
+                let monotonic = if snapshot.state.successor_window
+                    != previous.state.successor_window
+                {
+                    super::super::successor_state::validate_successor_only_transition_with_context(
+                        &self.binding,
+                        previous,
+                        &snapshot.state,
+                        &self.provider_key.public_key_hex(),
+                        verified.active_context.clone(),
+                    )?
+                } else {
+                    validate_candidate_transition(
+                        &self.binding,
+                        previous,
+                        &candidate,
+                        &self.provider_key.public_key_hex(),
+                    )?
+                };
                 if monotonic.state != snapshot.state {
                     return Err(invalid("BFT V3 backend state skipped its legal transition"));
                 }

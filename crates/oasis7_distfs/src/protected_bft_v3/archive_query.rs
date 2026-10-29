@@ -19,7 +19,7 @@ pub enum BftSuccessorArchiveReadTargetV1 {
         request_id: String,
         checkpoint_digest: String,
         segment_root: String,
-        minimum_lower_bound: BftSuccessorWindowMinimumV1,
+        minimum_lower_bound: Box<BftSuccessorWindowMinimumV1>,
     },
     SigningIdentity {
         query: Box<BftSuccessorWindowArchiveQueryV1>,
@@ -158,8 +158,35 @@ impl BftSuccessorArchiveChunkV1 {
 #[derive(Debug, Clone)]
 pub struct ValidatedBftSuccessorOriginalStateV1 {
     pub(crate) state: BftSignerStateV3,
+    pub(crate) provider_public_key: String,
+    pub(crate) active_context:
+        Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
 }
 impl ValidatedBftSuccessorOriginalStateV1 {
+    pub fn provider_public_key(&self) -> &str {
+        &self.provider_public_key
+    }
+    pub fn binding_digest(&self) -> &str {
+        &self.state.binding_digest
+    }
+
+    pub fn reconstruct_installed_pending(
+        &self,
+        binding: &super::binding::BftSignerBindingV3,
+        provider_public_key: &str,
+        original: &super::successor_state::BftSuccessorWindowStoredRequestV1,
+    ) -> Result<
+        super::active_window_reconstruction::ValidatedBftSuccessorInstalledStateV1,
+        BftSignerErrorV3,
+    > {
+        super::active_window_reconstruction::reconstruct(
+            self,
+            binding,
+            provider_public_key,
+            original,
+        )
+    }
+
     pub fn original_state(&self) -> &BftSignerStateV3 {
         &self.state
     }

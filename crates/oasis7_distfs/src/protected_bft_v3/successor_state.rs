@@ -1,7 +1,7 @@
 //! Protected successor transaction metadata. Hot H history remains intact.
 use super::binding::{BftSignerBindingV3, BftSignerErrorV3, invalid};
 use super::crypto::{BFT_SIGNER_MAX_FRAME_BYTES_V3, encode_bounded};
-use super::state::{BftSignerStateV3, VerifiedBftSignerStateV3, validate_state};
+use super::state::{BftSignerStateV3, VerifiedBftSignerStateV3};
 use super::successor_window::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -240,7 +240,7 @@ pub(crate) fn validate_whole_state_public_manifest(
     }
     Ok(())
 }
-fn validate_manifest_predecessor(
+pub(crate) fn validate_manifest_predecessor(
     binding: &BftSignerBindingV3,
     manifest: &BftSuccessorWindowArchiveManifestV1,
     checkpoint: &BftSuccessorWindowCheckpointBodyV1,
@@ -291,11 +291,12 @@ impl BftSuccessorWindowPriorStateV1 {
     }
 }
 impl BftSuccessorWindowReservationV1 {
-    pub(crate) fn original_state(
+    pub(crate) fn original_state_with_context(
         &self,
         binding: &BftSignerBindingV3,
         current: &BftSignerStateV3,
         provider: &str,
+        context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
     ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
         let mut original = current.clone();
         original.successor_window = self
@@ -304,7 +305,12 @@ impl BftSuccessorWindowReservationV1 {
             .map(BftSuccessorWindowPriorStateV1::restore);
         original.revision = self.body.expected_revision;
         original.state_digest = self.body.expected_state_digest.clone();
-        let verified = validate_state(binding, Some(provider), &original)?;
+        let verified = super::state::validate_state_with_active_context(
+            binding,
+            Some(provider),
+            &original,
+            context,
+        )?;
         let bytes = encode_bounded(&original, BFT_SIGNER_MAX_FRAME_BYTES_V3)?;
         self.original_public_state.validate_bytes(&bytes)?;
         super::successor_public_archive::validate_actual_public_manifest(
@@ -317,11 +323,12 @@ impl BftSuccessorWindowReservationV1 {
 
 /// Generic protocol mutations never alter the extension. Specialized CAS must
 /// preserve every original hot/proof/WAL field and increment exactly once.
-pub(crate) fn validate_successor_only_transition(
+pub(crate) fn validate_successor_only_transition_with_context(
     binding: &BftSignerBindingV3,
     previous: &VerifiedBftSignerStateV3,
     next: &BftSignerStateV3,
     provider: &str,
+    context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
 ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
     if previous.state.revision.checked_add(1) != Some(next.revision) {
         return Err(invalid("successor CAS skipped revision"));
@@ -330,6 +337,29 @@ pub(crate) fn validate_successor_only_transition(
     unchanged.successor_window = previous.state.successor_window.clone();
     unchanged.revision = previous.state.revision;
     unchanged.state_digest = previous.state.state_digest.clone();
+    if next.active_window != previous.state.active_window {
+        let base = context
+            .as_ref()
+            .ok_or_else(|| invalid("active rebase lacks verified context"))?;
+        base.validate_anchor(next)?;
+        if !next.history.is_empty()
+            || !next.completed_journals.is_empty()
+            || !next.applied_installs.is_empty()
+            || previous.state.pending_driver_apply.is_some()
+            || previous
+                .state
+                .history
+                .last()
+                .map(|c| c.execution_commitment.height)
+                != Some(base.checkpoint().body().cut.height)
+        {
+            return Err(invalid("active rebase changed exact frozen cut"));
+        }
+        unchanged.active_window = previous.state.active_window.clone();
+        unchanged.history = previous.state.history.clone();
+        unchanged.completed_journals = previous.state.completed_journals.clone();
+        unchanged.applied_installs = previous.state.applied_installs.clone();
+    }
     if unchanged != previous.state || next.successor_window == previous.state.successor_window {
         return Err(invalid("successor CAS changed original hot state"));
     }
@@ -343,6 +373,24 @@ pub(crate) fn validate_successor_only_transition(
         .successor_window
         .clone()
         .unwrap_or_else(BftSuccessorWindowStateV1::empty);
+    let adopting = old
+        .active_request_id
+        .as_ref()
+        .and_then(|id| old.request(id))
+        .zip(
+            new.active_request_id
+                .as_ref()
+                .and_then(|id| new.request(id)),
+        )
+        .is_some_and(|(a, b)| {
+            a.request.status == BftSuccessorWindowStatusV1::InstalledPending
+                && b.request.status == BftSuccessorWindowStatusV1::Adopted
+        });
+    if next.active_window != previous.state.active_window && !adopting {
+        return Err(invalid(
+            "active anchor changes only during verified adoption",
+        ));
+    }
     if let Some(reserved) = &new.reservation {
         if old.blocks_writes()
             || reserved
@@ -355,7 +403,12 @@ pub(crate) fn validate_successor_only_transition(
         {
             return Err(invalid("successor reserve changed predecessor"));
         }
-        let original = reserved.original_state(binding, next, provider)?;
+        let original = reserved.original_state_with_context(
+            binding,
+            next,
+            provider,
+            previous.active_context.clone(),
+        )?;
         if original.state != previous.state {
             return Err(invalid(
                 "successor reservation reconstructed wrong original",
@@ -427,5 +480,5 @@ pub(crate) fn validate_successor_only_transition(
             _ => return Err(invalid("successor illegal durable transaction edge")),
         }
     }
-    validate_state(binding, Some(provider), next)
+    super::state::validate_state_with_active_context(binding, Some(provider), next, context)
 }

@@ -99,7 +99,16 @@ impl BftSignerServiceV3 {
                         "BFT V3 install requires fresh replayed active-key WAL",
                     ));
                 }
-                let mut body = contexts(&self.binding, state)?
+                let list = if let Some(c) = runtime
+                    .verified
+                    .as_ref()
+                    .and_then(|v| v.active_context.as_ref())
+                {
+                    c.membership_contexts(&self.binding, state)?
+                } else {
+                    contexts(&self.binding, state)?
+                };
+                let mut body = list
                     .into_iter()
                     .find(|c| c.transition_source_height == *transition_source_height)
                     .ok_or_else(|| invalid("BFT V3 source not confirmed"))?;
@@ -183,11 +192,19 @@ impl BftSignerServiceV3 {
                     .map_err(invalid)?
                     .as_deref()
                     != Some(evidence.wal_install_digest.as_str())
-                    || !state.applied_installs.iter().any(|r| {
-                        r.height == evidence.installed_head_height
-                            && r.header_id == evidence.installed_head_commit_ref
-                            && r.driver_install_digest == evidence.driver_install_digest
-                    })
+                    || {
+                        let receipt = super::super::state::BftDriverAppliedReceiptV3 {
+                            height: evidence.installed_head_height,
+                            header_id: evidence.installed_head_commit_ref.clone(),
+                            driver_install_digest: evidence.driver_install_digest.clone(),
+                        };
+                        !state.applied_installs.iter().any(|r| r == &receipt)
+                            && !runtime
+                                .verified
+                                .as_ref()
+                                .and_then(|v| v.active_context.as_ref())
+                                .is_some_and(|c| c.has_applied_receipt(&receipt))
+                    }
                 {
                     return Err(invalid("BFT V3 install WAL/actual driver receipt differs"));
                 }

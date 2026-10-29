@@ -21,7 +21,9 @@ use super::successor_window::{
     BftSuccessorWindowInstallIntentBodyV1,
 };
 
+mod active_window;
 mod archive_query;
+mod signed_result;
 mod successor;
 
 const MAX_ACQUIRE_CONFLICT_RETRIES: usize = 3;
@@ -47,6 +49,19 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    fn verified_active_window(
+        &mut self,
+    ) -> Result<Option<super::active_window::VerifiedBftSignerActiveWindowV1>, BftSignerErrorV3>
+    {
+        Err(invalid("verified active window unsupported"))
+    }
+
+    fn current_verified_schedule(
+        &mut self,
+    ) -> Result<oasis7_formal_protocol::bft::BftHeaderHeightScheduleV3, BftSignerErrorV3> {
+        Err(invalid("verified active schedule unsupported"))
+    }
+
     /// Requires the exact original record and predecessors in the authenticated
     /// cached checkpoint. Explicitly refresh control state before this attempt if
     /// unavailable; this operation performs only charged archive chunk RPCs.
@@ -298,16 +313,25 @@ impl RemoteBftSignerProviderV3 {
             .as_ref()
             .ok_or_else(|| invalid("BFT V3 provider omitted its signed checkpoint"))?;
         let request_digest = super::wire::request_digest(request)?;
-        let verified = checkpoint.validate(
-            &self.binding,
-            &request.body.challenge,
-            &request_digest,
-            expected_generation,
-            &self.trust.provider_public_key,
-        )?;
+        if checkpoint.state.active_window.is_none() {
+            checkpoint.validate(
+                &self.binding,
+                &request.body.challenge,
+                &request_digest,
+                expected_generation,
+                &self.trust.provider_public_key,
+            )?;
+        } else {
+            checkpoint.authenticate(
+                &self.binding,
+                &request.body.challenge,
+                &request_digest,
+                expected_generation,
+                &self.trust.provider_public_key,
+            )?;
+        }
         if checkpoint.state.revision != reply.body.state_revision
             || checkpoint.state.state_digest != reply.body.state_digest
-            || verified.state != checkpoint.state
         {
             return Err(invalid("BFT V3 reply and checkpoint state differ"));
         }
@@ -378,7 +402,7 @@ impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
                         .ok_or_else(|| invalid("BFT V3 acquire omitted lease token"))?;
                     validate_token(token)?;
                     let checkpoint = self.checkpoint_from_reply(&request, &reply, expected_next)?;
-                    return Ok(Box::new(RemoteBftSignerLeaseV3 {
+                    let mut lease = RemoteBftSignerLeaseV3 {
                         stream,
                         binding: self.binding.clone(),
                         requester_key: self.requester_key.clone(),
@@ -389,7 +413,13 @@ impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
                         },
                         checkpoint,
                         archive_observation: None,
-                    }));
+                        active_context: None,
+                        archive_attempt_timeout: self.timeout.min(Duration::from_secs(120)),
+                        signing_result_deadline: None,
+                    };
+                    lease.validate_checkpoint_history(&lease.checkpoint.clone())?;
+                    lease.archive_checkpoint_floor(&lease.checkpoint)?;
+                    return Ok(Box::new(lease));
                 }
                 BftSignerReplyKindV3::AcquireConflict {
                     current_generation,
@@ -422,6 +452,9 @@ pub struct RemoteBftSignerLeaseV3 {
     credential: BftSignerLeaseCredentialV3,
     checkpoint: BftSignerCheckpointV3,
     archive_observation: Option<archive_query::ArchiveObservation>,
+    active_context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
+    archive_attempt_timeout: Duration,
+    signing_result_deadline: Option<std::time::Instant>,
 }
 
 impl RemoteBftSignerLeaseV3 {
@@ -437,9 +470,19 @@ impl RemoteBftSignerLeaseV3 {
             random_nonce()?,
         )?;
         let frame = encode_frame(&request)?;
-        std::io::Write::write_all(&mut self.stream, &frame)
-            .map_err(|error| invalid(format!("write BFT V3 lease request: {error}")))?;
-        let reply: SignedBftSignerReplyV3 = read_frame(&mut self.stream)?;
+        let reply: SignedBftSignerReplyV3 = if let Some(deadline) = self.signing_result_deadline {
+            let mut bounded = archive_query::ArchiveDeadlineStream {
+                stream: &mut self.stream,
+                deadline,
+            };
+            std::io::Write::write_all(&mut bounded, &frame)
+                .map_err(|e| invalid(format!("write bounded signer request: {e}")))?;
+            read_frame(&mut bounded)?
+        } else {
+            std::io::Write::write_all(&mut self.stream, &frame)
+                .map_err(|error| invalid(format!("write BFT V3 lease request: {error}")))?;
+            read_frame(&mut self.stream)?
+        };
         validate_reply(&self.binding, &self.trust, &request, &reply)?;
         if reply.body.lease_generation != self.credential.generation
             || reply
@@ -471,7 +514,7 @@ impl RemoteBftSignerLeaseV3 {
     }
 
     fn verified_checkpoint(
-        &self,
+        &mut self,
         request: &SignedBftSignerRequestV3,
         reply: &SignedBftSignerReplyV3,
         expected_generation: u64,
@@ -482,16 +525,18 @@ impl RemoteBftSignerLeaseV3 {
             .as_ref()
             .ok_or_else(|| invalid("BFT V3 signer response omitted checkpoint"))?;
         let digest = super::wire::request_digest(request)?;
-        let verified = checkpoint.validate(
-            &self.binding,
+        let binding = self.binding.clone();
+        let authenticated = checkpoint.authenticate(
+            &binding,
             &request.body.challenge,
             &digest,
             expected_generation,
             &self.trust.provider_public_key,
         )?;
+        self.validate_checkpoint_history(checkpoint)?;
+        authenticated.validate_with_active_context(self.active_context.clone())?;
         if checkpoint.state.revision != reply.body.state_revision
             || checkpoint.state.state_digest != reply.body.state_digest
-            || verified.state != checkpoint.state
         {
             return Err(invalid(
                 "BFT V3 leased reply checkpoint differs from response",
@@ -503,6 +548,36 @@ impl RemoteBftSignerLeaseV3 {
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn verified_active_window(
+        &mut self,
+    ) -> Result<Option<super::active_window::VerifiedBftSignerActiveWindowV1>, BftSignerErrorV3>
+    {
+        let checkpoint = self.checkpoint()?;
+        let verified = super::state::validate_state_with_active_context(
+            &self.binding,
+            Some(&self.trust.provider_public_key),
+            &checkpoint.state,
+            self.active_context.clone(),
+        )?;
+        super::active_window::VerifiedBftSignerActiveWindowV1::from_verified(
+            &verified,
+            &self.trust.provider_public_key,
+        )
+    }
+
+    fn current_verified_schedule(
+        &mut self,
+    ) -> Result<oasis7_formal_protocol::bft::BftHeaderHeightScheduleV3, BftSignerErrorV3> {
+        let checkpoint = self.checkpoint()?;
+        Ok(super::state::validate_state_with_active_context(
+            &self.binding,
+            Some(&self.trust.provider_public_key),
+            &checkpoint.state,
+            self.active_context.clone(),
+        )?
+        .schedule)
+    }
+
     fn read_successor_original_state(
         &mut self,
         request_id: &str,
@@ -955,37 +1030,14 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
         expected_revision: u64,
         intent: &BftProposalIntentV3,
     ) -> Result<(BftPublicProposalV3, BftSignerCheckpointV3), BftSignerErrorV3> {
-        let (request, reply) = self.command(BftSignerCommandV3::SignProposal {
-            expected_revision,
-            intent: Box::new(intent.clone()),
-        })?;
-        RemoteBftSignerProviderV3::checked_result(&reply)?;
-        let BftSignerReplyKindV3::ProposalSigned { proposal } = &reply.body.result else {
-            return Err(invalid("BFT V3 proposal response has the wrong kind"));
-        };
-        let checkpoint = self.result_checkpoint(&request, &reply, |kind| {
-            matches!(kind, BftSignerReplyKindV3::ProposalSigned { .. })
-        })?;
-        Ok((proposal.as_ref().clone(), checkpoint))
+        self.checked_sign_proposal(expected_revision, intent)
     }
-
     fn sign_vote(
         &mut self,
         expected_revision: u64,
         intent: &BftVoteIntentV3,
     ) -> Result<(BftVoteV3, BftSignerCheckpointV3), BftSignerErrorV3> {
-        let (request, reply) = self.command(BftSignerCommandV3::SignVote {
-            expected_revision,
-            intent: Box::new(intent.clone()),
-        })?;
-        RemoteBftSignerProviderV3::checked_result(&reply)?;
-        let BftSignerReplyKindV3::VoteSigned { vote } = &reply.body.result else {
-            return Err(invalid("BFT V3 vote response has the wrong kind"));
-        };
-        let checkpoint = self.result_checkpoint(&request, &reply, |kind| {
-            matches!(kind, BftSignerReplyKindV3::VoteSigned { .. })
-        })?;
-        Ok((vote.as_ref().clone(), checkpoint))
+        self.checked_sign_vote(expected_revision, intent)
     }
 
     fn confirm_applied(

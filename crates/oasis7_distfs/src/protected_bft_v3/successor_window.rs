@@ -28,8 +28,6 @@ pub const BFT_SUCCESSOR_WINDOW_ARCHIVE_DOMAIN_V1: &str =
     "oasis7.bft.successor-window.v1.archive-manifest";
 pub const BFT_SUCCESSOR_WINDOW_QUERY_DOMAIN_V1: &str =
     "oasis7.bft.successor-window.v1.archive-query";
-pub const BFT_SUCCESSOR_WINDOW_REPLY_DOMAIN_V1: &str =
-    "oasis7.bft.successor-window.v1.archive-reply";
 const IDENTITY_DOMAIN: &str = "oasis7.bft.successor-window.v1.archive-identity";
 
 fn hash(value: &str) -> Result<(), BftSignerErrorV3> {
@@ -799,11 +797,24 @@ pub enum BftSuccessorWindowStatusV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSuccessorWindowAdoptedEvidenceV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_segment_origin: Option<BftSuccessorWindowArchiveRefV1>,
     pub checkpoint_digest: String,
     pub driver_install_digest: String,
     pub schedule_digest: String,
     pub journal_digest: Option<String>,
     pub readback_state_digest: String,
+}
+impl BftSuccessorWindowAdoptedEvidenceV1 {
+    pub(crate) fn validate_active_segment_origin(&self) -> Result<(), BftSignerErrorV3> {
+        if let Some(origin) = &self.active_segment_origin {
+            origin.validate()?;
+            if origin.bytes > BFT_SUCCESSOR_WINDOW_METADATA_MAX_BYTES_V1 as u64 {
+                return Err(invalid("active segment Origin metadata capacity"));
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -850,6 +861,7 @@ impl BftSuccessorWindowPersistedRequestV1 {
             identity(reason)?;
         }
         if let Some(evidence) = &self.adopted_evidence {
+            evidence.validate_active_segment_origin()?;
             let body = &self.intent.body.checkpoint;
             for value in [
                 &evidence.checkpoint_digest,
@@ -1011,14 +1023,13 @@ impl BftSuccessorWindowArchiveReplyV1 {
         self.object.validate()?;
         hash(&self.actual_state_digest)?;
         let identity_digest = query.identity.digest()?;
-        if let Some(signature) = &self.original_signature_hex {
-            if signature.len() != 128
+        if let Some(signature) = &self.original_signature_hex
+            && (signature.len() != 128
                 || !signature
                     .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            {
-                return Err(invalid("successor archive original signature encoding"));
-            }
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        {
+            return Err(invalid("successor archive original signature encoding"));
         }
         if self.schema_version != 1
             || self.request_digest != query.digest()?

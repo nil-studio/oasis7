@@ -32,6 +32,7 @@ pub struct BftSuccessorWindowSupportV1 {
     pub(super) archive: Arc<dyn BftSuccessorArchiveStoreV1>,
     adoption: Option<Arc<dyn BftSuccessorWindowDriverVerifierV1>>,
     timeout: Duration,
+    active_window_rebase: bool,
 }
 impl BftSuccessorWindowSupportV1 {
     pub fn new(
@@ -45,7 +46,30 @@ impl BftSuccessorWindowSupportV1 {
             archive,
             adoption: None,
             timeout,
+            active_window_rebase: false,
         })
+    }
+    /// Explicit provider capability. All original archive objects remain retained;
+    /// this only changes the protected hot replay representation after Adopt.
+    pub fn with_active_window_rebase(mut self) -> Self {
+        self.active_window_rebase = true;
+        self
+    }
+    pub(super) fn validate_backend_capability(
+        &self,
+        snapshot: &BftSignerBackendSnapshotV3,
+    ) -> Result<(), BftSignerErrorV3> {
+        if self.active_window_rebase && snapshot.successor_archive_transfer.is_none() {
+            return Err(invalid(
+                "active window requires explicitly provisioned archive transfer custody",
+            ));
+        }
+        if snapshot.state.active_window.is_some() && !self.active_window_rebase {
+            return Err(invalid(
+                "active window custody cannot downgrade provider capability",
+            ));
+        }
+        Ok(())
     }
     pub(super) fn deadline(&self, started: Instant) -> Result<Instant, BftSignerErrorV3> {
         started
@@ -70,55 +94,92 @@ impl BftSuccessorWindowSupportV1 {
             return Ok(None);
         };
         extension.validate(binding, Some(provider))?;
-        let mut predecessor = None;
-        for (index, record) in extension.requests.iter().enumerate() {
+        let mut chain =
+            crate::protected_bft_v3::active_window::BftSuccessorArchiveChainVerifierV1::new();
+        for record in &extension.requests {
             live(deadline)?;
             let original = self
                 .archive
                 .load_public_state(&record.original_public_state)?;
-            record
-                .original_public_state
-                .validate_bytes(&encode_bounded(&original, BFT_SIGNER_MAX_FRAME_BYTES_V3)?)?;
-            let previous_minimum = predecessor
-                .as_ref()
-                .map(|token: &VerifiedBftSuccessorWindowV1| token.body().minimum())
-                .transpose()?;
-            let expected = &record.request.intent.body;
-            if original.revision != expected.expected_revision
-                || original.state_digest != expected.expected_state_digest
-                || original.successor_window.as_ref().is_some_and(|previous| {
-                    previous.reservation.is_some()
-                        || previous.requests.as_slice() != &extension.requests[..index]
-                        || previous.minimum != previous_minimum
-                })
-                || (index != 0 && original.successor_window.is_none())
-            {
-                return Err(invalid(
-                    "successor archive differs from exact pre-prepare state",
-                ));
-            }
-            let original = validate_state(binding, Some(provider), &original)?;
-            validate_actual_public_manifest(&record.manifest, &original.state)?;
-            let token = record.request.intent.body.checkpoint.bind_verified_state(
-                binding,
-                &original,
-                predecessor.as_ref(),
-            )?;
-            if record.request.status == BftSuccessorWindowStatusV1::Adopted {
-                predecessor = Some(token);
-            }
+            chain.verify_next(binding, provider, record, &original)?;
         }
         if let Some(reservation) = &extension.reservation {
-            let original = reservation.original_state(binding, state, provider)?;
+            let original = reservation.original_state_with_context(
+                binding,
+                state,
+                provider,
+                chain.context().cloned(),
+            )?;
             validate_actual_public_manifest(&reservation.manifest, &original.state)?;
             reservation.body.checkpoint.bind_verified_state(
                 binding,
                 &original,
-                predecessor.as_ref(),
+                chain.context().map(|c| c.checkpoint()),
             )?;
         }
+        let predecessor = chain.context().map(|c| c.checkpoint().clone());
         live(deadline)?;
         Ok(predecessor)
+    }
+    pub(super) fn find_archived_result<T: PartialEq>(
+        &self,
+        binding: &BftSignerBindingV3,
+        state: &BftSignerStateV3,
+        provider: &str,
+        deadline: Instant,
+        mut resolve: impl FnMut(&BftSignerStateV3) -> Option<T>,
+    ) -> Result<Option<T>, BftSignerErrorV3> {
+        let mut chain =
+            crate::protected_bft_v3::active_window::BftSuccessorArchiveChainVerifierV1::new();
+        let mut result = None;
+        if let Some(extension) = &state.successor_window {
+            for record in &extension.requests {
+                live(deadline)?;
+                let original = self
+                    .archive
+                    .load_public_state(&record.original_public_state)?;
+                chain.verify_next(binding, provider, record, &original)?;
+                if let Some(found) = resolve(&original) {
+                    if result.as_ref().is_some_and(|previous| previous != &found) {
+                        return Err(invalid("archived original result conflict"));
+                    }
+                    result = Some(found);
+                }
+            }
+        }
+        live(deadline)?;
+        Ok(result)
+    }
+    pub(super) fn validate_public_state(
+        &self,
+        binding: &BftSignerBindingV3,
+        state: &BftSignerStateV3,
+        provider: &str,
+        deadline: Instant,
+    ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        if state.active_window.is_some() && !self.active_window_rebase {
+            return Err(invalid(
+                "active window custody requires explicit provider rebase capability",
+            ));
+        }
+        let mut chain =
+            crate::protected_bft_v3::active_window::BftSuccessorArchiveChainVerifierV1::new();
+        if let Some(extension) = &state.successor_window {
+            extension.validate(binding, Some(provider))?;
+            for record in &extension.requests {
+                live(deadline)?;
+                let original = self
+                    .archive
+                    .load_public_state(&record.original_public_state)?;
+                chain.verify_next(binding, provider, record, &original)?;
+            }
+        }
+        crate::protected_bft_v3::state::validate_state_with_active_context(
+            binding,
+            Some(provider),
+            state,
+            chain.context().cloned(),
+        )
     }
 }
 fn live(deadline: Instant) -> Result<(), BftSignerErrorV3> {
@@ -314,19 +375,18 @@ impl BftSignerServiceV3 {
                     .successor_window
                     .as_ref()
                     .and_then(|w| w.reservation.as_ref())
+                    && reservation.body.checkpoint.request_id == *request_id
                 {
-                    if reservation.body.checkpoint.request_id == *request_id {
-                        if reservation.body.checkpoint.digest()? != *checkpoint_digest {
-                            return Err(invalid("successor reserved body conflict"));
-                        }
-                        snapshot = self.finish_successor_prepare(
-                            runtime,
-                            credential,
-                            token_digest,
-                            snapshot,
-                            deadline,
-                        )?;
+                    if reservation.body.checkpoint.digest()? != *checkpoint_digest {
+                        return Err(invalid("successor reserved body conflict"));
                     }
+                    snapshot = self.finish_successor_prepare(
+                        runtime,
+                        credential,
+                        token_digest,
+                        snapshot,
+                        deadline,
+                    )?;
                 }
                 let mut extension = snapshot
                     .state
@@ -436,6 +496,14 @@ impl BftSignerServiceV3 {
                                     "successor adoption lacks exact installed state",
                                 ));
                             }
+                            evidence.validate_active_segment_origin()?;
+                            if support.active_window_rebase
+                                && evidence.active_segment_origin.is_none()
+                            {
+                                return Err(invalid(
+                                    "active rebase requires verified WindowOrigin readback commitment",
+                                ));
+                            }
                             let verifier = support.adoption.as_ref().ok_or_else(|| {
                                 invalid("successor trusted driver readback verifier unavailable")
                             })?;
@@ -513,10 +581,14 @@ impl BftSignerServiceV3 {
         {
             return Err(invalid("successor reservation state or lease changed"));
         }
-        let original = reserved.original_state(
+        let original = reserved.original_state_with_context(
             &self.binding,
             &snapshot.state,
             &self.provider_key.public_key_hex(),
+            runtime
+                .verified
+                .as_ref()
+                .and_then(|v| v.active_context.clone()),
         )?;
         validate_actual_public_manifest(&reserved.manifest, &original.state)?;
         live(deadline)?;
@@ -577,14 +649,66 @@ impl BftSignerServiceV3 {
             runtime.poisoned = true;
             return Err(invalid("successor CAS previous snapshot differs"));
         }
-        let next = previous
+        let adopting = previous
             .state
-            .with_successor_window(&self.binding, extension)?;
-        let verified = validate_successor_only_transition(
+            .successor_window
+            .as_ref()
+            .and_then(|w| w.active_request_id.as_ref().and_then(|id| w.request(id)))
+            .zip(
+                extension
+                    .active_request_id
+                    .as_ref()
+                    .and_then(|id| extension.request(id)),
+            )
+            .is_some_and(|(a, b)| {
+                a.request.status == BftSuccessorWindowStatusV1::InstalledPending
+                    && b.request.status == BftSuccessorWindowStatusV1::Adopted
+            });
+        let adopting = adopting
+            && self
+                .successor_support
+                .as_ref()
+                .is_some_and(|s| s.active_window_rebase);
+        if adopting && previous.successor_archive_transfer.is_none() {
+            return Err(invalid(
+                "active rebase requires explicitly provisioned archive transfer ledger",
+            ));
+        }
+        let context = if adopting {
+            let support = self
+                .successor_support
+                .as_ref()
+                .ok_or_else(|| invalid("successor support unavailable"))?;
+            let mut chain =
+                crate::protected_bft_v3::active_window::BftSuccessorArchiveChainVerifierV1::new();
+            for record in &extension.requests {
+                live(deadline)?;
+                let original = support
+                    .archive
+                    .load_public_state(&record.original_public_state)?;
+                chain.verify_next(
+                    &self.binding,
+                    &self.provider_key.public_key_hex(),
+                    record,
+                    &original,
+                )?;
+            }
+            chain.context().cloned()
+        } else {
+            verified.active_context.clone()
+        };
+        let next = previous.state.with_successor_window_context(
+            &self.binding,
+            extension,
+            context.clone(),
+            adopting,
+        )?;
+        let verified = validate_successor_only_transition_with_context(
             &self.binding,
             verified,
             &next,
             &self.provider_key.public_key_hex(),
+            context,
         )?;
         self.sample_time(runtime, credential, token_digest)?;
         live(deadline)?;

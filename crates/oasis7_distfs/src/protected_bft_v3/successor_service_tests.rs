@@ -218,7 +218,41 @@ fn native_successor_counted(
     fail_at: Arc<AtomicUsize>,
     calls: Arc<AtomicUsize>,
 ) -> (RemoteBftSignerProviderV3, thread::JoinHandle<()>) {
+    native_successor_counted_mode(binding, snapshot, archive, verifier, fail_at, calls, false)
+}
+fn native_successor_counted_mode(
+    binding: &BftSignerBindingV3,
+    snapshot: &Arc<Mutex<BftSignerBackendSnapshotV3>>,
+    archive: Arc<Archive>,
+    verifier: Option<Arc<dyn BftSuccessorWindowDriverVerifierV1>>,
+    fail_at: Arc<AtomicUsize>,
+    calls: Arc<AtomicUsize>,
+    active: bool,
+) -> (RemoteBftSignerProviderV3, thread::JoinHandle<()>) {
+    let (provider, server, _) = native_successor_counted_mode_endpoint(
+        binding, snapshot, archive, verifier, fail_at, calls, active,
+    );
+    (provider, server)
+}
+fn native_successor_counted_mode_endpoint(
+    binding: &BftSignerBindingV3,
+    snapshot: &Arc<Mutex<BftSignerBackendSnapshotV3>>,
+    archive: Arc<Archive>,
+    verifier: Option<Arc<dyn BftSuccessorWindowDriverVerifierV1>>,
+    fail_at: Arc<AtomicUsize>,
+    calls: Arc<AtomicUsize>,
+    active: bool,
+) -> (
+    RemoteBftSignerProviderV3,
+    thread::JoinHandle<()>,
+    SocketAddr,
+) {
     let support = BftSuccessorWindowSupportV1::new(archive, Duration::from_secs(5)).unwrap();
+    let support = if active {
+        support.with_active_window_rebase()
+    } else {
+        support
+    };
     let support = match verifier {
         Some(v) => support.with_driver_verifier(v),
         None => support,
@@ -272,7 +306,7 @@ fn native_successor_counted(
         },
     )
     .unwrap();
-    (provider, server)
+    (provider, server, address)
 }
 // Nonactive local observer deliberately has no signing journal. The cut is an
 // actually verified public QC; private execution is only the explicit verifier.
@@ -448,8 +482,18 @@ fn request(
     BftSuccessorWindowInstallIntentBodyV1,
     BftSuccessorWindowArchiveManifestV1,
 ) {
+    let verified = validate_state(binding, Some(&public(33)), &checkpoint.state).unwrap();
+    request_with_schedule(binding, checkpoint, &verified.schedule)
+}
+fn request_with_schedule(
+    binding: &BftSignerBindingV3,
+    checkpoint: &BftSignerCheckpointV3,
+    schedule: &oasis7_formal_protocol::bft::BftHeaderHeightScheduleV3,
+) -> (
+    BftSuccessorWindowInstallIntentBodyV1,
+    BftSuccessorWindowArchiveManifestV1,
+) {
     let state = &checkpoint.state;
-    let verified = validate_state(binding, Some(&public(33)), state).unwrap();
     let cert = state.history.last().unwrap();
     let c = &cert.execution_commitment;
     let source = BftSuccessorWindowSourceV1::from_binding(binding).unwrap();
@@ -498,8 +542,8 @@ fn request(
             driver_record_digest: hash(90),
             driver_install_digest: hash(87),
         },
-        successor_schedule_cbor: oasis7_cas::to_canonical_cbor(&verified.schedule).unwrap(),
-        successor_schedule_digest: verified.schedule.digest().unwrap(),
+        successor_schedule_cbor: oasis7_cas::to_canonical_cbor(schedule).unwrap(),
+        successor_schedule_digest: schedule.digest().unwrap(),
         current_journal_ref: state
             .journal
             .as_ref()
@@ -616,6 +660,7 @@ fn successor_window_remote_original_cas_private_gate_and_cold_owner() {
         BftSuccessorWindowStatusV1::InstalledPending
     );
     let mut evidence = BftSuccessorWindowAdoptedEvidenceV1 {
+        active_segment_origin: None,
         checkpoint_digest: digest.clone(),
         driver_install_digest: body.checkpoint.cut.driver_install_digest.clone(),
         schedule_digest: body.checkpoint.successor_schedule_digest.clone(),
@@ -1131,3 +1176,6 @@ mod archive_query_tests;
 
 #[path = "checkpoint_authentication_tests.rs"]
 mod checkpoint_authentication_tests;
+
+#[path = "active_window_tests.rs"]
+mod active_window_tests;

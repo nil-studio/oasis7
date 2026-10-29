@@ -273,10 +273,9 @@ pub fn resolve_whole_state_signed_result_v1(
                 phase: p,
                 ..
             } = &value.identity
+                && (k, h, r, p) == (public_key_hex, height, round, phase)
             {
-                if (k, h, r, p) == (public_key_hex, height, round, phase) {
-                    return Err(invalid("successor original signing slot preimage conflict"));
-                }
+                return Err(invalid("successor original signing slot preimage conflict"));
             }
         }
     }

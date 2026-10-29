@@ -1,6 +1,8 @@
 //! Qualified-H protected header signer. State and wire domains are independent
 //! from V1/V2 and carry public protocol material only. Backends must provide
 //! independently provisioned fencing and anti-rollback guarantees.
+mod active_window;
+mod active_window_reconstruction;
 mod archive_query;
 mod archive_transfer;
 mod backend;
@@ -89,3 +91,7 @@ pub use archive_query::{
     BftSuccessorArchiveChunkBodyV1, BftSuccessorArchiveChunkV1, BftSuccessorArchiveReadTargetV1,
     BftSuccessorArchiveReadV1, ValidatedBftSuccessorOriginalStateV1,
 };
+
+pub use active_window::{BftSignerActiveWindowV1, VerifiedBftSignerActiveWindowV1};
+
+pub use active_window_reconstruction::ValidatedBftSuccessorInstalledStateV1;
