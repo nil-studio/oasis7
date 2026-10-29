@@ -1040,7 +1040,7 @@ function gameplayActionControlBoundaryReason(action, locale) {
   if (!targetAgentId || actionId === "claim_first_agent") {
     return null;
   }
-  if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play") {
+  if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play" || protocolAction === "live_control.pause") {
     return null;
   }
   const boundAgentId = normalizedId(core.state.auth.boundAgentId);
@@ -1098,6 +1098,9 @@ function gameplayActionButtonLabel(action, locale) {
   if (action.executeKind === "play") {
     return tr(locale, "恢复实时推进", "Resume Live Play");
   }
+  if (action.executeKind === "pause") {
+    return tr(locale, "暂停实时推进", "Pause Live Play");
+  }
   if (action.executeKind === "agent_chat") {
     return tr(locale, "切到聊天面板", "Use Chat Panel");
   }
@@ -1116,6 +1119,9 @@ function gameplayActionBusyLabel(action, locale) {
   }
   if (action?.executeKind === "play") {
     return tr(locale, "恢复中...", "Resuming...");
+  }
+  if (action?.executeKind === "pause") {
+    return tr(locale, "暂停中...", "Pausing...");
   }
   if (action?.actionId === "claim_starter_oc") {
     return tr(locale, "确认中...", "Confirming...");
@@ -1157,6 +1163,9 @@ function gameplayActionTestId(action, role = "available") {
   }
   if (action?.executeKind === "play") {
     return "viewer-available-action-play";
+  }
+  if (action?.executeKind === "pause") {
+    return "viewer-available-action-pause";
   }
   const raw = action?.actionId || action?.protocolAction || action?.executeKind || "unknown";
   const safe = String(raw).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
@@ -2811,7 +2820,7 @@ function WorldSummaryPanel(props = {}) {
                             </div>
                           </Show>
                           <Show
-                            when={action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc"}
+                            when={action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "pause" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc"}
                           >
                             <div class="toolbar">
                               <button

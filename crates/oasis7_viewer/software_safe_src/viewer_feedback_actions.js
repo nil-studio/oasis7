@@ -6,6 +6,7 @@ function executeKindForAction(actionId, protocolAction) {
   if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") return "request_snapshot";
   if (protocolAction === "live_control.step") return "step";
   if (protocolAction === "live_control.play") return "play";
+  if (protocolAction === "live_control.pause") return "pause";
   if (protocolAction === "agent_chat") return "agent_chat";
   if (protocolAction === "prompt_control.apply") return "reprioritize";
   if (protocolAction !== "gameplay_action.submit") return "unsupported";
@@ -70,9 +71,12 @@ export function normalizeViewerAvailableActions({
       label,
       protocolAction,
       targetAgentId,
-      disabledReason: shouldKeepRuntimeDisabledReason
-        ? disabledReason || starterOcMissingAgentReason || null
-        : disabledReason || emptyEntityBlocker?.disabledReason || null,
+      // Pause stops fresh decisions even while provider readiness or the
+      // observed world is blocked. Connection/control policy still applies.
+      disabledReason: protocolAction === "live_control.pause" ? null
+        : shouldKeepRuntimeDisabledReason
+          ? disabledReason || starterOcMissingAgentReason || null
+          : disabledReason || emptyEntityBlocker?.disabledReason || null,
       executeKind: executeKindForAction(actionId, protocolAction),
     };
   });

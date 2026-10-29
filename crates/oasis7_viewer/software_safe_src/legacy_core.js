@@ -2881,6 +2881,9 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
   if (protocolAction === "live_control.play") {
     return { ok: true, feedback: sendControl("play", null) };
   }
+  if (protocolAction === "live_control.pause") {
+    return { ok: true, feedback: sendControl("pause", null) };
+  }
   if (protocolAction !== "gameplay_action.submit") {
     return { ok: false, reason: `unsupported gameplay action protocol: ${protocolAction || "(empty)"}` };
   }
