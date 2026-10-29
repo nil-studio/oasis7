@@ -200,7 +200,7 @@ fn commit_one(
     let precommits = schedule
         .active_set()
         .validators()
-        .iter()
+        .values()
         .map(|validator| {
             signed_vote(
                 schedule,
