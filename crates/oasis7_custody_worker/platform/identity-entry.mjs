@@ -13,7 +13,7 @@ export class NativeProvisionHistory extends WorkerEntrypoint {
 export class NativeProvisionRecovery extends WorkerEntrypoint {
   async recover(raw) { return new RustWorker(this.ctx, this.env).identity_recover_native_status(this.env, raw); }
 }
-export { NativeSession, RoleKeyVault, ClientEnrollmentAuthority } from './index.js';
+export { NativeSession, RoleKeyVault, ClientEnrollmentAuthority, ContextBody } from './index.js';
 // Fixed fetch/scheduled callbacks keep generated Rust RPC methods off the default entrypoint.
 export default {
   fetch(request, env, ctx) { return new RustWorker(ctx, env).fetch(request); },

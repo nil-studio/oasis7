@@ -38,6 +38,24 @@ pub mod approval_crypto;
 pub mod approval_store;
 #[cfg(all(
     target_arch = "wasm32",
+    feature = "identity",
+    feature = "native-runtime-harness"
+))]
+#[path = "../tests/support/context_body_checks_harness.rs"]
+mod context_body_checks_harness;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+pub mod context_body_crypto;
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "identity",
+    feature = "native-runtime-harness"
+))]
+#[path = "../tests/support/context_body_crypto_harness.rs"]
+mod context_body_crypto_harness;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+pub mod context_body_signatures;
+#[cfg(all(
+    target_arch = "wasm32",
     any(feature = "identity", feature = "owner", feature = "executor")
 ))]
 pub mod envelope_crypto;
@@ -145,6 +163,8 @@ mod management;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_directory;
 
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod context_body_actor;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod native_private_store;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]

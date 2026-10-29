@@ -3,6 +3,7 @@
 use super::super::prefix_ledger_tests::private_file;
 use super::ledger_tests::{cas, fixture, open};
 use super::*;
+use crate::formal_bft_header_http::listener_probe::{HeaderListenerProbe, ValidationRejection};
 use ed25519_dalek::SigningKey;
 use oasis7_client_api::world_service::{
     FORMAL_BFT_HEADER_READ_PATH_V4, FORMAL_BFT_READ_PATH_V2, FORMAL_BFT_READ_PATH_V3,
@@ -96,18 +97,40 @@ fn signed_lie_case() {
         .unwrap()
         .is_err()
     );
-    assert!(
+    let probe = HeaderListenerProbe::default();
+    let rejected = {
+        let _scope = probe.scope();
         crate::formal_bft_header_cli::run_with_shutdown(
             ["serve", "--config", config.to_str().unwrap()].into_iter(),
             Some(Arc::new(AtomicBool::new(true))),
         )
-        .is_err()
+    };
+    assert!(
+        rejected.is_err(),
+        "the signed execution lie must be rejected"
     );
-    assert!(std::net::TcpStream::connect_timeout(&bind, Duration::from_millis(100)).is_err());
+    assert_eq!(
+        probe.rejection(),
+        Some(ValidationRejection::ExactDurableCut)
+    );
+    assert_eq!(
+        probe.bind_attempts(),
+        0,
+        "rejection must precede the real bind"
+    );
+    // Deliberately take the address only after the actual rejecting CLI returned.
+    // No reservation prevents the service's validation or bind boundary from running.
+    let _noise = TcpListener::bind(bind).expect("bind unrelated post-return listener");
+    assert!(
+        std::net::TcpStream::connect_timeout(&bind, Duration::from_millis(100)).is_ok(),
+        "the unrelated listener demonstrates that a post-return connect is not ownership evidence"
+    );
+    assert_eq!(probe.bind_attempts(), 0);
 }
 
 struct Server {
     stop: Arc<AtomicBool>,
+    probe: HeaderListenerProbe,
     join: Option<JoinHandle<Result<(), String>>>,
 }
 impl Server {
@@ -115,9 +138,12 @@ impl Server {
         let stop = Arc::new(AtomicBool::new(false));
         let shutdown = stop.clone();
         let config = config.to_path_buf();
+        let probe = HeaderListenerProbe::default();
+        let invocation = probe.clone();
         let join = thread::Builder::new()
             .stack_size(32 * 1024 * 1024)
             .spawn(move || {
+                let _scope = invocation.scope();
                 crate::formal_bft_header_cli::run_with_shutdown(
                     ["serve", "--config", config.to_str().unwrap()].into_iter(),
                     Some(shutdown),
@@ -126,12 +152,20 @@ impl Server {
             .unwrap();
         Self {
             stop,
+            probe,
             join: Some(join),
         }
     }
     fn stop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        self.join.take().unwrap().join().unwrap().unwrap();
+        let result = self.join.take().unwrap().join().unwrap();
+        assert!(result.is_ok(), "the honest header CLI must return success");
+        assert_eq!(self.probe.rejection(), None);
+        assert_eq!(
+            self.probe.bind_attempts(),
+            1,
+            "the honest CLI must reach the real bind once"
+        );
     }
     fn read(
         &mut self,

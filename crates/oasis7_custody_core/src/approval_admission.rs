@@ -744,3 +744,7 @@ mod private_debug_tests {
 #[path = "http_pop_checks.rs"]
 mod http_pop_checks;
 pub(crate) use http_pop_checks::http_pop_signature_checks;
+
+#[path = "context_body_signature_checks.rs"]
+mod context_body_signature_checks;
+pub(crate) use context_body_signature_checks::*;
