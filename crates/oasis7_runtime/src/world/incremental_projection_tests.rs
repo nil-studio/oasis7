@@ -536,3 +536,76 @@ fn delegation_projection_preserves_actual_grant_and_keeps_receipts_separate() {
     );
     assert_eq!(world.cognition, before);
 }
+
+#[test]
+fn borrowed_control_projection_preserves_original_identities_without_qualifying_them() {
+    let mut world = delegation_world_for_projection();
+    // Shape fixtures only: no proof of the referenced event/receipt is issued.
+    world.cognition["agent_delegation"]["controls"] = json!({"control": {
+        "owner_id": "projection-owner",
+        "control": {"control_id":"control", "agent_id":"projection-agent", "intent_id":"intent", "request_digest":"original-request", "grant_id":"projection-grant", "expected_grant_revision":1, "kind":"override"},
+        "disposition": {"intent_id":"intent", "status":"cancelled", "event_seq":17, "logical_time":7, "receipt_ref":"world-event:17"},
+        "consumed_receipt_id":"original-operation-receipt"
+    }});
+    world.cognition["continuation_evaluations"] = json!({"continuation": {"evaluation_tick":7, "evaluation_head_digest":"original-state-view", "evaluation_digest":"original-evaluation", "conditions_digest":"original-conditions"}});
+    world.cognition["reorg_invalidation_epoch"] = json!(u64::MAX);
+    let before = world.cognition.clone();
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    let control = &sink.values[&(FieldOwner::Cognition, "delegation.controls")][0].1;
+    assert_eq!(control["consumed_receipt_id"], "original-operation-receipt");
+    assert_eq!(control["disposition"]["receipt_ref"], "world-event:17");
+    let evaluations = &sink.values[&(FieldOwner::Cognition, "continuation_evaluations")];
+    assert_eq!(evaluations[0].0, "continuation");
+    assert_eq!(
+        evaluations[0].1["evaluation_head_digest"],
+        "original-state-view"
+    );
+    assert_eq!(
+        sink.fields[&(FieldOwner::Cognition, "continuation_evaluations")].destination,
+        FieldDestination::State(Namespace::Scheduler)
+    );
+    assert_eq!(
+        sink.values[&(FieldOwner::Cognition, "reorg_invalidation_epoch")][0].1,
+        json!(u64::MAX)
+    );
+    assert_eq!(
+        sink.fields[&(FieldOwner::Cognition, "reorg_invalidation_epoch")].destination,
+        FieldDestination::State(Namespace::Authorization)
+    );
+    assert_eq!(world.cognition, before);
+}
+
+#[test]
+fn control_projection_rejects_active_decision_and_invalid_extension_shapes_without_mutation() {
+    let mut world = delegation_world_for_projection();
+    let valid = world.cognition.clone();
+    for mode in 0..7 {
+        world.cognition = valid.clone();
+        match mode {
+            0 => world.cognition["agent_delegation_active_decision"] = json!("in-flight-input"),
+            1 => world.cognition["agent_delegation"]["new_control"] = json!({}),
+            2 => world.cognition["agent_delegation"]["spent"]["grant"] = json!(-1),
+            3 => world.cognition["agent_delegation"]["receipts"] = json!([]),
+            4 => world.cognition["continuation_evaluations"] = json!([]),
+            5 => world.cognition["reorg_invalidation_epoch"] = json!(-1),
+            _ => world.cognition["agent_delegation"]["controls"]["control"] = json!([]),
+        }
+        let before = world.cognition.clone();
+        let result = world.visit_iws_genesis_fields(&mut Capture::default());
+        if mode == 0 {
+            assert!(matches!(
+                result,
+                Err(ProjectionError::Invalid(
+                    "active delegation decision is transaction input, not genesis state"
+                ))
+            ));
+        } else {
+            assert!(
+                matches!(result, Err(ProjectionError::Invalid(_))),
+                "invalid control mode {mode}"
+            );
+        }
+        assert_eq!(world.cognition, before);
+    }
+}
