@@ -121,6 +121,7 @@ impl HttpPopRoute {
                 || !matches!(
                     route.as_ref(),
                     Self::ProofChallenges
+                        | Self::Actions
                         | Self::EnrollmentClaim(_)
                         | Self::Initialize(_)
                         | Self::ToolsList(_)

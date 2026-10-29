@@ -10,7 +10,7 @@ impl AccountProvisionApprovalState {
             .filter(|s| s.closing.is_none())
             .map(|s| {
                 let (_, _, write, _, _) = admission::pairing(&s.input.request.intent)?;
-                if session_control_exhausted(s) {
+                if session_control_exhausted(s) || session_purpose_transport_exhausted(s) {
                     return Ok(now);
                 }
                 let deadline = if s.approved_at.is_some() {

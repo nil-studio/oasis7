@@ -474,6 +474,8 @@ impl OwnerProvisionApprovalStore {
 #[cfg(feature = "approval-harness")]
 #[path = "test_session_client_store_harness.rs"]
 mod client_harness;
+#[path = "test_session_client_store_nonce.rs"]
+mod client_nonce;
 #[path = "test_session_client_store_source.rs"]
 mod client_source;
 pub(crate) use client_source::client_source_operation_id;

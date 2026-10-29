@@ -20,6 +20,20 @@ pub(crate) async fn dispatch(
     let admission = &rpc.admission;
     let selector = &admission.http.selector;
     let id = &selector.session_id;
+    if matches!(operation, SessionClientOperation::ToolNonce) {
+        if !matches!(&rpc.action, TestSessionClientAction::ToolNonce) {
+            return Err(denied());
+        }
+        return json(
+            store
+                .issue_client_tool_nonce(env, admission)
+                .await
+                .map_err(|_| denied())?,
+        );
+    }
+    if matches!(&rpc.action, TestSessionClientAction::ToolNonce) {
+        return Err(denied());
+    }
     let purpose = store
         .revalidate_client_http(env, admission, operation)
         .await
@@ -30,6 +44,7 @@ pub(crate) async fn dispatch(
         SessionClientOperation::Control(SessionControlKindV1::Finish | SessionControlKindV1::Abort)
     );
     match rpc.action {
+        TestSessionClientAction::ToolNonce => Err(denied()),
         TestSessionClientAction::Admit => {
             let reserved = store
                 .admit_client_http(env, admission, operation, purpose)
@@ -133,6 +148,7 @@ pub(crate) async fn dispatch(
             )
             .await?;
             match operation {
+                SessionClientOperation::ToolNonce => Err(denied()),
                 SessionClientOperation::Challenge => {
                     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
                     let random = Zeroizing::new(

@@ -151,6 +151,7 @@ impl AccountProvisionApprovalState {
                 || s.closing.is_some()
                 || now.get() >= write
                 || session_control_exhausted(s)
+                || session_purpose_transport_exhausted(s)
                 || s.roots
                     .get(&SessionPurposeV1::Execution)
                     .is_none_or(|r| r.revoked),

@@ -135,7 +135,9 @@ fn http(
     verify_http_possession(prepared, UnixMillis::new(now), &mut StrictCrypto).unwrap()
 }
 fn claimed() -> (SessionFixture, String, String) {
-    let mut f = super::activated(8005);
+    claimed_from(super::activated(8005))
+}
+fn claimed_from(mut f: SessionFixture) -> (SessionFixture, String, String) {
     let life = control_source(&mut f, "claim-source", &"a1".repeat(32), 9000);
     let policy = Policy::new(f.state.draft());
     let current = policy.current(&f.context);

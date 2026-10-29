@@ -71,7 +71,12 @@ fn source_current(f: &mut SessionFixture, d: &TestSessionPreflightDescriptorV1, 
         .unwrap();
 }
 pub(super) fn activated(start: u64) -> SessionFixture {
-    let mut f = pending_fixture();
+    activate_fixture(pending_fixture(), start)
+}
+pub(super) fn activated_for_profile(start: u64, profile: HostTransportProfileV1) -> SessionFixture {
+    activate_fixture(session_fixture_for_profile(true, profile), start)
+}
+fn activate_fixture(mut f: SessionFixture, start: u64) -> SessionFixture {
     let d = f
         .state
         .claim_test_session_preflight("session-one", UnixMillis::new(start))

@@ -41,7 +41,8 @@ impl AccountProvisionApprovalState {
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<SessionChallengeV1> {
         let request: SessionChallengeRequestV1 = original(&proof)?;
-        if request.api_version != 1
+        if request.kind == SessionChallengeKindV1::ToolMetadata
+            || request.api_version != 1
             || request.purpose == SessionPurposeV1::TerminationPlan
             || !id(&request.request_id)
             || !hex64(&request.operation_request_digest)
@@ -330,7 +331,10 @@ impl AccountProvisionApprovalState {
             current.source_operation_id,
             purpose.source_funding(),
         )?;
-        if Self::termination_attempt_occupied(
+        if Self::tool_nonce_internal_attempt(
+            self.test_sessions.get(session_id).ok_or_else(invalid)?,
+            attempt_id,
+        ) || Self::termination_attempt_occupied(
             self.test_sessions.get(session_id).ok_or_else(invalid)?,
             attempt_id,
         ) || !id(attempt_id)
@@ -422,7 +426,10 @@ impl AccountProvisionApprovalState {
         ) {
             return Err(invalid());
         }
-        if self
+        if Self::tool_nonce_internal_attempt(
+            self.test_sessions.get(id).ok_or_else(invalid)?,
+            attempt_id,
+        ) || self
             .test_sessions
             .get(id)
             .ok_or_else(invalid)?
