@@ -32,7 +32,7 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。
 ## 本地验证
 
 ```bash
-python3 -B scripts/test-ci-cache-diagnostic.py -v
+python3 -B scripts/ci-cache-diagnostic.test.py -v
 ```
 
 测试使用假 Cargo 数据与子进程验证脱敏、流量边界、错误传播及超时清理，不声称验证了真实 Rust 编译或远端缓存效果。真实实验只在受限的 GitHub-hosted Linux main 手动入口执行。

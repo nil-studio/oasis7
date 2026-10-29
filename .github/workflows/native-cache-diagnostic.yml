@@ -6,7 +6,7 @@ on:
     paths:
       - .github/workflows/native-cache-diagnostic.yml
       - scripts/ci-cache-diagnostic.py
-      - scripts/test-ci-cache-diagnostic.py
+      - scripts/ci-cache-diagnostic.test.py
   workflow_dispatch:
     inputs:
       scope:
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - run: python3 -B scripts/test-ci-cache-diagnostic.py -v
+      - run: python3 -B scripts/ci-cache-diagnostic.test.py -v
 
   diagnose:
     needs: collector-tests
