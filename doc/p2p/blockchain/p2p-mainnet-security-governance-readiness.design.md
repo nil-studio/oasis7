@@ -241,6 +241,19 @@ Trace refs: O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8。本节定义 V3 lease 
 
 “空 execution world”包含经既有 network bootstrap 身份约束核验、尚无 tick consensus record 且 journal 为空的 genesis-only 初始材料；生成 snapshot 本身不授权覆盖任意已有世界。一般 import 检测到已持久化世界且缺 registry 时拒绝，network bootstrap 只补缺失项，已有 registry 不覆盖。已有提交历史的迁移必须使用专用、经授权的转换，不能删 journal 或重命名目录伪造首启。当前落实位置是 [governance_registry.rs](../../../crates/oasis7_chain_runtime/src/host/governance_registry.rs) 的 `import_genesis_validator_registry`、`import_network_tier_governance_bootstrap` 与 `world_is_bootstrap_only`；这些检查不代替运行中治理 proof。
 
+<a id="readiness-bft-successor-window"></a>
+## BFT successor checkpoint 与治理权限连续（planned）
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；唯一产品声明分别见 [REQ-DCS-002](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002)、[REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)、[REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005)。具体 typed schema、same-cut 材料、事务、archive 查询和真实消费者依赖由 [wire 3 接续设计](../design.md#des-p2p-bft-successor-window-v1)唯一规定。本节拥有权限／治理连续性要求，不重复定义另一份编码。该接口尚未实现或验收，现有 terminal 64-height window 及启用 hold 不变。
+
+Successor checkpoint 不重新创设 authority 或 governance：原 C0/H、world/chain/genesis、binding、controller policy/nonce、admission 和两类 finality 轮换来源／代际沿同一 canonical 历史延续。Snapshot/Journal/CAS 与当前／后续 schedule 必须绑定 exact cut；任何本机重基或 GC 不修改 canonical World 中这些字段及其 state root。普通 provider 签名、可回滚 active pointer、controlled checkpoint 类型、较高 head 和 operator 配置不授予新信任。
+
+Checkpoint/minimum 必须在原 binding 的真实 protected lease/revision/state-digest CAS 中一起单调提交；prepare intent、logical request 与安装状态也须持久记录。原 request 的 unknown 必须在新签名前查回解析，不能当未提交继续 T+1 或覆盖旧 intent；只有根据真实状态证明未提交且已冲突，才明确拒绝旧 prepared 并以新 request 准备新的 cut。新 lease 不重置 minimum，当前 owner 用当前 lease/challenge 查询及确认；原 receipt 的 generation/revision 保留历史含义，不要求等于新 lease，原 expected revision 不被当成新 CAS 水位。minimum 先提交而本机安装未完成时处于 `InstalledPending`，provider 必须拒绝新签写；完成同一 pointer/WAL 安装、独立重开重验，再由当前 lease 的专用 adopted CAS 成功后才能解除闸门。缺材料或冲突停签，不降级选旧 pointer。单次 attempt 的绝对 deadline 不因换 source／重试延长；过期 attempt 不再写入或成功，但新 fenced owner 可在新认证有界 attempt 中查询／续办同一 logical request/body/cut/minimum，保留累计预算、原签名、时间 floor 和 checkpoint 信任期限，不能因旧 deadline 过期把已提交 minimum 变成永久不可恢复。Provider 的 public archive 与 driver 的 private replay closure 分别验证；历史 key 仅认证原签名结果，不能因 archive 查询或重开再次投票。普通 HTTP 或私有读取仍需当时适用的权限和 fresh read gate，checkpoint 不是 grant。
+
+已提交的 membership 与 admitted/bootstrap finality 换钥必须能跨窗携带原 h 决定、h+1 确认、pending set、当前／新 key 的安装 intent/receipt 和原 proof。h/h+1 旧集合、h+2 新集合的全网时刻保持不变；checkpoint 不覆盖 source ownership、不重置 generation、不让已撤销旧 key 复活。第 63 个窗口高度已有跨第 65 个高度的 pending 转换时，必须按专业协议携带原证据继续确认和安装，不能把“只支持无 pending checkpoint”当任务完成或把 activation 往后推。本机因真实材料／容量 blocker 停签时须如实呈现，不能借临时旧 set 保持服务。
+
+Canonical audit history、原 typed Action/controller proof、nonce、原签名／nil slot、处罚证据及唯一 receipt 依据不能因 GC 丢失；仅回收已证明可由受保护 checkpoint 与冗余 archive 重建的热副本。Archive 的分段／累计字节和对象预算有界，切窗不清零累计消耗；达到限制明确拒绝新推进，保留原历史读取的适用资格，不宣称无限容量。非空第 65 条后续提交、冷恢复后再提交、跨 h/h+1/h+2 key 资格及中断不降 minimum 的实际 provider/driver/Node 验证共同构成软件验收；缺任一消费者不能用独立 helper/verifier 或 metadata 通过替代。独立安全／共识评审和真实 custody／故障域部署证据分别保留。
+
 ## 状态、事务与持久化
 
 治理认证使用 committed parent policy 的不可变上下文；通过认证后的效果和 nonce 由 World 的同一次事务／提交持久化。成员应用拥有本机安装意图与组件确认，但不能改写链上 scheduled/effective 状态；只有全部适用组件使用同一视图才提交本机 applied。读取授权 registry、provider lease 签发记录和撤销决定由 issuer 持久保存，provider 高水位／cutoff 由 provider 保存；崩溃、恢复、重复请求不得降低任何授权代际。

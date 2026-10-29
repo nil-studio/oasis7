@@ -435,6 +435,76 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-4
 
 分块、streaming 和断点接续仍受每对象、总字节、证明深度及绝对截止时间预算约束，换 provider 不重置累计预算。状态输出版本化 limits、used/remaining、checkpoint age、重开预算和 lag；阈值前预警，触限保留历史只读并报 stale/catching-up 或 HistoryUnavailable，不能无限分配内存或把历史可读宣称当前可服务。长期接续、容量跨界和恢复 SLO 仍待实现验收，不因本节设计或已有分页代码而完成。
 
+<a id="des-p2p-bft-successor-window-v1"></a>
+#### Wire 3 successor window 接续（planned）
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；复用 [REQ-DCS-002](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002)、[REQ-DCS-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)、[REQ-DCS-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 的唯一要求，不新增产品身份。本条具体化上述容量目标及[治理安全边界](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-bft-successor-window)。这是待实现、待独立安全／共识评审的协议设计；当前 provider、driver、Node 与 public prefix 仍只有从原 H 开始的 terminal 64-height window。本条不构成已接通、已跨界或已验收的声明。
+
+接续只是同一合法历史的本机存储与恢复变换，不是新 profile、authority epoch、validator admission 或重新 provision。保留原 C0→qualified H 的认证关系、原 signer binding、原 key/lease 身份和每高度既有 wire 3 签名域。不能把 `FormalReadCheckpointV1`、controlled native checkpoint、operator 提供的 Snapshot 或 provider 普通响应签名重解释成 BFT 接续能力，也不能删除旧记录后把 `history.len()` 当绝对高度。
+
+##### Typed checkpoint、same-cut 与 archive
+
+新增独立 `BftSuccessorWindowCheckpointBodyV1`、`BftSuccessorWindowInstallIntentV1`、`BftSuccessorWindowInstallReceiptV1` 与只可由验证路径构造的 `VerifiedBftSuccessorWindowV1`。新状态以显式版本能力识别；旧 empty extension 保持原编码，旧 consumer 遇到非空 extension 或新命令必须停止服务／签写，不得忽略后从 H 继续。规范编码复用 protected V3 的有界 canonical CBOR/framing，并以 `oasis7.bft.successor-window.v1.checkpoint`、`.install-intent`、`.install-receipt`、`.archive-manifest`、`.archive-query`、`.archive-reply` 独立域绑定版本；摘要沿用该 framing 的 BLAKE3。拒绝重复字段、非规范编码、未知版本、溢出和超限；签名／摘要不包含自身输出。
+
+| Body 组 | 必须保留的确切内容 |
+| --- | --- |
+| 原信任与前驱 | world/chain/genesis、原 H 的 head/target digest/activation digest/raw Snapshot root、原 material identity、原 binding digest、checkpoint sequence、前驱 checkpoint digest；首个前驱由原 H binding 唯一导出，不能从任意本机 pointer 选择。 |
+| 已安装 cut T | 绝对高度 T、header ID、QC／execution-commitment digest、原 raw Snapshot 内容地址、Snapshot 内 Journal commitment 与独立 Journal 对象地址、semantic state root、post manifest hash、business-result root、driver 原 durable-record/install digest。Snapshot、Journal、CAS 引用闭包须来自同一次真实 durable reread，不能拼接不同 tip 或修改 Snapshot 后重新命名。 |
+| T+1 原 schedule | 完整 scope、authority epoch、policy/epoch mapping、活动 set、proposer priority、parent CommitRef/root/manifest、last activation 及 pending transition；其 digest 必须等于从 T 的原 certificate 验证所得 successor schedule。只有 digest 而没有可恢复的原材料不够。 |
+| 正在进行的高度 | T+1 的完整原 public journal 及其内容地址，包含 height-start time、lock/valid、原 evidence、pending proposal/vote intent 与已签事件；对应 private candidate、valid-value reproposal 与 CAS 闭包由 driver manifest pin。不得重置 timer、round、锁或签名槽。若已有未完成 QC／driver apply，先续完该原操作，把 T 移到同一已完整确认的 tip 后再准备 checkpoint，不切开半次 apply。 |
+| 跨窗证据 | 原治理决定及 h/h+1 certificate、pending transition、原 membership install intent/receipts、当前 key 取得签写资格的证据与两类 finality proof archive 的认证引用；跨窗口的旧 key 原结果仍可检索。 |
+| 历史承诺与预算 | 前驱窗口范围、public certificate/journal/signature archive root、driver private/canonical archive root、各对象长度／hash／版本及累计计数／字节。两类 archive 分权：provider 不接收 private actions，只独立验证 public 协议历史；driver 冷恢复必须实际执行 private canonical inputs。 |
+
+`InstallIntentV1` 固定原 request ID、body digest、expected lease/revision/state digest、driver evidence digest 与所有已准备 archive 引用；`InstallReceiptV1` 固定该 intent digest、同一 body/minimum/sequence、CAS 实际提交 revision、原 lease generation 与 driver install digest，由固定 provider key 签名。receipt 不把后继新 lease 伪装成原安装代次。Schedule 的 wire DTO 只是待验证数据；仅受保护前驱和逐 certificate 验证可构造 `VerifiedBftSuccessorWindowV1`，不开放从任意反序列化 schedule 直接授予签写的构造器。
+
+本机已 provision 的 provider/minimum 仅在原独立 custody 信任配置内加速该本机恢复，不自动成为其他 peer 或普通 reader 的外部 pin。未独立认证该 checkpoint/minimum 的验证者，必须沿原 H 与完整 archive certificate 链验证，或取得原信任政策明确授权的外部单调更新证明；peer 携带的 provider receipt 不能自行缩短它的认证链。公开材料格式支持 successor 引用，不等于所有验证者都被授予从该引用直接启动的能力。
+
+Checkpoint body 不内嵌完整 World 或无界历史。V1 metadata 至多 1 MiB；对象以内容地址经有界 chunk 取回，沿用单次 private material 操作 512 MiB、单 public prefix 64 高度／16 MiB、protected journal 16 MiB 的子界限，不以总 frame 掩盖子界限。新增窗口目录初版最多 64 个 archive segment、累计 4 GiB（public/private、失败 reservation、重复未释放对象都计入同一安装预算；任一先触限即停）；这是 planned 支持规模，不是已支持或无限历史承诺。切窗后不把累计 archive 用量清零。每次有界传输／执行 attempt 使用一个绝对 deadline；该 attempt 内换 source、续页或重试不重置，过期后不得继续写入或返回该 attempt 的成功。原 logical request 的 checkpoint/body/cut/minimum、已保留原签名和累计材料／传输预算独立持久保存；新 fenced owner 可以用新的认证 challenge 和有界 attempt 查询／续办同一 logical request，不把旧 attempt deadline 延长或视为未提交，也不清零累计预算。已提交 minimum 不因 attempt 过期而不可恢复；材料／累计预算真正不足则明确 blocked，并按原身份处理，不自动建立替代 cut。更大规模必须显式版本化合同及独立验证。
+
+##### Protected minimum、安装与恢复
+
+Provider backend 须新增同一原 binding 下的 `prepare_successor_window`／`commit_successor_window`／`get_successor_window`／`confirm_successor_window_adopted` 事务语义。prepare 先持久保存原 logical request ID、完整 body digest、expected revision/state digest、原认证 lease generation、准备材料引用与状态，再返回 intent；provider 从已验证原状态核对 T、完整合法前缀、successor schedule 和 public archive 持久承诺，不能签调用者任意 bytes。准备不改变 canonical 权限，但必须保留原 intent 与查询结果，不能只存在进程 cache。commit 在原 binding 的受保护 CAS 原子保存 checkpoint body、前驱、sequence、minimum `(T, header_id, checkpoint_digest)`、archive root、当前完整 journal 与 `InstalledPending` 状态。minimum 与数据盘不能共同回滚；现有 backend 若无法提供该新增持久原子性，拒绝启用该能力，不用普通文件替代。
+
+| 受保护安装状态 | 新 owner／当前 owner 的允许动作 |
+| --- | --- |
+| `Prepared` | 认证查询原 intent/body/cut；核对真实当前状态后续办同一原 CAS。prepare 响应 unknown 时先查回该持久状态，不按“没收到”重建另一请求。 |
+| `InstalledPending` | minimum 已前进。只可查询／恢复原 checkpoint、driver pointer/WAL 与独立重开重验；provider 拒绝新 proposal/vote 和任何改变该原 journal 的请求，不能仅靠 Node 自愿 pause。 |
+| `Adopted` | 独立重开重验成功后，专用 adopted CAS 记录 exact evidence，才解除签写闸门。查询原结果不再次 commit 或重发世界效果。 |
+| `Superseded`／明确冲突 | 仅在已读取并验证真实当前状态，证明原 prepared CAS 未提交且其 expected state 已被其他合法事务改变后，持久明确拒绝该 prepared；如仍需安装，按真实当前状态以新 request 重新 prepare。不能覆盖旧 intent，也不能把无法确定的 commit 当作未提交。 |
+
+同 logical request ID/body 精确返回原 intent/receipt；异 body 拒绝。原 expected revision/state digest 只约束原 prepare／commit CAS；请求换 owner 后不把旧 expected revision 冒充当前可写 revision。CAS 成功但响应丢失视为 unknown，启动及签名前须先解析该原 request 的持久状态并完成适用恢复；解析不了则停签，不能继续 T+1。sequence 只增一，minimum 不降低，同高度不同 head/digest 拒绝；旧 lease、跳过前驱及遗漏已知原决定均拒绝。新 checkpoint 不是可重新使用 acquire 重绑到新 H 的入口；lease fencing、protected time floor 和签名槽历史独立保留。
+
+`get` 只要求调用时当前有效 lease/requester authentication、fresh challenge、原 logical request/body digest 和调用者已知的 minimum 下限，不要求调用者预先知道 unknown CAS 后的 revision/state digest；它返回认证的实际当前 revision/digest/status 及 minimum 连续性。adopted confirmation 再使用该已读回的当前安装状态 revision/digest 作 CAS；新 fenced owner 可以合法执行两者。原 intent/receipt 中的 lease generation 和 committed revision 是历史事实，既不改写，也不要求它们等于新 lease generation。`get` 返回原结果及当前受保护 minimum、前驱和安装状态；验证原 receipt，不以新查询触发第二次原 commit。`confirm_successor_window_adopted` 使用当前 lease 与当前安装状态 revision/digest 作新的专用 CAS，核对同一原 intent/receipt、独立重开后的实际 driver/WAL evidence、原 journal/schedule digest 和 minimum，再记录 adopted；不另开 authority、不重置原计时、不允许 generic advance 越过该状态机。
+
+安装顺序由真正 Node worker 串行组织：
+
+1. 完成原 pending QC／实际 driver apply／protected applied confirmation；冻结 exact T 及 T+1 原 journal，暂停该本机新的签名事务，网络其他成员继续既有协议。
+2. Driver 从真实 H／已受保护前驱及原 inputs 重放，prepare 并持久 pin same-cut Snapshot/Journal/CAS、public/private archive 和当前 pending private 候选；provider 独立验证 public 部分。校验 archive 原请求索引和闭包，返回绑定实际 reread 的本机安装 evidence，不把 ACK 当硬件证明。
+3. Provider 先持久准备材料，再通过上述 CAS 提交 checkpoint/minimum、原 request receipt 和 `InstalledPending`。此时 driver active pointer 尚未切换也不能回退 minimum，provider 签写闸门保持关闭。Node 校验 provider 认证结果和 exact evidence 后原子安装同一 driver pointer、WAL/window 索引；这一步尚不提交 adopted 或解除闸门。
+4. 从新 pointer 独立重开 provider、driver 和 Node（依原 lease 生命周期关闭／重新 acquire，不产生并存 owner），先解析原持久 request/status，验证原 C0/H 关系、受保护 minimum、archive 闭包及 T+1 journal，核对实际 canonical replay/root、原请求索引与原签名。新 owner 用当前 lease 对该 exact 重开 evidence 提交 `confirm_successor_window_adopted` CAS；只有其原结果确认成功后才能恢复该本机签写，随后才允许回收可重建的热重复材料。
+
+Prepare 前后失败保留旧合法 cut 与原 pending 状态；minimum 未提交前不能先删除旧材料。minimum 已提交而 pointer/ACK 未完成时，启动只恢复该已保存 checkpoint 的同一安装，禁止选旧 pointer 或重置 journal。原材料缺失、archive／semantic root／scope 冲突或 provider 结果不确定时停签并报告 exact blocker，旧历史可读性不升级 current serving。安装完成但响应／通知丢失仍沿原身份查回，不重复产生玩家结果或把所有历史 receipt 再发布一遍。
+
+##### h/h+1/h+2 与跨窗原决定
+
+Checkpoint 不改变任何已提交的成员或 admitted/bootstrap finality 轮换时刻。新窗口即使从 h 的 cut 开始，T+1 schedule 仍携带 pending S_new 与原 h 决定；h+1 用 S_old 签并重验同一转换，h+2 仍只用 S_new。在 h+1 切窗时，确认链、实际已安装 head、原 install intent/receipt、当前 key 与 authority epoch 的认证引用必须保留；新 key 缺实际安装证据仍停签，旧 key 不因重基重新取得权重。迟到节点可从 archive 定位原确认链并补同一安装，不要求 h+1 仍是 hot tip。正常换钥的 controller nonce、原 typed proof、代际和来源记录留在原 canonical World，checkpoint 不重新授权。
+
+目标实现从已应用的第 32 个窗口高度起发起切窗，给原窗口 64 上限留有空间；若已到第 63 个高度且 h+2 跨到第 65 个，必须通过上述 pending schedule/证据携带接续，不能以“无 pending cut 才支持”冻结该已提交决定，不能推迟 activation 或禁止其原确认。新的未决定输入可在本机安装期间暂停接收／保持 queued，但不能更改已决定 payload、nonce 或原 canonical 排程。无法安全完成安装或 archive 真正触限时按合同停止本机新签写；这是可见容量／材料 blocker，不能假称 pending 不适用或修改全网 h+2 来掩盖它。
+
+##### 认证原结果查询与 GC
+
+Public archive 按 `(binding, signer public key, absolute height, round, phase, original preimage digest)` 索引完整原 journal、signature 和 QC；finality proof 按原 typed body/role 索引。索引和值均被 segment manifest root 及已受保护的 checkpoint 链承诺。新增 `BftSuccessorArchiveQueryV1`，字段固定原 binding digest、checkpoint digest、segment root、完整原 slot／body-role identity、fresh challenge、当前 lease generation/token 与 minimum；复用原 requester authentication 签名及连接绑定，只接受当前有效 lease 的认证 owner，不另造无 lease 查询权限。`BftSuccessorArchiveReplyV1` 由固定 provider pin 验证，绑定 request digest、challenge、manifest membership 路径、原值长度/hash、当前 predecessor/minimum 与原 signature；跨连接或旧 lease 重放拒绝。旧 key／旧高度只返回精确已保存 signature，不调用 key、不创建新 intent、不清槽。缺值与证明冲突区分拒绝；不得重新签名来补 archive。
+
+Driver 以原 action ID、payload digest、header/record/install identity 保存 canonical request/receipt 索引及 private execution closure；查询原 receipt 仍须验证原 committed cut、permission 和适用读取能力，不把 archive 的历史 proof 当当前 serving/read grant。跨 window 的未投递原 completion 保留原 eligibility 与一次交付规则；本切片不虚构 durable consumer acknowledgement。
+
+GC 只清理由已安装 checkpoint 和完整冗余 archive 可重建的 hot journal/QC、重复 Snapshot/cache/candidate 副本。原 canonical World 的治理 history、nonce、状态字段和 state root 不变；GC 不发新 canonical event，不删唯一原请求、签名槽、处罚／作恶证据、private replay 输入或 archive segment。需要回收 archive 本身时，另有已认证的冗余保留／重建策略与容量准入，不能因切窗自动淘汰。损坏或丢失 archive 的负例、独立重开和实际重建通过前不删除热原件。
+
+##### 实际消费者与接受条件
+
+最短生产依赖链是 `protected_bft_v3::{backend,state,service,wire,client}` 的 checkpoint/minimum/archive 事务 → `driver_bft_v3_formal_{storage,prefix,node}` 的真实 same-cut retention、pointer 与 canonical replay → `node_bft_v3_{startup,worker,membership}` 的恢复、串行安装、原 receipt 与 key fencing → shipping native provider/Node 的真实调用。公开 prefix/verifier 必须识别原 H 加受保护 successor 链及有界 suffix；只加独立 verifier、提高 64 常量或修改测试 helper 均不完成本条。
+
+接受必须以原真实 Node/provider/driver 建立非空历史并跨过原第 64 条：保留同一 action ID/payload 的 exact receipt 和 World 效果，第 65 条之后再次提交合法非空 action；全对象冷重建后再提交不同原请求，核对根、nonce、历史与一次结果。至少覆盖切窗落在 h、h+1、h+2 前后（含 admitted 与 bootstrap 换钥）、old/new key 资格与真实安装、原 nil/锁/intent/signature 精确恢复、minimum 先提交但 pointer 未切换、旧盘／旧 lease／分叉 checkpoint、archive 丢失／篡改／容量耗尽及 GC 后重建。各节点只以自己的实际 replay/receipt 为准，不用 fixture quorum 或 height 增长代签 World 结果。软件受控 backend 仅证明接线；防回滚 custody、独立故障域、长期规模和恢复 SLO 仍须匹配部署证据。既有 checkpoint 有效期与旧 key/stake 的安全约束仍适用；本机切窗／重新签 provider receipt 不延长独立认证 checkpoint 的有效期，超期或缺策略的长期离线节点停止自动追随并获取原信任政策授权的同世界更新证据。本条最终由非作者独立安全／共识评审，再以相同 immutable head 的真实消费者结果验收。
+
 ### des-p2p-layer-authority
 
 治理validator与permissionless服务、light/archive角色隔离；验证材料而非operator身份；prune重建+archive条件。
