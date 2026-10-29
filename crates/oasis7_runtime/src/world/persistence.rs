@@ -1039,6 +1039,14 @@ impl World {
             }
             world.enforce_journal_event_limit();
         }
+        if !world.state.governance_finality_key_rotations.is_empty()
+            || !world
+                .state
+                .governance_bootstrap_finality_key_rotations
+                .is_empty()
+        {
+            world.resolve_governance_effective_finality_signer_registry()?;
+        }
         world.verify_tick_consensus_chain()?;
         Ok(world)
     }

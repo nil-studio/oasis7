@@ -156,22 +156,23 @@ impl World {
         effective_epoch: u64,
     ) -> Result<Option<GovernanceFinalitySignerRegistry>, WorldError> {
         let Some(mut registry) = self.state.governance_finality_signer_registry.clone() else {
+            if !self
+                .state
+                .governance_bootstrap_finality_key_rotations
+                .is_empty()
+                || !self.state.governance_finality_key_rotations.is_empty()
+            {
+                return Err(WorldError::GovernancePolicyInvalid {
+                    reason: "rotation source registry missing".into(),
+                });
+            }
             return Ok(None);
         };
         // Administrative progress must not shadow the last effective authority
         // decision. In particular, a newer application cannot remove a prior
         // revocation and thereby restore a bootstrap binding from the base.
-        let authority_records = Self::select_governance_validator_admission_records(
-            admissions.values().filter(|record| match record.status {
-                GovernanceValidatorAdmissionStatus::Revoked => true,
-                GovernanceValidatorAdmissionStatus::Active
-                | GovernanceValidatorAdmissionStatus::ProbationReady => {
-                    record.activation_epoch.unwrap_or(effective_epoch) <= effective_epoch
-                }
-                GovernanceValidatorAdmissionStatus::Applied
-                | GovernanceValidatorAdmissionStatus::ApprovedCandidate => false,
-            }),
-        );
+        let authority_records =
+            Self::governance_validator_authority_records_at_epoch(admissions, effective_epoch);
         for record in authority_records.values() {
             match record.status {
                 GovernanceValidatorAdmissionStatus::Revoked => {
@@ -196,8 +197,28 @@ impl World {
             }
         }
         self.project_finality_key_rotations(&mut registry, admissions, effective_epoch)?;
+        self.project_bootstrap_finality_key_rotations(&mut registry, admissions, effective_epoch)?;
         self.validate_governance_finality_signer_registry(registry)
             .map(Some)
+    }
+
+    // Source ownership must use the same effective decisions as permission
+    // projection. A newer administrative request cannot hide a revocation.
+    pub(in crate::world) fn governance_validator_authority_records_at_epoch(
+        admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+        effective_epoch: u64,
+    ) -> BTreeMap<String, &GovernanceValidatorAdmissionRecord> {
+        Self::select_governance_validator_admission_records(admissions.values().filter(|record| {
+            match record.status {
+                GovernanceValidatorAdmissionStatus::Revoked => true,
+                GovernanceValidatorAdmissionStatus::Active
+                | GovernanceValidatorAdmissionStatus::ProbationReady => {
+                    record.activation_epoch.unwrap_or(effective_epoch) <= effective_epoch
+                }
+                GovernanceValidatorAdmissionStatus::Applied
+                | GovernanceValidatorAdmissionStatus::ApprovedCandidate => false,
+            }
+        }))
     }
 
     #[expect(

@@ -11,6 +11,10 @@ use oasis7_consensus::tendermint_v3::{
 };
 use oasis7_proto::distributed_bft::v3::BftVoteValueV3;
 
+#[path = "driver_bft_v3_node_bootstrap_rotation_tests.rs"]
+mod bootstrap_rotation_cases;
+#[path = "driver_bft_v3_node_bootstrap_rotation_live_tests.rs"]
+mod bootstrap_rotation_live_cases;
 #[path = "driver_bft_v3_node_membership_key_rotation_tests.rs"]
 mod key_rotation_cases;
 

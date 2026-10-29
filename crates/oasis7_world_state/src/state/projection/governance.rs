@@ -31,6 +31,21 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
         .map_or(&state.governance_finality_key_rotations, |overlay| {
             &overlay.rotations
         });
+    let bootstrap_rotations = governance_registry_overlay
+        .map_or(&state.governance_bootstrap_finality_key_rotations, |o| {
+            &o.bootstrap_rotations
+        });
+    crate::governance::validate_finality_key_rotation_history_capacity(
+        rotations.len(),
+        bootstrap_rotations.len(),
+    )
+    .map_err(serde::ser::Error::custom)?;
+    if !bootstrap_rotations.is_empty() {
+        output.serialize_field(
+            "governance_bootstrap_finality_key_rotations",
+            &crate::governance::BootstrapFinalityKeyRotationHistoryRef(bootstrap_rotations),
+        )?;
+    }
     if !rotations.is_empty() {
         output.serialize_field(
             "governance_finality_key_rotations",

@@ -58,6 +58,25 @@ pub trait BftSignerLeaseV3: Send {
         ))
     }
 
+    /// Fixed typed key consent/possession only, not controller authorization.
+    fn sign_bootstrap_finality_rotation_proof(
+        &mut self,
+        _expected_revision: u64,
+        _expected_state_digest: &str,
+        _body: &oasis7_agent_api::world_action::BootstrapFinalityKeyRotationBodyV1,
+        _role: oasis7_agent_api::world_action::BootstrapFinalityKeyRotationRoleV1,
+    ) -> Result<
+        (
+            oasis7_agent_api::world_action::BootstrapFinalityKeyRotationProofV1,
+            BftSignerCheckpointV3,
+        ),
+        BftSignerErrorV3,
+    > {
+        Err(invalid(
+            "typed finality rotation proofs are unsupported by this lease",
+        ))
+    }
+
     fn enable_membership(
         &mut self,
         _expected_revision: u64,
@@ -441,6 +460,57 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
                     record.body == *body
                         && record.proof == **proof
                         && record.public_key_hex == super::rotation::selected_key(body, role)
+                })
+            })
+        {
+            return Err(invalid("BFT V3 finality proof was not durably archived"));
+        }
+        Ok((proof.as_ref().clone(), checkpoint))
+    }
+
+    fn sign_bootstrap_finality_rotation_proof(
+        &mut self,
+        expected_revision: u64,
+        expected_state_digest: &str,
+        body: &oasis7_agent_api::world_action::BootstrapFinalityKeyRotationBodyV1,
+        role: oasis7_agent_api::world_action::BootstrapFinalityKeyRotationRoleV1,
+    ) -> Result<
+        (
+            oasis7_agent_api::world_action::BootstrapFinalityKeyRotationProofV1,
+            BftSignerCheckpointV3,
+        ),
+        BftSignerErrorV3,
+    > {
+        body.validate().map_err(invalid)?;
+        let (request, reply) =
+            self.command(BftSignerCommandV3::SignBootstrapFinalityRotationProof {
+                expected_revision,
+                expected_state_digest: expected_state_digest.into(),
+                body: Box::new(body.clone()),
+                role,
+            })?;
+        let checkpoint = self.result_checkpoint(&request, &reply, |result| {
+            matches!(
+                result,
+                BftSignerReplyKindV3::BootstrapFinalityRotationProofSigned { .. }
+            )
+        })?;
+        let BftSignerReplyKindV3::BootstrapFinalityRotationProofSigned { proof } =
+            &reply.body.result
+        else {
+            return Err(invalid("BFT V3 finality proof result kind differs"));
+        };
+        super::bootstrap_rotation::verify_proof(body, proof, role)?;
+        if checkpoint
+            .state
+            .bootstrap_finality_rotation_proofs
+            .as_ref()
+            .is_none_or(|archive| {
+                !archive.records.iter().any(|record| {
+                    record.body == *body
+                        && record.proof == **proof
+                        && record.public_key_hex
+                            == super::bootstrap_rotation::selected_key(body, role)
                 })
             })
         {

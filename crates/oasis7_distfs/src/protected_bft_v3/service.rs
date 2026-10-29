@@ -28,6 +28,7 @@ use super::wire::{
     SignedBftSignerRequestV3, encode_frame, request_digest, validate_request,
 };
 
+mod bootstrap_rotation;
 mod candidate_read;
 mod membership;
 mod operations;
@@ -593,6 +594,7 @@ impl BftSignerServiceV3 {
                 command,
                 BftSignerCommandV3::SignCandidateRead { .. }
                     | BftSignerCommandV3::SignFinalityRotationProof { .. }
+                    | BftSignerCommandV3::SignBootstrapFinalityRotationProof { .. }
                     | BftSignerCommandV3::Checkpoint
                     | BftSignerCommandV3::ConfirmApplied { .. }
                     | BftSignerCommandV3::SignProposal { .. }
@@ -612,6 +614,7 @@ impl BftSignerServiceV3 {
                 BftSignerCommandV3::Checkpoint
                     | BftSignerCommandV3::SignCandidateRead { .. }
                     | BftSignerCommandV3::SignFinalityRotationProof { .. }
+                    | BftSignerCommandV3::SignBootstrapFinalityRotationProof { .. }
                     | BftSignerCommandV3::SignProposal { .. }
                     | BftSignerCommandV3::SignVote { .. }
                     | BftSignerCommandV3::PrepareTransitionInstall { .. }
@@ -625,6 +628,15 @@ impl BftSignerServiceV3 {
         match command {
             BftSignerCommandV3::SignFinalityRotationProof { .. } => self
                 .sign_finality_rotation_proof(
+                    runtime,
+                    &credential,
+                    token_digest,
+                    snapshot,
+                    request,
+                    request_digest,
+                ),
+            BftSignerCommandV3::SignBootstrapFinalityRotationProof { .. } => self
+                .sign_bootstrap_finality_rotation_proof(
                     runtime,
                     &credential,
                     token_digest,
@@ -705,7 +717,10 @@ impl BftSignerServiceV3 {
                 {
                     return Err(invalid("BFT V3 advance checkpoint is stale"));
                 }
-                if candidate.finality_rotation_proofs != state.finality_rotation_proofs {
+                if candidate.finality_rotation_proofs != state.finality_rotation_proofs
+                    || candidate.bootstrap_finality_rotation_proofs
+                        != state.bootstrap_finality_rotation_proofs
+                {
                     return Err(invalid(
                         "BFT V3 ordinary advance cannot change finality proof archive",
                     ));

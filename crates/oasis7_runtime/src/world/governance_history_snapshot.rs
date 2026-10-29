@@ -112,6 +112,19 @@ impl VerifiedGovernanceHistorySnapshot {
         };
         projection.next_event_id_era = snapshot.event_id_era;
         projection.journal = journal;
+        if !projection
+            .state
+            .governance_finality_key_rotations
+            .is_empty()
+            || !projection
+                .state
+                .governance_bootstrap_finality_key_rotations
+                .is_empty()
+        {
+            projection
+                .resolve_governance_effective_finality_signer_registry()
+                .map_err(|e| format!("governance history rotation: {e:?}"))?;
+        }
         projection.formal_history_reader = Some(
             AttachedFormalHistory::for_verified_governance_projection(parent, reader),
         );

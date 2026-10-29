@@ -585,11 +585,15 @@ impl World {
         &mut self,
         event: &GovernanceEvent,
     ) -> Result<(), WorldError> {
-        if matches!(event, GovernanceEvent::ValidatorAdmissionSubmitted { .. }
-            | GovernanceEvent::ValidatorAdmissionApproved { .. }
-            | GovernanceEvent::ValidatorAdmissionActivated { .. }
-            | GovernanceEvent::ValidatorAdmissionRevoked { .. }
-                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }) {
+        if matches!(
+            event,
+            GovernanceEvent::ValidatorAdmissionSubmitted { .. }
+                | GovernanceEvent::ValidatorAdmissionApproved { .. }
+                | GovernanceEvent::ValidatorAdmissionActivated { .. }
+                | GovernanceEvent::ValidatorAdmissionRevoked { .. }
+                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }
+                | GovernanceEvent::BootstrapFinalityKeyRotated { .. }
+        ) {
             let prepared = self.prepare_governance_registry_event(event)?;
             prepared.install(&mut self.state);
             return Ok(());
@@ -899,7 +903,8 @@ impl World {
                 *revoked_at_epoch,
                 reason,
             )?,
-            GovernanceEvent::ValidatorFinalityKeyRotated { .. } => {
+            GovernanceEvent::ValidatorFinalityKeyRotated { .. }
+            | GovernanceEvent::BootstrapFinalityKeyRotated { .. } => {
                 return Err(WorldError::GovernancePolicyInvalid {
                     reason: "rotation bypassed prepared registry publication".into(),
                 });

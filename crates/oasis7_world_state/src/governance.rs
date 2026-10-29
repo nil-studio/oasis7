@@ -15,6 +15,16 @@ pub(crate) use finality_rotation::{
 };
 pub use finality_rotation::{FinalityKeyRotationRecordV1, MAX_FINALITY_KEY_ROTATION_RECORDS_V1};
 
+#[path = "governance_bootstrap_finality_rotation.rs"]
+mod bootstrap_finality_rotation;
+pub(crate) use bootstrap_finality_rotation::{
+    BootstrapFinalityKeyRotationHistoryRef, deserialize_bootstrap_finality_key_rotations,
+};
+pub use bootstrap_finality_rotation::{
+    BootstrapFinalityKeyRotationRecordV1, bootstrap_finality_registry_digest_v1,
+};
+pub use finality_rotation::validate_finality_key_rotation_history_capacity;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GovernanceExecutionPolicy {
     pub timelock_ticks: u64,
@@ -365,6 +375,9 @@ pub enum GovernanceEvent {
         next_admin_account_ids: Vec<String>,
     },
     /// New rotations always retain their complete original authorization.
+    BootstrapFinalityKeyRotated {
+        authorization: oasis7_agent_api::world_action::GovernanceAuthorizedActionV1,
+    },
     ValidatorFinalityKeyRotated {
         authorization: oasis7_agent_api::world_action::GovernanceAuthorizedActionV1,
     },
