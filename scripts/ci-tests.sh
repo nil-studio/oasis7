@@ -430,6 +430,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-local-signer-tests.test.py
   run bash ./scripts/rust-full-tier-trunk-prerequisite-contract.test.sh
   run bash ./scripts/worktree-gc-report.test.sh
+  run python3 ./scripts/dot-todo.test.py
   run python3 ./scripts/resource-cleanup-executor.test.py
   run python3 ./scripts/pr-review-threads.test.py
 }

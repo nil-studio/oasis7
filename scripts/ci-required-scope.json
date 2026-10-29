@@ -629,7 +629,8 @@
     },
     {
       "match": [
-        "scripts/pr-review-thread-closeout*"
+        "scripts/pr-review-thread-closeout*",
+        "scripts/dot-todo*"
       ],
       "groups": [
         "workflow_governance"

@@ -1,5 +1,9 @@
 # 汇报方式
 
+## 本地受限模式
+
+用户选择单执行者本地 Python TODO 时，执行与恢复以 [LOCAL_TODO.md](LOCAL_TODO.md) 为准：父任务持久保存快照，dot 有限串行处理；下文运行器原子认领、统一 subagent 分工与自动等待重试只适用于原运行器模式。业务授权、暂停、未知结果和验收要求两种模式均须遵守。当前统一 Issue、Sites、CI 及旧每日 Issue 保持暂停，文档或脚本提交不恢复任务。
+
 项目汇报与交接文字遵循[语言与写作要求](../../doc/engineering/workflow/source-of-truth.md#language-and-writing)。
 
 默认使用中文，先结论后依据；代码标识保留原名，PR 标题和 commit message 按仓库要求使用英文。汇报服务于用户判断，不重复粘贴日志或生成另一套任务账本。

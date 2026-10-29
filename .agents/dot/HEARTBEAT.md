@@ -1,5 +1,9 @@
 # 时间表巡检与协调
 
+## 本地受限模式
+
+用户选择单执行者本地 Python TODO 时，执行与恢复以 [LOCAL_TODO.md](LOCAL_TODO.md) 为准：父任务持久保存快照，dot 有限串行处理；下文运行器原子认领、统一 subagent 分工与自动等待重试只适用于原运行器模式。业务授权、暂停、未知结果和验收要求两种模式均须遵守。当前统一 Issue、Sites、CI 及旧每日 Issue 保持暂停，文档或脚本提交不恢复任务。
+
 本文件是每轮巡检的执行约定，不是 OpenAI 自动识别的心跳配置或已经部署的程序。时间点只在 [SCHEDULE.md](SCHEDULE.md) 维护，权限沿用 [AUTONOMY.md](AUTONOMY.md)。主 Agent 只协调，所有时间表事项交给真实 subagent。
 
 ## 接入前核实
