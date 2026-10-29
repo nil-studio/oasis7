@@ -527,3 +527,5 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
 
 #[path = "incremental_scheduler_tests.rs"]
 mod scheduler;
+#[path = "incremental_agent_move_tests.rs"]
+mod moves;

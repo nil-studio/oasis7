@@ -1182,3 +1182,5 @@ pub mod incremental_scheduler;
 mod incremental_scheduler_index;
 
 pub mod incremental_projection;
+
+mod incremental_agent_move;
