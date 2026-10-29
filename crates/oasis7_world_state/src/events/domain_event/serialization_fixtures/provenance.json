@@ -1,0 +1,19 @@
+{
+  "legacy_source_sha256": "21ce01a309d5c565ae2cf7f88b9625d507b6fef82b9fdfeeb48b0aa75d985314",
+  "source_head": "163fffef9102121b04f0016652d14b05a15c79ec",
+  "runtime_fixture_count": 208,
+  "declaration_variants": 104,
+  "optional_nonlegacy_skip_fields": 37,
+  "generator_actual_file": "legacy-oracle-workspace.rs.txt",
+  "generator_legacy_manifest_label": "generator.rs.txt (logical template label; actual workspace harness differs)",
+  "generator_sha256": "8e8dfa779b59d76aa332cd4ee375b52fcb2709093c695c84c6c46b2da6111050",
+  "legacy_test_log_sha256": "0475f087dbab91f71fc6590c40862878af67550bd4a9f80ce9b796fc5d7ae46c",
+  "files": {
+    "domain-event-all-variants-v1.cbor": "d22938a30e0b6ba33418b7a2c15f9cd59772a3c48bddca2552717cea991532d8",
+    "domain-event-all-variants-v1.debug.json": "4ec0d123cb742e02f646c8adc914f884b8ec6ad3ac86f000a58b0f4ade1e20f4",
+    "domain-event-all-variants-v1.manifest.json": "e93cc5b378465a4936297fade15663821b1dc9f85e0a663abee12512f2981869",
+    "domain-event-all-variants-v1.trace.json": "60bb1a2c90a36fdb88e2ade74425af41bbd94b0ab8dcefebb12825ae59ae1136",
+    "domain-event-all-variants-v1.packed.cbor": "c709cef666d93a5f9883257fbf37ce2b70165684407f525faa2847af3166403b",
+    "domain-event-all-variants-v1.json": "916f34a86ebaf857b1215878999edfde905c4f0887ba7359c9b9cbc3492a9477"
+  }
+}

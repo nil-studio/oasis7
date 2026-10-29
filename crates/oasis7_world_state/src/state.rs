@@ -71,6 +71,7 @@ mod starter_industrial;
 #[path = "state_defaults.rs"]
 mod state_defaults;
 pub mod support;
+mod world_state_deserialize;
 
 pub use self::starter_industrial::{
     IndustryProgressState, STARTER_ASSEMBLER_FACTORY_ID, STARTER_INDUSTRIAL_COMPLETION_BOUNDARY,
@@ -507,260 +508,150 @@ pub struct ModuleReleaseManifestMappingState {
 }
 
 /// The mutable state of the world.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WorldState {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     pub time: WorldTime,
     /// Independent authenticated archive index. It is committed by the
     /// enclosing Snapshot's state bytes and is trusted only when those exact
     /// bytes are verified under a qualified formal anchor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retained_history_root: Option<FormalRetainedHistoryRootV1>,
     pub agents: BTreeMap<String, AgentCell>,
     /// Latest durable intent disposition used for idempotency after replacement.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub agent_intent_ledger: BTreeMap<String, AgentIntentV2>,
-    #[serde(default)]
     pub resources: BTreeMap<ResourceKind, i64>,
-    #[serde(default)]
     pub materials: BTreeMap<String, i64>,
-    #[serde(default = "default_material_ledgers")]
     pub material_ledgers: BTreeMap<MaterialLedgerId, BTreeMap<String, i64>>,
-    #[serde(default)]
     pub material_profiles: BTreeMap<String, MaterialProfileV1>,
-    #[serde(default)]
     pub logistics_routes: BTreeMap<String, LogisticsRouteV1>,
-    #[serde(default)]
     pub completed_logistics_route_ids: BTreeSet<String>,
-    #[serde(default)]
     pub completed_logistics_paths: BTreeMap<String, LogisticsPathAuthorityV1>,
-    #[serde(default)]
     pub settled_logistics_transit_ids: BTreeSet<ActionId>,
-    #[serde(default)]
     pub logistics_settlement_receipts: BTreeMap<ActionId, LogisticsSettlementReceiptV1>,
     /// Product-validation failure dispositions are keyed by the recipe
     /// action id so a post-start sink is recorded exactly once across replay.
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub factory_production_failure_dispositions:
         BTreeMap<ActionId, FactoryProductionFailureDispositionV1>,
     /// Direct material transfer action ids are single-use. The comparable
     /// receipt distinguishes an exact replay from a tampered same-id event.
-    #[serde(default)]
     pub direct_material_transfer_receipts: BTreeMap<ActionId, MaterialTransferReceiptV1>,
     /// Product-module decisions are scoped to a production job/output and
     /// survive snapshots so retries do not invoke the module twice.
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "deserialize_btreemap_u64_keys"
-    )]
     pub product_validation_receipts: BTreeMap<ActionId, Vec<ProductValidationReceiptV1>>,
-    #[serde(default)]
     pub product_profiles: BTreeMap<String, ProductProfileV1>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_product_validation: Option<LastProductValidationState>,
-    #[serde(default)]
     pub recipe_profiles: BTreeMap<String, RecipeProfileV1>,
-    #[serde(default)]
     pub factory_profiles: BTreeMap<String, FactoryProfileV1>,
     /// Canonical agent-to-location assignments. Old snapshots decode this as
     /// an empty registry and cannot thereby grant new site admission.
-    #[serde(default)]
     pub agent_location_authorities: BTreeMap<String, AgentLocationAuthorityV1>,
     /// Runtime-owned exact location identities. Old snapshots decode this as
     /// an empty registry and cannot thereby grant new authority or admission.
-    #[serde(default)]
     pub location_anchors: BTreeMap<String, LocationAnchorV1>,
     /// Canonical factory-site admission records.
-    #[serde(default)]
     pub factory_site_authorities: BTreeMap<String, FactorySiteAuthorityV1>,
     /// M4-governed construction electricity profiles keyed by exact factory id.
-    #[serde(default)]
     pub factory_construction_power_profiles: BTreeMap<String, FactoryConstructionPowerProfileV1>,
-    #[serde(default)]
     pub factories: BTreeMap<String, FactoryState>,
     /// Factory identities are single-use.  Recycling leaves a durable
     /// tombstone so stale build/recycle events cannot resurrect or mutate the
     /// same identity after replay or recovery.
-    #[serde(default)]
     pub retired_factory_ids: BTreeSet<String>,
     /// Factory build action identities are single-use.  Once a build has
     /// settled, replaying the same completion event must not recreate or
     /// overwrite the factory; the receipt also lets the reducer distinguish
     /// a settled duplicate from an unknown/reordered completion.
-    #[serde(default)]
     pub settled_factory_build_ids: BTreeSet<ActionId>,
     /// Construction obligations remain auditable after FactoryBuilt settles
     /// the pending job; old snapshots decode this as an empty map.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub factory_construction_receipts: BTreeMap<String, FactoryBuildPowerObligationV1>,
     /// Pre-call intents prevent a crash between module side effects and the
     /// validation receipt from causing a second validator invocation.
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "deserialize_btreemap_u64_keys"
-    )]
     pub product_validation_attempts: BTreeMap<ActionId, Vec<ProductValidationAttemptV1>>,
     /// Runtime-owned validation delivery progress is separate from reducer
     /// module state so a module cannot shadow or overwrite the cursor.
-    #[serde(default)]
     pub product_validation_delivery_cursor: ProductValidationDeliveryCursor,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub pending_factory_builds: BTreeMap<ActionId, FactoryBuildJobState>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub pending_recipe_jobs: BTreeMap<ActionId, RecipeJobState>,
     /// Recipe action identities are single-use.  Once a recipe reaches a
     /// terminal settlement (including a product-validation block), replaying
     /// the same completion/start identity must not sink or credit it again.
-    #[serde(default)]
     pub settled_recipe_job_ids: BTreeSet<ActionId>,
     /// Monotonic settlement position for new industry terminal outcomes.
-    #[serde(default = "state_defaults::default_next_industry_settlement_order")]
     pub next_industry_settlement_order: u64,
     /// Durable insertion order for bounded industry history compaction.
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub industry_settlement_orders: BTreeMap<ActionId, u64>,
     /// Full completion payloads for new recipe settlements.  The ID set above
     /// remains a compatibility projection for pre-receipt snapshots.
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "deserialize_btreemap_u64_keys"
-    )]
     pub recipe_completion_receipts: BTreeMap<ActionId, RecipeCompletionReceiptV1>,
     /// Full recycle payloads for new retired-factory tombstones.  The legacy
     /// ID set remains authoritative only when no receipt exists.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub factory_recycle_receipts: BTreeMap<String, FactoryRecycleReceiptV1>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub pending_material_transits: BTreeMap<ActionId, MaterialTransitJobState>,
-    #[serde(default)]
     pub industry_progress: IndustryProgressState,
-    #[serde(default)]
     pub alliances: BTreeMap<String, AllianceState>,
-    #[serde(default)]
     pub gameplay_policy: GameplayPolicyState,
-    #[serde(default)]
     pub data_access_permissions: BTreeMap<String, BTreeSet<String>>,
-    #[serde(default)]
     pub economic_contracts: BTreeMap<String, EconomicContractState>,
-    #[serde(default)]
     pub agent_claims: BTreeMap<String, AgentClaimState>,
     /// Durable per-target acquisition ordinal; terminal claims retain this tombstone.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub agent_claim_acquisition_sequences: BTreeMap<String, u64>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub starter_oc_claims: BTreeMap<String, StarterOcClaimState>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub authenticated_collect_data_last_nonces: BTreeMap<String, BTreeMap<String, u64>>,
-    #[serde(default)]
     pub agent_claim_last_processed_epoch: u64,
-    #[serde(default)]
     pub contract_pair_last_success_settled_at: BTreeMap<String, WorldTime>,
-    #[serde(default)]
     pub reputation_reward_window_started_at: BTreeMap<String, WorldTime>,
-    #[serde(default)]
     pub reputation_reward_window_accumulated: BTreeMap<String, i64>,
-    #[serde(default)]
     pub reputation_scores: BTreeMap<String, i64>,
-    #[serde(default)]
     pub wars: BTreeMap<String, WarState>,
-    #[serde(default)]
     pub governance_votes: BTreeMap<String, GovernanceVoteState>,
-    #[serde(default)]
     pub governance_proposals: BTreeMap<String, GovernanceProposalState>,
-    #[serde(default)]
     pub governance_identity_profiles: BTreeMap<String, GovernanceIdentityProfileState>,
-    #[serde(default)]
     pub crises: BTreeMap<String, CrisisState>,
-    #[serde(default)]
     pub meta_progress: BTreeMap<String, MetaProgressState>,
-    #[serde(default)]
     pub module_states: BTreeMap<String, Vec<u8>>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub module_visual_entities: BTreeMap<String, ModuleVisualEntity>,
-    #[serde(default)]
     pub module_artifact_owners: BTreeMap<String, String>,
-    #[serde(default)]
     pub module_artifact_listings: BTreeMap<String, ModuleArtifactListingState>,
-    #[serde(default)]
     pub module_artifact_bids: BTreeMap<String, Vec<ModuleArtifactBidState>>,
-    #[serde(default)]
     pub module_instances: BTreeMap<String, ModuleInstanceState>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub module_admission_freezes: BTreeMap<String, ModuleAdmissionFreeze>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub module_release_requests: BTreeMap<u64, ModuleReleaseRequestState>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub module_release_manifest_mappings: BTreeMap<u64, ModuleReleaseManifestMappingState>,
-    #[serde(default = "default_next_module_release_request_id")]
     pub next_module_release_request_id: u64,
-    #[serde(default)]
     pub module_release_role_bindings: BTreeMap<String, BTreeSet<String>>,
-    #[serde(default)]
     pub installed_module_targets: BTreeMap<String, ModuleInstallTarget>,
-    #[serde(default = "default_next_module_instance_id")]
     pub next_module_instance_id: u64,
-    #[serde(default = "default_module_market_order_id")]
     pub next_module_market_order_id: u64,
-    #[serde(default = "default_module_market_sale_id")]
     pub next_module_market_sale_id: u64,
-    #[serde(default)]
     pub main_token_config: MainTokenConfig,
-    #[serde(default)]
     pub main_token_supply: MainTokenSupplyState,
-    #[serde(default)]
     pub main_token_balances: BTreeMap<String, MainTokenAccountBalance>,
-    #[serde(default)]
     pub restricted_starter_claim_grants: BTreeMap<String, RestrictedStarterClaimGrantState>,
-    #[serde(default)]
     pub main_token_genesis_buckets: BTreeMap<String, MainTokenGenesisAllocationBucketState>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub main_token_epoch_issuance_records: BTreeMap<u64, MainTokenEpochIssuanceRecord>,
-    #[serde(default)]
     pub main_token_treasury_balances: BTreeMap<String, u64>,
-    #[serde(default)]
     pub main_token_claim_nonces: BTreeMap<String, u64>,
-    #[serde(default)]
     pub main_token_transfer_nonces: BTreeMap<String, u64>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub main_token_scheduled_policy_updates: BTreeMap<u64, MainTokenScheduledPolicyUpdate>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub main_token_node_points_bridge_records: BTreeMap<u64, MainTokenNodePointsBridgeEpochRecord>,
-    #[serde(default)]
     pub main_token_treasury_distribution_records:
         BTreeMap<String, MainTokenTreasuryDistributionRecord>,
-    #[serde(default)]
     pub restricted_starter_claim_liveops_pool_top_up_records:
         BTreeMap<String, RestrictedStarterClaimLiveopsPoolTopUpRecord>,
-    #[serde(default)]
     pub reward_asset_config: RewardAssetConfig,
-    #[serde(default)]
     pub node_asset_balances: BTreeMap<String, NodeAssetBalance>,
-    #[serde(default)]
     pub protocol_power_reserve: ProtocolPowerReserve,
-    #[serde(default)]
     pub reward_mint_records: Vec<NodeRewardMintRecord>,
-    #[serde(default)]
     pub node_redeem_nonces: BTreeMap<String, u64>,
-    #[serde(default, deserialize_with = "deserialize_btreemap_u64_keys")]
     pub system_order_pool_budgets: BTreeMap<u64, SystemOrderPoolBudget>,
-    #[serde(default)]
     pub node_identity_bindings: BTreeMap<String, String>,
-    #[serde(default)]
     pub node_main_token_account_bindings: BTreeMap<String, String>,
-    #[serde(default)]
     pub governance_finality_signer_registry: Option<GovernanceFinalitySignerRegistry>,
-    #[serde(default)]
     pub governance_validator_admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
-    #[serde(default)]
     pub governance_main_token_controller_registry: Option<GovernanceMainTokenControllerRegistry>,
     /// Successful controller nonces commit atomically with governance effects.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub governance_authorization_nonces: BTreeMap<String, u64>,
-    #[serde(default)]
     pub reward_signature_governance_policy: RewardSignatureGovernancePolicy,
 }
 

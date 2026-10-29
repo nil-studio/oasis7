@@ -1,0 +1,329 @@
+LlmDecisionPayload {
+    decision: "decision-sentinel",
+    action: Some(
+        Object {
+            "action-sentinel": Array [
+                Number(17),
+                String("nested-action"),
+            ],
+        },
+    ),
+    ticks: Some(
+        200002,
+    ),
+    to: Some(
+        "to-sentinel",
+    ),
+    from: Some(
+        "from-sentinel",
+    ),
+    max_amount: Some(
+        100005,
+    ),
+    from_owner: Some(
+        "from_owner-sentinel",
+    ),
+    to_owner: Some(
+        "to_owner-sentinel",
+    ),
+    kind: Some(
+        "kind-sentinel",
+    ),
+    amount: Some(
+        100009,
+    ),
+    buyer: Some(
+        "buyer-sentinel",
+    ),
+    seller: Some(
+        "seller-sentinel",
+    ),
+    price_per_pu: Some(
+        100012,
+    ),
+    side: Some(
+        "side-sentinel",
+    ),
+    limit_price_per_pu: Some(
+        100014,
+    ),
+    order_id: Some(
+        200015,
+    ),
+    owner: Some(
+        "owner-sentinel",
+    ),
+    compound_mass_g: Some(
+        100017,
+    ),
+    location_id: Some(
+        "location_id-sentinel",
+    ),
+    factory_id: Some(
+        "factory_id-sentinel",
+    ),
+    factory_kind: Some(
+        "factory_kind-sentinel",
+    ),
+    facility_id: Some(
+        "facility_id-sentinel",
+    ),
+    target_id: Some(
+        "target_id-sentinel",
+    ),
+    action_kind: Some(
+        Repair,
+    ),
+    base_cost_class: Some(
+        Low,
+    ),
+    base_risk_class: Some(
+        Critical,
+    ),
+    blocker_type: Some(
+        "blocker_type-sentinel",
+    ),
+    recipe_id: Some(
+        "recipe_id-sentinel",
+    ),
+    batches: Some(
+        100028,
+    ),
+    publisher: Some(
+        "publisher-sentinel",
+    ),
+    installer: Some(
+        "installer-sentinel",
+    ),
+    bidder: Some(
+        "bidder-sentinel",
+    ),
+    module_id: Some(
+        "module_id-sentinel",
+    ),
+    module_version: Some(
+        "module_version-sentinel",
+    ),
+    install_target_type: Some(
+        "install_target_type-sentinel",
+    ),
+    install_target_location_id: Some(
+        "install_target_location_id-sentinel",
+    ),
+    manifest_path: Some(
+        "manifest_path-sentinel",
+    ),
+    source_files: Some(
+        {
+            "source_files-sentinel.rs": "source-files-value",
+        },
+    ),
+    wasm_hash: Some(
+        "wasm_hash-sentinel",
+    ),
+    wasm_bytes_hex: Some(
+        "wasm_bytes_hex-sentinel",
+    ),
+    price_kind: Some(
+        "price_kind-sentinel",
+    ),
+    price_amount: Some(
+        100041,
+    ),
+    bid_order_id: Some(
+        200042,
+    ),
+    activate: Some(
+        true,
+    ),
+    actor: Some(
+        "actor-sentinel",
+    ),
+    declarer: Some(
+        "declarer-sentinel",
+    ),
+    subject: Some(
+        "subject-sentinel",
+    ),
+    object: Some(
+        "object-sentinel",
+    ),
+    schema_id: Some(
+        "schema_id-sentinel",
+    ),
+    claim: Some(
+        "claim-sentinel",
+    ),
+    confidence_ppm: Some(
+        100050,
+    ),
+    evidence_event_ids: Some(
+        [
+            10051,
+            20051,
+        ],
+    ),
+    ttl_ticks: Some(
+        200052,
+    ),
+    stake: Some(
+        LlmSocialStakePayload {
+            kind: Some(
+                "stake-kind-sentinel",
+            ),
+            amount: Some(
+                76543,
+            ),
+        },
+    ),
+    challenger: Some(
+        "challenger-sentinel",
+    ),
+    fact_id: Some(
+        200055,
+    ),
+    reason: Some(
+        "reason-sentinel",
+    ),
+    adjudicator: Some(
+        "adjudicator-sentinel",
+    ),
+    adjudication: Some(
+        "adjudication-sentinel",
+    ),
+    notes: Some(
+        "notes-sentinel",
+    ),
+    relation_kind: Some(
+        "relation_kind-sentinel",
+    ),
+    weight_bps: Some(
+        100061,
+    ),
+    backing_fact_ids: Some(
+        [
+            30062,
+            40062,
+        ],
+    ),
+    proposer_agent_id: Some(
+        "proposer_agent_id-sentinel",
+    ),
+    alliance_id: Some(
+        "alliance_id-sentinel",
+    ),
+    members: Some(
+        [
+            "members-first-sentinel",
+            "members-second-sentinel",
+        ],
+    ),
+    member_agent_id: Some(
+        "member_agent_id-sentinel",
+    ),
+    charter: Some(
+        "charter-sentinel",
+    ),
+    initiator_agent_id: Some(
+        "initiator_agent_id-sentinel",
+    ),
+    war_id: Some(
+        "war_id-sentinel",
+    ),
+    aggressor_alliance_id: Some(
+        "aggressor_alliance_id-sentinel",
+    ),
+    defender_alliance_id: Some(
+        "defender_alliance_id-sentinel",
+    ),
+    objective: Some(
+        "objective-sentinel",
+    ),
+    intensity: Some(
+        300073,
+    ),
+    proposal_key: Some(
+        "proposal_key-sentinel",
+    ),
+    title: Some(
+        "title-sentinel",
+    ),
+    description: Some(
+        "description-sentinel",
+    ),
+    options: Some(
+        [
+            "options-first-sentinel",
+            "options-second-sentinel",
+        ],
+    ),
+    voting_window_ticks: Some(
+        200078,
+    ),
+    quorum_weight: Some(
+        200079,
+    ),
+    pass_threshold_bps: Some(
+        4080,
+    ),
+    voter_agent_id: Some(
+        "voter_agent_id-sentinel",
+    ),
+    option: Some(
+        "option-sentinel",
+    ),
+    weight: Some(
+        300083,
+    ),
+    resolver_agent_id: Some(
+        "resolver_agent_id-sentinel",
+    ),
+    crisis_id: Some(
+        "crisis_id-sentinel",
+    ),
+    strategy: Some(
+        "strategy-sentinel",
+    ),
+    success: Some(
+        false,
+    ),
+    operator_agent_id: Some(
+        "operator_agent_id-sentinel",
+    ),
+    target_agent_id: Some(
+        "target_agent_id-sentinel",
+    ),
+    track: Some(
+        "track-sentinel",
+    ),
+    points: Some(
+        100091,
+    ),
+    achievement_id: Some(
+        "achievement_id-sentinel",
+    ),
+    creator_agent_id: Some(
+        "creator_agent_id-sentinel",
+    ),
+    contract_id: Some(
+        "contract_id-sentinel",
+    ),
+    counterparty_agent_id: Some(
+        "counterparty_agent_id-sentinel",
+    ),
+    settlement_kind: Some(
+        "settlement_kind-sentinel",
+    ),
+    settlement_amount: Some(
+        100097,
+    ),
+    reputation_stake: Some(
+        100098,
+    ),
+    expires_at: Some(
+        200099,
+    ),
+    accepter_agent_id: Some(
+        "accepter_agent_id-sentinel",
+    ),
+}

@@ -1,0 +1,1042 @@
+[
+  {
+    "debug": "WorldRuleCommitted { action_id: 0, actor_id: \"\", request_id: \"\", command: OpenOrganizationProtection { organization_id: \"\" }, governance_epoch: 0, world_binding: None }",
+    "pretty_debug": "WorldRuleCommitted {\n    action_id: 0,\n    actor_id: \"\",\n    request_id: \"\",\n    command: OpenOrganizationProtection {\n        organization_id: \"\",\n    },\n    governance_epoch: 0,\n    world_binding: None,\n}",
+    "type": "WorldRuleCommitted"
+  },
+  {
+    "debug": "AgentRegistered { registration_contract_version: 0, agent_id: \"\", pos: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 } }",
+    "pretty_debug": "AgentRegistered {\n    registration_contract_version: 0,\n    agent_id: \"\",\n    pos: GeoPos {\n        x_cm: 0,\n        y_cm: 0,\n        z_cm: 0,\n    },\n}",
+    "type": "AgentRegistered"
+  },
+  {
+    "debug": "AgentMoved { agent_id: \"\", from: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 }, to: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 } }",
+    "pretty_debug": "AgentMoved {\n    agent_id: \"\",\n    from: GeoPos {\n        x_cm: 0,\n        y_cm: 0,\n        z_cm: 0,\n    },\n    to: GeoPos {\n        x_cm: 0,\n        y_cm: 0,\n        z_cm: 0,\n    },\n}",
+    "type": "AgentMoved"
+  },
+  {
+    "debug": "AgentLocationAuthorityUpdated { authority: AgentLocationAuthorityV1 { agent_id: \"\", location_id: \"\", active: false, authority_revision: 0, effective_at: 0 } }",
+    "pretty_debug": "AgentLocationAuthorityUpdated {\n    authority: AgentLocationAuthorityV1 {\n        agent_id: \"\",\n        location_id: \"\",\n        active: false,\n        authority_revision: 0,\n        effective_at: 0,\n    },\n}",
+    "type": "AgentLocationAuthorityUpdated"
+  },
+  {
+    "debug": "LocationAnchorUpdated { anchor: LocationAnchorV1 { location_id: \"\", active: false, authority_revision: 0, effective_at: 0 } }",
+    "pretty_debug": "LocationAnchorUpdated {\n    anchor: LocationAnchorV1 {\n        location_id: \"\",\n        active: false,\n        authority_revision: 0,\n        effective_at: 0,\n    },\n}",
+    "type": "LocationAnchorUpdated"
+  },
+  {
+    "debug": "FactorySiteAuthorityUpdated { authority: FactorySiteAuthorityV1 { site_id: \"\", location_id: \"\", owner_agent_id: \"\", authorized_agent_ids: [], chunk_ready: false, active: false, authority_revision: 0, registered_at: 0 } }",
+    "pretty_debug": "FactorySiteAuthorityUpdated {\n    authority: FactorySiteAuthorityV1 {\n        site_id: \"\",\n        location_id: \"\",\n        owner_agent_id: \"\",\n        authorized_agent_ids: [],\n        chunk_ready: false,\n        active: false,\n        authority_revision: 0,\n        registered_at: 0,\n    },\n}",
+    "type": "FactorySiteAuthorityUpdated"
+  },
+  {
+    "debug": "FactoryConstructionPowerProfileUpdated { profile: FactoryConstructionPowerProfileV1 { factory_id: \"\", factory_kind: \"\", source_module_id: None, electricity_amount: 0, mode: StartOnlySink, authority_revision: 0, active: false } }",
+    "pretty_debug": "FactoryConstructionPowerProfileUpdated {\n    profile: FactoryConstructionPowerProfileV1 {\n        factory_id: \"\",\n        factory_kind: \"\",\n        source_module_id: None,\n        electricity_amount: 0,\n        mode: StartOnlySink,\n        authority_revision: 0,\n        active: false,\n    },\n}",
+    "type": "FactoryConstructionPowerProfileUpdated"
+  },
+  {
+    "debug": "ActionAccepted { action_id: 0, action_kind: \"\", actor_id: \"\", eta_ticks: 0, notes: [] }",
+    "pretty_debug": "ActionAccepted {\n    action_id: 0,\n    action_kind: \"\",\n    actor_id: \"\",\n    eta_ticks: 0,\n    notes: [],\n}",
+    "type": "ActionAccepted"
+  },
+  {
+    "debug": "ActionRejected { action_id: 0, reason: InvalidAmount { amount: 0 } }",
+    "pretty_debug": "ActionRejected {\n    action_id: 0,\n    reason: InvalidAmount {\n        amount: 0,\n    },\n}",
+    "type": "ActionRejected"
+  },
+  {
+    "debug": "AgentIntentProposed { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentProposed {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentProposed"
+  },
+  {
+    "debug": "AgentIntentSubmitted { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentSubmitted {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentSubmitted"
+  },
+  {
+    "debug": "AgentIntentAccepted { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentAccepted {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentAccepted"
+  },
+  {
+    "debug": "AgentIntentReplaced { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentReplaced {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentReplaced"
+  },
+  {
+    "debug": "AgentIntentTransitioned { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentTransitioned {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentTransitioned"
+  },
+  {
+    "debug": "Observation { observation: Observation { time: 0, agent_id: \"\", pos: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 }, visibility_range_cm: 0, visible_agents: [] } }",
+    "pretty_debug": "Observation {\n    observation: Observation {\n        time: 0,\n        agent_id: \"\",\n        pos: GeoPos {\n            x_cm: 0,\n            y_cm: 0,\n            z_cm: 0,\n        },\n        visibility_range_cm: 0,\n        visible_agents: [],\n    },\n}",
+    "type": "Observation"
+  },
+  {
+    "debug": "BodyAttributesUpdated { agent_id: \"\", view: BodyKernelView { mass_kg: 0, radius_cm: 0, thrust_limit: 0, cross_section_cm2: 0 }, reason: \"\" }",
+    "pretty_debug": "BodyAttributesUpdated {\n    agent_id: \"\",\n    view: BodyKernelView {\n        mass_kg: 0,\n        radius_cm: 0,\n        thrust_limit: 0,\n        cross_section_cm2: 0,\n    },\n    reason: \"\",\n}",
+    "type": "BodyAttributesUpdated"
+  },
+  {
+    "debug": "BodyAttributesRejected { agent_id: \"\", reason: \"\" }",
+    "pretty_debug": "BodyAttributesRejected {\n    agent_id: \"\",\n    reason: \"\",\n}",
+    "type": "BodyAttributesRejected"
+  },
+  {
+    "debug": "BodyInterfaceExpanded { agent_id: \"\", slot_capacity: 0, expansion_level: 0, consumed_item_id: \"\", new_slot_id: \"\", slot_type: Power }",
+    "pretty_debug": "BodyInterfaceExpanded {\n    agent_id: \"\",\n    slot_capacity: 0,\n    expansion_level: 0,\n    consumed_item_id: \"\",\n    new_slot_id: \"\",\n    slot_type: Power,\n}",
+    "type": "BodyInterfaceExpanded"
+  },
+  {
+    "debug": "BodyInterfaceExpandRejected { agent_id: \"\", consumed_item_id: \"\", reason: \"\" }",
+    "pretty_debug": "BodyInterfaceExpandRejected {\n    agent_id: \"\",\n    consumed_item_id: \"\",\n    reason: \"\",\n}",
+    "type": "BodyInterfaceExpandRejected"
+  },
+  {
+    "debug": "ModuleArtifactDeployed { publisher_agent_id: \"\", wasm_hash: \"\", bytes_len: 0, fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactDeployed {\n    publisher_agent_id: \"\",\n    wasm_hash: \"\",\n    bytes_len: 0,\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactDeployed"
+  },
+  {
+    "debug": "ModuleInstalled { installer_agent_id: \"\", instance_id: \"\", module_id: \"\", module_version: \"\", wasm_hash: \"\", install_target: SelfAgent, active: false, proposal_id: 0, manifest_hash: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleInstalled {\n    installer_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    module_version: \"\",\n    wasm_hash: \"\",\n    install_target: SelfAgent,\n    active: false,\n    proposal_id: 0,\n    manifest_hash: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleInstalled"
+  },
+  {
+    "debug": "ModuleUpgraded { upgrader_agent_id: \"\", instance_id: \"\", module_id: \"\", from_module_version: \"\", to_module_version: \"\", wasm_hash: \"\", install_target: SelfAgent, active: false, proposal_id: 0, manifest_hash: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleUpgraded {\n    upgrader_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    from_module_version: \"\",\n    to_module_version: \"\",\n    wasm_hash: \"\",\n    install_target: SelfAgent,\n    active: false,\n    proposal_id: 0,\n    manifest_hash: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleUpgraded"
+  },
+  {
+    "debug": "ModuleReleaseRequested { request_id: 0, requester_agent_id: \"\", manifest: ModuleManifest { module_id: \"\", name: \"\", version: \"\", kind: Reducer, role: Domain, wasm_hash: \"\", interface_version: \"\", exports: [], subscriptions: [], required_caps: [], abi_contract: ModuleAbiContract { abi_version: None, input_schema: None, output_schema: None, cap_slots: {}, policy_hooks: [], gameplay: None, declarations: ModuleSchemaDeclarations { commands: [] } }, artifact_identity: None, limits: ModuleLimits { max_mem_bytes: 0, max_gas: 0, max_call_rate: 0, max_output_bytes: 0, max_effects: 0, max_emits: 0 } }, activate: false, install_target: SelfAgent, required_roles: [], profile_changes: ModuleProfileChanges { product_profiles: [], recipe_profiles: [], factory_profiles: [] } }",
+    "pretty_debug": "ModuleReleaseRequested {\n    request_id: 0,\n    requester_agent_id: \"\",\n    manifest: ModuleManifest {\n        module_id: \"\",\n        name: \"\",\n        version: \"\",\n        kind: Reducer,\n        role: Domain,\n        wasm_hash: \"\",\n        interface_version: \"\",\n        exports: [],\n        subscriptions: [],\n        required_caps: [],\n        abi_contract: ModuleAbiContract {\n            abi_version: None,\n            input_schema: None,\n            output_schema: None,\n            cap_slots: {},\n            policy_hooks: [],\n            gameplay: None,\n            declarations: ModuleSchemaDeclarations {\n                commands: [],\n            },\n        },\n        artifact_identity: None,\n        limits: ModuleLimits {\n            max_mem_bytes: 0,\n            max_gas: 0,\n            max_call_rate: 0,\n            max_output_bytes: 0,\n            max_effects: 0,\n            max_emits: 0,\n        },\n    },\n    activate: false,\n    install_target: SelfAgent,\n    required_roles: [],\n    profile_changes: ModuleProfileChanges {\n        product_profiles: [],\n        recipe_profiles: [],\n        factory_profiles: [],\n    },\n}",
+    "type": "ModuleReleaseRequested"
+  },
+  {
+    "debug": "ModuleReleaseShadowed { request_id: 0, operator_agent_id: \"\", manifest_hash: \"\" }",
+    "pretty_debug": "ModuleReleaseShadowed {\n    request_id: 0,\n    operator_agent_id: \"\",\n    manifest_hash: \"\",\n}",
+    "type": "ModuleReleaseShadowed"
+  },
+  {
+    "debug": "ModuleReleaseAttested { request_id: 0, operator_agent_id: \"\", signer_node_id: \"\", platform: \"\", build_manifest_hash: \"\", source_hash: \"\", wasm_hash: \"\", proof_cid: \"\", builder_image_digest: \"\", container_platform: \"\", canonicalizer_version: \"\" }",
+    "pretty_debug": "ModuleReleaseAttested {\n    request_id: 0,\n    operator_agent_id: \"\",\n    signer_node_id: \"\",\n    platform: \"\",\n    build_manifest_hash: \"\",\n    source_hash: \"\",\n    wasm_hash: \"\",\n    proof_cid: \"\",\n    builder_image_digest: \"\",\n    container_platform: \"\",\n    canonicalizer_version: \"\",\n}",
+    "type": "ModuleReleaseAttested"
+  },
+  {
+    "debug": "ModuleReleaseRoleApproved { request_id: 0, approver_agent_id: \"\", role: \"\" }",
+    "pretty_debug": "ModuleReleaseRoleApproved {\n    request_id: 0,\n    approver_agent_id: \"\",\n    role: \"\",\n}",
+    "type": "ModuleReleaseRoleApproved"
+  },
+  {
+    "debug": "ModuleReleaseRolesBound { operator_agent_id: \"\", target_agent_id: \"\", roles: [] }",
+    "pretty_debug": "ModuleReleaseRolesBound {\n    operator_agent_id: \"\",\n    target_agent_id: \"\",\n    roles: [],\n}",
+    "type": "ModuleReleaseRolesBound"
+  },
+  {
+    "debug": "ModuleReleaseRejected { request_id: 0, rejector_agent_id: \"\", reason: \"\" }",
+    "pretty_debug": "ModuleReleaseRejected {\n    request_id: 0,\n    rejector_agent_id: \"\",\n    reason: \"\",\n}",
+    "type": "ModuleReleaseRejected"
+  },
+  {
+    "debug": "ModuleReleaseApplied { request_id: 0, operator_agent_id: \"\", installer_agent_id: \"\", instance_id: \"\", module_id: \"\", module_version: \"\", proposal_id: 0, manifest_hash: \"\" }",
+    "pretty_debug": "ModuleReleaseApplied {\n    request_id: 0,\n    operator_agent_id: \"\",\n    installer_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    module_version: \"\",\n    proposal_id: 0,\n    manifest_hash: \"\",\n}",
+    "type": "ModuleReleaseApplied"
+  },
+  {
+    "debug": "ModuleRollbackApplied { operator_agent_id: \"\", instance_id: \"\", module_id: \"\", from_module_version: \"\", to_module_version: \"\", wasm_hash: \"\", from_wasm_hash: None, from_release_request_id: None, install_target: SelfAgent, active: false, proposal_id: 0, manifest_hash: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleRollbackApplied {\n    operator_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    from_module_version: \"\",\n    to_module_version: \"\",\n    wasm_hash: \"\",\n    from_wasm_hash: None,\n    from_release_request_id: None,\n    install_target: SelfAgent,\n    active: false,\n    proposal_id: 0,\n    manifest_hash: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleRollbackApplied"
+  },
+  {
+    "debug": "ModuleArtifactListed { seller_agent_id: \"\", wasm_hash: \"\", price_kind: Electricity, price_amount: 0, order_id: 0, fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactListed {\n    seller_agent_id: \"\",\n    wasm_hash: \"\",\n    price_kind: Electricity,\n    price_amount: 0,\n    order_id: 0,\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactListed"
+  },
+  {
+    "debug": "ModuleArtifactDelisted { seller_agent_id: \"\", wasm_hash: \"\", order_id: None, fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactDelisted {\n    seller_agent_id: \"\",\n    wasm_hash: \"\",\n    order_id: None,\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactDelisted"
+  },
+  {
+    "debug": "ModuleArtifactDestroyed { owner_agent_id: \"\", wasm_hash: \"\", reason: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactDestroyed {\n    owner_agent_id: \"\",\n    wasm_hash: \"\",\n    reason: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactDestroyed"
+  },
+  {
+    "debug": "ModuleArtifactBidPlaced { bidder_agent_id: \"\", wasm_hash: \"\", order_id: 0, price_kind: Electricity, price_amount: 0 }",
+    "pretty_debug": "ModuleArtifactBidPlaced {\n    bidder_agent_id: \"\",\n    wasm_hash: \"\",\n    order_id: 0,\n    price_kind: Electricity,\n    price_amount: 0,\n}",
+    "type": "ModuleArtifactBidPlaced"
+  },
+  {
+    "debug": "ModuleArtifactBidCancelled { bidder_agent_id: \"\", wasm_hash: \"\", order_id: 0, reason: \"\" }",
+    "pretty_debug": "ModuleArtifactBidCancelled {\n    bidder_agent_id: \"\",\n    wasm_hash: \"\",\n    order_id: 0,\n    reason: \"\",\n}",
+    "type": "ModuleArtifactBidCancelled"
+  },
+  {
+    "debug": "ModuleArtifactSaleCompleted { buyer_agent_id: \"\", seller_agent_id: \"\", wasm_hash: \"\", price_kind: Electricity, price_amount: 0, sale_id: 0, listing_order_id: None, bid_order_id: None }",
+    "pretty_debug": "ModuleArtifactSaleCompleted {\n    buyer_agent_id: \"\",\n    seller_agent_id: \"\",\n    wasm_hash: \"\",\n    price_kind: Electricity,\n    price_amount: 0,\n    sale_id: 0,\n    listing_order_id: None,\n    bid_order_id: None,\n}",
+    "type": "ModuleArtifactSaleCompleted"
+  },
+  {
+    "debug": "ResourceTransferred { from_agent_id: \"\", to_agent_id: \"\", kind: Electricity, amount: 0 }",
+    "pretty_debug": "ResourceTransferred {\n    from_agent_id: \"\",\n    to_agent_id: \"\",\n    kind: Electricity,\n    amount: 0,\n}",
+    "type": "ResourceTransferred"
+  },
+  {
+    "debug": "DataCollected { collector_agent_id: \"\", electricity_cost: 0, data_amount: 0 }",
+    "pretty_debug": "DataCollected {\n    collector_agent_id: \"\",\n    electricity_cost: 0,\n    data_amount: 0,\n}",
+    "type": "DataCollected"
+  },
+  {
+    "debug": "DataCollectedAuthenticated { collector_agent_id: \"\", electricity_cost: 0, data_amount: 0, player_id: \"\", public_key: \"\", nonce: 0, signature: \"\" }",
+    "pretty_debug": "DataCollectedAuthenticated {\n    collector_agent_id: \"\",\n    electricity_cost: 0,\n    data_amount: 0,\n    player_id: \"\",\n    public_key: \"\",\n    nonce: 0,\n    signature: \"\",\n}",
+    "type": "DataCollectedAuthenticated"
+  },
+  {
+    "debug": "DataAccessGranted { owner_agent_id: \"\", grantee_agent_id: \"\" }",
+    "pretty_debug": "DataAccessGranted {\n    owner_agent_id: \"\",\n    grantee_agent_id: \"\",\n}",
+    "type": "DataAccessGranted"
+  },
+  {
+    "debug": "DataAccessRevoked { owner_agent_id: \"\", grantee_agent_id: \"\" }",
+    "pretty_debug": "DataAccessRevoked {\n    owner_agent_id: \"\",\n    grantee_agent_id: \"\",\n}",
+    "type": "DataAccessRevoked"
+  },
+  {
+    "debug": "PowerRedeemed { node_id: \"\", target_agent_id: \"\", burned_credits: 0, granted_power_units: 0, reserve_remaining: 0, nonce: 0 }",
+    "pretty_debug": "PowerRedeemed {\n    node_id: \"\",\n    target_agent_id: \"\",\n    burned_credits: 0,\n    granted_power_units: 0,\n    reserve_remaining: 0,\n    nonce: 0,\n}",
+    "type": "PowerRedeemed"
+  },
+  {
+    "debug": "PowerRedeemRejected { node_id: \"\", target_agent_id: \"\", redeem_credits: 0, nonce: 0, reason: \"\" }",
+    "pretty_debug": "PowerRedeemRejected {\n    node_id: \"\",\n    target_agent_id: \"\",\n    redeem_credits: 0,\n    nonce: 0,\n    reason: \"\",\n}",
+    "type": "PowerRedeemRejected"
+  },
+  {
+    "debug": "NodePointsSettlementApplied { report: EpochSettlementReport { epoch_index: 0, pool_points: 0, storage_pool_points: 0, distributed_points: 0, storage_distributed_points: 0, total_distributed_points: 0, settlements: [] }, signer_node_id: \"\", settlement_hash: \"\", minted_records: [], main_token_bridge_total_amount: 0, main_token_bridge_distributions: [] }",
+    "pretty_debug": "NodePointsSettlementApplied {\n    report: EpochSettlementReport {\n        epoch_index: 0,\n        pool_points: 0,\n        storage_pool_points: 0,\n        distributed_points: 0,\n        storage_distributed_points: 0,\n        total_distributed_points: 0,\n        settlements: [],\n    },\n    signer_node_id: \"\",\n    settlement_hash: \"\",\n    minted_records: [],\n    main_token_bridge_total_amount: 0,\n    main_token_bridge_distributions: [],\n}",
+    "type": "NodePointsSettlementApplied"
+  },
+  {
+    "debug": "MainTokenGenesisInitialized { total_supply: 0, allocations: [] }",
+    "pretty_debug": "MainTokenGenesisInitialized {\n    total_supply: 0,\n    allocations: [],\n}",
+    "type": "MainTokenGenesisInitialized"
+  },
+  {
+    "debug": "MainTokenVestingClaimed { bucket_id: \"\", beneficiary: \"\", amount: 0, nonce: 0 }",
+    "pretty_debug": "MainTokenVestingClaimed {\n    bucket_id: \"\",\n    beneficiary: \"\",\n    amount: 0,\n    nonce: 0,\n}",
+    "type": "MainTokenVestingClaimed"
+  },
+  {
+    "debug": "MainTokenTransferred { from_account_id: \"\", to_account_id: \"\", amount: 0, nonce: 0, asset_id: None, memo: None }",
+    "pretty_debug": "MainTokenTransferred {\n    from_account_id: \"\",\n    to_account_id: \"\",\n    amount: 0,\n    nonce: 0,\n    asset_id: None,\n    memo: None,\n}",
+    "type": "MainTokenTransferred"
+  },
+  {
+    "debug": "MainTokenEpochIssued { epoch_index: 0, inflation_rate_bps: 0, issued_amount: 0, staking_reward_amount: 0, node_service_reward_amount: 0, ecosystem_pool_amount: 0, security_reserve_amount: 0 }",
+    "pretty_debug": "MainTokenEpochIssued {\n    epoch_index: 0,\n    inflation_rate_bps: 0,\n    issued_amount: 0,\n    staking_reward_amount: 0,\n    node_service_reward_amount: 0,\n    ecosystem_pool_amount: 0,\n    security_reserve_amount: 0,\n}",
+    "type": "MainTokenEpochIssued"
+  },
+  {
+    "debug": "MainTokenFeeSettled { fee_kind: GasBaseFee, amount: 0, burn_amount: 0, treasury_amount: 0 }",
+    "pretty_debug": "MainTokenFeeSettled {\n    fee_kind: GasBaseFee,\n    amount: 0,\n    burn_amount: 0,\n    treasury_amount: 0,\n}",
+    "type": "MainTokenFeeSettled"
+  },
+  {
+    "debug": "MainTokenPolicyUpdateScheduled { proposal_id: 0, effective_epoch: 0, next: MainTokenConfig { symbol: \"OC\", decimals: 9, initial_supply: 0, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 400, min_rate_bps: 200, max_rate_bps: 800, target_stake_ratio_bps: 6000, stake_feedback_gain_bps: 1000, epochs_per_year: 365 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 6000, node_service_reward_bps: 2000, ecosystem_pool_bps: 1500, security_reserve_bps: 500 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 3000, slash_burn_bps: 5000, module_fee_burn_bps: 2000 } } }",
+    "pretty_debug": "MainTokenPolicyUpdateScheduled {\n    proposal_id: 0,\n    effective_epoch: 0,\n    next: MainTokenConfig {\n        symbol: \"OC\",\n        decimals: 9,\n        initial_supply: 0,\n        max_supply: None,\n        inflation_policy: MainTokenInflationPolicy {\n            base_rate_bps: 400,\n            min_rate_bps: 200,\n            max_rate_bps: 800,\n            target_stake_ratio_bps: 6000,\n            stake_feedback_gain_bps: 1000,\n            epochs_per_year: 365,\n        },\n        issuance_split: MainTokenIssuanceSplitPolicy {\n            staking_reward_bps: 6000,\n            node_service_reward_bps: 2000,\n            ecosystem_pool_bps: 1500,\n            security_reserve_bps: 500,\n        },\n        burn_policy: MainTokenBurnPolicy {\n            gas_base_fee_burn_bps: 3000,\n            slash_burn_bps: 5000,\n            module_fee_burn_bps: 2000,\n        },\n    },\n}",
+    "type": "MainTokenPolicyUpdateScheduled"
+  },
+  {
+    "debug": "MainTokenTreasuryDistributed { proposal_id: 0, distribution_id: \"\", bucket_id: \"\", total_amount: 0, distributions: [] }",
+    "pretty_debug": "MainTokenTreasuryDistributed {\n    proposal_id: 0,\n    distribution_id: \"\",\n    bucket_id: \"\",\n    total_amount: 0,\n    distributions: [],\n}",
+    "type": "MainTokenTreasuryDistributed"
+  },
+  {
+    "debug": "RestrictedStarterClaimLiveopsPoolToppedUp { controller_account_id: \"\", top_up_id: \"\", source_treasury_bucket_id: \"\", target_treasury_bucket_id: \"\", amount: 0, topped_up_at_epoch: 0 }",
+    "pretty_debug": "RestrictedStarterClaimLiveopsPoolToppedUp {\n    controller_account_id: \"\",\n    top_up_id: \"\",\n    source_treasury_bucket_id: \"\",\n    target_treasury_bucket_id: \"\",\n    amount: 0,\n    topped_up_at_epoch: 0,\n}",
+    "type": "RestrictedStarterClaimLiveopsPoolToppedUp"
+  },
+  {
+    "debug": "RestrictedStarterClaimGrantIssued { issuer_id: \"\", beneficiary_account_id: \"\", source_treasury_bucket_id: \"\", amount: 0, issuance_reason: \"\", spend_scope: \"\", issued_at_epoch: 0, expires_at_epoch: 0 }",
+    "pretty_debug": "RestrictedStarterClaimGrantIssued {\n    issuer_id: \"\",\n    beneficiary_account_id: \"\",\n    source_treasury_bucket_id: \"\",\n    amount: 0,\n    issuance_reason: \"\",\n    spend_scope: \"\",\n    issued_at_epoch: 0,\n    expires_at_epoch: 0,\n}",
+    "type": "RestrictedStarterClaimGrantIssued"
+  },
+  {
+    "debug": "RestrictedStarterClaimGrantExpired { beneficiary_account_id: \"\", issuer_id: \"\", issuance_reason: \"\", spend_scope: \"\", source_treasury_bucket_id: \"\", issued_amount: 0, expired_amount: 0, issued_at_epoch: 0, expired_at_epoch: 0, configured_expires_at_epoch: 0 }",
+    "pretty_debug": "RestrictedStarterClaimGrantExpired {\n    beneficiary_account_id: \"\",\n    issuer_id: \"\",\n    issuance_reason: \"\",\n    spend_scope: \"\",\n    source_treasury_bucket_id: \"\",\n    issued_amount: 0,\n    expired_amount: 0,\n    issued_at_epoch: 0,\n    expired_at_epoch: 0,\n    configured_expires_at_epoch: 0,\n}",
+    "type": "RestrictedStarterClaimGrantExpired"
+  },
+  {
+    "debug": "RestrictedStarterClaimGrantRevoked { beneficiary_account_id: \"\", issuer_id: \"\", issuance_reason: \"\", spend_scope: \"\", source_treasury_bucket_id: \"\", issued_amount: 0, revoked_amount: 0, issued_at_epoch: 0, revoked_at_epoch: 0, configured_expires_at_epoch: 0, revoke_reason: \"\" }",
+    "pretty_debug": "RestrictedStarterClaimGrantRevoked {\n    beneficiary_account_id: \"\",\n    issuer_id: \"\",\n    issuance_reason: \"\",\n    spend_scope: \"\",\n    source_treasury_bucket_id: \"\",\n    issued_amount: 0,\n    revoked_amount: 0,\n    issued_at_epoch: 0,\n    revoked_at_epoch: 0,\n    configured_expires_at_epoch: 0,\n    revoke_reason: \"\",\n}",
+    "type": "RestrictedStarterClaimGrantRevoked"
+  },
+  {
+    "debug": "StarterOcClaimed { agent_id: \"\", player_id: \"\", public_key: None, amount: 0, claimed_at: 0, source_treasury_bucket_id: None }",
+    "pretty_debug": "StarterOcClaimed {\n    agent_id: \"\",\n    player_id: \"\",\n    public_key: None,\n    amount: 0,\n    claimed_at: 0,\n    source_treasury_bucket_id: None,\n}",
+    "type": "StarterOcClaimed"
+  },
+  {
+    "debug": "AgentClaimed { acquisition_contract_version: 0, claimer_agent_id: \"\", target_agent_id: \"\", reputation_tier: 0, slot_index: 0, activation_fee_amount: 0, activation_fee_burn_amount: 0, activation_fee_treasury_amount: 0, claim_bond_amount: 0, upfront_restricted_spent_amount: 0, upfront_liquid_spent_amount: 0, auto_issued_restricted_amount: 0, auto_issued_restricted_source_treasury_bucket_id: None, claim_bond_locked_restricted_amount: 0, claim_bond_locked_liquid_amount: 0, upkeep_per_epoch: 0, claimed_at_epoch: 0, upkeep_paid_through_epoch: 0, release_cooldown_epochs: 0, grace_epochs: 0, idle_warning_epochs: 0, forced_idle_reclaim_epochs: 0, forced_reclaim_penalty_bps: 0 }",
+    "pretty_debug": "AgentClaimed {\n    acquisition_contract_version: 0,\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    reputation_tier: 0,\n    slot_index: 0,\n    activation_fee_amount: 0,\n    activation_fee_burn_amount: 0,\n    activation_fee_treasury_amount: 0,\n    claim_bond_amount: 0,\n    upfront_restricted_spent_amount: 0,\n    upfront_liquid_spent_amount: 0,\n    auto_issued_restricted_amount: 0,\n    auto_issued_restricted_source_treasury_bucket_id: None,\n    claim_bond_locked_restricted_amount: 0,\n    claim_bond_locked_liquid_amount: 0,\n    upkeep_per_epoch: 0,\n    claimed_at_epoch: 0,\n    upkeep_paid_through_epoch: 0,\n    release_cooldown_epochs: 0,\n    grace_epochs: 0,\n    idle_warning_epochs: 0,\n    forced_idle_reclaim_epochs: 0,\n    forced_reclaim_penalty_bps: 0,\n}",
+    "type": "AgentClaimed"
+  },
+  {
+    "debug": "AgentClaimReleaseRequested { claimer_agent_id: \"\", target_agent_id: \"\", requested_at_epoch: 0, ready_at_epoch: 0 }",
+    "pretty_debug": "AgentClaimReleaseRequested {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    requested_at_epoch: 0,\n    ready_at_epoch: 0,\n}",
+    "type": "AgentClaimReleaseRequested"
+  },
+  {
+    "debug": "AgentClaimUpkeepSettled { activity_contract_version: 0, claimer_agent_id: \"\", target_agent_id: \"\", settled_at_epoch: 0, charged_epochs: 0, amount: 0, restricted_spent_amount: 0, liquid_spent_amount: 0, upkeep_paid_through_epoch: 0 }",
+    "pretty_debug": "AgentClaimUpkeepSettled {\n    activity_contract_version: 0,\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    settled_at_epoch: 0,\n    charged_epochs: 0,\n    amount: 0,\n    restricted_spent_amount: 0,\n    liquid_spent_amount: 0,\n    upkeep_paid_through_epoch: 0,\n}",
+    "type": "AgentClaimUpkeepSettled"
+  },
+  {
+    "debug": "AgentClaimEnteredGrace { claimer_agent_id: \"\", target_agent_id: \"\", delinquent_since_epoch: 0, grace_deadline_epoch: 0, upkeep_arrears_amount: 0 }",
+    "pretty_debug": "AgentClaimEnteredGrace {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    delinquent_since_epoch: 0,\n    grace_deadline_epoch: 0,\n    upkeep_arrears_amount: 0,\n}",
+    "type": "AgentClaimEnteredGrace"
+  },
+  {
+    "debug": "AgentClaimIdleWarning { claimer_agent_id: \"\", target_agent_id: \"\", warning_emitted_at_epoch: 0, forced_reclaim_at_epoch: 0 }",
+    "pretty_debug": "AgentClaimIdleWarning {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    warning_emitted_at_epoch: 0,\n    forced_reclaim_at_epoch: 0,\n}",
+    "type": "AgentClaimIdleWarning"
+  },
+  {
+    "debug": "AgentClaimReleased { claimer_agent_id: \"\", target_agent_id: \"\", released_at_epoch: 0, refunded_bond_amount: 0, refunded_bond_restricted_amount: 0, refunded_bond_liquid_amount: 0, refunded_bond_restricted_sink: BeneficiaryRestrictedBalance, refunded_bond_restricted_sink_bucket_id: \"\" }",
+    "pretty_debug": "AgentClaimReleased {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    released_at_epoch: 0,\n    refunded_bond_amount: 0,\n    refunded_bond_restricted_amount: 0,\n    refunded_bond_liquid_amount: 0,\n    refunded_bond_restricted_sink: BeneficiaryRestrictedBalance,\n    refunded_bond_restricted_sink_bucket_id: \"\",\n}",
+    "type": "AgentClaimReleased"
+  },
+  {
+    "debug": "AgentClaimReclaimed { claimer_agent_id: \"\", target_agent_id: \"\", reclaimed_at_epoch: 0, reason: \"\", upkeep_arrears_amount: 0, collected_upkeep_amount: 0, penalty_amount: 0, refunded_bond_amount: 0, refunded_bond_restricted_amount: 0, refunded_bond_liquid_amount: 0, refunded_bond_restricted_sink: BeneficiaryRestrictedBalance, refunded_bond_restricted_sink_bucket_id: \"\" }",
+    "pretty_debug": "AgentClaimReclaimed {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    reclaimed_at_epoch: 0,\n    reason: \"\",\n    upkeep_arrears_amount: 0,\n    collected_upkeep_amount: 0,\n    penalty_amount: 0,\n    refunded_bond_amount: 0,\n    refunded_bond_restricted_amount: 0,\n    refunded_bond_liquid_amount: 0,\n    refunded_bond_restricted_sink: BeneficiaryRestrictedBalance,\n    refunded_bond_restricted_sink_bucket_id: \"\",\n}",
+    "type": "AgentClaimReclaimed"
+  },
+  {
+    "debug": "MaterialTransferred { transfer_id: None, requester_agent_id: \"\", from_ledger: World, to_ledger: World, kind: \"\", amount: 0, distance_km: 0, priority: Standard, route_id: None }",
+    "pretty_debug": "MaterialTransferred {\n    transfer_id: None,\n    requester_agent_id: \"\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    amount: 0,\n    distance_km: 0,\n    priority: Standard,\n    route_id: None,\n}",
+    "type": "MaterialTransferred"
+  },
+  {
+    "debug": "LogisticsRouteRegistered { requester_agent_id: \"\", route_id: None, from_ledger: World, to_ledger: World, kind: \"\", distance_km: 0, priority: Standard, owner_agent_id: \"\", available: false, capacity_units: 0, tariff_electricity_per_unit: 0 }",
+    "pretty_debug": "LogisticsRouteRegistered {\n    requester_agent_id: \"\",\n    route_id: None,\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    distance_km: 0,\n    priority: Standard,\n    owner_agent_id: \"\",\n    available: false,\n    capacity_units: 0,\n    tariff_electricity_per_unit: 0,\n}",
+    "type": "LogisticsRouteRegistered"
+  },
+  {
+    "debug": "LogisticsRouteAvailabilityChanged { requester_agent_id: \"\", route_id: \"\", available: false, owner_agent_id: \"\" }",
+    "pretty_debug": "LogisticsRouteAvailabilityChanged {\n    requester_agent_id: \"\",\n    route_id: \"\",\n    available: false,\n    owner_agent_id: \"\",\n}",
+    "type": "LogisticsRouteAvailabilityChanged"
+  },
+  {
+    "debug": "LogisticsPathRerouted { requester_agent_id: \"\", job_id: 0, original_path_id: None, original_route_ids: [], effective_path_id: None, effective_route_ids: [], reason: \"\", reroute_count: 0, tariff_electricity_total: 0, owner_payouts: [], governance_tax_electricity: 0 }",
+    "pretty_debug": "LogisticsPathRerouted {\n    requester_agent_id: \"\",\n    job_id: 0,\n    original_path_id: None,\n    original_route_ids: [],\n    effective_path_id: None,\n    effective_route_ids: [],\n    reason: \"\",\n    reroute_count: 0,\n    tariff_electricity_total: 0,\n    owner_payouts: [],\n    governance_tax_electricity: 0,\n}",
+    "type": "LogisticsPathRerouted"
+  },
+  {
+    "debug": "MaterialTransitStarted { job_id: 0, requester_agent_id: \"\", from_ledger: World, to_ledger: World, kind: \"\", amount: 0, distance_km: 0, loss_bps: 0, ready_at: 0, priority: Standard, route_id: None, path_id: None, route_ids: [], tariff_electricity_total: 0, reroute_count: 0 }",
+    "pretty_debug": "MaterialTransitStarted {\n    job_id: 0,\n    requester_agent_id: \"\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    amount: 0,\n    distance_km: 0,\n    loss_bps: 0,\n    ready_at: 0,\n    priority: Standard,\n    route_id: None,\n    path_id: None,\n    route_ids: [],\n    tariff_electricity_total: 0,\n    reroute_count: 0,\n}",
+    "type": "MaterialTransitStarted"
+  },
+  {
+    "debug": "MaterialTransitCompleted { job_id: 0, requester_agent_id: \"\", from_ledger: World, to_ledger: World, kind: \"\", sent_amount: 0, received_amount: 0, loss_amount: 0, distance_km: 0, priority: Standard, route_id: None, path_id: None, route_ids: [], tariff_electricity_total: 0, reroute_count: 0 }",
+    "pretty_debug": "MaterialTransitCompleted {\n    job_id: 0,\n    requester_agent_id: \"\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    sent_amount: 0,\n    received_amount: 0,\n    loss_amount: 0,\n    distance_km: 0,\n    priority: Standard,\n    route_id: None,\n    path_id: None,\n    route_ids: [],\n    tariff_electricity_total: 0,\n    reroute_count: 0,\n}",
+    "type": "MaterialTransitCompleted"
+  },
+  {
+    "debug": "FactoryBuildStarted { job_id: 0, builder_agent_id: \"\", site_id: \"\", spec: FactoryModuleSpec { factory_id: \"\", display_name: \"\", tier: 0, tags: [], build_cost: [], build_time_ticks: 0, base_power_draw: 0, recipe_slots: 0, throughput_bps: 0, maintenance_per_tick: 0 }, consume_ledger: World, ready_at: 0, contract_version: None, site_authority_revision: None, site_location_id: None, location_anchor_revision: None, construction_power_obligation: None }",
+    "pretty_debug": "FactoryBuildStarted {\n    job_id: 0,\n    builder_agent_id: \"\",\n    site_id: \"\",\n    spec: FactoryModuleSpec {\n        factory_id: \"\",\n        display_name: \"\",\n        tier: 0,\n        tags: [],\n        build_cost: [],\n        build_time_ticks: 0,\n        base_power_draw: 0,\n        recipe_slots: 0,\n        throughput_bps: 0,\n        maintenance_per_tick: 0,\n    },\n    consume_ledger: World,\n    ready_at: 0,\n    contract_version: None,\n    site_authority_revision: None,\n    site_location_id: None,\n    location_anchor_revision: None,\n    construction_power_obligation: None,\n}",
+    "type": "FactoryBuildStarted"
+  },
+  {
+    "debug": "FactoryBuilt { job_id: 0, builder_agent_id: \"\", site_id: \"\", spec: FactoryModuleSpec { factory_id: \"\", display_name: \"\", tier: 0, tags: [], build_cost: [], build_time_ticks: 0, base_power_draw: 0, recipe_slots: 0, throughput_bps: 0, maintenance_per_tick: 0 } }",
+    "pretty_debug": "FactoryBuilt {\n    job_id: 0,\n    builder_agent_id: \"\",\n    site_id: \"\",\n    spec: FactoryModuleSpec {\n        factory_id: \"\",\n        display_name: \"\",\n        tier: 0,\n        tags: [],\n        build_cost: [],\n        build_time_ticks: 0,\n        base_power_draw: 0,\n        recipe_slots: 0,\n        throughput_bps: 0,\n        maintenance_per_tick: 0,\n    },\n}",
+    "type": "FactoryBuilt"
+  },
+  {
+    "debug": "FactoryDurabilityChanged { factory_id: \"\", previous_durability_ppm: 0, durability_ppm: 0, reason: \"\" }",
+    "pretty_debug": "FactoryDurabilityChanged {\n    factory_id: \"\",\n    previous_durability_ppm: 0,\n    durability_ppm: 0,\n    reason: \"\",\n}",
+    "type": "FactoryDurabilityChanged"
+  },
+  {
+    "debug": "FactoryMaintained { operator_agent_id: \"\", factory_id: \"\", consume_ledger: World, consumed_parts: 0, durability_ppm: 0 }",
+    "pretty_debug": "FactoryMaintained {\n    operator_agent_id: \"\",\n    factory_id: \"\",\n    consume_ledger: World,\n    consumed_parts: 0,\n    durability_ppm: 0,\n}",
+    "type": "FactoryMaintained"
+  },
+  {
+    "debug": "FactoryRecycled { operator_agent_id: \"\", factory_id: \"\", recycle_ledger: World, recovered: [], durability_ppm: 0 }",
+    "pretty_debug": "FactoryRecycled {\n    operator_agent_id: \"\",\n    factory_id: \"\",\n    recycle_ledger: World,\n    recovered: [],\n    durability_ppm: 0,\n}",
+    "type": "FactoryRecycled"
+  },
+  {
+    "debug": "RecipeStarted { emergency_power_obligation: None, committed_recipe_origin: None, job_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 0, consume: [], produce: [], byproducts: [], power_required: 0, power_owner_agent_id: None, duration_ticks: 0, consume_ledger: World, output_ledger: World, bottleneck_tags: [], market_quotes: [], logistics_route_ids: [], logistics_path_ids: [], ready_at: 0 }",
+    "pretty_debug": "RecipeStarted {\n    emergency_power_obligation: None,\n    committed_recipe_origin: None,\n    job_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    accepted_batches: 0,\n    consume: [],\n    produce: [],\n    byproducts: [],\n    power_required: 0,\n    power_owner_agent_id: None,\n    duration_ticks: 0,\n    consume_ledger: World,\n    output_ledger: World,\n    bottleneck_tags: [],\n    market_quotes: [],\n    logistics_route_ids: [],\n    logistics_path_ids: [],\n    ready_at: 0,\n}",
+    "type": "RecipeStarted"
+  },
+  {
+    "debug": "RecipeCompleted { committed_recipe_origin: None, job_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 0, produce: [], byproducts: [], output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [] }",
+    "pretty_debug": "RecipeCompleted {\n    committed_recipe_origin: None,\n    job_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    accepted_batches: 0,\n    produce: [],\n    byproducts: [],\n    output_ledger: World,\n    bottleneck_tags: [],\n    logistics_route_ids: [],\n    logistics_path_ids: [],\n}",
+    "type": "RecipeCompleted"
+  },
+  {
+    "debug": "FactoryProductionBlocked { action_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", blocker_kind: \"\", blocker_detail: \"\" }",
+    "pretty_debug": "FactoryProductionBlocked {\n    action_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    blocker_kind: \"\",\n    blocker_detail: \"\",\n}",
+    "type": "FactoryProductionBlocked"
+  },
+  {
+    "debug": "FactoryProductionResumed { job_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", previous_blocked_at: None, previous_blocker_kind: None, previous_blocker_detail: None }",
+    "pretty_debug": "FactoryProductionResumed {\n    job_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    previous_blocked_at: None,\n    previous_blocker_kind: None,\n    previous_blocker_detail: None,\n}",
+    "type": "FactoryProductionResumed"
+  },
+  {
+    "debug": "FactoryProductionPaused { action_id: 0, requester_agent_id: \"\", factory_id: \"\", reason: \"\" }",
+    "pretty_debug": "FactoryProductionPaused {\n    action_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    reason: \"\",\n}",
+    "type": "FactoryProductionPaused"
+  },
+  {
+    "debug": "GameplayPolicyUpdated { operator_agent_id: \"\", electricity_tax_bps: 0, data_tax_bps: 0, power_trade_fee_bps: 0, max_open_contracts_per_agent: 0, blocked_agents: [], forbidden_location_ids: [] }",
+    "pretty_debug": "GameplayPolicyUpdated {\n    operator_agent_id: \"\",\n    electricity_tax_bps: 0,\n    data_tax_bps: 0,\n    power_trade_fee_bps: 0,\n    max_open_contracts_per_agent: 0,\n    blocked_agents: [],\n    forbidden_location_ids: [],\n}",
+    "type": "GameplayPolicyUpdated"
+  },
+  {
+    "debug": "EconomicContractOpened { creator_agent_id: \"\", contract_id: \"\", counterparty_agent_id: \"\", fulfillment_kind: AtomicExchange, settlement_kind: Electricity, settlement_amount: 0, reputation_stake: 0, expires_at: 0, description: \"\" }",
+    "pretty_debug": "EconomicContractOpened {\n    creator_agent_id: \"\",\n    contract_id: \"\",\n    counterparty_agent_id: \"\",\n    fulfillment_kind: AtomicExchange,\n    settlement_kind: Electricity,\n    settlement_amount: 0,\n    reputation_stake: 0,\n    expires_at: 0,\n    description: \"\",\n}",
+    "type": "EconomicContractOpened"
+  },
+  {
+    "debug": "EconomicContractAccepted { accepter_agent_id: \"\", contract_id: \"\" }",
+    "pretty_debug": "EconomicContractAccepted {\n    accepter_agent_id: \"\",\n    contract_id: \"\",\n}",
+    "type": "EconomicContractAccepted"
+  },
+  {
+    "debug": "EconomicContractSettled { operator_agent_id: \"\", contract_id: \"\", world_binding: None, success: false, transfer_amount: 0, tax_amount: 0, notes: \"\", creator_reputation_delta: 0, counterparty_reputation_delta: 0 }",
+    "pretty_debug": "EconomicContractSettled {\n    operator_agent_id: \"\",\n    contract_id: \"\",\n    world_binding: None,\n    success: false,\n    transfer_amount: 0,\n    tax_amount: 0,\n    notes: \"\",\n    creator_reputation_delta: 0,\n    counterparty_reputation_delta: 0,\n}",
+    "type": "EconomicContractSettled"
+  },
+  {
+    "debug": "EconomicContractExpired { contract_id: \"\", creator_agent_id: \"\", counterparty_agent_id: \"\", creator_reputation_delta: 0, counterparty_reputation_delta: 0 }",
+    "pretty_debug": "EconomicContractExpired {\n    contract_id: \"\",\n    creator_agent_id: \"\",\n    counterparty_agent_id: \"\",\n    creator_reputation_delta: 0,\n    counterparty_reputation_delta: 0,\n}",
+    "type": "EconomicContractExpired"
+  },
+  {
+    "debug": "AllianceFormed { proposer_agent_id: \"\", alliance_id: \"\", members: [], charter: \"\" }",
+    "pretty_debug": "AllianceFormed {\n    proposer_agent_id: \"\",\n    alliance_id: \"\",\n    members: [],\n    charter: \"\",\n}",
+    "type": "AllianceFormed"
+  },
+  {
+    "debug": "AllianceJoined { operator_agent_id: \"\", alliance_id: \"\", member_agent_id: \"\" }",
+    "pretty_debug": "AllianceJoined {\n    operator_agent_id: \"\",\n    alliance_id: \"\",\n    member_agent_id: \"\",\n}",
+    "type": "AllianceJoined"
+  },
+  {
+    "debug": "AllianceLeft { operator_agent_id: \"\", alliance_id: \"\", member_agent_id: \"\" }",
+    "pretty_debug": "AllianceLeft {\n    operator_agent_id: \"\",\n    alliance_id: \"\",\n    member_agent_id: \"\",\n}",
+    "type": "AllianceLeft"
+  },
+  {
+    "debug": "AllianceDissolved { operator_agent_id: \"\", alliance_id: \"\", reason: \"\", former_members: [] }",
+    "pretty_debug": "AllianceDissolved {\n    operator_agent_id: \"\",\n    alliance_id: \"\",\n    reason: \"\",\n    former_members: [],\n}",
+    "type": "AllianceDissolved"
+  },
+  {
+    "debug": "WarDeclared { initiator_agent_id: \"\", war_id: \"\", aggressor_alliance_id: \"\", defender_alliance_id: \"\", objective: \"\", intensity: 0, mobilization_electricity_cost: 0, mobilization_data_cost: 0 }",
+    "pretty_debug": "WarDeclared {\n    initiator_agent_id: \"\",\n    war_id: \"\",\n    aggressor_alliance_id: \"\",\n    defender_alliance_id: \"\",\n    objective: \"\",\n    intensity: 0,\n    mobilization_electricity_cost: 0,\n    mobilization_data_cost: 0,\n}",
+    "type": "WarDeclared"
+  },
+  {
+    "debug": "WarConcluded { war_id: \"\", winner_alliance_id: \"\", loser_alliance_id: \"\", aggressor_score: 0, defender_score: 0, summary: \"\", participant_outcomes: [] }",
+    "pretty_debug": "WarConcluded {\n    war_id: \"\",\n    winner_alliance_id: \"\",\n    loser_alliance_id: \"\",\n    aggressor_score: 0,\n    defender_score: 0,\n    summary: \"\",\n    participant_outcomes: [],\n}",
+    "type": "WarConcluded"
+  },
+  {
+    "debug": "GovernanceProposalOpened { proposer_agent_id: \"\", proposal_key: \"\", title: \"\", description: \"\", options: [], voting_window_ticks: 0, closes_at: 0, quorum_weight: 0, pass_threshold_bps: 0 }",
+    "pretty_debug": "GovernanceProposalOpened {\n    proposer_agent_id: \"\",\n    proposal_key: \"\",\n    title: \"\",\n    description: \"\",\n    options: [],\n    voting_window_ticks: 0,\n    closes_at: 0,\n    quorum_weight: 0,\n    pass_threshold_bps: 0,\n}",
+    "type": "GovernanceProposalOpened"
+  },
+  {
+    "debug": "GovernanceVoteCast { voter_agent_id: \"\", proposal_key: \"\", option: \"\", weight: 0 }",
+    "pretty_debug": "GovernanceVoteCast {\n    voter_agent_id: \"\",\n    proposal_key: \"\",\n    option: \"\",\n    weight: 0,\n}",
+    "type": "GovernanceVoteCast"
+  },
+  {
+    "debug": "GovernanceProposalFinalized { proposal_key: \"\", winning_option: None, winning_weight: 0, total_weight: 0, passed: false }",
+    "pretty_debug": "GovernanceProposalFinalized {\n    proposal_key: \"\",\n    winning_option: None,\n    winning_weight: 0,\n    total_weight: 0,\n    passed: false,\n}",
+    "type": "GovernanceProposalFinalized"
+  },
+  {
+    "debug": "CrisisSpawned { crisis_id: \"\", kind: \"\", severity: 0, expires_at: 0 }",
+    "pretty_debug": "CrisisSpawned {\n    crisis_id: \"\",\n    kind: \"\",\n    severity: 0,\n    expires_at: 0,\n}",
+    "type": "CrisisSpawned"
+  },
+  {
+    "debug": "CrisisResolved { resolver_agent_id: \"\", crisis_id: \"\", strategy: \"\", success: false, impact: 0 }",
+    "pretty_debug": "CrisisResolved {\n    resolver_agent_id: \"\",\n    crisis_id: \"\",\n    strategy: \"\",\n    success: false,\n    impact: 0,\n}",
+    "type": "CrisisResolved"
+  },
+  {
+    "debug": "CrisisTimedOut { crisis_id: \"\", penalty_impact: 0 }",
+    "pretty_debug": "CrisisTimedOut {\n    crisis_id: \"\",\n    penalty_impact: 0,\n}",
+    "type": "CrisisTimedOut"
+  },
+  {
+    "debug": "MetaProgressGranted { operator_agent_id: \"\", target_agent_id: \"\", track: \"\", points: 0, achievement_id: None }",
+    "pretty_debug": "MetaProgressGranted {\n    operator_agent_id: \"\",\n    target_agent_id: \"\",\n    track: \"\",\n    points: 0,\n    achievement_id: None,\n}",
+    "type": "MetaProgressGranted"
+  },
+  {
+    "debug": "ProductValidated { requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 0 }, stack_limit: 0, tradable: false, quality_levels: [], notes: [] }",
+    "pretty_debug": "ProductValidated {\n    requester_agent_id: \"\",\n    module_id: \"\",\n    stack: MaterialStack {\n        kind: \"\",\n        amount: 0,\n    },\n    stack_limit: 0,\n    tradable: false,\n    quality_levels: [],\n    notes: [],\n}",
+    "type": "ProductValidated"
+  },
+  {
+    "debug": "ProductValidationRecorded { receipt: ProductValidationReceiptV1 { job_id: 0, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 0 }, decision: ProductValidationDecision { product_id: \"\", accepted: false, notes: [], stack_limit: 0, tradable: false, quality_levels: [] }, failure_detail: None } }",
+    "pretty_debug": "ProductValidationRecorded {\n    receipt: ProductValidationReceiptV1 {\n        job_id: 0,\n        validation_index: None,\n        requester_agent_id: \"\",\n        module_id: \"\",\n        stack: MaterialStack {\n            kind: \"\",\n            amount: 0,\n        },\n        decision: ProductValidationDecision {\n            product_id: \"\",\n            accepted: false,\n            notes: [],\n            stack_limit: 0,\n            tradable: false,\n            quality_levels: [],\n        },\n        failure_detail: None,\n    },\n}",
+    "type": "ProductValidationRecorded"
+  },
+  {
+    "debug": "ProductValidationAttemptStarted { attempt: ProductValidationAttemptV1 { job_id: 0, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 0 } } }",
+    "pretty_debug": "ProductValidationAttemptStarted {\n    attempt: ProductValidationAttemptV1 {\n        job_id: 0,\n        validation_index: None,\n        requester_agent_id: \"\",\n        module_id: \"\",\n        stack: MaterialStack {\n            kind: \"\",\n            amount: 0,\n        },\n    },\n}",
+    "type": "ProductValidationAttemptStarted"
+  },
+  {
+    "debug": "MaterialProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: MaterialProfileV1 { kind: \"\", tier: 0, category: \"\", stack_limit: 0, transport_loss_class: Medium, decay_bps_per_tick: 0, default_priority: Standard } }",
+    "pretty_debug": "MaterialProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: MaterialProfileV1 {\n        kind: \"\",\n        tier: 0,\n        category: \"\",\n        stack_limit: 0,\n        transport_loss_class: Medium,\n        decay_bps_per_tick: 0,\n        default_priority: Standard,\n    },\n}",
+    "type": "MaterialProfileGoverned"
+  },
+  {
+    "debug": "ProductProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: ProductProfileV1 { product_id: \"\", role_tag: \"\", maintenance_sink: [], tradable: false, unlock_stage: \"\" } }",
+    "pretty_debug": "ProductProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: ProductProfileV1 {\n        product_id: \"\",\n        role_tag: \"\",\n        maintenance_sink: [],\n        tradable: false,\n        unlock_stage: \"\",\n    },\n}",
+    "type": "ProductProfileGoverned"
+  },
+  {
+    "debug": "RecipeProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: RecipeProfileV1 { recipe_id: \"\", substitution_rules: [], bottleneck_tags: [], stage_gate: \"\", preferred_factory_tags: [] } }",
+    "pretty_debug": "RecipeProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: RecipeProfileV1 {\n        recipe_id: \"\",\n        substitution_rules: [],\n        bottleneck_tags: [],\n        stage_gate: \"\",\n        preferred_factory_tags: [],\n    },\n}",
+    "type": "RecipeProfileGoverned"
+  },
+  {
+    "debug": "FactoryProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: FactoryProfileV1 { factory_id: \"\", tier: 0, recipe_slots: 0, tags: [] } }",
+    "pretty_debug": "FactoryProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: FactoryProfileV1 {\n        factory_id: \"\",\n        tier: 0,\n        recipe_slots: 0,\n        tags: [],\n    },\n}",
+    "type": "FactoryProfileGoverned"
+  },
+  {
+    "debug": "WorldRuleCommitted { action_id: 0, actor_id: \"\", request_id: \"\", command: OpenOrganizationProtection { organization_id: \"\" }, governance_epoch: 0, world_binding: Some(\"present-WorldRuleCommitted-world_binding\") }",
+    "pretty_debug": "WorldRuleCommitted {\n    action_id: 0,\n    actor_id: \"\",\n    request_id: \"\",\n    command: OpenOrganizationProtection {\n        organization_id: \"\",\n    },\n    governance_epoch: 0,\n    world_binding: Some(\n        \"present-WorldRuleCommitted-world_binding\",\n    ),\n}",
+    "type": "WorldRuleCommitted"
+  },
+  {
+    "debug": "AgentRegistered { registration_contract_version: 1, agent_id: \"\", pos: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 } }",
+    "pretty_debug": "AgentRegistered {\n    registration_contract_version: 1,\n    agent_id: \"\",\n    pos: GeoPos {\n        x_cm: 0,\n        y_cm: 0,\n        z_cm: 0,\n    },\n}",
+    "type": "AgentRegistered"
+  },
+  {
+    "debug": "AgentMoved { agent_id: \"\", from: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 }, to: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 } }",
+    "pretty_debug": "AgentMoved {\n    agent_id: \"\",\n    from: GeoPos {\n        x_cm: 0,\n        y_cm: 0,\n        z_cm: 0,\n    },\n    to: GeoPos {\n        x_cm: 0,\n        y_cm: 0,\n        z_cm: 0,\n    },\n}",
+    "type": "AgentMoved"
+  },
+  {
+    "debug": "AgentLocationAuthorityUpdated { authority: AgentLocationAuthorityV1 { agent_id: \"\", location_id: \"\", active: false, authority_revision: 0, effective_at: 0 } }",
+    "pretty_debug": "AgentLocationAuthorityUpdated {\n    authority: AgentLocationAuthorityV1 {\n        agent_id: \"\",\n        location_id: \"\",\n        active: false,\n        authority_revision: 0,\n        effective_at: 0,\n    },\n}",
+    "type": "AgentLocationAuthorityUpdated"
+  },
+  {
+    "debug": "LocationAnchorUpdated { anchor: LocationAnchorV1 { location_id: \"\", active: false, authority_revision: 0, effective_at: 0 } }",
+    "pretty_debug": "LocationAnchorUpdated {\n    anchor: LocationAnchorV1 {\n        location_id: \"\",\n        active: false,\n        authority_revision: 0,\n        effective_at: 0,\n    },\n}",
+    "type": "LocationAnchorUpdated"
+  },
+  {
+    "debug": "FactorySiteAuthorityUpdated { authority: FactorySiteAuthorityV1 { site_id: \"\", location_id: \"\", owner_agent_id: \"\", authorized_agent_ids: [], chunk_ready: false, active: false, authority_revision: 0, registered_at: 0 } }",
+    "pretty_debug": "FactorySiteAuthorityUpdated {\n    authority: FactorySiteAuthorityV1 {\n        site_id: \"\",\n        location_id: \"\",\n        owner_agent_id: \"\",\n        authorized_agent_ids: [],\n        chunk_ready: false,\n        active: false,\n        authority_revision: 0,\n        registered_at: 0,\n    },\n}",
+    "type": "FactorySiteAuthorityUpdated"
+  },
+  {
+    "debug": "FactoryConstructionPowerProfileUpdated { profile: FactoryConstructionPowerProfileV1 { factory_id: \"\", factory_kind: \"\", source_module_id: None, electricity_amount: 0, mode: StartOnlySink, authority_revision: 0, active: false } }",
+    "pretty_debug": "FactoryConstructionPowerProfileUpdated {\n    profile: FactoryConstructionPowerProfileV1 {\n        factory_id: \"\",\n        factory_kind: \"\",\n        source_module_id: None,\n        electricity_amount: 0,\n        mode: StartOnlySink,\n        authority_revision: 0,\n        active: false,\n    },\n}",
+    "type": "FactoryConstructionPowerProfileUpdated"
+  },
+  {
+    "debug": "ActionAccepted { action_id: 0, action_kind: \"\", actor_id: \"\", eta_ticks: 0, notes: [] }",
+    "pretty_debug": "ActionAccepted {\n    action_id: 0,\n    action_kind: \"\",\n    actor_id: \"\",\n    eta_ticks: 0,\n    notes: [],\n}",
+    "type": "ActionAccepted"
+  },
+  {
+    "debug": "ActionRejected { action_id: 0, reason: InvalidAmount { amount: 0 } }",
+    "pretty_debug": "ActionRejected {\n    action_id: 0,\n    reason: InvalidAmount {\n        amount: 0,\n    },\n}",
+    "type": "ActionRejected"
+  },
+  {
+    "debug": "AgentIntentProposed { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentProposed {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentProposed"
+  },
+  {
+    "debug": "AgentIntentSubmitted { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentSubmitted {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentSubmitted"
+  },
+  {
+    "debug": "AgentIntentAccepted { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentAccepted {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentAccepted"
+  },
+  {
+    "debug": "AgentIntentReplaced { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentReplaced {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentReplaced"
+  },
+  {
+    "debug": "AgentIntentTransitioned { intent: AgentIntentV2 { schema_version: 0, agent_id: \"\", intent_id: \"\", kind: \"\", summary: \"\", target_id: None, effect_intent_id: None, intent_tick: None, world_id: None, reorg_epoch: None, authority_scope: None, status: \"\", source: \"\", logical_time: 0, event_seq: 0, updated_at: 0, receipt_ref: None, reason_code: None, reason_summary: None, replaced_by: None, actor_id: \"\", request_digest: \"\" } }",
+    "pretty_debug": "AgentIntentTransitioned {\n    intent: AgentIntentV2 {\n        schema_version: 0,\n        agent_id: \"\",\n        intent_id: \"\",\n        kind: \"\",\n        summary: \"\",\n        target_id: None,\n        effect_intent_id: None,\n        intent_tick: None,\n        world_id: None,\n        reorg_epoch: None,\n        authority_scope: None,\n        status: \"\",\n        source: \"\",\n        logical_time: 0,\n        event_seq: 0,\n        updated_at: 0,\n        receipt_ref: None,\n        reason_code: None,\n        reason_summary: None,\n        replaced_by: None,\n        actor_id: \"\",\n        request_digest: \"\",\n    },\n}",
+    "type": "AgentIntentTransitioned"
+  },
+  {
+    "debug": "Observation { observation: Observation { time: 0, agent_id: \"\", pos: GeoPos { x_cm: 0, y_cm: 0, z_cm: 0 }, visibility_range_cm: 0, visible_agents: [] } }",
+    "pretty_debug": "Observation {\n    observation: Observation {\n        time: 0,\n        agent_id: \"\",\n        pos: GeoPos {\n            x_cm: 0,\n            y_cm: 0,\n            z_cm: 0,\n        },\n        visibility_range_cm: 0,\n        visible_agents: [],\n    },\n}",
+    "type": "Observation"
+  },
+  {
+    "debug": "BodyAttributesUpdated { agent_id: \"\", view: BodyKernelView { mass_kg: 0, radius_cm: 0, thrust_limit: 0, cross_section_cm2: 0 }, reason: \"\" }",
+    "pretty_debug": "BodyAttributesUpdated {\n    agent_id: \"\",\n    view: BodyKernelView {\n        mass_kg: 0,\n        radius_cm: 0,\n        thrust_limit: 0,\n        cross_section_cm2: 0,\n    },\n    reason: \"\",\n}",
+    "type": "BodyAttributesUpdated"
+  },
+  {
+    "debug": "BodyAttributesRejected { agent_id: \"\", reason: \"\" }",
+    "pretty_debug": "BodyAttributesRejected {\n    agent_id: \"\",\n    reason: \"\",\n}",
+    "type": "BodyAttributesRejected"
+  },
+  {
+    "debug": "BodyInterfaceExpanded { agent_id: \"\", slot_capacity: 0, expansion_level: 0, consumed_item_id: \"\", new_slot_id: \"\", slot_type: Power }",
+    "pretty_debug": "BodyInterfaceExpanded {\n    agent_id: \"\",\n    slot_capacity: 0,\n    expansion_level: 0,\n    consumed_item_id: \"\",\n    new_slot_id: \"\",\n    slot_type: Power,\n}",
+    "type": "BodyInterfaceExpanded"
+  },
+  {
+    "debug": "BodyInterfaceExpandRejected { agent_id: \"\", consumed_item_id: \"\", reason: \"\" }",
+    "pretty_debug": "BodyInterfaceExpandRejected {\n    agent_id: \"\",\n    consumed_item_id: \"\",\n    reason: \"\",\n}",
+    "type": "BodyInterfaceExpandRejected"
+  },
+  {
+    "debug": "ModuleArtifactDeployed { publisher_agent_id: \"\", wasm_hash: \"\", bytes_len: 0, fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactDeployed {\n    publisher_agent_id: \"\",\n    wasm_hash: \"\",\n    bytes_len: 0,\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactDeployed"
+  },
+  {
+    "debug": "ModuleInstalled { installer_agent_id: \"\", instance_id: \"\", module_id: \"\", module_version: \"\", wasm_hash: \"\", install_target: SelfAgent, active: false, proposal_id: 0, manifest_hash: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleInstalled {\n    installer_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    module_version: \"\",\n    wasm_hash: \"\",\n    install_target: SelfAgent,\n    active: false,\n    proposal_id: 0,\n    manifest_hash: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleInstalled"
+  },
+  {
+    "debug": "ModuleUpgraded { upgrader_agent_id: \"\", instance_id: \"\", module_id: \"\", from_module_version: \"\", to_module_version: \"\", wasm_hash: \"\", install_target: SelfAgent, active: false, proposal_id: 0, manifest_hash: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleUpgraded {\n    upgrader_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    from_module_version: \"\",\n    to_module_version: \"\",\n    wasm_hash: \"\",\n    install_target: SelfAgent,\n    active: false,\n    proposal_id: 0,\n    manifest_hash: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleUpgraded"
+  },
+  {
+    "debug": "ModuleReleaseRequested { request_id: 0, requester_agent_id: \"\", manifest: ModuleManifest { module_id: \"\", name: \"\", version: \"\", kind: Reducer, role: Domain, wasm_hash: \"\", interface_version: \"\", exports: [], subscriptions: [], required_caps: [], abi_contract: ModuleAbiContract { abi_version: None, input_schema: None, output_schema: None, cap_slots: {}, policy_hooks: [], gameplay: None, declarations: ModuleSchemaDeclarations { commands: [] } }, artifact_identity: None, limits: ModuleLimits { max_mem_bytes: 0, max_gas: 0, max_call_rate: 0, max_output_bytes: 0, max_effects: 0, max_emits: 0 } }, activate: false, install_target: SelfAgent, required_roles: [], profile_changes: ModuleProfileChanges { product_profiles: [], recipe_profiles: [], factory_profiles: [] } }",
+    "pretty_debug": "ModuleReleaseRequested {\n    request_id: 0,\n    requester_agent_id: \"\",\n    manifest: ModuleManifest {\n        module_id: \"\",\n        name: \"\",\n        version: \"\",\n        kind: Reducer,\n        role: Domain,\n        wasm_hash: \"\",\n        interface_version: \"\",\n        exports: [],\n        subscriptions: [],\n        required_caps: [],\n        abi_contract: ModuleAbiContract {\n            abi_version: None,\n            input_schema: None,\n            output_schema: None,\n            cap_slots: {},\n            policy_hooks: [],\n            gameplay: None,\n            declarations: ModuleSchemaDeclarations {\n                commands: [],\n            },\n        },\n        artifact_identity: None,\n        limits: ModuleLimits {\n            max_mem_bytes: 0,\n            max_gas: 0,\n            max_call_rate: 0,\n            max_output_bytes: 0,\n            max_effects: 0,\n            max_emits: 0,\n        },\n    },\n    activate: false,\n    install_target: SelfAgent,\n    required_roles: [],\n    profile_changes: ModuleProfileChanges {\n        product_profiles: [],\n        recipe_profiles: [],\n        factory_profiles: [],\n    },\n}",
+    "type": "ModuleReleaseRequested"
+  },
+  {
+    "debug": "ModuleReleaseShadowed { request_id: 0, operator_agent_id: \"\", manifest_hash: \"\" }",
+    "pretty_debug": "ModuleReleaseShadowed {\n    request_id: 0,\n    operator_agent_id: \"\",\n    manifest_hash: \"\",\n}",
+    "type": "ModuleReleaseShadowed"
+  },
+  {
+    "debug": "ModuleReleaseAttested { request_id: 0, operator_agent_id: \"\", signer_node_id: \"\", platform: \"\", build_manifest_hash: \"\", source_hash: \"\", wasm_hash: \"\", proof_cid: \"\", builder_image_digest: \"\", container_platform: \"\", canonicalizer_version: \"\" }",
+    "pretty_debug": "ModuleReleaseAttested {\n    request_id: 0,\n    operator_agent_id: \"\",\n    signer_node_id: \"\",\n    platform: \"\",\n    build_manifest_hash: \"\",\n    source_hash: \"\",\n    wasm_hash: \"\",\n    proof_cid: \"\",\n    builder_image_digest: \"\",\n    container_platform: \"\",\n    canonicalizer_version: \"\",\n}",
+    "type": "ModuleReleaseAttested"
+  },
+  {
+    "debug": "ModuleReleaseRoleApproved { request_id: 0, approver_agent_id: \"\", role: \"\" }",
+    "pretty_debug": "ModuleReleaseRoleApproved {\n    request_id: 0,\n    approver_agent_id: \"\",\n    role: \"\",\n}",
+    "type": "ModuleReleaseRoleApproved"
+  },
+  {
+    "debug": "ModuleReleaseRolesBound { operator_agent_id: \"\", target_agent_id: \"\", roles: [] }",
+    "pretty_debug": "ModuleReleaseRolesBound {\n    operator_agent_id: \"\",\n    target_agent_id: \"\",\n    roles: [],\n}",
+    "type": "ModuleReleaseRolesBound"
+  },
+  {
+    "debug": "ModuleReleaseRejected { request_id: 0, rejector_agent_id: \"\", reason: \"\" }",
+    "pretty_debug": "ModuleReleaseRejected {\n    request_id: 0,\n    rejector_agent_id: \"\",\n    reason: \"\",\n}",
+    "type": "ModuleReleaseRejected"
+  },
+  {
+    "debug": "ModuleReleaseApplied { request_id: 0, operator_agent_id: \"\", installer_agent_id: \"\", instance_id: \"\", module_id: \"\", module_version: \"\", proposal_id: 0, manifest_hash: \"\" }",
+    "pretty_debug": "ModuleReleaseApplied {\n    request_id: 0,\n    operator_agent_id: \"\",\n    installer_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    module_version: \"\",\n    proposal_id: 0,\n    manifest_hash: \"\",\n}",
+    "type": "ModuleReleaseApplied"
+  },
+  {
+    "debug": "ModuleRollbackApplied { operator_agent_id: \"\", instance_id: \"\", module_id: \"\", from_module_version: \"\", to_module_version: \"\", wasm_hash: \"\", from_wasm_hash: Some(\"present-ModuleRollbackApplied-from_wasm_hash\"), from_release_request_id: Some(17), install_target: SelfAgent, active: false, proposal_id: 0, manifest_hash: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleRollbackApplied {\n    operator_agent_id: \"\",\n    instance_id: \"\",\n    module_id: \"\",\n    from_module_version: \"\",\n    to_module_version: \"\",\n    wasm_hash: \"\",\n    from_wasm_hash: Some(\n        \"present-ModuleRollbackApplied-from_wasm_hash\",\n    ),\n    from_release_request_id: Some(\n        17,\n    ),\n    install_target: SelfAgent,\n    active: false,\n    proposal_id: 0,\n    manifest_hash: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleRollbackApplied"
+  },
+  {
+    "debug": "ModuleArtifactListed { seller_agent_id: \"\", wasm_hash: \"\", price_kind: Electricity, price_amount: 0, order_id: 0, fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactListed {\n    seller_agent_id: \"\",\n    wasm_hash: \"\",\n    price_kind: Electricity,\n    price_amount: 0,\n    order_id: 0,\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactListed"
+  },
+  {
+    "debug": "ModuleArtifactDelisted { seller_agent_id: \"\", wasm_hash: \"\", order_id: Some(17), fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactDelisted {\n    seller_agent_id: \"\",\n    wasm_hash: \"\",\n    order_id: Some(\n        17,\n    ),\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactDelisted"
+  },
+  {
+    "debug": "ModuleArtifactDestroyed { owner_agent_id: \"\", wasm_hash: \"\", reason: \"\", fee_kind: Electricity, fee_amount: 0 }",
+    "pretty_debug": "ModuleArtifactDestroyed {\n    owner_agent_id: \"\",\n    wasm_hash: \"\",\n    reason: \"\",\n    fee_kind: Electricity,\n    fee_amount: 0,\n}",
+    "type": "ModuleArtifactDestroyed"
+  },
+  {
+    "debug": "ModuleArtifactBidPlaced { bidder_agent_id: \"\", wasm_hash: \"\", order_id: 0, price_kind: Electricity, price_amount: 0 }",
+    "pretty_debug": "ModuleArtifactBidPlaced {\n    bidder_agent_id: \"\",\n    wasm_hash: \"\",\n    order_id: 0,\n    price_kind: Electricity,\n    price_amount: 0,\n}",
+    "type": "ModuleArtifactBidPlaced"
+  },
+  {
+    "debug": "ModuleArtifactBidCancelled { bidder_agent_id: \"\", wasm_hash: \"\", order_id: 0, reason: \"\" }",
+    "pretty_debug": "ModuleArtifactBidCancelled {\n    bidder_agent_id: \"\",\n    wasm_hash: \"\",\n    order_id: 0,\n    reason: \"\",\n}",
+    "type": "ModuleArtifactBidCancelled"
+  },
+  {
+    "debug": "ModuleArtifactSaleCompleted { buyer_agent_id: \"\", seller_agent_id: \"\", wasm_hash: \"\", price_kind: Electricity, price_amount: 0, sale_id: 0, listing_order_id: Some(17), bid_order_id: Some(17) }",
+    "pretty_debug": "ModuleArtifactSaleCompleted {\n    buyer_agent_id: \"\",\n    seller_agent_id: \"\",\n    wasm_hash: \"\",\n    price_kind: Electricity,\n    price_amount: 0,\n    sale_id: 0,\n    listing_order_id: Some(\n        17,\n    ),\n    bid_order_id: Some(\n        17,\n    ),\n}",
+    "type": "ModuleArtifactSaleCompleted"
+  },
+  {
+    "debug": "ResourceTransferred { from_agent_id: \"\", to_agent_id: \"\", kind: Electricity, amount: 0 }",
+    "pretty_debug": "ResourceTransferred {\n    from_agent_id: \"\",\n    to_agent_id: \"\",\n    kind: Electricity,\n    amount: 0,\n}",
+    "type": "ResourceTransferred"
+  },
+  {
+    "debug": "DataCollected { collector_agent_id: \"\", electricity_cost: 0, data_amount: 0 }",
+    "pretty_debug": "DataCollected {\n    collector_agent_id: \"\",\n    electricity_cost: 0,\n    data_amount: 0,\n}",
+    "type": "DataCollected"
+  },
+  {
+    "debug": "DataCollectedAuthenticated { collector_agent_id: \"\", electricity_cost: 0, data_amount: 0, player_id: \"\", public_key: \"\", nonce: 0, signature: \"\" }",
+    "pretty_debug": "DataCollectedAuthenticated {\n    collector_agent_id: \"\",\n    electricity_cost: 0,\n    data_amount: 0,\n    player_id: \"\",\n    public_key: \"\",\n    nonce: 0,\n    signature: \"\",\n}",
+    "type": "DataCollectedAuthenticated"
+  },
+  {
+    "debug": "DataAccessGranted { owner_agent_id: \"\", grantee_agent_id: \"\" }",
+    "pretty_debug": "DataAccessGranted {\n    owner_agent_id: \"\",\n    grantee_agent_id: \"\",\n}",
+    "type": "DataAccessGranted"
+  },
+  {
+    "debug": "DataAccessRevoked { owner_agent_id: \"\", grantee_agent_id: \"\" }",
+    "pretty_debug": "DataAccessRevoked {\n    owner_agent_id: \"\",\n    grantee_agent_id: \"\",\n}",
+    "type": "DataAccessRevoked"
+  },
+  {
+    "debug": "PowerRedeemed { node_id: \"\", target_agent_id: \"\", burned_credits: 0, granted_power_units: 0, reserve_remaining: 0, nonce: 0 }",
+    "pretty_debug": "PowerRedeemed {\n    node_id: \"\",\n    target_agent_id: \"\",\n    burned_credits: 0,\n    granted_power_units: 0,\n    reserve_remaining: 0,\n    nonce: 0,\n}",
+    "type": "PowerRedeemed"
+  },
+  {
+    "debug": "PowerRedeemRejected { node_id: \"\", target_agent_id: \"\", redeem_credits: 0, nonce: 0, reason: \"\" }",
+    "pretty_debug": "PowerRedeemRejected {\n    node_id: \"\",\n    target_agent_id: \"\",\n    redeem_credits: 0,\n    nonce: 0,\n    reason: \"\",\n}",
+    "type": "PowerRedeemRejected"
+  },
+  {
+    "debug": "NodePointsSettlementApplied { report: EpochSettlementReport { epoch_index: 0, pool_points: 0, storage_pool_points: 0, distributed_points: 0, storage_distributed_points: 0, total_distributed_points: 0, settlements: [] }, signer_node_id: \"\", settlement_hash: \"\", minted_records: [], main_token_bridge_total_amount: 0, main_token_bridge_distributions: [] }",
+    "pretty_debug": "NodePointsSettlementApplied {\n    report: EpochSettlementReport {\n        epoch_index: 0,\n        pool_points: 0,\n        storage_pool_points: 0,\n        distributed_points: 0,\n        storage_distributed_points: 0,\n        total_distributed_points: 0,\n        settlements: [],\n    },\n    signer_node_id: \"\",\n    settlement_hash: \"\",\n    minted_records: [],\n    main_token_bridge_total_amount: 0,\n    main_token_bridge_distributions: [],\n}",
+    "type": "NodePointsSettlementApplied"
+  },
+  {
+    "debug": "MainTokenGenesisInitialized { total_supply: 0, allocations: [] }",
+    "pretty_debug": "MainTokenGenesisInitialized {\n    total_supply: 0,\n    allocations: [],\n}",
+    "type": "MainTokenGenesisInitialized"
+  },
+  {
+    "debug": "MainTokenVestingClaimed { bucket_id: \"\", beneficiary: \"\", amount: 0, nonce: 0 }",
+    "pretty_debug": "MainTokenVestingClaimed {\n    bucket_id: \"\",\n    beneficiary: \"\",\n    amount: 0,\n    nonce: 0,\n}",
+    "type": "MainTokenVestingClaimed"
+  },
+  {
+    "debug": "MainTokenTransferred { from_account_id: \"\", to_account_id: \"\", amount: 0, nonce: 0, asset_id: Some(\"present-MainTokenTransferred-asset_id\"), memo: Some(\"present-MainTokenTransferred-memo\") }",
+    "pretty_debug": "MainTokenTransferred {\n    from_account_id: \"\",\n    to_account_id: \"\",\n    amount: 0,\n    nonce: 0,\n    asset_id: Some(\n        \"present-MainTokenTransferred-asset_id\",\n    ),\n    memo: Some(\n        \"present-MainTokenTransferred-memo\",\n    ),\n}",
+    "type": "MainTokenTransferred"
+  },
+  {
+    "debug": "MainTokenEpochIssued { epoch_index: 0, inflation_rate_bps: 0, issued_amount: 0, staking_reward_amount: 0, node_service_reward_amount: 0, ecosystem_pool_amount: 0, security_reserve_amount: 0 }",
+    "pretty_debug": "MainTokenEpochIssued {\n    epoch_index: 0,\n    inflation_rate_bps: 0,\n    issued_amount: 0,\n    staking_reward_amount: 0,\n    node_service_reward_amount: 0,\n    ecosystem_pool_amount: 0,\n    security_reserve_amount: 0,\n}",
+    "type": "MainTokenEpochIssued"
+  },
+  {
+    "debug": "MainTokenFeeSettled { fee_kind: GasBaseFee, amount: 0, burn_amount: 0, treasury_amount: 0 }",
+    "pretty_debug": "MainTokenFeeSettled {\n    fee_kind: GasBaseFee,\n    amount: 0,\n    burn_amount: 0,\n    treasury_amount: 0,\n}",
+    "type": "MainTokenFeeSettled"
+  },
+  {
+    "debug": "MainTokenPolicyUpdateScheduled { proposal_id: 0, effective_epoch: 0, next: MainTokenConfig { symbol: \"OC\", decimals: 9, initial_supply: 0, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 400, min_rate_bps: 200, max_rate_bps: 800, target_stake_ratio_bps: 6000, stake_feedback_gain_bps: 1000, epochs_per_year: 365 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 6000, node_service_reward_bps: 2000, ecosystem_pool_bps: 1500, security_reserve_bps: 500 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 3000, slash_burn_bps: 5000, module_fee_burn_bps: 2000 } } }",
+    "pretty_debug": "MainTokenPolicyUpdateScheduled {\n    proposal_id: 0,\n    effective_epoch: 0,\n    next: MainTokenConfig {\n        symbol: \"OC\",\n        decimals: 9,\n        initial_supply: 0,\n        max_supply: None,\n        inflation_policy: MainTokenInflationPolicy {\n            base_rate_bps: 400,\n            min_rate_bps: 200,\n            max_rate_bps: 800,\n            target_stake_ratio_bps: 6000,\n            stake_feedback_gain_bps: 1000,\n            epochs_per_year: 365,\n        },\n        issuance_split: MainTokenIssuanceSplitPolicy {\n            staking_reward_bps: 6000,\n            node_service_reward_bps: 2000,\n            ecosystem_pool_bps: 1500,\n            security_reserve_bps: 500,\n        },\n        burn_policy: MainTokenBurnPolicy {\n            gas_base_fee_burn_bps: 3000,\n            slash_burn_bps: 5000,\n            module_fee_burn_bps: 2000,\n        },\n    },\n}",
+    "type": "MainTokenPolicyUpdateScheduled"
+  },
+  {
+    "debug": "MainTokenTreasuryDistributed { proposal_id: 0, distribution_id: \"\", bucket_id: \"\", total_amount: 0, distributions: [] }",
+    "pretty_debug": "MainTokenTreasuryDistributed {\n    proposal_id: 0,\n    distribution_id: \"\",\n    bucket_id: \"\",\n    total_amount: 0,\n    distributions: [],\n}",
+    "type": "MainTokenTreasuryDistributed"
+  },
+  {
+    "debug": "RestrictedStarterClaimLiveopsPoolToppedUp { controller_account_id: \"\", top_up_id: \"\", source_treasury_bucket_id: \"\", target_treasury_bucket_id: \"\", amount: 0, topped_up_at_epoch: 0 }",
+    "pretty_debug": "RestrictedStarterClaimLiveopsPoolToppedUp {\n    controller_account_id: \"\",\n    top_up_id: \"\",\n    source_treasury_bucket_id: \"\",\n    target_treasury_bucket_id: \"\",\n    amount: 0,\n    topped_up_at_epoch: 0,\n}",
+    "type": "RestrictedStarterClaimLiveopsPoolToppedUp"
+  },
+  {
+    "debug": "RestrictedStarterClaimGrantIssued { issuer_id: \"\", beneficiary_account_id: \"\", source_treasury_bucket_id: \"\", amount: 0, issuance_reason: \"\", spend_scope: \"\", issued_at_epoch: 0, expires_at_epoch: 0 }",
+    "pretty_debug": "RestrictedStarterClaimGrantIssued {\n    issuer_id: \"\",\n    beneficiary_account_id: \"\",\n    source_treasury_bucket_id: \"\",\n    amount: 0,\n    issuance_reason: \"\",\n    spend_scope: \"\",\n    issued_at_epoch: 0,\n    expires_at_epoch: 0,\n}",
+    "type": "RestrictedStarterClaimGrantIssued"
+  },
+  {
+    "debug": "RestrictedStarterClaimGrantExpired { beneficiary_account_id: \"\", issuer_id: \"\", issuance_reason: \"\", spend_scope: \"\", source_treasury_bucket_id: \"\", issued_amount: 0, expired_amount: 0, issued_at_epoch: 0, expired_at_epoch: 0, configured_expires_at_epoch: 0 }",
+    "pretty_debug": "RestrictedStarterClaimGrantExpired {\n    beneficiary_account_id: \"\",\n    issuer_id: \"\",\n    issuance_reason: \"\",\n    spend_scope: \"\",\n    source_treasury_bucket_id: \"\",\n    issued_amount: 0,\n    expired_amount: 0,\n    issued_at_epoch: 0,\n    expired_at_epoch: 0,\n    configured_expires_at_epoch: 0,\n}",
+    "type": "RestrictedStarterClaimGrantExpired"
+  },
+  {
+    "debug": "RestrictedStarterClaimGrantRevoked { beneficiary_account_id: \"\", issuer_id: \"\", issuance_reason: \"\", spend_scope: \"\", source_treasury_bucket_id: \"\", issued_amount: 0, revoked_amount: 0, issued_at_epoch: 0, revoked_at_epoch: 0, configured_expires_at_epoch: 0, revoke_reason: \"\" }",
+    "pretty_debug": "RestrictedStarterClaimGrantRevoked {\n    beneficiary_account_id: \"\",\n    issuer_id: \"\",\n    issuance_reason: \"\",\n    spend_scope: \"\",\n    source_treasury_bucket_id: \"\",\n    issued_amount: 0,\n    revoked_amount: 0,\n    issued_at_epoch: 0,\n    revoked_at_epoch: 0,\n    configured_expires_at_epoch: 0,\n    revoke_reason: \"\",\n}",
+    "type": "RestrictedStarterClaimGrantRevoked"
+  },
+  {
+    "debug": "StarterOcClaimed { agent_id: \"\", player_id: \"\", public_key: Some(\"present-StarterOcClaimed-public_key\"), amount: 0, claimed_at: 0, source_treasury_bucket_id: Some(\"present-StarterOcClaimed-source_treasury_bucket_id\") }",
+    "pretty_debug": "StarterOcClaimed {\n    agent_id: \"\",\n    player_id: \"\",\n    public_key: Some(\n        \"present-StarterOcClaimed-public_key\",\n    ),\n    amount: 0,\n    claimed_at: 0,\n    source_treasury_bucket_id: Some(\n        \"present-StarterOcClaimed-source_treasury_bucket_id\",\n    ),\n}",
+    "type": "StarterOcClaimed"
+  },
+  {
+    "debug": "AgentClaimed { acquisition_contract_version: 1, claimer_agent_id: \"\", target_agent_id: \"\", reputation_tier: 0, slot_index: 0, activation_fee_amount: 0, activation_fee_burn_amount: 0, activation_fee_treasury_amount: 0, claim_bond_amount: 0, upfront_restricted_spent_amount: 0, upfront_liquid_spent_amount: 0, auto_issued_restricted_amount: 0, auto_issued_restricted_source_treasury_bucket_id: Some(\"present-AgentClaimed-auto_issued_restricted_source_treasury_bucket_id\"), claim_bond_locked_restricted_amount: 0, claim_bond_locked_liquid_amount: 0, upkeep_per_epoch: 0, claimed_at_epoch: 0, upkeep_paid_through_epoch: 0, release_cooldown_epochs: 0, grace_epochs: 0, idle_warning_epochs: 0, forced_idle_reclaim_epochs: 0, forced_reclaim_penalty_bps: 0 }",
+    "pretty_debug": "AgentClaimed {\n    acquisition_contract_version: 1,\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    reputation_tier: 0,\n    slot_index: 0,\n    activation_fee_amount: 0,\n    activation_fee_burn_amount: 0,\n    activation_fee_treasury_amount: 0,\n    claim_bond_amount: 0,\n    upfront_restricted_spent_amount: 0,\n    upfront_liquid_spent_amount: 0,\n    auto_issued_restricted_amount: 0,\n    auto_issued_restricted_source_treasury_bucket_id: Some(\n        \"present-AgentClaimed-auto_issued_restricted_source_treasury_bucket_id\",\n    ),\n    claim_bond_locked_restricted_amount: 0,\n    claim_bond_locked_liquid_amount: 0,\n    upkeep_per_epoch: 0,\n    claimed_at_epoch: 0,\n    upkeep_paid_through_epoch: 0,\n    release_cooldown_epochs: 0,\n    grace_epochs: 0,\n    idle_warning_epochs: 0,\n    forced_idle_reclaim_epochs: 0,\n    forced_reclaim_penalty_bps: 0,\n}",
+    "type": "AgentClaimed"
+  },
+  {
+    "debug": "AgentClaimReleaseRequested { claimer_agent_id: \"\", target_agent_id: \"\", requested_at_epoch: 0, ready_at_epoch: 0 }",
+    "pretty_debug": "AgentClaimReleaseRequested {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    requested_at_epoch: 0,\n    ready_at_epoch: 0,\n}",
+    "type": "AgentClaimReleaseRequested"
+  },
+  {
+    "debug": "AgentClaimUpkeepSettled { activity_contract_version: 1, claimer_agent_id: \"\", target_agent_id: \"\", settled_at_epoch: 0, charged_epochs: 0, amount: 0, restricted_spent_amount: 0, liquid_spent_amount: 0, upkeep_paid_through_epoch: 0 }",
+    "pretty_debug": "AgentClaimUpkeepSettled {\n    activity_contract_version: 1,\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    settled_at_epoch: 0,\n    charged_epochs: 0,\n    amount: 0,\n    restricted_spent_amount: 0,\n    liquid_spent_amount: 0,\n    upkeep_paid_through_epoch: 0,\n}",
+    "type": "AgentClaimUpkeepSettled"
+  },
+  {
+    "debug": "AgentClaimEnteredGrace { claimer_agent_id: \"\", target_agent_id: \"\", delinquent_since_epoch: 0, grace_deadline_epoch: 0, upkeep_arrears_amount: 0 }",
+    "pretty_debug": "AgentClaimEnteredGrace {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    delinquent_since_epoch: 0,\n    grace_deadline_epoch: 0,\n    upkeep_arrears_amount: 0,\n}",
+    "type": "AgentClaimEnteredGrace"
+  },
+  {
+    "debug": "AgentClaimIdleWarning { claimer_agent_id: \"\", target_agent_id: \"\", warning_emitted_at_epoch: 0, forced_reclaim_at_epoch: 0 }",
+    "pretty_debug": "AgentClaimIdleWarning {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    warning_emitted_at_epoch: 0,\n    forced_reclaim_at_epoch: 0,\n}",
+    "type": "AgentClaimIdleWarning"
+  },
+  {
+    "debug": "AgentClaimReleased { claimer_agent_id: \"\", target_agent_id: \"\", released_at_epoch: 0, refunded_bond_amount: 0, refunded_bond_restricted_amount: 0, refunded_bond_liquid_amount: 0, refunded_bond_restricted_sink: BeneficiaryRestrictedBalance, refunded_bond_restricted_sink_bucket_id: \"\" }",
+    "pretty_debug": "AgentClaimReleased {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    released_at_epoch: 0,\n    refunded_bond_amount: 0,\n    refunded_bond_restricted_amount: 0,\n    refunded_bond_liquid_amount: 0,\n    refunded_bond_restricted_sink: BeneficiaryRestrictedBalance,\n    refunded_bond_restricted_sink_bucket_id: \"\",\n}",
+    "type": "AgentClaimReleased"
+  },
+  {
+    "debug": "AgentClaimReclaimed { claimer_agent_id: \"\", target_agent_id: \"\", reclaimed_at_epoch: 0, reason: \"\", upkeep_arrears_amount: 0, collected_upkeep_amount: 0, penalty_amount: 0, refunded_bond_amount: 0, refunded_bond_restricted_amount: 0, refunded_bond_liquid_amount: 0, refunded_bond_restricted_sink: BeneficiaryRestrictedBalance, refunded_bond_restricted_sink_bucket_id: \"\" }",
+    "pretty_debug": "AgentClaimReclaimed {\n    claimer_agent_id: \"\",\n    target_agent_id: \"\",\n    reclaimed_at_epoch: 0,\n    reason: \"\",\n    upkeep_arrears_amount: 0,\n    collected_upkeep_amount: 0,\n    penalty_amount: 0,\n    refunded_bond_amount: 0,\n    refunded_bond_restricted_amount: 0,\n    refunded_bond_liquid_amount: 0,\n    refunded_bond_restricted_sink: BeneficiaryRestrictedBalance,\n    refunded_bond_restricted_sink_bucket_id: \"\",\n}",
+    "type": "AgentClaimReclaimed"
+  },
+  {
+    "debug": "MaterialTransferred { transfer_id: Some(17), requester_agent_id: \"\", from_ledger: World, to_ledger: World, kind: \"\", amount: 0, distance_km: 0, priority: Standard, route_id: Some(\"present-MaterialTransferred-route_id\") }",
+    "pretty_debug": "MaterialTransferred {\n    transfer_id: Some(\n        17,\n    ),\n    requester_agent_id: \"\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    amount: 0,\n    distance_km: 0,\n    priority: Standard,\n    route_id: Some(\n        \"present-MaterialTransferred-route_id\",\n    ),\n}",
+    "type": "MaterialTransferred"
+  },
+  {
+    "debug": "LogisticsRouteRegistered { requester_agent_id: \"\", route_id: Some(\"present-LogisticsRouteRegistered-route_id\"), from_ledger: World, to_ledger: World, kind: \"\", distance_km: 0, priority: Standard, owner_agent_id: \"\", available: false, capacity_units: 0, tariff_electricity_per_unit: 0 }",
+    "pretty_debug": "LogisticsRouteRegistered {\n    requester_agent_id: \"\",\n    route_id: Some(\n        \"present-LogisticsRouteRegistered-route_id\",\n    ),\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    distance_km: 0,\n    priority: Standard,\n    owner_agent_id: \"\",\n    available: false,\n    capacity_units: 0,\n    tariff_electricity_per_unit: 0,\n}",
+    "type": "LogisticsRouteRegistered"
+  },
+  {
+    "debug": "LogisticsRouteAvailabilityChanged { requester_agent_id: \"\", route_id: \"\", available: false, owner_agent_id: \"\" }",
+    "pretty_debug": "LogisticsRouteAvailabilityChanged {\n    requester_agent_id: \"\",\n    route_id: \"\",\n    available: false,\n    owner_agent_id: \"\",\n}",
+    "type": "LogisticsRouteAvailabilityChanged"
+  },
+  {
+    "debug": "LogisticsPathRerouted { requester_agent_id: \"\", job_id: 0, original_path_id: Some(\"present-LogisticsPathRerouted-original_path_id\"), original_route_ids: [], effective_path_id: Some(\"present-LogisticsPathRerouted-effective_path_id\"), effective_route_ids: [], reason: \"\", reroute_count: 0, tariff_electricity_total: 0, owner_payouts: [], governance_tax_electricity: 0 }",
+    "pretty_debug": "LogisticsPathRerouted {\n    requester_agent_id: \"\",\n    job_id: 0,\n    original_path_id: Some(\n        \"present-LogisticsPathRerouted-original_path_id\",\n    ),\n    original_route_ids: [],\n    effective_path_id: Some(\n        \"present-LogisticsPathRerouted-effective_path_id\",\n    ),\n    effective_route_ids: [],\n    reason: \"\",\n    reroute_count: 0,\n    tariff_electricity_total: 0,\n    owner_payouts: [],\n    governance_tax_electricity: 0,\n}",
+    "type": "LogisticsPathRerouted"
+  },
+  {
+    "debug": "MaterialTransitStarted { job_id: 0, requester_agent_id: \"\", from_ledger: World, to_ledger: World, kind: \"\", amount: 0, distance_km: 0, loss_bps: 0, ready_at: 0, priority: Standard, route_id: Some(\"present-MaterialTransitStarted-route_id\"), path_id: Some(\"present-MaterialTransitStarted-path_id\"), route_ids: [], tariff_electricity_total: 0, reroute_count: 0 }",
+    "pretty_debug": "MaterialTransitStarted {\n    job_id: 0,\n    requester_agent_id: \"\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    amount: 0,\n    distance_km: 0,\n    loss_bps: 0,\n    ready_at: 0,\n    priority: Standard,\n    route_id: Some(\n        \"present-MaterialTransitStarted-route_id\",\n    ),\n    path_id: Some(\n        \"present-MaterialTransitStarted-path_id\",\n    ),\n    route_ids: [],\n    tariff_electricity_total: 0,\n    reroute_count: 0,\n}",
+    "type": "MaterialTransitStarted"
+  },
+  {
+    "debug": "MaterialTransitCompleted { job_id: 0, requester_agent_id: \"\", from_ledger: World, to_ledger: World, kind: \"\", sent_amount: 0, received_amount: 0, loss_amount: 0, distance_km: 0, priority: Standard, route_id: Some(\"present-MaterialTransitCompleted-route_id\"), path_id: Some(\"present-MaterialTransitCompleted-path_id\"), route_ids: [], tariff_electricity_total: 0, reroute_count: 0 }",
+    "pretty_debug": "MaterialTransitCompleted {\n    job_id: 0,\n    requester_agent_id: \"\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"\",\n    sent_amount: 0,\n    received_amount: 0,\n    loss_amount: 0,\n    distance_km: 0,\n    priority: Standard,\n    route_id: Some(\n        \"present-MaterialTransitCompleted-route_id\",\n    ),\n    path_id: Some(\n        \"present-MaterialTransitCompleted-path_id\",\n    ),\n    route_ids: [],\n    tariff_electricity_total: 0,\n    reroute_count: 0,\n}",
+    "type": "MaterialTransitCompleted"
+  },
+  {
+    "debug": "FactoryBuildStarted { job_id: 0, builder_agent_id: \"\", site_id: \"\", spec: FactoryModuleSpec { factory_id: \"\", display_name: \"\", tier: 0, tags: [], build_cost: [], build_time_ticks: 0, base_power_draw: 0, recipe_slots: 0, throughput_bps: 0, maintenance_per_tick: 0 }, consume_ledger: World, ready_at: 0, contract_version: None, site_authority_revision: Some(17), site_location_id: Some(\"present-FactoryBuildStarted-site_location_id\"), location_anchor_revision: Some(17), construction_power_obligation: Some(FactoryBuildPowerObligationV1 { payer_agent_id: \"payer\", profile_key: \"\", profile_revision: 0, electricity_amount: 17, mode: StartOnlySink, material_ledger: None, electricity_before: None, electricity_after: None, material_balances_before: None, material_balances_after: None }) }",
+    "pretty_debug": "FactoryBuildStarted {\n    job_id: 0,\n    builder_agent_id: \"\",\n    site_id: \"\",\n    spec: FactoryModuleSpec {\n        factory_id: \"\",\n        display_name: \"\",\n        tier: 0,\n        tags: [],\n        build_cost: [],\n        build_time_ticks: 0,\n        base_power_draw: 0,\n        recipe_slots: 0,\n        throughput_bps: 0,\n        maintenance_per_tick: 0,\n    },\n    consume_ledger: World,\n    ready_at: 0,\n    contract_version: None,\n    site_authority_revision: Some(\n        17,\n    ),\n    site_location_id: Some(\n        \"present-FactoryBuildStarted-site_location_id\",\n    ),\n    location_anchor_revision: Some(\n        17,\n    ),\n    construction_power_obligation: Some(\n        FactoryBuildPowerObligationV1 {\n            payer_agent_id: \"payer\",\n            profile_key: \"\",\n            profile_revision: 0,\n            electricity_amount: 17,\n            mode: StartOnlySink,\n            material_ledger: None,\n            electricity_before: None,\n            electricity_after: None,\n            material_balances_before: None,\n            material_balances_after: None,\n        },\n    ),\n}",
+    "type": "FactoryBuildStarted"
+  },
+  {
+    "debug": "FactoryBuilt { job_id: 0, builder_agent_id: \"\", site_id: \"\", spec: FactoryModuleSpec { factory_id: \"\", display_name: \"\", tier: 0, tags: [], build_cost: [], build_time_ticks: 0, base_power_draw: 0, recipe_slots: 0, throughput_bps: 0, maintenance_per_tick: 0 } }",
+    "pretty_debug": "FactoryBuilt {\n    job_id: 0,\n    builder_agent_id: \"\",\n    site_id: \"\",\n    spec: FactoryModuleSpec {\n        factory_id: \"\",\n        display_name: \"\",\n        tier: 0,\n        tags: [],\n        build_cost: [],\n        build_time_ticks: 0,\n        base_power_draw: 0,\n        recipe_slots: 0,\n        throughput_bps: 0,\n        maintenance_per_tick: 0,\n    },\n}",
+    "type": "FactoryBuilt"
+  },
+  {
+    "debug": "FactoryDurabilityChanged { factory_id: \"\", previous_durability_ppm: 0, durability_ppm: 0, reason: \"\" }",
+    "pretty_debug": "FactoryDurabilityChanged {\n    factory_id: \"\",\n    previous_durability_ppm: 0,\n    durability_ppm: 0,\n    reason: \"\",\n}",
+    "type": "FactoryDurabilityChanged"
+  },
+  {
+    "debug": "FactoryMaintained { operator_agent_id: \"\", factory_id: \"\", consume_ledger: World, consumed_parts: 0, durability_ppm: 0 }",
+    "pretty_debug": "FactoryMaintained {\n    operator_agent_id: \"\",\n    factory_id: \"\",\n    consume_ledger: World,\n    consumed_parts: 0,\n    durability_ppm: 0,\n}",
+    "type": "FactoryMaintained"
+  },
+  {
+    "debug": "FactoryRecycled { operator_agent_id: \"\", factory_id: \"\", recycle_ledger: World, recovered: [], durability_ppm: 0 }",
+    "pretty_debug": "FactoryRecycled {\n    operator_agent_id: \"\",\n    factory_id: \"\",\n    recycle_ledger: World,\n    recovered: [],\n    durability_ppm: 0,\n}",
+    "type": "FactoryRecycled"
+  },
+  {
+    "debug": "RecipeStarted { emergency_power_obligation: Some(\"present-RecipeStarted-emergency_power_obligation\"), committed_recipe_origin: Some(CommittedRecipeOrigin { submission: GameplaySubmissionOrigin { verified_player_id: \"fixture-player\", public_key: \"1111111111111111111111111111111111111111111111111111111111111111\", auth_nonce: 1, hosted_registration_nonce: Some(\"fixture-registration\"), requester_agent_id: \"fixture-agent\", factory_id: \"fixture-factory\", recipe_id: \"fixture-recipe\" }, consensus_action_id: 17, consensus_submitter_player_id: \"fixture-player\", action_payload_hash: \"2222222222222222222222222222222222222222222222222222222222222222\", committed_height: 19, action_root: \"3333333333333333333333333333333333333333333333333333333333333333\" }), job_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 0, consume: [], produce: [], byproducts: [], power_required: 0, power_owner_agent_id: Some(\"present-RecipeStarted-power_owner_agent_id\"), duration_ticks: 0, consume_ledger: World, output_ledger: World, bottleneck_tags: [], market_quotes: [], logistics_route_ids: [], logistics_path_ids: [], ready_at: 0 }",
+    "pretty_debug": "RecipeStarted {\n    emergency_power_obligation: Some(\n        \"present-RecipeStarted-emergency_power_obligation\",\n    ),\n    committed_recipe_origin: Some(\n        CommittedRecipeOrigin {\n            submission: GameplaySubmissionOrigin {\n                verified_player_id: \"fixture-player\",\n                public_key: \"1111111111111111111111111111111111111111111111111111111111111111\",\n                auth_nonce: 1,\n                hosted_registration_nonce: Some(\n                    \"fixture-registration\",\n                ),\n                requester_agent_id: \"fixture-agent\",\n                factory_id: \"fixture-factory\",\n                recipe_id: \"fixture-recipe\",\n            },\n            consensus_action_id: 17,\n            consensus_submitter_player_id: \"fixture-player\",\n            action_payload_hash: \"2222222222222222222222222222222222222222222222222222222222222222\",\n            committed_height: 19,\n            action_root: \"3333333333333333333333333333333333333333333333333333333333333333\",\n        },\n    ),\n    job_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    accepted_batches: 0,\n    consume: [],\n    produce: [],\n    byproducts: [],\n    power_required: 0,\n    power_owner_agent_id: Some(\n        \"present-RecipeStarted-power_owner_agent_id\",\n    ),\n    duration_ticks: 0,\n    consume_ledger: World,\n    output_ledger: World,\n    bottleneck_tags: [],\n    market_quotes: [],\n    logistics_route_ids: [],\n    logistics_path_ids: [],\n    ready_at: 0,\n}",
+    "type": "RecipeStarted"
+  },
+  {
+    "debug": "RecipeCompleted { committed_recipe_origin: Some(CommittedRecipeOrigin { submission: GameplaySubmissionOrigin { verified_player_id: \"fixture-player\", public_key: \"1111111111111111111111111111111111111111111111111111111111111111\", auth_nonce: 1, hosted_registration_nonce: Some(\"fixture-registration\"), requester_agent_id: \"fixture-agent\", factory_id: \"fixture-factory\", recipe_id: \"fixture-recipe\" }, consensus_action_id: 17, consensus_submitter_player_id: \"fixture-player\", action_payload_hash: \"2222222222222222222222222222222222222222222222222222222222222222\", committed_height: 19, action_root: \"3333333333333333333333333333333333333333333333333333333333333333\" }), job_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 0, produce: [], byproducts: [], output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [] }",
+    "pretty_debug": "RecipeCompleted {\n    committed_recipe_origin: Some(\n        CommittedRecipeOrigin {\n            submission: GameplaySubmissionOrigin {\n                verified_player_id: \"fixture-player\",\n                public_key: \"1111111111111111111111111111111111111111111111111111111111111111\",\n                auth_nonce: 1,\n                hosted_registration_nonce: Some(\n                    \"fixture-registration\",\n                ),\n                requester_agent_id: \"fixture-agent\",\n                factory_id: \"fixture-factory\",\n                recipe_id: \"fixture-recipe\",\n            },\n            consensus_action_id: 17,\n            consensus_submitter_player_id: \"fixture-player\",\n            action_payload_hash: \"2222222222222222222222222222222222222222222222222222222222222222\",\n            committed_height: 19,\n            action_root: \"3333333333333333333333333333333333333333333333333333333333333333\",\n        },\n    ),\n    job_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    accepted_batches: 0,\n    produce: [],\n    byproducts: [],\n    output_ledger: World,\n    bottleneck_tags: [],\n    logistics_route_ids: [],\n    logistics_path_ids: [],\n}",
+    "type": "RecipeCompleted"
+  },
+  {
+    "debug": "FactoryProductionBlocked { action_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", blocker_kind: \"\", blocker_detail: \"\" }",
+    "pretty_debug": "FactoryProductionBlocked {\n    action_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    blocker_kind: \"\",\n    blocker_detail: \"\",\n}",
+    "type": "FactoryProductionBlocked"
+  },
+  {
+    "debug": "FactoryProductionResumed { job_id: 0, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", previous_blocked_at: Some(17), previous_blocker_kind: Some(\"present-FactoryProductionResumed-previous_blocker_kind\"), previous_blocker_detail: Some(\"present-FactoryProductionResumed-previous_blocker_detail\") }",
+    "pretty_debug": "FactoryProductionResumed {\n    job_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    recipe_id: \"\",\n    previous_blocked_at: Some(\n        17,\n    ),\n    previous_blocker_kind: Some(\n        \"present-FactoryProductionResumed-previous_blocker_kind\",\n    ),\n    previous_blocker_detail: Some(\n        \"present-FactoryProductionResumed-previous_blocker_detail\",\n    ),\n}",
+    "type": "FactoryProductionResumed"
+  },
+  {
+    "debug": "FactoryProductionPaused { action_id: 0, requester_agent_id: \"\", factory_id: \"\", reason: \"\" }",
+    "pretty_debug": "FactoryProductionPaused {\n    action_id: 0,\n    requester_agent_id: \"\",\n    factory_id: \"\",\n    reason: \"\",\n}",
+    "type": "FactoryProductionPaused"
+  },
+  {
+    "debug": "GameplayPolicyUpdated { operator_agent_id: \"\", electricity_tax_bps: 0, data_tax_bps: 0, power_trade_fee_bps: 0, max_open_contracts_per_agent: 0, blocked_agents: [], forbidden_location_ids: [] }",
+    "pretty_debug": "GameplayPolicyUpdated {\n    operator_agent_id: \"\",\n    electricity_tax_bps: 0,\n    data_tax_bps: 0,\n    power_trade_fee_bps: 0,\n    max_open_contracts_per_agent: 0,\n    blocked_agents: [],\n    forbidden_location_ids: [],\n}",
+    "type": "GameplayPolicyUpdated"
+  },
+  {
+    "debug": "EconomicContractOpened { creator_agent_id: \"\", contract_id: \"\", counterparty_agent_id: \"\", fulfillment_kind: AtomicExchange, settlement_kind: Electricity, settlement_amount: 0, reputation_stake: 0, expires_at: 0, description: \"\" }",
+    "pretty_debug": "EconomicContractOpened {\n    creator_agent_id: \"\",\n    contract_id: \"\",\n    counterparty_agent_id: \"\",\n    fulfillment_kind: AtomicExchange,\n    settlement_kind: Electricity,\n    settlement_amount: 0,\n    reputation_stake: 0,\n    expires_at: 0,\n    description: \"\",\n}",
+    "type": "EconomicContractOpened"
+  },
+  {
+    "debug": "EconomicContractAccepted { accepter_agent_id: \"\", contract_id: \"\" }",
+    "pretty_debug": "EconomicContractAccepted {\n    accepter_agent_id: \"\",\n    contract_id: \"\",\n}",
+    "type": "EconomicContractAccepted"
+  },
+  {
+    "debug": "EconomicContractSettled { operator_agent_id: \"\", contract_id: \"\", world_binding: Some(\"present-EconomicContractSettled-world_binding\"), success: false, transfer_amount: 0, tax_amount: 0, notes: \"\", creator_reputation_delta: 0, counterparty_reputation_delta: 0 }",
+    "pretty_debug": "EconomicContractSettled {\n    operator_agent_id: \"\",\n    contract_id: \"\",\n    world_binding: Some(\n        \"present-EconomicContractSettled-world_binding\",\n    ),\n    success: false,\n    transfer_amount: 0,\n    tax_amount: 0,\n    notes: \"\",\n    creator_reputation_delta: 0,\n    counterparty_reputation_delta: 0,\n}",
+    "type": "EconomicContractSettled"
+  },
+  {
+    "debug": "EconomicContractExpired { contract_id: \"\", creator_agent_id: \"\", counterparty_agent_id: \"\", creator_reputation_delta: 0, counterparty_reputation_delta: 0 }",
+    "pretty_debug": "EconomicContractExpired {\n    contract_id: \"\",\n    creator_agent_id: \"\",\n    counterparty_agent_id: \"\",\n    creator_reputation_delta: 0,\n    counterparty_reputation_delta: 0,\n}",
+    "type": "EconomicContractExpired"
+  },
+  {
+    "debug": "AllianceFormed { proposer_agent_id: \"\", alliance_id: \"\", members: [], charter: \"\" }",
+    "pretty_debug": "AllianceFormed {\n    proposer_agent_id: \"\",\n    alliance_id: \"\",\n    members: [],\n    charter: \"\",\n}",
+    "type": "AllianceFormed"
+  },
+  {
+    "debug": "AllianceJoined { operator_agent_id: \"\", alliance_id: \"\", member_agent_id: \"\" }",
+    "pretty_debug": "AllianceJoined {\n    operator_agent_id: \"\",\n    alliance_id: \"\",\n    member_agent_id: \"\",\n}",
+    "type": "AllianceJoined"
+  },
+  {
+    "debug": "AllianceLeft { operator_agent_id: \"\", alliance_id: \"\", member_agent_id: \"\" }",
+    "pretty_debug": "AllianceLeft {\n    operator_agent_id: \"\",\n    alliance_id: \"\",\n    member_agent_id: \"\",\n}",
+    "type": "AllianceLeft"
+  },
+  {
+    "debug": "AllianceDissolved { operator_agent_id: \"\", alliance_id: \"\", reason: \"\", former_members: [] }",
+    "pretty_debug": "AllianceDissolved {\n    operator_agent_id: \"\",\n    alliance_id: \"\",\n    reason: \"\",\n    former_members: [],\n}",
+    "type": "AllianceDissolved"
+  },
+  {
+    "debug": "WarDeclared { initiator_agent_id: \"\", war_id: \"\", aggressor_alliance_id: \"\", defender_alliance_id: \"\", objective: \"\", intensity: 0, mobilization_electricity_cost: 0, mobilization_data_cost: 0 }",
+    "pretty_debug": "WarDeclared {\n    initiator_agent_id: \"\",\n    war_id: \"\",\n    aggressor_alliance_id: \"\",\n    defender_alliance_id: \"\",\n    objective: \"\",\n    intensity: 0,\n    mobilization_electricity_cost: 0,\n    mobilization_data_cost: 0,\n}",
+    "type": "WarDeclared"
+  },
+  {
+    "debug": "WarConcluded { war_id: \"\", winner_alliance_id: \"\", loser_alliance_id: \"\", aggressor_score: 0, defender_score: 0, summary: \"\", participant_outcomes: [] }",
+    "pretty_debug": "WarConcluded {\n    war_id: \"\",\n    winner_alliance_id: \"\",\n    loser_alliance_id: \"\",\n    aggressor_score: 0,\n    defender_score: 0,\n    summary: \"\",\n    participant_outcomes: [],\n}",
+    "type": "WarConcluded"
+  },
+  {
+    "debug": "GovernanceProposalOpened { proposer_agent_id: \"\", proposal_key: \"\", title: \"\", description: \"\", options: [], voting_window_ticks: 0, closes_at: 0, quorum_weight: 0, pass_threshold_bps: 0 }",
+    "pretty_debug": "GovernanceProposalOpened {\n    proposer_agent_id: \"\",\n    proposal_key: \"\",\n    title: \"\",\n    description: \"\",\n    options: [],\n    voting_window_ticks: 0,\n    closes_at: 0,\n    quorum_weight: 0,\n    pass_threshold_bps: 0,\n}",
+    "type": "GovernanceProposalOpened"
+  },
+  {
+    "debug": "GovernanceVoteCast { voter_agent_id: \"\", proposal_key: \"\", option: \"\", weight: 0 }",
+    "pretty_debug": "GovernanceVoteCast {\n    voter_agent_id: \"\",\n    proposal_key: \"\",\n    option: \"\",\n    weight: 0,\n}",
+    "type": "GovernanceVoteCast"
+  },
+  {
+    "debug": "GovernanceProposalFinalized { proposal_key: \"\", winning_option: Some(\"present-GovernanceProposalFinalized-winning_option\"), winning_weight: 0, total_weight: 0, passed: false }",
+    "pretty_debug": "GovernanceProposalFinalized {\n    proposal_key: \"\",\n    winning_option: Some(\n        \"present-GovernanceProposalFinalized-winning_option\",\n    ),\n    winning_weight: 0,\n    total_weight: 0,\n    passed: false,\n}",
+    "type": "GovernanceProposalFinalized"
+  },
+  {
+    "debug": "CrisisSpawned { crisis_id: \"\", kind: \"\", severity: 0, expires_at: 0 }",
+    "pretty_debug": "CrisisSpawned {\n    crisis_id: \"\",\n    kind: \"\",\n    severity: 0,\n    expires_at: 0,\n}",
+    "type": "CrisisSpawned"
+  },
+  {
+    "debug": "CrisisResolved { resolver_agent_id: \"\", crisis_id: \"\", strategy: \"\", success: false, impact: 0 }",
+    "pretty_debug": "CrisisResolved {\n    resolver_agent_id: \"\",\n    crisis_id: \"\",\n    strategy: \"\",\n    success: false,\n    impact: 0,\n}",
+    "type": "CrisisResolved"
+  },
+  {
+    "debug": "CrisisTimedOut { crisis_id: \"\", penalty_impact: 0 }",
+    "pretty_debug": "CrisisTimedOut {\n    crisis_id: \"\",\n    penalty_impact: 0,\n}",
+    "type": "CrisisTimedOut"
+  },
+  {
+    "debug": "MetaProgressGranted { operator_agent_id: \"\", target_agent_id: \"\", track: \"\", points: 0, achievement_id: Some(\"present-MetaProgressGranted-achievement_id\") }",
+    "pretty_debug": "MetaProgressGranted {\n    operator_agent_id: \"\",\n    target_agent_id: \"\",\n    track: \"\",\n    points: 0,\n    achievement_id: Some(\n        \"present-MetaProgressGranted-achievement_id\",\n    ),\n}",
+    "type": "MetaProgressGranted"
+  },
+  {
+    "debug": "ProductValidated { requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 0 }, stack_limit: 0, tradable: false, quality_levels: [], notes: [] }",
+    "pretty_debug": "ProductValidated {\n    requester_agent_id: \"\",\n    module_id: \"\",\n    stack: MaterialStack {\n        kind: \"\",\n        amount: 0,\n    },\n    stack_limit: 0,\n    tradable: false,\n    quality_levels: [],\n    notes: [],\n}",
+    "type": "ProductValidated"
+  },
+  {
+    "debug": "ProductValidationRecorded { receipt: ProductValidationReceiptV1 { job_id: 0, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 0 }, decision: ProductValidationDecision { product_id: \"\", accepted: false, notes: [], stack_limit: 0, tradable: false, quality_levels: [] }, failure_detail: None } }",
+    "pretty_debug": "ProductValidationRecorded {\n    receipt: ProductValidationReceiptV1 {\n        job_id: 0,\n        validation_index: None,\n        requester_agent_id: \"\",\n        module_id: \"\",\n        stack: MaterialStack {\n            kind: \"\",\n            amount: 0,\n        },\n        decision: ProductValidationDecision {\n            product_id: \"\",\n            accepted: false,\n            notes: [],\n            stack_limit: 0,\n            tradable: false,\n            quality_levels: [],\n        },\n        failure_detail: None,\n    },\n}",
+    "type": "ProductValidationRecorded"
+  },
+  {
+    "debug": "ProductValidationAttemptStarted { attempt: ProductValidationAttemptV1 { job_id: 0, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 0 } } }",
+    "pretty_debug": "ProductValidationAttemptStarted {\n    attempt: ProductValidationAttemptV1 {\n        job_id: 0,\n        validation_index: None,\n        requester_agent_id: \"\",\n        module_id: \"\",\n        stack: MaterialStack {\n            kind: \"\",\n            amount: 0,\n        },\n    },\n}",
+    "type": "ProductValidationAttemptStarted"
+  },
+  {
+    "debug": "MaterialProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: MaterialProfileV1 { kind: \"\", tier: 0, category: \"\", stack_limit: 0, transport_loss_class: Medium, decay_bps_per_tick: 0, default_priority: Standard } }",
+    "pretty_debug": "MaterialProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: MaterialProfileV1 {\n        kind: \"\",\n        tier: 0,\n        category: \"\",\n        stack_limit: 0,\n        transport_loss_class: Medium,\n        decay_bps_per_tick: 0,\n        default_priority: Standard,\n    },\n}",
+    "type": "MaterialProfileGoverned"
+  },
+  {
+    "debug": "ProductProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: ProductProfileV1 { product_id: \"\", role_tag: \"\", maintenance_sink: [], tradable: false, unlock_stage: \"\" } }",
+    "pretty_debug": "ProductProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: ProductProfileV1 {\n        product_id: \"\",\n        role_tag: \"\",\n        maintenance_sink: [],\n        tradable: false,\n        unlock_stage: \"\",\n    },\n}",
+    "type": "ProductProfileGoverned"
+  },
+  {
+    "debug": "RecipeProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: RecipeProfileV1 { recipe_id: \"\", substitution_rules: [], bottleneck_tags: [], stage_gate: \"\", preferred_factory_tags: [] } }",
+    "pretty_debug": "RecipeProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: RecipeProfileV1 {\n        recipe_id: \"\",\n        substitution_rules: [],\n        bottleneck_tags: [],\n        stage_gate: \"\",\n        preferred_factory_tags: [],\n    },\n}",
+    "type": "RecipeProfileGoverned"
+  },
+  {
+    "debug": "FactoryProfileGoverned { operator_agent_id: \"\", proposal_id: 0, profile: FactoryProfileV1 { factory_id: \"\", tier: 0, recipe_slots: 0, tags: [] } }",
+    "pretty_debug": "FactoryProfileGoverned {\n    operator_agent_id: \"\",\n    proposal_id: 0,\n    profile: FactoryProfileV1 {\n        factory_id: \"\",\n        tier: 0,\n        recipe_slots: 0,\n        tags: [],\n    },\n}",
+    "type": "FactoryProfileGoverned"
+  }
+]

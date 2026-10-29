@@ -28,7 +28,12 @@ fn typed<T: serde::de::DeserializeOwned + Serialize>(value: Value) -> T {
     assert_eq!(serde_json::to_value(&result).unwrap(), value);
     result
 }
-pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
+fn enrollment_fixture() -> (
+    Value,
+    HostDeploymentDescriptorV1,
+    ClientEnrollmentCreateResponseV1,
+    ClientPairingBindingV1,
+) {
     let invite = PairingInviteOriginalV1 {
         api_version: 1,
         domain: "oasis7-custody-pairing-invite-v1".into(),
@@ -105,16 +110,12 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
         connector_public_key: None,
     };
     pairing.validate().unwrap();
-    let mut options = options().remove(2);
-    let mut intent = serde_json::to_value(&options.intent).unwrap();
-    intent["client_pairing"] = serde_json::to_value(&pairing).unwrap();
-    intent["runtime_ref"] = descriptor.restricted_runtime_identity.clone().into();
-    intent["skill_ref"] = descriptor.skill_manifest_digest.clone().into();
-    intent["source_ref"] = descriptor.build_digest.clone().into();
-    let mut fence = intent["task_fence"].clone();
-    fence["latest_goal_revision"] = "1".into();
-    fence["active_goal_revision"] = "1".into();
-    fence["active_goal_reference"] = json!({"goal_revision":"1","goal_ref":"cf".repeat(32),"prepare_operation_id":"prepare-one","publish_operation_id":"publish-one","activation_committed_height":"9007199254740993"});
+    let fixtures = json!({"PairingInviteCreateRequestV1":[PairingInviteCreateRequestV1{api_version:1,request_id:"invite-request-one".into(),transport_profile:descriptor.transport_profile,tool_profile:descriptor.tool_profile.clone()}],"PairingInviteOriginalV1":[invite],"PairingInviteTargetRefV1":[target],"HostDeploymentDescriptorV1":[descriptor],"ClientEnrollmentCreateRequestV1":[create],"ClientEnrollmentCreateResponseV1":[created],"ClientEnrollmentProofRequestV1":[prove],"ClientEnrollmentProofResponseV1":[proved],"ClientPairingBindingV1":[pairing],
+    "ClientCredentialClaimRequestV1":[ClientCredentialClaimRequestV1{api_version:1,enrollment_id:"enrollment-one".into(),test_session_id:"session-one".into(),request_id:"claim-one".into(),purposes:vec![TestSessionPurposeV1::Execute,TestSessionPurposeV1::Read],replace:false,expected_generation:None}]});
+    (fixtures, descriptor, created, pairing)
+}
+
+fn termination_fixture(intent: &Value, fence: Value) -> TerminationPlanV1 {
     let prepared = "ee".repeat(32);
     let operation = |domain: &str| {
         crate::approval::bytes_digest(
@@ -129,6 +130,33 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
         "stop_operation_id":operation("oasis7.custody.session-stop.v1"),"revoke_operation_id":operation("oasis7.custody.session-revoke.v1"),
         "cleanup_until":"601000","request_limit":"2","transport_limit":"24","trigger":"closing_only_v1","nonce_policy":"account_allocated_high_water_v1"}),
     );
+    termination
+}
+
+fn session_plan_fixture(
+    basis: &TestSessionBasisV1,
+    created: &ClientEnrollmentCreateResponseV1,
+    intent: &Value,
+) -> TestSessionPlanV1 {
+    let plan: TestSessionPlanV1 = typed(
+        json!({"api_version":1,"request_id":basis.request_id,"enrollment_id":created.enrollment_id,"basis_digest":basis.digest().unwrap(),"actions":intent["actions"],"allowed_resource_refs":intent["allowed_resource_refs"],"write_deadline":intent["write_deadline"],"read_until":intent["read_until"],"cleanup_until":intent["cleanup_until"],"request_limit":intent["request_limit"],"transport_limit":intent["transport_limit"],"business_limit":intent["business_limit"],"read_budget":intent["read_budget"],"cleanup_budget":intent["cleanup_budget"],"control_budget":intent["control_budget"]}),
+    );
+    plan
+}
+
+pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
+    let (mut fixtures, descriptor, created, pairing) = enrollment_fixture();
+    let mut options = options().remove(2);
+    let mut intent = serde_json::to_value(&options.intent).unwrap();
+    intent["client_pairing"] = serde_json::to_value(&pairing).unwrap();
+    intent["runtime_ref"] = descriptor.restricted_runtime_identity.clone().into();
+    intent["skill_ref"] = descriptor.skill_manifest_digest.clone().into();
+    intent["source_ref"] = descriptor.build_digest.clone().into();
+    let mut fence = intent["task_fence"].clone();
+    fence["latest_goal_revision"] = "1".into();
+    fence["active_goal_revision"] = "1".into();
+    fence["active_goal_reference"] = json!({"goal_revision":"1","goal_ref":"cf".repeat(32),"prepare_operation_id":"prepare-one","publish_operation_id":"publish-one","activation_committed_height":"9007199254740993"});
+    let termination = termination_fixture(&intent, fence);
     termination.validate().unwrap();
     intent["task_fence"] = serde_json::to_value(&termination.initial_fence).unwrap();
     intent["termination_plan_digest"] = termination.digest().unwrap().into();
@@ -160,9 +188,7 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
         allowed_resource_refs: serde_json::from_value(intent["allowed_resource_refs"].clone())
             .unwrap(),
     };
-    let plan: TestSessionPlanV1 = typed(
-        json!({"api_version":1,"request_id":basis.request_id,"enrollment_id":created.enrollment_id,"basis_digest":basis.digest().unwrap(),"actions":intent["actions"],"allowed_resource_refs":intent["allowed_resource_refs"],"write_deadline":intent["write_deadline"],"read_until":intent["read_until"],"cleanup_until":intent["cleanup_until"],"request_limit":intent["request_limit"],"transport_limit":intent["transport_limit"],"business_limit":intent["business_limit"],"read_budget":intent["read_budget"],"cleanup_budget":intent["cleanup_budget"],"control_budget":intent["control_budget"]}),
-    );
+    let plan = session_plan_fixture(&basis, &created, &intent);
     plan.validate().unwrap();
     let prepare = TestSessionPrepareRequestV1 {
         api_version: 1,
@@ -205,9 +231,9 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
     closing.closing_reason = Some(TestSessionClosingReasonV1::Finished);
     closing.stop_status = TestSessionTerminationStatusV1::Unknown;
     closing.pending_operations = vec!["stop-one".into()];
-    json!({"PairingInviteCreateRequestV1":[PairingInviteCreateRequestV1{api_version:1,request_id:"invite-request-one".into(),transport_profile:descriptor.transport_profile,tool_profile:descriptor.tool_profile.clone()}],"PairingInviteOriginalV1":[invite],"PairingInviteTargetRefV1":[target],"HostDeploymentDescriptorV1":[descriptor],"ClientEnrollmentCreateRequestV1":[create],"ClientEnrollmentCreateResponseV1":[created],"ClientEnrollmentProofRequestV1":[prove],"ClientEnrollmentProofResponseV1":[proved],"ClientPairingBindingV1":[pairing],
-    "ClientCredentialClaimRequestV1":[ClientCredentialClaimRequestV1{api_version:1,enrollment_id:"enrollment-one".into(),test_session_id:"session-one".into(),request_id:"claim-one".into(),purposes:vec![TestSessionPurposeV1::Execute,TestSessionPurposeV1::Read],replace:false,expected_generation:None}],
-    "TestSessionBasisRequestV1":[TestSessionBasisRequestV1{api_version:1,request_id:basis.request_id.clone(),enrollment_id:"enrollment-one".into(),cleanup_until:UnixMillis::new(601000)}],"TestSessionBasisV1":[basis],"TestSessionPrepareRequestV1":[prepare],"TestSessionPrepareResponseV1":[options],"TestSessionApproveRequestV1":[approve],"TestSessionContinueRequestV1":[TestSessionContinueRequestV1{api_version:1,session_id:"session-one".into()}],"TestSessionProgressV1":[progress,active,closing]})
+    fixtures.as_object_mut().unwrap().extend(
+    json!({"TestSessionBasisRequestV1":[TestSessionBasisRequestV1{api_version:1,request_id:basis.request_id.clone(),enrollment_id:"enrollment-one".into(),cleanup_until:UnixMillis::new(601000)}],"TestSessionBasisV1":[basis],"TestSessionPrepareRequestV1":[prepare],"TestSessionPrepareResponseV1":[options],"TestSessionApproveRequestV1":[approve],"TestSessionContinueRequestV1":[TestSessionContinueRequestV1{api_version:1,session_id:"session-one".into()}],"TestSessionProgressV1":[progress,active,closing]}).as_object().unwrap().clone());
+    fixtures
 }
 
 #[test]

@@ -1,0 +1,1010 @@
+{
+  "oracle": "runtime output from the frozen old derive(Deserialize) source",
+  "oldStateSourceSha256": "3ecf35f9ff0c17b98c5655aed79df85d9a1b1c02a402caff6e42fbea66baf4d3",
+  "legacyFixtureSha256": "0e5f4498cda5f6350dec2b2378d5067dc2c1734055031c073830c171866be824",
+  "oldCaptureCommand": "env -u RUSTC_WRAPPER cargo test -p oasis7_world_state --lib state::world_state_enriched_oracle_capture::capture_enriched_full_map_json_sequence_and_cbor_sequence -- --nocapture",
+  "oldCaptureExitStatus": 0,
+  "oldCaptureLogSha256": "0bdc5dfde7ed7aeaffeb8c88fea414c04283f5d3322dc4eeb2f0fc1079d13e7d",
+  "temporaryCaptureTestSha256": "f5ee20da7db7e58b58d0a94609979a459bc40d16343d0b188d1516678613e9e6",
+  "fieldCount": 100,
+  "numericMarkerRule": "Each numeric leaf of field i is assigned i+17 plus a within-field ordinal; explicitly numeric maps use one marker value i+17. The 14 adapter outer keys are unique i+17.",
+  "numericMapMarkers": {
+    "resources": {
+      "electricity": 22
+    },
+    "materials": {
+      "ore": 23
+    },
+    "material_ledgers": {
+      "world": {
+        "ore": 24
+      }
+    },
+    "agent_claim_acquisition_sequences": {
+      "oracle-agent": 62
+    },
+    "authenticated_collect_data_last_nonces": {
+      "oracle-agent": {
+        "oracle-scope": 64
+      }
+    },
+    "contract_pair_last_success_settled_at": {
+      "oracle-agent|oracle-peer": 66
+    },
+    "reputation_reward_window_started_at": {
+      "oracle-agent": 67
+    },
+    "reputation_reward_window_accumulated": {
+      "oracle-agent": 68
+    },
+    "reputation_scores": {
+      "oracle-agent": 69
+    },
+    "main_token_treasury_balances": {
+      "oracle-account": 97
+    },
+    "main_token_claim_nonces": {
+      "oracle-account": 98
+    },
+    "main_token_transfer_nonces": {
+      "oracle-account": 99
+    },
+    "governance_authorization_nonces": {
+      "oracle-agent": 115
+    }
+  },
+  "adapterMarkerKeys": {
+    "factory_production_failure_dispositions": {
+      "fieldIndex": 14,
+      "key": "31",
+      "numericLeaves": 3
+    },
+    "industry_settlement_orders": {
+      "fieldIndex": 35,
+      "key": "52",
+      "numericLeaves": 1
+    },
+    "main_token_epoch_issuance_records": {
+      "fieldIndex": 79,
+      "key": "96",
+      "numericLeaves": 7
+    },
+    "main_token_node_points_bridge_records": {
+      "fieldIndex": 84,
+      "key": "101",
+      "numericLeaves": 2
+    },
+    "main_token_scheduled_policy_updates": {
+      "fieldIndex": 83,
+      "key": "100",
+      "numericLeaves": 17
+    },
+    "module_release_manifest_mappings": {
+      "fieldIndex": 67,
+      "key": "84",
+      "numericLeaves": 4
+    },
+    "module_release_requests": {
+      "fieldIndex": 66,
+      "key": "83",
+      "numericLeaves": 9
+    },
+    "pending_factory_builds": {
+      "fieldIndex": 31,
+      "key": "48",
+      "numericLeaves": 9
+    },
+    "pending_material_transits": {
+      "fieldIndex": 38,
+      "key": "55",
+      "numericLeaves": 7
+    },
+    "pending_recipe_jobs": {
+      "fieldIndex": 32,
+      "key": "49",
+      "numericLeaves": 5
+    },
+    "product_validation_attempts": {
+      "fieldIndex": 29,
+      "key": "46",
+      "numericLeaves": 2
+    },
+    "product_validation_receipts": {
+      "fieldIndex": 16,
+      "key": "33",
+      "numericLeaves": 3
+    },
+    "recipe_completion_receipts": {
+      "fieldIndex": 36,
+      "key": "53",
+      "numericLeaves": 2
+    },
+    "system_order_pool_budgets": {
+      "fieldIndex": 92,
+      "key": "109",
+      "numericLeaves": 3
+    }
+  },
+  "inputMap": {
+    "agent_claim_last_processed_epoch": 65,
+    "agent_claims": {},
+    "agent_location_authorities": {},
+    "agents": {},
+    "alliances": {},
+    "completed_logistics_paths": {},
+    "completed_logistics_route_ids": [],
+    "contract_pair_last_success_settled_at": {
+      "oracle-agent|oracle-peer": 66
+    },
+    "crises": {},
+    "data_access_permissions": {},
+    "direct_material_transfer_receipts": {},
+    "economic_contracts": {},
+    "factories": {},
+    "factory_construction_power_profiles": {},
+    "factory_production_failure_dispositions": {
+      "31": {
+        "action_id": 31,
+        "blocker_detail": "detail",
+        "blocker_kind": "blocked",
+        "consumed_inputs": [],
+        "consumed_power": 32,
+        "disposition_kind": "lost",
+        "factory_id": "f",
+        "lost_inputs": [],
+        "lost_power": 33,
+        "next_action": "retry",
+        "recipe_id": "p",
+        "requester_agent_id": "r"
+      }
+    },
+    "factory_profiles": {},
+    "factory_site_authorities": {},
+    "gameplay_policy": {
+      "blocked_agents": [],
+      "data_tax_bps": 58,
+      "electricity_tax_bps": 59,
+      "forbidden_location_ids": [],
+      "max_open_contracts_per_agent": 60,
+      "power_trade_fee_bps": 61,
+      "updated_at": 62
+    },
+    "governance_finality_signer_registry": null,
+    "governance_identity_profiles": {},
+    "governance_main_token_controller_registry": null,
+    "governance_proposals": {},
+    "governance_validator_admissions": {},
+    "governance_votes": {},
+    "industry_progress": {
+      "completed_material_transits": 56,
+      "completed_recipe_jobs": 57,
+      "latest_market_quotes": {},
+      "stage": "bootstrap",
+      "stage_updated_at": 58
+    },
+    "industry_settlement_orders": {
+      "52": 52
+    },
+    "installed_module_targets": {},
+    "location_anchors": {},
+    "logistics_routes": {},
+    "logistics_settlement_receipts": {},
+    "main_token_balances": {},
+    "main_token_claim_nonces": {
+      "oracle-account": 98
+    },
+    "main_token_config": {
+      "burn_policy": {
+        "gas_base_fee_burn_bps": 91,
+        "module_fee_burn_bps": 92,
+        "slash_burn_bps": 93
+      },
+      "decimals": 94,
+      "inflation_policy": {
+        "base_rate_bps": 95,
+        "epochs_per_year": 96,
+        "max_rate_bps": 97,
+        "min_rate_bps": 98,
+        "stake_feedback_gain_bps": 99,
+        "target_stake_ratio_bps": 100
+      },
+      "initial_supply": 101,
+      "issuance_split": {
+        "ecosystem_pool_bps": 102,
+        "node_service_reward_bps": 103,
+        "security_reserve_bps": 104,
+        "staking_reward_bps": 105
+      },
+      "max_supply": null,
+      "symbol": "OC"
+    },
+    "main_token_epoch_issuance_records": {
+      "96": {
+        "ecosystem_pool_amount": 96,
+        "epoch_index": 97,
+        "inflation_rate_bps": 98,
+        "issued_amount": 99,
+        "node_service_reward_amount": 100,
+        "security_reserve_amount": 101,
+        "staking_reward_amount": 102
+      }
+    },
+    "main_token_genesis_buckets": {},
+    "main_token_node_points_bridge_records": {
+      "101": {
+        "distributions": [],
+        "epoch_index": 101,
+        "settlement_hash": "h",
+        "total_amount": 102
+      }
+    },
+    "main_token_scheduled_policy_updates": {
+      "100": {
+        "effective_epoch": 100,
+        "next_config": {
+          "burn_policy": {
+            "gas_base_fee_burn_bps": 101,
+            "module_fee_burn_bps": 102,
+            "slash_burn_bps": 103
+          },
+          "decimals": 104,
+          "inflation_policy": {
+            "base_rate_bps": 105,
+            "epochs_per_year": 106,
+            "max_rate_bps": 107,
+            "min_rate_bps": 108,
+            "stake_feedback_gain_bps": 109,
+            "target_stake_ratio_bps": 110
+          },
+          "initial_supply": 111,
+          "issuance_split": {
+            "ecosystem_pool_bps": 112,
+            "node_service_reward_bps": 113,
+            "security_reserve_bps": 114,
+            "staking_reward_bps": 115
+          },
+          "max_supply": null,
+          "symbol": "OC"
+        },
+        "proposal_id": 116
+      }
+    },
+    "main_token_supply": {
+      "circulating_supply": 92,
+      "total_burned": 93,
+      "total_issued": 94,
+      "total_supply": 95
+    },
+    "main_token_transfer_nonces": {
+      "oracle-account": 99
+    },
+    "main_token_treasury_balances": {
+      "oracle-account": 97
+    },
+    "main_token_treasury_distribution_records": {},
+    "material_ledgers": {
+      "world": {
+        "ore": 24
+      }
+    },
+    "material_profiles": {},
+    "materials": {
+      "ore": 23
+    },
+    "meta_progress": {},
+    "module_artifact_bids": {},
+    "module_artifact_listings": {},
+    "module_artifact_owners": {},
+    "module_instances": {},
+    "module_release_manifest_mappings": {
+      "84": {
+        "attestation_count": 84,
+        "attestation_platforms": [],
+        "attestation_proof_cids": [],
+        "created_at": 85,
+        "module_id": "m",
+        "receipt_evidence_conflict": false,
+        "release_id": "r",
+        "request_id": 86,
+        "status": "requested",
+        "updated_at": 87
+      }
+    },
+    "module_release_requests": {
+      "83": {
+        "activate": false,
+        "attestations": {},
+        "created_at": 83,
+        "install_target": {
+          "type": "self_agent"
+        },
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "1",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 84,
+            "max_effects": 85,
+            "max_emits": 86,
+            "max_gas": 87,
+            "max_mem_bytes": 88,
+            "max_output_bytes": 89
+          },
+          "module_id": "m",
+          "name": "M",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "1",
+          "wasm_hash": "w"
+        },
+        "profile_changes": {
+          "factory_profiles": [],
+          "product_profiles": [],
+          "recipe_profiles": []
+        },
+        "request_id": 90,
+        "requester_agent_id": "a",
+        "required_roles": [
+          "security",
+          "economy",
+          "runtime"
+        ],
+        "role_approvals": {},
+        "status": "requested",
+        "updated_at": 91
+      }
+    },
+    "module_release_role_bindings": {},
+    "module_states": {},
+    "next_industry_settlement_order": 51,
+    "next_module_instance_id": 88,
+    "next_module_market_order_id": 89,
+    "next_module_market_sale_id": 90,
+    "next_module_release_request_id": 85,
+    "node_asset_balances": {},
+    "node_identity_bindings": {},
+    "node_main_token_account_bindings": {},
+    "node_redeem_nonces": {},
+    "pending_factory_builds": {
+      "48": {
+        "builder_agent_id": "a",
+        "consume_ledger": "world",
+        "contract_version": 48,
+        "job_id": 49,
+        "ready_at": 50,
+        "site_id": "s",
+        "spec": {
+          "base_power_draw": 51,
+          "build_cost": [],
+          "build_time_ticks": 52,
+          "display_name": "F",
+          "factory_id": "f",
+          "maintenance_per_tick": 53,
+          "recipe_slots": 54,
+          "tags": [],
+          "throughput_bps": 55,
+          "tier": 56
+        }
+      }
+    },
+    "pending_material_transits": {
+      "55": {
+        "amount": 55,
+        "distance_km": 56,
+        "from_ledger": "world",
+        "job_id": 57,
+        "kind": "ore",
+        "loss_bps": 58,
+        "priority": "standard",
+        "ready_at": 59,
+        "requester_agent_id": "a",
+        "reroute_count": 60,
+        "route_ids": [],
+        "tariff_electricity_total": 61,
+        "to_ledger": "world"
+      }
+    },
+    "pending_recipe_jobs": {
+      "49": {
+        "accepted_batches": 49,
+        "bottleneck_tags": [],
+        "byproducts": [],
+        "consume": [],
+        "consume_ledger": "world",
+        "duration_ticks": 50,
+        "factory_id": "f",
+        "job_id": 51,
+        "logistics_path_ids": [],
+        "logistics_route_ids": [],
+        "output_ledger": "world",
+        "power_required": 52,
+        "produce": [],
+        "ready_at": 53,
+        "recipe_id": "r",
+        "requester_agent_id": "a"
+      }
+    },
+    "product_profiles": {},
+    "product_validation_delivery_cursor": {
+      "event_id_era": 47,
+      "routed_through_event_id": 48
+    },
+    "protocol_power_reserve": {
+      "available_power_units": 106,
+      "epoch_index": 107,
+      "redeemed_power_units": 108
+    },
+    "recipe_profiles": {},
+    "reputation_reward_window_accumulated": {
+      "oracle-agent": 68
+    },
+    "reputation_reward_window_started_at": {
+      "oracle-agent": 67
+    },
+    "reputation_scores": {
+      "oracle-agent": 69
+    },
+    "resources": {
+      "electricity": 22
+    },
+    "restricted_starter_claim_grants": {},
+    "restricted_starter_claim_liveops_pool_top_up_records": {},
+    "retired_factory_ids": [],
+    "reward_asset_config": {
+      "credits_per_power_unit": 104,
+      "max_redeem_power_per_epoch": 105,
+      "min_redeem_power_unit": 106,
+      "points_per_credit": 107
+    },
+    "reward_mint_records": [],
+    "reward_signature_governance_policy": {
+      "allow_mintsig_v1_fallback": true,
+      "require_mintsig_v2": false,
+      "require_redeem_signature": false,
+      "require_redeem_signer_match_node_id": false
+    },
+    "settled_factory_build_ids": [],
+    "settled_logistics_transit_ids": [],
+    "settled_recipe_job_ids": [],
+    "system_order_pool_budgets": {
+      "109": {
+        "epoch_index": 109,
+        "node_credit_allocated": {},
+        "node_credit_caps": {},
+        "remaining_credit_budget": 110,
+        "total_credit_budget": 111
+      }
+    },
+    "time": 18,
+    "wars": {},
+    "world_rules": null,
+    "retained_history_root": null,
+    "agent_intent_ledger": {},
+    "product_validation_receipts": {
+      "33": [
+        {
+          "decision": {
+            "accepted": false,
+            "notes": [],
+            "product_id": "",
+            "quality_levels": [],
+            "stack_limit": 33,
+            "tradable": false
+          },
+          "job_id": 34,
+          "module_id": "",
+          "requester_agent_id": "",
+          "stack": {
+            "amount": 35,
+            "kind": ""
+          }
+        }
+      ]
+    },
+    "latest_product_validation": null,
+    "factory_construction_receipts": {},
+    "product_validation_attempts": {
+      "46": [
+        {
+          "job_id": 46,
+          "module_id": "",
+          "requester_agent_id": "",
+          "stack": {
+            "amount": 47,
+            "kind": ""
+          }
+        }
+      ]
+    },
+    "recipe_completion_receipts": {
+      "53": {
+        "accepted_batches": 53,
+        "bottleneck_tags": [],
+        "byproducts": [],
+        "factory_id": "",
+        "job_id": 54,
+        "logistics_path_ids": [],
+        "logistics_route_ids": [],
+        "output_ledger": "world",
+        "produce": [],
+        "recipe_id": "",
+        "requester_agent_id": ""
+      }
+    },
+    "factory_recycle_receipts": {},
+    "agent_claim_acquisition_sequences": {
+      "oracle-agent": 62
+    },
+    "starter_oc_claims": {},
+    "authenticated_collect_data_last_nonces": {
+      "oracle-agent": {
+        "oracle-scope": 64
+      }
+    },
+    "module_visual_entities": {},
+    "module_admission_freezes": {},
+    "governance_authorization_nonces": {
+      "oracle-agent": 115
+    }
+  },
+  "inputJsonSequence": [
+    null,
+    18,
+    null,
+    {},
+    {},
+    {
+      "electricity": 22
+    },
+    {
+      "ore": 23
+    },
+    {
+      "world": {
+        "ore": 24
+      }
+    },
+    {},
+    {},
+    [],
+    {},
+    [],
+    {},
+    {
+      "31": {
+        "action_id": 31,
+        "blocker_detail": "detail",
+        "blocker_kind": "blocked",
+        "consumed_inputs": [],
+        "consumed_power": 32,
+        "disposition_kind": "lost",
+        "factory_id": "f",
+        "lost_inputs": [],
+        "lost_power": 33,
+        "next_action": "retry",
+        "recipe_id": "p",
+        "requester_agent_id": "r"
+      }
+    },
+    {},
+    {
+      "33": [
+        {
+          "decision": {
+            "accepted": false,
+            "notes": [],
+            "product_id": "",
+            "quality_levels": [],
+            "stack_limit": 33,
+            "tradable": false
+          },
+          "job_id": 34,
+          "module_id": "",
+          "requester_agent_id": "",
+          "stack": {
+            "amount": 35,
+            "kind": ""
+          }
+        }
+      ]
+    },
+    {},
+    null,
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    [],
+    [],
+    {},
+    {
+      "46": [
+        {
+          "job_id": 46,
+          "module_id": "",
+          "requester_agent_id": "",
+          "stack": {
+            "amount": 47,
+            "kind": ""
+          }
+        }
+      ]
+    },
+    {
+      "event_id_era": 47,
+      "routed_through_event_id": 48
+    },
+    {
+      "48": {
+        "builder_agent_id": "a",
+        "consume_ledger": "world",
+        "contract_version": 48,
+        "job_id": 49,
+        "ready_at": 50,
+        "site_id": "s",
+        "spec": {
+          "base_power_draw": 51,
+          "build_cost": [],
+          "build_time_ticks": 52,
+          "display_name": "F",
+          "factory_id": "f",
+          "maintenance_per_tick": 53,
+          "recipe_slots": 54,
+          "tags": [],
+          "throughput_bps": 55,
+          "tier": 56
+        }
+      }
+    },
+    {
+      "49": {
+        "accepted_batches": 49,
+        "bottleneck_tags": [],
+        "byproducts": [],
+        "consume": [],
+        "consume_ledger": "world",
+        "duration_ticks": 50,
+        "factory_id": "f",
+        "job_id": 51,
+        "logistics_path_ids": [],
+        "logistics_route_ids": [],
+        "output_ledger": "world",
+        "power_required": 52,
+        "produce": [],
+        "ready_at": 53,
+        "recipe_id": "r",
+        "requester_agent_id": "a"
+      }
+    },
+    [],
+    51,
+    {
+      "52": 52
+    },
+    {
+      "53": {
+        "accepted_batches": 53,
+        "bottleneck_tags": [],
+        "byproducts": [],
+        "factory_id": "",
+        "job_id": 54,
+        "logistics_path_ids": [],
+        "logistics_route_ids": [],
+        "output_ledger": "world",
+        "produce": [],
+        "recipe_id": "",
+        "requester_agent_id": ""
+      }
+    },
+    {},
+    {
+      "55": {
+        "amount": 55,
+        "distance_km": 56,
+        "from_ledger": "world",
+        "job_id": 57,
+        "kind": "ore",
+        "loss_bps": 58,
+        "priority": "standard",
+        "ready_at": 59,
+        "requester_agent_id": "a",
+        "reroute_count": 60,
+        "route_ids": [],
+        "tariff_electricity_total": 61,
+        "to_ledger": "world"
+      }
+    },
+    {
+      "completed_material_transits": 56,
+      "completed_recipe_jobs": 57,
+      "latest_market_quotes": {},
+      "stage": "bootstrap",
+      "stage_updated_at": 58
+    },
+    {},
+    {
+      "blocked_agents": [],
+      "data_tax_bps": 58,
+      "electricity_tax_bps": 59,
+      "forbidden_location_ids": [],
+      "max_open_contracts_per_agent": 60,
+      "power_trade_fee_bps": 61,
+      "updated_at": 62
+    },
+    {},
+    {},
+    {},
+    {
+      "oracle-agent": 62
+    },
+    {},
+    {
+      "oracle-agent": {
+        "oracle-scope": 64
+      }
+    },
+    65,
+    {
+      "oracle-agent|oracle-peer": 66
+    },
+    {
+      "oracle-agent": 67
+    },
+    {
+      "oracle-agent": 68
+    },
+    {
+      "oracle-agent": 69
+    },
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {
+      "83": {
+        "activate": false,
+        "attestations": {},
+        "created_at": 83,
+        "install_target": {
+          "type": "self_agent"
+        },
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "1",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 84,
+            "max_effects": 85,
+            "max_emits": 86,
+            "max_gas": 87,
+            "max_mem_bytes": 88,
+            "max_output_bytes": 89
+          },
+          "module_id": "m",
+          "name": "M",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "1",
+          "wasm_hash": "w"
+        },
+        "profile_changes": {
+          "factory_profiles": [],
+          "product_profiles": [],
+          "recipe_profiles": []
+        },
+        "request_id": 90,
+        "requester_agent_id": "a",
+        "required_roles": [
+          "security",
+          "economy",
+          "runtime"
+        ],
+        "role_approvals": {},
+        "status": "requested",
+        "updated_at": 91
+      }
+    },
+    {
+      "84": {
+        "attestation_count": 84,
+        "attestation_platforms": [],
+        "attestation_proof_cids": [],
+        "created_at": 85,
+        "module_id": "m",
+        "receipt_evidence_conflict": false,
+        "release_id": "r",
+        "request_id": 86,
+        "status": "requested",
+        "updated_at": 87
+      }
+    },
+    85,
+    {},
+    {},
+    88,
+    89,
+    90,
+    {
+      "burn_policy": {
+        "gas_base_fee_burn_bps": 91,
+        "module_fee_burn_bps": 92,
+        "slash_burn_bps": 93
+      },
+      "decimals": 94,
+      "inflation_policy": {
+        "base_rate_bps": 95,
+        "epochs_per_year": 96,
+        "max_rate_bps": 97,
+        "min_rate_bps": 98,
+        "stake_feedback_gain_bps": 99,
+        "target_stake_ratio_bps": 100
+      },
+      "initial_supply": 101,
+      "issuance_split": {
+        "ecosystem_pool_bps": 102,
+        "node_service_reward_bps": 103,
+        "security_reserve_bps": 104,
+        "staking_reward_bps": 105
+      },
+      "max_supply": null,
+      "symbol": "OC"
+    },
+    {
+      "circulating_supply": 92,
+      "total_burned": 93,
+      "total_issued": 94,
+      "total_supply": 95
+    },
+    {},
+    {},
+    {},
+    {
+      "96": {
+        "ecosystem_pool_amount": 96,
+        "epoch_index": 97,
+        "inflation_rate_bps": 98,
+        "issued_amount": 99,
+        "node_service_reward_amount": 100,
+        "security_reserve_amount": 101,
+        "staking_reward_amount": 102
+      }
+    },
+    {
+      "oracle-account": 97
+    },
+    {
+      "oracle-account": 98
+    },
+    {
+      "oracle-account": 99
+    },
+    {
+      "100": {
+        "effective_epoch": 100,
+        "next_config": {
+          "burn_policy": {
+            "gas_base_fee_burn_bps": 101,
+            "module_fee_burn_bps": 102,
+            "slash_burn_bps": 103
+          },
+          "decimals": 104,
+          "inflation_policy": {
+            "base_rate_bps": 105,
+            "epochs_per_year": 106,
+            "max_rate_bps": 107,
+            "min_rate_bps": 108,
+            "stake_feedback_gain_bps": 109,
+            "target_stake_ratio_bps": 110
+          },
+          "initial_supply": 111,
+          "issuance_split": {
+            "ecosystem_pool_bps": 112,
+            "node_service_reward_bps": 113,
+            "security_reserve_bps": 114,
+            "staking_reward_bps": 115
+          },
+          "max_supply": null,
+          "symbol": "OC"
+        },
+        "proposal_id": 116
+      }
+    },
+    {
+      "101": {
+        "distributions": [],
+        "epoch_index": 101,
+        "settlement_hash": "h",
+        "total_amount": 102
+      }
+    },
+    {},
+    {},
+    {
+      "credits_per_power_unit": 104,
+      "max_redeem_power_per_epoch": 105,
+      "min_redeem_power_unit": 106,
+      "points_per_credit": 107
+    },
+    {},
+    {
+      "available_power_units": 106,
+      "epoch_index": 107,
+      "redeemed_power_units": 108
+    },
+    [],
+    {},
+    {
+      "109": {
+        "epoch_index": 109,
+        "node_credit_allocated": {},
+        "node_credit_caps": {},
+        "remaining_credit_budget": 110,
+        "total_credit_budget": 111
+      }
+    },
+    {},
+    {},
+    null,
+    {},
+    null,
+    {
+      "oracle-agent": 115
+    },
+    {
+      "allow_mintsig_v1_fallback": true,
+      "require_mintsig_v2": false,
+      "require_redeem_signature": false,
+      "require_redeem_signer_match_node_id": false
+    }
+  ],
+  "expectedOldDerived": {
+    "map": {
+      "serialize": "{\"time\":18,\"agents\":{},\"resources\":{\"electricity\":22},\"materials\":{\"ore\":23},\"material_ledgers\":{\"world\":{\"ore\":24}},\"material_profiles\":{},\"logistics_routes\":{},\"completed_logistics_route_ids\":[],\"completed_logistics_paths\":{},\"settled_logistics_transit_ids\":[],\"logistics_settlement_receipts\":{},\"direct_material_transfer_receipts\":{},\"factory_production_failure_dispositions\":{\"31\":{\"action_id\":31,\"requester_agent_id\":\"r\",\"factory_id\":\"f\",\"recipe_id\":\"p\",\"blocker_kind\":\"blocked\",\"blocker_detail\":\"detail\",\"disposition_kind\":\"lost\",\"consumed_inputs\":[],\"lost_inputs\":[],\"consumed_power\":32,\"lost_power\":33,\"next_action\":\"retry\"}},\"product_validation_receipts\":{\"33\":[{\"job_id\":34,\"requester_agent_id\":\"\",\"module_id\":\"\",\"stack\":{\"kind\":\"\",\"amount\":35},\"decision\":{\"product_id\":\"\",\"accepted\":false,\"notes\":[],\"stack_limit\":33,\"tradable\":false,\"quality_levels\":[]}}]},\"product_profiles\":{},\"recipe_profiles\":{},\"factory_profiles\":{},\"agent_location_authorities\":{},\"location_anchors\":{},\"factory_site_authorities\":{},\"factory_construction_power_profiles\":{},\"factories\":{},\"retired_factory_ids\":[],\"settled_factory_build_ids\":[],\"pending_factory_builds\":{\"48\":{\"job_id\":49,\"builder_agent_id\":\"a\",\"site_id\":\"s\",\"spec\":{\"factory_id\":\"f\",\"display_name\":\"F\",\"tier\":56,\"tags\":[],\"build_cost\":[],\"build_time_ticks\":52,\"base_power_draw\":51,\"recipe_slots\":54,\"throughput_bps\":55,\"maintenance_per_tick\":53},\"consume_ledger\":\"world\",\"ready_at\":50,\"contract_version\":48}},\"pending_recipe_jobs\":{\"49\":{\"job_id\":51,\"requester_agent_id\":\"a\",\"factory_id\":\"f\",\"recipe_id\":\"r\",\"accepted_batches\":49,\"consume\":[],\"produce\":[],\"byproducts\":[],\"power_required\":52,\"duration_ticks\":50,\"consume_ledger\":\"world\",\"output_ledger\":\"world\",\"bottleneck_tags\":[],\"logistics_route_ids\":[],\"logistics_path_ids\":[],\"ready_at\":53}},\"settled_recipe_job_ids\":[],\"product_validation_attempts\":{\"46\":[{\"job_id\":46,\"requester_agent_id\":\"\",\"module_id\":\"\",\"stack\":{\"kind\":\"\",\"amount\":47}}]},\"product_validation_delivery_cursor\":{\"routed_through_event_id\":48,\"event_id_era\":47},\"next_industry_settlement_order\":51,\"industry_settlement_orders\":{\"52\":52},\"recipe_completion_receipts\":{\"53\":{\"job_id\":54,\"requester_agent_id\":\"\",\"factory_id\":\"\",\"recipe_id\":\"\",\"accepted_batches\":53,\"produce\":[],\"byproducts\":[],\"output_ledger\":\"world\",\"bottleneck_tags\":[],\"logistics_route_ids\":[],\"logistics_path_ids\":[]}},\"pending_material_transits\":{\"55\":{\"job_id\":57,\"requester_agent_id\":\"a\",\"from_ledger\":\"world\",\"to_ledger\":\"world\",\"kind\":\"ore\",\"amount\":55,\"distance_km\":56,\"loss_bps\":58,\"priority\":\"standard\",\"route_ids\":[],\"tariff_electricity_total\":61,\"reroute_count\":60,\"ready_at\":59}},\"industry_progress\":{\"stage\":\"bootstrap\",\"stage_updated_at\":58,\"completed_recipe_jobs\":57,\"completed_material_transits\":56,\"latest_market_quotes\":{}},\"alliances\":{},\"gameplay_policy\":{\"electricity_tax_bps\":59,\"data_tax_bps\":58,\"power_trade_fee_bps\":61,\"max_open_contracts_per_agent\":60,\"blocked_agents\":[],\"forbidden_location_ids\":[],\"updated_at\":62},\"data_access_permissions\":{},\"economic_contracts\":{},\"agent_claims\":{},\"agent_claim_acquisition_sequences\":{\"oracle-agent\":62},\"authenticated_collect_data_last_nonces\":{\"oracle-agent\":{\"oracle-scope\":64}},\"agent_claim_last_processed_epoch\":65,\"contract_pair_last_success_settled_at\":{\"oracle-agent|oracle-peer\":66},\"reputation_reward_window_started_at\":{\"oracle-agent\":67},\"reputation_reward_window_accumulated\":{\"oracle-agent\":68},\"reputation_scores\":{\"oracle-agent\":69},\"wars\":{},\"governance_votes\":{},\"governance_proposals\":{},\"governance_identity_profiles\":{},\"crises\":{},\"meta_progress\":{},\"module_states\":{},\"module_artifact_owners\":{},\"module_artifact_listings\":{},\"module_artifact_bids\":{},\"module_instances\":{},\"module_release_requests\":{\"83\":{\"request_id\":90,\"requester_agent_id\":\"a\",\"manifest\":{\"module_id\":\"m\",\"name\":\"M\",\"version\":\"1\",\"kind\":\"reducer\",\"role\":\"domain\",\"wasm_hash\":\"w\",\"interface_version\":\"1\",\"exports\":[],\"subscriptions\":[],\"required_caps\":[],\"abi_contract\":{\"cap_slots\":{},\"policy_hooks\":[]},\"limits\":{\"max_mem_bytes\":88,\"max_gas\":87,\"max_call_rate\":84,\"max_output_bytes\":89,\"max_effects\":85,\"max_emits\":86}},\"activate\":false,\"install_target\":{\"type\":\"self_agent\"},\"profile_changes\":{\"product_profiles\":[],\"recipe_profiles\":[],\"factory_profiles\":[]},\"required_roles\":[\"security\",\"economy\",\"runtime\"],\"role_approvals\":{},\"attestations\":{},\"status\":\"requested\",\"created_at\":83,\"updated_at\":91}},\"module_release_manifest_mappings\":{\"84\":{\"request_id\":86,\"release_id\":\"r\",\"module_id\":\"m\",\"attestation_count\":84,\"attestation_platforms\":[],\"attestation_proof_cids\":[],\"receipt_evidence_conflict\":false,\"status\":\"requested\",\"created_at\":85,\"updated_at\":87}},\"next_module_release_request_id\":85,\"module_release_role_bindings\":{},\"installed_module_targets\":{},\"next_module_instance_id\":88,\"next_module_market_order_id\":89,\"next_module_market_sale_id\":90,\"main_token_config\":{\"symbol\":\"OC\",\"decimals\":94,\"initial_supply\":101,\"max_supply\":null,\"inflation_policy\":{\"base_rate_bps\":95,\"min_rate_bps\":98,\"max_rate_bps\":97,\"target_stake_ratio_bps\":100,\"stake_feedback_gain_bps\":99,\"epochs_per_year\":96},\"issuance_split\":{\"staking_reward_bps\":105,\"node_service_reward_bps\":103,\"ecosystem_pool_bps\":102,\"security_reserve_bps\":104},\"burn_policy\":{\"gas_base_fee_burn_bps\":91,\"slash_burn_bps\":93,\"module_fee_burn_bps\":92}},\"main_token_supply\":{\"total_supply\":95,\"circulating_supply\":92,\"total_issued\":94,\"total_burned\":93},\"main_token_balances\":{},\"restricted_starter_claim_grants\":{},\"main_token_genesis_buckets\":{},\"main_token_epoch_issuance_records\":{\"96\":{\"epoch_index\":97,\"inflation_rate_bps\":98,\"issued_amount\":99,\"staking_reward_amount\":102,\"node_service_reward_amount\":100,\"ecosystem_pool_amount\":96,\"security_reserve_amount\":101}},\"main_token_treasury_balances\":{\"oracle-account\":97},\"main_token_claim_nonces\":{\"oracle-account\":98},\"main_token_transfer_nonces\":{\"oracle-account\":99},\"main_token_scheduled_policy_updates\":{\"100\":{\"proposal_id\":116,\"effective_epoch\":100,\"next_config\":{\"symbol\":\"OC\",\"decimals\":104,\"initial_supply\":111,\"max_supply\":null,\"inflation_policy\":{\"base_rate_bps\":105,\"min_rate_bps\":108,\"max_rate_bps\":107,\"target_stake_ratio_bps\":110,\"stake_feedback_gain_bps\":109,\"epochs_per_year\":106},\"issuance_split\":{\"staking_reward_bps\":115,\"node_service_reward_bps\":113,\"ecosystem_pool_bps\":112,\"security_reserve_bps\":114},\"burn_policy\":{\"gas_base_fee_burn_bps\":101,\"slash_burn_bps\":103,\"module_fee_burn_bps\":102}}}},\"main_token_node_points_bridge_records\":{\"101\":{\"epoch_index\":101,\"settlement_hash\":\"h\",\"total_amount\":102,\"distributions\":[]}},\"main_token_treasury_distribution_records\":{},\"restricted_starter_claim_liveops_pool_top_up_records\":{},\"reward_asset_config\":{\"points_per_credit\":107,\"credits_per_power_unit\":104,\"max_redeem_power_per_epoch\":105,\"min_redeem_power_unit\":106},\"node_asset_balances\":{},\"protocol_power_reserve\":{\"epoch_index\":107,\"available_power_units\":106,\"redeemed_power_units\":108},\"reward_mint_records\":[],\"node_redeem_nonces\":{},\"system_order_pool_budgets\":{\"109\":{\"epoch_index\":109,\"total_credit_budget\":111,\"remaining_credit_budget\":110,\"node_credit_caps\":{},\"node_credit_allocated\":{}}},\"node_identity_bindings\":{},\"node_main_token_account_bindings\":{},\"governance_finality_signer_registry\":null,\"governance_validator_admissions\":{},\"governance_main_token_controller_registry\":null,\"governance_authorization_nonces\":{\"oracle-agent\":115},\"reward_signature_governance_policy\":{\"require_mintsig_v2\":false,\"allow_mintsig_v1_fallback\":true,\"require_redeem_signature\":false,\"require_redeem_signer_match_node_id\":false}}",
+      "debug": "WorldState { world_rules: None, time: 18, retained_history_root: None, agents: {}, agent_intent_ledger: {}, resources: {Electricity: 22}, materials: {\"ore\": 23}, material_ledgers: {World: {\"ore\": 24}}, material_profiles: {}, logistics_routes: {}, completed_logistics_route_ids: {}, completed_logistics_paths: {}, settled_logistics_transit_ids: {}, logistics_settlement_receipts: {}, factory_production_failure_dispositions: {31: FactoryProductionFailureDispositionV1 { action_id: 31, requester_agent_id: \"r\", factory_id: \"f\", recipe_id: \"p\", blocker_kind: \"blocked\", blocker_detail: \"detail\", disposition_kind: \"lost\", consumed_inputs: [], lost_inputs: [], consumed_power: 32, lost_power: 33, next_action: \"retry\", next_recheck: None }}, direct_material_transfer_receipts: {}, product_validation_receipts: {33: [ProductValidationReceiptV1 { job_id: 34, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 35 }, decision: ProductValidationDecision { product_id: \"\", accepted: false, notes: [], stack_limit: 33, tradable: false, quality_levels: [] }, failure_detail: None }]}, product_profiles: {}, latest_product_validation: None, recipe_profiles: {}, factory_profiles: {}, agent_location_authorities: {}, location_anchors: {}, factory_site_authorities: {}, factory_construction_power_profiles: {}, factories: {}, retired_factory_ids: {}, settled_factory_build_ids: {}, factory_construction_receipts: {}, product_validation_attempts: {46: [ProductValidationAttemptV1 { job_id: 46, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 47 } }]}, product_validation_delivery_cursor: ProductValidationDeliveryCursor { routed_through_event_id: 48, event_id_era: 47 }, pending_factory_builds: {48: FactoryBuildJobState { job_id: 49, builder_agent_id: \"a\", site_id: \"s\", spec: FactoryModuleSpec { factory_id: \"f\", display_name: \"F\", tier: 56, tags: [], build_cost: [], build_time_ticks: 52, base_power_draw: 51, recipe_slots: 54, throughput_bps: 55, maintenance_per_tick: 53 }, consume_ledger: World, ready_at: 50, contract_version: 48, site_authority_revision: None, site_location_id: None, location_anchor_revision: None, construction_power_obligation: None }}, pending_recipe_jobs: {49: RecipeJobState { industrial_root_ref: None, emergency_power_world_binding: None, committed_recipe_origin: None, job_id: 51, requester_agent_id: \"a\", factory_id: \"f\", recipe_id: \"r\", accepted_batches: 49, consume: [], produce: [], byproducts: [], power_required: 52, power_owner_agent_id: None, duration_ticks: 50, consume_ledger: World, output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [], ready_at: 53 }}, settled_recipe_job_ids: {}, next_industry_settlement_order: 51, industry_settlement_orders: {52: 52}, recipe_completion_receipts: {53: RecipeCompletionReceiptV1 { committed_recipe_origin: None, job_id: 54, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 53, produce: [], byproducts: [], output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [] }}, factory_recycle_receipts: {}, pending_material_transits: {55: MaterialTransitJobState { job_id: 57, requester_agent_id: \"a\", from_ledger: World, to_ledger: World, kind: \"ore\", amount: 55, distance_km: 56, loss_bps: 58, priority: Standard, route_id: None, path_id: None, route_ids: [], tariff_electricity_total: 61, reroute_count: 60, ready_at: 59 }}, industry_progress: IndustryProgressState { stage: Bootstrap, stage_updated_at: 58, completed_recipe_jobs: 57, completed_material_transits: 56, starter_industrial_milestone: None, latest_market_quotes: {} }, alliances: {}, gameplay_policy: GameplayPolicyState { electricity_tax_bps: 59, data_tax_bps: 58, power_trade_fee_bps: 61, max_open_contracts_per_agent: 60, blocked_agents: [], forbidden_location_ids: [], updated_at: 62 }, data_access_permissions: {}, economic_contracts: {}, agent_claims: {}, agent_claim_acquisition_sequences: {\"oracle-agent\": 62}, starter_oc_claims: {}, authenticated_collect_data_last_nonces: {\"oracle-agent\": {\"oracle-scope\": 64}}, agent_claim_last_processed_epoch: 65, contract_pair_last_success_settled_at: {\"oracle-agent|oracle-peer\": 66}, reputation_reward_window_started_at: {\"oracle-agent\": 67}, reputation_reward_window_accumulated: {\"oracle-agent\": 68}, reputation_scores: {\"oracle-agent\": 69}, wars: {}, governance_votes: {}, governance_proposals: {}, governance_identity_profiles: {}, crises: {}, meta_progress: {}, module_states: {}, module_visual_entities: {}, module_artifact_owners: {}, module_artifact_listings: {}, module_artifact_bids: {}, module_instances: {}, module_admission_freezes: {}, module_release_requests: {83: ModuleReleaseRequestState { request_id: 90, requester_agent_id: \"a\", manifest: ModuleManifest { module_id: \"m\", name: \"M\", version: \"1\", kind: Reducer, role: Domain, wasm_hash: \"w\", interface_version: \"1\", exports: [], subscriptions: [], required_caps: [], abi_contract: ModuleAbiContract { abi_version: None, input_schema: None, output_schema: None, cap_slots: {}, policy_hooks: [], gameplay: None, declarations: ModuleSchemaDeclarations { commands: [] } }, artifact_identity: None, limits: ModuleLimits { max_mem_bytes: 88, max_gas: 87, max_call_rate: 84, max_output_bytes: 89, max_effects: 85, max_emits: 86 } }, activate: false, install_target: SelfAgent, profile_changes: ModuleProfileChanges { product_profiles: [], recipe_profiles: [], factory_profiles: [] }, required_roles: [\"security\", \"economy\", \"runtime\"], role_approvals: {}, attestations: {}, status: Requested, shadow_manifest_hash: None, applied_manifest_hash: None, applied_proposal_id: None, rejected_reason: None, created_at: 83, updated_at: 91 }}, module_release_manifest_mappings: {84: ModuleReleaseManifestMappingState { request_id: 86, release_id: \"r\", module_id: \"m\", attestation_count: 84, release_wasm_hash: None, release_source_hash: None, release_build_manifest_hash: None, release_builder_image_digest: None, release_container_platform: None, release_canonicalizer_version: None, attestation_platforms: [], attestation_proof_cids: [], receipt_evidence_conflict: false, shadow_manifest_hash: None, applied_manifest_hash: None, applied_proposal_id: None, status: Requested, created_at: 85, updated_at: 87 }}, next_module_release_request_id: 85, module_release_role_bindings: {}, installed_module_targets: {}, next_module_instance_id: 88, next_module_market_order_id: 89, next_module_market_sale_id: 90, main_token_config: MainTokenConfig { symbol: \"OC\", decimals: 94, initial_supply: 101, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 95, min_rate_bps: 98, max_rate_bps: 97, target_stake_ratio_bps: 100, stake_feedback_gain_bps: 99, epochs_per_year: 96 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 105, node_service_reward_bps: 103, ecosystem_pool_bps: 102, security_reserve_bps: 104 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 91, slash_burn_bps: 93, module_fee_burn_bps: 92 } }, main_token_supply: MainTokenSupplyState { total_supply: 95, circulating_supply: 92, total_issued: 94, total_burned: 93 }, main_token_balances: {}, restricted_starter_claim_grants: {}, main_token_genesis_buckets: {}, main_token_epoch_issuance_records: {96: MainTokenEpochIssuanceRecord { epoch_index: 97, inflation_rate_bps: 98, issued_amount: 99, staking_reward_amount: 102, node_service_reward_amount: 100, ecosystem_pool_amount: 96, security_reserve_amount: 101 }}, main_token_treasury_balances: {\"oracle-account\": 97}, main_token_claim_nonces: {\"oracle-account\": 98}, main_token_transfer_nonces: {\"oracle-account\": 99}, main_token_scheduled_policy_updates: {100: MainTokenScheduledPolicyUpdate { proposal_id: 116, effective_epoch: 100, next_config: MainTokenConfig { symbol: \"OC\", decimals: 104, initial_supply: 111, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 105, min_rate_bps: 108, max_rate_bps: 107, target_stake_ratio_bps: 110, stake_feedback_gain_bps: 109, epochs_per_year: 106 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 115, node_service_reward_bps: 113, ecosystem_pool_bps: 112, security_reserve_bps: 114 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 101, slash_burn_bps: 103, module_fee_burn_bps: 102 } } }}, main_token_node_points_bridge_records: {101: MainTokenNodePointsBridgeEpochRecord { epoch_index: 101, settlement_hash: \"h\", total_amount: 102, distributions: [] }}, main_token_treasury_distribution_records: {}, restricted_starter_claim_liveops_pool_top_up_records: {}, reward_asset_config: RewardAssetConfig { points_per_credit: 107, credits_per_power_unit: 104, max_redeem_power_per_epoch: 105, min_redeem_power_unit: 106 }, node_asset_balances: {}, protocol_power_reserve: ProtocolPowerReserve { epoch_index: 107, available_power_units: 106, redeemed_power_units: 108 }, reward_mint_records: [], node_redeem_nonces: {}, system_order_pool_budgets: {109: SystemOrderPoolBudget { epoch_index: 109, total_credit_budget: 111, remaining_credit_budget: 110, node_credit_caps: {}, node_credit_allocated: {} }}, node_identity_bindings: {}, node_main_token_account_bindings: {}, governance_finality_signer_registry: None, governance_validator_admissions: {}, governance_main_token_controller_registry: None, governance_authorization_nonces: {\"oracle-agent\": 115}, reward_signature_governance_policy: RewardSignatureGovernancePolicy { require_mintsig_v2: false, allow_mintsig_v1_fallback: true, require_redeem_signature: false, require_redeem_signer_match_node_id: false } }"
+    },
+    "jsonSequence": {
+      "serialize": "{\"time\":18,\"agents\":{},\"resources\":{\"electricity\":22},\"materials\":{\"ore\":23},\"material_ledgers\":{\"world\":{\"ore\":24}},\"material_profiles\":{},\"logistics_routes\":{},\"completed_logistics_route_ids\":[],\"completed_logistics_paths\":{},\"settled_logistics_transit_ids\":[],\"logistics_settlement_receipts\":{},\"direct_material_transfer_receipts\":{},\"factory_production_failure_dispositions\":{\"31\":{\"action_id\":31,\"requester_agent_id\":\"r\",\"factory_id\":\"f\",\"recipe_id\":\"p\",\"blocker_kind\":\"blocked\",\"blocker_detail\":\"detail\",\"disposition_kind\":\"lost\",\"consumed_inputs\":[],\"lost_inputs\":[],\"consumed_power\":32,\"lost_power\":33,\"next_action\":\"retry\"}},\"product_validation_receipts\":{\"33\":[{\"job_id\":34,\"requester_agent_id\":\"\",\"module_id\":\"\",\"stack\":{\"kind\":\"\",\"amount\":35},\"decision\":{\"product_id\":\"\",\"accepted\":false,\"notes\":[],\"stack_limit\":33,\"tradable\":false,\"quality_levels\":[]}}]},\"product_profiles\":{},\"recipe_profiles\":{},\"factory_profiles\":{},\"agent_location_authorities\":{},\"location_anchors\":{},\"factory_site_authorities\":{},\"factory_construction_power_profiles\":{},\"factories\":{},\"retired_factory_ids\":[],\"settled_factory_build_ids\":[],\"pending_factory_builds\":{\"48\":{\"job_id\":49,\"builder_agent_id\":\"a\",\"site_id\":\"s\",\"spec\":{\"factory_id\":\"f\",\"display_name\":\"F\",\"tier\":56,\"tags\":[],\"build_cost\":[],\"build_time_ticks\":52,\"base_power_draw\":51,\"recipe_slots\":54,\"throughput_bps\":55,\"maintenance_per_tick\":53},\"consume_ledger\":\"world\",\"ready_at\":50,\"contract_version\":48}},\"pending_recipe_jobs\":{\"49\":{\"job_id\":51,\"requester_agent_id\":\"a\",\"factory_id\":\"f\",\"recipe_id\":\"r\",\"accepted_batches\":49,\"consume\":[],\"produce\":[],\"byproducts\":[],\"power_required\":52,\"duration_ticks\":50,\"consume_ledger\":\"world\",\"output_ledger\":\"world\",\"bottleneck_tags\":[],\"logistics_route_ids\":[],\"logistics_path_ids\":[],\"ready_at\":53}},\"settled_recipe_job_ids\":[],\"product_validation_attempts\":{\"46\":[{\"job_id\":46,\"requester_agent_id\":\"\",\"module_id\":\"\",\"stack\":{\"kind\":\"\",\"amount\":47}}]},\"product_validation_delivery_cursor\":{\"routed_through_event_id\":48,\"event_id_era\":47},\"next_industry_settlement_order\":51,\"industry_settlement_orders\":{\"52\":52},\"recipe_completion_receipts\":{\"53\":{\"job_id\":54,\"requester_agent_id\":\"\",\"factory_id\":\"\",\"recipe_id\":\"\",\"accepted_batches\":53,\"produce\":[],\"byproducts\":[],\"output_ledger\":\"world\",\"bottleneck_tags\":[],\"logistics_route_ids\":[],\"logistics_path_ids\":[]}},\"pending_material_transits\":{\"55\":{\"job_id\":57,\"requester_agent_id\":\"a\",\"from_ledger\":\"world\",\"to_ledger\":\"world\",\"kind\":\"ore\",\"amount\":55,\"distance_km\":56,\"loss_bps\":58,\"priority\":\"standard\",\"route_ids\":[],\"tariff_electricity_total\":61,\"reroute_count\":60,\"ready_at\":59}},\"industry_progress\":{\"stage\":\"bootstrap\",\"stage_updated_at\":58,\"completed_recipe_jobs\":57,\"completed_material_transits\":56,\"latest_market_quotes\":{}},\"alliances\":{},\"gameplay_policy\":{\"electricity_tax_bps\":59,\"data_tax_bps\":58,\"power_trade_fee_bps\":61,\"max_open_contracts_per_agent\":60,\"blocked_agents\":[],\"forbidden_location_ids\":[],\"updated_at\":62},\"data_access_permissions\":{},\"economic_contracts\":{},\"agent_claims\":{},\"agent_claim_acquisition_sequences\":{\"oracle-agent\":62},\"authenticated_collect_data_last_nonces\":{\"oracle-agent\":{\"oracle-scope\":64}},\"agent_claim_last_processed_epoch\":65,\"contract_pair_last_success_settled_at\":{\"oracle-agent|oracle-peer\":66},\"reputation_reward_window_started_at\":{\"oracle-agent\":67},\"reputation_reward_window_accumulated\":{\"oracle-agent\":68},\"reputation_scores\":{\"oracle-agent\":69},\"wars\":{},\"governance_votes\":{},\"governance_proposals\":{},\"governance_identity_profiles\":{},\"crises\":{},\"meta_progress\":{},\"module_states\":{},\"module_artifact_owners\":{},\"module_artifact_listings\":{},\"module_artifact_bids\":{},\"module_instances\":{},\"module_release_requests\":{\"83\":{\"request_id\":90,\"requester_agent_id\":\"a\",\"manifest\":{\"module_id\":\"m\",\"name\":\"M\",\"version\":\"1\",\"kind\":\"reducer\",\"role\":\"domain\",\"wasm_hash\":\"w\",\"interface_version\":\"1\",\"exports\":[],\"subscriptions\":[],\"required_caps\":[],\"abi_contract\":{\"cap_slots\":{},\"policy_hooks\":[]},\"limits\":{\"max_mem_bytes\":88,\"max_gas\":87,\"max_call_rate\":84,\"max_output_bytes\":89,\"max_effects\":85,\"max_emits\":86}},\"activate\":false,\"install_target\":{\"type\":\"self_agent\"},\"profile_changes\":{\"product_profiles\":[],\"recipe_profiles\":[],\"factory_profiles\":[]},\"required_roles\":[\"security\",\"economy\",\"runtime\"],\"role_approvals\":{},\"attestations\":{},\"status\":\"requested\",\"created_at\":83,\"updated_at\":91}},\"module_release_manifest_mappings\":{\"84\":{\"request_id\":86,\"release_id\":\"r\",\"module_id\":\"m\",\"attestation_count\":84,\"attestation_platforms\":[],\"attestation_proof_cids\":[],\"receipt_evidence_conflict\":false,\"status\":\"requested\",\"created_at\":85,\"updated_at\":87}},\"next_module_release_request_id\":85,\"module_release_role_bindings\":{},\"installed_module_targets\":{},\"next_module_instance_id\":88,\"next_module_market_order_id\":89,\"next_module_market_sale_id\":90,\"main_token_config\":{\"symbol\":\"OC\",\"decimals\":94,\"initial_supply\":101,\"max_supply\":null,\"inflation_policy\":{\"base_rate_bps\":95,\"min_rate_bps\":98,\"max_rate_bps\":97,\"target_stake_ratio_bps\":100,\"stake_feedback_gain_bps\":99,\"epochs_per_year\":96},\"issuance_split\":{\"staking_reward_bps\":105,\"node_service_reward_bps\":103,\"ecosystem_pool_bps\":102,\"security_reserve_bps\":104},\"burn_policy\":{\"gas_base_fee_burn_bps\":91,\"slash_burn_bps\":93,\"module_fee_burn_bps\":92}},\"main_token_supply\":{\"total_supply\":95,\"circulating_supply\":92,\"total_issued\":94,\"total_burned\":93},\"main_token_balances\":{},\"restricted_starter_claim_grants\":{},\"main_token_genesis_buckets\":{},\"main_token_epoch_issuance_records\":{\"96\":{\"epoch_index\":97,\"inflation_rate_bps\":98,\"issued_amount\":99,\"staking_reward_amount\":102,\"node_service_reward_amount\":100,\"ecosystem_pool_amount\":96,\"security_reserve_amount\":101}},\"main_token_treasury_balances\":{\"oracle-account\":97},\"main_token_claim_nonces\":{\"oracle-account\":98},\"main_token_transfer_nonces\":{\"oracle-account\":99},\"main_token_scheduled_policy_updates\":{\"100\":{\"proposal_id\":116,\"effective_epoch\":100,\"next_config\":{\"symbol\":\"OC\",\"decimals\":104,\"initial_supply\":111,\"max_supply\":null,\"inflation_policy\":{\"base_rate_bps\":105,\"min_rate_bps\":108,\"max_rate_bps\":107,\"target_stake_ratio_bps\":110,\"stake_feedback_gain_bps\":109,\"epochs_per_year\":106},\"issuance_split\":{\"staking_reward_bps\":115,\"node_service_reward_bps\":113,\"ecosystem_pool_bps\":112,\"security_reserve_bps\":114},\"burn_policy\":{\"gas_base_fee_burn_bps\":101,\"slash_burn_bps\":103,\"module_fee_burn_bps\":102}}}},\"main_token_node_points_bridge_records\":{\"101\":{\"epoch_index\":101,\"settlement_hash\":\"h\",\"total_amount\":102,\"distributions\":[]}},\"main_token_treasury_distribution_records\":{},\"restricted_starter_claim_liveops_pool_top_up_records\":{},\"reward_asset_config\":{\"points_per_credit\":107,\"credits_per_power_unit\":104,\"max_redeem_power_per_epoch\":105,\"min_redeem_power_unit\":106},\"node_asset_balances\":{},\"protocol_power_reserve\":{\"epoch_index\":107,\"available_power_units\":106,\"redeemed_power_units\":108},\"reward_mint_records\":[],\"node_redeem_nonces\":{},\"system_order_pool_budgets\":{\"109\":{\"epoch_index\":109,\"total_credit_budget\":111,\"remaining_credit_budget\":110,\"node_credit_caps\":{},\"node_credit_allocated\":{}}},\"node_identity_bindings\":{},\"node_main_token_account_bindings\":{},\"governance_finality_signer_registry\":null,\"governance_validator_admissions\":{},\"governance_main_token_controller_registry\":null,\"governance_authorization_nonces\":{\"oracle-agent\":115},\"reward_signature_governance_policy\":{\"require_mintsig_v2\":false,\"allow_mintsig_v1_fallback\":true,\"require_redeem_signature\":false,\"require_redeem_signer_match_node_id\":false}}",
+      "debug": "WorldState { world_rules: None, time: 18, retained_history_root: None, agents: {}, agent_intent_ledger: {}, resources: {Electricity: 22}, materials: {\"ore\": 23}, material_ledgers: {World: {\"ore\": 24}}, material_profiles: {}, logistics_routes: {}, completed_logistics_route_ids: {}, completed_logistics_paths: {}, settled_logistics_transit_ids: {}, logistics_settlement_receipts: {}, factory_production_failure_dispositions: {31: FactoryProductionFailureDispositionV1 { action_id: 31, requester_agent_id: \"r\", factory_id: \"f\", recipe_id: \"p\", blocker_kind: \"blocked\", blocker_detail: \"detail\", disposition_kind: \"lost\", consumed_inputs: [], lost_inputs: [], consumed_power: 32, lost_power: 33, next_action: \"retry\", next_recheck: None }}, direct_material_transfer_receipts: {}, product_validation_receipts: {33: [ProductValidationReceiptV1 { job_id: 34, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 35 }, decision: ProductValidationDecision { product_id: \"\", accepted: false, notes: [], stack_limit: 33, tradable: false, quality_levels: [] }, failure_detail: None }]}, product_profiles: {}, latest_product_validation: None, recipe_profiles: {}, factory_profiles: {}, agent_location_authorities: {}, location_anchors: {}, factory_site_authorities: {}, factory_construction_power_profiles: {}, factories: {}, retired_factory_ids: {}, settled_factory_build_ids: {}, factory_construction_receipts: {}, product_validation_attempts: {46: [ProductValidationAttemptV1 { job_id: 46, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 47 } }]}, product_validation_delivery_cursor: ProductValidationDeliveryCursor { routed_through_event_id: 48, event_id_era: 47 }, pending_factory_builds: {48: FactoryBuildJobState { job_id: 49, builder_agent_id: \"a\", site_id: \"s\", spec: FactoryModuleSpec { factory_id: \"f\", display_name: \"F\", tier: 56, tags: [], build_cost: [], build_time_ticks: 52, base_power_draw: 51, recipe_slots: 54, throughput_bps: 55, maintenance_per_tick: 53 }, consume_ledger: World, ready_at: 50, contract_version: 48, site_authority_revision: None, site_location_id: None, location_anchor_revision: None, construction_power_obligation: None }}, pending_recipe_jobs: {49: RecipeJobState { industrial_root_ref: None, emergency_power_world_binding: None, committed_recipe_origin: None, job_id: 51, requester_agent_id: \"a\", factory_id: \"f\", recipe_id: \"r\", accepted_batches: 49, consume: [], produce: [], byproducts: [], power_required: 52, power_owner_agent_id: None, duration_ticks: 50, consume_ledger: World, output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [], ready_at: 53 }}, settled_recipe_job_ids: {}, next_industry_settlement_order: 51, industry_settlement_orders: {52: 52}, recipe_completion_receipts: {53: RecipeCompletionReceiptV1 { committed_recipe_origin: None, job_id: 54, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 53, produce: [], byproducts: [], output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [] }}, factory_recycle_receipts: {}, pending_material_transits: {55: MaterialTransitJobState { job_id: 57, requester_agent_id: \"a\", from_ledger: World, to_ledger: World, kind: \"ore\", amount: 55, distance_km: 56, loss_bps: 58, priority: Standard, route_id: None, path_id: None, route_ids: [], tariff_electricity_total: 61, reroute_count: 60, ready_at: 59 }}, industry_progress: IndustryProgressState { stage: Bootstrap, stage_updated_at: 58, completed_recipe_jobs: 57, completed_material_transits: 56, starter_industrial_milestone: None, latest_market_quotes: {} }, alliances: {}, gameplay_policy: GameplayPolicyState { electricity_tax_bps: 59, data_tax_bps: 58, power_trade_fee_bps: 61, max_open_contracts_per_agent: 60, blocked_agents: [], forbidden_location_ids: [], updated_at: 62 }, data_access_permissions: {}, economic_contracts: {}, agent_claims: {}, agent_claim_acquisition_sequences: {\"oracle-agent\": 62}, starter_oc_claims: {}, authenticated_collect_data_last_nonces: {\"oracle-agent\": {\"oracle-scope\": 64}}, agent_claim_last_processed_epoch: 65, contract_pair_last_success_settled_at: {\"oracle-agent|oracle-peer\": 66}, reputation_reward_window_started_at: {\"oracle-agent\": 67}, reputation_reward_window_accumulated: {\"oracle-agent\": 68}, reputation_scores: {\"oracle-agent\": 69}, wars: {}, governance_votes: {}, governance_proposals: {}, governance_identity_profiles: {}, crises: {}, meta_progress: {}, module_states: {}, module_visual_entities: {}, module_artifact_owners: {}, module_artifact_listings: {}, module_artifact_bids: {}, module_instances: {}, module_admission_freezes: {}, module_release_requests: {83: ModuleReleaseRequestState { request_id: 90, requester_agent_id: \"a\", manifest: ModuleManifest { module_id: \"m\", name: \"M\", version: \"1\", kind: Reducer, role: Domain, wasm_hash: \"w\", interface_version: \"1\", exports: [], subscriptions: [], required_caps: [], abi_contract: ModuleAbiContract { abi_version: None, input_schema: None, output_schema: None, cap_slots: {}, policy_hooks: [], gameplay: None, declarations: ModuleSchemaDeclarations { commands: [] } }, artifact_identity: None, limits: ModuleLimits { max_mem_bytes: 88, max_gas: 87, max_call_rate: 84, max_output_bytes: 89, max_effects: 85, max_emits: 86 } }, activate: false, install_target: SelfAgent, profile_changes: ModuleProfileChanges { product_profiles: [], recipe_profiles: [], factory_profiles: [] }, required_roles: [\"security\", \"economy\", \"runtime\"], role_approvals: {}, attestations: {}, status: Requested, shadow_manifest_hash: None, applied_manifest_hash: None, applied_proposal_id: None, rejected_reason: None, created_at: 83, updated_at: 91 }}, module_release_manifest_mappings: {84: ModuleReleaseManifestMappingState { request_id: 86, release_id: \"r\", module_id: \"m\", attestation_count: 84, release_wasm_hash: None, release_source_hash: None, release_build_manifest_hash: None, release_builder_image_digest: None, release_container_platform: None, release_canonicalizer_version: None, attestation_platforms: [], attestation_proof_cids: [], receipt_evidence_conflict: false, shadow_manifest_hash: None, applied_manifest_hash: None, applied_proposal_id: None, status: Requested, created_at: 85, updated_at: 87 }}, next_module_release_request_id: 85, module_release_role_bindings: {}, installed_module_targets: {}, next_module_instance_id: 88, next_module_market_order_id: 89, next_module_market_sale_id: 90, main_token_config: MainTokenConfig { symbol: \"OC\", decimals: 94, initial_supply: 101, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 95, min_rate_bps: 98, max_rate_bps: 97, target_stake_ratio_bps: 100, stake_feedback_gain_bps: 99, epochs_per_year: 96 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 105, node_service_reward_bps: 103, ecosystem_pool_bps: 102, security_reserve_bps: 104 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 91, slash_burn_bps: 93, module_fee_burn_bps: 92 } }, main_token_supply: MainTokenSupplyState { total_supply: 95, circulating_supply: 92, total_issued: 94, total_burned: 93 }, main_token_balances: {}, restricted_starter_claim_grants: {}, main_token_genesis_buckets: {}, main_token_epoch_issuance_records: {96: MainTokenEpochIssuanceRecord { epoch_index: 97, inflation_rate_bps: 98, issued_amount: 99, staking_reward_amount: 102, node_service_reward_amount: 100, ecosystem_pool_amount: 96, security_reserve_amount: 101 }}, main_token_treasury_balances: {\"oracle-account\": 97}, main_token_claim_nonces: {\"oracle-account\": 98}, main_token_transfer_nonces: {\"oracle-account\": 99}, main_token_scheduled_policy_updates: {100: MainTokenScheduledPolicyUpdate { proposal_id: 116, effective_epoch: 100, next_config: MainTokenConfig { symbol: \"OC\", decimals: 104, initial_supply: 111, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 105, min_rate_bps: 108, max_rate_bps: 107, target_stake_ratio_bps: 110, stake_feedback_gain_bps: 109, epochs_per_year: 106 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 115, node_service_reward_bps: 113, ecosystem_pool_bps: 112, security_reserve_bps: 114 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 101, slash_burn_bps: 103, module_fee_burn_bps: 102 } } }}, main_token_node_points_bridge_records: {101: MainTokenNodePointsBridgeEpochRecord { epoch_index: 101, settlement_hash: \"h\", total_amount: 102, distributions: [] }}, main_token_treasury_distribution_records: {}, restricted_starter_claim_liveops_pool_top_up_records: {}, reward_asset_config: RewardAssetConfig { points_per_credit: 107, credits_per_power_unit: 104, max_redeem_power_per_epoch: 105, min_redeem_power_unit: 106 }, node_asset_balances: {}, protocol_power_reserve: ProtocolPowerReserve { epoch_index: 107, available_power_units: 106, redeemed_power_units: 108 }, reward_mint_records: [], node_redeem_nonces: {}, system_order_pool_budgets: {109: SystemOrderPoolBudget { epoch_index: 109, total_credit_budget: 111, remaining_credit_budget: 110, node_credit_caps: {}, node_credit_allocated: {} }}, node_identity_bindings: {}, node_main_token_account_bindings: {}, governance_finality_signer_registry: None, governance_validator_admissions: {}, governance_main_token_controller_registry: None, governance_authorization_nonces: {\"oracle-agent\": 115}, reward_signature_governance_policy: RewardSignatureGovernancePolicy { require_mintsig_v2: false, allow_mintsig_v1_fallback: true, require_redeem_signature: false, require_redeem_signer_match_node_id: false } }"
+    },
+    "cborSequence": {
+      "serialize": "{\"time\":18,\"agents\":{},\"resources\":{\"electricity\":22},\"materials\":{\"ore\":23},\"material_ledgers\":{\"world\":{\"ore\":24}},\"material_profiles\":{},\"logistics_routes\":{},\"completed_logistics_route_ids\":[],\"completed_logistics_paths\":{},\"settled_logistics_transit_ids\":[],\"logistics_settlement_receipts\":{},\"direct_material_transfer_receipts\":{},\"factory_production_failure_dispositions\":{\"31\":{\"action_id\":31,\"requester_agent_id\":\"r\",\"factory_id\":\"f\",\"recipe_id\":\"p\",\"blocker_kind\":\"blocked\",\"blocker_detail\":\"detail\",\"disposition_kind\":\"lost\",\"consumed_inputs\":[],\"lost_inputs\":[],\"consumed_power\":32,\"lost_power\":33,\"next_action\":\"retry\"}},\"product_validation_receipts\":{\"33\":[{\"job_id\":34,\"requester_agent_id\":\"\",\"module_id\":\"\",\"stack\":{\"kind\":\"\",\"amount\":35},\"decision\":{\"product_id\":\"\",\"accepted\":false,\"notes\":[],\"stack_limit\":33,\"tradable\":false,\"quality_levels\":[]}}]},\"product_profiles\":{},\"recipe_profiles\":{},\"factory_profiles\":{},\"agent_location_authorities\":{},\"location_anchors\":{},\"factory_site_authorities\":{},\"factory_construction_power_profiles\":{},\"factories\":{},\"retired_factory_ids\":[],\"settled_factory_build_ids\":[],\"pending_factory_builds\":{\"48\":{\"job_id\":49,\"builder_agent_id\":\"a\",\"site_id\":\"s\",\"spec\":{\"factory_id\":\"f\",\"display_name\":\"F\",\"tier\":56,\"tags\":[],\"build_cost\":[],\"build_time_ticks\":52,\"base_power_draw\":51,\"recipe_slots\":54,\"throughput_bps\":55,\"maintenance_per_tick\":53},\"consume_ledger\":\"world\",\"ready_at\":50,\"contract_version\":48}},\"pending_recipe_jobs\":{\"49\":{\"job_id\":51,\"requester_agent_id\":\"a\",\"factory_id\":\"f\",\"recipe_id\":\"r\",\"accepted_batches\":49,\"consume\":[],\"produce\":[],\"byproducts\":[],\"power_required\":52,\"duration_ticks\":50,\"consume_ledger\":\"world\",\"output_ledger\":\"world\",\"bottleneck_tags\":[],\"logistics_route_ids\":[],\"logistics_path_ids\":[],\"ready_at\":53}},\"settled_recipe_job_ids\":[],\"product_validation_attempts\":{\"46\":[{\"job_id\":46,\"requester_agent_id\":\"\",\"module_id\":\"\",\"stack\":{\"kind\":\"\",\"amount\":47}}]},\"product_validation_delivery_cursor\":{\"routed_through_event_id\":48,\"event_id_era\":47},\"next_industry_settlement_order\":51,\"industry_settlement_orders\":{\"52\":52},\"recipe_completion_receipts\":{\"53\":{\"job_id\":54,\"requester_agent_id\":\"\",\"factory_id\":\"\",\"recipe_id\":\"\",\"accepted_batches\":53,\"produce\":[],\"byproducts\":[],\"output_ledger\":\"world\",\"bottleneck_tags\":[],\"logistics_route_ids\":[],\"logistics_path_ids\":[]}},\"pending_material_transits\":{\"55\":{\"job_id\":57,\"requester_agent_id\":\"a\",\"from_ledger\":\"world\",\"to_ledger\":\"world\",\"kind\":\"ore\",\"amount\":55,\"distance_km\":56,\"loss_bps\":58,\"priority\":\"standard\",\"route_ids\":[],\"tariff_electricity_total\":61,\"reroute_count\":60,\"ready_at\":59}},\"industry_progress\":{\"stage\":\"bootstrap\",\"stage_updated_at\":58,\"completed_recipe_jobs\":57,\"completed_material_transits\":56,\"latest_market_quotes\":{}},\"alliances\":{},\"gameplay_policy\":{\"electricity_tax_bps\":59,\"data_tax_bps\":58,\"power_trade_fee_bps\":61,\"max_open_contracts_per_agent\":60,\"blocked_agents\":[],\"forbidden_location_ids\":[],\"updated_at\":62},\"data_access_permissions\":{},\"economic_contracts\":{},\"agent_claims\":{},\"agent_claim_acquisition_sequences\":{\"oracle-agent\":62},\"authenticated_collect_data_last_nonces\":{\"oracle-agent\":{\"oracle-scope\":64}},\"agent_claim_last_processed_epoch\":65,\"contract_pair_last_success_settled_at\":{\"oracle-agent|oracle-peer\":66},\"reputation_reward_window_started_at\":{\"oracle-agent\":67},\"reputation_reward_window_accumulated\":{\"oracle-agent\":68},\"reputation_scores\":{\"oracle-agent\":69},\"wars\":{},\"governance_votes\":{},\"governance_proposals\":{},\"governance_identity_profiles\":{},\"crises\":{},\"meta_progress\":{},\"module_states\":{},\"module_artifact_owners\":{},\"module_artifact_listings\":{},\"module_artifact_bids\":{},\"module_instances\":{},\"module_release_requests\":{\"83\":{\"request_id\":90,\"requester_agent_id\":\"a\",\"manifest\":{\"module_id\":\"m\",\"name\":\"M\",\"version\":\"1\",\"kind\":\"reducer\",\"role\":\"domain\",\"wasm_hash\":\"w\",\"interface_version\":\"1\",\"exports\":[],\"subscriptions\":[],\"required_caps\":[],\"abi_contract\":{\"cap_slots\":{},\"policy_hooks\":[]},\"limits\":{\"max_mem_bytes\":88,\"max_gas\":87,\"max_call_rate\":84,\"max_output_bytes\":89,\"max_effects\":85,\"max_emits\":86}},\"activate\":false,\"install_target\":{\"type\":\"self_agent\"},\"profile_changes\":{\"product_profiles\":[],\"recipe_profiles\":[],\"factory_profiles\":[]},\"required_roles\":[\"security\",\"economy\",\"runtime\"],\"role_approvals\":{},\"attestations\":{},\"status\":\"requested\",\"created_at\":83,\"updated_at\":91}},\"module_release_manifest_mappings\":{\"84\":{\"request_id\":86,\"release_id\":\"r\",\"module_id\":\"m\",\"attestation_count\":84,\"attestation_platforms\":[],\"attestation_proof_cids\":[],\"receipt_evidence_conflict\":false,\"status\":\"requested\",\"created_at\":85,\"updated_at\":87}},\"next_module_release_request_id\":85,\"module_release_role_bindings\":{},\"installed_module_targets\":{},\"next_module_instance_id\":88,\"next_module_market_order_id\":89,\"next_module_market_sale_id\":90,\"main_token_config\":{\"symbol\":\"OC\",\"decimals\":94,\"initial_supply\":101,\"max_supply\":null,\"inflation_policy\":{\"base_rate_bps\":95,\"min_rate_bps\":98,\"max_rate_bps\":97,\"target_stake_ratio_bps\":100,\"stake_feedback_gain_bps\":99,\"epochs_per_year\":96},\"issuance_split\":{\"staking_reward_bps\":105,\"node_service_reward_bps\":103,\"ecosystem_pool_bps\":102,\"security_reserve_bps\":104},\"burn_policy\":{\"gas_base_fee_burn_bps\":91,\"slash_burn_bps\":93,\"module_fee_burn_bps\":92}},\"main_token_supply\":{\"total_supply\":95,\"circulating_supply\":92,\"total_issued\":94,\"total_burned\":93},\"main_token_balances\":{},\"restricted_starter_claim_grants\":{},\"main_token_genesis_buckets\":{},\"main_token_epoch_issuance_records\":{\"96\":{\"epoch_index\":97,\"inflation_rate_bps\":98,\"issued_amount\":99,\"staking_reward_amount\":102,\"node_service_reward_amount\":100,\"ecosystem_pool_amount\":96,\"security_reserve_amount\":101}},\"main_token_treasury_balances\":{\"oracle-account\":97},\"main_token_claim_nonces\":{\"oracle-account\":98},\"main_token_transfer_nonces\":{\"oracle-account\":99},\"main_token_scheduled_policy_updates\":{\"100\":{\"proposal_id\":116,\"effective_epoch\":100,\"next_config\":{\"symbol\":\"OC\",\"decimals\":104,\"initial_supply\":111,\"max_supply\":null,\"inflation_policy\":{\"base_rate_bps\":105,\"min_rate_bps\":108,\"max_rate_bps\":107,\"target_stake_ratio_bps\":110,\"stake_feedback_gain_bps\":109,\"epochs_per_year\":106},\"issuance_split\":{\"staking_reward_bps\":115,\"node_service_reward_bps\":113,\"ecosystem_pool_bps\":112,\"security_reserve_bps\":114},\"burn_policy\":{\"gas_base_fee_burn_bps\":101,\"slash_burn_bps\":103,\"module_fee_burn_bps\":102}}}},\"main_token_node_points_bridge_records\":{\"101\":{\"epoch_index\":101,\"settlement_hash\":\"h\",\"total_amount\":102,\"distributions\":[]}},\"main_token_treasury_distribution_records\":{},\"restricted_starter_claim_liveops_pool_top_up_records\":{},\"reward_asset_config\":{\"points_per_credit\":107,\"credits_per_power_unit\":104,\"max_redeem_power_per_epoch\":105,\"min_redeem_power_unit\":106},\"node_asset_balances\":{},\"protocol_power_reserve\":{\"epoch_index\":107,\"available_power_units\":106,\"redeemed_power_units\":108},\"reward_mint_records\":[],\"node_redeem_nonces\":{},\"system_order_pool_budgets\":{\"109\":{\"epoch_index\":109,\"total_credit_budget\":111,\"remaining_credit_budget\":110,\"node_credit_caps\":{},\"node_credit_allocated\":{}}},\"node_identity_bindings\":{},\"node_main_token_account_bindings\":{},\"governance_finality_signer_registry\":null,\"governance_validator_admissions\":{},\"governance_main_token_controller_registry\":null,\"governance_authorization_nonces\":{\"oracle-agent\":115},\"reward_signature_governance_policy\":{\"require_mintsig_v2\":false,\"allow_mintsig_v1_fallback\":true,\"require_redeem_signature\":false,\"require_redeem_signer_match_node_id\":false}}",
+      "debug": "WorldState { world_rules: None, time: 18, retained_history_root: None, agents: {}, agent_intent_ledger: {}, resources: {Electricity: 22}, materials: {\"ore\": 23}, material_ledgers: {World: {\"ore\": 24}}, material_profiles: {}, logistics_routes: {}, completed_logistics_route_ids: {}, completed_logistics_paths: {}, settled_logistics_transit_ids: {}, logistics_settlement_receipts: {}, factory_production_failure_dispositions: {31: FactoryProductionFailureDispositionV1 { action_id: 31, requester_agent_id: \"r\", factory_id: \"f\", recipe_id: \"p\", blocker_kind: \"blocked\", blocker_detail: \"detail\", disposition_kind: \"lost\", consumed_inputs: [], lost_inputs: [], consumed_power: 32, lost_power: 33, next_action: \"retry\", next_recheck: None }}, direct_material_transfer_receipts: {}, product_validation_receipts: {33: [ProductValidationReceiptV1 { job_id: 34, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 35 }, decision: ProductValidationDecision { product_id: \"\", accepted: false, notes: [], stack_limit: 33, tradable: false, quality_levels: [] }, failure_detail: None }]}, product_profiles: {}, latest_product_validation: None, recipe_profiles: {}, factory_profiles: {}, agent_location_authorities: {}, location_anchors: {}, factory_site_authorities: {}, factory_construction_power_profiles: {}, factories: {}, retired_factory_ids: {}, settled_factory_build_ids: {}, factory_construction_receipts: {}, product_validation_attempts: {46: [ProductValidationAttemptV1 { job_id: 46, validation_index: None, requester_agent_id: \"\", module_id: \"\", stack: MaterialStack { kind: \"\", amount: 47 } }]}, product_validation_delivery_cursor: ProductValidationDeliveryCursor { routed_through_event_id: 48, event_id_era: 47 }, pending_factory_builds: {48: FactoryBuildJobState { job_id: 49, builder_agent_id: \"a\", site_id: \"s\", spec: FactoryModuleSpec { factory_id: \"f\", display_name: \"F\", tier: 56, tags: [], build_cost: [], build_time_ticks: 52, base_power_draw: 51, recipe_slots: 54, throughput_bps: 55, maintenance_per_tick: 53 }, consume_ledger: World, ready_at: 50, contract_version: 48, site_authority_revision: None, site_location_id: None, location_anchor_revision: None, construction_power_obligation: None }}, pending_recipe_jobs: {49: RecipeJobState { industrial_root_ref: None, emergency_power_world_binding: None, committed_recipe_origin: None, job_id: 51, requester_agent_id: \"a\", factory_id: \"f\", recipe_id: \"r\", accepted_batches: 49, consume: [], produce: [], byproducts: [], power_required: 52, power_owner_agent_id: None, duration_ticks: 50, consume_ledger: World, output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [], ready_at: 53 }}, settled_recipe_job_ids: {}, next_industry_settlement_order: 51, industry_settlement_orders: {52: 52}, recipe_completion_receipts: {53: RecipeCompletionReceiptV1 { committed_recipe_origin: None, job_id: 54, requester_agent_id: \"\", factory_id: \"\", recipe_id: \"\", accepted_batches: 53, produce: [], byproducts: [], output_ledger: World, bottleneck_tags: [], logistics_route_ids: [], logistics_path_ids: [] }}, factory_recycle_receipts: {}, pending_material_transits: {55: MaterialTransitJobState { job_id: 57, requester_agent_id: \"a\", from_ledger: World, to_ledger: World, kind: \"ore\", amount: 55, distance_km: 56, loss_bps: 58, priority: Standard, route_id: None, path_id: None, route_ids: [], tariff_electricity_total: 61, reroute_count: 60, ready_at: 59 }}, industry_progress: IndustryProgressState { stage: Bootstrap, stage_updated_at: 58, completed_recipe_jobs: 57, completed_material_transits: 56, starter_industrial_milestone: None, latest_market_quotes: {} }, alliances: {}, gameplay_policy: GameplayPolicyState { electricity_tax_bps: 59, data_tax_bps: 58, power_trade_fee_bps: 61, max_open_contracts_per_agent: 60, blocked_agents: [], forbidden_location_ids: [], updated_at: 62 }, data_access_permissions: {}, economic_contracts: {}, agent_claims: {}, agent_claim_acquisition_sequences: {\"oracle-agent\": 62}, starter_oc_claims: {}, authenticated_collect_data_last_nonces: {\"oracle-agent\": {\"oracle-scope\": 64}}, agent_claim_last_processed_epoch: 65, contract_pair_last_success_settled_at: {\"oracle-agent|oracle-peer\": 66}, reputation_reward_window_started_at: {\"oracle-agent\": 67}, reputation_reward_window_accumulated: {\"oracle-agent\": 68}, reputation_scores: {\"oracle-agent\": 69}, wars: {}, governance_votes: {}, governance_proposals: {}, governance_identity_profiles: {}, crises: {}, meta_progress: {}, module_states: {}, module_visual_entities: {}, module_artifact_owners: {}, module_artifact_listings: {}, module_artifact_bids: {}, module_instances: {}, module_admission_freezes: {}, module_release_requests: {83: ModuleReleaseRequestState { request_id: 90, requester_agent_id: \"a\", manifest: ModuleManifest { module_id: \"m\", name: \"M\", version: \"1\", kind: Reducer, role: Domain, wasm_hash: \"w\", interface_version: \"1\", exports: [], subscriptions: [], required_caps: [], abi_contract: ModuleAbiContract { abi_version: None, input_schema: None, output_schema: None, cap_slots: {}, policy_hooks: [], gameplay: None, declarations: ModuleSchemaDeclarations { commands: [] } }, artifact_identity: None, limits: ModuleLimits { max_mem_bytes: 88, max_gas: 87, max_call_rate: 84, max_output_bytes: 89, max_effects: 85, max_emits: 86 } }, activate: false, install_target: SelfAgent, profile_changes: ModuleProfileChanges { product_profiles: [], recipe_profiles: [], factory_profiles: [] }, required_roles: [\"security\", \"economy\", \"runtime\"], role_approvals: {}, attestations: {}, status: Requested, shadow_manifest_hash: None, applied_manifest_hash: None, applied_proposal_id: None, rejected_reason: None, created_at: 83, updated_at: 91 }}, module_release_manifest_mappings: {84: ModuleReleaseManifestMappingState { request_id: 86, release_id: \"r\", module_id: \"m\", attestation_count: 84, release_wasm_hash: None, release_source_hash: None, release_build_manifest_hash: None, release_builder_image_digest: None, release_container_platform: None, release_canonicalizer_version: None, attestation_platforms: [], attestation_proof_cids: [], receipt_evidence_conflict: false, shadow_manifest_hash: None, applied_manifest_hash: None, applied_proposal_id: None, status: Requested, created_at: 85, updated_at: 87 }}, next_module_release_request_id: 85, module_release_role_bindings: {}, installed_module_targets: {}, next_module_instance_id: 88, next_module_market_order_id: 89, next_module_market_sale_id: 90, main_token_config: MainTokenConfig { symbol: \"OC\", decimals: 94, initial_supply: 101, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 95, min_rate_bps: 98, max_rate_bps: 97, target_stake_ratio_bps: 100, stake_feedback_gain_bps: 99, epochs_per_year: 96 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 105, node_service_reward_bps: 103, ecosystem_pool_bps: 102, security_reserve_bps: 104 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 91, slash_burn_bps: 93, module_fee_burn_bps: 92 } }, main_token_supply: MainTokenSupplyState { total_supply: 95, circulating_supply: 92, total_issued: 94, total_burned: 93 }, main_token_balances: {}, restricted_starter_claim_grants: {}, main_token_genesis_buckets: {}, main_token_epoch_issuance_records: {96: MainTokenEpochIssuanceRecord { epoch_index: 97, inflation_rate_bps: 98, issued_amount: 99, staking_reward_amount: 102, node_service_reward_amount: 100, ecosystem_pool_amount: 96, security_reserve_amount: 101 }}, main_token_treasury_balances: {\"oracle-account\": 97}, main_token_claim_nonces: {\"oracle-account\": 98}, main_token_transfer_nonces: {\"oracle-account\": 99}, main_token_scheduled_policy_updates: {100: MainTokenScheduledPolicyUpdate { proposal_id: 116, effective_epoch: 100, next_config: MainTokenConfig { symbol: \"OC\", decimals: 104, initial_supply: 111, max_supply: None, inflation_policy: MainTokenInflationPolicy { base_rate_bps: 105, min_rate_bps: 108, max_rate_bps: 107, target_stake_ratio_bps: 110, stake_feedback_gain_bps: 109, epochs_per_year: 106 }, issuance_split: MainTokenIssuanceSplitPolicy { staking_reward_bps: 115, node_service_reward_bps: 113, ecosystem_pool_bps: 112, security_reserve_bps: 114 }, burn_policy: MainTokenBurnPolicy { gas_base_fee_burn_bps: 101, slash_burn_bps: 103, module_fee_burn_bps: 102 } } }}, main_token_node_points_bridge_records: {101: MainTokenNodePointsBridgeEpochRecord { epoch_index: 101, settlement_hash: \"h\", total_amount: 102, distributions: [] }}, main_token_treasury_distribution_records: {}, restricted_starter_claim_liveops_pool_top_up_records: {}, reward_asset_config: RewardAssetConfig { points_per_credit: 107, credits_per_power_unit: 104, max_redeem_power_per_epoch: 105, min_redeem_power_unit: 106 }, node_asset_balances: {}, protocol_power_reserve: ProtocolPowerReserve { epoch_index: 107, available_power_units: 106, redeemed_power_units: 108 }, reward_mint_records: [], node_redeem_nonces: {}, system_order_pool_budgets: {109: SystemOrderPoolBudget { epoch_index: 109, total_credit_budget: 111, remaining_credit_budget: 110, node_credit_caps: {}, node_credit_allocated: {} }}, node_identity_bindings: {}, node_main_token_account_bindings: {}, governance_finality_signer_registry: None, governance_validator_admissions: {}, governance_main_token_controller_registry: None, governance_authorization_nonces: {\"oracle-agent\": 115}, reward_signature_governance_policy: RewardSignatureGovernancePolicy { require_mintsig_v2: false, allow_mintsig_v1_fallback: true, require_redeem_signature: false, require_redeem_signer_match_node_id: false } }"
+    }
+  },
+  "cborSequenceFixture": "world_state_deserialize_enriched_sequence.cbor",
+  "cborSequenceSha256": "d07c2dc3965ee59cafbc57daa1cc6353881818d27e98657ae885b7901a3c0606",
+  "cborSequenceBytes": 4058,
+  "captureObservations": {
+    "mapJsonAndDeclarationOrderJsonSequenceSerializeEqual": true,
+    "mapJsonAndDeclarationOrderJsonSequenceDebugEqual": true,
+    "mapJsonAndTypedFieldCborSequenceSerializeEqual": true,
+    "mapJsonAndTypedFieldCborSequenceDebugEqual": true
+  },
+  "limits": [
+    "This fixture records the old derive on one enriched full map and its declaration-order JSON and typed-field CBOR sequences.",
+    "The 14 adapter entries use distinct keys and nonempty values; other fields retain the previously validated full-map shape with numeric/time leaves marked.",
+    "This is semantic compatibility evidence, not a performance or full CodeQL acceptance result."
+  ]
+}
