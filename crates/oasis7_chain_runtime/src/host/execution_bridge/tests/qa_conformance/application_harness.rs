@@ -382,10 +382,25 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
             original: &original,
             denied: &denied,
         });
+    let _checkpoint_publication_oracle = (matches!(
+        admission_mode,
+        "checkpoint-fairness" | "checkpoint-scope-fence" | "checkpoint-pause-resume"
+    ))
+    .then(|| {
+        http_fixture::observe_checkpoint_publication(
+            &fixture.lookup_digests,
+            app_dir.join("stream-boundary-private-lineage.json"),
+        )
+    });
     let observer_stop = Arc::new(AtomicBool::new(false));
     let pending_observer = (admission_mode == "pending-cadence")
         .then(|| application_hosted_unpublished_cadence::observe_parent(&fixture, &app_dir));
-    let observer = boundary_mode.then(|| {
+    let observer = (boundary_mode
+        || matches!(
+            admission_mode,
+            "checkpoint-fairness" | "checkpoint-scope-fence" | "checkpoint-pause-resume"
+        ))
+    .then(|| {
         application_admission_boundaries::observe_parent(
             &fixture,
             &app_dir,
@@ -726,7 +741,14 @@ fn run_application_child_and_report(
     } else {
         command.output().unwrap()
     };
-    if matches!(admission_mode, "slow-consumer" | "periodic-fairness") {
+    if matches!(
+        admission_mode,
+        "slow-consumer"
+            | "periodic-fairness"
+            | "checkpoint-fairness"
+            | "checkpoint-scope-fence"
+            | "checkpoint-pause-resume"
+    ) {
         application_stream_budget_diagnostics::relay(&output);
     }
     if !output.status.success() {

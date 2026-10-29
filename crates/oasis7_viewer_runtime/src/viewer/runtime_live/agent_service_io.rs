@@ -19,6 +19,9 @@ pub(super) struct AgentServiceIoToken {
     pub(super) phase_digest: String,
 }
 pub(super) enum AgentServiceIoOperation {
+    PublishLineage(
+        super::control_plane::llm_sidecar::lineage_persistence::checkpoint_write::PublicationBatch,
+    ),
     Submit(SubmitIntentRequest<WorldServicePayloadV1>),
     Lookup {
         request: LookupIntentRequest,
@@ -37,6 +40,7 @@ pub(super) struct AgentServiceIoJob {
     pub(super) operation: AgentServiceIoOperation,
 }
 pub(super) enum AgentServiceIoResponse {
+    LineagePublished,
     Submit(SubmitObservation<Value>),
     Intent(IntentResponse<Value>),
     View(Box<VerifiedWorldView>),
@@ -51,8 +55,33 @@ pub(super) struct AgentServiceIoResult {
     pub(super) response: Result<AgentServiceIoResponse, String>,
 }
 impl AgentServiceIoJob {
+    /// Only a not-yet-dispatched fresh admission Submit needs current Play
+    /// eligibility. Lookup/reconciliation and accepted terminal work continue.
+    pub(super) fn requires_fresh_dispatch_eligibility(&self) -> bool {
+        if !matches!(
+            self.token.phase_digest.as_str(),
+            "admission:reserve" | "admission:prefix"
+        ) {
+            return false;
+        }
+        matches!(&self.operation,
+            AgentServiceIoOperation::Submit(SubmitIntentRequest {
+                signed_payload: WorldServicePayloadV1::Scheduler(signed), ..
+            }) if matches!(&signed.request.operation,
+                crate::world_service::wire::SchedulerOperationV1::ReserveLease(_)
+                | crate::world_service::wire::SchedulerOperationV1::ProviderPrefix { .. }))
+    }
     pub(super) fn execute(self) -> AgentServiceIoResult {
         let response = match self.operation {
+            AgentServiceIoOperation::PublishLineage(batch) => batch
+                .lock()
+                .map_err(|_| "lineage in-flight batch poisoned".to_string())
+                .and_then(|batch| {
+                    batch
+                        .iter()
+                        .try_for_each(|publication| publication.execute())
+                })
+                .map(|()| AgentServiceIoResponse::LineagePublished),
             AgentServiceIoOperation::Feedback { client, payload } => client
                 .submit_feedback_context_payload(&payload)
                 .map_err(|e| e.to_string())
@@ -81,6 +110,7 @@ impl AgentServiceIoJob {
                         .read_view(request)
                         .map(|view| AgentServiceIoResponse::View(Box::new(view))),
                     AgentServiceIoOperation::Metadata(_)
+                    | AgentServiceIoOperation::PublishLineage(_)
                     | AgentServiceIoOperation::Feedback { .. } => unreachable!(),
                 }
                 .map_err(|error| error.to_string()),

@@ -128,6 +128,7 @@ impl IoDiagnostics {
                 AgentServiceIoOperation::View(_) => 3,
                 AgentServiceIoOperation::Feedback { .. } => 4,
                 AgentServiceIoOperation::Metadata(_) => 5,
+                AgentServiceIoOperation::PublishLineage(_) => 6,
             },
             Ordering::Relaxed,
         );

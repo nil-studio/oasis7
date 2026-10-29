@@ -93,6 +93,7 @@ impl RuntimeLlmSidecar {
                     .and_then(|view| view.runtime_binding.as_ref())
                     .ok_or("canonical scheduler settlement requires verified current binding")?
             };
+            let sign_phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(48);
             let signed = sign_read_request(
                 "scheduler",
                 SchedulerIntentV1 {
@@ -118,6 +119,7 @@ impl RuntimeLlmSidecar {
                 },
                 &signer.private_key_hex,
             )?;
+            drop(sign_phase);
             let payload = WorldServicePayloadV1::Scheduler(signed);
             let correlation =
                 crate::world_service::derive_correlation(config.expected_world.clone(), &payload)?;

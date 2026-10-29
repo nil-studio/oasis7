@@ -22,7 +22,7 @@ fn validated(line: &[u8]) -> Option<Vec<u8>> {
         || evidence.parts > MAX_PARTS
         || evidence.part >= evidence.parts
         || evidence.rows.iter().any(|row| {
-            !matches!(row[0], 1..=7 | 10 | 20..=23 | 30..=35 | 40..=42 | 100..=101 | 200)
+            !matches!(row[0], 1..=7 | 10 | 20..=23 | 30..=35 | 40..=51 | 100..=101 | 200)
                 || row[2] > row[3]
         })
     {
@@ -81,12 +81,14 @@ pub(super) fn dump(samples: &[serde_json::Value]) {
 #[test]
 fn numeric_relay_rejects_payloads_and_oversize_records() {
     assert!(validated(b"stream_budget_numeric={\"rows\":[[3,1,0,1,0,0]],\"dropped\":0,\"part\":0,\"parts\":1}").is_some());
+    assert!(validated(b"stream_budget_numeric={\"rows\":[[43,1,0,1,0,0],[51,1,0,1,0,0]],\"dropped\":0,\"part\":0,\"parts\":1}").is_some());
     for json in [
         r#"{"rows":[],"dropped":0,"part":0,"parts":1,"payload":"private"}"#,
         r#"{"rows":[],"dropped":0,"part":0,"parts":0}"#,
         r#"{"rows":[],"dropped":0,"part":1,"parts":1}"#,
         r#"{"rows":[],"dropped":0,"part":0,"parts":66}"#,
         r#"{"rows":[[3,1,0,1,"private",0]],"dropped":0,"part":0,"parts":1}"#,
+        r#"{"rows":[[52,1,0,1,0,0]],"dropped":0,"part":0,"parts":1}"#,
         r#"{"rows":[[999,1,0,1,0,0]],"dropped":0,"part":0,"parts":1}"#,
         r#"{"rows":[[3,1,2,1,0,0]],"dropped":0,"part":0,"parts":1}"#,
     ] {

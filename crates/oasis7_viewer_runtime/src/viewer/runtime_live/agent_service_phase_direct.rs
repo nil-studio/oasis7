@@ -168,6 +168,7 @@ impl ViewerRuntimeLiveServer {
         &self,
         cognition: &RuntimeProviderActionContext,
     ) -> Result<(), String> {
+        self.llm_sidecar.ensure_lineage_published()?;
         let agent_id = &cognition.request.request_context.agent_subject;
         if self.agent_service_pump_started
             || self.llm_sidecar.hosted_service_inflight.is_some()

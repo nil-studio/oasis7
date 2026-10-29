@@ -327,6 +327,8 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
         Option<lineage_persistence::PendingProviderSchedulerIntent>,
     )>,
     pub(in crate::viewer::runtime_live) hosted_fresh_view_ready: bool,
+    pub(in crate::viewer::runtime_live) hosted_native_dispatch:
+        Option<(cognition_context::ProviderContextState, bool)>,
     pub(in crate::viewer::runtime_live) hosted_admission:
         Option<cognition_context::HostedAdmission>,
     pub(in crate::viewer::runtime_live) provider_restored_service_checkpoints:
@@ -366,6 +368,7 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     pending_provider_world_events: BTreeMap<String, RuntimePendingProviderWorldEvent>,
     provider_world_event_quarantine: BTreeMap<String, String>,
     provider_lineage_store: Option<PathBuf>,
+    publication: lineage_persistence::checkpoint_write::LineagePublicationOwner,
     provider_lineage_binding: Option<RuntimeBindingV1>,
     provider_lineage_restored: bool,
     provider_lineage_hydrated: bool,

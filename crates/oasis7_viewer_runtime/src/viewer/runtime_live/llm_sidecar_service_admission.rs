@@ -530,6 +530,7 @@ impl RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) fn dispatch_hosted_admission(
         &mut self,
     ) -> Result<bool, String> {
+        self.ensure_lineage_published()?;
         let Some(admission) = self
             .hosted_admission
             .clone()
@@ -555,16 +556,39 @@ impl RuntimeLlmSidecar {
             &context.request_context,
             &lease,
         )?;
+        let prepared = self
+            .hosted_native_dispatch
+            .as_ref()
+            .map(|(original, published)| {
+                Ok::<_, String>((
+                    serde_json::to_value(original).map_err(|e| e.to_string())?
+                        == serde_json::to_value(&context).map_err(|e| e.to_string())?,
+                    *published,
+                ))
+            })
+            .transpose()?;
         if self.provider_active_turns.contains_key(&agent) {
-            return Err("fresh active marker requires recovery; redispatch fenced".into());
-        };
-        self.provider_contexts
-            .insert(agent.clone(), context.clone());
-        self.provider_active_turns
-            .insert(agent.clone(), context.clone());
-        self.bind_provider_cognition_lease(agent.clone(), lease.clone());
-        self.persist_provider_lineage()?;
+            match prepared {
+                Some((true, true)) => {}
+                Some((true, false)) => return Ok(false),
+                _ => return Err("fresh active marker requires recovery; redispatch fenced".into()),
+            }
+        } else {
+            self.provider_contexts
+                .insert(agent.clone(), context.clone());
+            self.provider_active_turns
+                .insert(agent.clone(), context.clone());
+            self.bind_provider_cognition_lease(agent.clone(), lease.clone());
+            self.persist_provider_lineage()?;
+            if super::lineage_persistence::checkpoint_write::is_deferred(self) {
+                self.hosted_native_dispatch = Some((context, false));
+                return Ok(false);
+            }
+        }
         let observation = admission.observation;
+        // From this point a runner start result may be ambiguous; never use
+        // the publication permit to replay the original model dispatch.
+        self.hosted_native_dispatch = None;
         let runner = self
             .runner
             .as_mut()
@@ -580,6 +604,7 @@ impl RuntimeLlmSidecar {
                 lease,
             )
             .map_err(|error| format!("{error:?}"))?;
+        self.hosted_native_dispatch = None;
         self.hosted_admission = None;
         self.persist_provider_lineage()?;
         Ok(true)
@@ -875,6 +900,36 @@ mod feedback_admission_tests;
 mod reserve_rejection_tests;
 
 impl HostedAdmission {
+    #[cfg(any(test, feature = "test_tier_required"))]
+    pub(in crate::viewer::runtime_live) fn has_exact_fresh_scheduler_original(
+        &self,
+        pending: &super::lineage_persistence::PendingProviderSchedulerIntent,
+    ) -> bool {
+        use crate::world_service::wire::{SchedulerOperationV1, WorldServicePayloadV1};
+        let request = &self.context.request_context;
+        let phase = match self.stage.as_str() {
+            "reserve" => "reserve".to_owned(),
+            "prefix" => format!("prefix:{}", request.transport_attempt),
+            _ => return false,
+        };
+        let WorldServicePayloadV1::Scheduler(signed) = &pending.payload else {
+            return false;
+        };
+        let operation_matches = matches!(
+            (self.stage.as_str(), &signed.request.operation),
+            ("reserve", SchedulerOperationV1::ReserveLease(_))
+                | ("prefix", SchedulerOperationV1::ProviderPrefix { .. })
+        );
+        operation_matches
+            && signed.request.agent_id == request.agent_subject
+            && signed.request.request_id == format!("{}:{phase}", request.provider_invocation_key())
+            && crate::world_service::verify_read_request("scheduler", signed).is_ok()
+            && crate::world_service::derive_correlation(
+                pending.correlation.key.world.clone(),
+                &pending.payload,
+            )
+            .is_ok_and(|correlation| correlation == pending.correlation)
+    }
     pub(in crate::viewer::runtime_live) fn owns_provider_context(
         &self,
         active: &ProviderContextState,

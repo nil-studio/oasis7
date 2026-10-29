@@ -64,6 +64,50 @@ These two relations qualify the affected current lanes only; the original logica
 | Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[product_requirement: REQ-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-008) / AC-EXT-008 | Existing professional PRD §4.2 recovery receiver → design §5.1–5.3, with §7 integration and §9 verification: after ResponseRecorded, replay the recorded response without provider redispatch; reconcile unknown submission against the original marker/key/receipt, repair committed projections only, never repeat canonical world effects or revive old branch/authority. | [Journal/recovery](#5-journal-layout-and-recovery) | Runtime owns canonical commit/recovery; Agent owns provider/continuation policy; collaboration authority owns product recovery and QA owns acceptance. | Limited Runtime dependency only: excludes private-context-loss notice/trusted replanning UI, real remote restart, complete production history and full EXT-008 acceptance. EXT remains partial design/implementation. |
 | Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[product_requirement: REQ-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#req-collab-006) / AC-COLLAB-006 | Existing professional PRD §4.2 recovery receiver → design §5.1–5.3, with §7 integration and §9 verification: after ResponseRecorded, replay the recorded response without provider redispatch; reconcile unknown submission against the original marker/key/receipt, repair committed projections only, never repeat canonical world effects or revive old branch/authority. | [Journal/recovery](#5-journal-layout-and-recovery) | Runtime owns canonical commit/recovery; Agent owns provider/continuation policy; collaboration authority owns product recovery and QA owns acceptance. | Limited Runtime dependency only: excludes collaboration message/snapshot pagination, unanswered questions, pending approvals, cross-device redelivery and complete COLLAB-006 acceptance. Existing design-covered/partially-implemented product state is unchanged. |
 
+### Hosted preparation and private checkpoint publication
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；沿用上表恢复要求，不新增 authority。
+
+Viewer 的共享观察锁不承载 Hosted Agent 的签名、整份 lineage 编码或文件发布等待。
+准备工作使用既有单 worker 和一个在途 ticket：锁内固定原 invocation/lease/retry/transport、
+config/session/source fence 与 publication generation，锁外处理 owned 输入，锁内只应用
+同 ticket 的 typed delta。不得搬走或回写整份 server/runner，也不得覆盖其间的 Pause、
+新 scope、晚到响应或新配置。所有 lineage writer 共用 publication generation/order 预约；
+旧 generation 不得 rename 覆盖较新文件。原胶囊发布成功且同 ticket 校验提交以前，不得
+Submit 或调用模型。scope 改变保留原胶囊供显式恢复，不生成新 nonce 或自动新 lease。
+
+当前私有 checkpoint writer 使用临时文件加 rename 的进程级原子发布，没有 fsync 合同。
+该描述不把进程级发布升级为断电持久性。故障或结果不明时保留原身份并停止派发。
+诊断仅记录有界数字阶段，区分 clone/encode/sign/write/rename，不能将整段 prepare
+耗时推断为某一系统调用。真实 writer 在编码、临时写入后且 rename 前受阻时，同一已
+primed TCP observer 的 Hello/Snapshot 仍须在既有 150ms 内完成；持有 gate 期间零
+Submit/模型调用，释放后核对同原胶囊先发布再发送，另测旧 generation/旧 scope 晚到。
+这些是实现与回归的合同，新增测试或数字记录不构成已完成异步实现的声明。
+
+当前 publication-I/O slice 在 Hosted shared pump 启动后，让 prepare/apply 和 chain/periodic
+事件 writer 进入同一 owner 队列；队列与在途批次合计最多 32 个完整原件，另只保留首次
+overflow 原件。overflow 后后续通知不再 capture，明确阻断派发与 ACK，不能由 best-effort
+调用吞错后假确认。文件名使用进程内唯一序号且 create_new，保留原件为私有文件；同一
+配置路径的 generation 分配不等待 rename mutex，check+rename 在 worker 中线性化。
+临时文件部分写失败、已有同名文件或 superseded publication 明确永久 blocked，保留原件
+供显式恢复，不删除、不覆盖、不作为 transient 无限重试。其他可证明未发布的存储失败
+只重试同一个 owned 原件。旧 ACK 只可确认精确 owner ticket；新链事件推进 dirty ticket 后必须由同 worker 出版，
+原 ticket 不得清除它。队列锁不跨 IO，owner 独立保留在途原件供失败重试或显式恢复。
+publication ACK 不授权一个新的 fresh 派发：Reserve/Prefix 的首次 Submit 入既有 worker 队列前，
+仍在同一共享临界区重查当前 Play、session presence、LLM mode 与 recovery fence。Pause
+期间保留同一个 pending job、签名原件、nonce、lease 与 phase token；Resume 后按原件续办，
+不重建上下文。Lookup/对账及已受理事务的终态 settle 不因 Pause 取消；模型启动继续执行
+既有当前 eligibility 和原 RequestDispatched 恢复约束。
+
+此 ordering 只统一相同规范配置路径的本进程 writer，不声称物理路径别名、跨进程互斥或防回退。
+
+该 slice 的签名、验证与完整 checkpoint capture 仍在共享锁内，阶段 43/48/49 等继续
+保留成本观测；小 fixture 的短 capture 不能证明增长后无界复制可接受。它不声称全部
+preparation 已脱锁。启动 restore 和 unshared direct/bootstrap 保留同步路径；非 Hosted
+legacy/native shared 模式不在本次 publication-I/O 闭环的范围内，不能泛称全部 Viewer
+writer 脱锁。完整准备脱锁与大 lineage 的 capture 预算仍需后续独立证据。
+
+
 ### 2.1 Turn and request
 
 ~~~text
