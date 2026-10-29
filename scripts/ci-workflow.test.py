@@ -703,6 +703,28 @@ class Workflow(unittest.TestCase):
                     assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
                     assert 'oasis7_viewer_live' in records, records
 
+    def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        function = re.search(r'^run_dot_todo_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(function)
+        governance = driver.split('run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
+        self.assertEqual(governance.count('  run_dot_todo_contract_tests'), 1)
+        for present, test_exit, expected in (((), 0, 0), (('source',), 0, 1),
+                                              (('test',), 0, 1), (('source', 'test'), 0, 0),
+                                              (('source', 'test'), 37, 37)):
+            with self.subTest(present=present, test_exit=test_exit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'scripts').mkdir()
+                if 'source' in present:
+                    (root / 'scripts/dot-todo.py').write_text('# synthetic source')
+                if 'test' in present:
+                    (root / 'scripts/dot-todo.test.py').write_text(
+                        "from pathlib import Path\nPath('ran').write_text('once')\nraise SystemExit(%d)\n" % test_exit)
+                shell = 'set -euo pipefail\nrun() { "$@"; }\n' + function.group() + '\nrun_dot_todo_contract_tests\n'
+                result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertEqual((root / 'ran').exists(), len(present) == 2)
+
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
         self.assertIn("if: runner.os == 'macOS'", fleet)
