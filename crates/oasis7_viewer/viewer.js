@@ -8415,6 +8415,7 @@ function executeKindForAction(actionId, protocolAction) {
 	if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") return "request_snapshot";
 	if (protocolAction === "live_control.step") return "step";
 	if (protocolAction === "live_control.play") return "play";
+	if (protocolAction === "live_control.pause") return "pause";
 	if (protocolAction === "agent_chat") return "agent_chat";
 	if (protocolAction === "prompt_control.apply") return "reprioritize";
 	if (protocolAction !== "gameplay_action.submit") return "unsupported";
@@ -8444,7 +8445,7 @@ function normalizeViewerAvailableActions({ gameplay, locale, localeText, agentEx
 			label,
 			protocolAction,
 			targetAgentId,
-			disabledReason: protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
+			disabledReason: protocolAction === "live_control.pause" ? null : protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
 			executeKind: executeKindForAction(actionId, protocolAction)
 		};
 	});
@@ -19221,6 +19222,10 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 	if (protocolAction === "live_control.play") return {
 		ok: true,
 		feedback: sendControl("play", null)
+	};
+	if (protocolAction === "live_control.pause") return {
+		ok: true,
+		feedback: sendControl("pause", null)
 	};
 	if (protocolAction !== "gameplay_action.submit") return {
 		ok: false,
@@ -33295,7 +33300,7 @@ function gameplayActionControlBoundaryReason(action, locale) {
 	const protocolAction = normalizedId(action?.protocolAction || action?.protocol_action);
 	const targetAgentId = normalizedId(action?.targetAgentId || action?.target_agent_id);
 	if (!targetAgentId || actionId === "claim_first_agent") return null;
-	if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play") return null;
+	if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play" || protocolAction === "live_control.pause") return null;
 	const boundAgentId = normalizedId(state.auth.boundAgentId);
 	if (!boundAgentId) return tr(locale, "当前账号尚未绑定 Agent；这个动作来自共享世界快照，不能作为当前账号动作执行。", "The current account has no bound Agent; this action came from the shared world snapshot and cannot be executed as the current account.");
 	if (targetAgentId !== boundAgentId) return tr(locale, `这个动作目标是 ${targetAgentId}，但当前账号绑定的是 ${boundAgentId}。`, `This action targets ${targetAgentId}, but the current account is bound to ${boundAgentId}.`);
@@ -33315,6 +33320,7 @@ function gameplayActionButtonLabel(action, locale) {
 	if (action.executeKind === "request_snapshot") return tr(locale, "刷新快照", "Refresh Snapshot");
 	if (action.executeKind === "step") return tr(locale, "推进一步", "Advance One Step");
 	if (action.executeKind === "play") return tr(locale, "恢复实时推进", "Resume Live Play");
+	if (action.executeKind === "pause") return tr(locale, "暂停实时推进", "Pause Live Play");
 	if (action.executeKind === "agent_chat") return tr(locale, "切到聊天面板", "Use Chat Panel");
 	return tr(locale, "提交玩法动作", "Submit Gameplay Action");
 }
@@ -33325,6 +33331,7 @@ function gameplayActionBusyLabel(action, locale) {
 	if (action?.executeKind === "request_snapshot") return tr(locale, "刷新中...", "Refreshing...");
 	if (action?.executeKind === "step") return tr(locale, "推进中...", "Advancing...");
 	if (action?.executeKind === "play") return tr(locale, "恢复中...", "Resuming...");
+	if (action?.executeKind === "pause") return tr(locale, "暂停中...", "Pausing...");
 	if (action?.actionId === "claim_starter_oc") return tr(locale, "确认中...", "Confirming...");
 	if (action?.actionId === "claim_first_agent" || action?.executeKind === "claim_agent") return tr(locale, "提交中...", "Submitting...");
 	return tr(locale, "处理中...", "Working...");
@@ -33347,6 +33354,7 @@ function gameplayActionTestId(action, role = "available") {
 	if (action?.executeKind === "request_snapshot") return "viewer-available-action-request-snapshot";
 	if (action?.executeKind === "step") return "viewer-available-action-step";
 	if (action?.executeKind === "play") return "viewer-available-action-play";
+	if (action?.executeKind === "pause") return "viewer-available-action-pause";
 	const raw = action?.actionId || action?.protocolAction || action?.executeKind || "unknown";
 	return `viewer-playthrough-action-${String(raw).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown"}`;
 }
@@ -35494,7 +35502,7 @@ function WorldSummaryPanel(props = {}) {
 														}),
 														createComponent(Show, {
 															get when() {
-																return action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc";
+																return action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "pause" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc";
 															},
 															get children() {
 																var _el$294 = _tmpl$33(), _el$295 = _el$294.firstChild;
