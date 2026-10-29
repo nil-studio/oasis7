@@ -791,8 +791,8 @@ fn first_parent_read_invalidates_guard_but_repeated_tracked_read_does_not() {
 fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
     struct Classified<'a> {
         pages: &'a Pages,
-        memory: &'a MemoryBudget,
-        class: MemoryClass,
+        memory: Option<&'a MemoryBudget>,
+        class: Option<MemoryClass>,
     }
     impl MerkleNodeReader for Classified<'_> {
         type Node = Vec<u8>;
@@ -800,10 +800,10 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
             self.pages.read_node(id, max)
         }
         fn allocation_budget(&self) -> Option<&MemoryBudget> {
-            Some(self.memory)
+            self.memory
         }
         fn allocation_class(&self) -> Option<MemoryClass> {
-            Some(self.class)
+            self.class
         }
     }
     let pages = Pages::default();
@@ -811,13 +811,24 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
     let parent = empty_parent();
     let recovery = Classified {
         pages: &pages,
-        memory: &memory,
-        class: MemoryClass::Recovery,
+        memory: Some(&memory),
+        class: Some(MemoryClass::Recovery),
     };
     assert!(matches!(
         ExecutionTransaction::begin(parent.clone(), [1; 32], &recovery, &memory, limits()),
         Err(ExecutionError::Invalid(_))
     ));
+    for (pool, class) in [(Some(&memory), None), (None, Some(MemoryClass::Ordinary))] {
+        let source = Classified {
+            pages: &pages,
+            memory: pool,
+            class,
+        };
+        assert!(matches!(
+            ExecutionTransaction::begin(parent.clone(), [1; 32], &source, &memory, limits()),
+            Err(ExecutionError::Invalid(_))
+        ));
+    }
     let live = parent.fence().unwrap();
     let txn =
         ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
@@ -829,8 +840,8 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
     ] {
         let source = Classified {
             pages: &pages,
-            memory: &memory,
-            class: source_class,
+            memory: Some(&memory),
+            class: Some(source_class),
         };
         let before = memory.used();
         assert!(matches!(

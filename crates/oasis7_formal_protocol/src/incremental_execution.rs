@@ -69,19 +69,14 @@ pub(crate) fn validate_source_budget(
     memory: &MemoryBudget,
     class: MemoryClass,
 ) -> Result<(), ExecutionError> {
-    if source
-        .allocation_budget()
-        .is_some_and(|source| !source.same_pool(memory))
-    {
-        return Err(ExecutionError::Invalid("Merkle source memory pool"));
+    match (source.allocation_budget(), source.allocation_class()) {
+        // Legacy readers borrow the caller's already admitted workspace.
+        (None, None) => Ok(()),
+        (Some(pool), Some(source_class)) if pool.same_pool(memory) && source_class == class => {
+            Ok(())
+        }
+        _ => Err(ExecutionError::Invalid("Merkle source memory pool/class")),
     }
-    if source
-        .allocation_class()
-        .is_some_and(|source_class| source_class != class)
-    {
-        return Err(ExecutionError::Invalid("Merkle source memory class"));
-    }
-    Ok(())
 }
 
 /// An exact binding supplied by the original authority adapter. Possessing
