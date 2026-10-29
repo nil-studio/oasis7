@@ -153,6 +153,10 @@ pub(super) struct Inbox {
     completed: BTreeMap<(PeerId, String), (usize, Instant)>,
     partial_bytes: usize,
     complete_bytes: usize,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_routes: BTreeMap<PeerId, usize>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_complete: VecDeque<Option<(usize, &'static str, Instant)>>,
 }
 impl Inbox {
     pub fn new() -> Self {
@@ -162,7 +166,18 @@ impl Inbox {
             completed: BTreeMap::new(),
             partial_bytes: 0,
             complete_bytes: 0,
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_routes: BTreeMap::new(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_complete: VecDeque::new(),
         }
+    }
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub(super) fn trace_routes(&mut self, peers: &[PeerId], local: PeerId) {
+        self.trace_routes = peers
+            .iter()
+            .map(|peer| (*peer, super::route_trace::route(*peer, local)))
+            .collect();
     }
     pub fn receive(
         &mut self,
@@ -246,6 +261,25 @@ impl Inbox {
             let p = self.partial.remove(&key).ok_or("public assembly missing")?;
             self.partial_bytes -= p.total;
             self.complete_bytes += p.total;
+            #[cfg(any(test, feature = "test-hooks"))]
+            {
+                let observation = super::route_trace::enabled().then(|| {
+                    let route = self.trace_routes.get(&peer).copied().unwrap_or(256);
+                    let kind = super::route_trace::kind(&message);
+                    let age = now.saturating_duration_since(p.deadline - TTL);
+                    super::route_trace::event(
+                        route,
+                        kind,
+                        "assembly_complete",
+                        "received",
+                        age,
+                        age,
+                        p.deadline.saturating_duration_since(now),
+                    );
+                    (route, kind, now)
+                });
+                self.trace_complete.push_back(observation);
+            }
             self.complete.push_back((
                 p.total,
                 NodeBftReceivedPublicV3 {
@@ -288,6 +322,18 @@ impl Inbox {
                 break;
             };
             self.complete_bytes -= n;
+            #[cfg(any(test, feature = "test-hooks"))]
+            if let Some(Some((route, kind, completed))) = self.trace_complete.pop_front() {
+                super::route_trace::event(
+                    route,
+                    kind,
+                    "drain",
+                    "delivered",
+                    completed.elapsed(),
+                    completed.elapsed(),
+                    Duration::ZERO,
+                );
+            }
             out.push(message);
         }
         out
