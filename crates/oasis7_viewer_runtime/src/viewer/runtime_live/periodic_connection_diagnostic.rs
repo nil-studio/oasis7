@@ -171,6 +171,14 @@ pub(super) struct ConnectionTrace {
 }
 
 impl ConnectionTrace {
+    #[cfg(test)]
+    pub(super) fn emit_read_timeout(&self, buffered_bytes: usize) {
+        self.sink.emit(|| format!(
+            "{TRACE_PREFIX}schema=v3 event=read_timeout connection={} buffered_bytes={buffered_bytes}",
+            self.sequence,
+        ));
+    }
+
     pub(super) fn job_sequence(&self) -> u64 {
         self.sink.job_sequence()
     }

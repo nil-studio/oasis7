@@ -11,15 +11,15 @@ impl ViewerRuntimeLiveServer {
 
         let reader_stream = stream.try_clone()?;
         let mut reader = BufReader::new(reader_stream);
+        let mut frame = request_frame::RequestFrame::default();
         let mut socket = stream;
         let limits = response_outbox::ResponseLimits::from_config(&self.config);
         let mut session = RuntimeLiveSession::new_with_playing(false);
 
         loop {
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => return Ok(()),
-                Ok(_) => {
+            match frame.read(&mut reader) {
+                Ok(None) => return Ok(()),
+                Ok(Some(line)) => {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
                         let mut output = response_outbox::ResponseOutbox::new(limits);
