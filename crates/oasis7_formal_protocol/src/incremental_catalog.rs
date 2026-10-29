@@ -176,7 +176,11 @@ impl CatalogRootV1 {
         memory: &MemoryBudget,
         max_pending_bytes: usize,
     ) -> Result<ReservedValue<CatalogDeltaV1>, ExecutionError> {
-        crate::incremental_execution::validate_source_budget(source, memory, MemoryClass::Ordinary)?;
+        crate::incremental_execution::validate_source_budget(
+            source,
+            memory,
+            MemoryClass::Ordinary,
+        )?;
         self.validate()?;
         body.validate()?;
         if body.catalog_before != *self {
@@ -276,7 +280,11 @@ impl CatalogRootV1 {
         source: &impl MerkleNodeReader,
         memory: &MemoryBudget,
     ) -> Result<ReservedValue<CatalogProofV1>, ExecutionError> {
-        crate::incremental_execution::validate_source_budget(source, memory, MemoryClass::Ordinary)?;
+        crate::incremental_execution::validate_source_budget(
+            source,
+            memory,
+            MemoryClass::Ordinary,
+        )?;
         use std::cell::RefCell;
         struct Recording<'a, R> {
             source: &'a R,
