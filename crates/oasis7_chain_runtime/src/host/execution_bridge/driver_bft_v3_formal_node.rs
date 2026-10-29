@@ -14,6 +14,9 @@ use oasis7_node::{
 #[path = "driver_bft_v3_node_private_store.rs"]
 mod private_store;
 use private_store::NodePrivateStore;
+#[path = "driver_bft_v3_parent_memo.rs"]
+mod parent_memo;
+use parent_memo::{ParentMemo, ParentMemoKey};
 
 pub(crate) struct FormalBftHeaderNodeDriverV3 {
     execution: FormalBftHeaderLedgerExecutionV3,
@@ -25,6 +28,7 @@ pub(crate) struct FormalBftHeaderNodeDriverV3 {
     installed_world: RuntimeWorld,
     peer_network: bool,
     membership_enabled: bool,
+    parent_memo: Option<ParentMemo>,
 }
 impl FormalBftHeaderNodeDriverV3 {
     pub(crate) fn open_from_handoff(
@@ -105,6 +109,7 @@ impl FormalBftHeaderNodeDriverV3 {
         Ok(Self {
             peer_network,
             membership_enabled: false,
+            parent_memo: None,
             installed_world,
             execution,
             private,
@@ -173,8 +178,8 @@ impl FormalBftHeaderNodeDriverV3 {
         }
         Ok(())
     }
-    /// Rebuild the exact parent before every preview. Failed or alternative
-    /// previews cannot contaminate retained dependency observations.
+    /// Reuse only an exact, durably rechecked parent. Every preview receives
+    /// its own recorder so failed or alternative execution cannot poison it.
     fn reset_parent(&mut self) -> Result<(), String> {
         #[cfg(test)]
         let _measure = stage_timing::Span::new("driver.reset_parent");
@@ -182,6 +187,35 @@ impl FormalBftHeaderNodeDriverV3 {
         self.execution
             .ledger
             .reserve_external_material(self.private.usage()?)?;
+        // Cached execution never replaces durable material/capacity checks.
+        self.execution.ensure_origin_material()?;
+        self.execution
+            .ledger
+            .preload(&self.execution.store, Some(self.cursor_height))?;
+        let origin_nodes = self.private.origin_nodes()?;
+        let key = ParentMemoKey::new(
+            &self.material_identity,
+            &self.execution.ledger.origin_digest()?,
+            &self.execution.ledger.material_pin_digest()?,
+            self.cursor_height,
+            self.execution
+                .ledger
+                .records()
+                .filter(|record| record.height() <= self.cursor_height)
+                .map(|record| record.digest())
+                .collect::<Result<Vec<_>, _>>()?,
+            &origin_nodes,
+        )?;
+        if let Some(memo) = &self.parent_memo {
+            if memo.key == key {
+                #[cfg(test)]
+                let _measure_hit = stage_timing::Span::new("driver.parent_memo_hit");
+                self.execution.origin = memo.parent.fork_for_preview()?;
+                return Ok(());
+            }
+        }
+        // A failed replacement must never revive a previous parent's memo.
+        self.parent_memo = None;
         let h = self.handoff().handoff_position();
         if self.cursor_height == h {
             let seed = self.private.origin_nodes()?;
@@ -243,7 +277,11 @@ impl FormalBftHeaderNodeDriverV3 {
                 live.replay_next(&entry.certificate, &entry.actions_cbor)?;
             }
         }
+        // Store an independent, untouched baseline only after strict replay
+        // completed; the live object may immediately observe candidate reads.
+        let parent = live.fork_for_preview()?;
         self.execution.origin = live;
+        self.parent_memo = Some(ParentMemo { key, parent });
         Ok(())
     }
     fn expected(&self) -> NodeBftExecutionContextV3 {

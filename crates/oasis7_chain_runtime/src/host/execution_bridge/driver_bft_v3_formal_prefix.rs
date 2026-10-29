@@ -242,7 +242,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         Ok(previous)
     }
 
-    fn ensure_origin_material(&self) -> Result<(), String> {
+    pub(super) fn ensure_origin_material(&self) -> Result<(), String> {
         self.ledger.verify_carriers()?;
         retain_origin_material(
             &self.store,

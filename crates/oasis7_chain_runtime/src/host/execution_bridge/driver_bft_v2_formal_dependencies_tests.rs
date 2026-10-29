@@ -207,3 +207,34 @@ fn replay_accesses_exclude_unvisited_preloaded_suffix_nodes() {
     );
     assert!(reader.recorded_refs().unwrap().contains(&future.0));
 }
+
+#[test]
+fn live_preview_forks_keep_parent_accesses_and_isolate_failed_candidate_nodes() {
+    let external = Arc::new(MemoryReader::default());
+    let first = seeded(b"verified parent read");
+    let unvisited = seeded(b"preloaded but unvisited");
+    let later = seeded(b"node produced only by failed alternative");
+    let missing = external.insert(b"unrecorded external node".to_vec());
+    let parent = RecordingBusinessIndexReaderV1::new_strict(
+        external.clone(),
+        vec![first.clone(), unvisited.clone()],
+    )
+    .unwrap();
+    parent.read_node(&first.0).unwrap();
+    let baseline = parent.accessed_nodes().unwrap();
+    let a = parent.fork_live_preview().unwrap();
+    a.read_node(&unvisited.0).unwrap();
+    a.cache_content_node(&later.0, &later.1).unwrap();
+    assert_eq!(a.read_node(&missing).unwrap(), None);
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(parent.accessed_nodes().unwrap(), baseline);
+    let b = parent.fork_live_preview().unwrap();
+    assert_eq!(b.accessed_nodes().unwrap(), baseline);
+    assert_eq!(b.read_node(&later.0).unwrap(), None);
+    assert_eq!(
+        b.recorded_nodes().unwrap(),
+        parent.recorded_nodes().unwrap()
+    );
+    assert!(a.cache_content_node(&first.0, b"foreign bytes").is_err());
+    assert_eq!(b.read_node(&first.0).unwrap(), Some(first.1));
+}

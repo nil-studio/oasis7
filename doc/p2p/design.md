@@ -292,6 +292,8 @@ protected 模式使用 provider 的受保护单调时间轴，Node 不以自身 
 
 已完整验证的历史前缀和 schedule 可作为进程内缓存，逐次验证新的合法扩展；缓存建立与恢复仍从固定 genesis 完整验真，不能把后端自报 digest 当作已验证凭据。同一身份但内容改变、历史倒退或分叉必须拒绝。普通时钟轮询只在 backend 对当前连接 lease 和持久时间 floor 完成精确检查后，使用本会话已验证的 revision/digest 返回轻量证明，不加载或重验整条 QC 历史；新 journal 转换、签名与重开仍保留相应完整验证。历史长度不能令每 5–100 ms 的空闲时钟读取退化为全链签名验证并触发健康节点停签。
 
+V3 Node 的 context/preview 可复用同一 driver 最近成功严格重放的精确 parent。缓存固定原 material identity、ledger origin/material pin、cursor 高度和完整 canonical record 身份；每次命中仍 reload ledger、核对锁/marker/原 H 材料、pin 与当前 CAS 内容/hash/容量，不能仅凭内存 schedule 或相同高度命中。冷启动、新 parent、正式 commit/publication 的 verified cut 仍执行严格重放，memo 不生成 publication capability。每次 preview 从已验 parent 取得独立 World/依赖 recorder：复制成功父重放的已访问基线和有界节点，后续失败或替代候选的读写、读集和预算不得污染 memo 或下一候选。World 的进程内 archive reader 只能在保留同一已认证 read view 与完全相同状态的 clone 上替换，不能用旧 H token 认证后继 Snapshot，也不替代当前权限校验。
+
 V3 provider 与 remote lease 只复用各自固定 binding/provider 身份下最近的已验状态和 schedule，不建立跨身份缓存。同 revision 必须完整 state 相等；下一 revision 仍检查精确旧历史与归档、原 pending QC、当前 journal 的单步转换、新增 QC 和 driver receipt，并重新核对容量、状态摘要及 membership records（包括与当前 revision 绑定的 pending）。checkpoint 的 challenge、请求摘要、lease 和 provider 签名每次验证。CAS 仅在返回完整 state 等于已验候选且 generation/token/时间 floor 合法时复用候选结果；未知或不一致结果继续停签。首次打开、首次 acquire 与冷恢复不使用旧进程缓存，仍从固定 H 完整验证。
 
 活进程重新获取租约时，也须保持此前已验证状态的连续性：同 revision 必须内容完全相等；较新状态只能沿原预约与正式 journal 转换前进，跨高度必须消费原 pending QC。无法证明中间转换的 revision 跳跃或多高度变化停签，不能以一次独立的全历史验真覆盖已观察到的预约、签名或锁。

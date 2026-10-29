@@ -91,6 +91,25 @@ impl FormalBftHeaderExecutionV3 {
         })
     }
 
+    /// Fork only this already replayed parent. The caller must freshly verify
+    /// its exact ledger/CAS identity before using the result for a preview.
+    fn fork_for_preview(&self) -> Result<Self, String> {
+        let retained_nodes = self.retained_nodes.fork_live_preview()?;
+        let parent_world = self
+            .parent_world
+            .clone_with_independent_formal_history_reader(retained_nodes.clone())?;
+        Ok(Self {
+            handoff: self.handoff.clone(),
+            schedule: self.schedule.clone(),
+            parent_record: self.parent_record.clone(),
+            parent_world,
+            parent_result_tree: self.parent_result_tree.clone(),
+            business_reader: formal_business_package::SharedBusinessReader(retained_nodes.clone()),
+            retained_nodes,
+            tip: self.tip.clone(),
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn schedule(&self) -> &BftHeaderHeightScheduleV3 {
         &self.schedule

@@ -214,6 +214,33 @@ impl World {
         Ok(())
     }
 
+    /// Clone this exact authenticated World while isolating process-local CAS
+    /// observations. No Snapshot is accepted and no new history view is minted.
+    /// The replacement reader still serves content-addressed nodes under the
+    /// unchanged authenticated root; an absent or corrupt node remains an error.
+    pub fn clone_with_independent_formal_history_reader(
+        &self,
+        reader: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+    ) -> Result<Self, String> {
+        if self.formal_bft_handoff_attached() {
+            return Err("active formal BFT handoff cannot replace its authenticated reader".into());
+        }
+        self.attached_formal_history()
+            .map_err(|error| format!("{error:?}"))?;
+        let attached = self
+            .formal_history_reader
+            .as_ref()
+            .ok_or("source World has no authenticated formal-history reader")?;
+        if attached.parent.is_none() {
+            return Err("staged empty history cannot supply authenticated clone lineage".into());
+        }
+        let mut cloned = self.clone();
+        let mut isolated = attached.clone();
+        isolated.reader = super::SharedFormalHistoryReader::new(reader);
+        cloned.formal_history_reader = Some(isolated);
+        Ok(cloned)
+    }
+
     /// Carry authenticated archive access into a World rebuilt from a candidate
     /// Snapshot. The source must still hold qualified-parent or verified-delta
     /// evidence, and the target descriptor must equal that exact read view.

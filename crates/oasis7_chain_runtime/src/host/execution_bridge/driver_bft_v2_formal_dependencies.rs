@@ -16,7 +16,7 @@ pub(super) const BUSINESS_INDEX_MAX_NODE_BYTES: usize = BUSINESS_INDEX_MAX_LEAF_
 pub(super) const MAX_RETAINED_INDEX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const MAX_RETAINED_INDEX_NODES: usize = 4096;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct RecordedNodes {
     nodes: BTreeMap<String, Vec<u8>>,
     total_bytes: usize,
@@ -71,6 +71,22 @@ impl RecordingBusinessIndexReaderV1 {
         Ok(Arc::new(Self {
             external,
             strict_overlay,
+            recorded: Mutex::new(recorded),
+        }))
+    }
+
+    /// Copy the verified parent overlay and its successful accessed baseline.
+    /// New preview writes remain local; a missing parent node never consults an
+    /// old recorder or an external source. Failed previews cannot mutate either.
+    pub(super) fn fork_live_preview(&self) -> Result<Arc<Self>, String> {
+        let recorded = self
+            .recorded
+            .lock()
+            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?
+            .clone();
+        Ok(Arc::new(Self {
+            external: Arc::new(NoAdditionalParentNodes),
+            strict_overlay: false,
             recorded: Mutex::new(recorded),
         }))
     }
@@ -160,6 +176,15 @@ impl RecordingBusinessIndexReaderV1 {
         external
             .map(|bytes| self.record_external_node(digest, bytes))
             .transpose()
+    }
+}
+
+// Every admitted parent node is already seeded in the fork. Missing content
+// must retain the historical strict-overlay refusal, without shared counters.
+struct NoAdditionalParentNodes;
+impl BusinessIndexNodeReader for NoAdditionalParentNodes {
+    fn read_node(&self, _digest: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
     }
 }
 

@@ -317,16 +317,14 @@ fn only_unreferenced_terminal_intents_are_candidates() {
         "open-effect".into(),
         intent("open-effect", "completed", Some("effect")),
     );
-    world
-        .pending_effects
-        .push_back(crate::EffectIntent {
-            birth_era: None,
-            intent_id: "effect".into(),
-            kind: "test".into(),
-            params: serde_json::Value::Null,
-            cap_ref: "cap".into(),
-            origin: crate::EffectOrigin::System,
-        });
+    world.pending_effects.push_back(crate::EffectIntent {
+        birth_era: None,
+        intent_id: "effect".into(),
+        kind: "test".into(),
+        params: serde_json::Value::Null,
+        cap_ref: "cap".into(),
+        origin: crate::EffectOrigin::System,
+    });
 
     let candidates = agent_intent_candidates(&world).unwrap();
     assert_eq!(
@@ -765,3 +763,62 @@ mod successor_tick_tests;
 
 #[path = "formal_retention_overlay_prefetch_tests.rs"]
 mod overlay_prefetch_tests;
+
+#[test]
+fn authenticated_world_clone_isolates_reader_without_requalifying_snapshot() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct CountingNodes(Arc<AtomicUsize>);
+    impl BusinessIndexNodeReader for CountingNodes {
+        fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+    let original_reads = Arc::new(AtomicUsize::new(0));
+    let fork_reads = Arc::new(AtomicUsize::new(0));
+    let mut source = World::new();
+    assert!(
+        source
+            .clone_with_independent_formal_history_reader(Arc::new(EmptyNodes))
+            .is_err()
+    );
+    source.initialize_empty_formal_history().unwrap();
+    assert!(
+        source
+            .clone_with_independent_formal_history_reader(Arc::new(EmptyNodes))
+            .is_err()
+    );
+    attach_test_parent(&mut source, Arc::new(CountingNodes(original_reads.clone())));
+    let fork = source
+        .clone_with_independent_formal_history_reader(Arc::new(CountingNodes(fork_reads.clone())))
+        .unwrap();
+    assert_eq!(
+        serde_cbor::to_vec(&fork.snapshot()).unwrap(),
+        serde_cbor::to_vec(&source.snapshot()).unwrap()
+    );
+    assert_eq!(
+        serde_cbor::to_vec(fork.journal()).unwrap(),
+        serde_cbor::to_vec(source.journal()).unwrap()
+    );
+    let digest = "a".repeat(64);
+    fork.attached_formal_history()
+        .unwrap()
+        .1
+        .read_node(&digest)
+        .unwrap();
+    assert_eq!(fork_reads.load(Ordering::SeqCst), 1);
+    assert_eq!(original_reads.load(Ordering::SeqCst), 0);
+    source
+        .attached_formal_history()
+        .unwrap()
+        .1
+        .read_node(&digest)
+        .unwrap();
+    assert_eq!(original_reads.load(Ordering::SeqCst), 1);
+    source.state.retained_history_root = None;
+    assert!(
+        source
+            .clone_with_independent_formal_history_reader(Arc::new(EmptyNodes))
+            .is_err()
+    );
+}
