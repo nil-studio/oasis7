@@ -460,3 +460,7 @@ pub use world::{
     DelegationControlDisposition, DelegationControlError, DelegationControlOperation,
     DelegationControlOutcome, DelegationControlStage, DelegationReplayMatch,
 };
+
+pub use world::incremental_module_instance_recovery::{
+    InstanceScratchBudget, ModuleInstanceRecoveryContext, VerifiedModuleInstanceContent,
+};

@@ -275,6 +275,16 @@ impl IncrementalPageStore {
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<()> {
+        self.put_page_batch_with_compression(pages, class, io, cancelled, self.compression)
+    }
+    pub(super) fn put_page_batch_with_compression(
+        &self,
+        pages: &[([u8; 32], &[u8])],
+        class: MemoryClass,
+        io: &mut PageIoBudget,
+        cancelled: &AtomicBool,
+        compression: PageCompression,
+    ) -> Result<()> {
         check_cancelled(cancelled)?;
         if pages.len() > MAX_ENTRIES {
             return Err(PageStoreError::ResourceLimited("page batch entries"));
@@ -296,7 +306,7 @@ impl IncrementalPageStore {
                 + input_bytes
                 + pages.len() * recipe::MAX_RECIPE_BYTES
                 + frame_bound * 512
-                + if matches!(self.compression, PageCompression::Zstd) {
+                + if matches!(compression, PageCompression::Zstd) {
                     ENCODE_WORKSPACE
                 } else {
                     RAW_WORKSPACE
@@ -323,7 +333,7 @@ impl IncrementalPageStore {
             for chunk in frame_codec::chunks(bytes) {
                 check_cancelled(cancelled)?;
                 let (frame, stored) =
-                    frame_codec::encode(chunk, matches!(self.compression, PageCompression::Zstd))?;
+                    frame_codec::encode(chunk, matches!(compression, PageCompression::Zstd))?;
                 if frame_codec::decode(&frame, &stored)
                     .map_err(|_| PageStoreError::Corrupt("packed frame encoding"))?
                     .as_slice()

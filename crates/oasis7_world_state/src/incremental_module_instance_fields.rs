@@ -66,6 +66,9 @@ impl ModuleInstanceKeyV1 {
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.length]
     }
+    pub fn is_instance_key(bytes: &[u8]) -> bool {
+        bytes.starts_with(KEY)
+    }
     pub fn from_bytes(bytes: &[u8]) -> Result<(&str, ModuleInstanceFieldV1), &'static str> {
         if bytes.len() < KEY.len() + 3 || bytes.len() > 1024 || !bytes.starts_with(KEY) {
             return Err("module instance key domain/length");

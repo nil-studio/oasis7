@@ -22,6 +22,7 @@ pub mod incremental_commit;
 mod incremental_genesis_state;
 pub mod incremental_module_instance_change;
 pub mod incremental_module_instance_genesis;
+pub mod incremental_module_instance_recovery;
 mod incremental_module_original;
 pub mod incremental_module_read;
 pub mod incremental_module_state;

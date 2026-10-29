@@ -16,6 +16,16 @@ pub fn module_instance_count_key(module_id: &str) -> [u8; COUNT_KEY.len() + 32] 
     bytes[COUNT_KEY.len()..].copy_from_slice(h.finalize().as_bytes());
     bytes
 }
+pub fn is_module_instance_count_key(bytes: &[u8]) -> bool {
+    bytes.starts_with(COUNT_KEY)
+}
+pub fn validate_module_instance_count_key(bytes: &[u8]) -> Result<(), &'static str> {
+    if bytes.starts_with(COUNT_KEY) && bytes.len() == COUNT_KEY.len() + 32 {
+        Ok(())
+    } else {
+        Err("module instance count key domain/length")
+    }
+}
 pub fn module_instance_count_bytes(
     count: u64,
 ) -> Result<[u8; MODULE_INSTANCE_COUNT_BYTES], &'static str> {

@@ -829,3 +829,14 @@ ModuleReadContext 的计数点读要求 marker，拒绝缺 marker、坏编码及
 实例替换贡献从同一事务读取旧八字段、旧/新 module 计数与总数，按实际字段差异写值。创建/删除改变总数，module ID 迁移分别减旧增新，Active 单独变化不改变计数；末个实例删除时去掉其 module 计数。字段、计数与总数共同受事务失败和 seal 边界保护。生命周期授权、原件事实、wake、费用及状态清理由实际调用 owner 在同一事务补齐，本 helper 不代签这些义务。
 
 实例创世入口改为返回持久化的临时 Business 根。逐实例最多九个状态写入，最后写显式 marker；每次从当前临时根点读该 module 计数，不构造随实例总量增长的计数 map 或全部 writes。每批预先准入固定 4 MiB workspace，Merkle pending 上限 1 MiB，输出保留实际 charge，并对新状态页消费有限逻辑 IO。StatePageWriter 在默认 adapter 中验证 typed pages 和同池；实际文件 adapter 复用现有有限 pack writer。失败后已写 CAS 页只属于临时物料，不发布根或 head。入口要求初始根不含该实例/计数家族；缺 marker 本身不能证明无孤儿叶，完整创世 owner 必须保证该前提。
+
+
+### 12.33 实例字段与反向计数的恢复一致性
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.32。ModuleInstanceRecoveryContext 对固定 Business 根进行两次完整扫描，仅用于创世/恢复，不用于普通实例更新。首遍严格解码实例家族 key 和每个 scalar；每个 InstanceId 要求八字段均有认证点证明。identity 行数、字段总数等于八倍行数及 marker 声明总数共同排除部分行与无 identity 的孤儿字段，不依赖 World cache。每个 ModuleId（含停用实例）向独立临时计数树加一。次遍核对每个持久计数 key 的正计数与重建结果，计数 key 数也必须等于重建树条目数，因而额外、缺失、互换或数值错误的计数均拒绝。
+
+临时树使用独立 recovery-counter-page/v1 格式：固定深度 256 的 Merkle 路径，leaf 为完整 32-byte 域分离 key hash 与正 u64；branch 为深度 u16 与两个 32-byte 摘要。key 摘要包括独立域、输入 key 的 u64 byte 长度及原 bytes，empty sentinel 使用独立域。未知 tag、错域/长度、零计数、坏深度/摘要/路径和缺页拒绝。临时计数不是状态 value ID，不能借用正式 State 页格式表达 inline 数字；临时 root 类型不提供规范根描述符或到 StateRoot 的转换，也不返回给调用者。
+
+重建逐项写入不可变临时页，不保留随实例/模块总量增长的内存 map。固定 64 KiB metadata、扫描 workspace、每次更新先准入 1 MiB workspace 与 256 KiB pending 上限，同一 pool 和指定 Ordinary/Recovery class 生效。源状态扫描、额外行完整性证明、临时树读取/写入、scalar 值 IO 和单值大小均有有限额度。页已写但最终扫描失败时不返回任何部分合格内容。实际 StatePageSession 复用原持久 pack/readback；临时小计数页固定采用已有 Raw 编码，避免为短期恢复 workspace 强制申请 16 MiB Zstd 编码 workspace；正式页的压缩配置和 wire 不变。
+
+成功只返回保留 charge 的实例数/模块数内容结果，不授予完整 World、selected/durable head、服务、执行或 publication 权限。临时页不能加入正式 retained-root/lease 注册表；后续维护 owner 仍需按正式根可达性治理这些未引用临时物料。完整恢复流程、其余字段 owner、普通变更 owner 接线和全局规模/IO/RSS 验收仍未完成，不能由该子集检查代签。

@@ -168,6 +168,16 @@ fn persist_nodes<'a>(
     cancelled: &AtomicBool,
     nodes: impl Iterator<Item = (&'a str, &'a [u8])>,
 ) -> Result<()> {
+    persist_nodes_profile(store, class, io, cancelled, nodes, store.compression)
+}
+fn persist_nodes_profile<'a>(
+    store: &IncrementalPageStore,
+    class: MemoryClass,
+    io: &mut PageIoBudget,
+    cancelled: &AtomicBool,
+    nodes: impl Iterator<Item = (&'a str, &'a [u8])>,
+    compression: PageCompression,
+) -> Result<()> {
     let _metadata = store.memory.reserve(64 * 1024, class)?;
     let mut batch = Vec::with_capacity(pack::MAX_ENTRIES);
     for (id, bytes) in nodes {
@@ -178,12 +188,12 @@ fn persist_nodes<'a>(
         let id = parse_id(id)?;
         batch.push((id, bytes));
         if batch.len() == pack::MAX_ENTRIES {
-            store.put_page_batch(&batch, class, io, cancelled)?;
+            store.put_page_batch_with_compression(&batch, class, io, cancelled, compression)?;
             batch.clear();
         }
     }
     if !batch.is_empty() {
-        store.put_page_batch(&batch, class, io, cancelled)?;
+        store.put_page_batch_with_compression(&batch, class, io, cancelled, compression)?;
     }
     Ok(())
 }
@@ -245,6 +255,37 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
                 .map(|n| (n.digest.as_str(), n.bytes.as_slice())),
         )
         .map_err(value_error)
+    }
+}
+impl oasis7_formal_protocol::incremental_scratch_counter::CounterScratchStore
+    for StatePageSession<'_>
+{
+    fn put_scratch_pages(
+        &self,
+        delta: &ReservedValue<
+            oasis7_formal_protocol::incremental_scratch_counter::ScratchCounterDelta,
+        >,
+    ) -> std::result::Result<(), String> {
+        if !delta.uses_budget(&self.store.memory) {
+            return Err("scratch state producer pool".into());
+        }
+        delta.verify_pages()?;
+        let mut io = self
+            .io
+            .lock()
+            .map_err(|_| "scratch state session poisoned")?;
+        persist_nodes_profile(
+            self.store,
+            self.class,
+            &mut io,
+            &self.cancelled,
+            delta
+                .new_nodes
+                .iter()
+                .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
+            PageCompression::Raw,
+        )
+        .map_err(|error| error.to_string())
     }
 }
 fn parse_id(id: &str) -> Result<[u8; 32]> {
