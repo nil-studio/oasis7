@@ -6,6 +6,8 @@ use std::{
     fs,
     sync::{Arc, Barrier},
 };
+#[path = "preview_world_init_provider_tests.rs"]
+mod provider_profile;
 struct Directory(PathBuf);
 impl Directory {
     fn new() -> Self {
@@ -27,6 +29,7 @@ impl Directory {
             node_id: "preview-node".into(),
             genesis_nonce: "aa".repeat(32),
             status_bind: "127.0.0.1:5121".parse().unwrap(),
+            provider: None,
         }
     }
 }

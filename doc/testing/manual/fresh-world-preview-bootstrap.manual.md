@@ -25,6 +25,26 @@ oasis7_chain_runtime initialize-preview-world \
 
 Do not use an old world's ID or overwrite a partial old root. Stop/fence any old writer before switching the runtime to a new initialized root; keep its data and configuration separately. A new world is not a rollback or repair of old lineage.
 
+### Explicit local provider preview
+
+Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39. For an isolated provider transport/playtest world, add all of:
+
+```text
+--profile devlocal-provider-v1
+--provider-wasm <absolute-canonical-suite-WASM>
+--provider-metadata <absolute-canonical-suite-build-metadata>
+--provider-agent-id <existing-canonical-preset-agent>
+--provider-owner-binding <new-local-owner-binding>
+--provider-finality-block-hash <explicit-DevLocal-blake3:64-hex-marker>
+--provider-allowance <1..128-fixed-units>
+```
+
+The local marker is an explicit DevLocal authority input, not a formal BFT proof. Retain the canonical suite's provenance and verify its applicability to the tested source; this initializer verifies Runtime module admission and input hashes, not the builder's trust. Only this explicit fresh profile selects the existing DevLocal release security policy at creation; the default public preset remains hardened and Runtime still rejects provider provisioning under production policy. The module must be installed before the immutable cognition binding. Runtime creates the finite grant and invocation, ordinary `ClaimStarterOc` establishes the canonical owner and bounded starter funds, and the owner signs the executor delegation. No W3 325-unit funding is added. Incorrect Agent/owner inputs reject initialization.
+
+The profile also writes private `provider-authority.json`, `owner.key`, `executor.key`, and `agent-viewer.env`. The last file selects `agent:<id>` reads and generation-1 executor writes; keep it private and supply the authority file through Viewer's existing `--provider-bootstrap-authority` input. It contains no model credentials. Start the chain with the initialized execution paths and original node identity; do not request a second local-provider initialization over this root. The default `private/viewer.env` remains public-read only. Grant expiry is real: this initializer neither renews grants on rerun nor removes normal Runtime validation. Provider/Viewer Play/Pause/Resume and any BYOK calls require a separate actual run.
+
+All profile inputs, artifact hashes and generated public keys are committed by genesis and the signed receipt. A profile/input/artifact mismatch rejects a rerun without writing. A root initialized by an older source is not automatically upgraded; its original source commitment remains authoritative.
+
 ## Generated materials
 
 The command creates the actual canonical Runtime initial state and journal, binds the new world identity, and publishes real bounded node/execution commits into CAS. The initial commit must use the provisioned node's derived consensus signer and matching validator public-key binding; verify its actual signature separately from the service-signed initialization receipt. Its domain-separated genesis digest binds versioned initial material, explicit initialization inputs and the derived service public key. Retained initial bytes permit recomputation; an arbitrary genesis label or a hash of a directory path is insufficient.

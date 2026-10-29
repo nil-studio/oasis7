@@ -1,4 +1,4 @@
-//! Fresh DevLocal technical preview only. No governed activation or verified finality claim.
+//! Fresh explicit DevLocal previews. No formal activation or network finality claim.
 #[cfg(not(test))]
 use super::execution_bridge as bridge;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -22,6 +22,8 @@ mod archive;
 mod files;
 #[path = "preview_world_init_origin.rs"]
 mod origin;
+#[path = "preview_world_init_provider.rs"]
+mod provider;
 pub(super) use origin::verify_existing_origin;
 
 const SCHEMA: &str = "oasis7.devlocal.preview-world-init/v1";
@@ -29,6 +31,7 @@ const GENESIS_DOMAIN: &str = "oasis7.devlocal.preview-genesis/v1";
 const CLAIM: &str =
     "fresh_devlocal_technical_preview_not_governed_activation_or_formal_network_finality";
 const LEGACY_RECEIPT_SCHEMA: &str = "v1:world_id,node_id,genesis_nonce,genesis_digest,service_public_key,reader_public_key,status_bind,initial_height,commit,artifact_hashes,relative_paths,source_hash,claim,node_scoped_signature";
+const PROVIDER_RECEIPT_SCHEMA: &str = "v1:preview-receipt-with-explicit-devlocal-provider-profile";
 const RECEIPT_SCHEMA: &str = "v1:world_id,node_id,genesis_nonce,genesis_digest,service_public_key,reader_public_key,status_bind,initial_height,commit,artifact_hashes,initial_publication_proof_hash,relative_paths,source_hash,claim,node_scoped_signature";
 const SIGNATURE_DOMAIN: &[u8] = b"oasis7.devlocal.preview-init-receipt/v1\0";
 fn source_hash() -> String {
@@ -38,6 +41,8 @@ fn source_hash() -> String {
             include_bytes!("preview_world_init_fs.rs").as_slice(),
             include_bytes!("preview_world_init_archive.rs").as_slice(),
             include_bytes!("preview_world_init_origin.rs").as_slice(),
+            include_bytes!("preview_world_init_provider.rs").as_slice(),
+            include_bytes!("local_provider_setup.rs").as_slice(),
             include_bytes!("execution_bridge/world_service_read.rs").as_slice(),
         ]
         .concat(),
@@ -52,10 +57,13 @@ struct Options {
     node_id: String,
     genesis_nonce: String,
     status_bind: SocketAddr,
+    provider: Option<provider::Inputs>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Receipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<provider::Commitment>,
     schema: String,
     claim: String,
     storage_profile: String,
@@ -75,6 +83,14 @@ struct Receipt {
     receipt_schema_hash: String,
     relative_paths: Value,
     node_scoped_signature: String,
+}
+fn receipt_schema_matches(receipt: &Receipt) -> bool {
+    if receipt.provider.is_some() {
+        receipt.receipt_schema_hash == blake3_hex(PROVIDER_RECEIPT_SCHEMA.as_bytes())
+    } else {
+        receipt.receipt_schema_hash == blake3_hex(RECEIPT_SCHEMA.as_bytes())
+            || receipt.receipt_schema_hash == blake3_hex(LEGACY_RECEIPT_SCHEMA.as_bytes())
+    }
 }
 fn receipt_payload(receipt: &Receipt) -> Result<Vec<u8>, String> {
     let mut value = json!(receipt);
@@ -111,6 +127,13 @@ fn parse<'a>(args: impl Iterator<Item = &'a str>) -> Result<Options, String> {
             "--node-id",
             "--genesis-nonce",
             "--status-bind",
+            "--profile",
+            "--provider-wasm",
+            "--provider-metadata",
+            "--provider-agent-id",
+            "--provider-owner-binding",
+            "--provider-finality-block-hash",
+            "--provider-allowance",
         ]
         .contains(&name)
         {
@@ -136,6 +159,7 @@ fn parse<'a>(args: impl Iterator<Item = &'a str>) -> Result<Options, String> {
         world_id: required("--world-id")?.into(),
         node_id: required("--node-id")?.into(),
         genesis_nonce: required("--genesis-nonce")?.into(),
+        provider: provider::parse(&values)?,
         status_bind: required("--status-bind")?
             .parse()
             .map_err(|_| "invalid preview status bind")?,
@@ -168,7 +192,7 @@ fn parse<'a>(args: impl Iterator<Item = &'a str>) -> Result<Options, String> {
     Ok(options)
 }
 fn help() -> &'static str {
-    "Usage: oasis7_chain_runtime initialize-preview-world --root <fresh-absolute-private-root> --world-id <exact-id> --node-id <exact-id> --key-dir <existing-0700-node-config> --genesis-nonce <64-lowercase-hex> --status-bind <loopback-ip:port>\nUses only genuine Runtime and NodeRuntime local commits; no formal activation/finality, provider funding or test grants. Existing complete matching roots are verified read-only; partial or conflicting roots are rejected."
+    "Usage: oasis7_chain_runtime initialize-preview-world --root <fresh-absolute-private-root> --world-id <exact-id> --node-id <exact-id> --key-dir <existing-0700-node-config> --genesis-nonce <64-lowercase-hex> --status-bind <loopback-ip:port>\nUses only genuine Runtime and NodeRuntime local commits; no formal activation/finality. Default profile is public-read only; explicit --profile devlocal-provider-v1 requires --provider-wasm, --provider-metadata, --provider-agent-id, --provider-owner-binding, --provider-finality-block-hash and --provider-allowance (1..128). Existing complete matching roots are verified read-only; partial or conflicting roots are rejected."
 }
 fn canonical(value: Value) -> Value {
     match value {
@@ -341,12 +365,26 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
         files::private_dir(&stage.path.join(name))?;
     }
     let (mut world, config) = viewer_bootstrap_formal_release_runtime_world()?;
-    let artifact = encode(json!({
+    if options.provider.is_some() {
+        // This explicit fresh profile selects the same DevLocal policy as
+        // canonical W3 creation, before ordinary Runtime module admission.
+        world = world.with_release_security_policy(ReleaseSecurityPolicy::default());
+    }
+    let prepared_provider = options
+        .provider
+        .as_ref()
+        .map(|input| provider::prepare(&mut world, options, input))
+        .transpose()?;
+    let mut artifact_value = json!({
         "domain":GENESIS_DOMAIN,"world_id":options.world_id,"node_id":options.node_id,
         "genesis_nonce":options.genesis_nonce,"service_public_key":service.public_key_hex,
         "preset":"formal_release_runtime_world","configuration":config,
         "initial_snapshot":world.snapshot(),"initial_journal":world.journal(),
-    }))?;
+    });
+    if let Some(prepared) = &prepared_provider {
+        artifact_value["provider"] = json!(prepared.commitment);
+    }
+    let artifact = encode(artifact_value)?;
     let artifact_hash = blake3_hex(&artifact);
     let identity = WorldIdentity {
         world_id: options.world_id.clone(),
@@ -356,9 +394,11 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
     if initial_height == 0 {
         return Err("canonical preview preset must have a real initial Runtime boundary".into());
     }
-    world
-        .bind_cognition_runtime(&options.world_id, "main", 0, None, "pending", 0)
-        .map_err(|_| "preview Runtime binding failed")?;
+    if prepared_provider.is_none() {
+        world
+            .bind_cognition_runtime(&options.world_id, "main", 0, None, "pending", 0)
+            .map_err(|_| "preview Runtime binding failed")?;
+    }
     let manifest_hash = world
         .current_manifest_hash()
         .map_err(|_| "preview manifest unavailable")?;
@@ -434,6 +474,16 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
     if pinned.commit.position <= initial_height {
         return Err("preview CAS publication did not advance real commit".into());
     }
+    if let Some(prepared) = &prepared_provider {
+        provider::verify_initial(&pinned.world, &prepared.commitment)?;
+        provider::publish(
+            &stage.path,
+            options,
+            &identity,
+            &service.public_key_hex,
+            prepared,
+        )?;
+    }
     let initial_publication_proof_hash =
         archive::publish(&stage.path, options, &identity, &pinned.commit)?;
     let _ = bridge::derive_service_execution_bootstrap(
@@ -461,6 +511,7 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
     files::write_new(&stage.path.join("private/viewer.env"), env.as_bytes())?;
     files::write_new(&stage.path.join("viewer.public.json"), &public_config)?;
     let mut receipt = Receipt {
+        provider: prepared_provider.map(|prepared| prepared.commitment),
         schema: SCHEMA.into(),
         claim: CLAIM.into(),
         storage_profile: "dev_local".into(),
@@ -476,7 +527,14 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
         initial_publication_proof_hash: Some(initial_publication_proof_hash),
         consumer_public_config_hash: blake3_hex(&public_config),
         initializer_source_hash: source_hash(),
-        receipt_schema_hash: blake3_hex(RECEIPT_SCHEMA.as_bytes()),
+        receipt_schema_hash: blake3_hex(
+            if options.provider.is_some() {
+                PROVIDER_RECEIPT_SCHEMA
+            } else {
+                RECEIPT_SCHEMA
+            }
+            .as_bytes(),
+        ),
         relative_paths: relative_paths(),
         node_scoped_signature: String::new(),
     };
@@ -521,8 +579,8 @@ fn verify_at(
         || receipt.genesis_nonce != options.genesis_nonce
         || receipt.status_bind != options.status_bind
         || receipt.service_public_key != service_public
-        || (receipt.receipt_schema_hash != blake3_hex(RECEIPT_SCHEMA.as_bytes())
-            && receipt.receipt_schema_hash != blake3_hex(LEGACY_RECEIPT_SCHEMA.as_bytes()))
+        || !provider::matches_inputs(options.provider.as_ref(), receipt.provider.as_ref())?
+        || (!receipt_schema_matches(&receipt))
     {
         return Err(
             "existing preview receipt does not match exact requested initialization".into(),
@@ -571,6 +629,14 @@ fn verify_at(
         || value["node_id"] != options.node_id
         || value["genesis_nonce"] != options.genesis_nonce
         || value["service_public_key"] != service_public
+        || value.get("provider")
+            != receipt
+                .provider
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|_| "provider commitment encoding failed")?
+                .as_ref()
     {
         return Err("preview genesis digest or scope mismatch".into());
     }
@@ -624,6 +690,9 @@ fn verify_at(
     );
     if files::read_bounded(&root.join("private/viewer.env"), 8192)? != expected_env.as_bytes() {
         return Err("private preview consumer configuration mismatch".into());
+    }
+    if let Some(commitment) = &receipt.provider {
+        provider::verify_outputs(root, options, &identity, service_public, commitment, owner)?;
     }
     Ok(receipt)
 }

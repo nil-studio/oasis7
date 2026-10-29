@@ -910,6 +910,23 @@ loopback endpoint 与 genesis 初始化 nonce；nonce 不选择模拟世界 seed
 driver，生成可验证 CAS、提交记录和 world proof；不写入测试能力、虚构资金、占位提交或
 人为 finality。cognition 的 pending binding 和本地提交只证明该预览的初始化材料。
 
+Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39。显式
+`devlocal-provider-v1` 预览 profile 在同一个全新 staging 世界内，先安装操作员指定的
+真实 local-test-provider WASM 与构建材料，再绑定 Runtime，走现有 DevLocal
+proof-bearing authority admission，形成有限 grant、allowance 和 provider invocation。
+仅该显式 fresh profile 在创建时选择已有 DevLocal release security policy；默认 public
+preset 的 hardened policy、现有根与 Runtime 的 production 拒绝条件保持不变。
+随后普通 `ClaimStarterOc` 动作建立指定 Agent 的 canonical owner 和有界 starter 资金；
+owner 通过正常签名与 Runtime 验证安装 executor delegation。该 profile 不叠加 W3 的
+pristine-ledger funding，不使用测试 fixture 或直接编辑 snapshot/context。
+
+profile、WASM/build 摘要、Agent/owner、allowance、显式本地 finality marker 及生成的
+owner/executor 公钥全部进入创世与签名 receipt；本地 marker 不证明正式 BFT finality。
+首次真实 NodeRuntime commit 后才发布根目录。owner/executor 私钥、authority bundle 和
+Agent-scope consumer 环境只写入 0600 私有文件。默认入口仍只生成 public-read 材料。
+已存在根只能按原 profile/输入只读重验，不能补装 provider、自动续 grant 或重新签 receipt；
+initializer source commitment 变化仍按原合同拒绝旧版本重跑，不能伪造旧 hash。
+
 输出在同文件系统的 0700 sibling staging 构建，文件和目录同步后通过 OS 原子 no-replace
 发布。receipt 固定初始 publication manifest 的摘要；manifest 绑定原始 execution record、
 节点签名 envelope 及 snapshot、journal、world-head proof 的确切 CAS 字节，使初始证明在

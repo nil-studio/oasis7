@@ -12,7 +12,7 @@ pub(crate) fn render_help() -> String {
         text.push_str(&format!("  {} {}\n", command.name, command.usage));
     }
     text.push_str(
-        "  initialize-preview-world --root <fresh-root> --world-id <id> --node-id <id> --key-dir <secure-config> --genesis-nonce <64-hex> --status-bind <loopback:port>\n    Creates a fresh local preview world from genuine Runtime and NodeRuntime commits; it does not activate formal finality, provider funding, or test grants.\n",
+        "  initialize-preview-world --root <fresh-root> --world-id <id> --node-id <id> --key-dir <secure-config> --genesis-nonce <64-hex> --status-bind <loopback:port>\n    Creates a fresh local preview world from genuine Runtime and NodeRuntime commits; default is public-read only. Explicit --profile devlocal-provider-v1 adds bounded DevLocal provider authority and canonical owner/delegation before first publication; see initialize-preview-world --help. It does not activate formal network finality.\n",
     );
     text.push_str(
         "  world init prepare --config <private.json> --request <private.cbor>\n  world init quote --config <private.json> --request <private.cbor> --certificate <signed-certificate.json>\n  world init activate --config <private.json> --request <private.cbor> --certificate <signed-certificate.json> --writer-key <private.key> --primary <loopback:port> --replica <loopback:port> --timeout-ms <1..60000> --output <private.cbor>\n    Config supplies the independent issuer public-key pin; the certificate contains only the externally signed approval. Uses an explicit staged World/Journal/Node boundary and profile v2.\n    Never creates a World, identity, issuer trust pin, directories, or keys.\n",
