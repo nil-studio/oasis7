@@ -20,6 +20,7 @@ serde_cbor.workspace = true
 sha2.workspace = true
 ed25519-dalek = "3"
 subtle = "2"
+zeroize = "1"
 
 [dev-dependencies]
 oasis7_agent_api = { path = "../oasis7_agent_api", features = ["schema"] }

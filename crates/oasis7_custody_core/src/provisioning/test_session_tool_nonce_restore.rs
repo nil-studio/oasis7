@@ -57,7 +57,10 @@ impl AccountProvisionApprovalState {
             }
             for attempt in [&record.owner_attempt, &record.account_attempt] {
                 if !internals.insert(attempt)
-                    || s.purpose_transports.get(attempt) != Some(&record.request.purpose)
+                    || s.purpose_transports.get(attempt)
+                        != Some(&SessionPurposeTransportV1::GenericOne(
+                            record.request.purpose,
+                        ))
                     || s.purpose_http_admissions.contains_key(attempt)
                     || s.sources.contains_key(attempt)
                     || s.source_funding.contains_key(attempt)
@@ -134,8 +137,9 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV1,
         attempt: &str,
     ) -> bool {
-        s.tool_nonce_ingresses
-            .values()
-            .any(|r| r.owner_attempt == attempt || r.account_attempt == attempt)
+        Self::context_attempt_occupied(s, attempt)
+            || s.tool_nonce_ingresses
+                .values()
+                .any(|r| r.owner_attempt == attempt || r.account_attempt == attempt)
     }
 }

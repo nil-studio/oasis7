@@ -182,7 +182,10 @@ impl NodeBftPeerTransportV3 for BufferedNoise {
 fn wire3_formal_read_cold_pending_prevote_finishes_before_queued_sameheight_noise_qc() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(|| network_case_pending(false, false, false, true))
+        .spawn(|| {
+            let _trace = hook_trace::Scope::begin("pending");
+            network_case_pending(false, false, false, true)
+        })
         .unwrap()
         .join()
         .unwrap();
@@ -355,7 +358,7 @@ pub(super) fn recover(
     });
     public.insert(0, transport);
     let execution = Arc::new(NodeBftPeerExecutionStateV3::default());
-    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(cold))));
+    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook::new(cold))));
     let exchange = Arc::new(
         NodeBftLibp2pPrivateCandidateExchangeV3::new(
             networks[0].clone(),

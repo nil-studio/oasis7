@@ -18,6 +18,10 @@ use private_store::NodePrivateStore;
 mod parent_memo;
 use parent_memo::{ParentMemo, ParentMemoKey};
 
+#[cfg(test)]
+#[path = "driver_bft_v3_actual_hook_trace.rs"]
+pub(crate) mod hook_trace;
+
 pub(crate) struct FormalBftHeaderNodeDriverV3 {
     execution: FormalBftHeaderLedgerExecutionV3,
     private: NodePrivateStore,
@@ -183,10 +187,18 @@ impl FormalBftHeaderNodeDriverV3 {
     fn reset_parent(&mut self) -> Result<(), String> {
         #[cfg(test)]
         let _measure = stage_timing::Span::new("driver.reset_parent");
+        #[cfg(test)]
+        let stage = hook_trace::Span::enter(hook_trace::Stage::LedgerReload, self.cursor_height);
         self.execution.ledger.reload()?;
+        #[cfg(test)]
+        hook_trace::Span::complete(stage, None);
+        #[cfg(test)]
+        let stage = hook_trace::Span::enter(hook_trace::Stage::UsageReserve, self.cursor_height);
         self.execution
             .ledger
             .reserve_external_material(self.private.usage()?)?;
+        #[cfg(test)]
+        hook_trace::Span::complete(stage, None);
         // Cached execution never replaces durable material/capacity checks.
         self.execution.ensure_origin_material()?;
         self.execution
@@ -218,6 +230,9 @@ impl FormalBftHeaderNodeDriverV3 {
         self.parent_memo = None;
         let h = self.handoff().handoff_position();
         if self.cursor_height == h {
+            #[cfg(test)]
+            let stage =
+                hook_trace::Span::enter(hook_trace::Stage::InitialHandoff, self.cursor_height);
             let seed = self.private.origin_nodes()?;
             self.execution.origin = FormalBftHeaderExecutionV3::from_handoff(
                 self.execution.inputs.anchor.clone(),
@@ -227,7 +242,11 @@ impl FormalBftHeaderNodeDriverV3 {
                 seed,
                 true,
             )?;
+            #[cfg(test)]
+            hook_trace::Span::complete(stage, None);
         } else {
+            #[cfg(test)]
+            let stage = hook_trace::Span::enter(hook_trace::Stage::VerifiedCut, self.cursor_height);
             let record = self
                 .execution
                 .ledger
@@ -235,10 +254,14 @@ impl FormalBftHeaderNodeDriverV3 {
                 .ok_or("Node replay cursor lost its original canonical record")?;
             let id = record.input().certificate.header.block_id()?;
             self.execution.verified_cut(self.cursor_height, &id)?;
+            #[cfg(test)]
+            hook_trace::Span::complete(stage, None);
         }
         // Historical replay is read-only: it must reject an unrecorded node.
         // Live execution may derive new nodes, but all parent reads must still
         // resolve solely through this verified strict overlay.
+        #[cfg(test)]
+        let stage = hook_trace::Span::enter(hook_trace::Stage::OriginMerge, self.cursor_height);
         let verified_parent = self.execution.origin.retained_nodes.clone();
         let mut parent_nodes: std::collections::BTreeMap<_, _> =
             self.private.origin_nodes()?.into_iter().collect();
@@ -256,6 +279,10 @@ impl FormalBftHeaderNodeDriverV3 {
             verified_parent,
             seed.clone(),
         )?;
+        #[cfg(test)]
+        hook_trace::Span::complete(stage, None);
+        #[cfg(test)]
+        let stage = hook_trace::Span::enter(hook_trace::Stage::LiveHandoff, self.cursor_height);
         let mut live = FormalBftHeaderExecutionV3::from_handoff(
             self.execution.inputs.anchor.clone(),
             self.execution.inputs.target.clone(),
@@ -264,6 +291,12 @@ impl FormalBftHeaderNodeDriverV3 {
             seed,
             false,
         )?;
+        #[cfg(test)]
+        hook_trace::Span::complete(stage, None);
+        #[cfg(test)]
+        let stage = hook_trace::Span::enter(hook_trace::Stage::HistoryReplay, self.cursor_height);
+        #[cfg(test)]
+        let mut replayed = 0u64;
         {
             #[cfg(test)]
             let _measure_live = stage_timing::Span::new("driver.live_parent_replay");
@@ -275,10 +308,15 @@ impl FormalBftHeaderNodeDriverV3 {
             {
                 let entry = record.input();
                 live.replay_next(&entry.certificate, &entry.actions_cbor)?;
+                #[cfg(test)]
+                {
+                    replayed += 1;
+                }
             }
         }
-        // Store an independent, untouched baseline only after strict replay
-        // completed; the live object may immediately observe candidate reads.
+        #[cfg(test)]
+        hook_trace::Span::complete(stage, Some(replayed));
+        // Store an independent, untouched baseline only after strict replay.
         let parent = live.fork_for_preview()?;
         self.execution.origin = live;
         self.parent_memo = Some(ParentMemo { key, parent });

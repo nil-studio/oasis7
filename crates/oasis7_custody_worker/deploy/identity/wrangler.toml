@@ -65,3 +65,12 @@ class_name = "ClientEnrollmentAuthority"
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["ClientEnrollmentAuthority"]
+
+# Dedicated ciphertext namespace. Activation and context-body KEK remain absent.
+[[durable_objects.bindings]]
+name = "CONTEXT_BODIES"
+class_name = "ContextBody"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["ContextBody"]
