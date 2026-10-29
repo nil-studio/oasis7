@@ -31,3 +31,5 @@ pub use oasis7_client_api::world_service::private_goal::signature_metrics;
 
 /// Pure exact-signature fact reuse in one synchronous operation; never authority.
 pub use oasis7_client_api::world_service::private_goal::with_owner_signature_verification_batch;
+
+pub mod context_body;

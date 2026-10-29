@@ -47,9 +47,12 @@ pub(super) fn relay(output: &std::process::Output) {
     relay_stream(&output.stderr);
 }
 pub(super) fn dump(samples: &[serde_json::Value]) {
-    let mut evidence =
+    let evidence =
         oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics(
         );
+    dump_captured(evidence, samples);
+}
+pub(super) fn dump_captured(mut evidence: serde_json::Value, samples: &[serde_json::Value]) {
     // Keep every actual sample independently of ring saturation or try_lock drops.
     for (index, sample) in samples.iter().enumerate() {
         let start = sample["diagnostic_started_us"].as_u64().unwrap();

@@ -279,7 +279,7 @@ fn network_case_membership(
         );
         let execution = Arc::new(NodeBftPeerExecutionStateV3::default());
         let hook: NodeBftSharedExecutionHookV3 =
-            Arc::new(Mutex::new(Box::new(ActualHook(actual[index].clone()))));
+            Arc::new(Mutex::new(Box::new(ActualHook::new(actual[index].clone()))));
         let exchange = Arc::new(
             NodeBftLibp2pPrivateCandidateExchangeV3::new(
                 networks[index].clone(),

@@ -4,14 +4,39 @@ use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 struct Session {
     reader: BufReader<TcpStream>,
+    diagnostic: bool,
+    last_receive_diagnostic: Option<ReceiveDiagnostic>,
     accepted_probe: TcpStream,
     normal_send_buffer: Option<i32>,
     worker: Option<
         thread::JoinHandle<Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError>>,
     >,
 }
+struct ReceiveDiagnostic {
+    start_us: Option<u64>,
+    end_us: u64,
+    budget_us: u128,
+    result: bool,
+    ack_seen: bool,
+    complete_lines: u64,
+    ack_count: u64,
+    snapshot_count: u64,
+    first_ack_us: Option<u128>,
+    first_snapshot_us: Option<u128>,
+    timeouts: u64,
+    timeout_partial_bytes: usize,
+    eof: bool,
+    other_error_kind: Option<std::io::ErrorKind>,
+}
 impl Session {
     fn start(shared: &Arc<Mutex<ViewerRuntimeLiveServer>>, small_buffers: bool) -> Self {
+        Self::start_diagnostic(shared, small_buffers, false)
+    }
+    fn start_diagnostic(
+        shared: &Arc<Mutex<ViewerRuntimeLiveServer>>,
+        small_buffers: bool,
+        diagnostic: bool,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         socket
@@ -28,11 +53,15 @@ impl Session {
         let accepted_probe = accepted.try_clone().unwrap();
         let server = shared.clone();
         let worker = thread::spawn(move || {
-            ViewerRuntimeLiveServer::test_record_stream_budget_connection(!small_buffers);
+            if diagnostic {
+                ViewerRuntimeLiveServer::test_record_stream_budget_connection(!small_buffers);
+            }
             ViewerRuntimeLiveServer::test_serve_shared_stream(server, accepted)
         });
         Self {
             reader: BufReader::new(socket),
+            diagnostic,
+            last_receive_diagnostic: None,
             accepted_probe,
             normal_send_buffer,
             worker: Some(worker),
@@ -52,39 +81,86 @@ impl Session {
         self.receive_snapshot(Duration::from_secs(3), false)
     }
     fn receive_snapshot(&mut self, budget: Duration, require_ack: bool) -> bool {
+        // Numeric diagnostics only; preserve every original read, branch and partial-line discard.
+        let sample_start = self.diagnostic.then(ViewerRuntimeLiveServer::test_stream_budget_timestamp);
         let deadline = Instant::now() + budget;
+        let began = deadline - budget;
         let mut ack = !require_ack;
-        while Instant::now() < deadline {
-            self.reader
-                .get_mut()
-                .set_read_timeout(Some(
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .max(Duration::from_millis(1)),
-                ))
-                .unwrap();
-            let mut line = String::new();
-            match self.reader.read_line(&mut line) {
-                Ok(0) => return false,
-                Ok(_) => {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                        if value["type"] == "hello_ack" {
-                            ack = true;
+        let mut lines = 0u64;
+        let mut partial_bytes = 0usize;
+        let mut timeouts = 0u64;
+        let mut ack_count = 0u64;
+        let mut snapshot_count = 0u64;
+        let mut first_ack_us = None;
+        let mut first_snapshot_us = None;
+        let mut eof = false;
+        let mut other_error = None;
+        let result = (|| {
+            while Instant::now() < deadline {
+                self.reader
+                    .get_mut()
+                    .set_read_timeout(Some(
+                        deadline
+                            .saturating_duration_since(Instant::now())
+                            .max(Duration::from_millis(1)),
+                    ))
+                    .unwrap();
+                let mut line = String::new();
+                match self.reader.read_line(&mut line) {
+                    Ok(0) => {
+                        eof = true;
+                        return false;
+                    }
+                    Ok(_) => {
+                        if self.diagnostic {
+                            lines += u64::from(line.ends_with('\n'));
                         }
-                        if ack && value["type"] == "snapshot" {
-                            return true;
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                            if value["type"] == "hello_ack" {
+                                ack = true;
+                                if self.diagnostic {
+                                    ack_count += 1;
+                                    first_ack_us.get_or_insert_with(|| began.elapsed().as_micros());
+                                }
+                            }
+                            if value["type"] == "snapshot" && self.diagnostic {
+                                snapshot_count += 1;
+                                first_snapshot_us.get_or_insert_with(|| began.elapsed().as_micros());
+                            }
+                            if ack && value["type"] == "snapshot" {
+                                return true;
+                            }
                         }
                     }
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                        ) => {
+                            if self.diagnostic {
+                                timeouts += 1;
+                                partial_bytes += line.len();
+                            }
+                        }
+                    Err(e) => {
+                        other_error = Some(e.kind());
+                        return false;
+                    }
                 }
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                    ) => {}
-                Err(_) => return false,
             }
+            false
+        })();
+        if self.diagnostic && require_ack {
+            let sample_end = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
+            // Store only numbers until both workers join; no diagnostic I/O in the 150ms sample.
+            self.last_receive_diagnostic = Some(ReceiveDiagnostic {
+                start_us: sample_start, end_us: sample_end, budget_us: budget.as_micros(),
+                result, ack_seen: ack, complete_lines: lines, ack_count, snapshot_count,
+                first_ack_us, first_snapshot_us, timeouts, timeout_partial_bytes: partial_bytes,
+                eof, other_error_kind: other_error,
+            });
         }
-        false
+        result
     }
     fn send_snapshot_burst(&mut self, count: usize) -> usize {
         let mut bytes =
@@ -288,8 +364,9 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let shared = Arc::new(Mutex::new(server));
     let root = std::path::PathBuf::from(std::env::var("PRE2_METADATA_DIR").unwrap());
     fs::write(root.join("world-concurrent-ready"), b"ready").unwrap();
+    // This isolated child alone opts in; the measured threshold and I/O are unchanged.
     ViewerRuntimeLiveServer::test_begin_stream_budget_diagnostics();
-    let mut observer = Session::start(&shared, false);
+    let mut observer = Session::start_diagnostic(&shared, false, true);
     let observer_primed = observer.warm();
     fs::write(root.join("world-periodic-view-arm"), b"arm after prime").unwrap();
     let gate_deadline = Instant::now() + Duration::from_secs(3);
@@ -332,7 +409,7 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
 
     let gate_is_held = gate_started && !root.join("world-periodic-view-release").exists();
 
-    let mut slow = Session::start(&shared, true);
+    let mut slow = Session::start_diagnostic(&shared, true, true);
     let slow_primed = slow.warm();
     let requests = slow.send_snapshot_burst(128);
     let (kernel_pressure, maximum_queued) = slow.wait_for_kernel_pressure(Duration::from_secs(1));
@@ -360,10 +437,19 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
         slow.drain_through_hello_ack(requests, Duration::from_secs(5));
     let observer_join = observer.finish();
     let slow_join = slow.finish();
+    if let Some(r) = observer.last_receive_diagnostic.take() {
+        let _ = writeln!(std::io::stderr().lock(),
+            "periodic_observer_receive start_us={:?} end_us={} budget_us={} result={} ack_seen={} complete_lines={} ack_count={} snapshot_count={} first_ack_us={:?} first_snapshot_us={:?} timeouts={} timeout_partial_bytes={} eof={} other_error_kind={:?}",
+            r.start_us, r.end_us, r.budget_us, r.result, r.ack_seen, r.complete_lines,
+            r.ack_count, r.snapshot_count, r.first_ack_us, r.first_snapshot_us,
+            r.timeouts, r.timeout_partial_bytes, r.eof, r.other_error_kind);
+    }
+    let stages = ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics();
+    let _ = writeln!(std::io::stderr().lock(), "periodic_observer_stages={stages}");
     let periodic_arm_removed = fs::remove_file(root.join("world-periodic-view-arm")).is_ok();
     // Dump after both serving workers finish, before outcome assertions. This
     // retains the failing measurement too; no logging runs in the measured path.
-    application_stream_budget_diagnostics::dump(&[serde_json::json!({
+    application_stream_budget_diagnostics::dump_captured(stages, &[serde_json::json!({
         "diagnostic_started_us": diagnostic_started,
         "diagnostic_finished_us": diagnostic_finished,
         "response_within_150ms": observer_responsive && observer_elapsed <= Duration::from_millis(150),
