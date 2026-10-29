@@ -1,6 +1,7 @@
 //! Pure formal-profile contracts and cryptographic verification; no storage services.
 pub mod bft;
 pub mod controlled_authority;
+pub mod incremental_value;
 
 pub mod snapshot_delta;
 
