@@ -76,7 +76,7 @@ fn three_sessions(service: Arc<BftSignerServiceV3>) -> (SocketAddr, thread::Join
     });
     (address, server)
 }
-fn make_body(
+pub(super) fn make_body(
     actual: &Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
     tip: &VerifiedBftHeaderCertificateV3,
 ) -> FinalityKeyRotationBodyV1 {
@@ -120,7 +120,7 @@ pub(super) fn preview_world(
         })
 }
 
-fn signed_rotation(
+pub(super) fn signed_rotation(
     body: &FinalityKeyRotationBodyV1,
     old: FinalityKeyRotationProofV1,
     new: FinalityKeyRotationProofV1,
