@@ -20,6 +20,11 @@ pub(crate) enum ContextSignatureFact<'a> {
         prefix: &'a ContextPrefixProofV1,
         world_key: &'a str,
     },
+    LiveCaptured {
+        request: &'a TaskContextLiveReadV1,
+        response: &'a ws::SignedServiceResponse<CapturedTaskContextV1>,
+        world_key: &'a str,
+    },
     Captured {
         response: &'a ws::SignedServiceResponse<CapturedTaskContextV1>,
         world_key: &'a str,
@@ -113,6 +118,20 @@ pub(crate) fn append_context_signature_checks(
                 )?,
             ]
         }
+        ContextSignatureFact::LiveCaptured {
+            request,
+            response,
+            world_key,
+        } => {
+            verify_live_context_reply(request, response, world_key)
+                .map_err(|_| ApprovalAdmissionError::Invalid)?;
+            vec![job(
+                TASK_CONTEXT_LIVE_READ_PATH,
+                &(&response.request_digest, &response.payload),
+                world_key,
+                &response.signature_hex,
+            )?]
+        }
         ContextSignatureFact::Captured {
             response,
             world_key,
@@ -150,6 +169,51 @@ pub(crate) fn bind_context_reference_checks(
     checks.body_digest = canonical_digest(
         "oasis7.custody.context-body.fixed-read-reference.v1",
         &(&checks.body_digest, reference),
+    )?;
+    Ok(checks)
+}
+
+/// A historical manifest never supplies live authority or a dispatch permit.
+pub(crate) fn context_historical_checks(
+    operation: &str,
+    reference: &crate::provisioning::ContextBodyReferenceV1,
+) -> Result<ExactSignatureChecks> {
+    reference
+        .scope
+        .validate()
+        .map_err(|_| ApprovalAdmissionError::Invalid)?;
+    reference
+        .evidence
+        .validate_metadata(&reference.scope)
+        .map_err(|_| ApprovalAdmissionError::Invalid)?;
+    let binding = canonical_digest("oasis7.custody.context-history.v1", reference)?;
+    Ok(ExactSignatureChecks {
+        operation_id: operation.into(),
+        body_digest: binding.clone(),
+        context_digest: binding.clone(),
+        verify_nonce: binding,
+        verification_digest: None,
+        checks: Vec::new(),
+    })
+}
+#[derive(Serialize)]
+pub(crate) struct LiveContextCurrentBinding<'a> {
+    pub source: &'a str,
+    pub ticket: u8,
+    pub observed_at: crate::time_units::UnixMillis,
+    pub private_generation: crate::DecimalU64,
+    pub lifetime_digest: &'a str,
+}
+pub(crate) fn bind_live_context_checks(
+    mut checks: ExactSignatureChecks,
+    record: &crate::provisioning::LiveContextReadRecordV1,
+    fact: &crate::provisioning::LiveContextReadFactV1,
+    bytes: &[u8],
+    current: Option<&LiveContextCurrentBinding<'_>>,
+) -> Result<ExactSignatureChecks> {
+    checks.body_digest = canonical_digest(
+        "oasis7.custody.live-context.complete.v1",
+        &(&checks.body_digest, record, fact, bytes, current),
     )?;
     Ok(checks)
 }

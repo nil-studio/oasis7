@@ -134,6 +134,21 @@ impl AccountProvisionApprovalState {
         self.context_body_matches(id, body)?;
         self.append_context_body_manifest(id, checks, body)
     }
+    pub(super) fn context_historical_body_checks(
+        &self,
+        id: &str,
+        body: &ValidatedContextBody,
+    ) -> Result<ExactSignatureChecks> {
+        self.context_body_matches(id, body)?;
+        let reference = self
+            .test_sessions
+            .get(id)
+            .and_then(|s| s.context.as_ref())
+            .and_then(|c| c.slots.get(&body.scope().slot))
+            .ok_or_else(invalid)?;
+        let checks = crate::approval_admission::context_historical_checks(id, reference)?;
+        self.append_context_body_manifest(id, checks, body)
+    }
     fn append_context_body_manifest(
         &self,
         id: &str,

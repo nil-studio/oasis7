@@ -235,6 +235,19 @@ impl AccountProvisionApprovalState {
                 Err(ProvisionApprovalError::Conflict)
             };
         }
+        if Self::live_context_nonce_reserved(s, nonce)
+            || Self::live_context_nonce_reserved(
+                s,
+                &digest(&(
+                    "oasis7.custody.test-session-current-lifetime.v1",
+                    id,
+                    operation_id,
+                    nonce,
+                ))?,
+            )
+        {
+            return Err(ProvisionApprovalError::Conflict);
+        }
         if self.frozen()
             || !id_nonempty(operation_id)
             || !hex64(nonce)
