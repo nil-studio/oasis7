@@ -1,5 +1,9 @@
 //! Serve an existing exact header cut; no import or current authority source.
 use super::*;
+#[cfg(test)]
+use crate::formal_bft_header_http::listener_probe::{
+    ValidationRejection, record_validation_rejection,
+};
 use std::{
     net::SocketAddr,
     sync::atomic::{AtomicBool, Ordering},
@@ -44,10 +48,18 @@ pub(super) fn run(config_path: &Path, shutdown: Option<Arc<AtomicBool>>) -> Resu
         source,
         false,
     )
-    .map_err(|_| "header read service could not open the original qualified ledger")?;
+    .map_err(|_| {
+        #[cfg(test)]
+        record_validation_rejection(ValidationRejection::QualifiedLedger);
+        "header read service could not open the original qualified ledger"
+    })?;
     let cut = execution
         .verified_cut(config.exact_height, &config.exact_header_id)
-        .map_err(|_| "header read service exact durable replay rejected")?;
+        .map_err(|_| {
+            #[cfg(test)]
+            record_validation_rejection(ValidationRejection::ExactDurableCut);
+            "header read service exact durable replay rejected"
+        })?;
     use oasis7::world_service::formal_bft_header_read_service::{
         FormalBftHeaderReadPublicationInputV4, FormalBftHeaderReadPublicationV4,
     };
