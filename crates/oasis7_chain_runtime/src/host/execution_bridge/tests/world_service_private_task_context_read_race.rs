@@ -25,6 +25,12 @@ struct ActiveContextReadFixture {
 }
 
 fn active_context_read_fixture(native: bool) -> ActiveContextReadFixture {
+    active_context_read_fixture_with_setup(native, |_, _| {})
+}
+fn active_context_read_fixture_with_setup(
+    native: bool,
+    setup: impl FnOnce(&mut NodeRuntimeExecutionDriver, &WorldIdentity),
+) -> ActiveContextReadFixture {
     let (dir, mut driver, world, owner, owner_public) = if native {
         super::canonical_agent_chat::driver_fixture_without_provider()
     } else {
@@ -44,6 +50,7 @@ fn active_context_read_fixture(native: bool) -> ActiveContextReadFixture {
                 .is_err()
         );
     }
+    setup(&mut driver, &world);
     let create = game_task_tests::create(&world, &owner, "context-read-task");
     commit(&mut driver, 3, create);
     let control = game_task::current_control(&driver.execution_world, "agent-a")
@@ -671,3 +678,6 @@ fn private_task_context_native_read_rejects_authority_definition_change_before_d
 
 #[path = "world_service_private_task_context_live_read.rs"]
 mod live_read;
+
+#[path = "world_service_live_context_http_fixture.rs"]
+mod live_context_http_fixture;

@@ -119,7 +119,7 @@ fn live_context_read_binds_nonce_domain_exact_get_and_reloads_world() {
         assert!(body.get("payload").is_none());
     }
     let mut unknown = serde_json::to_value(&a).unwrap();
-    unknown["extra"] = Value::Bool(true);
+    unknown["extra"] = serde_json::Value::Bool(true);
     assert!(serde_json::from_value::<TaskContextLiveReadV1>(unknown).is_err());
 }
 
