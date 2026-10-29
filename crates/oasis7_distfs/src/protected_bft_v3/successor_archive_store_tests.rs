@@ -235,6 +235,35 @@ fn archive_configuration_rejects_sha256_and_parent_traversal_without_publication
 
 #[cfg(unix)]
 #[test]
+fn a_replaced_blobs_directory_cannot_alias_the_live_store_after_a_warm_read() {
+    use std::os::unix::fs::symlink;
+    let live = Scratch::new();
+    let archive = Scratch::new();
+    let original = b"same content does not prove an independent archive";
+    let live_store = live.store();
+    let reference = live_store.persist_bytes(original).unwrap();
+    let archived = archive.store();
+    assert_eq!(archived.persist_bytes(original).unwrap(), reference);
+    assert_eq!(archived.load_bytes(&reference).unwrap(), original);
+    let live_blob = live.blob(&reference);
+    let live_before = fs::read(&live_blob).unwrap();
+    let blob_directory = archived.store.blobs_dir().to_path_buf();
+    fs::rename(
+        &blob_directory,
+        archive.path().join("retained-original-blobs"),
+    )
+    .unwrap();
+    symlink(live_store.store.blobs_dir(), &blob_directory).unwrap();
+    assert!(
+        archived.load_bytes(&reference).is_err(),
+        "matching bytes through a parent-directory alias are not an independent archive"
+    );
+    assert!(archived.persist_bytes(original).is_err());
+    assert_eq!(fs::read(live_blob).unwrap(), live_before);
+}
+
+#[cfg(unix)]
+#[test]
 fn blob_symlink_is_rejected_on_load_and_persist_without_modifying_target() {
     use std::os::unix::fs::symlink;
     let root = Scratch::new();
