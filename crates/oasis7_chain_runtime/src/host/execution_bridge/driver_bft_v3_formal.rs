@@ -308,5 +308,9 @@ pub(crate) use private::{
 mod storage;
 
 #[path = "driver_bft_v3_formal_prefix.rs"]
+#[cfg(not(test))]
 mod prefix;
+#[cfg(test)]
+#[path = "driver_bft_v3_formal_prefix.rs"]
+pub(crate) mod prefix;
 pub(crate) use prefix::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3};
