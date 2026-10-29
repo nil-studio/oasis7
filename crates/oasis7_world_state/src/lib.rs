@@ -141,3 +141,6 @@ pub mod cognition;
 mod cognition_receipt_binding;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod segmentation;
+
+pub mod incremental_agent_body;
+pub mod incremental_event_fields;
