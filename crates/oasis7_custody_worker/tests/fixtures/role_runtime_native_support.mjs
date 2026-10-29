@@ -251,6 +251,11 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         await reply.arrayBuffer();return reply.status;
       },
       publicEnrollmentFetch:async(path,init)=>{assert.match(path,/^\/v1\/client-enrollments(?:\/[A-Za-z0-9._~-]+\/prove)?$/);const incoming=new Headers(init.headers);for(const key of ['cookie','authorization','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public enrollment never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      setupPaidResultStatus:async()=>{
+        const {ACCOUNTS}=await mf.getBindings('owner');
+        const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/setup-paid-result-status',{method:'POST'});
+        assert.equal(response.status,200,'fixed actual Bind callback scheduling status unavailable');return response.json();
+      },
       paidDirectoryFenceStatus:async()=>{
         const {ACCOUNTS}=await mf.getBindings('owner');
         const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/paid-directory-fence-status',{method:'POST'});

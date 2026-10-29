@@ -27,6 +27,7 @@ let accountAlarmFixtureActive=false;
 let accountAlarmFault=null;
 let activationReadDelay=false;
 let paidDirectoryBarrier=null;
+let setupPaidResultBarrier=false;
 let toolNonceFixtureActive=false;
 let toolNonceFaultMode=null;
 const toolNonceSignalNames=["sql_fee_confirmed","sql_update_fault","reply_lost","actions_context"];
@@ -63,6 +64,11 @@ function configureOptions(options){
         return module;
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
+    }
+    if(setupPaidResultBarrier&&worker.name==='owner'){
+      worker.bindings={...worker.bindings,FIXTURE_SETUP_PAID_RESULT_BARRIER:'true',FIXTURE_SETUP_PAID_RESULT_MODE:typeof setupPaidResultBarrier==='string'?setupPaidResultBarrier:'together'};
+      worker.serviceBindings={...worker.serviceBindings,FIXTURE_FENCE_CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'}};
+      worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/setup_paid_result_barrier.mjs')},...worker.modules];
     }
     if(paidDirectoryBarrier&&worker.name==='owner'){
       const paidMode=typeof paidDirectoryBarrier==='string'?paidDirectoryBarrier:paidDirectoryBarrier.mode;
@@ -1033,7 +1039,7 @@ for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure pre
       assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
       // These prove the actual target candidate reached the real SQLite UPDATE,
       // not a fixture assertPaid throwing before Rust tried to pay.
-      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
       assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
       assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
       assert.equal(facts.record_unchanged,true);assert.equal(facts.roots_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
@@ -1253,4 +1259,84 @@ test('public Tool metadata uses only ReconcileRead funds with Native and private
       await runtime.suspend();assert.equal(closeSessionState(runtime,basis.session_id).private_read_attempts,0,'metadata must not access the bound deny-all SID actor');
     }finally{identitySecretsDisabled=false;identityCloseReadTrap=false;runtime.setNativeUnavailable(false);}
   },{toolNonceFixture:true});
+});
+
+
+test('actual paid Bind result Directory and Fence reads overlap without renewing source',{timeout:300000},async()=>{
+  setupPaidResultBarrier=true;
+  try{
+    await withRoleRuntime(mode,async runtime=>{
+      const initial=await runtime.drive('session-participant');
+      assert.equal(initial.stage,'participant_bound','real participant prerequisite must complete before the selected Bind callback');
+      const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
+      const before=runtime.nativeRequests(),worldBefore=runtime.worldResults().length;
+      const response=await runtime.continueSetup(setup.setup_id);
+      const status=response.status;let progress=null;
+      if(status===200)progress=await response.json();else await response.arrayBuffer();
+      const facts=await runtime.setupPaidResultStatus();
+      const after=runtime.nativeRequests();
+      if(status!==200||progress?.stage!=='prepared'){
+        const deltas=Object.fromEntries(Object.keys(after).sort().map(path=>[path,(after[path]??0)-(before[path]??0)]));
+        const observedAt=Date.now();await runtime.suspend();
+        console.error(JSON.stringify({setup_paid_result_barrier:{status,progress_stage:progress?.stage??null,facts,
+          native_path_counts:deltas,world_response_count:runtime.worldResults().length-worldBefore,
+          state:baselineFailureState(runtime,observedAt)}}));
+      }
+      // These are the scheduling targets. Do not turn a failed precondition or
+      // an intermediate counter assertion into the apparent old-serial RED.
+      assert.equal(status,200,'the unchanged real setup path must return a prepared result');
+      assert.equal(progress.stage,'prepared','the already-paid Bind callback must finish under the original source window');
+      assert.ok(facts,'the actual selected Bind callback must be reached');
+      assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.callback_claimed,true);assert.equal(facts.result_empty,true);
+      assert.equal(facts.stage_prepaid,true);assert.equal(facts.native_source_present,true);assert.equal(facts.canonical_committed,true);
+      assert.equal(facts.source_fresh_at_start,true,'the selected callback must begin inside the original source window');
+      assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);assert.equal(facts.paid_confirmations,2);
+      assert.equal(facts.gate_status,200,'the real Directory gate must succeed');
+      assert.equal(facts.released,'independent_reads_started');assert.ok(facts.elapsed_ms<5000);
+      assert.equal(facts.source_unchanged,true);assert.equal(facts.spent_unchanged,true);assert.equal(facts.result_after,true);
+      assert.equal(facts.setup_transport_spent,8+96*facts.stage_count,'the real preallocated stage96 remains charged exactly once');
+    },{configureOptions});
+  }finally{setupPaidResultBarrier=false;}
+});
+
+
+for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'])test(`actual paid Bind result rejects ${fault} without admitting stale facts`,{timeout:300000},async()=>{
+  setupPaidResultBarrier=fault;
+  try{
+    await withRoleRuntime(mode,async runtime=>{
+      const initial=await runtime.drive('session-participant');
+      assert.equal(initial.stage,'participant_bound','the real participant prerequisite must complete');
+      const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
+      const response=await runtime.continueSetup(setup.setup_id);
+      const status=response.status;let progress=null;
+      if(status===200)progress=await response.json();else await response.arrayBuffer();
+      const nativeBefore=runtime.nativeRequests(),worldBefore=runtime.worldResults().length;
+      const facts=await runtime.setupPaidResultStatus();
+      console.log(JSON.stringify({setup_paid_result_fault:{fault,status,progress_stage:progress?.stage??null,facts}}));
+      assert.ok(facts,'the actual selected Bind callback must be reached');
+      assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.stage_prepaid,true);assert.equal(facts.native_source_present,true);assert.equal(facts.canonical_committed,true);
+      assert.equal(status===200||status===503,true,'only the unchanged setup pending/rejection result is allowed');
+      assert.equal(progress?.stage==='prepared',false,'failed readonly evidence cannot complete setup');
+      assert.equal(facts.result_after,false);assert.equal(facts.source_unchanged,true);assert.equal(facts.spent_unchanged,true);
+      assert.deepEqual(runtime.nativeRequests(),nativeBefore);assert.equal(runtime.worldResults().length,worldBefore,'the fixture observation cannot add Native/World calls');
+      if(fault==='prepay_sql_fail'){
+        assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+        assert.equal(facts.gate_reads,0);assert.equal(facts.fence_reads,0);assert.equal(facts.paid_confirmations,0);
+        assert.equal(facts.callback_after,false);assert.equal(facts.record_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
+      }else{
+        assert.equal(facts.callback_claimed,true);assert.equal(facts.result_empty,true);assert.equal(facts.source_fresh_at_start,true);
+        assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);assert.equal(facts.paid_confirmations,2);
+        if(fault==='over_window'){
+          assert.equal(facts.released,'bounded_timeout');assert.ok(facts.elapsed_ms>=5000,'the real observation window cannot be extended');
+        }else{
+          assert.equal(facts.released,'independent_reads_started');assert.equal(facts.source_fresh_at_start,true);
+          if(fault==='reject_gate'){
+            assert.equal(facts.gate_status,200,'the injected rejection follows an actual successful Directory response');assert.equal(facts.gate_faulted,true);
+          }else assert.equal(facts.fence_disabled,true,'the actual independent RecoveryFence must be disabled');
+        }
+      }
+    },{configureOptions});
+  }finally{setupPaidResultBarrier=false;}
 });

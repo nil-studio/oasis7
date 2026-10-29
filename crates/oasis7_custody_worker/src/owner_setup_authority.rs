@@ -48,6 +48,61 @@ pub(super) async fn observe(
     }
     authority::observe(env, saved.state.draft(), input, signed, inspection_only).await
 }
+/// Only Bind/FinalObservation result callbacks whose local once reservation has
+/// already committed can overlap these two independent readonly inputs.
+pub(super) async fn observe_paid_result(
+    env: &Env,
+    saved: &ProvisionApprovalSnapshot,
+    id: &str,
+    stage: oasis7_custody_core::provisioning::OwnerSetupStageV1,
+) -> Result<authority::Observations> {
+    use oasis7_custody_core::provisioning::{OWNER_SETUP_STAGE_TRANSPORT_COST, OwnerSetupStageV1};
+    let world = enabled(env)?;
+    let plan = saved.state.owner_setup_plan(id).ok_or_else(denied)?;
+    let outbox = saved
+        .state
+        .owner_setup_outbox(id, stage)
+        .ok_or_else(denied)?;
+    // The snapshot was strictly restored; count its actual closed outboxes and
+    // compare the public ledger projection without opening Core's private book.
+    let mut spent = 8_u64;
+    let mut cursor = Some(OwnerSetupStageV1::FinalObservation);
+    while let Some(selected) = cursor {
+        if saved.state.owner_setup_outbox(id, selected).is_some() {
+            spent = spent
+                .checked_add(OWNER_SETUP_STAGE_TRANSPORT_COST)
+                .ok_or_else(denied)?;
+        }
+        cursor = selected.previous();
+    }
+    let remaining = saved
+        .state
+        .owner_setup_progress(id)
+        .map_err(|_| denied())?
+        .transport_remaining
+        .0;
+    if !matches!(
+        stage,
+        OwnerSetupStageV1::Bind | OwnerSetupStageV1::FinalObservation
+    ) || saved.state.frozen()
+        || saved.state.draft().world_identity != world
+        || plan.transport_limit.0.checked_sub(spent) != Some(remaining)
+        || outbox.callback_claimed_at.is_none()
+        || outbox.claimed_at.is_none()
+        || outbox.result.is_some()
+    {
+        return Err(denied());
+    }
+    let original = saved.state.owner_setup_original(id).ok_or_else(denied)?;
+    let signed = outbox.source.verification.as_ref().ok_or_else(denied)?;
+    authority::observe_paid_owner_setup_result(
+        env,
+        saved.state.draft(),
+        original.input().clone(),
+        signed,
+    )
+    .await
+}
 pub(super) async fn observe_manager(
     env: &Env,
     saved: &ProvisionApprovalSnapshot,
