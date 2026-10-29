@@ -11,7 +11,7 @@
 - 审读基线：2026-10-15，`cde57786e711b03a9c9fa2a5174aba357e8350d5`。本次只补既有合同身份、精确接收与验证定位；源码断言仅静态阅读，未执行游戏、模型、Rust 或 UI。
 
 ## 1. 设计定位
-定义“模块驱动的新事物”统一可视实体机制：让 runtime/simulator 只发布通用 `ModuleVisualEntity` 数据，viewer 负责统一渲染与详情呈现，避免每种模块能力都扩一套专用实体分支。
+定义“模块驱动的新事物”统一可视实体机制：runtime/simulator 只发布通用 `ModuleVisualEntity` 数据，viewer 负责统一渲染与详情呈现，避免为每种模块能力扩一套专用实体分支。
 
 ## 2. 设计结构
 - 数据模型层：在 simulator 中引入通用 `ModuleVisualEntity` 与初始化/场景接入。
@@ -21,7 +21,7 @@
 
 ### 2.1 需求承接与分配表
 
-每行保持配对 PRD 原语义。前两行仅内部工程机制没有独立产品结果，后两行通过原专业条款精确引用现有产品 ID；不为工程机制虚构产品承诺，也不把真实用户结果统一写成 N/A。
+每行保持配对 PRD 原语义。前两行仅涉及内部工程机制，没有独立产品结果；后两行通过原专业条款精确引用现有产品 ID。不为工程机制虚构产品承诺，也不把真实用户结果统一写成 N/A。
 
 | 上游 requirement / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 未覆盖范围 |
 | --- | --- | --- | --- | --- |

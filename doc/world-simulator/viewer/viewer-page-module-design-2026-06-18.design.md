@@ -45,8 +45,8 @@ The Viewer first screen must answer, in order:
 4. What happened because of the latest action or intent?
 5. Where can I inspect targets, command details, gameplay state, or diagnostics?
 
-The page should feel like an industrial world command table, not a landing page
-and not an internal observability console.
+The page should feel like an industrial world command table, neither a landing page
+nor an internal observability console.
 
 ### 2.2 Information Architecture
 Use four priority levels:
