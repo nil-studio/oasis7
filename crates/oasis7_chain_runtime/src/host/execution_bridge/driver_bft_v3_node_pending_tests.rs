@@ -209,10 +209,11 @@ pub(super) fn recover(
     delivery: &Arc<AtomicBool>,
     drains: &[Arc<AtomicU64>],
     received: &[Arc<AtomicU64>],
-    clock_start: &Arc<std::sync::OnceLock<Instant>>,
+    clock: &Arc<membership_clock::ElapsedClock>,
 ) {
-    assert!(
-        clock_start.get().is_none(),
+    assert_eq!(
+        clock.elapsed_ms().unwrap(),
+        0,
         "original recovery clock stays frozen"
     );
     let original_clock_floors = snapshots
@@ -281,8 +282,12 @@ pub(super) fn recover(
         )
         .unwrap(),
     ));
+    let mut recovered_binding = binding_for(&cold, 0);
+    // Restore the original externally selected policy, rather than the helper's
+    // short default. Cold opening must preserve every other binding identity.
+    recovered_binding.timeouts = bindings[0].timeouts;
     assert_eq!(
-        binding_for(&cold, 0).digest().unwrap(),
+        recovered_binding.digest().unwrap(),
         bindings[0].digest().unwrap()
     );
     actual.insert(0, cold.clone());
@@ -303,7 +308,7 @@ pub(super) fn recover(
                     fail_confirm_after_commit: None,
                     snapshot: snapshots[0].clone(),
                 },
-                clock_start.clone(),
+                clock.clone(),
             ),
             BftCandidateReadPolicyV3::STANDARD,
         )
@@ -359,7 +364,7 @@ pub(super) fn recover(
                 candidate_policy_digest: gates.policy_digest.clone(),
                 candidate_grant_generation: 1,
                 peers: routes,
-                operation_timeout: Duration::from_secs(60),
+                operation_timeout: PRIVATE_OPERATION_TIMEOUT,
             },
             execution.clone(),
             hook.clone(),
@@ -524,17 +529,18 @@ pub(super) fn recover(
         original_clock_floors,
         "cold recovery must finish the original slot without advancing test clocks"
     );
-    // Only the new action needs round-timeout recovery. Its providers now use
-    // elapsed milliseconds, not one millisecond per potentially slow TCP poll.
-    // The original pending vote/QC and exact completion were already proved.
-    clock_start.set(Instant::now()).unwrap();
+    // Original pending prevote/QC recovery kept the fixed original clock.
+    // Start elapsed time once; the cold wrapper already holds this same anchor.
+    clock.start().unwrap();
     stage_timing::mark("continuation_clock_armed");
     nodes[0]
         .submit_consensus_action_payload(9501, payload("actual-after-cold-pending-agent"))
         .unwrap();
     delivery.store(true, Ordering::Release);
     let mut next = [false; 3];
-    let continuation_deadline = Instant::now() + Duration::from_secs(180);
+    let continuation_budget =
+        membership_clock::recovery_action_budget(bindings[0].timeouts, PRIVATE_OPERATION_TIMEOUT);
+    let continuation_deadline = Instant::now() + continuation_budget;
     loop {
         for (index, node) in nodes.iter().enumerate() {
             assert!(node.bft_v3_status().unwrap().running);
@@ -549,13 +555,15 @@ pub(super) fn recover(
             break;
         }
         assert!(Instant::now() < continuation_deadline,
-            "timeout post-recovery nonempty continuation; exact_action=9501 completed={next:?}; nodes={:?}; protected={:?}; views={:?}",
+            "timeout post-recovery nonempty continuation; exact_action=9501 completed={next:?}; budget={continuation_budget:?}; clock={:?}; nodes={:?}; protected={:?}; views={:?}",
+            clock.diagnostic(),
             nodes.iter().map(NodeRuntime::bft_v3_status).collect::<Vec<_>>(),
             snapshots.iter().map(|snapshot| snapshot.try_lock().map(|snapshot| {
                 let state = &snapshot.state;
                 (snapshot.protected_time_floor_ms,
                  state.history.last().map(|c| c.execution_commitment.height),
                  state.pending_driver_apply.clone(),
+                 state.journal.as_ref().map(|j| (j.height_started_at_ms(),j.pending_vote_intent().map(|v|v.phase),j.events().iter().rev().find_map(|event|match event {BftSigningJournalEventV3::Vote{vote,local:true,..}=>Some((vote.round,vote.phase)),_=>None}),j.pending_commit().is_some())),
                  state.journal.as_ref().map(|j| j.events.iter().rev().take(16).map(|event| {
                      match event {
                          BftSigningJournalEventV3::Proposal { proposal, local, now_ms } =>
