@@ -464,6 +464,9 @@ fn durable_agent_recovers_lost_reply_by_query_without_repeating_native_stop() {
 
 #[test]
 fn durable_agent_releases_writer_while_forked_child_retains_descriptor() {
+    if super::super::admission_tests::isolate_fork_test() {
+        return;
+    }
     use super::super::admission_tests::InheritedDescriptors;
     struct ForkingRunner {
         inner: FakeAgentRunner,
@@ -493,7 +496,9 @@ fn durable_agent_releases_writer_while_forked_child_retains_descriptor() {
         inherited: None,
     };
     request.mode = AgentModeV1::Apply;
-    let first = Agent::with_runner(request.clone(), &mut runner).unwrap().unwrap();
+    let first = Agent::with_runner(request.clone(), &mut runner)
+        .unwrap()
+        .unwrap();
     let child_retained_descriptors = runner.inherited.as_ref().unwrap().is_waiting();
     request.mode = AgentModeV1::Query;
     let recovered = Agent::with_runner(request, &mut runner);

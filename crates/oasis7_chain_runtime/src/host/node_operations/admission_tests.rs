@@ -8,8 +8,51 @@ use super::{
 };
 use std::{
     net::Shutdown,
-    os::{fd::AsRawFd, unix::net::UnixStream},
+    os::{
+        fd::AsRawFd,
+        unix::{net::UnixStream, process::CommandExt},
+    },
+    process::Command,
+    time::{Duration, Instant},
 };
+
+/// A held pre-exec fork must never inherit another test thread's lifetime locks.
+/// Exec a single-test harness first; the fork still retains this test's real
+/// descriptors, so the writer-release regressions keep their original oracle.
+pub(crate) fn isolate_fork_test() -> bool {
+    const CHILD_TEST: &str = "OASIS7_ISOLATED_FORK_TEST";
+    let thread = std::thread::current();
+    let name = thread.name().expect("named test thread");
+    if std::env::var(CHILD_TEST).as_deref() == Ok(name) {
+        return false;
+    }
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture"])
+        .env(CHILD_TEST, name)
+        .process_group(0)
+        .spawn()
+        .expect("spawn isolated fork regression");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait isolated fork regression") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            // SAFETY: This is the process group of our unreaped, owned child.
+            // Its held fork and any receiver child must also be terminated.
+            unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("isolated fork regression exceeded its bounded child budget: {name}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        status.success(),
+        "isolated fork regression failed: {name}: {status}"
+    );
+    true
+}
 
 pub(crate) struct InheritedDescriptors {
     pid: libc::pid_t,
@@ -59,6 +102,9 @@ impl Drop for InheritedDescriptors {
 
 #[test]
 fn operation_store_releases_writer_while_forked_child_retains_descriptor() {
+    if isolate_fork_test() {
+        return;
+    }
     let root = std::fs::canonicalize(std::env::temp_dir())
         .unwrap()
         .join(format!(
@@ -87,6 +133,9 @@ fn operation_store_releases_writer_while_forked_child_retains_descriptor() {
 
 #[test]
 fn stop_admission_releases_writer_even_while_forked_child_retains_descriptor() {
+    if isolate_fork_test() {
+        return;
+    }
     let (_fixture, config, receiver, current) = operation_fixture_with_stop_signal();
     let binding = actions::binding(&config).unwrap();
     let request = Request {
