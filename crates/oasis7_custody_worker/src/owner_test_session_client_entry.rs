@@ -21,6 +21,7 @@ extern "C" {
 pub(crate) fn operation(path: &str) -> Option<SessionClientOperation> {
     Some(match path {
         "/internal/test-session-client-challenge" => SessionClientOperation::Challenge,
+        "/internal/test-session-client-tool-nonce" => SessionClientOperation::ToolNonce,
         "/internal/test-session-client-claim" => SessionClientOperation::CredentialClaim,
         "/internal/test-session-client-initialize" => {
             SessionClientOperation::Control(SessionControlKindV1::Initialize)

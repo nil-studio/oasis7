@@ -11,8 +11,9 @@ use oasis7_custody_core::{
         http_pop_nonce_hint,
     },
     provisioning::{
-        SessionChallengeRequestV1, SessionClientHeaderV1, SessionClientHttpRequestV1,
-        SessionClientOperation, SessionControlKindV1, SessionControlRequestV1,
+        SessionChallengeKindV1, SessionChallengeRequestV1, SessionClientHeaderV1,
+        SessionClientHttpRequestV1, SessionClientOperation, SessionControlKindV1,
+        SessionControlRequestV1,
     },
 };
 use wasm_bindgen::prelude::*;
@@ -59,11 +60,14 @@ pub(crate) async fn capture(env: &Env, request: &Request) -> Result<CapturedClie
         ClientRoute::Challenge => {
             let q: SessionChallengeRequestV1 =
                 serde_json::from_str(&body).map_err(|_| rejected())?;
-            (
-                HttpPopRoute::ProofChallenges,
-                SessionClientOperation::Challenge,
-                q.session_id,
-            )
+            let operation = match q.kind {
+                SessionChallengeKindV1::Tool => SessionClientOperation::ToolNonce,
+                SessionChallengeKindV1::Control(_) | SessionChallengeKindV1::CredentialClaim => {
+                    SessionClientOperation::Challenge
+                }
+                SessionChallengeKindV1::ToolMetadata => return Err(rejected()),
+            };
+            (HttpPopRoute::ProofChallenges, operation, q.session_id)
         }
         ClientRoute::Claim { enrollment_id } => {
             let q: ClientCredentialClaimRequestV1 =

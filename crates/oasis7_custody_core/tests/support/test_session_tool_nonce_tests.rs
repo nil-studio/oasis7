@@ -470,5 +470,7 @@ fn tool_nonce_last_three_execution_transports_persist_budget_exhausted_closing()
     );
     restore(&f.state);
 }
+#[path = "test_session_tool_nonce_dot_tests.rs"]
+mod dot_tests;
 #[path = "test_session_tool_nonce_lifecycle_tests.rs"]
 mod lifecycle_tests;

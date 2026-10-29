@@ -84,6 +84,19 @@ async fn rpc<T: DeserializeOwned>(
 fn check(env: &Env, selector: &TestSessionSelectorV1, observation: &Observation) -> Result<()> {
     observation.check(env, selector)
 }
+/// One fixed Owner named call and Account call. No Source/Native coordinator.
+pub(crate) async fn run_tool_nonce(
+    env: &Env,
+    admission: TestSessionClientAdmissionRpc,
+) -> Result<String> {
+    rpc_raw(
+        env,
+        &admission,
+        SessionClientOperation::ToolNonce,
+        TestSessionClientAction::ToolNonce,
+    )
+    .await
+}
 pub(crate) async fn run(
     env: &Env,
     admission: TestSessionClientAdmissionRpc,

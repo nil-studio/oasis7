@@ -99,6 +99,7 @@ impl AccountProvisionApprovalState {
                 .test_sessions
                 .get(&request.session_id)
                 .ok_or_else(invalid)?;
+            tool_nonce::native_registration(session)?;
             if context.public_origin != session.enrollment.registration.public_origin {
                 return Err(invalid());
             }

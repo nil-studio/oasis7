@@ -512,6 +512,10 @@ client_entrypoint!(
     owner_client_challenge,
     "/internal/test-session-client-challenge"
 );
+client_entrypoint!(
+    owner_client_tool_nonce,
+    "/internal/test-session-client-tool-nonce"
+);
 client_entrypoint!(owner_client_claim, "/internal/test-session-client-claim");
 client_entrypoint!(
     owner_client_initialize,

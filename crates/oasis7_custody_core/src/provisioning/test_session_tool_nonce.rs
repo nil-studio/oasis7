@@ -44,6 +44,26 @@ fn request_shape(q: &SessionChallengeRequestV1, session_id: &str) -> Result<()> 
     }
     Ok(())
 }
+/// Only the registered Native profile can enter this new metadata lane.
+/// This compares persisted enrollment and the independently signed approval;
+/// it grants no Current, source or business authority.
+pub(super) fn native_registration(s: &TestSessionAuthorityV1) -> Result<()> {
+    let descriptor = &s.enrollment.registration.request.descriptor;
+    let (_, pair, _, _, _) = admission::pairing(&s.input.request.intent)?;
+    let CustodyIntentV1::TestSession { client_binding, .. } = &s.input.request.intent else {
+        return Err(invalid());
+    };
+    if descriptor.transport_profile != HostTransportProfileV1::NativeBrokerCustodyV1
+        || pair.connector_public_key.is_some()
+        || pair.client_public_key != descriptor.client_public_key
+        || !matches!(client_binding,
+            crate::approval::ApprovedClientBindingV1::NativeBrokerCustodyV1 { client_key }
+                if client_key == &pair.client_public_key)
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
 fn targets(draft: &AccountDraftV1, origin: &str) -> Result<(String, String)> {
     let target = |route| {
         CanonicalHttpTarget::new(
@@ -80,6 +100,7 @@ impl AccountProvisionApprovalState {
         // Exact paid callbacks authenticate the current key/token and absolute
         // deadline, but do not acquire a new write/lease permission.
         let s = self.test_sessions.get(&q.session_id).ok_or_else(invalid)?;
+        native_registration(s)?;
         let root = s.roots.get(&q.purpose).ok_or_else(invalid)?;
         if self.session_inventory != SessionInventoryV1::Known
             || self.frozen()

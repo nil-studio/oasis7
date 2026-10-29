@@ -21,9 +21,16 @@ pub(crate) async fn handle(env: &Env, request: Request) -> worker::Result<Respon
         Ok(captured) => captured,
         Err(_) => return Response::error("invalid client request", 400),
     };
-    match crate::identity_native_runtime::client::run(env, captured.admission, captured.operation)
-        .await
-    {
+    let result = if matches!(
+        captured.operation,
+        oasis7_custody_core::provisioning::SessionClientOperation::ToolNonce
+    ) {
+        crate::identity_native_runtime::client::run_tool_nonce(env, captured.admission).await
+    } else {
+        crate::identity_native_runtime::client::run(env, captured.admission, captured.operation)
+            .await
+    };
+    match result {
         Ok(raw) => {
             let mut response = Response::ok(raw)?;
             response

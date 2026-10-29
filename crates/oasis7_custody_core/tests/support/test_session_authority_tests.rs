@@ -1,7 +1,11 @@
 use super::*;
 use oasis7_custody_core::{client_enrollment::*, http_pop::*, time_units::*};
 use sha2::{Digest, Sha256};
-fn enrollment(target: PairingInviteTargetRefV1, environment: String) -> ProvedEnrollmentFactV1 {
+fn enrollment(
+    target: PairingInviteTargetRefV1,
+    environment: String,
+    profile: HostTransportProfileV1,
+) -> ProvedEnrollmentFactV1 {
     let host = SigningKey::from_bytes(&[8; 32]);
     let public = host
         .verifying_key()
@@ -16,7 +20,7 @@ fn enrollment(target: PairingInviteTargetRefV1, environment: String) -> ProvedEn
         descriptor: HostDeploymentDescriptorV1 {
             api_version: 1,
             environment,
-            transport_profile: HostTransportProfileV1::NativeBrokerCustodyV1,
+            transport_profile: profile,
             tool_profile: "custody-native-v1".into(),
             host_instance_id: "synthetic-host-no-isolation-PASS".into(),
             client_public_key: public,
@@ -147,15 +151,30 @@ fn admission(
         .status
         .receipt
         .native_account_id;
+    let connector = (d.transport_profile == HostTransportProfileV1::DotMcpCustodyV1).then(|| {
+        SigningKey::from_bytes(&[9; 32])
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    });
+    let client_binding = match &connector {
+        Some(connector_key) => ApprovedClientBindingV1::DotMcpCustodyV1 {
+            client_key: d.client_public_key.clone(),
+            connector_key: connector_key.clone(),
+        },
+        None => ApprovedClientBindingV1::NativeBrokerCustodyV1 {
+            client_key: d.client_public_key.clone(),
+        },
+    };
     input.request.intent = CustodyIntentV1::TestSession {
         session_id: "session-one".into(),
         native_account_id: native,
         world_identity: Box::new(term.world.clone()),
         task_fence: Box::new(term.initial_fence.clone()),
         executor_key_ref: term.executor_key_ref.clone(),
-        client_binding: ApprovedClientBindingV1::NativeBrokerCustodyV1 {
-            client_key: d.client_public_key.clone(),
-        },
+        client_binding,
         client_pairing: Some(Box::new(ClientPairingBindingV1 {
             api_version: 1,
             target: f.registration.request.target.clone(),
@@ -165,7 +184,7 @@ fn admission(
             descriptor_digest: f.registration.descriptor_digest.clone(),
             client_key_id: f.registration.key_id.clone(),
             client_public_key: d.client_public_key.clone(),
-            connector_public_key: None,
+            connector_public_key: connector.clone(),
         })),
         runtime_ref: d.restricted_runtime_identity.clone(),
         skill_ref: d.skill_manifest_digest.clone(),
@@ -188,7 +207,7 @@ fn admission(
             requests: DecimalU64(80),
             transport_per_hop: DecimalU64(240),
             identity_transport: DecimalU64(160),
-            transport_hops: 1,
+            transport_hops: if connector.is_some() { 2 } else { 1 },
         },
         write_deadline: DecimalU64(50_000),
         read_until: DecimalU64(80_000),
@@ -224,6 +243,9 @@ fn test_session_real_mfa_reserves_pending_but_only_native_positive_consume_can_p
     let _ = pending_fixture();
 }
 fn management_fixture() -> SessionFixture {
+    management_fixture_for_profile(HostTransportProfileV1::NativeBrokerCustodyV1)
+}
+fn management_fixture_for_profile(profile: HostTransportProfileV1) -> SessionFixture {
     let (mut s, mut c, pin, _, _) = super::tests::prepared_by_reconcile();
     c.handoff_until = DecimalU64(80_000);
     let policy = Policy::new(s.draft());
@@ -248,7 +270,7 @@ fn management_fixture() -> SessionFixture {
             PairingInviteCreateRequestV1 {
                 api_version: 1,
                 request_id: "invite-request".into(),
-                transport_profile: HostTransportProfileV1::NativeBrokerCustodyV1,
+                transport_profile: profile,
                 tool_profile: "custody-native-v1".into(),
             },
             "invite-one",
@@ -259,6 +281,7 @@ fn management_fixture() -> SessionFixture {
     let fact = enrollment(
         invite.target().unwrap(),
         s.draft().entry.environment.clone(),
+        profile,
     );
     let d = &fact.registration.request.descriptor;
     let deployments = HostDeploymentAllowlist::from_fixed_config(vec![HostDeploymentPinV1 {
@@ -280,13 +303,16 @@ fn pending_fixture() -> SessionFixture {
     session_fixture(true)
 }
 fn session_fixture(consume: bool) -> SessionFixture {
+    session_fixture_for_profile(consume, HostTransportProfileV1::NativeBrokerCustodyV1)
+}
+fn session_fixture_for_profile(consume: bool, profile: HostTransportProfileV1) -> SessionFixture {
     let SessionFixture {
         state: mut s,
         context: c,
         pin,
         fact,
         deployments,
-    } = management_fixture();
+    } = management_fixture_for_profile(profile);
     let policy = Policy::new(s.draft());
     let ns = scope(&pin);
     let actual = ProvedEnrollmentObservation {

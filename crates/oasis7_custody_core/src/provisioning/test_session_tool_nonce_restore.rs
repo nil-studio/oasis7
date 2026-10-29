@@ -19,6 +19,7 @@ impl AccountProvisionApprovalState {
         {
             return Ok(());
         }
+        native_registration(s)?;
         if s.tool_nonce_ingresses.len() > 700 || s.tool_nonce_links.len() > 1024 {
             return Err(invalid());
         }
