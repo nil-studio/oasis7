@@ -618,6 +618,8 @@ Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；本条细化同一恢�
 
 恢复先查原 canonical 请求及受信 Agent scope read-view。`ProviderPrefix` 在一个 canonical 操作内产生 TurnStarted、ContextCaptured、RequestDispatched；不得虚构三个独立 scheduler 提交。恢复必须使用实际生产者保留的 immutable signed payload/correlation；缺失原请求或无法验证当前 owner/delegation/fence、世界和 branch/finality binding 时，持久记录 `model_outcome_unknown` 并保持 recovery pending，不能重签原操作或从事件猜造 Lookup key。已有 response、commit、receipt 或 continuation 必须转入其原结果恢复路径。
 
+受信 Lookup 返回 `HistoryUnavailable` 或 `Expired` 时，执行进度分别投影为历史证据不可用或原 intent 过期的明确 blocker，保留原 phase、签名请求与 lease，不把它们当成 `Unknown` 或实际进展。历史缺失须恢复原 cut 的经验证闭包；当前 World 中保留结果索引不能冒充原提交的历史证明，也不能因此重签、重调模型或退款。
+
 在原 prefix、原 Reserved lease 与当前权限均由 canonical evidence 证实，且无 response/commit 时，允许用已有 `ProviderFailure` 操作和 `cognition_failed` 原因终止已丢失的本地执行器。独立持久恢复原因必须为 `executor_lost_after_dispatch:model_outcome_unknown`：它只陈述本地执行器丢失，不声称外部模型失败、未返回或未计费。Runtime 既有 after-response 拒绝是迟到响应竞争的最终保护；被拒绝时保留原 terminal 请求和阻断原因，不生成新 nonce 尝试绕过。
 
 首次 terminal 和 settlement 请求必须在发送前持久化其签名与 correlation，崩溃后先 Lookup 原请求。Pending/Received/未知 transport outcome 均保留原请求；只有受信的原 key Unknown 才允许重发同一签名 payload。原 fixed cognition unit 按 reserved amount=1 保守 SettleLease，禁止 ReleaseLease、退款或伪称外部 cost 已知；外部 durable call ledger 已消耗的调用保持不变。terminal 与 settlement 的精确 committed receipts 以及后续受信 read-view 必须确认原请求已终结、原 lease 已 Settled、consumed=1、released/refunded=0，才能持久退休同一 orphan 并恢复正常新 turn 的 eligibility。模型原请求永不重发；新 turn 仍受正常 policy、预算和当前权限约束。

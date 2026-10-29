@@ -198,6 +198,10 @@ impl ViewerRuntimeLiveServer {
     }
 
     fn observe_agent_pump_progress(&mut self, progress: &AgentServiceProgress) {
+        if let AgentServiceProgress::Blocked(blocker) = progress {
+            self.record_agent_pump_error(blocker.reason());
+            return;
+        }
         if matches!(progress, AgentServiceProgress::Advanced) {
             self.agent_service_pump_error = None;
             if self

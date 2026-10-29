@@ -152,6 +152,81 @@ fn orphan_service_fixture() -> (
 }
 
 #[test]
+fn hosted_orphan_unavailable_original_reports_blocker_without_authorizing_replay() {
+    use crate::viewer::runtime_live::agent_service_io::{
+        AgentServiceBlocker, AgentServiceIoOperation, AgentServiceIoResponse, AgentServiceProgress,
+    };
+    use oasis7_client_api::world_service::*;
+    for (outcome, expected) in [
+        (
+            IntentOutcome::HistoryUnavailable,
+            AgentServiceBlocker::HistoricalEvidenceUnavailable,
+        ),
+        (
+            IntentOutcome::Expired,
+            AgentServiceBlocker::OriginalIntentExpired,
+        ),
+    ] {
+        let (sidecar, world, _, lease, path) = orphan_service_fixture();
+        let mut server = ViewerRuntimeLiveServer::new(
+            ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
+                .with_decision_mode(ViewerLiveDecisionMode::Llm),
+        )
+        .unwrap();
+        server.world = world;
+        *server.llm_sidecar = sidecar;
+        let id = server
+            .llm_sidecar
+            .test_original_orphan_dispatch("agent-a")
+            .unwrap();
+        let original =
+            serde_json::to_vec(&server.llm_sidecar.provider_scheduler_pending[&id]).unwrap();
+        let mut phase =
+            server
+                .llm_sidecar
+                .test_orphan_phase("agent-a", "dispatch", Some(id.clone()));
+        phase.submit = false;
+        let response = IntentResponse {
+            formal_profile: None,
+            execution_evidence_scope: None,
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            correlation: server.llm_sidecar.provider_scheduler_pending[&id]
+                .correlation
+                .clone(),
+            outcome,
+        };
+        let result =
+            server.apply_hosted_orphan_response(phase, AgentServiceIoResponse::Intent(response));
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_ok_and(|progress| matches!(progress, AgentServiceProgress::Blocked(reason) if reason == expected)),
+            "unavailable historical evidence is a typed blocker, not generic failure or permission to replay");
+        assert_eq!(
+            serde_json::to_vec(&server.llm_sidecar.provider_scheduler_pending[&id]).unwrap(),
+            original
+        );
+        assert_eq!(
+            server.llm_sidecar.provider_cognition_lease("agent-a"),
+            Some(lease)
+        );
+        let crate::viewer::runtime_live::agent_service_phase::HostedServicePhase::Orphan(retained) =
+            server.llm_sidecar.hosted_service_phase.clone().unwrap()
+        else {
+            unreachable!()
+        };
+        assert!(!retained.submit);
+        assert!(matches!(
+            server
+                .llm_sidecar
+                .hosted_orphan_operation(&retained)
+                .unwrap(),
+            AgentServiceIoOperation::Lookup { .. }
+        ));
+        assert!(server.llm_sidecar.runner.is_none());
+        assert!(server.llm_sidecar.provider_completed_decisions.is_empty());
+    }
+}
+
+#[test]
 fn hosted_orphan_original_lookup_checkpoint_survives_restart_without_resigning() {
     let (sidecar, world, context, lease, path) = orphan_service_fixture();
     let id = sidecar.test_original_orphan_dispatch("agent-a").unwrap();

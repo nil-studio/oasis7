@@ -1,7 +1,9 @@
 //! Recover an original hosted dispatch without repeating an external model call.
 use super::*;
 use crate::viewer::runtime_live::{
-    agent_service_io::{AgentServiceIoOperation, AgentServiceIoResponse},
+    agent_service_io::{
+        AgentServiceBlocker, AgentServiceIoOperation, AgentServiceIoResponse, AgentServiceProgress,
+    },
     agent_service_phase::{HostedServicePhase, original_intent_io, original_response},
 };
 use oasis7_client_api::world_service::*;
@@ -388,7 +390,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         &mut self,
         mut phase: OrphanPhase,
         response: AgentServiceIoResponse,
-    ) -> Result<(), String> {
+    ) -> Result<AgentServiceProgress, String> {
         if phase.stage.ends_with("view") {
             let AgentServiceIoResponse::View(view) = response else {
                 return Err("orphan expected authenticated view".into());
@@ -421,16 +423,16 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     )?;
                     self.llm_sidecar.hosted_service_phase = None;
                     self.llm_sidecar.hosted_service_config_binding = None;
-                    return Ok(());
+                    return Ok(AgentServiceProgress::Advanced);
                 }
                 _ => return Err("unknown orphan view stage".into()),
             }
             phase.submit = false;
             self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase));
-            return Ok(());
+            return Ok(AgentServiceProgress::Advanced);
         }
         let Some(response) = original_response(response)? else {
-            return Ok(());
+            return Ok(AgentServiceProgress::Idle);
         };
         let id = self.llm_sidecar.orphan_pending_id(&phase)?;
         let pending = self
@@ -547,11 +549,25 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                         .into(),
                 );
             }
-            IntentOutcome::Pending | IntentOutcome::Received { .. } | IntentOutcome::Unknown => {}
-            _ => return Err("orphan original outcome cannot establish canonical recovery".into()),
+            IntentOutcome::HistoryUnavailable | IntentOutcome::Expired => {
+                let blocker = if matches!(response.outcome, IntentOutcome::HistoryUnavailable) {
+                    AgentServiceBlocker::HistoricalEvidenceUnavailable
+                } else {
+                    AgentServiceBlocker::OriginalIntentExpired
+                };
+                // These are authenticated outcomes, never evidence of absence.
+                // Retain the original Lookup; neither permits a new Submit.
+                phase.submit = false;
+                self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase));
+                return Ok(AgentServiceProgress::Blocked(blocker));
+            }
+            IntentOutcome::Pending | IntentOutcome::Received { .. } | IntentOutcome::Unknown => {
+                self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase));
+                return Ok(AgentServiceProgress::Idle);
+            }
         }
         self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase));
-        Ok(())
+        Ok(AgentServiceProgress::Advanced)
     }
 }
 

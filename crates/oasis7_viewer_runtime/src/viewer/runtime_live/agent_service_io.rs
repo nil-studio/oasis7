@@ -9,7 +9,26 @@ use serde_json::Value;
 pub(super) enum AgentServiceProgress {
     Idle,
     Advanced,
+    Blocked(AgentServiceBlocker),
     NeedsIo(Box<AgentServiceIoJob>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AgentServiceBlocker {
+    HistoricalEvidenceUnavailable,
+    OriginalIntentExpired,
+}
+impl AgentServiceBlocker {
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::HistoricalEvidenceUnavailable => {
+                "Original canonical history is unavailable; restore its verified historical closure before reconciliation"
+            }
+            Self::OriginalIntentExpired => {
+                "Original canonical intent expired; retained original requires explicit reconciliation"
+            }
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

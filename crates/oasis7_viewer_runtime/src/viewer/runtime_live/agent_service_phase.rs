@@ -492,7 +492,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         let response = result.response?;
         match phase {
             HostedServicePhase::Orphan(orphan) => {
-                self.apply_hosted_orphan_response(orphan, response)?
+                return self.apply_hosted_orphan_response(orphan, response);
             }
             HostedServicePhase::Act { pending, .. } => {
                 let Some(response) = original_response(response)? else {

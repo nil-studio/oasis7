@@ -283,6 +283,7 @@ impl ViewerRuntimeLiveServer {
                 .ok_or("canonical Agent service phase disappeared before finalization")?
                 .identity()?;
             match self.prepare_hosted_service_io(false)? {
+                AgentServiceProgress::Blocked(blocker) => return Err(blocker.reason().into()),
                 AgentServiceProgress::Idle => {
                     return Err(
                         "canonical Agent action remains pending without an owned phase advance"
@@ -322,7 +323,11 @@ impl ViewerRuntimeLiveServer {
                         self.llm_sidecar.hosted_service_inflight = None;
                         return Err("canonical Agent action exceeded bounded direct I/O; checkpoint retained".into());
                     }
-                    self.apply_hosted_service_io(job.execute())?;
+                    if let AgentServiceProgress::Blocked(blocker) =
+                        self.apply_hosted_service_io(job.execute())?
+                    {
+                        return Err(blocker.reason().into());
+                    }
                     if !self
                         .llm_sidecar
                         .provider_service_pending
