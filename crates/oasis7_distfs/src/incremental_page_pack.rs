@@ -375,6 +375,6 @@ impl IncrementalPageStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "incremental_page_pack_tests.rs"]
 mod tests;

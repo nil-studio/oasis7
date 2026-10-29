@@ -1,6 +1,8 @@
 //! Bounded, durable physical representations of IWS pages. A successful put is
 //! provisional storage, never world acceptance or a protected-root publication.
 //! There is deliberately no deletion API until typed owner roots are installed.
+//! Local path/lease/directory durability currently requires Unix; create/open
+//! reject other platforms before reserving memory or changing the filesystem.
 use oasis7_cas::frame_codec::{self, FrameDescriptor};
 use oasis7_formal_protocol::incremental_value::{
     VALUE_MAX_NODE_BYTES, ValueNodeReader, ValueNodeWriter, ValueTreeError,
@@ -34,6 +36,7 @@ const DECODE_WORKSPACE: usize = 2 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum PageStoreError {
+    UnsupportedPlatform,
     Missing([u8; 32]),
     Corrupt(&'static str),
     ResourceLimited(&'static str),
@@ -113,6 +116,7 @@ impl IncrementalPageStore {
     /// Only create a fresh dedicated directory; never reinterpret an existing
     /// world or complete a partially initialized directory implicitly.
     pub fn create(root: &Path, memory: MemoryBudget, compression: PageCompression) -> Result<Self> {
+        require_platform()?;
         let charge = admit_path(root, &memory, MemoryClass::Ordinary)?;
         files::create_store(root)?;
         Self::finish_open(root, memory, compression, charge)
@@ -124,6 +128,7 @@ impl IncrementalPageStore {
         compression: PageCompression,
         class: MemoryClass,
     ) -> Result<Self> {
+        require_platform()?;
         let charge = admit_path(root, &memory, class)?;
         Self::finish_open(root, memory, compression, charge)
     }
@@ -307,6 +312,12 @@ impl IncrementalPageStore {
         }
     }
 }
+fn require_platform() -> Result<()> {
+    if !cfg!(unix) {
+        return Err(PageStoreError::UnsupportedPlatform);
+    }
+    Ok(())
+}
 fn admit_path(root: &Path, memory: &MemoryBudget, class: MemoryClass) -> Result<MemoryReservation> {
     if !root.is_absolute() || root.as_os_str().len() > 4096 {
         return Err(PageStoreError::ResourceLimited(
@@ -373,6 +384,9 @@ impl ValueNodeReader for ValuePageSession<'_> {
 }
 fn value_error(error: PageStoreError) -> ValueTreeError {
     match error {
+        PageStoreError::UnsupportedPlatform => {
+            ValueTreeError::Invalid("physical pages require Unix path/lease/directory fsync")
+        }
         PageStoreError::Memory(error) => ValueTreeError::Memory(error),
         PageStoreError::ResourceLimited(reason) => ValueTreeError::ResourceLimited(reason),
         PageStoreError::Cancelled => ValueTreeError::Cancelled,
@@ -385,6 +399,35 @@ fn value_error(error: PageStoreError) -> ValueTreeError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "incremental_page_store_tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(unix)))]
+#[test]
+fn unsupported_platform_rejects_before_creating_store() {
+    let path = std::env::temp_dir().join(format!(
+        "oasis7-unsupported-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    assert!(matches!(
+        IncrementalPageStore::create(&path, memory.clone(), PageCompression::Raw),
+        Err(PageStoreError::UnsupportedPlatform)
+    ));
+    assert!(matches!(
+        IncrementalPageStore::open(
+            &path,
+            memory.clone(),
+            PageCompression::Raw,
+            MemoryClass::Ordinary
+        ),
+        Err(PageStoreError::UnsupportedPlatform)
+    ));
+    assert!(!path.exists());
+    assert_eq!(memory.used(), 0);
+}

@@ -72,6 +72,19 @@ pub(super) fn sync(path: &Path) -> Result<()> {
     }
     file.sync_all()?;
     #[cfg(test)]
+    CANCEL_AFTER_SYNC.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some((target, flag, remaining)) = slot.as_mut()
+            && target == path
+        {
+            *remaining -= 1;
+            if *remaining == 0 {
+                flag.store(true, Ordering::Release);
+                *slot = None;
+            }
+        }
+    });
+    #[cfg(test)]
     SYNC_COUNTS.with(|counts| {
         let mut next = counts.get();
         match path
@@ -319,4 +332,14 @@ pub(super) fn publication_point(_root: &Path, _directory: &str, _point: u8) {
             std::thread::park_timeout(std::time::Duration::from_millis(5));
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANCEL_AFTER_SYNC: std::cell::RefCell<Option<(PathBuf, Arc<AtomicBool>, usize)>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(all(test, unix))]
+pub(super) fn cancel_after_sync(path: PathBuf, flag: Arc<AtomicBool>, occurrence: usize) {
+    assert!(occurrence > 0);
+    CANCEL_AFTER_SYNC.with(|slot| *slot.borrow_mut() = Some((path, flag, occurrence)));
 }

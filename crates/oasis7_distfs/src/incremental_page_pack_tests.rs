@@ -615,3 +615,20 @@ fn killed_pack_publisher_reopens_partial_links_and_retries_without_overwriting()
         }
     }
 }
+
+#[test]
+fn cancellation_during_last_staging_sync_never_returns_batch_success() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory, PageCompression::Raw).unwrap();
+    let pages = pages(1);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    files::cancel_after_sync(store.root().join("staging"), cancelled.clone(), 2);
+    let refs = [(pages[0].0, pages[0].1.as_slice())];
+    assert!(matches!(
+        store.put_page_batch(&refs, MemoryClass::Ordinary, &mut physical_io(), &cancelled),
+        Err(PageStoreError::Cancelled)
+    ));
+    assert!(cancelled.load(Ordering::Acquire));
+}

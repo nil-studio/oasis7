@@ -43,6 +43,7 @@ fn wait_owned(command: &mut Command, budget: Duration) -> io::Result<ExitStatus>
 
 /// Kill and reap this exact child at an owned fresh filesystem barrier. A
 /// premature exit or timeout is an error; cleanup also runs on assertion panic.
+#[cfg(unix)]
 pub(crate) fn kill_at_marker(
     command: &mut Command,
     marker: &std::path::Path,
