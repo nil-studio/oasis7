@@ -529,3 +529,6 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
 mod scheduler;
 #[path = "incremental_agent_move_tests.rs"]
 mod moves;
+
+#[path = "incremental_commit_tests.rs"]
+mod commit_driver;
