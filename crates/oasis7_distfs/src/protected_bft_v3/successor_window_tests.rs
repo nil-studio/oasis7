@@ -237,7 +237,7 @@ fn prepared_cas_consumes_a_revision_before_commit() {
         expected_state_digest: h(23),
         driver_evidence_digest: h(24),
     };
-    assert_eq!(intent.prepared_revision().unwrap(), 12);
+    assert_eq!(intent.minimum_prepared_revision().unwrap(), 12);
     let mut overflow = intent;
     overflow.expected_revision = u64::MAX - 1;
     assert!(overflow.validate().is_err());

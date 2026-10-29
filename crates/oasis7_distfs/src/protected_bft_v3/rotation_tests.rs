@@ -33,6 +33,9 @@ pub(in crate::protected_bft_v3) fn hash(n: u8) -> String {
     hex::encode([n; 32])
 }
 pub(in crate::protected_bft_v3) fn binding() -> BftSignerBindingV3 {
+    binding_with_epoch_length(5)
+}
+fn binding_with_epoch_length(epoch_length: u64) -> BftSignerBindingV3 {
     let (certificate, authority, initial_proof, initial_commit) = fixtures::initial_with_profile(2);
     let trust = InitialActivationTrustV1 {
         issuer_public_key: fixtures::public(9),
@@ -56,7 +59,7 @@ pub(in crate::protected_bft_v3) fn binding() -> BftSignerBindingV3 {
             public_key_hex: public(31),
             voting_power: 1,
         }],
-        BftSchedulePolicyV2::new(5, "bft").unwrap(),
+        BftSchedulePolicyV2::new(epoch_length, "bft").unwrap(),
     )
     .unwrap();
     let handoff = ProfileHandoffV1 {
@@ -498,3 +501,6 @@ fn rotation_archive_rejects_declared_65_entries_before_allocating_records() {
         .to_string();
     assert!(error.contains("record count exceeds bound"), "{error}");
 }
+
+#[path = "successor_service_tests.rs"]
+mod successor_service_tests;

@@ -33,6 +33,8 @@ pub struct BftDriverAppliedReceiptV3 {
 #[serde(deny_unknown_fields)]
 pub struct BftSignerStateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub successor_window: Option<super::successor_state::BftSuccessorWindowStateV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_finality_rotation_proofs:
         Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
 
@@ -57,6 +59,8 @@ pub struct BftSignerStateV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerCandidateV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub successor_window: Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_finality_rotation_proofs:
         Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
@@ -83,6 +87,7 @@ impl BftSignerStateV3 {
             binding,
             0,
             BftSignerCandidateV3 {
+                successor_window: None,
                 bootstrap_finality_rotation_proofs: None,
                 finality_rotation_proofs: None,
                 membership_install: None,
@@ -100,6 +105,7 @@ impl BftSignerStateV3 {
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
+            successor_window: candidate.successor_window,
             bootstrap_finality_rotation_proofs: candidate.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: candidate.finality_rotation_proofs,
             membership_install: candidate.membership_install,
@@ -117,8 +123,24 @@ impl BftSignerStateV3 {
         validate_state(binding, None, &state)?;
         Ok(state)
     }
+    pub(crate) fn with_successor_window(
+        &self,
+        binding: &BftSignerBindingV3,
+        extension: super::successor_state::BftSuccessorWindowStateV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        let mut next = self.clone();
+        next.revision = self
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("successor state revision overflow"))?;
+        next.successor_window = Some(extension);
+        next.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&next))?;
+        validate_state(binding, None, &next)?;
+        Ok(next)
+    }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
+            successor_window: self.successor_window.clone(),
             bootstrap_finality_rotation_proofs: self.bootstrap_finality_rotation_proofs.clone(),
             finality_rotation_proofs: self.finality_rotation_proofs.clone(),
             membership_install: self.membership_install.clone(),
@@ -200,6 +222,8 @@ pub(crate) struct CheckpointProofInputV3<'a> {
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
+    successor_window: &'a Option<super::successor_state::BftSuccessorWindowStateV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bootstrap_finality_rotation_proofs:
         &'a Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,6 +242,7 @@ struct StateDigestInput<'a> {
 impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
+            successor_window: &s.successor_window,
             bootstrap_finality_rotation_proofs: &s.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: &s.finality_rotation_proofs,
             membership_install: &s.membership_install,
@@ -335,6 +360,9 @@ pub(crate) fn validate_state(
             ));
         }
     }
+    if let Some(window) = &state.successor_window {
+        window.validate(binding, _provider_public_key)?;
+    }
     super::membership::validate_records(binding, state, _provider_public_key)?;
     super::rotation::validate_archive(binding, state)?;
     super::bootstrap_rotation::validate_archive(binding, state)?;
@@ -408,6 +436,13 @@ pub(super) fn validate_signing_install_gate(
     state: &BftSignerStateV3,
     schedule: &BftHeaderHeightScheduleV3,
 ) -> Result<(), BftSignerErrorV3> {
+    if state
+        .successor_window
+        .as_ref()
+        .is_some_and(|w| w.blocks_writes())
+    {
+        return Err(invalid("BFT V3 successor installation blocks new signing"));
+    }
     if state.pending_driver_apply.is_some() {
         return Err(invalid(
             "BFT V3 original driver installation is not confirmed",
@@ -435,6 +470,16 @@ pub(crate) fn validate_candidate_transition(
     _provider: &str,
 ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
     let old = &previous.state;
+    if candidate.successor_window != old.successor_window
+        || old
+            .successor_window
+            .as_ref()
+            .is_some_and(|w| w.blocks_writes())
+    {
+        return Err(invalid(
+            "BFT V3 generic mutation cannot change or bypass successor installation",
+        ));
+    }
     if candidate.history.len() < old.history.len()
         || candidate.history.get(..old.history.len()) != Some(old.history.as_slice())
     {

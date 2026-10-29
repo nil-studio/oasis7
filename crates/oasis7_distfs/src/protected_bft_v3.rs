@@ -12,6 +12,7 @@ mod rotation;
 mod service;
 mod state;
 mod successor_archive_store;
+mod successor_state;
 mod successor_window;
 #[cfg(test)]
 mod tests;
@@ -28,7 +29,10 @@ pub use binding::{
 pub use client::{
     BftSignerLeaseV3, BftSignerProviderV3, RemoteBftSignerLeaseV3, RemoteBftSignerProviderV3,
 };
-pub use service::{BftCandidateReadPolicyV3, BftSignerServiceV3};
+pub use service::{
+    BftCandidateReadPolicyV3, BftSignerServiceV3, BftSuccessorWindowDriverVerifierV1,
+    BftSuccessorWindowSupportV1,
+};
 pub use state::{
     BftDriverAppliedReceiptV3, BftDriverApplyIntentV3, BftSignerCandidateV3, BftSignerCheckpointV3,
     BftSignerStateV3,
@@ -61,3 +65,5 @@ pub use successor_window::{
     BftSuccessorWindowMinimumV1, BftSuccessorWindowPersistedRequestV1, BftSuccessorWindowSourceV1,
     BftSuccessorWindowStatusV1,
 };
+
+pub use successor_state::{BftSuccessorWindowStateV1, BftSuccessorWindowStoredRequestV1};

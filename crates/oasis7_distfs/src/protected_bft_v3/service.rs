@@ -33,7 +33,9 @@ mod candidate_read;
 mod membership;
 mod operations;
 mod rotation;
+mod successor;
 pub use candidate_read::BftCandidateReadPolicyV3;
+pub use successor::{BftSuccessorWindowDriverVerifierV1, BftSuccessorWindowSupportV1};
 
 pub(super) const BFT_SIGNER_CHECKPOINT_DOMAIN_V3: &str =
     "oasis7.bft.protected-signer.v3.checkpoint";
@@ -44,6 +46,7 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 /// this service makes no hardware or nonrollback claim about an implementation.
 pub struct BftSignerServiceV3 {
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
+    successor_support: Option<BftSuccessorWindowSupportV1>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
     pub(super) validator_keys: BTreeMap<String, Box<dyn BftSigningKeyHandleV3>>,
@@ -51,6 +54,7 @@ pub struct BftSignerServiceV3 {
 }
 
 pub(super) struct BftSignerServiceRuntimeV3 {
+    successor_deadline: Option<std::time::Instant>,
     read_window: Option<(i64, u16)>,
     pub(super) backend: Box<dyn BftSignerBackendV3>,
     pub(super) poisoned: bool,
@@ -94,7 +98,31 @@ impl BftSignerServiceV3 {
         binding: BftSignerBindingV3,
         provider_key: Box<dyn BftSigningKeyHandleV3>,
         validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
+        backend: Box<dyn BftSignerBackendV3>,
+    ) -> Result<Self, BftSignerErrorV3> {
+        Self::open_internal(binding, provider_key, validator_keys, backend, None)
+    }
+    pub fn open_with_successor_window(
+        binding: BftSignerBindingV3,
+        provider_key: Box<dyn BftSigningKeyHandleV3>,
+        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
+        backend: Box<dyn BftSignerBackendV3>,
+        support: BftSuccessorWindowSupportV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        Self::open_internal(
+            binding,
+            provider_key,
+            validator_keys,
+            backend,
+            Some(support),
+        )
+    }
+    fn open_internal(
+        binding: BftSignerBindingV3,
+        provider_key: Box<dyn BftSigningKeyHandleV3>,
+        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
         mut backend: Box<dyn BftSignerBackendV3>,
+        successor_support: Option<BftSuccessorWindowSupportV1>,
     ) -> Result<Self, BftSignerErrorV3> {
         binding.validate()?;
         let provider_public_key = provider_key.public_key_hex();
@@ -140,12 +168,25 @@ impl BftSignerServiceV3 {
         {
             return Err(invalid("BFT V3 provisioned backend snapshot is invalid"));
         }
+        if snapshot.state.successor_window.is_some() {
+            let support = successor_support
+                .as_ref()
+                .ok_or_else(|| invalid("nonempty successor state requires explicit support"))?;
+            support.verify_archives(
+                &binding,
+                &snapshot.state,
+                &provider_public_key,
+                support.deadline(std::time::Instant::now())?,
+            )?;
+        }
         Ok(Self {
             candidate_read_policy: None,
+            successor_support,
             binding,
             provider_key,
             validator_keys: keys_by_public,
             runtime: Mutex::new(BftSignerServiceRuntimeV3 {
+                successor_deadline: None,
                 read_window: None,
                 backend,
                 poisoned: false,
@@ -218,6 +259,7 @@ impl BftSignerServiceV3 {
         session: &mut BftSignerSessionV3,
         bytes: &[u8],
     ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        let started = std::time::Instant::now();
         let request: SignedBftSignerRequestV3 =
             super::crypto::decode_bounded(bytes, BFT_SIGNER_MAX_FRAME_BYTES_V3)?;
         validate_request(&self.binding, &request)?;
@@ -236,6 +278,11 @@ impl BftSignerServiceV3 {
             .runtime
             .lock()
             .map_err(|_| invalid("BFT V3 provider lock poisoned"))?;
+        runtime.successor_deadline = self
+            .successor_support
+            .as_ref()
+            .map(|s| s.deadline(started))
+            .transpose()?;
         let data = if runtime.poisoned {
             rejected_reply(
                 &runtime,
@@ -592,7 +639,11 @@ impl BftSignerServiceV3 {
         if state.pending_driver_apply.is_some()
             && !matches!(
                 command,
-                BftSignerCommandV3::SignCandidateRead { .. }
+                BftSignerCommandV3::PrepareSuccessorWindow { .. }
+                    | BftSignerCommandV3::CommitSuccessorWindow { .. }
+                    | BftSignerCommandV3::GetSuccessorWindow { .. }
+                    | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. }
+                    | BftSignerCommandV3::SignCandidateRead { .. }
                     | BftSignerCommandV3::SignFinalityRotationProof { .. }
                     | BftSignerCommandV3::SignBootstrapFinalityRotationProof { .. }
                     | BftSignerCommandV3::Checkpoint
@@ -611,7 +662,11 @@ impl BftSignerServiceV3 {
             .is_some_and(|m| m.pending.is_some())
             && !matches!(
                 command,
-                BftSignerCommandV3::Checkpoint
+                BftSignerCommandV3::PrepareSuccessorWindow { .. }
+                    | BftSignerCommandV3::CommitSuccessorWindow { .. }
+                    | BftSignerCommandV3::GetSuccessorWindow { .. }
+                    | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. }
+                    | BftSignerCommandV3::Checkpoint
                     | BftSignerCommandV3::SignCandidateRead { .. }
                     | BftSignerCommandV3::SignFinalityRotationProof { .. }
                     | BftSignerCommandV3::SignBootstrapFinalityRotationProof { .. }
@@ -626,6 +681,17 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
+            BftSignerCommandV3::PrepareSuccessorWindow { .. }
+            | BftSignerCommandV3::CommitSuccessorWindow { .. }
+            | BftSignerCommandV3::GetSuccessorWindow { .. }
+            | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. } => self.successor_command(
+                runtime,
+                &credential,
+                token_digest,
+                snapshot,
+                request,
+                request_digest,
+            ),
             BftSignerCommandV3::SignFinalityRotationProof { .. } => self
                 .sign_finality_rotation_proof(
                     runtime,

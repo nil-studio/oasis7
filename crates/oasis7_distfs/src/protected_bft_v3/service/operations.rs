@@ -466,6 +466,7 @@ impl BftSignerServiceV3 {
             Some(&self.provider_key.public_key_hex()),
             &snapshot.state,
         )?;
+        self.verify_successor_archives(&snapshot.state, runtime.successor_deadline)?;
         if let Some(previous) = &runtime.verified {
             if snapshot.state.revision < previous.state.revision {
                 return Err(invalid("BFT V3 backend state revision regressed"));
@@ -476,12 +477,22 @@ impl BftSignerServiceV3 {
                 }
             } else {
                 let candidate = snapshot.state.candidate();
-                let monotonic = validate_candidate_transition(
-                    &self.binding,
-                    previous,
-                    &candidate,
-                    &self.provider_key.public_key_hex(),
-                )?;
+                let monotonic =
+                    if snapshot.state.successor_window != previous.state.successor_window {
+                        super::super::successor_state::validate_successor_only_transition(
+                            &self.binding,
+                            previous,
+                            &snapshot.state,
+                            &self.provider_key.public_key_hex(),
+                        )?
+                    } else {
+                        validate_candidate_transition(
+                            &self.binding,
+                            previous,
+                            &candidate,
+                            &self.provider_key.public_key_hex(),
+                        )?
+                    };
                 if monotonic.state != snapshot.state {
                     return Err(invalid("BFT V3 backend state skipped its legal transition"));
                 }

@@ -49,6 +49,23 @@ pub(crate) enum BftSignerCommandV3 {
         intent: Box<super::install::BftTransitionInstallIntentV3>,
         acknowledgement: Box<super::install::BftSignedTransitionInstallAckV3>,
     },
+    PrepareSuccessorWindow {
+        body: Box<super::successor_window::BftSuccessorWindowInstallIntentBodyV1>,
+        manifest: Box<super::successor_window::BftSuccessorWindowArchiveManifestV1>,
+    },
+    CommitSuccessorWindow {
+        request_id: String,
+        checkpoint_digest: String,
+    },
+    GetSuccessorWindow {
+        request_id: String,
+        checkpoint_digest: String,
+    },
+    ConfirmSuccessorWindowAdopted {
+        request_id: String,
+        checkpoint_digest: String,
+        evidence: Box<super::successor_window::BftSuccessorWindowAdoptedEvidenceV1>,
+    },
     Checkpoint,
     ProtectedTime,
     StartHeightTimer {
@@ -187,6 +204,9 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     InstallPreparedCompleted {
         receipt: Box<super::install::BftTransitionInstallReceiptV3>,
+    },
+    SuccessorWindow {
+        record: Option<Box<super::BftSuccessorWindowStoredRequestV1>>,
     },
     CertificateAppended,
     AppliedConfirmed,

@@ -620,8 +620,9 @@ impl BftSuccessorWindowInstallIntentBodyV1 {
         }
         metadata(self)
     }
-    /// Prepared persistence consumes the source revision before commit CAS.
-    pub fn prepared_revision(&self) -> Result<u64, BftSignerErrorV3> {
+    /// Lower bound only: reservation/material CAS steps may place the actual
+    /// Prepared state later. StoredRequest commits that actual revision.
+    pub fn minimum_prepared_revision(&self) -> Result<u64, BftSignerErrorV3> {
         self.validate()?;
         self.expected_revision
             .checked_add(1)
@@ -752,7 +753,7 @@ impl BftSuccessorWindowInstallReceiptV1 {
             || self.body.minimum != expected_minimum
             || self.body.driver_install_digest != intent.body.checkpoint.cut.driver_install_digest
             || self.body.lease_generation < intent.body.expected_lease_generation
-            || self.body.committed_revision <= intent.body.prepared_revision()?
+            || self.body.committed_revision <= intent.body.minimum_prepared_revision()?
         {
             return Err(invalid(
                 "successor original receipt differs from intent/committed CAS",

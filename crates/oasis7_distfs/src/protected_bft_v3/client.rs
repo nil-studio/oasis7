@@ -14,7 +14,14 @@ use super::wire::{
     SignedBftSignerRequestV3, encode_frame, read_frame, validate_reply,
 };
 
+use super::BftSuccessorWindowStoredRequestV1;
 use super::install::*;
+use super::successor_window::{
+    BftSuccessorWindowAdoptedEvidenceV1, BftSuccessorWindowArchiveManifestV1,
+    BftSuccessorWindowInstallIntentBodyV1,
+};
+
+mod successor;
 
 const MAX_ACQUIRE_CONFLICT_RETRIES: usize = 3;
 
@@ -39,6 +46,49 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    /// Prepare a durable original request. This does not install a checkpoint.
+    fn prepare_successor_window(
+        &mut self,
+        _body: BftSuccessorWindowInstallIntentBodyV1,
+        _manifest: BftSuccessorWindowArchiveManifestV1,
+    ) -> Result<(BftSuccessorWindowStoredRequestV1, BftSignerCheckpointV3), BftSignerErrorV3> {
+        Err(invalid("successor windows are unsupported by this lease"))
+    }
+
+    /// Recover the original request under the current authenticated lease.
+    /// The caller need not know the revision assigned by an uncertain CAS.
+    fn get_successor_window(
+        &mut self,
+        _request_id: &str,
+        _checkpoint_digest: &str,
+    ) -> Result<
+        (
+            Option<BftSuccessorWindowStoredRequestV1>,
+            BftSignerCheckpointV3,
+        ),
+        BftSignerErrorV3,
+    > {
+        Err(invalid("successor windows are unsupported by this lease"))
+    }
+
+    fn commit_successor_window(
+        &mut self,
+        _request_id: &str,
+        _checkpoint_digest: &str,
+    ) -> Result<(BftSuccessorWindowStoredRequestV1, BftSignerCheckpointV3), BftSignerErrorV3> {
+        Err(invalid("successor windows are unsupported by this lease"))
+    }
+
+    /// Requires the provider's independent driver readback verifier.
+    fn confirm_successor_window_adopted(
+        &mut self,
+        _request_id: &str,
+        _checkpoint_digest: &str,
+        _evidence: BftSuccessorWindowAdoptedEvidenceV1,
+    ) -> Result<(BftSuccessorWindowStoredRequestV1, BftSignerCheckpointV3), BftSignerErrorV3> {
+        Err(invalid("successor windows are unsupported by this lease"))
+    }
+
     /// Fixed typed key consent/possession only, not controller authorization.
     fn sign_finality_rotation_proof(
         &mut self,
@@ -421,6 +471,109 @@ impl RemoteBftSignerLeaseV3 {
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn prepare_successor_window(
+        &mut self,
+        body: BftSuccessorWindowInstallIntentBodyV1,
+        manifest: BftSuccessorWindowArchiveManifestV1,
+    ) -> Result<(BftSuccessorWindowStoredRequestV1, BftSignerCheckpointV3), BftSignerErrorV3> {
+        body.validate()?;
+        body.checkpoint.source.validate_for_binding(&self.binding)?;
+        manifest.validate_for_checkpoint(&body.checkpoint)?;
+        let id = body.checkpoint.request_id.clone();
+        let digest = body.checkpoint.digest()?;
+        let original = body.clone();
+        let (record, checkpoint) = self.successor_window_result(
+            BftSignerCommandV3::PrepareSuccessorWindow {
+                body: Box::new(body),
+                manifest: Box::new(manifest),
+            },
+            &id,
+            &digest,
+        )?;
+        let record =
+            record.ok_or_else(|| invalid("successor prepare omitted its original request"))?;
+        if record.request().intent.body != original {
+            return Err(invalid("successor prepare changed its original intent"));
+        }
+        self.checkpoint = checkpoint.clone();
+        Ok((record, checkpoint))
+    }
+
+    fn get_successor_window(
+        &mut self,
+        request_id: &str,
+        checkpoint_digest: &str,
+    ) -> Result<
+        (
+            Option<BftSuccessorWindowStoredRequestV1>,
+            BftSignerCheckpointV3,
+        ),
+        BftSignerErrorV3,
+    > {
+        let result = self.successor_window_result(
+            BftSignerCommandV3::GetSuccessorWindow {
+                request_id: request_id.into(),
+                checkpoint_digest: checkpoint_digest.into(),
+            },
+            request_id,
+            checkpoint_digest,
+        )?;
+        self.checkpoint = result.1.clone();
+        Ok(result)
+    }
+
+    fn commit_successor_window(
+        &mut self,
+        request_id: &str,
+        checkpoint_digest: &str,
+    ) -> Result<(BftSuccessorWindowStoredRequestV1, BftSignerCheckpointV3), BftSignerErrorV3> {
+        let (record, checkpoint) = self.successor_window_result(
+            BftSignerCommandV3::CommitSuccessorWindow {
+                request_id: request_id.into(),
+                checkpoint_digest: checkpoint_digest.into(),
+            },
+            request_id,
+            checkpoint_digest,
+        )?;
+        let record =
+            record.ok_or_else(|| invalid("successor commit omitted its original request"))?;
+        if record.request().receipt.is_none() {
+            return Err(invalid(
+                "successor commit lacks its durable original receipt",
+            ));
+        }
+        self.checkpoint = checkpoint.clone();
+        Ok((record, checkpoint))
+    }
+
+    fn confirm_successor_window_adopted(
+        &mut self,
+        request_id: &str,
+        checkpoint_digest: &str,
+        evidence: BftSuccessorWindowAdoptedEvidenceV1,
+    ) -> Result<(BftSuccessorWindowStoredRequestV1, BftSignerCheckpointV3), BftSignerErrorV3> {
+        let (record, checkpoint) = self.successor_window_result(
+            BftSignerCommandV3::ConfirmSuccessorWindowAdopted {
+                request_id: request_id.into(),
+                checkpoint_digest: checkpoint_digest.into(),
+                evidence: Box::new(evidence.clone()),
+            },
+            request_id,
+            checkpoint_digest,
+        )?;
+        let record =
+            record.ok_or_else(|| invalid("successor adoption omitted its original request"))?;
+        if record.request().status != super::successor_window::BftSuccessorWindowStatusV1::Adopted
+            || record.request().adopted_evidence.as_ref() != Some(&evidence)
+        {
+            return Err(invalid(
+                "successor adoption lacks the exact durable readback evidence",
+            ));
+        }
+        self.checkpoint = checkpoint.clone();
+        Ok((record, checkpoint))
+    }
+
     fn sign_finality_rotation_proof(
         &mut self,
         expected_revision: u64,

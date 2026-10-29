@@ -465,12 +465,16 @@ Checkpoint body 不内嵌完整 World 或无界历史。V1 metadata 至多 1 MiB
 
 Provider backend 须新增同一原 binding 下的 `prepare_successor_window`／`commit_successor_window`／`get_successor_window`／`confirm_successor_window_adopted` 事务语义。prepare 先持久保存原 logical request ID、完整 body digest、expected revision/state digest、原认证 lease generation、准备材料引用与状态，再返回 intent；provider 从已验证原状态核对 T、完整合法前缀、successor schedule 和 public archive 持久承诺，不能签调用者任意 bytes。准备不改变 canonical 权限，但必须保留原 intent 与查询结果，不能只存在进程 cache。commit 在原 binding 的受保护 CAS 原子保存 checkpoint body、前驱、sequence、minimum `(T, header_id, checkpoint_digest)`、archive root、当前完整 journal 与 `InstalledPending` 状态。minimum 与数据盘不能共同回滚；现有 backend 若无法提供该新增持久原子性，拒绝启用该能力，不用普通文件替代。
 
+预算与材料预留先于可返回的 Prepared intent。若原 State S 的 revision 为 R，内部 reservation CAS 使用 R→R+1 并持久计入累计预算，冻结 hot history、proof maps、membership、原 journal 和 minimum；reservation 保存原 revision/state digest 与无递归 reservation 的原 successor extension，以便在 archive 尚未落盘的冷故障中精确重建 S。恢复必须先验证原 state digest、规范字节与 S 引用一致，再持久 pin／fresh reread，不得把含 reservation 的当前状态归档冒充 S。该前态与全部 metadata 合计仍受 1 MiB 限制，超限拒绝，不提升上限。材料确认后第二个 CAS 才保存真正 Prepared intent；StoredRequest 承诺真实 `prepared_revision`（该路径为 R+2），原 body 的 `expected_revision` 保持 R。primitive 只提供 `minimum_prepared_revision()` 下界，不能代替当前 CAS 水位；InstalledPending receipt 的实际 `committed_revision` 必须严格大于 StoredRequest 的真实 prepared revision。失败或未完成 reservation 也计数／计字节，不能仅统计 Adopted，不能因重试、换 lease 或材料写失败清零。
+
 | 受保护安装状态 | 新 owner／当前 owner 的允许动作 |
 | --- | --- |
 | `Prepared` | 认证查询原 intent/body/cut；核对真实当前状态后续办同一原 CAS。prepare 响应 unknown 时先查回该持久状态，不按“没收到”重建另一请求。 |
 | `InstalledPending` | minimum 已前进。只可查询／恢复原 checkpoint、driver pointer/WAL 与独立重开重验；provider 拒绝新 proposal/vote 和任何改变该原 journal 的请求，不能仅靠 Node 自愿 pause。 |
 | `Adopted` | 独立重开重验成功后，专用 adopted CAS 记录 exact evidence，才解除签写闸门。查询原结果不再次 commit 或重发世界效果。 |
 | `Superseded`／明确冲突 | 仅在已读取并验证真实当前状态，证明原 prepared CAS 未提交且其 expected state 已被其他合法事务改变后，持久明确拒绝该 prepared；如仍需安装，按真实当前状态以新 request 重新 prepare。不能覆盖旧 intent，也不能把无法确定的 commit 当作未提交。 |
+
+Prepared／InstalledPending 冻结新共识签名、治理换钥 proof 和原 journal 的写入；原 Proposal／Vote／治理 proof 及已启动 timer 只按原结果取回，不重新签名或重启计时。独立授权的 CandidateRead 持钥 proof 不占 T+1 共识签名槽，恢复闭包仍可使用其既有当前 key、scope 与 grant 校验；finality checkpoint 不新增读取权限。
 
 同 logical request ID/body 精确返回原 intent/receipt；异 body 拒绝。原 expected revision/state digest 只约束原 prepare／commit CAS；请求换 owner 后不把旧 expected revision 冒充当前可写 revision。CAS 成功但响应丢失视为 unknown，启动及签名前须先解析该原 request 的持久状态并完成适用恢复；解析不了则停签，不能继续 T+1。sequence 只增一，minimum 不降低，同高度不同 head/digest 拒绝；旧 lease、跳过前驱及遗漏已知原决定均拒绝。新 checkpoint 不是可重新使用 acquire 重绑到新 H 的入口；lease fencing、protected time floor 和签名槽历史独立保留。
 
