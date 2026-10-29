@@ -2,6 +2,8 @@
 //! rejected, never silently serialized into a generic business-state value.
 use super::*;
 use serde_json::Value;
+#[path = "incremental_projection_economy.rs"]
+mod economy;
 const REQUIRED: &[&str] = &[
     "schema_version",
     "cognition_journal",
@@ -20,6 +22,7 @@ const OPTIONAL: &[&str] = &[
     "runtime_binding",
     "retention_state",
     "continuation_contexts",
+    "cognition_economy",
 ];
 
 pub(super) fn visit<S: GenesisFieldVisitor>(
@@ -159,6 +162,9 @@ pub(super) fn visit<S: GenesisFieldVisitor>(
             None,
         )
         .map_err(ProjectionError::Sink)?;
+    }
+    if let Some(value) = object.get("cognition_economy") {
+        economy::visit(value, sink)?;
     }
     Ok(())
 }
