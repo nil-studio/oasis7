@@ -28,7 +28,9 @@ impl BftSigningKeyHandleV3 for FailFirstPrevote {
                 "injected original prevote signing interruption".into(),
             ));
         }
-        Ok(self.key.sign(bytes).to_bytes())
+        let signature = self.key.sign(bytes).to_bytes();
+        stage_timing::proposal_signature(bytes);
+        Ok(signature)
     }
 }
 pub(super) fn initial_key(index: u8, pending: bool) -> Box<dyn BftSigningKeyHandleV3> {
@@ -145,7 +147,9 @@ impl BftSigningKeyHandleV3 for ColdKey {
                 self.calls.fetch_add(1, Ordering::SeqCst);
             }
         }
-        Ok(self.key.sign(bytes).to_bytes())
+        let signature = self.key.sign(bytes).to_bytes();
+        stage_timing::proposal_signature(bytes);
+        Ok(signature)
     }
 }
 struct BufferedNoise {
@@ -524,6 +528,7 @@ pub(super) fn recover(
     // elapsed milliseconds, not one millisecond per potentially slow TCP poll.
     // The original pending vote/QC and exact completion were already proved.
     clock_start.set(Instant::now()).unwrap();
+    stage_timing::mark("continuation_clock_armed");
     nodes[0]
         .submit_consensus_action_payload(9501, payload("actual-after-cold-pending-agent"))
         .unwrap();

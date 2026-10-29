@@ -52,6 +52,8 @@ impl FormalBftHeaderExecutionV3 {
         seed: Vec<(String, Vec<u8>)>,
         strict: bool,
     ) -> Result<Self, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("execution.from_handoff");
         let handoff = verify_formal_bft_handoff_v2(&anchor, target)?;
         validate_handoff_material_for_scope(&anchor, &handoff.target().scope, material)?;
         let retained_nodes = if strict {
@@ -102,6 +104,8 @@ impl FormalBftHeaderExecutionV3 {
         &self,
         private_actions: &[u8],
     ) -> Result<FormalBftHeaderCandidateV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("execution.build_candidate");
         Ok(self.execute(private_actions)?.candidate)
     }
 
@@ -128,6 +132,8 @@ impl FormalBftHeaderExecutionV3 {
         entry: &FormalBftCertifiedHeaderV3,
         private_actions: &[u8],
     ) -> Result<ExecutedFormalHeaderV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("execution.replay_next");
         let (verified, executed) = self.verify_and_execute(entry, private_actions)?;
         for node in &executed.result_delta.node_writes {
             self.business_reader
@@ -141,6 +147,8 @@ impl FormalBftHeaderExecutionV3 {
     }
 
     fn execute(&self, private_actions: &[u8]) -> Result<ExecutedFormalHeaderV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("execution.execute");
         let actions_digest = actions_cbor_digest_v3(private_actions)?;
         let actions = decode_private_actions_v3(private_actions)?;
         let action_root = super::super::super::action_root(&actions)?;
@@ -310,3 +318,7 @@ mod storage;
 #[path = "driver_bft_v3_formal_prefix.rs"]
 mod prefix;
 pub(crate) use prefix::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3};
+
+#[cfg(test)]
+#[path = "driver_bft_v3_stage_timing.rs"]
+pub(crate) mod stage_timing;

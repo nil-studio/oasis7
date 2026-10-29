@@ -2,7 +2,7 @@
 //! The protected backend is an explicit test-only memory double; no hardware
 //! persistence, independent failure domain, or peer-consensus TCP is claimed.
 use super::super::super::formal_header::{
-    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, stage_timing,
 };
 use super::ledger_tests::cas;
 use super::*;
@@ -44,7 +44,9 @@ impl BftSigningKeyHandleV3 for MemoryTestSignerKey {
     }
 
     fn sign_preimage(&self, preimage: &[u8]) -> Result<[u8; 64], BftSignerErrorV3> {
-        Ok(self.0.sign(preimage).to_bytes())
+        let signature = self.0.sign(preimage).to_bytes();
+        stage_timing::proposal_signature(preimage);
+        Ok(signature)
     }
 }
 

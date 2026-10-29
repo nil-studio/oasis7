@@ -166,6 +166,8 @@ impl FormalBftHeaderLedgerExecutionV3 {
         exact_height: u64,
         exact_header_id: &str,
     ) -> Result<FormalBftHeaderPrefixCutV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("ledger.verified_cut");
         self.ledger.reload()?;
         self.ensure_origin_material()?;
         let input = PrivateHeaderPrefixV3::from_entries(
@@ -203,6 +205,8 @@ impl FormalBftHeaderLedgerExecutionV3 {
     }
 
     fn replay(&mut self, input: &PrivateHeaderPrefixV3, append: bool) -> Result<String, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("ledger.replay");
         let mut previous = self.ledger.origin_digest()?;
         for entry in input.entries() {
             let executed = self

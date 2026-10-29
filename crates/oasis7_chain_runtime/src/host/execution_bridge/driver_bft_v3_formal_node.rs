@@ -176,6 +176,8 @@ impl FormalBftHeaderNodeDriverV3 {
     /// Rebuild the exact parent before every preview. Failed or alternative
     /// previews cannot contaminate retained dependency observations.
     fn reset_parent(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.reset_parent");
         self.execution.ledger.reload()?;
         self.execution
             .ledger
@@ -228,14 +230,18 @@ impl FormalBftHeaderNodeDriverV3 {
             seed,
             false,
         )?;
-        for record in self
-            .execution
-            .ledger
-            .records()
-            .filter(|record| record.height() <= self.cursor_height)
         {
-            let entry = record.input();
-            live.replay_next(&entry.certificate, &entry.actions_cbor)?;
+            #[cfg(test)]
+            let _measure_live = stage_timing::Span::new("driver.live_parent_replay");
+            for record in self
+                .execution
+                .ledger
+                .records()
+                .filter(|record| record.height() <= self.cursor_height)
+            {
+                let entry = record.input();
+                live.replay_next(&entry.certificate, &entry.actions_cbor)?;
+            }
         }
         self.execution.origin = live;
         Ok(())
@@ -244,6 +250,8 @@ impl FormalBftHeaderNodeDriverV3 {
         NodeBftExecutionContextV3::from_schedule(&self.execution.origin.schedule)
     }
     fn exact_parent(&mut self, expected: &NodeBftExecutionContextV3) -> Result<(), String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.exact_parent");
         self.require_configured()?;
         self.reset_parent()?;
         if &self.expected() != expected {
@@ -256,6 +264,8 @@ impl FormalBftHeaderNodeDriverV3 {
         expected: &NodeBftExecutionContextV3,
         candidate: &NodeBftPrivateCandidateV3,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.validate_candidate");
         self.exact_parent(expected)?;
         let actual = self
             .execution
@@ -338,6 +348,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         &mut self,
         schedule: &BftHeaderHeightScheduleV3,
     ) -> Result<NodeBftExecutionContextV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.current_bft_v3_execution_context");
         self.require_configured()?;
         self.reset_parent()?;
         if schedule != &self.execution.origin.schedule {
@@ -349,6 +361,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         &mut self,
         expected: &NodeBftExecutionContextV3,
     ) -> Result<Option<NodeBftPrivateCandidateV3>, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.pending_bft_v3_private_candidate");
         self.exact_parent(expected)?;
         self.private.candidate(expected.height)
     }
@@ -356,6 +370,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         &mut self,
         context: NodeBftBuildContextV3,
     ) -> Result<NodeBftPrivateCandidateV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.build_bft_v3_candidate");
         self.exact_parent(&context.execution)?;
         if self.private.candidate(context.execution.height)?.is_some() {
             return Err("Node height has an original private candidate to resume".into());
@@ -386,6 +402,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         expected: &NodeBftExecutionContextV3,
         candidate: &NodeBftPrivateCandidateV3,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.preview_bft_v3_candidate");
         self.validate_candidate(expected, candidate)
     }
     fn retain_bft_v3_private_candidate(
@@ -393,6 +411,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         expected: &NodeBftExecutionContextV3,
         candidate: &NodeBftPrivateCandidateV3,
     ) -> Result<String, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.retain_bft_v3_private_candidate");
         self.validate_candidate(expected, candidate)?;
         let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
         self.private.retain(candidate, &nodes, &mut |bytes| {
@@ -403,6 +423,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         &mut self,
         value: &BftHeaderValueV3,
     ) -> Result<NodeBftPrivateCandidatePackageV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.export_bft_v3_private_candidate");
         self.require_configured()?;
         self.private.export(value)
     }
@@ -411,6 +433,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         expected: &NodeBftExecutionContextV3,
         package: &NodeBftPrivateCandidatePackageV3,
     ) -> Result<String, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.retain_received_bft_v3_private_candidate");
         if package.dependency_nodes.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES
             || !package.dependency_nodes.windows(2).all(|w| w[0].0 < w[1].0)
         {
@@ -443,6 +467,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         &mut self,
         value: &BftHeaderValueV3,
     ) -> Result<NodeBftPrivateCandidateV3, String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.load_bft_v3_private_candidate");
         self.require_configured()?;
         self.private_candidate(value)
     }
@@ -495,6 +521,8 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         schedule: &BftHeaderHeightScheduleV3,
         actions: &[oasis7_node::NodeConsensusAction],
     ) -> Result<(), String> {
+        #[cfg(test)]
+        let _measure = stage_timing::Span::new("driver.validate_bft_v3_action_batch");
         let context = self.current_bft_v3_execution_context(schedule)?;
         let bytes = serde_cbor::to_vec(&actions).map_err(|_| "encode Node batch admission")?;
         let actual = self

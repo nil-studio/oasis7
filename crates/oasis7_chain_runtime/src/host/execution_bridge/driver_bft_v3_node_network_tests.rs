@@ -75,6 +75,7 @@ fn network_case_pending(
     check_fairness: bool,
     check_pending: bool,
 ) {
+    let _measurement_report = stage_timing::Report;
     network_case_membership(
         check_fetch,
         check_echo,
