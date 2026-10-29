@@ -13,6 +13,7 @@ libp2p = ["dep:futures", "dep:libp2p", "oasis7_net/libp2p"]
 test-hooks = []
 
 [dependencies]
+oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 oasis7_net = { version = "0.1.0", path = "../oasis7_net", default-features = false }
 oasis7_consensus = { version = "0.1.0", path = "../oasis7_consensus" }
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
