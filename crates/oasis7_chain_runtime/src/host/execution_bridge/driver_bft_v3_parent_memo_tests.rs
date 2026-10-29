@@ -173,20 +173,56 @@ fn commit_one(
     schedule: &BftHeaderHeightScheduleV3,
     id: u64,
 ) -> VerifiedBftHeaderCertificateV3 {
-    use super::super::super::super::formal_header::FormalBftHeaderCandidateV3;
-    use super::super::execution_tests::certify;
+    use super::super::{key_for_id, signed_vote};
     use oasis7_consensus::tendermint_v3::verify_commit_certificate_token_v3;
+    use oasis7_proto::distributed_bft::v3::{
+        BftHeaderCommitCertificateV3, BftProposalHeaderV3, BftVotePhaseV3,
+    };
     let context = d.current_bft_v3_execution_context(schedule).unwrap();
     let candidate = build(d, &context, id);
     d.retain_bft_v3_private_candidate(&context, &candidate)
         .unwrap();
-    let certificate = certify(
-        schedule,
-        &FormalBftHeaderCandidateV3 {
-            header: candidate.public_value.header,
-            commitment: candidate.public_value.execution_commitment,
+    let value = candidate.public_value;
+    let block_id = value.block_id().unwrap();
+    let proposer = schedule.expected_proposer_for_round(0).unwrap();
+    let proposal = BftProposalHeaderV3::sign(
+        schedule.scope().clone(),
+        schedule.height(),
+        0,
+        schedule.active_set().set_hash().into(),
+        schedule.policy_hash().into(),
+        proposer.clone(),
+        block_id.clone(),
+        None,
+        &key_for_id(&proposer),
+    )
+    .unwrap();
+    let precommits = schedule
+        .active_set()
+        .validators()
+        .iter()
+        .map(|validator| {
+            signed_vote(
+                schedule,
+                &value.execution_commitment,
+                &block_id,
+                &validator.validator_id,
+                0,
+                BftVotePhaseV3::Precommit,
+                &key_for_id(&validator.validator_id),
+            )
+        })
+        .collect();
+    let certificate = FormalBftCertifiedHeaderV3::new(
+        BftHeaderCommitCertificateV3 {
+            proposal,
+            valid_round_evidence: None,
+            precommits,
         },
-    );
+        value.header,
+        value.execution_commitment,
+    )
+    .unwrap();
     let token = verify_commit_certificate_token_v3(schedule, &certificate).unwrap();
     d.commit_bft_v3_certificate(token.clone()).unwrap();
     token
@@ -224,9 +260,22 @@ fn damaged_successor_parent(kind: &str) {
         } else if kind.starts_with("journal") {
             &refs.journal_ref
         } else {
+            #[derive(serde::Deserialize)]
+            struct OriginReferences {
+                references: Vec<String>,
+            }
+            let origin: OriginReferences = serde_cbor::from_slice(
+                &fs::read(
+                    root.path()
+                        .join("ledger/formal-bft-header-prefix-v1/node-private-v1/origin.cbor"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
             refs.business_index_refs
-                .first()
-                .expect("actual parent retains index nodes")
+                .iter()
+                .find(|digest| !origin.references.contains(digest))
+                .expect("nonempty actual transition derives a post-H business node")
         };
         let blob = store.blobs_dir().join(format!("{digest}.blob"));
         assert!(blob.exists());
