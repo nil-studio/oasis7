@@ -14,7 +14,7 @@ use std::{
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::mpsc,
+    sync::{OnceLock, mpsc},
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -41,6 +41,8 @@ const OPERATION_ID: &str = "package-failed-start-os-child";
 const FAILURE_TEXT: &str = "test-only exact package startup failure";
 
 fn mark_manager_progress(phase: &str) {
+    static STARTED: OnceLock<Instant> = OnceLock::new();
+    let elapsed = STARTED.get_or_init(Instant::now).elapsed();
     let Some(path) = std::env::var_os(MANAGER_PROGRESS_ENV) else {
         return;
     };
@@ -50,7 +52,7 @@ fn mark_manager_progress(phase: &str) {
         .mode(0o600)
         .open(path)
     {
-        let _ = writeln!(file, "{phase}");
+        let _ = writeln!(file, "{phase} elapsed_ms={}", elapsed.as_millis());
         let _ = file.sync_all();
     }
 }

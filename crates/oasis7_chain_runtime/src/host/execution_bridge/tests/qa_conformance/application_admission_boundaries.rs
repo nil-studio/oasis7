@@ -178,7 +178,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     socket
         .set_read_timeout(Some(Duration::from_millis(50)))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
+    // This is a functional ordering barrier, not a one-second latency oracle.
+    // Keep ownership of the reader until the ordered snapshot actually arrives;
+    // handing it to the drain early would freeze `ordered` before a late frame.
+    let deadline = application_completion::child_deadline();
     let (mut acks, mut ordered, mut blocked) = (initial_acks, false, false);
     let control_witness = Arc::new(Mutex::new(serde_json::Value::Null));
     while Instant::now() < deadline {
