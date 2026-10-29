@@ -13,7 +13,7 @@ where
             amount,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::TopUpRestrictedStarterClaimLiveopsPool,
+            ActionTag::TOP_UP_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
             payloads::TopUpRestrictedStarterClaimLiveopsPoolPayload {
                 controller_account_id,
                 top_up_id,
@@ -28,7 +28,7 @@ where
             expires_at_epoch,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::IssueRestrictedStarterClaimGrant,
+            ActionTag::ISSUE_RESTRICTED_STARTER_CLAIM_GRANT,
             payloads::IssueRestrictedStarterClaimGrantPayload {
                 issuer_account_id,
                 beneficiary_account_id,
@@ -43,7 +43,7 @@ where
             revoke_reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RevokeRestrictedStarterClaimGrant,
+            ActionTag::REVOKE_RESTRICTED_STARTER_CLAIM_GRANT,
             payloads::RevokeRestrictedStarterClaimGrantPayload {
                 issuer_account_id,
                 beneficiary_account_id,
@@ -55,7 +55,7 @@ where
             target_agent_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ClaimAgent,
+            ActionTag::CLAIM_AGENT,
             payloads::ClaimAgentPayload {
                 claimer_agent_id,
                 target_agent_id,
@@ -67,7 +67,7 @@ where
             public_key,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ClaimStarterOc,
+            ActionTag::CLAIM_STARTER_OC,
             payloads::ClaimStarterOcPayload {
                 agent_id,
                 player_id,
@@ -79,7 +79,7 @@ where
             target_agent_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ReleaseAgentClaim,
+            ActionTag::RELEASE_AGENT_CLAIM,
             payloads::ReleaseAgentClaimPayload {
                 claimer_agent_id,
                 target_agent_id,

@@ -9,7 +9,7 @@ where
     match action {
         Action::InitializeMainTokenGenesis { allocations } => serialize_action_envelope(
             serializer,
-            ActionTag::InitializeMainTokenGenesis,
+            ActionTag::INITIALIZE_MAIN_TOKEN_GENESIS,
             payloads::InitializeMainTokenGenesisPayload { allocations },
         ),
         Action::ClaimMainTokenVesting {
@@ -18,7 +18,7 @@ where
             nonce,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ClaimMainTokenVesting,
+            ActionTag::CLAIM_MAIN_TOKEN_VESTING,
             payloads::ClaimMainTokenVestingPayload {
                 bucket_id,
                 beneficiary,
@@ -43,7 +43,7 @@ where
             client_request_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::TransferMainToken,
+            ActionTag::TRANSFER_MAIN_TOKEN,
             payloads::TransferMainTokenPayload {
                 from_account_id,
                 to_account_id,
@@ -67,7 +67,7 @@ where
             actual_stake_ratio_bps,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ApplyMainTokenEpochIssuance,
+            ActionTag::APPLY_MAIN_TOKEN_EPOCH_ISSUANCE,
             payloads::ApplyMainTokenEpochIssuancePayload {
                 epoch_index,
                 actual_stake_ratio_bps,
@@ -75,12 +75,12 @@ where
         ),
         Action::SettleMainTokenFee { fee_kind, amount } => serialize_action_envelope(
             serializer,
-            ActionTag::SettleMainTokenFee,
+            ActionTag::SETTLE_MAIN_TOKEN_FEE,
             payloads::SettleMainTokenFeePayload { fee_kind, amount },
         ),
         Action::UpdateMainTokenPolicy { proposal_id, next } => serialize_action_envelope(
             serializer,
-            ActionTag::UpdateMainTokenPolicy,
+            ActionTag::UPDATE_MAIN_TOKEN_POLICY,
             payloads::UpdateMainTokenPolicyPayload { proposal_id, next },
         ),
         Action::DistributeMainTokenTreasury {
@@ -90,7 +90,7 @@ where
             distributions,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::DistributeMainTokenTreasury,
+            ActionTag::DISTRIBUTE_MAIN_TOKEN_TREASURY,
             payloads::DistributeMainTokenTreasuryPayload {
                 proposal_id,
                 distribution_id,

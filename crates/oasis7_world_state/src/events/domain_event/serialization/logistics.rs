@@ -121,7 +121,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             route_id,
         } => serialize_adjacent(
             serializer,
-            Tag::MaterialTransferred,
+            Tag::MATERIAL_TRANSFERRED,
             &MaterialTransferredPayload {
                 transfer_id,
                 requester_agent_id,
@@ -148,7 +148,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             tariff_electricity_per_unit,
         } => serialize_adjacent(
             serializer,
-            Tag::LogisticsRouteRegistered,
+            Tag::LOGISTICS_ROUTE_REGISTERED,
             &LogisticsRouteRegisteredPayload {
                 requester_agent_id,
                 route_id,
@@ -170,7 +170,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             owner_agent_id,
         } => serialize_adjacent(
             serializer,
-            Tag::LogisticsRouteAvailabilityChanged,
+            Tag::LOGISTICS_ROUTE_AVAILABILITY_CHANGED,
             &LogisticsRouteAvailabilityChangedPayload {
                 requester_agent_id,
                 route_id,
@@ -192,7 +192,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             governance_tax_electricity,
         } => serialize_adjacent(
             serializer,
-            Tag::LogisticsPathRerouted,
+            Tag::LOGISTICS_PATH_REROUTED,
             &LogisticsPathReroutedPayload {
                 requester_agent_id,
                 job_id,
@@ -225,7 +225,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reroute_count,
         } => serialize_adjacent(
             serializer,
-            Tag::MaterialTransitStarted,
+            Tag::MATERIAL_TRANSIT_STARTED,
             &MaterialTransitStartedPayload {
                 job_id,
                 requester_agent_id,
@@ -262,7 +262,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reroute_count,
         } => serialize_adjacent(
             serializer,
-            Tag::MaterialTransitCompleted,
+            Tag::MATERIAL_TRANSIT_COMPLETED,
             &MaterialTransitCompletedPayload {
                 job_id,
                 requester_agent_id,

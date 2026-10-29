@@ -14,7 +14,7 @@ where
             amount,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::EmitResourceTransfer,
+            ActionTag::EMIT_RESOURCE_TRANSFER,
             payloads::EmitResourceTransferPayload {
                 from_agent_id,
                 to_agent_id,
@@ -28,7 +28,7 @@ where
             spec,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::BuildFactory,
+            ActionTag::BUILD_FACTORY,
             payloads::BuildFactoryPayload {
                 builder_agent_id,
                 site_id,
@@ -42,7 +42,7 @@ where
             spec,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::BuildFactoryWithModule,
+            ActionTag::BUILD_FACTORY_WITH_MODULE,
             payloads::BuildFactoryWithModulePayload {
                 builder_agent_id,
                 site_id,
@@ -56,7 +56,7 @@ where
             parts,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::MaintainFactory,
+            ActionTag::MAINTAIN_FACTORY,
             payloads::MaintainFactoryPayload {
                 operator_agent_id,
                 factory_id,
@@ -68,7 +68,7 @@ where
             factory_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RecycleFactory,
+            ActionTag::RECYCLE_FACTORY,
             payloads::RecycleFactoryPayload {
                 operator_agent_id,
                 factory_id,
@@ -82,7 +82,7 @@ where
             obligation_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ScheduleEssentialRecipe,
+            ActionTag::SCHEDULE_ESSENTIAL_RECIPE,
             payloads::ScheduleEssentialRecipePayload {
                 requester_agent_id,
                 factory_id,
@@ -100,7 +100,7 @@ where
             logistics_path_ids,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ScheduleRecipe,
+            ActionTag::SCHEDULE_RECIPE,
             payloads::ScheduleRecipePayload {
                 requester_agent_id,
                 factory_id,
@@ -116,7 +116,7 @@ where
             reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::PauseFactoryProduction,
+            ActionTag::PAUSE_FACTORY_PRODUCTION,
             payloads::PauseFactoryProductionPayload {
                 requester_agent_id,
                 factory_id,
@@ -132,7 +132,7 @@ where
             deterministic_seed,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ScheduleRecipeWithModule,
+            ActionTag::SCHEDULE_RECIPE_WITH_MODULE,
             payloads::ScheduleRecipeWithModulePayload {
                 requester_agent_id,
                 factory_id,
@@ -149,7 +149,7 @@ where
             decision,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ValidateProduct,
+            ActionTag::VALIDATE_PRODUCT,
             payloads::ValidateProductPayload {
                 requester_agent_id,
                 module_id,
@@ -164,7 +164,7 @@ where
             deterministic_seed,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ValidateProductWithModule,
+            ActionTag::VALIDATE_PRODUCT_WITH_MODULE,
             payloads::ValidateProductWithModulePayload {
                 requester_agent_id,
                 module_id,
@@ -178,7 +178,7 @@ where
             profile,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::GovernMaterialProfile,
+            ActionTag::GOVERN_MATERIAL_PROFILE,
             payloads::GovernMaterialProfilePayload {
                 operator_agent_id,
                 proposal_id,
@@ -191,7 +191,7 @@ where
             profile,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::GovernProductProfile,
+            ActionTag::GOVERN_PRODUCT_PROFILE,
             payloads::GovernProductProfilePayload {
                 operator_agent_id,
                 proposal_id,
@@ -204,7 +204,7 @@ where
             profile,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::GovernRecipeProfile,
+            ActionTag::GOVERN_RECIPE_PROFILE,
             payloads::GovernRecipeProfilePayload {
                 operator_agent_id,
                 proposal_id,
@@ -217,7 +217,7 @@ where
             profile,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::GovernFactoryProfile,
+            ActionTag::GOVERN_FACTORY_PROFILE,
             payloads::GovernFactoryProfilePayload {
                 operator_agent_id,
                 proposal_id,

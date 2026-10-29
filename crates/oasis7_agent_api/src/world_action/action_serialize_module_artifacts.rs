@@ -13,7 +13,7 @@ where
             wasm_bytes,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::DeployModuleArtifact,
+            ActionTag::DEPLOY_MODULE_ARTIFACT,
             payloads::DeployModuleArtifactPayload {
                 publisher_agent_id,
                 wasm_hash,
@@ -26,7 +26,7 @@ where
             source_package,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::CompileModuleArtifactFromSource,
+            ActionTag::COMPILE_MODULE_ARTIFACT_FROM_SOURCE,
             payloads::CompileModuleArtifactFromSourcePayload {
                 publisher_agent_id,
                 module_id,
@@ -39,7 +39,7 @@ where
             activate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::InstallModuleFromArtifact,
+            ActionTag::INSTALL_MODULE_FROM_ARTIFACT,
             payloads::InstallModuleFromArtifactPayload {
                 installer_agent_id,
                 manifest,
@@ -53,7 +53,7 @@ where
             finality_certificate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::InstallModuleFromArtifactWithFinality,
+            ActionTag::INSTALL_MODULE_FROM_ARTIFACT_WITH_FINALITY,
             payloads::InstallModuleFromArtifactWithFinalityPayload {
                 installer_agent_id,
                 manifest,
@@ -68,7 +68,7 @@ where
             install_target,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::InstallModuleToTargetFromArtifact,
+            ActionTag::INSTALL_MODULE_TO_TARGET_FROM_ARTIFACT,
             payloads::InstallModuleToTargetFromArtifactPayload {
                 installer_agent_id,
                 manifest,
@@ -84,7 +84,7 @@ where
             finality_certificate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::InstallModuleToTargetFromArtifactWithFinality,
+            ActionTag::INSTALL_MODULE_TO_TARGET_FROM_ARTIFACT_WITH_FINALITY,
             payloads::InstallModuleToTargetFromArtifactWithFinalityPayload {
                 installer_agent_id,
                 manifest,
@@ -101,7 +101,7 @@ where
             activate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::UpgradeModuleFromArtifact,
+            ActionTag::UPGRADE_MODULE_FROM_ARTIFACT,
             payloads::UpgradeModuleFromArtifactPayload {
                 upgrader_agent_id,
                 instance_id,
@@ -119,7 +119,7 @@ where
             finality_certificate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::UpgradeModuleFromArtifactWithFinality,
+            ActionTag::UPGRADE_MODULE_FROM_ARTIFACT_WITH_FINALITY,
             payloads::UpgradeModuleFromArtifactWithFinalityPayload {
                 upgrader_agent_id,
                 instance_id,
@@ -138,7 +138,7 @@ where
             profile_changes,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseSubmit,
+            ActionTag::MODULE_RELEASE_SUBMIT,
             payloads::ModuleReleaseSubmitPayload {
                 requester_agent_id,
                 manifest,
@@ -153,7 +153,7 @@ where
             request_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseShadow,
+            ActionTag::MODULE_RELEASE_SHADOW,
             payloads::ModuleReleaseShadowPayload {
                 operator_agent_id,
                 request_id,
@@ -173,7 +173,7 @@ where
             canonicalizer_version,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseSubmitAttestation,
+            ActionTag::MODULE_RELEASE_SUBMIT_ATTESTATION,
             payloads::ModuleReleaseSubmitAttestationPayload {
                 operator_agent_id,
                 request_id,
@@ -194,7 +194,7 @@ where
             role,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseApproveRole,
+            ActionTag::MODULE_RELEASE_APPROVE_ROLE,
             payloads::ModuleReleaseApproveRolePayload {
                 approver_agent_id,
                 request_id,
@@ -207,7 +207,7 @@ where
             roles,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseBindRoles,
+            ActionTag::MODULE_RELEASE_BIND_ROLES,
             payloads::ModuleReleaseBindRolesPayload {
                 operator_agent_id,
                 target_agent_id,
@@ -220,7 +220,7 @@ where
             reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseReject,
+            ActionTag::MODULE_RELEASE_REJECT,
             payloads::ModuleReleaseRejectPayload {
                 rejector_agent_id,
                 request_id,
@@ -232,7 +232,7 @@ where
             request_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseApply,
+            ActionTag::MODULE_RELEASE_APPLY,
             payloads::ModuleReleaseApplyPayload {
                 operator_agent_id,
                 request_id,
@@ -244,7 +244,7 @@ where
             finality_certificate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ModuleReleaseApplyWithFinality,
+            ActionTag::MODULE_RELEASE_APPLY_WITH_FINALITY,
             payloads::ModuleReleaseApplyWithFinalityPayload {
                 operator_agent_id,
                 request_id,
@@ -257,7 +257,7 @@ where
             target_module_version,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RollbackModuleInstance,
+            ActionTag::ROLLBACK_MODULE_INSTANCE,
             payloads::RollbackModuleInstancePayload {
                 operator_agent_id,
                 instance_id,
@@ -271,7 +271,7 @@ where
             finality_certificate,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RollbackModuleInstanceWithFinality,
+            ActionTag::ROLLBACK_MODULE_INSTANCE_WITH_FINALITY,
             payloads::RollbackModuleInstanceWithFinalityPayload {
                 operator_agent_id,
                 instance_id,
@@ -286,7 +286,7 @@ where
             price_amount,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ListModuleArtifactForSale,
+            ActionTag::LIST_MODULE_ARTIFACT_FOR_SALE,
             payloads::ListModuleArtifactForSalePayload {
                 seller_agent_id,
                 wasm_hash,
@@ -299,7 +299,7 @@ where
             wasm_hash,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::BuyModuleArtifact,
+            ActionTag::BUY_MODULE_ARTIFACT,
             payloads::BuyModuleArtifactPayload {
                 buyer_agent_id,
                 wasm_hash,
@@ -310,7 +310,7 @@ where
             wasm_hash,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::DelistModuleArtifact,
+            ActionTag::DELIST_MODULE_ARTIFACT,
             payloads::DelistModuleArtifactPayload {
                 seller_agent_id,
                 wasm_hash,
@@ -322,7 +322,7 @@ where
             reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::DestroyModuleArtifact,
+            ActionTag::DESTROY_MODULE_ARTIFACT,
             payloads::DestroyModuleArtifactPayload {
                 owner_agent_id,
                 wasm_hash,
@@ -336,7 +336,7 @@ where
             price_amount,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::PlaceModuleArtifactBid,
+            ActionTag::PLACE_MODULE_ARTIFACT_BID,
             payloads::PlaceModuleArtifactBidPayload {
                 bidder_agent_id,
                 wasm_hash,
@@ -350,7 +350,7 @@ where
             bid_order_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::CancelModuleArtifactBid,
+            ActionTag::CANCEL_MODULE_ARTIFACT_BID,
             payloads::CancelModuleArtifactBidPayload {
                 bidder_agent_id,
                 wasm_hash,

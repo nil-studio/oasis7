@@ -20,7 +20,7 @@ where
             auto_reroute,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::TransferMaterial,
+            ActionTag::TRANSFER_MATERIAL,
             payloads::TransferMaterialPayload {
                 requester_agent_id,
                 from_ledger,
@@ -45,7 +45,7 @@ where
             tariff_electricity_per_unit,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RegisterLogisticsRoute,
+            ActionTag::REGISTER_LOGISTICS_ROUTE,
             payloads::RegisterLogisticsRoutePayload {
                 requester_agent_id,
                 from_ledger,
@@ -63,7 +63,7 @@ where
             available,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::SetLogisticsRouteAvailability,
+            ActionTag::SET_LOGISTICS_ROUTE_AVAILABILITY,
             payloads::SetLogisticsRouteAvailabilityPayload {
                 requester_agent_id,
                 route_id,
@@ -77,7 +77,7 @@ where
             charter,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::FormAlliance,
+            ActionTag::FORM_ALLIANCE,
             payloads::FormAlliancePayload {
                 proposer_agent_id,
                 alliance_id,
@@ -91,7 +91,7 @@ where
             member_agent_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::JoinAlliance,
+            ActionTag::JOIN_ALLIANCE,
             payloads::JoinAlliancePayload {
                 operator_agent_id,
                 alliance_id,
@@ -104,7 +104,7 @@ where
             member_agent_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::LeaveAlliance,
+            ActionTag::LEAVE_ALLIANCE,
             payloads::LeaveAlliancePayload {
                 operator_agent_id,
                 alliance_id,
@@ -117,7 +117,7 @@ where
             reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::DissolveAlliance,
+            ActionTag::DISSOLVE_ALLIANCE,
             payloads::DissolveAlliancePayload {
                 operator_agent_id,
                 alliance_id,
@@ -133,7 +133,7 @@ where
             intensity,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::DeclareWar,
+            ActionTag::DECLARE_WAR,
             payloads::DeclareWarPayload {
                 initiator_agent_id,
                 war_id,

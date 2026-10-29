@@ -264,7 +264,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             main_token_bridge_distributions,
         } => serialize_adjacent(
             serializer,
-            Tag::NodePointsSettlementApplied,
+            Tag::NODE_POINTS_SETTLEMENT_APPLIED,
             &NodePointsSettlementAppliedPayload {
                 report,
                 signer_node_id,
@@ -279,7 +279,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             allocations,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenGenesisInitialized,
+            Tag::MAIN_TOKEN_GENESIS_INITIALIZED,
             &MainTokenGenesisInitializedPayload {
                 total_supply,
                 allocations,
@@ -292,7 +292,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             nonce,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenVestingClaimed,
+            Tag::MAIN_TOKEN_VESTING_CLAIMED,
             &MainTokenVestingClaimedPayload {
                 bucket_id,
                 beneficiary,
@@ -309,7 +309,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             memo,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenTransferred,
+            Tag::MAIN_TOKEN_TRANSFERRED,
             &MainTokenTransferredPayload {
                 from_account_id,
                 to_account_id,
@@ -329,7 +329,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             security_reserve_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenEpochIssued,
+            Tag::MAIN_TOKEN_EPOCH_ISSUED,
             &MainTokenEpochIssuedPayload {
                 epoch_index,
                 inflation_rate_bps,
@@ -347,7 +347,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             treasury_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenFeeSettled,
+            Tag::MAIN_TOKEN_FEE_SETTLED,
             &MainTokenFeeSettledPayload {
                 fee_kind,
                 amount,
@@ -361,7 +361,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             next,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenPolicyUpdateScheduled,
+            Tag::MAIN_TOKEN_POLICY_UPDATE_SCHEDULED,
             &MainTokenPolicyUpdateScheduledPayload {
                 proposal_id,
                 effective_epoch,
@@ -376,7 +376,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             distributions,
         } => serialize_adjacent(
             serializer,
-            Tag::MainTokenTreasuryDistributed,
+            Tag::MAIN_TOKEN_TREASURY_DISTRIBUTED,
             &MainTokenTreasuryDistributedPayload {
                 proposal_id,
                 distribution_id,
@@ -394,7 +394,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             topped_up_at_epoch,
         } => serialize_adjacent(
             serializer,
-            Tag::RestrictedStarterClaimLiveopsPoolToppedUp,
+            Tag::RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL_TOPPED_UP,
             &RestrictedStarterClaimLiveopsPoolToppedUpPayload {
                 controller_account_id,
                 top_up_id,
@@ -415,7 +415,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             expires_at_epoch,
         } => serialize_adjacent(
             serializer,
-            Tag::RestrictedStarterClaimGrantIssued,
+            Tag::RESTRICTED_STARTER_CLAIM_GRANT_ISSUED,
             &RestrictedStarterClaimGrantIssuedPayload {
                 issuer_id,
                 beneficiary_account_id,
@@ -440,7 +440,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             configured_expires_at_epoch,
         } => serialize_adjacent(
             serializer,
-            Tag::RestrictedStarterClaimGrantExpired,
+            Tag::RESTRICTED_STARTER_CLAIM_GRANT_EXPIRED,
             &RestrictedStarterClaimGrantExpiredPayload {
                 beneficiary_account_id,
                 issuer_id,
@@ -468,7 +468,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             revoke_reason,
         } => serialize_adjacent(
             serializer,
-            Tag::RestrictedStarterClaimGrantRevoked,
+            Tag::RESTRICTED_STARTER_CLAIM_GRANT_REVOKED,
             &RestrictedStarterClaimGrantRevokedPayload {
                 beneficiary_account_id,
                 issuer_id,
@@ -492,7 +492,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             source_treasury_bucket_id,
         } => serialize_adjacent(
             serializer,
-            Tag::StarterOcClaimed,
+            Tag::STARTER_OC_CLAIMED,
             &StarterOcClaimedPayload {
                 agent_id,
                 player_id,
@@ -528,7 +528,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             forced_reclaim_penalty_bps,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimed,
+            Tag::AGENT_CLAIMED,
             &AgentClaimedPayload {
                 acquisition_contract_version,
                 claimer_agent_id,
@@ -562,7 +562,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             ready_at_epoch,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimReleaseRequested,
+            Tag::AGENT_CLAIM_RELEASE_REQUESTED,
             &AgentClaimReleaseRequestedPayload {
                 claimer_agent_id,
                 target_agent_id,
@@ -582,7 +582,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             upkeep_paid_through_epoch,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimUpkeepSettled,
+            Tag::AGENT_CLAIM_UPKEEP_SETTLED,
             &AgentClaimUpkeepSettledPayload {
                 activity_contract_version,
                 claimer_agent_id,
@@ -603,7 +603,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             upkeep_arrears_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimEnteredGrace,
+            Tag::AGENT_CLAIM_ENTERED_GRACE,
             &AgentClaimEnteredGracePayload {
                 claimer_agent_id,
                 target_agent_id,
@@ -619,7 +619,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             forced_reclaim_at_epoch,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimIdleWarning,
+            Tag::AGENT_CLAIM_IDLE_WARNING,
             &AgentClaimIdleWarningPayload {
                 claimer_agent_id,
                 target_agent_id,
@@ -638,7 +638,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             refunded_bond_restricted_sink_bucket_id,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimReleased,
+            Tag::AGENT_CLAIM_RELEASED,
             &AgentClaimReleasedPayload {
                 claimer_agent_id,
                 target_agent_id,
@@ -665,7 +665,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             refunded_bond_restricted_sink_bucket_id,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentClaimReclaimed,
+            Tag::AGENT_CLAIM_RECLAIMED,
             &AgentClaimReclaimedPayload {
                 claimer_agent_id,
                 target_agent_id,

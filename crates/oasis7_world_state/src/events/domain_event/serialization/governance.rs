@@ -203,7 +203,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             forbidden_location_ids,
         } => serialize_adjacent(
             serializer,
-            Tag::GameplayPolicyUpdated,
+            Tag::GAMEPLAY_POLICY_UPDATED,
             &GameplayPolicyUpdatedPayload {
                 operator_agent_id,
                 electricity_tax_bps,
@@ -226,7 +226,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             description,
         } => serialize_adjacent(
             serializer,
-            Tag::EconomicContractOpened,
+            Tag::ECONOMIC_CONTRACT_OPENED,
             &EconomicContractOpenedPayload {
                 creator_agent_id,
                 contract_id,
@@ -244,7 +244,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             contract_id,
         } => serialize_adjacent(
             serializer,
-            Tag::EconomicContractAccepted,
+            Tag::ECONOMIC_CONTRACT_ACCEPTED,
             &EconomicContractAcceptedPayload {
                 accepter_agent_id,
                 contract_id,
@@ -262,7 +262,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             counterparty_reputation_delta,
         } => serialize_adjacent(
             serializer,
-            Tag::EconomicContractSettled,
+            Tag::ECONOMIC_CONTRACT_SETTLED,
             &EconomicContractSettledPayload {
                 operator_agent_id,
                 contract_id,
@@ -283,7 +283,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             counterparty_reputation_delta,
         } => serialize_adjacent(
             serializer,
-            Tag::EconomicContractExpired,
+            Tag::ECONOMIC_CONTRACT_EXPIRED,
             &EconomicContractExpiredPayload {
                 contract_id,
                 creator_agent_id,
@@ -299,7 +299,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             charter,
         } => serialize_adjacent(
             serializer,
-            Tag::AllianceFormed,
+            Tag::ALLIANCE_FORMED,
             &AllianceFormedPayload {
                 proposer_agent_id,
                 alliance_id,
@@ -313,7 +313,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             member_agent_id,
         } => serialize_adjacent(
             serializer,
-            Tag::AllianceJoined,
+            Tag::ALLIANCE_JOINED,
             &AllianceJoinedPayload {
                 operator_agent_id,
                 alliance_id,
@@ -326,7 +326,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             member_agent_id,
         } => serialize_adjacent(
             serializer,
-            Tag::AllianceLeft,
+            Tag::ALLIANCE_LEFT,
             &AllianceLeftPayload {
                 operator_agent_id,
                 alliance_id,
@@ -340,7 +340,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             former_members,
         } => serialize_adjacent(
             serializer,
-            Tag::AllianceDissolved,
+            Tag::ALLIANCE_DISSOLVED,
             &AllianceDissolvedPayload {
                 operator_agent_id,
                 alliance_id,
@@ -359,7 +359,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             mobilization_data_cost,
         } => serialize_adjacent(
             serializer,
-            Tag::WarDeclared,
+            Tag::WAR_DECLARED,
             &WarDeclaredPayload {
                 initiator_agent_id,
                 war_id,
@@ -381,7 +381,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             participant_outcomes,
         } => serialize_adjacent(
             serializer,
-            Tag::WarConcluded,
+            Tag::WAR_CONCLUDED,
             &WarConcludedPayload {
                 war_id,
                 winner_alliance_id,
@@ -404,7 +404,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             pass_threshold_bps,
         } => serialize_adjacent(
             serializer,
-            Tag::GovernanceProposalOpened,
+            Tag::GOVERNANCE_PROPOSAL_OPENED,
             &GovernanceProposalOpenedPayload {
                 proposer_agent_id,
                 proposal_key,
@@ -424,7 +424,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             weight,
         } => serialize_adjacent(
             serializer,
-            Tag::GovernanceVoteCast,
+            Tag::GOVERNANCE_VOTE_CAST,
             &GovernanceVoteCastPayload {
                 voter_agent_id,
                 proposal_key,
@@ -440,7 +440,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             passed,
         } => serialize_adjacent(
             serializer,
-            Tag::GovernanceProposalFinalized,
+            Tag::GOVERNANCE_PROPOSAL_FINALIZED,
             &GovernanceProposalFinalizedPayload {
                 proposal_key,
                 winning_option,
@@ -456,7 +456,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             expires_at,
         } => serialize_adjacent(
             serializer,
-            Tag::CrisisSpawned,
+            Tag::CRISIS_SPAWNED,
             &CrisisSpawnedPayload {
                 crisis_id,
                 kind,
@@ -472,7 +472,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             impact,
         } => serialize_adjacent(
             serializer,
-            Tag::CrisisResolved,
+            Tag::CRISIS_RESOLVED,
             &CrisisResolvedPayload {
                 resolver_agent_id,
                 crisis_id,
@@ -486,7 +486,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             penalty_impact,
         } => serialize_adjacent(
             serializer,
-            Tag::CrisisTimedOut,
+            Tag::CRISIS_TIMED_OUT,
             &CrisisTimedOutPayload {
                 crisis_id,
                 penalty_impact,
@@ -500,7 +500,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             achievement_id,
         } => serialize_adjacent(
             serializer,
-            Tag::MetaProgressGranted,
+            Tag::META_PROGRESS_GRANTED,
             &MetaProgressGrantedPayload {
                 operator_agent_id,
                 target_agent_id,

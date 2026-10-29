@@ -158,7 +158,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             construction_power_obligation,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryBuildStarted,
+            Tag::FACTORY_BUILD_STARTED,
             &FactoryBuildStartedPayload {
                 job_id,
                 builder_agent_id,
@@ -180,7 +180,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             spec,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryBuilt,
+            Tag::FACTORY_BUILT,
             &FactoryBuiltPayload {
                 job_id,
                 builder_agent_id,
@@ -195,7 +195,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryDurabilityChanged,
+            Tag::FACTORY_DURABILITY_CHANGED,
             &FactoryDurabilityChangedPayload {
                 factory_id,
                 previous_durability_ppm,
@@ -211,7 +211,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             durability_ppm,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryMaintained,
+            Tag::FACTORY_MAINTAINED,
             &FactoryMaintainedPayload {
                 operator_agent_id,
                 factory_id,
@@ -228,7 +228,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             durability_ppm,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryRecycled,
+            Tag::FACTORY_RECYCLED,
             &FactoryRecycledPayload {
                 operator_agent_id,
                 factory_id,
@@ -260,7 +260,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             ready_at,
         } => serialize_adjacent(
             serializer,
-            Tag::RecipeStarted,
+            Tag::RECIPE_STARTED,
             &RecipeStartedPayload {
                 emergency_power_obligation,
                 committed_recipe_origin,
@@ -299,7 +299,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             logistics_path_ids,
         } => serialize_adjacent(
             serializer,
-            Tag::RecipeCompleted,
+            Tag::RECIPE_COMPLETED,
             &RecipeCompletedPayload {
                 committed_recipe_origin,
                 job_id,
@@ -324,7 +324,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             blocker_detail,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryProductionBlocked,
+            Tag::FACTORY_PRODUCTION_BLOCKED,
             &FactoryProductionBlockedPayload {
                 action_id,
                 requester_agent_id,
@@ -344,7 +344,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             previous_blocker_detail,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryProductionResumed,
+            Tag::FACTORY_PRODUCTION_RESUMED,
             &FactoryProductionResumedPayload {
                 job_id,
                 requester_agent_id,
@@ -362,7 +362,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryProductionPaused,
+            Tag::FACTORY_PRODUCTION_PAUSED,
             &FactoryProductionPausedPayload {
                 action_id,
                 requester_agent_id,

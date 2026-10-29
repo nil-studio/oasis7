@@ -14,7 +14,7 @@ where
             amount,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::TransferResource,
+            ActionTag::TRANSFER_RESOURCE,
             payloads::TransferResourcePayload {
                 from_agent_id,
                 to_agent_id,
@@ -28,7 +28,7 @@ where
             data_amount,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::CollectData,
+            ActionTag::COLLECT_DATA,
             payloads::CollectDataPayload {
                 collector_agent_id,
                 electricity_cost,
@@ -45,7 +45,7 @@ where
             signature,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::CollectDataAuthenticated,
+            ActionTag::COLLECT_DATA_AUTHENTICATED,
             payloads::CollectDataAuthenticatedPayload {
                 collector_agent_id,
                 electricity_cost,
@@ -61,7 +61,7 @@ where
             grantee_agent_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::GrantDataAccess,
+            ActionTag::GRANT_DATA_ACCESS,
             payloads::GrantDataAccessPayload {
                 owner_agent_id,
                 grantee_agent_id,
@@ -72,7 +72,7 @@ where
             grantee_agent_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RevokeDataAccess,
+            ActionTag::REVOKE_DATA_ACCESS,
             payloads::RevokeDataAccessPayload {
                 owner_agent_id,
                 grantee_agent_id,
@@ -85,7 +85,7 @@ where
             nonce,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RedeemPower,
+            ActionTag::REDEEM_POWER,
             payloads::RedeemPowerPayload {
                 node_id,
                 target_agent_id,
@@ -102,7 +102,7 @@ where
             signature,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RedeemPowerSigned,
+            ActionTag::REDEEM_POWER_SIGNED,
             payloads::RedeemPowerSignedPayload {
                 node_id,
                 target_agent_id,
@@ -118,7 +118,7 @@ where
             mint_records,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ApplyNodePointsSettlementSigned,
+            ActionTag::APPLY_NODE_POINTS_SETTLEMENT_SIGNED,
             payloads::ApplyNodePointsSettlementSignedPayload {
                 report,
                 signer_node_id,

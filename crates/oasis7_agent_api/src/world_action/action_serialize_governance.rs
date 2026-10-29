@@ -18,7 +18,7 @@ where
             pass_threshold_bps,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::OpenGovernanceProposal,
+            ActionTag::OPEN_GOVERNANCE_PROPOSAL,
             payloads::OpenGovernanceProposalPayload {
                 proposer_agent_id,
                 proposal_key,
@@ -37,7 +37,7 @@ where
             weight,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::CastGovernanceVote,
+            ActionTag::CAST_GOVERNANCE_VOTE,
             payloads::CastGovernanceVotePayload {
                 voter_agent_id,
                 proposal_key,
@@ -52,7 +52,7 @@ where
             success,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ResolveCrisis,
+            ActionTag::RESOLVE_CRISIS,
             payloads::ResolveCrisisPayload {
                 resolver_agent_id,
                 crisis_id,
@@ -68,7 +68,7 @@ where
             achievement_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::GrantMetaProgress,
+            ActionTag::GRANT_META_PROGRESS,
             payloads::GrantMetaProgressPayload {
                 operator_agent_id,
                 target_agent_id,
@@ -87,7 +87,7 @@ where
             forbidden_location_ids,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::UpdateGameplayPolicy,
+            ActionTag::UPDATE_GAMEPLAY_POLICY,
             payloads::UpdateGameplayPolicyPayload {
                 operator_agent_id,
                 electricity_tax_bps,
@@ -103,7 +103,7 @@ where
             next_admin_account_ids,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::UpdateRestrictedStarterClaimAdminRegistry,
+            ActionTag::UPDATE_RESTRICTED_STARTER_CLAIM_ADMIN_REGISTRY,
             payloads::UpdateRestrictedStarterClaimAdminRegistryPayload {
                 controller_account_id,
                 next_admin_account_ids,
@@ -119,7 +119,7 @@ where
             public_manifest_hash,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::SubmitGovernanceValidatorAdmission,
+            ActionTag::SUBMIT_GOVERNANCE_VALIDATOR_ADMISSION,
             payloads::SubmitGovernanceValidatorAdmissionPayload {
                 controller_account_id,
                 candidate_id,
@@ -135,7 +135,7 @@ where
             candidate_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ApproveGovernanceValidatorAdmission,
+            ActionTag::APPROVE_GOVERNANCE_VALIDATOR_ADMISSION,
             payloads::ApproveGovernanceValidatorAdmissionPayload {
                 controller_account_id,
                 candidate_id,
@@ -147,7 +147,7 @@ where
             activation_epoch,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ActivateGovernanceValidatorAdmission,
+            ActionTag::ACTIVATE_GOVERNANCE_VALIDATOR_ADMISSION,
             payloads::ActivateGovernanceValidatorAdmissionPayload {
                 controller_account_id,
                 candidate_id,
@@ -161,7 +161,7 @@ where
             reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::RevokeGovernanceValidatorAdmission,
+            ActionTag::REVOKE_GOVERNANCE_VALIDATOR_ADMISSION,
             payloads::RevokeGovernanceValidatorAdmissionPayload {
                 controller_account_id,
                 candidate_id,

@@ -13,7 +13,7 @@ where
             command,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::WorldRule,
+            ActionTag::WORLD_RULE,
             payloads::WorldRulePayload {
                 actor_id,
                 request_id,
@@ -22,27 +22,27 @@ where
         ),
         Action::WorldServiceIntent { request } => serialize_action_envelope(
             serializer,
-            ActionTag::WorldServiceIntent,
+            ActionTag::WORLD_SERVICE_INTENT,
             payloads::WorldServiceIntentPayload { request },
         ),
         Action::RegisterAgent { agent_id, pos } => serialize_action_envelope(
             serializer,
-            ActionTag::RegisterAgent,
+            ActionTag::REGISTER_AGENT,
             payloads::RegisterAgentPayload { agent_id, pos },
         ),
         Action::MoveAgent { agent_id, to } => serialize_action_envelope(
             serializer,
-            ActionTag::MoveAgent,
+            ActionTag::MOVE_AGENT,
             payloads::MoveAgentPayload { agent_id, to },
         ),
         Action::QueryObservation { agent_id } => serialize_action_envelope(
             serializer,
-            ActionTag::QueryObservation,
+            ActionTag::QUERY_OBSERVATION,
             payloads::QueryObservationPayload { agent_id },
         ),
         Action::EmitObservation { observation } => serialize_action_envelope(
             serializer,
-            ActionTag::EmitObservation,
+            ActionTag::EMIT_OBSERVATION,
             payloads::EmitObservationPayload { observation },
         ),
         Action::BodyAction {
@@ -51,7 +51,7 @@ where
             payload,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::BodyAction,
+            ActionTag::BODY_ACTION,
             payloads::BodyActionPayload {
                 agent_id,
                 kind,
@@ -64,7 +64,7 @@ where
             reason,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::EmitBodyAttributes,
+            ActionTag::EMIT_BODY_ATTRIBUTES,
             payloads::EmitBodyAttributesPayload {
                 agent_id,
                 view,
@@ -76,7 +76,7 @@ where
             interface_module_item_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::ExpandBodyInterface,
+            ActionTag::EXPAND_BODY_INTERFACE,
             payloads::ExpandBodyInterfacePayload {
                 agent_id,
                 interface_module_item_id,

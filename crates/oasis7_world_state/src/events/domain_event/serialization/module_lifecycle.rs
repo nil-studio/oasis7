@@ -217,7 +217,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactDeployed,
+            Tag::MODULE_ARTIFACT_DEPLOYED,
             &ModuleArtifactDeployedPayload {
                 publisher_agent_id,
                 wasm_hash,
@@ -240,7 +240,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleInstalled,
+            Tag::MODULE_INSTALLED,
             &ModuleInstalledPayload {
                 installer_agent_id,
                 instance_id,
@@ -270,7 +270,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleUpgraded,
+            Tag::MODULE_UPGRADED,
             &ModuleUpgradedPayload {
                 upgrader_agent_id,
                 instance_id,
@@ -296,7 +296,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             profile_changes,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseRequested,
+            Tag::MODULE_RELEASE_REQUESTED,
             &ModuleReleaseRequestedPayload {
                 request_id,
                 requester_agent_id,
@@ -313,7 +313,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             manifest_hash,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseShadowed,
+            Tag::MODULE_RELEASE_SHADOWED,
             &ModuleReleaseShadowedPayload {
                 request_id,
                 operator_agent_id,
@@ -334,7 +334,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             canonicalizer_version,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseAttested,
+            Tag::MODULE_RELEASE_ATTESTED,
             &ModuleReleaseAttestedPayload {
                 request_id,
                 operator_agent_id,
@@ -355,7 +355,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             role,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseRoleApproved,
+            Tag::MODULE_RELEASE_ROLE_APPROVED,
             &ModuleReleaseRoleApprovedPayload {
                 request_id,
                 approver_agent_id,
@@ -368,7 +368,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             roles,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseRolesBound,
+            Tag::MODULE_RELEASE_ROLES_BOUND,
             &ModuleReleaseRolesBoundPayload {
                 operator_agent_id,
                 target_agent_id,
@@ -381,7 +381,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseRejected,
+            Tag::MODULE_RELEASE_REJECTED,
             &ModuleReleaseRejectedPayload {
                 request_id,
                 rejector_agent_id,
@@ -399,7 +399,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             manifest_hash,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleReleaseApplied,
+            Tag::MODULE_RELEASE_APPLIED,
             &ModuleReleaseAppliedPayload {
                 request_id,
                 operator_agent_id,
@@ -428,7 +428,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleRollbackApplied,
+            Tag::MODULE_ROLLBACK_APPLIED,
             &ModuleRollbackAppliedPayload {
                 operator_agent_id,
                 instance_id,
@@ -456,7 +456,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactListed,
+            Tag::MODULE_ARTIFACT_LISTED,
             &ModuleArtifactListedPayload {
                 seller_agent_id,
                 wasm_hash,
@@ -475,7 +475,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactDelisted,
+            Tag::MODULE_ARTIFACT_DELISTED,
             &ModuleArtifactDelistedPayload {
                 seller_agent_id,
                 wasm_hash,
@@ -492,7 +492,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             fee_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactDestroyed,
+            Tag::MODULE_ARTIFACT_DESTROYED,
             &ModuleArtifactDestroyedPayload {
                 owner_agent_id,
                 wasm_hash,
@@ -509,7 +509,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             price_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactBidPlaced,
+            Tag::MODULE_ARTIFACT_BID_PLACED,
             &ModuleArtifactBidPlacedPayload {
                 bidder_agent_id,
                 wasm_hash,
@@ -525,7 +525,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactBidCancelled,
+            Tag::MODULE_ARTIFACT_BID_CANCELLED,
             &ModuleArtifactBidCancelledPayload {
                 bidder_agent_id,
                 wasm_hash,
@@ -544,7 +544,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             bid_order_id,
         } => serialize_adjacent(
             serializer,
-            Tag::ModuleArtifactSaleCompleted,
+            Tag::MODULE_ARTIFACT_SALE_COMPLETED,
             &ModuleArtifactSaleCompletedPayload {
                 buyer_agent_id,
                 seller_agent_id,

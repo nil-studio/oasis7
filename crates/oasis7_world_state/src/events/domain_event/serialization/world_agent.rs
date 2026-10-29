@@ -154,7 +154,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             world_binding,
         } => serialize_adjacent(
             serializer,
-            Tag::WorldRuleCommitted,
+            Tag::WORLD_RULE_COMMITTED,
             &WorldRuleCommittedPayload {
                 action_id,
                 actor_id,
@@ -170,7 +170,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             pos,
         } => serialize_adjacent(
             serializer,
-            Tag::AgentRegistered,
+            Tag::AGENT_REGISTERED,
             &AgentRegisteredPayload {
                 registration_contract_version,
                 agent_id,
@@ -179,27 +179,27 @@ pub(super) fn serialize<S: serde::Serializer>(
         ),
         DomainEvent::AgentMoved { agent_id, from, to } => serialize_adjacent(
             serializer,
-            Tag::AgentMoved,
+            Tag::AGENT_MOVED,
             &AgentMovedPayload { agent_id, from, to },
         ),
         DomainEvent::AgentLocationAuthorityUpdated { authority } => serialize_adjacent(
             serializer,
-            Tag::AgentLocationAuthorityUpdated,
+            Tag::AGENT_LOCATION_AUTHORITY_UPDATED,
             &AgentLocationAuthorityUpdatedPayload { authority },
         ),
         DomainEvent::LocationAnchorUpdated { anchor } => serialize_adjacent(
             serializer,
-            Tag::LocationAnchorUpdated,
+            Tag::LOCATION_ANCHOR_UPDATED,
             &LocationAnchorUpdatedPayload { anchor },
         ),
         DomainEvent::FactorySiteAuthorityUpdated { authority } => serialize_adjacent(
             serializer,
-            Tag::FactorySiteAuthorityUpdated,
+            Tag::FACTORY_SITE_AUTHORITY_UPDATED,
             &FactorySiteAuthorityUpdatedPayload { authority },
         ),
         DomainEvent::FactoryConstructionPowerProfileUpdated { profile } => serialize_adjacent(
             serializer,
-            Tag::FactoryConstructionPowerProfileUpdated,
+            Tag::FACTORY_CONSTRUCTION_POWER_PROFILE_UPDATED,
             &FactoryConstructionPowerProfileUpdatedPayload { profile },
         ),
         DomainEvent::ActionAccepted {
@@ -210,7 +210,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             notes,
         } => serialize_adjacent(
             serializer,
-            Tag::ActionAccepted,
+            Tag::ACTION_ACCEPTED,
             &ActionAcceptedPayload {
                 action_id,
                 action_kind,
@@ -221,37 +221,37 @@ pub(super) fn serialize<S: serde::Serializer>(
         ),
         DomainEvent::ActionRejected { action_id, reason } => serialize_adjacent(
             serializer,
-            Tag::ActionRejected,
+            Tag::ACTION_REJECTED,
             &ActionRejectedPayload { action_id, reason },
         ),
         DomainEvent::AgentIntentProposed { intent } => serialize_adjacent(
             serializer,
-            Tag::AgentIntentProposed,
+            Tag::AGENT_INTENT_PROPOSED,
             &AgentIntentProposedPayload { intent },
         ),
         DomainEvent::AgentIntentSubmitted { intent } => serialize_adjacent(
             serializer,
-            Tag::AgentIntentSubmitted,
+            Tag::AGENT_INTENT_SUBMITTED,
             &AgentIntentSubmittedPayload { intent },
         ),
         DomainEvent::AgentIntentAccepted { intent } => serialize_adjacent(
             serializer,
-            Tag::AgentIntentAccepted,
+            Tag::AGENT_INTENT_ACCEPTED,
             &AgentIntentAcceptedPayload { intent },
         ),
         DomainEvent::AgentIntentReplaced { intent } => serialize_adjacent(
             serializer,
-            Tag::AgentIntentReplaced,
+            Tag::AGENT_INTENT_REPLACED,
             &AgentIntentReplacedPayload { intent },
         ),
         DomainEvent::AgentIntentTransitioned { intent } => serialize_adjacent(
             serializer,
-            Tag::AgentIntentTransitioned,
+            Tag::AGENT_INTENT_TRANSITIONED,
             &AgentIntentTransitionedPayload { intent },
         ),
         DomainEvent::Observation { observation } => serialize_adjacent(
             serializer,
-            Tag::Observation,
+            Tag::OBSERVATION,
             &ObservationPayload { observation },
         ),
         DomainEvent::BodyAttributesUpdated {
@@ -260,7 +260,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::BodyAttributesUpdated,
+            Tag::BODY_ATTRIBUTES_UPDATED,
             &BodyAttributesUpdatedPayload {
                 agent_id,
                 view,
@@ -269,7 +269,7 @@ pub(super) fn serialize<S: serde::Serializer>(
         ),
         DomainEvent::BodyAttributesRejected { agent_id, reason } => serialize_adjacent(
             serializer,
-            Tag::BodyAttributesRejected,
+            Tag::BODY_ATTRIBUTES_REJECTED,
             &BodyAttributesRejectedPayload { agent_id, reason },
         ),
         DomainEvent::BodyInterfaceExpanded {
@@ -281,7 +281,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             slot_type,
         } => serialize_adjacent(
             serializer,
-            Tag::BodyInterfaceExpanded,
+            Tag::BODY_INTERFACE_EXPANDED,
             &BodyInterfaceExpandedPayload {
                 agent_id,
                 slot_capacity,
@@ -297,7 +297,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::BodyInterfaceExpandRejected,
+            Tag::BODY_INTERFACE_EXPAND_REJECTED,
             &BodyInterfaceExpandRejectedPayload {
                 agent_id,
                 consumed_item_id,

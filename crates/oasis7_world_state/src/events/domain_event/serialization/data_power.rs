@@ -76,7 +76,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             amount,
         } => serialize_adjacent(
             serializer,
-            Tag::ResourceTransferred,
+            Tag::RESOURCE_TRANSFERRED,
             &ResourceTransferredPayload {
                 from_agent_id,
                 to_agent_id,
@@ -90,7 +90,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             data_amount,
         } => serialize_adjacent(
             serializer,
-            Tag::DataCollected,
+            Tag::DATA_COLLECTED,
             &DataCollectedPayload {
                 collector_agent_id,
                 electricity_cost,
@@ -107,7 +107,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             signature,
         } => serialize_adjacent(
             serializer,
-            Tag::DataCollectedAuthenticated,
+            Tag::DATA_COLLECTED_AUTHENTICATED,
             &DataCollectedAuthenticatedPayload {
                 collector_agent_id,
                 electricity_cost,
@@ -123,7 +123,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             grantee_agent_id,
         } => serialize_adjacent(
             serializer,
-            Tag::DataAccessGranted,
+            Tag::DATA_ACCESS_GRANTED,
             &DataAccessGrantedPayload {
                 owner_agent_id,
                 grantee_agent_id,
@@ -134,7 +134,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             grantee_agent_id,
         } => serialize_adjacent(
             serializer,
-            Tag::DataAccessRevoked,
+            Tag::DATA_ACCESS_REVOKED,
             &DataAccessRevokedPayload {
                 owner_agent_id,
                 grantee_agent_id,
@@ -149,7 +149,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             nonce,
         } => serialize_adjacent(
             serializer,
-            Tag::PowerRedeemed,
+            Tag::POWER_REDEEMED,
             &PowerRedeemedPayload {
                 node_id,
                 target_agent_id,
@@ -167,7 +167,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             reason,
         } => serialize_adjacent(
             serializer,
-            Tag::PowerRedeemRejected,
+            Tag::POWER_REDEEM_REJECTED,
             &PowerRedeemRejectedPayload {
                 node_id,
                 target_agent_id,

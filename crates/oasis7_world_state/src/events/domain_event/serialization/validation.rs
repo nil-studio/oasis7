@@ -71,7 +71,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             notes,
         } => serialize_adjacent(
             serializer,
-            Tag::ProductValidated,
+            Tag::PRODUCT_VALIDATED,
             &ProductValidatedPayload {
                 requester_agent_id,
                 module_id,
@@ -84,12 +84,12 @@ pub(super) fn serialize<S: serde::Serializer>(
         ),
         DomainEvent::ProductValidationRecorded { receipt } => serialize_adjacent(
             serializer,
-            Tag::ProductValidationRecorded,
+            Tag::PRODUCT_VALIDATION_RECORDED,
             &ProductValidationRecordedPayload { receipt },
         ),
         DomainEvent::ProductValidationAttemptStarted { attempt } => serialize_adjacent(
             serializer,
-            Tag::ProductValidationAttemptStarted,
+            Tag::PRODUCT_VALIDATION_ATTEMPT_STARTED,
             &ProductValidationAttemptStartedPayload { attempt },
         ),
         DomainEvent::MaterialProfileGoverned {
@@ -98,7 +98,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             profile,
         } => serialize_adjacent(
             serializer,
-            Tag::MaterialProfileGoverned,
+            Tag::MATERIAL_PROFILE_GOVERNED,
             &MaterialProfileGovernedPayload {
                 operator_agent_id,
                 proposal_id,
@@ -111,7 +111,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             profile,
         } => serialize_adjacent(
             serializer,
-            Tag::ProductProfileGoverned,
+            Tag::PRODUCT_PROFILE_GOVERNED,
             &ProductProfileGovernedPayload {
                 operator_agent_id,
                 proposal_id,
@@ -124,7 +124,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             profile,
         } => serialize_adjacent(
             serializer,
-            Tag::RecipeProfileGoverned,
+            Tag::RECIPE_PROFILE_GOVERNED,
             &RecipeProfileGovernedPayload {
                 operator_agent_id,
                 proposal_id,
@@ -137,7 +137,7 @@ pub(super) fn serialize<S: serde::Serializer>(
             profile,
         } => serialize_adjacent(
             serializer,
-            Tag::FactoryProfileGoverned,
+            Tag::FACTORY_PROFILE_GOVERNED,
             &FactoryProfileGovernedPayload {
                 operator_agent_id,
                 proposal_id,

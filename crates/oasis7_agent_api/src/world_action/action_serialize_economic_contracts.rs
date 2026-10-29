@@ -19,7 +19,7 @@ where
             description,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::OpenEconomicContract,
+            ActionTag::OPEN_ECONOMIC_CONTRACT,
             payloads::OpenEconomicContractPayload {
                 creator_agent_id,
                 contract_id,
@@ -37,7 +37,7 @@ where
             contract_id,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::AcceptEconomicContract,
+            ActionTag::ACCEPT_ECONOMIC_CONTRACT,
             payloads::AcceptEconomicContractPayload {
                 accepter_agent_id,
                 contract_id,
@@ -50,7 +50,7 @@ where
             notes,
         } => serialize_action_envelope(
             serializer,
-            ActionTag::SettleEconomicContract,
+            ActionTag::SETTLE_ECONOMIC_CONTRACT,
             payloads::SettleEconomicContractPayload {
                 operator_agent_id,
                 contract_id,
