@@ -10,3 +10,5 @@ pub mod native_environment;
 pub mod incremental_execution;
 pub mod incremental_state;
 mod merkle;
+
+pub mod incremental_history;
