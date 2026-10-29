@@ -36,6 +36,11 @@ pub struct LocalBftSuccessorArchiveStoreV1 {
 }
 
 impl LocalBftSuccessorArchiveStoreV1 {
+    /// Storage location only, for deployment path separation checks.
+    pub fn root(&self) -> &Path {
+        self.store.root()
+    }
+
     pub fn new(store: LocalCasStore) -> Result<Self, BftSignerErrorV3> {
         if store.hash_algorithm() != HashAlgorithm::Blake3
             || store
@@ -47,7 +52,10 @@ impl LocalBftSuccessorArchiveStoreV1 {
                 "successor archive requires a BLAKE3 CAS without parent traversal",
             ));
         }
-        let root = std::path::absolute(store.root()).map_err(io_error)?;
+        let absolute = std::path::absolute(store.root()).map_err(io_error)?;
+        // Normalize a trusted configured path once (including OS aliases such
+        // as /var on Darwin). Every later object open rejects link traversal.
+        let root = physical_root(&absolute)?;
         Ok(Self {
             store: LocalCasStore::new(root),
         })
@@ -57,9 +65,24 @@ impl LocalBftSuccessorArchiveStoreV1 {
         &self,
         bytes: &[u8],
     ) -> Result<BftSuccessorWindowArchiveRefV1, BftSignerErrorV3> {
-        if bytes.is_empty() || bytes.len() > BFT_SIGNER_MAX_FRAME_BYTES_V3 {
+        self.persist_object(bytes, BFT_SIGNER_MAX_FRAME_BYTES_V3)
+    }
+
+    /// Durable raw material for a caller's separately configured archive.
+    /// This grants no remote-read permission or checkpoint authority. The
+    /// caller must choose the limit for the artifact's declared role.
+    pub fn persist_object(
+        &self,
+        bytes: &[u8],
+        maximum: usize,
+    ) -> Result<BftSuccessorWindowArchiveRefV1, BftSignerErrorV3> {
+        validate_object_limit(maximum)?;
+        if bytes.is_empty() || bytes.len() > maximum {
             return Err(invalid("successor public archive length bound"));
         }
+        reject_link_components(self.store.root())?;
+        reject_link_components(self.store.blobs_dir())?;
+        reject_link_components(self.store.pins_path())?;
         let mut directories = vec![self.store.blobs_dir().to_path_buf()];
         // Include the first existing ancestor: newly created directories must
         // themselves be durably published by their parent before CAS commits.
@@ -96,7 +119,7 @@ impl LocalBftSuccessorArchiveStoreV1 {
         }
         // CAS put may encounter an existing object. It is not a successful
         // checkpoint preparation unless a fresh bounded reread is exact.
-        if self.load_bytes(&reference)? != bytes {
+        if self.load_object(&reference, maximum)? != bytes {
             return Err(invalid(
                 "successor archive reread differs from original material",
             ));
@@ -108,10 +131,21 @@ impl LocalBftSuccessorArchiveStoreV1 {
         &self,
         reference: &BftSuccessorWindowArchiveRefV1,
     ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        self.load_object(reference, BFT_SIGNER_MAX_FRAME_BYTES_V3)
+    }
+
+    /// Fresh no-follow read of exact content-addressed bytes. It never returns
+    /// a trusted Snapshot, schedule, or signing capability.
+    pub fn load_object(
+        &self,
+        reference: &BftSuccessorWindowArchiveRefV1,
+        maximum: usize,
+    ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        validate_object_limit(maximum)?;
         reference.validate()?;
         let size = usize::try_from(reference.bytes)
             .map_err(|_| invalid("successor archive read length overflow"))?;
-        if size > BFT_SIGNER_MAX_FRAME_BYTES_V3 {
+        if size > maximum {
             return Err(invalid("successor public archive read bound"));
         }
         let path = self
@@ -144,6 +178,100 @@ impl LocalBftSuccessorArchiveStoreV1 {
     }
 }
 
+fn validate_object_limit(maximum: usize) -> Result<(), BftSignerErrorV3> {
+    if maximum == 0 || maximum > 512 * 1024 * 1024 {
+        return Err(invalid("successor object limit must be within 512 MiB"));
+    }
+    Ok(())
+}
+
+fn physical_root(path: &Path) -> Result<std::path::PathBuf, BftSignerErrorV3> {
+    let mut existing = path;
+    let mut suffix = Vec::new();
+    loop {
+        match fs::symlink_metadata(existing) {
+            Ok(_) => {
+                let mut root = existing.canonicalize().map_err(io_error)?;
+                if !root.is_dir() {
+                    return Err(invalid("successor archive ancestor is not a directory"));
+                }
+                for component in suffix.into_iter().rev() {
+                    root.push(component);
+                }
+                return Ok(root);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                suffix.push(
+                    existing
+                        .file_name()
+                        .ok_or_else(|| invalid("archive root name"))?
+                        .to_os_string(),
+                );
+                existing = existing
+                    .parent()
+                    .ok_or_else(|| invalid("archive root parent"))?;
+            }
+            Err(error) => return Err(io_error(error)),
+        }
+    }
+}
+
+fn reject_link_components(path: &Path) -> Result<(), BftSignerErrorV3> {
+    for component in path.ancestors() {
+        let metadata = match fs::symlink_metadata(component) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(io_error(error)),
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(invalid("successor archive path contains a link"));
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err(invalid("successor archive path contains a reparse point"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn open_directory_nofollow(path: &Path) -> Result<File, BftSignerErrorV3> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    if !path.is_absolute() {
+        return Err(invalid("successor archive directory is not absolute"));
+    }
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mut directory = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(flags)
+        .open("/")
+        .map_err(io_error)?;
+    for component in path.components() {
+        let name = match component {
+            Component::RootDir => continue,
+            Component::Normal(name) => {
+                CString::new(name.as_bytes()).map_err(|_| invalid("archive path contains NUL"))?
+            }
+            _ => return Err(invalid("successor archive path is not normalized")),
+        };
+        // SAFETY: the parent fd and NUL-terminated component remain live for
+        // openat. Each owned result is checked before taking ownership.
+        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(io_error(std::io::Error::last_os_error()));
+        }
+        // SAFETY: successful openat returned a new fd owned by this function.
+        directory = unsafe { File::from_raw_fd(fd) };
+    }
+    Ok(directory)
+}
+
 impl BftSuccessorArchiveStoreV1 for LocalBftSuccessorArchiveStoreV1 {
     fn persist_public_state(
         &self,
@@ -167,13 +295,34 @@ fn sync_regular_file(path: &Path) -> Result<(), BftSignerErrorV3> {
 fn open_regular_file(path: &Path, for_sync: bool) -> Result<File, BftSignerErrorV3> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::ffi::CString;
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::ffi::OsStrExt;
         let _ = for_sync; // Unix permits fsync on the existing read descriptor.
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-            .map_err(io_error)?;
+        let parent = open_directory_nofollow(
+            path.parent()
+                .ok_or_else(|| invalid("archive file parent"))?,
+        )?;
+        let name = CString::new(
+            path.file_name()
+                .ok_or_else(|| invalid("archive file name"))?
+                .as_bytes(),
+        )
+        .map_err(|_| invalid("archive path contains NUL"))?;
+        // SAFETY: parent and component remain live for the call. Relative
+        // no-follow traversal prevents a replaced blobs directory alias.
+        let fd = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(io_error(std::io::Error::last_os_error()));
+        }
+        // SAFETY: the checked openat result is a new owned file descriptor.
+        let file = unsafe { File::from_raw_fd(fd) };
         if !file.metadata().map_err(io_error)?.is_file() {
             return Err(invalid(
                 "successor archive publication is not a regular file",
@@ -183,6 +332,7 @@ fn open_regular_file(path: &Path, for_sync: bool) -> Result<File, BftSignerError
     }
     #[cfg(windows)]
     {
+        reject_link_components(path)?;
         use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
         let file = fs::OpenOptions::new()
             .read(true)
@@ -207,16 +357,10 @@ fn open_regular_file(path: &Path, for_sync: bool) -> Result<File, BftSignerError
 
 fn sync_directory(path: &Path) -> Result<(), BftSignerErrorV3> {
     #[cfg(unix)]
-    let directory = {
-        use std::os::unix::fs::OpenOptionsExt;
-        fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-            .map_err(io_error)?
-    };
+    let directory = open_directory_nofollow(path)?;
     #[cfg(windows)]
     let directory = {
+        reject_link_components(path)?;
         use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
         // Match the durable-transaction directory handle contract; also refuse
         // reparse points instead of silently syncing their destination.
