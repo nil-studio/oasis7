@@ -32,7 +32,7 @@ class CfgWorkflow(unittest.TestCase):
         self.assertIn('cancel-in-progress: false', TEXT)
 
     def test_fixed_source_official_bundle_and_external_tools(self):
-        self.assertIn('c65098923e8d9aad6813d49ac48cc2540627c96d', TEXT)
+        self.assertIn('1cee39a84904ba41424cc31eff583ea2971065f6', TEXT)
         self.assertIn('codeql-bundle-v2.27.3/codeql-bundle-rust-linux64.tar.zst', TEXT)
         self.assertIn('218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237', TEXT)
         self.assertIn('persist-credentials: false', TEXT)
@@ -81,7 +81,7 @@ class CfgWorkflow(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, step+': '+result.stderr)
 
     def test_exclusion_verification_is_bound_to_new_source_everywhere(self):
-        sha="c65098923e8d9aad6813d49ac48cc2540627c96d"
+        sha="1cee39a84904ba41424cc31eff583ea2971065f6"
         self.assertIn("ref: "+sha,TEXT)
         self.assertEqual(TEXT.count("--source-sha "+sha),3)
         self.assertEqual(TEXT.count("--verify-context-exclusion"),2)
