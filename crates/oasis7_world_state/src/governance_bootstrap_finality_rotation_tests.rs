@@ -1,8 +1,8 @@
 //! Persistence/projection vectors only. World separately verifies authority.
 use super::*;
-use serde::de;
 use crate::{GovernanceEvent, Snapshot, WorldStateProjection};
 use oasis7_agent_api::world_action::GovernanceAuthorizationV1;
+use serde::de;
 fn h(n: u8) -> String {
     format!("{n:02x}").repeat(32)
 }
