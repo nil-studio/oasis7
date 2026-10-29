@@ -59,6 +59,7 @@ impl AccountProvisionApprovalState {
             s.enrollment.checks().map_err(|_| invalid())?;
             self.validate_session_purpose_http_persistence(s)?;
             self.validate_session_tool_nonce_persistence(s)?;
+            self.validate_session_context_persistence(id, s)?;
             for record in s.book.records() {
                 if record.input() != &s.input
                     || proofs.iter().any(|old| same_proof(old, record.input()))
@@ -84,6 +85,7 @@ impl AccountProvisionApprovalState {
                     || s.native_lifetime.is_some()
                     || s.lease_until.is_some()
                     || !s.challenges.is_empty()
+                    || s.context.is_some()
                     || !s.actions.is_empty()
                     || !s.controls.is_empty()
                     || !s.termination_slots.is_empty()
@@ -178,6 +180,9 @@ impl AccountProvisionApprovalState {
                             .charge(a.transport_attempts.len() as u64)
                             .map_err(|_| invalid())?;
                     }
+                    if purpose == SessionPurposeV1::Execution && s.context.is_some() {
+                        expected.requests.charge(1).map_err(|_| invalid())?;
+                    }
                     let sources = s
                         .source_funding
                         .values()
@@ -186,7 +191,7 @@ impl AccountProvisionApprovalState {
                     let extra = s
                         .purpose_transports
                         .values()
-                        .filter(|p| **p == purpose)
+                        .filter(|p| p.purpose() == purpose)
                         .count() as u64;
                     expected
                         .transport

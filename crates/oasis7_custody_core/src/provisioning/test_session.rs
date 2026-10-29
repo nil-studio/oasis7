@@ -165,12 +165,14 @@ pub struct TestSessionAuthorityV1 {
     pub sources: BTreeMap<String, ProvisionOriginInspectionV1>,
     pub source_oracle_reads: BTreeMap<String, u8>,
     pub source_funding: BTreeMap<String, SessionSourceFundingV1>,
-    pub purpose_transports: BTreeMap<String, SessionPurposeV1>,
+    pub purpose_transports: BTreeMap<String, SessionPurposeTransportV1>,
     pub purpose_http_admissions: BTreeMap<String, SessionPurposeHttpAdmissionV1>,
     #[serde(default)]
     pub tool_nonce_ingresses: BTreeMap<String, SessionToolNonceIngressV1>,
     #[serde(default)]
     pub tool_nonce_links: BTreeMap<String, SessionToolNonceLinkV1>,
+    #[serde(default)]
+    pub context: Option<SessionContextV1>,
     pub roots: BTreeMap<SessionPurposeV1, SessionRootV1>,
     pub control: Option<OperationBudgets>,
     pub identity_transport: Option<BudgetLedger>,
@@ -430,3 +432,7 @@ mod purpose_http;
 #[path = "test_session_tool_nonce.rs"]
 mod tool_nonce;
 pub use tool_nonce::{SessionToolNonceIngressV1, SessionToolNonceLinkV1};
+
+#[path = "test_session_context.rs"]
+mod context;
+pub use context::*;
