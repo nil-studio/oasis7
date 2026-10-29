@@ -156,7 +156,7 @@ pub(super) struct Inbox {
     #[cfg(any(test, feature = "test-hooks"))]
     trace_routes: BTreeMap<PeerId, usize>,
     #[cfg(any(test, feature = "test-hooks"))]
-    trace_complete: VecDeque<Option<(usize, &'static str, Instant)>>,
+    trace_complete: VecDeque<Option<(usize, &'static str, Instant, String)>>,
 }
 impl Inbox {
     pub fn new() -> Self {
@@ -267,7 +267,7 @@ impl Inbox {
                     let route = self.trace_routes.get(&peer).copied().unwrap_or(256);
                     let kind = super::route_trace::kind(&message);
                     let age = now.saturating_duration_since(p.deadline - TTL);
-                    super::route_trace::event(
+                    super::route_trace::event_message(
                         route,
                         kind,
                         "assembly_complete",
@@ -275,8 +275,10 @@ impl Inbox {
                         age,
                         age,
                         p.deadline.saturating_duration_since(now),
+                        0,
+                        Some(&f.digest),
                     );
-                    (route, kind, now)
+                    (route, kind, now, f.digest.clone())
                 });
                 self.trace_complete.push_back(observation);
             }
@@ -323,8 +325,8 @@ impl Inbox {
             };
             self.complete_bytes -= n;
             #[cfg(any(test, feature = "test-hooks"))]
-            if let Some(Some((route, kind, completed))) = self.trace_complete.pop_front() {
-                super::route_trace::event(
+            if let Some(Some((route, kind, completed, digest))) = self.trace_complete.pop_front() {
+                super::route_trace::event_message(
                     route,
                     kind,
                     "drain",
@@ -332,6 +334,8 @@ impl Inbox {
                     completed.elapsed(),
                     completed.elapsed(),
                     Duration::ZERO,
+                    0,
+                    Some(&digest),
                 );
             }
             out.push(message);
