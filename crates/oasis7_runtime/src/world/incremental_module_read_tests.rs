@@ -6,6 +6,13 @@ use oasis7_world_state::incremental_module_instance_fields::{
     ModuleInstanceScalarRefV1 as S,
 };
 
+fn genesis_io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget {
+    oasis7_formal_protocol::incremental_value::ValueIoBudget {
+        nodes_remaining: 50_000,
+        read_bytes_remaining: 64 << 20,
+        write_bytes_remaining: 64 << 20,
+    }
+}
 pub(super) fn seed_instances(
     world: &World,
     parent: &mut ExecutionParent,
@@ -13,32 +20,32 @@ pub(super) fn seed_instances(
     values: &mut Values,
     memory: &MemoryBudget,
 ) {
-    let mut writes = Vec::new();
-    world
+    // State/Value pages share the same immutable CAS in the real backend.
+    // Mirror the fixture's already prepared parent state pages into that CAS.
+    for (id, bytes) in &pages.0 {
+        let id: [u8; 32] = hex::decode(id).unwrap().try_into().unwrap();
+        let charge = memory.reserve(bytes.len(), MemoryClass::Ordinary).unwrap();
+        values.put_node(id, charge.retain(bytes.clone())).unwrap();
+    }
+    let mut quota = genesis_io();
+    let root = world
         .write_iws_module_instance_genesis(
+            parent.roots.state[0].clone(),
             &mut BodyMutationContext {
                 sink: values,
                 memory,
-                io: &mut io(),
+                io: &mut quota,
                 cancelled: || false,
             },
             &mut 100,
             4096,
-            |key, id| {
-                writes.push(StateWriteV1 {
-                    key: key.to_vec(),
-                    before: None,
-                    after: Some(id),
-                });
-                Ok(())
-            },
         )
         .unwrap();
-    writes.sort_by(|a, b| a.key.cmp(&b.key));
-    let delta = StateDeltaV1::build(parent.roots.state[0].clone(), writes, pages, 4 << 20).unwrap();
-    parent.roots.state[0] = delta.after;
-    for node in delta.new_nodes {
-        pages.0.insert(node.digest, node.bytes);
+    parent.roots.state[0] = (*root).clone();
+    for (id, bytes) in values.pages.borrow().iter() {
+        if bytes.starts_with(b"oasis7.iws.state-page.v1\0") {
+            pages.0.insert(hex::encode(id), bytes.to_vec());
+        }
     }
 }
 pub(super) fn instance() -> oasis7_world_state::ModuleInstanceState {
@@ -454,56 +461,47 @@ fn reader_unwind_and_last_field_cancel_release_all_partial_output_and_spend_io()
 }
 
 #[test]
-fn instance_genesis_entry_scalar_and_emitter_limits_leave_only_provisional_outputs() {
-    let memory = MemoryBudget::new(8 << 20, 2 << 20).unwrap();
+fn instance_genesis_builds_all_fields_and_index_under_entry_and_scalar_limits() {
+    use oasis7_formal_protocol::incremental_state::StateRootV1;
+    let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
     let mut world = World::new();
     world
         .state
         .module_instances
         .insert("one".into(), instance());
     let mut values = Values::default();
-    let mut emitted = 0;
-    let count = world
+    let root = world
         .write_iws_module_instance_genesis(
+            StateRootV1::empty(Ns::Business).unwrap(),
             &mut BodyMutationContext {
                 sink: &mut values,
                 memory: &memory,
-                io: &mut io(),
+                io: &mut genesis_io(),
                 cancelled: || false,
             },
             &mut 1,
             4096,
-            |key, _| {
-                ModuleInstanceKeyV1::from_bytes(key).unwrap();
-                emitted += 1;
-                Ok(())
-            },
         )
         .unwrap();
-    assert_eq!((count, emitted), (1, 8));
+    assert_eq!(root.leaf_count, 10);
     for failure in 0..4 {
-        let mut emitted = 0;
         let mut remaining = if failure == 0 { 0 } else { 1 };
+        let mut quota = genesis_io();
+        if failure == 3 {
+            quota.write_bytes_remaining = 0;
+        }
         let result = world.write_iws_module_instance_genesis(
+            StateRootV1::empty(Ns::Business).unwrap(),
             &mut BodyMutationContext {
                 sink: &mut values,
                 memory: &memory,
-                io: &mut io(),
+                io: &mut quota,
                 cancelled: || failure == 2,
             },
             &mut remaining,
             if failure == 1 { 1 } else { 4096 },
-            |_, _| {
-                emitted += 1;
-                if failure == 3 {
-                    Err(BodyMutationError::Invalid("emitter failed"))
-                } else {
-                    Ok(())
-                }
-            },
         );
         assert!(result.is_err());
-        assert_eq!(emitted, usize::from(failure == 3));
     }
     assert_eq!(
         world.state.module_instances["one"].instance_id,
@@ -559,4 +557,101 @@ fn cancellation_during_authenticated_absence_never_returns_a_successful_missing_
         let guard = txn.guard();
         assert!(txn.seal(&guard, &live, 0).is_err());
     }
+}
+
+#[test]
+fn instance_counts_follow_inactive_creation_module_move_and_last_deletion_in_one_overlay() {
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (mut world, parent, pages, mut values) = setup_instances(&memory);
+    world.state.module_instances.clear();
+    let source = values.clone();
+    let live = parent.fence().unwrap();
+    let mut bounds = limits();
+    bounds.max_reads = 128;
+    bounds.max_writes = 128;
+    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, bounds).unwrap();
+    let mut quota = genesis_io();
+    let count = |id: &str, txn: &mut ExecutionTransaction<'_, Pages>, quota: &mut _| {
+        ModuleReadContext {
+            values: &source,
+            memory: &memory,
+            io: quota,
+            max_value_bytes: 4096,
+            cancelled: || false,
+        }
+        .module_instance_count(id, txn)
+        .unwrap()
+    };
+    assert_eq!(count("module", &mut txn, &mut quota), 1);
+    assert_eq!(count("absent", &mut txn, &mut quota), 0);
+    let mut second = instance();
+    second.instance_id = "different stored identity".into();
+    for (key, after, expected_old, expected_new) in [
+        ("second", Some(second.clone()), 2, 0),
+        (
+            "map-key",
+            Some({
+                let mut moved = instance();
+                moved.module_id = "新 module".into();
+                moved
+            }),
+            1,
+            1,
+        ),
+        ("second", None, 0, 1),
+        ("map-key", None, 0, 0),
+    ] {
+        crate::contribute_module_instance_change(
+            key,
+            after.as_ref(),
+            &mut txn,
+            &source,
+            &mut BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut quota,
+                cancelled: || false,
+            },
+            4096,
+        )
+        .unwrap();
+        assert_eq!(count("module", &mut txn, &mut quota), expected_old);
+        assert_eq!(count("新 module", &mut txn, &mut quota), expected_new);
+    }
+    let guard = txn.guard();
+    let prepared = txn.seal(&guard, &live, 0).unwrap();
+    assert!(!prepared.record.writes.is_empty());
+    assert!(world.state.module_instances.is_empty());
+}
+
+#[test]
+fn instance_change_output_failure_poison_includes_prior_outer_write() {
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (_, parent, pages, mut values) = setup_instances(&memory);
+    let source = values.clone();
+    let live = parent.fence().unwrap();
+    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, limits()).unwrap();
+    txn.write(Ns::Business, b"prior-outer-write", Some([8; 32]))
+        .unwrap();
+    let mut changed = instance();
+    changed.owner_agent_id = "x".repeat(5000);
+    let mut quota = genesis_io();
+    assert!(
+        crate::contribute_module_instance_change(
+            "map-key",
+            Some(&changed),
+            &mut txn,
+            &source,
+            &mut BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut quota,
+                cancelled: || false
+            },
+            4096,
+        )
+        .is_err()
+    );
+    let guard = txn.guard();
+    assert!(txn.seal(&guard, &live, 0).is_err());
 }

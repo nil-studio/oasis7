@@ -152,4 +152,6 @@ pub mod incremental_agent_fields;
 pub mod incremental_module_fields;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_fields;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_index;
 pub mod incremental_scheduler_fields;

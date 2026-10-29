@@ -13,6 +13,7 @@ use oasis7_world_state::{
     incremental_module_instance_fields::{
         ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1, ModuleInstanceScalarRefV1 as Scalar,
     },
+    incremental_module_instance_index::*,
 };
 
 pub struct ModuleReadContext<'a, V, C> {
@@ -46,7 +47,10 @@ impl<V: ValueNodeReader, C: FnMut() -> bool> ModuleReadContext<'_, V, C> {
         }
         Ok(())
     }
-    fn load(&mut self, id: &[u8; 32]) -> Result<ReservedValue<Vec<u8>>, BodyMutationError> {
+    pub(super) fn load(
+        &mut self,
+        id: &[u8; 32],
+    ) -> Result<ReservedValue<Vec<u8>>, BodyMutationError> {
         let mut reader = ValueReadContext {
             source: self.values,
             memory: self.memory,
@@ -81,6 +85,45 @@ impl<V: ValueNodeReader, C: FnMut() -> bool> ModuleReadContext<'_, V, C> {
             )?;
         }
         Ok(charge.retain(bytes))
+    }
+    pub(super) fn instance_index_total<R: MerkleNodeReader>(
+        &mut self,
+        txn: &mut ExecutionTransaction<'_, R>,
+    ) -> Result<u64, BodyMutationError> {
+        self.check(txn)?;
+        let id = txn
+            .read(Ns::Business, MODULE_INSTANCE_INDEX_KEY_V1)?
+            .ok_or(BodyMutationError::Invalid(
+                "module instance count index absent",
+            ))?;
+        let value = self.load(&id)?;
+        module_instance_index_from_bytes(&value).map_err(BodyMutationError::Invalid)
+    }
+    /// All stored instances count, including inactive ones. A missing index is
+    /// not zero. The parent owner must establish count/field consistency.
+    pub fn module_instance_count<R: MerkleNodeReader>(
+        &mut self,
+        module_id: &str,
+        txn: &mut ExecutionTransaction<'_, R>,
+    ) -> Result<u64, BodyMutationError> {
+        txn.contribute(|txn| {
+            let total = self.instance_index_total(txn)?;
+            let key = module_instance_count_key(module_id);
+            let count = match txn.read(Ns::Business, &key)? {
+                None => 0,
+                Some(id) => {
+                    let value = self.load(&id)?;
+                    module_instance_count_from_bytes(&value).map_err(BodyMutationError::Invalid)?
+                }
+            };
+            if count > total {
+                return Err(BodyMutationError::Invalid(
+                    "module instance count exceeds total",
+                ));
+            }
+            self.check(txn)?;
+            Ok(count)
+        })
     }
     /// Read only the requested scalar, e.g. Active before loading invocation
     /// metadata. Parent qualification owns complete-row/absence invariants.

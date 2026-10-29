@@ -818,3 +818,14 @@ ModuleReadContext 复用同一事务的认证 parent/overlay 和实际 value rea
 局部方法覆盖独立字段 wire、八成员穷尽、原 map key 与 instance_id 不同、空键/空文本/空 location、NUL/Unicode/0/MAX、错类型/字段/长度，cache 清空后认证读取、单 Active overlay 改写仅访问所需字段、Pure 的零状态读取、Reducer 的 absent/empty/缺 data 差异、精确/少一 IO 与 read-set 额度、坏行/值、跨池、晚取消、source unwind 和 genesis 条目/字段/接收者失败。实际 2 MiB 模块状态文件方法还持久化八个实例字段，重开并清空 module_instances/module_states cache 后，通过该读上下文核对实例及带 charge 的完整 state，再继续原状态事件。
 
 完整选择器还需要 registry/manifest/工件 owner，以及按 module ID 反向关联所有实例的索引；既有语义中，即使实例停用，只要该 module ID 已有关联实例，也会抑制全局 active fallback，不能用一次缺失实例点查猜测不存在。正式 due 集合/轮次、真实 Sandbox 调用、Pure/费用/effects、全字段一致性与服务发布仍未接通。本节的 typed metadata/content 不形成 prepared invocation、authority 或完整 J2 证明。
+
+
+### 12.32 模块实例反向计数与有界创世构建
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 §12.31。按原 module ID 保存所有已存实例的正计数，包括停用实例。计数为零时删除叶；独立必需 marker 保存实例总数，空表显式为零。module ID 以独立域、大端 u64 UTF-8 byte 长度和原 bytes 的完整 BLAKE3 摘要寻址，不裁剪原 ID。值使用独立域与大端 u64，拒绝零计数、错域、尾随及截断。
+
+ModuleReadContext 的计数点读要求 marker，拒绝缺 marker、坏编码及计数超过总数；认证缺少某个计数叶才表示零。该索引用于保留既有全局 fallback 抑制条件，不授予模块执行权限。marker 和局部大小关系不能证明计数与整张实例表一致；完整创世/恢复 owner 仍需核定该关系，不能据此宣称父状态已合格。
+
+实例替换贡献从同一事务读取旧八字段、旧/新 module 计数与总数，按实际字段差异写值。创建/删除改变总数，module ID 迁移分别减旧增新，Active 单独变化不改变计数；末个实例删除时去掉其 module 计数。字段、计数与总数共同受事务失败和 seal 边界保护。生命周期授权、原件事实、wake、费用及状态清理由实际调用 owner 在同一事务补齐，本 helper 不代签这些义务。
+
+实例创世入口改为返回持久化的临时 Business 根。逐实例最多九个状态写入，最后写显式 marker；每次从当前临时根点读该 module 计数，不构造随实例总量增长的计数 map 或全部 writes。每批预先准入固定 4 MiB workspace，Merkle pending 上限 1 MiB，输出保留实际 charge，并对新状态页消费有限逻辑 IO。StatePageWriter 在默认 adapter 中验证 typed pages 和同池；实际文件 adapter 复用现有有限 pack writer。失败后已写 CAS 页只属于临时物料，不发布根或 head。入口要求初始根不含该实例/计数家族；缺 marker 本身不能证明无孤儿叶，完整创世 owner 必须保证该前提。
