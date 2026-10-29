@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "8ce169ce3b06da1532d78a352fd0394b922e3dbc4cc2bfe51717d0efcf3e417b",
+    "content_sha256": "a91b6c21259202d40495052b537b5da14af843ab18260cfbb9ca55cb8f370bf0",
     "current_authority": "doc/playability_test_result/game-test.prd.md",
     "decision_owner": "gameplay_designer",
     "disposition": "retain_current_authority",

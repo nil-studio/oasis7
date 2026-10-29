@@ -1,6 +1,10 @@
 # CI 分级执行
 
-Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编译，各用独立 runner。原生编译仍只有一个互斥的可信/只读入口；安装包组装等待 Web 成功、且两个原生入口恰有一个成功另一个 skipped，失败、取消或未知状态不能进入组装。原生中间归档只从同一 run 下载，组装前核对 source SHA、platform、target、profile、ops 范围及每个固定二进制的 SHA-256/权限，缺失、symlink 或篡改拒绝；组装不再调用 Cargo。最终 SOURCEPLAN/BUILDINFO、入口验证和校验和合同不变。并行收益以实际 hosted 耗时为准，原生 runner 的 Cargo 并发固定为 1，避免多个重型 Thin LTO 构建同时占满内存；这不影响 Web/native 跨 runner 并行。
+Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编译，各用独立 runner。原生编译仍只有一个互斥的可信/只读入口；安装包组装等待 Web 成功、且两个原生入口恰有一个成功另一个 skipped，失败、取消或未知状态不能进入组装。
+
+原生中间归档只从同一 run 下载，组装前核对 source SHA、platform、target、profile、ops 范围及每个固定二进制的 SHA-256/权限，缺失、symlink 或篡改拒绝；组装不再调用 Cargo。
+
+最终 SOURCEPLAN/BUILDINFO、入口验证和校验和合同不变。并行收益以实际 hosted 耗时为准，原生 runner 的 Cargo 并发固定为 1，避免多个重型 Thin LTO 构建同时占满内存；这不影响 Web/native 跨 runner 并行。
 
 - 状态：active
 - 专业 owner：`repository_health_engineer`；CI 控制、来源与缓存边界由独立评审者审读
@@ -12,7 +16,11 @@ Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编
 
 普通 CI 是默认验证方式。成功规划后轻量 baseline 始终执行；选择器使用完整 Git name-status diff、base/head 两侧 Cargo 关系及必要目录映射选择 Rust、Web、场景、平台、打包和运维合同测试。
 
-PR 测试合并提交时，选择范围合并两组差异：实际 target/source 的唯一共同祖先到 source HEAD，以及实际 target 第一父提交到 tested merge。main 在事件 base 之后已存在的改动不重复计入；PR 自身变化和合并结果额外变化仍覆盖。校验 tested merge 恰有两个父提交、第二父提交等于 source HEAD、事件 base 是实际 target 的祖先；父提交身份不符、共同祖先不唯一或对象不可读时扩大为普通全量 required。依赖及嵌入输入分析保留事件 base、共同祖先、source、实际 target 与 tested merge 的图。push/source-only 检查继续使用事件 base 到 source 的完整差异。
+PR 测试合并提交时，选择范围合并两组差异：实际 target/source 的唯一共同祖先到 source HEAD，以及实际 target 第一父提交到 tested merge。main 在事件 base 之后已存在的改动不重复计入；PR 自身变化和合并结果额外变化仍覆盖。
+
+校验 tested merge 恰有两个父提交、第二父提交等于 source HEAD、事件 base 是实际 target 的祖先；父提交身份不符、共同祖先不唯一或对象不可读时扩大为普通全量 required。
+
+依赖及嵌入输入分析保留事件 base、共同祖先、source、实际 target 与 tested merge 的图。push/source-only 检查继续使用事件 base 到 source 的完整差异。
 
 Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆盖两端；保留有效 features、WASM、生成输入和平台组合。workspace、features、锁文件、共享生成器及共享或尚未分类的 CI 控制输入变化采用保守普通 required，图解析失败仍扩大覆盖；未登记路径按下述门禁阻断。
 
@@ -25,13 +33,21 @@ Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆
 | GitHub PR 评审说明 | `.github/instructions/pr-review.instructions.md` | baseline、workflow_governance |
 | 独立 CodeQL 扫描与诊断 workflow | `.github/workflows/codeql.yml`、`.github/workflows/codeql-rust-capacity.yml`、`.github/workflows/codeql-rust-cargo-check.yml`、`.github/workflows/codeql-rust-cfg-diagnostic.yml` | baseline、workflow_governance |
 
-精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。Cargo manifest/lock、共享 build 脚本、缓存及其他 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
+精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。
 
-可信 scope 配置的 `workspace_support_profile_paths` 可逐 profile 登记跨 package 的真实测试输入路径；命中时在原 Cargo/目录选择之上追加 `workspace_support` 与该 profile，不把整个 support 组扩大。该映射不登记新输入的 ownership，未知路径仍失败，profile 名称及路径必须通过配置验证。现有非 package support 规则、显式整组请求及共享控制/不确定输入继续保留全部 support profiles。custody Worker 的真实原生 HTTP/SQLite 集成依赖指定 hosted_identity authority、会话与 fixture 文件，因此这些文件单独变化也执行 Worker 完整平台 profile；其他 backend 功能不因此增加该平台测试。
+Cargo manifest/lock、共享 build 脚本、缓存及其他 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
+
+可信 scope 配置的 `workspace_support_profile_paths` 可逐 profile 登记跨 package 的真实测试输入路径；命中时在原 Cargo/目录选择之上追加 `workspace_support` 与该 profile，不把整个 support 组扩大。该映射不登记新输入的 ownership，未知路径仍失败，profile 名称及路径必须通过配置验证。现有非 package support 规则、显式整组请求及共享控制/不确定输入继续保留全部 support profiles。
+
+custody Worker 的真实原生 HTTP/SQLite 集成依赖指定 hosted_identity authority、会话与 fixture 文件，因此这些文件单独变化也执行 Worker 完整平台 profile；其他 backend 功能不因此增加该平台测试。
 
 `./scripts/ci-tests.sh required` 是普通必要测试的本地入口；`full` 保留广覆盖回归，nightly 执行适用 full。真实产品测试、WASM 确定性、共识、持久化、安全、升级恢复和跨平台打包均继续保留，不因流程精简删除。
 
-Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具目录内的代码、配置、资源和测试变化选择 baseline 和该组；共享 context、local signer、secure envelope crate 变化也选择该组。已核实仅为使用说明的 `tools/oasis7-command-center/README.md` 从该目录规则中排除，保留 baseline 文档治理；排除只作用于这条显式规则，真实嵌入或测试消费者仍可选择相应组，删除和重命名仍检查两端。Rust workflow 调用可复用的 `command-center.yml`，保留 Core、生成类型、UI、Clippy 和 macOS App 打包，并将调用结果纳入 `required-gate`。专用 workflow 不再独立触发 PR/push，避免重复执行；Cargo manifest、锁文件和 CI 控制变化仍采用保守全量。该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
+Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具目录内的代码、配置、资源和测试变化选择 baseline 和该组；共享 context、local signer、secure envelope crate 变化也选择该组。已核实仅为使用说明的 `tools/oasis7-command-center/README.md` 从该目录规则中排除，保留 baseline 文档治理；排除只作用于这条显式规则，真实嵌入或测试消费者仍可选择相应组，删除和重命名仍检查两端。
+
+Rust workflow 调用可复用的 `command-center.yml`，保留 Core、生成类型、UI、Clippy 和 macOS App 打包，并将调用结果纳入 `required-gate`。专用 workflow 不再独立触发 PR/push，避免重复执行；Cargo manifest、锁文件和 CI 控制变化仍采用保守全量。
+
+该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
 
 文档 corpus 对象、索引及 evidence inventory 数据更新由始终执行的 baseline 文档治理检查校验一致性；三平台 corpus/evidence 工具回归只在检查器实现、fixture、Git 路径配置、scope 配置或平台 workflow 变化时触发，数据更新不单独触发三平台回归。
 
@@ -42,7 +58,9 @@ Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具
 
 可信 scope 配置可登记已审读的 `OUT_DIR` 生成文件，逐项绑定 Cargo package、实际 build producer 的仓库路径、producer Git blob 内容的 SHA-256 和固定输出文件名。选择器在每个参与分析的 Git revision 上独立验证 package、manifest 的 build 入口及 producer 摘要，只将完整匹配的 `include_str!` / `include_bytes!` 生成输出计为已解析；不执行候选构建脚本，也不按 `OUT_DIR` 名称统一豁免。
 
-登记适用于已确认输入全部受既有共享构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`，其 producer、manifest、锁文件、工具链及 CI 配置仍按原规则选择保守全量。producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档和 corpus 数据仅保留各自已登记检查。
+登记适用于已确认输入全部受既有共享构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`，其 producer、manifest、锁文件、工具链及 CI 配置仍按原规则选择保守全量。
+
+producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档和 corpus 数据仅保留各自已登记检查。
 
 回归覆盖纯说明文档、corpus 数据的逐路径及组合变化，并同时包含字符串/注释内的伪调用、真实字面量与动态调用、已登记生成输出、producer 在 base/source/tested revision 间漂移、真实文档消费者和共享控制输入。已登记独立 GitHub 路径分别验证单路径、混合修改、真实消费者、删除/重命名和旧基线行为，未知 workflow 与共享控制保留全量正例。还需用当前主仓依赖图重放文档变更，避免仅有微型仓库 fixture 或代码与 README 混合变更掩盖误选。
 
@@ -166,17 +184,29 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 现有 main `full-regression` 的 schedule/manual-full 是共享归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
 
-普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v3`。唯一 producer 是 main schedule/manual-full 的 `full-regression`；这些 Release / Mainnet gate 仅有只读 cache token，所有消费者显式禁止保存。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，完整成功后保存一次，禁止失败保存。新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
+普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v3`。唯一 producer 是 main schedule/manual-full 的 `full-regression`；这些 Release / Mainnet gate 仅有只读 cache token，所有消费者显式禁止保存。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，完整成功后保存一次，禁止失败保存。
 
-producer 的 `full-standard` 已实际构建 full-core 和大部分 support 依赖。额外的 build-only 准备补齐 ordinary producer 的真实构建变体（下载的测试 binary 不算 target 预热）、support 的纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 使用的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。复用现有构建参数定义，任何补齐失败均使 job 失败且不保存。各 reader 继续原测试、sync 和 soak；没有以预热代替验收。builtin 模块的独立 workspace / Docker target 不属于根 target 缓存，仍走 canonical 构建，不为扩大归档改写其目标目录。
+新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
 
-生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。共享 native 族固定 stable 与 builtin nightly，保留显式 `CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM` 指纹。准备 helper 只在 GitHub-hosted 临时 Linux runner 上工作，验证所需的精确工具链与当前 active 工具链后，移除无关预装工具链；缺失、非固定版本或卸载失败均失败，不关闭环境 hash。Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协议、debug profile 和四项 WASM 环境。NewAPI 两个入口仍保持各自对齐的身份。
+producer 的 `full-standard` 已实际构建 full-core 和大部分 support 依赖。额外的 build-only 准备补齐 ordinary producer 的真实构建变体（下载的测试 binary 不算 target 预热）、support 的纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 使用的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。复用现有构建参数定义，任何补齐失败均使 job 失败且不保存。
 
-registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；此版保留 Web 发布、ECS `ecs` profile 与 Formal workspace 的专用生产路径，以免这些构建的发布频率或源码恢复合同绑到主缓存。
+各 reader 继续原测试、sync 和 soak；没有以预热代替验收。builtin 模块的独立 workspace / Docker target 不属于根 target 缓存，仍走 canonical 构建，不为扩大归档改写其目标目录。
 
-Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
+生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。共享 native 族固定 stable 与 builtin nightly，保留显式 `CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM` 指纹。准备 helper 只在 GitHub-hosted 临时 Linux runner 上工作，验证所需的精确工具链与当前 active 工具链后，移除无关预装工具链；缺失、非固定版本或卸载失败均失败，不关闭环境 hash。
 
-Linux 原生发行包仍按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2`；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业。其他分支、tag、旧 SHA 或 workflow/source 不同版本均只读，两条路径互斥，不重复编译。非 Linux 原生包仅在 OS、target 和 profile 匹配时读取对应 Release 原生包缓存；Storage / Compile 的独立边界不扩展。core/support 的文档 gate 使用计划提交父子范围和完整历史；必要命令通过 `tee` 输出日志时启用 Bash `pipefail`，上游失败必须使 gate 失败。
+Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协议、debug profile 和四项 WASM 环境。NewAPI 两个入口仍保持各自对齐的身份。
+
+registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。
+
+缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；此版保留 Web 发布、ECS `ecs` profile 与 Formal workspace 的专用生产路径，以免这些构建的发布频率或源码恢复合同绑到主缓存。
+
+Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
+
+ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
+
+Linux 原生发行包仍按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2`；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业。其他分支、tag、旧 SHA 或 workflow/source 不同版本均只读，两条路径互斥，不重复编译。
+
+非 Linux 原生包仅在 OS、target 和 profile 匹配时读取对应 Release 原生包缓存；Storage / Compile 的独立边界不扩展。core/support 的文档 gate 使用计划提交父子范围和完整历史；必要命令通过 `tee` 输出日志时启用 Bash `pipefail`，上游失败必须使 gate 失败。
 
 缓存是可回收的加速数据，没有发布状态、事务或持久化权威。main 尚未保存该身份、缓存被回收或 reader 不可达时，正确的冷下载仍可完成工具准备。恢复服务异常须保留实际 action 结果；若 action 允许继续且归档不存在，安装器仍执行同一校验冷路径，不用忽略必要安装失败来维持 job 绿色。
 
@@ -195,41 +225,109 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；承接[共享产物要
 | Formal | 8 GiB | 768 MiB | 1.5 GiB | 2.25 GiB |
 | ECS | 6 GiB | 1 GiB | 2 GiB | 3 GiB |
 
-这些上限不是预留额度，各族同时达到最大值再增加一份上传不保证能放入 10 GB。完整库存包含所有 ref、旧格式、共享原生和 ECS 依赖及其他缓存，实际总量加保守上传上界必须不超过有效仓库额度；不足时仍跳过保存。ordinary 的 6 GiB staging 覆盖已观测的 4,428,645,549 字节 library-only 选集；768 MiB 上传上界是容量政策，不是尚未测量的实际压缩体积。每个族的常驻目标为单份上界的两倍，正常轮换的临时写入上限为三倍；空间充足时按两代目标回收，容量压力下仅减少有稳定完整锚点的额外副本。仅当新 ECS key 的兼容前缀在库存中尚不存在时，允许 4 GiB 的有界兼容迁移写入峰值，单份上传仍不超过 1 GiB，全仓准入仍使用完整实存总量。新兼容组一旦存在，后续写入恢复 3 GiB 正常轮换上限；保存确认后的通常维护回收未保护的旧兼容组。[缓存维护 helper](../../../scripts/ci-cache-maintenance.py) 使用 GitHub cache API 的 `size_in_bytes`，按缓存 ID 校验唯一性，以缓存族和 ref 汇总条目数与压缩字节；相同 key 的不同 cache version 或 ref 仍是独立条目。兼容组由去除 source SHA 的完整 key 前缀与 cache version 共同确定。GitHub 的默认仓库额度与驱逐规则见[官方缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)，它不替代本仓库预算，也不保证旧缓存能保留到下一次复用。
+这些上限不是预留额度，各族同时达到最大值再增加一份上传不保证能放入 10 GB。完整库存包含所有 ref、旧格式、共享原生和 ECS 依赖及其他缓存，实际总量加保守上传上界必须不超过有效仓库额度；不足时仍跳过保存。ordinary 的 6 GiB staging 覆盖已观测的 4,428,645,549 字节 library-only 选集；768 MiB 上传上界是容量政策，不是尚未测量的实际压缩体积。
 
-workspace 受管范围限于 `refs/heads/main`：当前格式为 `{ordinary-workspace-v1,formal-workspace-v3,ecs-workspace-v2}-{64hex compatibility}-{40hex source SHA}`。Formal 历史 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 与 ECS v1 是明确退役的完整格式，仍计入各自族预算。跨兼容组退役使用该族已确认 current key，或下述压力下的不可变源码祖先证据；没有相应证据时只回收完整兼容组内的额外代。Formal v3 为单文件归档，绝不把旧 v2 目录当作新 payload。identity 包含平台、完整工具链配置以及归档和容量 helper 的内容。ordinary/Formal 改用 `workspace-units.tar.zst`，格式变化产生新的兼容指纹及 actions/cache version，不能回退恢复旧 gzip 身份；ECS v2 继续使用原 gzip 文件。族预算覆盖所有格式、兼容指纹与 source SHA。source SHA 继续进入不可变精确 key；兼容前缀保持平台、工具链、Cargo 输入、features/profile 与构建脚本边界，不扩大恢复范围。通常维护显式提供已确认的精确 current key；补偿维护使用完整格式白名单，不接受任意前缀。
+每个族的常驻目标为单份上界的两倍，正常轮换的临时写入上限为三倍；空间充足时按两代目标回收，容量压力下仅减少有稳定完整锚点的额外副本。
 
-ordinary/Formal 的 compact 归档使用单线程 zstd level 3、8 MiB window 和 checksum；归档内仍只有 manifest 与扁平 regular-file payload，不接受 tar link 或扩展头。manifest 中有版本的 aliases 映射仅去重 staging 中同 device/inode 的文件；别名只能指向排序靠前的非别名文件，且长度、摘要、权限和纳秒时间戳完全相同。先校验全部原始逻辑字节、路径和别名关系，解包后仅在受控目录内为已验证 canonical 文件创建硬链接，再由现有 Cargo 单位、摘要和源码校验决定是否恢复。zstd decoder 使用 64 MiB 窗口/内存参数上限（非进程 RSS 承诺），压缩输入、物理 payload、逻辑展开和 tar 终止均有界；拒绝附加帧、截断、校验失败、路径穿越及多余成员。共享 reader 保留 gzip 支持供 ECS 使用。归档与外层 actions/cache 上传包装分别量测，不能直接把压缩文件大小当上传上界。
+仅当新 ECS key 的兼容前缀在库存中尚不存在时，允许 4 GiB 的有界兼容迁移写入峰值，单份上传仍不超过 1 GiB，全仓准入仍使用完整实存总量。新兼容组一旦存在，后续写入恢复 3 GiB 正常轮换上限；保存确认后的通常维护回收未保护的旧兼容组。
+
+[缓存维护 helper](../../../scripts/ci-cache-maintenance.py) 使用 GitHub cache API 的 `size_in_bytes`，按缓存 ID 校验唯一性，以缓存族和 ref 汇总条目数与压缩字节；相同 key 的不同 cache version 或 ref 仍是独立条目。兼容组由去除 source SHA 的完整 key 前缀与 cache version 共同确定。
+
+GitHub 的默认仓库额度与驱逐规则见[官方缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)，它不替代本仓库预算，也不保证旧缓存能保留到下一次复用。
+
+workspace 受管范围限于 `refs/heads/main`：当前格式为 `{ordinary-workspace-v1,formal-workspace-v3,ecs-workspace-v2}-{64hex compatibility}-{40hex source SHA}`。Formal 历史 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 与 ECS v1 是明确退役的完整格式，仍计入各自族预算。跨兼容组退役使用该族已确认 current key，或下述压力下的不可变源码祖先证据；没有相应证据时只回收完整兼容组内的额外代。
+
+Formal v3 为单文件归档，绝不把旧 v2 目录当作新 payload。identity 包含平台、完整工具链配置以及归档和容量 helper 的内容。ordinary/Formal 改用 `workspace-units.tar.zst`，格式变化产生新的兼容指纹及 actions/cache version，不能回退恢复旧 gzip 身份；ECS v2 继续使用原 gzip 文件。
+
+族预算覆盖所有格式、兼容指纹与 source SHA。source SHA 继续进入不可变精确 key；兼容前缀保持平台、工具链、Cargo 输入、features/profile 与构建脚本边界，不扩大恢复范围。通常维护显式提供已确认的精确 current key；补偿维护使用完整格式白名单，不接受任意前缀。
+
+ordinary/Formal 的 compact 归档使用单线程 zstd level 3、8 MiB window 和 checksum；归档内仍只有 manifest 与扁平 regular-file payload，不接受 tar link 或扩展头。manifest 中有版本的 aliases 映射仅去重 staging 中同 device/inode 的文件；别名只能指向排序靠前的非别名文件，且长度、摘要、权限和纳秒时间戳完全相同。
+
+先校验全部原始逻辑字节、路径和别名关系，解包后仅在受控目录内为已验证 canonical 文件创建硬链接，再由现有 Cargo 单位、摘要和源码校验决定是否恢复。
+
+zstd decoder 使用 64 MiB 窗口/内存参数上限（非进程 RSS 承诺），压缩输入、物理 payload、逻辑展开和 tar 终止均有界；拒绝附加帧、截断、校验失败、路径穿越及多余成员。共享 reader 保留 gzip 支持供 ECS 使用。归档与外层 actions/cache 上传包装分别量测，不能直接把压缩文件大小当上传上界。
 
 额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v3` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。该规则不删除替代族；替代族的同环境依赖冗余由下面的独立规则处理。近似命名、其他 ref 和其他族只统计，不按最新时间推断整个环境 hash 可删。
 
-依赖冗余白名单包括 `ci-shared-native-trusted-v3`、`oasis7-ecs-native-linux-ecs-v2`、`release-packages-web-wasm-trusted-v3`、`oasis7-package-native-Linux-native-packaging-trusted-v2`、`release-packages-package-native-Windows-native-trusted-v2` 和 `release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2`。解析器为每个已知命名空间枚举实际宿主平台/架构（Linux-x64、Windows_NT-x64、Darwin-arm64/x64），不将 macOS 的 x86_64 编译目标误作宿主架构；未知组合不受管。按去掉最后一个 8hex 依赖 hash 后的完整 restore 前缀与 cache version 分组，与固定 Swatinem action 已有的回退边界一致，不扩大消费者恢复范围。每组保留唯一最新非零条目及活动保护集，只回收更旧的依赖快照；不跨环境、平台或 archive version 回收。最新创建只是该兼容组的可用恢复锚点，不代表最新 source SHA 或依赖超集；回滚与依赖变更仍由 Cargo 正常验证、补编。此规则同时用于启动和通常维护，在新 workspace 首次保存前即可回收冗余依赖，不以一个尚不存在的 workspace current key 为前提。
+依赖冗余白名单包括 `ci-shared-native-trusted-v3`、`oasis7-ecs-native-linux-ecs-v2`、`release-packages-web-wasm-trusted-v3`、`oasis7-package-native-Linux-native-packaging-trusted-v2`、`release-packages-package-native-Windows-native-trusted-v2` 和 `release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2`。解析器为每个已知命名空间枚举实际宿主平台/架构（Linux-x64、Windows_NT-x64、Darwin-arm64/x64），不将 macOS 的 x86_64 编译目标误作宿主架构；未知组合不受管。
 
-共享原生与 ECS 依赖 writer 通过 `ci-rust-cache-admission.py` 在最终归档边界准入。原固定 `Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0` 保留指纹、恢复及 post 清理；仅该 action 的 PATH 使用 runner 临时目录中的 tar 适配器，不修改全 job PATH 或 action 代码。适配器接受固定 Linux cache-create 参数，调用真实 `/usr/bin/tar`，成功生成 `cache.tzst` 或 gzip fallback `cache.tgz` 后检查普通文件身份及真实字节。固定上游 [GitHub cache 实现](https://github.com/Swatinem/rust-cache/blob/d1527c8f67ef9af357290475d4af4b0fab8f12e0/dist/cache-Dl81DHPs.js) 在 `createTar` 成功后才预留和上传；适配器拒绝会在远端预留前停止该次保存，由原 action 报告 warning 并清理本地归档。未知创建参数、非临时目录、缺失或变化的归档均拒绝；版本查询、列表与恢复命令透传。更新 action pin 时必须复核此调用及失败传播合同。
+按去掉最后一个 8hex 依赖 hash 后的完整 restore 前缀与 cache version 分组，与固定 Swatinem action 已有的回退边界一致，不扩大消费者恢复范围。每组保留唯一最新非零条目及活动保护集，只回收更旧的依赖快照；不跨环境、平台或 archive version 回收。
 
-Release 的跨平台 writer 使用同一 helper 的归档准入规则，通过仅作用于缓存 action 及其 post 的 Node preload 在固定 provider 的最终归档 stat 边界检查。固定 action 的 restore/save 入口及 provider 内容摘要必须吻合；只有已审读的 save 调用顺序（createTar 完成、同步读取归档大小、远端 reserve/upload）可进入检查。restore 不进行写入准入，未知入口、bundle 或已有未知 NODE_OPTIONS 不得静默绕过。归档必须位于 runner 临时私有目录且为完整普通文件；同步调用固定 helper 的绝对路径，不经 shell，按同一不可变归档复用一次准入决定并在后续 stat 重查身份。失败只使可选 cache action 停止，构建走原冷路径；不修改系统 tar、上游 bundle、key 或恢复范围。Windows 的绝对 Git tar 和 macOS gtar 均经过该共同边界。
+最新创建只是该兼容组的可用恢复锚点，不代表最新 source SHA 或依赖超集；回滚与依赖变更仍由 Cargo 正常验证、补编。此规则同时用于启动和通常维护，在新 workspace 首次保存前即可回收冗余依赖，不以一个尚不存在的 workspace current key 为前提。
 
-上传前验证当前可信 main 的仓库、workflow、source、job、事件及 REST run 身份，然后复用完整库存与额度规则；最终归档已经包含 action 的 tar/压缩包装，不再以比例推测，也不重复加一层不存在的包装。清点后重新确认文件身份和长度，只有实际库存加该归档不超过有效预算才允许 tar 调用返回成功。Rust `full-regression` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。Release writer 另外核对 source plan、实际 checkout 与 event SHA 一致，且仅成功构建保存。Release 保留既有 cache token scope；tag、历史 source 和失败构建由这些 action 的保存条件与准入拒绝写入，不将此行为等同于只读 token 隔离；同一 Linux packaging 命名空间的 Testnet 可信 Linux-only/packaging writer 也接入原 Linux tar 适配器，保留原候选只读分流；其他依赖 writer、工具缓存和跨 job 写入没有原子互斥，库存是此次上传前观察值；不为此串行化所有构建。报告区分实际压缩字节、观察总量、投影总量、实时/配置预算及拒绝原因，不把允许上传当成保存已确认。
+共享原生与 ECS 依赖 writer 通过 `ci-rust-cache-admission.py` 在最终归档边界准入。原固定 `Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0` 保留指纹、恢复及 post 清理；仅该 action 的 PATH 使用 runner 临时目录中的 tar 适配器，不修改全 job PATH 或 action 代码。适配器接受固定 Linux cache-create 参数，调用真实 `/usr/bin/tar`，成功生成 `cache.tzst` 或 gzip fallback `cache.tgz` 后检查普通文件身份及真实字节。
 
-Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main push、schedule 或 manual-full 使用 `--recover --apply`，无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。Rust 结束维护仍等待普通、Formal 与 full producer（含依赖 post 保存），只要一个可信 workspace producer 成功即可进入，不再要求其保存确认；ECS 结束维护只要求可信 native producer 成功，不依赖 Web。Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SHA 时增加启动与结束恢复；启动由 plan 后进入，writer 显式允许维护失败或跳过后继续原构建，结束等待 Web/native writer（含 post）完成并使用空 current keys。维护不成为发布成功门槛，tag 或非当前 source 没有新增删除权限。结束维护同样使用 `--recover --apply`，仅为成功且已确认的 producer 附加 `--current-key`，没有新 key 时仍执行补偿回收。所有入口保持可信 main 的 source/workflow/event 条件、取消保护、`contents: read`、`actions: write`、`cache-mode: none` 和固定 `ci-cache-maintenance-main` 并发组，不恢复或执行 payload，不改变 required gate 的选择与失败传播。当前运行仍经 REST 验证仓库、source、workflow 与事件，以 run 的 `created_at` 形成活动保护起点。
+固定上游 [GitHub cache 实现](https://github.com/Swatinem/rust-cache/blob/d1527c8f67ef9af357290475d4af4b0fab8f12e0/dist/cache-Dl81DHPs.js) 在 `createTar` 成功后才预留和上传；适配器拒绝会在远端预留前停止该次保存，由原 action 报告 warning 并清理本地归档。未知创建参数、非临时目录、缺失或变化的归档均拒绝；版本查询、列表与恢复命令透传。
 
-补偿模式 `--recover` 可接收零个或多个已确认 current key，不与旧 `--bootstrap` 并用。无显式 current key 的当前 workspace 格式按完整兼容前缀与 cache version 独立选择唯一最新非零恢复锚点，空间充足时保留两代；无完整条目、同 key 多 version、非零创建时间并列的整个组保留。明确退役的 Formal v2、ECS v1 与显式白名单依赖冗余沿用每组至少一份锚点的规则。旧 `--bootstrap` 继续只处理原有退役格式与依赖冗余白名单。存在已确认 current key 的族保留原跨兼容退役规则；current 缺失、空或跨 version 歧义时整轮保守跳过，不能静默改用另一个 key。恢复锚点和删除候选在两次完整清点中均须保持不可变身份；锚点变化使相应组停止删除，第二次计划不能扩大第一次集合。
+更新 action pin 时必须复核此调用及失败传播合同。
 
-保存 action 成功或构建后的精确命中只决定是否核验 exact current；该 key 在同 ref 的完整库存中须对应唯一且非零的合法条目。保存被拒绝或未确认时不能传入它作为 current，但不阻止使用既有锚点进行同兼容组补偿维护。依赖恢复锚点不能同时成为命名空间退役的删除对象；无 current key 的补偿模式也不能按时间将其他 workspace 兼容组整体淘汰。只有下面的不可变源码祖先证据可以补足跨组替代依据。
+Release 的跨平台 writer 使用同一 helper 的归档准入规则，通过仅作用于缓存 action 及其 post 的 Node preload 在固定 provider 的最终归档 stat 边界检查。固定 action 的 restore/save 入口及 provider 内容摘要必须吻合；只有已审读的 save 调用顺序（createTar 完成、同步读取归档大小、远端 reserve/upload）可进入检查。restore 不进行写入准入，未知入口、bundle 或已有未知 NODE_OPTIONS 不得静默绕过。
 
-跨兼容退休仅在全仓轮换空间或该族常驻压力下启用，限定当前固定 Ubuntu24/Linux X64 writer 的 ordinary v1、Formal v3、ECS v2；同族、同格式、同 cache version 的无歧义非零组锚点才可比较。旧 cache source 必须是替代 source 的严格祖先，替代 source 必须是当前已验证 main run SHA 的祖先或自身；相同 source 的不同配置、不相关分支及未知格式均保留。使用反向 `GET /compare/{descendant}...{ancestor}?per_page=1`，核对 `base_commit.sha`、`merge_base_commit.sha`、status、ahead/behind/total counts 及空 commits 列表；只接受明确的 behind 关系，同 SHA 只作身份相等处理。比较只使用完整 40hex SHA，GET 路径严格限定，沿用 60 请求/120 秒预算；按 SHA pair 复用不可变证据，并将祖先查询限制为每轮最多 20 次，为库存和删除留出预算。该局部比较额度用尽或历史对象 404 时只保留未获证明的组；权限、限流、无效响应或全局预算耗尽仍使本轮保守关闭。可用证据不能证明替代时保留对应组，不扩大恢复范围，也不将不同配置 payload 视为可互换。保留未被后继替代的锚点，已确认 current 优先，任何替代锚点不得同时成为其他规则的删除对象。两轮计划必须保持相同 candidate-to-anchor 关系及双方不可变身份。
+归档必须位于 runner 临时私有目录且为完整普通文件；同步调用固定 helper 的绝对路径，不经 shell，按同一不可变归档复用一次准入决定并在后续 stat 重查身份。
+
+失败只使可选 cache action 停止，构建走原冷路径；不修改系统 tar、上游 bundle、key 或恢复范围。Windows 的绝对 Git tar 和 macOS gtar 均经过该共同边界。
+
+上传前验证当前可信 main 的仓库、workflow、source、job、事件及 REST run 身份，然后复用完整库存与额度规则；最终归档已经包含 action 的 tar/压缩包装，不再以比例推测，也不重复加一层不存在的包装。清点后重新确认文件身份和长度，只有实际库存加该归档不超过有效预算才允许 tar 调用返回成功。
+
+Rust `full-regression` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。
+
+Release writer 另外核对 source plan、实际 checkout 与 event SHA 一致，且仅成功构建保存。Release 保留既有 cache token scope；tag、历史 source 和失败构建由这些 action 的保存条件与准入拒绝写入，不将此行为等同于只读 token 隔离；同一 Linux packaging 命名空间的 Testnet 可信 Linux-only/packaging writer 也接入原 Linux tar 适配器，保留原候选只读分流；其他依赖 writer、工具缓存和跨 job 写入没有原子互斥，库存是此次上传前观察值；不为此串行化所有构建。
+
+报告区分实际压缩字节、观察总量、投影总量、实时/配置预算及拒绝原因，不把允许上传当成保存已确认。
+
+Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main push、schedule 或 manual-full 使用 `--recover --apply`，无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。
+
+Rust 结束维护仍等待普通、Formal 与 full producer（含依赖 post 保存），只要一个可信 workspace producer 成功即可进入，不再要求其保存确认；ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
+
+Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SHA 时增加启动与结束恢复；启动由 plan 后进入，writer 显式允许维护失败或跳过后继续原构建，结束等待 Web/native writer（含 post）完成并使用空 current keys。维护不成为发布成功门槛，tag 或非当前 source 没有新增删除权限。
+
+结束维护同样使用 `--recover --apply`，仅为成功且已确认的 producer 附加 `--current-key`，没有新 key 时仍执行补偿回收。
+
+所有入口保持可信 main 的 source/workflow/event 条件、取消保护、`contents: read`、`actions: write`、`cache-mode: none` 和固定 `ci-cache-maintenance-main` 并发组，不恢复或执行 payload，不改变 required gate 的选择与失败传播。当前运行仍经 REST 验证仓库、source、workflow 与事件，以 run 的 `created_at` 形成活动保护起点。
+
+补偿模式 `--recover` 可接收零个或多个已确认 current key，不与旧 `--bootstrap` 并用。无显式 current key 的当前 workspace 格式按完整兼容前缀与 cache version 独立选择唯一最新非零恢复锚点，空间充足时保留两代；无完整条目、同 key 多 version、非零创建时间并列的整个组保留。明确退役的 Formal v2、ECS v1 与显式白名单依赖冗余沿用每组至少一份锚点的规则。旧 `--bootstrap` 继续只处理原有退役格式与依赖冗余白名单。
+
+存在已确认 current key 的族保留原跨兼容退役规则；current 缺失、空或跨 version 歧义时整轮保守跳过，不能静默改用另一个 key。
+
+恢复锚点和删除候选在两次完整清点中均须保持不可变身份；锚点变化使相应组停止删除，第二次计划不能扩大第一次集合。
+
+保存 action 成功或构建后的精确命中只决定是否核验 exact current；该 key 在同 ref 的完整库存中须对应唯一且非零的合法条目。保存被拒绝或未确认时不能传入它作为 current，但不阻止使用既有锚点进行同兼容组补偿维护。
+
+依赖恢复锚点不能同时成为命名空间退役的删除对象；无 current key 的补偿模式也不能按时间将其他 workspace 兼容组整体淘汰。只有下面的不可变源码祖先证据可以补足跨组替代依据。
+
+跨兼容退休仅在全仓轮换空间或该族常驻压力下启用，限定当前固定 Ubuntu24/Linux X64 writer 的 ordinary v1、Formal v3、ECS v2；同族、同格式、同 cache version 的无歧义非零组锚点才可比较。旧 cache source 必须是替代 source 的严格祖先，替代 source 必须是当前已验证 main run SHA 的祖先或自身；相同 source 的不同配置、不相关分支及未知格式均保留。
+
+使用反向 `GET /compare/{descendant}...{ancestor}?per_page=1`，核对 `base_commit.sha`、`merge_base_commit.sha`、status、ahead/behind/total counts 及空 commits 列表；只接受明确的 behind 关系，同 SHA 只作身份相等处理。比较只使用完整 40hex SHA，GET 路径严格限定，沿用 60 请求/120 秒预算；按 SHA pair 复用不可变证据，并将祖先查询限制为每轮最多 20 次，为库存和删除留出预算。
+
+该局部比较额度用尽或历史对象 404 时只保留未获证明的组；权限、限流、无效响应或全局预算耗尽仍使本轮保守关闭。可用证据不能证明替代时保留对应组，不扩大恢复范围，也不将不同配置 payload 视为可互换。
+
+保留未被后继替代的锚点，已确认 current 优先，任何替代锚点不得同时成为其他规则的删除对象。两轮计划必须保持相同 candidate-to-anchor 关系及双方不可变身份。
 
 保护集包括当前精确条目、未被可信源码关系替代的补偿组完整锚点、零字节条目，以及保护起点之后新建或被访问的全部受管条目。起点取当前可信 run 与完整活跃 run 清单中最早的 `created_at`。默认还保留当前兼容组的第二代；只有明确空间压力时才可回收这个非活动历史副本。较旧 SHA 的慢构建不能删除清点中可见的较新运行结果，已观察到的本轮访问与未完成上传仍受保护。
 
-补偿维护复用 writer 的完整 all-ref 库存、实时额度与已核验配置预算规则，在每轮清点重新读取有效额度。共享常量 `DEPENDENCY_ROTATION_HEADROOM_BYTES = 2.5 GiB` 定义轮换空间目标，常驻目标为有效额度减去该数值。先生成通常的多余代/已确认兼容退役计划，再按剩余全仓缺口或各族 `max_bytes` 常驻缺口，从旧到新选择对应组的额外 workspace 副本；全仓已满足目标但某族仍超额时继续处理该族，且仅删除达到目标所需的条目，绝不删除未被可信后继替代的唯一完整锚点、current 或活动/歧义保护条目。不同兼容组仅可在上述源码关系、格式及 version 边界内共享替代锚点。报告保存目标、预计/实际剩余容量和未满足缺口；若容量或身份无法可靠读取则不执行补偿删除。所有族两代同时常驻可能使依赖无法轮换，因此两代是优先目标而不是不可收缩的保留权利。
+补偿维护复用 writer 的完整 all-ref 库存、实时额度与已核验配置预算规则，在每轮清点重新读取有效额度。共享常量 `DEPENDENCY_ROTATION_HEADROOM_BYTES = 2.5 GiB` 定义轮换空间目标，常驻目标为有效额度减去该数值。
 
-可信 ordinary/Formal writer 完成身份检查后，对 schedule 和 manual-full 上传额外要求 `observed_repository_bytes + upload_bound_bytes + 2.5 GiB <= effective_repository_budget_bytes`；push 仍使用原准入式。该保留策略不改变依赖 writer 的实际归档准入，不增加权限或锁，不保证后续归档大小或阻止其他 run 写入；不满足时只跳过 workspace 保存。活动保护可能使一次补偿维护无法达到目标，后续可信启动与结束路径会再次尝试。
+先生成通常的多余代/已确认兼容退役计划，再按剩余全仓缺口或各族 `max_bytes` 常驻缺口，从旧到新选择对应组的额外 workspace 副本；全仓已满足目标但某族仍超额时继续处理该族，且仅删除达到目标所需的条目，绝不删除未被可信后继替代的唯一完整锚点、current 或活动/歧义保护条目。不同兼容组仅可在上述源码关系、格式及 version 边界内共享替代锚点。
 
-先完整读取分页并核对缓存 ID、key、version、ref、字节及时间字段，再生成删除计划；执行前再次完整清点缓存和活跃 runs，重算保护集和计划。只有两次计划都选中、且 ID、key、ref、version、创建时间和字节数保持相同的条目才能删除，第二次计划只能缩小首次删除集合。当前精确条目的不可变身份变化使整轮跳过；替代项变化或消失使对应退役规则停止。后页失败、重复或冲突数据、分页未结束、字段不合法均不得把部分结果用于删除。
+报告保存目标、预计/实际剩余容量和未满足缺口；若容量或身份无法可靠读取则不执行补偿删除。所有族两代同时常驻可能使依赖无法轮换，因此两代是优先目标而不是不可收缩的保留权利。
 
-活跃运行查询只对 total_count 漂移、有效列表超出原计数及分页提前结束做最多三次完整状态清点；每次从第一个 status、第一页重新读取并丢弃失败尝试的部分结果。身份冲突、字段错误、未知/截断总量、权限、限流和请求预算耗尽仍立即保守失败；重试共享同一客户端的 60 请求/120 秒预算，不替代删除前所需的两个成功清点。最终不完整则零删除。删除按准确 cache ID 从创建时间较旧的条目开始，404 视为该条目已不存在，其他删除错误停止并报告已完成部分；不无限重试，不覆盖必要构建结果。
+可信 ordinary/Formal writer 完成身份检查后，对 schedule 和 manual-full 上传额外要求 `observed_repository_bytes + upload_bound_bytes + 2.5 GiB <= effective_repository_budget_bytes`；push 仍使用原准入式。
 
-清理后的容量须由再次查询得到；无法回读时仅报告已确认删除的条目和未知剩余量。两次清点不构成事务锁或缓存租约，之后的访问和平台驱逐仍可能发生；消费者继续依赖正确冷路径恢复。存储报告与本地 raw/去重体积、下载传输量、实际 Cargo fresh/重编数分列，不从命中次数反推省下的存储或运行时间。旧的未受管缓存仍由平台驱逐或单独核实后处理，本策略不承诺全仓即刻低于默认额度。
+该保留策略不改变依赖 writer 的实际归档准入，不增加权限或锁，不保证后续归档大小或阻止其他 run 写入；不满足时只跳过 workspace 保存。活动保护可能使一次补偿维护无法达到目标，后续可信启动与结束路径会再次尝试。
+
+先完整读取分页并核对缓存 ID、key、version、ref、字节及时间字段，再生成删除计划；执行前再次完整清点缓存和活跃 runs，重算保护集和计划。只有两次计划都选中、且 ID、key、ref、version、创建时间和字节数保持相同的条目才能删除，第二次计划只能缩小首次删除集合。
+
+当前精确条目的不可变身份变化使整轮跳过；替代项变化或消失使对应退役规则停止。后页失败、重复或冲突数据、分页未结束、字段不合法均不得把部分结果用于删除。
+
+活跃运行查询只对 total_count 漂移、有效列表超出原计数及分页提前结束做最多三次完整状态清点；每次从第一个 status、第一页重新读取并丢弃失败尝试的部分结果。身份冲突、字段错误、未知/截断总量、权限、限流和请求预算耗尽仍立即保守失败；重试共享同一客户端的 60 请求/120 秒预算，不替代删除前所需的两个成功清点。
+
+最终不完整则零删除。删除按准确 cache ID 从创建时间较旧的条目开始，404 视为该条目已不存在，其他删除错误停止并报告已完成部分；不无限重试，不覆盖必要构建结果。
+
+清理后的容量须由再次查询得到；无法回读时仅报告已确认删除的条目和未知剩余量。
+
+两次清点不构成事务锁或缓存租约，之后的访问和平台驱逐仍可能发生；消费者继续依赖正确冷路径恢复。
+
+存储报告与本地 raw/去重体积、下载传输量、实际 Cargo fresh/重编数分列，不从命中次数反推省下的存储或运行时间。旧的未受管缓存仍由平台驱逐或单独核实后处理，本策略不承诺全仓即刻低于默认额度。
 
 <a id="ci-cache-budget-validation"></a>
 [容量治理回归](../../../scripts/ci-cache-maintenance.test.py)覆盖保存未确认后的补偿、多页 API 完整性重读、同兼容组两代/压力下一代、Release 平台/架构分组、严格源码祖先退休、current 与稳定恢复锚点、族/ref/version 归属、活动访问保护、两次计划交集、身份变化、歧义和未知项保留、后页失败零删除、部分删除及幂等；[容量准入回归](../../../scripts/ci-cache-policy.test.py)回放高压库存、workspace 和依赖上传先后以及 full 的轮换空间。[workflow 接线回归](../../../scripts/ci-workflow.test.py)核对无新保存仍执行可信补偿维护、候选无删除权限、固定维护并发及必要 CI 结果不变。[发布缓存回归](../../../scripts/package-workflow-cache-reuse-contract.test.sh)核对实际工具链/环境 hash 与 writer/reader 对应关系。真实 hosted 保存、删除后库存和冷热构建收益分别由实际运行记录证明。
@@ -248,7 +346,9 @@ Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main pu
 <a id="ci-install-measurement-design"></a>
 ## 7. 耗时与运行证据
 
-维护者从实际 Actions 日志分别记录缓存恢复、官方下载、摘要校验/提取/安装/版本校验及总准备耗时；writer 的保存成本另列。当前日志可提供 action/step 级时间，缺少子阶段时间时标明粒度，不把合并步骤的时间伪拆成精确阶段。需要更细比较时再在同一安装路径补计时。
+维护者从实际 Actions 日志分别记录缓存恢复、官方下载、摘要校验/提取/安装/版本校验及总准备耗时；writer 的保存成本另列。当前日志可提供 action/step 级时间，缺少子阶段时间时标明粒度，不把合并步骤的时间伪拆成精确阶段。
+
+需要更细比较时再在同一安装路径补计时。
 
 | 样本类型 | 判定依据 | 记录边界 |
 | --- | --- | --- |
@@ -359,17 +459,37 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 表中归属保持为逻辑 suite。物理分片可将 healthy-set 或 runtime-protocol 的完整慢用例放到较轻的分片；执行摘要同时记录逻辑 suite 与物理 shard，并对全集检查恰好一次归属。world-history 的单个 70 次连续操作场景保持完整，不能以切断历史链消除增长成本。上述非 ignored formal 命令未证明与普通环境等价，继续执行；snapshot_progress 与 legacy fields 回填仍使用原 default features。独立 ignored 验收按 `--exact --ignored --test-threads=1 --nocapture` 串行运行，矩阵 `fail-fast: false`、`max-parallel: 5`。world-history job 上限 45 分钟，其他分片初始保护上限 90 分钟；每次子命令绝对上限 40 分钟，均为防挂保护而非性能目标，后续按真实基线调整。
 
-正式 workspace 缓存使用官方 restore/save 的独立步骤。先恢复既有可信依赖缓存，再恢复本次正式构建实际使用的仓库内 path package 编译单位；不重复保存整个第三方依赖 target。构建从 Cargo 的 compiler-artifact 与 build-script-executed 消息确定具体产物 hash，保存对应 deps、完整 .fingerprint、build-script 编译与执行输出目录以及公共可执行文件。内容和纳秒时间戳原样保留，不改写 Cargo fingerprint 来强制命中。缓存目录位于 RUNNER_TEMP，恢复前校验绝对 checkout/target 身份、路径、文件类型、长度、权限和摘要，完整校验通过才叠加到依赖 target。
+正式 workspace 缓存使用官方 restore/save 的独立步骤。先恢复既有可信依赖缓存，再恢复本次正式构建实际使用的仓库内 path package 编译单位；不重复保存整个第三方依赖 target。
 
-新 checkout 的源码时间戳会使相同内容的 workspace 产物失效。producer 因此记录构建前后完整源码文件清单，包含未跟踪和 ignored 的普通文件，排除 .git 与实际 Cargo target；只有始末路径、内容、权限和时间戳均一致才允许保存。恢复时逐路径核对实际长度、权限和 SHA-256，内容相同才还原旧 mtime；内容或权限改变的文件设置严格晚于缓存 Cargo 参考的时间戳，交由 Cargo 正常重编。新增、删除、重命名输入、symlink、越界路径、不完整或未来时间戳的缓存均保守视为 miss，不回退目录时间戳以隐藏 build.rs 的目录观察。缺失缓存仍完成冷构建，缓存不是产物身份或测试通过的依据。
+构建从 Cargo 的 compiler-artifact 与 build-script-executed 消息确定具体产物 hash，保存对应 deps、完整 .fingerprint、build-script 编译与执行输出目录以及公共可执行文件。内容和纳秒时间戳原样保留，不改写 Cargo fingerprint 来强制命中。缓存目录位于 RUNNER_TEMP，恢复前校验绝对 checkout/target 身份、路径、文件类型、长度、权限和摘要，完整校验通过才叠加到依赖 target。
 
-key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、构建与缓存脚本、实际 build variants 和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读，可信 main producer 才可保存。8 GiB 上限约束所选 workspace 文件的原始逻辑字节；所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。只有允许写入且未精确命中的 producer 才校验并准备缓存，超限正常跳过 save。远端代数与实际压缩总字节按[容量治理](#ci-cache-budget-design)独立约束，不能把单份 staging 预算当成仓库总量保护。复用收益必须包含依赖与 workspace 两次恢复、源码验证、保存与清理成本和 Cargo 实际 fresh/重编数量，不能仅凭 cache action 命中宣称免编译。
+新 checkout 的源码时间戳会使相同内容的 workspace 产物失效。producer 因此记录构建前后完整源码文件清单，包含未跟踪和 ignored 的普通文件，排除 .git 与实际 Cargo target；只有始末路径、内容、权限和时间戳均一致才允许保存。
 
-运行时优化遵循[单次 open 预热复用](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#formal-open-prewarm-reuse)和[健康 Replica 归档安装](../../p2p/design.md#formal-replica-staging-content-reuse)。新请求等待只读取精确请求的 hot result，使用轻量发布切面观察避免每 25ms 克隆完整 World；历史原请求仍保留认证冷查断言。正常成功路径达到目标 publication 后可先停止同一 runtime owner，再做不依赖活服务的材料统计与历史断言，减少测试自身继续产生的空 Tick。生产 Node 的 in-flight stop/join 语义不变，专门的 pending/in-flight 停止场景继续覆盖。阶段诊断记录 open/prewarm/restore、70/40 次操作、冷查及 stop 的单调耗时；不改变原请求绝对期限、签名、fsync 或原验收断言。
+恢复时逐路径核对实际长度、权限和 SHA-256，内容相同才还原旧 mtime；内容或权限改变的文件设置严格晚于缓存 Cargo 参考的时间戳，交由 Cargo 正常重编。
 
-链节点入口由独立包 `oasis7_chain_runtime` 拥有，保留 `oasis7_chain_runtime` 可执行文件名、CLI、正式协议与持久化格式。`oasis7` 保留世界执行、状态和读投影；链节点以关闭默认 features 的显式依赖接入，并按需转发 Wasmtime、网络和测试 features。投影承诺树、规范编码和包含证明算法下沉到 `oasis7_client_api::formal_projection`，仅接收序列化投影和显式 audience；世界侧只枚举已授权 audience 并生成投影。通用端点协议、持久化和恢复仍由 `oasis7_distfs` / `oasis7_node` 拥有，链节点只负责世界适配与进程组合，不把这类代码重新放回游戏包。
+新增、删除、重命名输入、symlink、越界路径、不完整或未来时间戳的缓存均保守视为 miss，不回退目录时间戳以隐藏 build.rs 的目录观察。缺失缓存仍完成冷构建，缓存不是产物身份或测试通过的依据。
 
-CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`tests/`、`examples/`、`benches/` 的变化选择该包自身的检查，不自动沿 library 反向依赖传播；若这些文件被其他目标以静态路径引用，仍按引用者传播。无法确认输入关系时保留保守覆盖。世界 library、状态序列化、正式读投影与共享构建输入变化继续选择 formal 验证，不把玩法代码整体视为与正式运行无关。新增、删除、重命名及测试 fixture 都使用 base/source/tested 的关系并集。
+key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、构建与缓存脚本、实际 build variants 和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读，可信 main producer 才可保存。
+
+8 GiB 上限约束所选 workspace 文件的原始逻辑字节；所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。
+
+只有允许写入且未精确命中的 producer 才校验并准备缓存，超限正常跳过 save。远端代数与实际压缩总字节按[容量治理](#ci-cache-budget-design)独立约束，不能把单份 staging 预算当成仓库总量保护。
+
+复用收益必须包含依赖与 workspace 两次恢复、源码验证、保存与清理成本和 Cargo 实际 fresh/重编数量，不能仅凭 cache action 命中宣称免编译。
+
+运行时优化遵循[单次 open 预热复用](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#formal-open-prewarm-reuse)和[健康 Replica 归档安装](../../p2p/design.md#formal-replica-staging-content-reuse)。新请求等待只读取精确请求的 hot result，使用轻量发布切面观察避免每 25ms 克隆完整 World；历史原请求仍保留认证冷查断言。
+
+正常成功路径达到目标 publication 后可先停止同一 runtime owner，再做不依赖活服务的材料统计与历史断言，减少测试自身继续产生的空 Tick。生产 Node 的 in-flight stop/join 语义不变，专门的 pending/in-flight 停止场景继续覆盖。
+
+阶段诊断记录 open/prewarm/restore、70/40 次操作、冷查及 stop 的单调耗时；不改变原请求绝对期限、签名、fsync 或原验收断言。
+
+链节点入口由独立包 `oasis7_chain_runtime` 拥有，保留 `oasis7_chain_runtime` 可执行文件名、CLI、正式协议与持久化格式。`oasis7` 保留世界执行、状态和读投影；链节点以关闭默认 features 的显式依赖接入，并按需转发 Wasmtime、网络和测试 features。
+
+投影承诺树、规范编码和包含证明算法下沉到 `oasis7_client_api::formal_projection`，仅接收序列化投影和显式 audience；世界侧只枚举已授权 audience 并生成投影。通用端点协议、持久化和恢复仍由 `oasis7_distfs` / `oasis7_node` 拥有，链节点只负责世界适配与进程组合，不把这类代码重新放回游戏包。
+
+CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`tests/`、`examples/`、`benches/` 的变化选择该包自身的检查，不自动沿 library 反向依赖传播；若这些文件被其他目标以静态路径引用，仍按引用者传播。无法确认输入关系时保留保守覆盖。
+
+世界 library、状态序列化、正式读投影与共享构建输入变化继续选择 formal 验证，不把玩法代码整体视为与正式运行无关。新增、删除、重命名及测试 fixture 都使用 base/source/tested 的关系并集。
 
 `formal-process` 使用 always 汇总：选中时构建和矩阵均须 success；未选中时矩阵须 skipped，明确输出 not_selected。required-gate 只新增此固定依赖。可信 base 尚无 formal_process 时，仅保守扩大：full 或相关 Rust 组选择全部分片；不修改旧计划使旧结果校验器接受未知组。新 base 通过原 Cargo 反向图映射选择 formal_process。schedule/manual-full 明确选全部重型分片，普通 full-standard 不重复执行重型链路；专用 package dispatch 保持原行为。
 
@@ -383,7 +503,11 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用[容量要求](c
 
 普通构建使用 `ordinary-workspace-v1`，先恢复共享依赖 target，再按上述内容、完整路径集合和纳秒 mtime 校验叠加本地单位。四个 ordinary build variants 和完整测试 artifact 保持原语义；只选择非测试 library（包括 proc-macro）及完整 custom-build 编译/执行单位，不把 test harness 或普通 binary 放进这份缓存。缓存记录的默认选集仍是完整单位，Formal 与 ECS 不受 library 过滤影响。每个 variant 分别记录本地与第三方 compiler-artifact 的总数、fresh 和 rebuilt；这些是单位观测数，不是唯一 crate 数。
 
-候选与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；只有可信 main 的 push、schedule 或 manual-full 可以保存。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；原 ordinary、full 与最终汇总继续依赖此结果；三个构建消费者使用显式状态条件和汇总 success，避免互斥入口的 skipped 祖先传播，取消后不启动消费者。保存前测量所选库的 6 GiB raw 上限，再按实际 compact 归档和外包装上界检查 768 MiB 单份上传、1.5 GiB 常驻目标、2.25 GiB 临时写入上限及全仓预算；无法形成有界完整缓存时跳过保存并完成原构建和测试。所有状态、归档和报告位于 runner 临时目录，禁止 Python bytecode 污染源码扫描。
+候选与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；只有可信 main 的 push、schedule 或 manual-full 可以保存。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；原 ordinary、full 与最终汇总继续依赖此结果；三个构建消费者使用显式状态条件和汇总 success，避免互斥入口的 skipped 祖先传播，取消后不启动消费者。
+
+保存前测量所选库的 6 GiB raw 上限，再按实际 compact 归档和外包装上界检查 768 MiB 单份上传、1.5 GiB 常驻目标、2.25 GiB 临时写入上限及全仓预算；无法形成有界完整缓存时跳过保存并完成原构建和测试。
+
+所有状态、归档和报告位于 runner 临时目录，禁止 Python bytecode 污染源码扫描。
 
 普通和 Formal 使用共同 workspace 入口及与 ECS 相同的归档、容量策略。准备成本、archive 恢复校验、实际 Cargo fresh/rebuilt 与远端保存确认分开记录。候选可以做只读容量预检和 stat-only 测量，不获得写入或删除权限。首次可信保存、兼容 reader 的实际复用及第三代回收仍须真实 hosted 运行证明；本地 fixture 仅验证机制。
 
@@ -391,17 +515,55 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用[容量要求](c
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7; [cache capacity requirement](ci-tiered-execution.prd.md#ci-formal-cache-budget). Product applicability: N/A; this is build-cache capacity policy, not a player-facing requirement.
 
-The fixed Linux native `ecs` profile uses a separate `ecs-workspace-v2` family. Reuse the complete Cargo unit/fingerprint and source content/mtime checks in `ci-test-artifacts.py`, without its Formal package list. Identity covers toolchain, target, profile, features, flags, Cargo configuration and manifest/lock/helper inputs. Immutable source keys have a separate compatible restore prefix. Only the current main workflow native writer saves after native success; consumers are read-only and saving does not depend on Web success. The v2 archive has its own restore prefix; a v1 directory is never interpreted as a v2 payload.
+The fixed Linux native `ecs` profile uses a separate `ecs-workspace-v2` family. Reuse the complete Cargo unit/fingerprint and source content/mtime checks in `ci-test-artifacts.py`, without its Formal package list. Identity covers toolchain, target, profile, features, flags, Cargo configuration and manifest/lock/helper inputs. Immutable source keys have a separate compatible restore prefix.
 
-The staging logical-byte limit is 6 GiB. A single conservative upload bound is limited to 1 GiB, the two-generation resident target is 2 GiB, and the temporary third-generation write ceiling is 3 GiB. When no entry has the new compatible prefix, a bounded 4 GiB migration write ceiling permits adoption from the observed three-entry old compatibility inventory; the 1 GiB single-upload and complete repository limits still apply. Once the compatible prefix exists, the normal 3 GiB ceiling applies. Inventory accounts for every ECS format generation under the same family budget. This entry point never deletes caches. Unavailable full inventory or a conservative projected family or repository size over budget skips saving. Two generations are the retention target: a temporary third generation may be saved within both capacity budgets, then a separate trusted maintenance job verifies the exact complete current entry and removes only unprotected older generations. Insufficient headroom skips the new save. The separate trusted recovery path can reclaim extra current-format generations within a verified compatibility/version group, preserving its complete anchor and all activity protections; cross-compatibility retirement requires an explicit confirmed current key or the pressure-only immutable-source ancestry proof above, retaining a stable permanent successor.
+Only the current main workflow native writer saves after native success; consumers are read-only and saving does not depend on Web success. The v2 archive has its own restore prefix; a v1 directory is never interpreted as a v2 payload.
 
-Before installing the toolchain or building, `preflight` reads the complete repository inventory and attempts `GET /repos/{repository}/actions/cache/storage-limit`. `stage` repeats both reads immediately before authorizing an upload; the early report is not a capacity reservation. A valid positive integer `max_cache_size_gb` is conservatively converted using `1,000,000,000` bytes per GB. An explicitly configured `ECS_CACHE_REPOSITORY_BUDGET_BYTES` is a policy ceiling; when the live limit is available the effective budget is the smaller value. Only a recognized access-denied response from the quota endpoint, excluding rate limits, may use this verified configured budget while leaving the live limit unknown. Invalid responses, incomplete inventory, unrelated API failures and an absent configured budget fail closed. Diagnostics retain only bounded, allowlisted status/request/permission information; response bodies and credentials are not logged.
+The staging logical-byte limit is 6 GiB. A single conservative upload bound is limited to 1 GiB, the two-generation resident target is 2 GiB, and the temporary third-generation write ceiling is 3 GiB.
 
-The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21. The trusted workflow therefore supplies a conservative 10,000,000,000-byte budget. This is a recorded configuration source, not a claim that every run read the live quota. Maintainers must reverify this setting when the repository cache limit changes. Reports separately identify the live limit, configured and effective budgets, capacity basis, observed inventory and projected usage. The entry point never changes repository limits or grants administration permissions.
+When no entry has the new compatible prefix, a bounded 4 GiB migration write ceiling permits adoption from the observed three-entry old compatibility inventory; the 1 GiB single-upload and complete repository limits still apply. Once the compatible prefix exists, the normal 3 GiB ceiling applies. Inventory accounts for every ECS format generation under the same family budget.
 
-Stage the validated units outside the checkout, preserving internal hard links, then produce the single `workspace-units.tar.gz` cache payload with flat regular-file entries. Keep the logical and unique sizes for staging diagnostics. Capacity checks use the measured compressed payload plus a conservative bound for the actual outer tar/compression wrapper used by `actions/cache`, not raw logical bytes or an assumed compression ratio. The wrapper guard validates GNU tar and GNU gzip and rejects inherited TAR_OPTIONS/GZIP overrides. It measures the actual outer tar records, then takes the larger safe zstd streaming or GNU gzip CLI bound (including block/header slack), rather than a generic zlib bound for unrelated deflate parameters. The payload must remain the same single-link regular file before and after measurement. The ordinary/Formal 768 MiB upload ceilings and all repository/family budgets remain unchanged; real gzip and zstd wrapper regressions check the bound independently. The complete all-ref/all-family inventory plus this upload bound must fit the effective repository budget. Separately, the main ECS family inventory plus the bound must fit the ECS family budget. Restore rejects unsafe paths, links, duplicate entries and excessive expanded data before invoking the existing manifest/hash/source-mtime validation. A rejected archive falls back to the normal full build. Record pack/unpack time independently from Cargo time. Capacity remains a point-in-time check: concurrent writers and later dependency-cache post-job saves may still affect eviction; this guard does not reserve capacity.
+This entry point never deletes caches. Unavailable full inventory or a conservative projected family or repository size over budget skips saving.
 
-During source scanning all native staging, state, monitoring and reports live in runner temporary storage. Disable Python bytecode generation before the package helper imports any repository module, so a producer cannot add `__pycache__` inputs absent from a clean consumer. Do not broadly exclude untracked or ignored inputs. Misses, corruption and unavailable cache services fall back to the original full build. Candidate native jobs run `stage --preview` to measure the same archive and capacity policy while always emitting `save=false`; the actual upload remains restricted to the trusted main writer. Record the requested/matched key, cache-hit, validated restoration, Cargo unit Fresh/rebuilt, restore/save duration, bytes and final package identity independently. After the save action, `observe-save` confirms a unique, positive-size exact main entry through a new complete inventory; a successful action alone is not a confirmed save. Upload diagnostics after this observation. Successful trusted main producer and compatible consumer samples remain required remote evidence, obtained only after actual runs. Candidate workflows retain read-only cache access throughout validation.
+Two generations are the retention target: a temporary third generation may be saved within both capacity budgets, then a separate trusted maintenance job verifies the exact complete current entry and removes only unprotected older generations. Insufficient headroom skips the new save.
+
+The separate trusted recovery path can reclaim extra current-format generations within a verified compatibility/version group, preserving its complete anchor and all activity protections; cross-compatibility retirement requires an explicit confirmed current key or the pressure-only immutable-source ancestry proof above, retaining a stable permanent successor.
+
+Before installing the toolchain or building, `preflight` reads the complete repository inventory and attempts `GET /repos/{repository}/actions/cache/storage-limit`. `stage` repeats both reads immediately before authorizing an upload; the early report is not a capacity reservation.
+
+A valid positive integer `max_cache_size_gb` is conservatively converted using `1,000,000,000` bytes per GB. An explicitly configured `ECS_CACHE_REPOSITORY_BUDGET_BYTES` is a policy ceiling; when the live limit is available the effective budget is the smaller value.
+
+Only a recognized access-denied response from the quota endpoint, excluding rate limits, may use this verified configured budget while leaving the live limit unknown. Invalid responses, incomplete inventory, unrelated API failures and an absent configured budget fail closed.
+
+Diagnostics retain only bounded, allowlisted status/request/permission information; response bodies and credentials are not logged.
+
+The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21. The trusted workflow therefore supplies a conservative 10,000,000,000-byte budget. This is a recorded configuration source, not a claim that every run read the live quota. Maintainers must reverify this setting when the repository cache limit changes.
+
+Reports separately identify the live limit, configured and effective budgets, capacity basis, observed inventory and projected usage. The entry point never changes repository limits or grants administration permissions.
+
+Stage the validated units outside the checkout, preserving internal hard links, then produce the single `workspace-units.tar.gz` cache payload with flat regular-file entries. Keep the logical and unique sizes for staging diagnostics.
+
+Capacity checks use the measured compressed payload plus a conservative bound for the actual outer tar/compression wrapper used by `actions/cache`, not raw logical bytes or an assumed compression ratio.
+
+The wrapper guard validates GNU tar and GNU gzip and rejects inherited TAR_OPTIONS/GZIP overrides. It measures the actual outer tar records, then takes the larger safe zstd streaming or GNU gzip CLI bound (including block/header slack), rather than a generic zlib bound for unrelated deflate parameters.
+
+The payload must remain the same single-link regular file before and after measurement. The ordinary/Formal 768 MiB upload ceilings and all repository/family budgets remain unchanged; real gzip and zstd wrapper regressions check the bound independently.
+
+The complete all-ref/all-family inventory plus this upload bound must fit the effective repository budget. Separately, the main ECS family inventory plus the bound must fit the ECS family budget.
+
+Restore rejects unsafe paths, links, duplicate entries and excessive expanded data before invoking the existing manifest/hash/source-mtime validation. A rejected archive falls back to the normal full build. Record pack/unpack time independently from Cargo time.
+
+Capacity remains a point-in-time check: concurrent writers and later dependency-cache post-job saves may still affect eviction; this guard does not reserve capacity.
+
+During source scanning all native staging, state, monitoring and reports live in runner temporary storage. Disable Python bytecode generation before the package helper imports any repository module, so a producer cannot add `__pycache__` inputs absent from a clean consumer. Do not broadly exclude untracked or ignored inputs.
+
+Misses, corruption and unavailable cache services fall back to the original full build. Candidate native jobs run `stage --preview` to measure the same archive and capacity policy while always emitting `save=false`; the actual upload remains restricted to the trusted main writer.
+
+Record the requested/matched key, cache-hit, validated restoration, Cargo unit Fresh/rebuilt, restore/save duration, bytes and final package identity independently.
+
+After the save action, `observe-save` confirms a unique, positive-size exact main entry through a new complete inventory; a successful action alone is not a confirmed save. Upload diagnostics after this observation.
+
+Successful trusted main producer and compatible consumer samples remain required remote evidence, obtained only after actual runs. Candidate workflows retain read-only cache access throughout validation.
 
 ### Controlled graceful-stop deadline regression
 

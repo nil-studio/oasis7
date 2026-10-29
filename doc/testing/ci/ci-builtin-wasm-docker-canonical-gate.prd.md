@@ -6,7 +6,7 @@
 审计轮次: 2
 
 ## 1. Executive Summary
-- Problem Statement: builtin wasm 发布链路已经切到 Docker canonical build，但 testing 侧专题仍保留 keyed multi-runner、旧 required check 与旧 workflow 叙事，导致现行 Linux-only canonical gate 与历史 host-native 多 runner 对账口径混杂。
+- Problem Statement: builtin wasm 发布链路已经切到 Docker canonical build，但 testing 侧专题仍保留 keyed multi-runner、旧 required check 与旧 workflow 叙事，混淆了现行 Linux-only canonical gate 与历史 host-native 多 runner 对账口径。
 - Proposed Solution: 将专题目标收敛为 Docker canonical gate：发布清单只保留 `linux-x86_64` 单 canonical token，GitHub-hosted gate 统一走 `.github/workflows/wasm-determinism-gate.yml`，required checks 与 release evidence 围绕 canonical Docker 输出组织；外部 Docker-capable macOS summary 只补充跨宿主产物证据，不属于 `test_tier_full`。
 - Success Criteria:
   - SC-1: `m1/m4/m5` hash manifest 仅包含单 canonical token：`linux-x86_64=<sha256>`。
@@ -81,14 +81,14 @@
   - 当前平台不在 canonical 列表：`--check` 直接失败并提示 `OASIS7_WASM_CANONICAL_PLATFORMS`。
   - manifest 含重复平台 token：严格失败并报告 `module_id + platform`。
   - runner 缺摘要或摘要重复：汇总脚本失败并列出缺失 / 重复 runner。
-  - 目标安装边界：命中 WASM scope 的 Rust job 在当前默认 toolchain 下安装 `wasm32-unknown-unknown`；full/determinism job在 pinned WASM toolchain 下安装同一 target。该事实不表示所有 CI job 或所有 toolchain 都预装 target。
+  - 目标安装边界：命中 WASM scope 的 Rust job 在当前默认 toolchain 下安装 `wasm32-unknown-unknown`；full/determinism job 在 pinned WASM toolchain 下安装同一 target。该事实不表示所有 CI job 或所有 toolchain 都预装 target。
 - Non-Functional Requirements:
   - NFR-WASMHARD-1: canonical manifest 与 identity 计算在同一 commit、同一 builder image digest 下 100% 可复现。
   - NFR-WASMHARD-2: canonical summary / evidence 对账失败信息须包含 `runner/module_id/hash`，单次运行内可定位。
   - NFR-WASMHARD-3: 新增治理链路不改变 `scripts/ci-tests.sh required/full` 的职责边界。
   - NFR-WASMHARD-4: 本地默认路径无写权限时不会修改任何 tracked manifest 文件。
 - NFR-WASMHARD-5: planner 确认不涉及 builtin wasm 输入的 PR 不执行 summary collect；选中模块使用既有 job 名称，未选中模块不为生成空成功结果而分配 runner。文档、共享配置或脚本是否相关按实际消费者判断。
-- NFR-WASMHARD-6: Linux canonical evidence只证明实际选中并成功校验的 canonical Docker 产物；跨宿主 closure 还需要真实 Docker-capable `darwin-arm64` summary，属于独立跨宿主产物证据而非 `ci-tests full` 结果，不能由 Linux-only pass 外推。
+- NFR-WASMHARD-6: Linux canonical evidence 只证明实际选中并成功校验的 canonical Docker 产物；跨宿主 closure 还需要真实 Docker-capable `darwin-arm64` summary，属于独立跨宿主产物证据而非 `ci-tests full` 结果，不能由 Linux-only pass 外推。
 - Security & Privacy: 仅处理模块源码路径、hash token、receipt evidence 与 CI metadata；不处理敏感业务数据。
 
 ## 5. Risks & Roadmap
