@@ -221,7 +221,18 @@ For the self-playtest receiver, bind only the selected [AC-EXT-010](../product/a
 
 For each selected scene, cell, specimen, and tier, retain one record that binds: exact source path/fragment/identifier plus source OID and digest; candidate source/base/tested-tree identity; scenario and applicability owner; execution state (`planned`, `located`, `implemented`, or `executed`); world/branch/root/revision/window and configuration; access mode and execution lane; baseline and ordered phase observations; dependency/topology and provider identity; raw artifact locator, byte length, and digest; command/result or visible action; oracle assertions; tier verdict, failure signature or blocking reason; and the unproved boundary. Do not record tokens, private keys, or secret payloads. A content digest is an artifact-integrity check, not a domain receipt or finality proof.
 
-Evaluate in this order: (1) pin the current accepted source clauses and candidate/tree/world/window; reject stale or conflicting source identity; (2) enumerate the mandatory scene/case/cell and phase specimens, recording non-applicability only with the responsible domain owner's basis; (3) capture an unchanged baseline and classify the real dependency before an authorized execution; (4) verify artifact bytes, locator, length, and digest, then run structural, canonical, domain, trust, identity, and join oracles as separate checks; (5) compare before, interruption, fresh-read, recovery, retry, and replay observations for quantities, roots, receipts, windows, world progression, and consumer results; (6) independently verify the required provider/browser/Agent environment; (7) classify missing mandatory evidence as `blocked`/`unverified`, an observed invariant violation as `failed` with a reproducible signature, and shape-only evidence as `shape_verified`; use `passed` only when every assertion and the selected tier's environment are satisfied; (8) preserve success and failure artifacts append-only and report the exact scope and limitations. `planned`/`located`/`implemented`/`executed` are orthogonal to verdict; source links, fixtures, schema validity, and old green evidence never establish execution or current-candidate pass.
+Evaluate in this order:
+
+- (1) pin the current accepted source clauses and candidate/tree/world/window; reject stale or conflicting source identity;
+- (2) enumerate the mandatory scene/case/cell and phase specimens, recording non-applicability only with the responsible domain owner's basis;
+- (3) capture an unchanged baseline and classify the real dependency before an authorized execution;
+- (4) verify artifact bytes, locator, length, and digest, then run structural, canonical, domain, trust, identity, and join oracles as separate checks;
+- (5) compare before, interruption, fresh-read, recovery, retry, and replay observations for quantities, roots, receipts, windows, world progression, and consumer results;
+- (6) independently verify the required provider/browser/Agent environment;
+- (7) classify missing mandatory evidence as `blocked`/`unverified`, an observed invariant violation as `failed` with a reproducible signature, and shape-only evidence as `shape_verified`; use `passed` only when every assertion and the selected tier's environment are satisfied;
+- (8) preserve success and failure artifacts append-only and report the exact scope and limitations.
+
+`planned`/`located`/`implemented`/`executed` are orthogonal to verdict; source links, fixtures, schema validity, and old green evidence never establish execution or current-candidate pass.
 
 <a id="qa-infrastructure-scene-families"></a>
 #### Finite source and scene families
