@@ -20,6 +20,8 @@ import codeql_rust_cargo_guard as cargo_guard
 BASE_SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
 JSON_FIXTURE_SOURCE='09641e1b9d551700771c772e7545ac2851ea273d'
+DECOMPOSITION_SOURCE='c65098923e8d9aad6813d49ac48cc2540627c96d'
+CAPACITY_SOURCE='e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6'
 SOURCE=EXCLUSION_SOURCE
 BUNDLE='2.27.3'
 CAP=256*1024**2
@@ -425,14 +427,14 @@ def analysis_budget(mode,remaining):
     if mode not in ('capacity','official-default-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
-    budget=21600 if research else 2700
+    budget=21600 if research else 3300
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(35,minutes)
+    if not research:minutes=min(40,minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
             'scope':'official-default research; not production capacity' if research else
-                'internal analysis allocation; not a measurement of the complete 45 minute workload'}
+                'internal analysis allocation; not a measurement of the complete 55 minute assessment'}
 
 
 def main():
@@ -440,7 +442,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
-    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE),default=EXCLUSION_SOURCE)
+    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)

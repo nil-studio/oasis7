@@ -409,7 +409,19 @@ run_cargo_tooling_contract_tests() {
   run ./scripts/check-standalone-tool-lockfiles.sh
 }
 
+run_dot_todo_contract_tests() {
+  # Registration lands before the feature. Once either file exists, require both.
+  if [[ -e scripts/dot-todo.py || -L scripts/dot-todo.py || -e scripts/dot-todo.test.py || -L scripts/dot-todo.test.py ]]; then
+    if [[ ! -f scripts/dot-todo.py || ! -f scripts/dot-todo.test.py ]]; then
+      echo "dot TODO source and contract test must both be present" >&2
+      return 1
+    fi
+    run python3 ./scripts/dot-todo.test.py
+  fi
+}
+
 run_workflow_governance_baseline_contract_tests() {
+  run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
   run python3 ./scripts/ci-formal-process.test.py
@@ -430,7 +442,6 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-local-signer-tests.test.py
   run bash ./scripts/rust-full-tier-trunk-prerequisite-contract.test.sh
   run bash ./scripts/worktree-gc-report.test.sh
-  run python3 ./scripts/dot-todo.test.py
   run python3 ./scripts/resource-cleanup-executor.test.py
   run python3 ./scripts/pr-review-threads.test.py
 }

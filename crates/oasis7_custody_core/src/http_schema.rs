@@ -83,6 +83,99 @@ fn options() -> Vec<ApprovalOptionsRequestV1> {
     }
     requests
 }
+fn owner_setup_schemas() -> Value {
+    json!({
+        "OwnerSetupApproveRequestV1":schemars::schema_for!(OwnerSetupApproveRequestV1),
+        "OwnerSetupDriveRequestV1":schemars::schema_for!(OwnerSetupDriveRequestV1),
+        "OwnerSetupProgressV1":schemars::schema_for!(OwnerSetupProgressV1),
+        "OwnerSetupBasisRequestV1":schemars::schema_for!(OwnerSetupBasisRequestV1),
+        "OwnerSetupBasisV1":schemars::schema_for!(OwnerSetupBasisV1),
+        "OwnerSetupPrepareRequestV1":schemars::schema_for!(OwnerSetupPrepareRequestV1),
+        "OwnerSetupPrepareResponseV1":schemars::schema_for!(OwnerSetupPrepareResponseV1),
+        "OwnerSetupReconcileBasisRequestV1":schemars::schema_for!(OwnerSetupReconcileBasisRequestV1),
+        "OwnerSetupReconcileBasisV1":schemars::schema_for!(OwnerSetupReconcileBasisV1),
+        "OwnerSetupReconcilePrepareRequestV1":schemars::schema_for!(OwnerSetupReconcilePrepareRequestV1),
+        "OwnerSetupReconcilePrepareResponseV1":schemars::schema_for!(OwnerSetupReconcilePrepareResponseV1),
+        "OwnerSetupReconcileApproveRequestV1":schemars::schema_for!(OwnerSetupReconcileApproveRequestV1),
+        "OwnerSetupReconcileAttemptRequestV1":schemars::schema_for!(OwnerSetupReconcileAttemptRequestV1),
+        "OwnerSetupReconcileProgressV1":schemars::schema_for!(OwnerSetupReconcileProgressV1),
+    })
+}
+
+fn revocation_schemas() -> Value {
+    json!({
+        "SignedSourceClosureAckV1":schemars::schema_for!(SignedSourceClosureAckV1),
+        "SourceRevocationsPollRequestV1":schemars::schema_for!(SourceRevocationsPollRequestV1),
+        "SourceRevocationsPollResponseV1":schemars::schema_for!(SourceRevocationsPollResponseV1),
+        "SourceRevocationAckResultV1":schemars::schema_for!(SourceRevocationAckResultV1),
+    })
+}
+
+fn approval_schemas() -> Value {
+    json!({
+        "ApprovalOptionsRequestV1":schemars::schema_for!(ApprovalOptionsRequestV1),
+        "ApprovalOptionsResponseV1":schemars::schema_for!(ApprovalOptionsResponseV1),
+        "ApprovalCompleteRequestV1":schemars::schema_for!(ApprovalCompleteRequestV1),
+        "ApprovalCompleteResponseV1":schemars::schema_for!(ApprovalCompleteResponseV1),
+        "ApprovalVerifyRequestV1":schemars::schema_for!(ApprovalVerifyRequestV1),
+        "SignedApprovalVerificationV1":schemars::schema_for!(SignedApprovalVerificationV1),
+        "CustodySessionStatusV1":schemars::schema_for!(CustodySessionStatusV1),
+        "ProvisionApprovalViewV1":schemars::schema_for!(ProvisionApprovalViewV1),
+        "ManagedLoginApprovalViewV1":schemars::schema_for!(ManagedLoginApprovalViewV1),
+    })
+}
+
+fn provisioning_schemas() -> Value {
+    json!({
+        "ProvisionApproveRequestV1":schemars::schema_for!(ProvisionApproveRequestV1),
+        "ManagedLoginApproveRequestV1":schemars::schema_for!(ManagedLoginApproveRequestV1),
+        "ProvisionDriveRequestV1":schemars::schema_for!(ProvisionDriveRequestV1),
+        "ProvisionProgressViewV1":schemars::schema_for!(ProvisionProgressViewV1),
+        "ProvisionDraftRequestV1":schemars::schema_for!(ProvisionDraftRequestV1),
+        "ProvisionDraftViewV1":schemars::schema_for!(ProvisionDraftViewV1),
+        "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
+        "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
+    })
+}
+
+fn http_schemas() -> Value {
+    let mut schemas = owner_setup_schemas();
+    for group in [
+        revocation_schemas(),
+        approval_schemas(),
+        provisioning_schemas(),
+    ] {
+        schemas
+            .as_object_mut()
+            .unwrap()
+            .extend(group.as_object().unwrap().clone());
+    }
+    schemas
+}
+
+fn decimal_fixtures() -> [Value; 14] {
+    [
+        json!(0),
+        json!(9007199254740992_u64),
+        json!(""),
+        json!("0"),
+        json!("01"),
+        json!("+1"),
+        json!("-0"),
+        json!("-1"),
+        json!("1.0"),
+        json!("1e3"),
+        json!("9007199254740993"),
+        json!("18446744073709551615"),
+        json!("18446744073709551616"),
+        json!("99999999999999999999"),
+    ]
+    .map(|value| {
+        let accepted = serde_json::from_value::<DecimalU64>(value.clone()).is_ok();
+        json!({"value":value,"accepted_by_rust":accepted})
+    })
+}
+
 pub(super) fn export(directory: &std::path::Path) {
     let requests = options();
     let intent_digest = requests[0].intent_digest().unwrap();
@@ -367,43 +460,7 @@ pub(super) fn export(directory: &std::path::Path) {
         },
         signature: "fixture-signature".into(),
     };
-    let mut schemas = json!({
-        "OwnerSetupApproveRequestV1":schemars::schema_for!(OwnerSetupApproveRequestV1),
-        "OwnerSetupDriveRequestV1":schemars::schema_for!(OwnerSetupDriveRequestV1),
-        "OwnerSetupProgressV1":schemars::schema_for!(OwnerSetupProgressV1),
-        "OwnerSetupBasisRequestV1":schemars::schema_for!(OwnerSetupBasisRequestV1),
-        "OwnerSetupBasisV1":schemars::schema_for!(OwnerSetupBasisV1),
-        "OwnerSetupPrepareRequestV1":schemars::schema_for!(OwnerSetupPrepareRequestV1),
-        "OwnerSetupPrepareResponseV1":schemars::schema_for!(OwnerSetupPrepareResponseV1),
-        "OwnerSetupReconcileBasisRequestV1":schemars::schema_for!(OwnerSetupReconcileBasisRequestV1),
-        "OwnerSetupReconcileBasisV1":schemars::schema_for!(OwnerSetupReconcileBasisV1),
-        "OwnerSetupReconcilePrepareRequestV1":schemars::schema_for!(OwnerSetupReconcilePrepareRequestV1),
-        "OwnerSetupReconcilePrepareResponseV1":schemars::schema_for!(OwnerSetupReconcilePrepareResponseV1),
-        "OwnerSetupReconcileApproveRequestV1":schemars::schema_for!(OwnerSetupReconcileApproveRequestV1),
-        "OwnerSetupReconcileAttemptRequestV1":schemars::schema_for!(OwnerSetupReconcileAttemptRequestV1),
-        "OwnerSetupReconcileProgressV1":schemars::schema_for!(OwnerSetupReconcileProgressV1),
-        "SignedSourceClosureAckV1":schemars::schema_for!(SignedSourceClosureAckV1),
-        "SourceRevocationsPollRequestV1":schemars::schema_for!(SourceRevocationsPollRequestV1),
-        "SourceRevocationsPollResponseV1":schemars::schema_for!(SourceRevocationsPollResponseV1),
-        "SourceRevocationAckResultV1":schemars::schema_for!(SourceRevocationAckResultV1),
-        "ApprovalOptionsRequestV1":schemars::schema_for!(ApprovalOptionsRequestV1),
-        "ApprovalOptionsResponseV1":schemars::schema_for!(ApprovalOptionsResponseV1),
-        "ApprovalCompleteRequestV1":schemars::schema_for!(ApprovalCompleteRequestV1),
-        "ApprovalCompleteResponseV1":schemars::schema_for!(ApprovalCompleteResponseV1),
-        "ApprovalVerifyRequestV1":schemars::schema_for!(ApprovalVerifyRequestV1),
-        "SignedApprovalVerificationV1":schemars::schema_for!(SignedApprovalVerificationV1),
-        "CustodySessionStatusV1":schemars::schema_for!(CustodySessionStatusV1),
-        "ProvisionApproveRequestV1":schemars::schema_for!(ProvisionApproveRequestV1),
-        "ProvisionApprovalViewV1":schemars::schema_for!(ProvisionApprovalViewV1),
-        "ManagedLoginApproveRequestV1":schemars::schema_for!(ManagedLoginApproveRequestV1),
-        "ManagedLoginApprovalViewV1":schemars::schema_for!(ManagedLoginApprovalViewV1),
-        "ProvisionDriveRequestV1":schemars::schema_for!(ProvisionDriveRequestV1),
-        "ProvisionProgressViewV1":schemars::schema_for!(ProvisionProgressViewV1),
-        "ProvisionDraftRequestV1":schemars::schema_for!(ProvisionDraftRequestV1),
-        "ProvisionDraftViewV1":schemars::schema_for!(ProvisionDraftViewV1),
-        "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
-        "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
-    });
+    let mut schemas = http_schemas();
     schemas
         .as_object_mut()
         .unwrap()
@@ -433,26 +490,7 @@ pub(super) fn export(directory: &std::path::Path) {
             .unwrap()
             .clone(),
     );
-    let decimal_fixtures = [
-        json!(0),
-        json!(9007199254740992_u64),
-        json!(""),
-        json!("0"),
-        json!("01"),
-        json!("+1"),
-        json!("-0"),
-        json!("-1"),
-        json!("1.0"),
-        json!("1e3"),
-        json!("9007199254740993"),
-        json!("18446744073709551615"),
-        json!("18446744073709551616"),
-        json!("99999999999999999999"),
-    ]
-    .map(|value| {
-        let accepted = serde_json::from_value::<DecimalU64>(value.clone()).is_ok();
-        json!({"value":value,"accepted_by_rust":accepted})
-    });
+    let decimal_fixtures = decimal_fixtures();
     let document: Value = json!({"metadata":schemars::schema_for!(ServiceMetadata),"error":schemars::schema_for!(ErrorResponse),
         "native":schemas,"fixtures":fixtures,"decimal_fixtures":decimal_fixtures});
     std::fs::write(

@@ -28,7 +28,7 @@ def workflow_steps():
 
 class Capacity(unittest.TestCase):
     def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
-        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE):
+        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.CAPACITY_SOURCE):
             with tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); source=root/"source";source.mkdir()
                 argv=["capacity","capture","--source",str(source),"--database",str(root/"db"),"--output",str(root/"out"),"--work",str(root/"work"),"--sarif",str(root/"sarif"),"--deadline",str(time.time()+300)]
@@ -430,12 +430,29 @@ class Capacity(unittest.TestCase):
         self.assertEqual(research['post_analysis_reserve_seconds'],600)
         with self.assertRaises(ValueError):m.analysis_budget('unknown',21400)
 
+    def test_capacity_40_minute_analysis_preserves_global_reserve(self):
+        for remaining,minutes in ((3300,40),(3110,40),(2999,39),(660,1),(600,0)):
+            budget=m.analysis_budget('capacity',remaining)
+            self.assertEqual(budget['job_budget_seconds'],3300)
+            self.assertEqual(budget['analysis_allocated_minutes'],minutes)
+            self.assertEqual(budget['post_analysis_reserve_seconds'],600)
+            self.assertLessEqual(minutes*60+600,remaining)
+
     def test_research_workflow_does_not_change_default_contract(self):
         text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
         self.assertIn('default: capacity',text)
         self.assertIn('official-default-research',text)
-        self.assertIn("inputs.mode == 'official-default-research' && 360 || 45",text)
+        self.assertIn("inputs.mode == 'official-default-research' && 360 || 55",text)
         self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),3)
+
+    def test_mode_specific_source_selection_preserves_research_pin(self):
+        text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
+        expression=("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && '"
+                    +m.EXCLUSION_SOURCE+"' || '"+m.CAPACITY_SOURCE+"' }}")
+        self.assertIn(expression,text)
+        self.assertEqual(text.count('--source-sha "$CAPACITY_SOURCE"'),4)
+        self.assertEqual(text.count('ref: ${{ env.CAPACITY_SOURCE }}'),1)
+        self.assertNotEqual(m.CAPACITY_SOURCE,m.EXCLUSION_SOURCE)
 
     def test_manifest_discovery_is_not_semantic_coverage(self):
         text='INFO found manifests:\n[build-stdout]   /frozen/Cargo.toml\nINFO next\n'
@@ -513,7 +530,7 @@ assert value['found_manifests']==[]
         self.assertEqual(len(checkouts),2)
         self.assertTrue(all('          path:' not in s for _,s in checkouts))
         self.assertIn('          ref: ${{ github.sha }}',checkouts[0][1])
-        self.assertIn('          ref: '+m.SOURCE,checkouts[1][1])
+        self.assertIn('          ref: ${{ env.CAPACITY_SOURCE }}',checkouts[1][1])
         self.assertLess(checkouts[0][0],steps.index(by_id['snapshot']))
         self.assertLess(steps.index(by_id['snapshot']),checkouts[1][0])
         self.assertLess(checkouts[1][0],steps.index(by_id['layout']))
@@ -523,7 +540,7 @@ assert value['found_manifests']==[]
         for phase in ('prepare','capture','finish'):
             self.assertIn('"$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" '+phase,by_id[phase])
             self.assertIn('--source "$GITHUB_WORKSPACE"',by_id[phase])
-            self.assertIn("--source-sha "+m.EXCLUSION_SOURCE,by_id[phase])
+            self.assertIn('--source-sha "$CAPACITY_SOURCE"',by_id[phase])
         condition=next(line.strip() for line in by_id['capture'].splitlines() if line.strip().startswith('if:'))
         self.assertEqual(condition,"if: always() && steps.snapshot.outcome == 'success'")
         self.assertIn("steps.capture.outcome == 'success'",by_id['finish'])
@@ -586,14 +603,14 @@ assert value['found_manifests']==[]
         text=workflow.read_text()
         self.assertIn('default: false',text);self.assertIn('inputs.execute == true',text)
         self.assertNotIn('pull_request:',text);self.assertNotIn('schedule:',text)
-        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 45 }}",text)
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 55 }}",text)
         self.assertIn('source-root: ${{ github.workspace }}',text)
         self.assertIn('checkout_path: ${{ github.workspace }}',text)
         self.assertNotIn('/capacity-source',text)
         self.assertIn('upload: never',text);self.assertIn('upload-database: false',text)
         self.assertIn('trap-caching: false',text);self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none',text)
         self.assertNotIn('security-events: write',text);self.assertNotIn('upload-sarif@',text)
-        self.assertIn("budget=21600 if mode=='official-default-research' else 2700",text);self.assertIn('start+budget',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
+        self.assertIn("budget=21600 if mode=='official-default-research' else 3300",text);self.assertIn('start+budget',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
 def load_tests(loader, tests, pattern):
