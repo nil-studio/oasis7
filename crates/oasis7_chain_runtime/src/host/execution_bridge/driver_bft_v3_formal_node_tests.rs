@@ -36,6 +36,9 @@ mod node_publication_failure_tests;
 #[path = "driver_bft_v3_provider_retry_tests.rs"]
 mod provider_retry_tests;
 
+#[path = "driver_bft_v3_successor_archive_tests.rs"]
+mod successor_archive_tests;
+
 struct MemoryTestSignerKey(SigningKey);
 
 impl BftSigningKeyHandleV3 for MemoryTestSignerKey {

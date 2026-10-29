@@ -40,6 +40,36 @@ impl Drop for Scratch {
 }
 
 #[test]
+fn typed_raw_objects_keep_caller_limits_and_fresh_reopen_without_state_authority() {
+    let root = Scratch::new();
+    let bytes = vec![b'p'; 8192];
+    let reference = root.store().persist_object(&bytes, bytes.len()).unwrap();
+    let reopened = root.store();
+    assert_eq!(
+        reopened.load_object(&reference, bytes.len()).unwrap(),
+        bytes
+    );
+    assert!(reopened.load_object(&reference, bytes.len() - 1).is_err());
+    assert!(reopened.load_public_state(&reference).is_err());
+    assert!(reopened.persist_object(b"payload", 0).is_err());
+    assert!(
+        reopened
+            .persist_object(b"payload", 512 * 1024 * 1024 + 1)
+            .is_err()
+    );
+    assert_eq!(
+        reopened.load_object(&reference, bytes.len()).unwrap(),
+        bytes
+    );
+    let blob = root.blob(&reference);
+    let mut corrupted = fs::read(&blob).unwrap();
+    let last = corrupted.last_mut().unwrap();
+    *last ^= 0xff;
+    fs::write(&blob, corrupted).unwrap();
+    assert!(reopened.load_object(&reference, bytes.len()).is_err());
+}
+
+#[test]
 fn independent_reopen_keeps_exact_original_bytes_and_duplicate_publication() {
     let root = Scratch::new();
     // Exercise both raw and compressed CAS disk formats through the adapter,

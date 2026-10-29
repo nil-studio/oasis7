@@ -319,4 +319,7 @@ mod storage;
 
 #[path = "driver_bft_v3_formal_prefix.rs"]
 mod prefix;
-pub(crate) use prefix::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3};
+pub(crate) use prefix::{
+    ActualBftSuccessorWindowDriverVerifierV1, FormalBftHeaderLedgerExecutionV3,
+    FormalBftHeaderNodeDriverV3,
+};

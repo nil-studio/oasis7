@@ -10,6 +10,7 @@ path = "src/bin/oasis7_chain_runtime.rs"
 required-features = ["node-libp2p"]
 
 [dependencies]
+oasis7_cas = { version = "0.1.0", path = "../oasis7_cas" }
 oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_world_projection = { path = "../oasis7_world_projection" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }

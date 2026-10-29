@@ -487,6 +487,12 @@ fn request(
         current_journal_digest: state.journal.as_ref().map(|j| j.digest().unwrap()),
         public_archive_root: manifest.digest().unwrap(),
         execution_archive_root: hash(91),
+        // The deployment verifier in these RPC/CAS tests is an explicit test
+        // double; actual private-closure tests must publish this raw object.
+        execution_manifest_ref: BftSuccessorWindowArchiveRefV1 {
+            digest: hash(93),
+            bytes: 1,
+        },
         evidence_refs: vec![],
         usage,
     };

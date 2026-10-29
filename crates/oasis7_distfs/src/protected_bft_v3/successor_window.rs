@@ -359,6 +359,9 @@ pub struct BftSuccessorWindowCheckpointBodyV1 {
     pub current_journal_digest: Option<String>,
     pub public_archive_root: String,
     pub execution_archive_root: String,
+    /// Raw CAS location of the canonical execution manifest. Its domain digest
+    /// must separately equal execution_archive_root; a raw hash is no authority.
+    pub execution_manifest_ref: BftSuccessorWindowArchiveRefV1,
     pub evidence_refs: Vec<BftSuccessorWindowArchiveRefV1>,
     pub usage: BftSuccessorWindowArchiveUsageV1,
 }
@@ -368,6 +371,10 @@ impl BftSuccessorWindowCheckpointBodyV1 {
         self.cut.validate()?;
         identity(&self.request_id)?;
         self.usage.validate()?;
+        self.execution_manifest_ref.validate()?;
+        if self.execution_manifest_ref.bytes > BFT_SUCCESSOR_WINDOW_METADATA_MAX_BYTES_V1 as u64 {
+            return Err(invalid("successor execution manifest reference capacity"));
+        }
         for value in [
             &self.predecessor_checkpoint_digest,
             &self.successor_schedule_digest,

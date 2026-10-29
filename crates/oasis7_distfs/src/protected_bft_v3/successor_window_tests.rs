@@ -53,6 +53,10 @@ fn body() -> BftSuccessorWindowCheckpointBodyV1 {
         current_journal_digest: None,
         public_archive_root: h(19),
         execution_archive_root: h(20),
+        execution_manifest_ref: BftSuccessorWindowArchiveRefV1 {
+            digest: h(21),
+            bytes: 1,
+        },
         evidence_refs: vec![],
         usage: BftSuccessorWindowArchiveUsageV1 {
             segments: 1,
@@ -61,6 +65,21 @@ fn body() -> BftSuccessorWindowCheckpointBodyV1 {
         },
     }
 }
+#[test]
+fn execution_manifest_location_is_bound_separately_from_its_domain_root() {
+    let original = body();
+    let digest = original.digest().unwrap();
+    let mut changed = original.clone();
+    changed.execution_manifest_ref.digest = h(22);
+    assert_ne!(changed.digest().unwrap(), digest);
+    assert_eq!(
+        changed.execution_archive_root,
+        original.execution_archive_root
+    );
+    changed.execution_manifest_ref.bytes = BFT_SUCCESSOR_WINDOW_METADATA_MAX_BYTES_V1 as u64 + 1;
+    assert!(changed.validate().is_err());
+}
+
 #[test]
 fn cumulative_budget_does_not_reset_at_a_window_and_overflow_never_wraps() {
     let full = BftSuccessorWindowArchiveUsageV1 {

@@ -12,6 +12,13 @@ use std::path::{Path, PathBuf};
 mod node_execution;
 pub(crate) use node_execution::FormalBftHeaderNodeDriverV3;
 
+#[path = "driver_bft_v3_successor_archive.rs"]
+mod successor_archive;
+#[path = "driver_bft_v3_successor_verifier.rs"]
+mod successor_verifier;
+pub(crate) use successor_archive::ExportedBftSuccessorPrivateClosureV1;
+pub(crate) use successor_verifier::ActualBftSuccessorWindowDriverVerifierV1;
+
 const MAX_H_BYTES: usize = 64 * 1024 * 1024;
 const ORIGIN_PIN_SCOPE: &str = "formal-bft-header-prefix-origin-v1";
 

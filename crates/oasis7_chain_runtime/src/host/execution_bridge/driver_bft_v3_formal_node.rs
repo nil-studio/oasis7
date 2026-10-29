@@ -16,6 +16,7 @@ mod private_store;
 use private_store::NodePrivateStore;
 
 pub(crate) struct FormalBftHeaderNodeDriverV3 {
+    records_root: PathBuf,
     execution: FormalBftHeaderLedgerExecutionV3,
     private: NodePrivateStore,
     initial_schedule: BftHeaderHeightScheduleV3,
@@ -103,6 +104,7 @@ impl FormalBftHeaderNodeDriverV3 {
             .reserve_external_material(private.usage()?)?;
         let installed_world = execution.origin.parent_world.clone();
         Ok(Self {
+            records_root: canonical_storage_path(records)?,
             peer_network,
             membership_enabled: false,
             installed_world,
@@ -113,6 +115,54 @@ impl FormalBftHeaderNodeDriverV3 {
             configured_binding: None,
             cursor_height,
         })
+    }
+    /// Export only after actual durable H-to-cut replay; this does not adopt a
+    /// successor minimum or permit a new signing window.
+    pub(crate) fn export_successor_private_closure(
+        &mut self,
+        archive: &oasis7_distfs::protected_bft_v3::LocalBftSuccessorArchiveStoreV1,
+        source: &oasis7_distfs::protected_bft_v3::BftSuccessorWindowSourceV1,
+        public_state: &oasis7_distfs::protected_bft_v3::BftSignerStateV3,
+        previous_usage: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveUsageV1,
+        height: u64,
+        header_id: &str,
+        sequence: u64,
+        predecessor: Option<String>,
+        deadline: std::time::Instant,
+    ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
+        self.require_configured()?;
+        let archive_root = canonical_storage_path(archive.root())?;
+        crate::controlled_live_config::require_private_owned(&archive_root, true)?;
+        for live in [
+            &self.records_root,
+            &canonical_storage_path(self.execution.store.root())?,
+        ] {
+            if archive_root.starts_with(live) || live.starts_with(&archive_root) {
+                return Err("successor immutable archive overlaps live private storage".into());
+            }
+        }
+        if source.material_identity != self.material_identity
+            || source.binding_digest
+                != *self
+                    .configured_binding
+                    .as_ref()
+                    .ok_or("Node binding absent")?
+            || self.cursor_height != height
+        {
+            return Err("successor export differs from installed original Node".into());
+        }
+        self.execution.export_successor_private_closure(
+            archive,
+            source,
+            height,
+            header_id,
+            sequence,
+            predecessor,
+            self.private.instance_id(),
+            public_state,
+            previous_usage,
+            deadline,
+        )
     }
     #[cfg(test)]
     pub(crate) fn inject_publication_failure(

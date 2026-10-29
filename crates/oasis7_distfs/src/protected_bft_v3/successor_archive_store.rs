@@ -36,6 +36,11 @@ pub struct LocalBftSuccessorArchiveStoreV1 {
 }
 
 impl LocalBftSuccessorArchiveStoreV1 {
+    /// Storage location only, for deployment path separation checks.
+    pub fn root(&self) -> &Path {
+        self.store.root()
+    }
+
     pub fn new(store: LocalCasStore) -> Result<Self, BftSignerErrorV3> {
         if store.hash_algorithm() != HashAlgorithm::Blake3
             || store
@@ -57,7 +62,19 @@ impl LocalBftSuccessorArchiveStoreV1 {
         &self,
         bytes: &[u8],
     ) -> Result<BftSuccessorWindowArchiveRefV1, BftSignerErrorV3> {
-        if bytes.is_empty() || bytes.len() > BFT_SIGNER_MAX_FRAME_BYTES_V3 {
+        self.persist_object(bytes, BFT_SIGNER_MAX_FRAME_BYTES_V3)
+    }
+
+    /// Durable raw material for a caller's separately configured archive.
+    /// This grants no remote-read permission or checkpoint authority. The
+    /// caller must choose the limit for the artifact's declared role.
+    pub fn persist_object(
+        &self,
+        bytes: &[u8],
+        maximum: usize,
+    ) -> Result<BftSuccessorWindowArchiveRefV1, BftSignerErrorV3> {
+        validate_object_limit(maximum)?;
+        if bytes.is_empty() || bytes.len() > maximum {
             return Err(invalid("successor public archive length bound"));
         }
         let mut directories = vec![self.store.blobs_dir().to_path_buf()];
@@ -96,7 +113,7 @@ impl LocalBftSuccessorArchiveStoreV1 {
         }
         // CAS put may encounter an existing object. It is not a successful
         // checkpoint preparation unless a fresh bounded reread is exact.
-        if self.load_bytes(&reference)? != bytes {
+        if self.load_object(&reference, maximum)? != bytes {
             return Err(invalid(
                 "successor archive reread differs from original material",
             ));
@@ -108,10 +125,21 @@ impl LocalBftSuccessorArchiveStoreV1 {
         &self,
         reference: &BftSuccessorWindowArchiveRefV1,
     ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        self.load_object(reference, BFT_SIGNER_MAX_FRAME_BYTES_V3)
+    }
+
+    /// Fresh no-follow read of exact content-addressed bytes. It never returns
+    /// a trusted Snapshot, schedule, or signing capability.
+    pub fn load_object(
+        &self,
+        reference: &BftSuccessorWindowArchiveRefV1,
+        maximum: usize,
+    ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        validate_object_limit(maximum)?;
         reference.validate()?;
         let size = usize::try_from(reference.bytes)
             .map_err(|_| invalid("successor archive read length overflow"))?;
-        if size > BFT_SIGNER_MAX_FRAME_BYTES_V3 {
+        if size > maximum {
             return Err(invalid("successor public archive read bound"));
         }
         let path = self
@@ -142,6 +170,13 @@ impl LocalBftSuccessorArchiveStoreV1 {
         reference.validate_bytes(&bytes)?;
         Ok(bytes)
     }
+}
+
+fn validate_object_limit(maximum: usize) -> Result<(), BftSignerErrorV3> {
+    if maximum == 0 || maximum > 512 * 1024 * 1024 {
+        return Err(invalid("successor object limit must be within 512 MiB"));
+    }
+    Ok(())
 }
 
 impl BftSuccessorArchiveStoreV1 for LocalBftSuccessorArchiveStoreV1 {
