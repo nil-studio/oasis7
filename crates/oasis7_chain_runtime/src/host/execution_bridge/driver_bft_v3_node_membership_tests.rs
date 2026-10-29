@@ -161,7 +161,7 @@ pub(super) fn exercise(
     snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
     views: &[Arc<NodeBftPeerExecutionStateV3>],
     isolation: &std::sync::atomic::AtomicBool,
-    clock_start: &std::sync::OnceLock<Instant>,
+    clock_start: &membership_clock::ElapsedClock,
     bindings: &[BftSignerBindingV3],
     confirmation_timeout_budget: Option<Duration>,
 ) {
@@ -173,7 +173,7 @@ pub(super) fn exercise(
     // would deadlock a delayed proposal. The same one-shot origin survives the
     // later height-6 partition and restart, without changing the original auth.
     wait_height(nodes, snapshots, 4);
-    clock_start.set(Instant::now()).unwrap();
+    clock_start.start().unwrap();
     if let Some(budget) = confirmation_timeout_budget {
         wait_height_with_budget(nodes, snapshots, 5, budget);
         for snapshot in snapshots {
@@ -365,6 +365,7 @@ pub(super) fn exercise(
         9706,
         "membership-agent-6",
         partition_budget.expect("survivors have actual binding policies"),
+        clock_start,
     );
     for driver in &actual[1..] {
         let driver = driver.lock().unwrap();
@@ -416,7 +417,27 @@ pub(super) fn exercise(
         node.submit_consensus_action_payload(9807, payload("membership-after-restart"))
             .unwrap();
     }
-    wait_action(nodes, snapshots, 9807, "membership-after-restart");
+    // A retained round-zero proposal may legitimately expire after cold replay.
+    // Cover its actual policy round, the next delivered round, and one private
+    // fetch/apply operation; keep the exact receipt and maximum-height oracle.
+    let recovery_budget =
+        membership_clock::recovery_action_budget(bindings[0].timeouts, PRIVATE_OPERATION_TIMEOUT);
+    assert!(
+        bindings
+            .iter()
+            .all(|binding| membership_clock::recovery_action_budget(
+                binding.timeouts,
+                PRIVATE_OPERATION_TIMEOUT
+            ) == recovery_budget)
+    );
+    wait_action_with_budget(
+        nodes,
+        snapshots,
+        9807,
+        "membership-after-restart",
+        recovery_budget,
+        clock_start,
+    );
     for driver in actual {
         assert!(
             driver
@@ -431,14 +452,6 @@ pub(super) fn exercise(
     for node in nodes.iter_mut() {
         node.stop().unwrap();
     }
-}
-fn wait_action(
-    nodes: &[NodeRuntime],
-    snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
-    id: u64,
-    marker: &str,
-) {
-    wait_action_with_budget(nodes, snapshots, id, marker, Duration::from_secs(180));
 }
 fn isolated_proposer_action_budget(
     timeouts: oasis7_consensus::tendermint_v1::BftTimeoutsV1,
@@ -461,6 +474,7 @@ fn wait_action_with_budget(
     id: u64,
     marker: &str,
     budget: Duration,
+    clock: &membership_clock::ElapsedClock,
 ) {
     let expected = oasis7_node::NodeConsensusAction::from_payload(
         id,
@@ -520,7 +534,8 @@ fn wait_action_with_budget(
                 .iter()
                 .zip(&deadlines)
                 .all(|(done, deadline)| *done || Instant::now() < *deadline),
-            "timeout exact action {id}; completed={completed:?}; nodes={:?}; journals={:?}",
+            "timeout exact action {id}; completed={completed:?}; budget={budget:?}; clock={:?}; nodes={:?}; journals={:?}",
+            clock.diagnostic(),
             nodes
                 .iter()
                 .map(NodeRuntime::bft_v3_status)
@@ -577,6 +592,14 @@ fn wait_action_with_budget(
                             .last()
                             .map(|c| c.execution_commitment.height),
                         snapshot.state.pending_driver_apply.clone(),
+                        snapshot.state.journal.as_ref().map(|journal| {
+                            (
+                                journal.height_started_at_ms(),
+                                journal.pending_vote_intent().map(|vote| vote.phase),
+                                journal.events().iter().rev().find_map(|event|match event {oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Vote{vote,local:true,..}=>Some((vote.round,vote.phase)),_=>None}),
+                                journal.pending_commit().is_some(),
+                            )
+                        }),
                         events,
                     )
                 })
