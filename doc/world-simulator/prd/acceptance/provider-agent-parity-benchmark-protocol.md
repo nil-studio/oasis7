@@ -129,7 +129,7 @@ sample、aggregate summary 与 `combined.csv` 的目标合同必须保留 `illeg
 
 ### 1. 当前保留的统计目标与公式
 
-当前 benchmark 保留**最坏单样本分位上界**作为保守对照量，不把它命名解释为所有决策汇池后的 p95。每个有效样本先对实际存在的 `latency_ms` 排序；当前 `percentile_u64` 使用零基下标 `round_half_up((n-1)*p)`（p50 为 0.50，p95 为 0.95），不是 nearest-rank，也不插值。空列表的代码输出 0 只是旧序列化值，证据解释必须标无可评估时延。
+当前 benchmark 保留**最坏单样本分位上界**作为保守对照量，不将其命名或解释为所有决策汇池后的 p95。每个有效样本先对实际存在的 `latency_ms` 排序；当前 `percentile_u64` 使用零基下标 `round_half_up((n-1)*p)`（p50 为 0.50，p95 为 0.95），不是 nearest-rank，也不插值。空列表的代码输出 0 只是旧序列化值，证据解释必须标无可评估时延。
 
 聚合保持既有字段与算法：
 
@@ -148,7 +148,7 @@ sample、aggregate summary 与 `combined.csv` 的目标合同必须保留 `illeg
 | `ProviderDecisionBehavior` 的缺省计时 | 仅 response 未给 latency 时回填：构造请求后、调用 `provider.decide*` 前开始，到成功响应返回且适用的 continuous-lineage 校验完成后取 elapsed | 包含该同步调用内部网络、排队、重试/等待；不包含调用前调度/请求构造、后续 action_ref/query_ref/capability 校验与世界动作执行；提前错误路径可能无 latency |
 | builtin LLM behavior | 各次 `client.complete` 前后 elapsed 的和，包括成功与失败调用及 repair 调用 | 包含调用内部等待；不包含调用之间的 prompt/repair 处理或外部调度间隙 |
 
-因此，现有 trace 不能自动作为完整玩家端到端等待。需要比较该完整体验时，计时应从一次逻辑决策获调度开始，贯穿排队、重试/backoff，直到有效响应或终态失败/timeout；必须另有同边界的采集证据，不能把现有局部耗时补名为已覆盖。
+因此，现有 trace 不能自动代表完整玩家端到端等待。需要比较该完整体验时，计时应从一次逻辑决策获调度开始，贯穿排队、重试/backoff，直到有效响应或终态失败/timeout；必须另有同边界的采集证据，不能将现有局部耗时改名后声称已覆盖。
 
 有效 fixture 中 failed/blocked/timeout 的实际已测 latency 仍保留在观测分布，不因结果失败删除；没有 latency 的步保留错误与缺样本事实，不补 0、timeout 上限或成功重跑耗时。`invalid_fixture` 不入统计，但保留排除原因。记录 decision_steps 与实际 latency 样本数；边界不同或必要样本缺失时，相关时延结论为 unavailable/not_evaluable，现有数值和其他独立错误/行为门禁均保留。此解释不宣称当前采集器已补足缺失端到端计时。
 

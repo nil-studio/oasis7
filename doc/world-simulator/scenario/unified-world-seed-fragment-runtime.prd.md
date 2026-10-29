@@ -132,21 +132,27 @@ Trace refs: O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c；产品唯一声明沿�
 
 Trace ID: O7-REQ-9a16e402-a0e7-45eb-8122-4741155843c2
 
-R2 与 §接口/数据中的既有 Simulator 生成、fragment/chunk total/remaining 来源；配对设计 §2 已有能力、§3.2 派生链的实际 Simulator 子范围。这里只登记生成事实的输入与账本来源，不重订 chunk_seed 的参数命名、seed offset、公式或预算算法。 工程 owner 为 Simulator / chain runtime / artifact 维护者，具体分配见[对应设计](unified-world-seed-fragment-runtime.design.md#simulator-facts-design)；[验证计划](unified-world-seed-fragment-runtime.design.md#unified-verification-plan)分别保留 source 断言、待执行结果及未覆盖消费者。
+R2 与 §接口/数据中的既有 Simulator 生成、fragment/chunk total/remaining 来源；配对设计 §2 已有能力、§3.2 派生链的实际 Simulator 子范围。这里只登记生成事实的输入与账本来源，不重订 chunk_seed 的参数命名、seed offset、公式或预算算法。
+
+工程 owner 为 Simulator / chain runtime / artifact 维护者，具体分配见[对应设计](unified-world-seed-fragment-runtime.design.md#simulator-facts-design)；[验证计划](unified-world-seed-fragment-runtime.design.md#unified-verification-plan)分别保留 source 断言、待执行结果及未覆盖消费者。
 
 <a id="uws-artifact-separation"></a>
 ### 既有专业条款身份：生成 artifact 与 governed world 的分离
 
 Trace ID: O7-REQ-41fc7ce2-9979-43b2-be4f-1c7f8c80e58b
 
-R1/R6 的 provenance 接入中已采用的 artifact 分离：generated-scenario-world 是生成场景 sidecar，audited governed runtime world 仍保留为独立权威材料；此范围由 #1797/#1801 采用记录限定。sidecar 的存在不证明正式 runtime 已消费其自然资源。 工程 owner 为 Simulator / chain runtime / artifact 维护者，具体分配见[对应设计](unified-world-seed-fragment-runtime.design.md#artifact-separation-design)；[验证计划](unified-world-seed-fragment-runtime.design.md#unified-verification-plan)分别保留 source 断言、待执行结果及未覆盖消费者。
+R1/R6 的 provenance 接入中已采用的 artifact 分离：generated-scenario-world 是生成场景 sidecar，audited governed runtime world 仍保留为独立权威材料；此范围由 #1797/#1801 采用记录限定。sidecar 的存在不证明正式 runtime 已消费其自然资源。
+
+工程 owner 为 Simulator / chain runtime / artifact 维护者，具体分配见[对应设计](unified-world-seed-fragment-runtime.design.md#artifact-separation-design)；[验证计划](unified-world-seed-fragment-runtime.design.md#unified-verification-plan)分别保留 source 断言、待执行结果及未覆盖消费者。
 
 <a id="uws-status-source"></a>
 ### 既有专业条款身份：最新 execution record / CAS 的 status 接收
 
 Trace ID: O7-REQ-88cc07e6-ae98-4ecf-a173-39b235e39fe6
 
-R6 与 /v1/chain/status.world_resource 的既有 status 子范围：优先最新 execution record/CAS 的资源快照，保留 genesis/recovery fallback；损坏或高度不一致的最新权威材料不得被旧 ready JSON 掩盖。#2762/#2766 为已有采用来源，不能据此选定正式生成/消费的业务 record。 工程 owner 为 Simulator / chain runtime / artifact 维护者，具体分配见[对应设计](unified-world-seed-fragment-runtime.design.md#status-source-design)；[验证计划](unified-world-seed-fragment-runtime.design.md#unified-verification-plan)分别保留 source 断言、待执行结果及未覆盖消费者。
+R6 与 /v1/chain/status.world_resource 的既有 status 子范围：优先最新 execution record/CAS 的资源快照，保留 genesis/recovery fallback；损坏或高度不一致的最新权威材料不得被旧 ready JSON 掩盖。#2762/#2766 为已有采用来源，不能据此选定正式生成/消费的业务 record。
+
+工程 owner 为 Simulator / chain runtime / artifact 维护者，具体分配见[对应设计](unified-world-seed-fragment-runtime.design.md#status-source-design)；[验证计划](unified-world-seed-fragment-runtime.design.md#unified-verification-plan)分别保留 source 断言、待执行结果及未覆盖消费者。
 
 <a id="uws-local-spawn-adoption"></a>
 ### 本地 frag 初始化的身份复用

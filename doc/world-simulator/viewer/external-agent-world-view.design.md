@@ -124,7 +124,9 @@ Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；承接[AC-AGENT-STAGE-
 | stop/撤销/原结果查询 | 不因图形失败或观察陈旧统一置灰。 | 各自owner授权和控制合同，不能绕过撤权。 |
 | 丢reply/结果unknown | 保留原operation，显示recovery_required并回查。 | 不新键/换Agent/重新报价替代已提交请求，按原幂等恢复。 |
 
-owner指导沿固定主体与方案→核验owner权限及适用控制/审批条件→纯预览→明确确认→原owner API版本约束提交→pending/拒绝/待确认→原结果回读；目标激活与executor接入、Context取得和行动admission分开。实际executor动作另按读取既有权威Context/能力→提案→Runtime重验→原结果回读执行。消费[Game API Context](../llm/external-agent-game-api.design.md#api-context)与[原操作合同](../llm/external-agent-game-api.design.md#api-actions)，不发明新的UI许可字段；observed_at_tick、badge和WorldView cursor都不是admission许可。执行世界动作的Agent仍须自己的Context/fence通过Runtime，owner guidance不绕过。
+owner指导沿固定主体与方案→核验owner权限及适用控制/审批条件→纯预览→明确确认→原owner API版本约束提交→pending/拒绝/待确认→原结果回读；目标激活与executor接入、Context取得和行动admission分开。
+
+实际executor动作另按读取既有权威Context/能力→提案→Runtime重验→原结果回读执行。消费[Game API Context](../llm/external-agent-game-api.design.md#api-context)与[原操作合同](../llm/external-agent-game-api.design.md#api-actions)，不发明新的UI许可字段；observed_at_tick、badge和WorldView cursor都不是admission许可。执行世界动作的Agent仍须自己的Context/fence通过Runtime，owner guidance不绕过。
 
 记录可脱敏关联的原操作、显示cut/分类、expected/实际控制版本及权威原因供对账，不公开token、观察正文或私有推理。
 

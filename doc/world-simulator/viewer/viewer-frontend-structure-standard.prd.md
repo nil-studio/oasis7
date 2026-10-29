@@ -38,7 +38,7 @@
 ## 问题陈述
 - Viewer 前端既包含手写源码，也包含 checked-in generated artifacts 和 compat aliases；若边界不清，维护者容易在 `viewer.js` / `software_safe.js` / `viewer.html` / `software_safe.html` 之间建立第二套真值。HTML compat alias 只在 dist 中生成，不作为 checkout source。
 - `main.jsx` 与 `pixel_world_host.jsx` 承担 UI composition、state projection、copy、diagnostics、event handlers 与 fixture/test hooks，缺少“何时抽组件、何时抽 service/state module”的标准。
-- 现有 Rust 侧已有体量与真实职责拆分治理；Viewer JS/HTML/JSX 侧需要较轻但明确的对应规则。
+- Rust 侧已有体量与真实职责拆分治理；Viewer JS/HTML/JSX 侧需要较轻但明确的对应规则。
 
 <a name="接口-数据"></a>
 

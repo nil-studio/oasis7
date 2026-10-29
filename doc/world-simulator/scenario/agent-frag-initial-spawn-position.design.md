@@ -4,7 +4,7 @@
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history。
 
 ## 1. 设计定位
-定义 Agent Frag 初始站位优化设计，统一新生 Agent 在碎片场景中的出生位置选择、避让规则与可重复性。
+本设计统一新生 Agent 在碎片场景中的出生位置选择、避让规则与可重复性。
 
 ## 文档适用范围
 
