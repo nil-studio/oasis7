@@ -25,13 +25,14 @@ jobs:
     name: CodeQL Rust capacity
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 45 }}
+    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 55 }}
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
       cancel-in-progress: false
     env:
       CAPACITY_MODE: ${{ inputs.mode }}
+      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6' }}
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_RAM: ''
@@ -53,7 +54,7 @@ jobs:
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
           mode=os.environ['CAPACITY_MODE']
           if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
-          budget=21600 if mode=='official-default-research' else 2700
+          budget=21600 if mode=='official-default-research' else 3300
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
           if not 0<=time.time()-start<120:raise SystemExit('invalid or stale job clock')
           with open(os.environ['GITHUB_ENV'],'a') as out:
@@ -74,7 +75,7 @@ jobs:
       - id: source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: c036927d33b917a036a731f071209e16f6deb033
+          ref: ${{ env.CAPACITY_SOURCE }}
           clean: true
           persist-credentials: false
       - id: layout
@@ -83,7 +84,7 @@ jobs:
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
             --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" \
-            --source-sha c036927d33b917a036a731f071209e16f6deb033 --deadline "$CAPACITY_DEADLINE"
+            --source-sha "$CAPACITY_SOURCE" --deadline "$CAPACITY_DEADLINE"
       - id: tools
         name: Prepare pinned production tools
         timeout-minutes: 5
@@ -120,7 +121,7 @@ jobs:
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" --source-sha c036927d33b917a036a731f071209e16f6deb033 \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" --source-sha "$CAPACITY_SOURCE" \
             --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
@@ -149,7 +150,7 @@ jobs:
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
           ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE" --source-sha c036927d33b917a036a731f071209e16f6deb033 \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE" --source-sha "$CAPACITY_SOURCE" \
             --checkout-outcome "$CHECKOUT_OUTCOME" --layout-outcome "$LAYOUT_OUTCOME" --tools-outcome "$TOOLS_OUTCOME" \
             --init-outcome "$INIT_OUTCOME" --prepare-outcome "$PREPARE_OUTCOME" --analyze-outcome "$ANALYZE_OUTCOME" \
             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
@@ -162,7 +163,7 @@ jobs:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
           ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" finish --mode "$CAPACITY_MODE" --source-sha c036927d33b917a036a731f071209e16f6deb033 \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" finish --mode "$CAPACITY_MODE" --source-sha "$CAPACITY_SOURCE" \
             --analyze-outcome "$ANALYZE_OUTCOME" --codeql "$CAPACITY_CLI" \
             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
