@@ -6,7 +6,7 @@ use oasis7_distfs::incremental_page_store::{
     objects::{IncrementalObjectStore, ObjectIo},
 };
 use oasis7_formal_protocol::{
-    incremental_execution::TransitionRecordV1,
+    incremental_execution::{RootSetV1, TransitionRecordV1},
     incremental_history::{CommitBodyV1, HistoryPrefixV1},
 };
 use std::sync::atomic::AtomicBool;
