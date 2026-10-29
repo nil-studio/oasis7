@@ -3,7 +3,7 @@
     "authority": "doc/testing/governance/token-genesis-allocation-audit-checklist.prd.md",
     "backlink": "doc/testing/evidence/README.md",
     "claim_boundary": "template_only_not_evidence",
-    "content_sha256": "b76c17aeab4a81b54f8cf33dfb53754e1d46a157f7dd10f4d965ca56948ec3da",
+    "content_sha256": "bed2ca4ea82432defd00a2b9b6ff785a646cfe49edb072437f71c80eab60ecce",
     "disposition": "retain",
     "domain_owner": "blockchain_ops_engineer",
     "evidence_window": "reusable-template",

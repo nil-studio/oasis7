@@ -7,7 +7,7 @@
 
 ## 1. 设计定位与目标
 
-本指标用于观察 LLM 调用节省，不新增 fail gate、阈值或阻断策略，不改变 LLM 决策与既有 release gate。它由 demo trace 采集，经 report 持久化，进入 stress 单场景和聚合输出。
+本指标用于观察 LLM 调用节省，不新增 fail gate、阈值或阻断策略，不改变 LLM 决策与既有 release gate。数据由 demo trace 采集并持久化到 report，再进入 stress 的单场景与聚合输出。
 
 <a id="llmskip-count-output-design"></a>
 ## 2. 计数与计算
