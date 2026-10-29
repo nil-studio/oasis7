@@ -287,6 +287,22 @@ pub(super) fn captured_artifact(
         result,
     )
 }
+pub(super) fn oversized_captured(
+    get: &ws::SignedReadRequest<TaskContextGetV1>,
+    captured: &ws::SignedServiceResponse<CapturedTaskContextV1>,
+) -> ws::SignedServiceResponse<CapturedTaskContextV1> {
+    let mut payload = captured.payload.clone();
+    payload.current_public_context.actor_observation["bounded-context-test-padding"] =
+        serde_json::Value::String("x".repeat(CONTEXT_BODY_MAX_BYTES));
+    payload.validate_against(get).unwrap();
+    ws::sign_service_response(
+        TASK_CONTEXT_READ_PATH,
+        captured.request_digest.clone(),
+        payload,
+        &"3f".repeat(32),
+    )
+    .unwrap()
+}
 pub(super) fn envelope(scope: &ContextBodyScopeV1, plaintext_bytes: usize) -> ContextBodyRecordV1 {
     // Structural envelope only; SDK body authority is tested separately. Worker
     // AEAD tests use real WebCrypto and never infer plaintext from these bytes.

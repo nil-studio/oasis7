@@ -112,8 +112,11 @@ impl core::fmt::Debug for SessionContextV1 {
 fn context_attempt_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
 }
-fn body_error(_: ContextBodyError) -> ProvisionApprovalError {
-    invalid()
+fn body_error(error: ContextBodyError) -> ProvisionApprovalError {
+    match error {
+        ContextBodyError::ContextTooLarge => ProvisionApprovalError::ContextTooLarge,
+        _ => invalid(),
+    }
 }
 /// Borrowed inputs only; constructing this value proves no verification.
 pub struct ContextGetRegistration<'a> {

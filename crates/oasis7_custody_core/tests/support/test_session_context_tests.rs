@@ -123,6 +123,21 @@ fn context_body_native_sdk_two_slots_six_paid_ports_and_strict_restore() {
             &mut StrictCrypto,
         )
         .unwrap();
+    let before_oversized = f.state.clone();
+    let oversized = oversized_captured(&get, &captured);
+    assert_eq!(
+        f.state
+            .validate_test_session_captured_body(
+                ID,
+                &oversized,
+                &current,
+                UnixMillis::new(12_012),
+                &mut StrictCrypto,
+            )
+            .err(),
+        Some(ProvisionApprovalError::ContextTooLarge)
+    );
+    assert_eq!(f.state, before_oversized);
     let captured_body = f
         .state
         .validate_test_session_captured_body(
@@ -343,7 +358,7 @@ fn context_body_native_artifact_tamper_size_unknown_and_paid_recovery() {
         &"3f".repeat(32),
     )
     .unwrap();
-    assert!(
+    assert_eq!(
         f.state
             .validate_test_session_prepared_body(
                 ID,
@@ -352,7 +367,8 @@ fn context_body_native_artifact_tamper_size_unknown_and_paid_recovery() {
                 UnixMillis::new(12_002),
                 &mut StrictCrypto
             )
-            .is_err()
+            .err(),
+        Some(ProvisionApprovalError::ContextTooLarge)
     );
     assert_eq!(f.state, before);
     let body = f
