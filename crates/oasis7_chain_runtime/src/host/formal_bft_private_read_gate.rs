@@ -64,7 +64,9 @@ impl NodeBftPrivateReadGateV3 for FullSyncV3ReadGate {
                     &BftCommittedReadScopeV1 {
                         world,
                         chain_id: commitment.scope.chain_id.clone(),
-                        authority_epoch: commitment.authority_epoch,
+                        // The historical QC authenticates content. Current
+                        // permission follows the runtime's verified live view.
+                        authority_epoch: scope.view.schedule.authority_epoch(),
                     },
                     &scope.subject_public_key,
                     respond,

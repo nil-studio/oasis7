@@ -42,6 +42,36 @@ pub(super) fn parse_target(name: &str) -> Result<Option<(u64, Option<String>)>, 
 }
 
 impl NodePrivateStore {
+    pub(in super::super) fn public_value(
+        &self,
+        height: u64,
+        header_id: &str,
+    ) -> Result<Option<BftHeaderValueV3>, String> {
+        let slot = self
+            .candidates
+            .get(&height)
+            .filter(|slot| {
+                slot.data
+                    .value
+                    .as_ref()
+                    .is_some_and(|value| value.block_id().is_ok_and(|id| id == header_id))
+            })
+            .or_else(|| self.values.get(&(height, header_id.to_owned())));
+        let Some(slot) = slot else { return Ok(None) };
+        let value = slot
+            .data
+            .value
+            .as_ref()
+            .ok_or("original Node public value missing")?;
+        // Inventory was checked when opened/retained. This public metadata
+        // lookup grants no execution or read authority; export still verifies
+        // the exact original slot and pins after the permission gate.
+        value.validate_binding()?;
+        if value.execution_commitment.height != height || value.block_id()? != header_id {
+            return Err("original Node public lookup identity changed".into());
+        }
+        Ok(Some(value.clone()))
+    }
     fn value_path(&self, height: u64, id: &str) -> PathBuf {
         self.dir.join(format!("candidate-{height:020}-{id}.cbor"))
     }

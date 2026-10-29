@@ -712,6 +712,19 @@ pub trait NodeExecutionHook: Send {
         Err("wire-3 private candidate recovery is unsupported by this hook".into())
     }
 
+    /// Resolve only independently retained local metadata for a compact peer target.
+    fn enable_bft_v3_membership_execution(&mut self) -> Result<(), String> {
+        Err("wire-3 membership execution is unsupported by this hook".into())
+    }
+
+    fn lookup_bft_v3_public_value(
+        &mut self,
+        _height: u64,
+        _header_id: &str,
+    ) -> Result<Option<oasis7_consensus::tendermint_v3::BftHeaderValueV3>, String> {
+        Err("wire-3 retained public value lookup is unsupported by this hook".into())
+    }
+
     fn load_bft_v3_private_candidate(
         &mut self,
         _value: &oasis7_consensus::tendermint_v3::BftHeaderValueV3,

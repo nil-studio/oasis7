@@ -22,6 +22,8 @@ use std::sync::Mutex;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Config {
+    #[serde(default)]
+    enable_membership: bool,
     noise_signing_key_path: PathBuf,
     read_provider_signing_key_path: PathBuf,
     listen_addrs: Vec<String>,
@@ -167,6 +169,12 @@ pub(super) fn configure(
     )?);
     runtime
         .try_with_shared_execution_hook(hook)
-        .and_then(|r| r.with_tendermint_v3_network(binding, provider, public, private, state))
+        .and_then(|r| {
+            if config.enable_membership {
+                r.with_tendermint_v3_membership_network(binding, provider, public, private, state)
+            } else {
+                r.with_tendermint_v3_network(binding, provider, public, private, state)
+            }
+        })
         .map_err(|_| "header Node peer runtime configuration rejected".into())
 }

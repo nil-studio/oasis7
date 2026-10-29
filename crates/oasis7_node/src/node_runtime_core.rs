@@ -1192,5 +1192,6 @@ mod governance_auth_tests;
 mod governance_auth;
 
 pub(crate) use governance_auth::preflight_with_execution_hook;
+pub(crate) use governance_auth::retain_for_bft_v3_parent;
 pub(crate) use governance_auth::retain_for_proposal as retain_governance_action_for_proposal;
 pub(crate) use governance_auth::validate_consensus_action_payload_auth;
