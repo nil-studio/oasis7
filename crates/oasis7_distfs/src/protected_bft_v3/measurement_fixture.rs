@@ -2,9 +2,7 @@
 //! These synthetic commitments do not claim actual World execution.
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7_consensus::tendermint_v3::{
-    BftHeaderValueV3, BftSigningJournalV3,
-};
+use oasis7_consensus::tendermint_v3::{BftHeaderValueV3, BftSigningJournalV3};
 use oasis7_formal_protocol::{
     bft::*,
     controlled_authority::formal::{self, test_fixtures as f},
@@ -111,7 +109,7 @@ pub(super) fn value(schedule: &BftHeaderHeightScheduleV3) -> BftHeaderValueV3 {
         projection_root: f::h(109),
         result_root: f::h(110),
         transition: None,
-        transition_ref: None,
+        transition_ref: schedule.pending_transition().cloned(),
     };
     BftHeaderValueV3 {
         header: BftBlockHeaderV3 {
@@ -124,10 +122,52 @@ pub(super) fn value(schedule: &BftHeaderHeightScheduleV3) -> BftHeaderValueV3 {
 }
 
 pub(super) fn signed_history(binding: &BftSignerBindingV3, count: usize) -> BftSignerStateV3 {
+    signed_history_case(binding, count, false)
+}
+
+fn signed_history_case(
+    binding: &BftSignerBindingV3,
+    count: usize,
+    membership: bool,
+) -> BftSignerStateV3 {
     let mut state = BftSignerStateV3::from_handoff(binding).unwrap();
+    if membership {
+        let mut enabled = state.candidate();
+        enabled.membership_install =
+            Some(crate::protected_bft_v3::BftMembershipInstallStateV3::enabled());
+        state = BftSignerStateV3::from_candidate(binding, state.revision + 1, enabled).unwrap();
+    }
     let mut schedule = binding.initial_schedule().clone();
     for _ in 0..count {
-        let value = value(&schedule);
+        let mut value = value(&schedule);
+        let epoch = schedule.policy().epoch_length_ticks;
+        if membership && schedule.height() == 2 * epoch - 2 {
+            let validators = vec![BftValidatorV2 {
+                validator_id: "validator-a".into(),
+                public_key_hex: f::public(31),
+                voting_power: 2,
+            }];
+            let set = BftValidatorSetV2::new(schedule.scope().clone(), validators.clone()).unwrap();
+            value.execution_commitment.transition = Some(
+                oasis7_proto::distributed_bft::v2::BftValidatorTransitionV2 {
+                    source_commit_ref: schedule.parent_commit_ref().into(),
+                    source_state_root: schedule.parent_state_root().into(),
+                    source_profile: schedule.policy().profile_id.clone(),
+                    source_epoch: schedule.parent_tick() / epoch,
+                    target_epoch: 2,
+                    epoch_length_ticks: epoch,
+                    mapping_ruleset_hash: schedule.policy_hash().into(),
+                    scheduled_height: 2 * epoch - 2,
+                    activation_height: 2 * epoch,
+                    old_validator_set_hash: schedule.active_set().set_hash().into(),
+                    new_validator_set_hash: set.set_hash().into(),
+                    new_validators: validators,
+                    governance_action_digest: f::h(112),
+                    projected_registry_digest: f::h(113),
+                },
+            );
+            value.header.execution_commitment_hash = value.execution_commitment.digest().unwrap();
+        }
         let header = BftProposalHeaderV3::sign(
             schedule.scope().clone(),
             schedule.height(),
@@ -230,6 +270,27 @@ pub(super) fn signed_history(binding: &BftSignerBindingV3, count: usize) -> BftS
     let mut candidate = state.candidate();
     candidate.journal.as_mut().unwrap().height_started_at_ms = Some(1000);
     BftSignerStateV3::from_candidate(binding, state.revision + 1, candidate).unwrap()
+}
+
+/// A genuine h=6 transition and h=7 confirmation, followed by a signed pending
+/// install. Same validator/key, changed voting power; no World execution claim.
+pub(super) fn pending_membership_state(binding: &BftSignerBindingV3) -> BftSignerStateV3 {
+    let state = signed_history_case(binding, 5, true);
+    let mut body = crate::protected_bft_v3::membership::contexts(binding, &state)
+        .unwrap()
+        .pop()
+        .expect("confirmed transition context");
+    body.expected_revision = state.revision;
+    body.expected_state_digest = state.state_digest.clone();
+    body.lease_generation = 2;
+    body.request_id = "measurement-pending-install".into();
+    body.intent_nonce = f::h(114);
+    let intent =
+        crate::protected_bft_v3::BftTransitionInstallIntentV3::sign(body, &Key(f::key(33)))
+            .unwrap();
+    let mut pending = state.candidate();
+    pending.membership_install.as_mut().unwrap().pending = Some(intent);
+    BftSignerStateV3::from_candidate(binding, state.revision + 1, pending).unwrap()
 }
 
 pub(super) struct Key(pub SigningKey);

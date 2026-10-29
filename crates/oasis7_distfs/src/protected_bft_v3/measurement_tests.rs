@@ -36,6 +36,7 @@ struct Session {
     service: BftSignerServiceV3,
     session: BftSignerSessionV3,
     credential: Option<BftSignerLeaseCredentialV3>,
+    verified: Option<super::super::state::VerifiedBftSignerStateV3>,
     nonce: u64,
     history: usize,
 }
@@ -84,24 +85,43 @@ impl Session {
         let validate = || {
             validate_reply(&self.service.binding, &trust, &request, &reply).unwrap();
             if let Some(checkpoint) = &reply.body.checkpoint {
-                let verified = checkpoint
-                    .validate(
+                let digest = request_digest(&request).unwrap();
+                // Acquire validates the complete history once; subsequent
+                // replies share the exact helper used by RemoteBftSignerLeaseV3.
+                let verified = if let Some(previous) = &self.verified {
+                    checkpoint.validate_against_cache(
                         &self.service.binding,
+                        previous,
                         &request.body.challenge,
-                        &request_digest(&request).unwrap(),
+                        &digest,
                         reply.body.lease_generation,
                         &trust.provider_public_key,
                     )
-                    .unwrap();
+                } else {
+                    checkpoint.validate(
+                        &self.service.binding,
+                        &request.body.challenge,
+                        &digest,
+                        reply.body.lease_generation,
+                        &trust.provider_public_key,
+                    )
+                }
+                .unwrap();
                 assert_eq!(verified.state, checkpoint.state);
                 assert_eq!(checkpoint.state.revision, reply.body.state_revision);
                 assert_eq!(checkpoint.state.state_digest, reply.body.state_digest);
+                Some(verified)
+            } else {
+                None
             }
         };
-        if measure {
+        let verified = if measure {
             measured(self.history, phase, "client_validation", validate)
         } else {
             validate()
+        };
+        if let Some(verified) = verified {
+            self.verified = Some(verified);
         }
         reply
     }
@@ -125,6 +145,7 @@ impl Session {
             service,
             session: BftSignerSessionV3::default(),
             credential: None,
+            verified: None,
             nonce: 0,
             history,
         };
@@ -176,9 +197,8 @@ fn bounded_history_validation_measurement() {
             .body
             .checkpoint
             .unwrap();
-        let verified =
-            super::super::state::validate_state(&binding, Some(&f::public(33)), &current.state)
-                .unwrap();
+        let verified = session.verified.as_ref().unwrap().clone();
+        assert_eq!(verified.state, current.state);
         let machine = BftConsensusMachineV3::new(
             verified.schedule.clone(),
             "validator-a",
@@ -258,3 +278,9 @@ fn bounded_history_validation_measurement() {
         );
     }
 }
+
+#[path = "validation_cache_tests.rs"]
+mod cache_tests;
+
+#[path = "cache_membership_tests.rs"]
+mod membership_cache_tests;

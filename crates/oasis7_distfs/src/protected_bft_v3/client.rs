@@ -8,7 +8,7 @@ use oasis7_formal_protocol::bft::FormalBftCertifiedHeaderV3;
 use oasis7_proto::distributed_bft::v3::BftVoteV3;
 
 use super::binding::{BftSignerBindingV3, BftSignerErrorV3, BftSignerTrustV3, invalid};
-use super::state::{BftSignerCandidateV3, BftSignerCheckpointV3};
+use super::state::{BftSignerCandidateV3, BftSignerCheckpointV3, VerifiedBftSignerStateV3};
 use super::wire::{
     BftSignerCommandV3, BftSignerLeaseCredentialV3, BftSignerReplyKindV3, SignedBftSignerReplyV3,
     SignedBftSignerRequestV3, encode_frame, read_frame, validate_reply,
@@ -174,7 +174,7 @@ impl RemoteBftSignerProviderV3 {
         request: &SignedBftSignerRequestV3,
         reply: &SignedBftSignerReplyV3,
         expected_generation: u64,
-    ) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
+    ) -> Result<(BftSignerCheckpointV3, VerifiedBftSignerStateV3), BftSignerErrorV3> {
         let checkpoint = reply
             .body
             .checkpoint
@@ -194,7 +194,7 @@ impl RemoteBftSignerProviderV3 {
         {
             return Err(invalid("BFT V3 reply and checkpoint state differ"));
         }
-        Ok(checkpoint.as_ref().clone())
+        Ok((checkpoint.as_ref().clone(), verified))
     }
 
     fn checked_result(
@@ -260,7 +260,8 @@ impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
                         .as_ref()
                         .ok_or_else(|| invalid("BFT V3 acquire omitted lease token"))?;
                     validate_token(token)?;
-                    let checkpoint = self.checkpoint_from_reply(&request, &reply, expected_next)?;
+                    let (checkpoint, verified) =
+                        self.checkpoint_from_reply(&request, &reply, expected_next)?;
                     return Ok(Box::new(RemoteBftSignerLeaseV3 {
                         stream,
                         binding: self.binding.clone(),
@@ -271,6 +272,7 @@ impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
                             token: token.clone(),
                         },
                         checkpoint,
+                        schedule: verified.schedule,
                     }));
                 }
                 BftSignerReplyKindV3::AcquireConflict {
@@ -303,6 +305,9 @@ pub struct RemoteBftSignerLeaseV3 {
     trust: BftSignerTrustV3,
     credential: BftSignerLeaseCredentialV3,
     checkpoint: BftSignerCheckpointV3,
+    // Only the schedule is additional retained data; the exact verified state
+    // already lives in the authenticated checkpoint for this one lease.
+    schedule: oasis7_formal_protocol::bft::BftHeaderHeightScheduleV3,
 }
 
 impl RemoteBftSignerLeaseV3 {
@@ -346,8 +351,10 @@ impl RemoteBftSignerLeaseV3 {
         if !expected(&reply.body.result) {
             return Err(invalid("BFT V3 signer response has the wrong result kind"));
         }
-        let checkpoint = self.verified_checkpoint(request, reply, self.credential.generation)?;
+        let (checkpoint, verified) =
+            self.verified_checkpoint(request, reply, self.credential.generation)?;
         self.checkpoint = checkpoint;
+        self.schedule = verified.schedule;
         Ok(self.checkpoint.clone())
     }
 
@@ -356,15 +363,20 @@ impl RemoteBftSignerLeaseV3 {
         request: &SignedBftSignerRequestV3,
         reply: &SignedBftSignerReplyV3,
         expected_generation: u64,
-    ) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
+    ) -> Result<(BftSignerCheckpointV3, VerifiedBftSignerStateV3), BftSignerErrorV3> {
         let checkpoint = reply
             .body
             .checkpoint
             .as_ref()
             .ok_or_else(|| invalid("BFT V3 signer response omitted checkpoint"))?;
         let digest = super::wire::request_digest(request)?;
-        let verified = checkpoint.validate(
+        let previous = VerifiedBftSignerStateV3 {
+            state: self.checkpoint.state.clone(),
+            schedule: self.schedule.clone(),
+        };
+        let verified = checkpoint.validate_against_cache(
             &self.binding,
+            &previous,
             &request.body.challenge,
             &digest,
             expected_generation,
@@ -378,7 +390,7 @@ impl RemoteBftSignerLeaseV3 {
                 "BFT V3 leased reply checkpoint differs from response",
             ));
         }
-        Ok(checkpoint.as_ref().clone())
+        Ok((checkpoint.as_ref().clone(), verified))
     }
 }
 

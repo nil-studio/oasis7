@@ -12,6 +12,10 @@ use oasis7_formal_protocol::bft::{
     BftHeaderHeightScheduleV3, FormalBftCertifiedHeaderV3, verify_formal_bft_header_certificate_v3,
 };
 use serde::{Deserialize, Serialize};
+#[path = "state_transition.rs"]
+mod transition;
+pub(crate) use transition::{validate_candidate_transition, validate_state_against_cache};
+
 const STATE_DOMAIN_V3: &str = "oasis7.bft.protected-signer.v3.state";
 const CHECKPOINT_DOMAIN_V3: &str = "oasis7.bft.protected-signer.v3.checkpoint";
 pub const BFT_SIGNER_MAX_HISTORY_HEIGHTS_V3: usize = 64;
@@ -83,6 +87,17 @@ impl BftSignerStateV3 {
         revision: u64,
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
+        let state = Self::assemble_candidate(binding, revision, candidate)?;
+        validate_state(binding, None, &state)?;
+        Ok(state)
+    }
+    // Only the transition validator may skip full reconstruction: it proves
+    // the exact prefix and one permitted change before retaining the result.
+    fn assemble_candidate(
+        binding: &BftSignerBindingV3,
+        revision: u64,
+        candidate: BftSignerCandidateV3,
+    ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
             membership_install: candidate.membership_install,
             schema_version: 3,
@@ -96,7 +111,6 @@ impl BftSignerStateV3 {
             state_digest: String::new(),
         };
         state.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&state))?;
-        validate_state(binding, None, &state)?;
         Ok(state)
     }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
@@ -153,6 +167,38 @@ impl BftSignerCheckpointV3 {
         expected_generation: u64,
         provider_public_key: &str,
     ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        self.validate_proof(
+            expected_challenge,
+            expected_request_digest,
+            expected_generation,
+            provider_public_key,
+        )?;
+        validate_state(binding, Some(provider_public_key), &self.state)
+    }
+    pub(crate) fn validate_against_cache(
+        &self,
+        binding: &BftSignerBindingV3,
+        previous: &VerifiedBftSignerStateV3,
+        expected_challenge: &str,
+        expected_request_digest: &str,
+        expected_generation: u64,
+        provider_public_key: &str,
+    ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        self.validate_proof(
+            expected_challenge,
+            expected_request_digest,
+            expected_generation,
+            provider_public_key,
+        )?;
+        validate_state_against_cache(binding, previous, &self.state, provider_public_key)
+    }
+    fn validate_proof(
+        &self,
+        expected_challenge: &str,
+        expected_request_digest: &str,
+        expected_generation: u64,
+        provider_public_key: &str,
+    ) -> Result<(), BftSignerErrorV3> {
         if self.challenge != expected_challenge
             || self.request_digest != expected_request_digest
             || self.lease_generation != expected_generation
@@ -160,14 +206,12 @@ impl BftSignerCheckpointV3 {
         {
             return Err(invalid("BFT V3 checkpoint freshness or lease binding"));
         }
-        let verified = validate_state(binding, Some(provider_public_key), &self.state)?;
         verify_signature(
             CHECKPOINT_DOMAIN_V3,
             &self.signable_body(),
             &self.provider_signature_hex,
             provider_public_key,
-        )?;
-        Ok(verified)
+        )
     }
 }
 #[derive(Serialize)]
@@ -210,26 +254,7 @@ pub(crate) fn validate_state(
     _provider_public_key: Option<&str>,
     state: &BftSignerStateV3,
 ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
-    binding.validate()?;
-    if state.schema_version != 3 || state.binding_digest != binding.digest()? {
-        return Err(invalid("BFT V3 state schema or H binding mismatch"));
-    }
-    if state.history.len() > BFT_SIGNER_MAX_HISTORY_HEIGHTS_V3 {
-        return Err(invalid("BFT V3 history height capacity"));
-    }
-    encode_bounded(&state.history, BFT_SIGNER_MAX_HISTORY_BYTES_V3)?;
-    if digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(state))? != state.state_digest {
-        return Err(invalid("BFT V3 state digest mismatch"));
-    }
-    if state.completed_journals.len() != state.history.len() {
-        return Err(invalid(
-            "BFT V3 completed journals differ from certificate history",
-        ));
-    }
-    encode_bounded(
-        &(&state.completed_journals, &state.journal),
-        BFT_SIGNER_MAX_JOURNAL_BYTES_V3,
-    )?;
+    validate_state_envelope(binding, state, _provider_public_key)?;
     let mut schedule = binding.initial_schedule().clone();
     for (certificate, archived) in state.history.iter().zip(&state.completed_journals) {
         #[cfg(test)]
@@ -273,44 +298,6 @@ pub(crate) fn validate_state(
             .next_height_schedule()
             .clone();
     }
-    if state.applied_installs.len() > state.history.len() {
-        return Err(invalid(
-            "BFT V3 applied receipt history exceeds certificates",
-        ));
-    }
-    for (receipt, certificate) in state.applied_installs.iter().zip(&state.history) {
-        validate_digest(&receipt.driver_install_digest)?;
-        if receipt.height != certificate.execution_commitment.height
-            || receipt.header_id != certificate.header.block_id().map_err(invalid)?
-        {
-            return Err(invalid(
-                "BFT V3 applied receipt differs from original header",
-            ));
-        }
-    }
-    match (
-        &state.pending_driver_apply,
-        state.history.len() - state.applied_installs.len(),
-    ) {
-        (None, 0) => {}
-        (Some(pending), 1) => {
-            let tip = state
-                .history
-                .last()
-                .ok_or_else(|| invalid("BFT V3 pending apply without QC"))?;
-            if pending.height != tip.execution_commitment.height
-                || pending.header_id != tip.header.block_id().map_err(invalid)?
-            {
-                return Err(invalid("BFT V3 pending apply differs from QC tip"));
-            }
-        }
-        _ => {
-            return Err(invalid(
-                "BFT V3 driver apply must confirm each original QC before the next",
-            ));
-        }
-    }
-    super::membership::validate_records(binding, state, _provider_public_key)?;
     let validator = schedule
         .active_set()
         .validator(&binding.local_validator_id)
@@ -397,129 +384,6 @@ pub(super) fn validate_signing_install_gate(
     }
     Ok(())
 }
-pub(crate) fn validate_candidate_transition(
-    binding: &BftSignerBindingV3,
-    previous: &VerifiedBftSignerStateV3,
-    candidate: &BftSignerCandidateV3,
-    _provider: &str,
-) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
-    let old = &previous.state;
-    if candidate.history.len() < old.history.len()
-        || candidate.history.get(..old.history.len()) != Some(old.history.as_slice())
-    {
-        return Err(invalid("BFT V3 history is not an exact prefix extension"));
-    }
-    super::membership::validate_change(binding, old, candidate, _provider)?;
-    let added = candidate.history.len() - old.history.len();
-    if added > 1 {
-        return Err(invalid("BFT V3 candidate appends more than one QC"));
-    }
-    let mut expected_archives = old.completed_journals.clone();
-    if added == 1 {
-        expected_archives.push(old.journal.clone());
-    }
-    if candidate.completed_journals != expected_archives {
-        return Err(invalid(
-            "BFT V3 completed journals must retain the exact original signed slots",
-        ));
-    }
-    if added == 1 {
-        if old.pending_driver_apply.is_some() || candidate.applied_installs != old.applied_installs
-        {
-            return Err(invalid("BFT V3 unconfirmed driver install blocks new QC"));
-        }
-        let certificate = candidate
-            .history
-            .last()
-            .ok_or_else(|| invalid("BFT V3 missing append QC"))?;
-        let verified = verify_formal_bft_header_certificate_v3(&previous.schedule, certificate)
-            .map_err(invalid)?;
-        let expected = journal_for_schedule(binding, verified.next_height_schedule())?;
-        if candidate.journal != expected
-            || candidate.pending_driver_apply
-                != Some(BftDriverApplyIntentV3 {
-                    height: certificate.execution_commitment.height,
-                    header_id: verified.block_id().into(),
-                })
-        {
-            return Err(invalid(
-                "BFT V3 QC append did not retain exact pending driver install",
-            ));
-        }
-        if let Some(journal) = &old.journal {
-            if journal.pending_commit() != Some(certificate) {
-                return Err(invalid("BFT V3 QC differs from exact reserved commit"));
-            }
-            let next = verify_reserved_bft_commit_transition_v3(
-                journal,
-                certificate,
-                previous.schedule.active_set(),
-                &previous.schedule,
-                binding.timeouts,
-            )
-            .map_err(invalid)?;
-            if &next != verified.next_height_schedule() {
-                return Err(invalid("BFT V3 reserved commit schedule differs"));
-            }
-        }
-    } else if let Some(pending) = &old.pending_driver_apply {
-        if candidate.history != old.history
-            || candidate.journal != old.journal
-            || candidate.pending_driver_apply.is_some()
-            || candidate.applied_installs.len() != old.applied_installs.len() + 1
-            || !candidate
-                .applied_installs
-                .starts_with(&old.applied_installs)
-            || !candidate
-                .applied_installs
-                .last()
-                .is_some_and(|r| r.height == pending.height && r.header_id == pending.header_id)
-        {
-            return Err(invalid(
-                "BFT V3 pending apply can only finish its exact original receipt",
-            ));
-        }
-    } else {
-        if candidate.pending_driver_apply != old.pending_driver_apply
-            || candidate.applied_installs != old.applied_installs
-            || candidate.history != old.history
-        {
-            return Err(invalid("BFT V3 protocol advance changed install state"));
-        }
-        match (&old.journal, &candidate.journal) {
-            (Some(a), Some(b)) if a != b => {
-                let derived = verify_bft_signing_journal_transition_v3(
-                    a,
-                    b,
-                    previous.schedule.active_set(),
-                    &previous.schedule,
-                    binding.timeouts,
-                )
-                .map_err(invalid)?;
-                // A protocol event cannot install a successor height without
-                // the separately checked QC append and driver confirmation.
-                if derived != previous.schedule {
-                    return Err(invalid(
-                        "BFT V3 journal advance cannot install a new height",
-                    ));
-                }
-            }
-            _ if candidate.membership_install != old.membership_install
-                && candidate.journal == old.journal => {}
-            _ => {
-                return Err(invalid(
-                    "BFT V3 candidate is not one legal journal transition",
-                ));
-            }
-        }
-    }
-    let revision = old
-        .revision
-        .checked_add(1)
-        .ok_or_else(|| invalid("BFT V3 revision overflow"))?;
-    let next = BftSignerStateV3::from_candidate(binding, revision, candidate.clone())?;
-    validate_state(binding, Some(_provider), &next)
-}
 pub(crate) fn validate_digest(value: &str) -> Result<(), BftSignerErrorV3> {
     if value.len() != 64
         || !value
@@ -590,4 +454,86 @@ pub(super) fn bounded_sequence<'de, D: serde::Deserializer<'de>, T: Deserialize<
 #[cfg(test)]
 pub(super) fn test_state_digest(state: &BftSignerStateV3) -> String {
     digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(state)).unwrap()
+}
+
+fn validate_state_envelope(
+    binding: &BftSignerBindingV3,
+    state: &BftSignerStateV3,
+    provider: Option<&str>,
+) -> Result<(), BftSignerErrorV3> {
+    binding.validate()?;
+    if state.schema_version != 3 || state.binding_digest != binding.digest()? {
+        return Err(invalid("BFT V3 state schema or H binding mismatch"));
+    }
+    if state.history.len() > BFT_SIGNER_MAX_HISTORY_HEIGHTS_V3 {
+        return Err(invalid("BFT V3 history height capacity"));
+    }
+    encode_bounded(&state.history, BFT_SIGNER_MAX_HISTORY_BYTES_V3)?;
+    if state.membership_install.is_none()
+        && state.history.iter().any(|certificate| {
+            certificate.execution_commitment.transition.is_some()
+                || certificate.execution_commitment.transition_ref.is_some()
+        })
+    {
+        return Err(invalid(
+            "BFT V3 provider membership transitions are not installed",
+        ));
+    }
+    if digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(state))? != state.state_digest {
+        return Err(invalid("BFT V3 state digest mismatch"));
+    }
+    if state.completed_journals.len() != state.history.len() {
+        return Err(invalid(
+            "BFT V3 completed journals differ from certificate history",
+        ));
+    }
+    encode_bounded(
+        &(&state.completed_journals, &state.journal),
+        BFT_SIGNER_MAX_JOURNAL_BYTES_V3,
+    )?;
+    if state.applied_installs.len() > state.history.len() {
+        return Err(invalid(
+            "BFT V3 applied receipt history exceeds certificates",
+        ));
+    }
+    for (receipt, certificate) in state.applied_installs.iter().zip(&state.history) {
+        validate_digest(&receipt.driver_install_digest)?;
+        if receipt.height != certificate.execution_commitment.height
+            || receipt.header_id != certificate.header.block_id().map_err(invalid)?
+        {
+            return Err(invalid(
+                "BFT V3 applied receipt differs from original header",
+            ));
+        }
+    }
+    match (
+        &state.pending_driver_apply,
+        state.history.len() - state.applied_installs.len(),
+    ) {
+        (None, 0) => {}
+        (Some(pending), 1) => {
+            let tip = state
+                .history
+                .last()
+                .ok_or_else(|| invalid("BFT V3 pending apply without QC"))?;
+            if pending.height != tip.execution_commitment.height
+                || pending.header_id != tip.header.block_id().map_err(invalid)?
+            {
+                return Err(invalid("BFT V3 pending apply differs from QC tip"));
+            }
+        }
+        _ => {
+            return Err(invalid(
+                "BFT V3 driver apply must confirm each original QC before the next",
+            ));
+        }
+    }
+    super::membership::validate_records(binding, state, provider)?;
+    if let Some(journal) = &state.journal
+        && journal.encoded_len().map_err(invalid)?
+            > BFT_SIGNER_MAX_JOURNAL_BYTES_V3.min(BFT_MAX_SIGNING_JOURNAL_BYTES_V3)
+    {
+        return Err(invalid("BFT V3 journal capacity"));
+    }
+    Ok(())
 }

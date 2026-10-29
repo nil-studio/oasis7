@@ -54,11 +54,12 @@ impl BftSignerServiceV3 {
         if expected_revision != state.revision {
             return Err(invalid("BFT V3 proposal signing revision is stale"));
         }
-        let verified = validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            state,
-        )?;
+        let verified = runtime
+            .verified
+            .as_ref()
+            .filter(|verified| verified.state == *state)
+            .ok_or_else(|| invalid("BFT V3 signing state differs from verified cache"))?
+            .clone();
         validate_signing_install_gate(&self.binding, state, &verified.schedule)?;
         let journal = state
             .journal
@@ -178,11 +179,12 @@ impl BftSignerServiceV3 {
         if expected_revision != state.revision {
             return Err(invalid("BFT V3 vote signing revision is stale"));
         }
-        let verified = validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            state,
-        )?;
+        let verified = runtime
+            .verified
+            .as_ref()
+            .filter(|verified| verified.state == *state)
+            .ok_or_else(|| invalid("BFT V3 signing state differs from verified cache"))?
+            .clone();
         validate_signing_install_gate(&self.binding, state, &verified.schedule)?;
         let journal = state
             .journal
@@ -311,20 +313,9 @@ impl BftSignerServiceV3 {
                 "BFT V3 state CAS returned an invalid snapshot; provider poisoned",
             ));
         }
-        let verified = match validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            &snapshot.state,
-        ) {
-            Ok(verified) => verified,
-            Err(error) => {
-                runtime.poisoned = true;
-                return Err(invalid(format!(
-                    "BFT V3 state CAS committed invalid state; provider poisoned: {error}"
-                )));
-            }
-        };
-        runtime.verified = Some(verified);
+        // The CAS response is byte-for-byte the candidate already checked
+        // above. Rechecking it cannot add evidence; the lease/floor checks do.
+        runtime.verified = Some(next_verified);
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
         self.state_reply(snapshot, request, request_digest, result)
     }
@@ -461,33 +452,19 @@ impl BftSignerServiceV3 {
         runtime: &BftSignerServiceRuntimeV3,
         snapshot: &BftSignerBackendSnapshotV3,
     ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
-        let verified = validate_state(
-            &self.binding,
-            Some(&self.provider_key.public_key_hex()),
-            &snapshot.state,
-        )?;
-        if let Some(previous) = &runtime.verified {
-            if snapshot.state.revision < previous.state.revision {
-                return Err(invalid("BFT V3 backend state revision regressed"));
-            }
-            if snapshot.state.revision == previous.state.revision {
-                if snapshot.state != previous.state {
-                    return Err(invalid("BFT V3 backend changed state at the same revision"));
-                }
-            } else {
-                let candidate = snapshot.state.candidate();
-                let monotonic = validate_candidate_transition(
-                    &self.binding,
-                    previous,
-                    &candidate,
-                    &self.provider_key.public_key_hex(),
-                )?;
-                if monotonic.state != snapshot.state {
-                    return Err(invalid("BFT V3 backend state skipped its legal transition"));
-                }
-            }
+        match &runtime.verified {
+            Some(previous) => super::super::state::validate_state_against_cache(
+                &self.binding,
+                previous,
+                &snapshot.state,
+                &self.provider_key.public_key_hex(),
+            ),
+            None => validate_state(
+                &self.binding,
+                Some(&self.provider_key.public_key_hex()),
+                &snapshot.state,
+            ),
         }
-        Ok(verified)
     }
 
     pub(super) fn release_session(

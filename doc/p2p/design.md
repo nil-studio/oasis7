@@ -292,6 +292,8 @@ protected 模式使用 provider 的受保护单调时间轴，Node 不以自身 
 
 已完整验证的历史前缀和 schedule 可作为进程内缓存，逐次验证新的合法扩展；缓存建立与恢复仍从固定 genesis 完整验真，不能把后端自报 digest 当作已验证凭据。同一身份但内容改变、历史倒退或分叉必须拒绝。普通时钟轮询只在 backend 对当前连接 lease 和持久时间 floor 完成精确检查后，使用本会话已验证的 revision/digest 返回轻量证明，不加载或重验整条 QC 历史；新 journal 转换、签名与重开仍保留相应完整验证。历史长度不能令每 5–100 ms 的空闲时钟读取退化为全链签名验证并触发健康节点停签。
 
+V3 provider 与 remote lease 只复用各自固定 binding/provider 身份下最近的已验状态和 schedule，不建立跨身份缓存。同 revision 必须完整 state 相等；下一 revision 仍检查精确旧历史与归档、原 pending QC、当前 journal 的单步转换、新增 QC 和 driver receipt，并重新核对容量、状态摘要及 membership records（包括与当前 revision 绑定的 pending）。checkpoint 的 challenge、请求摘要、lease 和 provider 签名每次验证。CAS 仅在返回完整 state 等于已验候选且 generation/token/时间 floor 合法时复用候选结果；未知或不一致结果继续停签。首次打开、首次 acquire 与冷恢复不使用旧进程缓存，仍从固定 H 完整验证。
+
 活进程重新获取租约时，也须保持此前已验证状态的连续性：同 revision 必须内容完全相等；较新状态只能沿原预约与正式 journal 转换前进，跨高度必须消费原 pending QC。无法证明中间转换的 revision 跳跃或多高度变化停签，不能以一次独立的全历史验真覆盖已观察到的预约、签名或锁。
 
 当前高度 journal 与保留 QC 历史分别沿用 256 MiB 编码上限；保留高度仍至多 4096，round 仍至多 4096。RPC 总 frame 上限必须容纳两者及有界决定/身份 envelope，同时在读取长度后、分配 body 前拒绝超限；不能只增大总体 frame 而不验证子材料界限。旧已提交高度不再接受新的签名请求；其原 QC 按历史合同保留。容量耗尽停签，不删除锁/处罚证据以腾空间，也不宣称实现了可信 checkpoint GC。
