@@ -36,3 +36,6 @@ pub use install::{
     BftTransitionInstallReceiptV3, BftTransitionInstallResultV3,
 };
 pub use membership::BftMembershipInstallStateV3;
+
+#[cfg(test)]
+mod measurement_counts;

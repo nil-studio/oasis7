@@ -69,3 +69,6 @@ fn validate_vote_v3(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod measurement_counts;

@@ -95,6 +95,8 @@ impl BftSignerBindingV3 {
         &self.handoff
     }
     pub fn validate(&self) -> Result<(), BftSignerErrorV3> {
+        #[cfg(test)]
+        super::measurement_counts::record_binding();
         let expected = self
             .handoff
             .initial_schedule_after_handoff_replay(

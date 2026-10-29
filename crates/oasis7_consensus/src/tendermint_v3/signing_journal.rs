@@ -307,6 +307,8 @@ fn replay_journal(
     schedule: &BftHeaderHeightScheduleV3,
     timeouts: BftTimeoutsV1,
 ) -> Result<JournalReplay, String> {
+    #[cfg(any(test, feature = "test-support"))]
+    super::measurement_counts::record_replay();
     validate_static_binding(journal, set, schedule)?;
     if journal.events.len() > BFT_MAX_SIGNING_JOURNAL_EVENTS_V3 {
         return Err("BFT V3 journal event count exceeds bound".into());

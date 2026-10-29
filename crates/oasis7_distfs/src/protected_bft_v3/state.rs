@@ -232,6 +232,8 @@ pub(crate) fn validate_state(
     )?;
     let mut schedule = binding.initial_schedule().clone();
     for (certificate, archived) in state.history.iter().zip(&state.completed_journals) {
+        #[cfg(test)]
+        super::measurement_counts::record_history_qc();
         match (archived, journal_for_schedule(binding, &schedule)?) {
             (Some(journal), Some(expected)) => {
                 if journal.local_validator_id() != expected.local_validator_id()

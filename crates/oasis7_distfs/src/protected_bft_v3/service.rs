@@ -984,3 +984,7 @@ fn random_nonce() -> Result<String, BftSignerErrorV3> {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "measurement_tests.rs"]
+mod measurement_tests;
