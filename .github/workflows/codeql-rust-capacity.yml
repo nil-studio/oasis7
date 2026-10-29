@@ -25,7 +25,7 @@ jobs:
     name: CodeQL Rust capacity
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 45 }}
+    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 55 }}
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
@@ -54,7 +54,7 @@ jobs:
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
           mode=os.environ['CAPACITY_MODE']
           if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
-          budget=21600 if mode=='official-default-research' else 2700
+          budget=21600 if mode=='official-default-research' else 3300
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
           if not 0<=time.time()-start<120:raise SystemExit('invalid or stale job clock')
           with open(os.environ['GITHUB_ENV'],'a') as out:
