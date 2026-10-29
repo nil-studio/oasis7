@@ -79,6 +79,7 @@ fn native_bootstrap_proofs_bind_source_domains_and_cold_exact_results() {
     let binding = binding();
     let body = body(&binding);
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        successor_archive_transfer: None,
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
         lease_generation: 1,
         lease_token_digest: String::new(),

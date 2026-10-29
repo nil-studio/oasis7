@@ -96,7 +96,12 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         binding_digest: &str,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         self.check_binding(binding_digest)?;
-        Ok(self.lock()?.clone())
+        let snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
+        Ok(snapshot.clone())
     }
 
     fn acquire_lease(
@@ -107,6 +112,10 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
     ) -> Result<BftSignerAcquireOutcomeV3, BftSignerErrorV3> {
         self.check_binding(binding_digest)?;
         let mut snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         if snapshot.lease_generation != expected_generation
             || !snapshot.lease_token_digest.is_empty()
         {
@@ -126,6 +135,10 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         expected_lease_token_digest: &str,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let mut snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         if snapshot.lease_generation == expected_generation
             && snapshot.lease_token_digest == expected_lease_token_digest
         {
@@ -144,6 +157,10 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         lease_token_digest: &str,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         Self::check_lease(&snapshot, lease_generation, lease_token_digest)?;
         Ok(snapshot.clone())
     }
@@ -154,6 +171,10 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         lease_token_digest: &str,
     ) -> Result<i64, BftSignerErrorV3> {
         let mut snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         Self::check_lease(&snapshot, lease_generation, lease_token_digest)?;
         snapshot.protected_time_floor_ms = snapshot
             .protected_time_floor_ms
@@ -162,6 +183,32 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         Ok(snapshot.protected_time_floor_ms)
     }
 
+    fn reserve_successor_archive_transfer(
+        &mut self,
+        generation: u64,
+        token: &str,
+        revision: u64,
+        digest: &str,
+        expected_counter: u64,
+        amount: u64,
+    ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+        let mut snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
+        let next = oasis7_distfs::protected_bft_v3::reserve_successor_archive_transfer_v1(
+            &snapshot,
+            generation,
+            token,
+            revision,
+            digest,
+            expected_counter,
+            amount,
+        )?;
+        snapshot.successor_archive_transfer = Some(next);
+        Ok(snapshot.clone())
+    }
     fn compare_and_swap(
         &mut self,
         lease_generation: u64,
@@ -172,6 +219,10 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         next_state: BftSignerStateV3,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let mut snapshot = self.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         Self::check_lease(&snapshot, lease_generation, lease_token_digest)?;
         if snapshot.state.revision != expected_revision
             || snapshot.state.state_digest != expected_state_digest
@@ -182,6 +233,10 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
         {
             return Err(BftSignerErrorV3("Node test signer CAS mismatch".into()));
         }
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &next_state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         if let Some(event_time) = minimum_event_time_ms {
             snapshot.protected_time_floor_ms = snapshot.protected_time_floor_ms.max(event_time);
         }
@@ -497,6 +552,7 @@ fn node_case() {
         .unwrap()
         .state_root_hash;
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        successor_archive_transfer: None,
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
         lease_generation: 1,
         lease_token_digest: String::new(),

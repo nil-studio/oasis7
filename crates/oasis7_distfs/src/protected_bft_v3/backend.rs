@@ -5,6 +5,9 @@ use super::state::BftSignerStateV3;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BftSignerBackendSnapshotV3 {
     pub state: BftSignerStateV3,
+    /// Explicitly provisioned protected capability; None never initializes on read.
+    pub successor_archive_transfer:
+        Option<super::archive_transfer::BftSuccessorArchiveTransferLedgerV1>,
     pub lease_generation: u64,
     pub lease_token_digest: String,
     pub protected_time_floor_ms: i64,
@@ -24,7 +27,11 @@ pub enum BftSignerAcquireOutcomeV3 {
 /// Atomic backend contract for the V3 provider. Implementations must persist
 /// the complete state and lease generation together, reject unprovisioned
 /// bindings, and refuse new owners if they cannot prove the prior owner was
-/// fenced. This interface alone does not establish hardware properties.
+/// fenced. An existing archive-transfer capability and its nondecreasing
+/// counter must survive load, acquire, release, read, State CAS, restart and
+/// migration of this binding. Only proven legacy None-to-Some provisioning may
+/// initialize the counter; an existing Some ledger must never be reset or removed.
+/// This interface alone does not establish hardware properties.
 pub trait BftSignerBackendV3: Send + Sync {
     /// Opens previously provisioned V3 state and never initializes or resets.
     fn load_provisioned(
@@ -64,6 +71,23 @@ pub trait BftSignerBackendV3: Send + Sync {
         lease_generation: u64,
         lease_token_digest: &str,
     ) -> Result<i64, BftSignerErrorV3>;
+
+    /// Atomically charges a complete encoded archive response before payload release.
+    /// Must preserve State, generation/token and protected time exactly. Legacy
+    /// backends are unsupported; provisioning/migration is an external operation.
+    fn reserve_successor_archive_transfer(
+        &mut self,
+        _lease_generation: u64,
+        _lease_token_digest: &str,
+        _expected_revision: u64,
+        _expected_state_digest: &str,
+        _expected_reserved_response_bytes: u64,
+        _reserved_response_bytes: u64,
+    ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+        Err(super::binding::invalid(
+            "successor archive transfer ledger unsupported",
+        ))
+    }
 
     /// Persists one fully validated state transition under the exact lease,
     /// revision, digest and protected-time floor.

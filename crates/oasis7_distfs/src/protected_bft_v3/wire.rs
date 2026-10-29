@@ -66,6 +66,9 @@ pub(crate) enum BftSignerCommandV3 {
         checkpoint_digest: String,
         evidence: Box<super::successor_window::BftSuccessorWindowAdoptedEvidenceV1>,
     },
+    ReadSuccessorArchive {
+        read: Box<super::archive_query::BftSuccessorArchiveReadV1>,
+    },
     Checkpoint,
     ProtectedTime,
     StartHeightTimer {
@@ -207,6 +210,9 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     SuccessorWindow {
         record: Option<Box<super::BftSuccessorWindowStoredRequestV1>>,
+    },
+    ArchiveChunk {
+        chunk: Box<super::archive_query::BftSuccessorArchiveChunkV1>,
     },
     CertificateAppended,
     AppliedConfirmed,

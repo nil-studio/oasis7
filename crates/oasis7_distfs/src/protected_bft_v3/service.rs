@@ -28,6 +28,8 @@ use super::wire::{
     SignedBftSignerRequestV3, encode_frame, request_digest, validate_request,
 };
 
+mod archive_query;
+mod archive_reservation;
 mod bootstrap_rotation;
 mod candidate_read;
 mod membership;
@@ -62,6 +64,8 @@ pub(super) struct BftSignerServiceRuntimeV3 {
     pub(super) active_lease: Option<ActiveLeaseV3>,
     pub(super) observed_time_floor_ms: i64,
     pub(super) observed_generation: u64,
+    pub(super) observed_archive_transfer:
+        Option<super::archive_transfer::BftSuccessorArchiveTransferLedgerV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,6 +201,7 @@ impl BftSignerServiceV3 {
                 }),
                 observed_time_floor_ms: snapshot.protected_time_floor_ms,
                 observed_generation: snapshot.lease_generation,
+                observed_archive_transfer: snapshot.successor_archive_transfer,
             }),
         })
     }
@@ -207,8 +212,47 @@ impl BftSignerServiceV3 {
         &self,
         stream: &mut S,
     ) -> Result<(), BftSignerErrorV3> {
+        self.serve_connection_with_deadline_policy(stream, None)
+    }
+
+    /// TCP transport with an absolute deadline fence for every partial archive write.
+    pub fn serve_tcp_connection(
+        &self,
+        stream: &mut std::net::TcpStream,
+    ) -> Result<(), BftSignerErrorV3> {
+        let original = stream
+            .write_timeout()
+            .map_err(|e| invalid(format!("read provider write timeout: {e}")))?;
+        let mut policy = |stream: &mut std::net::TcpStream,
+                          deadline: Option<std::time::Instant>| {
+            let timeout = match deadline {
+                Some(deadline) => Some(
+                    deadline
+                        .checked_duration_since(std::time::Instant::now())
+                        .filter(|d| !d.is_zero())
+                        .ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "archive response expired",
+                            )
+                        })?,
+                ),
+                None => original,
+            };
+            stream.set_write_timeout(timeout)
+        };
+        self.serve_connection_with_deadline_policy(stream, Some(&mut policy))
+    }
+
+    fn serve_connection_with_deadline_policy<S: Read + Write>(
+        &self,
+        stream: &mut S,
+        mut deadline_policy: Option<
+            &mut dyn FnMut(&mut S, Option<std::time::Instant>) -> std::io::Result<()>,
+        >,
+    ) -> Result<(), BftSignerErrorV3> {
         let mut session = BftSignerSessionV3::default();
-        let served = self.serve_loop(stream, &mut session);
+        let served = self.serve_loop(stream, &mut session, &mut deadline_policy);
         let released = self.release_session(&mut session);
         match (served, released) {
             (Ok(()), Ok(())) => Ok(()),
@@ -221,6 +265,9 @@ impl BftSignerServiceV3 {
         &self,
         stream: &mut S,
         session: &mut BftSignerSessionV3,
+        deadline_policy: &mut Option<
+            &mut dyn FnMut(&mut S, Option<std::time::Instant>) -> std::io::Result<()>,
+        >,
     ) -> Result<(), BftSignerErrorV3> {
         loop {
             let mut header = [0u8; 4];
@@ -247,10 +294,8 @@ impl BftSignerServiceV3 {
             stream
                 .read_exact(&mut bytes)
                 .map_err(|error| invalid(format!("BFT V3 TCP frame body: {error}")))?;
-            let response = self.handle_frame(session, &bytes)?;
-            stream
-                .write_all(&response)
-                .map_err(|error| invalid(format!("BFT V3 TCP response write: {error}")))?;
+            let (response, deadline) = self.handle_frame(session, &bytes)?;
+            archive_query::write_response(stream, &response, deadline, deadline_policy)?;
         }
     }
 
@@ -258,7 +303,7 @@ impl BftSignerServiceV3 {
         &self,
         session: &mut BftSignerSessionV3,
         bytes: &[u8],
-    ) -> Result<Vec<u8>, BftSignerErrorV3> {
+    ) -> Result<(Vec<u8>, Option<std::time::Instant>), BftSignerErrorV3> {
         let started = std::time::Instant::now();
         let request: SignedBftSignerRequestV3 =
             super::crypto::decode_bounded(bytes, BFT_SIGNER_MAX_FRAME_BYTES_V3)?;
@@ -294,6 +339,7 @@ impl BftSignerServiceV3 {
                 Err(error) => rejected_reply(&runtime, error.0),
             }
         };
+        let archive_reply = matches!(&data.result, BftSignerReplyKindV3::ArchiveChunk { .. });
         let body = BftSignerReplyBodyV3 {
             schema_version: 3,
             binding_digest: self.binding.digest()?,
@@ -306,10 +352,25 @@ impl BftSignerServiceV3 {
             checkpoint: data.checkpoint,
             result: data.result,
         };
-        encode_frame(&SignedBftSignerReplyV3::sign(
+        let frame = encode_frame(&SignedBftSignerReplyV3::sign(
             body,
             self.provider_key.as_ref(),
-        )?)
+        )?)?;
+        if archive_reply
+            && runtime
+                .successor_deadline
+                .is_none_or(|deadline| std::time::Instant::now() >= deadline)
+        {
+            return Err(invalid("archive response expired before payload release"));
+        }
+        Ok((
+            frame,
+            if archive_reply {
+                runtime.successor_deadline
+            } else {
+                None
+            },
+        ))
     }
 
     fn dispatch(
@@ -490,6 +551,7 @@ impl BftSignerServiceV3 {
                     runtime.poisoned = true;
                     return Err(invalid("BFT V3 acquire conflict snapshot regressed"));
                 }
+                runtime.observe_archive_transfer(&snapshot)?;
                 runtime.verified = Some(verified);
                 runtime.observed_generation = snapshot.lease_generation;
                 runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
@@ -543,6 +605,7 @@ impl BftSignerServiceV3 {
                 )));
             }
         };
+        runtime.observe_archive_transfer(&snapshot)?;
         runtime.observed_generation = snapshot.lease_generation;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
         runtime.verified = Some(verified);
@@ -630,6 +693,9 @@ impl BftSignerServiceV3 {
         snapshot: BftSignerBackendSnapshotV3,
         command: &BftSignerCommandV3,
     ) -> Result<ReplyDataV3, BftSignerErrorV3> {
+        if let BftSignerCommandV3::ReadSuccessorArchive { read } = command {
+            return self.process_archive_query(runtime, request, request_digest, snapshot, read);
+        }
         let cached_schedule = runtime
             .verified
             .as_ref()
@@ -642,6 +708,7 @@ impl BftSignerServiceV3 {
                 BftSignerCommandV3::PrepareSuccessorWindow { .. }
                     | BftSignerCommandV3::CommitSuccessorWindow { .. }
                     | BftSignerCommandV3::GetSuccessorWindow { .. }
+                    | BftSignerCommandV3::ReadSuccessorArchive { .. }
                     | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. }
                     | BftSignerCommandV3::SignCandidateRead { .. }
                     | BftSignerCommandV3::SignFinalityRotationProof { .. }
@@ -665,6 +732,7 @@ impl BftSignerServiceV3 {
                 BftSignerCommandV3::PrepareSuccessorWindow { .. }
                     | BftSignerCommandV3::CommitSuccessorWindow { .. }
                     | BftSignerCommandV3::GetSuccessorWindow { .. }
+                    | BftSignerCommandV3::ReadSuccessorArchive { .. }
                     | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. }
                     | BftSignerCommandV3::Checkpoint
                     | BftSignerCommandV3::SignCandidateRead { .. }
@@ -986,6 +1054,10 @@ fn validate_snapshot_shape(
     credential: Option<&BftSignerLeaseCredentialV3>,
     expected_token_digest: Option<&str>,
 ) -> Result<(), BftSignerErrorV3> {
+    super::archive_transfer::validate_successor_archive_budget(
+        &snapshot.state,
+        snapshot.successor_archive_transfer.as_ref(),
+    )?;
     if snapshot.lease_generation == 0 || snapshot.protected_time_floor_ms < 0 {
         return Err(invalid("BFT V3 backend snapshot generation or time floor"));
     }

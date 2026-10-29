@@ -29,7 +29,7 @@ pub trait BftSuccessorWindowDriverVerifierV1: Send + Sync {
     ) -> Result<(), BftSignerErrorV3>;
 }
 pub struct BftSuccessorWindowSupportV1 {
-    archive: Arc<dyn BftSuccessorArchiveStoreV1>,
+    pub(super) archive: Arc<dyn BftSuccessorArchiveStoreV1>,
     adoption: Option<Arc<dyn BftSuccessorWindowDriverVerifierV1>>,
     timeout: Duration,
 }
@@ -588,6 +588,10 @@ impl BftSignerServiceV3 {
         )?;
         self.sample_time(runtime, credential, token_digest)?;
         live(deadline)?;
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &next,
+            runtime.observed_archive_transfer.as_ref(),
+        )?;
         let result = runtime.backend.compare_and_swap(
             credential.generation,
             token_digest,
@@ -605,7 +609,8 @@ impl BftSignerServiceV3 {
                 )));
             }
         };
-        if snapshot.state != next
+        if snapshot.successor_archive_transfer != runtime.observed_archive_transfer
+            || snapshot.state != next
             || snapshot.lease_generation != credential.generation
             || snapshot.lease_token_digest != token_digest
             || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
@@ -615,6 +620,7 @@ impl BftSignerServiceV3 {
                 "successor CAS result differs from exact original transition",
             ));
         }
+        runtime.observe_archive_transfer(&snapshot)?;
         runtime.verified = Some(verified);
         runtime.observed_generation = snapshot.lease_generation;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;

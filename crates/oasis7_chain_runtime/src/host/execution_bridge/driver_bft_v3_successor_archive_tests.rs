@@ -24,6 +24,7 @@ fn closure_case() {
         .configure_bft_v3_execution(&binding)
         .unwrap();
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        successor_archive_transfer: None,
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
         lease_generation: 1,
         lease_token_digest: String::new(),

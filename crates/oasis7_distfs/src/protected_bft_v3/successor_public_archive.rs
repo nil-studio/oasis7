@@ -242,6 +242,14 @@ pub fn resolve_whole_state_signed_result_v1(
     identity: &BftSuccessorWindowArchiveIdentityV1,
 ) -> Result<Option<BftSuccessorWindowOriginalSignedResultV1>, BftSignerErrorV3> {
     identity.validate()?;
+    if matches!(
+        identity,
+        BftSuccessorWindowArchiveIdentityV1::CanonicalRequest { .. }
+    ) {
+        return Err(invalid(
+            "private canonical requests are unsupported by the public signed-result archive",
+        ));
+    }
     let values = aliases(state)?;
     if let Some(value) = values.get(&identity.digest()?) {
         if value.identity != *identity {

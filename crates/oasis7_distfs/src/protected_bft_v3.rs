@@ -1,6 +1,8 @@
 //! Qualified-H protected header signer. State and wire domains are independent
 //! from V1/V2 and carry public protocol material only. Backends must provide
 //! independently provisioned fencing and anti-rollback guarantees.
+mod archive_query;
+mod archive_transfer;
 mod backend;
 mod binding;
 mod bootstrap_rotation;
@@ -74,3 +76,16 @@ pub use successor_public_archive::{
     resolve_whole_state_signed_result_v1, whole_state_signed_result_entries_v1,
 };
 pub use successor_window::BftSuccessorWindowPublicIndexV1;
+
+pub use archive_transfer::{
+    BFT_SUCCESSOR_ARCHIVE_TRANSFER_MAX_RESERVATION_BYTES_V1, BftSuccessorArchiveTransferLedgerV1,
+    reserve_successor_archive_transfer_v1, validate_successor_archive_budget,
+    validate_successor_archive_transfer_observation_v1,
+    validate_successor_archive_transfer_reservation_v1,
+};
+
+pub use archive_query::{
+    BFT_SUCCESSOR_ARCHIVE_CHUNK_MAX_BYTES_V1, BFT_SUCCESSOR_ARCHIVE_MAX_CHUNKS_V1,
+    BftSuccessorArchiveChunkBodyV1, BftSuccessorArchiveChunkV1, BftSuccessorArchiveReadTargetV1,
+    BftSuccessorArchiveReadV1, ValidatedBftSuccessorOriginalStateV1,
+};

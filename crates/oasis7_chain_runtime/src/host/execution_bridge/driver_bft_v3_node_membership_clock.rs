@@ -61,6 +61,10 @@ impl BftSignerBackendV3 for ElapsedBackend {
         lease_token_digest: &str,
     ) -> Result<i64, BftSignerErrorV3> {
         let mut snapshot = self.inner.lock()?;
+        oasis7_distfs::protected_bft_v3::validate_successor_archive_budget(
+            &snapshot.state,
+            snapshot.successor_archive_transfer.as_ref(),
+        )?;
         MemoryTestSignerBackend::check_lease(&snapshot, lease_generation, lease_token_digest)?;
         let initial_floor = self.initial_floor.as_ref().map_err(Clone::clone)?;
         let elapsed_ms = self
@@ -74,6 +78,24 @@ impl BftSignerBackendV3 for ElapsedBackend {
             .ok_or_else(|| BftSignerErrorV3("membership test clock floor overflow".into()))?;
         snapshot.protected_time_floor_ms = snapshot.protected_time_floor_ms.max(sampled);
         Ok(snapshot.protected_time_floor_ms)
+    }
+    fn reserve_successor_archive_transfer(
+        &mut self,
+        generation: u64,
+        token: &str,
+        revision: u64,
+        digest: &str,
+        expected_counter: u64,
+        amount: u64,
+    ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+        self.inner.reserve_successor_archive_transfer(
+            generation,
+            token,
+            revision,
+            digest,
+            expected_counter,
+            amount,
+        )
     }
     fn compare_and_swap(
         &mut self,

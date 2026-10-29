@@ -192,7 +192,12 @@ impl BftSignerBackendV3 for Backend {
         if binding != self.binding {
             return Err(BftSignerErrorV3("test binding differs".into()));
         }
-        Ok(self.snapshot.lock().unwrap().clone())
+        let s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
+        Ok(s.clone())
     }
     fn acquire_lease(
         &mut self,
@@ -202,6 +207,10 @@ impl BftSignerBackendV3 for Backend {
     ) -> Result<BftSignerAcquireOutcomeV3, BftSignerErrorV3> {
         self.load_provisioned(binding)?;
         let mut s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
         if s.lease_generation != generation || !s.lease_token_digest.is_empty() {
             return Ok(BftSignerAcquireOutcomeV3::Conflict(s.clone()));
         }
@@ -215,6 +224,10 @@ impl BftSignerBackendV3 for Backend {
         token: &str,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let mut s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
         Self::check(&s, generation, token)?;
         s.lease_generation += 1;
         s.lease_token_digest.clear();
@@ -226,14 +239,48 @@ impl BftSignerBackendV3 for Backend {
         token: &str,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
         Self::check(&s, generation, token)?;
         Ok(s.clone())
     }
     fn protected_time_ms(&mut self, generation: u64, token: &str) -> Result<i64, BftSignerErrorV3> {
         let mut s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
         Self::check(&s, generation, token)?;
         s.protected_time_floor_ms += 1;
         Ok(s.protected_time_floor_ms)
+    }
+    fn reserve_successor_archive_transfer(
+        &mut self,
+        generation: u64,
+        token: &str,
+        revision: u64,
+        digest: &str,
+        expected_counter: u64,
+        amount: u64,
+    ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+        let mut s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
+        let next = crate::protected_bft_v3::reserve_successor_archive_transfer_v1(
+            &s,
+            generation,
+            token,
+            revision,
+            digest,
+            expected_counter,
+            amount,
+        )?;
+        s.successor_archive_transfer = Some(next);
+        Ok(s.clone())
     }
     fn compare_and_swap(
         &mut self,
@@ -245,6 +292,10 @@ impl BftSignerBackendV3 for Backend {
         next: BftSignerStateV3,
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let mut s = self.snapshot.lock().unwrap();
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &s.state,
+            s.successor_archive_transfer.as_ref(),
+        )?;
         Self::check(&s, generation, token)?;
         if s.state.revision != revision
             || s.state.state_digest != digest
@@ -252,6 +303,10 @@ impl BftSignerBackendV3 for Backend {
         {
             return Err(BftSignerErrorV3("test exact CAS differs".into()));
         }
+        crate::protected_bft_v3::validate_successor_archive_budget(
+            &next,
+            s.successor_archive_transfer.as_ref(),
+        )?;
         if let Some(t) = event {
             s.protected_time_floor_ms = s.protected_time_floor_ms.max(t);
         }
@@ -314,6 +369,7 @@ fn native_typed_rotation_proofs_are_archived_before_release_and_cold_retry_never
     let binding = binding();
     let body = body(&binding);
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        successor_archive_transfer: None,
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
         lease_generation: 1,
         lease_token_digest: String::new(),
@@ -504,3 +560,6 @@ fn rotation_archive_rejects_declared_65_entries_before_allocating_records() {
 
 #[path = "successor_service_tests.rs"]
 mod successor_service_tests;
+
+#[path = "archive_transfer_tests.rs"]
+mod archive_transfer_tests;

@@ -284,6 +284,10 @@ impl BftSignerServiceV3 {
             ));
         }
         let next_state = next_verified.state.clone();
+        super::super::archive_transfer::validate_successor_archive_budget(
+            &next_state,
+            runtime.observed_archive_transfer.as_ref(),
+        )?;
         let response = runtime.backend.compare_and_swap(
             credential.generation,
             token_digest,
@@ -303,6 +307,7 @@ impl BftSignerServiceV3 {
         };
         if snapshot.lease_generation != credential.generation
             || snapshot.lease_token_digest != token_digest
+            || snapshot.successor_archive_transfer != runtime.observed_archive_transfer
             || snapshot.state != next_verified.state
             || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
         {
@@ -325,6 +330,7 @@ impl BftSignerServiceV3 {
             }
         };
         runtime.verified = Some(verified);
+        runtime.observe_archive_transfer(&snapshot)?;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
         self.state_reply(snapshot, request, request_digest, result)
     }
@@ -434,7 +440,12 @@ impl BftSignerServiceV3 {
         } else {
             Some(lease_digest(&credential.token)?)
         };
-        validate_snapshot_shape(snapshot, Some(credential), expected_token_digest.as_deref())?;
+        if let Err(error) =
+            validate_snapshot_shape(snapshot, Some(credential), expected_token_digest.as_deref())
+        {
+            runtime.poisoned = true;
+            return Err(error);
+        }
         let verified = match self.verify_snapshot_against_cache(runtime, snapshot) {
             Ok(verified) => verified,
             Err(error) => {
@@ -450,6 +461,7 @@ impl BftSignerServiceV3 {
                 "BFT V3 backend monotonic floor or generation regressed",
             ));
         }
+        runtime.observe_archive_transfer(&snapshot)?;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
         runtime.observed_generation = snapshot.lease_generation;
         runtime.verified = Some(verified);
@@ -461,6 +473,10 @@ impl BftSignerServiceV3 {
         runtime: &BftSignerServiceRuntimeV3,
         snapshot: &BftSignerBackendSnapshotV3,
     ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        super::super::archive_transfer::validate_successor_archive_transfer_observation_v1(
+            runtime.observed_archive_transfer,
+            snapshot,
+        )?;
         let verified = validate_state(
             &self.binding,
             Some(&self.provider_key.public_key_hex()),
@@ -550,6 +566,7 @@ impl BftSignerServiceV3 {
         }
         runtime.verified = Some(verified.clone());
         runtime.observed_generation = snapshot.lease_generation;
+        runtime.observe_archive_transfer(&snapshot)?;
         runtime.observed_time_floor_ms = snapshot.protected_time_floor_ms;
         if snapshot.lease_token_digest.is_empty() {
             runtime.active_lease = None;

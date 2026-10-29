@@ -58,6 +58,9 @@ fn install_case() {
         .configure_bft_v3_execution(&binding)
         .unwrap();
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        successor_archive_transfer: Some(
+            oasis7_distfs::protected_bft_v3::BftSuccessorArchiveTransferLedgerV1::provisioned(),
+        ),
         state: BftSignerStateV3::from_handoff(&binding).unwrap(),
         lease_generation: 1,
         lease_token_digest: String::new(),
@@ -179,7 +182,7 @@ fn install_case() {
                 }
             };
             stream.set_nonblocking(false).unwrap();
-            successor_service.serve_connection(&mut stream).unwrap();
+            successor_service.serve_tcp_connection(&mut stream).unwrap();
         }
     });
     let provider_pin = hex::encode(fixtures::key(116).verifying_key().to_bytes());
@@ -389,6 +392,73 @@ fn install_case() {
             Instant::now() + Duration::from_secs(120),
         )
         .unwrap();
+    let signing_calls_before_reads = interrupted.load(std::sync::atomic::Ordering::SeqCst);
+    let archived = lease
+        .read_successor_original_state(
+            &request_id,
+            &checkpoint_digest,
+            Instant::now() + Duration::from_secs(120),
+        )
+        .unwrap();
+    assert_eq!(archived.original_state(), &original.state);
+    let vote = original
+        .state
+        .journal
+        .as_ref()
+        .unwrap()
+        .events
+        .iter()
+        .find_map(|event| match event {
+            oasis7_consensus::tendermint_v3::BftSigningJournalEventV3::Vote {
+                vote,
+                local: true,
+                ..
+            } => Some(vote.clone()),
+            _ => None,
+        })
+        .expect("actual pending journal must retain its original signed prevote");
+    let identity =
+        oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveIdentityV1::SigningSlot {
+            public_key_hex: vote.public_key_hex.clone(),
+            height: vote.height,
+            round: vote.round,
+            phase: "prevote".into(),
+            preimage_digest: blake3::hash(&vote.signing_payload().unwrap())
+                .to_hex()
+                .to_string(),
+        };
+    let result = lease
+        .query_successor_archive(
+            &request_id,
+            &checkpoint_digest,
+            &identity,
+            Instant::now() + Duration::from_secs(120),
+        )
+        .unwrap()
+        .expect("actual original vote must be recoverable through authenticated TCP");
+    assert_eq!(
+        result,
+        oasis7_distfs::protected_bft_v3::BftSuccessorWindowOriginalSignedResultV1::Vote(vote)
+    );
+    assert_eq!(
+        interrupted.load(std::sync::atomic::Ordering::SeqCst),
+        signing_calls_before_reads,
+        "archive reads must not call the original consensus key"
+    );
+    {
+        let observed = snapshot.lock().unwrap();
+        assert!(
+            observed
+                .successor_archive_transfer
+                .unwrap()
+                .reserved_response_bytes
+                > 0
+        );
+        assert_eq!(
+            observed.state, installed.state,
+            "read charging must preserve installed WAL State"
+        );
+    }
     let pointer = root
         .path()
         .join("ledger/successor-installs-v1")

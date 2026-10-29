@@ -246,3 +246,19 @@ fn remote_events_are_excluded_and_legacy_cannot_silently_enable_aliases() {
     manifest.public_index = None;
     assert!(validate_actual_public_manifest(&manifest, &checkpoint.state).is_err());
 }
+
+#[test]
+fn private_canonical_request_is_unsupported_not_proved_missing() {
+    let (_, backend) = fixture_kind(true);
+    let state = backend.lock().unwrap().state.clone();
+    let identity = BftSuccessorWindowArchiveIdentityV1::CanonicalRequest {
+        action_id: 13,
+        payload_digest: "ab".repeat(32),
+        header_id: "cd".repeat(32),
+    };
+    identity.validate().unwrap();
+    assert!(
+        resolve_whole_state_signed_result_v1(&state, &identity).is_err(),
+        "a public signed-result archive cannot establish private action absence"
+    );
+}

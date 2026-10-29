@@ -142,6 +142,24 @@ impl BftSignerBackendV3 for UncertainBackend {
     fn protected_time_ms(&mut self, g: u64, t: &str) -> Result<i64, BftSignerErrorV3> {
         self.inner.protected_time_ms(g, t)
     }
+    fn reserve_successor_archive_transfer(
+        &mut self,
+        generation: u64,
+        token: &str,
+        revision: u64,
+        digest: &str,
+        expected_counter: u64,
+        amount: u64,
+    ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+        self.inner.reserve_successor_archive_transfer(
+            generation,
+            token,
+            revision,
+            digest,
+            expected_counter,
+            amount,
+        )
+    }
     fn compare_and_swap(
         &mut self,
         g: u64,
@@ -238,7 +256,7 @@ fn native_successor_counted(
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        if let Err(error) = service.serve_connection(&mut stream) {
+        if let Err(error) = service.serve_tcp_connection(&mut stream) {
             assert_eq!(error.0, "BFT V3 provider is poisoned");
         }
     });
@@ -412,6 +430,7 @@ fn fixture_kind(active: bool) -> (BftSignerBindingV3, Arc<Mutex<BftSignerBackend
     (
         binding,
         Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+            successor_archive_transfer: None,
             state,
             lease_generation: 1,
             lease_token_digest: String::new(),
@@ -1106,3 +1125,6 @@ fn successor_window_whole_state_adapter_rejects_unverified_public_objects_before
 
 #[path = "successor_public_archive_tests.rs"]
 mod public_archive_tests;
+
+#[path = "archive_query_tests.rs"]
+mod archive_query_tests;

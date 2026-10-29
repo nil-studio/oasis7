@@ -21,6 +21,7 @@ use super::successor_window::{
     BftSuccessorWindowInstallIntentBodyV1,
 };
 
+mod archive_query;
 mod successor;
 
 const MAX_ACQUIRE_CONFLICT_RETRIES: usize = 3;
@@ -46,6 +47,34 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    /// Requires the exact original record and predecessors in the authenticated
+    /// cached checkpoint. Explicitly refresh control state before this attempt if
+    /// unavailable; this operation performs only charged archive chunk RPCs.
+    fn read_successor_original_state(
+        &mut self,
+        _request_id: &str,
+        _checkpoint_digest: &str,
+        _deadline: std::time::Instant,
+    ) -> Result<super::archive_query::ValidatedBftSuccessorOriginalStateV1, BftSignerErrorV3> {
+        Err(invalid("successor archive reads unsupported by this lease"))
+    }
+    /// Uses the same authenticated cache prerequisite as original-State reads.
+    /// Missing describes this public segment only and grants no signing permission.
+    fn query_successor_archive(
+        &mut self,
+        _request_id: &str,
+        _checkpoint_digest: &str,
+        _identity: &super::successor_window::BftSuccessorWindowArchiveIdentityV1,
+        _deadline: std::time::Instant,
+    ) -> Result<
+        Option<super::successor_public_archive::BftSuccessorWindowOriginalSignedResultV1>,
+        BftSignerErrorV3,
+    > {
+        Err(invalid(
+            "successor archive queries unsupported by this lease",
+        ))
+    }
+
     /// Prepare a durable original request. This does not install a checkpoint.
     fn prepare_successor_window(
         &mut self,
@@ -359,6 +388,7 @@ impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
                             token: token.clone(),
                         },
                         checkpoint,
+                        archive_observation: None,
                     }));
                 }
                 BftSignerReplyKindV3::AcquireConflict {
@@ -391,6 +421,7 @@ pub struct RemoteBftSignerLeaseV3 {
     trust: BftSignerTrustV3,
     credential: BftSignerLeaseCredentialV3,
     checkpoint: BftSignerCheckpointV3,
+    archive_observation: Option<archive_query::ArchiveObservation>,
 }
 
 impl RemoteBftSignerLeaseV3 {
@@ -466,11 +497,40 @@ impl RemoteBftSignerLeaseV3 {
                 "BFT V3 leased reply checkpoint differs from response",
             ));
         }
+        self.archive_checkpoint_floor(checkpoint)?;
         Ok(checkpoint.as_ref().clone())
     }
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn read_successor_original_state(
+        &mut self,
+        request_id: &str,
+        checkpoint_digest: &str,
+        deadline: std::time::Instant,
+    ) -> Result<super::archive_query::ValidatedBftSuccessorOriginalStateV1, BftSignerErrorV3> {
+        self.archive_original(request_id, checkpoint_digest, None, deadline)
+    }
+    fn query_successor_archive(
+        &mut self,
+        request_id: &str,
+        checkpoint_digest: &str,
+        identity: &super::successor_window::BftSuccessorWindowArchiveIdentityV1,
+        deadline: std::time::Instant,
+    ) -> Result<
+        Option<super::successor_public_archive::BftSuccessorWindowOriginalSignedResultV1>,
+        BftSignerErrorV3,
+    > {
+        identity.validate()?;
+        let original =
+            self.archive_original(request_id, checkpoint_digest, Some(identity), deadline)?;
+        let result = original.resolve(identity)?;
+        if std::time::Instant::now() >= deadline {
+            return Err(invalid("archive client attempt expired"));
+        }
+        Ok(result)
+    }
+
     fn prepare_successor_window(
         &mut self,
         body: BftSuccessorWindowInstallIntentBodyV1,
