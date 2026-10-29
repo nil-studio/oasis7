@@ -1,4 +1,4 @@
-//! Test-only monotonic elapsed clock for the partitioned membership harness.
+//! Test-only monotonic elapsed clock for partitioned membership and cold recovery.
 //! The underlying snapshot/lease backend remains an explicit memory test double;
 //! this does not attest protected hardware or time across process replacement.
 use super::*;

@@ -205,7 +205,16 @@ pub(super) fn recover(
     delivery: &Arc<AtomicBool>,
     drains: &[Arc<AtomicU64>],
     received: &[Arc<AtomicU64>],
+    clock_start: &Arc<std::sync::OnceLock<Instant>>,
 ) {
+    assert!(
+        clock_start.get().is_none(),
+        "original recovery clock stays frozen"
+    );
+    let original_clock_floors = snapshots
+        .iter()
+        .map(|snapshot| snapshot.lock().unwrap().protected_time_floor_ms)
+        .collect::<Vec<_>>();
     network_wait(
         "original prevote failure and independent weighted QC",
         || {
@@ -284,11 +293,14 @@ pub(super) fn recover(
                 intent: original.clone(),
                 calls: calls.clone(),
             })],
-            Box::new(MemoryTestSignerBackend {
-                binding_digest: bindings[0].digest().unwrap(),
-                fail_confirm_after_commit: None,
-                snapshot: snapshots[0].clone(),
-            }),
+            membership_clock::elapsed_backend(
+                MemoryTestSignerBackend {
+                    binding_digest: bindings[0].digest().unwrap(),
+                    fail_confirm_after_commit: None,
+                    snapshot: snapshots[0].clone(),
+                },
+                clock_start.clone(),
+            ),
             BftCandidateReadPolicyV3::STANDARD,
         )
         .unwrap(),
@@ -500,6 +512,18 @@ pub(super) fn recover(
     let archived = restored.completed_journals[0].as_ref().unwrap();
     assert!(archived.events.iter().any(|event|matches!(event,BftSigningJournalEventV3::Vote {vote,local:true,..} if vote.height==original.height&&vote.phase==original.phase&&vote.value==original.value&&vote.validator_id==original.validator_id&&vote.verify_signature().is_ok())));
     assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(
+        snapshots
+            .iter()
+            .map(|snapshot| snapshot.lock().unwrap().protected_time_floor_ms)
+            .collect::<Vec<_>>(),
+        original_clock_floors,
+        "cold recovery must finish the original slot without advancing test clocks"
+    );
+    // Only the new action needs round-timeout recovery. Its providers now use
+    // elapsed milliseconds, not one millisecond per potentially slow TCP poll.
+    // The original pending vote/QC and exact completion were already proved.
+    clock_start.set(Instant::now()).unwrap();
     nodes[0]
         .submit_consensus_action_payload(9501, payload("actual-after-cold-pending-agent"))
         .unwrap();

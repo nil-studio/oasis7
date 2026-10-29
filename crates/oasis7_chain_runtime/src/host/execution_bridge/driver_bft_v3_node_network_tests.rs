@@ -208,8 +208,8 @@ fn network_case_membership(
     let mut snapshots = Vec::new();
     let mut servers = Vec::new();
     let mut nodes = Vec::new();
-    // Membership timers begin together after the original governance decision commits.
-    // This one-shot test clock is never reset for stop/start recovery.
+    // Fault scenarios activate elapsed timers only after their original decision completes.
+    // This one-shot test clock is shared by every provider, including a cold reopen.
     let membership_clock_start = Arc::new(std::sync::OnceLock::<Instant>::new());
     for index in 0..count {
         let binding = &bindings[index];
@@ -225,7 +225,7 @@ fn network_case_membership(
             fail_confirm_after_commit: None,
             snapshot: snapshot.clone(),
         };
-        let backend: Box<dyn BftSignerBackendV3> = if check_membership {
+        let backend: Box<dyn BftSignerBackendV3> = if check_membership || check_pending {
             membership_clock::elapsed_backend(backend, membership_clock_start.clone())
         } else {
             Box::new(backend)
@@ -435,6 +435,7 @@ fn network_case_membership(
             &public_delivery,
             &drains,
             &received,
+            &membership_clock_start,
         );
         return;
     }
