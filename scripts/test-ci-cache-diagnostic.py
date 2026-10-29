@@ -135,6 +135,19 @@ class CollectorTests(unittest.TestCase):
         report = self.call_fake(source, seconds=0.2)
         self.assertEqual(report['exit_code'], 124)
 
+    def test_workspace_cache_path_and_read_only_contract(self):
+        path = Path(__file__).resolve().parent.parent / '.github/workflows/native-cache-diagnostic.yml'
+        text = path.read_text()
+        # actions/cache versions include the archive path: a renamed diagnostic
+        # directory would miss the production cache despite an identical key.
+        self.assertIn('${{ runner.temp }}/${{ inputs.scope }}-workspace-cache/workspace-units.tar.zst', text)
+        self.assertIn('--cache "$RUNNER_TEMP/${SCOPE}-workspace-cache"', text)
+        self.assertIn('cache-mode: read', text)
+        self.assertIn('save-if: false', text)
+        self.assertNotIn('actions/cache/save@', text)
+        self.assertNotIn('schedule:', text)
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", text)
+
     def test_real_workflow_env_when_checkout_available(self):
         path = Path(__file__).resolve().parent.parent / '.github/workflows/rust.yml'
         if not path.exists():
