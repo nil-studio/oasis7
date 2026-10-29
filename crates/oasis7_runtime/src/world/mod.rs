@@ -1174,3 +1174,5 @@ pub use participant_devlocal::DevLocalParticipantAuthority;
 
 pub mod incremental_body;
 pub mod incremental_body_event;
+
+pub mod incremental_agent_genesis;
