@@ -6,3 +6,6 @@ pub mod incremental_value;
 pub mod snapshot_delta;
 
 pub mod native_environment;
+
+pub mod incremental_state;
+mod merkle;
