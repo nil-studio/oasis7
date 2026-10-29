@@ -629,6 +629,16 @@
     },
     {
       "match": [
+        "scripts/dot-todo.py",
+        "scripts/dot-todo.test.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "dot_todo_contracts"
+    },
+    {
+      "match": [
         "scripts/pr-review-thread-closeout*"
       ],
       "groups": [
