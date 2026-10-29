@@ -129,7 +129,7 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前固定业务源码为已合入 Tauri 生成上下文排除的 `c036927d33b917a036a731f071209e16f6deb033`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，仍按 45 分钟完整 default 与公共见证合同验收。旧业务版本仅可显式选取，旧结果不能代签本配置。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前 `mode=capacity` 固定业务源码为已合入大型 CFG 拆分的 `e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，仍按 45 分钟完整 default 与公共见证合同验收。旧业务版本仅可显式选取，旧结果不能代签本配置。
 
 其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
 
@@ -141,7 +141,7 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 预算记录同时保留固定 job 截止、准备耗时、实际分析分钟数及后续 600 秒预留。分析 step 触及其内部限时只能说明本次分配未完成；没有完整、隔离且可核验的执行结果时，生产容量保持未知。修复入口与离线故障回归不构成新一轮容量运行授权。
 
-上游成本研究使用同一 workflow 的显式 `mode=official-default-research`，仍须 `execute=true` 且单独获准运行。固定原业务 pin 与官方 bundle/资源，整个 job 360 分钟（含准备、提取、查询、官方结果解码、证据上传及 post）；不生成或执行公共自定义见证。分析分配为剩余时间减 600 秒收尾预留后的整分钟，无 32/35 分钟早停；内部限时仍不等于整个六小时已耗尽。`RESEARCH_*` 与 Action outcome 分列，dirty/不完整证据/结果失败保持阻断。一次成功或失败后停止，不重试、不分享数据库；生产 45 分钟容量、180 秒诊断与 Rust HOLD 不因研究完成改判。默认 `mode=capacity` 保持原入口合同。
+上游成本研究使用同一 workflow 的显式 `mode=official-default-research`，仍须 `execute=true` 且单独获准运行。research 模式固定原业务 pin `c036927d33b917a036a731f071209e16f6deb033`，独立于 capacity 模式的新 pin；官方 bundle/资源保持原配置，整个 job 360 分钟（含准备、提取、查询、官方结果解码、证据上传及 post）；不生成或执行公共自定义见证。分析分配为剩余时间减 600 秒收尾预留后的整分钟，无 32/35 分钟早停；内部限时仍不等于整个六小时已耗尽。`RESEARCH_*` 与 Action outcome 分列，dirty/不完整证据/结果失败保持阻断。一次成功或失败后停止，不重试、不分享数据库；生产 45 分钟容量、180 秒诊断与 Rust HOLD 不因研究完成改判。默认 `mode=capacity` 保持原入口合同。
 
 按以下边界作决定：完整默认查询和规定公共见证均通过且预算有余量，只证明该冻结配置下计算与覆盖可行，下一步才是 hosted baseline；查询完成但覆盖缺口保留相应 HOLD；完整但接近上限先评估成本和频率；超时、OOM 或计算结果不完整说明该配置未通过容量评估，停止追加运行并保留生产规模证据。无上传不证明平台关联、provider、运营队列或启用完成。原 180 秒优化问题继续独立跟踪，不因容量结果改判成功。
 

@@ -28,7 +28,7 @@ def workflow_steps():
 
 class Capacity(unittest.TestCase):
     def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
-        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE):
+        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.CAPACITY_SOURCE):
             with tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); source=root/"source";source.mkdir()
                 argv=["capacity","capture","--source",str(source),"--database",str(root/"db"),"--output",str(root/"out"),"--work",str(root/"work"),"--sarif",str(root/"sarif"),"--deadline",str(time.time()+300)]
@@ -437,6 +437,15 @@ class Capacity(unittest.TestCase):
         self.assertIn("inputs.mode == 'official-default-research' && 360 || 45",text)
         self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),3)
 
+    def test_mode_specific_source_selection_preserves_research_pin(self):
+        text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
+        expression=("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && '"
+                    +m.EXCLUSION_SOURCE+"' || '"+m.CAPACITY_SOURCE+"' }}")
+        self.assertIn(expression,text)
+        self.assertEqual(text.count('--source-sha "$CAPACITY_SOURCE"'),4)
+        self.assertEqual(text.count('ref: ${{ env.CAPACITY_SOURCE }}'),1)
+        self.assertNotEqual(m.CAPACITY_SOURCE,m.EXCLUSION_SOURCE)
+
     def test_manifest_discovery_is_not_semantic_coverage(self):
         text='INFO found manifests:\n[build-stdout]   /frozen/Cargo.toml\nINFO next\n'
         value=m.coverage_report(ROOT,['Cargo.toml','nested/Cargo.toml'],[text])
@@ -513,7 +522,7 @@ assert value['found_manifests']==[]
         self.assertEqual(len(checkouts),2)
         self.assertTrue(all('          path:' not in s for _,s in checkouts))
         self.assertIn('          ref: ${{ github.sha }}',checkouts[0][1])
-        self.assertIn('          ref: '+m.SOURCE,checkouts[1][1])
+        self.assertIn('          ref: ${{ env.CAPACITY_SOURCE }}',checkouts[1][1])
         self.assertLess(checkouts[0][0],steps.index(by_id['snapshot']))
         self.assertLess(steps.index(by_id['snapshot']),checkouts[1][0])
         self.assertLess(checkouts[1][0],steps.index(by_id['layout']))
@@ -523,7 +532,7 @@ assert value['found_manifests']==[]
         for phase in ('prepare','capture','finish'):
             self.assertIn('"$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" '+phase,by_id[phase])
             self.assertIn('--source "$GITHUB_WORKSPACE"',by_id[phase])
-            self.assertIn("--source-sha "+m.EXCLUSION_SOURCE,by_id[phase])
+            self.assertIn('--source-sha "$CAPACITY_SOURCE"',by_id[phase])
         condition=next(line.strip() for line in by_id['capture'].splitlines() if line.strip().startswith('if:'))
         self.assertEqual(condition,"if: always() && steps.snapshot.outcome == 'success'")
         self.assertIn("steps.capture.outcome == 'success'",by_id['finish'])
