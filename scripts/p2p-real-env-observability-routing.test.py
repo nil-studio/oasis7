@@ -66,6 +66,25 @@ pathlib.Path(os.environ['ROUTING_ARGV_LOG'], pathlib.Path(sys.argv[0]).name + '.
         self.assertIn('--local-status-url', self.argv('traffic-monitor'))
         self.assertNotIn('--local-status-url', self.argv('host-monitor'))
 
+    def test_profile_urls_are_routed_only_to_explicit_http_child(self):
+        helper = self.scripts / "p2p-triad-http-profile.py"
+        helper.write_text("""import json, pathlib, sys
+args = sys.argv[1:]
+if '--validate-only' not in args:
+    pathlib.Path('profile-argv.json').write_text(json.dumps(args))
+    pathlib.Path(args[args.index('--summary-json') + 1]).write_text('{}')
+""")
+        shutil.copy2(SCRIPTS / "p2p-profile-readiness.py", self.scripts)
+        args = ["--local-profile-status-url", "http://local.invalid/formal",
+                "--sequencer-profile-status-url", "http://sequencer.invalid/formal",
+                "--storage-profile-status-url", "https://storage.invalid/formal"]
+        self.fixture.complete(self.fixture.start(arguments=args))
+        actual = json.loads((self.root / "profile-argv.json").read_text())
+        for flag, value in zip(["--local-node-url", "--sequencer-ecs-url", "--storage-ecs-url"], args[1::2]):
+            self.assertEqual(actual[actual.index(flag) + 1], value)
+        for name in ["triad-snapshot", "host-monitor", "traffic-monitor"]:
+            self.assertFalse(any("profile" in arg for arg in self.argv(name)))
+
     def test_all_configured_routes_and_duplicate_values_preserve_consumer_order(self):
         mapping = {flag: ('value with spaces' if 'path' in flag or 'env-file' in flag else 'fixture-' + flag[2:])
                    for flag in TARGETS | SERVICES | STATUS | SNAPSHOT_ONLY | HOST_ONLY}

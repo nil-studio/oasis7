@@ -135,3 +135,6 @@ python3 "$repo_root/scripts/p2p-profile-readiness.test.py"
 # Explicit local CLI collection uses the same durable publication protocol.
 python3 "$repo_root/scripts/p2p-node-profile-monitor.test.py"
 python3 "$repo_root/scripts/p2p-node-profile-publication.test.py"
+
+# Explicit HTTP profile child and canonical merge preserve role boundaries.
+python3 "$repo_root/scripts/p2p-triad-http-profile.test.py"
