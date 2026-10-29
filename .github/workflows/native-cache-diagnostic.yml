@@ -83,7 +83,7 @@ jobs:
         id: workspace
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: ${{ runner.temp }}/diagnostic-workspace-cache/workspace-units.tar.zst
+          path: ${{ runner.temp }}/${{ inputs.scope }}-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.identity.outputs.key }}
           restore-keys: ${{ steps.identity.outputs.prefix }}
       - name: Validate the workspace archive using the existing restore contract
@@ -93,7 +93,7 @@ jobs:
           CACHE_HIT: ${{ steps.workspace.outputs.cache-hit }}
         run: |
           python3 scripts/ci-workspace-cache.py restore --scope "$SCOPE" \
-            --cache "$RUNNER_TEMP/diagnostic-workspace-cache" \
+            --cache "$RUNNER_TEMP/${SCOPE}-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/native-cache-diagnostic/workspace-restore.json"
       - name: Install the same native libraries as the primary producers
