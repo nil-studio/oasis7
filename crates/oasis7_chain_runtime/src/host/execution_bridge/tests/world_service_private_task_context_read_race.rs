@@ -668,3 +668,6 @@ fn private_task_context_native_read_rejects_authority_definition_change_before_d
     drop(fixture.driver);
     fs::remove_dir_all(fixture.dir).unwrap();
 }
+
+#[path = "world_service_private_task_context_live_read.rs"]
+mod live_read;
