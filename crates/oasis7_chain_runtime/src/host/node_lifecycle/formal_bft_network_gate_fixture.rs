@@ -8,8 +8,12 @@ pub(crate) struct NetworkGates {
     pub revoke_committed: Box<dyn Fn(u8) + Send + Sync>,
 }
 pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
+    network_gates_for_count(trust, 3)
+}
+pub(crate) fn network_gates_for_count(trust: InitialActivationTrustV1, count: u8) -> NetworkGates {
+    assert!((1..=5).contains(&count));
     let base = now_ms();
-    let providers = [200, 201, 202];
+    let providers: Vec<u8> = (200..200 + count).collect();
     let mut f = issue_lease_fixture_keys(
         trust,
         base,
@@ -32,8 +36,8 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
         &observation,
     )
     .unwrap();
-    let mut nonce = 81u8;
-    for reader in 120..=122 {
+    let mut nonce = 81u16;
+    for reader in 120..120 + count {
         for role in [
             FullSyncReadRoleV2::BftPendingCandidateV1,
             FullSyncReadRoleV2::FullReadOnly,
@@ -47,8 +51,12 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
                 role,
             };
             if !(reader == 120 && role == FullSyncReadRoleV2::BftPendingCandidateV1) {
-                let observed =
-                    v3_observation_for_test(&f.verified_v3, state.anchor(), nonce, base + 2000);
+                let observed = v3_observation_with_nonce_for_test(
+                    &f.verified_v3,
+                    state.anchor(),
+                    *blake3::hash(&nonce.to_be_bytes()).as_bytes(),
+                    base + 2000,
+                );
                 nonce += 1;
                 let command = SignedFullSyncIssuerCommandV3::sign(
                     FullSyncIssuerCommandBodyV3 {
@@ -65,8 +73,8 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
                         },
                         expected_head: state.anchor().clone(),
                         expected_target_generation: 0,
-                        request_id: issuer_hash(nonce),
-                        command_nonce: issuer_hash(nonce + 1),
+                        request_id: operation_nonce(nonce),
+                        command_nonce: operation_nonce(nonce + 1),
                     },
                     &key(MANAGER_KEY),
                 )
@@ -85,8 +93,12 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
                 f.history.v3_entries.push(decision.entry().clone());
             }
             for (index, provider) in providers.iter().enumerate() {
-                let observed =
-                    v3_observation_for_test(&f.verified_v3, state.anchor(), nonce, base + 2000);
+                let observed = v3_observation_with_nonce_for_test(
+                    &f.verified_v3,
+                    state.anchor(),
+                    *blake3::hash(&nonce.to_be_bytes()).as_bytes(),
+                    base + 2000,
+                );
                 nonce += 1;
                 let request = SignedFullSyncProviderLeaseRequestV3::sign(
                     FullSyncProviderLeaseRequestBodyV3 {
@@ -98,9 +110,9 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
                         signer_generation: 2,
                         provider_public_key: public(*provider),
                         provider_incarnation: issuer_hash(220 + index as u8),
-                        lease_id: issuer_hash(nonce),
-                        request_id: issuer_hash(nonce + 1),
-                        request_nonce: issuer_hash(nonce + 2),
+                        lease_id: operation_nonce(nonce),
+                        request_id: operation_nonce(nonce + 1),
+                        request_nonce: operation_nonce(nonce + 2),
                         expected_head: state.anchor().clone(),
                         target: target.clone(),
                         target_generation: 1,
@@ -144,7 +156,7 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
             )
         })
         .collect();
-    let committed_grants = (120..=122)
+    let committed_grants = (120..120 + count)
         .map(|reader| {
             FormalNodeReadGrantV1::sign(
                 FormalNodeReadGrantBodyV1 {
@@ -179,4 +191,8 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
             revoke_source.revoke_target(&fixture);
         }),
     }
+}
+
+fn operation_nonce(value: u16) -> String {
+    blake3::hash(&value.to_be_bytes()).to_hex().to_string()
 }

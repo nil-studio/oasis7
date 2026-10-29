@@ -71,6 +71,7 @@ pub(super) struct ChainBalancesResponse {
 pub(super) fn start_chain_status_server(
     host: &str,
     port: u16,
+    prebound_listener: Option<TcpListener>,
     runtime: Arc<Mutex<NodeRuntime>>,
     replication_network: Arc<Libp2pReplicationNetwork>,
     options: CliOptions,
@@ -91,12 +92,34 @@ pub(super) fn start_chain_status_server(
         release_security_policy.clone(),
         super::cli::devlocal_participant_config(&options)?.authority,
     )?;
-    let listener = TcpListener::bind((host, port))
-        .map_err(|err| format!("failed to bind status server at {host}:{port}: {err}"))?;
+    let listener = match prebound_listener {
+        Some(listener) => listener,
+        None => TcpListener::bind((host, port))
+            .map_err(|err| format!("failed to bind status server at {host}:{port}: {err}"))?,
+    };
+    let listener_addr = listener
+        .local_addr()
+        .map_err(|_| "status listener address unavailable")?;
+    let configured_host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    if let Ok(configured_ip) = configured_host.parse::<std::net::IpAddr>()
+        && configured_ip != listener_addr.ip()
+    {
+        return Err(format!(
+            "status listener address {} does not match configured {host}:{port}",
+            listener_addr
+        ));
+    }
+    if port != 0 && listener_addr.port() != port {
+        return Err(format!(
+            "status listener port {} does not match configured {host}:{port}",
+            listener_addr.port()
+        ));
+    }
     let private_goal_store = super::world_service_api::private_goal::configured_store(
-        listener
-            .local_addr()
-            .map_err(|_| "status listener address unavailable")?,
+        listener_addr,
         &[
             &execution_world_dir,
             &execution_records_dir,

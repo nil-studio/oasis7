@@ -124,8 +124,14 @@ impl Worker {
                             // A successful hook import is still checked through the
                             // same exact-parent actual candidate gate as local work.
                             let value = package.candidate.public_value;
-                            if startup::candidate(&self.config, &self.hook, &self.schedule, &value)
-                                .is_ok()
+                            if startup::candidate(
+                                &self.config,
+                                &self.hook,
+                                &self.schedule,
+                                &value,
+                                &self.selected,
+                            )
+                            .is_ok()
                             {
                                 self.accept_materialized(fetching.input.message)?;
                             }
@@ -199,6 +205,12 @@ impl Worker {
                     if is_local_echo(&message, &self.selected.binding.local_validator_id) {
                         continue;
                     }
+                    if super::super::membership::active_key(&self.selected, &self.schedule)
+                        .is_none()
+                        && !matches!(message, BftPublicPeerMessageV3::Commit(_))
+                    {
+                        continue;
+                    }
                     if self.peers.seen.contains(&digest)
                         || self.peers.seen.len()
                             >= BFT_MAX_CACHED_VOTES_V3 + BFT_MAX_PROPOSAL_EQUIVOCATIONS_V3
@@ -220,6 +232,11 @@ impl Worker {
                         continue;
                     }
                     if let BftPublicPeerMessageV3::Vote(vote) = message {
+                        if super::super::membership::active_key(&self.selected, &self.schedule)
+                            .is_none()
+                        {
+                            continue;
+                        }
                         let now = self
                             .signer()?
                             .protected_time_ms()
@@ -274,7 +291,15 @@ impl Worker {
             {
                 let value = message_value(&input.message)
                     .ok_or_else(|| error("wire-3 missing public value"))?;
-                if startup::candidate(&self.config, &self.hook, &self.schedule, &value).is_ok() {
+                if startup::candidate(
+                    &self.config,
+                    &self.hook,
+                    &self.schedule,
+                    &value,
+                    &self.selected,
+                )
+                .is_ok()
+                {
                     self.accept_materialized(input.message)?;
                 } else if self.peers.fetch_budget.reserve(
                     &configured_peers,
@@ -312,7 +337,15 @@ impl Worker {
             .is_none_or(|t| t.elapsed() >= Duration::from_millis(500))
         {
             self.peers.last_send = Some(Instant::now());
-            for event in self.journal()?.events.iter().rev().take(512) {
+            for event in self
+                .checkpoint
+                .state
+                .journal
+                .iter()
+                .flat_map(|j| j.events.iter())
+                .rev()
+                .take(512)
+            {
                 match event {
                     BftSigningJournalEventV3::Proposal {
                         proposal,
@@ -338,6 +371,7 @@ impl Worker {
     }
     fn validate_public_input(&self, message: &BftPublicPeerMessageV3) -> Result<(), String> {
         if let Some(value) = message_value(message)
+            && !self.selected.membership_enabled
             && (value.execution_commitment.transition.is_some()
                 || value.execution_commitment.transition_ref.is_some())
         {
@@ -345,6 +379,12 @@ impl Worker {
         }
         match message {
             BftPublicPeerMessageV3::Proposal(p) => {
+                // This gate is also evaluated when dequeuing an older input,
+                // before reserving any private-fetch budget. An inactive
+                // follower may recover committed state, never pending input.
+                if super::super::membership::active_key(&self.selected, &self.schedule).is_none() {
+                    return Err("wire-3 inactive follower cannot fetch a pending proposal".into());
+                }
                 p.validate_binding()?;
                 p.block.validate_for_schedule(&self.schedule)?;
                 let expected = self.schedule.expected_proposer_for_round(p.header.round)?;
@@ -374,6 +414,9 @@ impl Worker {
         let digest = message_digest(&message)?;
         match message {
             BftPublicPeerMessageV3::Proposal(proposal) => {
+                if super::super::membership::active_key(&self.selected, &self.schedule).is_none() {
+                    return Ok(());
+                }
                 let now = self
                     .signer()?
                     .protected_time_ms()

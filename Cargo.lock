@@ -6579,6 +6579,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "libp2p",
+ "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_consensus",
  "oasis7_distfs",

@@ -123,10 +123,32 @@ impl Server {
             .state
             .view()?
             .ok_or("private verified peer view unavailable")?;
-        let subject = self.validate_subject(&request, &view)?;
+        // The compact request never supplies membership or execution material.
+        // Resolve the original public value from local retained metadata only.
+        let value = match target.kind {
+            NodeBftPrivateFetchKindV3::CommittedState => view
+                .committed_history
+                .iter()
+                .find(|c| {
+                    c.execution_commitment.height == target.height
+                        && c.header.block_id().is_ok_and(|id| id == target.header_id)
+                })
+                .map(|c| BftHeaderValueV3 {
+                    header: c.header.clone(),
+                    execution_commitment: c.execution_commitment.clone(),
+                }),
+            NodeBftPrivateFetchKindV3::PendingCandidate => self
+                .hook
+                .lock()
+                .map_err(|_| "private original public lookup hook poisoned")?
+                .lookup_bft_v3_public_value(target.height, &target.header_id)?,
+        }
+        .ok_or("private original public metadata missing")?;
+        target.validate_value(&value)?;
+        let subject = self.validate_subject(&request, &view, &value)?;
         let scope = NodeBftPrivateReadScopeV3 {
             view: view.clone(),
-            value: target.value.clone(),
+            value: value.clone(),
             kind: target.kind,
             requester_peer_id: target.requester_peer_id.clone(),
             serving_peer_id: target.serving_peer_id.clone(),
@@ -150,7 +172,7 @@ impl Server {
             {
                 return Err(parent_changed.into());
             }
-            let (bytes, manifest, deadline) = self.material(&request)?;
+            let (bytes, manifest, deadline) = self.material(&request, &value)?;
             transport
                 .restrict_reply_until(authorized_until.min(deadline))
                 .map_err(|_| "private permission/original deadline expired")?;
@@ -184,6 +206,7 @@ impl Server {
         &self,
         request: &Request,
         view: &Arc<NodeBftPeerExecutionViewV3>,
+        value: &BftHeaderValueV3,
     ) -> Result<String, String> {
         let t = &request.target;
         match (&request.authorization, t.kind) {
@@ -191,18 +214,19 @@ impl Server {
                 NodeBftPrivateReadAuthorizationV3::Pending(proof),
                 NodeBftPrivateFetchKindV3::PendingCandidate,
             ) => {
-                t.value.validate_for_schedule(&view.schedule)?;
+                value.validate_for_schedule(&view.schedule)?;
                 let v = view
                     .schedule
                     .active_set()
                     .validator(&proof.body.validator_id)
                     .ok_or("pending read requester is not current active validator")?;
                 let expected = t.pending_body(
+                    value,
                     v.validator_id.clone(),
                     v.public_key_hex.clone(),
                     proof.body.candidate_policy_digest.clone(),
                     proof.body.candidate_grant_generation,
-                );
+                )?;
                 proof.verify_for(&expected, &v.public_key_hex)?;
                 Ok(v.public_key_hex.clone())
             }
@@ -212,8 +236,7 @@ impl Server {
             ) => {
                 self.verify_history(view)?;
                 if !view.committed_history.iter().any(|c| {
-                    c.header == t.value.header
-                        && c.execution_commitment == t.value.execution_commitment
+                    c.header == value.header && c.execution_commitment == value.execution_commitment
                 }) {
                     return Err(
                         "committed read is not in the independently verified original prefix"
@@ -262,7 +285,11 @@ impl Server {
         *cached = Some(view.clone());
         Ok(())
     }
-    fn material(&self, request: &Request) -> Result<(Arc<Vec<u8>>, Manifest, Instant), String> {
+    fn material(
+        &self,
+        request: &Request,
+        value: &BftHeaderValueV3,
+    ) -> Result<(Arc<Vec<u8>>, Manifest, Instant), String> {
         let t = &request.target;
         let key = (t.requester_peer_id.clone(), t.nonce.clone());
         let identity = match &request.authorization {
@@ -334,8 +361,8 @@ impl Server {
                 .hook
                 .lock()
                 .map_err(|_| "private export hook poisoned")?
-                .export_bft_v3_private_candidate(&t.value)?;
-            if package.candidate.public_value != t.value {
+                .export_bft_v3_private_candidate(value)?;
+            if package.candidate.public_value != *value {
                 return Err("private original export value changed".into());
             }
             let bytes = super::package::encode_package(&package)?;

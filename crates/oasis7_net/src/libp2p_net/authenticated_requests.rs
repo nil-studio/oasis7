@@ -178,7 +178,9 @@ impl Libp2pNetwork {
         }
         if !matches!(
             protocol,
-            "/oasis7/bft/header-peer/3.0.0" | "/oasis7/bft/private-candidate/1.0.0"
+            "/oasis7/bft/header-peer/3.0.0"
+                | "/oasis7/bft/private-candidate/1.0.0"
+                | "/oasis7/bft/private-candidate/2.0.0"
         ) {
             return Err(rejected(
                 "authenticated handler requires dedicated BFT namespace",
@@ -209,7 +211,9 @@ impl Libp2pNetwork {
 pub(super) fn reserved(protocol: &str) -> bool {
     matches!(
         protocol,
-        "/oasis7/bft/header-peer/3.0.0" | "/oasis7/bft/private-candidate/1.0.0"
+        "/oasis7/bft/header-peer/3.0.0"
+            | "/oasis7/bft/private-candidate/1.0.0"
+            | "/oasis7/bft/private-candidate/2.0.0"
     )
 }
 pub(super) fn install(

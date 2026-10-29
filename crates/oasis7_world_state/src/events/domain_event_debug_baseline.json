@@ -1,0 +1,42 @@
+[
+  {
+    "name": "world_agent.agent_moved",
+    "normal": "AgentMoved { agent_id: \"agent-a\", from: GeoPos { x_cm: 1, y_cm: -2, z_cm: 3 }, to: GeoPos { x_cm: 4, y_cm: 5, z_cm: -6 } }",
+    "pretty": "AgentMoved {\n    agent_id: \"agent-a\",\n    from: GeoPos {\n        x_cm: 1,\n        y_cm: -2,\n        z_cm: 3,\n    },\n    to: GeoPos {\n        x_cm: 4,\n        y_cm: 5,\n        z_cm: -6,\n    },\n}"
+  },
+  {
+    "name": "module_lifecycle.module_artifact_deployed",
+    "normal": "ModuleArtifactDeployed { publisher_agent_id: \"publisher\", wasm_hash: \"sha256:abc\", bytes_len: 7, fee_kind: Electricity, fee_amount: 11 }",
+    "pretty": "ModuleArtifactDeployed {\n    publisher_agent_id: \"publisher\",\n    wasm_hash: \"sha256:abc\",\n    bytes_len: 7,\n    fee_kind: Electricity,\n    fee_amount: 11,\n}"
+  },
+  {
+    "name": "data_power.data_collected_authenticated",
+    "normal": "DataCollectedAuthenticated { collector_agent_id: \"collector\", electricity_cost: 13, data_amount: 17, player_id: \"player\", public_key: \"public-key\", nonce: 19, signature: \"signature\" }",
+    "pretty": "DataCollectedAuthenticated {\n    collector_agent_id: \"collector\",\n    electricity_cost: 13,\n    data_amount: 17,\n    player_id: \"player\",\n    public_key: \"public-key\",\n    nonce: 19,\n    signature: \"signature\",\n}"
+  },
+  {
+    "name": "token_claims.node_points_settlement_applied",
+    "normal": "NodePointsSettlementApplied { report: EpochSettlementReport { epoch_index: 23, pool_points: 29, storage_pool_points: 31, distributed_points: 37, storage_distributed_points: 41, total_distributed_points: 43, settlements: [NodeSettlement { node_id: \"node-a\", obligation_met: true, compute_score: 0.375, storage_score: 0.25, uptime_score: 0.5, reliability_score: 0.75, storage_reward_score: 1.0, rewardable_storage_bytes: 47, penalty_score: 0.0, total_score: 0.5, main_awarded_points: 53, storage_awarded_points: 59, awarded_points: 61, cumulative_points: 67 }] }, signer_node_id: \"signer\", settlement_hash: \"settlement-hash\", minted_records: [], main_token_bridge_total_amount: 71, main_token_bridge_distributions: [] }",
+    "pretty": "NodePointsSettlementApplied {\n    report: EpochSettlementReport {\n        epoch_index: 23,\n        pool_points: 29,\n        storage_pool_points: 31,\n        distributed_points: 37,\n        storage_distributed_points: 41,\n        total_distributed_points: 43,\n        settlements: [\n            NodeSettlement {\n                node_id: \"node-a\",\n                obligation_met: true,\n                compute_score: 0.375,\n                storage_score: 0.25,\n                uptime_score: 0.5,\n                reliability_score: 0.75,\n                storage_reward_score: 1.0,\n                rewardable_storage_bytes: 47,\n                penalty_score: 0.0,\n                total_score: 0.5,\n                main_awarded_points: 53,\n                storage_awarded_points: 59,\n                awarded_points: 61,\n                cumulative_points: 67,\n            },\n        ],\n    },\n    signer_node_id: \"signer\",\n    settlement_hash: \"settlement-hash\",\n    minted_records: [],\n    main_token_bridge_total_amount: 71,\n    main_token_bridge_distributions: [],\n}"
+  },
+  {
+    "name": "logistics.material_transferred",
+    "normal": "MaterialTransferred { transfer_id: Some(73), requester_agent_id: \"requester\", from_ledger: World, to_ledger: World, kind: \"ore\", amount: 79, distance_km: 83, priority: Standard, route_id: Some(\"route-a\") }",
+    "pretty": "MaterialTransferred {\n    transfer_id: Some(\n        73,\n    ),\n    requester_agent_id: \"requester\",\n    from_ledger: World,\n    to_ledger: World,\n    kind: \"ore\",\n    amount: 79,\n    distance_km: 83,\n    priority: Standard,\n    route_id: Some(\n        \"route-a\",\n    ),\n}"
+  },
+  {
+    "name": "production.factory_durability_changed",
+    "normal": "FactoryDurabilityChanged { factory_id: \"factory-a\", previous_durability_ppm: 89, durability_ppm: 97, reason: \"wear\" }",
+    "pretty": "FactoryDurabilityChanged {\n    factory_id: \"factory-a\",\n    previous_durability_ppm: 89,\n    durability_ppm: 97,\n    reason: \"wear\",\n}"
+  },
+  {
+    "name": "governance.crisis_spawned",
+    "normal": "CrisisSpawned { crisis_id: \"crisis-a\", kind: \"supply\", severity: 2, expires_at: 101 }",
+    "pretty": "CrisisSpawned {\n    crisis_id: \"crisis-a\",\n    kind: \"supply\",\n    severity: 2,\n    expires_at: 101,\n}"
+  },
+  {
+    "name": "validation.product_validated",
+    "normal": "ProductValidated { requester_agent_id: \"requester\", module_id: \"product-module\", stack: MaterialStack { kind: \"ore\", amount: 103 }, stack_limit: 107, tradable: true, quality_levels: [\"common\", \"rare\"], notes: [\"validated\"] }",
+    "pretty": "ProductValidated {\n    requester_agent_id: \"requester\",\n    module_id: \"product-module\",\n    stack: MaterialStack {\n        kind: \"ore\",\n        amount: 103,\n    },\n    stack_limit: 107,\n    tradable: true,\n    quality_levels: [\n        \"common\",\n        \"rare\",\n    ],\n    notes: [\n        \"validated\",\n    ],\n}"
+  }
+]

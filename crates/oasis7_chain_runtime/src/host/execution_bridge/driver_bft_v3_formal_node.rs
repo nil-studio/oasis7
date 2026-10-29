@@ -24,6 +24,7 @@ pub(crate) struct FormalBftHeaderNodeDriverV3 {
     cursor_height: u64,
     installed_world: RuntimeWorld,
     peer_network: bool,
+    membership_enabled: bool,
 }
 impl FormalBftHeaderNodeDriverV3 {
     pub(crate) fn open_from_handoff(
@@ -103,6 +104,7 @@ impl FormalBftHeaderNodeDriverV3 {
         let installed_world = execution.origin.parent_world.clone();
         Ok(Self {
             peer_network,
+            membership_enabled: false,
             installed_world,
             execution,
             private,
@@ -262,8 +264,9 @@ impl FormalBftHeaderNodeDriverV3 {
             .map_err(|_| "Node private candidate actual execution rejected")?;
         if actual.header != candidate.public_value.header
             || actual.commitment != candidate.public_value.execution_commitment
-            || actual.commitment.transition.is_some()
-            || actual.commitment.transition_ref.is_some()
+            || (!self.membership_enabled
+                && (actual.commitment.transition.is_some()
+                    || actual.commitment.transition_ref.is_some()))
         {
             return Err(
                 "Node candidate differs from actual execution or supported membership".into(),
@@ -304,6 +307,16 @@ impl FormalBftHeaderNodeDriverV3 {
 }
 
 impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
+    fn enable_bft_v3_membership_execution(&mut self) -> Result<(), String> {
+        if self.membership_enabled {
+            return Ok(());
+        }
+        if self.configured_binding.is_some() {
+            return Err("enable header Node membership before configuring execution".into());
+        }
+        self.membership_enabled = true;
+        Ok(())
+    }
     fn on_commit(
         &mut self,
         _: oasis7_node::NodeExecutionCommitContext,
@@ -354,8 +367,9 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             .origin
             .build_candidate(&actions_cbor)
             .map_err(|_| "Node action execution rejected")?;
-        if candidate.commitment.transition.is_some()
-            || candidate.commitment.transition_ref.is_some()
+        if !self.membership_enabled
+            && (candidate.commitment.transition.is_some()
+                || candidate.commitment.transition_ref.is_some())
         {
             return Err("Node membership transitions are not installed".into());
         }
@@ -432,6 +446,36 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         self.require_configured()?;
         self.private_candidate(value)
     }
+    fn lookup_bft_v3_public_value(
+        &mut self,
+        height: u64,
+        header_id: &str,
+    ) -> Result<Option<BftHeaderValueV3>, String> {
+        self.require_configured()?;
+        if header_id.len() != 64
+            || !header_id
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err("Node public lookup header identity rejected".into());
+        }
+        if let Some(value) = self.private.public_value(height, header_id)? {
+            return Ok(Some(value));
+        }
+        self.execution.ledger.reload()?;
+        let Some(record) = self.execution.ledger.record_at(height) else {
+            return Ok(None);
+        };
+        let input = record.input();
+        let value = BftHeaderValueV3 {
+            header: input.certificate.header,
+            execution_commitment: input.certificate.execution_commitment,
+        };
+        if value.block_id()? != header_id {
+            return Ok(None);
+        }
+        Ok(Some(value))
+    }
     fn validate_bft_v3_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
         self.require_configured()?;
         // Actual batch execution still checks the original signed payload and
@@ -459,8 +503,9 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             .build_candidate(&bytes)
             .map_err(|_| "Node immutable parent-policy admission rejected")?;
         if actual.commitment.height != context.height
-            || actual.commitment.transition.is_some()
-            || actual.commitment.transition_ref.is_some()
+            || (!self.membership_enabled
+                && (actual.commitment.transition.is_some()
+                    || actual.commitment.transition_ref.is_some()))
         {
             return Err("Node batch changes unsupported membership".into());
         }

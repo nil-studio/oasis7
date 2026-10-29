@@ -32,7 +32,7 @@ class CfgWorkflow(unittest.TestCase):
         self.assertIn('cancel-in-progress: false', TEXT)
 
     def test_fixed_source_official_bundle_and_external_tools(self):
-        self.assertIn('09641e1b9d551700771c772e7545ac2851ea273d', TEXT)
+        self.assertIn('c65098923e8d9aad6813d49ac48cc2540627c96d', TEXT)
         self.assertIn('codeql-bundle-v2.27.3/codeql-bundle-rust-linux64.tar.zst', TEXT)
         self.assertIn('218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237', TEXT)
         self.assertIn('persist-credentials: false', TEXT)
@@ -81,10 +81,11 @@ class CfgWorkflow(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, step+': '+result.stderr)
 
     def test_exclusion_verification_is_bound_to_new_source_everywhere(self):
-        sha="09641e1b9d551700771c772e7545ac2851ea273d"
+        sha="c65098923e8d9aad6813d49ac48cc2540627c96d"
         self.assertIn("ref: "+sha,TEXT)
         self.assertEqual(TEXT.count("--source-sha "+sha),3)
         self.assertEqual(TEXT.count("--verify-context-exclusion"),2)
+        self.assertEqual(TEXT.count("--scope-identities"),2)
         self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
         capacity=(ROOT/".github/workflows/codeql-rust-capacity.yml").read_text()
         self.assertIn("ref: c036927d33b917a036a731f071209e16f6deb033",capacity)

@@ -16,6 +16,33 @@ impl World {
         authorization: Option<&oasis7_agent_api::world_action::GovernanceAuthorizationV1>,
     ) -> Result<WorldEventBody, WorldError> {
         match action {
+            Action::UpdateGameplayPolicy { .. }
+            | Action::UpdateRestrictedStarterClaimAdminRegistry { .. } => {
+                self.action_to_event_policy_admin(action_id, action)
+            }
+            Action::SubmitGovernanceValidatorAdmission { .. }
+            | Action::ApproveGovernanceValidatorAdmission { .. }
+            | Action::ActivateGovernanceValidatorAdmission { .. }
+            | Action::RevokeGovernanceValidatorAdmission { .. } => {
+                self.action_to_event_policy_governance_admission(action_id, action, authorization)
+            }
+            Action::OpenEconomicContract { .. }
+            | Action::AcceptEconomicContract { .. }
+            | Action::SettleEconomicContract { .. } => {
+                self.action_to_event_policy_economic_contract(action_id, action)
+            }
+            _ => {
+                unreachable!("action_to_event_policy_contract received unsupported action variant")
+            }
+        }
+    }
+
+    fn action_to_event_policy_admin(
+        &self,
+        action_id: ActionId,
+        action: &Action,
+    ) -> Result<WorldEventBody, WorldError> {
+        match action {
             Action::UpdateGameplayPolicy { .. } => self.gameplay_policy_event(action_id, action),
             Action::UpdateRestrictedStarterClaimAdminRegistry {
                 controller_account_id,
@@ -94,6 +121,17 @@ impl World {
                     },
                 ))
             }
+            _ => unreachable!("unsupported variant reached its specialized dispatcher"),
+        }
+    }
+
+    fn action_to_event_policy_governance_admission(
+        &self,
+        action_id: ActionId,
+        action: &Action,
+        authorization: Option<&oasis7_agent_api::world_action::GovernanceAuthorizationV1>,
+    ) -> Result<WorldEventBody, WorldError> {
+        match action {
             Action::SubmitGovernanceValidatorAdmission {
                 controller_account_id,
                 candidate_id,
@@ -690,6 +728,16 @@ impl World {
                     },
                 ))
             }
+            _ => unreachable!("unsupported variant reached its specialized dispatcher"),
+        }
+    }
+
+    fn action_to_event_policy_economic_contract(
+        &self,
+        action_id: ActionId,
+        action: &Action,
+    ) -> Result<WorldEventBody, WorldError> {
+        match action {
             Action::OpenEconomicContract {
                 creator_agent_id,
                 contract_id,
@@ -1090,9 +1138,7 @@ impl World {
                     },
                 ))
             }
-            _ => {
-                unreachable!("action_to_event_policy_contract received unsupported action variant")
-            }
+            _ => unreachable!("unsupported variant reached its specialized dispatcher"),
         }
     }
 }
