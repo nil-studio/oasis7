@@ -2,6 +2,7 @@
 //! H prefix; no history eviction, rebasing, or height-65 permission is provided.
 use super::*;
 use crate::protected_bft_v3::successor_archive_store::BftSuccessorArchiveStoreV1;
+use crate::protected_bft_v3::successor_public_archive::validate_actual_public_manifest;
 use crate::protected_bft_v3::successor_state::*;
 use crate::protected_bft_v3::successor_window::*;
 use std::sync::Arc;
@@ -97,6 +98,7 @@ impl BftSuccessorWindowSupportV1 {
                 ));
             }
             let original = validate_state(binding, Some(provider), &original)?;
+            validate_actual_public_manifest(&record.manifest, &original.state)?;
             let token = record.request.intent.body.checkpoint.bind_verified_state(
                 binding,
                 &original,
@@ -108,6 +110,7 @@ impl BftSuccessorWindowSupportV1 {
         }
         if let Some(reservation) = &extension.reservation {
             let original = reservation.original_state(binding, state, provider)?;
+            validate_actual_public_manifest(&reservation.manifest, &original.state)?;
             reservation.body.checkpoint.bind_verified_state(
                 binding,
                 &original,
@@ -232,11 +235,7 @@ impl BftSignerServiceV3 {
                         digest: blake3::hash(&bytes).to_hex().to_string(),
                         bytes: bytes.len() as u64,
                     };
-                    validate_whole_state_public_manifest(
-                        manifest,
-                        &reference,
-                        &body.expected_state_digest,
-                    )?;
+                    validate_actual_public_manifest(manifest, &snapshot.state)?;
                     body.checkpoint.usage.validate_after(&extension.usage)?;
                     if body
                         .checkpoint
@@ -519,6 +518,7 @@ impl BftSignerServiceV3 {
             &snapshot.state,
             &self.provider_key.public_key_hex(),
         )?;
+        validate_actual_public_manifest(&reserved.manifest, &original.state)?;
         live(deadline)?;
         let reference = support.archive.persist_public_state(&original.state)?;
         live(deadline)?;

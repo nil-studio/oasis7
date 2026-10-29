@@ -12,6 +12,7 @@ mod rotation;
 mod service;
 mod state;
 mod successor_archive_store;
+mod successor_public_archive;
 mod successor_state;
 mod successor_window;
 #[cfg(test)]
@@ -67,3 +68,9 @@ pub use successor_window::{
 };
 
 pub use successor_state::{BftSuccessorWindowStateV1, BftSuccessorWindowStoredRequestV1};
+
+pub use successor_public_archive::{
+    BftSuccessorWindowOriginalSignedResultV1, index_whole_state_signed_results_v1,
+    resolve_whole_state_signed_result_v1, whole_state_signed_result_entries_v1,
+};
+pub use successor_window::BftSuccessorWindowPublicIndexV1;

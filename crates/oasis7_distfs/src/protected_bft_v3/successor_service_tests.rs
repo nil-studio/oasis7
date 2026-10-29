@@ -441,6 +441,7 @@ fn request(
         total_bytes: object.bytes + 1024,
     };
     let manifest = BftSuccessorWindowArchiveManifestV1 {
+        public_index: None,
         schema_version: 1,
         source: source.clone(),
         kind: BftSuccessorWindowArchiveKindV1::Public,
@@ -1102,3 +1103,6 @@ fn successor_window_whole_state_adapter_rejects_unverified_public_objects_before
     drop(lease);
     server.join().unwrap();
 }
+
+#[path = "successor_public_archive_tests.rs"]
+mod public_archive_tests;

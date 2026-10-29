@@ -476,7 +476,9 @@ Provider backend 须新增同一原 binding 下的 `prepare_successor_window`／
 | `Adopted` | 独立重开重验成功后，专用 adopted CAS 记录 exact evidence，才解除签写闸门。查询原结果不再次 commit 或重发世界效果。 |
 | `Superseded`／明确冲突 | 仅在已读取并验证真实当前状态，证明原 prepared CAS 未提交且其 expected state 已被其他合法事务改变后，持久明确拒绝该 prepared；如仍需安装，按真实当前状态以新 request 重新 prepare。不能覆盖旧 intent，也不能把无法确定的 commit 当作未提交。 |
 
-当前 whole-State V1 public adapter 只接受精确唯一的 canonical 原 S（object 为实际 reread 的原 S ref，identity_digest 为原 expected_state_digest），完整 State 保留全部 history／journal／proofs；slot 索引及多对象须有真实 typed 持久读取校验后才启用，private DriverVerifier 不替 public object 验收，单 object 前置不代表跨窗功能完成。
+Whole-State public archive 的旧 manifest 不声明 `public_index`，继续只接受精确唯一的 canonical 原 S（object 为实际 reread 的原 S ref，identity_digest 为原 expected_state_digest），缺省字段保持原编码、摘要和原安装回执；不能升级时改写已提交 manifest。新增索引仅以显式 `public_index = whole_state_signed_results_v1` 启用，旧 consumer 对未知字段停止服务。新 manifest 必须精确包含原 S identity 及从实际验证的 S 完整推导、排序去重的本机原签名／typed proof identity 集合；全部 entry 只引用同一原 S 对象。Provider 在 reservation/CAS 前、归档冷回读及查询时重验其完整性和每条签名，未知 identity、额外对象、远端签名、伪造签名或静默截断均拒绝；private DriverVerifier 不替 public object 验收。
+
+签名槽 `preimage_digest` 定义为原 Proposal header／Vote 的 `signing_payload()` 原 bytes 的 BLAKE3，不再叠加 State digest 的领域／CBOR framing。治理 proof 的 `body_digest` 为完整 typed body 的规范 CBOR 原 bytes 的 BLAKE3；identity role 必须分别为 `admitted_old`、`admitted_new`、`bootstrap_old`、`bootstrap_new`，并以原 typed signing bytes 和公钥验签，不能只核对 proof shape。Public S 不证明私有 canonical action 语义，因此此索引不生成 `CanonicalRequest` entry。索引仍受 4096 entry／1 MiB metadata 上限，完整集合装不下就在 reservation 前明确容量拒绝。多个 identity 指向同一对象时，单个 manifest 的物理字节／对象下界按唯一 `(digest, bytes)` 计数；索引 entry 的独立数量限制保留，不把切窗或别名当作清零累计预算的理由。该索引是跨窗原结果查询的必要接线，不单独证明 Node 切窗已实现。
 
 Prepared／InstalledPending 冻结新共识签名、治理换钥 proof 和原 journal 的写入；原 Proposal／Vote／治理 proof 及已启动 timer 只按原结果取回，不重新签名或重启计时。独立授权的 CandidateRead 持钥 proof 不占 T+1 共识签名槽，恢复闭包仍可使用其既有当前 key、scope 与 grant 校验；finality checkpoint 不新增读取权限。
 

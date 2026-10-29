@@ -215,9 +215,16 @@ pub struct BftSuccessorWindowArchiveEntryV1 {
     pub identity_digest: String,
     pub object: BftSuccessorWindowArchiveRefV1,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BftSuccessorWindowPublicIndexV1 {
+    WholeStateSignedResultsV1,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSuccessorWindowArchiveManifestV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_index: Option<BftSuccessorWindowPublicIndexV1>,
     pub schema_version: u32,
     pub source: BftSuccessorWindowSourceV1,
     pub kind: BftSuccessorWindowArchiveKindV1,
@@ -232,6 +239,9 @@ impl BftSuccessorWindowArchiveManifestV1 {
     pub fn validate(&self) -> Result<(), BftSignerErrorV3> {
         self.source.validate()?;
         self.usage.validate()?;
+        if self.public_index.is_some() && self.kind != BftSuccessorWindowArchiveKindV1::Public {
+            return Err(invalid("successor public index on non-public manifest"));
+        }
         if self.schema_version != 1
             || self.segment_sequence == 0
             || self.segment_sequence > self.usage.segments
@@ -252,6 +262,7 @@ impl BftSuccessorWindowArchiveManifestV1 {
         }
         let mut previous = None;
         let mut bytes = 0_u64;
+        let mut objects = BTreeSet::new();
         for entry in &self.entries {
             hash(&entry.identity_digest)?;
             entry.object.validate()?;
@@ -261,12 +272,14 @@ impl BftSuccessorWindowArchiveManifestV1 {
                 ));
             }
             previous = Some(entry.identity_digest.as_str());
-            bytes = bytes
-                .checked_add(entry.object.bytes)
-                .ok_or_else(|| invalid("successor manifest bytes overflow"))?;
+            if objects.insert((&entry.object.digest, entry.object.bytes)) {
+                bytes = bytes
+                    .checked_add(entry.object.bytes)
+                    .ok_or_else(|| invalid("successor manifest bytes overflow"))?;
+            }
         }
         if bytes > self.usage.total_bytes
-            || u64::try_from(self.entries.len()).map_err(|_| invalid("successor manifest count"))?
+            || u64::try_from(objects.len()).map_err(|_| invalid("successor manifest count"))?
                 > self.usage.objects
         {
             return Err(invalid("successor manifest exceeds cumulative usage"));

@@ -214,20 +214,28 @@ impl BftSuccessorWindowStateV1 {
         Ok(())
     }
 }
-/// The V1 store has typed durable IO only for the complete original public
-/// State. Extra manifest objects cannot be promised without a typed verifier.
+/// Structural validation cannot load S. Require its exact identity and only
+/// its physical object; capability consumers must separately derive every alias
+/// from the authenticated and fully validated original State.
 pub(crate) fn validate_whole_state_public_manifest(
     manifest: &BftSuccessorWindowArchiveManifestV1,
     original_public_state: &BftSuccessorWindowArchiveRefV1,
     expected_state_digest: &str,
 ) -> Result<(), BftSignerErrorV3> {
+    manifest.validate()?;
     if manifest.kind != BftSuccessorWindowArchiveKindV1::Public
-        || manifest.entries.len() != 1
-        || manifest.entries[0].object != *original_public_state
-        || manifest.entries[0].identity_digest != expected_state_digest
+        || manifest
+            .entries
+            .iter()
+            .any(|e| e.object != *original_public_state)
+        || !manifest
+            .entries
+            .iter()
+            .any(|e| e.identity_digest == expected_state_digest)
+        || (manifest.public_index.is_none() && manifest.entries.len() != 1)
     {
         return Err(invalid(
-            "successor whole-State public archive must contain exactly the original state identity/object",
+            "successor whole-State public archive original identity/object shape",
         ));
     }
     Ok(())
@@ -299,6 +307,10 @@ impl BftSuccessorWindowReservationV1 {
         let verified = validate_state(binding, Some(provider), &original)?;
         let bytes = encode_bounded(&original, BFT_SIGNER_MAX_FRAME_BYTES_V3)?;
         self.original_public_state.validate_bytes(&bytes)?;
+        super::successor_public_archive::validate_actual_public_manifest(
+            &self.manifest,
+            &original,
+        )?;
         Ok(verified)
     }
 }

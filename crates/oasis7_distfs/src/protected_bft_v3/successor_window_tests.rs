@@ -222,6 +222,7 @@ fn object_membership_rejects_changed_bytes_duplicate_entries_and_origin_conflict
     object.validate_bytes(bytes).unwrap();
     assert!(object.validate_bytes(b"changed archive object").is_err());
     let mut manifest = BftSuccessorWindowArchiveManifestV1 {
+        public_index: None,
         schema_version: 1,
         source: source(),
         kind: BftSuccessorWindowArchiveKindV1::Public,

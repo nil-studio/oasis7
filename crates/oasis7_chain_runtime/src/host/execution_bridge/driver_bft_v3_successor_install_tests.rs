@@ -227,7 +227,8 @@ fn install_case() {
         .next_height_schedule()
         .clone();
     }
-    let public_manifest = BftSuccessorWindowArchiveManifestV1 {
+    let mut public_manifest = BftSuccessorWindowArchiveManifestV1 {
+        public_index: None,
         schema_version: 1,
         source: source.clone(),
         kind: BftSuccessorWindowArchiveKindV1::Public,
@@ -241,6 +242,11 @@ fn install_case() {
         }],
         usage: exported.manifest().usage,
     };
+    oasis7_distfs::protected_bft_v3::index_whole_state_signed_results_v1(
+        &mut public_manifest,
+        &original.state,
+    )
+    .unwrap();
     let journal_ref = original.state.journal.as_ref().map(|j| {
         private_archive
             .persist_object(

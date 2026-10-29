@@ -566,6 +566,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
             .and_then(|n| n.checked_add(2)) // execution manifest + reserved public manifest
             .ok_or("successor object usage overflow")?;
         let mut manifest = BftSuccessorWindowArchiveManifestV1 {
+            public_index: None,
             schema_version: 1,
             source: source.clone(),
             kind: BftSuccessorWindowArchiveKindV1::Execution,
