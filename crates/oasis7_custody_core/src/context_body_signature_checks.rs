@@ -217,3 +217,21 @@ pub(crate) fn bind_live_context_checks(
     )?;
     Ok(checks)
 }
+
+/// Only historical storage material. This manifest carries no Current or grant.
+pub(crate) fn context_storage_checks(
+    body: &crate::context_body::ValidatedContextBody,
+) -> Result<ExactSignatureChecks> {
+    let binding = canonical_digest(
+        "oasis7.custody.context-body.storage-producer.v1",
+        &(body.scope(), body.evidence(), body.canonical_bytes()),
+    )?;
+    Ok(ExactSignatureChecks {
+        operation_id: body.scope().context_operation_id.clone(),
+        body_digest: binding.clone(),
+        context_digest: binding.clone(),
+        verify_nonce: binding,
+        verification_digest: None,
+        checks: Vec::new(),
+    })
+}

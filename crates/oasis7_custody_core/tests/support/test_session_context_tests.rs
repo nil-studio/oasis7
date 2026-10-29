@@ -492,3 +492,6 @@ mod export;
 
 #[path = "test_session_live_context_tests.rs"]
 mod live_context_tests;
+
+#[path = "test_session_context_storage_factory_tests.rs"]
+mod storage_factory_tests;

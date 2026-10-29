@@ -253,27 +253,12 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        verify_get(original).map_err(|_| invalid())?;
-        if original.request.context != *prepared.evidence().identity()
-            || original.request.prepare_operation_id != c.original.request.client_operation_id
-            || original.subject_public_key != c.original.subject_public_key
-        {
-            return Err(invalid());
-        }
-        let expected =
-            public_prefix(&prepared.prepared().map_err(body_error)?).map_err(|_| invalid())?;
-        let oasis7_client_api::world_service_wire::WorldServicePayloadV1::Scheduler(signed) =
-            &prefix.original.signed_payload
-        else {
-            return Err(invalid());
-        };
-        if signed.request != expected {
-            return Err(invalid());
-        }
         prefix
-            .validate(
+            .validate_against_prepared(
                 &self.context_scope(id, ContextBodySlotKindV1::Captured)?,
-                &original.request.context,
+                &c.original,
+                &prepared.prepared().map_err(body_error)?,
+                original,
             )
             .map_err(body_error)?;
         Ok(append_context_signature_checks(
