@@ -32,6 +32,28 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_dot_todo_exact_registration_and_old_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'dot_todo_contracts'])
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in ('scripts/dot-todo.py', 'scripts/dot-todo.test.py'):
+                with self.subTest(path=path):
+                    self.write(path, '# synthetic input')
+                    head = self.commit()
+                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
+                                     {'baseline', 'workflow_governance'})
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(old, self.base, head)
+                    self.base = head
+                    self.git('rm', path)
+                    head = self.commit()
+                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
+                                     {'baseline', 'workflow_governance'})
+                    self.base = head
+            self.write('scripts/dot-todo-extra.py', '# unregistered neighbor')
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_m1_storage_source_has_explicit_runtime_and_builder_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         path = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
