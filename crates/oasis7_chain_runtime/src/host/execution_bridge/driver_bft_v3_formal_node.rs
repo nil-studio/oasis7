@@ -151,6 +151,19 @@ impl FormalBftHeaderNodeDriverV3 {
         {
             return Err("successor export differs from installed original Node".into());
         }
+        let mut pending_packages = Vec::new();
+        let next_height = height
+            .checked_add(1)
+            .ok_or("successor pending height overflow")?;
+        for (id, roles) in
+            super::successor_archive::required_pending(public_state.journal.as_ref())?
+        {
+            let value = self
+                .private
+                .public_value(next_height, &id)?
+                .ok_or("original T+1 private candidate unavailable")?;
+            pending_packages.push((roles, self.private.export(&value)?));
+        }
         self.execution.export_successor_private_closure(
             archive,
             source,
@@ -161,6 +174,48 @@ impl FormalBftHeaderNodeDriverV3 {
             self.private.instance_id(),
             public_state,
             previous_usage,
+            &pending_packages,
+            deadline,
+        )
+    }
+    pub(crate) fn install_successor_window(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        provider_pin: &str,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        request_id: &str,
+        checkpoint_digest: &str,
+        archive: Arc<oasis7_distfs::protected_bft_v3::LocalBftSuccessorArchiveStoreV1>,
+        deadline: std::time::Instant,
+    ) -> Result<oasis7_distfs::protected_bft_v3::BftSuccessorWindowAdoptedEvidenceV1, String> {
+        self.require_configured()?;
+        if self.check_binding(binding)?
+            != *self
+                .configured_binding
+                .as_ref()
+                .ok_or("Node binding absent")?
+        {
+            return Err("successor install binding changed".into());
+        }
+        let archive_root = canonical_storage_path(archive.root())?;
+        for live in [
+            &self.records_root,
+            &canonical_storage_path(self.execution.store.root())?,
+        ] {
+            if archive_root.starts_with(live) || live.starts_with(&archive_root) {
+                return Err("successor installation archive overlaps live storage".into());
+            }
+        }
+        self.execution.install_successor_window(
+            &self.records_root,
+            &self.material_identity,
+            self.cursor_height,
+            binding,
+            provider_pin,
+            lease,
+            request_id,
+            checkpoint_digest,
+            archive,
             deadline,
         )
     }

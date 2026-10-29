@@ -16,6 +16,7 @@ pub(crate) struct ActualBftSuccessorWindowDriverVerifierV1 {
     anchor: VerifiedFormalReadAnchorV1,
     target: BftProfileTargetV2,
     archive: Arc<LocalBftSuccessorArchiveStoreV1>,
+    installation_root: Option<super::successor_carriers::InstallationRootV1>,
 }
 /// Strict replay does not consult an external/live business-index reader.
 struct NoExternalIndex;
@@ -37,7 +38,48 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             anchor,
             target,
             archive,
+            installation_root: None,
         })
+    }
+    pub(crate) fn with_installation_root(mut self, records: PathBuf) -> Result<Self, String> {
+        let root = canonical_storage_path(&records)?;
+        crate::controlled_live_config::require_private_owned(&root, true)?;
+        let archive = canonical_storage_path(self.archive.root())?;
+        if root.starts_with(&archive) || archive.starts_with(&root) {
+            return Err("successor install/archive paths overlap".into());
+        }
+        self.installation_root = Some(super::successor_carriers::InstallationRootV1::new(root)?);
+        Ok(self)
+    }
+    pub(super) fn verify_original_closure(
+        &self,
+        original: &BftSuccessorWindowStoredRequestV1,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.verify_original_closure_with_origin(original, deadline)
+            .map(|_| ())
+    }
+    fn verify_original_closure_with_origin(
+        &self,
+        original: &BftSuccessorWindowStoredRequestV1,
+        deadline: Instant,
+    ) -> Result<storage::Origin, String> {
+        let bytes = self.load(&original.original_public_state, MAX_CLOSURE, deadline)?;
+        let state: BftSignerStateV3 = serde_cbor::from_slice(&bytes).map_err(err)?;
+        let body = &original.request.intent.body;
+        if encode_protocol(&state, MAX_CLOSURE)? != bytes
+            || state.revision != body.expected_revision
+            || state.state_digest != body.expected_state_digest
+        {
+            return Err("successor immutable original S differs from protected request".into());
+        }
+        super::successor_install::preflight_pointer(original)?;
+        self.verify_closure_with_origin(
+            &body.checkpoint,
+            &state,
+            &original.original_public_state,
+            deadline,
+        )
     }
     fn load(
         &self,
@@ -58,6 +100,16 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         expected_public_ref: &BftSuccessorWindowArchiveRefV1,
         deadline: Instant,
     ) -> Result<(), String> {
+        self.verify_closure_with_origin(checkpoint, public_state, expected_public_ref, deadline)
+            .map(|_| ())
+    }
+    fn verify_closure_with_origin(
+        &self,
+        checkpoint: &BftSuccessorWindowCheckpointBodyV1,
+        public_state: &BftSignerStateV3,
+        expected_public_ref: &BftSuccessorWindowArchiveRefV1,
+        deadline: Instant,
+    ) -> Result<storage::Origin, String> {
         live(deadline)?;
         checkpoint.validate().map_err(err)?;
         let manifest_bytes =
@@ -116,6 +168,16 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
                 .is_some_and(|old| old != *reference)
             {
                 return Err("successor private duplicate digest with conflicting length".into());
+            }
+        }
+        for candidate in &metadata.pending_candidates {
+            for reference in std::iter::once(&candidate.actions).chain(&candidate.dependencies) {
+                if expected_objects
+                    .insert(reference.digest.clone(), reference.clone())
+                    .is_some_and(|old| old != *reference)
+                {
+                    return Err("successor pending object digest/length conflict".into());
+                }
             }
         }
         if expected_objects.len() != manifest.entries.len() {
@@ -313,6 +375,75 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         {
             return Err("successor exact executed cut or schedule differs".into());
         }
+        let mut required = required_pending(public_state.journal.as_ref())?;
+        for candidate in &metadata.pending_candidates {
+            if required.remove(&candidate.header_id).as_ref() != Some(&candidate.roles) {
+                return Err(
+                    "successor pending package role/header differs from original journal".into(),
+                );
+            }
+            let mut seed = Vec::new();
+            let mut total = 0usize;
+            for reference in &candidate.dependencies {
+                let bytes = self.load(
+                    reference,
+                    super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
+                    deadline,
+                )?;
+                total = total.checked_add(bytes.len()).filter(|n| *n <= super::super::super::formal_dependencies::MAX_RETAINED_INDEX_TOTAL_BYTES)
+                    .ok_or("successor pending dependency capacity")?;
+                seed.push((reference.digest.clone(), bytes));
+            }
+            // Each alternative starts from the same independently replayed T.
+            // Detached execution cannot advance the committed parent or sign.
+            let mut detached = FormalBftHeaderExecutionV3::from_handoff(
+                self.anchor.clone(),
+                self.target.clone(),
+                &material,
+                Arc::new(NoExternalIndex),
+                seed,
+                true,
+            )?;
+            for reference in &metadata.records {
+                live(deadline)?;
+                let record: storage::Record = decode(
+                    &self.load(
+                        reference,
+                        super::super::super::formal_ledger::MAX_RECORD,
+                        deadline,
+                    )?,
+                    super::super::super::formal_ledger::MAX_RECORD,
+                )?;
+                let entry = record.input();
+                detached.replay_next(&entry.certificate, &entry.actions_cbor)?;
+            }
+            let actions = self.load(
+                &candidate.actions,
+                oasis7_proto::distributed_bft::BFT_MAX_ACTIONS_CBOR_BYTES_V1,
+                deadline,
+            )?;
+            let reproduced = detached.build_candidate(&actions)?;
+            let observed = detached.retained_nodes.accessed_nodes()?;
+            if reproduced.header != candidate.value.header
+                || reproduced.commitment != candidate.value.execution_commitment
+                || observed
+                    .keys()
+                    .map(String::as_str)
+                    .ne(candidate.dependencies.iter().map(|r| r.digest.as_str()))
+                || detached.schedule.height() != candidate.height
+                || detached
+                    .parent_world
+                    .execution_state_identity()
+                    .map_err(err)?
+                    .state_root_hash
+                    != metadata.cut.semantic_state_root
+            {
+                return Err("successor original T+1 actions/value/dependencies did not reproduce at the same cut".into());
+            }
+        }
+        if !required.is_empty() {
+            return Err("successor original journal is missing required private candidates".into());
+        }
         match (
             &public_state.journal,
             &metadata.current_journal,
@@ -334,7 +465,8 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             }
             _ => return Err("successor synthesized or removed T+1 journal".into()),
         }
-        live(deadline)
+        live(deadline)?;
+        Ok(origin)
     }
 }
 impl BftSuccessorWindowDriverVerifierV1 for ActualBftSuccessorWindowDriverVerifierV1 {
@@ -352,6 +484,7 @@ impl BftSuccessorWindowDriverVerifierV1 for ActualBftSuccessorWindowDriverVerifi
                 "successor private original protected revision/digest differs".into(),
             ));
         }
+        super::successor_install::preflight_pointer(original).map_err(BftSignerErrorV3)?;
         self.verify_closure(
             &body.checkpoint,
             public_state,
@@ -362,13 +495,23 @@ impl BftSuccessorWindowDriverVerifierV1 for ActualBftSuccessorWindowDriverVerifi
     }
     fn verify_adopted(
         &self,
-        _: &BftSuccessorWindowStoredRequestV1,
-        _: &BftSignerStateV3,
-        _: &BftSuccessorWindowAdoptedEvidenceV1,
-        _: Instant,
+        original: &BftSuccessorWindowStoredRequestV1,
+        installed: &BftSignerStateV3,
+        evidence: &BftSuccessorWindowAdoptedEvidenceV1,
+        deadline: Instant,
     ) -> Result<(), BftSignerErrorV3> {
-        Err(BftSignerErrorV3(
-            "successor independent adopted pointer/WAL verification is not implemented".into(),
-        ))
+        let result = (|| -> Result<(), String> {
+            let root = self
+                .installation_root
+                .as_ref()
+                .ok_or("successor trusted installation root is not configured")?;
+            let origin = self.verify_original_closure_with_origin(original, deadline)?;
+            let pointer = root.read_installed(&origin, original, installed, deadline)?;
+            if pointer.evidence() != *evidence {
+                return Err("successor installed readback evidence differs".into());
+            }
+            live(deadline)
+        })();
+        result.map_err(BftSignerErrorV3)
     }
 }

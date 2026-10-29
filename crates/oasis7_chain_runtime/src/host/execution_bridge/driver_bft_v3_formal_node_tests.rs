@@ -38,6 +38,8 @@ mod provider_retry_tests;
 
 #[path = "driver_bft_v3_successor_archive_tests.rs"]
 mod successor_archive_tests;
+#[path = "driver_bft_v3_successor_install_tests.rs"]
+mod successor_install_tests;
 
 struct MemoryTestSignerKey(SigningKey);
 

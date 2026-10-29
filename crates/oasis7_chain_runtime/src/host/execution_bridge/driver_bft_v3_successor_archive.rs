@@ -8,13 +8,112 @@ use oasis7_distfs::protected_bft_v3::{
     LocalBftSuccessorArchiveStoreV1,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 pub(super) const MAX_METADATA: usize = 1024 * 1024;
 pub(super) const MAX_CLOSURE: usize = 512 * 1024 * 1024;
 pub(super) const MAX_REFS: usize = 4096;
 const DOMAIN: &str = "oasis7.formal.bft.successor-private-closure.v1";
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum PendingRoleV1 {
+    Proposal,
+    Equivocation,
+    BlockPrevote,
+    BlockPrecommit,
+    PendingProposal,
+    PendingVote,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PendingCandidateV1 {
+    pub height: u64,
+    pub header_id: String,
+    pub roles: BTreeSet<PendingRoleV1>,
+    pub value: oasis7_consensus::tendermint_v3::BftHeaderValueV3,
+    pub actions: BftSuccessorWindowArchiveRefV1,
+    #[serde(deserialize_with = "bounded_refs")]
+    pub dependencies: Vec<BftSuccessorWindowArchiveRefV1>,
+}
+pub(super) fn required_pending(
+    journal: Option<&oasis7_consensus::tendermint_v3::BftSigningJournalV3>,
+) -> Result<BTreeMap<String, BTreeSet<PendingRoleV1>>, String> {
+    use oasis7_consensus::tendermint_v3::BftSigningJournalEventV3 as Event;
+    use oasis7_proto::distributed_bft::v3::{BftVotePhaseV3, BftVoteValueV3};
+    let mut ids = BTreeMap::<String, BTreeSet<PendingRoleV1>>::new();
+    let Some(journal) = journal else {
+        return Ok(ids);
+    };
+    let mut add = |id: &str, role: PendingRoleV1| {
+        ids.entry(id.to_owned()).or_default().insert(role);
+    };
+    for event in journal.events() {
+        match event {
+            Event::Proposal { proposal, .. } => {
+                add(&proposal.block.block_id()?, PendingRoleV1::Proposal)
+            }
+            Event::ProposalEquivocation { first, second, .. } => {
+                add(&first.block_id, PendingRoleV1::Equivocation);
+                add(&second.block_id, PendingRoleV1::Equivocation);
+            }
+            Event::Vote { vote, .. } => {
+                if let BftVoteValueV3::Block { block_id } = &vote.value {
+                    add(
+                        block_id,
+                        if vote.phase == BftVotePhaseV3::Prevote {
+                            PendingRoleV1::BlockPrevote
+                        } else {
+                            PendingRoleV1::BlockPrecommit
+                        },
+                    );
+                }
+            }
+            Event::Timeout { .. } => {}
+        }
+    }
+    if let Some(intent) = journal.pending_proposal_intent() {
+        add(&intent.block.block_id()?, PendingRoleV1::PendingProposal);
+    }
+    if let Some(intent) = journal.pending_vote_intent() {
+        if let BftVoteValueV3::Block { block_id } = &intent.value {
+            add(block_id, PendingRoleV1::PendingVote);
+        }
+    }
+    if ids.len() > 16 {
+        return Err("successor T+1 private candidate capacity".into());
+    }
+    Ok(ids)
+}
+fn bounded_pending<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Vec<PendingCandidateV1>, D::Error> {
+    struct Pending;
+    impl<'de> serde::de::Visitor<'de> for Pending {
+        type Value = Vec<PendingCandidateV1>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("at most 16 original T+1 candidates")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            if seq.size_hint().is_some_and(|n| n > 16) {
+                return Err(serde::de::Error::custom("pending candidate capacity"));
+            }
+            let mut values = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                if values.len() == 16 {
+                    return Err(serde::de::Error::custom("pending candidate capacity"));
+                }
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+    de.deserialize_seq(Pending)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,6 +125,8 @@ pub(super) struct PrivateClosureV1 {
     pub origin: BftSuccessorWindowArchiveRefV1,
     pub public_state: BftSuccessorWindowArchiveRefV1,
     pub current_journal: Option<BftSuccessorWindowArchiveRefV1>,
+    #[serde(deserialize_with = "bounded_pending")]
+    pub pending_candidates: Vec<PendingCandidateV1>,
     #[serde(deserialize_with = "bounded_refs")]
     pub snapshots: Vec<BftSuccessorWindowArchiveRefV1>,
     #[serde(deserialize_with = "bounded_refs")]
@@ -106,6 +207,36 @@ impl PrivateClosureV1 {
         if !self.nodes.windows(2).all(|p| p[0].digest < p[1].digest) {
             return Err("successor private index references not sorted unique".into());
         }
+        if self.pending_candidates.len() > 16
+            || !self
+                .pending_candidates
+                .windows(2)
+                .all(|p| p[0].header_id < p[1].header_id)
+        {
+            return Err("successor pending candidate order/count".into());
+        }
+        for candidate in &self.pending_candidates {
+            candidate.value.validate_binding()?;
+            if candidate.height
+                != self
+                    .cut
+                    .height
+                    .checked_add(1)
+                    .ok_or("pending height overflow")?
+                || candidate.header_id != candidate.value.block_id()?
+                || candidate.roles.is_empty()
+                || candidate.value.execution_commitment.height != candidate.height
+                || !candidate
+                    .dependencies
+                    .windows(2)
+                    .all(|p| p[0].digest < p[1].digest)
+            {
+                return Err("successor pending candidate binding".into());
+            }
+            for reference in std::iter::once(&candidate.actions).chain(&candidate.dependencies) {
+                reference.validate().map_err(err)?;
+            }
+        }
         Ok(())
     }
 }
@@ -115,6 +246,7 @@ pub(crate) struct ExportedBftSuccessorPrivateClosureV1 {
     manifest_ref: BftSuccessorWindowArchiveRefV1,
     metadata_ref: BftSuccessorWindowArchiveRefV1,
     public_state_ref: BftSuccessorWindowArchiveRefV1,
+    pending_actions: Vec<BftSuccessorWindowArchiveRefV1>,
     cut: BftSuccessorWindowCutV1,
 }
 impl ExportedBftSuccessorPrivateClosureV1 {
@@ -129,6 +261,9 @@ impl ExportedBftSuccessorPrivateClosureV1 {
     }
     pub(crate) fn public_state_ref(&self) -> &BftSuccessorWindowArchiveRefV1 {
         &self.public_state_ref
+    }
+    pub(crate) fn pending_actions(&self) -> &[BftSuccessorWindowArchiveRefV1] {
+        &self.pending_actions
     }
     pub(crate) fn cut(&self) -> &BftSuccessorWindowCutV1 {
         &self.cut
@@ -207,6 +342,10 @@ impl FormalBftHeaderLedgerExecutionV3 {
         private_instance_id: &str,
         public_state: &oasis7_distfs::protected_bft_v3::BftSignerStateV3,
         previous_usage: BftSuccessorWindowArchiveUsageV1,
+        pending_packages: &[(
+            BTreeSet<PendingRoleV1>,
+            oasis7_node::NodeBftPrivateCandidatePackageV3,
+        )],
         deadline: Instant,
     ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
         live(deadline)?;
@@ -364,6 +503,34 @@ impl FormalBftHeaderLedgerExecutionV3 {
         if cut_body.snapshot_ref.digest != c.execution_state_root {
             return Err("successor private Snapshot differs from committed original".into());
         }
+        let mut pending_candidates = Vec::new();
+        for (roles, package) in pending_packages {
+            let mut dependencies = Vec::new();
+            for (digest, bytes) in &package.dependency_nodes {
+                let reference = put(
+                    bytes,
+                    super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
+                )?;
+                if reference.digest != *digest {
+                    return Err("successor pending index identity".into());
+                }
+                dependencies.push(reference);
+            }
+            pending_candidates.push(PendingCandidateV1 {
+                height: height
+                    .checked_add(1)
+                    .ok_or("successor pending height overflow")?,
+                header_id: package.candidate.public_value.block_id()?,
+                roles: roles.clone(),
+                value: package.candidate.public_value.clone(),
+                actions: put(
+                    &package.candidate.actions_cbor,
+                    oasis7_proto::distributed_bft::BFT_MAX_ACTIONS_CBOR_BYTES_V1,
+                )?,
+                dependencies,
+            });
+        }
+        pending_candidates.sort_by(|a, b| a.header_id.cmp(&b.header_id));
         let metadata = PrivateClosureV1 {
             domain: DOMAIN.into(),
             source: source.clone(),
@@ -372,6 +539,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
             origin,
             public_state: public_state.clone(),
             current_journal,
+            pending_candidates,
             snapshots,
             journals,
             manifests,
@@ -464,6 +632,11 @@ impl FormalBftHeaderLedgerExecutionV3 {
             manifest_ref,
             metadata_ref,
             public_state_ref: public_state,
+            pending_actions: metadata
+                .pending_candidates
+                .iter()
+                .map(|c| c.actions.clone())
+                .collect(),
             cut: cut_body,
         })
     }

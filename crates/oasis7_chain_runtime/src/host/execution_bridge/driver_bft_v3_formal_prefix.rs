@@ -14,6 +14,10 @@ pub(crate) use node_execution::FormalBftHeaderNodeDriverV3;
 
 #[path = "driver_bft_v3_successor_archive.rs"]
 mod successor_archive;
+#[path = "driver_bft_v3_successor_carriers.rs"]
+mod successor_carriers;
+#[path = "driver_bft_v3_successor_install.rs"]
+mod successor_install;
 #[path = "driver_bft_v3_successor_verifier.rs"]
 mod successor_verifier;
 pub(crate) use successor_archive::ExportedBftSuccessorPrivateClosureV1;
