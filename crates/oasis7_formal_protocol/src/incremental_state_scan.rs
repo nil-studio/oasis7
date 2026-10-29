@@ -62,7 +62,16 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for Guarded<'_, R
         self.nodes.set(self.nodes.get() - 1);
         let admitted = (max as u64).min(self.bytes.get()) as usize;
         self.bytes.set(self.bytes.get() - admitted as u64);
-        let result = self.source.read_node(id, admitted)?;
+        let result = self.source.read_node(id, admitted).inspect_err(|_| {
+            // A string-only source cannot distinguish an over-bound page from
+            // another read failure. With less than the requested maximum
+            // admitted, treat rejection as incomplete work; retry with enough
+            // allowance can still expose a genuine tree error. Explicit None
+            // remains a missing-page result, never a resource-limit success.
+            if admitted < max {
+                self.stop.set(Some(Stop::Limited));
+            }
+        })?;
         if let Some(bytes) = &result {
             if bytes.as_ref().len() > admitted {
                 return Err("state scan source bound".into());

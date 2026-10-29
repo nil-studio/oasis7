@@ -130,7 +130,7 @@ fn complete_scan_has_independent_tree_and_key_order_with_exact_allowances() {
                 (0, 0, 0)
             );
         } else {
-            assert!(result.is_err());
+            assert!(matches!(result, Err(StateScanError::ResourceLimited)));
         }
     }
 }
@@ -271,4 +271,22 @@ fn empty_root_needs_no_pages_but_still_observes_cancel() {
         Err(StateScanError::Cancelled)
     ));
     assert_eq!(source.reads.get(), 0);
+}
+
+#[test]
+fn missing_page_with_reduced_positive_admission_still_reports_tree_error() {
+    let (root, mut source) = source(&[b"a"]);
+    source.nodes.remove(&root.node_root);
+    let mut allowance = io();
+    allowance.read_bytes_remaining = 1;
+    assert!(matches!(
+        scan(
+            &root,
+            &source,
+            &mut allowance,
+            |_| Ok::<_, ()>(()),
+            || false
+        ),
+        Err(StateScanError::Tree(_))
+    ));
 }
