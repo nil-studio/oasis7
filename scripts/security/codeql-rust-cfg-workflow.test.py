@@ -88,8 +88,9 @@ class CfgWorkflow(unittest.TestCase):
         self.assertEqual(TEXT.count("--scope-identities"),2)
         self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
         capacity=(ROOT/".github/workflows/codeql-rust-capacity.yml").read_text()
-        self.assertIn("ref: c036927d33b917a036a731f071209e16f6deb033",capacity)
-        self.assertEqual(capacity.count("--source-sha c036927d33b917a036a731f071209e16f6deb033"),4)
+        self.assertIn("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6' }}",capacity)
+        self.assertIn("ref: ${{ env.CAPACITY_SOURCE }}",capacity)
+        self.assertEqual(capacity.count('--source-sha "$CAPACITY_SOURCE"'),4)
 
     def test_new_query_is_in_snapshot_and_ci(self):
         layout = (ROOT / 'scripts/security/codeql_rust_capacity_layout.py').read_text()
