@@ -8,7 +8,7 @@ pub struct LogisticsOwnerPayout {
 }
 
 /// Domain events that describe state changes.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DomainEvent {
     WorldRuleCommitted {
@@ -960,6 +960,7 @@ mod domain_event_rejections;
 pub use domain_event_rejections::{CausedBy, RejectReason};
 
 mod behavior;
+mod serialization;
 
 impl std::fmt::Debug for DomainEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

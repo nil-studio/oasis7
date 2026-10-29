@@ -1,0 +1,5898 @@
+[
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "WorldRule"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 0,
+      "variant_name": "WorldRule"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "actor_id": "",
+        "command": {
+          "data": {
+            "organization_id": ""
+          },
+          "kind": "OpenOrganizationProtection"
+        },
+        "request_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "WorldRule",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "actor_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "command",
+      "value": {
+        "data": {
+          "organization_id": ""
+        },
+        "kind": "OpenOrganizationProtection"
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "WorldServiceIntent"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 1,
+      "variant_name": "WorldServiceIntent"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "request": null
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "WorldServiceIntent",
+      "len": 1
+    },
+    {
+      "op": "field",
+      "name": "request",
+      "value": null
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RegisterAgent"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 2,
+      "variant_name": "RegisterAgent"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "pos": {
+          "x_cm": 0,
+          "y_cm": 0,
+          "z_cm": 0
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RegisterAgent",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "pos",
+      "value": {
+        "x_cm": 0,
+        "y_cm": 0,
+        "z_cm": 0
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "MoveAgent"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 3,
+      "variant_name": "MoveAgent"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "to": {
+          "x_cm": 0,
+          "y_cm": 0,
+          "z_cm": 0
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "MoveAgent",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "to",
+      "value": {
+        "x_cm": 0,
+        "y_cm": 0,
+        "z_cm": 0
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "QueryObservation"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 4,
+      "variant_name": "QueryObservation"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "QueryObservation",
+      "len": 1
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "EmitObservation"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 5,
+      "variant_name": "EmitObservation"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "observation": {
+          "agent_id": "",
+          "pos": {
+            "x_cm": 0,
+            "y_cm": 0,
+            "z_cm": 0
+          },
+          "time": 0,
+          "visibility_range_cm": 0,
+          "visible_agents": []
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "EmitObservation",
+      "len": 1
+    },
+    {
+      "op": "field",
+      "name": "observation",
+      "value": {
+        "agent_id": "",
+        "pos": {
+          "x_cm": 0,
+          "y_cm": 0,
+          "z_cm": 0
+        },
+        "time": 0,
+        "visibility_range_cm": 0,
+        "visible_agents": []
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "BodyAction"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 6,
+      "variant_name": "BodyAction"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "kind": "",
+        "payload": null
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "BodyAction",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "kind",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "payload",
+      "value": null
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "EmitBodyAttributes"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 7,
+      "variant_name": "EmitBodyAttributes"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "reason": "",
+        "view": {
+          "cross_section_cm2": 0,
+          "mass_kg": 0,
+          "radius_cm": 0,
+          "thrust_limit": 0
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "EmitBodyAttributes",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "view",
+      "value": {
+        "cross_section_cm2": 0,
+        "mass_kg": 0,
+        "radius_cm": 0,
+        "thrust_limit": 0
+      }
+    },
+    {
+      "op": "field",
+      "name": "reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ExpandBodyInterface"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 8,
+      "variant_name": "ExpandBodyInterface"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "interface_module_item_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ExpandBodyInterface",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "interface_module_item_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "DeployModuleArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 9,
+      "variant_name": "DeployModuleArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "publisher_agent_id": "",
+        "wasm_bytes": [],
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "DeployModuleArtifact",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "publisher_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_bytes",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "CompileModuleArtifactFromSource"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 10,
+      "variant_name": "CompileModuleArtifactFromSource"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "module_id": "",
+        "publisher_agent_id": "",
+        "source_package": {
+          "files": {},
+          "manifest_path": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "CompileModuleArtifactFromSource",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "publisher_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "module_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "source_package",
+      "value": {
+        "files": {},
+        "manifest_path": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "InstallModuleFromArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 11,
+      "variant_name": "InstallModuleFromArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "installer_agent_id": "",
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "InstallModuleFromArtifact",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "installer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "InstallModuleFromArtifactWithFinality"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 12,
+      "variant_name": "InstallModuleFromArtifactWithFinality"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "finality_certificate": {
+          "consensus_height": 0,
+          "epoch_id": 0,
+          "manifest_hash": "",
+          "min_unique_signers": 0,
+          "proposal_id": 0,
+          "signatures": {},
+          "stake_root": "",
+          "threshold": 0,
+          "threshold_bps": 0,
+          "validator_set_hash": ""
+        },
+        "installer_agent_id": "",
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "InstallModuleFromArtifactWithFinality",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "installer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "field",
+      "name": "finality_certificate",
+      "value": {
+        "consensus_height": 0,
+        "epoch_id": 0,
+        "manifest_hash": "",
+        "min_unique_signers": 0,
+        "proposal_id": 0,
+        "signatures": {},
+        "stake_root": "",
+        "threshold": 0,
+        "threshold_bps": 0,
+        "validator_set_hash": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "InstallModuleToTargetFromArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 13,
+      "variant_name": "InstallModuleToTargetFromArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "install_target": {
+          "type": "self_agent"
+        },
+        "installer_agent_id": "",
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "InstallModuleToTargetFromArtifact",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "installer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "field",
+      "name": "install_target",
+      "value": {
+        "type": "self_agent"
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "InstallModuleToTargetFromArtifactWithFinality"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 14,
+      "variant_name": "InstallModuleToTargetFromArtifactWithFinality"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "finality_certificate": {
+          "consensus_height": 0,
+          "epoch_id": 0,
+          "manifest_hash": "",
+          "min_unique_signers": 0,
+          "proposal_id": 0,
+          "signatures": {},
+          "stake_root": "",
+          "threshold": 0,
+          "threshold_bps": 0,
+          "validator_set_hash": ""
+        },
+        "install_target": {
+          "type": "self_agent"
+        },
+        "installer_agent_id": "",
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "InstallModuleToTargetFromArtifactWithFinality",
+      "len": 5
+    },
+    {
+      "op": "field",
+      "name": "installer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "field",
+      "name": "install_target",
+      "value": {
+        "type": "self_agent"
+      }
+    },
+    {
+      "op": "field",
+      "name": "finality_certificate",
+      "value": {
+        "consensus_height": 0,
+        "epoch_id": 0,
+        "manifest_hash": "",
+        "min_unique_signers": 0,
+        "proposal_id": 0,
+        "signatures": {},
+        "stake_root": "",
+        "threshold": 0,
+        "threshold_bps": 0,
+        "validator_set_hash": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "UpgradeModuleFromArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 15,
+      "variant_name": "UpgradeModuleFromArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "from_module_version": "",
+        "instance_id": "",
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        },
+        "upgrader_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "UpgradeModuleFromArtifact",
+      "len": 5
+    },
+    {
+      "op": "field",
+      "name": "upgrader_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "instance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "from_module_version",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "UpgradeModuleFromArtifactWithFinality"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 16,
+      "variant_name": "UpgradeModuleFromArtifactWithFinality"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "finality_certificate": {
+          "consensus_height": 0,
+          "epoch_id": 0,
+          "manifest_hash": "",
+          "min_unique_signers": 0,
+          "proposal_id": 0,
+          "signatures": {},
+          "stake_root": "",
+          "threshold": 0,
+          "threshold_bps": 0,
+          "validator_set_hash": ""
+        },
+        "from_module_version": "",
+        "instance_id": "",
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        },
+        "upgrader_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "UpgradeModuleFromArtifactWithFinality",
+      "len": 6
+    },
+    {
+      "op": "field",
+      "name": "upgrader_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "instance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "from_module_version",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "field",
+      "name": "finality_certificate",
+      "value": {
+        "consensus_height": 0,
+        "epoch_id": 0,
+        "manifest_hash": "",
+        "min_unique_signers": 0,
+        "proposal_id": 0,
+        "signatures": {},
+        "stake_root": "",
+        "threshold": 0,
+        "threshold_bps": 0,
+        "validator_set_hash": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseSubmit"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 17,
+      "variant_name": "ModuleReleaseSubmit"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activate": false,
+        "install_target": {
+          "type": "self_agent"
+        },
+        "manifest": {
+          "abi_contract": {
+            "cap_slots": {},
+            "policy_hooks": []
+          },
+          "exports": [],
+          "interface_version": "",
+          "kind": "reducer",
+          "limits": {
+            "max_call_rate": 0,
+            "max_effects": 0,
+            "max_emits": 0,
+            "max_gas": 0,
+            "max_mem_bytes": 0,
+            "max_output_bytes": 0
+          },
+          "module_id": "",
+          "name": "",
+          "required_caps": [],
+          "role": "domain",
+          "subscriptions": [],
+          "version": "",
+          "wasm_hash": ""
+        },
+        "profile_changes": {
+          "factory_profiles": [],
+          "product_profiles": [],
+          "recipe_profiles": []
+        },
+        "requester_agent_id": "",
+        "required_roles": []
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseSubmit",
+      "len": 6
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "manifest",
+      "value": {
+        "abi_contract": {
+          "cap_slots": {},
+          "policy_hooks": []
+        },
+        "exports": [],
+        "interface_version": "",
+        "kind": "reducer",
+        "limits": {
+          "max_call_rate": 0,
+          "max_effects": 0,
+          "max_emits": 0,
+          "max_gas": 0,
+          "max_mem_bytes": 0,
+          "max_output_bytes": 0
+        },
+        "module_id": "",
+        "name": "",
+        "required_caps": [],
+        "role": "domain",
+        "subscriptions": [],
+        "version": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "activate",
+      "value": false
+    },
+    {
+      "op": "field",
+      "name": "install_target",
+      "value": {
+        "type": "self_agent"
+      }
+    },
+    {
+      "op": "field",
+      "name": "required_roles",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "profile_changes",
+      "value": {
+        "factory_profiles": [],
+        "product_profiles": [],
+        "recipe_profiles": []
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseShadow"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 18,
+      "variant_name": "ModuleReleaseShadow"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "request_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseShadow",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseSubmitAttestation"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 19,
+      "variant_name": "ModuleReleaseSubmitAttestation"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "build_manifest_hash": "",
+        "builder_image_digest": "",
+        "canonicalizer_version": "",
+        "container_platform": "",
+        "operator_agent_id": "",
+        "platform": "",
+        "proof_cid": "",
+        "request_id": 0,
+        "signer_node_id": "",
+        "source_hash": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseSubmitAttestation",
+      "len": 11
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "signer_node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "platform",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "build_manifest_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "source_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proof_cid",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "builder_image_digest",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "container_platform",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "canonicalizer_version",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseApproveRole"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 20,
+      "variant_name": "ModuleReleaseApproveRole"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "approver_agent_id": "",
+        "request_id": 0,
+        "role": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseApproveRole",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "approver_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "role",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseBindRoles"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 21,
+      "variant_name": "ModuleReleaseBindRoles"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "roles": [],
+        "target_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseBindRoles",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "roles",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseReject"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 22,
+      "variant_name": "ModuleReleaseReject"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "reason": "",
+        "rejector_agent_id": "",
+        "request_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseReject",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "rejector_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseApply"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 23,
+      "variant_name": "ModuleReleaseApply"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "request_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseApply",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ModuleReleaseApplyWithFinality"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 24,
+      "variant_name": "ModuleReleaseApplyWithFinality"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "finality_certificate": {
+          "consensus_height": 0,
+          "epoch_id": 0,
+          "manifest_hash": "",
+          "min_unique_signers": 0,
+          "proposal_id": 0,
+          "signatures": {},
+          "stake_root": "",
+          "threshold": 0,
+          "threshold_bps": 0,
+          "validator_set_hash": ""
+        },
+        "operator_agent_id": "",
+        "request_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ModuleReleaseApplyWithFinality",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "request_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "finality_certificate",
+      "value": {
+        "consensus_height": 0,
+        "epoch_id": 0,
+        "manifest_hash": "",
+        "min_unique_signers": 0,
+        "proposal_id": 0,
+        "signatures": {},
+        "stake_root": "",
+        "threshold": 0,
+        "threshold_bps": 0,
+        "validator_set_hash": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RollbackModuleInstance"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 25,
+      "variant_name": "RollbackModuleInstance"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "instance_id": "",
+        "operator_agent_id": "",
+        "target_module_version": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RollbackModuleInstance",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "instance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_module_version",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RollbackModuleInstanceWithFinality"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 26,
+      "variant_name": "RollbackModuleInstanceWithFinality"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "finality_certificate": {
+          "consensus_height": 0,
+          "epoch_id": 0,
+          "manifest_hash": "",
+          "min_unique_signers": 0,
+          "proposal_id": 0,
+          "signatures": {},
+          "stake_root": "",
+          "threshold": 0,
+          "threshold_bps": 0,
+          "validator_set_hash": ""
+        },
+        "instance_id": "",
+        "operator_agent_id": "",
+        "target_module_version": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RollbackModuleInstanceWithFinality",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "instance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_module_version",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "finality_certificate",
+      "value": {
+        "consensus_height": 0,
+        "epoch_id": 0,
+        "manifest_hash": "",
+        "min_unique_signers": 0,
+        "proposal_id": 0,
+        "signatures": {},
+        "stake_root": "",
+        "threshold": 0,
+        "threshold_bps": 0,
+        "validator_set_hash": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ListModuleArtifactForSale"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 27,
+      "variant_name": "ListModuleArtifactForSale"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "price_amount": 0,
+        "price_kind": "electricity",
+        "seller_agent_id": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ListModuleArtifactForSale",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "seller_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "price_kind",
+      "value": "electricity"
+    },
+    {
+      "op": "field",
+      "name": "price_amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "BuyModuleArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 28,
+      "variant_name": "BuyModuleArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "buyer_agent_id": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "BuyModuleArtifact",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "buyer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "DelistModuleArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 29,
+      "variant_name": "DelistModuleArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "seller_agent_id": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "DelistModuleArtifact",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "seller_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "DestroyModuleArtifact"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 30,
+      "variant_name": "DestroyModuleArtifact"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "owner_agent_id": "",
+        "reason": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "DestroyModuleArtifact",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "owner_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "PlaceModuleArtifactBid"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 31,
+      "variant_name": "PlaceModuleArtifactBid"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "bidder_agent_id": "",
+        "price_amount": 0,
+        "price_kind": "electricity",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "PlaceModuleArtifactBid",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "bidder_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "price_kind",
+      "value": "electricity"
+    },
+    {
+      "op": "field",
+      "name": "price_amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "CancelModuleArtifactBid"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 32,
+      "variant_name": "CancelModuleArtifactBid"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "bid_order_id": 0,
+        "bidder_agent_id": "",
+        "wasm_hash": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "CancelModuleArtifactBid",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "bidder_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "wasm_hash",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "bid_order_id",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "TransferResource"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 33,
+      "variant_name": "TransferResource"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "from_agent_id": "",
+        "kind": "electricity",
+        "to_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "TransferResource",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "from_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "to_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "kind",
+      "value": "electricity"
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "CollectData"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 34,
+      "variant_name": "CollectData"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "collector_agent_id": "",
+        "data_amount": 0,
+        "electricity_cost": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "CollectData",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "collector_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "electricity_cost",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "data_amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "CollectDataAuthenticated"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 35,
+      "variant_name": "CollectDataAuthenticated"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "collector_agent_id": "",
+        "data_amount": 0,
+        "electricity_cost": 0,
+        "nonce": 0,
+        "player_id": "",
+        "public_key": "",
+        "signature": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "CollectDataAuthenticated",
+      "len": 7
+    },
+    {
+      "op": "field",
+      "name": "collector_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "electricity_cost",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "data_amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "player_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "public_key",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "nonce",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "signature",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GrantDataAccess"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 36,
+      "variant_name": "GrantDataAccess"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "grantee_agent_id": "",
+        "owner_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GrantDataAccess",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "owner_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "grantee_agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RevokeDataAccess"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 37,
+      "variant_name": "RevokeDataAccess"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "grantee_agent_id": "",
+        "owner_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RevokeDataAccess",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "owner_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "grantee_agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RedeemPower"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 38,
+      "variant_name": "RedeemPower"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "node_id": "",
+        "nonce": 0,
+        "redeem_credits": 0,
+        "target_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RedeemPower",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "redeem_credits",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "nonce",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RedeemPowerSigned"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 39,
+      "variant_name": "RedeemPowerSigned"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "node_id": "",
+        "nonce": 0,
+        "redeem_credits": 0,
+        "signature": "",
+        "signer_node_id": "",
+        "target_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RedeemPowerSigned",
+      "len": 6
+    },
+    {
+      "op": "field",
+      "name": "node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "redeem_credits",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "nonce",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "signer_node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "signature",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ApplyNodePointsSettlementSigned"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 40,
+      "variant_name": "ApplyNodePointsSettlementSigned"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "mint_records": [],
+        "report": {
+          "distributed_points": 0,
+          "epoch_index": 0,
+          "pool_points": 0,
+          "settlements": [],
+          "storage_distributed_points": 0,
+          "storage_pool_points": 0,
+          "total_distributed_points": 0
+        },
+        "signer_node_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ApplyNodePointsSettlementSigned",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "report",
+      "value": {
+        "distributed_points": 0,
+        "epoch_index": 0,
+        "pool_points": 0,
+        "settlements": [],
+        "storage_distributed_points": 0,
+        "storage_pool_points": 0,
+        "total_distributed_points": 0
+      }
+    },
+    {
+      "op": "field",
+      "name": "signer_node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "mint_records",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "InitializeMainTokenGenesis"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 41,
+      "variant_name": "InitializeMainTokenGenesis"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "allocations": []
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "InitializeMainTokenGenesis",
+      "len": 1
+    },
+    {
+      "op": "field",
+      "name": "allocations",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ClaimMainTokenVesting"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 42,
+      "variant_name": "ClaimMainTokenVesting"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "beneficiary": "",
+        "bucket_id": "",
+        "nonce": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ClaimMainTokenVesting",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "bucket_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "beneficiary",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "nonce",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "TransferMainToken"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 43,
+      "variant_name": "TransferMainToken"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "from_account_id": "",
+        "nonce": 0,
+        "to_account_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "TransferMainToken",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "from_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "to_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "nonce",
+      "value": 0
+    },
+    {
+      "op": "skip_field",
+      "name": "asset_id"
+    },
+    {
+      "op": "skip_field",
+      "name": "memo"
+    },
+    {
+      "op": "skip_field",
+      "name": "chain_id"
+    },
+    {
+      "op": "skip_field",
+      "name": "network_id"
+    },
+    {
+      "op": "skip_field",
+      "name": "tx_version"
+    },
+    {
+      "op": "skip_field",
+      "name": "tx_type"
+    },
+    {
+      "op": "skip_field",
+      "name": "valid_until_unix_ms"
+    },
+    {
+      "op": "skip_field",
+      "name": "max_fee"
+    },
+    {
+      "op": "skip_field",
+      "name": "fee_asset_id"
+    },
+    {
+      "op": "skip_field",
+      "name": "application_payload_hash"
+    },
+    {
+      "op": "skip_field",
+      "name": "client_request_id"
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ApplyMainTokenEpochIssuance"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 44,
+      "variant_name": "ApplyMainTokenEpochIssuance"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "actual_stake_ratio_bps": 0,
+        "epoch_index": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ApplyMainTokenEpochIssuance",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "epoch_index",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "actual_stake_ratio_bps",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "SettleMainTokenFee"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 45,
+      "variant_name": "SettleMainTokenFee"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "fee_kind": "gas_base_fee"
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "SettleMainTokenFee",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "fee_kind",
+      "value": "gas_base_fee"
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "UpdateMainTokenPolicy"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 46,
+      "variant_name": "UpdateMainTokenPolicy"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "next": {
+          "burn_policy": {
+            "gas_base_fee_burn_bps": 3000,
+            "module_fee_burn_bps": 2000,
+            "slash_burn_bps": 5000
+          },
+          "decimals": 9,
+          "inflation_policy": {
+            "base_rate_bps": 400,
+            "epochs_per_year": 365,
+            "max_rate_bps": 800,
+            "min_rate_bps": 200,
+            "stake_feedback_gain_bps": 1000,
+            "target_stake_ratio_bps": 6000
+          },
+          "initial_supply": 0,
+          "issuance_split": {
+            "ecosystem_pool_bps": 1500,
+            "node_service_reward_bps": 2000,
+            "security_reserve_bps": 500,
+            "staking_reward_bps": 6000
+          },
+          "max_supply": null,
+          "symbol": "OC"
+        },
+        "proposal_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "UpdateMainTokenPolicy",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "proposal_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "next",
+      "value": {
+        "burn_policy": {
+          "gas_base_fee_burn_bps": 3000,
+          "module_fee_burn_bps": 2000,
+          "slash_burn_bps": 5000
+        },
+        "decimals": 9,
+        "inflation_policy": {
+          "base_rate_bps": 400,
+          "epochs_per_year": 365,
+          "max_rate_bps": 800,
+          "min_rate_bps": 200,
+          "stake_feedback_gain_bps": 1000,
+          "target_stake_ratio_bps": 6000
+        },
+        "initial_supply": 0,
+        "issuance_split": {
+          "ecosystem_pool_bps": 1500,
+          "node_service_reward_bps": 2000,
+          "security_reserve_bps": 500,
+          "staking_reward_bps": 6000
+        },
+        "max_supply": null,
+        "symbol": "OC"
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "DistributeMainTokenTreasury"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 47,
+      "variant_name": "DistributeMainTokenTreasury"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "bucket_id": "",
+        "distribution_id": "",
+        "distributions": [],
+        "proposal_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "DistributeMainTokenTreasury",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "proposal_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "distribution_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "bucket_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "distributions",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "TopUpRestrictedStarterClaimLiveopsPool"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 48,
+      "variant_name": "TopUpRestrictedStarterClaimLiveopsPool"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "controller_account_id": "",
+        "top_up_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "TopUpRestrictedStarterClaimLiveopsPool",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "controller_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "top_up_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "IssueRestrictedStarterClaimGrant"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 49,
+      "variant_name": "IssueRestrictedStarterClaimGrant"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "beneficiary_account_id": "",
+        "expires_at_epoch": 0,
+        "issuance_reason": "",
+        "issuer_account_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "IssueRestrictedStarterClaimGrant",
+      "len": 5
+    },
+    {
+      "op": "field",
+      "name": "issuer_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "beneficiary_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "issuance_reason",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "expires_at_epoch",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RevokeRestrictedStarterClaimGrant"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 50,
+      "variant_name": "RevokeRestrictedStarterClaimGrant"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "beneficiary_account_id": "",
+        "issuer_account_id": "",
+        "revoke_reason": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RevokeRestrictedStarterClaimGrant",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "issuer_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "beneficiary_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "revoke_reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ClaimAgent"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 51,
+      "variant_name": "ClaimAgent"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "claimer_agent_id": "",
+        "target_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ClaimAgent",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "claimer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ClaimStarterOc"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 52,
+      "variant_name": "ClaimStarterOc"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "player_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ClaimStarterOc",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "player_id",
+      "value": ""
+    },
+    {
+      "op": "skip_field",
+      "name": "public_key"
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ReleaseAgentClaim"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 53,
+      "variant_name": "ReleaseAgentClaim"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "claimer_agent_id": "",
+        "target_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ReleaseAgentClaim",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "claimer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "TransferMaterial"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 54,
+      "variant_name": "TransferMaterial"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "auto_reroute": false,
+        "distance_km": 0,
+        "from_ledger": "world",
+        "kind": "",
+        "priority": null,
+        "requester_agent_id": "",
+        "route_ids": [],
+        "to_ledger": "world"
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "TransferMaterial",
+      "len": 9
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "from_ledger",
+      "value": "world"
+    },
+    {
+      "op": "field",
+      "name": "to_ledger",
+      "value": "world"
+    },
+    {
+      "op": "field",
+      "name": "kind",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "distance_km",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "priority",
+      "value": null
+    },
+    {
+      "op": "skip_field",
+      "name": "route_id"
+    },
+    {
+      "op": "field",
+      "name": "route_ids",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "auto_reroute",
+      "value": false
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RegisterLogisticsRoute"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 55,
+      "variant_name": "RegisterLogisticsRoute"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "capacity_units": 0,
+        "distance_km": 0,
+        "from_ledger": "world",
+        "kind": "",
+        "priority": "standard",
+        "requester_agent_id": "",
+        "tariff_electricity_per_unit": 0,
+        "to_ledger": "world"
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RegisterLogisticsRoute",
+      "len": 8
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "from_ledger",
+      "value": "world"
+    },
+    {
+      "op": "field",
+      "name": "to_ledger",
+      "value": "world"
+    },
+    {
+      "op": "field",
+      "name": "kind",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "distance_km",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "priority",
+      "value": "standard"
+    },
+    {
+      "op": "field",
+      "name": "capacity_units",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "tariff_electricity_per_unit",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "SetLogisticsRouteAvailability"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 56,
+      "variant_name": "SetLogisticsRouteAvailability"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "available": false,
+        "requester_agent_id": "",
+        "route_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "SetLogisticsRouteAvailability",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "route_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "available",
+      "value": false
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "FormAlliance"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 57,
+      "variant_name": "FormAlliance"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "alliance_id": "",
+        "charter": "",
+        "members": [],
+        "proposer_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "FormAlliance",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "proposer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "alliance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "members",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "charter",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "JoinAlliance"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 58,
+      "variant_name": "JoinAlliance"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "alliance_id": "",
+        "member_agent_id": "",
+        "operator_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "JoinAlliance",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "alliance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "member_agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "LeaveAlliance"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 59,
+      "variant_name": "LeaveAlliance"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "alliance_id": "",
+        "member_agent_id": "",
+        "operator_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "LeaveAlliance",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "alliance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "member_agent_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "DissolveAlliance"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 60,
+      "variant_name": "DissolveAlliance"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "alliance_id": "",
+        "operator_agent_id": "",
+        "reason": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "DissolveAlliance",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "alliance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "DeclareWar"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 61,
+      "variant_name": "DeclareWar"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "aggressor_alliance_id": "",
+        "defender_alliance_id": "",
+        "initiator_agent_id": "",
+        "intensity": 0,
+        "objective": "",
+        "war_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "DeclareWar",
+      "len": 6
+    },
+    {
+      "op": "field",
+      "name": "initiator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "war_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "aggressor_alliance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "defender_alliance_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "objective",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "intensity",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "OpenGovernanceProposal"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 62,
+      "variant_name": "OpenGovernanceProposal"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "description": "",
+        "options": [],
+        "pass_threshold_bps": 0,
+        "proposal_key": "",
+        "proposer_agent_id": "",
+        "quorum_weight": 0,
+        "title": "",
+        "voting_window_ticks": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "OpenGovernanceProposal",
+      "len": 8
+    },
+    {
+      "op": "field",
+      "name": "proposer_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proposal_key",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "title",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "description",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "options",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "voting_window_ticks",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "quorum_weight",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "pass_threshold_bps",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "CastGovernanceVote"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 63,
+      "variant_name": "CastGovernanceVote"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "option": "",
+        "proposal_key": "",
+        "voter_agent_id": "",
+        "weight": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "CastGovernanceVote",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "voter_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proposal_key",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "option",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "weight",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ResolveCrisis"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 64,
+      "variant_name": "ResolveCrisis"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "crisis_id": "",
+        "resolver_agent_id": "",
+        "strategy": "",
+        "success": false
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ResolveCrisis",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "resolver_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "crisis_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "strategy",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "success",
+      "value": false
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GrantMetaProgress"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 65,
+      "variant_name": "GrantMetaProgress"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "points": 0,
+        "target_agent_id": "",
+        "track": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GrantMetaProgress",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "track",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "points",
+      "value": 0
+    },
+    {
+      "op": "skip_field",
+      "name": "achievement_id"
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "UpdateGameplayPolicy"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 66,
+      "variant_name": "UpdateGameplayPolicy"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "blocked_agents": [],
+        "data_tax_bps": 0,
+        "electricity_tax_bps": 0,
+        "forbidden_location_ids": [],
+        "max_open_contracts_per_agent": 0,
+        "operator_agent_id": "",
+        "power_trade_fee_bps": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "UpdateGameplayPolicy",
+      "len": 7
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "electricity_tax_bps",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "data_tax_bps",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "power_trade_fee_bps",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "max_open_contracts_per_agent",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "blocked_agents",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "forbidden_location_ids",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "UpdateRestrictedStarterClaimAdminRegistry"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 67,
+      "variant_name": "UpdateRestrictedStarterClaimAdminRegistry"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "controller_account_id": "",
+        "next_admin_account_ids": []
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "UpdateRestrictedStarterClaimAdminRegistry",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "controller_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "next_admin_account_ids",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "SubmitGovernanceValidatorAdmission"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 68,
+      "variant_name": "SubmitGovernanceValidatorAdmission"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "candidate_id": "",
+        "controller_account_id": "",
+        "finality_signer_public_key": "",
+        "node_id": "",
+        "operator_owner": "",
+        "public_manifest_hash": "",
+        "stake": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "SubmitGovernanceValidatorAdmission",
+      "len": 7
+    },
+    {
+      "op": "field",
+      "name": "controller_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "candidate_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "finality_signer_public_key",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "stake",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "operator_owner",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "public_manifest_hash",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ApproveGovernanceValidatorAdmission"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 69,
+      "variant_name": "ApproveGovernanceValidatorAdmission"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "candidate_id": "",
+        "controller_account_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ApproveGovernanceValidatorAdmission",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "controller_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "candidate_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ActivateGovernanceValidatorAdmission"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 70,
+      "variant_name": "ActivateGovernanceValidatorAdmission"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "activation_epoch": 0,
+        "candidate_id": "",
+        "controller_account_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ActivateGovernanceValidatorAdmission",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "controller_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "candidate_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "activation_epoch",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RevokeGovernanceValidatorAdmission"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 71,
+      "variant_name": "RevokeGovernanceValidatorAdmission"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "candidate_id": "",
+        "controller_account_id": "",
+        "node_id": "",
+        "reason": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RevokeGovernanceValidatorAdmission",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "controller_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "candidate_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "node_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "OpenEconomicContract"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 72,
+      "variant_name": "OpenEconomicContract"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "contract_id": "",
+        "counterparty_agent_id": "",
+        "creator_agent_id": "",
+        "description": "",
+        "expires_at": 0,
+        "fulfillment_kind": "atomic_exchange",
+        "reputation_stake": 0,
+        "settlement_amount": 0,
+        "settlement_kind": "electricity"
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "OpenEconomicContract",
+      "len": 9
+    },
+    {
+      "op": "field",
+      "name": "creator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "contract_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "counterparty_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "fulfillment_kind",
+      "value": "atomic_exchange"
+    },
+    {
+      "op": "field",
+      "name": "settlement_kind",
+      "value": "electricity"
+    },
+    {
+      "op": "field",
+      "name": "settlement_amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "reputation_stake",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "expires_at",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "description",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "AcceptEconomicContract"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 73,
+      "variant_name": "AcceptEconomicContract"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "accepter_agent_id": "",
+        "contract_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "AcceptEconomicContract",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "accepter_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "contract_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "SettleEconomicContract"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 74,
+      "variant_name": "SettleEconomicContract"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "contract_id": "",
+        "notes": "",
+        "operator_agent_id": "",
+        "success": false
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "SettleEconomicContract",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "contract_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "success",
+      "value": false
+    },
+    {
+      "op": "field",
+      "name": "notes",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "EmitResourceTransfer"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 75,
+      "variant_name": "EmitResourceTransfer"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "from_agent_id": "",
+        "kind": "electricity",
+        "to_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "EmitResourceTransfer",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "from_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "to_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "kind",
+      "value": "electricity"
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "BuildFactory"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 76,
+      "variant_name": "BuildFactory"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "builder_agent_id": "",
+        "site_id": "",
+        "spec": {
+          "base_power_draw": 0,
+          "build_cost": [],
+          "build_time_ticks": 0,
+          "display_name": "",
+          "factory_id": "",
+          "maintenance_per_tick": 0,
+          "recipe_slots": 0,
+          "tags": [],
+          "throughput_bps": 0,
+          "tier": 0
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "BuildFactory",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "builder_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "site_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "spec",
+      "value": {
+        "base_power_draw": 0,
+        "build_cost": [],
+        "build_time_ticks": 0,
+        "display_name": "",
+        "factory_id": "",
+        "maintenance_per_tick": 0,
+        "recipe_slots": 0,
+        "tags": [],
+        "throughput_bps": 0,
+        "tier": 0
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "BuildFactoryWithModule"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 77,
+      "variant_name": "BuildFactoryWithModule"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "builder_agent_id": "",
+        "module_id": "",
+        "site_id": "",
+        "spec": {
+          "base_power_draw": 0,
+          "build_cost": [],
+          "build_time_ticks": 0,
+          "display_name": "",
+          "factory_id": "",
+          "maintenance_per_tick": 0,
+          "recipe_slots": 0,
+          "tags": [],
+          "throughput_bps": 0,
+          "tier": 0
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "BuildFactoryWithModule",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "builder_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "site_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "module_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "spec",
+      "value": {
+        "base_power_draw": 0,
+        "build_cost": [],
+        "build_time_ticks": 0,
+        "display_name": "",
+        "factory_id": "",
+        "maintenance_per_tick": 0,
+        "recipe_slots": 0,
+        "tags": [],
+        "throughput_bps": 0,
+        "tier": 0
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "MaintainFactory"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 78,
+      "variant_name": "MaintainFactory"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "factory_id": "",
+        "operator_agent_id": "",
+        "parts": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "MaintainFactory",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "factory_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "parts",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "RecycleFactory"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 79,
+      "variant_name": "RecycleFactory"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "factory_id": "",
+        "operator_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "RecycleFactory",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "factory_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ScheduleEssentialRecipe"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 80,
+      "variant_name": "ScheduleEssentialRecipe"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "batches": 0,
+        "factory_id": "",
+        "obligation_id": "",
+        "recipe_id": "",
+        "requester_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ScheduleEssentialRecipe",
+      "len": 5
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "factory_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "recipe_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "batches",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "obligation_id",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ScheduleRecipe"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 81,
+      "variant_name": "ScheduleRecipe"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "factory_id": "",
+        "logistics_path_ids": [],
+        "logistics_route_ids": [],
+        "plan": {
+          "accepted_batches": 0,
+          "byproducts": [],
+          "consume": [],
+          "duration_ticks": 0,
+          "power_required": 0,
+          "produce": []
+        },
+        "recipe_id": "",
+        "requester_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ScheduleRecipe",
+      "len": 6
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "factory_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "recipe_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "plan",
+      "value": {
+        "accepted_batches": 0,
+        "byproducts": [],
+        "consume": [],
+        "duration_ticks": 0,
+        "power_required": 0,
+        "produce": []
+      }
+    },
+    {
+      "op": "field",
+      "name": "logistics_route_ids",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "logistics_path_ids",
+      "value": []
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "PauseFactoryProduction"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 82,
+      "variant_name": "PauseFactoryProduction"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "factory_id": "",
+        "reason": "",
+        "requester_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "PauseFactoryProduction",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "factory_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "reason",
+      "value": ""
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ScheduleRecipeWithModule"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 83,
+      "variant_name": "ScheduleRecipeWithModule"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "desired_batches": 0,
+        "deterministic_seed": 0,
+        "factory_id": "",
+        "module_id": "",
+        "recipe_id": "",
+        "requester_agent_id": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ScheduleRecipeWithModule",
+      "len": 6
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "factory_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "recipe_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "module_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "desired_batches",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "deterministic_seed",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ValidateProduct"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 84,
+      "variant_name": "ValidateProduct"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "decision": {
+          "accepted": true,
+          "notes": [],
+          "product_id": "",
+          "quality_levels": [],
+          "stack_limit": 0,
+          "tradable": false
+        },
+        "module_id": "",
+        "requester_agent_id": "",
+        "stack": {
+          "amount": 0,
+          "kind": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ValidateProduct",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "module_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "stack",
+      "value": {
+        "amount": 0,
+        "kind": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "decision",
+      "value": {
+        "accepted": true,
+        "notes": [],
+        "product_id": "",
+        "quality_levels": [],
+        "stack_limit": 0,
+        "tradable": false
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ValidateProductWithModule"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 85,
+      "variant_name": "ValidateProductWithModule"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "deterministic_seed": 0,
+        "module_id": "",
+        "requester_agent_id": "",
+        "stack": {
+          "amount": 0,
+          "kind": ""
+        }
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ValidateProductWithModule",
+      "len": 4
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "module_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "stack",
+      "value": {
+        "amount": 0,
+        "kind": ""
+      }
+    },
+    {
+      "op": "field",
+      "name": "deterministic_seed",
+      "value": 0
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GovernMaterialProfile"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 86,
+      "variant_name": "GovernMaterialProfile"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "profile": {
+          "category": "",
+          "decay_bps_per_tick": 0,
+          "default_priority": "standard",
+          "kind": "",
+          "stack_limit": 0,
+          "tier": 0,
+          "transport_loss_class": "medium"
+        },
+        "proposal_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GovernMaterialProfile",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proposal_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "profile",
+      "value": {
+        "category": "",
+        "decay_bps_per_tick": 0,
+        "default_priority": "standard",
+        "kind": "",
+        "stack_limit": 0,
+        "tier": 0,
+        "transport_loss_class": "medium"
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GovernProductProfile"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 87,
+      "variant_name": "GovernProductProfile"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "profile": {
+          "maintenance_sink": [],
+          "product_id": "",
+          "role_tag": "",
+          "tradable": false,
+          "unlock_stage": ""
+        },
+        "proposal_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GovernProductProfile",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proposal_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "profile",
+      "value": {
+        "maintenance_sink": [],
+        "product_id": "",
+        "role_tag": "",
+        "tradable": false,
+        "unlock_stage": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GovernRecipeProfile"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 88,
+      "variant_name": "GovernRecipeProfile"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "profile": {
+          "bottleneck_tags": [],
+          "preferred_factory_tags": [],
+          "recipe_id": "",
+          "stage_gate": ""
+        },
+        "proposal_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GovernRecipeProfile",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proposal_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "profile",
+      "value": {
+        "bottleneck_tags": [],
+        "preferred_factory_tags": [],
+        "recipe_id": "",
+        "stage_gate": ""
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GovernFactoryProfile"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 89,
+      "variant_name": "GovernFactoryProfile"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "operator_agent_id": "",
+        "profile": {
+          "factory_id": "",
+          "recipe_slots": 0,
+          "tags": [],
+          "tier": 0
+        },
+        "proposal_id": 0
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GovernFactoryProfile",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "proposal_id",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "profile",
+      "value": {
+        "factory_id": "",
+        "recipe_slots": 0,
+        "tags": [],
+        "tier": 0
+      }
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ]
+]

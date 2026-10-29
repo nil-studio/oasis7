@@ -1,0 +1,686 @@
+use super::*;
+
+#[derive(serde::Serialize)]
+#[serde(rename = "NodePointsSettlementApplied")]
+struct NodePointsSettlementAppliedPayload<'a> {
+    report: &'a EpochSettlementReport,
+    signer_node_id: &'a String,
+    settlement_hash: &'a String,
+    minted_records: &'a Vec<NodeRewardMintRecord>,
+    main_token_bridge_total_amount: &'a u64,
+    main_token_bridge_distributions: &'a Vec<MainTokenNodePointsBridgeDistribution>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenGenesisInitialized")]
+struct MainTokenGenesisInitializedPayload<'a> {
+    total_supply: &'a u64,
+    allocations: &'a Vec<MainTokenGenesisAllocationBucketState>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenVestingClaimed")]
+struct MainTokenVestingClaimedPayload<'a> {
+    bucket_id: &'a String,
+    beneficiary: &'a String,
+    amount: &'a u64,
+    nonce: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenTransferred")]
+struct MainTokenTransferredPayload<'a> {
+    from_account_id: &'a String,
+    to_account_id: &'a String,
+    amount: &'a u64,
+    nonce: &'a u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asset_id: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memo: &'a Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenEpochIssued")]
+struct MainTokenEpochIssuedPayload<'a> {
+    epoch_index: &'a u64,
+    inflation_rate_bps: &'a u32,
+    issued_amount: &'a u64,
+    staking_reward_amount: &'a u64,
+    node_service_reward_amount: &'a u64,
+    ecosystem_pool_amount: &'a u64,
+    security_reserve_amount: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenFeeSettled")]
+struct MainTokenFeeSettledPayload<'a> {
+    fee_kind: &'a MainTokenFeeKind,
+    amount: &'a u64,
+    burn_amount: &'a u64,
+    treasury_amount: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenPolicyUpdateScheduled")]
+struct MainTokenPolicyUpdateScheduledPayload<'a> {
+    proposal_id: &'a ProposalId,
+    effective_epoch: &'a u64,
+    next: &'a MainTokenConfig,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "MainTokenTreasuryDistributed")]
+struct MainTokenTreasuryDistributedPayload<'a> {
+    proposal_id: &'a ProposalId,
+    distribution_id: &'a String,
+    bucket_id: &'a String,
+    total_amount: &'a u64,
+    distributions: &'a Vec<MainTokenTreasuryDistribution>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "RestrictedStarterClaimLiveopsPoolToppedUp")]
+struct RestrictedStarterClaimLiveopsPoolToppedUpPayload<'a> {
+    controller_account_id: &'a String,
+    top_up_id: &'a String,
+    source_treasury_bucket_id: &'a String,
+    target_treasury_bucket_id: &'a String,
+    amount: &'a u64,
+    topped_up_at_epoch: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "RestrictedStarterClaimGrantIssued")]
+struct RestrictedStarterClaimGrantIssuedPayload<'a> {
+    issuer_id: &'a String,
+    beneficiary_account_id: &'a String,
+    source_treasury_bucket_id: &'a String,
+    amount: &'a u64,
+    issuance_reason: &'a String,
+    spend_scope: &'a String,
+    issued_at_epoch: &'a u64,
+    expires_at_epoch: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "RestrictedStarterClaimGrantExpired")]
+struct RestrictedStarterClaimGrantExpiredPayload<'a> {
+    beneficiary_account_id: &'a String,
+    issuer_id: &'a String,
+    issuance_reason: &'a String,
+    spend_scope: &'a String,
+    source_treasury_bucket_id: &'a String,
+    issued_amount: &'a u64,
+    expired_amount: &'a u64,
+    issued_at_epoch: &'a u64,
+    expired_at_epoch: &'a u64,
+    configured_expires_at_epoch: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "RestrictedStarterClaimGrantRevoked")]
+struct RestrictedStarterClaimGrantRevokedPayload<'a> {
+    beneficiary_account_id: &'a String,
+    issuer_id: &'a String,
+    issuance_reason: &'a String,
+    spend_scope: &'a String,
+    source_treasury_bucket_id: &'a String,
+    issued_amount: &'a u64,
+    revoked_amount: &'a u64,
+    issued_at_epoch: &'a u64,
+    revoked_at_epoch: &'a u64,
+    configured_expires_at_epoch: &'a u64,
+    revoke_reason: &'a String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "StarterOcClaimed")]
+struct StarterOcClaimedPayload<'a> {
+    agent_id: &'a String,
+    player_id: &'a String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_key: &'a Option<String>,
+    amount: &'a u64,
+    claimed_at: &'a WorldTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_treasury_bucket_id: &'a Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimed")]
+struct AgentClaimedPayload<'a> {
+    #[serde(skip_serializing_if = "is_legacy_claim_contract_version")]
+    acquisition_contract_version: &'a u8,
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    reputation_tier: &'a u8,
+    slot_index: &'a u8,
+    activation_fee_amount: &'a u64,
+    activation_fee_burn_amount: &'a u64,
+    activation_fee_treasury_amount: &'a u64,
+    claim_bond_amount: &'a u64,
+    upfront_restricted_spent_amount: &'a u64,
+    upfront_liquid_spent_amount: &'a u64,
+    auto_issued_restricted_amount: &'a u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_issued_restricted_source_treasury_bucket_id: &'a Option<String>,
+    claim_bond_locked_restricted_amount: &'a u64,
+    claim_bond_locked_liquid_amount: &'a u64,
+    upkeep_per_epoch: &'a u64,
+    claimed_at_epoch: &'a u64,
+    upkeep_paid_through_epoch: &'a u64,
+    release_cooldown_epochs: &'a u64,
+    grace_epochs: &'a u64,
+    idle_warning_epochs: &'a u64,
+    forced_idle_reclaim_epochs: &'a u64,
+    forced_reclaim_penalty_bps: &'a u16,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimReleaseRequested")]
+struct AgentClaimReleaseRequestedPayload<'a> {
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    requested_at_epoch: &'a u64,
+    ready_at_epoch: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimUpkeepSettled")]
+struct AgentClaimUpkeepSettledPayload<'a> {
+    #[serde(skip_serializing_if = "is_legacy_claim_contract_version")]
+    activity_contract_version: &'a u8,
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    settled_at_epoch: &'a u64,
+    charged_epochs: &'a u64,
+    amount: &'a u64,
+    restricted_spent_amount: &'a u64,
+    liquid_spent_amount: &'a u64,
+    upkeep_paid_through_epoch: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimEnteredGrace")]
+struct AgentClaimEnteredGracePayload<'a> {
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    delinquent_since_epoch: &'a u64,
+    grace_deadline_epoch: &'a u64,
+    upkeep_arrears_amount: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimIdleWarning")]
+struct AgentClaimIdleWarningPayload<'a> {
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    warning_emitted_at_epoch: &'a u64,
+    forced_reclaim_at_epoch: &'a u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimReleased")]
+struct AgentClaimReleasedPayload<'a> {
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    released_at_epoch: &'a u64,
+    refunded_bond_amount: &'a u64,
+    refunded_bond_restricted_amount: &'a u64,
+    refunded_bond_liquid_amount: &'a u64,
+    refunded_bond_restricted_sink: &'a RestrictedStarterClaimRefundSink,
+    refunded_bond_restricted_sink_bucket_id: &'a String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename = "AgentClaimReclaimed")]
+struct AgentClaimReclaimedPayload<'a> {
+    claimer_agent_id: &'a String,
+    target_agent_id: &'a String,
+    reclaimed_at_epoch: &'a u64,
+    reason: &'a String,
+    upkeep_arrears_amount: &'a u64,
+    collected_upkeep_amount: &'a u64,
+    penalty_amount: &'a u64,
+    refunded_bond_amount: &'a u64,
+    refunded_bond_restricted_amount: &'a u64,
+    refunded_bond_liquid_amount: &'a u64,
+    refunded_bond_restricted_sink: &'a RestrictedStarterClaimRefundSink,
+    refunded_bond_restricted_sink_bucket_id: &'a String,
+}
+
+pub(super) fn serialize<S: serde::Serializer>(
+    event: &DomainEvent,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match event {
+        DomainEvent::NodePointsSettlementApplied {
+            report,
+            signer_node_id,
+            settlement_hash,
+            minted_records,
+            main_token_bridge_total_amount,
+            main_token_bridge_distributions,
+        } => serialize_adjacent(
+            serializer,
+            Tag::NodePointsSettlementApplied,
+            &NodePointsSettlementAppliedPayload {
+                report,
+                signer_node_id,
+                settlement_hash,
+                minted_records,
+                main_token_bridge_total_amount,
+                main_token_bridge_distributions,
+            },
+        ),
+        DomainEvent::MainTokenGenesisInitialized {
+            total_supply,
+            allocations,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenGenesisInitialized,
+            &MainTokenGenesisInitializedPayload {
+                total_supply,
+                allocations,
+            },
+        ),
+        DomainEvent::MainTokenVestingClaimed {
+            bucket_id,
+            beneficiary,
+            amount,
+            nonce,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenVestingClaimed,
+            &MainTokenVestingClaimedPayload {
+                bucket_id,
+                beneficiary,
+                amount,
+                nonce,
+            },
+        ),
+        DomainEvent::MainTokenTransferred {
+            from_account_id,
+            to_account_id,
+            amount,
+            nonce,
+            asset_id,
+            memo,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenTransferred,
+            &MainTokenTransferredPayload {
+                from_account_id,
+                to_account_id,
+                amount,
+                nonce,
+                asset_id,
+                memo,
+            },
+        ),
+        DomainEvent::MainTokenEpochIssued {
+            epoch_index,
+            inflation_rate_bps,
+            issued_amount,
+            staking_reward_amount,
+            node_service_reward_amount,
+            ecosystem_pool_amount,
+            security_reserve_amount,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenEpochIssued,
+            &MainTokenEpochIssuedPayload {
+                epoch_index,
+                inflation_rate_bps,
+                issued_amount,
+                staking_reward_amount,
+                node_service_reward_amount,
+                ecosystem_pool_amount,
+                security_reserve_amount,
+            },
+        ),
+        DomainEvent::MainTokenFeeSettled {
+            fee_kind,
+            amount,
+            burn_amount,
+            treasury_amount,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenFeeSettled,
+            &MainTokenFeeSettledPayload {
+                fee_kind,
+                amount,
+                burn_amount,
+                treasury_amount,
+            },
+        ),
+        DomainEvent::MainTokenPolicyUpdateScheduled {
+            proposal_id,
+            effective_epoch,
+            next,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenPolicyUpdateScheduled,
+            &MainTokenPolicyUpdateScheduledPayload {
+                proposal_id,
+                effective_epoch,
+                next,
+            },
+        ),
+        DomainEvent::MainTokenTreasuryDistributed {
+            proposal_id,
+            distribution_id,
+            bucket_id,
+            total_amount,
+            distributions,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MainTokenTreasuryDistributed,
+            &MainTokenTreasuryDistributedPayload {
+                proposal_id,
+                distribution_id,
+                bucket_id,
+                total_amount,
+                distributions,
+            },
+        ),
+        DomainEvent::RestrictedStarterClaimLiveopsPoolToppedUp {
+            controller_account_id,
+            top_up_id,
+            source_treasury_bucket_id,
+            target_treasury_bucket_id,
+            amount,
+            topped_up_at_epoch,
+        } => serialize_adjacent(
+            serializer,
+            Tag::RestrictedStarterClaimLiveopsPoolToppedUp,
+            &RestrictedStarterClaimLiveopsPoolToppedUpPayload {
+                controller_account_id,
+                top_up_id,
+                source_treasury_bucket_id,
+                target_treasury_bucket_id,
+                amount,
+                topped_up_at_epoch,
+            },
+        ),
+        DomainEvent::RestrictedStarterClaimGrantIssued {
+            issuer_id,
+            beneficiary_account_id,
+            source_treasury_bucket_id,
+            amount,
+            issuance_reason,
+            spend_scope,
+            issued_at_epoch,
+            expires_at_epoch,
+        } => serialize_adjacent(
+            serializer,
+            Tag::RestrictedStarterClaimGrantIssued,
+            &RestrictedStarterClaimGrantIssuedPayload {
+                issuer_id,
+                beneficiary_account_id,
+                source_treasury_bucket_id,
+                amount,
+                issuance_reason,
+                spend_scope,
+                issued_at_epoch,
+                expires_at_epoch,
+            },
+        ),
+        DomainEvent::RestrictedStarterClaimGrantExpired {
+            beneficiary_account_id,
+            issuer_id,
+            issuance_reason,
+            spend_scope,
+            source_treasury_bucket_id,
+            issued_amount,
+            expired_amount,
+            issued_at_epoch,
+            expired_at_epoch,
+            configured_expires_at_epoch,
+        } => serialize_adjacent(
+            serializer,
+            Tag::RestrictedStarterClaimGrantExpired,
+            &RestrictedStarterClaimGrantExpiredPayload {
+                beneficiary_account_id,
+                issuer_id,
+                issuance_reason,
+                spend_scope,
+                source_treasury_bucket_id,
+                issued_amount,
+                expired_amount,
+                issued_at_epoch,
+                expired_at_epoch,
+                configured_expires_at_epoch,
+            },
+        ),
+        DomainEvent::RestrictedStarterClaimGrantRevoked {
+            beneficiary_account_id,
+            issuer_id,
+            issuance_reason,
+            spend_scope,
+            source_treasury_bucket_id,
+            issued_amount,
+            revoked_amount,
+            issued_at_epoch,
+            revoked_at_epoch,
+            configured_expires_at_epoch,
+            revoke_reason,
+        } => serialize_adjacent(
+            serializer,
+            Tag::RestrictedStarterClaimGrantRevoked,
+            &RestrictedStarterClaimGrantRevokedPayload {
+                beneficiary_account_id,
+                issuer_id,
+                issuance_reason,
+                spend_scope,
+                source_treasury_bucket_id,
+                issued_amount,
+                revoked_amount,
+                issued_at_epoch,
+                revoked_at_epoch,
+                configured_expires_at_epoch,
+                revoke_reason,
+            },
+        ),
+        DomainEvent::StarterOcClaimed {
+            agent_id,
+            player_id,
+            public_key,
+            amount,
+            claimed_at,
+            source_treasury_bucket_id,
+        } => serialize_adjacent(
+            serializer,
+            Tag::StarterOcClaimed,
+            &StarterOcClaimedPayload {
+                agent_id,
+                player_id,
+                public_key,
+                amount,
+                claimed_at,
+                source_treasury_bucket_id,
+            },
+        ),
+        DomainEvent::AgentClaimed {
+            acquisition_contract_version,
+            claimer_agent_id,
+            target_agent_id,
+            reputation_tier,
+            slot_index,
+            activation_fee_amount,
+            activation_fee_burn_amount,
+            activation_fee_treasury_amount,
+            claim_bond_amount,
+            upfront_restricted_spent_amount,
+            upfront_liquid_spent_amount,
+            auto_issued_restricted_amount,
+            auto_issued_restricted_source_treasury_bucket_id,
+            claim_bond_locked_restricted_amount,
+            claim_bond_locked_liquid_amount,
+            upkeep_per_epoch,
+            claimed_at_epoch,
+            upkeep_paid_through_epoch,
+            release_cooldown_epochs,
+            grace_epochs,
+            idle_warning_epochs,
+            forced_idle_reclaim_epochs,
+            forced_reclaim_penalty_bps,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimed,
+            &AgentClaimedPayload {
+                acquisition_contract_version,
+                claimer_agent_id,
+                target_agent_id,
+                reputation_tier,
+                slot_index,
+                activation_fee_amount,
+                activation_fee_burn_amount,
+                activation_fee_treasury_amount,
+                claim_bond_amount,
+                upfront_restricted_spent_amount,
+                upfront_liquid_spent_amount,
+                auto_issued_restricted_amount,
+                auto_issued_restricted_source_treasury_bucket_id,
+                claim_bond_locked_restricted_amount,
+                claim_bond_locked_liquid_amount,
+                upkeep_per_epoch,
+                claimed_at_epoch,
+                upkeep_paid_through_epoch,
+                release_cooldown_epochs,
+                grace_epochs,
+                idle_warning_epochs,
+                forced_idle_reclaim_epochs,
+                forced_reclaim_penalty_bps,
+            },
+        ),
+        DomainEvent::AgentClaimReleaseRequested {
+            claimer_agent_id,
+            target_agent_id,
+            requested_at_epoch,
+            ready_at_epoch,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimReleaseRequested,
+            &AgentClaimReleaseRequestedPayload {
+                claimer_agent_id,
+                target_agent_id,
+                requested_at_epoch,
+                ready_at_epoch,
+            },
+        ),
+        DomainEvent::AgentClaimUpkeepSettled {
+            activity_contract_version,
+            claimer_agent_id,
+            target_agent_id,
+            settled_at_epoch,
+            charged_epochs,
+            amount,
+            restricted_spent_amount,
+            liquid_spent_amount,
+            upkeep_paid_through_epoch,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimUpkeepSettled,
+            &AgentClaimUpkeepSettledPayload {
+                activity_contract_version,
+                claimer_agent_id,
+                target_agent_id,
+                settled_at_epoch,
+                charged_epochs,
+                amount,
+                restricted_spent_amount,
+                liquid_spent_amount,
+                upkeep_paid_through_epoch,
+            },
+        ),
+        DomainEvent::AgentClaimEnteredGrace {
+            claimer_agent_id,
+            target_agent_id,
+            delinquent_since_epoch,
+            grace_deadline_epoch,
+            upkeep_arrears_amount,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimEnteredGrace,
+            &AgentClaimEnteredGracePayload {
+                claimer_agent_id,
+                target_agent_id,
+                delinquent_since_epoch,
+                grace_deadline_epoch,
+                upkeep_arrears_amount,
+            },
+        ),
+        DomainEvent::AgentClaimIdleWarning {
+            claimer_agent_id,
+            target_agent_id,
+            warning_emitted_at_epoch,
+            forced_reclaim_at_epoch,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimIdleWarning,
+            &AgentClaimIdleWarningPayload {
+                claimer_agent_id,
+                target_agent_id,
+                warning_emitted_at_epoch,
+                forced_reclaim_at_epoch,
+            },
+        ),
+        DomainEvent::AgentClaimReleased {
+            claimer_agent_id,
+            target_agent_id,
+            released_at_epoch,
+            refunded_bond_amount,
+            refunded_bond_restricted_amount,
+            refunded_bond_liquid_amount,
+            refunded_bond_restricted_sink,
+            refunded_bond_restricted_sink_bucket_id,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimReleased,
+            &AgentClaimReleasedPayload {
+                claimer_agent_id,
+                target_agent_id,
+                released_at_epoch,
+                refunded_bond_amount,
+                refunded_bond_restricted_amount,
+                refunded_bond_liquid_amount,
+                refunded_bond_restricted_sink,
+                refunded_bond_restricted_sink_bucket_id,
+            },
+        ),
+        DomainEvent::AgentClaimReclaimed {
+            claimer_agent_id,
+            target_agent_id,
+            reclaimed_at_epoch,
+            reason,
+            upkeep_arrears_amount,
+            collected_upkeep_amount,
+            penalty_amount,
+            refunded_bond_amount,
+            refunded_bond_restricted_amount,
+            refunded_bond_liquid_amount,
+            refunded_bond_restricted_sink,
+            refunded_bond_restricted_sink_bucket_id,
+        } => serialize_adjacent(
+            serializer,
+            Tag::AgentClaimReclaimed,
+            &AgentClaimReclaimedPayload {
+                claimer_agent_id,
+                target_agent_id,
+                reclaimed_at_epoch,
+                reason,
+                upkeep_arrears_amount,
+                collected_upkeep_amount,
+                penalty_amount,
+                refunded_bond_amount,
+                refunded_bond_restricted_amount,
+                refunded_bond_liquid_amount,
+                refunded_bond_restricted_sink,
+                refunded_bond_restricted_sink_bucket_id,
+            },
+        ),
+        _ => unreachable!("DomainEvent serializer group mismatch"),
+    }
+}
