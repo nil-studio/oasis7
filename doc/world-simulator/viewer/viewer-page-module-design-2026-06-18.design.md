@@ -10,6 +10,12 @@
 - Historical Image2 target (unversioned reference, not tracked in the current repository):
   - `output/visual-targets/viewer-visual-polish/image2-viewer-first-screen-target.png`
 
+<a id="viewer-full-function-companions"></a>
+
+## 全功能细节导航
+
+本页保持总体层级与既有authority/trace；逐字段、动作、状态和具体frame请读[派生覆盖目录](viewer-full-function-coverage-catalog.md)及其六个professional companion。当前源码、条件目标与未覆盖状态分开；原14张稿仍为概览，不代签所有功能。
+
 <a id="1-purpose"></a>
 
 ## 1. Purpose（目标）
@@ -886,6 +892,8 @@ module-state verification are still required before any completion claim.
 
 “账号与安全”按登录方式、已登录会话、恢复方式分组。凭证可能同步到多设备，不能把撤销凭证称作“退出这台设备”；退出单个 session 也不等于删除凭证。撤销影响、最后有效凭证保护和新鲜重新认证应在动作前可读。恢复仍沿[固定候选、等待和原子替换](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#recovery)的既有 authority；倒计时结束不画成自动恢复，邮箱恢复不授予资产密钥重置权限，不承诺客服无条件找回。
 
+<a id="uiux-imported-key-entry"></a>
+
 [已绑定密钥的网页导入](../../p2p/blockchain/hosted-public-join-key-based-onboarding.prd.md#imported-key-login)保持默认收起，展开前说明仅本页内存使用、不是 Passkey 导入、不要输入钱包或节点私钥。公私钥输入提交后清空；截图仅显示空字段或掩码，不能展示真实材料。此入口不延伸为本地密钥生成、加密备份或账号自动创建。认证反馈只使用安全阶段和诊断编号，不把原始异常、Cookie、OTP 或完整响应写进 UI。
 
 <a id="uiux-first-return-targets"></a>
@@ -1024,7 +1032,8 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 | [REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；入口模式、账号/准入/控制及demo/live分开 | [账号](#uiux-entry-session-world) | identity / runtime authority；Viewer呈现 | 不新增世界选择器、准入、生产能力或发行结论 |
 | [REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；入口模式、账号/准入/控制及demo/live分开 | [模式](#uiux-live-playback-context) | identity / runtime authority；Viewer呈现 | 不新增世界选择器、准入、生产能力或发行结论 |
 | [REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；认证/绑定/列表失败和原尝试未知有阶段与安全恢复 | [账号](#uiux-entry-session-world) | identity及原仪式查询；Viewer焦点与文案 | 不以fallback或重新认证复活旧authority |
-| [Flow-KEYAUTH-008](../../p2p/blockchain/hosted-public-join-key-based-onboarding.prd.md#imported-key-login) | Trace refs: O7-REQ-45c9a6e2-d624-4a57-bced-b96b6aa78f69；受限网页导入默认收起、安全告知、输入清空 | [账号](#uiux-entry-session-world) | identity native-key合同 | 不新增密钥生成/备份、Passkey导入或资产signer权限；独立 product 层条款 N/A；reason=受限导入由专业账号 PRD 的 Flow-KEYAUTH-008 唯一声明，尚无单列 doc/product 导入条款；scope=仅网页入口折叠、安全告知和输入清空，仍须完整验证该专业合同及上位接入要求 |
+| [REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；导入密钥服从当前入口primary mode，账号认证与世界准入/控制分开 | [受限导入](#uiux-imported-key-entry) | entry产品与identity能力 | 仅当前native_key入口；不新增世界权限或资产signer |
+| [REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；native_key入口失败仍保留原账号/资格，明确错误与恢复；次级披露、安全告知和输入清空遵守专业依赖 | [受限导入](#uiux-imported-key-entry) | [Flow-KEYAUTH-008](../../p2p/blockchain/hosted-public-join-key-based-onboarding.prd.md#imported-key-login)；identity native-key authority | 不新增密钥生成/备份、Passkey导入或资产signer，不扩大世界权限 |
 | [REQ-BYOK-001](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-001) | Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；部署前置不足不收Key，连接/检查/开始分开 | [模型](#uiux-byok-control-flow) | agent Game Client /部署capability | 不宣称尚未支持供应商可用，不替代真实部署 |
 | [REQ-BYOK-002](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-002) | Trace refs: O7-REQ-26cefe7a-deb5-4b21-845a-a2d4556f7dca；本机保存/接收方/费用知情、Stop/Forget与删除失败可读 | [模型](#uiux-byok-control-flow) | 本地存储/多页管理和供应商费用authority | 不承诺加密隔离、跨设备同步、账户账单硬封顶或退款 |
 | [REQ-BYOK-003](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-003) | Trace refs: O7-REQ-84294c93-3275-4d19-8faf-389950b87464；实际任务、executor授权、模型就绪、运行和世界结果分开 | [模型](#uiux-byok-control-flow) | owner/executor/task/fence与浏览器许可 | 不以Key授予权限、不承诺后台或关页续跑 |
@@ -1059,7 +1068,8 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 | [Player shell 当前布局](viewer-gameplay-release-experience-overhaul.prd.md#current-implementation-boundary) | [本设计布局条款](#33-command-strip) | 当前操作条款与主合同一致，不能要求恢复三张平级卡片或 Next Move 第二行 | 对同候选主合同与 `crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx`、`crates/oasis7_viewer/viewer_terminal_shell.css` 做静态对照；未来可见改动另按 [Viewer S6 手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md) 的视觉矩阵取得真实桌面/窄屏及输入证据 | 本 PR 的 source/diff 与限定静态核对；没有新增浏览器证据 | 源码接线不证明新 S6、真实玩家体验、完整 renderer/a11y 或发布通过 |
 | [REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | [账号](#uiux-entry-session-world) | 注册/账号/准入/控制分别确认；取消/未知/404与其他失败不混同 | 后续按[多凭证手册](../../testing/manual/hosted-passkey-account.manual.md#real-device)检查真实设备、返回焦点、账号列表局部失败、原仪式查询及多设备接管 | 同候选阶段/原attempt/当前session与UI记录 | 静态稿、虚拟认证器不代签真实设备/云后端/准入 |
 | [REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [账号](#uiux-entry-session-world) | 注册/账号/准入/控制分别确认；取消/未知/404与其他失败不混同 | 后续按[多凭证手册](../../testing/manual/hosted-passkey-account.manual.md#real-device)检查真实设备、返回焦点、账号列表局部失败、原仪式查询及多设备接管 | 同候选阶段/原attempt/当前session与UI记录 | 静态稿、虚拟认证器不代签真实设备/云后端/准入 |
-| [Flow-KEYAUTH-008](../../p2p/blockchain/hosted-public-join-key-based-onboarding.prd.md#imported-key-login) | [账号](#uiux-entry-session-world) | 导入次级披露、输入清空、scope安全且不生成备份 | 后续按[网页导入验收](../../testing/manual/hosted-passkey-account.manual.md#网页导入密钥登录)走实际页面，检查网络/storage/日志不含私钥和错误账号拒绝 | 同候选脱敏网络/存储/页面证据 | 图稿不证明WebCrypto、安全存储或真实代理路由 |
+| [REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | [受限导入](#uiux-imported-key-entry) | native_key只服务当前primary mode，账号认证不等于准入或控制 | 后续按[网页导入验收](../../testing/manual/hosted-passkey-account.manual.md#网页导入密钥登录)核对当前模式与账号/世界阶段；本次仅静态审读 | 同候选入口与状态证据 | 不证明其他部署、发行或世界准入已开放 |
+| [REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [受限导入](#uiux-imported-key-entry) | 错误key不改原owner，导入输入清空与安全范围；遵守Flow-KEYAUTH-008 | 后续按[网页导入验收](../../testing/manual/hosted-passkey-account.manual.md#网页导入密钥登录)走同候选真实页面，核对network/storage/日志及错误账号；当前未执行 | 同候选脱敏页面与安全证据 | 不证明WebCrypto、真实代理路由或完整权限验收 |
 | [REQ-BYOK-001](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-001) | [模型](#uiux-byok-control-flow) | 无前置不收Key，当前支持组合真实，检查不自动启动 | 后续按[模型验收手册](../../testing/manual/self-supplied-model-connection.manual.md#byok-01)，按 BYOK-01 核对浏览器部署 capability、任务前置、凭证接收方与显式检查/开始；当前未支持组合保持禁用；该手册旧托管步骤须沿其浏览器适用范围修订，不用旧通过记录代签 | 同候选供应商/模型/协议/费用授权与界面状态 | 一个组合成功不代签OpenRouter或完整游戏 |
 | [REQ-BYOK-005](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-005) | [模型](#uiux-byok-control-flow) | 无前置不收Key，当前支持组合真实，检查不自动启动 | 后续按[模型验收手册](../../testing/manual/self-supplied-model-connection.manual.md#byok-07)，按 BYOK-07/08 分 provider/model/protocol 检查实际 CSP/CORS、工具往返和获授权有限付费调用；一个组合不代签另一个；该手册旧托管步骤须沿其浏览器适用范围修订，不用旧通过记录代签 | 同候选供应商/模型/协议/费用授权与界面状态 | 一个组合成功不代签OpenRouter或完整游戏 |
 | [REQ-BYOK-002](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-002) | [模型](#uiux-byok-control-flow) | 保存/检查/授权/开始分开，Stop/Forget删除失败可读，旧输出不重放 | 后续按[模型验收手册](../../testing/manual/self-supplied-model-connection.manual.md#byok-02)，按 BYOK-02/03 核对账号隔离、保存/删除失败、双页配置与 Forget 冲突、存储拒绝及未知计费；检查 localStorage、脱敏网络与预算连续性；该手册旧托管步骤须沿其浏览器适用范围修订，不用旧通过记录代签 | 同候选实际点击、原签名/lookup零submit、存储及预算记录 | 静态源码/模拟响应不证明供应商费用或真实世界效果 |

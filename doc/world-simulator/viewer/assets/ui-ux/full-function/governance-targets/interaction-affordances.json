@@ -1,0 +1,191 @@
+[
+  {
+    "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S13.svg",
+    "representation": "interactive_target_form_state_fragment_not_runtime",
+    "fields": [
+      {
+        "field": "category",
+        "label": "事项类别 · 用户选择",
+        "control": "select",
+        "region": "control-category",
+        "value": "policy_runtime",
+        "editable": true,
+        "validation": "已选合法普通类别；仅声明意图，不授予政策执行权。",
+        "authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-classification"
+      },
+      {
+        "field": "target_scope",
+        "label": "对象 / 范围 · 用户从权威候选选择",
+        "control": "select",
+        "region": "control-target_scope",
+        "value": "请选择目标对象",
+        "editable": true,
+        "validation": "必填：缺少权威对象。禁止用自由文本扩大权限。",
+        "authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-classification"
+      },
+      {
+        "field": "effects",
+        "label": "请求效果集合 · 用户多选",
+        "control": "multiselect_unknown",
+        "region": "control-effects",
+        "value": "候选类型待当前 schema",
+        "editable": false,
+        "validation": "contract_unknown：封闭类型清单未取得，不提供自由文本 / other。",
+        "authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-classification"
+      },
+      {
+        "field": "authority_ref",
+        "label": "授权来源引用 · 用户选择引用",
+        "control": "select",
+        "region": "control-authority_ref",
+        "value": "请选择可验证 AuthorityRef",
+        "editable": true,
+        "validation": "必填：只选择已有来源；不能自行填写 issuer / grant 权限。",
+        "authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-classification"
+      },
+      {
+        "field": "identity",
+        "label": "world / matter / revision / payload",
+        "control": "readonly",
+        "region": "control-identity",
+        "value": "系统绑定 / 不可编辑",
+        "editable": false,
+        "validation": "规范化摘要由声明内容生成；修改效果形成新修订，旧批准不迁移。",
+        "authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-classification"
+      }
+    ],
+    "regions": {
+      "user_selection_and_system_binding": "x36 y265 w928 h742",
+      "authority_checks": "x986 y265 w578 h742",
+      "ctas": "y1044 h55"
+    },
+    "runtime": "not_connected_or_executed",
+    "remaining_gap": "actual candidate catalogs and concrete resource quantity/unit contract not invented"
+  },
+  {
+    "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S14.svg",
+    "representation": "interactive_target_form_state_fragment_not_runtime",
+    "fields": [
+      {
+        "field": "case",
+        "label": "case / manifest / expected versions",
+        "control": "readonly",
+        "region": "control-case",
+        "value": "系统绑定 / 不可编辑",
+        "editable": false,
+        "validation": "绑定已打开原 case、manifest root 与当前版本；不能通过新 case 重复处分。",
+        "authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-001"
+      },
+      {
+        "field": "asset",
+        "label": "完整托管项 · 用户单选",
+        "control": "select",
+        "region": "control-asset",
+        "value": "完整托管项 A（设计示例）",
+        "editable": true,
+        "validation": "选中值来自 canonical DepositOrganizationEstate receipt；未知权属不列入。",
+        "authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-001"
+      },
+      {
+        "field": "recipient",
+        "label": "返还对象 / 数量",
+        "control": "readonly",
+        "region": "control-recipient",
+        "value": "系统绑定：原 contributor / 完整项",
+        "editable": false,
+        "validation": "不可编辑受益人、不可拆分本图首版完整返还项；原记录未知即阻断。",
+        "authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-001"
+      },
+      {
+        "field": "grant",
+        "label": "appointment / successor grant / scope",
+        "control": "readonly",
+        "region": "control-grant",
+        "value": "系统绑定 / 不可编辑",
+        "editable": false,
+        "validation": "当前 authority、控制绑定、scope 与期限由权威读取；用户不得手填授权。",
+        "authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-001"
+      },
+      {
+        "field": "request",
+        "label": "request identity / plan hash / effect key",
+        "control": "readonly",
+        "region": "control-request",
+        "value": "系统绑定 / 不可编辑",
+        "editable": false,
+        "validation": "PrepareDisposition 生成计划；确认绑定原计划与版本，unknown 查原请求。",
+        "authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-001"
+      }
+    ],
+    "regions": {
+      "user_selection_and_system_binding": "x36 y265 w928 h742",
+      "authority_checks": "x986 y265 w578 h742",
+      "ctas": "y1044 h55"
+    },
+    "runtime": "not_connected_or_executed",
+    "remaining_gap": "actual candidate catalogs and concrete resource quantity/unit contract not invented"
+  },
+  {
+    "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S15.svg",
+    "representation": "interactive_target_form_state_fragment_not_runtime",
+    "fields": [
+      {
+        "field": "project",
+        "label": "project · 用户选择 / revision 系统绑定",
+        "control": "select",
+        "region": "control-project",
+        "value": "恢复项目 A（设计示例）",
+        "editable": true,
+        "validation": "从当前可读项目选取；revision、scope、policy、deadline 系统绑定，不可编辑。",
+        "authority": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+      },
+      {
+        "field": "source",
+        "label": "source receipt / lot · 用户选择",
+        "control": "multiselect",
+        "region": "control-source",
+        "value": "来源 lot A（设计示例）",
+        "editable": true,
+        "validation": "只能选可验证来源；claim 索引重验不可重复认领。具体数量/单位控件待领域合同。",
+        "authority": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+      },
+      {
+        "field": "eligibility",
+        "label": "actor / 代表授权 / 参与资格",
+        "control": "readonly",
+        "region": "control-eligibility",
+        "value": "系统绑定 / 不可编辑",
+        "editable": false,
+        "validation": "Participation 与 Eligibility 分开读取；加入项目不能替代资格。",
+        "authority": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+      },
+      {
+        "field": "commitment",
+        "label": "hold / 成本 / 期限 / 退出责任",
+        "control": "readonly",
+        "region": "control-commitment",
+        "value": "权威承诺预览 · 待取得",
+        "editable": false,
+        "validation": "不可自由填写 payer、hold、成本或期限。完整预览未取得不能提供贡献。",
+        "authority": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+      },
+      {
+        "field": "intent",
+        "label": "intent / payload / source claim refs",
+        "control": "readonly",
+        "region": "control-intent",
+        "value": "系统绑定 / 不可编辑",
+        "editable": false,
+        "validation": "保留原贡献身份与内容摘要；unknown 先查原 intent，不换身份再次贡献。",
+        "authority": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+      }
+    ],
+    "regions": {
+      "user_selection_and_system_binding": "x36 y265 w928 h742",
+      "authority_checks": "x986 y265 w578 h742",
+      "ctas": "y1044 h55"
+    },
+    "runtime": "not_connected_or_executed",
+    "remaining_gap": "actual candidate catalogs and concrete resource quantity/unit contract not invented"
+  }
+]

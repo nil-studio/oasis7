@@ -1,0 +1,4503 @@
+{
+  "baseline": "113868200d1f91bef1008babb689bd257f241428",
+  "rows": [
+    {
+      "group": "T-GOV-01",
+      "requirement": "GCB-001",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-001",
+      "trace_ids": [
+        "O7-REQ-f282f0ef-655c-4e41-a1b6-fa37482d663b"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 112,
+        "line_end": 128,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L112-L128"
+      },
+      "current_consumers": [
+        "R-QUOTE-08"
+      ],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-01-gcb-001",
+      "fields": [
+        {
+          "label": "类别 policy / treasury / charter",
+          "frame": "B01-GCB-001",
+          "region": "field-1"
+        },
+        {
+          "label": "目标对象与规范化效果集合",
+          "frame": "B01-GCB-001",
+          "region": "field-2"
+        },
+        {
+          "label": "事项身份 / 修订 / payload digest",
+          "frame": "B01-GCB-001",
+          "region": "field-3"
+        },
+        {
+          "label": "授权者、grant 与来源 receipt",
+          "frame": "B01-GCB-001",
+          "region": "field-4"
+        },
+        {
+          "label": "目标范围 / 能力范围 / 有效区间",
+          "frame": "B01-GCB-001",
+          "region": "field-5"
+        },
+        {
+          "label": "route、保护条款、缺项",
+          "frame": "B01-GCB-001",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "记录事项声明",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "无完整效果声明或来源不得进入普通流程",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "needs_evidence / rejected_protected / unsupported_route",
+        "recovery": "查看原分类；补齐原事项证据；不自动拆分复合效果",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B01-GCB-001.svg",
+      "professional_authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-classification",
+      "validation_anchors": [
+        "#ac-wr-gcb-001",
+        "../design.md#61-institution-migration-test",
+        "#gov-verify-001",
+        "#gov-verify-002",
+        "#gov-verify-003",
+        "#gov-verify-004",
+        "../../testing/prd.md#testing-sc-1",
+        "../../testing/manual/agent-runtime-self-playtest.manual.md",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现普通事项声明、白名单/保护边界分类与普通/财库/charter/紧急/升级/复合路由；执行前重验并原子拒绝越界且不占用资金/权限，提供缺项和下一步。 实施待安排： [Refs #4855](https://github.com/nil-studio/oasis7/issues/4855)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S13.svg",
+          "requirements": [
+            "GCB-001",
+            "GCB-002",
+            "GCB-003"
+          ],
+          "regions": {
+            "user_selection_and_system_binding": "x36 y265 w928 h742",
+            "authority_checks": "x986 y265 w578 h742",
+            "ctas": "y1044 h55"
+          },
+          "representation": "interactive_target_form_state_fragment_not_runtime",
+          "fixture": "conditional target operation; not live or executed",
+          "field_controls": [
+            {
+              "field": "category",
+              "label": "事项类别 · 用户选择",
+              "control": "select",
+              "region": "control-category",
+              "value": "policy_runtime",
+              "editable": true,
+              "validation": "已选合法普通类别；仅声明意图，不授予政策执行权。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "target_scope",
+              "label": "对象 / 范围 · 用户从权威候选选择",
+              "control": "select",
+              "region": "control-target_scope",
+              "value": "请选择目标对象",
+              "editable": true,
+              "validation": "必填：缺少权威对象。禁止用自由文本扩大权限。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "effects",
+              "label": "请求效果集合 · 用户多选",
+              "control": "multiselect_unknown",
+              "region": "control-effects",
+              "value": "候选类型待当前 schema",
+              "editable": false,
+              "validation": "contract_unknown：封闭类型清单未取得，不提供自由文本 / other。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "authority_ref",
+              "label": "授权来源引用 · 用户选择引用",
+              "control": "select",
+              "region": "control-authority_ref",
+              "value": "请选择可验证 AuthorityRef",
+              "editable": true,
+              "validation": "必填：只选择已有来源；不能自行填写 issuer / grant 权限。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "identity",
+              "label": "world / matter / revision / payload",
+              "control": "readonly",
+              "region": "control-identity",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "规范化摘要由声明内容生成；修改效果形成新修订，旧批准不迁移。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            }
+          ]
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "玩家或受权 Agent 声明 intent；分类器确认规范化效果、保护索引和 authority 来源。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-01",
+      "requirement": "GCB-002",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002",
+      "trace_ids": [
+        "O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 138,
+        "line_end": 154,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L138-L154"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-01-gcb-002",
+      "fields": [
+        {
+          "label": "审议与影响说明",
+          "frame": "B02-GCB-002",
+          "region": "field-1"
+        },
+        {
+          "label": "延迟 / 复核的权威时间",
+          "frame": "B02-GCB-002",
+          "region": "field-2"
+        },
+        {
+          "label": "超多数与独立资格快照",
+          "frame": "B02-GCB-002",
+          "region": "field-3"
+        },
+        {
+          "label": "受影响主体独立确认",
+          "frame": "B02-GCB-002",
+          "region": "field-4"
+        },
+        {
+          "label": "审计主体与结论",
+          "frame": "B02-GCB-002",
+          "region": "field-5"
+        },
+        {
+          "label": "申诉处理 / 当前授权 / 连续记录",
+          "frame": "B02-GCB-002",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "执行宪制事项",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "任一条件缺失均不可执行；ready 也不是生效",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "confirmation_pending / appeal_hold / needs_policy",
+        "recovery": "保持原案例和修订；查询各条件 producer；不可由普通票局代签",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B02-GCB-002.svg",
+      "professional_authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#constitutional-conjunction",
+      "validation_anchors": [
+        "#ac-wr-gcb-002",
+        "../design.md#61-institution-migration-test",
+        "#gov-verify-001",
+        "#gov-verify-002",
+        "#gov-verify-003",
+        "#gov-verify-004",
+        "../../testing/prd.md#testing-sc-1",
+        "../../testing/manual/agent-runtime-self-playtest.manual.md",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现宪制影响说明、延迟/复核、独立确认、审计、申诉/receipt及当前授权合取闸门；缺任一待决/过期/原子拒绝并显示缺项，不产生部分规则或资产效果。 实施待安排： [Refs #4855](https://github.com/nil-studio/oasis7/issues/4855)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S01.svg",
+          "requirements": [
+            "GCB-002"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        },
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S13.svg",
+          "requirements": [
+            "GCB-001",
+            "GCB-002",
+            "GCB-003"
+          ],
+          "regions": {
+            "user_selection_and_system_binding": "x36 y265 w928 h742",
+            "authority_checks": "x986 y265 w578 h742",
+            "ctas": "y1044 h55"
+          },
+          "representation": "interactive_target_form_state_fragment_not_runtime",
+          "fixture": "conditional target operation; not live or executed",
+          "field_controls": [
+            {
+              "field": "category",
+              "label": "事项类别 · 用户选择",
+              "control": "select",
+              "region": "control-category",
+              "value": "policy_runtime",
+              "editable": true,
+              "validation": "已选合法普通类别；仅声明意图，不授予政策执行权。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "target_scope",
+              "label": "对象 / 范围 · 用户从权威候选选择",
+              "control": "select",
+              "region": "control-target_scope",
+              "value": "请选择目标对象",
+              "editable": true,
+              "validation": "必填：缺少权威对象。禁止用自由文本扩大权限。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "effects",
+              "label": "请求效果集合 · 用户多选",
+              "control": "multiselect_unknown",
+              "region": "control-effects",
+              "value": "候选类型待当前 schema",
+              "editable": false,
+              "validation": "contract_unknown：封闭类型清单未取得，不提供自由文本 / other。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "authority_ref",
+              "label": "授权来源引用 · 用户选择引用",
+              "control": "select",
+              "region": "control-authority_ref",
+              "value": "请选择可验证 AuthorityRef",
+              "editable": true,
+              "validation": "必填：只选择已有来源；不能自行填写 issuer / grant 权限。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "identity",
+              "label": "world / matter / revision / payload",
+              "control": "readonly",
+              "region": "control-identity",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "规范化摘要由声明内容生成；修改效果形成新修订，旧批准不迁移。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            }
+          ]
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "各独立 producer 分别供审议、延迟、超多数、独立确认、审计、申诉和当前授权；执行者须具本案当前执行权限。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-01",
+      "requirement": "GCB-003",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003",
+      "trace_ids": [
+        "O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 164,
+        "line_end": 180,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L164-L180"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-01-gcb-003",
+      "fields": [
+        {
+          "label": "原 matter / approved revision",
+          "frame": "B03-GCB-003",
+          "region": "field-1"
+        },
+        {
+          "label": "通过时目标、范围与允许效果",
+          "frame": "B03-GCB-003",
+          "region": "field-2"
+        },
+        {
+          "label": "当前授权、保护与前置检查",
+          "frame": "B03-GCB-003",
+          "region": "field-3"
+        },
+        {
+          "label": "唯一 ExecutionSlot / payload",
+          "frame": "B03-GCB-003",
+          "region": "field-4"
+        },
+        {
+          "label": "已知提交点 / execution receipt",
+          "frame": "B03-GCB-003",
+          "region": "field-5"
+        },
+        {
+          "label": "实际效果与后继申诉引用",
+          "frame": "B03-GCB-003",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "执行已通过事项",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "passed 不预留权限；当前授权或范围失效必须拒绝",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "execution_eligible ≠ effective / outcome_unknown",
+        "recovery": "查询原执行身份；已提交只重读 receipt；未知不换键重试",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B03-GCB-003.svg",
+      "professional_authority": "doc/world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-commit",
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-wr-gcb-003",
+        "../design.md#61-institution-migration-test",
+        "#gov-verify-001",
+        "#gov-verify-002",
+        "#gov-verify-003",
+        "#gov-verify-004",
+        "../../testing/prd.md#testing-sc-1",
+        "../../testing/manual/agent-runtime-self-playtest.manual.md",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "政策授权只匹配操作者任一Passed提案，不绑定本次proposal_id或批准payload，也没有按该事项消耗；财库distribution_id去重不等于proposal一次消费。具体批准事项的当前scope、撤销/到期、宪制重分类、跨重试单次世界效果及失效读面仍未闭合。 产品语义已冻结，专业技术承接未核到不等于待定产品政策；未检视路径不判未实现。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S02.svg",
+          "requirements": [
+            "GCB-003",
+            "GCB-006"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        },
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S13.svg",
+          "requirements": [
+            "GCB-001",
+            "GCB-002",
+            "GCB-003"
+          ],
+          "regions": {
+            "user_selection_and_system_binding": "x36 y265 w928 h742",
+            "authority_checks": "x986 y265 w578 h742",
+            "ctas": "y1044 h55"
+          },
+          "representation": "interactive_target_form_state_fragment_not_runtime",
+          "fixture": "conditional target operation; not live or executed",
+          "field_controls": [
+            {
+              "field": "category",
+              "label": "事项类别 · 用户选择",
+              "control": "select",
+              "region": "control-category",
+              "value": "policy_runtime",
+              "editable": true,
+              "validation": "已选合法普通类别；仅声明意图，不授予政策执行权。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "target_scope",
+              "label": "对象 / 范围 · 用户从权威候选选择",
+              "control": "select",
+              "region": "control-target_scope",
+              "value": "请选择目标对象",
+              "editable": true,
+              "validation": "必填：缺少权威对象。禁止用自由文本扩大权限。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "effects",
+              "label": "请求效果集合 · 用户多选",
+              "control": "multiselect_unknown",
+              "region": "control-effects",
+              "value": "候选类型待当前 schema",
+              "editable": false,
+              "validation": "contract_unknown：封闭类型清单未取得，不提供自由文本 / other。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "authority_ref",
+              "label": "授权来源引用 · 用户选择引用",
+              "control": "select",
+              "region": "control-authority_ref",
+              "value": "请选择可验证 AuthorityRef",
+              "editable": true,
+              "validation": "必填：只选择已有来源；不能自行填写 issuer / grant 权限。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            },
+            {
+              "field": "identity",
+              "label": "world / matter / revision / payload",
+              "control": "readonly",
+              "region": "control-identity",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "规范化摘要由声明内容生成；修改效果形成新修订，旧批准不迁移。",
+              "authority": "governance-classification-and-constitutional-execution.design.md#governance-classification"
+            }
+          ]
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "当前有 ExecuteGovernedMatter 权限的主体；执行器固定 ExecutionSlot，非任意 operator 或普通投票者。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-01",
+      "requirement": "GCB-004",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-004",
+      "trace_ids": [
+        "O7-REQ-b584b2ab-bc38-43a1-a8fd-1b89dc3d20cd"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 190,
+        "line_end": 206,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L190-L206"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-01-gcb-004",
+      "fields": [
+        {
+          "label": "经验证游戏账户",
+          "frame": "B04-GCB-004",
+          "region": "field-1"
+        },
+        {
+          "label": "已批准身份 / signer / wallet 绑定摘要",
+          "frame": "B04-GCB-004",
+          "region": "field-2"
+        },
+        {
+          "label": "锁定 OC / 有界可撤销委托",
+          "frame": "B04-GCB-004",
+          "region": "field-3"
+        },
+        {
+          "label": "控制人聚合资格结果（最小披露）",
+          "frame": "B04-GCB-004",
+          "region": "field-4"
+        },
+        {
+          "label": "challenge / review / correction 链",
+          "frame": "B04-GCB-004",
+          "region": "field-5"
+        },
+        {
+          "label": "原计票、最终结果与 appeal",
+          "frame": "B04-GCB-004",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "申请主体复核",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "完整主体聚合与纠错消费者合同未核清",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "资格 unknown / review pending / corrected",
+        "recovery": "保留原投票和 receipt；受权主体查看纠错原因，不公开私密控制证据",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B04-GCB-004.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-wr-gcb-004"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现账户/approved bindings主体聚合、事项锁定OC、可撤销scope委托、实际控制人上限、隐私最小化审计和challenge→review→merge/revocation→计票correction→appeal；保留历史且不双计。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "主体聚合/私密控制断言、challenge/merge/revocation/correction 的完整 producer 与正式写接口、当前角色及跨请求幂等链未核清。"
+    },
+    {
+      "group": "T-GOV-01",
+      "requirement": "GCB-005",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-005",
+      "trace_ids": [
+        "O7-REQ-4b64b7c5-9819-4932-a1ad-3cdb09fa82e5"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 216,
+        "line_end": 232,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L216-L232"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-01-gcb-005",
+      "fields": [
+        {
+          "label": "外部 OC 转让事实",
+          "frame": "B05-GCB-005",
+          "region": "field-1"
+        },
+        {
+          "label": "事项范围内 lock / snapshot",
+          "frame": "B05-GCB-005",
+          "region": "field-2"
+        },
+        {
+          "label": "退出或解除绑定的当前结果",
+          "frame": "B05-GCB-005",
+          "region": "field-3"
+        },
+        {
+          "label": "有效窗口内原计票历史",
+          "frame": "B05-GCB-005",
+          "region": "field-4"
+        },
+        {
+          "label": "OC → LetAI Run quota 单向服务",
+          "frame": "B05-GCB-005",
+          "region": "field-5"
+        },
+        {
+          "label": "token_key 与服务消费（非治理）",
+          "frame": "B05-GCB-005",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看来源记录",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "Viewer 不提供链上转账或世界资格兑换",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "链上 confirmed ≠ 世界 eligible",
+        "recovery": "分别核对两侧原结果；一侧失败不覆盖另一侧历史",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B05-GCB-005.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-wr-gcb-005"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "外部OC锁定/退出/解绑→具体治理主体及事项snapshot绑定、跨账户/实际控制人并发转移隔离仍未实现于上述入口；operator-managed quota bridge、token_key及服务消费的全部正式消费者和三种状态并列读面仍未核清，不把局部隔离扩成整条已验证。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-01",
+      "requirement": "GCB-006",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-006",
+      "trace_ids": [
+        "O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 242,
+        "line_end": 258,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L242-L258"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-01-gcb-006",
+      "fields": [
+        {
+          "label": "保护动作与受影响对象",
+          "frame": "B06-GCB-006",
+          "region": "field-1"
+        },
+        {
+          "label": "授权主体 / 来源 / 当前范围",
+          "frame": "B06-GCB-006",
+          "region": "field-2"
+        },
+        {
+          "label": "理由与可公开证据",
+          "frame": "B06-GCB-006",
+          "region": "field-3"
+        },
+        {
+          "label": "生效期限与失效边界",
+          "frame": "B06-GCB-006",
+          "region": "field-4"
+        },
+        {
+          "label": "原请求 / 唯一效果 receipt",
+          "frame": "B06-GCB-006",
+          "region": "field-5"
+        },
+        {
+          "label": "恢复、复核与申诉入口",
+          "frame": "B06-GCB-006",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "执行保护动作",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "无精确专业动作与授权合同，不开放冻结/否决/处罚",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "revoked / expired / review pending / unknown",
+        "recovery": "保留受影响范围与原证据；申诉不取消审计，不改已确认历史",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B06-GCB-006.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-wr-gcb-006"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "正式提交者和绑定World事件的authority、initiator/guardian本次签名、证据充分性/target/金额/期限、申诉/裁决角色仍需核清或实现；逐类补齐否决/降权等高影响动作、自动到期恢复、紧急防绕过及正式跨入口验证。不得把内部API缺少角色校验写成远程可绕过。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S02.svg",
+          "requirements": [
+            "GCB-003",
+            "GCB-006"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "具体高影响动作类型、专业授权角色/证据schema、唯一效果键、执行/恢复写接口未核清。"
+    },
+    {
+      "group": "T-GOV-02",
+      "requirement": "GR-001",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001",
+      "trace_ids": [
+        "O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 70,
+        "line_end": 86,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L70-L86"
+      },
+      "current_consumers": [
+        "R-GAME-06",
+        "R-GAME-19"
+      ],
+      "source_design_status": "部分覆盖",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-02-gr-001",
+      "fields": [
+        {
+          "label": "区域压力与设施对象",
+          "frame": "B07-GR-001",
+          "region": "field-1"
+        },
+        {
+          "label": "报价成本 / 取舍 / 快照",
+          "frame": "B07-GR-001",
+          "region": "field-2"
+        },
+        {
+          "label": "提交与权威设施结果",
+          "frame": "B07-GR-001",
+          "region": "field-3"
+        },
+        {
+          "label": "有限库存 / 服务消耗",
+          "frame": "B07-GR-001",
+          "region": "field-4"
+        },
+        {
+          "label": "维护、耗尽与回收状态",
+          "frame": "B07-GR-001",
+          "region": "field-5"
+        },
+        {
+          "label": "下一次可用恢复或退役选择",
+          "frame": "B07-GR-001",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看设施生命周期",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "micro_depot 仅局部合同；不将报价当预留或顺位",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "quoted ≠ committed / exhausted",
+        "recovery": "读取原设施结果；耗尽后按实际支持回收，不泛造区域 CRUD",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B07-GR-001.svg",
+      "professional_authority": "doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-measured-lifecycle",
+      "validation_anchors": [
+        "https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/simulator/tests/micro_depot_measured_supply.rs#L90-L151",
+        "#ac-wr-gr-001",
+        "../../../crates/oasis7_simulator/src/tests/micro_depot_measured_supply.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "仅 micro_depot single-commission 消耗型设施有本轮代码核对；区域压力仍是 opaque reference，正式压力认证、其他设施与长期补货/epoch 周期不在已证明范围。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "partial_subscope"
+      },
+      "roles_and_qualification": "设施动作的当前 capability actor；限 micro_depot 合同，不推广全部区域设施。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-02",
+      "requirement": "GR-004",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-004",
+      "trace_ids": [
+        "O7-REQ-7de05591-35c1-4d8a-94b2-f64fce61976e"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 148,
+        "line_end": 164,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L148-L164"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-02-gr-004",
+      "fields": [
+        {
+          "label": "proposal / revision / operation",
+          "frame": "B08-GR-004",
+          "region": "field-1"
+        },
+        {
+          "label": "空间锚定 scope 与前身 charter",
+          "frame": "B08-GR-004",
+          "region": "field-2"
+        },
+        {
+          "label": "设施 / 物流 / 服务能力证据",
+          "frame": "B08-GR-004",
+          "region": "field-3"
+        },
+        {
+          "label": "需求交付 / Agent / 资源 / bond",
+          "frame": "B08-GR-004",
+          "region": "field-4"
+        },
+        {
+          "label": "本地 / 邻区 / 全局 review set",
+          "frame": "B08-GR-004",
+          "region": "field-5"
+        },
+        {
+          "label": "payload 与唯一创建 receipt",
+          "frame": "B08-GR-004",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "提交成立或调整",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "缺证据、异议或 bond 不足时不部分成立",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "needs_evidence / scope_objection / review_pending",
+        "recovery": "保留原修订，重新取得相关审查；unknown 先查原操作",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B08-GR-004.svg",
+      "professional_authority": "doc/world-runtime/runtime/regional-charter-authority-and-recovery.design.md#charter-formation",
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md#ac-game-017-01",
+        "#ac-wr-gr-004",
+        "../design.md#61-institution-migration-test",
+        "#charter-verify-001",
+        "#charter-verify-002",
+        "#charter-verify-003",
+        "#charter-verify-004",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现空间锚定能力/需求/资源/bond证据producer、本地/邻区/全局独立权限审查、当前条件重验和唯一charter receipt；缺项/自报/异议/漂移原子拒绝或待补且不产生部分权力。 实施待安排： [Refs #4857](https://github.com/nil-studio/oasis7/issues/4857)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S03.svg",
+          "requirements": [
+            "GR-004",
+            "GR-005",
+            "GR-006"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "提案者提交证据；local/neighbor/global 各自当前 reviewer；激活器重验 required_review_set。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-02",
+      "requirement": "GR-005",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-005",
+      "trace_ids": [
+        "O7-REQ-ee810b69-8c6a-4aca-86e8-ac387c8f8fcb"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 174,
+        "line_end": 190,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L174-L190"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-02-gr-005",
+      "fields": [
+        {
+          "label": "charter / authority revision",
+          "frame": "B09-GR-005",
+          "region": "field-1"
+        },
+        {
+          "label": "事项与地方规则适用 scope",
+          "frame": "B09-GR-005",
+          "region": "field-2"
+        },
+        {
+          "label": "OC / 委托 / 控制人资格来源",
+          "frame": "B09-GR-005",
+          "region": "field-3"
+        },
+        {
+          "label": "持续本地贡献来源与窗口",
+          "frame": "B09-GR-005",
+          "region": "field-4"
+        },
+        {
+          "label": "eligible / ineligible / unknown 原因",
+          "frame": "B09-GR-005",
+          "region": "field-5"
+        },
+        {
+          "label": "基本通行与独立恢复保护",
+          "frame": "B09-GR-005",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看资格来源",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "仅声明要求双资格的地方事项适用；不可外推到市场或工业",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "qualification_incomplete / unknown",
+        "recovery": "分别补核两侧来源；不把余额、到访或头衔当贡献",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B09-GR-005.svg",
+      "professional_authority": "doc/world-runtime/runtime/regional-charter-authority-and-recovery.design.md#charter-dual-qualification",
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md#ac-game-017-02",
+        "#ac-wr-gr-005",
+        "../design.md#61-institution-migration-test",
+        "#charter-verify-001",
+        "#charter-verify-002",
+        "#charter-verify-003",
+        "#charter-verify-004",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现持续本地贡献producer、受限OC/可撤回委托/控制人上限合取gate、成熟区域事项边界及独立宪制路由；在该区域权利上下文验证通行、容量结算、替代路线和独立恢复。 实施待安排： [Refs #4857](https://github.com/nil-studio/oasis7/issues/4857)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S03.svg",
+          "requirements": [
+            "GR-004",
+            "GR-005",
+            "GR-006"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "LocalEligibility producer 供双来源结果；本地决策主体必须满足该 matter/scope 的现行政策。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-02",
+      "requirement": "GR-006",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-006",
+      "trace_ids": [
+        "O7-REQ-46939a8f-c2a9-4ab6-818c-6bfa4bc83c5c"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 200,
+        "line_end": 216,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L200-L216"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-02-gr-006",
+      "fields": [
+        {
+          "label": "active / observing / suspended / dissolved",
+          "frame": "B10-GR-006",
+          "region": "field-1"
+        },
+        {
+          "label": "触发证据与权威观察窗口",
+          "frame": "B10-GR-006",
+          "region": "field-2"
+        },
+        {
+          "label": "能力收缩、恢复条件与异议",
+          "frame": "B10-GR-006",
+          "region": "field-3"
+        },
+        {
+          "label": "bond 与设施、Agent 处置",
+          "frame": "B10-GR-006",
+          "region": "field-4"
+        },
+        {
+          "label": "tenure / 合同 / 身份保留",
+          "frame": "B10-GR-006",
+          "region": "field-5"
+        },
+        {
+          "label": "每对象 pending / applied / child receipt",
+          "frame": "B10-GR-006",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看逐项处置",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "parent 状态不能替代资产子结果；不按短时停机清除",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "observing / high_impact_suspended",
+        "recovery": "恢复原 charter 和各子处置；未确认前不再锁 bond",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B10-GR-006.svg",
+      "professional_authority": "doc/world-runtime/runtime/regional-charter-authority-and-recovery.design.md#charter-degradation",
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md#ac-game-017-03",
+        "#ac-wr-gr-006",
+        "../design.md#61-institution-migration-test",
+        "#charter-verify-001",
+        "#charter-verify-002",
+        "#charter-verify-003",
+        "#charter-verify-004",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现退化事实/时钟、阶段状态与恢复/暂停/解散producer、bond/设施/Agent/tenure/身份/合同历史的规则化处置及receipt、迁移/回收/申诉读面；短时失败或停机不得静默清除。 实施待安排： [Refs #4857](https://github.com/nil-studio/oasis7/issues/4857)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S03.svg",
+          "requirements": [
+            "GR-004",
+            "GR-005",
+            "GR-006"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "授权阶段裁决者；各资产 owner 执行独立子处置，不由汇总页面代签。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-02",
+      "requirement": "GR-007",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-007",
+      "trace_ids": [
+        "O7-REQ-14aa9ab5-d30d-4be2-8c24-610bdc1d1186"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 226,
+        "line_end": 242,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L226-L242"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-02-gr-007",
+      "fields": [
+        {
+          "label": "地点 / 用途 / 建设权范围",
+          "frame": "B11-GR-007",
+          "region": "field-1"
+        },
+        {
+          "label": "原取得依据与维护续期",
+          "frame": "B11-GR-007",
+          "region": "field-2"
+        },
+        {
+          "label": "到期、闲置、违约或公共必要性",
+          "frame": "B11-GR-007",
+          "region": "field-3"
+        },
+        {
+          "label": "通知、理由、申诉状态",
+          "frame": "B11-GR-007",
+          "region": "field-4"
+        },
+        {
+          "label": "迁移 / 回收 / 补偿适用结果",
+          "frame": "B11-GR-007",
+          "region": "field-5"
+        },
+        {
+          "label": "原资产、身份、合同与通行",
+          "frame": "B11-GR-007",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "申请续期或规则化转让",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "tenure 专业完整写合同未核清；建设权不是主权",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "expired / disputed / pending authority change",
+        "recovery": "原绑定待决不跨 charter 自动迁移；查当前结果及可用恢复",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B11-GR-007.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md#ac-game-017-04",
+        "#ac-wr-gr-007"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现地点权利身份、规划horizon与维护/使用条件、规则化转让/续期、预定义收回触发、通知理由/申诉、迁移回收/适用补偿；保持公共通行和既有资产身份合同，不重复转让/没收。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S12.svg",
+          "requirements": [
+            "FI-001",
+            "FI-002",
+            "GR-007"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "tenure 取得/续期/转让/收回的具体写接口、资格producer、幂等身份及各类补偿/迁移执行合同未核清。"
+    },
+    {
+      "group": "T-GOV-02",
+      "requirement": "GR-008",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-008",
+      "trace_ids": [
+        "O7-REQ-17536c7e-c59a-464a-90e8-c36f0330c8f7"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 252,
+        "line_end": 268,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L252-L268"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-02-gr-008",
+      "fields": [
+        {
+          "label": "service_fee / public_levy 类型",
+          "frame": "B12-GR-008",
+          "region": "field-1"
+        },
+        {
+          "label": "charter 预授权与专项目的",
+          "frame": "B12-GR-008",
+          "region": "field-2"
+        },
+        {
+          "label": "受益范围、征收依据与主体",
+          "frame": "B12-GR-008",
+          "region": "field-3"
+        },
+        {
+          "label": "金额 / 资源 / 上限 / 有效期",
+          "frame": "B12-GR-008",
+          "region": "field-4"
+        },
+        {
+          "label": "专项账目、复核与关闭处置",
+          "frame": "B12-GR-008",
+          "region": "field-5"
+        },
+        {
+          "label": "原 assessment / settlement receipt",
+          "frame": "B12-GR-008",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "提交征收结算",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "缺授权、账目不可核验或评估过期不扣减、不记欠费",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "authorized 未结算 / settled / outcome_unknown",
+        "recovery": "按原义务键查结算；正常服务和基本通行不受无效 levy 影响",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B12-GR-008.svg",
+      "professional_authority": "doc/world-runtime/runtime/public-levy-authorization-and-settlement.design.md#levy-read-model",
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md#ac-game-017-05",
+        "../../testing/prd.md",
+        "#ac-wr-gr-008",
+        "#levy-verify-001",
+        "#levy-verify-002",
+        "#levy-verify-003",
+        "../../../crates/oasis7_runtime/src/tests/governance_meta_publication_transaction_regressions.rs",
+        "../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现不可排他公共品levy的charter预授权、目的/受益scope、预算费率上限/期限、公开账目与复核合取gate及到期处置；无效levy不得扣费、欠费或改资格/通行；补齐服务费/levy比较读面及同候选重复/恢复验证。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S04.svg",
+          "requirements": [
+            "GR-008",
+            "GR-011"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "合法治理/筹资 authority 提供 LevyAuthority；结算主体在当前专项范围内执行，付款方不能自发升级服务合同。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "GR-002",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002",
+      "trace_ids": [
+        "O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 96,
+        "line_end": 112,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L96-L112"
+      },
+      "current_consumers": [],
+      "source_design_status": "部分覆盖",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-gr-002",
+      "fields": [
+        {
+          "label": "release / artifact 精确身份",
+          "frame": "B13-GR-002",
+          "region": "field-1"
+        },
+        {
+          "label": "完整 profile payload 承诺",
+          "frame": "B13-GR-002",
+          "region": "field-2"
+        },
+        {
+          "label": "当前 owner 与审批角色",
+          "frame": "B13-GR-002",
+          "region": "field-3"
+        },
+        {
+          "label": "能力范围与世界前置",
+          "frame": "B13-GR-002",
+          "region": "field-4"
+        },
+        {
+          "label": "发布 / 激活各自结果",
+          "frame": "B13-GR-002",
+          "region": "field-5"
+        },
+        {
+          "label": "权威 publication receipt",
+          "frame": "B13-GR-002",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "发布或激活扩展",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "构建成功和旧批准不替代当前角色、payload 重验",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "stale payload / stale authority / committed",
+        "recovery": "查原 release receipt；不把本地构建状态改为世界生效",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B13-GR-002.svg",
+      "professional_authority": "doc/world-runtime/module/player-published-entities.design.md#ppe-publication-authority",
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5/crates/oasis7/src/runtime/tests/module_action_loop_regressions.rs#L346-L560",
+        "#ac-wr-gr-002",
+        "../../../crates/oasis7_runtime/src/tests/module_action_loop_regressions.rs",
+        "../../../crates/oasis7_runtime/src/world/rollback_admission_freeze_test.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "仅支持玩家发布 Apply 的当前 owner/role、payload/前置重验及冻结新准入切片。全部 install/activation 入口的治理授权期限、撤销/收缩/替代与产品 capability scope 映射仍未核清；通用 v2 grant 校验、构建成功或 module registry active 不等于该全合同。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S10.svg",
+          "requirements": [
+            "GR-002",
+            "GR-003",
+            "SC32-budgetread",
+            "SC32-budgetcommit",
+            "SC33-extscope",
+            "SC33-extdispose"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "partial_subscope"
+      },
+      "roles_and_qualification": "当前 owner 与审批角色分别复核完整 payload；只承接已读 player publication 子范围。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "GR-003",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-003",
+      "trace_ids": [
+        "O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 122,
+        "line_end": 138,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L122-L138"
+      },
+      "current_consumers": [],
+      "source_design_status": "部分覆盖",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-gr-003",
+      "fields": [
+        {
+          "label": "被移除 FROM artifact tuple",
+          "frame": "B14-GR-003",
+          "region": "field-1"
+        },
+        {
+          "label": "恢复 TO artifact / rollback 来源",
+          "frame": "B14-GR-003",
+          "region": "field-2"
+        },
+        {
+          "label": "新准入冻结 marker 与理由",
+          "frame": "B14-GR-003",
+          "region": "field-3"
+        },
+        {
+          "label": "既有 profile / instance 保留",
+          "frame": "B14-GR-003",
+          "region": "field-4"
+        },
+        {
+          "label": "重叠能力与现行授权",
+          "frame": "B14-GR-003",
+          "region": "field-5"
+        },
+        {
+          "label": "历史 receipt / 失败原状态",
+          "frame": "B14-GR-003",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看限制处置",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "仅精确回滚冻结子范围有合同；一般退出与替代仍未核全",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "new admission frozen / history retained",
+        "recovery": "失败保留回滚前事实；旧 receipt 不解冻，不删除既有资产",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B14-GR-003.svg",
+      "professional_authority": "doc/world-runtime/module/player-published-entities.design.md#ppe-rollback-disposition",
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5/crates/oasis7/src/runtime/world/rollback_admission_freeze_test.rs#L3-L164",
+        "../../testing/prd.md",
+        "#ac-wr-gr-003",
+        "../../../crates/oasis7_runtime/src/tests/module_action_loop_regressions.rs",
+        "../../../crates/oasis7_runtime/src/world/rollback_admission_freeze_test.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "仅支持停止新增准入的有限回滚处置；现存其他 instance 不因该 marker 自动停用。一般撤销/到期/收缩、跨重叠 scope 原子替代唯一执行权、限制/退出的最小安全动作及玩家/创作者当前范围与下一步消费链仍未核清。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S10.svg",
+          "requirements": [
+            "GR-002",
+            "GR-003",
+            "SC32-budgetread",
+            "SC32-budgetcommit",
+            "SC33-extscope",
+            "SC33-extdispose"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "partial_subscope"
+      },
+      "roles_and_qualification": "合法 rollback authority；仅停止 exact FROM artifact 新准入，不推导一般撤销/替代。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "GR-009",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-009",
+      "trace_ids": [
+        "O7-REQ-3d713ab7-87c2-41df-9c89-827859c23313"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 278,
+        "line_end": 294,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L278-L294"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-gr-009",
+      "fields": [
+        {
+          "label": "能力提案与不可变输入",
+          "frame": "B15-GR-009",
+          "region": "field-1"
+        },
+        {
+          "label": "确定性模拟来源与结果",
+          "frame": "B15-GR-009",
+          "region": "field-2"
+        },
+        {
+          "label": "试点 scope / 期限 / 资源上限",
+          "frame": "B15-GR-009",
+          "region": "field-3"
+        },
+        {
+          "label": "试点退出条件与实际结果",
+          "frame": "B15-GR-009",
+          "region": "field-4"
+        },
+        {
+          "label": "治理准入范围与来源",
+          "frame": "B15-GR-009",
+          "region": "field-5"
+        },
+        {
+          "label": "当前可用能力与历史",
+          "frame": "B15-GR-009",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "申请下一阶段",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "单一阶段不授世界写入权；完整阶段合同未核清",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "proposal ≠ simulation ≠ pilot ≠ admission",
+        "recovery": "保持各阶段原身份；缺批准不自动进入后段",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B15-GR-009.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-01",
+        "../../testing/prd.md",
+        "#ac-wr-gr-009"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "这只覆盖工业profile发布准入。Shadow是manifest/profile校验承诺，不是同authority输入的工业确定性模拟；未核到独立有限试点scope/期限/资源/退出stage、四阶段强制顺序、风险证据/成本与玩家选择。required-role绑定也不代签全套法定治理。 产品语义已冻结，专业技术承接未核到不等于待定产品政策；未检视路径不判未实现。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "提案→模拟→试点→准入四段具体 producer/写接口、当前角色集合及跨阶段身份/恢复协议未核清。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "GR-010",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010",
+      "trace_ids": [
+        "O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 304,
+        "line_end": 320,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L304-L320"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-gr-010",
+      "fields": [
+        {
+          "label": "能力 / 用途 / 区域",
+          "frame": "B16-GR-010",
+          "region": "field-1"
+        },
+        {
+          "label": "期限与到期开放条件",
+          "frame": "B16-GR-010",
+          "region": "field-2"
+        },
+        {
+          "label": "许可 / 版税 / 收益权依据",
+          "frame": "B16-GR-010",
+          "region": "field-3"
+        },
+        {
+          "label": "维护责任与审计",
+          "frame": "B16-GR-010",
+          "region": "field-4"
+        },
+        {
+          "label": "争议和公共保护边界",
+          "frame": "B16-GR-010",
+          "region": "field-5"
+        },
+        {
+          "label": "范围变更及重新准入",
+          "frame": "B16-GR-010",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "申请范围变更",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "无精确许可写合同；不得永久封锁公共安全或独立资产",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "expired / disputed / open condition pending",
+        "recovery": "显示原许可与现行范围；不可追溯抹去作者身份",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B16-GR-010.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-02",
+        "../../testing/prd.md",
+        "#ac-wr-gr-010"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "实现已获准工业能力许可身份、用途/区域/期限/维护/争议/撤销/开放状态、使用authorization consumer、verified receipt/escrow里程碑版税结算与到期开放producer；旧请求须当前授权且不延长/复制/追溯改写合法历史。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "许可/版税/开放的正式写接口、适用角色、费用/权益执行与幂等恢复合同未核清。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "SC32-institution",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc32-institution",
+      "trace_ids": [
+        "O7-REQ-90614e34-bbc7-42df-b355-7ce0b34ccdc3"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 1370,
+        "line_end": 1383,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L1370-L1383"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未核实",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-sc32-institution",
+      "fields": [
+        {
+          "label": "Alliance — Compatibility keep",
+          "frame": null,
+          "region": "field-1"
+        },
+        {
+          "label": "War — Defer",
+          "frame": null,
+          "region": "field-2"
+        },
+        {
+          "label": "Governance — Kernel keep",
+          "frame": null,
+          "region": "field-3"
+        },
+        {
+          "label": "EconomicContract — Compatibility keep",
+          "frame": null,
+          "region": "field-4"
+        },
+        {
+          "label": "未互斥分类不得新增 native action/state",
+          "frame": null,
+          "region": "field-5"
+        },
+        {
+          "label": "分类为工程约束，不是玩家管理权限",
+          "frame": null,
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "无玩家写动作",
+          "region": null,
+          "status": "not_a_player_action",
+          "reason": "非 UI 权威：不设计 native 制度编辑器",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "分类不等于迁移已发生",
+        "recovery": "保留原制度历史；专业变更审查核对分类",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "text_only",
+      "frame": null,
+      "professional_authority": "doc/world-runtime/design.md#61-institution-migration-test",
+      "validation_anchors": [
+        "../../world-runtime/design.md#61-institution-migration-test",
+        "../../crates/oasis7_runtime/src/tests/power_bootstrap.rs",
+        "../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/authoritative_rollback_v2_exact_retry_tests.rs",
+        "../../crates/oasis7_runtime/src/tests/module_tick_routing_transaction_regressions.rs",
+        "../../testing-manual.md",
+        "../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.prd.md",
+        "../testing/templates/state-sync-closure-evidence-packet-template.md",
+        "../../crates/oasis7_runtime/src/tests/persistence.rs",
+        "../../crates/oasis7_runtime/src/tests/execution_transaction_regressions.rs",
+        "../../crates/oasis7_runtime/src/tests/effects.rs",
+        "../../crates/oasis7_runtime/src/tests/module_action_loop_release_controls.rs",
+        "../../crates/oasis7_chain_runtime/src/host/execution_bridge/tests/driver_authoritative_recovery.rs",
+        "../../crates/oasis7_runtime/src/tests/economy_priority_logistics_network_tests.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "四个既有native制度精确互斥分类，未分类不得新增native action/state。未核范围具体保留，不把政策、设计和通用能力提升为制度迁移事实。 需按实际变更批准记录或已选pilot manifest/activation、旧结果连续性证据重新核对；不以缺运行证据单独否定源码。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "non_ui"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "SC32-pilot",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc32-pilot",
+      "trace_ids": [
+        "O7-REQ-f081f96d-f95a-4538-b0b7-3edf23ff772a"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 1383,
+        "line_end": 1396,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L1383-L1396"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未核实",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-sc32-pilot",
+      "fields": [
+        {
+          "label": "Alliance 或 EconomicContract 唯一候选",
+          "frame": "B18-SC32-pilot",
+          "region": "field-1"
+        },
+        {
+          "label": "另一制度保持兼容",
+          "frame": "B18-SC32-pilot",
+          "region": "field-2"
+        },
+        {
+          "label": "治理批准 manifest / activation",
+          "frame": "B18-SC32-pilot",
+          "region": "field-3"
+        },
+        {
+          "label": "L0 / L1 不可绕过",
+          "frame": "B18-SC32-pilot",
+          "region": "field-4"
+        },
+        {
+          "label": "旧 snapshot / replay / ABI 连续性",
+          "frame": "B18-SC32-pilot",
+          "region": "field-5"
+        },
+        {
+          "label": "同世界玩家结果与失败恢复",
+          "frame": "B18-SC32-pilot",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看已选试点",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "选择尚未核定时不显示默认候选；无玩家任意切换",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "not selected / activation unverified",
+        "recovery": "保留兼容状态；未知不推断已迁移",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B18-SC32-pilot.svg",
+      "professional_authority": "doc/world-runtime/design.md#61-institution-migration-test",
+      "validation_anchors": [
+        "../../world-runtime/design.md#61-institution-migration-test",
+        "../../crates/oasis7_runtime/src/tests/power_bootstrap.rs",
+        "../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/authoritative_rollback_v2_exact_retry_tests.rs",
+        "../../crates/oasis7_runtime/src/tests/module_tick_routing_transaction_regressions.rs",
+        "../../testing-manual.md",
+        "../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.prd.md",
+        "../testing/templates/state-sync-closure-evidence-packet-template.md",
+        "../../crates/oasis7_runtime/src/tests/persistence.rs",
+        "../../crates/oasis7_runtime/src/tests/execution_transaction_regressions.rs",
+        "../../crates/oasis7_runtime/src/tests/effects.rs",
+        "../../crates/oasis7_runtime/src/tests/module_action_loop_release_controls.rs",
+        "../../crates/oasis7_chain_runtime/src/host/execution_bridge/tests/driver_authoritative_recovery.rs",
+        "../../crates/oasis7_runtime/src/tests/economy_priority_logistics_network_tests.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "条件满足后选择唯一Alliance/EconomicContract，合法activation、另一兼容，L0/L1/ownerbudget/receipt及旧snapshot/replay/ABI恢复。未核范围具体保留，不把政策、设计和通用能力提升为制度迁移事实。 需按实际变更批准记录或已选pilot manifest/activation、旧结果连续性证据重新核对；不以缺运行证据单独否定源码。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "SC32-budgetread",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc32-budgetread",
+      "trace_ids": [
+        "O7-REQ-96cb1655-2ca3-445f-af2e-9f113e6f3e8e"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 1396,
+        "line_end": 1409,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L1396-L1409"
+      },
+      "current_consumers": [
+        "R-GAME-23"
+      ],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-sc32-budgetread",
+      "fields": [
+        {
+          "label": "Agent / Module / System owner",
+          "frame": "B19-SC32-budgetread",
+          "region": "field-1"
+        },
+        {
+          "label": "payer 与绑定来源",
+          "frame": "B19-SC32-budgetread",
+          "region": "field-2"
+        },
+        {
+          "label": "能力 scope / 是否计费",
+          "frame": "B19-SC32-budgetread",
+          "region": "field-3"
+        },
+        {
+          "label": "quote units 与预算影响",
+          "frame": "B19-SC32-budgetread",
+          "region": "field-4"
+        },
+        {
+          "label": "affordable / insufficient / unknown / degraded",
+          "frame": "B19-SC32-budgetread",
+          "region": "field-5"
+        },
+        {
+          "label": "Data / Electricity 资源费单列",
+          "frame": "B19-SC32-budgetread",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "重新读取预算依据",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "owner / payer 不可推定；unknown 不可按零费用处理",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "unknown / degraded",
+        "recovery": "核对原绑定与 grant，不自动转移 payer 或预算",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B19-SC32-budgetread.svg",
+      "professional_authority": "doc/world-runtime/design.md#61-institution-migration-test",
+      "validation_anchors": [
+        "../../world-runtime/design.md#61-institution-migration-test",
+        "../../crates/oasis7_runtime/src/tests/power_bootstrap.rs",
+        "../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/authoritative_rollback_v2_exact_retry_tests.rs",
+        "../../crates/oasis7_runtime/src/tests/module_tick_routing_transaction_regressions.rs",
+        "../../testing-manual.md",
+        "../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.prd.md",
+        "../testing/templates/state-sync-closure-evidence-packet-template.md",
+        "../../crates/oasis7_runtime/src/tests/persistence.rs",
+        "../../crates/oasis7_runtime/src/tests/execution_transaction_regressions.rs",
+        "../../crates/oasis7_runtime/src/tests/effects.rs",
+        "../../crates/oasis7_runtime/src/tests/module_action_loop_release_controls.rs",
+        "../../crates/oasis7_chain_runtime/src/host/execution_bridge/tests/driver_authoritative_recovery.rs",
+        "../../crates/oasis7_runtime/src/tests/economy_priority_logistics_network_tests.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "补全Agent及Module/System的owner/payer映射、能力scope/是否计费/预算影响、affordable/insufficient/unknown/degraded与复查修复路径，贯通真实Viewer/API或能力预览/提交结果；不得以原始账本getter、snapshot或Data/Electricity资源费替代玩家execution-budget读面。保留SC-32适用条件和test_tier_full；本次未运行。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S10.svg",
+          "requirements": [
+            "GR-002",
+            "GR-003",
+            "SC32-budgetread",
+            "SC32-budgetcommit",
+            "SC33-extscope",
+            "SC33-extdispose"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "SC32-budgetcommit",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc32-budgetcommit",
+      "trace_ids": [
+        "O7-REQ-70e55a1f-7087-41e8-918d-7d1989c0155a"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 1409,
+        "line_end": 1422,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L1409-L1422"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-sc32-budgetcommit",
+      "fields": [
+        {
+          "label": "原操作身份与 grant",
+          "frame": "B20-SC32-budgetcommit",
+          "region": "field-1"
+        },
+        {
+          "label": "执行前预算 / 当前 owner",
+          "frame": "B20-SC32-budgetcommit",
+          "region": "field-2"
+        },
+        {
+          "label": "actual effect 与 debit 关联",
+          "frame": "B20-SC32-budgetcommit",
+          "region": "field-3"
+        },
+        {
+          "label": "authorization receipt / effect completion",
+          "frame": "B20-SC32-budgetcommit",
+          "region": "field-4"
+        },
+        {
+          "label": "preview / stale / deny 无效果分支",
+          "frame": "B20-SC32-budgetcommit",
+          "region": "field-5"
+        },
+        {
+          "label": "已提交 / 未提交 / unknown",
+          "frame": "B20-SC32-budgetcommit",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "核对原操作结果",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "unknown 不透支、不发第二次动作；执行队列不等于外部完成",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "outcome_unknown / effect completion pending",
+        "recovery": "查询原 receipt 和实际效果；不更换 nonce 制造再扣费",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B20-SC32-budgetcommit.svg",
+      "professional_authority": "doc/world-runtime/design.md#622-disposition-and-idempotency-contract",
+      "validation_anchors": [
+        "../../world-runtime/design.md#61-institution-migration-test",
+        "https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/tests/capability_grant_v2.rs#L1080-L1127",
+        "../../crates/oasis7_runtime/src/tests/power_bootstrap.rs",
+        "../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/authoritative_rollback_v2_exact_retry_tests.rs",
+        "../../crates/oasis7_runtime/src/tests/module_tick_routing_transaction_regressions.rs",
+        "../../testing-manual.md",
+        "../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.prd.md",
+        "../testing/templates/state-sync-closure-evidence-packet-template.md",
+        "../../crates/oasis7_runtime/src/tests/persistence.rs",
+        "../../crates/oasis7_runtime/src/tests/execution_transaction_regressions.rs",
+        "../../crates/oasis7_runtime/src/tests/effects.rs",
+        "../../crates/oasis7_runtime/src/tests/module_action_loop_release_controls.rs",
+        "../../crates/oasis7_chain_runtime/src/host/execution_bridge/tests/driver_authoritative_recovery.rs",
+        "../../crates/oasis7_runtime/src/tests/economy_priority_logistics_network_tests.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "继续贯通全部适用生产入口preview/stale/deny/no-effect无扣账与零预算操作；核准实际effect和receipt边界、外部effect completion及持久unknown恢复，给出同候选test_tier_full单次结算/重连/restore/replay/no-credit证据。已定位直接实现但全义务未闭合，故部分实现而非仅欠验收的待验证。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S10.svg",
+          "requirements": [
+            "GR-002",
+            "GR-003",
+            "SC32-budgetread",
+            "SC32-budgetcommit",
+            "SC33-extscope",
+            "SC33-extdispose"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "SC33-extscope",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc33-extscope",
+      "trace_ids": [
+        "O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 1422,
+        "line_end": 1435,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L1422-L1435"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-sc33-extscope",
+      "fields": [
+        {
+          "label": "industrial_externality / operational_mitigation",
+          "frame": "B21-SC33-extscope",
+          "region": "field-1"
+        },
+        {
+          "label": "recipe / factory profile 与版本",
+          "frame": "B21-SC33-extscope",
+          "region": "field-2"
+        },
+        {
+          "label": "scope、authority 与有效期",
+          "frame": "B21-SC33-extscope",
+          "region": "field-3"
+        },
+        {
+          "label": "容量与已有 obligation",
+          "frame": "B21-SC33-extscope",
+          "region": "field-4"
+        },
+        {
+          "label": "支持的 run / reduce / defer 选择",
+          "frame": "B21-SC33-extscope",
+          "region": "field-5"
+        },
+        {
+          "label": "legacy 未声明分支",
+          "frame": "B21-SC33-extscope",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "选择受支持方案",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "缺 authority / scope 时禁止不可逆动作；legacy 不被强行改造",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "legacy unchanged / unknown / blocked",
+        "recovery": "查看当前 profile 和复查点；不把 profile 当区域治理权",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B21-SC33-extscope.svg",
+      "professional_authority": "doc/world-runtime/runtime/industrial-externality-and-mitigation.design.md#externality-profile",
+      "validation_anchors": [
+        "../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "明确industrial_externality/operational_mitigation profile才启用：实际RecipeProfile/FactoryProfile及内置M4 plan没有此facet与启用consumer；legacy无profile不变：现有legacy仍运行是邻域既有事实；没有引入新facet后的分支/兼容合同，不能用未实施即未变化作partial；scope/authority缺失过期unknown/blocked且不授区域治理权：当前排程guard处理普通工厂/配方/材料/电力，不读取mitigation authority，无法对声明该profile的case作要求的判断。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。 实施待安排： [Refs #4862](https://github.com/nil-studio/oasis7/issues/4862)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S10.svg",
+          "requirements": [
+            "GR-002",
+            "GR-003",
+            "SC32-budgetread",
+            "SC32-budgetcommit",
+            "SC33-extscope",
+            "SC33-extdispose"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "profile 声明动作与当前 mitigation authority 同时适用的 owner/scope 主体；不授地方治理权。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-03",
+      "requirement": "SC33-extdispose",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc33-extdispose",
+      "trace_ids": [
+        "O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 1435,
+        "line_end": 1448,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L1435-L1448"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-03-sc33-extdispose",
+      "fields": [
+        {
+          "label": "原 root / revision / child",
+          "frame": "B22-SC33-extdispose",
+          "region": "field-1"
+        },
+        {
+          "label": "WIP / transit / buffer / terminal",
+          "frame": "B22-SC33-extdispose",
+          "region": "field-2"
+        },
+        {
+          "label": "production result 与 disposition refs",
+          "frame": "B22-SC33-extdispose",
+          "region": "field-3"
+        },
+        {
+          "label": "contained / held_pending_disposition",
+          "frame": "B22-SC33-extdispose",
+          "region": "field-4"
+        },
+        {
+          "label": "保留容量、成本与后继义务",
+          "frame": "B22-SC33-extdispose",
+          "region": "field-5"
+        },
+        {
+          "label": "quality / custody / W 各自历史",
+          "frame": "B22-SC33-extdispose",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "核对联合结果",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "held 不代表 treatment 完成；无安全路径不伪造产出",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "held_pending_disposition / blocked",
+        "recovery": "按原义务继续合法处置；不重置 lineage 或重复释放",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B22-SC33-extdispose.svg",
+      "professional_authority": "doc/world-runtime/runtime/industrial-externality-and-mitigation.design.md#externality-commit",
+      "validation_anchors": [
+        "../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs",
+        "../../../testing-manual.md"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "preview只读、submit fresh、linked production/externality各一次：普通quote与生产receipt存在，但没有externality intent/disposition身份及linked写点；不把通用只读和job exactly-once当外部性完成；quality/custody/byproduct/maintenance/settlement/W互不改写：不存在外部性处置producer可证明隔离；当前材料/维护/物流分别写不等同新facet隔离已交付；WIP/transit/buffer/terminal保持root/revision和既有义务单次处置：普通pending job/transit有独立结算，没有externality profile变化的root/revision/WIP及terminal处置consumer。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。 实施待安排： [Refs #4862](https://github.com/nil-studio/oasis7/issues/4862)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S10.svg",
+          "requirements": [
+            "GR-002",
+            "GR-003",
+            "SC32-budgetread",
+            "SC32-budgetcommit",
+            "SC33-extscope",
+            "SC33-extdispose"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "原工业/外部性义务的当前合法处置主体；依 profile 支持动作和阶段 sink 边界逐次校验。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-04",
+      "requirement": "CR-001",
+      "upstream": "doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-001",
+      "trace_ids": [
+        "O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md",
+        "line_start": 71,
+        "line_end": 87,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#L71-L87"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-04-cr-001",
+      "fields": [
+        {
+          "label": "沟通 / 草稿 / 未接受提议",
+          "frame": "B23-CR-001",
+          "region": "field-1"
+        },
+        {
+          "label": "各方主体与受权范围",
+          "frame": "B23-CR-001",
+          "region": "field-2"
+        },
+        {
+          "label": "完整条款与明确接受",
+          "frame": "B23-CR-001",
+          "region": "field-3"
+        },
+        {
+          "label": "权威校验与 receipt",
+          "frame": "B23-CR-001",
+          "region": "field-4"
+        },
+        {
+          "label": "已绑定义务与实际效果",
+          "frame": "B23-CR-001",
+          "region": "field-5"
+        },
+        {
+          "label": "修订及原条款 provenance",
+          "frame": "B23-CR-001",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "接受明确条款",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "完整绑定合同专业写合同未核清；chat 不是确认",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "draft ≠ accepted ≠ committed",
+        "recovery": "未知查原合同，不重复接受或静默转移责任",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B23-CR-001.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L1-L140",
+        "#ac-wr-cr-001"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "未核清明确条款渲染、双方授权接受、绑定义务创建及同一 receipt 的端到端流程；社交消息或 action ack 不证明合同已成立。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S11.svg",
+          "requirements": [
+            "CR-001",
+            "CR-002",
+            "CR-003"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整绑定条款schema、各方授权与accept接口、权威commit/receipt/幂等及未知恢复闭包未核清。"
+    },
+    {
+      "group": "T-GOV-04",
+      "requirement": "CR-002",
+      "upstream": "doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-002",
+      "trace_ids": [
+        "O7-REQ-805fc92a-bbcb-4e77-b2d8-e40105522a0d"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md",
+        "line_start": 97,
+        "line_end": 113,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#L97-L113"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-04-cr-002",
+      "fields": [
+        {
+          "label": "服务身份 / 原合同",
+          "frame": "B24-CR-002",
+          "region": "field-1"
+        },
+        {
+          "label": "已完成 checkpoint 与结果",
+          "frame": "B24-CR-002",
+          "region": "field-2"
+        },
+        {
+          "label": "未履行范围与责任方",
+          "frame": "B24-CR-002",
+          "region": "field-3"
+        },
+        {
+          "label": "修复或重新履行",
+          "frame": "B24-CR-002",
+          "region": "field-4"
+        },
+        {
+          "label": "终止结清 / 最小争议保全",
+          "frame": "B24-CR-002",
+          "region": "field-5"
+        },
+        {
+          "label": "显式继受与关联 receipt",
+          "frame": "B24-CR-002",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "选择受支持恢复",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "各选项必须有服务合同支撑；不把续期当重复交付许可",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "interrupted / disputed / outcome_unknown",
+        "recovery": "保留完成部分；原请求核对扣款、履行与继受，不自动重试",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B24-CR-002.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L104-L140",
+        "../../testing/prd.md",
+        "#ac-wr-cr-002"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "持续服务的collateral/evidence/remedy、检查点已履行/未履行责任、修复/终止/dispute/preserve、续期重报价与重试去重尚未交付；不能以AtomicExchange或通用恢复代替。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S11.svg",
+          "requirements": [
+            "CR-001",
+            "CR-002",
+            "CR-003"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "服务checkpoint producer、修复/结清/争议/继受具体命令、角色及资源义务恢复合同未核清。"
+    },
+    {
+      "group": "T-GOV-04",
+      "requirement": "CR-003",
+      "upstream": "doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003",
+      "trace_ids": [
+        "O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md",
+        "line_start": 123,
+        "line_end": 140,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#L123-L140"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-04-cr-003",
+      "fields": [
+        {
+          "label": "actor / subject / object / action kind",
+          "frame": "B25-CR-003",
+          "region": "field-1"
+        },
+        {
+          "label": "claim summary / confidence / stake risk",
+          "frame": "B25-CR-003",
+          "region": "field-2"
+        },
+        {
+          "label": "受影响关系与 social surfaces",
+          "frame": "B25-CR-003",
+          "region": "field-3"
+        },
+        {
+          "label": "cooperation / dispute / governance relevance",
+          "frame": "B25-CR-003",
+          "region": "field-4"
+        },
+        {
+          "label": "声誉主体、情境与到期 / 申诉",
+          "frame": "B25-CR-003",
+          "region": "field-5"
+        },
+        {
+          "label": "R&D charter 贡献份额 / Agent provenance",
+          "frame": "B25-CR-003",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看影响；暂缓发布",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "Simulator 预览仅局部；完整 R&D 消费及正式写入口未核清",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "read-only preview / expired / challenged",
+        "recovery": "预览不裁决、不扣质押；份额转移不转 credential 或一般声誉",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B25-CR-003.svg",
+      "professional_authority": "doc/world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-lifecycle-design",
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/tests/social.rs#L55-L103",
+        "#ac-wr-cr-003",
+        "../../../crates/oasis7_simulator/src/tests/social_revoke_quote.rs",
+        "../../../crates/oasis7_simulator/src/tests/social.rs",
+        "../../../crates/oasis7_simulator/src/tests/social_persist.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "社会事实专业设计覆盖 lifecycle/只读预览的一部分，但与本条的准确反链及 R&D charter、份额/credential 不转移、机会消费组合未闭合。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S11.svg",
+          "requirements": [
+            "CR-001",
+            "CR-002",
+            "CR-003"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "partial_subscope"
+      },
+      "roles_and_qualification": "受当前事实 scope 与共享资格校验的 actor；这里只设计已有 Simulator 只读预览子范围，不启用完整发布/R&D。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-05",
+      "requirement": "OC-001",
+      "upstream": "doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#req-wr-oc-001",
+      "trace_ids": [
+        "O7-REQ-366c9e94-4bd6-41f8-93dd-8d87f163f21a"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md",
+        "line_start": 106,
+        "line_end": 123,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#L106-L123"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-05-oc-001",
+      "fields": [
+        {
+          "label": "organization / case / policy / manifest",
+          "frame": "B26-OC-001",
+          "region": "field-1"
+        },
+        {
+          "label": "Inventory → Obligations → CustodyReturn",
+          "frame": "B26-OC-001",
+          "region": "field-2"
+        },
+        {
+          "label": "Claims → BusinessDisposition → Residual",
+          "frame": "B26-OC-001",
+          "region": "field-3"
+        },
+        {
+          "label": "每项 owner / held-in-trust contributor",
+          "frame": "B26-OC-001",
+          "region": "field-4"
+        },
+        {
+          "label": "原义务、占用、已返还与剩余",
+          "frame": "B26-OC-001",
+          "region": "field-5"
+        },
+        {
+          "label": "effect key 与子 receipt",
+          "frame": "B26-OC-001",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "处置受支持托管返还",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "首版仅 canonical estate receipt 的有限返还；未知对象拒绝",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "AwaitingEvidence / PartiallyApplied",
+        "recovery": "不把未知 estate 当空；按原 asset lineage 查结果，不重复处分",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B26-OC-001.svg",
+      "professional_authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-001",
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/tests/alliance_war_publication_transaction_regressions.rs#L145-L176",
+        "#ac-wr-oc-001",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-001",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-003",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-004",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-002"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "设计已由本次 v1 政策和专业接口承接；实现仍须接通组织 case、白名单权属、原业务事务 adapter、多阶段处置、来源守恒与 receipt/恢复读面，并执行复杂资产、外部结算及跨节点验收。已有静态证据只保留独立成员资源/身份/合同的窄负边界，不能覆盖本次新政策。[实现任务 #4868](https://github.com/nil-studio/oasis7/issues/4868) 保持未完成。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S05.svg",
+          "requirements": [
+            "OC-001",
+            "OC-002",
+            "OC-003"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        },
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S14.svg",
+          "requirements": [
+            "OC-001",
+            "OC-003"
+          ],
+          "regions": {
+            "user_selection_and_system_binding": "x36 y265 w928 h742",
+            "authority_checks": "x986 y265 w578 h742",
+            "ctas": "y1044 h55"
+          },
+          "representation": "interactive_target_form_state_fragment_not_runtime",
+          "fixture": "conditional target operation; not live or executed",
+          "field_controls": [
+            {
+              "field": "case",
+              "label": "case / manifest / expected versions",
+              "control": "readonly",
+              "region": "control-case",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "绑定已打开原 case、manifest root 与当前版本；不能通过新 case 重复处分。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "asset",
+              "label": "完整托管项 · 用户单选",
+              "control": "select",
+              "region": "control-asset",
+              "value": "完整托管项 A（设计示例）",
+              "editable": true,
+              "validation": "选中值来自 canonical DepositOrganizationEstate receipt；未知权属不列入。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "recipient",
+              "label": "返还对象 / 数量",
+              "control": "readonly",
+              "region": "control-recipient",
+              "value": "系统绑定：原 contributor / 完整项",
+              "editable": false,
+              "validation": "不可编辑受益人、不可拆分本图首版完整返还项；原记录未知即阻断。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "grant",
+              "label": "appointment / successor grant / scope",
+              "control": "readonly",
+              "region": "control-grant",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "当前 authority、控制绑定、scope 与期限由权威读取；用户不得手填授权。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "request",
+              "label": "request identity / plan hash / effect key",
+              "control": "readonly",
+              "region": "control-request",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "PrepareDisposition 生成计划；确认绑定原计划与版本，unknown 查原请求。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            }
+          ]
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "原 appointment authority 且当前治理通过；首版仅 Disposition/CustodyReturn 或明确合格 successor scope 的完整 held-in-trust 返还。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-05",
+      "requirement": "OC-002",
+      "upstream": "doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#req-wr-oc-002",
+      "trace_ids": [
+        "O7-REQ-6e6d890d-c94d-4b43-9947-bfccf2f066e3"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md",
+        "line_start": 134,
+        "line_end": 151,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#L134-L151"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-05-oc-002",
+      "fields": [
+        {
+          "label": "Operating / Notified / Protected / Restricted",
+          "frame": "B27-OC-002",
+          "region": "field-1"
+        },
+        {
+          "label": "availability / activity coverage 分列",
+          "frame": "B27-OC-002",
+          "region": "field-2"
+        },
+        {
+          "label": "权威 C 窗口与暂停原因",
+          "frame": "B27-OC-002",
+          "region": "field-3"
+        },
+        {
+          "label": "通知记录与保护期",
+          "frame": "B27-OC-002",
+          "region": "field-4"
+        },
+        {
+          "label": "reclaim / appeal / 独立 stay",
+          "frame": "B27-OC-002",
+          "region": "field-5"
+        },
+        {
+          "label": "裁决支持范围与剩余义务",
+          "frame": "B27-OC-002",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "申请 reclaim 或申诉",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "须有效 typed charter / activation；申诉待决不自动复权",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "coverage unknown / UnderReview",
+        "recovery": "查询原 case 与救济；未知时段不补算期限，维护权不升级为处分权",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B27-OC-002.svg",
+      "professional_authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-002",
+      "validation_anchors": [
+        "#ac-wr-oc-002",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-001",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-003",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-004",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-002"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "首版活动/期限/资格与请求合同已明确；仍须实现组织基础阶段、可核验可用性计时、通知、受限 estate/delegation、reclaim/申诉 consumer，并按边界、暂停、重复与恢复场景验证。不能借 Agent claim 或普通 grant 验收代签。[实现任务 #4868](https://github.com/nil-studio/oasis7/issues/4868) 保持未完成。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S05.svg",
+          "requirements": [
+            "OC-001",
+            "OC-002",
+            "OC-003"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "具权利来源的 reclaim/appeal 申请人；独立救济裁决者判定支持范围，不由申请人自行复权。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-05",
+      "requirement": "OC-003",
+      "upstream": "doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#req-wr-oc-003",
+      "trace_ids": [
+        "O7-REQ-b59a4fa5-9b5f-4119-abf6-7c0f2b4f4268"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md",
+        "line_start": 162,
+        "line_end": 179,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#L162-L179"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-05-oc-003",
+      "fields": [
+        {
+          "label": "旧 grant / 新候选资格绑定",
+          "frame": "B28-OC-003",
+          "region": "field-1"
+        },
+        {
+          "label": "object / right / action / quantity scope",
+          "frame": "B28-OC-003",
+          "region": "field-2"
+        },
+        {
+          "label": "重叠范围与 stay / quarantine",
+          "frame": "B28-OC-003",
+          "region": "field-3"
+        },
+        {
+          "label": "原请求绑定 grant / scope version",
+          "frame": "B28-OC-003",
+          "region": "field-4"
+        },
+        {
+          "label": "新授权 receipt 与旧授权终止",
+          "frame": "B28-OC-003",
+          "region": "field-5"
+        },
+        {
+          "label": "未确认请求与剩余义务",
+          "frame": "B28-OC-003",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "确认有界交接",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "重叠范围只一个可执行授权；旧 pending 不迁移",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "proposed ≠ active / expired / result_unknown",
+        "recovery": "原 case + request 核对；不换 case 或 action 名重复处分",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B28-OC-003.svg",
+      "professional_authority": "doc/world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-003",
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-wr-oc-003",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-001",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-003",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-004",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md",
+        "../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-002"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "scope/部分交接、政策/schema 和接口已由本次设计承接；仍须实现唯一授权索引、资格 consumer、新旧原子切换、原业务占用及跨 request/value 去重，验证旧新竞态、冻结/截止 tick、snapshot/replay 和外部 effect 的事务/恢复边界。[实现任务 #4868](https://github.com/nil-studio/oasis7/issues/4868) 保持未完成。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S05.svg",
+          "requirements": [
+            "OC-001",
+            "OC-002",
+            "OC-003"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        },
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S14.svg",
+          "requirements": [
+            "OC-001",
+            "OC-003"
+          ],
+          "regions": {
+            "user_selection_and_system_binding": "x36 y265 w928 h742",
+            "authority_checks": "x986 y265 w578 h742",
+            "ctas": "y1044 h55"
+          },
+          "representation": "interactive_target_form_state_fragment_not_runtime",
+          "fixture": "conditional target operation; not live or executed",
+          "field_controls": [
+            {
+              "field": "case",
+              "label": "case / manifest / expected versions",
+              "control": "readonly",
+              "region": "control-case",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "绑定已打开原 case、manifest root 与当前版本；不能通过新 case 重复处分。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "asset",
+              "label": "完整托管项 · 用户单选",
+              "control": "select",
+              "region": "control-asset",
+              "value": "完整托管项 A（设计示例）",
+              "editable": true,
+              "validation": "选中值来自 canonical DepositOrganizationEstate receipt；未知权属不列入。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "recipient",
+              "label": "返还对象 / 数量",
+              "control": "readonly",
+              "region": "control-recipient",
+              "value": "系统绑定：原 contributor / 完整项",
+              "editable": false,
+              "validation": "不可编辑受益人、不可拆分本图首版完整返还项；原记录未知即阻断。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "grant",
+              "label": "appointment / successor grant / scope",
+              "control": "readonly",
+              "region": "control-grant",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "当前 authority、控制绑定、scope 与期限由权威读取；用户不得手填授权。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            },
+            {
+              "field": "request",
+              "label": "request identity / plan hash / effect key",
+              "control": "readonly",
+              "region": "control-request",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "PrepareDisposition 生成计划；确认绑定原计划与版本，unknown 查原请求。",
+              "authority": "organization-continuity-and-disposition.design.md#des-wr-oc-001"
+            }
+          ]
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "当前任命 authority 与通过当前控制绑定/顺位核验并接受的 successor；重叠旧授权原子终止。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-06",
+      "requirement": "CC-001",
+      "upstream": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-001",
+      "trace_ids": [
+        "O7-REQ-2e68a48f-4a44-4135-9268-e17c6f32d0b3"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md",
+        "line_start": 76,
+        "line_end": 96,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#L76-L96"
+      },
+      "current_consumers": [
+        "R-QUOTE-07"
+      ],
+      "source_design_status": "部分覆盖",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-06-cc-001",
+      "fields": [
+        {
+          "label": "charter 与冲突授权",
+          "frame": "B29-CC-001",
+          "region": "field-1"
+        },
+        {
+          "label": "参战主体 / 区域范围",
+          "frame": "B29-CC-001",
+          "region": "field-2"
+        },
+        {
+          "label": "暴露资产与时间窗口",
+          "frame": "B29-CC-001",
+          "region": "field-3"
+        },
+        {
+          "label": "非参与者保护",
+          "frame": "B29-CC-001",
+          "region": "field-4"
+        },
+        {
+          "label": "成本与结果预览来源",
+          "frame": "B29-CC-001",
+          "region": "field-5"
+        },
+        {
+          "label": "当前可用谈判 / 暂缓路径",
+          "frame": "B29-CC-001",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "宣战（不可用）",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "当前 war quote 不提交宣战；完整授权管理未核清",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "scope denied / quote stale",
+        "recovery": "返回当前只读 quote；邻近、物流和关系不授目标资格",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B29-CC-001.svg",
+      "professional_authority": "doc/game/gameplay/gameplay-war-politics-mvp-baseline.design.md#des-war-politics-001",
+      "validation_anchors": [
+        "https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/war_declaration_quote.rs#L42-L72",
+        "https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/war_declaration_quote.rs#L144-L157",
+        "#ac-1",
+        "#ac-2",
+        "../../../crates/oasis7_runtime/src/tests/war_declaration_quote.rs",
+        "../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/governance_vote_quote.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "core 宣战报价已有只读、成员与资源检查；charter、暴露资产、离线防御及非参与者保护的完整执行链未核清，active M5 reducer 报价明确拒绝。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S07.svg",
+          "requirements": [
+            "CC-004",
+            "CC-001"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "现有quote不提供完整charter参战/非参与保护写合同；DeclareWar后置通道当前禁用。"
+    },
+    {
+      "group": "T-GOV-06",
+      "requirement": "CC-002",
+      "upstream": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-002",
+      "trace_ids": [
+        "O7-REQ-19ea1035-2d0a-43fc-a3a8-b0309030273c"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md",
+        "line_start": 96,
+        "line_end": 116,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#L96-L116"
+      },
+      "current_consumers": [
+        "R-GAME-24"
+      ],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-06-cc-002",
+      "fields": [
+        {
+          "label": "受损对象与损失范围",
+          "frame": "B30-CC-002",
+          "region": "field-1"
+        },
+        {
+          "label": "保留的玩家 / Agent 身份",
+          "frame": "B30-CC-002",
+          "region": "field-2"
+        },
+        {
+          "label": "历史 receipt 与原能力",
+          "frame": "B30-CC-002",
+          "region": "field-3"
+        },
+        {
+          "label": "repair / rebuild / pivot / 撤离",
+          "frame": "B30-CC-002",
+          "region": "field-4"
+        },
+        {
+          "label": "每路径投入、代价与限制",
+          "frame": "B30-CC-002",
+          "region": "field-5"
+        },
+        {
+          "label": "当前可用路径及结果",
+          "frame": "B30-CC-002",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "比较恢复路径",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "专用完整恢复写合同未核清；当前 R-GAME-24 仅窄比较",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "damaged / unavailable / recovery pending",
+        "recovery": "保留原身份；不免费瞬间复原，不将损失写成账号删除",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B30-CC-002.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "#ac-4"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "repair/rebuild/pivot/撤离可比较与可执行：未交付完整组合：现有失败卡只选择真实enabled动作，且清空陈旧repair/rebuild/pivot投影；没有冲突资产多路线比较；保留全部AC-4冲突损毁后资产/身份/投入/恢复比较组合验收，现有窄交付不代签。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S06.svg",
+          "requirements": [
+            "CC-003",
+            "CC-002"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-06",
+      "requirement": "CC-003",
+      "upstream": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-003",
+      "trace_ids": [
+        "O7-REQ-eedaa5cf-e91e-48df-9c33-158774b40168"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md",
+        "line_start": 116,
+        "line_end": 136,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#L116-L136"
+      },
+      "current_consumers": [],
+      "source_design_status": "已覆盖",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-06-cc-003",
+      "fields": [
+        {
+          "label": "project / containment / policy / revision",
+          "frame": "B31-CC-003",
+          "region": "field-1"
+        },
+        {
+          "label": "参与资格与 source claim",
+          "frame": "B31-CC-003",
+          "region": "field-2"
+        },
+        {
+          "label": "contribution accepted / waiting_evidence",
+          "frame": "B31-CC-003",
+          "region": "field-3"
+        },
+        {
+          "label": "milestone 决定与 target revision",
+          "frame": "B31-CC-003",
+          "region": "field-4"
+        },
+        {
+          "label": "applied receipt 与实际资源义务",
+          "frame": "B31-CC-003",
+          "region": "field-5"
+        },
+        {
+          "label": "退出 / 到期 / 申诉剩余",
+          "frame": "B31-CC-003",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "提交受支持贡献",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "资格、source、授权与 deadline 当前有效；accepted 不等于修复",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "recovery_blocked / settlement_pending",
+        "recovery": "按原 intent 查询；已终止项目不隐式复活，不重复认领 source",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B31-CC-003.svg",
+      "professional_authority": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution",
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-6",
+        "#ac-7",
+        "../design.md#61-institution-migration-test",
+        "../../../testing-manual.md",
+        "../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "containment及有界项目作用域、资格、里程碑、退出/申诉：当前native及M5只生产普通Crisis active/resolved/timedout；没有该项项目生命周期与权利消费者；权威贡献receipt确认一次项目效果：ResolveCrisis将success输入转impact；没有贡献身份、资源义务、里程碑receipt或项目效果绑定，普通job去重不适用；重连重试授权/作用域变化不越界且失败有下一步：通用snapshot/replay恢复已有CrisisState，但没有待决贡献及新旧项目/授权处置可供恢复。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。 实施待安排： [Refs #4863](https://github.com/nil-studio/oasis7/issues/4863)；本状态审查不关闭该任务。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S06.svg",
+          "requirements": [
+            "CC-003",
+            "CC-002"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        },
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S15.svg",
+          "requirements": [
+            "CC-003"
+          ],
+          "regions": {
+            "user_selection_and_system_binding": "x36 y265 w928 h742",
+            "authority_checks": "x986 y265 w578 h742",
+            "ctas": "y1044 h55"
+          },
+          "representation": "interactive_target_form_state_fragment_not_runtime",
+          "fixture": "conditional target operation; not live or executed",
+          "field_controls": [
+            {
+              "field": "project",
+              "label": "project · 用户选择 / revision 系统绑定",
+              "control": "select",
+              "region": "control-project",
+              "value": "恢复项目 A（设计示例）",
+              "editable": true,
+              "validation": "从当前可读项目选取；revision、scope、policy、deadline 系统绑定，不可编辑。",
+              "authority": "bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+            },
+            {
+              "field": "source",
+              "label": "source receipt / lot · 用户选择",
+              "control": "multiselect",
+              "region": "control-source",
+              "value": "来源 lot A（设计示例）",
+              "editable": true,
+              "validation": "只能选可验证来源；claim 索引重验不可重复认领。具体数量/单位控件待领域合同。",
+              "authority": "bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+            },
+            {
+              "field": "eligibility",
+              "label": "actor / 代表授权 / 参与资格",
+              "control": "readonly",
+              "region": "control-eligibility",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "Participation 与 Eligibility 分开读取；加入项目不能替代资格。",
+              "authority": "bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+            },
+            {
+              "field": "commitment",
+              "label": "hold / 成本 / 期限 / 退出责任",
+              "control": "readonly",
+              "region": "control-commitment",
+              "value": "权威承诺预览 · 待取得",
+              "editable": false,
+              "validation": "不可自由填写 payer、hold、成本或期限。完整预览未取得不能提供贡献。",
+              "authority": "bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+            },
+            {
+              "field": "intent",
+              "label": "intent / payload / source claim refs",
+              "control": "readonly",
+              "region": "control-intent",
+              "value": "系统绑定 / 不可编辑",
+              "editable": false,
+              "validation": "保留原贡献身份与内容摘要；unknown 先查原 intent，不换身份再次贡献。",
+              "authority": "bounded-recovery-projects-and-contribution-settlement.design.md#recovery-contribution"
+            }
+          ]
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "complete_target"
+      },
+      "roles_and_qualification": "有权 owner 开项目；contributor 提供 source claim；受权 evaluator 判证据；项目 authority 应用 milestone；独立复核处理申诉。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-06",
+      "requirement": "CC-004",
+      "upstream": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-004",
+      "trace_ids": [
+        "O7-REQ-a2b47612-d2c2-4331-811e-58a61366b64d"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md",
+        "line_start": 136,
+        "line_end": 156,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#L136-L156"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-06-cc-004",
+      "fields": [
+        {
+          "label": "contested occupation 的授权范围",
+          "frame": "B32-CC-004",
+          "region": "field-1"
+        },
+        {
+          "label": "持续占有与到期冻结",
+          "frame": "B32-CC-004",
+          "region": "field-2"
+        },
+        {
+          "label": "已成立权利及其 receipt",
+          "frame": "B32-CC-004",
+          "region": "field-3"
+        },
+        {
+          "label": "物理提取与在途物品",
+          "frame": "B32-CC-004",
+          "region": "field-4"
+        },
+        {
+          "label": "受保护目的地入库与安全交割",
+          "frame": "B32-CC-004",
+          "region": "field-5"
+        },
+        {
+          "label": "仍在风险中的权利 / 物品",
+          "frame": "B32-CC-004",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看分别结算结果",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "完整占领及提取写合同未核清；进入或触碰不等于成立",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "contested / in transit / safe delivery unverified",
+        "recovery": "分别查询权利与物流；不以发现或短暂占有替代安全交割",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B32-CC-004.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-3"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "contested occupation、持续hold与expiry独立判断：native/M5 WarConclude的authority为成员/声誉/疲劳与到期比分，不追踪tenure/occupation持续条件；物理战利品提取与受保护目的地交割分离：普通TransferMaterial/transit有物理运输，但无war entitlement/loot/custody及保护目的地绑定；war资源即时加减不是safe extraction；结果可读已成立权利/已交割/仍有风险物流：WarState只有胜负及participant_outcomes，缺前述独立权利与提取状态，读面不能补成。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S07.svg",
+          "requirements": [
+            "CC-004",
+            "CC-001"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "持续占领/冻结/物理提取/受保护入库分别的producer、写接口、角色、计时判据与receipt关联未核清。"
+    },
+    {
+      "group": "T-GOV-06",
+      "requirement": "CC-005",
+      "upstream": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-005",
+      "trace_ids": [
+        "O7-REQ-ce9fbace-7fc6-4973-8bcf-8b58e11b3339"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md",
+        "line_start": 156,
+        "line_end": 175,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#L156-L175"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-06-cc-005",
+      "fields": [
+        {
+          "label": "刷新竞争机会与区域资格",
+          "frame": "B33-CC-005",
+          "region": "field-1"
+        },
+        {
+          "label": "生效条件、对象及边界",
+          "frame": "B33-CC-005",
+          "region": "field-2"
+        },
+        {
+          "label": "同一世界时间线",
+          "frame": "B33-CC-005",
+          "region": "field-3"
+        },
+        {
+          "label": "玩家 / Agent 身份与核心能力",
+          "frame": "B33-CC-005",
+          "region": "field-4"
+        },
+        {
+          "label": "可迁移价值 / 历史 receipt / 因果",
+          "frame": "B33-CC-005",
+          "region": "field-5"
+        },
+        {
+          "label": "恢复与申诉路径",
+          "frame": "B33-CC-005",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看赛季转换",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "无完整刷新合同，不提供重置世界按钮",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "transition pending / outcome unknown",
+        "recovery": "保留已确认历史；读取原边界，不清零全局资产",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B33-CC-005.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-5"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "竞争窗口/公共项目/排行榜/部分区域权利刷新对象和边界：当前typed事件与M5 tick producer只实现战争/危机/治理/meta变化，未建立软赛季刷新对象和boundary；刷新时保持时间线、身份、核心能力、价值、历史因果：已有WorldState持久化保留普通历史，但无真实刷新调用，不能将无刷新等同赛季连续性通过；刷新条件与恢复/申诉可读可审计：无刷新权威对象供消费者关联；war到期/危机周期并非软赛季。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S08.svg",
+          "requirements": [
+            "CC-005"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "软赛季刷新对象/生效producer、授权角色、执行接口、幂等与恢复/申诉合同未核清；不代选周期。"
+    },
+    {
+      "group": "T-GOV-07",
+      "requirement": "FI-001",
+      "upstream": "doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#req-wr-fi-001",
+      "trace_ids": [
+        "O7-REQ-3013b8cf-e3db-4506-a30a-db34e25ed636"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md",
+        "line_start": 121,
+        "line_end": 141,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L121-L141"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未核实",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-07-fi-001",
+      "fields": [
+        {
+          "label": "相邻区域身份与空间来源",
+          "frame": "B34-FI-001",
+          "region": "field-1"
+        },
+        {
+          "label": "探索前置",
+          "frame": "B34-FI-001",
+          "region": "field-2"
+        },
+        {
+          "label": "物流连通前置",
+          "frame": "B34-FI-001",
+          "region": "field-3"
+        },
+        {
+          "label": "charter 组合准入",
+          "frame": "B34-FI-001",
+          "region": "field-4"
+        },
+        {
+          "label": "同世界时间线 / 经济 / 历史",
+          "frame": "B34-FI-001",
+          "region": "field-5"
+        },
+        {
+          "label": "拒绝原因与可用恢复",
+          "frame": "B34-FI-001",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "进入 frontier（不可用）",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "当前地图/邻接/侦察实现时点未定；不捏造可进入区域",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "adjacency unknown / charter unavailable",
+        "recovery": "读取组合缺项；不跳跃建私有副本或独立结果",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B34-FI-001.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "#ac-wr-fi-001"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "具体未知为：frontier身份/邻接producer、探索/物流/charter组合准入与拒绝、同世界时间线/经济/历史接入，以及玩家/Agent可读原因与恢复入口。产品§5.3与Non-Goals（[frontier-expansion-and-world-information-boundaries.prd.md:210–221](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L210-L221)）保留何时进入可验证地图/邻接/物流/侦察实现的未定决策，本轮不代选policy、不宣称代码必不存在或当前可进入frontier。原FI-1及AC-WR-FI-001不变。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S12.svg",
+          "requirements": [
+            "FI-001",
+            "FI-002",
+            "GR-007"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "frontier实体、邻接/物流/charter组合producer及正式进入写接口与恢复合同未核清。"
+    },
+    {
+      "group": "T-GOV-07",
+      "requirement": "FI-002",
+      "upstream": "doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#req-wr-fi-002",
+      "trace_ids": [
+        "O7-REQ-066843dd-9e40-4148-8933-d369d16b55a2"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md",
+        "line_start": 141,
+        "line_end": 161,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L141-L161"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未核实",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-07-fi-002",
+      "fields": [
+        {
+          "label": "地点 / 用途 / 当前持有人",
+          "frame": "B35-FI-002",
+          "region": "field-1"
+        },
+        {
+          "label": "未完成开发里程碑",
+          "frame": "B35-FI-002",
+          "region": "field-2"
+        },
+        {
+          "label": "原期限与剩余范围",
+          "frame": "B35-FI-002",
+          "region": "field-3"
+        },
+        {
+          "label": "受让人当前资格",
+          "frame": "B35-FI-002",
+          "region": "field-4"
+        },
+        {
+          "label": "priority 与独立 tenure 状态",
+          "frame": "B35-FI-002",
+          "region": "field-5"
+        },
+        {
+          "label": "到期 / 撤销 / 争议与 receipt",
+          "frame": "B35-FI-002",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "申请机会转让",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "完整转让合同未核清；不延长原期限或转移身份声誉",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "pending / transferred / consumed / expired",
+        "recovery": "原 receipt 查询；到期不追溯没收独立 tenure，不冻结无关安全通行",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B35-FI-002.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "#ac-wr-fi-002"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "未核清 priority 原期限与剩余范围/里程碑、当前受让资格与待决变动原子处理、并发/重试/关联倒手/历史receipt重放、争议安全披露不冻结，以及独立tenure不被追溯没收。还需原§2.3 charter状态转换下待决tenure请求不能跨授权确认/迁移、同范围单一处置及下一步消费者。保留[frontier-expansion-and-world-information-boundaries.prd.md:210–221](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L210-L221)的长期/当前未承诺边界；无专属交付闭包证据，保持具体未知而非未实现，不调整期限或资格policy。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S12.svg",
+          "requirements": [
+            "FI-001",
+            "FI-002",
+            "GR-007"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "priority转让、当前资格、消费/期限、并发去重及与tenure处置关联的具体写合同未核清。"
+    },
+    {
+      "group": "T-GOV-07",
+      "requirement": "FI-003",
+      "upstream": "doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#req-wr-fi-003",
+      "trace_ids": [
+        "O7-REQ-23640893-de22-4940-9b25-ed08c9ab0f7e"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md",
+        "line_start": 161,
+        "line_end": 181,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L161-L181"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "未核实",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-07-fi-003",
+      "fields": [
+        {
+          "label": "公共规则 / 已结算事实",
+          "frame": "B36-FI-003",
+          "region": "field-1"
+        },
+        {
+          "label": "最低安全与通行披露",
+          "frame": "B36-FI-003",
+          "region": "field-2"
+        },
+        {
+          "label": "有界私用 → 公共 baseline",
+          "frame": "B36-FI-003",
+          "region": "field-3"
+        },
+        {
+          "label": "live inventory / routes 的取得依据",
+          "frame": "B36-FI-003",
+          "region": "field-4"
+        },
+        {
+          "label": "每项来源 / 范围 / freshness",
+          "frame": "B36-FI-003",
+          "region": "field-5"
+        },
+        {
+          "label": "不确定性与授权当前状态",
+          "frame": "B36-FI-003",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "刷新或选择替代信息",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "无授权不展示实时私有值；信息不足不假装完整真值",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "private / stale / conflicting / unknown",
+        "recovery": "刷新、替代、等待或停止按实际能力；不给全图实时情报",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B36-FI-003.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "#ac-wr-fi-003"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "具体未知：探索数据有界私用→最低安全/通行披露→最终公共baseline，公共事实可审计与实时库存/路线等侦察、关系、购买、合同或授权分类；每项来源、范围、freshness与不确定性，以及授权失效、冲突和过期时刷新/替代/等待/停止的消费链。保留[frontier-expansion-and-world-information-boundaries.prd.md:210–221](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L210-L221)的未定侦察实现时点及不承诺当前实时情报/公共baseline边界，不替用户选择保密期或披露policy。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S09.svg",
+          "requirements": [
+            "FI-003",
+            "SC8-dataread",
+            "SC8-datacommit",
+            "SC8-datareplay"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整信息分类producer、public baseline、实时授权/撤销/freshness DTO未核清；不编造实时值。"
+    },
+    {
+      "group": "T-GOV-07",
+      "requirement": "SC8-dataread",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc8-dataread",
+      "trace_ids": [
+        "O7-REQ-6bd89114-455c-490b-9b21-425fa90df866"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 899,
+        "line_end": 912,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L899-L912"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-07-sc8-dataread",
+      "fields": [
+        {
+          "label": "owner 与 recipient",
+          "frame": "B37-SC8-dataread",
+          "region": "field-1"
+        },
+        {
+          "label": "purpose 与 scope",
+          "frame": "B37-SC8-dataread",
+          "region": "field-2"
+        },
+        {
+          "label": "当前 grant / 有效性",
+          "frame": "B37-SC8-dataread",
+          "region": "field-3"
+        },
+        {
+          "label": "来源与预览身份",
+          "frame": "B37-SC8-dataread",
+          "region": "field-4"
+        },
+        {
+          "label": "将使用或转移的内容边界",
+          "frame": "B37-SC8-dataread",
+          "region": "field-5"
+        },
+        {
+          "label": "授权缺项和可用替代",
+          "frame": "B37-SC8-dataread",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "请求数据授权（不可用）",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "完整跨主体 DTO/producer 未核清；self_collection 不代签",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "grant unknown / purpose mismatch",
+        "recovery": "查看当前来源；不能以历史 receipt 替代当前授权",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B37-SC8-dataread.svg",
+      "professional_authority": null,
+      "validation_anchors": [],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "跨主体owner/recipient/purpose/scope、当前grant状态可读及全部入口预览语义未闭合；self_collection不能代签跨主体访问授权。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S09.svg",
+          "requirements": [
+            "FI-003",
+            "SC8-dataread",
+            "SC8-datacommit",
+            "SC8-datareplay"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "跨主体owner/recipient/purpose/scope与grant的完整正式预览DTO和producer未核清。"
+    },
+    {
+      "group": "T-GOV-07",
+      "requirement": "SC8-datacommit",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc8-datacommit",
+      "trace_ids": [
+        "O7-REQ-ebcc34f8-5db5-46f7-85fb-30b44b8b797f"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 912,
+        "line_end": 925,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L912-L925"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-07-sc8-datacommit",
+      "fields": [
+        {
+          "label": "原提交 / grant / scope",
+          "frame": "B38-SC8-datacommit",
+          "region": "field-1"
+        },
+        {
+          "label": "提交至结算间有效性",
+          "frame": "B38-SC8-datacommit",
+          "region": "field-2"
+        },
+        {
+          "label": "拒绝或待决原因",
+          "frame": "B38-SC8-datacommit",
+          "region": "field-3"
+        },
+        {
+          "label": "实际使用 / 转移",
+          "frame": "B38-SC8-datacommit",
+          "region": "field-4"
+        },
+        {
+          "label": "sink / 收益 / 隐性义务检查",
+          "frame": "B38-SC8-datacommit",
+          "region": "field-5"
+        },
+        {
+          "label": "唯一合法结算 receipt",
+          "frame": "B38-SC8-datacommit",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "核对原 Data 请求",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "失效或无法证明有效须拒绝或待决；不得先消费后补授权",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "revoked / pending / outcome unknown",
+        "recovery": "按原请求核对实际 receipt；未知不能写成无效果",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B38-SC8-datacommit.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/data_access_control.rs#L297-L370",
+        "https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/data_access_control.rs#L371-L450"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "提交至结算间授权失效或不能证明有效时原子拒绝或可读待决，无 sink、收益或隐性义务；合法结算只产生一次 receipt 支持的使用/转移的精确专业分配/验证关系、当前实现和实际验收仍由 §5.1 对应 owner 核定；不得以根 SC 的局部或历史结果代签。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S09.svg",
+          "requirements": [
+            "FI-003",
+            "SC8-dataread",
+            "SC8-datacommit",
+            "SC8-datareplay"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整跨入口Data授权失效→拒绝/待决→唯一结算写接口、scope/purpose与receipt闭包未核清。"
+    },
+    {
+      "group": "T-GOV-07",
+      "requirement": "SC8-datareplay",
+      "upstream": "doc/product/world-rules-core-gameplay/prd.md#root-sc8-datareplay",
+      "trace_ids": [
+        "O7-REQ-c549ec3e-5dc6-4e27-9285-4e326b0fc5d3"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/prd.md",
+        "line_start": 925,
+        "line_end": 938,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/prd.md#L925-L938"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-07-sc8-datareplay",
+      "fields": [
+        {
+          "label": "历史合法使用 / 转移 receipt",
+          "frame": "B39-SC8-datareplay",
+          "region": "field-1"
+        },
+        {
+          "label": "原 owner / recipient / purpose",
+          "frame": "B39-SC8-datareplay",
+          "region": "field-2"
+        },
+        {
+          "label": "当前 grant 撤销状态",
+          "frame": "B39-SC8-datareplay",
+          "region": "field-3"
+        },
+        {
+          "label": "原请求与重复结果",
+          "frame": "B39-SC8-datareplay",
+          "region": "field-4"
+        },
+        {
+          "label": "保留 provenance",
+          "frame": "B39-SC8-datareplay",
+          "region": "field-5"
+        },
+        {
+          "label": "重新授权 / 替代的实际入口",
+          "frame": "B39-SC8-datareplay",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看原 provenance",
+          "region": "action-unavailable",
+          "status": "contract_blocked",
+          "reason": "历史 receipt 不复活 grant；未核清重新授权写合同",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": null
+        }
+      ],
+      "states": {
+        "labels": "historical confirmed / current grant revoked",
+        "recovery": "保留历史而停止新消费；不把采集 nonce 当所有访问重放证明",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B39-SC8-datareplay.svg",
+      "professional_authority": null,
+      "validation_anchors": [],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "grant撤销后历史receipt不复活权限、合法provenance保留和可读重新授权/替代仍需专门链；不把self_collection nonce当所有Data access重放证明。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S09.svg",
+          "requirements": [
+            "FI-003",
+            "SC8-dataread",
+            "SC8-datacommit",
+            "SC8-datareplay"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "missing_full_write"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整Data provenance/重授权/替代入口与历史receipt不复权的跨消费者协议未核清。"
+    },
+    {
+      "group": "T-GOV-08",
+      "requirement": "GCB-005",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-005",
+      "trace_ids": [
+        "O7-REQ-4b64b7c5-9819-4932-a1ad-3cdb09fa82e5"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md",
+        "line_start": 216,
+        "line_end": 232,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#L216-L232"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-08-gcb-005",
+      "fields": [
+        {
+          "label": "外部 OC 转让事实",
+          "frame": "B05-GCB-005",
+          "region": "field-1"
+        },
+        {
+          "label": "事项范围内 lock / snapshot",
+          "frame": "B05-GCB-005",
+          "region": "field-2"
+        },
+        {
+          "label": "退出或解除绑定的当前结果",
+          "frame": "B05-GCB-005",
+          "region": "field-3"
+        },
+        {
+          "label": "有效窗口内原计票历史",
+          "frame": "B05-GCB-005",
+          "region": "field-4"
+        },
+        {
+          "label": "OC → LetAI Run quota 单向服务",
+          "frame": "B05-GCB-005",
+          "region": "field-5"
+        },
+        {
+          "label": "token_key 与服务消费（非治理）",
+          "frame": "B05-GCB-005",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看来源记录",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "Viewer 不提供链上转账或世界资格兑换",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "链上 confirmed ≠ 世界 eligible",
+        "recovery": "分别核对两侧原结果；一侧失败不覆盖另一侧历史",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B05-GCB-005.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../testing/prd.md",
+        "#ac-wr-gcb-005"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "外部OC锁定/退出/解绑→具体治理主体及事项snapshot绑定、跨账户/实际控制人并发转移隔离仍未实现于上述入口；operator-managed quota bridge、token_key及服务消费的全部正式消费者和三种状态并列读面仍未核清，不把局部隔离扩成整条已验证。",
+      "state_fragments": [],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    },
+    {
+      "group": "T-GOV-08",
+      "requirement": "GR-011",
+      "upstream": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-011",
+      "trace_ids": [
+        "O7-REQ-d27a209c-a703-4443-92d9-acadb9820ed2"
+      ],
+      "source": {
+        "path": "doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md",
+        "line_start": 330,
+        "line_end": 346,
+        "revision": "113868200d1f91bef1008babb689bd257f241428",
+        "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/doc/product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#L330-L346"
+      },
+      "current_consumers": [],
+      "source_design_status": "未核实",
+      "source_implementation_status": "部分实现",
+      "spec_anchor": "doc/world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-08-gr-011",
+      "fields": [
+        {
+          "label": "链上转让规则与链上成本",
+          "frame": "B40-GR-011",
+          "region": "field-1"
+        },
+        {
+          "label": "世界内资源 / 信用 / 库存 / 合同",
+          "frame": "B40-GR-011",
+          "region": "field-2"
+        },
+        {
+          "label": "地方 charter 的适用双资格",
+          "frame": "B40-GR-011",
+          "region": "field-3"
+        },
+        {
+          "label": "工业准入 / 市场 / 紧急保供各自门禁",
+          "frame": "B40-GR-011",
+          "region": "field-4"
+        },
+        {
+          "label": "治理 / tenure / levy 的独立授权",
+          "frame": "B40-GR-011",
+          "region": "field-5"
+        },
+        {
+          "label": "两侧独立 receipt 与失败状态",
+          "frame": "B40-GR-011",
+          "region": "field-6"
+        }
+      ],
+      "actions": [
+        {
+          "label": "查看独立来源",
+          "region": "action-unavailable",
+          "status": "target_conditionally_available",
+          "reason": "无 Viewer 钱包或赎回表单；不把世界资格施加为链上转让限制",
+          "shown_scenario": "disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness",
+          "enable_when": "exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record"
+        }
+      ],
+      "states": {
+        "labels": "chain confirmed ≠ world qualification",
+        "recovery": "分别查询原结果；无隐式兑换、赎回或资格授予",
+        "representation": "text_only",
+        "not_all_state_variants_drawn": true
+      },
+      "representation": "full_frame",
+      "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B40-GR-011.svg",
+      "professional_authority": null,
+      "validation_anchors": [
+        "../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-03",
+        "../../testing/prd.md",
+        "#ac-wr-gr-011"
+      ],
+      "coverage_status": "target_read_view_partial_not_current_implementation",
+      "remaining_gap": "仅此独立转账子范围，不等于全部双向隔离。治理输入/区域贡献、资源/信用/库存/合同/工业作者与准入/levy/紧急保供的所有消费者，世界资产自动兑换/赎回负例、完整fee execution及失败一侧不抹另一侧的组合运行仍未核清。 产品语义已冻结，专业技术承接未核到不等于待定产品政策；未检视路径不判未实现。",
+      "state_fragments": [
+        {
+          "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/states/S04.svg",
+          "requirements": [
+            "GR-008",
+            "GR-011"
+          ],
+          "regions": {
+            "table": "x30 y160 w1380 h469",
+            "disabled_control": "x36 y660 w650 h52",
+            "recovery": "x36 y755"
+          },
+          "representation": "state_fragment",
+          "fixture": "illustrative contract scenario, not runtime evidence"
+        }
+      ],
+      "availability_axes": {
+        "current_viewer_full_surface": "not_confirmed; preserve listed narrow consumers",
+        "runtime_binding": "not_verified; no current connection or runtime execution claim",
+        "professional_action_contract": "read_boundary_only"
+      },
+      "roles_and_qualification": "当前读权限 audience 可看允许信息；完整写角色不由本设计补造。",
+      "precise_contract_gap": "完整产品范围仍按 remaining_gap 保留；已读子合同可以设计条件可用，不因当前 UI 未接通判合同缺失。"
+    }
+  ],
+  "status": "target only; not current implementation denominator"
+}

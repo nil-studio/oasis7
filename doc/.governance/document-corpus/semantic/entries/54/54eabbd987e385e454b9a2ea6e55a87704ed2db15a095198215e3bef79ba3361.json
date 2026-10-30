@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "b1c54063629367b0dcf514ae7091383ceadce076396b190518342da3af3e146b",
+    "content_sha256": "3c8a9edef9e5ca19ccff21aee5b1c09cfad1902da94f0f99b31268036707bdee",
     "current_authority": "doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md",
     "decision_owner": "game_visual_interaction_designer",
     "disposition": "retain_current_design_supplement",
-    "note": "current page-family implementation supplement; not root visual or release authority; developer workflow record projection updated, product authority retained",
+    "note": "current page-family visual supplement retained; added navigation to source-bound professional companions and corrected imported-key product ENTRY-MODE relationship while preserving Flow technical dependency; not product, root visual or release authority; static semantic review only",
     "path": "doc/world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc"><title id="title">配方排产 · 具体表单设计</title><desc id="desc">源码约束的设计提议。所有世界和报价值为虚构示例。非运行截图、非实际验收。</desc>
+<rect width="1600" height="1200" fill="#0b100f"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text x="48" y="42" font-size="16" fill="#b4beb1" font-weight="400">OASIS7 / COMMAND / QUOTE</text>
+<text x="1190" y="42" font-size="17" fill="#d0a85b" font-weight="400">设计提议 · 非运行截图</text>
+<text x="48" y="94" font-size="34" fill="#edf1e6" font-weight="600">配方排产</text>
+<text x="48" y="133" font-size="20" fill="#b4beb1" font-weight="400">生产时长、产物与电池续航一起核对</text>
+<rect  x="48" y="166" width="1504" height="80" rx="8" fill="#19251f" stroke="#405346"/>
+<text x="72" y="198" font-size="18" fill="#edf1e6" font-weight="400">世界现场继续由 Bevy 绘制；此页只展开 Command 报价局部</text>
+<text x="72" y="228" font-size="16" fill="#b4beb1" font-weight="400">虚构示例 / 查询不会执行动作、推进世界或生成回执</text>
+<rect  x="48" y="270" width="620" height="730" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="72" y="310" font-size="23" fill="#edf1e6" font-weight="600">查询参数</text>
+<text x="72" y="341" font-size="16" fill="#b4beb1" font-weight="400">现行字段与默认值 · 业务校验见规格</text>
+<text x="72" y="380" font-size="18" fill="#b4beb1" font-weight="400">工厂</text>
+<rect id="field-0" x="72" y="392" width="266" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="84" y="421" font-size="18" fill="#edf1e6" font-weight="400">factory-0</text>
+<text x="72" y="458" font-size="14" fill="#b4beb1" font-weight="400">必填 · 非空 ID</text>
+<text x="362" y="380" font-size="18" fill="#b4beb1" font-weight="400">配方</text>
+<rect id="field-1" x="362" y="392" width="266" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="374" y="421" font-size="18" fill="#edf1e6" font-weight="400">assemble_hardware</text>
+<text x="362" y="458" font-size="14" fill="#b4beb1" font-weight="400">必填 · 非空 ID</text>
+<text x="72" y="492" font-size="18" fill="#b4beb1" font-weight="400">批次</text>
+<rect id="field-2" x="72" y="504" width="266" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="84" y="533" font-size="18" fill="#edf1e6" font-weight="400">1</text>
+<text x="72" y="570" font-size="14" fill="#b4beb1" font-weight="400">必填 · 正安全整数</text>
+<rect id="query-action" x="72" y="604" width="548" height="48" rx="8" fill="#26382d" stroke="#d0a85b"/>
+<text x="88" y="635" font-size="17" fill="#edf1e6" font-weight="600">请求排产预估</text>
+<text x="72" y="690.0" font-size="17" fill="#b4beb1" font-weight="400">独立可编辑查询不改 Next Move 固定方案；不安排生产。</text>
+<rect  x="692" y="270" width="860" height="730" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="716" y="310" font-size="23" fill="#edf1e6" font-weight="600">只读结果 / 虚构数据</text>
+<text x="716" y="342" font-size="16" fill="#d0a85b" font-weight="400">预估不是执行成功，也不保证提交条件仍然成立</text>
+<rect id="result-0" x="716" y="365" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="730" y="390" font-size="15" fill="#b4beb1" font-weight="400">工厂 / 配方</text>
+<text x="730" y="417.0" font-size="18" fill="#edf1e6" font-weight="400">factory-0 / assemble_hardware</text>
+<rect id="result-1" x="1130" y="365" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="1144" y="390" font-size="15" fill="#b4beb1" font-weight="400">批次</text>
+<text x="1144" y="417.0" font-size="18" fill="#edf1e6" font-weight="400">1</text>
+<rect id="result-2" x="716" y="448" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="730" y="473" font-size="15" fill="#b4beb1" font-weight="400">风险 / 建议</text>
+<text x="730" y="500.0" font-size="18" fill="#edf1e6" font-weight="400">低电力风险 / 可安排生产</text>
+<rect id="result-3" x="1130" y="448" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="1144" y="473" font-size="15" fill="#b4beb1" font-weight="400">基础时长</text>
+<text x="1144" y="500.0" font-size="18" fill="#edf1e6" font-weight="400">5 ticks</text>
+<rect id="result-4" x="716" y="531" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="730" y="556" font-size="15" fill="#b4beb1" font-weight="400">本地短缺</text>
+<text x="730" y="583.0" font-size="18" fill="#edf1e6" font-weight="400">0 ticks</text>
+<rect id="result-5" x="1130" y="531" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="1144" y="556" font-size="15" fill="#b4beb1" font-weight="400">成品</text>
+<text x="1144" y="583.0" font-size="18" fill="#edf1e6" font-weight="400">hardware × 4</text>
+<rect id="result-6" x="716" y="614" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="730" y="639" font-size="15" fill="#b4beb1" font-weight="400">电力成本</text>
+<text x="730" y="666.0" font-size="18" fill="#edf1e6" font-weight="400">8</text>
+<rect id="result-7" x="1130" y="614" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="1144" y="639" font-size="15" fill="#b4beb1" font-weight="400">排产后电力</text>
+<text x="1144" y="666.0" font-size="18" fill="#edf1e6" font-weight="400">22</text>
+<rect id="result-8" x="716" y="697" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="730" y="722" font-size="15" fill="#b4beb1" font-weight="400">电池续航</text>
+<text x="730" y="749.0" font-size="18" fill="#edf1e6" font-weight="400">30 → 22 ticks</text>
+<rect id="result-9" x="1130" y="697" width="390" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="1144" y="722" font-size="15" fill="#b4beb1" font-weight="400">维护</text>
+<text x="1144" y="749.0" font-size="18" fill="#edf1e6" font-weight="400">本次预估未跟踪维护压力</text>
+<text x="716" y="946" font-size="17" fill="#b4beb1" font-weight="400">本面板只提供查询。正式结果引用原 Action Receipt。</text>
+<rect  x="48" y="1024" width="1504" height="76" rx="8" fill="#101713" stroke="#405346"/>
+<text x="72" y="1054" font-size="17" fill="#d0a85b" font-weight="600">版本 / 时效</text>
+<text x="228" y="1054" font-size="17" fill="#b4beb1" font-weight="400">没有通用报价版本号或统一 TTL；不虚构“有效至”。具体失效规则按各 family。</text>
+<text x="72" y="1082" font-size="16" fill="#b4beb1" font-weight="400">表单排版与信息分组为提议；业务字段、查询按钮与禁用边界来自固定源码。</text>
+<rect  x="580" y="1124" width="440" height="52" rx="8" fill="#101713" stroke="#405346"/>
+<text x="612" y="1158" font-size="18" fill="#edf1e6" font-weight="400">World</text>
+<text x="744" y="1158" font-size="18" fill="#edf1e6" font-weight="400">Targets</text>
+<text x="878" y="1158" font-size="18" fill="#d0a85b" font-weight="600">Command</text>
+</g></svg>
