@@ -454,7 +454,8 @@ impl AccountProvisionApprovalState {
             .transport
             .charge(1)
             .map_err(|_| invalid())?;
-        s.purpose_transports.insert(attempt_id.into(), purpose);
+        s.purpose_transports
+            .insert(attempt_id.into(), purpose.into());
         next.validate_persistence()?;
         *self = next;
         Ok(())

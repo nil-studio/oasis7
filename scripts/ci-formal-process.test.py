@@ -86,7 +86,7 @@ class Coverage(unittest.TestCase):
         suites = artifacts.resolve_suites(self.config, self.binaries)
         cases = [(e['binary'], e['name']) for entries in suites.values() for e in entries if 'binary' in e]
         self.assertEqual(len(cases), len(set(cases)))
-        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 29)
+        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 30)
         self.assertEqual(sum('script' in e for entries in suites.values() for e in entries), 2)
 
     def test_rename_duplicate_and_new_unassigned_acceptance_fail(self):
@@ -101,6 +101,20 @@ class Coverage(unittest.TestCase):
                 binaries['runtime-tests']['ignored_tests'].append('new::protected_endpoint_children_new_acceptance')
             with self.assertRaises(ValueError):
                 artifacts.resolve_suites(config, binaries)
+
+    def test_initial_lost_reply_acceptance_runs_once_with_real_endpoint_dependency(self):
+        name = ('formal_live_runtime::tests::protected_process_tests::'
+                'protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session')
+        suites = artifacts.resolve_suites(self.config, self.binaries)
+        shards = artifacts.resolve_shards(self.config, suites)
+        selected = [(shard, entry) for shard, entries in shards.items()
+                    for entry in entries if entry.get('name') == name]
+        self.assertEqual(len(selected), 1)
+        shard, entry = selected[0]
+        self.assertEqual(shard, 'runtime-protocol')
+        self.assertEqual(entry['binary'], 'runtime-tests')
+        self.assertTrue(entry['ignored'])
+        self.assertIn('endpoint', self.config['binary_dependencies'][entry['binary']])
 
     def test_physical_shards_preserve_every_logical_case_once(self):
         suites = artifacts.resolve_suites(self.config, self.binaries)

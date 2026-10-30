@@ -1,6 +1,9 @@
 use super::agent_service_io::{
     AgentServiceIoJob, AgentServiceIoResponse, AgentServiceIoResult, AgentServiceProgress,
 };
+use super::control_plane::llm_sidecar::lineage_persistence::checkpoint_write::{
+    DeferredPublications, PublicationSourceScope,
+};
 use super::*;
 use oasis7_client_api::world_service::{IntentOutcome, SubmitObservation};
 use std::sync::{Weak, mpsc};
@@ -90,6 +93,65 @@ impl Drop for AgentServicePresence {
     }
 }
 
+// Completion permits a typed continuation only; it never replaces server state.
+#[derive(Clone)]
+struct PublicationFence {
+    config: Option<String>,
+    generation: u64,
+    publication_ticket: u64,
+    inflight: Option<super::agent_service_io::AgentServiceIoToken>,
+    sessions: BTreeMap<String, String>,
+    reorg_epoch: u64,
+    source_scope: Option<PublicationSourceScope>,
+}
+impl PublicationFence {
+    fn config_identity(server: &ViewerRuntimeLiveServer) -> Option<String> {
+        let config = server.config.world_service.as_ref()?;
+        let signer = server
+            .config
+            .world_service_agent_signer
+            .as_ref()
+            .map(|signer| (&signer.private_key_hex, signer.delegation_generation));
+        // Read-only Hosted writers need ordering even without an Agent signer.
+        // Credential material stays private; only a digest participates in the fence.
+        let material = format!(
+            "{}|{}|{:?}|{}|{}|{:?}|{}|{:?}|{:?}|{:?}",
+            config.endpoint,
+            config.trusted_service_public_key,
+            config.expected_world,
+            config.scope_id,
+            config.read_private_key_hex,
+            config.timeout,
+            config.max_response_bytes,
+            config.formal_read_trust,
+            signer,
+            server.llm_sidecar.publication_store_path()
+        );
+        Some(blake3::hash(material.as_bytes()).to_hex().to_string())
+    }
+    fn capture(server: &ViewerRuntimeLiveServer) -> Self {
+        Self {
+            config: Self::config_identity(server),
+            generation: server.llm_sidecar.hosted_service_generation,
+            publication_ticket: server.llm_sidecar.publication_ticket(),
+            inflight: server.llm_sidecar.hosted_service_inflight.clone(),
+            sessions: server.llm_sidecar.publication_sessions(),
+            reorg_epoch: server.reorg_epoch,
+            source_scope: server.llm_sidecar.publication_source_scope(),
+        }
+    }
+    fn matches(&self, server: &ViewerRuntimeLiveServer) -> bool {
+        self.config.is_some()
+            && self.config == Self::config_identity(server)
+            && self.generation == server.llm_sidecar.hosted_service_generation
+            && self.inflight == server.llm_sidecar.hosted_service_inflight
+            && self.sessions == server.llm_sidecar.publication_sessions()
+            && self.reorg_epoch == server.reorg_epoch
+            && self.source_scope == server.llm_sidecar.publication_source_scope()
+            && server.authoritative_recovery_write_fence.is_none()
+    }
+}
+
 impl ViewerRuntimeLiveServer {
     fn agent_service_eligible(&self) -> bool {
         self.agent_service_session_count > 0
@@ -102,6 +164,8 @@ impl ViewerRuntimeLiveServer {
     pub fn test_agent_service_pump_status(&self) -> serde_json::Value {
         serde_json::json!({
             "session_count": self.agent_service_session_count,
+            "publication_pending": self.llm_sidecar.publication_ticket() != 0,
+            "publication_error": self.agent_service_pump_error,
             "play_enabled": !self.auto_play_paused,
             "llm_mode": matches!(self.config.decision_mode, ViewerLiveDecisionMode::Llm),
             "fenced": self.authoritative_recovery_write_fence.is_some(),
@@ -109,6 +173,15 @@ impl ViewerRuntimeLiveServer {
             "eligible": self.agent_service_eligible(),
             "known_service_commit": self.verified_world_view.as_ref().map(|view| &view.version().commit),
         })
+    }
+
+    #[cfg(any(test, feature = "test_tier_required"))]
+    pub fn test_change_agent_service_scope(&mut self, scope: String) {
+        self.config
+            .world_service
+            .as_mut()
+            .expect("configured real service")
+            .scope_id = scope;
     }
 
     fn record_agent_pump_error(&mut self, reason: &'static str) {
@@ -125,6 +198,10 @@ impl ViewerRuntimeLiveServer {
     }
 
     fn observe_agent_pump_progress(&mut self, progress: &AgentServiceProgress) {
+        if let AgentServiceProgress::Blocked(blocker) = progress {
+            self.record_agent_pump_error(blocker.reason());
+            return;
+        }
         if matches!(progress, AgentServiceProgress::Advanced) {
             self.agent_service_pump_error = None;
             if self
@@ -155,6 +232,7 @@ impl ViewerRuntimeLiveServer {
             if server.agent_service_pump_started || server.config.world_service.is_none() {
                 return Ok(());
             }
+            server.llm_sidecar.enable_deferred_publications();
             server.agent_service_pump_started = true;
             #[cfg(any(test, feature = "test_tier_required"))]
             {
@@ -168,10 +246,24 @@ impl ViewerRuntimeLiveServer {
         // The executor owns only immutable jobs. It never accesses the Viewer mutex.
         thread::spawn(move || {
             while let Ok(job) = incoming.recv() {
+                // Internal publication uses this same executor and capacity-1
+                // lane. Existing diagnostic counters describe remote service
+                // transport; file phases remain in the bounded numeric ring.
+                let publication = matches!(
+                    &job.operation,
+                    super::agent_service_io::AgentServiceIoOperation::PublishLineage(_)
+                );
                 #[cfg(any(test, feature = "test_tier_required"))]
-                let result = executor_diagnostics.execute(job);
+                let result = if publication {
+                    job.execute()
+                } else {
+                    executor_diagnostics.execute(job)
+                };
                 #[cfg(not(any(test, feature = "test_tier_required")))]
-                let result = job.execute();
+                let result = {
+                    let _ = publication;
+                    job.execute()
+                };
                 if completed.send(result).is_err() {
                     break;
                 }
@@ -183,6 +275,7 @@ impl ViewerRuntimeLiveServer {
             let mut local_advances = 0;
             let mut returned_result = None;
             let mut last_dispatch = None;
+            let mut pending_dispatch: Option<(Box<AgentServiceIoJob>, PublicationFence)> = None;
             loop {
                 let Some(shared) = weak.upgrade() else {
                     break;
@@ -193,10 +286,20 @@ impl ViewerRuntimeLiveServer {
                     break;
                 };
                 drop(wait_phase);
+                let deferred = match DeferredPublications::begin(&server.llm_sidecar) {
+                    Ok(deferred) => deferred,
+                    Err(_) => {
+                        server.record_agent_pump_error("Agent original checkpoint remains unconfirmed; further preparation fenced");
+                        return;
+                    }
+                };
+                let mut queued_job = None;
+                let pending_before =
+                    server.llm_sidecar.publication_ticket() != 0 || pending_dispatch.is_some();
                 let had_phase = server.llm_sidecar.hosted_service_phase.is_some();
                 let mut progress = None;
                 let mut retry_without_progress = false;
-                if in_flight {
+                if in_flight && !pending_before {
                     match returned_result.take().unwrap_or_else(|| results.try_recv()) {
                         Ok(result) => {
                             in_flight = false;
@@ -251,7 +354,11 @@ impl ViewerRuntimeLiveServer {
                         Err(mpsc::TryRecvError::Empty) => {}
                     }
                 }
-                if !in_flight && !retry_without_progress {
+                if !in_flight
+                    && !retry_without_progress
+                    && !pending_before
+                    && server.llm_sidecar.publication_ticket() == 0
+                {
                     let eligible = server.agent_service_eligible();
                     if progress.is_none()
                         || matches!(
@@ -283,19 +390,7 @@ impl ViewerRuntimeLiveServer {
                         let Some(AgentServiceProgress::NeedsIo(job)) = progress.take() else {
                             unreachable!()
                         };
-                        // One owned in-flight job guarantees capacity; never wait under the mutex.
-                        #[cfg(any(test, feature = "test_tier_required"))]
-                        diagnostics.queued(&job);
-                        match jobs.try_send(*job) {
-                            Ok(()) => {
-                                in_flight = true;
-                                last_dispatch = Some(std::time::Instant::now());
-                            }
-                            Err(_) => {
-                                server.agent_pump_worker_failed();
-                                break;
-                            }
-                        }
+                        queued_job = Some(job);
                     }
                 }
                 let advance_without_sleep = continue_local_advance(
@@ -305,11 +400,127 @@ impl ViewerRuntimeLiveServer {
                     server.llm_sidecar.hosted_service_phase.is_some(),
                     local_advances + 1,
                 );
+                let _queue = deferred.finish();
+                let publications = std::sync::Arc::new(std::sync::Mutex::new(
+                    server.llm_sidecar.take_queued_publications(),
+                ));
+                if !publications.lock().unwrap().is_empty() {
+                    server
+                        .llm_sidecar
+                        .retain_inflight_publications(publications.clone());
+                }
+                let mut publication_fence = PublicationFence::capture(&server);
                 // Release between every local transition so Viewer controls and
                 // observers retain access. Fresh admission and terminal phase
                 // removal stop the burst; it never starts another model turn.
                 drop(server);
                 drop(pump_phase);
+                if !publications.lock().unwrap().is_empty() {
+                    loop {
+                        let outcome = publication_worker::publish(
+                            &jobs,
+                            &results,
+                            &mut returned_result,
+                            publications.clone(),
+                            publication_fence.publication_ticket,
+                        );
+                        let Ok(mut current) = shared.lock() else {
+                            return;
+                        };
+                        if !publication_fence.matches(&current) {
+                            current.record_agent_pump_error("Agent checkpoint scope changed; original publication remains retained for recovery");
+                            return;
+                        }
+                        if current.llm_sidecar.publication_capture_failed()
+                            || publications
+                                .lock()
+                                .unwrap()
+                                .iter()
+                                .any(|publication| publication.permanently_blocked())
+                        {
+                            current.record_agent_pump_error("Agent checkpoint capture failed; original queued and in-flight batches retained");
+                            return;
+                        }
+                        if publication_fence.publication_ticket
+                            != current.llm_sidecar.publication_ticket()
+                        {
+                            let additional = current.llm_sidecar.take_queued_publications();
+                            publication_fence.publication_ticket =
+                                current.llm_sidecar.publication_ticket();
+                            drop(current);
+                            publications.lock().unwrap().extend(additional);
+                            continue;
+                        }
+                        match outcome {
+                            Err(publication_worker::Failure::Executor) => {
+                                current.record_agent_pump_error(
+                                    "Agent publication executor stopped; original batch retained",
+                                );
+                                return;
+                            }
+                            Ok(()) => {
+                                if current
+                                    .llm_sidecar
+                                    .confirm_lineage_publication(
+                                        publication_fence.publication_ticket,
+                                    )
+                                    .is_err()
+                                {
+                                    current.record_agent_pump_error("Agent checkpoint capture or ticket changed; original batch remains pending");
+                                    return;
+                                }
+                                publication_fence.publication_ticket = 0;
+                                current.llm_sidecar.flush_pending_provider_world_events();
+                                if let Some((_, published)) =
+                                    current.llm_sidecar.hosted_native_dispatch.as_mut()
+                                {
+                                    *published = true;
+                                }
+                                break;
+                            }
+                            Err(publication_worker::Failure::Publication) => {
+                                current.record_agent_pump_error("Agent checkpoint publication failed; original work remains pending without dispatch");
+                                drop(current);
+                                thread::sleep(PUMP_INTERVAL);
+                            }
+                        }
+                    }
+                }
+                if let Some(job) = queued_job {
+                    pending_dispatch = Some((job, publication_fence.clone()));
+                }
+                if let Some((job, original_fence)) = pending_dispatch.take() {
+                    let Ok(mut current) = shared.lock() else {
+                        return;
+                    };
+                    if !original_fence.matches(&current) {
+                        current.record_agent_pump_error("Agent prepared job scope changed; original work remains pending without dispatch");
+                        return;
+                    }
+                    if current.llm_sidecar.ensure_lineage_published().is_err()
+                        || (job.requires_fresh_dispatch_eligibility()
+                            && !current.agent_service_eligible())
+                    {
+                        // Publication and fresh admission have separate gates.
+                        // Pause during publication must keep this exact original
+                        // Submit until current eligibility returns. Reconciliation
+                        // and accepted terminal work are not cancelled by Pause.
+                        pending_dispatch = Some((job, original_fence));
+                    } else {
+                        #[cfg(any(test, feature = "test_tier_required"))]
+                        diagnostics.queued(&job);
+                        match jobs.try_send(*job) {
+                            Ok(()) => {
+                                in_flight = true;
+                                last_dispatch = Some(std::time::Instant::now());
+                            }
+                            Err(_) => {
+                                current.agent_pump_worker_failed();
+                                return;
+                            }
+                        }
+                    }
+                }
                 drop(shared);
                 if advance_without_sleep {
                     local_advances += 1;
@@ -385,3 +596,6 @@ mod tests {
         assert!(!phase_identity_requires_retry(None, "expected-phase"));
     }
 }
+
+#[path = "agent_service_publication_worker.rs"]
+mod publication_worker;

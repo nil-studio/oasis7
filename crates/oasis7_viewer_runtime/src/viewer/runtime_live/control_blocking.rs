@@ -786,7 +786,7 @@ impl ViewerRuntimeLiveServer {
         emit_snapshot: bool,
     ) -> Result<(), ViewerRuntimeLiveServerError> {
         let (error_code, error_message) = self.gameplay_control_error(reason.clone());
-        self.pause_auto_play(session);
+        self.pause_auto_play(session)?;
         session.next_play_step_at = None;
         let hint = Self::llm_gameplay_hint_for_reason(&reason);
         self.set_latest_player_gameplay_feedback(Self::make_player_gameplay_feedback(
@@ -841,7 +841,7 @@ impl ViewerRuntimeLiveServer {
                 .as_str(),
             "viewer runtime live control failed",
         );
-        self.pause_auto_play(session);
+        self.pause_auto_play(session)?;
         session.next_play_step_at = None;
         self.set_latest_player_gameplay_feedback(Self::make_player_gameplay_feedback(
             action,

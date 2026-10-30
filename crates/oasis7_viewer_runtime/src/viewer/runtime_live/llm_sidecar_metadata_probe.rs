@@ -128,14 +128,25 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         &mut self,
         _eligible: bool,
     ) -> Result<AgentServiceProgress, String> {
+        self.llm_sidecar.ensure_lineage_published()?;
+        #[cfg(any(test, feature = "test_tier_required"))]
+        let _publication_scope =
+            super::lineage_persistence::checkpoint_write::publication_gate::prepare_scope();
+        let phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(49);
         let service = self.prepare_hosted_service_io(_eligible)?;
-        if !matches!(service, AgentServiceProgress::Idle) {
+        drop(phase);
+        if !matches!(service, AgentServiceProgress::Idle)
+            || self.llm_sidecar.publication_ticket() != 0
+        {
             return Ok(service);
         }
+        let phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(50);
         let fresh = self.prepare_fresh_service_io(_eligible)?;
+        drop(phase);
         if !matches!(fresh, AgentServiceProgress::Idle) {
             return Ok(fresh);
         }
+        let _phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(51);
         match self.llm_sidecar.prepare_provider_metadata_probe()? {
             Some(job) => Ok(AgentServiceProgress::NeedsIo(Box::new(job))),
             None => Ok(AgentServiceProgress::Idle),

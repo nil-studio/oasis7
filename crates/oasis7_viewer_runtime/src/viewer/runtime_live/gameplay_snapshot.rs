@@ -484,6 +484,7 @@ pub(super) fn build_player_gameplay_snapshot(
                     .to_string();
         for action in &mut available_actions {
             if action.protocol_action == "request_snapshot"
+                || action.protocol_action == "live_control.pause"
                 || (state.agents.is_empty() && action.action_id == ACTION_CLAIM_FIRST_AGENT)
             {
                 continue;

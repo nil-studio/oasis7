@@ -327,6 +327,10 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
         Option<lineage_persistence::PendingProviderSchedulerIntent>,
     )>,
     pub(in crate::viewer::runtime_live) hosted_fresh_view_ready: bool,
+    pub(in crate::viewer::runtime_live) hosted_native_dispatch:
+        Option<(cognition_context::ProviderContextState, bool)>,
+    hosted_outcome_checkpoint_pending: bool,
+    hosted_wake_checkpoint_pending: bool,
     pub(in crate::viewer::runtime_live) hosted_admission:
         Option<cognition_context::HostedAdmission>,
     pub(in crate::viewer::runtime_live) provider_restored_service_checkpoints:
@@ -366,6 +370,7 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     pending_provider_world_events: BTreeMap<String, RuntimePendingProviderWorldEvent>,
     provider_world_event_quarantine: BTreeMap<String, String>,
     provider_lineage_store: Option<PathBuf>,
+    publication: lineage_persistence::checkpoint_write::LineagePublicationOwner,
     provider_lineage_binding: Option<RuntimeBindingV1>,
     provider_lineage_restored: bool,
     provider_lineage_hydrated: bool,
@@ -1011,67 +1016,6 @@ impl RuntimeLlmSidecar {
         }
     }
 
-    /// Mirror Runtime-selected wake leases into the provider adapter without
-    /// inventing a second scheduler. The durable wake remains owned by
-    /// Runtime; this map only tells the next provider request which exact
-    /// continuation identity must be presented.
-    pub(in crate::viewer::runtime_live) fn sync_runtime_wakes(
-        &mut self,
-        world: &RuntimeWorld,
-    ) -> Result<(), String> {
-        if self.provider_service_required {
-            let view = self
-                .provider_service_projection
-                .as_ref()
-                .ok_or("authorized canonical wake view missing")?;
-            for wake in &view.scheduler_wakes {
-                wake.validate()
-                    .map_err(|error| format!("canonical wake invalid: {error:?}"))?;
-            }
-            self.pending_runtime_wakes =
-                self.reconcile_projected_service_wakes(view.scheduler_wakes.clone())?;
-            return self.persist_provider_lineage();
-        }
-        let wakes = world
-            .cognition_in_flight_wakes()
-            .map_err(|error| format!("Runtime cognition wake read failed: {error:?}"))?;
-        let live_wake_ids = wakes
-            .iter()
-            .map(|wake| wake.wake_id.as_str())
-            .collect::<BTreeSet<_>>();
-        let mut pending_runtime_wakes = self.pending_runtime_wakes.clone();
-        let pending_runtime_wakes_migrated =
-            lineage_recovery::hydrate_pending_runtime_wake_identities(
-                &mut pending_runtime_wakes,
-                &wakes,
-                &self.provider_terminal_states,
-            )?;
-        pending_runtime_wakes.retain(|wake_id, _| live_wake_ids.contains(wake_id.as_str()));
-        for wake in wakes {
-            if !self.provider_lineage_hydrated
-                && self
-                    .provider_active_turns
-                    .get(wake.agent_id.as_str())
-                    .is_some_and(|context| {
-                        lineage_persistence::provider_context_matches_wake(context, &wake)
-                    })
-            {
-                // A process-local async runner cannot survive restart. Keep
-                // the exact context identity but make it eligible for one
-                // fresh provider dispatch through the recovered wake.
-                self.provider_active_turns.remove(wake.agent_id.as_str());
-            }
-            pending_runtime_wakes
-                .entry(wake.wake_id.clone())
-                .or_insert(wake);
-        }
-        self.pending_runtime_wakes = pending_runtime_wakes;
-        if pending_runtime_wakes_migrated {
-            self.persist_provider_lineage_best_effort();
-        }
-        Ok(())
-    }
-
     pub(in crate::viewer::runtime_live) fn has_pending_runtime_wake_for_agent(
         &self,
         agent_id: &str,
@@ -1191,3 +1135,6 @@ mod tests;
 
 #[path = "llm_sidecar_service_feedback_ack.rs"]
 pub(in crate::viewer::runtime_live) mod service_feedback_ack;
+
+#[path = "llm_sidecar_service_orphan_recovery.rs"]
+pub(in crate::viewer::runtime_live) mod service_orphan_recovery;

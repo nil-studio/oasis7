@@ -1090,6 +1090,56 @@ function Portal(props) {
 	}, void 0, { render: !hydrating });
 	return marker;
 }
+// software_safe_src/viewer_target_sync_progress.js
+function targetSyncProgressLines(progress, locale, tr) {
+	if (!progress) return [];
+	const connectionText = progress.connectionStatus === "connected" ? tr(locale, "已连接", "connected") : progress.connectionStatus === "error" ? tr(locale, "连接错误", "connection error") : tr(locale, "正在连接", "connecting");
+	const handshakeText = progress.serverReady ? tr(locale, "已完成", "server ready") : tr(locale, "等待服务器 hello", "waiting for server hello");
+	const snapshotText = progress.snapshotReceived ? tr(locale, `已收到：行动体 ${progress.totalAgentCount}，地点 ${progress.totalLocationCount}`, `received: ${progress.totalAgentCount} agents, ${progress.totalLocationCount} locations`) : progress.snapshotRequested ? tr(locale, progress.snapshotRetryCount > 0 ? `已请求首个世界快照，重试 ${progress.snapshotRetryCount} 次` : "已请求首个世界快照", progress.snapshotRetryCount > 0 ? `first world snapshot requested, ${progress.snapshotRetryCount} retries` : "first world snapshot requested") : tr(locale, "等待首个世界快照", "waiting for first world snapshot");
+	const sessionText = progress.authSyncInFlight ? tr(locale, "正在同步玩家会话", "syncing player session") : tr(locale, `状态 ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`, `status ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`);
+	const visibilityText = tr(locale, `快照行动体 ${progress.totalAgentCount}，当前可控 ${progress.visibleAgentCount}`, `snapshot agents ${progress.totalAgentCount}, visible ${progress.visibleAgentCount}`);
+	const lines = [
+		tr(locale, `连接：${connectionText}`, `Connection: ${connectionText}`),
+		tr(locale, `握手：${handshakeText}`, `Handshake: ${handshakeText}`),
+		tr(locale, `快照：${snapshotText}`, `Snapshot: ${snapshotText}`),
+		tr(locale, `玩家会话：${sessionText}`, `Player session: ${sessionText}`),
+		tr(locale, `可见性：${visibilityText}`, `Visibility: ${visibilityText}`)
+	];
+	if (progress.lastError) lines.push(tr(locale, `错误：${progress.lastError}`, `Error: ${progress.lastError}`));
+	return lines;
+}
+// software_safe_src/viewer_live_control_status.jsx
+var _tmpl$$46 = /*#__PURE__*/ template(`<div>`);
+var _tmpl$2$43 = /*#__PURE__*/ template(`<aside role=status data-viewer-overlay=control-state class=panel style="position:fixed;top:4.5rem;right:1rem;z-index:25;max-width:min(25rem, calc(100vw - 2rem))"><div class=panel__body><strong></strong><div class=feedback-detail>`);
+function LiveControlStatus(props) {
+	const locale = () => props.locale();
+	const observation = () => props.state.liveControlState;
+	return createComponent(Show, {
+		get when() {
+			return props.state.controlProfile === "live";
+		},
+		get children() {
+			var _el$ = _tmpl$2$43(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$5 = _el$3.nextSibling;
+			insert(_el$3, (() => {
+				var _c$ = memo(() => !!!observation()?.verified);
+				return () => _c$() ? props.tr(locale(), "Viewer 调度状态未确认", "Viewer scheduling state unconfirmed") : memo(() => !!observation().paused)() ? props.tr(locale(), "Viewer 新决策已暂停", "Viewer new decisions paused") : props.tr(locale(), "Viewer 新决策已启用", "Viewer new decisions enabled");
+			})());
+			insert(_el$2, createComponent(Show, {
+				get when() {
+					return props.state.liveControlPendingRequestId != null;
+				},
+				get children() {
+					var _el$4 = _tmpl$$46();
+					insert(_el$4, () => props.tr(locale(), "等待 Viewer 确认", "Awaiting Viewer confirmation"));
+					return _el$4;
+				}
+			}), _el$5);
+			insert(_el$5, () => props.tr(locale(), "世界作业与已在途的请求仍可能继续。", "World jobs and requests already in flight may continue"));
+			createRenderEffect(() => setAttribute(_el$, "aria-label", props.tr(locale(), "Viewer 决策调度", "Viewer decision scheduling")));
+			return _el$;
+		}
+	});
+}
 // software_safe_src/viewer_ui_primitives.jsx
 var _tmpl$$45 = /*#__PURE__*/ template(`<span>`);
 var _tmpl$2$42 = /*#__PURE__*/ template(`<div>`);
@@ -8415,6 +8465,7 @@ function executeKindForAction(actionId, protocolAction) {
 	if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") return "request_snapshot";
 	if (protocolAction === "live_control.step") return "step";
 	if (protocolAction === "live_control.play") return "play";
+	if (protocolAction === "live_control.pause") return "pause";
 	if (protocolAction === "agent_chat") return "agent_chat";
 	if (protocolAction === "prompt_control.apply") return "reprioritize";
 	if (protocolAction !== "gameplay_action.submit") return "unsupported";
@@ -8444,7 +8495,7 @@ function normalizeViewerAvailableActions({ gameplay, locale, localeText, agentEx
 			label,
 			protocolAction,
 			targetAgentId,
-			disabledReason: protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
+			disabledReason: protocolAction === "live_control.pause" ? null : protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
 			executeKind: executeKindForAction(actionId, protocolAction)
 		};
 	});
@@ -8458,6 +8509,88 @@ function normalizeGameplayActionRequest(action) {
 		target_agent_id: action.target_agent_id || action.targetAgentId || null,
 		actor_agent_id: action.actor_agent_id || action.actorAgentId || null,
 		disabled_reason: action.disabled_reason || action.disabledReason || null
+	};
+}
+// software_safe_src/viewer_live_control_state.js
+var LIVE_CONTROL_STATE_CAPABILITY = "live_control_state_v1";
+function createLiveControlStateController(state, pending) {
+	let generation = 0;
+	let supported = false;
+	let epoch = null;
+	let revision = 0;
+	let paused = null;
+	let conflictedRevision = null;
+	function publish(verified) {
+		state.liveControlState = {
+			supported,
+			verified,
+			epoch,
+			revision,
+			paused: verified ? paused : null
+		};
+	}
+	return {
+		reset() {
+			generation += 1;
+			supported = false;
+			epoch = null;
+			revision = 0;
+			paused = null;
+			conflictedRevision = null;
+			state.liveControlPendingRequestId = null;
+			for (const [id, feedback] of pending) {
+				if (feedback.liveControlGeneration == null) continue;
+				feedback.stage = "unknown";
+				feedback.reason = "connection changed before Viewer control confirmation";
+				if (state.lastControlFeedback?.requestId === id) state.lastControlFeedback = feedback;
+				pending.delete(id);
+			}
+			publish(false);
+		},
+		hello(message) {
+			supported = message.control_profile === "live" && Number(message.version ?? 2) >= 2 && Array.isArray(message.capabilities) && message.capabilities.includes("live_control_state_v1");
+			publish(false);
+		},
+		sent(feedback) {
+			if (!["play", "pause"].includes(feedback.action)) return;
+			feedback.liveControlGeneration = generation;
+			if (supported) state.liveControlPendingRequestId = feedback.requestId;
+		},
+		blocked(ack) {
+			const feedback = pending.get(ack?.request_id);
+			if (ack?.status !== "blocked" || feedback?.liveControlGeneration !== generation || !["play", "pause"].includes(feedback?.action)) return;
+			if (state.liveControlPendingRequestId === ack.request_id) state.liveControlPendingRequestId = null;
+		},
+		receive(observation) {
+			if (!supported) return;
+			if (!observation || observation.scope !== "viewer_new_decisions" || !/^[0-9a-f]{64}$/.test(observation.epoch ?? "") || !Number.isSafeInteger(observation.revision) || observation.revision < 1 || typeof observation.paused !== "boolean" || observation.request_id != null && (!Number.isSafeInteger(observation.request_id) || observation.request_id < 0)) {
+				publish(false);
+				return;
+			}
+			if (epoch != null && observation.epoch !== epoch) return;
+			if (epoch == null) epoch = observation.epoch;
+			if (observation.revision === revision && observation.paused !== paused) {
+				conflictedRevision = revision;
+				publish(false);
+				return;
+			}
+			if (conflictedRevision != null && observation.revision <= conflictedRevision) return;
+			if (observation.revision >= revision) {
+				revision = observation.revision;
+				paused = observation.paused;
+				conflictedRevision = null;
+				publish(true);
+			}
+			const id = observation.request_id;
+			const feedback = pending.get(id);
+			if (!feedback || feedback.liveControlGeneration !== generation || !["play", "pause"].includes(feedback.action) || observation.paused !== (feedback.action === "pause")) return;
+			feedback.stage = "completed_applied";
+			feedback.reason = null;
+			feedback.effect = observation.paused ? "Viewer new decisions paused" : "Viewer new decisions enabled";
+			if (state.lastControlFeedback?.requestId === id) state.lastControlFeedback = feedback;
+			pending.delete(id);
+			if (state.liveControlPendingRequestId === id) state.liveControlPendingRequestId = null;
+		}
 	};
 }
 // software_safe_src/viewer_quote_dependencies.js
@@ -16265,6 +16398,14 @@ function createSoftwareSafeState() {
 		server: null,
 		wsUrl: null,
 		lastControlFeedback: null,
+		liveControlState: {
+			supported: false,
+			verified: false,
+			epoch: null,
+			revision: 0,
+			paused: null
+		},
+		liveControlPendingRequestId: null,
 		lastPromptFeedback: null,
 		lastChatFeedback: null,
 		lastGameplayActionFeedback: null,
@@ -16653,6 +16794,7 @@ var viewerPromptControlModule = null;
 var viewerControlLossModule = null;
 var semanticSendLoop = null;
 var pendingControlFeedback = /* @__PURE__ */ new Map();
+var liveControlState = createLiveControlStateController(state, pendingControlFeedback);
 var pendingSemanticCommands = [];
 var pendingSessionRegisterWaiter = null;
 var elements = {};
@@ -17111,6 +17253,7 @@ var viewerAgentChatAuthModule = createViewerAgentChatAuthModule({
 function resetViewerProtocolForConnection() {
 	canonicalOwnerRead.reset();
 	viewerPromptControlModule?.resetForConnection();
+	liveControlState.reset();
 }
 function promptControlCapabilitySelected() {
 	return viewerPromptControlModule?.capabilitySelected() === true;
@@ -17847,6 +17990,7 @@ function sendViewerControl(action, payload) {
 		feedback.stage = "queued";
 		feedback.effect = "queued, check getState().lastControlFeedback for world delta";
 		pendingControlFeedback.set(currentRequestId, feedback);
+		liveControlState.sent(feedback);
 		state.lastControlFeedback = feedback;
 		render();
 		return snapshotControlFeedback(feedback);
@@ -18068,6 +18212,7 @@ function handleControlCompletionAck(ack) {
 	if (!acceptRuntimeAckIdentity(ack)) return;
 	const feedback = pendingControlFeedback.get(ack?.request_id);
 	if (!feedback) return;
+	liveControlState.blocked(ack);
 	feedback.deltaLogicalTime = Number(ack?.delta_logical_time || 0);
 	feedback.deltaEventSeq = Number(ack?.delta_event_seq || 0);
 	if (ack?.status === "advanced") {
@@ -19222,6 +19367,10 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 		ok: true,
 		feedback: sendControl("play", null)
 	};
+	if (protocolAction === "live_control.pause") return {
+		ok: true,
+		feedback: sendControl("pause", null)
+	};
 	if (protocolAction !== "gameplay_action.submit") return {
 		ok: false,
 		reason: `unsupported gameplay action protocol: ${protocolAction || "(empty)"}`
@@ -19726,6 +19875,7 @@ function handleViewerMessage(message, sourceSocket = null) {
 			state.server = message.server || null;
 			state.worldId = message.world_id || null;
 			state.controlProfile = message.control_profile || "playback";
+			liveControlState.hello(message);
 			hydrateChatHistoryFromStorage();
 			if (!initialSnapshotRequested) {
 				initialSnapshotRequested = true;
@@ -19743,6 +19893,9 @@ function handleViewerMessage(message, sourceSocket = null) {
 				state.auth.error = String(error);
 				render();
 			});
+			break;
+		case "live_control_state":
+			liveControlState.receive(message.state);
 			break;
 		case "snapshot":
 			handleSnapshot(message.snapshot);
@@ -19834,6 +19987,7 @@ function attachSocket(ws) {
 			version: 2,
 			capabilities: [
 				PROMPT_CONTROL_RESULT_CAPABILITY,
+				LIVE_CONTROL_STATE_CAPABILITY,
 				"gameplay_result_lookup_v1",
 				"canonical_agent_chat_v1",
 				"world_view",
@@ -32121,28 +32275,11 @@ function buildViewerEntryUrls(locale) {
 	softwareSafeUrl.searchParams.delete("language");
 	return { softwareSafeUrl: softwareSafeUrl.toString() };
 }
-function targetSyncProgressLines(progress, locale) {
-	if (!progress) return [];
-	const connectionText = progress.connectionStatus === "connected" ? tr(locale, "已连接", "connected") : progress.connectionStatus === "error" ? tr(locale, "连接错误", "connection error") : tr(locale, "正在连接", "connecting");
-	const handshakeText = progress.serverReady ? tr(locale, "已完成", "server ready") : tr(locale, "等待服务器 hello", "waiting for server hello");
-	const snapshotText = progress.snapshotReceived ? tr(locale, `已收到：行动体 ${progress.totalAgentCount}，地点 ${progress.totalLocationCount}`, `received: ${progress.totalAgentCount} agents, ${progress.totalLocationCount} locations`) : progress.snapshotRequested ? tr(locale, progress.snapshotRetryCount > 0 ? `已请求首个世界快照，重试 ${progress.snapshotRetryCount} 次` : "已请求首个世界快照", progress.snapshotRetryCount > 0 ? `first world snapshot requested, ${progress.snapshotRetryCount} retries` : "first world snapshot requested") : tr(locale, "等待首个世界快照", "waiting for first world snapshot");
-	const sessionText = progress.authSyncInFlight ? tr(locale, "正在同步玩家会话", "syncing player session") : tr(locale, `状态 ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`, `status ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`);
-	const visibilityText = tr(locale, `快照行动体 ${progress.totalAgentCount}，当前可控 ${progress.visibleAgentCount}`, `snapshot agents ${progress.totalAgentCount}, visible ${progress.visibleAgentCount}`);
-	const lines = [
-		tr(locale, `连接：${connectionText}`, `Connection: ${connectionText}`),
-		tr(locale, `握手：${handshakeText}`, `Handshake: ${handshakeText}`),
-		tr(locale, `快照：${snapshotText}`, `Snapshot: ${snapshotText}`),
-		tr(locale, `玩家会话：${sessionText}`, `Player session: ${sessionText}`),
-		tr(locale, `可见性：${visibilityText}`, `Visibility: ${visibilityText}`)
-	];
-	if (progress.lastError) lines.push(tr(locale, `错误：${progress.lastError}`, `Error: ${progress.lastError}`));
-	return lines;
-}
 function EntityListPendingState(props) {
 	const locale = () => props.locale ?? uiLocale();
 	const label = () => props.label ?? tr(locale(), "目标", "targets");
 	const progress = () => props.progress ?? buildTargetSyncProgress();
-	const progressLines = () => targetSyncProgressLines(progress(), locale());
+	const progressLines = () => targetSyncProgressLines(progress(), locale(), tr);
 	return (() => {
 		var _el$ = _tmpl$2(), _el$2 = _el$.firstChild, _el$4 = _el$2.firstChild.nextSibling, _el$6 = _el$2.nextSibling;
 		insert(_el$4, () => tr(locale(), `正在同步${label()}…`, `Syncing ${label()}…`));
@@ -33295,7 +33432,7 @@ function gameplayActionControlBoundaryReason(action, locale) {
 	const protocolAction = normalizedId(action?.protocolAction || action?.protocol_action);
 	const targetAgentId = normalizedId(action?.targetAgentId || action?.target_agent_id);
 	if (!targetAgentId || actionId === "claim_first_agent") return null;
-	if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play") return null;
+	if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play" || protocolAction === "live_control.pause") return null;
 	const boundAgentId = normalizedId(state.auth.boundAgentId);
 	if (!boundAgentId) return tr(locale, "当前账号尚未绑定 Agent；这个动作来自共享世界快照，不能作为当前账号动作执行。", "The current account has no bound Agent; this action came from the shared world snapshot and cannot be executed as the current account.");
 	if (targetAgentId !== boundAgentId) return tr(locale, `这个动作目标是 ${targetAgentId}，但当前账号绑定的是 ${boundAgentId}。`, `This action targets ${targetAgentId}, but the current account is bound to ${boundAgentId}.`);
@@ -33315,6 +33452,7 @@ function gameplayActionButtonLabel(action, locale) {
 	if (action.executeKind === "request_snapshot") return tr(locale, "刷新快照", "Refresh Snapshot");
 	if (action.executeKind === "step") return tr(locale, "推进一步", "Advance One Step");
 	if (action.executeKind === "play") return tr(locale, "恢复实时推进", "Resume Live Play");
+	if (action.executeKind === "pause") return tr(locale, "暂停实时推进", "Pause Live Play");
 	if (action.executeKind === "agent_chat") return tr(locale, "切到聊天面板", "Use Chat Panel");
 	return tr(locale, "提交玩法动作", "Submit Gameplay Action");
 }
@@ -33325,6 +33463,7 @@ function gameplayActionBusyLabel(action, locale) {
 	if (action?.executeKind === "request_snapshot") return tr(locale, "刷新中...", "Refreshing...");
 	if (action?.executeKind === "step") return tr(locale, "推进中...", "Advancing...");
 	if (action?.executeKind === "play") return tr(locale, "恢复中...", "Resuming...");
+	if (action?.executeKind === "pause") return tr(locale, "暂停中...", "Pausing...");
 	if (action?.actionId === "claim_starter_oc") return tr(locale, "确认中...", "Confirming...");
 	if (action?.actionId === "claim_first_agent" || action?.executeKind === "claim_agent") return tr(locale, "提交中...", "Submitting...");
 	return tr(locale, "处理中...", "Working...");
@@ -33347,6 +33486,7 @@ function gameplayActionTestId(action, role = "available") {
 	if (action?.executeKind === "request_snapshot") return "viewer-available-action-request-snapshot";
 	if (action?.executeKind === "step") return "viewer-available-action-step";
 	if (action?.executeKind === "play") return "viewer-available-action-play";
+	if (action?.executeKind === "pause") return "viewer-available-action-pause";
 	const raw = action?.actionId || action?.protocolAction || action?.executeKind || "unknown";
 	return `viewer-playthrough-action-${String(raw).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown"}`;
 }
@@ -35494,7 +35634,7 @@ function WorldSummaryPanel(props = {}) {
 														}),
 														createComponent(Show, {
 															get when() {
-																return action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc";
+																return action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "pause" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc";
 															},
 															get children() {
 																var _el$294 = _tmpl$33(), _el$295 = _el$294.firstChild;
@@ -37149,6 +37289,11 @@ function AppShell(props = {}) {
 			"data-viewer-overlay": "navigation"
 		}), _el$390);
 		insert(_el$389, createComponent(SecondaryViewerNavigation, {
+			locale,
+			tr
+		}), _el$390);
+		insert(_el$389, createComponent(LiveControlStatus, {
+			state,
 			locale,
 			tr
 		}), _el$390);

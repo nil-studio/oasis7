@@ -40,6 +40,7 @@ pub(super) fn apply_runtime_snapshot_empty_entities_blocker(
     gameplay.resume_next_step = Some(gameplay.next_step_hint.clone());
     for action in &mut gameplay.available_actions {
         if action.protocol_action == "request_snapshot"
+            || action.protocol_action == "live_control.pause"
             || action.action_id == ACTION_CLAIM_FIRST_AGENT
             || action.action_id == ACTION_CLAIM_STARTER_OC
         {
@@ -80,7 +81,15 @@ pub(super) fn base_available_actions(
             label: "Resume live play".to_string(),
             protocol_action: "live_control.play".to_string(),
             target_agent_id: None,
-            disabled_reason,
+            disabled_reason: disabled_reason.clone(),
+        },
+        PlayerGameplayAction {
+            action_id: "pause_play".to_string(),
+            label: "Pause live play".to_string(),
+            protocol_action: "live_control.pause".to_string(),
+            target_agent_id: None,
+            // Pausing new decisions does not require a ready provider or funds.
+            disabled_reason: None,
         },
     ];
     if supports_agent_chat {
@@ -183,4 +192,33 @@ pub(super) fn has_player_world_effect(
                             .is_some_and(|id| !id.trim().is_empty())
                 })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base_available_actions;
+
+    #[test]
+    fn player_pause_remains_available_when_provider_readiness_fails() {
+        for reason in ["provider unavailable", "cognition allowance unavailable"] {
+            for enabled in [true, false] {
+                let actions = base_available_actions(None, enabled, Some(reason), false);
+                let pause = actions
+                    .iter()
+                    .find(|action| action.action_id == "pause_play")
+                    .expect("Player must have a Pause control");
+                let play = actions
+                    .iter()
+                    .find(|action| action.action_id == "resume_play")
+                    .unwrap();
+                assert_eq!(pause.protocol_action, "live_control.pause");
+                assert!(pause.target_agent_id.is_none());
+                assert!(pause.disabled_reason.is_none());
+                assert_eq!(
+                    play.disabled_reason.as_deref(),
+                    (!enabled).then_some(reason)
+                );
+            }
+        }
+    }
 }
