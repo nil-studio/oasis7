@@ -178,7 +178,10 @@ impl NodeBftPeerTransportV3 for BufferedNoise {
 fn wire3_formal_read_cold_pending_prevote_finishes_before_queued_sameheight_noise_qc() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(|| network_case_pending(false, false, false, true))
+        .spawn(|| {
+            let _trace = hook_trace::Scope::begin("pending");
+            network_case_pending(false, false, false, true)
+        })
         .unwrap()
         .join()
         .unwrap();
@@ -205,6 +208,7 @@ pub(super) fn recover(
     delivery: &Arc<AtomicBool>,
     drains: &[Arc<AtomicU64>],
     received: &[Arc<AtomicU64>],
+    clock: &Arc<membership_clock::ElapsedClock>,
 ) {
     network_wait(
         "original prevote failure and independent weighted QC",
@@ -268,8 +272,12 @@ pub(super) fn recover(
         )
         .unwrap(),
     ));
+    let mut recovered_binding = binding_for(&cold, 0);
+    // Restore the original externally selected policy, rather than the helper's
+    // short default. Cold opening must preserve every other binding identity.
+    recovered_binding.timeouts = bindings[0].timeouts;
     assert_eq!(
-        binding_for(&cold, 0).digest().unwrap(),
+        recovered_binding.digest().unwrap(),
         bindings[0].digest().unwrap()
     );
     actual.insert(0, cold.clone());
@@ -284,11 +292,14 @@ pub(super) fn recover(
                 intent: original.clone(),
                 calls: calls.clone(),
             })],
-            Box::new(MemoryTestSignerBackend {
-                binding_digest: bindings[0].digest().unwrap(),
-                fail_confirm_after_commit: None,
-                snapshot: snapshots[0].clone(),
-            }),
+            membership_clock::elapsed_backend(
+                MemoryTestSignerBackend {
+                    binding_digest: bindings[0].digest().unwrap(),
+                    fail_confirm_after_commit: None,
+                    snapshot: snapshots[0].clone(),
+                },
+                clock.clone(),
+            ),
             BftCandidateReadPolicyV3::STANDARD,
         )
         .unwrap(),
@@ -334,7 +345,7 @@ pub(super) fn recover(
     });
     public.insert(0, transport);
     let execution = Arc::new(NodeBftPeerExecutionStateV3::default());
-    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(cold))));
+    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook::new(cold))));
     let exchange = Arc::new(
         NodeBftLibp2pPrivateCandidateExchangeV3::new(
             networks[0].clone(),
@@ -343,7 +354,7 @@ pub(super) fn recover(
                 candidate_policy_digest: gates.policy_digest.clone(),
                 candidate_grant_generation: 1,
                 peers: routes,
-                operation_timeout: Duration::from_secs(60),
+                operation_timeout: PRIVATE_OPERATION_TIMEOUT,
             },
             execution.clone(),
             hook.clone(),
@@ -500,12 +511,17 @@ pub(super) fn recover(
     let archived = restored.completed_journals[0].as_ref().unwrap();
     assert!(archived.events.iter().any(|event|matches!(event,BftSigningJournalEventV3::Vote {vote,local:true,..} if vote.height==original.height&&vote.phase==original.phase&&vote.value==original.value&&vote.validator_id==original.validator_id&&vote.verify_signature().is_ok())));
     assert_eq!(fs::read(&path).unwrap(), bytes);
+    // Original pending prevote/QC recovery kept the fixed original clock.
+    // Start elapsed time once; the cold wrapper already holds this same anchor.
+    clock.start().unwrap();
     nodes[0]
         .submit_consensus_action_payload(9501, payload("actual-after-cold-pending-agent"))
         .unwrap();
     delivery.store(true, Ordering::Release);
     let mut next = [false; 3];
-    let continuation_deadline = Instant::now() + Duration::from_secs(180);
+    let continuation_budget =
+        membership_clock::recovery_action_budget(bindings[0].timeouts, PRIVATE_OPERATION_TIMEOUT);
+    let continuation_deadline = Instant::now() + continuation_budget;
     loop {
         for (index, node) in nodes.iter().enumerate() {
             assert!(node.bft_v3_status().unwrap().running);
@@ -520,13 +536,15 @@ pub(super) fn recover(
             break;
         }
         assert!(Instant::now() < continuation_deadline,
-            "timeout post-recovery nonempty continuation; exact_action=9501 completed={next:?}; nodes={:?}; protected={:?}; views={:?}",
+            "timeout post-recovery nonempty continuation; exact_action=9501 completed={next:?}; budget={continuation_budget:?}; clock={:?}; nodes={:?}; protected={:?}; views={:?}",
+            clock.diagnostic(),
             nodes.iter().map(NodeRuntime::bft_v3_status).collect::<Vec<_>>(),
             snapshots.iter().map(|snapshot| snapshot.try_lock().map(|snapshot| {
                 let state = &snapshot.state;
                 (snapshot.protected_time_floor_ms,
                  state.history.last().map(|c| c.execution_commitment.height),
                  state.pending_driver_apply.clone(),
+                 state.journal.as_ref().map(|j| (j.height_started_at_ms(),j.pending_vote_intent().map(|v|v.phase),j.events().iter().rev().find_map(|event|match event {BftSigningJournalEventV3::Vote{vote,local:true,..}=>Some((vote.round,vote.phase)),_=>None}),j.pending_commit().is_some())),
                  state.journal.as_ref().map(|j| j.events.iter().rev().take(16).map(|event| {
                      match event {
                          BftSigningJournalEventV3::Proposal { proposal, local, now_ms } =>

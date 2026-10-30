@@ -77,6 +77,11 @@ impl AccountProvisionApprovalState {
             },
         )?;
         let s = self.test_session_local(&request.session_id, request.purpose, now)?;
+        if !s.challenges.contains_key(&request.request_id)
+            && Self::live_context_nonce_reserved(s, nonce)
+        {
+            return Err(ProvisionApprovalError::Conflict);
+        }
         if request.kind == SessionChallengeKindV1::CredentialClaim {
             if proof.possession.profile() != HttpPopProfileV1::ClaimChallenge {
                 return Err(invalid());
@@ -454,7 +459,8 @@ impl AccountProvisionApprovalState {
             .transport
             .charge(1)
             .map_err(|_| invalid())?;
-        s.purpose_transports.insert(attempt_id.into(), purpose);
+        s.purpose_transports
+            .insert(attempt_id.into(), purpose.into());
         next.validate_persistence()?;
         *self = next;
         Ok(())

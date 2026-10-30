@@ -45,6 +45,9 @@ impl IdentityService {
             }
             let request: EntryExecutorControlRequestV1 =
                 parse_request(&bytes).map_err(|_| reject("invalid_request"))?;
+            if let EntryExecutorOperationV1::ReadLiveContext(q) = &request.operation {
+                verify_live_context_read(q).map_err(|_| reject("authentication_failed"))?;
+            }
             let access = &request.access;
             let fence = &access.fence;
             fence.validate().map_err(|_| reject("invalid_request"))?;
@@ -211,6 +214,22 @@ impl IdentityService {
                     entry.forward_bounded(
                         TASK_CONTEXT_READ_PATH,
                         TASK_CONTEXT_READ_PATH,
+                        q,
+                        q,
+                        MAX_EXECUTOR_REPLY,
+                    )
+                }
+                EntryExecutorOperationV1::ReadLiveContext(q) => {
+                    verify_live_context_read(q).map_err(|_| reject("authentication_failed"))?;
+                    check_actor_fence(
+                        &q.original.subject_public_key,
+                        &q.original.request.context.fence,
+                        actor,
+                        fence,
+                    )?;
+                    entry.forward_bounded(
+                        TASK_CONTEXT_LIVE_READ_PATH,
+                        TASK_CONTEXT_LIVE_READ_PATH,
                         q,
                         q,
                         MAX_EXECUTOR_REPLY,

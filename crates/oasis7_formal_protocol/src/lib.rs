@@ -11,5 +11,8 @@ pub mod incremental_execution;
 pub mod incremental_state;
 mod merkle;
 
+pub mod incremental_artifacts;
 pub mod incremental_history;
 pub mod incremental_schedule;
+
+pub mod incremental_material;

@@ -157,7 +157,8 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV1,
         attempt: &str,
     ) -> bool {
-        Self::termination_attempt_occupied(s, attempt)
+        Self::context_attempt_occupied(s, attempt)
+            || Self::termination_attempt_occupied(s, attempt)
             || s.sources.contains_key(attempt)
             || s.source_funding.contains_key(attempt)
             || s.actions

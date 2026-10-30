@@ -1,5 +1,28 @@
 use super::*;
 use std::{io::Read, net::TcpStream};
+thread_local! {
+    static LIVE_CONTEXT_PORTS: std::cell::RefCell<Option<Arc<[std::sync::atomic::AtomicUsize; 2]>>> = const { std::cell::RefCell::new(None) };
+}
+pub(super) fn observe_live_context_ports(counts: Arc<[std::sync::atomic::AtomicUsize; 2]>) {
+    LIVE_CONTEXT_PORTS.with(|slot| {
+        slot.replace(Some(counts));
+    });
+}
+fn count_live_context_port(method: &str, path: &str) {
+    if method != "POST" {
+        return;
+    }
+    let index = match path {
+        oasis7_client_api::world_service::VIEW_JSON_PATH => 0,
+        oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH => 1,
+        _ => return,
+    };
+    LIVE_CONTEXT_PORTS.with(|slot| {
+        if let Some(counts) = slot.borrow().as_ref() {
+            counts[index].fetch_add(1, Ordering::SeqCst);
+        }
+    });
+}
 pub(super) fn serve(
     listener: TcpListener,
     node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
@@ -45,6 +68,7 @@ pub(super) fn serve_with_private(
         let mut first = headers.split_whitespace();
         let method = first.next().unwrap().to_string();
         let path = first.next().unwrap().to_string();
+        count_live_context_port(&method, &path);
         let length = headers
             .split("\r\n")
             .filter_map(|line| line.split_once(':'))

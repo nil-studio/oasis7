@@ -221,10 +221,11 @@ impl AccountProvisionApprovalState {
         );
         session
             .purpose_transports
-            .insert(record.owner_attempt.clone(), record.request.purpose);
-        session
-            .purpose_transports
-            .insert(record.account_attempt.clone(), record.request.purpose);
+            .insert(record.owner_attempt.clone(), record.request.purpose.into());
+        session.purpose_transports.insert(
+            record.account_attempt.clone(),
+            record.request.purpose.into(),
+        );
         session
             .tool_nonce_ingresses
             .insert(ingress.into(), record.clone());
@@ -302,6 +303,7 @@ impl AccountProvisionApprovalState {
             || URL_SAFE_NO_PAD.encode(bytes) != service_nonce
             || s.challenges.len() >= 1024
             || s.challenges.values().any(|c| c.nonce == service_nonce)
+            || Self::live_context_nonce_reserved(s, service_nonce)
             || s.challenges
                 .values()
                 .filter(|c| c.consumed_by.is_none() && now.get() < c.expires_at.get())

@@ -3,6 +3,12 @@ use super::*;
 use oasis7::world_service::private_goal_store::PrivateTaskContextError;
 use oasis7::world_service::private_task_context::*;
 use oasis7_agent_api::game::{GameTaskFenceV1, TaskContextIdentityV1};
+#[path = "world_service_private_task_context_snapshot.rs"]
+mod context_snapshot;
+use context_snapshot::snapshot;
+use oasis7_client_api::world_service::task_context::{
+    TASK_CONTEXT_LIVE_READ_PATH, TaskContextLiveReadV1, verify_live_context_read,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ReadConflictStage {
@@ -184,86 +190,6 @@ fn validate_pinned_task<'a>(
     .map_err(|_| PrivateError::Forbidden)?;
     Ok(ValidatedPinnedTask { pinned, history })
 }
-fn snapshot(
-    service: &Service<'_>,
-    task: &ValidatedPinnedTask<'_>,
-    fence: &GameTaskFenceV1,
-    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
-    store: &PrivateGoalStore,
-) -> Result<GoalExecutionSnapshotV1, PrivateError> {
-    let pinned = task.pinned;
-    let control = task
-        .history
-        .current_control(&fence.agent_id)?
-        .ok_or(PrivateError::Forbidden)?;
-    let publication = task
-        .history
-        .active_publish(&fence.agent_id)?
-        .ok_or(PrivateError::Unavailable)?;
-    let WorldServicePayloadV1::GameGoalPublish(public) = &publication.request.signed_payload else {
-        return Err(PrivateError::Recovery);
-    };
-    let historical = service
-        .pin_at_height(publication.committed_height)
-        .map_err(|_| PrivateError::Recovery)?;
-    let key = correlation::key_digest(&publication.request.correlation.key)?;
-    if historical
-        .world
-        .capability_revocation_state()
-        .world_service_results
-        .get(&key)
-        != Some(&serde_json::to_value(&publication).map_err(|_| PrivateError::Recovery)?)
-    {
-        return Err(PrivateError::Recovery);
-    }
-    let active_goal = store
-        .get_prepared(&public.request)
-        .map_err(|_| PrivateError::Recovery)?;
-    let provider_authority = if authority_mode.is_none() {
-        Some(
-            pinned
-                .world
-                .canonical_agent_service_context(&fence.agent_id)?,
-        )
-    } else {
-        None
-    };
-    let native_authority = if authority_mode.is_some() {
-        Some(pinned.world.canonical_native_task_authority(fence)?)
-    } else {
-        None
-    };
-    let actor = pinned
-        .world
-        .state()
-        .agents
-        .get(&fence.agent_id)
-        .ok_or(PrivateError::Forbidden)?;
-    let runtime_binding = pinned
-        .world
-        .current_cognition_runtime_binding()
-        .map_err(|_| PrivateError::Unavailable)?;
-    let output = GoalExecutionSnapshotV1 {
-        schema_revision: oasis7_agent_api::game::TaskContextAuthorityModeV1::schema_revision(
-            authority_mode,
-        ),
-        control,
-        read_commit: pinned.commit.clone(),
-        activation_commit: historical.commit,
-        active_goal,
-        actor_observation_schema: "world-agent-state/v1".into(),
-        actor_observation: serde_json::to_value(actor).map_err(|_| PrivateError::Unavailable)?,
-        provider_authority,
-        native_authority,
-        runtime_binding,
-        captured_base_binding: pinned
-            .world
-            .current_cognition_base_binding()
-            .map_err(|_| PrivateError::Unavailable)?,
-    };
-    output.validate().map_err(|_| PrivateError::Recovery)?;
-    Ok(output)
-}
 fn task_error(error: PrivateTaskContextError) -> PrivateError {
     match error {
         PrivateTaskContextError::Invalid => PrivateError::Invalid,
@@ -435,6 +361,8 @@ fn load_captured(
     Ok(output)
 }
 
+#[path = "world_service_private_task_context_read.rs"]
+mod context_read;
 #[path = "world_service_private_factory_quote.rs"]
 mod factory_quote;
 #[path = "world_service_private_recipe_quote.rs"]
@@ -452,6 +380,9 @@ pub(super) fn process(
     }
     if path == oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH {
         return factory_quote::process(service, store, body, before_delivery);
+    }
+    if matches!(path, TASK_CONTEXT_READ_PATH | TASK_CONTEXT_LIVE_READ_PATH) {
+        return context_read::process(service, store, path, body, before_delivery);
     }
     match path {
         TASK_SNAPSHOT_PATH => {
@@ -529,58 +460,6 @@ pub(super) fn process(
             check_record_live(fresh_task.pinned, &record, None)?;
             service
                 .signed(path, &proof, record)
-                .map_err(PrivateError::from)
-        }
-        TASK_CONTEXT_READ_PATH => {
-            let proof: SignedReadRequest<TaskContextGetV1> =
-                parse(body).map_err(|_| PrivateError::Invalid)?;
-            verify_get(&proof).map_err(|_| PrivateError::Invalid)?;
-            let pinned = service.pin(None)?;
-            let task = validate_pinned_task(
-                service,
-                &pinned,
-                &proof.request.context.fence,
-                &proof.subject_public_key,
-                true,
-            )?;
-            let output = load_captured(service, store, &proof, &task)?;
-            before_delivery();
-            let fresh = service.pin(None)?;
-            let fresh_task = validate_pinned_task(
-                service,
-                &fresh,
-                &proof.request.context.fence,
-                &proof.subject_public_key,
-                true,
-            )?;
-            fresh_task
-                .history
-                .validate_prefix_capture(&proof.request.context, &proof.subject_public_key)
-                .map_err(|error| {
-                    capture_validation_conflict(
-                        &fresh_task.pinned.world,
-                        &proof.request.context,
-                        ReadCheckPoint::Delivery,
-                        &error,
-                    )
-                })?;
-            check_record_live(
-                fresh_task.pinned,
-                &output.prepared,
-                Some(ReadCheckPoint::Delivery),
-            )?;
-            if fresh_task.pinned.commit.binding != task.pinned.commit.binding {
-                return Err(PrivateError::ContextReadDeliveryDrift(Some(
-                    ReadConflictStage::DeliveryBindingChanged,
-                )));
-            }
-            // A dedicated retry category describes only a still-authorized,
-            // unexpired context whose read snapshot changed during delivery.
-            if fresh_task.pinned.commit != task.pinned.commit {
-                return Err(PrivateError::ContextReadDeliveryDrift(None));
-            }
-            service
-                .signed(path, &proof, output)
                 .map_err(PrivateError::from)
         }
         _ => Err(PrivateError::Invalid),
