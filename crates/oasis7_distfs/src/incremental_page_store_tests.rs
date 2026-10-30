@@ -718,3 +718,36 @@ fn complete_value_closure_reopens_above_sixty_four_mib_under_small_pool() {
     assert_eq!(logical.nodes_remaining, 100000 - 1036 - 10);
     assert_eq!(memory.used(), before);
 }
+
+#[cfg(unix)]
+#[test]
+fn reopening_finishes_control_file_durability_before_serving_pages() {
+    let fixture = Fixture::new();
+    let root = fixture.store();
+    files::create_directory(&root).unwrap();
+    for name in ["frames", "recipes", "staging"] {
+        files::create_directory(&root.join(name)).unwrap();
+    }
+    // Readable controls can survive process death before their initialization
+    // syncs. Reopen must finish those syncs before acknowledging new pages.
+    fs::write(root.join("lease"), b"").unwrap();
+    fs::write(root.join("format"), FORMAT).unwrap();
+    let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
+    for path in [root.join("format"), root.join("lease"), root.clone()] {
+        let observed = Arc::new(AtomicBool::new(false));
+        files::cancel_after_sync(path.clone(), observed.clone(), 1);
+        let store = IncrementalPageStore::open(
+            &root,
+            memory.clone(),
+            PageCompression::Raw,
+            MemoryClass::Ordinary,
+        )
+        .unwrap();
+        assert!(
+            observed.load(Ordering::Acquire),
+            "reopen did not sync {}",
+            path.display()
+        );
+        drop(store);
+    }
+}

@@ -160,6 +160,12 @@ pub(super) fn open_store(root: &Path) -> Result<File> {
         fs::TryLockError::Error(error) => PageStoreError::Io(error),
     })?;
     validate_lease(root, &file)?;
+    // A readable format/lease pair may come from a creator interrupted before
+    // its final directory sync. Establish the control files and their names
+    // durably before this handle can acknowledge page publication.
+    sync(&root.join("format"))?;
+    sync(&root.join("lease"))?;
+    sync(root)?;
     Ok(file)
 }
 pub(super) fn validate_lease(root: &Path, file: &File) -> Result<()> {
