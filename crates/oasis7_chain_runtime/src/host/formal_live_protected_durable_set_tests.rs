@@ -431,8 +431,7 @@ pub(super) fn exercise(mut case: HealthySetCase) -> Result<(), String> {
     case.primary_child.kill_sigkill_and_wait()?;
     case.scenario_deadline
         .report_stage("original P stopped; starting authenticated successor copy")?;
-    let primary_management = free_loopback_address()?;
-    let replica_management = free_loopback_address()?;
+    let [primary_management, replica_management] = free_loopback_address_pair()?;
     let primary_bootstrap = serde_json::json!({
         "schema_version": 1,
         "lineage_directory": lineage_directory,
