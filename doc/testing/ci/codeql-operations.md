@@ -161,3 +161,9 @@ observe 只能在 hosted 验收完成且明确授权后设置，并读回实际�
 `CodeQL Rust CFG Diagnostic` 是默认 `execute=false` 的独立手动入口，使用容量入口的固定业务 pin、官方 2.27.3 完整 bundle、原生依赖和源码隔离检查。它只 finalize 数据库并执行 CFG 定向测量，不调用 analyze、不运行默认安全查询、不启用批次、不上传 SARIF/数据库。一次完成或失败即停止，不自动重试。整个 job 45 分钟，包含准备、提取、查询、图分析和收尾；结果不替代生产容量或完整 Rust 覆盖。
 
 先审阅私有 QLL 可见性补丁和查询实际解析路径，再执行 scope 汇总及有界 top scope 图检查。结果必须分别记录全图汇总、选中 scope 覆盖、跨 scope/未知归属、分量与可达对计算是否完整；只输出达到限制前的局部数据时保持 INCOMPLETE。保存工具/业务/官方源码身份、精确 QL、解码结果、原始日志、退出码和固定时钟；不保存或导出完整巨型闭包。新运行只能说明新冻结数据库，不能复原旧 run 的图。
+
+官方默认 evaluator profile 使用默认关闭的 `codeql-rust-cfg-diagnostic.yml` 显式 `profile=true` 分支，仅手动一次运行。保持55分钟job、40分钟共享提取/查询窗口、固定e205源码与完整官方2.27.3默认suite，不上传SARIF/数据库、不启用批次。查询后先冻结不可覆盖的query终态及原始profile哈希，再保存身份/资源/锁与核心capture终态，最后才尝试数据库日志及官方字段投影摘要。
+
+摘要仅单次运行官方 `--format=predicates --minify-output` 并流式投影，增量8MiB、命令20秒/阶段30秒且截止不晚于job截止前300秒；总写入248MiB/终态256MiB不变。不足空间或时间不spawn，已有摘要不覆盖，unsafe或核心证据不完整拒绝。摘要PARTIAL/NOT_RUN不得覆盖主查询及原始profile；保留旧run40898591506的各阶段失败。投影中的计时不是独占CPU，部分输出不得当完整成本排名；本诊断不代规定公共见证、结果解码、生产容量或完整Rust验收。
+
+摘要字段投影只消费官方predicates摘要，不直接把原始事件当稳定摘要：每条记录至多32MiB、总输入256MiB、物理记录十万条，按 `codeql_summary_schema_2_27_3.json` 冻结的19种已观测字段/类型/策略签名识别记录；这只是旧partial输入的适配白名单，不是永久官方schema。识别raHash、predicateName、position、completion标记及两类计时；先识别唯一版本头；官方无timing字段的cache元记录单独计数而不按零耗时排名，所有可比较记录仍要求完整计时字段；仅允许同一raHash及同名predicate的一条SENTINEL_EMPTY元记录与一条IN_LAYER计时记录，并分别计数、不重复归因；拒绝同类重复、名称冲突、未知缺字段和截断，保留-1标记计数而不当零或据此推断是否完成。literal `millis` 与非负 `predicateIterationMillis` subtotal 分成两份排名各至多50条，绝不混排或相加；首次写stdout前核最终JSON编码（含转义）至多1MiB，不跨记录加总、不把共享alias重复归因、不称独占CPU。父执行器管理投影worker和官方CLI整个进程组，命令仍20秒且总产物增量8MiB（含receipt预留），语法/容量/时间失败均保留PARTIAL。旧text/dedup候选已在唯一离线测试中因RA逐条输出触cap淘汰，失败证据保留。

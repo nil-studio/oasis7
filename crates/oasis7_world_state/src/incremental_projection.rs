@@ -1,6 +1,7 @@
 //! Borrowed semantic input for new-format genesis preparation. This visitor is
 //! never the ordinary commit path: mutation entrypoints must emit their actual
 //! read/write sets. No World/Snapshot clone or history hydration occurs here.
+pub use crate::incremental_semantic_key::SemanticKeyV1;
 use oasis7_formal_protocol::incremental_state::StateNamespaceV1;
 use serde::Serialize;
 
@@ -54,19 +55,19 @@ pub trait GenesisFieldVisitor {
     /// Preserve the existence of each outer map key, including an empty map
     /// or set. Called before any member of that group. Sinks must distinguish
     /// this marker from a member key; the count is admission metadata only.
-    fn group<K: Serialize + ?Sized>(
+    fn group<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         field: FieldDescriptor,
         key: &K,
         entries: usize,
     ) -> Result<(), Self::Error>;
-    fn entry<K: Serialize + ?Sized, V: Serialize + ?Sized>(
+    fn entry<K: SemanticKeyV1 + ?Sized, V: Serialize + ?Sized>(
         &mut self,
         field: FieldDescriptor,
         key: &K,
         value: &V,
     ) -> Result<(), Self::Error>;
-    fn bytes<K: Serialize + ?Sized>(
+    fn bytes<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         field: FieldDescriptor,
         key: &K,
