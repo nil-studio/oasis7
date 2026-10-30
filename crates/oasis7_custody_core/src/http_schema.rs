@@ -248,6 +248,7 @@ pub(super) fn export(directory: &std::path::Path) {
         response: json!({"type":"public-key"}),
     };
     let options_response = ApprovalOptionsResponseV1 {
+        custody_session_summary_v2: None,
         model_budget_summary: None,
         model_budget_summary_contract: None,
         api_version: 1,

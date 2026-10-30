@@ -1,8 +1,8 @@
 //! Scope fixtures validate a signed contract only, not actual enrollment/World.
 use super::*;
 use oasis7_custody_core::client_enrollment::{ClientPairingBindingV1, PairingInviteTargetRefV1};
-fn scope() -> ResourceTestSessionScopeV2 {
-    let task=serde_json::from_value(json!({"world_id":"world","genesis_digest":"genesis","branch_id":"main","reorg_epoch":"0","agent_id":"agent","owner_binding":"owner","owner_generation":"1","owner_public_key":"bb".repeat(32),"task_id":"task","task_revision":"1","task_status":"active","latest_goal_revision":"0","active_goal_revision":"0","active_goal_reference":null,"executor_epoch":"1","executor_binding":{"executor_id":"executor","executor_public_key":"cc".repeat(32),"delegation_generation":"1","executor_epoch":"1"}})).unwrap();
+fn scope_without_termination() -> ResourceTestSessionScopeV2 {
+    let task=serde_json::from_value(json!({"world_id":"world","genesis_digest":"genesis","branch_id":"main","reorg_epoch":"0","agent_id":"agent","owner_binding":"owner","owner_generation":"1","owner_public_key":"bb".repeat(32),"task_id":"task","task_revision":"1","task_status":"active","latest_goal_revision":"1","active_goal_revision":"1","active_goal_reference":{"goal_revision":"1","goal_ref":"11".repeat(32),"prepare_operation_id":"prepare","publish_operation_id":"publish","activation_committed_height":"1"},"executor_epoch":"1","executor_binding":{"executor_id":"executor","executor_public_key":"cc".repeat(32),"delegation_generation":"1","executor_epoch":"1"}})).unwrap();
     ResourceTestSessionScopeV2 {
         session_id: "session".into(),
         native_account_id: "native-one".into(),
@@ -34,8 +34,52 @@ fn scope() -> ResourceTestSessionScopeV2 {
         termination_plan_digest: "ee".repeat(32),
     }
 }
+fn termination_fixture(s: &ResourceTestSessionScopeV2) -> TerminationPlanV2 {
+    let f = &s.task_fence;
+    let mut term = TerminationPlanV2 {
+        api_version: 2,
+        session_id: s.session_id.clone(),
+        custody_account_id: s.client_pairing.target.custody_account_id.clone(),
+        provision_id: s.client_pairing.target.provision_id.clone(),
+        setup_id: "setup".into(),
+        prepared_result_digest: "ab".repeat(32),
+        world: s.world_identity.clone(),
+        owner_key_ref: "owner".into(),
+        executor_key_ref: s.executor_key_ref.clone(),
+        initial_fence: f.clone(),
+        original_delegation: oasis7_client_api::world_service_wire::AgentSignerDelegationChangeV1 {
+            world_id: f.world_id.clone(),
+            branch_id: f.branch_id.clone(),
+            agent_id: f.agent_id.clone(),
+            owner_binding: f.owner_binding.clone(),
+            agent_identity_generation: f.owner_generation.0,
+            generation: 1,
+            delegate_public_key: "cc".repeat(32),
+            revoked: false,
+            nonce: 1,
+        },
+        stop_operation_id: String::new(),
+        close_operation_id: String::new(),
+        cleanup_until: oasis7_custody_core::time_units::UnixMillis::new(200_000),
+        request_limit: DecimalU64(2),
+        transport_limit: DecimalU64(24),
+        trigger: TerminationTriggerV1::ClosingOnlyV1,
+        nonce_policy: TerminationNoncePolicyV1::AccountAllocatedHighWaterV1,
+        close_policy: WorldTaskClosePolicyV2::LiteralPersistentClosedV2,
+    };
+    term.stop_operation_id = term.expected_stop_operation_id().unwrap();
+    term.close_operation_id = term.expected_close_operation_id().unwrap();
+    term.validate().unwrap();
+    term
+}
+fn scope() -> ResourceTestSessionScopeV2 {
+    let mut s = scope_without_termination();
+    s.termination_plan_digest = termination_fixture(&s).digest().unwrap();
+    s
+}
 fn session_plan() -> TestSessionPlanV2 {
     TestSessionPlanV2 {
+        termination: Box::new(termination_fixture(&scope_without_termination())),
         model_budget: None,
         api_version: 2,
         request_id: "session-request".into(),
@@ -88,6 +132,10 @@ fn resource_v2_test_session_exact_scope_uses_shared_book_and_actual_signatures()
     input.request.intent = plan.intent(scope.clone(), 1000).unwrap();
     let mut proof = input.approval.proof;
     proof.intent_digest = input.request.intent_digest().unwrap();
+    proof.model_budget_summary_contract = input
+        .request
+        .expected_model_budget_summary_contract()
+        .unwrap();
     input.approval = sign_proof(proof);
     let mut book = ApprovalAdmissionBook::default();
     StrictCrypto
@@ -201,3 +249,6 @@ fn explicit_move0_selection_is_distinct_from_a_resource_basis() {
             .is_err()
     );
 }
+
+#[path = "native_full_session_summary_contract_tests.rs"]
+mod full_summary_tests;

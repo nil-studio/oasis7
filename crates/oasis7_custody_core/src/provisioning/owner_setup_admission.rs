@@ -64,8 +64,13 @@ impl AccountProvisionApprovalState {
                 }
             }
         }
-        for (id, v) in &self.test_sessions {
-            for r in v.book.records() {
+        for (id, book) in self
+            .test_sessions
+            .iter()
+            .map(|(id, v)| (id, &v.book))
+            .chain(self.test_sessions_v2.iter().map(|(id, v)| (id, &v.book)))
+        {
+            for r in book.records() {
                 if id == &input.operation_id && r.input() == input {
                     continue;
                 }

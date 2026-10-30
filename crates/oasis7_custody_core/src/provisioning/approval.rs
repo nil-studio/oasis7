@@ -129,6 +129,8 @@ pub struct AccountProvisionApprovalState {
     pairing_invites: BTreeMap<String, PairingInviteRecordV1>,
     session_inventory: SessionInventoryV1,
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    test_sessions_v2: BTreeMap<String, TestSessionAuthorityV2>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -172,6 +174,8 @@ struct RawAccountProvisionApprovalState {
     session_inventory: SessionInventoryV1,
     #[serde(default)]
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
+    #[serde(default)]
+    test_sessions_v2: BTreeMap<String, TestSessionAuthorityV2>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -199,6 +203,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             pairing_invites: raw.pairing_invites,
             session_inventory: raw.session_inventory,
             test_sessions: raw.test_sessions,
+            test_sessions_v2: raw.test_sessions_v2,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -231,6 +236,7 @@ impl AccountProvisionApprovalState {
             pairing_invites: BTreeMap::new(),
             session_inventory: SessionInventoryV1::Known,
             test_sessions: BTreeMap::new(),
+            test_sessions_v2: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {

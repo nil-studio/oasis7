@@ -9,7 +9,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<crate::approval::ApprovalVerifyRequestV1> {
         self.owner_setup_live(id, current, now)?;
         let mut next = self.clone();
-        let setup = next.owner_setups.get_mut(id).ok_or_else(invalid)?;
+        let setup = next.owner_setup_engine_record_mut(id)?;
         let original = setup.book.original(id).ok_or_else(invalid)?;
         let source = &mut setup.stages.get_mut(&stage).ok_or_else(invalid)?.source;
         if source.claimed_at.is_some() || now >= source.expires_at.0 {
@@ -52,9 +52,9 @@ impl AccountProvisionApprovalState {
             .verify(&self.owner_setup_stage_source_checks(id, stage, &signed, current, now)?)?;
         let mut next = self.clone();
         let source = &mut next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?
             .source;
         source.verification = Some(signed);

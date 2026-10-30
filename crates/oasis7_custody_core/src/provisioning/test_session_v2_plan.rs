@@ -23,6 +23,7 @@ pub struct TestSessionPlanV2 {
     pub api_version: u8,
     #[serde(deserialize_with = "required_option")]
     pub model_budget: Option<ModelInferenceBudgetV1>,
+    pub termination: Box<crate::provisioning::TerminationPlanV2>,
     pub request_id: String,
     pub enrollment_id: String,
     pub basis_digest: String,
@@ -45,6 +46,10 @@ pub struct TestSessionPlanV2 {
 }
 impl TestSessionPlanV2 {
     pub fn validate(&self) -> Result<(), String> {
+        self.termination.validate()?;
+        if self.termination.cleanup_until.get() != self.cleanup_until.0 {
+            return Err(invalid());
+        }
         if let Some(budget) = &self.model_budget {
             budget.validate(self.write_deadline.0)?;
             if budget.maximum_physical_http()? > self.transport_limit.0 {
@@ -117,6 +122,7 @@ impl TestSessionPlanV2 {
             return Err(invalid());
         }
         self.validate()?;
+        self.termination.validate_scope(s)?;
         s.client_pairing.validate().map_err(|_| invalid())?;
         s.task_fence.validate()?;
         let f = &s.task_fence;

@@ -9,7 +9,7 @@ impl AccountProvisionApprovalState {
         context: &OwnerSetupArchiveContext<'_>,
     ) -> Result<ExactSignatureChecks> {
         self.validate_owner_setup_archive(id, stage, fact, context)?;
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let setup = self.owner_setup_engine_record(id)?;
         let original = self
             .owner_setup_outbox(id, stage)
             .and_then(|o| o.original.as_ref())
@@ -20,7 +20,7 @@ impl AccountProvisionApprovalState {
             fact,
             context.world_public_key,
             original,
-            &setup.plan.digest()?,
+            &self.owner_setup_signed_plan_digest(id)?,
         )?)
     }
     /// Fact-only retention. This deliberately does not observe current source,
@@ -36,9 +36,9 @@ impl AccountProvisionApprovalState {
         verifier.verify(&self.owner_setup_archive_checks(id, stage, &fact, context)?)?;
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?;
         if let Some(old) = o.canonical_history.get(&fact.source) {
             return if old == &fact {
@@ -69,7 +69,7 @@ impl AccountProvisionApprovalState {
         context: &OwnerSetupArchiveContext<'_>,
         signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let setup = self.owner_setup_engine_record(id)?;
         let o = setup.stages.get(&stage).ok_or_else(invalid)?;
         if context.world_public_key != setup.plan.world_identity.service_public_key
             || context.world_public_key != self.draft.world_identity.service_public_key
@@ -101,7 +101,7 @@ impl AccountProvisionApprovalState {
         fact: &OwnerSetupCanonicalFactV1,
         signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let setup = self.owner_setup_engine_record(id)?;
         let o = setup.stages.get(&stage).ok_or_else(invalid)?;
         let Some(OwnerSetupOriginalV1::Canonical { submit, lookup }) = &o.original else {
             return Err(invalid());

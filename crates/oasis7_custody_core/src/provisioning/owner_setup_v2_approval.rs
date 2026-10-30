@@ -1,5 +1,12 @@
 //! V2 fresh-MFA approval persistence. No setup replay or model dispatch rights.
 use super::*;
+#[path = "owner_setup_v2_phase.rs"]
+mod phase;
+#[path = "owner_setup_v2_prepared.rs"]
+mod prepared;
+use phase::OwnerSetupSdkPhaseProjectionV2;
+pub use phase::derive_owner_setup_move0_sdk_plan_v2;
+pub use prepared::*;
 fn invalid() -> ProvisionApprovalError {
     ProvisionApprovalError::BindingMismatch
 }
@@ -13,6 +20,8 @@ pub struct OwnerSetupApprovalV2 {
     pub(super) book: ApprovalAdmissionBook,
     #[serde(deserialize_with = "required_transport")]
     pub(super) transport: Option<crate::budget::BudgetLedger>,
+    #[serde(deserialize_with = "required_phase")]
+    phase: Option<OwnerSetupSdkPhaseProjectionV2>,
 }
 fn required_transport<'de, D>(
     d: D,
@@ -21,6 +30,19 @@ where
     D: serde::Deserializer<'de>,
 {
     Option::<crate::budget::BudgetLedger>::deserialize(d)
+}
+fn required_phase<'de, D>(
+    d: D,
+) -> core::result::Result<Option<OwnerSetupSdkPhaseProjectionV2>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<OwnerSetupSdkPhaseProjectionV2>::deserialize(d)
+}
+pub struct CommitOwnerSetupV2 {
+    pub id: String,
+    pub signed: SignedApprovalVerificationV1,
+    pub source_nonce: String,
 }
 impl AccountProvisionApprovalState {
     pub fn owner_setup_v2_plan(&self) -> Option<&OwnerSetupPlanV2> {
@@ -172,6 +194,7 @@ impl AccountProvisionApprovalState {
                 plan: plan.clone(),
                 book: ApprovalAdmissionBook::default(),
                 transport: None,
+                phase: None,
             });
         if v.plan != plan {
             return Err(ProvisionApprovalError::Conflict);
@@ -185,13 +208,35 @@ impl AccountProvisionApprovalState {
     }
     pub fn commit_owner_setup_v2(
         &mut self,
-        id: &str,
-        signed: SignedApprovalVerificationV1,
+        commit: CommitOwnerSetupV2,
+        native_scope: &NativeStageScope<'_>,
         current: &ProvisionApprovalContext<'_>,
         now: u64,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<ApprovalAdmissionRecord> {
+        let CommitOwnerSetupV2 {
+            id,
+            signed,
+            source_nonce,
+        } = commit;
+        let id = id.as_str();
         verifier.verify(&self.commit_owner_setup_v2_checks(id, &signed, current, now)?)?;
+        if source_nonce.len() != 64
+            || !source_nonce
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(invalid());
+        }
+        let (session, status) = self.participant_session(native_scope)?;
+        let participant = self
+            .participant_provisions
+            .values()
+            .find(|p| p.result.is_some())
+            .ok_or_else(invalid)?;
+        if status.status.receipt != participant.descriptor.native_binding {
+            return Err(invalid());
+        }
         let mut next = self.clone();
         let record = next
             .owner_setup_v2
@@ -206,6 +251,17 @@ impl AccountProvisionApprovalState {
             let mut transport = crate::budget::BudgetLedger::new(v.plan.transport_limit.0);
             transport.charge(8).map_err(|_| invalid())?;
             v.transport = Some(transport);
+        }
+        if v.phase.is_none() && v.plan.selection.is_exact_move0() {
+            v.phase = Some(OwnerSetupSdkPhaseProjectionV2::from_consumed(
+                &v.plan,
+                &v.book,
+                v.transport.as_ref().ok_or_else(invalid)?,
+                session,
+                source_nonce,
+                current,
+                now,
+            )?);
         }
         next.validate_persistence()?;
         *self = next;
@@ -227,6 +283,15 @@ impl AccountProvisionApprovalState {
         };
         if v.transport != expected_transport {
             return Err(invalid());
+        }
+        match (
+            &v.phase,
+            r.stage() == ApprovalAdmissionStage::Consumed,
+            v.plan.selection.is_exact_move0(),
+        ) {
+            (Some(phase), true, true) => phase.validate_header(&v.plan, &v.book)?,
+            (None, false, _) | (None, true, false) => {}
+            _ => return Err(invalid()),
         }
         if !self.owner_setups.is_empty()
             || v.book.records().count() != 1

@@ -8,7 +8,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<crate::approval::ApprovalVerifyRequestV1> {
         self.owner_setup_live(id, current, now)?;
         let mut next = self.clone();
-        let v = next.owner_setups.get_mut(id).ok_or_else(invalid)?;
+        let v = next.owner_setup_engine_record_mut(id)?;
         let r = v.book.original(id).ok_or_else(invalid)?;
         let source = v.source.as_mut().ok_or_else(invalid)?;
         if source.claimed_at.is_some() || now >= source.expires_at.0 {
@@ -29,7 +29,7 @@ impl AccountProvisionApprovalState {
         current: &ProvisionApprovalContext<'_>,
         now: u64,
     ) -> Result<()> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let r = v
             .book
             .original(id)
@@ -74,9 +74,9 @@ impl AccountProvisionApprovalState {
         now: u64,
     ) -> Result<ExactSignatureChecks> {
         let i = self
-            .owner_setups
-            .get(id)
-            .and_then(|v| v.source.as_ref())
+            .owner_setup_engine_record(id)?
+            .source
+            .as_ref()
             .ok_or_else(invalid)?;
         self.validate_owner_setup_inspection(id, i, signed, context, now)
     }
@@ -88,7 +88,7 @@ impl AccountProvisionApprovalState {
         context: &ApprovalAdmissionContext,
         now: u64,
     ) -> Result<ExactSignatureChecks> {
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let setup = self.owner_setup_engine_record(id)?;
         let r = setup.book.original(id).ok_or_else(invalid)?;
         validate_inspection_record(r, i, signed, context, now)
     }
@@ -103,9 +103,7 @@ impl AccountProvisionApprovalState {
         verifier.verify(&self.owner_setup_source_checks(id, &signed, current, now)?)?;
         let mut next = self.clone();
         let i = next
-            .owner_setups
-            .get_mut(id)
-            .ok_or_else(invalid)?
+            .owner_setup_engine_record_mut(id)?
             .source
             .as_mut()
             .ok_or_else(invalid)?;
@@ -122,9 +120,9 @@ impl AccountProvisionApprovalState {
         now: u64,
     ) -> Result<ExactSignatureChecks> {
         let signed = self
-            .owner_setups
-            .get(id)
-            .and_then(|v| v.source.as_ref())
+            .owner_setup_engine_record(id)?
+            .source
+            .as_ref()
             .and_then(|v| v.verification.as_ref())
             .ok_or_else(invalid)?;
         self.owner_setup_source_checks(id, signed, current, now)

@@ -184,7 +184,7 @@ fn setup_v2_prepare_is_mounted_core_producer_and_does_not_upgrade_v1_authority()
 
 #[test]
 fn setup_v2_real_fresh_mfa_book_consumes_once_and_roundtrips_without_v1_dispatch() {
-    let (mut state, mut c, _) = fixture::participant_bound();
+    let (mut state, mut c, pin) = fixture::participant_bound();
     let mut value = serde_json::to_value(plan(&state)).unwrap();
     value.as_object_mut().unwrap().remove("resource_refs");
     value["api_version"] = json!(2);
@@ -223,8 +223,12 @@ fn setup_v2_real_fresh_mfa_book_consumes_once_and_roundtrips_without_v1_dispatch
     let signed = sign_verification(fact);
     state
         .commit_owner_setup_v2(
-            &plan.setup_id,
-            signed.clone(),
+            CommitOwnerSetupV2 {
+                id: plan.setup_id.clone(),
+                signed: signed.clone(),
+                source_nonce: "b4".repeat(32),
+            },
+            &scope(&pin),
             &policy.current(&c),
             1502,
             &mut StrictCrypto,
@@ -233,8 +237,12 @@ fn setup_v2_real_fresh_mfa_book_consumes_once_and_roundtrips_without_v1_dispatch
     let consumed = state.clone();
     state
         .commit_owner_setup_v2(
-            &plan.setup_id,
-            signed,
+            CommitOwnerSetupV2 {
+                id: plan.setup_id.clone(),
+                signed,
+                source_nonce: "b4".repeat(32),
+            },
+            &scope(&pin),
             &policy.current(&c),
             1503,
             &mut StrictCrypto,

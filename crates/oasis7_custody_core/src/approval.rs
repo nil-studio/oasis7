@@ -302,9 +302,11 @@ pub enum ApprovalPhaseV1 {
 #[serde(deny_unknown_fields)]
 pub struct ApprovalOptionsResponseV1 {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub custody_session_summary_v2: Option<Box<NativeSessionApprovalSummaryV2>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_budget_summary: Option<crate::provisioning::ModelInferenceBudgetV1>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_budget_summary_contract: Option<NativeModelBudgetSummaryContractV1>,
+    pub model_budget_summary_contract: Option<NativeCustodySummaryContractV1>,
     pub api_version: u8,
     pub phase: ApprovalPhaseV1,
     pub approval_id: String,
@@ -582,7 +584,7 @@ pub struct CustodyApprovalProofV1 {
     /// Produced by the Native summary-contract implementation, never by a
     /// request rendered/verified flag. None preserves V1 signing bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_budget_summary_contract: Option<NativeModelBudgetSummaryContractV1>,
+    pub model_budget_summary_contract: Option<NativeCustodySummaryContractV1>,
     pub version: u8,
     pub key_id: String,
     pub identity_namespace: String,
@@ -608,38 +610,9 @@ impl CustodyApprovalProofV1 {
         encode("oasis7.custody.approval.v1", self)
     }
 }
-#[cfg_attr(test, derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NativeModelBudgetSummaryContractV1 {
-    pub api_version: u8,
-    pub summary_digest: String,
-}
-impl ApprovalOptionsRequestV1 {
-    /// Expected signed summary value only. This pure function cannot prove a
-    /// UI was rendered or create a Native attestation/approval authority.
-    pub fn expected_model_budget_summary_contract(
-        &self,
-    ) -> Result<Option<NativeModelBudgetSummaryContractV1>, String> {
-        let budget = match &self.intent {
-            CustodyIntentV1::OwnerSetupV2 { plan } => plan.model_budget.as_ref(),
-            CustodyIntentV1::TestSessionV2 { plan, .. } => plan.model_budget.as_ref(),
-            _ => None,
-        };
-        budget
-            .map(|budget| {
-                encode(
-                    "oasis7.custody.native-model-budget-summary.v1",
-                    &(self.intent_digest()?, &self.context, budget),
-                )
-                .map(|bytes| NativeModelBudgetSummaryContractV1 {
-                    api_version: 1,
-                    summary_digest: bytes_digest(&bytes),
-                })
-            })
-            .transpose()
-    }
-}
+#[path = "approval_summary_contract.rs"]
+mod summary_contract;
+pub use summary_contract::*;
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

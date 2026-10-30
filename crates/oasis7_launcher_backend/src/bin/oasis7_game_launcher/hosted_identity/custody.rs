@@ -26,6 +26,7 @@ pub(super) mod revocation;
 pub(super) struct CustodyConfig {
     // Deployment support for this fixed Native/UI contract, not request consent.
     model_budget_summary_contract_enabled: bool,
+    full_session_v2_summary_contract_enabled: bool,
     key: SigningKey,
     key_id: String,
     audience: String,
@@ -114,6 +115,12 @@ impl CustodyConfig {
             .ok()
             .as_deref()
                 == Some("true"),
+            full_session_v2_summary_contract_enabled: std::env::var(
+                "OASIS7_CUSTODY_FULL_SESSION_V2_SUMMARY_ENABLED",
+            )
+            .ok()
+            .as_deref()
+                == Some("true"),
             key: SigningKey::from_bytes(&seed),
             key_id: values[1].clone(),
             audience: values[2].clone(),
@@ -139,7 +146,7 @@ impl CustodyConfig {
 struct ApprovalRecord {
     #[serde(default)]
     model_budget_summary_contract:
-        Option<oasis7_custody_core::approval::NativeModelBudgetSummaryContractV1>,
+        Option<oasis7_custody_core::approval::NativeCustodySummaryContractV1>,
     approval_id: String,
     request: ApprovalOptionsRequestV1,
     intent_digest: String,
@@ -171,6 +178,7 @@ fn record_response(record: &ApprovalRecord, now: u64) -> Result<Value, StoreErro
         ApprovalPhaseV1::Pending
     };
     serde_json::to_value(ApprovalOptionsResponseV1 {
+        custody_session_summary_v2: record.request.native_session_summary_v2(),
         model_budget_summary_contract: record.model_budget_summary_contract.clone(),
         model_budget_summary: match &record.request.intent {
             oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { plan } => {
@@ -343,7 +351,12 @@ impl IdentityService {
         let record = ApprovalRecord {
             // Only a new record can carry this server-owned contract. Existing
             // opaque records were returned above and are never upgraded.
-            model_budget_summary_contract: if config.model_budget_summary_contract_enabled {
+            model_budget_summary_contract: if match &request.intent {
+                CustodyIntentV1::TestSessionV2 { .. } => {
+                    config.full_session_v2_summary_contract_enabled
+                }
+                _ => config.model_budget_summary_contract_enabled,
+            } {
                 request
                     .expected_model_budget_summary_contract()
                     .map_err(|_| reject("invalid_request"))?

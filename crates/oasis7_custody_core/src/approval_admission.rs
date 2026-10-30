@@ -551,6 +551,11 @@ fn validate_input(
                 .request
                 .intent_digest()
                 .map_err(|_| ApprovalAdmissionError::Invalid)?
+        || p.model_budget_summary_contract
+            != input
+                .request
+                .expected_model_budget_summary_contract()
+                .map_err(|_| ApprovalAdmissionError::Invalid)?
         || p.manager_account_id != s.manager_account_id
         || p.manager_session_ref != s.manager_session_ref
         || p.origin_credential_id != s.origin_credential_id

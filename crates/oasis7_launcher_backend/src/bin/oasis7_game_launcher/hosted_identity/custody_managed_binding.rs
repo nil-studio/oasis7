@@ -282,6 +282,7 @@ impl IdentityService {
     pub(in super::super) fn enable_managed_login_test_adapter(&mut self) {
         self.custody = Some(CustodyConfig {
             model_budget_summary_contract_enabled: false,
+            full_session_v2_summary_contract_enabled: false,
             key: SigningKey::from_bytes(&[95; 32]),
             key_id: "native-managed-test-root".into(),
             audience: "native-managed-test".into(),
