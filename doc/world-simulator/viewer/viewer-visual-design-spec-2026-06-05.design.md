@@ -181,6 +181,8 @@ State Player/Director scope, first-read subject, affected stage/command/context/
 
 A documentation-only contract revision does not supply screenshots or pretend those comparisons/reviews have run. Implementation and visible changes obtain the corresponding actual evidence.
 
+Detailed journeys, independent observation/draft/original-operation identity, viewport/input states and versioned references are specified in the [page/module handoff](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff). These refine this specification, not establish another visual authority. Static reference review proves only the reference's presentation; it does not replace the current-candidate visual, input, runtime or comprehension evidence above.
+
 ## 15. Acceptance Criteria for Future Visual Changes
 
 World-first hierarchy, player/ambient separation, fixed original causality, discoverable command, accessible diagnosis/recovery, truthful source/partial/unknown and progressive density remain mandatory. Supported Web/native combinations are verified independently. Build/DOM/probe, software raster, real GPU, real interaction and real-player understanding are different evidence levels; missing levels stay unverified.

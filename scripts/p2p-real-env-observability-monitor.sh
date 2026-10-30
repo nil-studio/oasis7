@@ -32,6 +32,7 @@ Options:
   --local-service/--sequencer-service/--storage-service <name>  snapshot and host
   --local-status-url/--sequencer-status-url/--storage-status-url <url>  snapshot and traffic
   --local-storage-path/--sequencer-storage-path/--storage-storage-path <path>  host only
+  --local-profile-status-url/--sequencer-profile-status-url/--storage-profile-status-url <url>  explicit HTTP profile only
   --world-id <id>                  snapshot only
   --local-health-url/--sequencer-health-url/--storage-health-url <url>  snapshot only
   --local-env-file/--sequencer-env-file/--storage-env-file <path>  snapshot only
@@ -56,6 +57,8 @@ window_minutes=10
 ssh_timeout_secs=8
 out_root=".tmp/p2p_real_env_observability"
 
+profile_args=()
+profile_report_args=()
 snapshot_args=()
 host_args=()
 traffic_args=()
@@ -94,7 +97,7 @@ while [[ $# -gt 0 ]]; do
       echo "this outer monitor is triad-only; --node is not supported" >&2
       exit 2
       ;;
-    --samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
+    --local-profile-status-url|--sequencer-profile-status-url|--storage-profile-status-url|--samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
       if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
         echo "$1 requires a nonempty value" >&2
         exit 2
@@ -139,6 +142,9 @@ while [[ $# -gt 0 ]]; do
       snapshot_args+=("$1" "$value")
       host_args+=("$1" "$value")
       ;;
+    --local-profile-status-url) profile_args+=(--local-node-url "$value") ;;
+    --sequencer-profile-status-url) profile_args+=(--sequencer-ecs-url "$value") ;;
+    --storage-profile-status-url) profile_args+=(--storage-ecs-url "$value") ;;
     --local-status-url|--sequencer-status-url|--storage-status-url)
       snapshot_args+=("$1" "$value")
       traffic_args+=("$1" "$value")
@@ -170,6 +176,10 @@ if [[ -n "$historical_as_of" || -n "$traffic_history_path" ]]; then
   traffic_freshness_args+=(--summary-only --history-path "$traffic_history_path")
 fi
 
+
+if (( ${#profile_args[@]} > 0 )); then
+  python3 "$repo_root/scripts/p2p-triad-http-profile.py" --validate-only "${profile_args[@]}"
+fi
 
 attempt_helper="$repo_root/scripts/p2p-real-env-observability-attempt.py"
 scope_args=()
@@ -291,8 +301,15 @@ for label in local_node sequencer_ecs storage_ecs; do
     --out-dir "$wasm_out_dir"
 done
 
+if (( ${#profile_args[@]} > 0 )); then
+  profile_summary="$run_dir/profile-summary.json"
+  run_stage profile python3 "$repo_root/scripts/p2p-triad-http-profile.py" "${profile_args[@]}" --summary-json "$profile_summary"
+  profile_report_args+=(--profile-summary "$profile_summary")
+fi
+
 run_stage summary python3 ./scripts/p2p-real-env-observability-summary.py \
   ${report_freshness_args[@]+"${report_freshness_args[@]}"} \
+  ${profile_report_args[@]+"${profile_report_args[@]}"} \
   --snapshot-summary "$snapshot_summary" \
   --host-summary "$host_summary" \
   --traffic-summary "$traffic_summary" \

@@ -417,3 +417,53 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
     });
     fs::remove_dir_all(root).unwrap();
 }
+
+// Closed process-fixture bridge; no production handler or authority bypass.
+pub(super) fn install_live_context_fixture_identity(
+    driver: &mut NodeRuntimeExecutionDriver,
+    world: &WorldIdentity,
+) {
+    // The ordinary fixture commit must retain the already authenticated genesis.
+    // Without this existing participant setup step, driver_hook serializes None.
+    let manifest = driver.execution_world.chain_resource_manifest();
+    assert!(
+        manifest.world_id == world.world_id
+            && manifest.genesis_ref.as_deref() == Some(world.genesis_digest.as_str()),
+        "fixture resource identity must match the original World identity"
+    );
+    pin_resource_identity(driver);
+    governance::install_for_identity(
+        &mut driver.execution_world,
+        world,
+        1,
+        true,
+        GameIdentityNamespaceV1 {
+            service_id: "model-contract".into(),
+            environment_id: "test".into(),
+            instance_epoch: DecimalU64(4),
+        },
+        95,
+    );
+    oasis7_runtime::service_admission::participant::validate_registry(&driver.execution_world)
+        .expect("fixture participant policy must validate before the first task commit");
+}
+pub(super) fn serve_live_context_fixture(
+    listener: TcpListener,
+    node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
+    root: &Path,
+    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
+    private: &oasis7::world_service::private_goal_store::PrivateGoalStore,
+    stop: &AtomicBool,
+    counts: Arc<[std::sync::atomic::AtomicUsize; 2]>,
+) {
+    transport::observe_live_context_ports(counts);
+    transport::serve_with_private(
+        listener,
+        node,
+        root,
+        signer,
+        stop,
+        &AtomicBool::new(true),
+        Some(private),
+    );
+}

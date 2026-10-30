@@ -25,6 +25,10 @@ pub mod gameplay_state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod governance;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_fields;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_index;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod main_token;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod manifest;
@@ -141,3 +145,14 @@ pub mod cognition;
 mod cognition_receipt_binding;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod segmentation;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_body;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_event_fields;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_fields;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_projection;

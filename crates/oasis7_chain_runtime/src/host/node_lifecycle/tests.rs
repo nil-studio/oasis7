@@ -359,10 +359,39 @@ fn receiver(
     let config = config.clone();
     let intent = process::test_intent(&config).unwrap();
     let (sender, receiver) = std::sync::mpsc::channel();
+    let generation = intent.target.generation;
+    let phase = if generation == 1 {
+        "initial"
+    } else {
+        "replacement"
+    };
     let handle =
         std::thread::spawn(move || process::run_test_receiver(&config, intent, command, sender));
-    receiver.recv_timeout(Duration::from_secs(3)).unwrap();
-    handle
+    match receiver.recv_timeout(Duration::from_secs(3)) {
+        Ok(()) => handle,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            // Only this worker owns the sender. With no queued ready message,
+            // disconnection means startup exited or panicked; retain its cause.
+            match handle.join() {
+                Ok(result) => panic!(
+                    "test receiver ({phase}, generation={generation}) exited before readiness: {result:?}"
+                ),
+                Err(payload) => {
+                    let cause = payload
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| payload.downcast_ref::<&str>().copied())
+                        .unwrap_or("non-string panic payload");
+                    panic!(
+                        "test receiver ({phase}, generation={generation}) panicked before readiness: {cause}"
+                    );
+                }
+            }
+        }
+        Err(error) => {
+            panic!("test receiver ({phase}, generation={generation}) readiness failed: {error}")
+        }
+    }
 }
 pub(crate) struct TestReceiverGuard {
     signal_stop: Arc<AtomicBool>,
@@ -859,4 +888,27 @@ pub(crate) fn operation_replacement_receiver(
     let handle = receiver(&config, command);
     let current = running(&config);
     (handle, current)
+}
+
+#[test]
+fn receiver_startup_failure_reports_the_original_lock_error() {
+    let fixture = Fixture::new();
+    let config = fixture.initialize();
+    let ownership = process::lock(&config.identity.data_dir).unwrap();
+    let mut command = Command::new("/bin/sleep");
+    command.arg("100");
+    let failure =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| receiver(&config, command)));
+    let payload = failure.expect_err("fixture startup must fail while ownership is held");
+    let cause = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or("non-string panic");
+    assert!(cause.contains("initial"), "{cause}");
+    assert!(
+        cause.contains("another process retains this exact local node ownership lock"),
+        "{cause}"
+    );
+    drop(ownership);
 }
