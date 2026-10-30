@@ -134,7 +134,9 @@ Failure matrix：decode/identity/trust/gate/precondition/execution/output/usage/
 
 Publish 是已准备的不可失败安装，不能在半发布后调用 fallible validator；持久恢复须通过 transaction commit marker 区分完整与未提交。
 
-49.0.4 是修复 [组件流类型 panic](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-9pvw-hwfg-92h5) 与 [aarch64 大型 `br_table` 错误跳转](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-mghf-wjfp-p5xm) 的补丁基线。当前 Core WASM 路径未启用 component，但 Cranelift 修复适用于执行器；补丁版本也不能据此推断混合执行确定性。49.0.3 与 49.0.4 的切换继续遵守完整执行集合停机、精确版本回读和禁止旧目标混合加入的维护边界。依赖更新不授予部署或正式世界激活；执行器 feature、fuel/epoch/NaN 配置与缓存兼容校验保持原合同。
+当前依赖补丁基线为 [Wasmtime 49.0.5](https://github.com/bytecodealliance/wasmtime/releases/tag/v49.0.5)，包含 RUSTSEC-2026-0422（typed `i31`/`nullref` 类型检查）、RUSTSEC-2026-0423（跨 Engine struct supertype 类型混淆）和 RUSTSEC-2026-0424（borrowed resource transfer 内存计量）的修复。当前 Core WASM 路径显式关闭 WASM GC，未启用 component-model；升级依赖不等于已证明当前配置可被利用。
+
+历史 49.0.4 补丁修复了[组件流类型 panic](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-9pvw-hwfg-92h5) 与 [aarch64 大型 `br_table` 错误跳转](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-mghf-wjfp-p5xm)。补丁版本也不能据此推断混合执行确定性：包括 49.0.4→49.0.5 的切换，继续遵守完整执行集合停机、精确版本回读和禁止旧目标混合加入的维护边界。依赖更新不授予部署或正式世界激活；执行器 feature、fuel/epoch/NaN 配置与缓存兼容校验保持原合同。
 
 ## 6. 接口与数据合同
 唯一字段 authority：[types](wasm-interface.md#sr2-types)、[execution cores/wrappers](wasm-interface.md#sr2-execution-contract)、[metering](wasm-interface.md#sr2-metering-contract)、[migration](wasm-interface.md#sr2-migration-contract)；runtime pending/activation/external authority：[lifecycle](../module/module-lifecycle.md#sr2-pending-contract)。

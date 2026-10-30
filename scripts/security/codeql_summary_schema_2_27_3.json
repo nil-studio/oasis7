@@ -1,0 +1,488 @@
+{
+  "source_raw_sha256": "930e5826e2168e9f839c2c15c96228debb8f64a6ca5b2102301da660a54cec43",
+  "scope": "Observed summary shapes only; not source coverage or all future CodeQL shapes",
+  "signatures": [
+    {
+      "types": {
+        "codeqlVersion": "str",
+        "startTime": "str",
+        "summaryLogVersion": "str"
+      },
+      "records": 1,
+      "first_record_sha256": "4cb76b0122c21bada194a86bfc013b6d3fc17d730fb8c025b0fc62b1bf6e9c08",
+      "isCached_counts": {
+        "\"ABSENT\"": 1
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 1
+      },
+      "evaluationStrategy_counts": {
+        "\"ABSENT\"": 1
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "evaluationStrategy": "str",
+        "isCached": "bool",
+        "predicateName": "str",
+        "raHash": "str",
+        "sentinelRaHash": "str"
+      },
+      "records": 32,
+      "first_record_sha256": "2d08f534cd9c34dd603e833c24cae23a4a76275710f1d2897213fe84a5f3b9e3",
+      "isCached_counts": {
+        "true": 32
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 32
+      },
+      "evaluationStrategy_counts": {
+        "\"SENTINEL_EMPTY\"": 32
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "evaluationStrategy": "str",
+        "predicateName": "str",
+        "raHash": "str",
+        "sentinelRaHash": "str"
+      },
+      "records": 932,
+      "first_record_sha256": "da3f78de87d8096b9d625550e8e239ab1c32a42b012b397b5751afcb17530a48",
+      "isCached_counts": {
+        "\"ABSENT\"": 932
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 932
+      },
+      "evaluationStrategy_counts": {
+        "\"SENTINEL_EMPTY\"": 932
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "position": "str",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 602,
+      "first_record_sha256": "45c28f8a101154abacf5ce8b55c3252c1f94ffef570662a03f275ecfa9568703",
+      "isCached_counts": {
+        "\"ABSENT\"": 602
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 602
+      },
+      "evaluationStrategy_counts": {
+        "\"EXTENSIONAL\"": 572,
+        "\"EXTENSIBLE_PREDICATE\"": 4,
+        "\"COMPUTE_SIMPLE\"": 26
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "pipelineRuns": "list",
+        "position": "str",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 6864,
+      "first_record_sha256": "4ebfb56159f9b1771ccaf38ee7de6ea23ef3816730b05b27c61f7d5b128daa29",
+      "isCached_counts": {
+        "\"ABSENT\"": 6864
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 6864
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTE_SIMPLE\"": 6864
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "isCached": "bool",
+        "millis": "int",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 276,
+      "first_record_sha256": "354a284a7d58f1913a57b3b326306a8c0899d4061f0f503bdae8940809ff0964",
+      "isCached_counts": {
+        "true": 276
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 276
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTED_EXTENSIONAL\"": 276
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "evaluationStrategy": "str",
+        "isCached": "bool",
+        "predicateName": "str",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 22,
+      "first_record_sha256": "5d3b4f87b9ad3ce6d55c9e4e6554c5747be80e13b14a682853e1bbb552dd2065",
+      "isCached_counts": {
+        "true": 22
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 22
+      },
+      "evaluationStrategy_counts": {
+        "\"CACHACA\"": 22
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "pipelineRuns": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 228,
+      "first_record_sha256": "e9e5a415444bd536471a8940625a90bb38dafd2ac42fb9727de9b8bd628fd4bf",
+      "isCached_counts": {
+        "\"ABSENT\"": 228
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 228
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTE_SIMPLE\"": 228
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "evaluationStrategy": "str",
+        "predicateName": "str",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 3023,
+      "first_record_sha256": "d0d48215fd420b52ffc0532eed90f5323ebd77c5385ae916f4ae0c705549bf56",
+      "isCached_counts": {
+        "\"ABSENT\"": 3023
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 3023
+      },
+      "evaluationStrategy_counts": {
+        "\"CACHACA\"": 3023
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "deltaSizes": "list",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "layerSize": "int",
+        "millis": "int",
+        "pipelineRuns": "list",
+        "position": "str",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 126,
+      "first_record_sha256": "3bc24adcc6290ac94b4d9b87b0e23d662a6c02284d441c151669b5f3d7a6d430",
+      "isCached_counts": {
+        "\"ABSENT\"": 126
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 126
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTE_RECURSIVE\"": 126
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "deltaSizes": "list",
+        "evaluationStrategy": "str",
+        "mainHash": "str",
+        "pipelineRuns": "list",
+        "position": "str",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 262,
+      "first_record_sha256": "5b1fca7bc73ae8eb4b5f23a354607ca197c840d2f4538edc29454d586cbac9c9",
+      "isCached_counts": {
+        "\"ABSENT\"": 262
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 262
+      },
+      "evaluationStrategy_counts": {
+        "\"IN_LAYER\"": 262
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "deltaSizes": "list",
+        "evaluationStrategy": "str",
+        "mainHash": "str",
+        "pipelineRuns": "list",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 3,
+      "first_record_sha256": "1089912c832c068d9b70842ad917088512560bb0aed0b7e92b0e326db4b9d0cc",
+      "isCached_counts": {
+        "\"ABSENT\"": 3
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 3
+      },
+      "evaluationStrategy_counts": {
+        "\"IN_LAYER\"": 3
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "deltaSizes": "list",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "layerSize": "int",
+        "millis": "int",
+        "pipelineRuns": "list",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 7,
+      "first_record_sha256": "41dfb5e867c5113d1f03e6ad05226bfa16d853fa9ade0064408932f60aa1e364",
+      "isCached_counts": {
+        "\"ABSENT\"": 7
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 7
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTE_RECURSIVE\"": 7
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "raHash": "str",
+        "resultSize": "int"
+      },
+      "records": 13,
+      "first_record_sha256": "327d06c76be0bf4275447dc48ddd90a02ac6370b6be3211b424c41b1b98e5abd",
+      "isCached_counts": {
+        "\"ABSENT\"": 13
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 13
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTE_SIMPLE\"": 13
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionTime": "str",
+        "deltaSizes": "list",
+        "evaluationStrategy": "str",
+        "mainHash": "str",
+        "pipelineRuns": "list",
+        "position": "str",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str"
+      },
+      "records": 42,
+      "first_record_sha256": "c62f6278e57a6cfb325d0989c05c596c4567c1e39a9c81904b32bc5df2cbf537",
+      "isCached_counts": {
+        "\"ABSENT\"": 42
+      },
+      "completionType_counts": {
+        "\"ABSENT\"": 42
+      },
+      "evaluationStrategy_counts": {
+        "\"NAMED_LOCAL\"": 42
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionType": "str",
+        "deltaSizes": "list",
+        "dependencies": "dict",
+        "evaluationStrategy": "str",
+        "layerSize": "int",
+        "pipelineRuns": "list",
+        "position": "str",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str"
+      },
+      "records": 1,
+      "first_record_sha256": "bdc4b54a0e04e087290caa3871f6014e4c226a990e6875df4ccb01e4a82a0c40",
+      "isCached_counts": {
+        "\"ABSENT\"": 1
+      },
+      "completionType_counts": {
+        "\"INCOMPLETE\"": 1
+      },
+      "evaluationStrategy_counts": {
+        "\"COMPUTE_RECURSIVE\"": 1
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionType": "str",
+        "deltaSizes": "list",
+        "evaluationStrategy": "str",
+        "mainHash": "str",
+        "pipelineRuns": "list",
+        "position": "str",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str"
+      },
+      "records": 560,
+      "first_record_sha256": "1afd862443e2757c3875ef3e0b59325002264b8c93806536ef6a031c00212c5a",
+      "isCached_counts": {
+        "\"ABSENT\"": 560
+      },
+      "completionType_counts": {
+        "\"INCOMPLETE\"": 560
+      },
+      "evaluationStrategy_counts": {
+        "\"IN_LAYER\"": 479,
+        "\"NAMED_LOCAL\"": 81
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionType": "str",
+        "deltaSizes": "list",
+        "evaluationStrategy": "str",
+        "mainHash": "str",
+        "pipelineRuns": "list",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str"
+      },
+      "records": 9,
+      "first_record_sha256": "2b71eb5edb63e9978ceaa2f0e56dfafa1c37fe0f2961dfc8f4d77256c1de3653",
+      "isCached_counts": {
+        "\"ABSENT\"": 9
+      },
+      "completionType_counts": {
+        "\"INCOMPLETE\"": 9
+      },
+      "evaluationStrategy_counts": {
+        "\"IN_LAYER\"": 9
+      }
+    },
+    {
+      "types": {
+        "appearsAs": "dict",
+        "completionType": "str",
+        "deltaSizes": "list",
+        "evaluationStrategy": "str",
+        "mainHash": "str",
+        "position": "str",
+        "predicateIterationMillis": "list",
+        "predicateName": "str",
+        "queryCausingWork": "str",
+        "ra": "dict",
+        "raHash": "str"
+      },
+      "records": 6,
+      "first_record_sha256": "97c6b114ff84889eaedf77aa0dd2611f2f69495614da1c30b82a34fe7fad43f7",
+      "isCached_counts": {
+        "\"ABSENT\"": 6
+      },
+      "completionType_counts": {
+        "\"INCOMPLETE\"": 6
+      },
+      "evaluationStrategy_counts": {
+        "\"NAMED_LOCAL\"": 6
+      }
+    }
+  ]
+}

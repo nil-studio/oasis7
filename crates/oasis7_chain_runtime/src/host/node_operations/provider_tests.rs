@@ -547,6 +547,11 @@ fn durable_agent_rejects_stale_generation_before_effect_or_intent() {
 
 #[test]
 fn late_stop_action_cannot_stop_a_replacement_incarnation() {
+    // Exec before acquiring lifetime FDs so unrelated harness forks cannot
+    // retain this fixture's old owner while it tests an immediate replacement.
+    if crate::node_operations::admission_tests::isolate_fork_test() {
+        return;
+    }
     let (_fixture, config, handle, original) =
         super::super::super::node_lifecycle::tests::operation_fixture();
     let binding = actions::binding(&config).unwrap();

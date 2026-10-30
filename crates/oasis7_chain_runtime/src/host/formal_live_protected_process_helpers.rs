@@ -770,6 +770,28 @@ pub(super) fn free_loopback_address() -> Result<std::net::SocketAddr, String> {
     listener.local_addr().map_err(|error| error.to_string())
 }
 
+/// Reserve both ports simultaneously: closing the first listener before the
+/// second bind allows the OS to select the same port for both management peers.
+/// These are fixture addresses, not reservations retained through process start.
+pub(super) fn free_loopback_address_pair() -> Result<[std::net::SocketAddr; 2], String> {
+    let primary = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+    let replica = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+    Ok([
+        primary.local_addr().map_err(|error| error.to_string())?,
+        replica.local_addr().map_err(|error| error.to_string())?,
+    ])
+}
+
+#[test]
+fn healthy_management_pair_has_distinct_loopback_ports() {
+    let [primary, replica] = free_loopback_address_pair().unwrap();
+    assert!(primary.ip().is_loopback());
+    assert!(replica.ip().is_loopback());
+    assert_ne!(primary.port(), 0);
+    assert_ne!(replica.port(), 0);
+    assert_ne!(primary, replica);
+}
+
 pub(super) fn wasm_emit_count(world: &oasis7_runtime::World) -> usize {
     world
         .journal()

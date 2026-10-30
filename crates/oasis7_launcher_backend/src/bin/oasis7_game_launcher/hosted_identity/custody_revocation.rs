@@ -67,6 +67,13 @@ impl RevocationConfig {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn browser_uv_fixture(audience: String, manager: String) -> Self {
+        let mut config = Self::http_fixture(audience);
+        config.participants = vec![manager];
+        config
+    }
+
     pub(super) fn from_env(
         config: &CustodyConfig,
         session: &[u8; 32],

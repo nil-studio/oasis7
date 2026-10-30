@@ -22,7 +22,7 @@ impl GenesisFieldVisitor for Capture {
         assert!(self.fields.insert(field.name, field).is_none());
         Ok(())
     }
-    fn group<K: Serialize + ?Sized>(
+    fn group<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         field: FieldDescriptor,
         key: &K,
@@ -31,30 +31,36 @@ impl GenesisFieldVisitor for Capture {
         if self.fail_group == Some(field.name) {
             return Err("group admission denied");
         }
+        crate::incremental_semantic_key::write_semantic_key_v1(key, &mut std::io::sink())
+            .map_err(|_| "semantic key encoding")?;
         self.groups
             .entry(field.name)
             .or_default()
             .push((serde_json::to_value(key).unwrap(), entries));
         Ok(())
     }
-    fn entry<K: Serialize + ?Sized, V: Serialize + ?Sized>(
+    fn entry<K: SemanticKeyV1 + ?Sized, V: Serialize + ?Sized>(
         &mut self,
         field: FieldDescriptor,
         key: &K,
         value: &V,
     ) -> Result<(), Self::Error> {
+        crate::incremental_semantic_key::write_semantic_key_v1(key, &mut std::io::sink())
+            .map_err(|_| "semantic key encoding")?;
         self.values.entry(field.name).or_default().push((
             serde_json::to_value(key).unwrap(),
             serde_json::to_value(value).unwrap(),
         ));
         Ok(())
     }
-    fn bytes<K: Serialize + ?Sized>(
+    fn bytes<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         field: FieldDescriptor,
-        _: &K,
+        key: &K,
         value: &[u8],
     ) -> Result<(), Self::Error> {
+        crate::incremental_semantic_key::write_semantic_key_v1(key, &mut std::io::sink())
+            .map_err(|_| "semantic key encoding")?;
         self.bytes
             .insert(field.name, (value.as_ptr() as usize, value.len()));
         Ok(())

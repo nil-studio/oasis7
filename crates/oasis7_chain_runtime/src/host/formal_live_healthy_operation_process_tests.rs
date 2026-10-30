@@ -203,8 +203,7 @@ pub(super) fn exercise_with_fault(
     .body
     .successor
     .replica;
-    let primary_management = free_loopback_address()?;
-    let replica_management = free_loopback_address()?;
+    let [primary_management, replica_management] = free_loopback_address_pair()?;
     let store = case.root.join("actual-operation-store");
     let request_path = case.root.join("healthy-operation-request.json");
     let mut request = serde_json::json!({

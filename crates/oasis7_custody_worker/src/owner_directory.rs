@@ -13,6 +13,9 @@ use worker::*;
 #[path = "owner_source_revocation.rs"]
 pub(crate) mod source_revocation;
 
+#[path = "owner_directory_metadata.rs"]
+mod metadata;
+
 const KEY: &str = "manager-directory-v1";
 const MAX_BYTES: usize = 1024 * 1024;
 const FANOUT_BATCH: usize = 8;
@@ -132,6 +135,7 @@ impl DurableObject for ManagerAssociations {
             _ => return Response::error("not ready", 503),
         };
         let result = match url.path() {
+            "/internal/management-parents" => self.query_parents(&raw, &config),
             "/internal/reserve" => self.reserve(&raw, &config).await,
             "/internal/read" => self.view(&raw, &config),
             "/internal/freeze" => self.freeze(&raw, &config).await,
