@@ -16,7 +16,11 @@ use std::{
 };
 #[path = "assembly.rs"]
 mod assembly;
+#[cfg(any(test, feature = "test-hooks"))]
+mod route_trace;
 use assembly::{CHUNK, Frame, Inbox, MEMORY, TTL};
+#[cfg(any(test, feature = "test-hooks"))]
+pub use route_trace::NodeBftRouteTraceScopeV3;
 const PROTOCOL: &str = "/oasis7/bft/header-peer/3.0.0";
 fn rejected(reason: &str) -> WorldError {
     WorldError::NetworkRequestFailed {
@@ -49,6 +53,8 @@ struct Parcel {
     digest: String,
     deadline: Instant,
     counters: Arc<Counters>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    measurement: Option<route_trace::ParcelTrace>,
 }
 impl Drop for Parcel {
     fn drop(&mut self) {
@@ -59,6 +65,8 @@ impl Drop for Parcel {
     }
 }
 struct Outbound {
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_routes: BTreeMap<PeerId, usize>,
     queues: BTreeMap<PeerId, VecDeque<Arc<Parcel>>>,
     stop: bool,
 }
@@ -72,6 +80,12 @@ pub struct NodeBftLibp2pPeerTransportV3 {
     counters: Arc<Counters>,
     workers: Vec<JoinHandle<()>>,
     registration: Option<oasis7_net::AuthenticatedHandlerRegistration>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_scope: Option<NodeBftRouteTraceScopeV3>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_owner: u64,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_owned_routes: Vec<usize>,
     errors: Arc<Mutex<VecDeque<String>>>,
 }
 impl NodeBftLibp2pPeerTransportV3 {
@@ -79,6 +93,33 @@ impl NodeBftLibp2pPeerTransportV3 {
         network: Arc<Libp2pNetwork>,
         context: BftPeerContextV3,
         peers: Vec<String>,
+    ) -> Result<Self, String> {
+        Self::new_inner(
+            network,
+            context,
+            peers,
+            #[cfg(any(test, feature = "test-hooks"))]
+            None,
+        )
+    }
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn route_trace_scope_for_test() -> NodeBftRouteTraceScopeV3 {
+        NodeBftRouteTraceScopeV3::new()
+    }
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn new_with_route_trace_for_test(
+        network: Arc<Libp2pNetwork>,
+        context: BftPeerContextV3,
+        peers: Vec<String>,
+        scope: NodeBftRouteTraceScopeV3,
+    ) -> Result<Self, String> {
+        Self::new_inner(network, context, peers, Some(scope))
+    }
+    fn new_inner(
+        network: Arc<Libp2pNetwork>,
+        context: BftPeerContextV3,
+        peers: Vec<String>,
+        #[cfg(any(test, feature = "test-hooks"))] trace_scope: Option<NodeBftRouteTraceScopeV3>,
     ) -> Result<Self, String> {
         if peers.len() > 256 {
             return Err("public peer route capacity".into());
@@ -96,9 +137,26 @@ impl NodeBftLibp2pPeerTransportV3 {
         }
         let digest = context_digest(&context)?;
         let inbox = Arc::new(Mutex::new(Inbox::new()));
+        #[cfg(any(test, feature = "test-hooks"))]
+        if let Some(scope) = &trace_scope {
+            inbox
+                .lock()
+                .map_err(|_| "public inbox poisoned")?
+                .trace_routes(&peers, network.peer_id(), scope.clone());
+        }
         let outbound = Arc::new((
             Mutex::new(Outbound {
                 queues: peers.iter().map(|p| (*p, VecDeque::new())).collect(),
+                #[cfg(any(test, feature = "test-hooks"))]
+                trace_routes: trace_scope
+                    .as_ref()
+                    .map(|scope| {
+                        peers
+                            .iter()
+                            .map(|p| (*p, route_trace::route(scope, network.peer_id(), *p)))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 stop: false,
             }),
             Condvar::new(),
@@ -117,6 +175,28 @@ impl NodeBftLibp2pPeerTransportV3 {
             counters,
             workers: Vec::new(),
             registration: None,
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_scope: trace_scope.clone(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_owner: trace_scope
+                .as_ref()
+                .map(route_trace::owner)
+                .unwrap_or_default(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_owned_routes: trace_scope
+                .as_ref()
+                .map(|scope| {
+                    peers
+                        .iter()
+                        .flat_map(|peer| {
+                            [
+                                route_trace::route(scope, network.peer_id(), *peer),
+                                route_trace::route(scope, *peer, network.peer_id()),
+                            ]
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             errors: errors.clone(),
         };
         // Resources exist before the immutable handler is published. Any failure
@@ -184,6 +264,21 @@ impl NodeBftLibp2pPeerTransportV3 {
             || self.counters.count.load(Ordering::Acquire) >= 128
             || bytes.len() > MEMORY.saturating_sub(self.counters.bytes.load(Ordering::Acquire))
         {
+            #[cfg(any(test, feature = "test-hooks"))]
+            for p in targets {
+                if let Some(scope) = &self.trace_scope {
+                    route_trace::event(
+                        scope,
+                        q.trace_routes.get(p).copied().unwrap_or(256),
+                        route_trace::kind(message),
+                        "enqueue",
+                        "queue_capacity",
+                        Duration::ZERO,
+                        Duration::ZERO,
+                        Duration::ZERO,
+                    );
+                }
+            }
             return Err("public outbound capacity".into());
         }
         if targets.iter().any(|p| !q.queues.contains_key(p)) {
@@ -196,8 +291,18 @@ impl NodeBftLibp2pPeerTransportV3 {
             bytes,
             deadline: Instant::now() + TTL,
             counters: self.counters.clone(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            measurement: route_trace::parcel(self.trace_scope.as_ref(), message),
         });
         for p in targets {
+            #[cfg(any(test, feature = "test-hooks"))]
+            route_trace::parcel_event(
+                q.trace_routes.get(p).copied().unwrap_or(256),
+                &parcel,
+                "enqueue",
+                "queued",
+                Duration::ZERO,
+            );
             q.queues
                 .get_mut(p)
                 .ok_or("public route missing")?
@@ -214,6 +319,17 @@ impl NodeBftLibp2pPeerTransportV3 {
     }
 }
 impl NodeBftPeerTransportV3 for NodeBftLibp2pPeerTransportV3 {
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn diagnostic_span_for_test(&self, stage: &'static str) -> Option<Box<dyn Send>> {
+        let scope = self.trace_scope.as_ref()?;
+        let route = *self.trace_owned_routes.first()?;
+        Some(route_trace::window::worker_span(
+            scope,
+            route,
+            self.trace_owner,
+            stage,
+        ))
+    }
     fn context(&self) -> &BftPeerContextV3 {
         &self.context
     }
@@ -252,6 +368,10 @@ impl Drop for NodeBftLibp2pPeerTransportV3 {
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
+        #[cfg(any(test, feature = "test-hooks"))]
+        if let Some(scope) = &self.trace_scope {
+            route_trace::report(scope, self.trace_owner, &self.trace_owned_routes);
+        }
     }
 }
 fn stopped(q: &Arc<(Mutex<Outbound>, Condvar)>) -> bool {
@@ -280,6 +400,14 @@ fn sender(
                 };
             }
         };
+        #[cfg(any(test, feature = "test-hooks"))]
+        let route =
+            q.0.lock()
+                .ok()
+                .and_then(|q| q.trace_routes.get(&peer).copied())
+                .unwrap_or(256);
+        #[cfg(any(test, feature = "test-hooks"))]
+        route_trace::parcel_event(route, &parcel, "dequeue", "sending", Duration::ZERO);
         if let Err(reason) = send(&network, peer, &parcel, &q, &context)
             && let Ok(mut e) = errors.lock()
         {
@@ -297,15 +425,39 @@ fn send(
     q: &Arc<(Mutex<Outbound>, Condvar)>,
     context: &str,
 ) -> Result<(), String> {
+    #[cfg(any(test, feature = "test-hooks"))]
+    let started = p.measurement.as_ref().map(|_| Instant::now());
+    #[cfg(any(test, feature = "test-hooks"))]
+    let route =
+        q.0.lock()
+            .ok()
+            .and_then(|q| q.trace_routes.get(&peer).copied())
+            .unwrap_or(256);
     let mut offset = 0;
     while offset < p.bytes.len() {
         if stopped(q) || Instant::now() >= p.deadline {
+            #[cfg(any(test, feature = "test-hooks"))]
+            route_trace::parcel_event(
+                route,
+                p,
+                "send",
+                if stopped(q) { "cancel" } else { "deadline" },
+                started.map(|start| start.elapsed()).unwrap_or_default(),
+            );
             return Err("public send cancelled/deadline".into());
         }
         let frame = Frame::encode_chunk(context, &p.bytes, &p.digest, offset)?;
         let next = p.bytes.len().min(offset + CHUNK);
         loop {
             if stopped(q) || Instant::now() >= p.deadline {
+                #[cfg(any(test, feature = "test-hooks"))]
+                route_trace::parcel_event(
+                    route,
+                    p,
+                    "send",
+                    if stopped(q) { "cancel" } else { "deadline" },
+                    started.map(|start| start.elapsed()).unwrap_or_default(),
+                );
                 return Err("public send cancelled/deadline".into());
             }
             let timeout = p
@@ -316,14 +468,43 @@ fn send(
                 .request_authenticated_to_peer_with_timeout(PROTOCOL, &frame, peer, timeout)
             {
                 Ok(reply) => {
-                    assembly::check_ack(&reply, context, &p.digest, next)?;
+                    assembly::check_ack(&reply, context, &p.digest, next).inspect_err(|_| {
+                        #[cfg(any(test, feature = "test-hooks"))]
+                        route_trace::parcel_event(
+                            route,
+                            p,
+                            "send",
+                            "bad_ack",
+                            started.map(|start| start.elapsed()).unwrap_or_default(),
+                        );
+                    })?;
                     break;
                 }
                 Err(WorldError::NetworkRequestFailed {
                     code: oasis7_proto::distributed::DistributedErrorCode::ErrRateLimited,
                     ..
-                }) => std::thread::sleep(Duration::from_millis(100)),
-                Err(_) => return Err("public peer request failed".into()),
+                }) => {
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    route_trace::parcel_event(
+                        route,
+                        p,
+                        "frame_retry",
+                        "rate_limited",
+                        started.map(|start| start.elapsed()).unwrap_or_default(),
+                    );
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(_) => {
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    route_trace::parcel_event(
+                        route,
+                        p,
+                        "send",
+                        "request_failed",
+                        started.map(|start| start.elapsed()).unwrap_or_default(),
+                    );
+                    return Err("public peer request failed".into());
+                }
             }
         }
         offset = next;
@@ -331,6 +512,14 @@ fn send(
         // with private traffic. Backoff never changes the original deadline.
         std::thread::sleep(Duration::from_millis(75));
     }
+    #[cfg(any(test, feature = "test-hooks"))]
+    route_trace::parcel_event(
+        route,
+        p,
+        "send",
+        "ack",
+        started.map(|start| start.elapsed()).unwrap_or_default(),
+    );
     Ok(())
 }
 #[cfg(test)]

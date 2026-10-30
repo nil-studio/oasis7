@@ -23,6 +23,9 @@ pub(super) struct PartitionedPublic {
     pub received: Arc<std::sync::atomic::AtomicU64>,
 }
 impl NodeBftPeerTransportV3 for PartitionedPublic {
+    fn diagnostic_span_for_test(&self, stage: &'static str) -> Option<Box<dyn Send>> {
+        self.inner.diagnostic_span_for_test(stage)
+    }
     fn context(&self) -> &BftPeerContextV3 {
         self.inner.context()
     }

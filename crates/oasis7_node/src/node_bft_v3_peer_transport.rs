@@ -5,6 +5,10 @@ pub struct NodeBftReceivedPublicV3 {
     pub message: BftPublicPeerMessageV3,
 }
 pub trait NodeBftPeerTransportV3: Send + Sync {
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn diagnostic_span_for_test(&self, _stage: &'static str) -> Option<Box<dyn Send>> {
+        None
+    }
     fn context(&self) -> &BftPeerContextV3;
     fn broadcast_public(&self, message: &BftPublicPeerMessageV3) -> Result<(), String>;
     fn send_public(&self, peer: &str, message: &BftPublicPeerMessageV3) -> Result<(), String>;

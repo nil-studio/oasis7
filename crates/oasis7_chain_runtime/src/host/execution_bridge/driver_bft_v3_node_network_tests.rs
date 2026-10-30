@@ -93,6 +93,10 @@ fn network_case_membership(
     check_membership: bool,
     confirmation_timeout: bool,
 ) {
+    // Capture only this fixture's real public routes; no global timing flag
+    // enables Node/provider/driver hot-path printing in concurrent cases.
+    let route_scope = (check_membership && !confirmation_timeout)
+        .then(NodeBftLibp2pPeerTransportV3::route_trace_scope_for_test);
     let count = if check_membership { 4 } else { 3 };
     let h = if check_membership {
         membership_cases::handoff()
@@ -274,8 +278,17 @@ fn network_case_membership(
             actual[index].lock().unwrap().handoff(),
         );
         let public = Arc::new(
-            NodeBftLibp2pPeerTransportV3::new(networks[index].clone(), context, routes.clone())
-                .unwrap(),
+            if let Some(scope) = &route_scope {
+                NodeBftLibp2pPeerTransportV3::new_with_route_trace_for_test(
+                    networks[index].clone(),
+                    context,
+                    routes.clone(),
+                    scope.clone(),
+                )
+            } else {
+                NodeBftLibp2pPeerTransportV3::new(networks[index].clone(), context, routes.clone())
+            }
+            .unwrap(),
         );
         let execution = Arc::new(NodeBftPeerExecutionStateV3::default());
         let hook: NodeBftSharedExecutionHookV3 =
@@ -408,6 +421,11 @@ fn network_case_membership(
                     .unwrap();
                 Duration::from_millis(first.checked_add(second).unwrap())
             }),
+            || {
+                route_scope
+                    .as_ref()
+                    .map(|scope| scope.phase_for_test("first_wait_h6"))
+            },
         );
         drop(nodes);
         drop(exchanges);

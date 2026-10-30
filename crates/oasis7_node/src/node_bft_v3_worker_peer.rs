@@ -65,6 +65,8 @@ impl Worker {
         }
     }
     pub(super) fn poll_peers(&mut self) -> Result<(), NodeError> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let _scope = self.diagnostic_span("worker.poll");
         let Some(network) = self.selected.network.clone() else {
             return Ok(());
         };
@@ -146,7 +148,12 @@ impl Worker {
         // The adapter authenticates transport identities; protocol signatures
         // remain separately checked against the admitted current schedule.
         let configured_peers = network.transport.peers();
-        for received in network.transport.drain_public(32).map_err(error)? {
+        let received_public = {
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope = self.diagnostic_span("worker.drain");
+            network.transport.drain_public(32).map_err(error)?
+        };
+        for received in received_public {
             if !configured_peers.contains(&received.peer_id) {
                 continue;
             }
