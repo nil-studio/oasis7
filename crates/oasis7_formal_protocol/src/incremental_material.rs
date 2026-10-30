@@ -567,3 +567,7 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
 #[cfg(test)]
 #[path = "incremental_material_tests.rs"]
 mod tests;
+
+#[path = "incremental_fact_material.rs"]
+mod fact_material;
+pub use fact_material::*;
