@@ -135,7 +135,9 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         let phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(49);
         let service = self.prepare_hosted_service_io(_eligible)?;
         drop(phase);
-        if !matches!(service, AgentServiceProgress::Idle) {
+        if !matches!(service, AgentServiceProgress::Idle)
+            || self.llm_sidecar.publication_ticket() != 0
+        {
             return Ok(service);
         }
         let phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(50);

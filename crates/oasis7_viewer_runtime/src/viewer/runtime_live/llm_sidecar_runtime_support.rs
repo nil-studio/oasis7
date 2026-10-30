@@ -4,6 +4,79 @@ use crate::simulator::{WorldJournal, WorldSnapshot};
 use oasis7_simulator::{CHUNK_GENERATION_SCHEMA_VERSION, SNAPSHOT_VERSION};
 
 impl RuntimeLlmSidecar {
+    /// Mirror Runtime-selected wake leases into the provider adapter without
+    /// inventing a second scheduler. The durable wake remains owned by
+    /// Runtime; this map only tells the next provider request which exact
+    /// continuation identity must be presented.
+    pub(in crate::viewer::runtime_live) fn sync_runtime_wakes(
+        &mut self,
+        world: &RuntimeWorld,
+    ) -> Result<(), String> {
+        if self.provider_service_required {
+            // A previous synchronous failure must be retried before applying
+            // another projection. Equality alone is not persistence evidence.
+            if self.hosted_wake_checkpoint_pending {
+                self.persist_provider_lineage()?;
+                self.hosted_wake_checkpoint_pending = false;
+            }
+            let view = self
+                .provider_service_projection
+                .as_ref()
+                .ok_or("authorized canonical wake view missing")?;
+            for wake in &view.scheduler_wakes {
+                wake.validate()
+                    .map_err(|error| format!("canonical wake invalid: {error:?}"))?;
+            }
+            let reconciled =
+                self.reconcile_projected_service_wakes(view.scheduler_wakes.clone())?;
+            if self.pending_runtime_wakes != reconciled {
+                self.pending_runtime_wakes = reconciled;
+                self.hosted_wake_checkpoint_pending = true;
+                self.persist_provider_lineage()?;
+                self.hosted_wake_checkpoint_pending = false;
+            }
+            return Ok(());
+        }
+        let wakes = world
+            .cognition_in_flight_wakes()
+            .map_err(|error| format!("Runtime cognition wake read failed: {error:?}"))?;
+        let live_wake_ids = wakes
+            .iter()
+            .map(|wake| wake.wake_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut pending_runtime_wakes = self.pending_runtime_wakes.clone();
+        let pending_runtime_wakes_migrated =
+            lineage_recovery::hydrate_pending_runtime_wake_identities(
+                &mut pending_runtime_wakes,
+                &wakes,
+                &self.provider_terminal_states,
+            )?;
+        pending_runtime_wakes.retain(|wake_id, _| live_wake_ids.contains(wake_id.as_str()));
+        for wake in wakes {
+            if !self.provider_lineage_hydrated
+                && self
+                    .provider_active_turns
+                    .get(wake.agent_id.as_str())
+                    .is_some_and(|context| {
+                        lineage_persistence::provider_context_matches_wake(context, &wake)
+                    })
+            {
+                // A process-local async runner cannot survive restart. Keep
+                // the exact context identity but make it eligible for one
+                // fresh provider dispatch through the recovered wake.
+                self.provider_active_turns.remove(wake.agent_id.as_str());
+            }
+            pending_runtime_wakes
+                .entry(wake.wake_id.clone())
+                .or_insert(wake);
+        }
+        self.pending_runtime_wakes = pending_runtime_wakes;
+        if pending_runtime_wakes_migrated {
+            self.persist_provider_lineage_best_effort();
+        }
+        Ok(())
+    }
+
     /// Rebuild the simulator shadow from the authoritative Runtime snapshot
     /// before provider-backed cognition reads or queues any decision.
     pub(in crate::viewer::runtime_live) fn sync_shadow_kernel(

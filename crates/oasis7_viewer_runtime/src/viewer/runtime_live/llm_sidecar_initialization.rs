@@ -55,6 +55,8 @@ impl RuntimeLlmSidecar {
             hosted_restored_resume: None,
             hosted_fresh_view_ready: false,
             hosted_native_dispatch: None,
+            hosted_outcome_checkpoint_pending: false,
+            hosted_wake_checkpoint_pending: false,
             hosted_admission: None,
             provider_restored_service_checkpoints: BTreeMap::new(),
             provider_scheduler_pending: BTreeMap::new(),

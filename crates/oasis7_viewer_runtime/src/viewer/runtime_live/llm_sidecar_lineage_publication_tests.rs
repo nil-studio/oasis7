@@ -27,6 +27,143 @@ fn sidecar(path: PathBuf, branch: &str) -> RuntimeLlmSidecar {
     });
     sidecar
 }
+
+#[test]
+fn lineage_confirmed_idle_outcome_poll_does_not_create_an_unpublishable_dispatch_loop() {
+    let root = std::env::temp_dir().join(format!("lineage-idle-outcome-{}", std::process::id()));
+    let path = root.join("lineage.json");
+    let mut owner = sidecar(path.clone(), "idle-outcome");
+    owner.runner = Some(crate::viewer::runtime_live::control_plane::llm_sidecar::RuntimeDecisionRunner::ProviderBacked(
+        crate::simulator::AsyncAgentRunner::with_default_capacity(),
+    ));
+    owner.enable_deferred_publications();
+    owner.persist_provider_lineage().unwrap();
+    for publication in owner.take_queued_publications() {
+        publication.execute().unwrap();
+    }
+    owner
+        .confirm_lineage_publication(owner.publication_ticket())
+        .unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let world = crate::runtime::World::new();
+    for _ in 0..3 {
+        assert!(
+            owner
+                .poll_hosted_provider_decision(&world)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            owner.ensure_lineage_published().is_ok(),
+            "an empty outcome poll cannot fence the next original dispatch after a successful ACK"
+        );
+        assert!(owner.take_queued_publications().is_empty());
+    }
+    assert_eq!(std::fs::read(path).unwrap(), original);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn lineage_confirmed_unchanged_wake_observation_stays_published_but_real_change_is_fenced() {
+    let root = std::env::temp_dir().join(format!("lineage-idle-wake-{}", std::process::id()));
+    let path = root.join("lineage.json");
+    let mut owner = sidecar(path.clone(), "idle-wake");
+    let world = crate::runtime::World::new();
+    owner.provider_service_required = true;
+    owner.provider_service_projection =
+        Some(crate::world_service::projection::from_world(&world, None).unwrap());
+    owner.enable_deferred_publications();
+    owner.persist_provider_lineage().unwrap();
+    for publication in owner.take_queued_publications() {
+        publication.execute().unwrap();
+    }
+    owner
+        .confirm_lineage_publication(owner.publication_ticket())
+        .unwrap();
+    for _ in 0..3 {
+        owner.sync_runtime_wakes(&world).unwrap();
+        assert!(
+            owner.ensure_lineage_published().is_ok(),
+            "reobserving the identical authenticated wake mirror cannot renew a dirty ticket after ACK"
+        );
+        assert!(owner.take_queued_publications().is_empty());
+    }
+    // A real lineage mutation still needs its exact publication and ACK.
+    owner
+        .provider_session_ids
+        .insert("agent-b".into(), "new-session".into());
+    owner.persist_provider_lineage().unwrap();
+    assert!(owner.ensure_lineage_published().is_err());
+    for publication in owner.take_queued_publications() {
+        publication.execute().unwrap();
+    }
+    assert!(owner.ensure_lineage_published().is_err());
+    owner
+        .confirm_lineage_publication(owner.publication_ticket())
+        .unwrap();
+    assert!(owner.ensure_lineage_published().is_ok());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn lineage_wake_sync_checkpoint_failure_retries_original_before_new_projection() {
+    let root = std::env::temp_dir().join(format!("lineage-wake-sync-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("lineage.json");
+    std::fs::create_dir(&path).unwrap();
+    let mut owner = sidecar(path.clone(), "sync-wake");
+    let world = crate::runtime::World::new();
+    let binding = owner.provider_lineage_binding.as_ref().unwrap();
+    let wake = crate::runtime::SchedulerWakeV1 {
+        schema_version: crate::runtime::SchedulerWakeV1::SCHEMA_VERSION.into(),
+        wake_id: "original-wake".into(),
+        continuation_id: "original-continuation".into(),
+        world_id: binding.world_id.clone(),
+        branch_id: binding.branch_id.clone(),
+        finality_epoch: binding.finality_epoch,
+        finality_block_hash: binding
+            .finality_block_hash
+            .as_ref()
+            .map(ToString::to_string),
+        finality_status: binding.finality_status.clone(),
+        reorg_epoch: binding.reorg_epoch,
+        runtime_manifest_hash: binding.runtime_manifest_hash.to_string(),
+        agent_id: "agent-a".into(),
+        agent_session_id: "original-session".into(),
+        agent_turn_id: "original-turn".into(),
+        decision_request_id: "original-request".into(),
+        request_digest: "11".repeat(32),
+        next_wake_tick: 12,
+        eligible_since_tick: 12,
+        starvation_deadline_tick: 20,
+        initial_priority: 0,
+        wake_seq: 1,
+        retry_seq: 0,
+        status: "pending".into(),
+        pending_reason: "capacity_available".into(),
+    };
+    wake.validate().unwrap();
+    let mut projection = crate::world_service::projection::from_world(&world, None).unwrap();
+    projection.scheduler_wakes = vec![wake.clone()];
+    owner.provider_service_projection = Some(projection);
+    owner.provider_service_required = true;
+    for _ in 0..2 {
+        assert!(owner.sync_runtime_wakes(&world).is_err());
+        assert!(owner.hosted_wake_checkpoint_pending);
+        assert_eq!(owner.pending_runtime_wakes.get(&wake.wake_id), Some(&wake));
+        assert!(owner.runner.is_none());
+    }
+    std::fs::remove_dir(&path).unwrap();
+    owner.sync_runtime_wakes(&world).unwrap();
+    assert!(!owner.hosted_wake_checkpoint_pending);
+    let checkpoint: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        checkpoint["pending_runtime_wakes"][&wake.wake_id],
+        serde_json::to_value(&wake).unwrap()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
 #[test]
 fn lineage_publication_late_generation_cannot_replace_newer_scope() {
     let directory = std::env::temp_dir().join(format!(

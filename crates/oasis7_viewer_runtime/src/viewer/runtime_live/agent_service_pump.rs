@@ -354,7 +354,11 @@ impl ViewerRuntimeLiveServer {
                         Err(mpsc::TryRecvError::Empty) => {}
                     }
                 }
-                if !in_flight && !retry_without_progress && !pending_before {
+                if !in_flight
+                    && !retry_without_progress
+                    && !pending_before
+                    && server.llm_sidecar.publication_ticket() == 0
+                {
                     let eligible = server.agent_service_eligible();
                     if progress.is_none()
                         || matches!(
