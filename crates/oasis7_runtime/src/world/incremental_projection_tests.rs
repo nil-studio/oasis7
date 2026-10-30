@@ -455,3 +455,157 @@ fn economy_empty_balance_accounts_keep_outer_identity_without_rewriting_resource
     }
     assert_eq!(world.cognition, before);
 }
+
+fn delegation_world_for_projection() -> World {
+    use crate::gameplay_state::StarterOcClaimState;
+    use crate::{AgentCell, AgentDelegationGrantV1};
+    use oasis7_agent_api::world_action::GeoPos;
+    use oasis7_world_state::agent_state::AgentState;
+    let mut world = World::new();
+    let agent = "projection-agent";
+    world.state.agents.insert(
+        agent.into(),
+        AgentCell::new(AgentState::new(agent, GeoPos::new(0, 0, 0)), 0),
+    );
+    world.state.starter_oc_claims.insert(
+        agent.into(),
+        StarterOcClaimState {
+            agent_id: agent.into(),
+            player_id: "projection-owner".into(),
+            public_key: None,
+            amount: 1,
+            claimed_at: 0,
+            source_treasury_bucket_id: None,
+        },
+    );
+    world
+        .install_test_native_delegation_grant(AgentDelegationGrantV1 {
+            grant_id: "projection-grant".into(),
+            source_id: format!("starter_claim:{agent}:0"),
+            issuer_id: "projection-owner".into(),
+            owner_id: "projection-owner".into(),
+            organization_id: None,
+            agent_id: agent.into(),
+            object_id: agent.into(),
+            action_kinds: vec!["MoveAgent".into()],
+            revision: 1,
+            period_id: "projection-period".into(),
+            valid_from_tick: 0,
+            valid_until_tick: 100,
+            limit_units: 3,
+            resource_kind: "electricity".into(),
+            revoked: false,
+        })
+        .unwrap();
+    world
+}
+
+#[test]
+fn delegation_projection_preserves_actual_grant_and_keeps_receipts_separate() {
+    let world = delegation_world_for_projection();
+    let before = world.cognition.clone();
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    let grants = &sink.values[&(FieldOwner::Cognition, "delegation.grants")];
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0].0, "projection-grant");
+    assert_eq!(grants[0].1["limit_units"], 3);
+    for name in [
+        "delegation.grants",
+        "delegation.spent",
+        "delegation.decisions",
+        "delegation.controls",
+    ] {
+        assert_eq!(
+            sink.fields[&(FieldOwner::Cognition, name)].destination,
+            FieldDestination::State(Namespace::Authorization)
+        );
+    }
+    assert_eq!(
+        sink.side_counts[&(FieldOwner::Cognition, "delegation.receipts")],
+        Some(0)
+    );
+    assert_eq!(
+        sink.fields[&(FieldOwner::Cognition, "delegation.receipts")].destination,
+        FieldDestination::ProofLedger
+    );
+    assert!(
+        !sink
+            .values
+            .contains_key(&(FieldOwner::Cognition, "delegation.receipts"))
+    );
+    assert_eq!(world.cognition, before);
+}
+
+#[test]
+fn borrowed_control_projection_preserves_original_identities_without_qualifying_them() {
+    let mut world = delegation_world_for_projection();
+    // Shape fixtures only: no proof of the referenced event/receipt is issued.
+    world.cognition["agent_delegation"]["controls"] = json!({"control": {
+        "owner_id": "projection-owner",
+        "control": {"control_id":"control", "agent_id":"projection-agent", "intent_id":"intent", "request_digest":"original-request", "grant_id":"projection-grant", "expected_grant_revision":1, "kind":"override"},
+        "disposition": {"intent_id":"intent", "status":"cancelled", "event_seq":17, "logical_time":7, "receipt_ref":"world-event:17"},
+        "consumed_receipt_id":"original-operation-receipt"
+    }});
+    world.cognition["continuation_evaluations"] = json!({"continuation": {"evaluation_tick":7, "evaluation_head_digest":"original-state-view", "evaluation_digest":"original-evaluation", "conditions_digest":"original-conditions"}});
+    world.cognition["reorg_invalidation_epoch"] = json!(u64::MAX);
+    let before = world.cognition.clone();
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    let control = &sink.values[&(FieldOwner::Cognition, "delegation.controls")][0].1;
+    assert_eq!(control["consumed_receipt_id"], "original-operation-receipt");
+    assert_eq!(control["disposition"]["receipt_ref"], "world-event:17");
+    let evaluations = &sink.values[&(FieldOwner::Cognition, "continuation_evaluations")];
+    assert_eq!(evaluations[0].0, "continuation");
+    assert_eq!(
+        evaluations[0].1["evaluation_head_digest"],
+        "original-state-view"
+    );
+    assert_eq!(
+        sink.fields[&(FieldOwner::Cognition, "continuation_evaluations")].destination,
+        FieldDestination::State(Namespace::Scheduler)
+    );
+    assert_eq!(
+        sink.values[&(FieldOwner::Cognition, "reorg_invalidation_epoch")][0].1,
+        json!(u64::MAX)
+    );
+    assert_eq!(
+        sink.fields[&(FieldOwner::Cognition, "reorg_invalidation_epoch")].destination,
+        FieldDestination::State(Namespace::Authorization)
+    );
+    assert_eq!(world.cognition, before);
+}
+
+#[test]
+fn control_projection_rejects_active_decision_and_invalid_extension_shapes_without_mutation() {
+    let mut world = delegation_world_for_projection();
+    let valid = world.cognition.clone();
+    for mode in 0..7 {
+        world.cognition = valid.clone();
+        match mode {
+            0 => world.cognition["agent_delegation_active_decision"] = json!("in-flight-input"),
+            1 => world.cognition["agent_delegation"]["new_control"] = json!({}),
+            2 => world.cognition["agent_delegation"]["spent"]["grant"] = json!(-1),
+            3 => world.cognition["agent_delegation"]["receipts"] = json!([]),
+            4 => world.cognition["continuation_evaluations"] = json!([]),
+            5 => world.cognition["reorg_invalidation_epoch"] = json!(-1),
+            _ => world.cognition["agent_delegation"]["controls"]["control"] = json!([]),
+        }
+        let before = world.cognition.clone();
+        let result = world.visit_iws_genesis_fields(&mut Capture::default());
+        if mode == 0 {
+            assert!(matches!(
+                result,
+                Err(ProjectionError::Invalid(
+                    "active delegation decision is transaction input, not genesis state"
+                ))
+            ));
+        } else {
+            assert!(
+                matches!(result, Err(ProjectionError::Invalid(_))),
+                "invalid control mode {mode}"
+            );
+        }
+        assert_eq!(world.cognition, before);
+    }
+}
