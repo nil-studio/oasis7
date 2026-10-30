@@ -307,6 +307,12 @@ Rust 求值日志的闭包行数不能直接代表独占耗时、实际物理存
 
 测量应针对实际 `intraSplitsSucc` 和 `startsSplits` 输入，而非用最终 CFG 或源码行数代替。允许在 runner 私有 pack 副本中仅暴露这些原有定义，补丁须校验固定原始 SHA、只改变可见性/诊断出口，并核对官方原件和业务源码不变。先按 scope 聚合，保留无法归属及跨 scope 情况；再对有限 top scope 导出受 cap 限制的端点，记录实际覆盖范围。不能把未选 scope、缺失端点或超大分量当作零贡献。图分量和可达对数量是规模证据，不自动证明 evaluator row-count 口径、CPU 瓶颈或等价优化成立；新提取与旧运行分别标识，Rust HOLD 和原性能目标不因诊断完成解除。
 
+官方默认工作负载的耗时归因使用 `codeql-rust-cfg-diagnostic.yml` 的默认关闭 `profile=true` 分支。固定 e205 业务输入和官方2.27.3 bundle，复用隔离、完整默认suite清单及生产自动资源；actual job55分钟，提取前冻结至多40分钟共享提取/查询截止且不晚于job截止前600秒，实际起点、端点及分配秒数先保存。Action实际config-queries与完整默认清单逐项核对后才执行；关闭tuple-counting是测量设置，不算性能收益，不追加公共见证、decode或上传。
+
+查询证据写入门184MiB，结束先冻结不可覆盖的profile-query-terminal及原始profile哈希；后续身份、资源、锁观测及核心terminal必须在复制数据库日志前持久化。日志复制仍无条件有界尝试，失败不删除已保存的核心证据。完成核心capture后，独立生成官方 `--format=predicates --minify-output` 的有界字段投影，不保存重复的RA和appearsAs大字段；旧模型诊断消费者不变。摘要增量上限8MiB，写入门不超过248MiB、终态总cap256MiB不变，命令至多20秒、阶段30秒且截止不晚于job截止前300秒；空间/时间不足零spawn，已有摘要不覆盖。仅清洁成功/清洁timeout且核心证据通过可运行摘要；unsafe或核心不完整拒绝。摘要PARTIAL/NOT_RUN独立于主查询，不覆盖原始失败或profile；完整查询、完整profile及投影摘要均成功才算本诊断完整，仍不代生产容量或Rust完整验收。证据cap不限制数据库/BQRS写入。
+
+摘要字段投影只消费官方predicates摘要，不直接把原始事件当稳定摘要：每条记录至多32MiB、总输入256MiB、物理记录十万条，按 `codeql_summary_schema_2_27_3.json` 冻结的19种已观测字段/类型/策略签名识别记录；这只是旧partial输入的适配白名单，不是永久官方schema。识别raHash、predicateName、position、completion标记及两类计时；先识别唯一版本头；官方无timing字段的cache元记录单独计数而不按零耗时排名，所有可比较记录仍要求完整计时字段；同一raHash及同名predicate允许各一条无计时元记录与计时记录，并分别计数、不重复归因；拒绝同类重复、名称冲突、未知缺字段和截断，保留-1标记计数而不当零或据此推断是否完成。literal `millis` 与非负 `predicateIterationMillis` subtotal 分成两份排名各至多50条，绝不混排或相加；首次写stdout前核最终JSON编码（含转义）至多1MiB，不跨记录加总、不把共享alias重复归因、不称独占CPU。父执行器管理投影worker和官方CLI整个进程组，命令仍20秒且总产物增量8MiB（含receipt预留），语法/容量/时间失败均保留PARTIAL。旧text/dedup候选已在唯一离线测试中因RA逐条输出触cap淘汰，失败证据保留。
+
 ## 7. 查询、提取、缓存与扫描覆盖
 
 ### 7.1 两档查询
