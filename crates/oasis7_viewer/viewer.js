@@ -1675,7 +1675,7 @@ var BrowserModelStoreError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$7 = (code) => {
+var fail$8 = (code) => {
 	throw new BrowserModelStoreError(code);
 };
 var integer$2 = (value) => Number.isSafeInteger(value) && value >= 0;
@@ -1690,11 +1690,11 @@ var empty = () => ({
 	reservations: []
 });
 function createBrowserModelStore({ accountId, storage, locks = globalThis.navigator?.locks } = {}) {
-	if (typeof accountId !== "string" || !accountId.trim()) fail$7("account_required");
+	if (typeof accountId !== "string" || !accountId.trim()) fail$8("account_required");
 	if (storage === void 0) try {
 		storage = globalThis.localStorage;
 	} catch {
-		fail$7("storage_unavailable");
+		fail$8("storage_unavailable");
 	}
 	const storageKey = `oasis7.browser-model.v1:${encodeURIComponent(accountId)}:deepseek`;
 	const lockName = `${storageKey}:management`;
@@ -1705,22 +1705,22 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		try {
 			raw = storage?.getItem(storageKey);
 		} catch {
-			fail$7("storage_unavailable");
+			fail$8("storage_unavailable");
 		}
-		if (!storage || typeof storage.setItem !== "function") fail$7("storage_unavailable");
+		if (!storage || typeof storage.setItem !== "function") fail$8("storage_unavailable");
 		if (raw == null) return empty();
 		let record;
 		try {
 			record = JSON.parse(raw);
 		} catch {
-			fail$7("storage_corrupt");
+			fail$8("storage_corrupt");
 		}
-		if (record?.schema !== 1) fail$7("storage_schema_unsupported");
+		if (record?.schema !== 1) fail$8("storage_schema_unsupported");
 		if (!integer$2(record.revision) || record.provider !== "deepseek" || !(record.key === null || typeof record.key === "string" && record.key.length > 0) || typeof record.stopped !== "boolean" || !integer$2(record.callsReserved) || record.callsReserved > 8 || !integer$2(record.tokensReserved) || record.tokensReserved > 131072 || !Array.isArray(record.reservations) || record.reservations.length > 8 || record.reservations.some((r) => !integer$2(r.id) || !integer$2(r.revision) || !integer$2(r.tokens) || typeof r.settled !== "boolean" || ![
 			void 0,
 			"probe",
 			"execution"
-		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$7("storage_corrupt");
+		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$8("storage_corrupt");
 		return record;
 	}
 	const safe = (r) => ({
@@ -1740,25 +1740,25 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		} catch {}
 	};
 	function check(r, revision) {
-		if (!integer$2(revision) || r.revision !== revision) fail$7("revision_conflict");
+		if (!integer$2(revision) || r.revision !== revision) fail$8("revision_conflict");
 	}
 	async function locked(action) {
-		if (typeof locks?.request !== "function") fail$7("locks_unavailable");
+		if (typeof locks?.request !== "function") fail$8("locks_unavailable");
 		try {
 			return await locks.request(lockName, { mode: "exclusive" }, () => action(read()));
 		} catch (error) {
 			if (error instanceof BrowserModelStoreError) throw error;
-			fail$7("locks_unavailable");
+			fail$8("locks_unavailable");
 		}
 	}
 	function publish(r) {
-		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$7("revision_exhausted");
+		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$8("revision_exhausted");
 		try {
 			storage.setItem(storageKey, JSON.stringify(r));
 		} catch {
 			blocked = true;
 			emit();
-			fail$7("storage_write_failed");
+			fail$8("storage_write_failed");
 		}
 		blocked = false;
 		emit();
@@ -1803,7 +1803,7 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		beginProbe(expectedRevision) {
 			return locked((r) => {
 				check(r, expectedRevision);
-				if (!r.key) fail$7("credential_missing");
+				if (!r.key) fail$8("credential_missing");
 				r.revision += 1;
 				r.stopped = false;
 				return publish(r);
@@ -1812,13 +1812,13 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		reserve({ revision, maxInputTokens, maxOutputTokens, purpose = "probe" }) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$7("stopped");
-				if (!r.key) fail$7("credential_missing");
+				if (blocked || r.stopped) fail$8("stopped");
+				if (!r.key) fail$8("credential_missing");
 				const tokens = maxInputTokens + maxOutputTokens;
-				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$7("invalid_budget");
-				if (!["probe", "execution"].includes(purpose)) fail$7("invalid_budget");
+				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$8("invalid_budget");
+				if (!["probe", "execution"].includes(purpose)) fail$8("invalid_budget");
 				const probes = r.reservations.filter((item) => item.purpose !== "execution");
-				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$7("budget_exhausted");
+				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$8("budget_exhausted");
 				const reservation = {
 					id: r.callsReserved + 1,
 					revision,
@@ -1839,7 +1839,7 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		settle(reservation, usage) {
 			return locked((r) => {
 				const found = r.reservations.find((item) => item.id === reservation?.id && item.revision === reservation?.revision);
-				if (!found || found.settled) fail$7("reservation_invalid");
+				if (!found || found.settled) fail$8("reservation_invalid");
 				if (!usage || !integer$2(usage.inputTokens) || !integer$2(usage.outputTokens) || !integer$2(usage.inputTokens + usage.outputTokens) || usage.inputTokens + usage.outputTokens > found.tokens) return safe(r);
 				const used = usage.inputTokens + usage.outputTokens;
 				r.tokensReserved -= found.tokens - used;
@@ -1851,8 +1851,8 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		credential(revision) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$7("stopped");
-				if (!r.key) fail$7("credential_missing");
+				if (blocked || r.stopped) fail$8("stopped");
+				if (!r.key) fail$8("credential_missing");
 				return r.key;
 			});
 		}
@@ -1881,7 +1881,7 @@ var BrowserModelError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$6 = (code) => {
+var fail$7 = (code) => {
 	throw new BrowserModelError(code);
 };
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1938,28 +1938,28 @@ function schemaMatches(value, schema, depth = 0) {
 	}
 }
 function normalizeResponse(raw, tools) {
-	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$6("protocol_incompatible");
+	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$7("protocol_incompatible");
 	const choice = raw.choices[0], message = choice?.message;
-	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$6("protocol_incompatible");
-	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$6("protocol_incompatible");
+	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$7("protocol_incompatible");
+	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$7("protocol_incompatible");
 	const clean = {
 		role: "assistant",
 		content: message.content ?? null
 	};
 	if (choice.finish_reason === "tool_calls") {
-		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$6("tool_invalid");
+		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$7("tool_invalid");
 		const ids = /* @__PURE__ */ new Set();
 		clean.tool_calls = message.tool_calls.map((call) => {
 			const fn = call?.function, definition = tools.find((tool) => tool.function.name === fn?.name);
-			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$6("tool_invalid");
+			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$7("tool_invalid");
 			ids.add(call.id);
 			let args;
 			try {
 				args = JSON.parse(fn.arguments);
 			} catch {
-				fail$6("tool_invalid");
+				fail$7("tool_invalid");
 			}
-			if (!schemaMatches(args, definition.function.parameters)) fail$6("tool_invalid");
+			if (!schemaMatches(args, definition.function.parameters)) fail$7("tool_invalid");
 			return {
 				id: call.id,
 				type: "function",
@@ -1969,7 +1969,7 @@ function normalizeResponse(raw, tools) {
 				}
 			};
 		});
-	} else if (message.tool_calls?.length) fail$6("tool_invalid");
+	} else if (message.tool_calls?.length) fail$7("tool_invalid");
 	let usage = null;
 	if (object(raw.usage) && [
 		"prompt_tokens",
@@ -1991,8 +1991,8 @@ function normalizeResponse(raw, tools) {
 	};
 }
 async function readBounded(response) {
-	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$6("output_limit");
-	if (!response.body?.getReader) fail$6("protocol_incompatible");
+	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$7("output_limit");
+	if (!response.body?.getReader) fail$7("protocol_incompatible");
 	const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 	let length = 0, result = "";
 	try {
@@ -2000,7 +2000,7 @@ async function readBounded(response) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			length += value.byteLength;
-			if (length > OUTPUT_LIMIT) fail$6("output_limit");
+			if (length > OUTPUT_LIMIT) fail$7("output_limit");
 			result += decoder.decode(value, { stream: true });
 		}
 		result += decoder.decode();
@@ -2012,15 +2012,15 @@ async function readBounded(response) {
 	try {
 		return JSON.parse(result);
 	} catch {
-		fail$6("protocol_incompatible");
+		fail$7("protocol_incompatible");
 	}
 }
 async function callBrowserModel({ key, getCredential, messages, tools = [], toolChoice, signal, fetchImpl = globalThis.fetch, maxOutputTokens = 128, beforeSend, afterResponse } = {}) {
 	const validKey = (value) => typeof value === "string" && value.trim() && !/[\r\n]/.test(value);
-	if (typeof getCredential !== "function" && !validKey(key)) fail$6("credential_invalid");
-	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$6("input_invalid");
-	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$6("input_invalid");
-	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$6("input_limit");
+	if (typeof getCredential !== "function" && !validKey(key)) fail$7("credential_invalid");
+	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$7("input_invalid");
+	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$7("input_invalid");
+	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$7("input_limit");
 	let body;
 	try {
 		body = JSON.stringify({
@@ -2035,11 +2035,11 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			thinking: { type: "disabled" }
 		});
 	} catch {
-		fail$6("input_invalid");
+		fail$7("input_invalid");
 	}
 	const inputBytes = bytes$1(body);
-	if (inputBytes > INPUT_LIMIT) fail$6("input_limit");
-	if (signal?.aborted) fail$6("cancelled");
+	if (inputBytes > INPUT_LIMIT) fail$7("input_limit");
+	if (signal?.aborted) fail$7("cancelled");
 	const reservation = await beforeSend?.({
 		maxOutputTokens,
 		inputBytes
@@ -2057,8 +2057,8 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 		});
 		result = await Promise.race([(async () => {
 			const sendingKey = getCredential ? await getCredential(reservation) : key;
-			if (!validKey(sendingKey)) fail$6("credential_invalid");
-			if (signal?.aborted || controller.signal.aborted) fail$6("cancelled");
+			if (!validKey(sendingKey)) fail$7("credential_invalid");
+			if (signal?.aborted || controller.signal.aborted) fail$7("cancelled");
 			sent = true;
 			const response = await fetchImpl(PRESET.endpoint, {
 				method: "POST",
@@ -2074,7 +2074,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 				body,
 				signal: controller.signal
 			});
-			if (!response.ok) fail$6(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
+			if (!response.ok) fail$7(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
 			return normalizeResponse(await readBounded(response), tools);
 		})(), timedOut]);
 	} catch (error) {
@@ -2084,7 +2084,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			status: "unknown"
 		});
 		if (error instanceof BrowserModelError) throw error;
-		fail$6(signal?.aborted ? "cancelled" : "network_or_cors");
+		fail$7(signal?.aborted ? "cancelled" : "network_or_cors");
 	} finally {
 		clearTimeout(timeout);
 		signal?.removeEventListener("abort", abort);
@@ -2125,7 +2125,7 @@ async function probeBrowserModel(options = {}) {
 			function: { name: "read_fixture" }
 		}
 	})).choices[0].message;
-	if (assistant.tool_calls?.length !== 1) fail$6("probe_incompatible");
+	if (assistant.tool_calls?.length !== 1) fail$7("probe_incompatible");
 	const final = await callBrowserModel({
 		...options,
 		maxOutputTokens: 128,
@@ -2141,7 +2141,7 @@ async function probeBrowserModel(options = {}) {
 			}
 		]
 	});
-	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$6("probe_incompatible");
+	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$7("probe_incompatible");
 	return {
 		provider_id: PRESET.provider_id,
 		model: PRESET.model,
@@ -3039,11 +3039,11 @@ var BrowserParticipantError = class extends Error {
 		this.diagnostic = safe;
 	}
 };
-var fail$5 = (code, diagnostic) => {
+var fail$6 = (code, diagnostic) => {
 	throw new BrowserParticipantError(code, diagnostic);
 };
 var json$1 = JSON.stringify;
-var clone$1 = (value) => JSON.parse(json$1(value));
+var clone$2 = (value) => JSON.parse(json$1(value));
 var hex$4 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 var DOMAIN$1 = "game_participant_register_v1";
 var OWNER_VIEW = "/v1/world/participant-owner-view";
@@ -3057,7 +3057,7 @@ var routes = /* @__PURE__ */ new Set([
 	"/entry-executor/control"
 ]);
 async function boundedText(response, maximum) {
-	if (!response.body?.getReader) fail$5("participant_response_invalid");
+	if (!response.body?.getReader) fail$6("participant_response_invalid");
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder("utf-8", { fatal: true });
 	let text = "", size = 0;
@@ -3066,7 +3066,7 @@ async function boundedText(response, maximum) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > maximum) fail$5("participant_response_limit");
+			if (size > maximum) fail$6("participant_response_limit");
 			text += decoder.decode(value, { stream: true });
 		}
 		return text + decoder.decode();
@@ -3077,7 +3077,7 @@ async function boundedText(response, maximum) {
 	}
 }
 function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
-	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$5("participant_configuration_invalid");
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$6("participant_configuration_invalid");
 	async function request(path, options = {}, deadline = Date.now() + 3e4, callSignal) {
 		const stage = {
 			"/entry/discovery": "participant_discovery",
@@ -3090,17 +3090,17 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 			"/entry-executor/control": "executor_control"
 		}[path];
 		const signals = [signal, callSignal].filter(Boolean);
-		if (signals.some((item) => item.aborted)) fail$5("participant_stopped");
-		if (Date.now() >= deadline) fail$5("participant_request_timeout");
+		if (signals.some((item) => item.aborted)) fail$6("participant_stopped");
+		if (Date.now() >= deadline) fail$6("participant_request_timeout");
 		const controller = new AbortController();
 		let timer;
 		const removers = [];
 		const stopped = () => {
-			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$5("participant_stopped");
+			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$6("participant_stopped");
 		};
 		try {
 			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
-			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$5("participant_request_limit");
+			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$6("participant_request_limit");
 			const cancelled = new Promise((_resolve, reject) => {
 				timer = setTimeout(() => {
 					controller.abort();
@@ -3123,7 +3123,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					await beforeSend();
 					stopped();
 				}
-				if (Date.now() >= deadline) fail$5("participant_request_timeout");
+				if (Date.now() >= deadline) fail$6("participant_request_timeout");
 				let response;
 				try {
 					response = await fetchImpl(`${config.endpoint}${path}`, {
@@ -3137,7 +3137,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					});
 				} catch {
 					stopped();
-					fail$5("participant_network_failed", { stage });
+					fail$6("participant_network_failed", { stage });
 				}
 				stopped();
 				if (!response.ok) {
@@ -3146,14 +3146,14 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 						value = JSON.parse(await boundedText(response, 4096));
 					} catch {}
 					stopped();
-					fail$5("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
+					fail$6("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
 				}
 				const declared = response.headers?.get?.("content-length");
-				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$5("participant_response_limit");
+				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$6("participant_response_limit");
 				const raw = await boundedText(response, maximum);
 				stopped();
 				const status = JSON.parse(raw);
-				if (status.api_version !== 2 || status.ok !== true) fail$5("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
+				if (status.api_version !== 2 || status.ok !== true) fail$6("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
 				return raw;
 			})();
 			return await Promise.race([operation, cancelled]);
@@ -3168,7 +3168,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 				});
 				throw error;
 			}
-			fail$5("participant_response_unknown", { stage });
+			fail$6("participant_response_unknown", { stage });
 		} finally {
 			clearTimeout(timer);
 			for (const remove of removers) remove();
@@ -3178,21 +3178,21 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 		discover: () => request("/entry/discovery"),
 		async gatewayCall(path, body, { rawBody, beforeSend, signal: callSignal } = {}) {
 			const deadline = Date.now() + 3e4;
-			if (!routes.has(path)) fail$5("participant_route_forbidden");
-			if (signal?.aborted || callSignal?.aborted) fail$5("participant_stopped");
-			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$5("participant_request_invalid");
+			if (!routes.has(path)) fail$6("participant_route_forbidden");
+			if (signal?.aborted || callSignal?.aborted) fail$6("participant_stopped");
+			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$6("participant_request_invalid");
 			let encodedBody;
 			try {
 				encodedBody = rawBody ?? json$1(body);
 			} catch {
-				fail$5("participant_request_invalid");
+				fail$6("participant_request_invalid");
 			}
-			if (typeof encodedBody !== "string") fail$5("participant_request_invalid");
+			if (typeof encodedBody !== "string") fail$6("participant_request_invalid");
 			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
-			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$5("participant_request_limit");
+			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$6("participant_request_limit");
 			const session = JSON.parse(await request("/session", {}, deadline, callSignal));
-			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$5("participant_account_changed");
-			if (rawBody !== void 0 && typeof rawBody !== "string") fail$5("participant_request_invalid");
+			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$6("participant_account_changed");
+			if (rawBody !== void 0 && typeof rawBody !== "string") fail$6("participant_request_invalid");
 			return request(path, {
 				method: "POST",
 				headers: {
@@ -3207,7 +3207,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 }
 function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, agentId, indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto, signal, isCurrent = () => true } = {}) {
 	const namespace = config?.identity;
-	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$5("participant_configuration_invalid");
+	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$6("participant_configuration_invalid");
 	const scopeKey = browserIdentityScope({
 		worldId: config.world.world_id,
 		genesisDigest: config.world.genesis_digest,
@@ -3217,7 +3217,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 	const key = `participant:${scopeKey}:${ownerSigner.publicKeyHex}`;
 	let canonicalAgentId = agentId;
 	const active = () => {
-		if (signal?.aborted || !isCurrent()) fail$5("participant_stopped");
+		if (signal?.aborted || !isCurrent()) fail$6("participant_stopped");
 	};
 	const database = storage ?? createBrowserGameDatabase(indexedDB);
 	const transport = createBrowserParticipantGateway({
@@ -3231,7 +3231,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			return codec.build(kind, json$1(value));
 		} catch {
-			fail$5("participant_proof_invalid");
+			fail$6("participant_proof_invalid");
 		}
 	}
 	function field(raw, path) {
@@ -3244,27 +3244,27 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			return codec.validate(kind, typeof request === "string" ? request : json$1(request), raw);
 		} catch {
-			fail$5("participant_proof_invalid");
+			fail$6("participant_proof_invalid");
 		}
 	}
 	function check(record) {
 		if (record === void 0) return null;
-		if (![1, 2].includes(record?.schema) || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$5("participant_storage_corrupt");
+		if (![1, 2].includes(record?.schema) || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$6("participant_storage_corrupt");
 		if (record.schema === 2 && record.registrationSendState !== void 0) {
-			if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState) || record.registrationSendState === "not_sent" !== (record.sent === false) || record.registrationSendState === "not_sent" && (record.receiptRaw || record.registrationTerminalReply || record.registrationPhase !== void 0 && record.registrationPhase !== "prepared_unsent")) fail$5("participant_storage_corrupt");
+			if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState) || record.registrationSendState === "not_sent" !== (record.sent === false) || record.registrationSendState === "not_sent" && (record.receiptRaw || record.registrationTerminalReply || record.registrationPhase !== void 0 && record.registrationPhase !== "prepared_unsent")) fail$6("participant_storage_corrupt");
 		}
 		const r = record.owner.request;
-		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$5("participant_storage_corrupt");
-		if (record.registrationPhase !== void 0 && !deliveryPhases.has(record.registrationPhase)) fail$5("participant_storage_corrupt");
+		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$6("participant_storage_corrupt");
+		if (record.registrationPhase !== void 0 && !deliveryPhases.has(record.registrationPhase)) fail$6("participant_storage_corrupt");
 		return record;
 	}
 	async function update(mutate) {
-		if (typeof locks?.request !== "function") fail$5("participant_locks_unavailable");
+		if (typeof locks?.request !== "function") fail$6("participant_locks_unavailable");
 		try {
 			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (stored) => mutate(check(stored))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$5("participant_storage_failed");
+			fail$6("participant_storage_failed");
 		}
 	}
 	async function load() {
@@ -3272,19 +3272,19 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			return check(await database.get(key));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$5("participant_storage_failed");
+			fail$6("participant_storage_failed");
 		}
 	}
 	async function discover() {
 		const discovery = JSON.parse(await transport.discover());
-		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$5("participant_discovery_mismatch");
+		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$6("participant_discovery_mismatch");
 		return discovery;
 	}
 	async function authorize(owner) {
 		active();
 		const raw = await transport.gatewayCall("/participant/authorize", owner);
 		const reply = JSON.parse(raw);
-		if (reply.phase !== "participant_authorized") fail$5("participant_authorization_failed");
+		if (reply.phase !== "participant_authorized") fail$6("participant_authorization_failed");
 		const admissionRaw = field(raw, ["admission"]);
 		validate("participant_admission", {
 			owner,
@@ -3300,7 +3300,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const readRequest = {
 			contract_version: 1,
 			observation_nonce: hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
-			world: clone$1(config.world),
+			world: clone$2(config.world),
 			scope_id: `agent:${canonicalAgentId}`,
 			min_commit: null,
 			fixed_commit: null,
@@ -3315,7 +3315,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 				signature_hex: hex$4(await ownerSigner.sign(codec.signingBytes(VIEW$1, json$1(readRequest))))
 			};
 		} catch {
-			fail$5("participant_signing_failed");
+			fail$6("participant_signing_failed");
 		}
 		active();
 		const access = {
@@ -3325,9 +3325,9 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			response_profile: "owner_control_v1"
 		};
 		await update((current) => {
-			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$5("participant_original_conflict");
-			current.admission = clone$1(authorized.admission);
-			current.ownerRead = clone$1(access);
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$6("participant_original_conflict");
+			current.admission = clone$2(authorized.admission);
+			current.ownerRead = clone$2(access);
 			return current;
 		});
 		const reply = await transport.gatewayCall("/participant/owner-view", access);
@@ -3335,7 +3335,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			raw = codec.verifyGatewayResponse(OWNER_VIEW, json$1(access), reply, config.servicePublicKey);
 		} catch {
-			fail$5("participant_binding_required");
+			fail$6("participant_binding_required");
 		}
 		validate("owner_control", access, raw);
 		if (decoded(field(raw, [
@@ -3346,15 +3346,15 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			"view",
 			"canonical_agent_owner",
 			"public_key"
-		])) !== ownerSigner.publicKeyHex) fail$5("participant_binding_required");
+		])) !== ownerSigner.publicKeyHex) fail$6("participant_binding_required");
 		await update((current) => {
-			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$5("participant_original_conflict");
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$6("participant_original_conflict");
 			current.ownerControlRaw = raw;
 			current.agentId = canonicalAgentId;
 			return current;
 		});
 		return {
-			owner: clone$1(record.owner),
+			owner: clone$2(record.owner),
 			admission: authorized.admission,
 			ownerControl: { rawJson: raw }
 		};
@@ -3365,7 +3365,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			const request = {
 				api_rev: 1,
 				client_operation_id: `browser-participant-${hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(16)))}`,
-				identity_namespace: clone$1(namespace),
+				identity_namespace: clone$2(namespace),
 				account_id: accountId,
 				world_id: config.world.world_id,
 				genesis_digest: config.world.genesis_digest,
@@ -3380,7 +3380,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 					signature_hex: hex$4(await ownerSigner.sign(codec.signingBytes(DOMAIN$1, json$1(request))))
 				};
 			} catch {
-				fail$5("participant_signing_failed");
+				fail$6("participant_signing_failed");
 			}
 			active();
 			record = await update((current) => current ?? {
@@ -3394,7 +3394,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		if (!canonicalAgentId) try {
 			canonicalAgentId = decoded(codec.build("participant_agent_id", json$1(record.owner.request)));
 		} catch {
-			fail$5("participant_proof_invalid");
+			fail$6("participant_proof_invalid");
 		}
 		return record;
 	}
@@ -3403,21 +3403,21 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			raw = codec.verifyGatewayResponse(domain, requestRaw, responseRaw, config.servicePublicKey);
 		} catch {
-			fail$5("participant_response_unknown");
+			fail$6("participant_response_unknown");
 		}
 		return validate(kind, validationRequest, raw);
 	}
 	const isUnsent = (record) => record?.schema === 2 && record.registrationSendState === "not_sent" && record.sent === false && record.registrationPhase === "prepared_unsent" && !record.registrationTerminalReply;
 	function registrationMaterial(record) {
 		const originalRaw = record.registrationRaw;
-		if (!originalRaw) fail$5("participant_original_missing");
+		if (!originalRaw) fail$6("participant_original_missing");
 		const payloadRaw = field(originalRaw, ["signed_payload"]);
-		if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail$5("participant_original_conflict");
+		if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail$6("participant_original_conflict");
 		const correlationRaw = build("correlation", {
 			world: config.world,
 			payload_json: payloadRaw
 		});
-		if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail$5("participant_original_conflict");
+		if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail$6("participant_original_conflict");
 		return {
 			originalRaw,
 			correlationRaw,
@@ -3429,7 +3429,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const { lookupRaw, correlationRaw } = registrationMaterial(record);
 		const raw = verified("/v1/world/lookup", lookupRaw, record.registrationTerminalReply, "lookup", correlationRaw);
 		const status = decoded(field(raw, ["outcome", "status"]));
-		if (!terminalDisposition(status)) fail$5("participant_storage_corrupt");
+		if (!terminalDisposition(status)) fail$6("participant_storage_corrupt");
 		return status;
 	}
 	async function registrationLookup(record) {
@@ -3437,10 +3437,10 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const response = await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw });
 		const candidate = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
 		const winner = await update((current) => {
-			if (!current || current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			if (!current || current.registrationRaw !== originalRaw) fail$6("participant_original_conflict");
 			const raw = current.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, current.registrationTerminalReply, "lookup", correlationRaw) : candidate;
 			const state = decoded(field(raw, ["outcome", "status"]));
-			if (current.registrationTerminalReply && !terminalDisposition(state)) fail$5("participant_storage_corrupt");
+			if (current.registrationTerminalReply && !terminalDisposition(state)) fail$6("participant_storage_corrupt");
 			if (!current.registrationTerminalReply && terminalDisposition(state)) current.registrationTerminalReply = response;
 			current.registrationObservation = {
 				logicalOperation: current.owner.request.client_operation_id,
@@ -3457,18 +3457,18 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const raw = winner.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, winner.registrationTerminalReply, "lookup", correlationRaw) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
-			if (["rejected", "expired"].includes(state)) fail$5(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
-			fail$5("participant_registration_pending", {
+			if (["rejected", "expired"].includes(state)) fail$6(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
+			fail$6("participant_registration_pending", {
 				outcome: state,
 				stage: "participant_lookup"
 			});
 		}
 		validate("participant_receipt", record.owner.request, raw);
 		const receipt = decoded(field(raw, ["outcome", "receipt"]));
-		if (receipt.owner_public_key !== ownerSigner.publicKeyHex || receipt.account_id !== accountId) fail$5("participant_owner_mismatch");
+		if (receipt.owner_public_key !== ownerSigner.publicKeyHex || receipt.account_id !== accountId) fail$6("participant_owner_mismatch");
 		canonicalAgentId = receipt.agent_id;
 		await update((current) => {
-			if (current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			if (current.registrationRaw !== originalRaw) fail$6("participant_original_conflict");
 			current.receiptRaw = raw;
 			current.agentId = canonicalAgentId;
 			return current;
@@ -3520,12 +3520,12 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 	}
 	async function registerParticipant(consent, { continueOriginal = false } = {}) {
-		if (consent !== true) fail$5("participant_consent_required");
+		if (consent !== true) fail$6("participant_consent_required");
 		active();
 		await discover();
 		let record = continueOriginal ? await load() : await ensureOwner();
 		active();
-		if (continueOriginal && !record?.registrationRaw) fail$5("participant_original_missing");
+		if (continueOriginal && !record?.registrationRaw) fail$6("participant_original_missing");
 		let created = false;
 		if (!record.registrationRaw) {
 			const authorized = await authorize(record.owner);
@@ -3568,7 +3568,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 					beforeSend: async () => {
 						active();
 						await update((current) => {
-							if (!current || current.registrationRaw !== originalRaw || !isUnsent(current)) fail$5("participant_original_conflict");
+							if (!current || current.registrationRaw !== originalRaw || !isUnsent(current)) fail$6("participant_original_conflict");
 							current.registrationSendState = "may_have_sent";
 							current.sent = true;
 							current.registrationPhase = "dispatch_may_have_started";
@@ -3581,8 +3581,8 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 		active();
 		record = await load();
-		if (!record?.registrationRaw) fail$5("participant_original_missing");
-		if (isUnsent(record)) fail$5("participant_original_not_sent");
+		if (!record?.registrationRaw) fail$6("participant_original_missing");
+		if (isUnsent(record)) fail$6("participant_original_not_sent");
 		await registrationLookup(record);
 		active();
 		return proofs(await load(), await authorize(record.owner));
@@ -3603,7 +3603,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			await discover();
 			const record = await load();
 			if (record?.agentId) canonicalAgentId = record.agentId;
-			if (!record?.owner) fail$5("participant_prepare_required");
+			if (!record?.owner) fail$6("participant_prepare_required");
 			return proofs(record, await authorize(record.owner));
 		}
 	};
@@ -3621,13 +3621,13 @@ var BrowserGameError = class extends Error {
 		this.diagnostic = safe;
 	}
 };
-var fail$4 = (code, diagnostic) => {
+var fail$5 = (code, diagnostic) => {
 	throw new BrowserGameError(code, diagnostic);
 };
 var json = (value) => JSON.stringify(value);
 var copy$1 = (value) => JSON.parse(json(value));
 var hex$3 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-var same$2 = (a, b) => json(a) === json(b);
+var same$3 = (a, b) => json(a) === json(b);
 var WORLD_PATHS = Object.freeze({
 	describe: "/v1/world/describe",
 	owner: "/v1/world/participant-owner-view",
@@ -3646,7 +3646,7 @@ var terminal = (status) => [
 	"expired"
 ].includes(status);
 function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, participantProofs, agentId, taskId, recovery, fetchImpl = globalThis.fetch, gatewayCall, cryptoImpl = globalThis.crypto, signal, beforeEffect = async () => {} } = {}) {
-	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$4("game_configuration_invalid");
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$5("game_configuration_invalid");
 	const world = copy$1(config.world), serviceKey = config.servicePublicKey;
 	let boundFence = null;
 	const rawValues = /* @__PURE__ */ new WeakMap();
@@ -3675,18 +3675,18 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		try {
 			return decoded(codec.build(kind, json(value)));
 		} catch {
-			fail$4("game_proof_invalid");
+			fail$5("game_proof_invalid");
 		}
 	}
 	function validate(kind, request, payload) {
 		try {
 			return decoded(codec.validate(kind, json(request), json(payload)));
 		} catch {
-			fail$4("game_proof_invalid");
+			fail$5("game_proof_invalid");
 		}
 	}
 	async function sign(domain, request, signer = executorSigner) {
-		if (signal?.aborted) fail$4("stopped");
+		if (signal?.aborted) fail$5("stopped");
 		try {
 			return {
 				request,
@@ -3694,12 +3694,12 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				signature_hex: hex$3(await signer.sign(codec.signingBytes(domain, json(request))))
 			};
 		} catch {
-			fail$4("game_signing_failed");
+			fail$5("game_signing_failed");
 		}
 	}
 	async function ownerAccess() {
 		const proofs = typeof participantProofs === "function" ? await participantProofs() : participantProofs;
-		if (!proofs?.owner || !proofs?.admission) fail$4("participant_proofs_required");
+		if (!proofs?.owner || !proofs?.admission) fail$5("participant_proofs_required");
 		return {
 			owner: proofs.owner,
 			admission: proofs.admission,
@@ -3727,7 +3727,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			};
 		}
 		const accessFence = boundFence ?? ([WORLD_PATHS.prepare, WORLD_PATHS.snapshot].includes(path) ? wire.request?.fence : null);
-		if (!accessFence) fail$4("executor_not_bound");
+		if (!accessFence) fail$5("executor_not_bound");
 		const kinds = {
 			[WORLD_PATHS.describe]: "describe",
 			[WORLD_PATHS.view]: "read_view",
@@ -3739,7 +3739,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			[WORLD_PATHS.recipe]: "recipe_quote",
 			[WORLD_PATHS.factory]: "factory_quote"
 		};
-		if (!kinds[path]) fail$4("game_route_unsupported");
+		if (!kinds[path]) fail$5("game_route_unsupported");
 		return {
 			path: "/entry-executor/control",
 			body: {
@@ -3755,7 +3755,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		};
 	}
 	async function call(path, wire, digestRequest, kind, validationRequest, mutationGate) {
-		if (signal?.aborted) fail$4("stopped");
+		if (signal?.aborted) fail$5("stopped");
 		let response;
 		try {
 			const gateway = await gatewayEnvelope(path, wire);
@@ -3777,9 +3777,9 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					signal
 				});
 				const csrf = (await cap.json())?.csrf_token;
-				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$4("authentication_required");
+				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$5("authentication_required");
 				await mutationGate?.();
-				if (signal?.aborted) fail$4("stopped");
+				if (signal?.aborted) fail$5("stopped");
 				response = await fetchImpl(`${config.endpoint}${gateway.path}`, {
 					method: "POST",
 					credentials: "same-origin",
@@ -3794,8 +3794,8 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					body: json(gateway.body),
 					signal
 				});
-				if (!response.ok) fail$4("game_request_failed");
-				if (!response.body?.getReader) fail$4("game_response_invalid");
+				if (!response.ok) fail$5("game_request_failed");
+				if (!response.body?.getReader) fail$5("game_response_invalid");
 				const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 				let text = "", size = 0;
 				try {
@@ -3803,7 +3803,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 						const { value, done } = await reader.read();
 						if (done) break;
 						size += value.byteLength;
-						if (size > 2097152) fail$4("game_response_limit");
+						if (size > 2097152) fail$5("game_response_limit");
 						text += decoder.decode(value, { stream: true });
 					}
 					text += decoder.decode();
@@ -3815,7 +3815,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				signed = text;
 			}
 			const payload = validate(kind, validationRequest, decoded(codec.verifyGatewayResponse(path, json(digestRequest), signed, serviceKey)));
-			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$4("unsupported_world_evidence");
+			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$5("unsupported_world_evidence");
 			for (const nestedPath of [
 				["identity"],
 				["prepared"],
@@ -3835,7 +3835,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		} catch (error) {
 			if (error instanceof BrowserGameError) throw error;
 			if (error instanceof BrowserParticipantError) throw new BrowserGameError(error.code, error.diagnostic);
-			fail$4("game_response_invalid");
+			fail$5("game_response_invalid");
 		}
 	}
 	const readRequest = () => ({
@@ -3860,7 +3860,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		const request = await ownerAccess();
 		const result = await call(WORLD_PATHS.owner, request, request, "owner_control", request);
 		const task = field(result, ["view", "game_task_control"]);
-		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$4("task_unavailable");
+		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$5("task_unavailable");
 		const fence = build("fence", task);
 		validate("fence", null, fence);
 		return {
@@ -3874,13 +3874,13 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function freshFence({ allowUnbound = false } = {}) {
 		const current = await readTask();
-		if (boundFence && !same$2(boundFence, current.fence)) fail$4("task_fence_changed");
-		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$4("executor_not_bound");
+		if (boundFence && !same$3(boundFence, current.fence)) fail$5("task_fence_changed");
+		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$5("executor_not_bound");
 		return current;
 	}
 	async function bindFence(fence) {
 		validate("fence", null, fence);
-		if (!same$2((await freshFence()).fence, fence)) fail$4("task_fence_changed");
+		if (!same$3((await freshFence()).fence, fence)) fail$5("task_fence_changed");
 		boundFence = copy$1(fence);
 		return copy$1(boundFence);
 	}
@@ -3928,7 +3928,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			world,
 			payload_json: json(payload)
 		});
-		if (!same$2(expected, submitted.correlation)) fail$4("original_correlation_invalid");
+		if (!same$3(expected, submitted.correlation)) fail$5("original_correlation_invalid");
 		const request = {
 			request: {
 				contract_version: 1,
@@ -3949,7 +3949,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect);
 		} catch (error) {
 			const detail = browserGameDiagnostic(error, "game_session");
-			fail$4("operation_unknown", {
+			fail$5("operation_unknown", {
 				...detail,
 				causeCode: detail.code
 			});
@@ -4000,14 +4000,14 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function retireExpiredContexts() {
 		const loaded = await recovery.load();
-		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$4("recovery_required");
+		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$5("recovery_required");
 		let retired = 0;
 		for (const entry of loaded.operations) {
 			if (entry.original.kind !== "prefix" || entry.state !== "committed") continue;
 			const operationId = entry.original.operationId.replace(/:prefix$/, "");
 			const action = await find(operationId, "action"), priorOutcome = await find(operationId, "outcome");
 			if (action || priorOutcome) continue;
-			if ((await lookup(entry.original)).state !== "committed") fail$4("recovery_required");
+			if ((await lookup(entry.original)).state !== "committed") fail$5("recovery_required");
 			const identity = field(decoded(entry.original.signedRequest.rawJson), [
 				"signed_payload",
 				"payload",
@@ -4017,18 +4017,18 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				"context"
 			]);
 			const current = await freshFence();
-			if (!same$2(current.fence, identity.fence)) fail$4("task_fence_changed");
-			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$4("context_not_expired");
+			if (!same$3(current.fence, identity.fence)) fail$5("task_fence_changed");
+			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$5("context_not_expired");
 			const view = await publicView();
 			const request = build("retire_context", {
 				context_json: json(identity),
 				view_json: json(view)
 			});
-			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$4("original_result_requires_recovery");
+			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$5("original_result_requires_recovery");
 			if ((await submit(operationId, "outcome", {
 				kind: "scheduler",
 				payload: await sign("scheduler", request)
-			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$4("operation_pending");
+			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$5("operation_pending");
 			retired += 1;
 		}
 		return { retired };
@@ -4036,7 +4036,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	async function prepareContext(operationId, runBudget = null) {
 		const prior = await find(operationId, "prepare");
 		if (prior) return (await lookup(prior)).prepared;
-		if (await hasUnresolved()) fail$4("recovery_required");
+		if (await hasUnresolved()) fail$5("recovery_required");
 		const { fence } = await freshFence();
 		const proof = await sign(WORLD_PATHS.prepare, {
 			authority_mode: "native_executor_v1",
@@ -4059,7 +4059,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			kind: "scheduler",
 			payload: await sign("scheduler", build("prefix", prepared))
 		}, prepared.identity, runBudget);
-		if (result.outcome.status !== "committed") fail$4(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
+		if (result.outcome.status !== "committed") fail$5(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
 		return readContext(operationId, prepared.identity);
 	}
 	async function contextProof(operationId, identity) {
@@ -4077,7 +4077,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	async function quote(operationId, captured, kind, selection) {
 		await freshFence();
 		const current = await readContext(operationId, captured.prepared.identity);
-		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$4("unsupported_tool");
+		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$5("unsupported_tool");
 		const proof = await sign(path, {
 			schema_revision: 1,
 			context_proof: await contextProof(operationId, captured.prepared.identity),
@@ -4122,7 +4122,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}, captured.prepared.identity, runBudget);
 	}
 	async function outcome(operationId, captured, reason, runBudget = null) {
-		if (await find(operationId, "action")) fail$4("original_action_requires_recovery");
+		if (await find(operationId, "action")) fail$5("original_action_requires_recovery");
 		await freshFence();
 		return submit(operationId, "outcome", {
 			kind: "scheduler",
@@ -4133,20 +4133,20 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}, captured.prepared.identity, runBudget);
 	}
 	async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
-		if (!confirmedFence) fail$4("run_confirmation_required");
-		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$4("delegation_revision_required");
+		if (!confirmedFence) fail$5("run_confirmation_required");
+		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$5("delegation_revision_required");
 		await recover();
-		if (await hasUnresolved()) fail$4("recovery_required");
+		if (await hasUnresolved()) fail$5("recovery_required");
 		const f = (await freshFence({ allowUnbound: true })).fence;
-		if (!same$2(f, confirmedFence)) fail$4("task_fence_changed");
+		if (!same$3(f, confirmedFence)) fail$5("task_fence_changed");
 		const ownerGeneration = Number(f.owner_generation);
-		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$4("delegation_revision_unsupported");
+		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$5("delegation_revision_unsupported");
 		const prior = await find(operationId, "delegation");
 		let delegationPayload, effectiveGeneration = generation;
 		if (prior) {
 			delegationPayload = field(decoded(prior.signedRequest.rawJson), ["signed_payload"]);
 			const proof = delegationPayload.payload, request = proof?.request;
-			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$4("delegation_original_mismatch");
+			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$5("delegation_original_mismatch");
 			effectiveGeneration = request.generation;
 		} else delegationPayload = {
 			kind: "delegation",
@@ -4162,9 +4162,9 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				nonce: delegationNonce
 			}, ownerSigner)
 		};
-		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$4("delegation_not_committed");
+		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$5("delegation_not_committed");
 		const next = await readTask();
-		if (!same$2(next.fence, f)) fail$4("task_fence_changed");
+		if (!same$3(next.fence, f)) fail$5("task_fence_changed");
 		if ((await submit(operationId, "executor_bind", {
 			kind: "game_executor_control",
 			payload: await sign("game_executor_control/v1", {
@@ -4178,7 +4178,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					delegation_generation: String(effectiveGeneration)
 				}
 			}, ownerSigner)
-		})).outcome.status !== "committed") fail$4("executor_not_bound");
+		})).outcome.status !== "committed") fail$5("executor_not_bound");
 		const confirmed = await freshFence();
 		await bindFence(confirmed.fence);
 		return confirmed;
@@ -4223,7 +4223,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	};
 }
 // software_safe_src/browser_agent_runner.js
-var fail$3 = (code) => {
+var fail$4 = (code) => {
 	throw new BrowserGameError(code);
 };
 var text$5 = {
@@ -4288,9 +4288,9 @@ var effects = /* @__PURE__ */ new Set([
 	"move",
 	"abort"
 ]);
-var same$1 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+var same$2 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, getCredential, budget, recovery, visibility = () => !globalThis.document?.hidden, online = () => globalThis.navigator?.onLine !== false, now = Date.now, onState = () => {} } = {}) {
-	if (!gameClient || !getCredential || !budget && !recovery) fail$3("runner_configuration_invalid");
+	if (!gameClient || !getCredential || !budget && !recovery) fail$4("runner_configuration_invalid");
 	let status = {
 		phase: "idle",
 		code: null
@@ -4304,10 +4304,10 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		onState({ ...status });
 	}
 	function assertActive(expected) {
-		if (!active || expected !== generation || controller?.signal.aborted) fail$3("stopped");
+		if (!active || expected !== generation || controller?.signal.aborted) fail$4("stopped");
 		if (!visibility() || !online()) {
 			stop("page_paused");
-			fail$3("page_paused");
+			fail$4("page_paused");
 		}
 	}
 	function stop(code = "stopped") {
@@ -4327,7 +4327,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		return !unresolved;
 	}
 	async function recover() {
-		if (active || starting) fail$3("already_running");
+		if (active || starting) fail$4("already_running");
 		starting = true;
 		const expected = ++generation;
 		try {
@@ -4345,8 +4345,8 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		} : null)
 	};
 	async function start({ confirmedFence, runId, operationId } = {}) {
-		if (active || starting) fail$3("already_running");
-		if (!confirmedFence || !runId || !visibility() || !online()) fail$3("run_confirmation_required");
+		if (active || starting) fail$4("already_running");
+		if (!confirmedFence || !runId || !visibility() || !online()) fail$4("run_confirmation_required");
 		starting = true;
 		const expected = ++generation, started = now();
 		controller = new AbortController();
@@ -4355,7 +4355,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 			if (expected !== generation) return { ...status };
 			const current = await gameClient.freshFence();
 			if (expected !== generation) return { ...status };
-			if (!same$1(current.fence, confirmedFence)) fail$3("task_fence_changed");
+			if (!same$2(current.fence, confirmedFence)) fail$4("task_fence_changed");
 			await gameClient.bindFence(confirmedFence);
 			if (expected !== generation) return { ...status };
 			active = true;
@@ -4417,7 +4417,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 				assertActive(expected);
 				while (active) {
 					assertActive(expected);
-					if (now() - started >= 12e4) fail$3("run_time_limit");
+					if (now() - started >= 12e4) fail$4("run_time_limit");
 					await gameClient.freshFence();
 					assertActive(expected);
 					currentOperation = operationId ? `${operationId}:${step}` : `${runId}:context:${step}`;
@@ -4429,7 +4429,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 					const checkContext = async () => {
 						const control = await gameClient.freshFence();
 						assertActive(expected);
-						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$3("context_expired");
+						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$4("context_expired");
 					};
 					const context = captured.current_public_context;
 					const messages = [{
@@ -4471,12 +4471,12 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 						assertActive(expected);
 						await checkContext();
 						const message = response.choices?.[0]?.message, calls = message?.tool_calls;
-						if (!Array.isArray(calls) || !calls.length) fail$3("model_tool_required");
+						if (!Array.isArray(calls) || !calls.length) fail$4("model_tool_required");
 						let effectCount = 0;
 						for (let i = 0; i < calls.length; i += 1) {
 							const name = calls[i].function?.name;
-							if (!names.has(name) || calls[i].type !== "function") fail$3("unsupported_tool");
-							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$3("effect_batch_invalid");
+							if (!names.has(name) || calls[i].type !== "function") fail$4("unsupported_tool");
+							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$4("effect_batch_invalid");
 						}
 						messages.push(message);
 						for (const call of calls) {
@@ -4486,7 +4486,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 							try {
 								args = JSON.parse(call.function.arguments);
 							} catch {
-								fail$3("tool_invalid");
+								fail$4("tool_invalid");
 							}
 							const name = call.function.name;
 							let value;
@@ -4513,13 +4513,13 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 								assertActive(expected);
 								value = result.quoted;
 								if (name === "build" || name === "schedule") {
-									if (!result.quoted.quote || result.quoted.quote.rejection) fail$3("quote_rejected");
+									if (!result.quoted.quote || result.quoted.quote.rejection) fail$4("quote_rejected");
 									assertActive(expected);
 									value = await gameClient.action(currentOperation, result.captured, result.quoted.quote.action, { runId });
 									completed = true;
 								}
 							} else if (name === "move") {
-								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$3("tool_invalid");
+								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$4("tool_invalid");
 								captured = await gameClient.readContext(currentOperation, captured.prepared.identity);
 								assertActive(expected);
 								value = await gameClient.action(currentOperation, captured, {
@@ -4588,7 +4588,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 	};
 }
 // software_safe_src/viewer_model_connection_client.js
-var API$1 = "/v1/agent-client";
+var API$2 = "/v1/agent-client";
 var IDENTITY = "/api/public/hosted-account/v2/capabilities";
 var CODES = /* @__PURE__ */ new Set([
 	"authentication_required",
@@ -4728,7 +4728,7 @@ function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch
 		}
 		let response;
 		try {
-			response = await fetchImpl(identity ? path : API$1 + path, {
+			response = await fetchImpl(identity ? path : API$2 + path, {
 				method,
 				credentials: "same-origin",
 				mode: "same-origin",
@@ -4919,12 +4919,12 @@ async function assertNoLegacyRun({ client = createViewerModelConnectionClient() 
 	}
 }
 // software_safe_src/browser_game_session.js
-var same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
-var fail$2 = (code) => {
+var same$1 = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+var fail$3 = (code) => {
 	throw new BrowserGameError(code);
 };
 function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isCurrent = () => true, locks = globalThis.navigator?.locks, documentRef = globalThis.document, windowRef = globalThis.window, navigatorRef = globalThis.navigator, now = Date.now, protocolLoader = loadBrowserGameProtocol, identityStore = createBrowserExecutorIdentity(), participantFactory = createBrowserParticipantEntry, clientFactory = createBrowserGameClient, recoveryFactory = createBrowserGameRecovery, runnerFactory = createBrowserAgentRunner, legacyGuard = assertNoLegacyRun, modelSession = createBrowserModelSession({ accountId }) } = {}) {
-	if (!config || !accountId || !agentId || !ownerSigner) fail$2("game_configuration_invalid");
+	if (!config || !accountId || !agentId || !ownerSigner) fail$3("game_configuration_invalid");
 	const listeners = /* @__PURE__ */ new Set();
 	let status = {
 		phase: "unprepared",
@@ -4963,18 +4963,18 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		notify();
 	});
 	function assertCurrent() {
-		if (disposed || !isCurrent()) fail$2("game_session_changed");
-		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$2("page_paused");
+		if (disposed || !isCurrent()) fail$3("game_session_changed");
+		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$3("page_paused");
 		const current = now();
 		if (current < lastWall || current - lastWall > 1e4) {
 			stop("page_paused");
-			fail$2("page_paused");
+			fail$3("page_paused");
 		}
 		lastWall = current;
 	}
 	function check(expected, controller) {
 		assertCurrent();
-		if (expected !== generation || controller?.signal.aborted) fail$2("stopped");
+		if (expected !== generation || controller?.signal.aborted) fail$3("stopped");
 	}
 	function stop(code = "stopped") {
 		const stoppedGeneration = ++generation;
@@ -5009,8 +5009,8 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		lastWall = current;
 	}, 1e3);
 	async function prepare({ takeover = false, inspectOnly = false, confirmedFence } = {}) {
-		if (preparing || starting === generation || runner?.state().phase === "running") fail$2("already_running");
-		if (!inspectOnly && !confirmedFence) fail$2("run_confirmation_required");
+		if (preparing || starting === generation || runner?.state().phase === "running") fail$3("already_running");
+		if (!inspectOnly && !confirmedFence) fail$3("run_confirmation_required");
 		lastWall = now();
 		assertCurrent();
 		operationController?.abort();
@@ -5059,12 +5059,12 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				signal: controller.signal,
 				beforeEffect: async () => {
 					checked();
-					if (!registrationAllowed) fail$2("run_confirmation_required");
+					if (!registrationAllowed) fail$3("run_confirmation_required");
 				}
 			};
 			const readOnly = {
 				load: async () => ({ operations: [] }),
-				remember: async () => fail$2("task_scope_required")
+				remember: async () => fail$3("task_scope_required")
 			};
 			const observed = await clientFactory({
 				...dependencies,
@@ -5098,14 +5098,14 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				});
 				return { ...status };
 			}
-			if (!same(confirmedFence, observed.fence)) fail$2("task_fence_changed");
-			if (unknown) fail$2("recovery_required");
+			if (!same$1(confirmedFence, observed.fence)) fail$3("task_fence_changed");
+			if (unknown) fail$3("recovery_required");
 			await legacyGuard({ signal: controller.signal });
 			checked();
 			registrationAllowed = true;
 			const existing = observed.fence.executor_binding;
 			if (existing?.executor_public_key !== executorSigner.publicKeyHex) {
-				if (existing && !takeover) fail$2("executor_takeover_confirmation_required");
+				if (existing && !takeover) fail$3("executor_takeover_confirmation_required");
 				const operationId = codec.requestDigest("browser-executor-registration", JSON.stringify({
 					fence: observed.fence,
 					executor: executorSigner.publicKeyHex
@@ -5144,10 +5144,10 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 			let localRunner;
 			const runtimePermit = async () => {
 				checked();
-				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$2("run_confirmation_required");
+				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$3("run_confirmation_required");
 				await credential();
 				checked();
-				if (runGeneration !== expected) fail$2("stopped");
+				if (runGeneration !== expected) fail$3("stopped");
 			};
 			localClient = clientFactory({
 				...dependencies,
@@ -5173,7 +5173,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 					},
 					async reserve(candidate) {
 						checked();
-						if (!budgetRunId) fail$2("run_budget_missing");
+						if (!budgetRunId) fail$3("run_budget_missing");
 						const durable = await localRecovery.reserveModelCall(budgetRunId, candidate.inputBytes, candidate.maxOutputTokens);
 						checked();
 						const shared = await modelSession.reserveExecution(candidate);
@@ -5206,7 +5206,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				},
 				getCredential: async () => {
 					checked();
-					if (runGeneration !== expected || !credential) fail$2("stopped");
+					if (runGeneration !== expected || !credential) fail$3("stopped");
 					const key = await credential();
 					checked();
 					return key;
@@ -5252,9 +5252,9 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		lastWall = now();
 		assertCurrent();
 		const modelState = modelSession.snapshot();
-		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$2("run_confirmation_required");
-		if (starting === generation || runner.state().phase === "running") fail$2("already_running");
-		if (typeof locks?.request !== "function") fail$2("locks_unavailable");
+		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$3("run_confirmation_required");
+		if (starting === generation || runner.state().phase === "running") fail$3("already_running");
+		if (typeof locks?.request !== "function") fail$3("locks_unavailable");
 		const expected = generation, confirmedFence = status.fence, controller = operationController;
 		const currentClient = client, currentRunner = runner;
 		starting = expected;
@@ -5268,15 +5268,15 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				mode: "exclusive",
 				ifAvailable: true
 			}, async (lock) => {
-				if (!lock) fail$2("agent_busy");
+				if (!lock) fail$3("agent_busy");
 				check(expected, controller);
 				await legacyGuard({ signal: controller.signal });
 				check(expected, controller);
 				const current = await currentClient.freshFence();
 				check(expected, controller);
-				if (!same(current.fence, confirmedFence)) fail$2("task_fence_changed");
+				if (!same$1(current.fence, confirmedFence)) fail$3("task_fence_changed");
 				const currentModel = modelSession.snapshot();
-				if (!currentModel.hasKey || currentModel.checked !== true) fail$2("run_confirmation_required");
+				if (!currentModel.hasKey || currentModel.checked !== true) fail$3("run_confirmation_required");
 				const permission = await modelSession.beginExecution(currentModel.revision);
 				check(expected, controller);
 				credential = permission;
@@ -5313,8 +5313,8 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		stop,
 		async recover() {
 			assertCurrent();
-			if (!client || operationController?.signal.aborted) fail$2("task_scope_required");
-			if (starting === generation || runner?.state().phase === "running") fail$2("already_running");
+			if (!client || operationController?.signal.aborted) fail$3("task_scope_required");
+			if (starting === generation || runner?.state().phase === "running") fail$3("already_running");
 			const expected = generation, controller = operationController, originalClient = client, originalRecovery = recovery;
 			await originalClient.recover();
 			check(expected, controller);
@@ -5915,7 +5915,7 @@ function ModelConnectionPanel(props) {
 }
 delegateEvents(["click"]);
 // software_safe_src/browser_owner_entry.js
-var fail$1 = (code, diagnostic) => {
+var fail$2 = (code, diagnostic) => {
 	throw new BrowserParticipantError(code, diagnostic);
 };
 var hex$2 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
@@ -5945,13 +5945,13 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		ownerSigner.publicKeyHex
 	])}`;
 	const active = () => {
-		if (disposed || signal?.aborted || !isCurrent()) fail$1("participant_stopped");
+		if (disposed || signal?.aborted || !isCurrent()) fail$2("participant_stopped");
 	};
 	const build = (kind, input) => {
 		try {
 			return codec.build(kind, typeof input === "string" ? input : JSON.stringify(input));
 		} catch {
-			fail$1("owner_proof_invalid", { stage: {
+			fail$2("owner_proof_invalid", { stage: {
 				task_create: "owner_task_build",
 				goal_prepare: "owner_goal_build",
 				goal_publish: "owner_goal_build"
@@ -5969,15 +5969,15 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			schema: 2,
 			key
 		};
-		if (![1, 2].includes(record?.schema) || record.key !== key || JSON.stringify(record).length > 262144) fail$1("owner_storage_corrupt");
+		if (![1, 2].includes(record?.schema) || record.key !== key || JSON.stringify(record).length > 262144) fail$2("owner_storage_corrupt");
 		for (const slot of [
 			"taskRaw",
 			"publishRaw",
 			"goalPrepareRaw"
-		]) if (record[`${slot}Phase`] !== void 0 && !deliveryPhases.has(record[`${slot}Phase`])) fail$1("owner_storage_corrupt");
+		]) if (record[`${slot}Phase`] !== void 0 && !deliveryPhases.has(record[`${slot}Phase`])) fail$2("owner_storage_corrupt");
 		if (record.schema === 2) for (const slot of ["taskRaw", "publishRaw"]) {
 			const phase = record[`${slot}SendState`];
-			if (phase !== void 0 && (!record[slot] || !["not_sent", "may_have_sent"].includes(phase) || phase === "not_sent" && (record[`${slot}Receipt`] || record[`${slot}TerminalReply`] || record[`${slot}Phase`] !== void 0 && record[`${slot}Phase`] !== "prepared_unsent"))) fail$1("owner_storage_corrupt");
+			if (phase !== void 0 && (!record[slot] || !["not_sent", "may_have_sent"].includes(phase) || phase === "not_sent" && (record[`${slot}Receipt`] || record[`${slot}TerminalReply`] || record[`${slot}Phase`] !== void 0 && record[`${slot}Phase`] !== "prepared_unsent"))) fail$2("owner_storage_corrupt");
 		}
 		return record;
 	}
@@ -5986,16 +5986,16 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			return check(await database.get(key));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$1("owner_storage_failed");
+			fail$2("owner_storage_failed");
 		}
 	}
 	async function update(mutate) {
-		if (!locks?.request) fail$1("participant_locks_unavailable");
+		if (!locks?.request) fail$2("participant_locks_unavailable");
 		try {
 			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => check(mutate(check(record)))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$1("owner_storage_failed");
+			fail$2("owner_storage_failed");
 		}
 	}
 	async function signed(domain, requestRaw) {
@@ -6004,7 +6004,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		try {
 			signature = hex$2(await ownerSigner.sign(codec.signingBytes(domain, requestRaw)));
 		} catch {
-			fail$1("participant_signing_failed");
+			fail$2("participant_signing_failed");
 		}
 		active();
 		return `{"request":${requestRaw},"subject_public_key":${JSON.stringify(ownerSigner.publicKeyHex)},"signature_hex":${JSON.stringify(signature)}}`;
@@ -6052,20 +6052,20 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			const raw = codec.verifyGatewayResponse(domain, requestRaw, reply, config.servicePublicKey);
 			return codec.validate(kind, validationRequest, raw);
 		} catch {
-			fail$1("owner_response_unknown", { stage: kind === "goal_prepared" ? "owner_goal_prepare" : "owner_response_verify" });
+			fail$2("owner_response_unknown", { stage: kind === "goal_prepared" ? "owner_goal_prepare" : "owner_response_verify" });
 		}
 	}
 	function lookupMaterial(originalRaw, slot) {
 		if (decoded(field(originalRaw, ["signed_payload", "kind"])) !== {
 			taskRaw: "game_task_create",
 			publishRaw: "game_goal_publish"
-		}[slot]) fail$1("owner_original_conflict");
+		}[slot]) fail$2("owner_original_conflict");
 		const payload = field(originalRaw, ["signed_payload"]), correlation = field(originalRaw, ["correlation"]);
 		const expected = build("correlation", {
 			world: config.world,
 			payload_json: payload
 		});
-		if (field(expected, []) !== field(correlation, [])) fail$1("owner_original_conflict");
+		if (field(expected, []) !== field(correlation, [])) fail$2("owner_original_conflict");
 		return {
 			request: `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`,
 			correlation
@@ -6076,7 +6076,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const { request, correlation } = lookupMaterial(record[slot], slot);
 		const raw = verify(LOOKUP, request, record[`${slot}TerminalReply`], "lookup", correlation);
 		const status = decoded(field(raw, ["outcome", "status"]));
-		if (!terminalDisposition(status)) fail$1("owner_storage_corrupt");
+		if (!terminalDisposition(status)) fail$2("owner_storage_corrupt");
 		return status;
 	}
 	const lookup = (originalRaw, slot) => atBrowserGameStage(slot === "taskRaw" ? "owner_task_lookup" : "owner_goal_lookup", () => lookupOriginal(originalRaw, slot));
@@ -6085,10 +6085,10 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const reply = await ownerCall("lookup", request);
 		const candidate = verify(LOOKUP, request, reply, "lookup", correlation);
 		const winner = await update((current) => {
-			if (current[slot] !== originalRaw) fail$1("owner_original_conflict");
+			if (current[slot] !== originalRaw) fail$2("owner_original_conflict");
 			const raw = current[`${slot}TerminalReply`] ? verify(LOOKUP, request, current[`${slot}TerminalReply`], "lookup", correlation) : candidate;
 			const state = decoded(field(raw, ["outcome", "status"]));
-			if (current[`${slot}TerminalReply`] && !terminalDisposition(state)) fail$1("owner_storage_corrupt");
+			if (current[`${slot}TerminalReply`] && !terminalDisposition(state)) fail$2("owner_storage_corrupt");
 			if (!current[`${slot}TerminalReply`] && terminalDisposition(state)) current[`${slot}TerminalReply`] = reply;
 			current[`${slot}Observation`] = operationObservation({
 				phase: current[`${slot}Phase`],
@@ -6100,8 +6100,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const raw = winner[`${slot}TerminalReply`] ? verify(LOOKUP, request, winner[`${slot}TerminalReply`], "lookup", correlation) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
-			if (["rejected", "expired"].includes(state)) fail$1(state === "expired" ? "owner_operation_expired" : "owner_operation_rejected");
-			fail$1("owner_operation_pending", { outcome: state });
+			if (["rejected", "expired"].includes(state)) fail$2(state === "expired" ? "owner_operation_expired" : "owner_operation_rejected");
+			fail$2("owner_operation_pending", { outcome: state });
 		}
 		return raw;
 	}
@@ -6144,7 +6144,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			}
 			return current;
 		});
-		if (record[slot] !== raw) fail$1("owner_original_conflict");
+		if (record[slot] !== raw) fail$2("owner_original_conflict");
 		return {
 			raw,
 			fresh
@@ -6160,9 +6160,9 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					client_nonce: decoded(field(original, ["request", "client_nonce"])),
 					content: decoded(field(original, ["request", "content"]))
 				});
-				if (field(expected, []) !== field(original, ["request"])) fail$1("owner_original_scope_changed");
-			} else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail$1("owner_original_scope_changed");
-			if (record[slot] !== original || record[`${slot}TerminalReply`] || !replay && !isUnsent(record, slot)) fail$1("owner_original_conflict");
+				if (field(expected, []) !== field(original, ["request"])) fail$2("owner_original_scope_changed");
+			} else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail$2("owner_original_scope_changed");
+			if (record[slot] !== original || record[`${slot}TerminalReply`] || !replay && !isUnsent(record, slot)) fail$2("owner_original_conflict");
 			if (!replay) record[`${slot}SendState`] = "may_have_sent";
 			record[`${slot}Phase`] = "dispatch_may_have_started";
 			return record;
@@ -6183,7 +6183,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 	});
 	async function settleIntent(slot, original, send) {
 		const record = await load();
-		if (typeof original !== "string" || record[slot] !== original) fail$1("owner_original_conflict");
+		if (typeof original !== "string" || record[slot] !== original) fail$2("owner_original_conflict");
 		lookupMaterial(original, slot);
 		const terminal = terminalStatus(slot, record);
 		if (operationObservation({
@@ -6199,8 +6199,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		}
 		active();
 		const current = await load();
-		if (current[slot] !== original) fail$1("owner_original_conflict");
-		if (isUnsent(current, slot)) fail$1("owner_original_not_sent");
+		if (current[slot] !== original) fail$2("owner_original_conflict");
+		if (isUnsent(current, slot)) fail$2("owner_original_not_sent");
 		return lookup(original, slot);
 	}
 	async function reconcile() {
@@ -6268,9 +6268,9 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		};
 	}
 	async function prepare({ goal, consent } = {}, continueUnsent = false) {
-		if (consent !== true) fail$1("owner_consent_required");
-		if ((!continueUnsent || goal !== void 0) && (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192)) fail$1("owner_goal_invalid");
-		if (!locks?.request) fail$1("participant_locks_unavailable");
+		if (consent !== true) fail$2("owner_consent_required");
+		if ((!continueUnsent || goal !== void 0) && (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192)) fail$2("owner_goal_invalid");
+		if (!locks?.request) fail$2("participant_locks_unavailable");
 		return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
 			active();
 			let status = await inspect();
@@ -6280,8 +6280,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				if (status.continuation === "participant") await participant.continueOriginal(true);
 				else {
 					const record = await load(), slot = status.continuation;
-					if (!["taskRaw", "publishRaw"].includes(slot)) fail$1("owner_original_conflict");
-					if (status.goal && goal !== void 0 && status.goal !== goal.trim()) fail$1("owner_goal_original_conflict");
+					if (!["taskRaw", "publishRaw"].includes(slot)) fail$2("owner_original_conflict");
+					if (status.goal && goal !== void 0 && status.goal !== goal.trim()) fail$2("owner_goal_original_conflict");
 					await settleIntent(slot, record[slot], true);
 				}
 				status = await inspect();
@@ -6325,7 +6325,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			};
 			if (original && field(original, ["request", "content"]) !== JSON.stringify(content)) {
 				const old = decoded(field(original, ["request", "content"]));
-				if (old.goal_text !== content.goal_text || JSON.stringify(old.soft_constraints) !== "[]") fail$1("owner_goal_original_conflict");
+				if (old.goal_text !== content.goal_text || JSON.stringify(old.soft_constraints) !== "[]") fail$2("owner_goal_original_conflict");
 			}
 			if (!original) {
 				const taskRaw = field(status.ownerControl.rawJson, ["view", "game_task_control"]);
@@ -6342,7 +6342,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					}
 					return current;
 				});
-				if (record.goalPrepareRaw !== original) fail$1("owner_original_conflict");
+				if (record.goalPrepareRaw !== original) fail$2("owner_original_conflict");
 			}
 			if (!record.goalReceiptRaw) {
 				if (operationObservation({
@@ -6350,7 +6350,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					policy: "private_preparation_replay",
 					intent: "continue_authorized_entry",
 					writeAllowed: true
-				}).nextAction !== "continue_original") fail$1("owner_original_retained");
+				}).nextAction !== "continue_original") fail$2("owner_original_retained");
 				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true, (controlRaw) => claimDispatch("goalPrepareRaw", original, controlRaw, true)), "goal_prepared", original);
 				record = await update((current) => {
 					current.goalReceiptRaw = receipt;
@@ -9271,6 +9271,482 @@ function worldViewRelations(view) {
 		return (runtime || industrial) && endpoint(relation.from) && endpoint(relation.to);
 	});
 }
+// software_safe_src/viewer_custody_owner_setup_client.js
+var API$1 = "/api/public/hosted-account/v2";
+var CUSTODY_PATHS = Object.freeze({
+	parents_query_path: "/v1/management/parents/query",
+	options_path: `${API$1}/custody/approvals/options`,
+	complete_path: `${API$1}/custody/approvals/complete`
+});
+var fail$1 = (code) => Object.assign(new Error(code), { code });
+function same(a, b) {
+	if (a === b) return true;
+	if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+	if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => same(value, b[index]));
+	const keys = Object.keys(a);
+	return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && same(a[key], b[key]));
+}
+var id = (value) => typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(value);
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+var clone$1 = (value) => structuredClone(value);
+function randomHex(crypto) {
+	const bytes = /* @__PURE__ */ new Uint8Array(32);
+	crypto.getRandomValues(bytes);
+	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function custodyCapability(value) {
+	return value?.api_version === 1 && value.available === true && id(value.audience) && id(value.environment) && Object.entries(CUSTODY_PATHS).every(([key, path]) => value[key] === path);
+}
+function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, credentials = globalThis.navigator?.credentials, crypto = globalThis.crypto, now = () => Date.now(), browserPasskeyOptions, serializePasskey } = {}) {
+	let generation = 0, scope = null, pending = null, flight = null;
+	const check = (revision) => {
+		if (revision !== generation || !scope) throw fail$1("custody_session_changed");
+	};
+	function reset() {
+		generation += 1;
+		pending = null;
+		flight = null;
+	}
+	function setSession(account, authentication, capability) {
+		const next = account?.account_id && authentication?.method === "webauthn" && custodyCapability(capability) ? {
+			account: account.account_id,
+			capability: clone$1(capability)
+		} : null;
+		if (!same(next, scope)) {
+			reset();
+			scope = next;
+		}
+		return Boolean(scope);
+	}
+	async function request(path, body, revision) {
+		check(revision);
+		const headers = { Accept: "application/json" };
+		if (body !== void 0) {
+			const capability = await request(`${API$1}/capabilities`, void 0, revision);
+			check(revision);
+			if (typeof capability.csrf_token !== "string" || !capability.csrf_token) throw fail$1("custody_csrf_unavailable");
+			if (!custodyCapability(capability.custody_management) || !same(capability.custody_management, scope.capability)) throw fail$1("custody_configuration_changed");
+			headers["Content-Type"] = "application/json";
+			headers["X-Oasis7-CSRF"] = capability.csrf_token;
+		}
+		let response;
+		try {
+			response = await fetchImpl(path, {
+				method: body === void 0 ? "GET" : "POST",
+				headers,
+				credentials: "same-origin",
+				cache: "no-store",
+				...body === void 0 ? {} : { body: JSON.stringify(body) }
+			});
+		} catch {
+			check(revision);
+			throw fail$1("custody_outcome_unknown");
+		}
+		check(revision);
+		let value;
+		try {
+			const text = await response.text();
+			if (new TextEncoder().encode(text).length > 65536) throw fail$1("size");
+			value = JSON.parse(text);
+		} catch {
+			throw fail$1("custody_response_invalid");
+		}
+		check(revision);
+		if (!response.ok || value?.ok === false) {
+			const error = fail$1(response.status >= 500 || response.status === 202 ? "custody_outcome_unknown" : "custody_request_rejected");
+			error.status = response.status;
+			throw error;
+		}
+		if (!value || typeof value !== "object" || Array.isArray(value)) throw fail$1("custody_response_invalid");
+		return value;
+	}
+	function oneFlight(action) {
+		if (flight) return flight;
+		const revision = generation;
+		const promise = Promise.resolve().then(() => {
+			check(revision);
+			return action(revision);
+		});
+		flight = promise;
+		promise.finally(() => {
+			if (flight === promise) flight = null;
+		}).catch(() => {});
+		return promise;
+	}
+	function route(provision, method) {
+		if (!id(provision)) throw fail$1("custody_parent_invalid");
+		return `/v1/account-provisions/${encodeURIComponent(provision)}/owner-setups/${method}`;
+	}
+	async function parents(cursor = null, revision = null) {
+		return oneFlight(async (current) => {
+			if (cursor === null !== (revision === null) || cursor !== null && (!id(cursor) || !id(revision))) throw fail$1("custody_cursor_invalid");
+			const page = await request(CUSTODY_PATHS.parents_query_path, {
+				api_version: 1,
+				limit: 16,
+				after_custody_account_id: cursor,
+				directory_revision: revision
+			}, current);
+			if (page.api_version !== 1 || !id(page.directory_revision) || typeof page.frozen !== "boolean" || typeof page.inventory_complete !== "boolean" || !Array.isArray(page.items) || page.items.length > 16 || new TextEncoder().encode(JSON.stringify(page)).length > 32768 || page.next_after_custody_account_id !== null && !id(page.next_after_custody_account_id) || revision !== null && revision !== page.directory_revision || page.items.some((item) => !id(item.custody_account_id) || !id(item.provision_id) || item.environment !== scope.capability.environment || !id(item.world_id))) throw fail$1("custody_directory_invalid");
+			return clone$1(page);
+		});
+	}
+	function prepare(parent, goalText) {
+		return oneFlight(async (revision) => {
+			if (pending) throw fail$1("custody_original_pending");
+			if (!id(parent?.custody_account_id) || !id(parent?.provision_id) || parent.environment !== scope.capability.environment || !id(parent.world_id) || typeof goalText !== "string" || !goalText.trim() || new TextEncoder().encode(goalText).length > 3500) throw fail$1("custody_plan_invalid");
+			const basis = await request(route(parent.provision_id, "basis"), { api_version: 1 }, revision);
+			if (basis.api_version !== 1 || basis.custody_account_id !== parent.custody_account_id || basis.provision_id !== parent.provision_id || basis.world_identity?.world_id !== parent.world_id || !id(basis.owner_key?.key_id) || !id(basis.executor_key?.key_id) || !decimal(basis.bootstrap_config_version)) throw fail$1("custody_basis_invalid");
+			const prefix = `owner-setup-${randomHex(crypto)}`;
+			const plan = {
+				api_version: 1,
+				setup_id: prefix,
+				provision_id: basis.provision_id,
+				participant_receipt_digest: basis.participant_receipt_digest,
+				world_identity: clone$1(basis.world_identity),
+				owner_key_ref: basis.owner_key.key_id,
+				executor_key_ref: basis.executor_key.key_id,
+				bootstrap_config_version: basis.bootstrap_config_version,
+				goal_content: {
+					goal_text: goalText,
+					soft_constraints: []
+				},
+				create_operation_id: `${prefix}-create`,
+				prepare_operation_id: `${prefix}-prepare`,
+				prepare_nonce: randomHex(crypto),
+				publish_operation_id: `${prefix}-publish`,
+				delegation_operation_id: `${prefix}-delegate`,
+				bind_operation_id: `${prefix}-bind`,
+				executor_id: `${prefix}-executor`,
+				executor_public_key: basis.executor_key.public_key,
+				delegation_generation: "1",
+				delegation_nonce: "1",
+				resource_refs: [],
+				deadline: String(now() + 12e4),
+				request_limit: "6",
+				transport_limit: "584",
+				write_limit: "4"
+			};
+			const original = {
+				api_version: 1,
+				approval_request_id: `${prefix}-approval`,
+				plan
+			};
+			pending = {
+				parent: clone$1(parent),
+				basis: clone$1(basis),
+				plan,
+				original,
+				prepared: null,
+				complete: null,
+				approved: null,
+				completeUnknown: false,
+				approveUnknown: false,
+				cancelled: false,
+				state: "prepare_unknown"
+			};
+			return prepareOriginal(revision);
+		});
+	}
+	async function prepareOriginal(revision) {
+		const prepared = await request(route(pending.parent.provision_id, "prepare"), pending.original, revision);
+		const { context, intent } = prepared;
+		if (prepared.approval_request_id !== pending.original.approval_request_id || context?.custody_account_id !== pending.parent.custody_account_id || context?.environment !== scope.capability.environment || context?.audience !== scope.capability.audience || !decimal(context?.policy_version) || !decimal(context?.security_version) || !decimal(context?.service_epoch) || intent?.kind !== "owner_setup" || intent.setup_id !== pending.plan.setup_id || intent.provision_id !== pending.plan.provision_id || !same(intent.world_identity, pending.plan.world_identity) || intent.participant_receipt_digest !== pending.plan.participant_receipt_digest || intent.owner_key_ref !== pending.plan.owner_key_ref || intent.executor_key_ref !== pending.plan.executor_key_ref || intent.bootstrap_config_version !== pending.plan.bootstrap_config_version || intent.deadline !== pending.plan.deadline || intent.request_limit !== "6" || intent.transport_limit !== "584" || intent.write_limit !== "4" || !/^[0-9a-f]{64}$/.test(intent.setup_plan_digest)) throw fail$1("custody_prepare_invalid");
+		pending.prepared = clone$1(prepared);
+		pending.state = "prepared";
+		return summary();
+	}
+	function summary() {
+		return pending ? clone$1({
+			parent: pending.parent,
+			plan: pending.plan,
+			prepared: pending.prepared,
+			state: pending.state,
+			completeUnknown: pending.completeUnknown,
+			approveUnknown: pending.approveUnknown,
+			cancelled: pending.cancelled
+		}) : null;
+	}
+	async function completeOriginal(revision) {
+		pending.completeUnknown = true;
+		pending.state = "complete_unknown";
+		const result = await request(CUSTODY_PATHS.complete_path, pending.complete, revision);
+		if (result.api_version !== 1 || result.phase !== "completed" || !result.approval?.proof || typeof result.approval.signature !== "string" || result.approval.proof.approval_id !== pending.complete.approval_id || result.approval.proof.intent_digest !== pending.complete.intent_digest || !same(result.approval.proof.context, pending.prepared.context)) throw fail$1("custody_approval_invalid");
+		pending.approved = {
+			api_version: 1,
+			input: {
+				operation_id: pending.plan.setup_id,
+				request: clone$1(pending.prepared),
+				approval: clone$1(result.approval)
+			},
+			plan: clone$1(pending.plan)
+		};
+		pending.complete = null;
+		pending.completeUnknown = false;
+		return approveOriginal(revision);
+	}
+	async function approveOriginal(revision) {
+		pending.approveUnknown = true;
+		pending.state = "approve_unknown";
+		const progress = await request(route(pending.parent.provision_id, "approve"), pending.approved, revision);
+		if (progress.api_version !== 1 || progress.setup_id !== pending.plan.setup_id || progress.custody_account_id !== pending.parent.custody_account_id || progress.provision_id !== pending.parent.provision_id || typeof progress.stage !== "string") throw fail$1("custody_progress_invalid");
+		pending.approved = null;
+		pending.approveUnknown = false;
+		pending.state = "approved";
+		return {
+			stage: progress.stage,
+			setup_id: progress.setup_id,
+			execution_started: false
+		};
+	}
+	function approve() {
+		return oneFlight(async (revision) => {
+			if (!pending?.prepared || pending.cancelled || pending.state !== "prepared" || !credentials?.get) throw fail$1("custody_not_ready");
+			const started = await request(CUSTODY_PATHS.options_path, pending.prepared, revision);
+			if (started.api_version !== 1 || started.phase !== "pending" || !id(started.approval_id) || !id(started.ceremony_id) || !id(started.operation_id) || !/^[0-9a-f]{64}$/.test(started.intent_digest) || started.audience !== scope.capability.audience || !started.options) throw fail$1("custody_options_invalid");
+			pending.state = "authenticator";
+			let credential;
+			try {
+				credential = await credentials.get(browserPasskeyOptions(started.options));
+			} catch {
+				check(revision);
+				pending.cancelled = true;
+				pending.state = "cancelled";
+				throw fail$1("custody_authenticator_cancelled");
+			}
+			check(revision);
+			if (!credential) {
+				pending.cancelled = true;
+				pending.state = "cancelled";
+				throw fail$1("custody_authenticator_cancelled");
+			}
+			pending.complete = {
+				approval_id: started.approval_id,
+				ceremony_id: started.ceremony_id,
+				operation_id: started.operation_id,
+				intent_digest: started.intent_digest,
+				response: serializePasskey(credential)
+			};
+			return completeOriginal(revision);
+		});
+	}
+	function retry() {
+		return oneFlight(async (revision) => {
+			if (pending?.complete && pending.completeUnknown) return completeOriginal(revision);
+			if (pending?.approved && pending.approveUnknown) return approveOriginal(revision);
+			if (pending?.state === "prepare_unknown") return prepareOriginal(revision);
+			throw fail$1("custody_not_ready");
+		});
+	}
+	function progress() {
+		return oneFlight(async (revision) => {
+			if (!pending?.approveUnknown) throw fail$1("custody_not_ready");
+			const result = await request(`/v1/account-provisions/${encodeURIComponent(pending.parent.provision_id)}/progress`, void 0, revision);
+			return {
+				stage: typeof result.stage === "string" ? result.stage : "unknown",
+				approval_confirmed: false
+			};
+		});
+	}
+	return {
+		setSession,
+		parents,
+		prepare,
+		approve,
+		retry,
+		progress,
+		summary,
+		clear() {
+			reset();
+			scope = null;
+		}
+	};
+}
+// software_safe_src/viewer_custody_owner_setup_panel.js
+var notices = {
+	custody_session_changed: "账号已经变化，原页面的迟到结果已丢弃；已发操作须由原账号核清。",
+	custody_outcome_unknown: "结果未知。请核对或显式重送同一原件，不要创建新的批准。",
+	custody_authenticator_cancelled: "已停止本地通行密钥交互；服务端挑战没有被撤销，请等待原期限或由原账号核清。",
+	custody_original_pending: "本页仍保留原操作，不能创建另一份批准。",
+	custody_request_rejected: "请求被拒绝。请核对当前账号、范围和期限，不自动重做强认证。"
+};
+function createOwnerSetupPanel({ client, browserPasskeyOptions, serializePasskey } = {}) {
+	client || (client = createOwnerSetupClient({
+		browserPasskeyOptions,
+		serializePasskey
+	}));
+	let root = null, active = false, busy = false, page = null, notice = "", goal = "", accountKey = null, method = null;
+	let uiGeneration = 0;
+	const el = (tag, text) => {
+		const node = document.createElement(tag);
+		if (text !== void 0) node.textContent = text;
+		if (["p", "dd"].includes(tag)) node.style.overflowWrap = "anywhere";
+		return node;
+	};
+	function clear() {
+		uiGeneration += 1;
+		client.clear();
+		page = null;
+		goal = "";
+		notice = "";
+		busy = false;
+		active = false;
+		accountKey = null;
+	}
+	function update(account, authentication, capability) {
+		const key = account?.account_id || null;
+		if (key !== accountKey || authentication?.method !== method) {
+			clear();
+			accountKey = key;
+		}
+		method = authentication?.method || null;
+		active = client.setSession(account, authentication, capability);
+		if (!custodyCapability(capability)) {
+			active = false;
+			page = null;
+		}
+	}
+	function action(label, work, disabled = false) {
+		const button = el("button", label);
+		button.type = "button";
+		button.disabled = busy || disabled;
+		button.addEventListener("click", async () => {
+			if (busy || !active) return;
+			const revision = uiGeneration;
+			busy = true;
+			notice = "";
+			render();
+			try {
+				await work();
+			} catch (error) {
+				if (revision === uiGeneration) notice = notices[error.code] || "未完成该阶段。请核对当前账号与已冻结原件，不会自动批准或继续。";
+			} finally {
+				if (revision === uiGeneration) {
+					busy = false;
+					render();
+				}
+			}
+		});
+		return button;
+	}
+	function detail(list, name, value) {
+		list.append(el("dt", name), el("dd", String(value)));
+	}
+	function renderSummary(summary) {
+		const { plan, prepared } = summary;
+		root.append(el("h4", "确认同一份 OwnerSetup V1 原件"));
+		root.append(el("p", "仅准备与批准：资源引用为空，仅支持 Move business 0；本页不启动任务、不继续执行、不写世界。"));
+		const list = el("dl");
+		list.className = "custody-approval-summary";
+		for (const [name, value] of Object.entries({
+			"托管账号": summary.parent.custody_account_id,
+			"Provision": plan.provision_id,
+			"Setup 操作": plan.setup_id,
+			"私有目标": plan.goal_content.goal_text,
+			"Owner key": plan.owner_key_ref,
+			"Executor key": plan.executor_key_ref,
+			"请求 / 传输 / 写入上限": `${plan.request_limit} / ${plan.transport_limit} / ${plan.write_limit}`,
+			"截止时间": new Date(Number(plan.deadline)).toISOString(),
+			"参与者回执摘要": plan.participant_receipt_digest,
+			"Bootstrap 版本": plan.bootstrap_config_version,
+			"Create ID": plan.create_operation_id,
+			"Prepare ID": plan.prepare_operation_id,
+			"Publish ID": plan.publish_operation_id,
+			"Delegation ID": plan.delegation_operation_id,
+			"Bind ID": plan.bind_operation_id,
+			"Executor ID": plan.executor_id,
+			"Executor 公钥": plan.executor_public_key,
+			"Delegation generation / nonce": `${plan.delegation_generation} / ${plan.delegation_nonce}`
+		})) detail(list, name, value);
+		for (const [name, value] of Object.entries(plan.world_identity)) detail(list, `World ${name}`, value);
+		if (prepared) {
+			for (const [name, value] of Object.entries(prepared.context)) detail(list, `批准 ${name}`, value);
+			detail(list, "Rust intent kind", prepared.intent.kind);
+			detail(list, "Rust plan digest", prepared.intent.setup_plan_digest);
+			detail(list, "批准请求 ID", prepared.approval_request_id);
+		}
+		root.append(list);
+		if (summary.state === "prepared") root.append(action("确认摘要并使用通行密钥批准", async () => {
+			notice = `已保留批准。当前阶段：${(await client.approve()).stage}。本页未继续执行。`;
+		}));
+		if (summary.completeUnknown || summary.approveUnknown || summary.state === "prepare_unknown") {
+			root.append(el("p", "原请求仍在本页内存中；重送复用确切正文与 IDs，不重生 assertion 或 challenge。"));
+			root.append(action("显式重送同一原件", async () => {
+				const result = await client.retry();
+				notice = result?.execution_started === false ? `原批准已确认：${result.stage}；未继续执行。` : "原准备响应已核对，请确认摘要。";
+			}));
+		}
+		if (summary.approveUnknown) root.append(action("核对原 Provision 当前状态", async () => {
+			notice = `Provision 当前阶段：${(await client.progress()).stage}。此投影不能单独确认原 OwnerSetup 批准，原件继续保留。`;
+		}));
+		if (summary.cancelled) root.append(el("p", notices.custody_authenticator_cancelled));
+		if (summary.state === "approved") root.append(el("p", "OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。"));
+	}
+	function render() {
+		if (!root) return;
+		root.replaceChildren();
+		root.setAttribute("aria-busy", String(busy));
+		root.className = "stack custody-owner-setup";
+		root.append(el("h3", "受控 OwnerSetup 准备与批准"));
+		const status = el("p", notice || "目录只是本人公共关联，不代表可批准资格；选择后仍会核对实际权限与当前来源。");
+		status.setAttribute("role", "status");
+		root.append(status);
+		if (!active) {
+			root.append(el("p", method && method !== "webauthn" ? "请使用通行密钥重新登录后操作；当前登录方式不能代签 custody 批准。" : "当前环境未配置可用的 custody 管理入口。"));
+			return;
+		}
+		const summary = client.summary();
+		if (summary) {
+			renderSummary(summary);
+			return;
+		}
+		root.append(action("加载本人可见父项", async () => {
+			page = await client.parents();
+		}));
+		if (!page) return;
+		if (page.frozen || !page.inventory_complete) {
+			root.append(el("p", "目录已冻结或库存完整性待核清，不能据此创建批准。"));
+			return;
+		}
+		if (!page.items.length) root.append(el("p", "当前目录没有可显示的父项；没有创建任何业务目录。"));
+		const label = el("label", "本次私有目标（浏览器端仅以内存保存；目标和批准原件将发送所选托管服务端）");
+		const input = el("textarea");
+		input.rows = 3;
+		input.style.maxWidth = "100%";
+		input.maxLength = 3500;
+		input.value = goal;
+		input.disabled = busy;
+		input.addEventListener("input", () => {
+			goal = input.value;
+		});
+		label.append(input);
+		root.append(label);
+		for (const parent of page.items) {
+			const card = el("div");
+			card.className = "stack";
+			card.append(el("p", `账号 ${parent.custody_account_id} · Provision ${parent.provision_id} · ${parent.environment} / ${parent.world_id}`));
+			card.append(action("为此父项准备批准摘要", async () => {
+				await client.prepare(parent, goal);
+			}));
+			root.append(card);
+		}
+		if (page.next_after_custody_account_id) root.append(action("显式加载下一页", async () => {
+			page = await client.parents(page.next_after_custody_account_id, page.directory_revision);
+		}));
+	}
+	return {
+		update,
+		clear,
+		renderInto(parent) {
+			root = el("section");
+			parent.append(root);
+			render();
+		},
+		dispose() {
+			clear();
+			root = null;
+		}
+	};
+}
 // software_safe_src/viewer_account_email_recovery.js
 function renderAccountEmailRecovery(root, { state, account, credentials, capabilities, client, run, render }) {
 	function element(tag, text) {
@@ -10209,6 +10685,11 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	let generation = 0;
 	let account = null;
 	let capabilities = {};
+	let authentication = null;
+	const custody = createOwnerSetupPanel({
+		browserPasskeyOptions,
+		serializePasskey
+	});
 	let credentialList = [];
 	let sessionList = [];
 	let notice = "";
@@ -10369,14 +10850,20 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			run,
 			render
 		});
+		custody.update(account, authentication, capabilities.custody_management);
+		custody.renderInto(root);
 		root.append(element("h3", "已登录会话"));
 		for (const session of sessionList) {
 			const row = element("div");
 			row.append(element("span", session.current ? "当前会话" : session.device_label || "未知设备"));
-			row.append(button(session.current ? "退出当前会话" : "退出该会话", () => client.revokeSession(session)));
+			row.append(button(session.current ? "退出当前会话" : "退出该会话", () => {
+				if (session.current) custody.clear();
+				return client.revokeSession(session);
+			}));
 			root.append(row);
 		}
 		root.append(button("退出登录", async () => {
+			custody.clear();
 			await client.logout();
 			account = null;
 			onAccountState({ signedIn: false });
@@ -10385,6 +10872,8 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	}
 	function invalidate() {
 		const hadAccount = account;
+		custody.clear();
+		authentication = null;
 		account = null;
 		credentialList = [];
 		sessionList = [];
@@ -10425,7 +10914,12 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 		const capabilityResult = client.capabilities().then((value) => ({ value }), (error) => ({ error }));
 		let nextAccount;
 		try {
-			nextAccount = (await client.session()).account || null;
+			const session = await client.session();
+			nextAccount = session.account || null;
+			if (!disposed && revision === generation) {
+				authentication = session.authentication || null;
+				custody.update(nextAccount, authentication, capabilities.custody_management);
+			}
 		} catch (error) {
 			if (!invalidSession(error)) throw error;
 			nextAccount = null;
@@ -10460,6 +10954,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	return {
 		refresh,
 		dispose() {
+			custody.dispose();
 			client.clearImportedKey?.();
 			disposed = true;
 			++generation;
