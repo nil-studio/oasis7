@@ -1,4 +1,3 @@
-use super::*;
 #[path = "task_cleanup_v2_formal_fixture.rs"]
 mod formal_fixture;
 #[test]

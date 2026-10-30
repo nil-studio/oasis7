@@ -1,6 +1,5 @@
 //! Actual Runtime mutation with the existing formal-read test authority identity.
 //! Local cryptographic authorities are not external finality/deployment evidence.
-use super::*;
 use oasis7_agent_api::game::*;
 use oasis7_client_api::world_service::{WorldIdentity, sign_read_request};
 use oasis7_runtime::{
