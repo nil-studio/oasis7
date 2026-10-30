@@ -377,6 +377,14 @@ Trace refs: O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916；承接 [REQ-LWS-009](.
 
 Runtime/DistFS 在首个实现接受新创世前冻结 canonical 编码向量、domain/type/version、Merkle 键编码及 put/delete/排序规则、完整字段到 namespace 映射，以及 commit catalog 的前缀追加、范围证明和 GenesisConfigId/GenesisCommitId 边界。未完成时新格式保持不可启用，不能由暂定序列化器输出产生正式历史。
 
+<a id="iws-ledger-value-v1"></a>
+
+`ledger-value.v1` 只冻结 `MaterialLedgerId` 值的无损原语，不是通用 entry wire、字段登记或 World 启用。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。工厂、配方、运输等聚合值内的账本 ID 仍须由后续 typed 值 codec 显式接入；键 codec 或任意 `Serialize` 不能替代值编码和准入。
+
+值 bytes 固定为 ASCII `oasis7.iws.ledger-value.v1` 加零字节、kind u8（World=0、Agent=1、Site=2、Factory=3）、原 ID 的 u64 大端 UTF-8 字节长度、原 UTF-8 bytes。World 的长度必须为零；其他 kind 保留包括空文本在内的原值，业务合法性由原 owner 验证。编码长度必须 checked，未知 kind、错误 domain/总长、尾随 bytes 和非法 UTF-8 明确拒绝。不调用账本 ID 的格式化或 Serde 转换，不聚合另一个 ID 字符串，也不重写其业务身份。
+
+借用解码的来源 bytes 由调用者持有并准入。树上流读先用预期 value-root ID 验证 descriptor，再核对固定头与完整逻辑长度，按显式读取类别和有限 I/O 预算读取；UTF-8 跨块只保留至多三个未完成字节，输出在整体校验和最终取消检查成功前均为暂态。逻辑长度额度是操作预算，不是格式上限；失败或取消不退回已消耗工作，也不授予字段归属、授权、head 接受或恢复后可服务资格。原始 side/history 中的浮点及其他 entry 值类型不在本原语中；完整字段/值/闭包和生命周期能力仍须按本节其余条件完成后才能启用新格式。
+
 页面/块大小、fanout、事务工作集、并发/cache、history 段封闭、后台节奏和磁盘余量由实现候选的测量决定，记录实际选择与范围；它们不作为本文虚构的通用 SLO。逻辑布局参数与操作配额必须分开，前者变化需要显式格式规则，后者不能改变共识可见结果。
 
 WASM/Runtime/外部效果 owner 共同确认 scheduler、allocator、授权/去重及 unknown 的完整语义；QA 在非空续跑和原效果不重派上独立审读。ops/P2P 提供实际独立域与恢复证据，缺失时只接受已验证的本地范围。本文提供新格式系统合同，不声明源码实施、原世界修复、生产重置或部署完成。

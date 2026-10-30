@@ -63,6 +63,7 @@ pub use snapshot_delta::{
 };
 mod state;
 pub use oasis7_world_state::types;
+pub use oasis7_world_state::incremental_ledger_value;
 pub use oasis7_world_state::util;
 mod world;
 pub use oasis7_world_state::world_event;
