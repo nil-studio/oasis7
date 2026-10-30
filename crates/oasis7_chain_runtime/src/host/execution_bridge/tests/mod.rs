@@ -49,6 +49,7 @@ mod driver_checkpoint_transaction;
 mod driver_compacted_checkpoint_recovery;
 mod driver_observability;
 mod driver_service_cold_recovery;
+mod node_retained_commit_restart;
 mod driver_storage_profile;
 mod retained_commit_time;
 // The fixture helpers live behind `test_tier_required` in the external
