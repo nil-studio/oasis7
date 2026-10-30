@@ -443,3 +443,16 @@ raw reader 从期望值 root 与期望完整 field key 开始，以明确 pool/c
 写者分别提供 Metadata 与借用原 Group key 的封闭入口，显式限制 semantic/record bytes，使用有限 key hash 工作额度、固定准入 workspace 和 ValueStreamWriter，不构造完整原键编码缓冲。读取从期望 root 和完整期望 field key 开始，在应用操作额度前核对 framing 与认证总长，显式使用 pool/class 和有限 I/O；Group 原键流式输出并核对 digest，Metadata 不调用原键输出。每次底层输出尝试后返回外层取消检查，hash 仅计成功接受前缀。输出、暂存页和返回 root 在原事务发布前均非权威；读取整体完成及最终取消检查前输出保持暂态。
 
 raw reader 不解析语义 token 或业务身份，不用结构合法或摘要匹配代签 typed 恢复、完整 World 创世、激活、复制闭包或 GC。缺标记与认证缺失的判定须经实际字段恢复流程，不能把预算不足、取消或读失败当作空集合。
+
+
+### 12.7 资源、材料与材料账本的创世生产者
+
+<a id="iws-inventory-genesis-v1"></a>
+
+本生产者直接借用 `WorldState.resources`、`materials`、`material_ledgers` 的原类型，只负责这三个已登记字段的暂存值和点写入，不遍历其他 World 字段或历史，不调用任意 Serialize，不 clone World。字段描述符复用 §12.3 的唯一 WorldState 登记，并核对 owner、Business namespace 与 Map/Map/NestedMap 形状。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+三个字段各有一个 §12.6 Metadata 标记。`resources` 使用原 ResourceKind 语义键、`materials` 使用原 UTF-8 材料名；成员均为 §12.5 Entry/I64。`material_ledgers` 对每个原 MaterialLedgerId 写 Group，含空账本，再以原 `(ledger, material-name)` pair 为 Entry/I64 键值。数量保留全部 i64 位，不规范化、拼接或格式化原 ID，也不把同名的不同 ledger variant 合并。金额和业务身份是否合法仍由原 owner 验证。
+
+每条输出先消耗有限 record 额度，再进行有界 key hash/值写入；全部记录共享调用者提供的节点/读写及 key-work 额度、同进程内存池、取消回调和 semantic/record 字节上限。新的 owned StateWrite 键缓冲在分配前取得额度，并将 reservation 随记录交给 sink；sink 保留记录时须保留其 charge，并为自己的批次/索引元数据另行准入。每条写入均为该注册字段的原完整 field key、before=None 和暂存 value root。源对象及已有容器的驻留额度由调用者持有，不用“借用”掩盖源状态内存。
+
+输出顺序用于确定性创世遍历，不代替 StateDelta 的唯一、有序写集合同；实际 sink 在已准入的有界批次中整理写集并构建暂存树。错误、取消或额度耗尽不返回完成摘要，调用者丢弃整个未完成创世前缀，不能发布部分字段；已有暂存页也不因此取得 authority。成功摘要仅报告这三个字段的完整生产，不表示全部 World family 已覆盖、原始 genesis guard 已验证或新格式已可激活。普通提交必须由实际变更入口产生增量 write-set，不通过重扫这三个 map 模拟点更新。
