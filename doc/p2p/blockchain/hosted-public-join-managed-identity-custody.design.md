@@ -1152,6 +1152,20 @@ Closed 必须进入现 canonical task history/retained chain 的严格重建和 
 
 此组件不启用 Native/Account dispatcher：现有非 World 一次 Source/private-session 获取子图已至少 29 个实际调用，超过 Cleanup24，且尚未计 LF/签名/World；原冷签名单原件 23 的另一成本问题也未解决。不得把本地调用合为一个 HTTP、隐藏 batch/缓存旧授权、删非 World 强验或提高 cap 宣称闭图。新的 Account orchestration/Native 限定 purpose/Identity 私有代证明/Vault exact once 协议及每个物理 hop 必须另行闭合并实测，完整图未满足 24 时执行仍 disabled。
 
+#### V2 目录、known lookup 与交付当前性组件
+
+新组件使用实现新增固定 catalog 常量 `/v1/world/task-cleanup-submit-v2`、`/v1/world/task-cleanup-lookup-v2` 和显式 `world_cleanup_v2` Node body，内嵌完整 typed Owner 原件；这些字符串不是旧 V1 文本中的既有路由别名。旧 WorldServicePayloadV1、旧 Node body/domain/编码和 V1-only 执行路径不变。新 body 单独要求 typed 精确编码并拒额外字段；不把新 payload 塞入旧 V1 或通用 raw action。当前组件只接受单份 V2 原件且同一 block 不混入 V1 service、Runtime、simulator 或 bootstrap；输入顺序不重排，混合/多份在 mutation 前 typed unsupported。完整 mixed/canonical receipt 时序未验证前不放开此限制，不能伪造中途的最终 CommitRef。
+
+registered 执行入口仅调用已经 begin 的正式 Runtime tick，UTC 来自链执行器已验证且保存在私有执行阶段的 RuntimeCommittedTickContext；不接受调用者 now_ms、旧 header 时间或逻辑 tick 当 UTC。新 Producer、Native/Account flag 和 HTTP route 并未因此开启，World Closed 事实不发行任何执行 grant。
+
+V2 known lookup 精确携同一 Owner signed original、固定 World 与新 observation nonce；nonce 是观察关联，不是新 Owner 授权或免计费重派。Node 签入整个 request digest、nonce、历史 Closed 事实和独立 delivery-current 状态。历史事实包括真实历史 CommitRef、commit height/UTC、完整原件摘要、实际 predicate/前后元数据，以及 OwnStop 的完整 canonical predecessor bytes；接收端重新 strict 验 Owner/Stop/domain/correlation/intent tuple、真实 signed-original/result digest 与派生 post fence。历史字段可归档但不能冒充当前授权。
+
+正式 Node adapter 接通时必须从实际 current pin 取永久记录，再从实际历史 height pin 取同一完整不可覆盖记录；历史缺证为 HistoryUnavailable，不填假 CommitRef。实际 Owner/lineage/signer/HWM 变化只能令 delivery 为 typed drift，不能丢弃已验证的历史事实或假称 Stop 成功。其签发前还必须再取实际 current pin，完整 CommitRef 任一字段变化均收紧为 delivery drift，保留历史事实；没有历史事实的旧 Unknown 也不能套上新 root 当作当前不存在证明。Node 使用固定配置 service key，Owner key 与 Node key职责分离，接收端 verify_strict，不从包内公钥或 verified bool 建信任。只有明确匹配 KnownClosed 的 ExactClosed delivery 才是该次观察的当前证据，仍不是后续工具/业务准入。
+
+当前实际 Native V1 entry-owner/control 在每 Submit/Lookup 前先读 Owner view，再 await 后重核 SID 后转发，不能将它直接包装为新的省 hop cleanup gateway，也不能用其裸 SID、普通 ceremony 或旧 flag 开放 V2。新 Native purpose/认证、每实际 HTTP 预扣/once、当前 Source/RootLF/DFRF、预算和 lookup/archive/admit Caller 仍欠实现，production route 保持零出站拒绝。本组件的 WorldService 纯 typed builder 由实际 Runtime 状态 fixture 调用；SDK codec 测试使用明确的本地 Node 角色测试 key 验强签。实际 Node Service 的 current/history/delivery pin 与配置 service key 签发 adapter 尚未接线，也没有对应生产 caller 或 Service adapter 集成测试，不能把本地强签 codec 证明当实际 Node 交付、Native caller、MFA、付费账或生产 HTTP 已可用。
+
+正式 adapter 尚未实现；单次拟议 Node lookup 内最多 current、历史、delivery 三次本地权威 pin，不是三个被隐藏的远程 HTTP，也不把本地读取当新预算权限。真正 Native/World Submit、Lookup、失败和重试都必须计实际 transport；完整 non-World 至少29/总24的缺口仍在，不提高 cap、不免费 cache/刷新 authority、不因组件通过宣称 cleanup 可开启。后续 Node adapter 必须对最终 signed envelope 实际序列化检查64KiB，本组件不声称该 Node serializer gate 已实现；尚未实现的 Native 外层同样须在其最终 serializer 实测，不凭空预留4KiB。当前组件不声明 full BFT qualified receipt、外部最终性回放或生产-ready。
+
 #### prepared_world targeted Agent 自测
 
 实施验收复用[开发自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md)、[RunInput/TesterInput/RunResult](../../testing/governance/agent-runtime-self-playtest.design.md#6-接口与数据合同)和既有[试玩任务](../../testing/templates/agent-runtime-playtester-task.template.md)/[报告](../../testing/templates/agent-runtime-playtest-report.template.md)格式，不创建第二套 run schema 或测试专用游戏 Skill。首个实际验收固定 `scope=targeted`、启动模式 `prepared_world`，选一个已真实接通 custody-native-v1 的客户端/runtime（首个为经确认的 codex 原生 profile）；交付的正式 `oasis7-play` Skill 增加该真实客户端的调用方式、原件引用与失败下一步，工具缺失时报告 blocked，不能让试玩者改用本地持钥 CLI 绕过云端接入。
