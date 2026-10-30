@@ -1,3 +1,5 @@
+import { targetSyncProgressLines } from "./viewer_target_sync_progress.js";
+import { LiveControlStatus } from "./viewer_live_control_status.jsx";
 import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
 import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
 import { BrowserByokSurface } from "./browser_byok_surface.jsx"; import { viewerRuntimeConfig } from "./viewer_runtime_config_module.js"; import { authSigningIdentity } from "./viewer_auth_session_module.js";
@@ -52,65 +54,11 @@ function buildViewerEntryUrls(locale) {
     softwareSafeUrl: softwareSafeUrl.toString(),
   };
 }
-function targetSyncProgressLines(progress, locale) {
-  if (!progress) {
-    return [];
-  }
-  const connected = progress.connectionStatus === "connected";
-  const connectionText = connected
-    ? tr(locale, "已连接", "connected")
-    : progress.connectionStatus === "error"
-      ? tr(locale, "连接错误", "connection error")
-      : tr(locale, "正在连接", "connecting");
-  const handshakeText = progress.serverReady
-    ? tr(locale, "已完成", "server ready")
-    : tr(locale, "等待服务器 hello", "waiting for server hello");
-  const snapshotText = progress.snapshotReceived
-    ? tr(
-      locale,
-      `已收到：行动体 ${progress.totalAgentCount}，地点 ${progress.totalLocationCount}`,
-      `received: ${progress.totalAgentCount} agents, ${progress.totalLocationCount} locations`,
-    )
-    : progress.snapshotRequested
-      ? tr(
-        locale,
-        progress.snapshotRetryCount > 0
-          ? `已请求首个世界快照，重试 ${progress.snapshotRetryCount} 次`
-          : "已请求首个世界快照",
-        progress.snapshotRetryCount > 0
-          ? `first world snapshot requested, ${progress.snapshotRetryCount} retries`
-          : "first world snapshot requested",
-      )
-      : tr(locale, "等待首个世界快照", "waiting for first world snapshot");
-  const sessionText = progress.authSyncInFlight
-    ? tr(locale, "正在同步玩家会话", "syncing player session")
-    : tr(
-      locale,
-      `状态 ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`,
-      `status ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`,
-    );
-  const visibilityText = tr(
-    locale,
-    `快照行动体 ${progress.totalAgentCount}，当前可控 ${progress.visibleAgentCount}`,
-    `snapshot agents ${progress.totalAgentCount}, visible ${progress.visibleAgentCount}`,
-  );
-  const lines = [
-    tr(locale, `连接：${connectionText}`, `Connection: ${connectionText}`),
-    tr(locale, `握手：${handshakeText}`, `Handshake: ${handshakeText}`),
-    tr(locale, `快照：${snapshotText}`, `Snapshot: ${snapshotText}`),
-    tr(locale, `玩家会话：${sessionText}`, `Player session: ${sessionText}`),
-    tr(locale, `可见性：${visibilityText}`, `Visibility: ${visibilityText}`),
-  ];
-  if (progress.lastError) {
-    lines.push(tr(locale, `错误：${progress.lastError}`, `Error: ${progress.lastError}`));
-  }
-  return lines;
-}
 function EntityListPendingState(props) {
   const locale = () => props.locale ?? uiLocale();
   const label = () => props.label ?? tr(locale(), "目标", "targets");
   const progress = () => props.progress ?? core.buildTargetSyncProgress();
-  const progressLines = () => targetSyncProgressLines(progress(), locale());
+  const progressLines = () => targetSyncProgressLines(progress(), locale(), tr);
   return (
     <div class="entity-list-pending" aria-live="polite" aria-busy="true">
       <div class="entity-list-pending__row">
@@ -1040,7 +988,7 @@ function gameplayActionControlBoundaryReason(action, locale) {
   if (!targetAgentId || actionId === "claim_first_agent") {
     return null;
   }
-  if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play") {
+  if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play" || protocolAction === "live_control.pause") {
     return null;
   }
   const boundAgentId = normalizedId(core.state.auth.boundAgentId);
@@ -1098,6 +1046,9 @@ function gameplayActionButtonLabel(action, locale) {
   if (action.executeKind === "play") {
     return tr(locale, "恢复实时推进", "Resume Live Play");
   }
+  if (action.executeKind === "pause") {
+    return tr(locale, "暂停实时推进", "Pause Live Play");
+  }
   if (action.executeKind === "agent_chat") {
     return tr(locale, "切到聊天面板", "Use Chat Panel");
   }
@@ -1116,6 +1067,9 @@ function gameplayActionBusyLabel(action, locale) {
   }
   if (action?.executeKind === "play") {
     return tr(locale, "恢复中...", "Resuming...");
+  }
+  if (action?.executeKind === "pause") {
+    return tr(locale, "暂停中...", "Pausing...");
   }
   if (action?.actionId === "claim_starter_oc") {
     return tr(locale, "确认中...", "Confirming...");
@@ -1157,6 +1111,9 @@ function gameplayActionTestId(action, role = "available") {
   }
   if (action?.executeKind === "play") {
     return "viewer-available-action-play";
+  }
+  if (action?.executeKind === "pause") {
+    return "viewer-available-action-pause";
   }
   const raw = action?.actionId || action?.protocolAction || action?.executeKind || "unknown";
   const safe = String(raw).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
@@ -2811,7 +2768,7 @@ function WorldSummaryPanel(props = {}) {
                             </div>
                           </Show>
                           <Show
-                            when={action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc"}
+                            when={action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "pause" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc"}
                           >
                             <div class="toolbar">
                               <button
@@ -3856,6 +3813,7 @@ function AppShell(props = {}) {
     <div class="viewer-shell" data-viewer-shell="player-fullscreen">
       <MobileJumpRail locale={locale} tr={tr} data-viewer-overlay="navigation" />
       <SecondaryViewerNavigation locale={locale} tr={tr} />
+      <LiveControlStatus state={core.state} locale={locale} tr={tr} />
       <HostedLoginGate />
       <StarterOcRequiredGate />
       <section

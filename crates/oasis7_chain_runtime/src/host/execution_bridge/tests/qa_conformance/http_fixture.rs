@@ -332,6 +332,55 @@ pub(super) fn configure_accepted_stream(stream: &TcpStream) {
         .unwrap();
 }
 
+// Opt-in real receive-boundary oracle, keyed by this fixture's unique trace Arc.
+fn publication_oracles() -> &'static Mutex<std::collections::BTreeMap<usize, std::path::PathBuf>> {
+    static ORACLES: std::sync::OnceLock<
+        Mutex<std::collections::BTreeMap<usize, std::path::PathBuf>>,
+    > = std::sync::OnceLock::new();
+    ORACLES.get_or_init(Mutex::default)
+}
+pub(super) struct PublicationOracle(usize);
+impl Drop for PublicationOracle {
+    fn drop(&mut self) {
+        publication_oracles().lock().unwrap().remove(&self.0);
+    }
+}
+pub(super) fn observe_checkpoint_publication(
+    trace: &Arc<Mutex<Vec<String>>>,
+    path: std::path::PathBuf,
+) -> PublicationOracle {
+    let identity = Arc::as_ptr(trace) as usize;
+    assert!(
+        publication_oracles()
+            .lock()
+            .unwrap()
+            .insert(identity, path)
+            .is_none()
+    );
+    PublicationOracle(identity)
+}
+fn checkpoint_published_before_submit(
+    request: &SubmitIntentRequest<WorldServicePayloadV1>,
+    path: &Path,
+) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let Ok(checkpoint) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    let correlation = serde_json::to_value(&request.correlation).unwrap();
+    let payload = serde_json::to_value(&request.signed_payload).unwrap();
+    ["provider_scheduler_pending", "provider_service_pending"]
+        .into_iter()
+        .any(|field| {
+            checkpoint[field].as_object().is_some_and(|pending| {
+                pending.values().any(|original| {
+                    original["correlation"] == correlation && original["payload"] == payload
+                })
+            })
+        })
+}
 // Prefix distinguishes Submit admission observations from exact Lookup observations.
 pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>) -> bool {
     let body = crate::feedback_submit_api::extract_http_json_body(bytes).unwrap();
@@ -339,6 +388,23 @@ pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>
     else {
         return false;
     };
+    let publication_path = publication_oracles()
+        .lock()
+        .unwrap()
+        .get(&(Arc::as_ptr(trace) as usize))
+        .cloned();
+    let publication_valid = publication_path
+        .as_deref()
+        .map(|path| checkpoint_published_before_submit(&request, path));
+    let original_valid = publication_path.as_ref().and_then(|path| {
+        let expected_path = path.parent()?.join("checkpoint-expected-original.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&fs::read(expected_path).ok()?).ok()?;
+        Some(
+            expected["correlation"] == serde_json::to_value(&request.correlation).unwrap()
+                && expected["payload"] == serde_json::to_value(&request.signed_payload).unwrap(),
+        )
+    });
     let digest = correlation::key_digest(&request.correlation.key).unwrap();
     let mut observed = trace.lock().unwrap();
     assert!(
@@ -346,6 +412,35 @@ pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>
         "bounded conformance operation trace exhausted"
     );
     observed.push(format!("submit:{digest}"));
+    if let Some(valid) = publication_valid {
+        assert!(
+            observed.len() < 4096,
+            "bounded publication observation exhausted"
+        );
+        observed.push(
+            if valid {
+                "checkpoint_publication:1"
+            } else {
+                "checkpoint_publication:0"
+            }
+            .into(),
+        );
+    }
+    if let Some(valid) = original_valid
+        && !observed
+            .iter()
+            .any(|value| value.starts_with("checkpoint_original:"))
+    {
+        assert!(observed.len() < 4096);
+        observed.push(
+            if valid {
+                "checkpoint_original:1"
+            } else {
+                "checkpoint_original:0"
+            }
+            .into(),
+        );
+    }
     if matches!(&request.signed_payload, WorldServicePayloadV1::Cognition(_)) {
         request
             .validate()

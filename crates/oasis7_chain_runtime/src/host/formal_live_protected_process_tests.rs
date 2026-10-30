@@ -162,6 +162,29 @@ fn protected_endpoint_children_start_from_qualified_zero_height_genesis() {
     run_on_fixture_stack(true).unwrap();
 }
 
+#[test]
+#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; deterministic lost initial reply, simulated custody"]
+fn protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session() {
+    std::thread::Builder::new()
+        .name("formal-initial-lost-reply".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            run_protected_runtime_fixture(
+                false,
+                None,
+                false,
+                None,
+                None,
+                None,
+                FixtureCase::InitialLostResponse,
+            )
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+        .unwrap();
+}
+
 fn run_on_fixture_stack(genesis_mode: bool) -> Result<(), String> {
     std::thread::Builder::new()
         .name("formal-protected-fixture".into())
@@ -207,6 +230,7 @@ enum FixtureCase {
     Standard,
     FullNodeStorage,
     AttemptRelease,
+    InitialLostResponse,
 }
 
 fn run_protected_runtime_case(
@@ -523,18 +547,57 @@ fn run_protected_runtime_fixture(
         )
         .map_err(|error| error.to_string())
     };
-    let mut coordinator = FormalCoordinator::new(
-        endpoint(primary_address, EndpointRole::Primary)?,
-        endpoint(replica_address, EndpointRole::Replica)?,
-        authority.clone(),
-        authority.clone(),
-        None,
-        None,
-    )
-    .map_err(|error| error.to_string())?;
-    let initial_proof = coordinator
-        .submit(initial_candidate.clone())
-        .map_err(|error| format!("qualify signed profile-2 initial closure: {error}"))?;
+    let initial_deadline =
+        (Instant::now() + LONG_HISTORY_REQUEST_WAIT).min(scenario_deadline.map_or_else(
+            || Instant::now() + LONG_HISTORY_REQUEST_WAIT,
+            |deadline| deadline.expires_at,
+        ));
+    let mut initial_attempts = 0;
+    let mut lost_initial_proof = None;
+    let (coordinator, initial_proof) = qualify_initial_with_reentry(
+        &initial_candidate,
+        &initial_candidate.candidate.record.request_digest,
+        initial_deadline,
+        |original| {
+            initial_attempts += 1;
+            let mut session = FormalCoordinator::new(
+                endpoint(primary_address, EndpointRole::Primary)?,
+                endpoint(replica_address, EndpointRole::Replica)?,
+                authority.clone(),
+                authority.clone(),
+                None,
+                None,
+            )
+            .map_err(|error| error.to_string())?;
+            let mut result = session.submit(original);
+            if fixture_case == FixtureCase::InitialLostResponse {
+                if initial_attempts == 1 {
+                    // The real endpoints have qualified this exact original.
+                    // Discard its result at the fixture boundary, deterministically
+                    // reproducing a lost reply without changing the 5s RPC.
+                    lost_initial_proof = Some(result.as_ref().map_err(|e| e.to_string())?.clone());
+                    result = Err(oasis7_distfs::controlled_authority::formal::coordinator::FormalCoordinatorErrorV1::OutcomeUnknown {
+                        request_digest: initial_candidate.candidate.record.request_digest.clone(),
+                        cause: FormalError::Conflict("fixture discarded original qualified reply".into()),
+                    });
+                } else {
+                    assert_eq!(
+                        result.as_ref().ok(),
+                        lost_initial_proof.as_ref(),
+                        "fresh session must query the same retained qualified proof"
+                    );
+                }
+            }
+            Ok((session, result))
+        },
+    )?;
+    if fixture_case == FixtureCase::InitialLostResponse {
+        assert_eq!(
+            initial_attempts, 2,
+            "one lost reply, one fresh reconciliation session"
+        );
+        assert_eq!(Some(&initial_proof), lost_initial_proof.as_ref());
+    }
     verify_formal_qualified(&initial_proof, &authority, None, None)
         .map_err(|error| error.to_string())?;
     let anchor =

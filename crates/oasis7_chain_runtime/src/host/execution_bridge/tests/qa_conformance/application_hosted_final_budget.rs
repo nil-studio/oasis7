@@ -315,7 +315,9 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
         session.snapshot(Duration::from_millis(25));
         if let Ok(guard) = shared.try_lock() {
             summary = guard.test_canonical_provider_diagnostic_summary();
-            completed = summary["terminal_states"]["agent-a"]["status"] == "completed";
+            completed = summary["terminal_states"]["agent-a"]["status"] == "completed"
+                && summary["publication_pending"] == false
+                && summary["publication_capture_failed"] == false;
             if completed {
                 break;
             }

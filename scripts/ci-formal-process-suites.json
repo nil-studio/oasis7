@@ -24,6 +24,11 @@
       },
       {
         "binary": "runtime-tests",
+        "name": "formal_live_runtime::tests::protected_process_tests::protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session",
+        "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::protected_endpoint_children_start_from_qualified_zero_height_genesis",
         "ignored": true
       },
@@ -186,6 +191,7 @@
   "legacy_ignored_filters": {
     "runtime-tests": [
       "protected_endpoint_children",
+      "protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session",
       "protected_stop_deadline_",
       "formal_protected_healthy_durable_set_",
       "healthy_durable_set_owner_",

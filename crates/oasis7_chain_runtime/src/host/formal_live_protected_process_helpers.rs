@@ -288,6 +288,155 @@ pub(super) fn fresh_request_result(
 // share this observation bound and retain their separate total scenario bound.
 pub(super) const LONG_HISTORY_REQUEST_WAIT: Duration = Duration::from_secs(120);
 
+/// An unknown outcome poisons its coordinator session, not the original
+/// candidate. Each attempt must construct a fresh session: submit then queries
+/// both endpoints and checks their retained candidate before continuing.
+type InitialSessionAttempt<S, P> = Result<
+    (
+        S,
+        Result<
+            P,
+            oasis7_distfs::controlled_authority::formal::coordinator::FormalCoordinatorErrorV1,
+        >,
+    ),
+    String,
+>;
+pub(super) fn qualify_initial_with_reentry<C: Clone, S, P>(
+    candidate: &C,
+    request_digest: &str,
+    deadline: Instant,
+    mut attempt: impl FnMut(C) -> InitialSessionAttempt<S, P>,
+) -> Result<(S, P), String> {
+    use oasis7_distfs::controlled_authority::formal::coordinator::FormalCoordinatorErrorV1;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(
+                "initial closure reconciliation deadline exhausted; original retained".into(),
+            );
+        }
+        let (session, outcome) = attempt(candidate.clone())?;
+        match outcome {
+            Ok(proof) => {
+                if Instant::now() >= deadline {
+                    return Err("initial closure completed beyond reconciliation deadline".into());
+                }
+                return Ok((session, proof));
+            }
+            Err(FormalCoordinatorErrorV1::OutcomeUnknown {
+                request_digest: original,
+                cause,
+            }) if original == request_digest => {
+                // Drop the poisoned owner before constructing its successor.
+                // No candidate, key, pin, parent or request nonce is rebuilt.
+                drop(session);
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(format!(
+                        "initial closure reconciliation deadline exhausted: {cause}"
+                    ));
+                }
+                thread::sleep(remaining.min(Duration::from_millis(20)));
+            }
+            Err(error) => return Err(format!("qualify signed profile-2 initial closure: {error}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod initial_reentry_tests {
+    use super::*;
+    use oasis7_distfs::controlled_authority::formal::coordinator::FormalCoordinatorErrorV1;
+
+    // Deterministic fixture seam: the first session durably retains the exact
+    // candidate but loses its reply. A new session must reconcile that original.
+    #[test]
+    fn initial_closure_lost_response_reenters_new_session_with_original_candidate() {
+        let candidate = ("original-parent", "original-nonce", "original-pins");
+        let mut durable = None;
+        let mut sessions = 0;
+        let (session, proof) = qualify_initial_with_reentry(
+            &candidate,
+            "original-request",
+            Instant::now() + Duration::from_secs(1),
+            |original| {
+                sessions += 1;
+                assert_eq!(
+                    original, candidate,
+                    "must not rebuild nonce, parent or pins"
+                );
+                if sessions == 1 {
+                    durable = Some(original);
+                    Ok((
+                        sessions,
+                        Err(FormalCoordinatorErrorV1::OutcomeUnknown {
+                            request_digest: "original-request".into(),
+                            cause: FormalError::Conflict(
+                                "injected lost response after retention".into(),
+                            ),
+                        }),
+                    ))
+                } else {
+                    assert_eq!(
+                        durable,
+                        Some(original),
+                        "query retained original before completion"
+                    );
+                    Ok((sessions, Ok("original-qualified-proof")))
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!((session, sessions), (2, 2));
+        assert_eq!(proof, "original-qualified-proof");
+    }
+
+    #[test]
+    fn initial_closure_reentry_rejects_foreign_unknown_and_terminal_errors() {
+        for foreign in [false, true] {
+            let mut sessions = 0;
+            let result = qualify_initial_with_reentry(
+                &"same-original",
+                "original-request",
+                Instant::now() + Duration::from_secs(1),
+                |_| {
+                    sessions += 1;
+                    let cause = FormalError::Conflict("terminal or foreign original".into());
+                    let error = if foreign {
+                        FormalCoordinatorErrorV1::OutcomeUnknown {
+                            request_digest: "other-request".into(),
+                            cause,
+                        }
+                    } else {
+                        FormalCoordinatorErrorV1::Rejected(cause)
+                    };
+                    Ok((sessions, Err::<(), _>(error)))
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(
+                sessions, 1,
+                "must not blindly retry another or rejected intent"
+            );
+        }
+    }
+
+    #[test]
+    fn initial_closure_reentry_deadline_never_starts_another_session() {
+        let mut sessions = 0;
+        let result = qualify_initial_with_reentry(
+            &"same-original",
+            "original-request",
+            Instant::now(),
+            |_| {
+                sessions += 1;
+                Ok(((), Ok::<_, FormalCoordinatorErrorV1>(())))
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(sessions, 0);
+    }
+}
+
 pub(super) fn wait_for_new_request_result(
     runtime: &FormalLiveRuntime,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,

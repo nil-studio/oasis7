@@ -23,21 +23,21 @@ impl ViewerRuntimeLiveServer {
         }
         match mode {
             ViewerControl::Pause => {
-                self.pause_auto_play(session);
+                self.pause_auto_play(session)?;
                 session.next_play_step_at = None;
                 session.transient_play_failures = 0;
             }
             ViewerControl::Play => {
-                self.resume_auto_play(session);
+                self.resume_auto_play(session)?;
             }
             ViewerControl::Step { count } => {
-                self.pause_auto_play(session);
+                self.pause_auto_play(session)?;
                 session.next_play_step_at = None;
                 session.transient_play_failures = 0;
                 self.advance_runtime(session, writer, "step", count.max(1), request_id, true)?;
             }
             ViewerControl::Seek { tick } => {
-                self.pause_auto_play(session);
+                self.pause_auto_play(session)?;
                 session.next_play_step_at = None;
                 session.transient_play_failures = 0;
                 emit_stderr_or_event(
@@ -49,6 +49,9 @@ impl ViewerRuntimeLiveServer {
                     "viewer runtime live ignored seek control in live mode",
                 );
             }
+        }
+        if matches!(mode, ViewerControl::Play | ViewerControl::Pause) {
+            self.publish_live_control_state(session, writer, request_id, true)?;
         }
         Ok(())
     }

@@ -11,6 +11,8 @@
 //! 34=periodic response encoding, 35=periodic remote query,
 //! 40=HelloV2 preparation/handling, 41=RequestSnapshot preparation/handling,
 //! 42=other request preparation/handling. Ordinary phase a/b are zero.
+//! 43=lineage capture, 44=encode, 45=directory, 46=temp write, 47=rename,
+//! 48=scheduler sign, 49=hosted prepare, 50=fresh prepare, 51=metadata prepare.
 //! 200 maps a serving thread to role a=0 offender / a=1 observer (b=0).
 //! The fixture appends 100/101 sample rows after measurement: thread=0,
 //! a=sample index; b=useful_us for 100, b=within_budget|complete<<1|pressure<<2

@@ -64,6 +64,50 @@ These two relations qualify the affected current lanes only; the original logica
 | Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[product_requirement: REQ-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-008) / AC-EXT-008 | Existing professional PRD §4.2 recovery receiver → design §5.1–5.3, with §7 integration and §9 verification: after ResponseRecorded, replay the recorded response without provider redispatch; reconcile unknown submission against the original marker/key/receipt, repair committed projections only, never repeat canonical world effects or revive old branch/authority. | [Journal/recovery](#5-journal-layout-and-recovery) | Runtime owns canonical commit/recovery; Agent owns provider/continuation policy; collaboration authority owns product recovery and QA owns acceptance. | Limited Runtime dependency only: excludes private-context-loss notice/trusted replanning UI, real remote restart, complete production history and full EXT-008 acceptance. EXT remains partial design/implementation. |
 | Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[product_requirement: REQ-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#req-collab-006) / AC-COLLAB-006 | Existing professional PRD §4.2 recovery receiver → design §5.1–5.3, with §7 integration and §9 verification: after ResponseRecorded, replay the recorded response without provider redispatch; reconcile unknown submission against the original marker/key/receipt, repair committed projections only, never repeat canonical world effects or revive old branch/authority. | [Journal/recovery](#5-journal-layout-and-recovery) | Runtime owns canonical commit/recovery; Agent owns provider/continuation policy; collaboration authority owns product recovery and QA owns acceptance. | Limited Runtime dependency only: excludes collaboration message/snapshot pagination, unanswered questions, pending approvals, cross-device redelivery and complete COLLAB-006 acceptance. Existing design-covered/partially-implemented product state is unchanged. |
 
+### Hosted preparation and private checkpoint publication
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；沿用上表恢复要求，不新增 authority。
+
+Viewer 的共享观察锁不承载 Hosted Agent 的签名、整份 lineage 编码或文件发布等待。
+准备工作使用既有单 worker 和一个在途 ticket：锁内固定原 invocation/lease/retry/transport、
+config/session/source fence 与 publication generation，锁外处理 owned 输入，锁内只应用
+同 ticket 的 typed delta。不得搬走或回写整份 server/runner，也不得覆盖其间的 Pause、
+新 scope、晚到响应或新配置。所有 lineage writer 共用 publication generation/order 预约；
+旧 generation 不得 rename 覆盖较新文件。原胶囊发布成功且同 ticket 校验提交以前，不得
+Submit 或调用模型。scope 改变保留原胶囊供显式恢复，不生成新 nonce 或自动新 lease。
+
+当前私有 checkpoint writer 使用临时文件加 rename 的进程级原子发布，没有 fsync 合同。
+该描述不把进程级发布升级为断电持久性。故障或结果不明时保留原身份并停止派发。
+诊断仅记录有界数字阶段，区分 clone/encode/sign/write/rename，不能将整段 prepare
+耗时推断为某一系统调用。真实 writer 在编码、临时写入后且 rename 前受阻时，同一已
+primed TCP observer 的 Hello/Snapshot 仍须在既有 150ms 内完成；持有 gate 期间零
+Submit/模型调用，释放后核对同原胶囊先发布再发送，另测旧 generation/旧 scope 晚到。
+这些是实现与回归的合同，新增测试或数字记录不构成已完成异步实现的声明。
+
+当前 publication-I/O slice 在 Hosted shared pump 启动后，让 prepare/apply 和 chain/periodic
+事件 writer 进入同一 owner 队列；队列与在途批次合计最多 32 个完整原件，另只保留首次
+overflow 原件。overflow 后后续通知不再 capture，明确阻断派发与 ACK，不能由 best-effort
+调用吞错后假确认。文件名使用进程内唯一序号且 create_new，保留原件为私有文件；同一
+配置路径的 generation 分配不等待 rename mutex，check+rename 在 worker 中线性化。
+临时文件部分写失败、已有同名文件或 superseded publication 明确永久 blocked，保留原件
+供显式恢复，不删除、不覆盖、不作为 transient 无限重试。其他可证明未发布的存储失败
+只重试同一个 owned 原件。旧 ACK 只可确认精确 owner ticket；新链事件推进 dirty ticket 后必须由同 worker 出版，
+原 ticket 不得清除它。队列锁不跨 IO，owner 独立保留在途原件供失败重试或显式恢复。
+publication ACK 不授权一个新的 fresh 派发：Reserve/Prefix 的首次 Submit 入既有 worker 队列前，
+仍在同一共享临界区重查当前 Play、session presence、LLM mode 与 recovery fence。Pause
+期间保留同一个 pending job、签名原件、nonce、lease 与 phase token；Resume 后按原件续办，
+不重建上下文。Lookup/对账及已受理事务的终态 settle 不因 Pause 取消；模型启动继续执行
+既有当前 eligibility 和原 RequestDispatched 恢复约束。
+
+此 ordering 只统一相同规范配置路径的本进程 writer，不声称物理路径别名、跨进程互斥或防回退。
+
+该 slice 的签名、验证与完整 checkpoint capture 仍在共享锁内，阶段 43/48/49 等继续
+保留成本观测；小 fixture 的短 capture 不能证明增长后无界复制可接受。它不声称全部
+preparation 已脱锁。启动 restore 和 unshared direct/bootstrap 保留同步路径；非 Hosted
+legacy/native shared 模式不在本次 publication-I/O 闭环的范围内，不能泛称全部 Viewer
+writer 脱锁。完整准备脱锁与大 lineage 的 capture 预算仍需后续独立证据。
+
+
 ### 2.1 Turn and request
 
 ~~~text
@@ -565,6 +609,22 @@ Recovery must verify journal prefix, commit marker and all referenced digests be
 response artifact, receipt, idempotency record or commit projection is missing/mismatched, reconstruct
 only from `WorldCommitRecordV1`; if the record is ambiguous, enter recovery_pending and expose the
 structured fault. Do not issue an unrecorded provider call or re-run a world effect.
+
+### 5.2.1 Hosted worker loss after dispatch
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；本条细化同一恢复要求的本地执行器丢失边界，不宣称完整 AC-EXT-008 验收。
+
+上表 `RequestDispatched` 的重试许可要求原执行器的持久调用预算及可恢复 provider outcome 合同仍然可用。Hosted `AsyncAgentRunner` 进程丢失后，仅有 active marker、原 request、Reserved lease 和 canonical dispatch prefix，不能证明外部请求未计费，也不授权重调模型。恢复必须保留原 invocation、lease、retry_seq、transport_attempt、base binding 和当前 authority；单独的本地 marker 不得被清除以开启新请求。
+
+恢复先查原 canonical 请求及受信 Agent scope read-view。`ProviderPrefix` 在一个 canonical 操作内产生 TurnStarted、ContextCaptured、RequestDispatched；不得虚构三个独立 scheduler 提交。恢复必须使用实际生产者保留的 immutable signed payload/correlation；缺失原请求或无法验证当前 owner/delegation/fence、世界和 branch/finality binding 时，持久记录 `model_outcome_unknown` 并保持 recovery pending，不能重签原操作或从事件猜造 Lookup key。已有 response、commit、receipt 或 continuation 必须转入其原结果恢复路径。
+
+受信 Lookup 返回 `HistoryUnavailable` 或 `Expired` 时，执行进度分别投影为历史证据不可用或原 intent 过期的明确 blocker，保留原 phase、签名请求与 lease，不把它们当成 `Unknown` 或实际进展。历史缺失须恢复原 cut 的经验证闭包；当前 World 中保留结果索引不能冒充原提交的历史证明，也不能因此重签、重调模型或退款。
+
+在原 prefix、原 Reserved lease 与当前权限均由 canonical evidence 证实，且无 response/commit 时，允许用已有 `ProviderFailure` 操作和 `cognition_failed` 原因终止已丢失的本地执行器。独立持久恢复原因必须为 `executor_lost_after_dispatch:model_outcome_unknown`：它只陈述本地执行器丢失，不声称外部模型失败、未返回或未计费。Runtime 既有 after-response 拒绝是迟到响应竞争的最终保护；被拒绝时保留原 terminal 请求和阻断原因，不生成新 nonce 尝试绕过。
+
+首次 terminal 和 settlement 请求必须在发送前持久化其签名与 correlation，崩溃后先 Lookup 原请求。Pending/Received/未知 transport outcome 均保留原请求；只有受信的原 key Unknown 才允许重发同一签名 payload。原 fixed cognition unit 按 reserved amount=1 保守 SettleLease，禁止 ReleaseLease、退款或伪称外部 cost 已知；外部 durable call ledger 已消耗的调用保持不变。terminal 与 settlement 的精确 committed receipts 以及后续受信 read-view 必须确认原请求已终结、原 lease 已 Settled、consumed=1、released/refunded=0，才能持久退休同一 orphan 并恢复正常新 turn 的 eligibility。模型原请求永不重发；新 turn 仍受正常 policy、预算和当前权限约束。
+
+验收必须包含原 marker/lease/request 的恢复、原 key Lookup、各 checkpoint 崩溃重入、迟到 response、已知 Rejected、权限变化和缺失原 correlation。只显示 quarantine 不算正向恢复完成；合法 terminal 与 settlement 回读后必须证明正常 admission 可以继续。外部 provider 没有可恢复 outcome 时，其实际响应与费用仍明确未知，不能以本地终止代签其结果。
 
 ### 5.3 Commit and delivery guarantees
 
