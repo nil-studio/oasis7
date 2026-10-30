@@ -435,3 +435,6 @@ fn unsupported_platform_rejects_before_creating_store() {
 #[path = "incremental_state_store.rs"]
 mod state_store;
 pub use state_store::{ChargedMerklePage, StatePageSession};
+
+#[path = "incremental_object_store.rs"]
+pub mod objects;

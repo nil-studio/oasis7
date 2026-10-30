@@ -6,10 +6,15 @@ use crate::world_service::{
 use oasis7_client_api::{legacy_world_service::WorldServicePayloadV1, world_service::*};
 use serde_json::Value;
 
+#[path = "agent_service_identity.rs"]
+mod identity;
+pub(super) use identity::{HostedIdentityReservation, PreparedHostedIdentity};
+
 pub(super) enum AgentServiceProgress {
     Idle,
     Advanced,
     NeedsIo(Box<AgentServiceIoJob>),
+    NeedsIdentity(Box<PreparedHostedIdentity>),
 }
 
 #[derive(Clone, PartialEq, Eq)]

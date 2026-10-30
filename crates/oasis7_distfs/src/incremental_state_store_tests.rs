@@ -64,6 +64,190 @@ fn first_transition(
 }
 
 #[test]
+fn real_pages_support_nonempty_transition_suffix_rebuild_and_further_deterministic_writes() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let (genesis, first) = first_transition(&store, &memory);
+    let mut source = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    source.persist_transition_pages(&first).unwrap();
+    let c = ExecutionParent {
+        commit: [8; 32],
+        roots: first.record.after.clone(),
+        authority: authority(),
+    };
+    let next_value = value(&store, &memory, b"second value");
+    let mut txn =
+        ExecutionTransaction::begin(c.clone(), [9; 32], &source, &memory, limits()).unwrap();
+    assert!(
+        txn.read(StateNamespaceV1::Business, b"alice")
+            .unwrap()
+            .is_some()
+    );
+    txn.write(StateNamespaceV1::Business, b"alice", None)
+        .unwrap();
+    txn.write(StateNamespaceV1::Business, b"bob", Some(next_value))
+        .unwrap();
+    let guard = txn.guard();
+    let second = txn.seal(&guard, &c.fence().unwrap(), 2).unwrap();
+    source.persist_transition_pages(&second).unwrap();
+    let record_id = {
+        use super::super::objects::{IncrementalObjectStore, ObjectIo};
+        let cancelled = AtomicBool::new(false);
+        let mut physical = physical_io();
+        let mut logical = logical_io();
+        let objects = IncrementalObjectStore::create(&store, &mut physical, &cancelled).unwrap();
+        let bytes = second
+            .record
+            .canonical_bytes(&memory, MemoryClass::Ordinary)
+            .unwrap();
+        let id = *blake3::hash(&bytes).as_bytes();
+        objects
+            .write_object(
+                &mut bytes.as_slice(),
+                bytes.len() as u64,
+                Some(id),
+                &mut ObjectIo {
+                    physical: &mut physical,
+                    logical: &mut logical,
+                    class: MemoryClass::Ordinary,
+                    cancelled: &cancelled,
+                },
+            )
+            .unwrap();
+        id
+    };
+    drop(source);
+    drop(store);
+    let store = IncrementalPageStore::open(
+        &fixture.store(),
+        memory.clone(),
+        PageCompression::Raw,
+        MemoryClass::Recovery,
+    )
+    .unwrap();
+    let source = store
+        .state_session(physical_io(), MemoryClass::Recovery)
+        .unwrap();
+    let persisted_record = {
+        use super::super::objects::{IncrementalObjectStore, ObjectIo};
+        let cancelled = AtomicBool::new(false);
+        let mut physical = physical_io();
+        let mut logical = logical_io();
+        let objects =
+            IncrementalObjectStore::open(&store, MemoryClass::Recovery, &mut physical, &cancelled)
+                .unwrap();
+        let bytes = objects
+            .read_object_owned(
+                &record_id,
+                8 << 20,
+                &mut ObjectIo {
+                    physical: &mut physical,
+                    logical: &mut logical,
+                    class: MemoryClass::Recovery,
+                    cancelled: &cancelled,
+                },
+            )
+            .unwrap();
+        oasis7_formal_protocol::incremental_execution::TransitionRecordV1::from_canonical_bytes(
+            &bytes,
+            &memory,
+            MemoryClass::Recovery,
+        )
+        .unwrap()
+    };
+    let t = ExecutionParent {
+        commit: [10; 32],
+        roots: second.record.after.clone(),
+        authority: authority(),
+    };
+    assert!(matches!(
+        ExecutionTransaction::begin(t.clone(), [11; 32], &source, &memory, limits()),
+        Err(ExecutionError::Invalid("Merkle source memory pool/class"))
+    ));
+    let live_source = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut txn =
+        ExecutionTransaction::begin(t.clone(), [11; 32], &live_source, &memory, limits()).unwrap();
+    assert_eq!(
+        txn.read(StateNamespaceV1::Business, b"alice").unwrap(),
+        None
+    );
+    assert_eq!(
+        txn.read(StateNamespaceV1::Business, b"bob").unwrap(),
+        Some(next_value)
+    );
+    txn.write(
+        StateNamespaceV1::Scheduler,
+        b"module/wake",
+        Some(next_value),
+    )
+    .unwrap();
+    let guard = txn.guard();
+    let uninterrupted = txn.seal(&guard, &t.fence().unwrap(), 3).unwrap();
+
+    // Replay's physical pool contains only C's state pages. It never reads T's
+    // pages, mounts a T snapshot or fills a missing field from T. Original value
+    // content and Runtime/business continuation are separate integration gates.
+    let replay = IncrementalPageStore::create(
+        &fixture.0.join("replay"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let mut replay_source = replay
+        .state_session(physical_io(), MemoryClass::Recovery)
+        .unwrap();
+    replay_source.persist_transition_pages(&first).unwrap();
+    let verified = TransitionVerifier {
+        parent: &c,
+        operation: [9; 32],
+        source: &replay_source,
+        memory: &memory,
+        class: MemoryClass::Recovery,
+        max_pending_node_bytes: 8 << 20,
+    }
+    .verify(&persisted_record)
+    .unwrap();
+    assert_eq!(verified.record.after, t.roots);
+    replay_source.persist_transition_pages(&verified).unwrap();
+    assert!(matches!(
+        ExecutionTransaction::begin(t.clone(), [11; 32], &replay_source, &memory, limits()),
+        Err(ExecutionError::Invalid("Merkle source memory pool/class"))
+    ));
+    let replay_live = replay
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut txn =
+        ExecutionTransaction::begin(t.clone(), [11; 32], &replay_live, &memory, limits()).unwrap();
+    assert_eq!(
+        txn.read(StateNamespaceV1::Business, b"alice").unwrap(),
+        None
+    );
+    assert_eq!(
+        txn.read(StateNamespaceV1::Business, b"bob").unwrap(),
+        Some(next_value)
+    );
+    txn.write(
+        StateNamespaceV1::Scheduler,
+        b"module/wake",
+        Some(next_value),
+    )
+    .unwrap();
+    let guard = txn.guard();
+    let continued = txn.seal(&guard, &t.fence().unwrap(), 3).unwrap();
+    assert_eq!(continued.record, uninterrupted.record);
+    assert!(continued.new_nodes == uninterrupted.new_nodes);
+    assert_ne!(genesis.roots, t.roots);
+    assert!(source.take_read_error().is_none());
+}
+
+#[test]
 fn actual_catalog_pages_reopen_and_prove_old_height_and_commit_queries() {
     let fixture = Fixture::new();
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
@@ -131,7 +315,6 @@ fn actual_catalog_pages_reopen_and_prove_old_height_and_commit_queries() {
         after.prove(CatalogQueryV1::Height(0), &source, &memory),
         Err(ExecutionError::Invalid("Merkle source memory pool/class"))
     ));
-    // Proof production is a live Ordinary phase, even after a Recovery open.
     let proof_source = store
         .state_session(physical_io(), MemoryClass::Ordinary)
         .unwrap();

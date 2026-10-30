@@ -21,7 +21,8 @@ BASE_SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
 JSON_FIXTURE_SOURCE='09641e1b9d551700771c772e7545ac2851ea273d'
 DECOMPOSITION_SOURCE='c65098923e8d9aad6813d49ac48cc2540627c96d'
-CAPACITY_SOURCE='e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6'
+PROFILE_SOURCE='e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6'
+CAPACITY_SOURCE='f9ab0ca14620f118c84130b3d558e48dc1e6314d'
 SOURCE=EXCLUSION_SOURCE
 BUNDLE='2.27.3'
 CAP=256*1024**2
@@ -354,11 +355,10 @@ def observe_inputs(source,out,end,deadline,manifests,initial,stage,*,identity=No
 def capture_failure_evidence(args,source,out,end,env,terminal):
     """Collect existing bytes before any admission gate; never evaluate CodeQL here."""
     capture_end=min(end-120,time.monotonic()+90)
-    terminal['capture_limits']={'maximum_seconds':90,'identity_reserve_seconds':30,
+    terminal['capture_limits']={'maximum_seconds':90,'post_log_derived_reserve_seconds':30,
         'scope':'within the unchanged job deadline and two minute capture step'}
     initial_locks=read_initial_locks(out,source,args.deadline)
     for name,operation in (
-        ('log_capture',lambda:evidence.collect_logs(args.database,out,capture_end-30,settle=True)),
         ('checkout',lambda:evidence.capture_identity(source,out,capture_end,SOURCE,prefix='capture',initial_locks=initial_locks)),
         ('resources',lambda:resources(env)),
     ):
@@ -372,7 +372,8 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
         terminal['cargo_guard']={'status':'FAIL','error':type(exc).__name__}
     terminal['checkout_gate']=terminal['checkout'].get('status','PARTIAL')
     terminal['resource_gate']='PASS' if 'CODEQL_THREADS' in terminal['resources'] and 'CODEQL_RAM' in terminal['resources'] else 'FAIL'
-    terminal['evidence_status']=terminal['log_capture'].get('status','PARTIAL')
+    terminal['log_capture']={'status':'NOT_REACHED'}
+    terminal['evidence_status']='NOT_REACHED'
     terminal['status']='CAPTURED'
     terminal['coverage_capture']={'status':'NOT_REACHED'}
     terminal['lock_observation_gate']='NOT_REACHED'
@@ -389,6 +390,20 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     except Exception as exc:
         terminal['lock_observation_gate']='FAIL'
         terminal['secondary_errors'].append({'stage':'lock-observation','error':repr(exc)[:2048]})
+
+    # Identity and ignored-lock observations must survive optional bulky logs.
+    terminal['core_receipt_gate']='PASS'
+    try:
+        runtime.save(out/'capacity-capture-terminal.json',terminal,out,terminal=True)
+    except Exception as exc:
+        terminal['core_receipt_gate']='FAIL'
+        terminal['secondary_errors'].append({'stage':'core-receipt','error':repr(exc)[:2048]})
+    try:
+        terminal['log_capture']=evidence.collect_logs(args.database,out,capture_end-30,settle=True)
+    except Exception as exc:
+        terminal['log_capture']={'status':'PARTIAL','error':repr(exc)[:2048]}
+        terminal['secondary_errors'].append({'stage':'log_capture','error':repr(exc)[:2048]})
+    terminal['evidence_status']=terminal['log_capture'].get('status','PARTIAL')
 
     # Preserve the primary failure and raw-capture receipts before any derived
     # parsing. A step timeout during that optional work must not erase them.
@@ -429,7 +444,7 @@ def analysis_budget(mode,remaining):
     research=mode=='official-default-research'
     budget=21600 if research else 3300
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(40,minutes)
+    if not research:minutes=min(45,minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
@@ -442,7 +457,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
-    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
+    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
