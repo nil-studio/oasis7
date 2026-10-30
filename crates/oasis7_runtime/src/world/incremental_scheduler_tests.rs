@@ -438,3 +438,6 @@ fn scheduler_failures_poison_preceding_work_and_leave_cached_schedules_unchanged
         assert_eq!(world.module_tick_schedule, before);
     }
 }
+
+#[path = "incremental_scheduler_due_tests.rs"]
+mod due_order;
