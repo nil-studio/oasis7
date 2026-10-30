@@ -2,6 +2,8 @@ use super::*;
 use oasis7_agent_api::world_action::ResourceKind;
 const KIND: &str = "factory.smelter.mk1";
 const FACTORY: &str = "registered.factory";
+#[path = "resource_basis.rs"]
+mod resource_basis;
 
 fn build_fixture() -> World {
     let mut world = fixture();

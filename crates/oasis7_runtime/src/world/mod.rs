@@ -30,6 +30,8 @@ mod builtin_factory_quote;
 pub use builtin_factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactoryQuote};
 mod builtin_recipe_quote;
 pub use builtin_recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};
+mod native_resource_basis;
+pub use native_resource_basis::*;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;

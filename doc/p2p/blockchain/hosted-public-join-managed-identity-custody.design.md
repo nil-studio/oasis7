@@ -941,6 +941,26 @@ capabilities 的空业务 grant 投影继续使用现有 `needs_native_context_c
 
 #### 托管 DTO、关联与失败语义
 
+<a id="cloud-custody-resource-basis"></a>
+##### 资源事实的独立 setup V2 原件
+
+Trace refs: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c；O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb。
+
+以下是带资源候选的闭合目标合同，不能据此宣称实现或预算图已经验收。已有 `OwnerSetupPlanV1`、`OwnerSetupV1`、普通 CurrentGoal 与其签名 wire/恢复语义保持不变；V1 资源集合仍为空，只能接续精确 Move 且 business_limit 为零的 TestSession。另设独立 canonical domain 的 `OwnerSetupPlanV2`，只从原有 fresh setup 起点创建，使用新的独立 fresh-MFA 原件，不升级已消费的 V1 计划、不改旧 task/goal，也不绕过既有或未知 delegation 分配库存。
+
+V2 完整签入一个闭合 `ResourceBasisSelectionV1`，首个候选至多一个精确 Transfer、Build 或 Schedule 动作及全部固定参数。selection 是管理者批准读取哪个候选的选择，不是 `resource_refs`、资源 grant 或业务权限；actor、Owner、Agent、World、task/goal/Executor 和完整 fence 均由实际 participant 及原 Publish/Bind 原件确定，不能由选择器指定。ID 仅来自管理者已知的预置配置；不新增发现/枚举、预批准免费 probe 或从尚未批准的 Execution400/Native160 借费。V2 仍是原六阶段、四个 canonical 写和一个私有 PrepareGoal，不安装 AgentDelegationGrant、不发资源、不预留 World 资产；缺少真实适用 grant 时保持 pending，而不是增加第五写或把 signer delegation 当资源 grant。
+
+FinalObservation 保留原先付费的 preflight OwnerSetup 观察与 Admission，但资源 basis 不能取自这份较早观察。新增闭合 `OwnerSetupFinalResourceReadV2` 原件和 `EntryOwnerOperationV1::ReadResourceGoal` variant；新原件绑定 setup/provision、V2 plan digest、实际 World/Agent/task、原 goal reference、完整预期 Owner/Executor fence、精确 selection 和本阶段独立 nonce，由已付费 Owner factory 从保存原件唯一派生并签名。Native 仍在原 `/entry-owner/control` 路径先取得并核验当前 owner-view、真实 SID/CSRF/Account、World pin、任务与 Owner，以及 await 后的当前会话；随后仅把原 `ReadGoal` 的那一次 World HTTP 替换为固定新 domain `/v1/world/private-goal/current-resource-basis-v2`，不再追加资源或 Captured quote HTTP。
+
+World 从同一个实际 pinned World 构造 `OwnerSetupFinalResourceObservationV2`：包含完整 OwnerSetup control/signer-delegation 语义、CurrentGoal 的实际 activation/private PreparedGoal 证明与 `ResourceBasisFactV1`。复用原 current-goal 的 active publication、历史 activation pin 和私有 store 校验，并复用纯 SDK payload/嵌套 Owner proof 验证；新外层服务签名绑定整个新请求与全部 payload，不能伪造旧 CurrentGoal domain 签名或只换 wrapper。原 before-delivery fresh pin 必须保留；V2 还要求完整 CommitRef 与最初 pin 精确相等，grant、材料或任何 World commit 改变即拒绝，不能把新的 quote 拼入旧 goal、自动重试、刷新 Source 或放宽五秒。Account 最终 Result 强验该最终响应本身的同 pin owner/task/goal/Executor/delegation/资源，并与已验 Publish/Bind、preflight 原件及独立 Current/SQL 精确关联；最初 owner-view 成功不代替此最终证明。
+
+资源事实只从该 pin 的真实状态提取。Transfer 必须复用实际 Agent 因果决定、delegation admission 与 source ownership，再计算精确 from/to/material/amount/route 的物流 quote；单独物流 quote 或任意历史 grant row 不证明授权，foreign Agent/Site/Factory 或 World source 不因持有 grant 而放行。Build/Recipe 复用真实 private-clone factory/recipe quote 的 owner、grant source/revision/window/allowance、site/location、输入输出 ledger、材料、电力与条件拒绝。grant 必须真实匹配且非 revoked/expired/ambiguous/exhausted；不存在 ledger 不能用默认零余额伪装存在。Build 的拟建 factory ID 仅为候选，不标成已存在工厂的 owner 事实。纯 quote 不修改原 World、grant spent/decision、材料、tick 或任务，不接受 signed Captured HTTP quote 替代批准前证据，也不构造 fake Prepared fence。
+
+V2 Prepared 保存独立 `PreparedResourceBasisV1` provenance：原 setup plan/最终读取摘要、完整强签事实关联、typed selection、as-of commit/tick 与从这些 typed 事实唯一派生的 refs；它不改 V1 plan.resource_refs。严格恢复重验原件、签名、同 pin、前序与 refs 派生关系，拒绝调用者的 verified 标记。refs 只是 allowlist/展示中的集合，授权仍须完整 typed selection 和事实；同名字符串不能跨 ledger、site、factory 或 material 类型扩大动作。历史 final quote、Prepared/Captured/ContextRef、存储成功或可恢复 provenance 都不能恢复当前资源权限或派发权；后续每次 live 使用仍独立验证 fresh Source/Root/DFRF/当前 World、原期限、原批准动作与真实业务 admission。
+
+本候选只替换原物理路径，不把 HTTP 内部工作隐藏成一跳：FinalObservation 受改局部仍包括四次 Identity→Native HTTP（preflight Root、owner-view、effect Root、OwnerControl）与三次 Native→World HTTP（preflight owner-view、OwnerControl 内 owner-view、最终 Goal+Resource）。资源 evaluator 仅访问已 pin 本地 World；原私有 goal store/历史 pin 仍实际执行，新增 clone/编码/验签成本也须测量。完整阶段 95/96 与 setup 584–600 账不因此自动成立。请求、完整响应及 wrapper 保留各原边界（World owner signed 子响应至多60KiB、已有64KiB传输边界及各入口原限制），不分块、不裁证据、不提高 cap。真实 SDK/Native/World bridge 逐物理 HTTP counters、先扣费/once、原五秒窗口、最坏合法正文和 CPU/存储成本未验证前，此 profile 保持 disabled/blocked，不开放执行或以组件通过代整体验收。
+
+
 首版工具 envelope 固定 `schema_revision`、`profile_id`、`test_session_id`、`request_id`、`tool` 和该 tool 的唯一 typed arguments；capability 与 PoP 只由可信客户端附于认证层。各 enum variant 均拒绝未知字段，不允许通用 `args: Value` 穿透下游。u64 沿本设计十进制字符串合同；新 HTTP 中 i64 坐标/数量/距离也使用规范有符号十进制字符串并由 Rust checked parse，避免经过 JS Number 损失精度；u32 batches 是正整数并检查上限。账本/资源 ID 沿现有 parser 校验，不能将任意字符串解释为路径或 URL。
 
 客户端在首次发送前持久保存随机、稳定的 `request_id`。托管公共 `operation_id` 使用该相同 ID，在当前 TestSession 和账号范围内寻址；认证层决定范围，不能仅凭 ID 获取他人结果。DO 将 `(account/environment, test_session_id, request_id)` 与首份 typed body digest、origin grant/security version 原子绑定；同 ID 异正文返回冲突，同正文重复返回原 operation。digest 不包含会变化的 PoP challenge/transport attempt，更新传输证明不创建第二个业务操作。client binding/credential generation 是权限检查项而不是幂等 namespace；合法凭据替换仍定位原操作。重新批准的 grant 不能重置旧 session/request 的身份、预算或派发条件。
@@ -1007,6 +1027,13 @@ actor 另有固定 fact-only metadata 读取，只返回预期 scope/version、�
 Approval 绑定：manager/credential/version、账户与 native principal、环境和完整 world identity、prepared Agent/task/goal/executor fences、客户端/connector keys 与 approved runtime/Skill/source refs、typed action/参数/资源 allowlist、累计 request/business 总预算、固定 write_deadline、固定 read_until、固定 cleanup_until，以及精确 termination plan digest。初版只接受已核实 prepared_world 的固定资源；不借此模糊批准未来任意账号创建/目标/资产。
 
 资源 allowlist 精确反映实际 Prepared 证据，不能为满足非空校验填造资源引用。闭合的 `Move` 原件只含已批准坐标且不引用资源；仅当所有动作均为精确 `Move` 且 business_limit 为零时，可批准空资源 allowlist，仍强验同一 Prepared Agent/task/Owner/Executor fence 和每次当前准入。Transfer、Build、Schedule 必须逐一核验其真实固定 World 资源事实并匹配非空 allowlist；这些资源证据尚未接通时保持 pending，不借 Move 通道扩大动作或伪造 basis。无资源动作子集的实现不代表其余动作及整体验收已完成。
+
+资源 V2 的 TestSession 使用显式 `TestSessionBasisV2` 与新版本批准原件，签入上述 PreparedResourceBasis provenance、精确唯一 selection、派生 refs、typed action、业务/传输账与原目的期限；管理者 Native fresh MFA 批准的是这份完整固定计划。该 basis 是已强验的历史 Prepared 证据，不能在管理读取时冒充当前 owner/grant/余额。旧 V1 bytes 与恢复不默认补成已验资源；V2 action 必须与所签单一 selection 精确匹配，只能收窄额度，不换参数/资源，也不借普通 Move 通道支持资源动作。
+
+三 roots 发行前的付费 OwnerRead 为 V2 独立重验当前同 selection 资源：新增固定 Native `ParticipantOwnerResourceView` 与 World `/v1/world/participant-owner-resource-view-v1` 原件/domain，绑定 session/approval operation、PreparedResourceBasis provenance、完整 prepared fence、World、selection 和独立 nonce。它替换原 direct ParticipantOwnerView，不经会先多读一次 World 的 OwnerControl：Account 在原 once OwnerRead SQL 中先登记 exact 原件/route/profile、扣原一次 Native transport，并登记固定内部 World 出站成本；Native 以实际 SID/CSRF/Account、原 participant register/admission 和 Owner 签名核对全范围后，恰好一次转发该固定 World resource-view，不先调旧 owner-view 或 executor quote，await 后仍核对真实会话。World 在同 pin 返回实际 owner/task/goal reference/Executor/signer record 及资源事实，before-delivery fresh pin 要求完整 CommitRef 相等。最终 Account Activate 对照原批准的历史 provenance/selection/refs，强验新强签事实、Current/DFRF、私有 SID 代、Source 五秒、Native lifetime、同 proof 的 fresh consume 和最终 SQL 后才三 roots；setup 后 grant/owner/material 改变保持 pending，不替换历史事实或复活旧权限。
+
+V2 OwnerRead 的候选物理边为 Identity→Native 一次及 Native→World 一次，分别沿原 Native160 与固定内部 profile 成本，不借 Execution400/Read300/Control240。实际新路由必须以 bridge counters 证明没有隐藏旧 owner-view、第二次资源/quote HTTP 或免费 retry；完整预检预算、正文/五秒/CPU边界及恢复尚未验证时仍 disabled。历史 final quote 或 Prepared/Captured provenance 只供批准范围和原件关联，不能作为此次 fresh 读取、当前资源准入、Cognition/typed outbox/once 或权威 usage 结算的替代。
+
 
 | 记录 | 初次批准的上限及权限 |
 | --- | --- |
