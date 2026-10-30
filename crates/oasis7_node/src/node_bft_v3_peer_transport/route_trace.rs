@@ -1,9 +1,17 @@
 //! Opt-in test-hooks observations. Collection never waits or prints on hot paths.
 use super::*;
+use std::io::Write;
 use std::sync::{OnceLock, TryLockError, atomic::AtomicU64};
-const RING: usize = 256;
-const MESSAGES: usize = 2048;
-static LOST: AtomicU64 = AtomicU64::new(0);
+const RING: usize = 128;
+const MESSAGES: usize = 512;
+static LOST: [AtomicU64; 257] = [const { AtomicU64::new(0) }; 257];
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+static UNTRACKED_ROUTES: AtomicU64 = AtomicU64::new(0);
+pub(super) fn owner() -> u64 {
+    enabled()
+        .then(|| NEXT_OWNER.fetch_add(1, Ordering::Relaxed))
+        .unwrap_or(0)
+}
 static NEXT_PARCEL: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy)]
 pub(super) struct ParcelTrace {
@@ -53,7 +61,6 @@ struct Record {
 }
 struct Trace {
     origin: Instant,
-    routes: BTreeMap<(PeerId, PeerId), usize>,
     messages: BTreeMap<(usize, String), u64>,
     totals: BTreeMap<(usize, &'static str, &'static str, &'static str), Total>,
     recent: VecDeque<Record>,
@@ -66,8 +73,7 @@ struct Trace {
 impl Default for Trace {
     fn default() -> Self {
         Self {
-            origin: Instant::now(),
-            routes: BTreeMap::new(),
+            origin: *origin(),
             messages: BTreeMap::new(),
             totals: BTreeMap::new(),
             recent: VecDeque::new(),
@@ -125,9 +131,13 @@ impl Trace {
         self.recent.push_back(record);
     }
 }
-fn trace() -> &'static Mutex<Trace> {
-    static TRACE: OnceLock<Mutex<Trace>> = OnceLock::new();
-    TRACE.get_or_init(|| Mutex::new(Trace::default()))
+fn origin() -> &'static Instant {
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now)
+}
+fn trace(route: usize) -> &'static Mutex<Trace> {
+    static TRACES: OnceLock<[Mutex<Trace>; 257]> = OnceLock::new();
+    &TRACES.get_or_init(|| std::array::from_fn(|_| Mutex::new(Trace::default())))[route.min(256)]
 }
 fn try_observe<T>(
     collector: &Mutex<Trace>,
@@ -145,22 +155,29 @@ fn try_observe<T>(
 }
 // The directed Noise route is internal. Only its bounded temporary ordinal is rendered.
 pub(super) fn route(from: PeerId, to: PeerId) -> usize {
+    static ROUTES: OnceLock<Mutex<BTreeMap<(PeerId, PeerId), usize>>> = OnceLock::new();
     if !enabled() {
         return 256;
     }
-    try_observe(trace(), &LOST, |trace| {
-        if let Some(index) = trace.routes.get(&(from, to)) {
-            return *index;
-        }
-        if trace.routes.len() >= 256 {
-            trace.unknown += 1;
+    let routes = ROUTES.get_or_init(|| Mutex::new(BTreeMap::new()));
+    let mut routes = match routes.try_lock() {
+        Ok(routes) => routes,
+        Err(TryLockError::Poisoned(error)) => error.into_inner(),
+        Err(TryLockError::WouldBlock) => {
+            LOST[256].fetch_add(1, Ordering::Relaxed);
             return 256;
         }
-        let index = trace.routes.len();
-        trace.routes.insert((from, to), index);
-        index
-    })
-    .unwrap_or(256)
+    };
+    if let Some(index) = routes.get(&(from, to)) {
+        return *index;
+    }
+    let index = routes.len();
+    if index >= 256 {
+        UNTRACKED_ROUTES.fetch_add(1, Ordering::Relaxed);
+        return 256;
+    }
+    routes.insert((from, to), index);
+    index
 }
 #[expect(
     clippy::too_many_arguments,
@@ -181,7 +198,7 @@ pub(super) fn event_message(
         return;
     }
     let now = Instant::now();
-    try_observe(trace(), &LOST, |trace| {
+    try_observe(trace(route), &LOST[route.min(256)], |trace| {
         let message = trace.message(route, digest);
         let at_us = now.saturating_duration_since(trace.origin).as_micros();
         trace.insert(Record {
@@ -231,56 +248,102 @@ pub(super) fn parcel_event(
         );
     }
 }
-pub(super) fn report() {
+struct Snapshot {
+    records: Vec<Record>,
+    totals: BTreeMap<(usize, &'static str, &'static str, &'static str), Total>,
+    sequence: u64,
+    recent_evicted: u64,
+    slow_evicted: u64,
+    unknown: u64,
+}
+fn snapshot(collector: &Mutex<Trace>, lost: &AtomicU64) -> Option<Snapshot> {
+    try_observe(collector, lost, |trace| {
+        let mut records: Vec<_> = trace.recent.drain(..).collect();
+        records.extend(trace.slow.drain(..));
+        records.sort_by_key(|record| record.sequence);
+        records.dedup_by_key(|record| record.sequence);
+        Snapshot {
+            records,
+            totals: trace.totals.clone(),
+            sequence: trace.sequence,
+            recent_evicted: trace.recent_evicted,
+            slow_evicted: trace.slow_evicted,
+            unknown: trace.unknown,
+        }
+    })
+}
+fn collect_owned<'a>(
+    owned: &[usize],
+    lookup: impl Fn(usize) -> (&'a Mutex<Trace>, &'a AtomicU64),
+) -> Vec<(usize, Option<Snapshot>)> {
+    owned
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|route| {
+            let (collector, lost) = lookup(route);
+            (route, snapshot(collector, lost))
+        })
+        .collect()
+}
+pub(super) fn report(owner: u64, owned: &[usize]) {
     if !enabled() {
         return;
     }
-    // Release the collector before formatting or stderr I/O. Rings are drained
-    // once; totals remain cumulative and snapshots must never be added together.
-    let Some((mut records, totals, sequence, recent_evicted, slow_evicted, unknown)) =
-        try_observe(trace(), &LOST, |trace| {
-            let mut records: Vec<_> = trace.recent.drain(..).collect();
-            records.extend(trace.slow.drain(..));
-            (
-                records,
-                trace.totals.clone(),
-                trace.sequence,
-                trace.recent_evicted,
-                trace.slow_evicted,
-                trace.unknown,
-            )
-        })
-    else {
-        return;
-    };
-    records.sort_by_key(|record| record.sequence);
-    records.dedup_by_key(|record| record.sequence);
-    for r in records {
-        eprintln!(
-            "BFT_ROUTE at_us={} seq={} route={} kind={} stage={} result={} parcel={} message={} elapsed_us={} age_us={} remaining_us={}",
-            r.at_us,
-            r.sequence,
-            r.route,
-            r.kind,
-            r.stage,
-            r.result,
-            r.parcel,
-            r.message,
-            r.elapsed_us,
-            r.age_us,
-            r.remaining_us
-        );
-    }
-    for ((route, kind, stage, result), total) in totals {
-        eprintln!(
-            "BFT_ROUTE_TOTAL route={route} kind={kind} stage={stage} result={result} count={} max_elapsed_us={} max_age_us={}",
-            total.count, total.max_elapsed_us, total.max_age_us
-        );
-    }
-    eprintln!(
-        "BFT_ROUTE_SNAPSHOT sequence={sequence} ring_limit={RING} recent_evicted={recent_evicted} slow_evicted={slow_evicted} unknown={unknown} lost={}",
-        LOST.load(Ordering::Relaxed)
+    // Only this transport's directed routes are drained. Another fixture's
+    // Drop cannot take its events; snapshots remain cumulative per route.
+    let snapshots = collect_owned(owned, |route| (trace(route), &LOST[route.min(256)]));
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(
+        stderr,
+        "BFT_ROUTE_OWNER owner={owner} routes={owned:?} at_us={} untracked_routes={}",
+        origin().elapsed().as_micros(),
+        UNTRACKED_ROUTES.load(Ordering::Relaxed)
     );
+    for (route, snapshot) in snapshots {
+        let Some(snapshot) = snapshot else {
+            let _ = writeln!(
+                stderr,
+                "BFT_ROUTE_SNAPSHOT owner={owner} route={route} available=0 lost={}",
+                LOST[route.min(256)].load(Ordering::Relaxed)
+            );
+            continue;
+        };
+        for r in snapshot.records {
+            let _ = writeln!(
+                stderr,
+                "BFT_ROUTE owner={owner} at_us={} seq={} route={} kind={} stage={} result={} parcel={} message={} elapsed_us={} age_us={} remaining_us={}",
+                r.at_us,
+                r.sequence,
+                r.route,
+                r.kind,
+                r.stage,
+                r.result,
+                r.parcel,
+                r.message,
+                r.elapsed_us,
+                r.age_us,
+                r.remaining_us
+            );
+        }
+        for ((route, kind, stage, result), total) in snapshot.totals {
+            let _ = writeln!(
+                stderr,
+                "BFT_ROUTE_TOTAL owner={owner} route={route} kind={kind} stage={stage} result={result} count={} max_elapsed_us={} max_age_us={}",
+                total.count, total.max_elapsed_us, total.max_age_us
+            );
+        }
+        let _ = writeln!(
+            stderr,
+            "BFT_ROUTE_SNAPSHOT owner={owner} route={route} available=1 sequence={} ring_limit={RING} message_limit={MESSAGES} recent_evicted={} slow_evicted={} unknown={} lost={}",
+            snapshot.sequence,
+            snapshot.recent_evicted,
+            snapshot.slow_evicted,
+            snapshot.unknown,
+            LOST[route.min(256)].load(Ordering::Relaxed)
+        );
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -345,5 +408,50 @@ mod tests {
         assert_eq!(trace.message(0, None), 0);
         assert_eq!(trace.unknown, 2);
         assert_eq!(trace.messages.len(), MESSAGES);
+    }
+    #[test]
+    fn route_trace_budgets_are_isolated_between_routes() {
+        let mut first = Trace::default();
+        let mut second = Trace::default();
+        for n in 0..MESSAGES + 1 {
+            first.message(0, Some(&n.to_string()));
+        }
+        for _ in 0..RING + 1 {
+            first.insert(record(0, "rate_limited"));
+        }
+        assert_eq!(second.message(1, Some("other-route")), 1);
+        let mut event = record(0, "ack");
+        event.route = 1;
+        second.insert(event);
+        assert_eq!(first.unknown, 1);
+        assert_eq!(first.slow_evicted, 1);
+        assert_eq!(second.unknown, 0);
+        assert_eq!(second.recent_evicted, 0);
+        assert_eq!(second.recent.len(), 1);
+    }
+    #[test]
+    fn route_trace_snapshot_cannot_drain_another_routes_events() {
+        let first = Mutex::new(Trace::default());
+        let second = Mutex::new(Trace::default());
+        let lost = AtomicU64::new(0);
+        first.lock().unwrap().insert(record(0, "ack"));
+        second.lock().unwrap().insert(record(0, "rate_limited"));
+        let snapshots = collect_owned(&[0, 0], |route| {
+            if route == 0 {
+                (&first, &lost)
+            } else {
+                (&second, &lost)
+            }
+        });
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].1.as_ref().unwrap().records.len(), 1);
+        assert!(first.lock().unwrap().recent.is_empty());
+        assert_eq!(second.lock().unwrap().recent.len(), 1);
+        assert_eq!(second.lock().unwrap().slow.len(), 1);
+        assert_eq!(snapshot(&second, &lost).unwrap().records.len(), 1);
+        assert_eq!(
+            first.lock().unwrap().totals.values().next().unwrap().count,
+            1
+        );
     }
 }

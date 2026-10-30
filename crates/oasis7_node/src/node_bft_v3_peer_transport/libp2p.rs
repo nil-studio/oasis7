@@ -78,6 +78,10 @@ pub struct NodeBftLibp2pPeerTransportV3 {
     counters: Arc<Counters>,
     workers: Vec<JoinHandle<()>>,
     registration: Option<oasis7_net::AuthenticatedHandlerRegistration>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_owner: u64,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_owned_routes: Vec<usize>,
     errors: Arc<Mutex<VecDeque<String>>>,
 }
 impl NodeBftLibp2pPeerTransportV3 {
@@ -133,6 +137,18 @@ impl NodeBftLibp2pPeerTransportV3 {
             counters,
             workers: Vec::new(),
             registration: None,
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_owner: route_trace::owner(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_owned_routes: peers
+                .iter()
+                .flat_map(|peer| {
+                    [
+                        route_trace::route(network.peer_id(), *peer),
+                        route_trace::route(*peer, network.peer_id()),
+                    ]
+                })
+                .collect(),
             errors: errors.clone(),
         };
         // Resources exist before the immutable handler is published. Any failure
@@ -291,7 +307,7 @@ impl Drop for NodeBftLibp2pPeerTransportV3 {
             let _ = worker.join();
         }
         #[cfg(any(test, feature = "test-hooks"))]
-        route_trace::report();
+        route_trace::report(self.trace_owner, &self.trace_owned_routes);
     }
 }
 fn stopped(q: &Arc<(Mutex<Outbound>, Condvar)>) -> bool {
