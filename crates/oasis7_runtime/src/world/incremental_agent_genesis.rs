@@ -193,6 +193,3 @@ pub(super) fn write_agent_cell_fields<
     Ok(visitor.emitted)
 }
 
-#[cfg(all(test, unix))]
-#[path = "incremental_agent_genesis_tests.rs"]
-mod tests;

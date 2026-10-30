@@ -1,8 +1,16 @@
-use super::*;
+#![cfg(all(unix, not(target_arch = "wasm32")))]
+
+use oasis7::AgentState;
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
+use oasis7_formal_protocol::incremental_state::StateNamespaceV1 as Ns;
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
-use oasis7_proto::memory_budget::MemoryBudget;
-use oasis7_world_state::{AgentCell, AgentState};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime::{
+    AgentCell, BodyMutationContext, BodyMutationError, DomainEvent, World, WorldState,
+    incremental_agent_fields::{AgentFieldV1, AgentScalarRefV1},
+    incremental_agent_genesis::{AgentGenesisContext, write_agent_scalar_value},
+    incremental_event_fields::{MailboxKeyV1, mailbox_event_id_v1},
+};
 use std::collections::BTreeMap;
 
 fn physical() -> PageIoBudget {
@@ -48,7 +56,7 @@ fn actual_agent_genesis_keeps_original_mailbox_occurrences_and_provisional_failu
     let store =
         IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), PageCompression::Raw)
             .unwrap();
-    let mut world = World::new();
+    let mut state = WorldState::default();
     let mut cell = AgentCell::new(
         AgentState::new(
             "alice",
@@ -62,8 +70,9 @@ fn actual_agent_genesis_keeps_original_mailbox_occurrences_and_provisional_failu
         reason: "same occurrence content".into(),
     };
     cell.mailbox.extend([event.clone(), event]);
-    world.state.agents.insert("alice".into(), cell);
-    let before = world.state.clone();
+    state.agents.insert("alice".into(), cell);
+    let world = World::new_with_state(state);
+    let before = world.state().clone();
     for failure in 0..5 {
         let mut sink = store.value_session(physical());
         let mut io = logical();
@@ -91,7 +100,7 @@ fn actual_agent_genesis_keeps_original_mailbox_occurrences_and_provisional_failu
                     }
                     assert_eq!(
                         original,
-                        &world.state.agents["alice"].mailbox[ordinal as usize]
+                        &world.state().agents["alice"].mailbox[ordinal as usize]
                     );
                     occurrences.push(ordinal);
                     Ok([ordinal as u8 + 1; 32])
@@ -99,7 +108,7 @@ fn actual_agent_genesis_keeps_original_mailbox_occurrences_and_provisional_failu
                 max_scalar_bytes: if failure == 4 { 1 } else { 4096 },
             },
         );
-        assert_eq!(world.state, before);
+        assert_eq!(world.state(), &before);
         if failure != 0 {
             assert!(result.is_err());
             continue;
@@ -123,7 +132,7 @@ fn actual_agent_genesis_keeps_original_mailbox_occurrences_and_provisional_failu
                 .read_range(&root, 0, root.0.logical_len, &mut bytes, || false)
                 .unwrap();
             assert_eq!(
-                oasis7_world_state::incremental_event_fields::mailbox_event_id_v1(&bytes).unwrap(),
+                mailbox_event_id_v1(&bytes).unwrap(),
                 [ordinal as u8 + 1; 32]
             );
         }
