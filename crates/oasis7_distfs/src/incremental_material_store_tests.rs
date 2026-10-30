@@ -144,3 +144,6 @@ fn original_protocol_core_is_loaded_from_real_objects_and_pages_after_reopen() {
         );
     }
 }
+
+#[path = "incremental_state_values_store_tests.rs"]
+mod state_values;
