@@ -37,6 +37,8 @@ pub enum LedgerQuantityV1 {
     Value(i64),
 }
 pub(crate) struct InventoryPointV1 {
+    pub metadata: WorldFieldKeyV1,
+    pub metadata_root: [u8; 32],
     pub key: WorldFieldKeyV1,
     pub root: Option<[u8; 32]>,
     pub quantity: Option<i64>,
@@ -121,7 +123,7 @@ impl<
         &mut self,
         name: &'static str,
         shape: FieldShape,
-    ) -> Result<FieldDescriptor, ValueTreeError> {
+    ) -> Result<(FieldDescriptor, WorldFieldKeyV1, [u8; 32]), ValueTreeError> {
         self.check()?;
         let field = descriptor(name, shape)
             .map_err(|_| ValueTreeError::Invalid("inventory registration"))?;
@@ -141,7 +143,7 @@ impl<
             &mut std::io::sink(),
             &mut self.cancelled,
         )?;
-        Ok(field)
+        Ok((field, key, value))
     }
     fn key<K: SemanticKeyV1 + ?Sized>(
         &mut self,
@@ -213,13 +215,15 @@ impl<
         name: &'static str,
         key: &K,
     ) -> Result<InventoryPointV1, ValueTreeError> {
-        let field = self.metadata(name, FieldShape::Map)?;
+        let (field, metadata, metadata_root) = self.metadata(name, FieldShape::Map)?;
         let (key, bytes) = self.key(field, WorldFieldRecordKindV1::Entry, key)?;
         let root = self.lookup(&key)?;
         let quantity = root
             .map(|value| self.quantity(&value, &key, bytes))
             .transpose()?;
         Ok(InventoryPointV1 {
+            metadata,
+            metadata_root,
             key,
             root,
             quantity,
@@ -250,7 +254,8 @@ impl<
         ledger: &MaterialLedgerId,
         material: &str,
     ) -> Result<LedgerPointV1, ValueTreeError> {
-        let field = self.metadata("material_ledgers", FieldShape::NestedMap)?;
+        let (field, metadata, metadata_root) =
+            self.metadata("material_ledgers", FieldShape::NestedMap)?;
         let (group, group_bytes) = self.key(field, WorldFieldRecordKindV1::Group, ledger)?;
         let group_value = self.lookup(&group)?;
         if let Some(value) = group_value {
@@ -281,6 +286,8 @@ impl<
             group,
             group_root: group_value,
             member: InventoryPointV1 {
+                metadata,
+                metadata_root,
                 key,
                 root: value,
                 quantity,

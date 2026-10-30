@@ -95,6 +95,11 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         }
     }
 
+    /// Immutable original namespace root, never the current overlay.
+    pub fn parent_state_root(&self, namespace: StateNamespaceV1) -> &StateRootV1 {
+        self.parent.roots.state_root(namespace)
+    }
+
     pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
         self.memory.same_pool(memory)
     }

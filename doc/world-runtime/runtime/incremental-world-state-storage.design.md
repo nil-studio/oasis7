@@ -497,3 +497,12 @@ Runtime 的原 AgentMoved 事件与 BodyAttributesUpdated 复用同一 AgentEven
 输入事件、原件编码临时空间、页和输出均须按适用范围预先准入；读写使用同一预算池的 Ordinary 额度以及有限 I/O/记录上限和取消。任一原类型、clock/allocator/mailbox 前置、读写、原件回调或取消失败使整笔共享事务不能 seal，不能采用先前成功写入。此贡献入口不执行移动权限、费用结算、M1-v2 era 接受检查或 authority/head 发布；适用原 owner 与外层 driver 仍须在接受链路接通，不将暂态 contributor 当作新格式激活。
 
 物理分量验证保存原事件后关闭并重开实际 Raw/Zstd store，以认证根继续 body/move，独立核对原事件 bytes 与缓存相等目标的坐标前后值。此 fixture 仍保留 World 的旧上下文和预期 transition 元数据，不声称完整 World 重建、C<T 非空后缀恢复、到期模块动作或正式独立持久保障。
+### 12.10 库存点准备对共享事务的贡献
+
+<a id="iws-inventory-transaction-v1"></a>
+
+§12.9 的准备结果同时保留固定数量的完整点读依赖：字段 Metadata、适用的 Group 及目标成员，各含完整结构键与原 value root/absent。它们使用固定大小存储，不复制原业务大键。导入共享 ExecutionTransaction 前校验同一进程预算、精确 prepared guard/live fence 和同一 Business parent root，再逐项将依赖登记到该事务的 read-set；overlay 中的当前 root 必须与原依赖一致，不能把先前贡献已修改的内容当作旧根结果继续覆盖。即使最终没有写入，读依赖仍须登记。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+调用方交付的暂存 StateWrite 必须仍持有同池 reservation、条数与准备结果一致、键不重复、仅对应目标成员或显式新建 Group，before 与认证依赖一致；导入不接受 Metadata 写。全部操作在一次 contribute 内进行；错误、取消、依赖冲突、写集/内存/读取额度耗尽或 panic 都使整个事务不可 seal，不能捕获错误后发布已导入前缀。成功后旧 guard 已因 read/write revision 变化而失效，调用方取得新 guard 再执行后续阶段。
+
+此入口接受原 owner 已决定的最终 after roots，不赋予业务授权，不证明这些 roots 的耐久闭包或完整字段家族，也不安装活 World 或发布 head。基于同一 parent 的多次点计算若触及已改变的依赖须拒绝并重做，不能把此批量贡献冒充 overlay 上的顺序业务计算。

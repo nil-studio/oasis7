@@ -68,9 +68,33 @@ impl std::fmt::Display for InventoryChangeError {
 }
 impl std::error::Error for InventoryChangeError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InventoryDependencyV1 {
+    pub key: WorldFieldKeyV1,
+    pub root: Option<[u8; 32]>,
+    pub writable: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedInventoryChangeV1 {
     pub before_root: [u8; STATE_ROOT_BYTES],
     pub records: u8,
+    pub(crate) dependencies: [Option<InventoryDependencyV1>; 3],
+}
+fn simple_dependencies(
+    point: &crate::incremental_inventory_read::InventoryPointV1,
+) -> [Option<InventoryDependencyV1>; 3] {
+    [
+        Some(InventoryDependencyV1 {
+            key: point.metadata.clone(),
+            root: Some(point.metadata_root),
+            writable: false,
+        }),
+        Some(InventoryDependencyV1 {
+            key: point.key.clone(),
+            root: point.root,
+            writable: true,
+        }),
+        None,
+    ]
 }
 fn emit<S: InventoryWriteSink>(
     key: &WorldFieldKeyV1,
@@ -173,6 +197,7 @@ where
         .map_err(|_| InventoryChangeError::Invalid("inventory source root"))?
         .try_into()
         .map_err(|_| InventoryChangeError::Invalid("inventory source root length"))?;
+    let mut dependencies = [None, None, None];
     let records = match change {
         InventoryChangeRefV1::Resource {
             key,
@@ -183,6 +208,7 @@ where
             if point.quantity != expected {
                 return Err(InventoryChangeError::Precondition);
             }
+            dependencies = simple_dependencies(&point);
             member(
                 descriptor("resources", FieldShape::Map)?,
                 &key,
@@ -202,6 +228,7 @@ where
             if point.quantity != expected {
                 return Err(InventoryChangeError::Precondition);
             }
+            dependencies = simple_dependencies(&point);
             member(
                 descriptor("materials", FieldShape::Map)?,
                 key,
@@ -233,6 +260,21 @@ where
                     "inventory ledger creation not allowed",
                 ));
             }
+            dependencies[0] = Some(InventoryDependencyV1 {
+                key: point.member.metadata.clone(),
+                root: Some(point.member.metadata_root),
+                writable: false,
+            });
+            dependencies[1] = Some(InventoryDependencyV1 {
+                key: point.group.clone(),
+                root: point.group_root,
+                writable: point.group_root.is_none() && create_ledger,
+            });
+            dependencies[2] = Some(InventoryDependencyV1 {
+                key: point.member.key.clone(),
+                root: point.member.root,
+                writable: true,
+            });
             let mut records = 0;
             let field = descriptor("material_ledgers", FieldShape::NestedMap)?;
             if point.group_root.is_none() && create_ledger {
@@ -286,5 +328,6 @@ where
     Ok(PreparedInventoryChangeV1 {
         before_root,
         records,
+        dependencies,
     })
 }

@@ -462,3 +462,6 @@ fn cancellation_after_group_output_stops_before_member_encoding_and_no_success_e
         LedgerQuantityV1::LedgerAbsent
     );
 }
+
+#[path = "support/incremental_inventory_transaction.rs"]
+mod transaction;
