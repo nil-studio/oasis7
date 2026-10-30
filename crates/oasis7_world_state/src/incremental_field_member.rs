@@ -46,8 +46,8 @@ impl MemberPayloadCodecV1 {
         })
     }
     fn framing(self, kind: WorldFieldRecordKindV1, length: u64) -> Result<(), &'static str> {
-        if !matches!((kind, self), (WorldFieldRecordKindV1::Bytes, Self::Bytes))
-            && !(kind == WorldFieldRecordKindV1::Entry && self != Self::Bytes)
+        if !(matches!((kind, self), (WorldFieldRecordKindV1::Bytes, Self::Bytes))
+            || kind == WorldFieldRecordKindV1::Entry && self != Self::Bytes)
         {
             return Err("member key/payload kind");
         }
