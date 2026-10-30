@@ -464,6 +464,23 @@ export type TerminationPlanV1 = {
   "world": ApprovedWorldV1;
 };
 export type TerminationTriggerV1 = "closing_only_v1";
+export type TestSessionBasisV1 = {
+  "allowed_resource_refs": Array<string>;
+  "api_version": number;
+  "authority": ApprovalContextV1;
+  "client_pairing": ClientPairingBindingV1;
+  "custody_account_id": string;
+  "executor_key": PublicRoleKey;
+  "native_account_id": string;
+  "owner_key": PublicRoleKey;
+  "provision_id": string;
+  "request_id": string;
+  "runtime_ref": string;
+  "session_id": string;
+  "skill_ref": string;
+  "source_ref": string;
+  "termination": TerminationPlanV1;
+};
 export type SessionPurposeV1 = "execution" | "reconcile_read" | "termination_plan";
 export type TestSessionClosingReasonV1 = "finished" | "aborted" | "deadline" | "lease_expired" | "budget_exhausted" | "revoked";
 export type TestSessionPhaseV1 = "pending_approval" | "consumed_pending_preflight" | "active" | "closing" | "blocked";
@@ -785,22 +802,9 @@ export type TestSessionBasisRequestV1 = {
   "enrollment_id": string;
   "request_id": string;
 };
-export type TestSessionBasisV1 = {
-  "allowed_resource_refs": Array<string>;
-  "api_version": number;
-  "authority": ApprovalContextV1;
-  "client_pairing": ClientPairingBindingV1;
-  "custody_account_id": string;
-  "executor_key": PublicRoleKey;
-  "native_account_id": string;
-  "owner_key": PublicRoleKey;
-  "provision_id": string;
-  "request_id": string;
-  "runtime_ref": string;
-  "session_id": string;
-  "skill_ref": string;
-  "source_ref": string;
-  "termination": TerminationPlanV1;
+export type TestSessionBasisResponseV1 = {
+  "basis": TestSessionBasisV1;
+  "basis_digest": string;
 };
 export type TestSessionContinueRequestV1 = {
   "api_version": number;
