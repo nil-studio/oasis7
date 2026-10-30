@@ -196,6 +196,9 @@ is required for this task.
 - generated bitmap references only when a task needs marketing or illustrative
   material outside the software-safe product surface.
 
+### 5.2.1 Versioned design-reference sheets
+Static SVG sheets in `assets/ui-ux/` are documentation references, not runtime assets or a new art pack. Each carries DESIGN TARGET / 设计目标, viewport/state and illustrative-data labels. They must preserve this specification's token meanings and truthful world semantics; any proposed value variation is named explicitly rather than presented as a current CSS alias. PNG review previews retain the same scope and never count as runtime screenshots. The [detailed sheet index](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets) owns their scenarios and interaction annotations.
+
 ### 5.3 Asset Acceptance
 An asset is acceptable only if it:
 - makes agent, route, objective, blocker, receipt, or unavailable state easier to

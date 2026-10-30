@@ -1602,6 +1602,128 @@
         "request_id": "session-request-one"
       }
     ],
+    "TestSessionBasisResponseV1": [
+      {
+        "basis": {
+          "allowed_resource_refs": [
+            "agent:agent-one",
+            "site:site-one",
+            "iron_ore",
+            "site-one",
+            "factory-one",
+            "recipe.smelter.iron_ingot"
+          ],
+          "api_version": 1,
+          "authority": {
+            "audience": "account-authority:test",
+            "custody_account_id": "custody-one",
+            "environment": "test",
+            "policy_version": "1",
+            "security_version": "2",
+            "service_epoch": "3"
+          },
+          "client_pairing": {
+            "api_version": 1,
+            "client_key_id": "client-one",
+            "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "connector_public_key": null,
+            "descriptor_digest": "432dab8a9365b9168fc78cf8fc4b07402c342d4b04ee28742cf6598ecfd7c746",
+            "enrollment_digest": "cececececececececececececececececececececececececececececececece",
+            "enrollment_id": "enrollment-one",
+            "host_instance_id": "host-one",
+            "target": {
+              "custody_account_id": "custody-one",
+              "invite_digest": "46e505b51af9e21791404052d3d1f18905d28954648e0f3163967547ae79b15d",
+              "invite_id": "invite-one",
+              "provision_id": "provision-one"
+            }
+          },
+          "custody_account_id": "custody-one",
+          "executor_key": {
+            "key_id": "executor-one",
+            "key_version": "1",
+            "public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          },
+          "native_account_id": "native-one",
+          "owner_key": {
+            "key_id": "owner-one",
+            "key_version": "1",
+            "public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "provision_id": "provision-one",
+          "request_id": "session-request-one",
+          "runtime_ref": "isolated-runtime-one",
+          "session_id": "session-one",
+          "skill_ref": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "source_ref": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+          "termination": {
+            "api_version": 1,
+            "cleanup_until": "601000",
+            "custody_account_id": "custody-one",
+            "executor_key_ref": "executor-one",
+            "initial_fence": {
+              "active_goal_reference": {
+                "activation_committed_height": "9007199254740993",
+                "goal_ref": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf",
+                "goal_revision": "1",
+                "prepare_operation_id": "prepare-one",
+                "publish_operation_id": "publish-one"
+              },
+              "active_goal_revision": "1",
+              "agent_id": "agent-one",
+              "branch_id": "branch-one",
+              "executor_binding": {
+                "delegation_generation": "1",
+                "executor_epoch": "1",
+                "executor_id": "executor-one",
+                "executor_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+              },
+              "executor_epoch": "1",
+              "genesis_digest": "genesis-one",
+              "latest_goal_revision": "1",
+              "owner_binding": "owner-one",
+              "owner_generation": "1",
+              "owner_public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "reorg_epoch": "1",
+              "task_id": "task-one",
+              "task_revision": "1",
+              "task_status": "active",
+              "world_id": "world-one"
+            },
+            "nonce_policy": "account_allocated_high_water_v1",
+            "original_delegation": {
+              "agent_id": "agent-one",
+              "agent_identity_generation": "1",
+              "branch_id": "branch-one",
+              "delegate_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "generation": "1",
+              "nonce": "1",
+              "owner_binding": "owner-one",
+              "revoked": false,
+              "world_id": "world-one"
+            },
+            "owner_key_ref": "owner-one",
+            "prepared_result_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "provision_id": "provision-one",
+            "request_limit": "2",
+            "revoke_operation_id": "8c6cf7e3ac70fc910d5f813f953e65a31147763f69b4a4d4138fe96fa9173cc6",
+            "session_id": "session-one",
+            "setup_id": "setup-one",
+            "stop_operation_id": "3525102ed3d036c2605d9f68610f11e209a14ea0589bf510272e250e6fd09bbe",
+            "transport_limit": "24",
+            "trigger": "closing_only_v1",
+            "world": {
+              "branch_id": "branch-one",
+              "genesis_digest": "genesis-one",
+              "reorg_epoch": "1",
+              "service_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "world_id": "world-one"
+            }
+          }
+        },
+        "basis_digest": "df932c79d711d6d9f8fd3d6ced6cdd947d7c34840ccbe91547b857b4bc8426b9"
+      }
+    ],
     "TestSessionBasisV1": [
       {
         "allowed_resource_refs": [
@@ -13864,6 +13986,544 @@
         "cleanup_until"
       ],
       "title": "TestSessionBasisRequestV1",
+      "type": "object"
+    },
+    "TestSessionBasisResponseV1": {
+      "$defs": {
+        "ApprovalContextV1": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "policy_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "security_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            }
+          },
+          "required": [
+            "environment",
+            "custody_account_id",
+            "audience",
+            "policy_version",
+            "security_version",
+            "service_epoch"
+          ],
+          "type": "object"
+        },
+        "ApprovedWorldV1": {
+          "additionalProperties": false,
+          "description": "Full world pins and task fence are signed, not supplied as opaque client claims.",
+          "properties": {
+            "branch_id": {
+              "type": "string"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_public_key": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "service_public_key"
+          ],
+          "type": "object"
+        },
+        "ClientPairingBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "client_key_id": {
+              "type": "string"
+            },
+            "client_public_key": {
+              "type": "string"
+            },
+            "connector_public_key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "descriptor_digest": {
+              "type": "string"
+            },
+            "enrollment_digest": {
+              "type": "string"
+            },
+            "enrollment_id": {
+              "type": "string"
+            },
+            "host_instance_id": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/$defs/PairingInviteTargetRefV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "target",
+            "enrollment_id",
+            "enrollment_digest",
+            "host_instance_id",
+            "descriptor_digest",
+            "client_key_id",
+            "client_public_key"
+          ],
+          "type": "object"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "DelegationMetadataV1": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "agent_identity_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "delegate_public_key": {
+              "type": "string"
+            },
+            "generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "nonce": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "revoked": {
+              "type": "boolean"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "branch_id",
+            "agent_id",
+            "owner_binding",
+            "agent_identity_generation",
+            "generation",
+            "delegate_public_key",
+            "revoked",
+            "nonce"
+          ],
+          "type": "object"
+        },
+        "GameExecutorBindingV1": {
+          "additionalProperties": false,
+          "properties": {
+            "delegation_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "executor_id": {
+              "type": "string"
+            },
+            "executor_public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "executor_id",
+            "executor_public_key",
+            "delegation_generation",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameGoalReferenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "activation_committed_height": {
+              "$ref": "#/$defs/DecimalU64",
+              "description": "A full commit root cannot be embedded in the state that it hashes."
+            },
+            "goal_ref": {
+              "type": "string"
+            },
+            "goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "prepare_operation_id": {
+              "type": "string"
+            },
+            "publish_operation_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "goal_revision",
+            "goal_ref",
+            "prepare_operation_id",
+            "publish_operation_id",
+            "activation_committed_height"
+          ],
+          "type": "object"
+        },
+        "GameTaskFenceV1": {
+          "additionalProperties": false,
+          "properties": {
+            "active_goal_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameGoalReferenceV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "executor_binding": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GameExecutorBindingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "executor_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "latest_goal_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_binding": {
+              "type": "string"
+            },
+            "owner_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "owner_public_key": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "task_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "task_status": {
+              "$ref": "#/$defs/GameTaskStatusV1"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "agent_id",
+            "owner_binding",
+            "owner_generation",
+            "owner_public_key",
+            "task_id",
+            "task_revision",
+            "task_status",
+            "latest_goal_revision",
+            "active_goal_revision",
+            "executor_epoch"
+          ],
+          "type": "object"
+        },
+        "GameTaskStatusV1": {
+          "enum": [
+            "suspended",
+            "active"
+          ],
+          "type": "string"
+        },
+        "PairingInviteTargetRefV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "invite_digest": {
+              "type": "string"
+            },
+            "invite_id": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "invite_id",
+            "invite_digest"
+          ],
+          "type": "object"
+        },
+        "PublicRoleKey": {
+          "additionalProperties": false,
+          "properties": {
+            "key_id": {
+              "type": "string"
+            },
+            "key_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "public_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key_id",
+            "key_version",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "TerminationNoncePolicyV1": {
+          "enum": [
+            "account_allocated_high_water_v1"
+          ],
+          "type": "string"
+        },
+        "TerminationPlanV1": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cleanup_until": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "executor_key_ref": {
+              "type": "string"
+            },
+            "initial_fence": {
+              "$ref": "#/$defs/GameTaskFenceV1"
+            },
+            "nonce_policy": {
+              "$ref": "#/$defs/TerminationNoncePolicyV1"
+            },
+            "original_delegation": {
+              "$ref": "#/$defs/DelegationMetadataV1"
+            },
+            "owner_key_ref": {
+              "type": "string"
+            },
+            "prepared_result_digest": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            },
+            "request_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "revoke_operation_id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "setup_id": {
+              "type": "string"
+            },
+            "stop_operation_id": {
+              "type": "string"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "trigger": {
+              "$ref": "#/$defs/TerminationTriggerV1"
+            },
+            "world": {
+              "$ref": "#/$defs/ApprovedWorldV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "session_id",
+            "custody_account_id",
+            "provision_id",
+            "setup_id",
+            "prepared_result_digest",
+            "world",
+            "owner_key_ref",
+            "executor_key_ref",
+            "initial_fence",
+            "original_delegation",
+            "stop_operation_id",
+            "revoke_operation_id",
+            "cleanup_until",
+            "request_limit",
+            "transport_limit",
+            "trigger",
+            "nonce_policy"
+          ],
+          "type": "object"
+        },
+        "TerminationTriggerV1": {
+          "enum": [
+            "closing_only_v1"
+          ],
+          "type": "string"
+        },
+        "TestSessionBasisV1": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed_resource_refs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "authority": {
+              "$ref": "#/$defs/ApprovalContextV1"
+            },
+            "client_pairing": {
+              "$ref": "#/$defs/ClientPairingBindingV1"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "executor_key": {
+              "$ref": "#/$defs/PublicRoleKey"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "owner_key": {
+              "$ref": "#/$defs/PublicRoleKey"
+            },
+            "provision_id": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "runtime_ref": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "skill_ref": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "termination": {
+              "$ref": "#/$defs/TerminationPlanV1"
+            }
+          },
+          "required": [
+            "api_version",
+            "request_id",
+            "session_id",
+            "custody_account_id",
+            "provision_id",
+            "authority",
+            "termination",
+            "native_account_id",
+            "owner_key",
+            "executor_key",
+            "client_pairing",
+            "runtime_ref",
+            "skill_ref",
+            "source_ref",
+            "allowed_resource_refs"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Closed management response. The digest is produced by Rust and echoed into\nthe plan; consistency alone is not an authority or approval grant.",
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/TestSessionBasisV1"
+        },
+        "basis_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "basis",
+        "basis_digest"
+      ],
+      "title": "TestSessionBasisResponseV1",
       "type": "object"
     },
     "TestSessionBasisV1": {
