@@ -59,6 +59,17 @@ export class AccountAuthority extends ActualAccount {
           const paid=Object.values(next.source_oracle_reads);
           if(next.preflight_oracle_reads===active.ticket&&paid.length===1&&paid[0]===active.ticket){
             active.facts.update_attempts++;active.facts.target_candidate_seen=true;
+            // Observe the real strict candidate at the actual SQL interception,
+            // without changing its Source, clock, proof or Rust admission result.
+            const source=next.sources?.[Object.keys(next.source_oracle_reads)[0]];
+            const observed=Number(source?.verification?.verification?.observed_at);
+            const expires=Number(source?.expires_at),now=Date.now();
+            active.facts.candidate_source_present=source!==undefined;
+            active.facts.candidate_observed_at=Number.isSafeInteger(observed)?observed:null;
+            active.facts.candidate_expires_at=Number.isSafeInteger(expires)?expires:null;
+            active.facts.candidate_checked_at=now;
+            active.facts.candidate_source_fresh=Number.isSafeInteger(observed)
+              &&Number.isSafeInteger(expires)&&observed<=now&&now-observed<=5000&&now<expires;
             // Installed only AFTER Rust's strict inventory/transition checks and
             // audit INSERT, inside that real transaction. The actual SQLite
             // UPDATE fails; the whole transaction must roll back audit+record+DDL.
@@ -96,7 +107,7 @@ export class AccountAuthority extends ActualAccount {
           selected.sessionId=input.request.session_id;selected.ticket=this.fixtureTicket;
           selected.beforeRaw=raw;selected.beforeRoots=JSON.stringify(session.roots);
           selected.beforeAudit=this.fixtureState.storage.sql.exec("SELECT COUNT(*) AS n FROM custody_audit WHERE record_id='custody-provision-approval-v1'").one().n;
-          Object.assign(selected.facts,{sql_faults:0,update_attempts:0,target_candidate_seen:false,oracle_before:session.preflight_oracle_reads,source_before:Object.values(session.source_oracle_reads)[0]});
+          Object.assign(selected.facts,{sql_faults:0,update_attempts:0,target_candidate_seen:false,candidate_source_fresh:false,oracle_before:session.preflight_oracle_reads,source_before:Object.values(session.source_oracle_reads)[0]});
         }
         this.control.active=selected;this.control.last=selected;
       }

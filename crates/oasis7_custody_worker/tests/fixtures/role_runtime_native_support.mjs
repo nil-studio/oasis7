@@ -87,7 +87,7 @@ async function authority(directory, nativeMode=false, worldData) {
   const child=spawn(binary,['serve_native_identity_http_fixture','--ignored','--nocapture'],{
     env:{...Object.fromEntries(Object.entries(process.env).filter(([name])=>!name.startsWith('OASIS7_'))),OASIS7_CUSTODY_NATIVE_HTTP_READY:ready,OASIS7_CUSTODY_NATIVE_HTTP_STOP:stop,
       ...(nativeMode?{OASIS7_CUSTODY_NATIVE_HTTP_MANAGED_BINDING:'true'}:{}),
-      ...(worldData?{OASIS7_CUSTODY_NATIVE_WORLD_TRUST:JSON.stringify(worldData)}:{})},stdio:'ignore'});
+      ...(worldData?{OASIS7_CUSTODY_NATIVE_WORLD_TRUST:JSON.stringify(worldData),...(worldData.live_context_read?{OASIS7_CUSTODY_NATIVE_LIVE_CONTEXT_FIXTURE:'true'}:{})}:{})},stdio:'ignore'});
   let exited=false;
   const exit=once(child,'exit').then(()=>{exited=true;});
   const close=async()=>{writeFileSync(stop,'stop');await Promise.race([exit,delay(5000,undefined,{ref:false})]);if(!exited){child.kill('SIGTERM');await exit;}};
@@ -97,6 +97,11 @@ async function authority(directory, nativeMode=false, worldData) {
     await delay(20);
   }
   await close();throw new Error('isolated native fixture did not become ready');
+}
+// Explicit fixed fixture bridge; no arbitrary Native target or forwarding API.
+export async function nativeLiveContextAuthority(directory,worldData) {
+  assert.equal(worldData.live_context_read,true);
+  return authority(directory,true,worldData);
 }
 export async function withRoleRuntime(mode, run, {configureOptions}={}) {
   const directory=mkdtempSync(resolve(tmpdir(),'oasis7-role-runtime-negative-'));
@@ -251,6 +256,11 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         await reply.arrayBuffer();return reply.status;
       },
       publicEnrollmentFetch:async(path,init)=>{assert.match(path,/^\/v1\/client-enrollments(?:\/[A-Za-z0-9._~-]+\/prove)?$/);const incoming=new Headers(init.headers);for(const key of ['cookie','authorization','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public enrollment never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      setupPaidResultStatus:async()=>{
+        const {ACCOUNTS}=await mf.getBindings('owner');
+        const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/setup-paid-result-status',{method:'POST'});
+        assert.equal(response.status,200,'fixed actual Bind callback scheduling status unavailable');return response.json();
+      },
       paidDirectoryFenceStatus:async()=>{
         const {ACCOUNTS}=await mf.getBindings('owner');
         const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/paid-directory-fence-status',{method:'POST'});

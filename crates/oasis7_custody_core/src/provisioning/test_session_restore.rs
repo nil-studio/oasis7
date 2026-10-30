@@ -336,7 +336,7 @@ impl AccountProvisionApprovalState {
             self.validate_session_control_persistence(s)?;
             if s.source_funding.len() != s.sources.len()
                 || s.source_funding.keys().any(|k| !s.sources.contains_key(k))
-                || s.purpose_transports.iter().any(|(id, _)| !id_nonempty(id))
+                || !Self::live_context_transport_keys_valid(s)
             {
                 return Err(invalid());
             }

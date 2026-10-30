@@ -274,7 +274,20 @@ pub(super) async fn dispatch(
             .map_err(|_| denied())?;
             let observed = stage_result!(
                 "result.observe",
-                observe(state, env, id, Some(stage), false).await
+                async {
+                    if matches!(
+                        stage,
+                        OwnerSetupStageV1::Delegation
+                            | OwnerSetupStageV1::Bind
+                            | OwnerSetupStageV1::FinalObservation
+                    ) {
+                        let paid = store.snapshot().map_err(|_| denied())?;
+                        setup_authority::observe_paid_result(env, &paid, id, stage).await
+                    } else {
+                        observe(state, env, id, Some(stage), false).await
+                    }
+                }
+                .await
             )?;
             stage_result!(
                 "result.store",

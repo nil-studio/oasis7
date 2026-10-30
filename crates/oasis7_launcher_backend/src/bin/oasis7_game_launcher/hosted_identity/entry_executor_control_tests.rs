@@ -564,3 +564,6 @@ fn stopped_current_owner_can_query_original_without_reenabling_executor() {
     wrong.owner_generation.0 += 1;
     assert!(check_payload(&original, &wrong.owner_public_key, &wrong, true).is_err());
 }
+
+#[path = "entry_executor_live_context_tests.rs"]
+mod live_context_tests;
