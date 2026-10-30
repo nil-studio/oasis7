@@ -127,6 +127,8 @@ The next bounded visual pass uses this reading order:
   Objective, and close/back path visible while details scroll. Cinematic entry, readout, feed,
   fallback, diagnostics, and receipt each need a distinct safe-area slot.
 
+账号与准入、Targets/重入、模型连接和次级安全工具的整体旅程见[页面模块§10.9](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)；本节既有视觉和§8报价/结果职责保持不变。
+
 #### Agent Context presentation boundary
 
 `Agent Context Lite` may present explicit selected identity/location, Objective, published Next

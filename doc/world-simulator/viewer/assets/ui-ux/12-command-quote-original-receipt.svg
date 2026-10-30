@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc"><title id="title">只读预估与正式提交，不能混成一个按钮 · 设计目标 · 非运行截图</title><desc id="desc">Command 内 Quote / 条件化确认 / 原回执 · 当前预估卡不提供提交。此页为静态设计说明，图中世界、身份、预算、报价和结果均为虚构示例。不是可执行 UI、实际截图或功能验收证明。</desc>
+<rect x="0" y="0" width="1600" height="1200" rx="0" fill="#0b100f" stroke="none" stroke-width="1"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text id="t1" x="48" y="42" font-size="16" fill="#9ca89a" font-weight="400">OASIS7  /  VIEWER DESIGN CONTRACT</text>
+<text id="t2" x="1230" y="42" font-size="18" fill="#d0a85b" font-weight="400">设计目标 · 非运行截图</text>
+<text id="t3" x="48" y="86" font-size="32" fill="#edf1e6" font-weight="600">只读预估与正式提交，不能混成一个按钮</text>
+<text id="t4" x="48" y="121" font-size="18" fill="#9ca89a" font-weight="400">12 / Command 内 Quote / 条件化确认 / 原回执 · 当前预估卡不提供提交</text>
+<rect x="64" y="165" width="960" height="750" rx="0" fill="#19251f" stroke="#405346" stroke-width="1"/>
+<text id="t5" x="88" y="204" font-size="22" fill="#edf1e6" font-weight="600">示例世界 · 北侧补给区</text>
+<rect x="804" y="180" width="196" height="32" rx="6" fill="#101412" stroke="#9ca89a" stroke-width="1"/>
+<text id="t6" x="816" y="203" font-size="16" fill="#9ca89a" font-weight="400">世界动态 · 收起</text>
+<rect x="82" y="240" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="219" y="329" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="356" y="418" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="493" y="507" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="630" y="596" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="767" y="685" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="904" y="774" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="141" y="303" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="278" y="392" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="415" y="481" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="552" y="570" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="689" y="659" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="826" y="748" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="963" y="277" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="200" y="366" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="337" y="455" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="474" y="544" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="611" y="633" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="748" y="722" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="885" y="251" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="122" y="340" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="259" y="429" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="396" y="518" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="533" y="607" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="670" y="696" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="807" y="785" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="944" y="314" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="181" y="403" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="318" y="492" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="455" y="581" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="592" y="670" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="729" y="759" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="866" y="288" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="103" y="377" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="240" y="466" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="377" y="555" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="514" y="644" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="651" y="733" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="128" y="374" width="246" height="146" rx="0" fill="#29372f" stroke="#35483a" stroke-width="1"/>
+<rect x="163" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="212" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="261" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="256" y="520" width="22" height="191" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="278" y="584" width="480" height="22" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="312" y="546" width="20" height="24" rx="3" fill="#8dc7aa" stroke="#0b100f" stroke-width="1"/>
+<rect x="336" y="845" width="416" height="54" rx="16" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t7" x="358" y="879" font-size="18" fill="#edf1e6" font-weight="600">World</text>
+<text id="t8" x="484" y="879" font-size="18" fill="#edf1e6" font-weight="600">Targets</text>
+<rect x="606" y="851" width="142" height="42" rx="10" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+<text id="t9" x="620" y="879" font-size="18" fill="#d0a85b" font-weight="600">Command</text>
+<rect x="908" y="850" width="92" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t10" x="924" y="879" font-size="18" fill="#edf1e6" font-weight="600">更多</text>
+<rect x="100" y="620" width="290" height="32" rx="6" fill="#101412" stroke="#d0a85b" stroke-width="1"/>
+<text id="t11" x="112" y="643" font-size="16" fill="#d0a85b" font-weight="400">A · 本次预估主体</text>
+<rect x="100" y="675" width="326" height="127" rx="14" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t12" x="120" y="711" font-size="20" fill="#d0a85b" font-weight="600">Next Move · 核对本方案</text>
+<text id="t13" x="120" y="748" font-size="17" fill="#9ca89a" font-weight="400">预览不是执行，也不锁定资源。</text>
+<text id="t14" x="120" y="774" font-size="17" fill="#9ca89a" font-weight="400">确认执行只在正式开放的入口。</text>
+<rect x="458" y="225" width="542" height="601" rx="14" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t15" x="482" y="267" font-size="24" fill="#edf1e6" font-weight="600">Command / 方案预览</text>
+<rect x="826" y="284" width="150" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t16" x="842" y="313" font-size="18" fill="#edf1e6" font-weight="600">返回修改</text>
+<rect x="482" y="294" width="310" height="32" rx="6" fill="#101412" stroke="#88cbd0" stroke-width="1"/>
+<text id="t17" x="494" y="317" font-size="16" fill="#88cbd0" font-weight="400">排产 Quote · 只读预估</text>
+<text id="t18" x="482" y="373" font-size="19" fill="#edf1e6" font-weight="400">主体 A · 方案 P-示例-03</text>
+<text id="t19" x="482" y="402" font-size="19" fill="#edf1e6" font-weight="400">factory / recipe / batches 仅用于本查询</text>
+<path d="M482 423 L976 423" fill="none" stroke="#405346" stroke-width="1"/>
+<text id="t20" x="482" y="461" font-size="20" fill="#edf1e6" font-weight="600">本次投入 · 虚构示例</text>
+<text id="t21" x="482" y="504" font-size="22" fill="#d0a85b" font-weight="600">电力 12 · 材料 8 · 批次 1</text>
+<text id="t22" x="482" y="547" font-size="18" fill="#9ca89a" font-weight="400">来源：同一权威视图与规范方案。</text>
+<text id="t23" x="482" y="575" font-size="18" fill="#9ca89a" font-weight="400">缺失费用保留“未确认”，不补前端估值。</text>
+<text id="t24" x="482" y="603" font-size="18" fill="#9ca89a" font-weight="400">权限、资源或参数变化后须重新核对。</text>
+<rect x="482" y="636" width="494" height="63" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t25" x="498" y="674" font-size="18" fill="#edf1e6" font-weight="600">本预估卡不提交、不占资源、不产回执</text>
+<rect x="477" y="720" width="504" height="54" rx="14" fill="none" stroke="#d0a85b" stroke-width="2"/>
+<rect x="482" y="725" width="494" height="44" rx="10" fill="#d0a85b" stroke="#d0a85b" stroke-width="1"/>
+<text id="t26" x="498" y="754" font-size="18" fill="#0b100f" font-weight="600">重新查询本方案预估</text>
+<text id="t27" x="482" y="803" font-size="17" fill="#9ca89a" font-weight="400">参数变化标记旧预估失效；不把查询结果当成执行许可。</text>
+<rect x="1050" y="165" width="486" height="204" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t28" x="1074" y="196" font-size="16" fill="#d0a85b" font-weight="600">条件设计 · 仅正式动作入口开放后</text>
+<text id="t29" x="1074" y="235" font-size="23" fill="#edf1e6" font-weight="600">单独确认对象与成本</text>
+<text id="t30" x="1074" y="274" font-size="18" fill="#9ca89a" font-weight="400">参数、实际方案、成本与权限先核对。</text>
+<text id="t31" x="1074" y="302" font-size="18" fill="#9ca89a" font-weight="400">缺失权威报价或执行能力时不能提交。</text>
+<text id="t32" x="1074" y="330" font-size="18" fill="#9ca89a" font-weight="400">不能把当前只读 Quote 改成确认按钮。</text>
+<rect x="1050" y="390" width="486" height="210" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t33" x="1074" y="421" font-size="16" fill="#d0a85b" font-weight="600">另一状态 · 已提交 A 的原回执</text>
+<text id="t34" x="1074" y="460" font-size="23" fill="#edf1e6" font-weight="600">收到请求 ≠ 完成</text>
+<text id="t35" x="1074" y="499" font-size="18" fill="#9ca89a" font-weight="400">原操作：op-示例-017 · 主体 A。</text>
+<text id="t36" x="1074" y="527" font-size="18" fill="#9ca89a" font-weight="400">Pending 表示等待，不预填成功。</text>
+<text id="t37" x="1074" y="555" font-size="18" fill="#9ca89a" font-weight="400">此回执不由主稿的只读查询生成；</text>
+<text id="t38" x="1074" y="583" font-size="18" fill="#9ca89a" font-weight="400">只引用已有操作的权威反馈。</text>
+<rect x="1050" y="621" width="486" height="294" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t39" x="1074" y="652" font-size="16" fill="#e58f76" font-weight="600">③ 查看 B → A 结果仍未知</text>
+<text id="t40" x="1074" y="691" font-size="23" fill="#edf1e6" font-weight="600">查询原操作，不换号重交</text>
+<text id="t41" x="1074" y="730" font-size="18" fill="#9ca89a" font-weight="400">当前查看：B</text>
+<text id="t42" x="1074" y="758" font-size="18" fill="#9ca89a" font-weight="400">原操作：op-示例-017 · 主体 A</text>
+<text id="t43" x="1074" y="786" font-size="18" fill="#9ca89a" font-weight="400">若协商查询能力且仍获授权：查询原结果。</text>
+<text id="t44" x="1074" y="814" font-size="18" fill="#9ca89a" font-weight="400">无能力 / 历史不可用：保留未知与限制。</text>
+<text id="t45" x="1074" y="842" font-size="18" fill="#9ca89a" font-weight="400">查询失败不等于原操作被拒绝。</text>
+<rect x="64" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t46" x="72" y="979" font-size="17" fill="#d0a85b" font-weight="600">1</text>
+<text id="t47" x="108" y="980" font-size="21" fill="#edf1e6" font-weight="600">各 Quote 保留实际能力边界</text>
+<text id="t48" x="108" y="1015" font-size="18" fill="#9ca89a" font-weight="400">战争 / 治理卡仍禁用提交；排产 / 转运卡仅预估。</text>
+<text id="t49" x="108" y="1044" font-size="18" fill="#9ca89a" font-weight="400">无权威精炼报价时说明不可用，不拿本地估值代替。</text>
+<rect x="830" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t50" x="838" y="979" font-size="17" fill="#d0a85b" font-weight="600">2</text>
+<text id="t51" x="874" y="980" font-size="21" fill="#edf1e6" font-weight="600">恢复预算属于原逻辑操作</text>
+<text id="t52" x="874" y="1015" font-size="18" fill="#9ca89a" font-weight="400">结果未知只核对原件，不自动再发世界效果。</text>
+<text id="t53" x="874" y="1044" font-size="18" fill="#9ca89a" font-weight="400">现行 session_not_found 自动恢复最多一次，不重置预算。</text>
+<path d="M48 1142 L1552 1142" fill="none" stroke="#405346" stroke-width="2"/>
+<text id="t54" x="48" y="1173" font-size="16" fill="#9ca89a" font-weight="400">基线 cd2ba63bf82a · 2026-10-30 · 示例身份 / 数值 / 状态非运行事实</text>
+<text id="t55" x="1415" y="1173" font-size="16" fill="#9ca89a" font-weight="400">UIUX / 12</text>
+</g></svg>

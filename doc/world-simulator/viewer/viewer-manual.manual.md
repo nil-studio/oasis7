@@ -171,11 +171,13 @@ env -u NO_COLOR ./scripts/run-viewer-web.sh --address 127.0.0.1 --port 4173
 - 支持 `locale=zh|en` 初始化和页面内中英文切换。
 - 支持最小 prompt/chat 控制面；仅在 auth/bootstrap 可用时开放。
 - 在 `hosted_public_join` 路径下，页面支持获取/释放 hosted `player_session`、`reconnect_sync` 恢复，以及 `prompt_control` 的 preview-grade `strong_auth`（需 `Backend Approval Code`）。
-- 面向普通用户的启动入口现在默认且只暴露 `hosted_public_join`。旧的 `trusted_local_only` 本地可信预览不再作为可选用户流程；本地旧配置应迁移到 hosted join，并走邮箱 hosted account / player session 登录链路。
+- 面向普通用户的启动入口默认且只暴露 `hosted_public_join`。旧 `trusted_local_only` 本地可信预览不再作为可选用户流程。账号接入沿[免邮箱注册与多凭证账号合同](../../p2p/blockchain/hosted-public-join-key-based-onboarding.prd.md)：identity v2 在支持环境推荐 Passkey，邮箱可选，实际入口受部署 capability 与注册开关限制；关闭新注册不等于关闭已有账号登录。账号已登录、世界准入与 runtime 控制绑定分别确认，不由登录成功推导可控制 Agent。操作及验收见[Hosted 多凭证账号手册](../../testing/manual/hosted-passkey-account.manual.md)。
+- 当前 `PasskeyAccountSurface` 仅在 capabilities HTTP 404 时显示 legacy 登录表单；其他能力检查错误保留明确失败，不自动降级。legacy 只适用于[专业兼容条件](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#migration)允许的部署，不是并行推荐的新账号路径。
+- [Viewer 整体旅程与状态稿](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)补充账号、安全退出、目标与绑定、模型连接和原结果阅读。图稿是设计目标，不证明当前部署、真实 Passkey 设备、供应商调用、恢复或完整可玩性已经通过。
 
 ### Hosted public join email-free test login（仅本地 QA）
 
-该入口只用于验证 hosted join 后续的 W3 runtime、签名和 registration grant 闭环，默认关闭，不替代邮箱 OTP、邮箱所有权验证或 hosted account 映射。
+该入口只用于验证 hosted join 后续的 W3 runtime、签名和 registration grant 闭环，默认关闭，不替代生产 Passkey、邮箱 OTP、邮箱所有权验证或 hosted account 映射。
 
 - 启用条件同时满足：launcher 使用 `hosted_public_join`；Viewer 静态 HTTP 只绑定 loopback（`127.0.0.1`、`::1` 或 `localhost`）；并显式设置 `OASIS7_HOSTED_TEST_LOGIN_ENABLED=1`。未满足任一条件时，test-login route 返回 `404`。
 - 页面还必须在 URL 中显式加入 `hosted_test_login=1`；浏览器随后生成正常的临时 Ed25519 device key，只提交 public key，并消费后端实际签发的 player/session/release/registration grant。浏览器不生成 player id、release token、grant 或签名。
@@ -192,7 +194,7 @@ OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY=<issuer-private-key> \
 
 打开 launcher 输出的 `GAME_URL`，或直接访问 `http://127.0.0.1:<viewer-port>/software_safe.html?hosted_test_login=1`，再选择 `Email-free Test Login`。不要用 `--viewer-host 0.0.0.0`、`::` 或其它非 loopback 地址启用该入口。
 
-- 这条 recipe 只证明 issuer 签发之后的 W3 downstream 行为；它不覆盖 OTP 发送/校验、邮箱所有权、hosted account 绑定或生产登录验收。生产及普通 hosted join 仍使用页面现有邮箱登录流程。
+- 这条 recipe 只证明 issuer 签发之后的 W3 downstream 行为；不覆盖生产 Passkey、OTP 发送/校验、邮箱所有权、hosted account 映射或普通账号登录验收。生产及普通 hosted join 使用部署实际开放的多凭证账号入口；新注册关闭、邮箱不可用与 Passkey 不支持分别处理，不能用此 QA 入口绕过。账号/世界控制分层和真实设备验收见[Hosted 多凭证账号手册](../../testing/manual/hosted-passkey-account.manual.md#world-control)。
 - `main_token_transfer` 仍保持阻断，页面只显示 lane verdict，不提供资产转账表单。
 - 页面不再提供第二 Viewer 跳转，也不再承担退役视觉专项工具职责。
 
@@ -431,6 +433,8 @@ turn those tests into issuer-backed production access or a release claim.
 - preview 不等于 apply；apply acceptance 不等于 runtime 已应用。以页面返回的实际 feedback 为准，失败或未授权必须保持 blocker/error，不能显示假成功。
 - `hosted_public_join` 下的 Prompt apply 需要有效 `player_session` 与后端重新授权；当前入口使用 `Backend Approval Code` 满足 preview-grade `strong_auth`。缺失、过期或拒绝时应重新注册/认证或按页面提示恢复。
 - 产品层的对话、草稿、默认/override 与反馈承诺见 [`Agent 对话与 Prompt 控制`](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md)；自动化 grammar 与状态字段见 [`viewer-web-semantic-test-api.prd.md`](viewer-web-semantic-test-api.prd.md)。
+
+浏览器 BYOK 另沿[网页自带模型系统设计](../llm/self-supplied-model-connection.design.md)和[整体模型交互](viewer-page-module-design-2026-06-18.design.md#uiux-byok-control-flow)。当前源码将账号原绑定、任务、执行身份、模型检查与明确开始分开；浏览器表面为 DeepSeek 官方 `deepseek-flash`，OpenRouter 明确未支持。模型 Key 按账号保存到本站 localStorage，保存/检查不自动开始；Stop 保留 Key，Forget 删除对应本站 Key，均不取消已受理世界作业。该静态源码说明不代签部署、真实供应商或游戏验收；旧托管运行手册不能证明浏览器路径已通过。
 
 ### 已退役的 legacy 操作
 

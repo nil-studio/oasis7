@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc"><title id="title">实时世界、离线回放、动态重放各有边界 · 设计目标 · 非运行截图</title><desc id="desc">服务端 profile 决定控制集合 · 不新增切模式器，不新增 Web Seek。此页为静态设计说明，图中世界、身份、预算、报价和结果均为虚构示例。不是可执行 UI、实际截图或功能验收证明。</desc>
+<rect x="0" y="0" width="1600" height="1200" rx="0" fill="#0b100f" stroke="none" stroke-width="1"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text id="t1" x="48" y="42" font-size="16" fill="#9ca89a" font-weight="400">OASIS7  /  VIEWER DESIGN CONTRACT</text>
+<text id="t2" x="1230" y="42" font-size="18" fill="#d0a85b" font-weight="400">设计目标 · 非运行截图</text>
+<text id="t3" x="48" y="86" font-size="32" fill="#edf1e6" font-weight="600">实时世界、离线回放、动态重放各有边界</text>
+<text id="t4" x="48" y="121" font-size="18" fill="#9ca89a" font-weight="400">13 / 服务端 profile 决定控制集合 · 不新增切模式器，不新增 Web Seek</text>
+<rect x="64" y="165" width="960" height="750" rx="0" fill="#19251f" stroke="#405346" stroke-width="1"/>
+<text id="t5" x="88" y="204" font-size="22" fill="#edf1e6" font-weight="600">示例世界 · 北侧补给区</text>
+<rect x="804" y="180" width="196" height="32" rx="6" fill="#101412" stroke="#9ca89a" stroke-width="1"/>
+<text id="t6" x="816" y="203" font-size="16" fill="#9ca89a" font-weight="400">世界动态 · replay</text>
+<rect x="82" y="240" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="219" y="329" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="356" y="418" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="493" y="507" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="630" y="596" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="767" y="685" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="904" y="774" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="141" y="303" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="278" y="392" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="415" y="481" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="552" y="570" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="689" y="659" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="826" y="748" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="963" y="277" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="200" y="366" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="337" y="455" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="474" y="544" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="611" y="633" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="748" y="722" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="885" y="251" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="122" y="340" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="259" y="429" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="396" y="518" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="533" y="607" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="670" y="696" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="807" y="785" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="944" y="314" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="181" y="403" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="318" y="492" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="455" y="581" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="592" y="670" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="729" y="759" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="866" y="288" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="103" y="377" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="240" y="466" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="377" y="555" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="514" y="644" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="651" y="733" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="128" y="374" width="246" height="146" rx="0" fill="#29372f" stroke="#35483a" stroke-width="1"/>
+<rect x="163" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="212" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="261" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="256" y="520" width="22" height="191" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="278" y="584" width="480" height="22" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="312" y="546" width="20" height="24" rx="3" fill="#8dc7aa" stroke="#0b100f" stroke-width="1"/>
+<rect x="336" y="845" width="416" height="54" rx="16" fill="#101412" stroke="#405346" stroke-width="1"/>
+<rect x="344" y="851" width="120" height="42" rx="10" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+<text id="t7" x="358" y="879" font-size="18" fill="#d0a85b" font-weight="600">World</text>
+<text id="t8" x="484" y="879" font-size="18" fill="#edf1e6" font-weight="600">Targets</text>
+<text id="t9" x="620" y="879" font-size="18" fill="#edf1e6" font-weight="600">Command</text>
+<rect x="908" y="850" width="92" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t10" x="924" y="879" font-size="18" fill="#edf1e6" font-weight="600">更多</text>
+<rect x="100" y="285" width="346" height="32" rx="6" fill="#101412" stroke="#d0a85b" stroke-width="1"/>
+<text id="t11" x="112" y="308" font-size="16" fill="#d0a85b" font-weight="400">控制 profile：live · 服务端握手</text>
+<rect x="100" y="342" width="540" height="134" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t12" x="124" y="380" font-size="27" fill="#edf1e6" font-weight="600">当前世界不会回退</text>
+<text id="t13" x="124" y="419" font-size="19" fill="#9ca89a" font-weight="400">logicalTime 与 eventSeq 来自实际观察。</text>
+<text id="t14" x="124" y="448" font-size="19" fill="#9ca89a" font-weight="400">连接心跳、点击或重连不会制造世界进展。</text>
+<rect x="100" y="627" width="540" height="177" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t15" x="124" y="662" font-size="20" fill="#edf1e6" font-weight="600">控制 · 仅当前 profile 与权限允许时</text>
+<rect x="124" y="684" width="144" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t16" x="140" y="713" font-size="18" fill="#edf1e6" font-weight="600">播放 Play</text>
+<rect x="282" y="684" width="144" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t17" x="298" y="713" font-size="18" fill="#edf1e6" font-weight="600">暂停 Pause</text>
+<rect x="440" y="684" width="176" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t18" x="456" y="713" font-size="18" fill="#edf1e6" font-weight="600">单步 Step</text>
+<text id="t19" x="124" y="764" font-size="17" fill="#9ca89a" font-weight="400">没有倒带 / 跳转时刻 / Seek；关闭界面不回滚世界。</text>
+<rect x="679" y="286" width="321" height="281" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t20" x="703" y="326" font-size="21" fill="#88cbd0" font-weight="600">世界动态 · 历史重放</text>
+<text id="t21" x="703" y="365" font-size="18" fill="#9ca89a" font-weight="400">只读的环境事件。</text>
+<text id="t22" x="703" y="393" font-size="18" fill="#9ca89a" font-weight="400">replay / gap / reorg 分别标明。</text>
+<text id="t23" x="703" y="421" font-size="18" fill="#9ca89a" font-weight="400">不是离线 Playback，</text>
+<text id="t24" x="703" y="449" font-size="18" fill="#9ca89a" font-weight="400">也不是你的 Action Receipt。</text>
+<rect x="703" y="499" width="273" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t25" x="719" y="528" font-size="18" fill="#edf1e6" font-weight="600">收起，返回当前 World</text>
+<rect x="1050" y="165" width="486" height="274" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t26" x="1074" y="196" font-size="16" fill="#d0a85b" font-weight="600">另一上下文 · 不是本页新开关</text>
+<text id="t27" x="1074" y="235" font-size="23" fill="#edf1e6" font-weight="600">离线 Playback</text>
+<text id="t28" x="1074" y="274" font-size="18" fill="#9ca89a" font-weight="400">由实际握手确认 playback。</text>
+<text id="t29" x="1074" y="302" font-size="18" fill="#9ca89a" font-weight="400">协议有 play / pause / step / seek；</text>
+<text id="t30" x="1074" y="330" font-size="18" fill="#9ca89a" font-weight="400">本补充稿不新增 Web Seek 控件。</text>
+<text id="t31" x="1074" y="358" font-size="18" fill="#9ca89a" font-weight="400">离线 Step 依据本次实际 Event 判断，</text>
+<text id="t32" x="1074" y="386" font-size="18" fill="#9ca89a" font-weight="400">不能用旧最高 sequence 伪造推进。</text>
+<rect x="1050" y="460" width="486" height="236" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t33" x="1074" y="491" font-size="16" fill="#d0a85b" font-weight="600">返回当前阅读路径</text>
+<text id="t34" x="1074" y="530" font-size="23" fill="#edf1e6" font-weight="600">保留位置，先核对时效</text>
+<text id="t35" x="1074" y="569" font-size="18" fill="#9ca89a" font-weight="400">关闭 Feed / 详情回到原触发点。</text>
+<text id="t36" x="1074" y="597" font-size="18" fill="#9ca89a" font-weight="400">“返回 World”是导航，不切 runtime。</text>
+<text id="t37" x="1074" y="625" font-size="18" fill="#9ca89a" font-weight="400">重连按当前身份与 profile 重建能力。</text>
+<text id="t38" x="1074" y="653" font-size="18" fill="#9ca89a" font-weight="400">live profile 与陈旧 / 追赶分开标明；</text>
+<text id="t39" x="1074" y="681" font-size="18" fill="#9ca89a" font-weight="400">追赶数据不能冒充已同步。</text>
+<rect x="1050" y="717" width="486" height="198" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t40" x="1074" y="748" font-size="16" fill="#e58f76" font-weight="600">能力不明 / 不支持</text>
+<text id="t41" x="1074" y="787" font-size="23" fill="#edf1e6" font-weight="600">解释限制，不提示盲重试</text>
+<text id="t42" x="1074" y="826" font-size="18" fill="#9ca89a" font-weight="400">未知 profile 不由客户端猜测权限。</text>
+<text id="t43" x="1074" y="854" font-size="18" fill="#9ca89a" font-weight="400">live seek 被拒是动作不支持，</text>
+<text id="t44" x="1074" y="882" font-size="18" fill="#9ca89a" font-weight="400">不是连接故障或“重连后即可倒带”。</text>
+<rect x="64" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t45" x="72" y="979" font-size="17" fill="#d0a85b" font-weight="600">1</text>
+<text id="t46" x="108" y="980" font-size="21" fill="#edf1e6" font-weight="600">控制反馈与世界效果分开</text>
+<text id="t47" x="108" y="1015" font-size="18" fill="#9ca89a" font-weight="400">暂停 / 单步不能替代 Agent 动作的执行回执。</text>
+<text id="t48" x="108" y="1044" font-size="18" fill="#9ca89a" font-weight="400">Feed 历史和回放帧不证明当前玩家造成了变化。</text>
+<rect x="830" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t49" x="838" y="979" font-size="17" fill="#d0a85b" font-weight="600">2</text>
+<text id="t50" x="874" y="980" font-size="21" fill="#edf1e6" font-weight="600">离开与安全回来</text>
+<text id="t51" x="874" y="1015" font-size="18" fill="#9ca89a" font-weight="400">不因关闭、重连或返回自动重发命令。</text>
+<text id="t52" x="874" y="1044" font-size="18" fill="#9ca89a" font-weight="400">原回执仍按提交主体与身份核对，权限变化先脱敏。</text>
+<path d="M48 1142 L1552 1142" fill="none" stroke="#405346" stroke-width="2"/>
+<text id="t53" x="48" y="1173" font-size="16" fill="#9ca89a" font-weight="400">基线 cd2ba63bf82a · 2026-10-30 · 示例身份 / 数值 / 状态非运行事实</text>
+<text id="t54" x="1415" y="1173" font-size="16" fill="#9ca89a" font-weight="400">UIUX / 13</text>
+</g></svg>

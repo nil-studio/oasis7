@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-simulator/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "8cbe7cb2beadec5265ff125421e9cd8c22337f0797d906aea6496302fefbe08d",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "review_required",
+    "object_kind": "supporting_artifact",
+    "path": "doc/world-simulator/viewer/assets/ui-ux/14-more-help-text-director-gate.svg",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-simulator-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}
