@@ -1,6 +1,8 @@
 //! Point updates of module wakes in the shared IWS execution transaction.
 //! Due enumeration, invocation/artifact qualification and full tick routing
 //! remain driver obligations; these helpers do not publish or install state.
+//! The driver preserves instance-ID lexical execution order; the index's
+//! time/instance-digest enumeration order is not module execution order.
 use super::{
     World,
     incremental_body::{BodyMutationContext, BodyMutationError, write_field_bytes},
@@ -99,6 +101,7 @@ impl World {
     /// Consume one supplied due instance, stage its trusted execution in the
     /// same transaction, then apply its lifecycle directive. The caller must
     /// supply the authenticated due set and real module execution/charge facts.
+    /// This single-instance contributor does not choose or reorder due work.
     pub fn contribute_iws_due_module_tick<'a, 'b, R, V, W, C, F>(
         &self,
         instance: &str,
