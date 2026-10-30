@@ -15,6 +15,13 @@ function same(a, b) {
 const id = value => typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(value);
 const decimal = value => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
 const clone = value => structuredClone(value);
+// Native DecimalU64 milliseconds stay lossless; never coerce server expiry to Number.
+const expiryMillis = value => decimal(value) && BigInt(value) <= 18446744073709551615n;
+function localMillis(now) {
+  const value = now();
+  if (!Number.isSafeInteger(value) || value < 0) throw fail("custody_clock_invalid");
+  return BigInt(value);
+}
 function randomHex(crypto) { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); return [...bytes].map(b => b.toString(16).padStart(2, "0")).join(""); }
 export function custodyCapability(value) {
   return value?.api_version === 1 && value.available === true && id(value.audience) && id(value.environment)
@@ -99,7 +106,7 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
       const original = { api_version: 1, approval_request_id: `${prefix}-approval`, plan };
       // Freeze before any request: an unknown prepare reuses these exact IDs and bytes.
       pending = { parent: clone(parent), basis: clone(basis), plan, original, prepared: null, complete: null, approved: null,
-        completeUnknown: false, approveUnknown: false, cancelled: false, state: "prepare_unknown" };
+        completeUnknown: false, approveUnknown: false, cancelled: false, ceremonyExpiresAt: null, state: "prepare_unknown" };
       return prepareOriginal(revision);
     });
   }
@@ -118,7 +125,7 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
     pending.prepared = clone(prepared); pending.state = "prepared"; return summary();
   }
   function summary() { return pending ? clone({ parent: pending.parent, plan: pending.plan, prepared: pending.prepared, state: pending.state,
-    completeUnknown: pending.completeUnknown, approveUnknown: pending.approveUnknown, cancelled: pending.cancelled }) : null; }
+    completeUnknown: pending.completeUnknown, approveUnknown: pending.approveUnknown, cancelled: pending.cancelled, ceremonyExpiresAt: pending.ceremonyExpiresAt }) : null; }
   async function completeOriginal(revision) {
     pending.completeUnknown = true; pending.state = "complete_unknown";
     const result = await request(CUSTODY_PATHS.complete_path, pending.complete, revision);
@@ -142,7 +149,9 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
       if (!pending?.prepared || pending.cancelled || pending.state !== "prepared" || !credentials?.get) throw fail("custody_not_ready");
       const started = await request(CUSTODY_PATHS.options_path, pending.prepared, revision);
       if (started.api_version !== 1 || started.phase !== "pending" || !id(started.approval_id) || !id(started.ceremony_id) || !id(started.operation_id)
-        || !/^[0-9a-f]{64}$/.test(started.intent_digest) || started.audience !== scope.capability.audience || !started.options) throw fail("custody_options_invalid");
+        || !/^[0-9a-f]{64}$/.test(started.intent_digest) || started.audience !== scope.capability.audience || !started.options
+        || !expiryMillis(started.ceremony_expires_at) || BigInt(started.ceremony_expires_at) <= localMillis(now)) throw fail("custody_options_invalid");
+      pending.ceremonyExpiresAt = started.ceremony_expires_at;
       pending.state = "authenticator";
       let credential;
       try { credential = await credentials.get(browserPasskeyOptions(started.options)); }
@@ -154,6 +163,16 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
       return completeOriginal(revision);
     });
   }
+  function discardCancelled() { return oneFlight(async () => {
+    if (!pending?.cancelled || pending.state !== "cancelled" || !pending.prepared
+      || pending.complete || pending.approved || pending.completeUnknown || pending.approveUnknown
+      || !expiryMillis(pending.ceremonyExpiresAt)) throw fail("custody_original_pending");
+    if (localMillis(now) < BigInt(pending.ceremonyExpiresAt)) throw fail("custody_cancelled_not_expired");
+    // A settled, never-submitted get has no complete/approve original to reconcile.
+    // This only drops local RAM; it sends no cancellation and starts no new request.
+    reset();
+    return null;
+  }); }
   function retry() { return oneFlight(async revision => {
     if (pending?.complete && pending.completeUnknown) return completeOriginal(revision);
     if (pending?.approved && pending.approveUnknown) return approveOriginal(revision);
@@ -166,5 +185,5 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
     // Provision progress is not an OwnerSetup operation receipt; retain unknown.
     return { stage: typeof result.stage === "string" ? result.stage : "unknown", approval_confirmed: false };
   }); }
-  return { setSession, parents, prepare, approve, retry, progress, summary, clear() { reset(); scope = null; } };
+  return { setSession, parents, prepare, approve, retry, progress, summary, discardCancelled, clear() { reset(); scope = null; } };
 }

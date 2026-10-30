@@ -3,6 +3,8 @@ const notices = {
   custody_session_changed: "账号已经变化，原页面的迟到结果已丢弃；已发操作须由原账号核清。",
   custody_outcome_unknown: "结果未知。请核对或显式重送同一原件，不要创建新的批准。",
   custody_authenticator_cancelled: "已停止本地通行密钥交互；服务端挑战没有被撤销，请等待原期限或由原账号核清。",
+  custody_cancelled_not_expired: "原挑战尚未到期，不能丢弃；请等待已显示的挑战期限后再操作。",
+  custody_clock_invalid: "当前浏览器时间不可用于核对期限；原件仍保留，没有发送新请求。",
   custody_original_pending: "本页仍保留原操作，不能创建另一份批准。",
   custody_request_rejected: "请求被拒绝。请核对当前账号、范围和期限，不自动重做强认证。",
 };
@@ -61,7 +63,15 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
     if (summary.approveUnknown) root.append(action("核对原 Provision 当前状态", async () => {
       const result = await client.progress(); notice = `Provision 当前阶段：${result.stage}。此投影不能单独确认原 OwnerSetup 批准，原件继续保留。`;
     }));
-    if (summary.cancelled) root.append(el("p", notices.custody_authenticator_cancelled));
+    if (summary.cancelled) {
+      root.append(el("p", notices.custody_authenticator_cancelled));
+      root.append(el("p", "仅在原挑战到期且从未提交完整批准时，才能显式丢弃本页原件；另行准备必须重新完成通行密钥批准。"));
+      root.append(el("p", `原挑战截止时间（Unix 毫秒）：${summary.ceremonyExpiresAt}`));
+      root.append(action("挑战到期后丢弃未提交原件", async () => {
+        await client.discardCancelled();
+        notice = "已丢弃本页未提交原件；没有撤销服务端挑战或发送新请求。请选择父项另行准备，并重新完成通行密钥批准。";
+      }));
+    }
     if (summary.state === "approved") root.append(el("p", "OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。"));
   }
   function render() {

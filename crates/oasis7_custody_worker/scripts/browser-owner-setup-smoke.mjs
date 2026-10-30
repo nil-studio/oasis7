@@ -12,9 +12,10 @@ import {approveProvision,installActualGetFault,actualGetFacts} from '../tests/fi
 import {signFixtureRecoveryActivation} from '../tests/fixtures/fence_activation_signer.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');const repo=resolve(root,'../..');
 const caseIndex=process.argv.indexOf('--case');const faultCase=caseIndex<0?'positive':process.argv[caseIndex+1];
-assert.ok(['positive','lost-complete','lost-owner-approve','wrong-ids','wrong-csrf','cancel-get','logout-late-get','account-switch-late-get'].includes(faultCase),'closed --case selector');
+assert.ok(['positive','lost-complete','lost-owner-approve','wrong-ids','wrong-csrf','cancel-get','cancel-expiry-recover','logout-late-get','account-switch-late-get'].includes(faultCase),'closed --case selector');
 const directory=mkdtempSync(join(tmpdir(),'oasis7-browser-uv-'));chmodSync(directory,0o700);
 let world,https,native,mf,browser,context,page;let stage='startup';let exited=false;
+const recovering=faultCase==='cancel-expiry-recover', cancelling=faultCase==='cancel-get'||recovering;let recoveryFacts=null;
 const ready=resolve(directory,'native-ready.json'),stop=resolve(directory,'native-stop');
 try {
   stage='world';world=await worldAuthority(directory);
@@ -50,7 +51,7 @@ try {
   const controller=await mf.getWorker('fence-controller');const description=await(await controller.fetch('https://fixture.test/describe',{method:'POST'})).json();
   assert.equal((await controller.fetch('https://fixture.test/activate',{method:'POST',body:JSON.stringify(signFixtureRecoveryActivation(description,'browser-fixture-bootstrap'))})).status,200,'real Fence activation');
   stage='parent-precondition';
-  const draft={api_version:1,client_request_id:'browser-parent',plan:{environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:world.data.world.world_id,purpose:'Local browser precondition fixture',expires_at:String(Date.now()+180000),transport_limit:'400'}};
+  const draft={api_version:1,client_request_id:'browser-parent',plan:{environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:world.data.world.world_id,purpose:'Local browser precondition fixture',expires_at:String(Date.now()+(recovering?360000:180000)),transport_limit:'400'}};
   const identity=await mf.getWorker('identity');const created=await identity.fetch(origin+'/v1/account-provisions',{method:'POST',headers:sourceHeaders,body:JSON.stringify(draft)});assert.equal(created.status,200,'parent draft failed');const original=await created.json();
   const request={approval_request_id:'browser-parent-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},
     intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world.data.world,identity_route:'native-one',world_route:'world-route-one',native_identity_namespace:data.namespace,register_request_id:'browser-parent-register',login_request_id:'browser-parent-login',deadline:draft.plan.expires_at,transport_limit:'400'}};
@@ -60,14 +61,14 @@ try {
   stage='metadata-select';
   await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).waitFor();await page.getByLabel(/本次私有目标/).fill('Public local fixture: Move business 0 only');
   const delayed=['logout-late-get','account-switch-late-get'].includes(faultCase);
-  await installActualGetFault(page,delayed?'late':faultCase==='cancel-get'?'abort':'count');
+  await installActualGetFault(page,delayed?'late':cancelling?'abort':'count');
   stage='plan-prepare';await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).click();await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).waitFor();
   await page.screenshot({path:resolve(directory,'desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve(directory,'narrow.png'),fullPage:true});
   const beforeOwner=https.facts().counts;
   const phaseCount=(counts,suffix)=>Object.entries(counts).filter(([path])=>path.endsWith(suffix)).reduce((n,[,count])=>n+count,0);
   const baseOptions=phaseCount(beforeOwner,'/custody/approvals/options'),baseComplete=phaseCount(beforeOwner,'/custody/approvals/complete'),baseApprove=phaseCount(beforeOwner,'/owner-setups/approve');
   if(['lost-complete','lost-owner-approve','wrong-ids','wrong-csrf'].includes(faultCase))https.armFault(faultCase);
-  if(faultCase==='cancel-get')await cdp.send('WebAuthn.setAutomaticPresenceSimulation',{authenticatorId,enabled:false});
+  if(cancelling)await cdp.send('WebAuthn.setAutomaticPresenceSimulation',{authenticatorId,enabled:false});
   stage='owner-uv-and-approve';await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).click();
   if(['lost-complete','lost-owner-approve','wrong-ids','wrong-csrf'].includes(faultCase)) {
     stage='explicit-original-retry';await page.getByRole('button',{name:'显式重送同一原件',exact:true}).waitFor();
@@ -78,10 +79,49 @@ try {
     await page.getByRole('button',{name:'显式重送同一原件',exact:true}).click();
     await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
     const retry=https.facts().fault;assert.equal(retry.calls,2);assert.equal(retry.identical_original,true,'retry must equal original browser bytes');assert.equal(retry.upstream_statuses[1],200);if(faultCase.startsWith('lost-'))assert.deepEqual(retry.downstream_statuses,[502,200],'actual successful body withheld via gateway502, then explicit retry200');
-  }else if(faultCase==='cancel-get') {
+  }else if(cancelling) {
     stage='actual-browser-abort';await page.waitForFunction(()=>window.localGetFacts?.started===1&&typeof window.localAbortGet==='function');await page.evaluate(()=>window.localAbortGet());
     await page.getByText('已停止本地通行密钥交互；服务端挑战没有被撤销，请等待原期限或由原账号核清。',{exact:true}).first().waitFor();
     const get=await actualGetFacts(page);assert.equal(get.started,1);assert.equal(get.completed,0);assert.equal(get.aborted,1);
+    if(recovering) {
+      const setupId=()=>page.locator('dl.custody-approval-summary dt').evaluateAll(nodes=>{
+        const label=nodes.find(node=>node.textContent==='Setup 操作');if(!label?.nextElementSibling)throw Error('fixed summary field absent');return label.nextElementSibling.textContent;
+      });
+      const firstSetup=await setupId();
+      const rawExpiry=await page.getByText(/^原挑战截止时间（Unix 毫秒）：/).textContent();
+      const expiry=rawExpiry.match(/^原挑战截止时间（Unix 毫秒）：([1-9][0-9]{0,19})$/)?.[1];
+      assert.ok(expiry&&BigInt(expiry)<=18446744073709551615n,'actual Native expiry must be canonical u64');
+      assert.equal(await page.evaluate(expiry=>BigInt(Date.now())<BigInt(expiry),expiry),true,'first discard must precede actual expiry');
+      const discard=()=>page.getByRole('button',{name:'挑战到期后丢弃未提交原件',exact:true}).click();
+      stage='cancel-discard-before-expiry';const beforeEarly=https.facts().counts;await discard();
+      await page.getByText('原挑战尚未到期，不能丢弃；请等待已显示的挑战期限后再操作。',{exact:true}).waitFor();
+      assert.deepEqual(https.facts().counts,beforeEarly,'premature discard must send zero requests');
+      assert.ok((await setupId())===firstSetup,'premature discard must preserve original summary');
+      await page.screenshot({path:resolve(directory,'cancelled-narrow.png'),fullPage:true});
+      stage='cancel-wait-actual-native-expiry';
+      // Wait on the real displayed Native expiry. No JSON rewrite or clock override.
+      await page.waitForFunction(expiry=>BigInt(Date.now())>=BigInt(expiry),expiry,{timeout:180000,polling:250});
+      stage='cancel-discard-after-expiry';const beforeDiscard=https.facts().counts;await discard();
+      await page.getByText('已丢弃本页未提交原件；没有撤销服务端挑战或发送新请求。请选择父项另行准备，并重新完成通行密钥批准。',{exact:true}).waitFor();
+      assert.deepEqual(https.facts().counts,beforeDiscard,'expired discard must send zero requests');
+      await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).waitFor();
+      await page.screenshot({path:resolve(directory,'recovered-parent-narrow.png'),fullPage:true});
+      stage='cancel-expiry-explicit-new-prepare';await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).click();
+      await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).waitFor();
+      assert.ok((await setupId())!==firstSetup,'new explicit prepare must mint a new setup original');
+      assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete'),baseComplete,'cancelled original must never complete');
+      assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve'),baseApprove,'cancelled original must never enter Owner approve');
+      await cdp.send('WebAuthn.setAutomaticPresenceSimulation',{authenticatorId,enabled:true});
+      stage='cancel-expiry-fresh-actual-uv';await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).click();
+      await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
+      await page.waitForFunction(()=>window.localGetFacts?.business_settled===2);
+      await page.screenshot({path:resolve(directory,'recovered-approved-narrow.png'),fullPage:true});
+      const recovered=await actualGetFacts(page);assert.equal(recovered.started,2);assert.equal(recovered.completed,1);assert.equal(recovered.aborted,1);assert.equal(recovered.returned,1);
+      assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete')-baseComplete,1,'only fresh assertion completes');
+      assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve')-baseApprove,1,'only new original enters Owner approve');
+      recoveryFacts={actual_native_expiry_waited:true,premature_discard_zero_io:true,expired_discard_zero_io:true,new_setup_original:true,fresh_actual_get:true};
+    }
+
   }else if(delayed) {
     stage='actual-get-awaiting-scope-change';await page.waitForFunction(()=>window.localGetFacts?.completed===1&&typeof window.localReleaseGet==='function');
     await page.getByRole('button',{name:'退出登录',exact:true}).click();await page.getByRole('heading',{name:'进入 Oasis7',exact:true}).waitFor();
@@ -94,12 +134,12 @@ try {
     assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete'),baseComplete,'late actual assertion must not enter complete');
     assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve'),baseApprove,'late actual assertion must not enter Owner');
   }else await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
-  const getFacts=await actualGetFacts(page);assert.equal(getFacts.started,1,'no retry may allocate another actual get');
-  assert.equal(phaseCount(https.facts().counts,'/custody/approvals/options')-baseOptions,1,'no retry may allocate another custody challenge');
+  const getFacts=await actualGetFacts(page);assert.equal(getFacts.started,recovering?2:1,'only explicit expired recovery may allocate a fresh actual get');
+  assert.equal(phaseCount(https.facts().counts,'/custody/approvals/options')-baseOptions,recovering?2:1,'only explicit expired recovery may allocate a fresh custody challenge');
   if(faultCase==='cancel-get'){assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete'),baseComplete);assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve'),baseApprove);}
   const facts=https.facts();assert.equal(facts.bypass_attempts,0);assert.ok(!Object.keys(facts.counts).some(path=>path.includes('/owner-setups/continue')),'OwnerSetup must never continue');
   const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();assert.equal(nativeFacts.bypass_attempts,0);assert.equal(nativeFacts.manager_configured,true);
-  const evidence={kind:'local_native_workerd_browser_uv',status:'passed',case:faultCase,fault:https.facts().fault,actual_get:getFacts,software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
+  const evidence={kind:'local_native_workerd_browser_uv',status:'passed',case:faultCase,fault:https.facts().fault,cancel_recovery:recoveryFacts,actual_get:getFacts,software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
   writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify({status:'passed',case:faultCase,evidence_directory:directory,kind:evidence.kind}));
 }catch(error) {
   await page?.screenshot({path:resolve(directory,'failure.png'),fullPage:true}).catch(()=>{});

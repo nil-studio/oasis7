@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createOwnerSetupPanel } from "./viewer_custody_owner_setup_panel.js";
 import { createOwnerSetupClient, CUSTODY_PATHS } from "./viewer_custody_owner_setup_client.js";
 import { browserPasskeyOptions, serializePasskey, mountPasskeyAccount } from "./viewer_passkey_account_module.js";
 const cap = { api_version:1, available:true, audience:"custody", environment:"fixture", ...CUSTODY_PATHS };
@@ -146,5 +147,46 @@ describe("cancelled custody approval expiry recovery",()=>{
     expect(f.client.summary()).toEqual(original);expect(f.calls).toHaveLength(before);
     await f.client.retry();const approvals=f.calls.filter(x=>x.url.endsWith("/approve"));
     expect(approvals[0].options.body).toBe(approvals[1].options.body);expect(f.get).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("cancelled recovery expiry validation and mounted controls",()=>{
+  const options = expiry => ({api_version:1,phase:"pending",approval_id:"approval-A",ceremony_id:"ceremony-B",operation_id:"operation-C",
+    intent_digest:"78".repeat(32),audience:"custody",ceremony_expires_at:expiry,options:{publicKey:{challenge:"AQ",allowCredentials:[]}}});
+  it("rejects absent, noncanonical, overflow and already-expired Native expiry before get or complete",async()=>{
+    for(const expiry of [undefined,1001,"0","01","-1","1e9","18446744073709551616","1000"]){
+      const f=fixture({fetch:async url=>url===CUSTODY_PATHS.options_path?new Response(JSON.stringify(options(expiry)),{status:200}):undefined});
+      await f.client.prepare(parent,"Goal");await expect(f.client.approve()).rejects.toMatchObject({code:"custody_options_invalid"});
+      expect(f.get).not.toHaveBeenCalled();expect(f.calls.some(x=>x.url===CUSTODY_PATHS.complete_path)).toBe(false);
+    }
+  });
+  it("keeps a valid u64 expiry beyond Number precision lossless and refuses premature discard",async()=>{
+    const f=fixture({get:vi.fn(async()=>{throw new DOMException("cancelled","NotAllowedError");}),
+      fetch:async url=>url===CUSTODY_PATHS.options_path?new Response(JSON.stringify(options("18446744073709551615")),{status:200}):undefined});
+    await f.client.prepare(parent,"Goal");await expect(f.client.approve()).rejects.toMatchObject({code:"custody_authenticator_cancelled"});
+    const before=f.calls.length;expect(f.client.summary().ceremonyExpiresAt).toBe("18446744073709551615");
+    await expect(f.client.discardCancelled()).rejects.toMatchObject({code:"custody_cancelled_not_expired"});expect(f.calls).toHaveLength(before);
+  });
+  it("retains prepare unknown and rejects discard even after the original plan deadline",async()=>{
+    let clock=1000;const f=fixture({now:()=>clock,fetch:async url=>{if(url.endsWith("/prepare"))throw new Error("lost");}});
+    await expect(f.client.prepare(parent,"Goal")).rejects.toMatchObject({code:"custody_outcome_unknown"});
+    const original=f.client.summary(),before=f.calls.length;clock=99999999999999;
+    await expect(f.client.discardCancelled()).rejects.toMatchObject({code:"custody_original_pending"});
+    expect(f.client.summary()).toEqual(original);expect(f.calls).toHaveLength(before);
+  });
+  it("mounts an explicit zero-I/O expiry recovery button and restores the parent-loading flow",async()=>{
+    let clock=1000;const f=fixture({now:()=>clock,get:vi.fn(async()=>{throw new DOMException("cancelled","NotAllowedError");}),
+      fetch:async url=>url===CUSTODY_PATHS.options_path?new Response(JSON.stringify(options("2000")),{status:200}):undefined});
+    const root=document.createElement("div");const panel=createOwnerSetupPanel({client:f.client});
+    panel.update({account_id:"manager"},{method:"webauthn"},cap);
+    await f.client.prepare(parent,"Goal");await expect(f.client.approve()).rejects.toMatchObject({code:"custody_authenticator_cancelled"});
+    panel.renderInto(root);
+    const before=f.calls.length;const click=()=>[...root.querySelectorAll("button")].find(x=>x.textContent==="挑战到期后丢弃未提交原件").click();
+    try {
+      click();await vi.waitFor(()=>expect(root.textContent).toContain("原挑战尚未到期"));expect(f.calls).toHaveLength(before);
+      clock=2000;click();await vi.waitFor(()=>expect(root.textContent).toContain("已丢弃本页未提交原件"));
+      expect(root.textContent).toContain("加载本人可见父项");expect(root.textContent).not.toContain("确认同一份 OwnerSetup V1 原件");
+      expect(f.client.summary()).toBeNull();expect(f.calls).toHaveLength(before);
+    } finally {panel.dispose();}
   });
 });
