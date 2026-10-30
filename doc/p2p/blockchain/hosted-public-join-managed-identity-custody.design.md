@@ -924,6 +924,26 @@ Account 存储适配器可在单个 store 实例内复用一份已完整严格�
 
 一个调用只选择一个已批准 TestSession/resource handle；其 account/environment/world/Agent/task、actor、公钥与完整 fence 由服务保存的绑定确定。模型不得传入 signed payload、任意 `Action` JSON、actor、签名域或网关地址。下表是首版封闭工具集合；每根 grant 可以进一步缩小动作、参数和资源，不能扩大此集合。管理者的 Owner 操作仍使用独立入口，不进入游戏工具。
 
+#### Execution：World 公开派生证明与私密正文隔离
+
+本组件只提供 Native task context 的 World producer、SDK 强验与 Native 固定传输；后续真实 V2 批准/激活及 paid caller 独立接线，不能将 V1 Prepared/Session 静默升级，不以此代替 Transfer/Build/Schedule。World 的真实 `PrivateGoalStore` 持有并读取 PreparedGoal/PreparedTaskContext 明文，既有 snapshot/load_captured 路径从实际 pinned World 构造 Native authority、actor observation 和 base binding，既有 fresh read 在初始及投递前检查 task、prefix、lease 和完整 CommitRef。Identity 独占 custody 侧 Context AEAD KEK。Account 与 Executor 均不得接收两个私密 slot 的正文，包括瞬时 RPC；“不持久化”不是例外。新增证明由实际 World 服务签名 key 生产，明确证明 World 已完成完整私密 SDK 图的验证。Account 验证新 domain 的强签和精确公开 tuple，不声称独立验证它不可见的私密正文及其嵌套签名。裸 digest、Identity/Native 自报 verified、普通 bool 或序列化成功标记不能替代该证明。
+
+旧 Prepare/Get/Live 请求、响应、签名 domain 和 preimage 保持不变；只新增闭合 V2 DTO/route，不向旧 deny_unknown_fields DTO 添字段，不迁移 Owner/Executor/Native/Host key 或 approval secret。新的 observation_nonce 必须是64位小写十六进制，只是观察挑战，不新增权限；后续 custody caller 必须在实际出站前由服务生成、登记并一次绑定尝试，不把 World read 服务不消费 nonce 当作可复用旧观察。World 仍完整验证原 signed Prepare/Get、Native 模式、当前 task/Owner/Executor/lineage、prefix 和 lease；domain 的强签绑定整个新请求。
+
+| 新请求/固定路径 | 新投递与公开证明 |
+| --- | --- |
+| `TaskContextPrepareAttestationRequestV2 { original: SignedReadRequest<TaskContextPrepareV1>, observation_nonce }`；`/v1/world/private-task/context-prepare-attested-v2` | 外层新域强签 `TaskContextPreparedDeliveryV2` 同时携旧域完整 signed Prepared（只给 Identity）和独立强签 `TaskContextPreparedProjectionV2`（给 Account）。内层 domain 为 `/v1/world/private-task/prepared-projection-v2`。公开证明含原 signed Prepare、精确 ContextIdentity/full fence、实际 read/activation CommitRef、captured base binding 与整个旧 signed 私密响应的 canonical-CBOR SHA256/长度。不含 private goal/text、reference salt 或 actor observation。 |
+| `TaskContextGetAttestationRequestV2 { original: SignedReadRequest<TaskContextGetV1>, observation_nonce, prepared_projection }`；`/v1/world/private-task/context-read-attested-v2` | World 强验前一公开证明，并由真实已存 record 重算 Prepared commitment，再执行实际 fresh Captured read。外层 `TaskContextCapturedDeliveryV2` 携旧域 signed Captured（只给 Identity）和新内层 `/v1/world/private-task/captured-projection-v2` 强签 `TaskContextCapturedProjectionV2`。公开字段含原 Get、前一证明 digest、精确 ContextIdentity、capture/read CommitRef、整个旧 signed Captured canonical-body commitment 与原 canonical Prefix/correlation commitment；不夹带正文。 |
+| `TaskContextMoveProjectionRequestV2 { original: SignedReadRequest<TaskContextGetV1>, observation_nonce, prepared_projection, captured_projection }`；`/v1/world/private-task/context-move-projection-v2` | World 强验精确公开证明链、原 Get/Prepare 和 body commitments，再从真实 store/load_captured 取得当前完整数据、执行全部 SDK 验证和精确 delivery pin 检查。返回仅公开的 `TaskContextMoveProjectionV2`：ContextIdentity、前驱证明 digests、真实 fresh read/capture CommitRef、fresh normalized base binding、实际 observation digest 和 Native capability/authority hashes。不接受 caller Action/Cognition，不返回 observation raw/text；Account 仅从批准的 Move 取 actor/坐标并按真实 SDK 算法重建 Cognition。 |
+
+所有公开 DTO 固定版本/profile、拒未知字段、canonical decimal 与有界完整编码；仅 Native profile 可达。原件、完整 ContextIdentity/Owner/Executor binding、delegation generation、World/genesis/branch/reorg/服务 key 和独立 nonce 必须逐项相等，缺适用证据拒绝，不把缺 floor 推为零。body commitment 覆盖整个旧 signed 私密响应（含旧 request digest、signature 与 typed payload），不是未签 subset 或 JSON 投影。Account 只在独立 World 强签 domain 内使用 commitment 作精确关联，不能裸回显 hash 授权。
+
+后续 custody 接线只有 Identity 可接收私密 delivery。它必须先强验外层、两个真实 typed 内层原件、公开 projection 及整个 canonical-body commitment，再用原独立 Context KEK/DEK/AAD 封装；两个完整 slot 仍各64KiB、wire 仍256KiB。超限明确阻塞，不截断、不在 unknown 时重 seal/reput，不接受 caller reference。该接线必须使用显式 FullSignedResponseV2/AttestedSlotRefV2 新格式：64KiB 上限覆盖整个旧 signed response canonical bytes；旧 payload-only 格式不得跨用。Account 的新 attested reference 只能存 configured signed public projection、固定 scope、commitment、实际 actor metadata fact 和 immutable envelope digest/wire length；从不收 body/envelope。旧 ContextRef 保持旧语义，不能静默升级。ref-only restore 强验公开证明链及闭合关系，但不生成 usable context 或新 grant；实际 actor 读取、当前 Source/LF/private SID generation/Directory/RF/inventory 仍独立核验。
+
+本协议是 World service assertion，不是新共识授权；Account 不能将投影存在、unsigned candidate、HTTP200、cognition committed 或目标坐标相等解释为实际动作成功。旧 V1 写通道与结果语义不改。后续原件 outbox、业务效果/usage、paid Current、实际 Actor/KEK bridge 与完整 Execution/ReconcileRead graph 均须独立闭合。
+
+实际 Native 固定操作的已知三条物理边为 Identity→Native、Native→World VIEW、Native→一个上述固定 World route；双 part delivery 是同一次真实响应中的两份强签，不是批签未来操作，也不额外抓第二份 projection 后隐去费用。其余 private Actor、factory/signer、协调 RPC、Root/LF/Directory/RF/Source 与 poststate/usage 的每次实际出站另计并预付；失败不退款、不自动重试。保原 Source 五秒、票/nonce和绝对 deadline，不隐式刷新/续 grant，不借400/300/160，不宣称全图已闭合。无真实 paid caller 的组件不能开公网 Actions/TerminationTool，也不能充部署/实玩验收。
+
 | 工具与输入 | 既有协议/实现映射 | 结果与限制 |
 | --- | --- | --- |
 | `task`、`capabilities`、`industry`，无目标覆盖参数 | `EntryExecutorOperationV1::ReadView`；复用 `device_client::task_fence`、`capabilities`、`industry` 的验签和有界投影语义 | 返回当前读版本/tick、任务完整 fence、native 业务 grant 投影与实际工业账本、线路、工厂和 pending jobs；保留集合总量/截断标记。对外可调用 proposal forms 取本 profile、当前 custody grant 与现有原生工具支持的交集；module catalog 与业务 grant 分别标明，不把目录或当前 grant 当作动作必然可受理的证明。 |

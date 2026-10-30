@@ -592,3 +592,5 @@ pub mod task_factory_quote;
 pub mod task_recipe_quote;
 
 pub mod resource_basis;
+
+pub mod task_context_projection;
