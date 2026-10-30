@@ -129,7 +129,7 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前 `mode=capacity` 固定业务源码为已合入大型 CFG 拆分的 `e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，按 55 分钟完整 default 与公共见证合同评估，分析上限 40 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前 `mode=capacity` 固定业务源码为 main 快照 `f9ab0ca14620f118c84130b3d558e48dc1e6314d`（包含证据收尾及子进程就绪发布修复）；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，按 55 分钟完整 default 与公共见证合同评估，分析上限 40 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置。
 
 其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
 
