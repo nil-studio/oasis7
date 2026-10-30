@@ -22,7 +22,7 @@ fn validated(line: &[u8]) -> Option<Vec<u8>> {
         || evidence.parts > MAX_PARTS
         || evidence.part >= evidence.parts
         || evidence.rows.iter().any(|row| {
-            !matches!(row[0], 1..=7 | 10 | 20..=23 | 30..=35 | 40..=42 | 100..=101 | 200)
+            !matches!(row[0], 1..=7 | 10 | 20..=26 | 30..=35 | 40..=42 | 100..=101 | 200)
                 || row[2] > row[3]
         })
     {
@@ -102,6 +102,31 @@ fn numeric_relay_rejects_payloads_and_oversize_records() {
         validated(format!("{PREFIX}{}", serde_json::to_string(&oversized).unwrap()).as_bytes())
             .is_none()
     );
+}
+#[test]
+fn numeric_relay_accepts_prepare_cpu_pairs_without_admitting_other_stages() {
+    for stage in 23..=26 {
+        for (cpu, known) in [(0, 0), (4, 1)] {
+            let evidence = Evidence {
+                rows: vec![[stage, 1, 0, 1000, cpu, known]],
+                dropped: 0,
+                part: 0,
+                parts: 1,
+            };
+            let line = format!("{PREFIX}{}", serde_json::to_string(&evidence).unwrap());
+            let relayed = validated(line.as_bytes()).expect("prepare CPU pair must pass relay");
+            let relayed: Evidence =
+                serde_json::from_slice(&relayed[PREFIX.len()..relayed.len() - 1]).unwrap();
+            assert_eq!(relayed.rows, evidence.rows);
+        }
+    }
+    for stage in [19, 27, 28, 29, 36] {
+        let line = format!(
+            "{PREFIX}{}",
+            serde_json::json!({"rows": [[stage, 1, 0, 1000, 0, 0]], "dropped": 0, "part": 0, "parts": 1})
+        );
+        assert!(validated(line.as_bytes()).is_none());
+    }
 }
 #[test]
 fn numeric_relay_survives_ordinary_libtest_capture() {

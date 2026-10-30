@@ -146,29 +146,6 @@ mod enabled {
             }
         }
     }
-    #[cfg(test)]
-    mod cpu_tests {
-        use super::*;
-        #[test]
-        fn cpu_unknown_and_disabled_paths_remain_explicit() {
-            assert_eq!(cpu_delta(Some(1000), Some(4000)), (3, 1));
-            assert_eq!(cpu_delta(Some(4000), Some(1000)), (0, 0));
-            assert_eq!(cpu_delta(None, Some(4000)), (0, 0));
-            assert_eq!(cpu_delta(Some(1000), None), (0, 0));
-            assert!(
-                phase_with_clock(23, false, || panic!("disabled clock read"))
-                    .0
-                    .is_none()
-            );
-            assert_eq!(
-                phase_with_clock(10, true, || panic!("unpaired clock read"))
-                    .0
-                    .unwrap()
-                    .2,
-                None
-            );
-        }
-    }
     impl super::super::ViewerRuntimeLiveServer {
         /// Opt in only in the isolated slow-consumer child, before either stream starts.
         pub fn test_begin_stream_budget_diagnostics() {
@@ -190,6 +167,29 @@ mod enabled {
             ENABLED.store(false, Ordering::Relaxed);
             let rows = ROWS.lock().unwrap();
             serde_json::json!({"rows": rows.values[..rows.len], "dropped": DROPPED.load(Ordering::Relaxed)})
+        }
+    }
+    #[cfg(test)]
+    mod cpu_tests {
+        use super::*;
+        #[test]
+        fn cpu_unknown_and_disabled_paths_remain_explicit() {
+            assert_eq!(cpu_delta(Some(1000), Some(4000)), (3, 1));
+            assert_eq!(cpu_delta(Some(4000), Some(1000)), (0, 0));
+            assert_eq!(cpu_delta(None, Some(4000)), (0, 0));
+            assert_eq!(cpu_delta(Some(1000), None), (0, 0));
+            assert!(
+                phase_with_clock(23, false, || panic!("disabled clock read"))
+                    .0
+                    .is_none()
+            );
+            assert_eq!(
+                phase_with_clock(10, true, || panic!("unpaired clock read"))
+                    .0
+                    .unwrap()
+                    .2,
+                None
+            );
         }
     }
 }

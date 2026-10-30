@@ -1,5 +1,6 @@
 use super::*;
 use crate::viewer::runtime_live::agent_service_io::*;
+use crate::viewer::runtime_live::stream_budget_diagnostics;
 
 impl RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) fn prepare_provider_metadata_probe(
@@ -128,21 +129,21 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         &mut self,
         _eligible: bool,
     ) -> Result<AgentServiceProgress, String> {
-        let phase = super::stream_budget_diagnostics::phase(24);
+        let phase = stream_budget_diagnostics::phase(24);
         let service = self.prepare_hosted_service_io(_eligible);
         drop(phase);
         let service = service?;
         if !matches!(service, AgentServiceProgress::Idle) {
             return Ok(service);
         }
-        let phase = super::stream_budget_diagnostics::phase(25);
+        let phase = stream_budget_diagnostics::phase(25);
         let fresh = self.prepare_fresh_service_io(_eligible);
         drop(phase);
         let fresh = fresh?;
         if !matches!(fresh, AgentServiceProgress::Idle) {
             return Ok(fresh);
         }
-        let phase = super::stream_budget_diagnostics::phase(26);
+        let phase = stream_budget_diagnostics::phase(26);
         let metadata = self.llm_sidecar.prepare_provider_metadata_probe();
         drop(phase);
         match metadata? {
