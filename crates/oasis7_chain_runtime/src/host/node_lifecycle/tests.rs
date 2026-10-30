@@ -361,8 +361,13 @@ fn receiver(
     let (sender, receiver) = std::sync::mpsc::channel();
     let handle =
         std::thread::spawn(move || process::run_test_receiver(&config, intent, command, sender));
-    receiver.recv_timeout(Duration::from_secs(3)).unwrap();
-    handle
+    match receiver.recv_timeout(Duration::from_secs(3)) {
+        Ok(()) => handle,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("test receiver exited before readiness: {:?}", handle.join());
+        }
+        Err(error) => panic!("test receiver readiness failed: {error}"),
+    }
 }
 pub(crate) struct TestReceiverGuard {
     signal_stop: Arc<AtomicBool>,
