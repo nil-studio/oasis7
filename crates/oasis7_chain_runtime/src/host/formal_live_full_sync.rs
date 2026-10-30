@@ -692,33 +692,6 @@ fn wire_role(role: ArtifactRole) -> FormalReadResult<WireRole> {
     })
 }
 
-#[cfg(test)]
-mod incremental_role_tests {
-    use super::*;
-    #[test]
-    fn legacy_full_sync_wire_rejects_all_incremental_roles() {
-        for role in [
-            ArtifactRole::IncrementalGenesisConfig,
-            ArtifactRole::IncrementalRootSet,
-            ArtifactRole::IncrementalCommitBody,
-            ArtifactRole::IncrementalHistoryPrefix,
-        ] {
-            assert!(matches!(
-                wire_role(role),
-                Err(FormalReadError::Integrity(_))
-            ));
-        }
-        assert_eq!(
-            wire_role(ArtifactRole::NativeExecutionEnvironment).unwrap(),
-            WireRole::NativeExecutionEnvironment
-        );
-        assert_eq!(
-            wire_role(ArtifactRole::Snapshot).unwrap(),
-            WireRole::Snapshot
-        );
-    }
-}
-
 fn retained_history_root(material: &ClosedRecord) -> FormalReadResult<Option<String>> {
     let bytes = material
         .snapshot_bytes()
@@ -908,4 +881,31 @@ fn rejected(
         &error.to_string(),
         &service.signer,
     )
+}
+
+#[cfg(test)]
+mod incremental_role_tests {
+    use super::*;
+    #[test]
+    fn legacy_full_sync_wire_rejects_all_incremental_roles() {
+        for role in [
+            ArtifactRole::IncrementalGenesisConfig,
+            ArtifactRole::IncrementalRootSet,
+            ArtifactRole::IncrementalCommitBody,
+            ArtifactRole::IncrementalHistoryPrefix,
+        ] {
+            assert!(matches!(
+                wire_role(role),
+                Err(FormalReadError::Integrity(_))
+            ));
+        }
+        assert_eq!(
+            wire_role(ArtifactRole::NativeExecutionEnvironment).unwrap(),
+            WireRole::NativeExecutionEnvironment
+        );
+        assert_eq!(
+            wire_role(ArtifactRole::Snapshot).unwrap(),
+            WireRole::Snapshot
+        );
+    }
 }
