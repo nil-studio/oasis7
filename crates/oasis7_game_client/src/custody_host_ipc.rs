@@ -63,10 +63,30 @@ fn sha_file(path: &Path, limit: u64) -> Result<String, String> {
 }
 pub(super) fn fill_runtime_pins(i: &mut IdentityBinding) -> Result<(), String> {
     use sha2::{Digest, Sha256};
+    #[cfg(all(test, target_os = "linux"))]
+    let pin_diagnostic_started = Instant::now();
+    #[cfg(all(test, target_os = "linux"))]
+    {
+        let _ = writeln!(
+            std::io::stdout(),
+            "CUSTODY_OS_LEAF {}",
+            serde_json::json!({"stage":"pins.current_exe_hash_begin","elapsed_ms":pin_diagnostic_started.elapsed().as_millis()})
+        );
+        let _ = std::io::stdout().flush();
+    }
     let build = sha_file(
         &std::env::current_exe().map_err(|_| denied())?,
         512 * 1024 * 1024,
     )?;
+    #[cfg(all(test, target_os = "linux"))]
+    {
+        let _ = writeln!(
+            std::io::stdout(),
+            "CUSTODY_OS_LEAF {}",
+            serde_json::json!({"stage":"pins.current_exe_hash_finished","elapsed_ms":pin_diagnostic_started.elapsed().as_millis()})
+        );
+        let _ = std::io::stdout().flush();
+    }
     let skill = sha_file(Path::new(&i.skill_manifest_path), 1024 * 1024)?;
     let tools = hex::encode(Sha256::digest(TOOLS.as_bytes()));
     for (field, actual) in [
@@ -406,3 +426,8 @@ mod tests {
         assert_ne!(peer_uid(&a).unwrap(), claimed);
     }
 }
+
+// Explicit ignored Linux component fixture; never a production socket mode.
+#[cfg(all(test, target_os = "linux"))]
+#[path = "custody_host_linux_os_tests.rs"]
+mod linux_os_tests;
