@@ -118,6 +118,8 @@ fn nested_balances<S: GenesisFieldVisitor>(
         let resources = resources
             .as_object()
             .ok_or(ProjectionError::Invalid("economy resource map shape"))?;
+        sink.group(field, account, resources.len())
+            .map_err(ProjectionError::Sink)?;
         for (resource, balance) in resources {
             sink.entry(field, &(account, resource), balance)
                 .map_err(ProjectionError::Sink)?;

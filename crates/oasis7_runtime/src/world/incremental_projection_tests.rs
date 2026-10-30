@@ -433,3 +433,25 @@ fn economy_projection_rejects_unknown_missing_or_invalid_field_shapes_without_mu
         assert_eq!(world.cognition, before);
     }
 }
+
+#[test]
+fn economy_empty_balance_accounts_keep_outer_identity_without_rewriting_resources() {
+    let mut world = economy_world_for_projection();
+    for name in ["balances", "provisioned_balances"] {
+        world.cognition["cognition_economy"][name]["empty-account"] = json!({});
+    }
+    let before = world.cognition.clone();
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    for field in ["economy.balances", "economy.provisioned_balances"] {
+        assert!(
+            sink.groups[&(FieldOwner::Cognition, field)].contains(&(json!("empty-account"), 0))
+        );
+        assert!(
+            sink.values
+                .get(&(FieldOwner::Cognition, field))
+                .is_none_or(|rows| rows.iter().all(|(key, _)| key[0] != "empty-account"))
+        );
+    }
+    assert_eq!(world.cognition, before);
+}
