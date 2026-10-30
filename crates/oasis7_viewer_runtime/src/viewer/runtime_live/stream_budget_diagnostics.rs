@@ -6,11 +6,16 @@
 //! 1=request loop before periodic, 2=pump-start check, 3=socket read,
 //! 5=handler including lock wait, 6=request outbox, 7=periodic tail,
 //! 10=Viewer mutex wait, 20=pump iteration including wait, 21=pump mutex wait,
-//! 22=pump apply, 23=pump prepare, 30=periodic poll, 31=catch-up including wait,
+//! 22=pump apply, 23=pump prepare, 24=hosted prepare, 25=fresh prepare,
+//! 26=metadata prepare, 30=periodic poll, 31=catch-up including wait,
 //! 32=catch-up snapshot projection/encoding, 33=periodic apply,
 //! 34=periodic response encoding, 35=periodic remote query,
 //! 40=HelloV2 preparation/handling, 41=RequestSnapshot preparation/handling,
-//! 42=other request preparation/handling. Ordinary phase a/b are zero.
+//! 42=other request preparation/handling. Stages 23..26 use a=thread CPU delta
+//! in microseconds, b=1 if known / 0 if unknown. Linux test_tier_required only;
+//! other targets, failed reads and backwards CPU samples are unknown, not zero CPU.
+//! Wall minus CPU includes blocking and descheduling; it does not identify either.
+//! Other ordinary phase a/b are zero.
 //! 200 maps a serving thread to role a=0 offender / a=1 observer (b=0).
 //! The fixture appends 100/101 sample rows after measurement: thread=0,
 //! a=sample index; b=useful_us for 100, b=within_budget|complete<<1|pressure<<2
@@ -76,15 +81,92 @@ mod enabled {
         }
         DROPPED.fetch_add(1, Ordering::Relaxed);
     }
-    pub(crate) struct Phase(Option<(u64, u64)>);
+    fn thread_cpu() -> Option<u64> {
+        #[cfg(all(target_os = "linux", feature = "test_tier_required"))]
+        {
+            let mut time = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            // SAFETY: The clock constant is valid on Linux and time points to a
+            // writable initialized timespec. This queries only the calling thread.
+            if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } != 0 {
+                return None;
+            }
+            let seconds = u64::try_from(time.tv_sec).ok()?;
+            let nanos = u64::try_from(time.tv_nsec).ok()?;
+            if nanos >= 1_000_000_000 {
+                return None;
+            }
+            seconds.checked_mul(1_000_000_000)?.checked_add(nanos)
+        }
+        #[cfg(not(all(target_os = "linux", feature = "test_tier_required")))]
+        None
+    }
+    fn cpu_delta(start: Option<u64>, end: Option<u64>) -> (u64, u64) {
+        match start
+            .zip(end)
+            .and_then(|(start, end)| end.checked_sub(start))
+        {
+            Some(nanos) => (nanos / 1000, 1),
+            None => (0, 0),
+        }
+    }
+    // A thread CPU pair must never be completed on a different thread.
+    pub(crate) struct Phase(
+        Option<(u64, u64, Option<u64>)>,
+        std::marker::PhantomData<std::rc::Rc<()>>,
+    );
+    fn phase_with_clock(kind: u64, enabled: bool, clock: impl FnOnce() -> Option<u64>) -> Phase {
+        Phase(
+            enabled.then(|| {
+                let start = now();
+                let cpu = if (23..=26).contains(&kind) {
+                    clock()
+                } else {
+                    None
+                };
+                (kind, start, cpu)
+            }),
+            std::marker::PhantomData,
+        )
+    }
     pub(crate) fn phase(kind: u64) -> Phase {
-        Phase(ENABLED.load(Ordering::Relaxed).then(|| (kind, now())))
+        phase_with_clock(kind, ENABLED.load(Ordering::Relaxed), thread_cpu)
     }
     impl Drop for Phase {
         fn drop(&mut self) {
-            if let Some((kind, start)) = self.0 {
-                record(kind, start, 0, 0);
+            if let Some((kind, start, cpu)) = self.0 {
+                let (a, b) = if cpu.is_some() {
+                    cpu_delta(cpu, thread_cpu())
+                } else {
+                    (0, 0)
+                };
+                record(kind, start, a, b);
             }
+        }
+    }
+    #[cfg(test)]
+    mod cpu_tests {
+        use super::*;
+        #[test]
+        fn cpu_unknown_and_disabled_paths_remain_explicit() {
+            assert_eq!(cpu_delta(Some(1000), Some(4000)), (3, 1));
+            assert_eq!(cpu_delta(Some(4000), Some(1000)), (0, 0));
+            assert_eq!(cpu_delta(None, Some(4000)), (0, 0));
+            assert_eq!(cpu_delta(Some(1000), None), (0, 0));
+            assert!(
+                phase_with_clock(23, false, || panic!("disabled clock read"))
+                    .0
+                    .is_none()
+            );
+            assert_eq!(
+                phase_with_clock(10, true, || panic!("unpaired clock read"))
+                    .0
+                    .unwrap()
+                    .2,
+                None
+            );
         }
     }
     impl super::super::ViewerRuntimeLiveServer {
@@ -170,5 +252,29 @@ mod tests {
             ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics(),
             evidence
         );
+        ViewerRuntimeLiveServer::test_begin_stream_budget_diagnostics();
+        {
+            let _parent = phase(23);
+            for kind in 24..=26 {
+                drop(phase(kind));
+            }
+        }
+        let paired = ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics();
+        let rows = paired["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 4);
+        let parent = rows.iter().find(|row| row[0] == 23).unwrap();
+        for kind in 24..=26 {
+            let child = rows.iter().find(|row| row[0] == kind).unwrap();
+            assert_eq!(child[1], parent[1], "CPU spans remain on the same thread");
+            assert!(child[2].as_u64().unwrap() >= parent[2].as_u64().unwrap());
+            assert!(child[3].as_u64().unwrap() <= parent[3].as_u64().unwrap());
+            assert!(child[5].as_u64().unwrap() <= 1);
+            if child[5] == 0 {
+                assert_eq!(child[4], 0);
+            }
+            #[cfg(not(all(target_os = "linux", feature = "test_tier_required")))]
+            assert_eq!(child[5], 0, "unsupported CPU clocks are explicitly unknown");
+        }
+        assert_eq!(paired["dropped"], 0);
     }
 }

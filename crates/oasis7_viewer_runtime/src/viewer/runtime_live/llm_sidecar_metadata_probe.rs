@@ -128,15 +128,24 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         &mut self,
         _eligible: bool,
     ) -> Result<AgentServiceProgress, String> {
-        let service = self.prepare_hosted_service_io(_eligible)?;
+        let phase = super::stream_budget_diagnostics::phase(24);
+        let service = self.prepare_hosted_service_io(_eligible);
+        drop(phase);
+        let service = service?;
         if !matches!(service, AgentServiceProgress::Idle) {
             return Ok(service);
         }
-        let fresh = self.prepare_fresh_service_io(_eligible)?;
+        let phase = super::stream_budget_diagnostics::phase(25);
+        let fresh = self.prepare_fresh_service_io(_eligible);
+        drop(phase);
+        let fresh = fresh?;
         if !matches!(fresh, AgentServiceProgress::Idle) {
             return Ok(fresh);
         }
-        match self.llm_sidecar.prepare_provider_metadata_probe()? {
+        let phase = super::stream_budget_diagnostics::phase(26);
+        let metadata = self.llm_sidecar.prepare_provider_metadata_probe();
+        drop(phase);
+        match metadata? {
             Some(job) => Ok(AgentServiceProgress::NeedsIo(Box::new(job))),
             None => Ok(AgentServiceProgress::Idle),
         }
