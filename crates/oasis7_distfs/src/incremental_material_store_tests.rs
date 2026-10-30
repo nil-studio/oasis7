@@ -144,3 +144,6 @@ fn original_protocol_core_is_loaded_from_real_objects_and_pages_after_reopen() {
         );
     }
 }
+
+#[path = "incremental_fact_material_store_tests.rs"]
+mod facts;
