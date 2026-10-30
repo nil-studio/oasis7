@@ -1,5 +1,5 @@
 //! Point updates of module wakes in the shared IWS execution transaction.
-//! Due enumeration, invocation/artifact qualification and full tick routing
+//! Invocation/artifact qualification and full tick routing
 //! remain driver obligations; these helpers do not publish or install state.
 //! The driver preserves instance-ID lexical execution order; the index's
 //! time/instance-digest enumeration order is not module execution order.
@@ -190,3 +190,7 @@ impl World {
         Ok(count)
     }
 }
+
+#[path = "incremental_scheduler_due.rs"]
+mod due;
+pub use due::{DueModuleBatchLimitsV1, DueModuleBatchV1};

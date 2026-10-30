@@ -389,6 +389,10 @@ Runtime/DistFS 在首个实现接受新创世前冻结 canonical 编码向量、
 
 WASM/Runtime/外部效果 owner 共同确认 scheduler、allocator、授权/去重及 unknown 的完整语义；QA 在非空续跑和原效果不重派上独立审读。ops/P2P 提供实际独立域与恢复证据，缺失时只接受已验证的本地范围。本文提供新格式系统合同，不声明源码实施、原世界修复、生产重置或部署完成。
 
+<a id="iws-due-source-order"></a>
+
+到期模块查询必须先从当前事务的认证 scheduler index 选择 wake≤当前时刻的集合，再在显式准入的条目/原 ID 字节上限内恢复原实例 ID 的 String 字典序；时间/实例摘要枚举顺序不作为执行顺序。查询绑定 clock、当前 index-root 及每个目标的原 wake 标量，并在完整扫描后拒绝重复实例或 index/scalar 不一致，任何预算、缺页或取消失败使整笔事务不可 seal，不返回可采用的部分集合。返回集合与其 post-read prepared guard 一同保持准入，writer 在消费前按原 live fence 校验；集合不是模块调用、收费、工件或完整字段族资格。查询不扫描未来 wake 分支，也不从旧 World map 重建到期集合。输出额度属于操作预算，不改变逻辑顺序或派发身份；原 owner 仍须接通调用前快照、manifest/实例资格、真实 Pure/Reducer 执行、收费与 wake/clear。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
 ### 12.3 通用字段键与语义投影边界
 
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；落实 §6.2 的完整字段归属与 §12.2 的编码冻结，不新增业务要求。
