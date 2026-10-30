@@ -711,3 +711,6 @@ fn native_task_authority_accepts_consistent_finality_with_unrelated_provider() {
     assert!(world.canonical_agent_service_context("other-agent").is_ok());
     world.canonical_native_task_authority(&fence).unwrap();
 }
+
+#[path = "terminal_v2.rs"]
+mod terminal_v2;

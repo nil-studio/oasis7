@@ -199,6 +199,11 @@ pub struct CapabilityRevocationState {
         BTreeMap<String, crate::service_admission::AgentSignerDelegationChangeV1>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub world_service_results: BTreeMap<String, serde_json::Value>,
+    /// Explicit V2 permanent task terminal index. Absence is legacy-only shape;
+    /// present records are committed by authorization and complete state roots.
+    /// Removing a present index cannot match the stored authorization root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_terminals_v2: Option<crate::TaskTerminalIndexV2>,
     /// Permanent alternative lineage and dedup facts; never cold-result evicted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub safe_alternatives: BTreeMap<String, serde_json::Value>,
