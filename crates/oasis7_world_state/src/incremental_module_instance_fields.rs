@@ -235,6 +235,36 @@ pub fn visit_module_instance_fields<'a, E>(
     visit(F::InstalledAt, S::U64(*installed_at))
 }
 
+/// Borrowed semantic view, not the frozen scalar wire.
+pub fn visit_instances_projection<S: crate::incremental_projection::GenesisFieldVisitor>(
+    instances: &std::collections::BTreeMap<String, crate::ModuleInstanceState>,
+    sink: &mut S,
+) -> Result<(), crate::incremental_projection::ProjectionError<S::Error>> {
+    use crate::incremental_projection::*;
+    let descriptor = |field: ModuleInstanceFieldV1| FieldDescriptor {
+        owner: FieldOwner::WorldState,
+        name: field.name(),
+        destination: FieldDestination::State(
+            oasis7_formal_protocol::incremental_state::StateNamespaceV1::Business,
+        ),
+        shape: FieldShape::Map,
+    };
+    for field in ModuleInstanceFieldV1::ALL {
+        sink.begin(descriptor(field), Some(instances.len()))
+            .map_err(ProjectionError::Sink)?;
+    }
+    for (key, instance) in instances {
+        visit_module_instance_fields(instance, |field, value| {
+            sink.entry(descriptor(field), key, &value)
+        })
+        .map_err(ProjectionError::Sink)?;
+    }
+    for field in ModuleInstanceFieldV1::ALL {
+        sink.end(descriptor(field)).map_err(ProjectionError::Sink)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "incremental_module_instance_field_tests.rs"]
 mod tests;

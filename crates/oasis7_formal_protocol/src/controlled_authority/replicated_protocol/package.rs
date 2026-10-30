@@ -15,6 +15,10 @@ pub enum ArtifactRole {
     Wasm,
     Rules,
     NativeExecutionEnvironment,
+    IncrementalGenesisConfig,
+    IncrementalRootSet,
+    IncrementalCommitBody,
+    IncrementalHistoryPrefix,
 }
 const ROLES: [ArtifactRole; 9] = [
     ArtifactRole::Input,
