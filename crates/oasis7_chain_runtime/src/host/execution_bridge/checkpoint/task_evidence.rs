@@ -5,6 +5,27 @@ use oasis7::world_service::{CanonicalIntentResultV1, correlation, game_task};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::io::Read;
+pub(super) fn all_protected_heights(
+    records: &Path,
+    store: &LocalCasStore,
+) -> Result<BTreeSet<u64>, String> {
+    let mut protected = protected_heights(records, store)?;
+    protected.extend(super::super::historical_material::protected_heights(
+        records, store,
+    )?);
+    Ok(protected)
+}
+
+pub(in super::super) fn refresh_live_task_read_evidence(
+    records: &Path,
+    store: &LocalCasStore,
+    world: &oasis7_runtime::World,
+    hot: u64,
+) -> Result<ValidatedTaskRetention, String> {
+    let context = trusted_restore_context(world)?;
+    refresh(records, store, world, hot, &context)
+}
+
 const SCOPE: &str = "execution_bridge_live_tasks_v1";
 #[cfg(test)]
 std::thread_local! {

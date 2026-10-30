@@ -15,26 +15,12 @@ use super::{
 
 const EXECUTION_BRIDGE_PIN_SCOPE: &str = "execution_bridge_v1";
 type CheckpointRetentionPolicy = (u64, usize);
-fn all_protected_heights(records: &Path, store: &LocalCasStore) -> Result<BTreeSet<u64>, String> {
-    let mut protected = task_evidence::protected_heights(records, store)?;
-    protected.extend(super::historical_material::protected_heights(
-        records, store,
-    )?);
-    Ok(protected)
-}
+use task_evidence::all_protected_heights;
 #[cfg(test)]
 pub(super) mod task_evidence;
 #[cfg(not(test))]
 mod task_evidence;
-pub(super) fn refresh_live_task_read_evidence(
-    records: &Path,
-    store: &LocalCasStore,
-    world: &oasis7_runtime::World,
-    hot: u64,
-) -> Result<ValidatedTaskRetention, String> {
-    let context = task_evidence::trusted_restore_context(world)?;
-    task_evidence::refresh(records, store, world, hot, &context)
-}
+pub(super) use task_evidence::refresh_live_task_read_evidence;
 
 /// Opaque evidence that task retention was fully validated and synchronized
 /// for this exact durable head and storage root in the current transaction.

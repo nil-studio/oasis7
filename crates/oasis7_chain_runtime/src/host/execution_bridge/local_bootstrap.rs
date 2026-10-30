@@ -139,6 +139,237 @@ pub(crate) fn derive_local_execution_bootstrap(
 }
 
 impl NodeRuntimeExecutionDriver {
+    /// Service recovery cannot silently skip an invalid higher numbered head.
+    /// The generic legacy highest-valid reader deliberately remains unchanged.
+    fn strict_service_bootstrap_head(
+        &self,
+        world_id: &str,
+    ) -> Result<Option<super::ExecutionBridgeRecord>, String> {
+        let mut highest = None;
+        match std::fs::read_dir(&self.records_dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    let entry = entry.map_err(|_| "service record inventory unavailable")?;
+                    let name = entry.file_name();
+                    let Some(name) = name.to_str() else {
+                        continue;
+                    };
+                    let Some(stem) = name.strip_suffix(".json") else {
+                        continue;
+                    };
+                    if stem.is_empty() || !stem.bytes().all(|byte| byte.is_ascii_digit()) {
+                        continue;
+                    }
+                    if stem.len() != 20
+                        || !entry
+                            .file_type()
+                            .map_err(|_| "service record carrier unavailable")?
+                            .is_file()
+                    {
+                        return Err("service numeric record carrier or filename invalid".into());
+                    }
+                    let height = stem
+                        .parse::<u64>()
+                        .map_err(|_| "service numeric record height invalid")?;
+                    if height == 0 {
+                        return Err("service numeric record height invalid".into());
+                    }
+                    highest = Some(highest.map_or(height, |previous: u64| previous.max(height)));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("service record inventory unavailable".into()),
+        }
+        let latest_bytes = super::historical_material::read_regular(
+            &self.records_dir.join("latest.json"),
+            1024 * 1024,
+        )?;
+        let Some(height) = highest else {
+            if latest_bytes.is_some() {
+                return Err("service latest pointer lacks its numbered record".into());
+            }
+            return Ok(None);
+        };
+        let record = super::historical_material::load_record(&self.records_dir, height)?
+            .ok_or("service highest numeric record unavailable")?;
+        if record.height != height || record.world_id != world_id {
+            return Err("service highest numeric record identity invalid".into());
+        }
+        if let Some(bytes) = latest_bytes {
+            let pointer: super::ExecutionBridgeRecord =
+                serde_json::from_slice(&bytes).map_err(|_| "service latest pointer invalid")?;
+            if pointer.height > height || pointer.height == 0 || pointer.world_id != world_id {
+                return Err("service latest pointer exceeds or conflicts with numeric head".into());
+            }
+            let retained =
+                super::historical_material::load_record(&self.records_dir, pointer.height)?
+                    .ok_or("service latest pointer retained record unavailable")?;
+            // A lagging cache may predate ref compaction. Its immutable commit
+            // identity must still match; a same-height pointer must be exact.
+            let same_identity = pointer.height == retained.height
+                && pointer.world_id == retained.world_id
+                && pointer.node_block_hash == retained.node_block_hash
+                && pointer.prev_node_block_hash == retained.prev_node_block_hash
+                && pointer.proposer_id == retained.proposer_id
+                && pointer.action_root == retained.action_root
+                && pointer.execution_block_hash == retained.execution_block_hash
+                && pointer.execution_state_root == retained.execution_state_root
+                && pointer.journal_len == retained.journal_len
+                && pointer.timestamp_ms == retained.timestamp_ms;
+            if !same_identity || (pointer.height == height && pointer != retained) {
+                return Err(
+                    "service latest pointer conflicts with retained original record".into(),
+                );
+            }
+        }
+        Ok(Some(record))
+    }
+
+    /// A genuine durable service successor can precede the mutable World/state
+    /// cache publication. Validate the old marker as a retained prefix, then
+    /// restore the already qualified original CAS before applying time guards.
+    /// This is not permission to overwrite a foreign/future cache marker.
+    pub(super) fn recover_committed_service_successor_before_bootstrap(
+        &mut self,
+        baseline: &NodeExecutionBootstrap,
+    ) -> Result<(), String> {
+        if !self.world_dir.join("world-service-identity.json").exists() {
+            if self
+                .records_dir
+                .join("local-execution-bootstrap.json")
+                .exists()
+            {
+                return Err("service bootstrap identity is missing".into());
+            }
+            // Preserve the existing non-service local bootstrap contract.
+            return Ok(());
+        }
+        let binding = self
+            .execution_world
+            .current_cognition_runtime_binding()
+            .map_err(|_| "service cached Runtime binding unavailable")?;
+        let identity = super::world_service_read::identity(&self.world_dir, &binding.world_id)?;
+        let Some(latest) = self.strict_service_bootstrap_head(&identity.world_id)? else {
+            return Ok(());
+        };
+        if latest.height != baseline.height
+            || latest.execution_block_hash != baseline.execution_block_hash
+            || latest.execution_state_root != baseline.execution_state_root
+            || latest.node_block_hash.as_deref() != Some(baseline.consensus_block_hash.as_str())
+        {
+            return Err("service canonical record conflicts with exact bootstrap boundary".into());
+        }
+        let cached_height = self.state.last_applied_committed_height;
+        if cached_height > baseline.height {
+            return Err(
+                "service cached execution marker exceeds canonical bootstrap boundary".into(),
+            );
+        }
+        if cached_height == baseline.height {
+            // The existing same-height path validates marker hashes and CAS
+            // before repairing an independently selected cache generation.
+            return Ok(());
+        }
+        if latest.world_id != identity.world_id {
+            return Err("service canonical record world differs from cached binding".into());
+        }
+        if cached_height == 0 {
+            if self.state.last_execution_block_hash.is_some()
+                || self.state.last_execution_state_root.is_some()
+                || self.state.last_node_block_hash.is_some()
+            {
+                return Err("empty service cache marker contains conflicting identity".into());
+            }
+        } else {
+            let prefix = super::checkpoint::load_execution_bridge_record(
+                &super::checkpoint::execution_bridge_record_path(&self.records_dir, cached_height),
+            )?;
+            if prefix.height != cached_height
+                || prefix.world_id != identity.world_id
+                || self.state.last_execution_block_hash.as_deref()
+                    != Some(prefix.execution_block_hash.as_str())
+                || self.state.last_execution_state_root.as_deref()
+                    != Some(prefix.execution_state_root.as_str())
+                || self.state.last_node_block_hash != prefix.node_block_hash
+            {
+                return Err(
+                    "service cached execution marker is not the retained original prefix".into(),
+                );
+            }
+            let mut previous_execution = prefix.execution_block_hash;
+            let mut previous_node = prefix.node_block_hash;
+            for height in cached_height
+                .checked_add(1)
+                .ok_or("service prefix height overflow")?
+                ..=baseline.height
+            {
+                let record = super::checkpoint::load_execution_bridge_record(
+                    &super::checkpoint::execution_bridge_record_path(&self.records_dir, height),
+                )?;
+                if record.world_id != identity.world_id
+                    || record.height != height
+                    || record.prev_node_block_hash != previous_node
+                {
+                    return Err("service successor is not the retained cached prefix chain".into());
+                }
+                let expected = blake3_hex(&super::to_cbor(ExecutionHashPayload {
+                    world_id: &identity.world_id,
+                    height,
+                    prev_execution_block_hash: &previous_execution,
+                    execution_state_root: &record.execution_state_root,
+                    journal_len: record.journal_len,
+                })?);
+                if expected != record.execution_block_hash {
+                    return Err(
+                        "service successor execution chain conflicts with cached prefix".into(),
+                    );
+                }
+                previous_execution = record.execution_block_hash;
+                previous_node = record.node_block_hash;
+            }
+        }
+        // Both admission and actual restoration use the original Host context;
+        // snapshot fields never select policy or a local participant authority.
+        let context = super::world_service_read::RestoreContext::new(
+            self.execution_world.release_security_policy().clone(),
+            self.devlocal_participant.authority.clone(),
+        )?;
+        let pinned = super::world_service_read::pin_at_height_with_context(
+            &self.records_dir,
+            self.execution_store.root(),
+            &identity,
+            baseline.height,
+            &context,
+        )?;
+        if pinned.record != latest
+            || pinned.commit.position != baseline.height
+            || pinned.commit.execution_block_hash != baseline.execution_block_hash
+            || pinned.commit.state_root_ref != baseline.execution_state_root
+        {
+            return Err("verified service cut differs from exact bootstrap before recovery".into());
+        }
+        if !self.restore_execution_head_from_record(&identity.world_id, baseline.height)? {
+            return Err("service exact canonical record disappeared during recovery".into());
+        }
+        let restored_record = self
+            .strict_service_bootstrap_head(&identity.world_id)?
+            .ok_or("service exact canonical record disappeared after recovery")?;
+        if restored_record != latest
+            || self.state.last_applied_committed_height != baseline.height
+            || self.state.last_execution_block_hash.as_deref()
+                != Some(baseline.execution_block_hash.as_str())
+            || self.state.last_execution_state_root.as_deref()
+                != Some(baseline.execution_state_root.as_str())
+            || self.state.last_node_block_hash.as_deref()
+                != Some(baseline.consensus_block_hash.as_str())
+        {
+            return Err(
+                "restored service boundary differs from exact admitted canonical cut".into(),
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn new_with_local_bootstrap(
         state_path: std::path::PathBuf,
         world_dir: std::path::PathBuf,
