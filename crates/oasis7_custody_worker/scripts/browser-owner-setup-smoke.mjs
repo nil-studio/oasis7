@@ -7,10 +7,12 @@ import {spawn} from 'node:child_process';import {setTimeout as delay} from 'node
 import {Miniflare,Response as MiniflareResponse} from 'miniflare';
 import {worldAuthority} from '../tests/fixtures/world_runtime_support.mjs';
 import {browserUvRoleOptions} from '../tests/fixtures/role_runtime_native_support.mjs';
-import {browserHttps} from '../tests/fixtures/custody_browser_https.mjs';
-import {approveProvision} from '../tests/fixtures/custody_browser_actions.mjs';
+import {browserHttps,normalizeBrowserPath} from '../tests/fixtures/custody_browser_https.mjs';
+import {approveProvision,installActualGetFault,actualGetFacts} from '../tests/fixtures/custody_browser_actions.mjs';
 import {signFixtureRecoveryActivation} from '../tests/fixtures/fence_activation_signer.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');const repo=resolve(root,'../..');
+const caseIndex=process.argv.indexOf('--case');const faultCase=caseIndex<0?'positive':process.argv[caseIndex+1];
+assert.ok(['positive','lost-complete','lost-owner-approve','wrong-ids','wrong-csrf','cancel-get','logout-late-get','account-switch-late-get'].includes(faultCase),'closed --case selector');
 const directory=mkdtempSync(join(tmpdir(),'oasis7-browser-uv-'));chmodSync(directory,0o700);
 let world,https,native,mf,browser,context,page;let stage='startup';let exited=false;
 const ready=resolve(directory,'native-ready.json'),stop=resolve(directory,'native-stop');
@@ -27,7 +29,7 @@ try {
   stage='browser-launch';const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES;
   const require=modules?createRequire(join(modules,'local-browser-uv.cjs')):createRequire(import.meta.url);browser=await require('playwright').chromium.launch({channel:'chrome',headless:!process.argv.includes('--headed')});
   context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1280,height:960}});page=await context.newPage();
-  const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
+  const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   stage='browser-register';await page.goto(origin+'/');await page.getByRole('button',{name:'免邮箱创建账号',exact:true}).click();await page.getByRole('heading',{name:'账号与安全',exact:true}).waitFor();
   const manager=await page.evaluate(async()=>{const r=await fetch('/api/public/hosted-account/v2/session');const s=await r.json();if(s.authentication.method!=='webauthn')throw Error('actual UV required');return s.account.account_id;});
   const capability=await page.evaluate(async()=>fetch('/api/public/hosted-account/v2/capabilities').then(r=>r.json()));
@@ -37,7 +39,7 @@ try {
   assert.equal((await enrolled.json()).manager_account_id,manager);
   const nativeCounts={};const bridge=async request=>{
     const url=new URL(request.url);assert.equal(url.origin,origin,'fixed local Native origin');assert.ok(url.pathname.startsWith('/api/public/hosted-account/v2/'));
-    nativeCounts[url.pathname]=(nativeCounts[url.pathname]??0)+1;
+    const nativePath=normalizeBrowserPath(url.pathname);nativeCounts[nativePath]=(nativeCounts[nativePath]??0)+1;
     const headers=new Headers();for(const key of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']){const v=request.headers.get(key);if(v!==null)headers.set(key,v);}
     const response=await fetch(data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
     return new MiniflareResponse(await response.arrayBuffer(),{status:response.status,headers:response.headers});
@@ -57,19 +59,54 @@ try {
   stage='mounted-refresh';await page.evaluate(()=>window.surface.refresh());stage='metadata-load';await page.getByRole('button',{name:'加载本人可见父项',exact:true}).click();
   stage='metadata-select';
   await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).waitFor();await page.getByLabel(/本次私有目标/).fill('Public local fixture: Move business 0 only');
+  const delayed=['logout-late-get','account-switch-late-get'].includes(faultCase);
+  await installActualGetFault(page,delayed?'late':faultCase==='cancel-get'?'abort':'count');
   stage='plan-prepare';await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).click();await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).waitFor();
   await page.screenshot({path:resolve(directory,'desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve(directory,'narrow.png'),fullPage:true});
-  stage='owner-uv-and-approve';await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).click();await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
+  const beforeOwner=https.facts().counts;
+  const phaseCount=(counts,suffix)=>Object.entries(counts).filter(([path])=>path.endsWith(suffix)).reduce((n,[,count])=>n+count,0);
+  const baseOptions=phaseCount(beforeOwner,'/custody/approvals/options'),baseComplete=phaseCount(beforeOwner,'/custody/approvals/complete'),baseApprove=phaseCount(beforeOwner,'/owner-setups/approve');
+  if(['lost-complete','lost-owner-approve','wrong-ids','wrong-csrf'].includes(faultCase))https.armFault(faultCase);
+  if(faultCase==='cancel-get')await cdp.send('WebAuthn.setAutomaticPresenceSimulation',{authenticatorId,enabled:false});
+  stage='owner-uv-and-approve';await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).click();
+  if(['lost-complete','lost-owner-approve','wrong-ids','wrong-csrf'].includes(faultCase)) {
+    stage='explicit-original-retry';await page.getByRole('button',{name:'显式重送同一原件',exact:true}).waitFor();
+    const intermediate=https.facts().fault;
+    assert.equal(intermediate.calls,1,'one injected attempt before explicit retry');
+    if(faultCase.startsWith('lost-')){assert.equal(intermediate.committed_reply_dropped,true,'actual 200 commit must precede withheld response body');assert.equal(intermediate.downstream_statuses[0],502,'browser must receive fixed gateway uncertainty');}
+    else {assert.equal(intermediate.native_error_codes[0],faultCase==='wrong-ids'?'invalid_request':'csrf_failed','exact Native route rejection');assert.equal(intermediate.upstream_statuses[0],faultCase==='wrong-ids'?400:403);}
+    await page.getByRole('button',{name:'显式重送同一原件',exact:true}).click();
+    await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
+    const retry=https.facts().fault;assert.equal(retry.calls,2);assert.equal(retry.identical_original,true,'retry must equal original browser bytes');assert.equal(retry.upstream_statuses[1],200);if(faultCase.startsWith('lost-'))assert.deepEqual(retry.downstream_statuses,[502,200],'actual successful body withheld via gateway502, then explicit retry200');
+  }else if(faultCase==='cancel-get') {
+    stage='actual-browser-abort';await page.waitForFunction(()=>window.localGetFacts?.started===1&&typeof window.localAbortGet==='function');await page.evaluate(()=>window.localAbortGet());
+    await page.getByText('已停止本地通行密钥交互；服务端挑战没有被撤销，请等待原期限或由原账号核清。',{exact:true}).first().waitFor();
+    const get=await actualGetFacts(page);assert.equal(get.started,1);assert.equal(get.completed,0);assert.equal(get.aborted,1);
+  }else if(delayed) {
+    stage='actual-get-awaiting-scope-change';await page.waitForFunction(()=>window.localGetFacts?.completed===1&&typeof window.localReleaseGet==='function');
+    await page.getByRole('button',{name:'退出登录',exact:true}).click();await page.getByRole('heading',{name:'进入 Oasis7',exact:true}).waitFor();
+    if(faultCase==='account-switch-late-get') {
+      await page.getByRole('button',{name:'免邮箱创建账号',exact:true}).click();await page.getByRole('heading',{name:'账号与安全',exact:true}).waitFor();
+      const changed=await page.evaluate(async()=>fetch('/api/public/hosted-account/v2/session').then(r=>r.json()).then(s=>s.account.account_id));assert.ok(changed!==manager,'actual browser account must switch');
+    }
+    await page.evaluate(()=>window.localReleaseGet());
+    await page.waitForFunction(()=>window.localGetFacts?.released===1&&window.localGetFacts?.returned===1&&window.localGetFacts?.business_started===1&&window.localGetFacts?.business_settled===1);
+    assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete'),baseComplete,'late actual assertion must not enter complete');
+    assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve'),baseApprove,'late actual assertion must not enter Owner');
+  }else await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
+  const getFacts=await actualGetFacts(page);assert.equal(getFacts.started,1,'no retry may allocate another actual get');
+  assert.equal(phaseCount(https.facts().counts,'/custody/approvals/options')-baseOptions,1,'no retry may allocate another custody challenge');
+  if(faultCase==='cancel-get'){assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete'),baseComplete);assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve'),baseApprove);}
   const facts=https.facts();assert.equal(facts.bypass_attempts,0);assert.ok(!Object.keys(facts.counts).some(path=>path.includes('/owner-setups/continue')),'OwnerSetup must never continue');
   const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();assert.equal(nativeFacts.bypass_attempts,0);assert.equal(nativeFacts.manager_configured,true);
-  const evidence={kind:'local_native_workerd_browser_uv',status:'passed',software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
-  writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify({status:'passed',evidence_directory:directory,kind:evidence.kind}));
+  const evidence={kind:'local_native_workerd_browser_uv',status:'passed',case:faultCase,fault:https.facts().fault,actual_get:getFacts,software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
+  writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify({status:'passed',case:faultCase,evidence_directory:directory,kind:evidence.kind}));
 }catch(error) {
   await page?.screenshot({path:resolve(directory,'failure.png'),fullPage:true}).catch(()=>{});
   const counts=https?.facts().counts??{};
   const sum=suffix=>Object.entries(counts).filter(([key])=>key.endsWith(suffix)).reduce((n,[,value])=>n+value,0);
   const kind=['AssertionError','TimeoutError'].includes(error?.name)?error.name:'Error';
-  console.error(JSON.stringify({status:'failed',stage,error_kind:kind,evidence_directory:directory,
+  console.error(JSON.stringify({status:'failed',case:faultCase,stage,error_kind:kind,evidence_directory:directory,
     phase_counts:{options:sum('/custody/approvals/options'),complete:sum('/custody/approvals/complete'),prepare:sum('/owner-setups/prepare'),approve:sum('/owner-setups/approve')}}));process.exitCode=1;
 }
 finally {await context?.close();await browser?.close();await mf?.dispose();if(native&&!exited){writeFileSync(stop,'stop');for(let i=0;!exited&&i<250;i++)await delay(20);if(!exited)native.kill('SIGTERM');}await https?.close();await world?.close();}
