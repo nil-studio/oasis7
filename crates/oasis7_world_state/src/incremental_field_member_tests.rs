@@ -743,3 +743,50 @@ fn key_digest_covers_each_accepted_byte_once_across_short_and_interrupted_writes
         assert_eq!(payload, expected_payload);
     }
 }
+
+#[test]
+fn expected_i64_profile_rejects_malformed_fixed_length_before_payload_limits() {
+    let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
+    let mut pages = Pages::new(&memory);
+    let mut record = write(
+        &mut pages,
+        &memory,
+        MemberPayloadRefV1::I64(7),
+        WorldFieldRecordKindV1::Entry,
+    );
+    let mut bytes = raw(&pages, &memory, &record.value_root);
+    let p = FIELD_MEMBER_DOMAIN.len();
+    bytes[p + 11..p + 19].copy_from_slice(&9u64.to_be_bytes());
+    bytes.push(0);
+    record.value_root = store(&mut pages, &memory, &bytes);
+    let mut key = Vec::new();
+    let mut payload = Vec::new();
+    let result = read_member_record_profile_v1(
+        &record.value_root,
+        &record.field_key,
+        &mut ValueReadContext {
+            source: &pages,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut quota(),
+        },
+        MemberReadProfileV1 {
+            codec: MemberPayloadCodecV1::I64,
+            semantic_bytes: record.info.semantic_bytes,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 1024,
+                payload_bytes: 8,
+                record_bytes: 4096,
+            },
+        },
+        &mut key,
+        &mut payload,
+        || false,
+    );
+    assert!(matches!(
+        result,
+        Err(ValueTreeError::Invalid("member fixed payload length"))
+    ));
+    assert!(key.is_empty());
+    assert!(payload.is_empty());
+}
