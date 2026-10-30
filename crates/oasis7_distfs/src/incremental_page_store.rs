@@ -431,3 +431,7 @@ fn unsupported_platform_rejects_before_creating_store() {
     assert!(!path.exists());
     assert_eq!(memory.used(), 0);
 }
+
+#[path = "incremental_state_store.rs"]
+mod state_store;
+pub use state_store::{ChargedMerklePage, StatePageSession};
