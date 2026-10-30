@@ -413,3 +413,18 @@ canonical bytes 为 ASCII `oasis7.iws.semantic-key.v1` 加零字节，再接一�
 pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改变编码、摘要或树形。读取检查完整 domain、token、UTF-8、长度、已知枚举、深度与末尾边界，返回借用内容和已验证的 pair 子 token，不聚合原 key。哈希先取得同进程预算的固定 workspace，并在逐块处理前检查取消与有限字节额度；失败和 unwind 不发出成功摘要，已消耗的工作额度不回退。流式输出在整体成功前均为暂态，实际 sink 须自行持有分配/I/O reservation。
 
 本节不把 schema-owned 原文键的解析升级为字段注册、授权或 head 接受资格。原语义键须随对应 value/索引内容保留以供恢复并重新核对摘要；完整 value wire、producer/reader 与 World 生命周期仍按 §12.3/§12.2 接通后才允许激活。
+
+
+### 12.5 generic field member 原键与值封装
+
+<a id="iws-field-member-v1"></a>
+
+`field-member.v1` 为 §12.3 的 generic `Entry`/`Bytes` 成员保留 §12.4 的原始语义键字节与显式选定的值原语。专用 Agent、模块等 key family 仍由各自 codec 负责；本封装不重映射其键，不接管字段登记或 World 启用。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
+
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）。Bytes key 只配 Bytes payload；Entry 只配前六种。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+
+写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
+
+raw reader 从期望值 root 与期望完整 field key 开始，以明确 pool/class 和有限节点/读写额度验证 descriptor、固定有界 header、field key、长度以及原语义键 digest；先确认声明总长与认证 root 自洽，再应用操作额度。key digest 匹配后才输出 payload。两段输出在整个读取成功前均为 provisional。该接口提供认证范围，不解析语义 token/UTF-8 或 payload，不返回已解码业务值；owner 后续必须按已登记 profile 验证键、值及业务身份，不能用 raw read 代签 typed 恢复。恢复 class 不得偷偷借用 Ordinary 配额，取消、错误和未完成读取均不得产出完成元数据。
