@@ -110,6 +110,28 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 ## CI 现状与缺口（事实口径）
 
+目标策略见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)，实现和验收尚未完成。以下现状、命令和缺口仍描述当前入口；文档合入不使 nightly 自动变为四小时调度，也不解除当前必要检查。
+
+<a id="ci-fast-pr-periodic-full-validation"></a>
+### 快速 PR 与周期完整回归的实施验收
+
+承接[分层设计](doc/testing/ci/ci-tiered-execution.design.md#ci-fast-pr-periodic-full-design)。先固定实施候选和可信基线，使用实际选择器、driver 和 workflow 核对下表；沿用当前可执行入口，计划中的 profile 不能当作已经支持的命令。
+
+| 验收对象 | 方法与通过边界 |
+| --- | --- |
+| 普通文档/配置 PR | 只运行适用基础与增量关系检查，无关子检查及时结束；改动删除/重命名/索引时仍能发现失效关系；全库历史报告在周期层出现 |
+| 普通 Rust/Web PR | 计划选择实际 crate/target/features 与必要消费者，日志证明编译闭包和行为用例均收窄；不能只用测试名过滤或零匹配证明提速 |
+| 关键边界与共享输入 | 身份/持久化/共识等命中必要定向加测；依赖/工具链或影响不确定时保守扩大并显示原因；未知路径仍失败 |
+| 完整覆盖 | 对同源适用清单核对快速集合与迁出项均在 full 执行；包括 Clippy、独立浏览器安全 smoke、Command Center 及真实平台矩阵；故意漏项被识别 |
+| 失败与产物 | 选中检查失败、取消、超时、缺产物、错 features/target、零匹配、意外 skipped 均使最终汇总失败；未选中与未执行严格区分 |
+| 周期与并发 | 检查四小时 cron、固定 SHA、完整回归独立并发、旧 PR 取消、漏跑/超时可见；main push 不重复触发全部重型回归 |
+| 发布与恢复 | 可信完整结果对应准确候选及适用平台；错误 SHA、未知/非可信结果和缺页阻止发布；原包 smoke 与明确授权的保留版本回滚继续验证 |
+| 反馈与容量 | 按 PRD 口径报告窗口与样本数、普通成功 P95、失败/超时/取消和例外、排队/编译/执行及冷暖缓存；完整回归能在周期内完成并保留 PR 容量 |
+
+构造负例时复用现有 selector/result/driver 回归，不以 fake 构建代替真实消费者。实际 hosted 验收至少覆盖上述输入类别和冷缓存；有意注入失败只在隔离候选执行，不修改生产门禁。定时回归持续失败时先定位并验证修复，不能以换频率代替恢复。
+
+现有 `./scripts/ci-tests.sh required`、`full`、`full-standard` 与 `gh workflow run rust.yml --ref <candidate-branch-or-tag> -f run_mode=full` 的能力边界仍按下文执行。manual full 只证明其准确候选与实际清单，不代替 PR 必需事件，也不自动赋予发布资格。实施 PR 记录实际命令、版本、运行和未覆盖项后，才能更新本手册的当前状态。
+
 ### 当前 CI/脚本已覆盖
 - 入口 A：`scripts/ci-tests.sh`（主流程）
 - `commit`：

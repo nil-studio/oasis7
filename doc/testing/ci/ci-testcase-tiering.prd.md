@@ -13,6 +13,7 @@
 ## 1. Executive Summary
 - Problem Statement: 仅按“整套 `cargo test`”设置门禁粒度会拉长反馈链路，难以在 required 阶段快速定位关键回归。
 - Proposed Solution: 将 CI 分层细化到 test case 级别，使用 `test_tier_required`/`test_tier_full` 标签驱动 `required` / `full` 执行路径，并让默认 `commit` baseline 保持命令级轻量门禁。
+- 执行时点与实施状态遵循[PR 快速反馈与四小时完整回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。标签只描述用例职责；实际 package/target/features 和用例集合仍由可信影响计划与执行入口共同确定。
 - Success Criteria:
   - SC-1: `required` 门禁聚焦最小 smoke case 且执行时长下降。
   - SC-2: `full` 继续覆盖重型特性与联测，保持回归深度。
@@ -28,14 +29,15 @@
 - User Scenarios & Frequency:
   - 日常本地提交：不执行验证；`commit` baseline 仅可显式调用。
   - PR 门禁：每次执行 required 门禁。
-  - 分支合并前回归：高风险变更执行 full。
+  - 分支合并前回归：关键改动执行受影响的必要定向验证，无法可靠限定范围时保守扩大至完整必要集合；不按风险标签一律追加全仓 full。
+  - 周期回归：目标为每四小时对固定 main SHA 执行完整集合，保留发布候选的手动验证；实施切换条件由上述主责文档规定。
   - 策略维护：测试新增/迁移时同步更新标签与脚本。
 - User Stories:
   - PRD-TESTING-CI-TIER-001: As a CI 维护者, I want case-level tier tagging, so that required/full boundaries are explicit.
   - PRD-TESTING-CI-TIER-002: As a 开发者, I want required checks to run only critical smoke cases, so that feedback is faster.
   - PRD-TESTING-CI-TIER-003: As a 发布负责人, I want full regression paths preserved, so that release risk remains controlled.
 - Critical User Flows:
-  1. Flow-TIER-001: `为测试打标签 -> required 执行 --tests + feature 过滤 -> 输出门禁结论`
+  1. Flow-TIER-001: `为测试分配职责 -> 可信计划选择 package/target/features 与必要用例 -> 编译并实际执行 -> 汇总门禁结论`
   2. Flow-TIER-002: `触发 full -> 运行扩展回归（wasmtime/libp2p/viewer）-> 汇总结果`
   3. Flow-TIER-003: `新增测试 -> 选择 required/full 标签 -> 更新文档与脚本 -> 验证一致性，并确认是否需要进入默认 commit baseline`
 - Functional Specification Matrix:
@@ -43,15 +45,16 @@
 | --- | --- | --- | --- | --- | --- |
 | 测试分级标签 | `test_tier_required` / `test_tier_full` | 用 `#[cfg(feature = ...)]` 标记用例 | `unlabeled -> labeled -> validated` | required 为最小闭环，full 追加重型场景 | 测试维护者审核分级 |
 | 命令级基线分流 | `commit` / `required` / `full` | 普通 commit 不验证；显式命令可执行 `commit`，PR/CI 执行 `required`，重型回归执行 `full` | `queued -> running -> passed/failed` | commit 与验证解耦，case 标签用于门禁分层 | 开发者/CI 可触发 |
-| required 执行路径 | `scripts/ci-tests.sh required` | 执行静态门禁 + `--tests` + required feature | `queued -> running -> passed/failed` | 优先速度与关键覆盖 | 开发者按需触发，CI 自动触发 |
+| required 执行路径 | `scripts/ci-tests.sh required` | 执行适用静态门禁、受影响目标与 required feature，并追加命中风险的必要用例 | `queued -> running -> passed/failed` | 目标按包、target 与用例共同缩小编译和执行范围；当前入口以实现为准 | 开发者按需触发，CI 自动触发 |
 | full 执行路径 | `scripts/ci-tests.sh full` | 在 required 基础上执行扩展回归 | `queued -> running -> passed/failed` | 覆盖优先于耗时 | 发布前必须通过 |
 - Acceptance Criteria:
   - AC-1: `required` 由 feature 标签筛选 smoke case，不再硬编码 `--test` 清单。
   - AC-2: `full` 保持 `libp2p`、`wasmtime`、viewer 联测路径。
   - AC-3: 文档明确“`commit` 命令级轻量基线 + `required/full` case 级筛选”策略。
   - AC-4: 回归验证与任务日志完整可追溯。
+  - AC-5: 迁到周期层的用例仍有相同断言和适用环境的实际调用；快速层保留受影响行为测试，零匹配或只编译不能代替执行成功。
 - Non-Goals:
-  - 不做 changed-files 动态选测。
+  - 本专题不另建 changed-files 选择器；复用 CI 分级执行设计拥有的影响分析。
   - 不做 smoke case 自动学习/自动生成。
   - 不修改业务测试断言语义。
 
@@ -72,7 +75,7 @@
   - full 路径误删：若重型回归被意外移除，发布门禁立即阻断。
   - 迁移期混用旧策略：硬编码清单与 feature 过滤并存时，先去重再切换。
 - Non-Functional Requirements:
-  - NFR-TIER-1: required 门禁反馈时间较旧策略显著下降（趋势可观测）。
+  - NFR-TIER-1: 普通 PR 的十分钟反馈目标、例外和统计口径遵循[快速反馈要求](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)；仅减少执行用例但仍构建全部重型目标，不算已完成提速。
   - NFR-TIER-2: full 回归覆盖项不低于迁移前。
   - NFR-TIER-3: 标签与脚本一致性检查可追溯并可复现。
 - Security & Privacy: 仅涉及测试执行策略，不引入新数据面。

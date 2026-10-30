@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "1304459f0776cac4810dc40224652f3ed9a2202d8f8f1c060979a02ff89e6b8c",
+    "content_sha256": "bd851020ff4f09366f5876588566a9a1e01dab0ce87bffacb271f8c71ae675fe",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "Reviewed the merged workflow text for minimal complete changes and evidence-based review alongside the preserved language and writing requirements and five-type Issue lifecycle. Reuse respects responsibility boundaries; simplification preserves required behavior and validation. Writing guidance remains one incremental authority without style gates; non-blocking advice adds no approval or evidence chain. Classification remains separate from execution permission. Unchanged sections retain existing authority. This review covers the integrated workflow text and AGENTS navigation; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior.",
+    "note": "Reviewed the merged workflow text for minimal complete changes and evidence-based review alongside the preserved language and writing requirements and five-type Issue lifecycle. Reuse respects responsibility boundaries; simplification preserves required behavior and validation. Writing guidance remains one incremental authority without style gates; non-blocking advice adds no approval or evidence chain. Classification remains separate from execution permission. Unchanged sections retain existing authority. This review covers the integrated workflow text and AGENTS navigation; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior. Bounded follow-up review covers the new section 3 CI layering paragraph and its links to the fast-PR/periodic-full requirements and design. Independent review found it consistent with section 1 authority and effective-protection rules and the preserved section 3 scope selection, failure propagation, source identity, read-only PR permissions, independent review, and main-advance rules. It adds no admission, approval chain, or state ledger and does not activate the schedule, relax current checks, or attest the latency target, full coverage, or release-result consumption.",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
