@@ -336,3 +336,122 @@ fn hot_history_limits_and_wall_clock_do_not_change_deterministic_fields() {
         );
     }
 }
+
+#[test]
+fn cognition_economy_projection_preserves_live_lease_and_separates_original_journal() {
+    let world = economy_world_for_projection();
+    let before = world.cognition.clone();
+    let object = before["cognition_economy"].as_object().unwrap();
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    for key in object.keys() {
+        assert!(
+            sink.fields
+                .keys()
+                .any(|(owner, name)| *owner == FieldOwner::Cognition
+                    && *name == format!("economy.{key}")),
+            "missing economy field {key}"
+        );
+    }
+    let balances = &sink.values[&(FieldOwner::Cognition, "economy.balances")];
+    assert_eq!(balances.len(), 1);
+    assert_eq!(balances[0].0, json!(["account-agent-a", "cognition_units"]));
+    assert_eq!(balances[0].1["available"], 12);
+    assert_eq!(balances[0].1["reserved"], 5);
+    assert_eq!(
+        sink.values[&(FieldOwner::Cognition, "economy.leases")].len(),
+        1
+    );
+    assert_eq!(
+        sink.side_counts[&(FieldOwner::Cognition, "economy.journal")],
+        Some(1)
+    );
+    assert!(
+        !sink
+            .values
+            .contains_key(&(FieldOwner::Cognition, "economy.journal"))
+    );
+    for (name, namespace) in [
+        ("economy.balances", Namespace::Business),
+        ("economy.leases", Namespace::Effects),
+        ("economy.idempotency", Namespace::Authorization),
+        ("economy.head_seq", Namespace::Allocator),
+    ] {
+        assert_eq!(
+            sink.fields[&(FieldOwner::Cognition, name)].destination,
+            FieldDestination::State(namespace)
+        );
+    }
+    assert_eq!(world.cognition, before);
+}
+
+fn economy_world_for_projection() -> World {
+    let mut world = World::new();
+    world
+        .set_cognition_resource_balance("account-agent-a", "cognition_units", 17)
+        .unwrap();
+    world
+        .reserve_cognition_lease(crate::CognitionLeaseRequestV1::new(
+            "original-reservation",
+            "account-agent-a",
+            "agent-a",
+            "session-a",
+            "turn-a",
+            "request-a",
+            "request-digest-a",
+            crate::CognitionLeaseQuoteV1::new("original-quote", "cognition_units", 5),
+        ))
+        .unwrap();
+    world
+}
+
+#[test]
+fn economy_projection_rejects_unknown_missing_or_invalid_field_shapes_without_mutation() {
+    let mut world = economy_world_for_projection();
+    let valid = world.cognition["cognition_economy"].clone();
+    for mode in 0..6 {
+        world.cognition["cognition_economy"] = valid.clone();
+        let economy = &mut world.cognition["cognition_economy"];
+        match mode {
+            0 => economy["new_control"] = json!(1),
+            1 => economy["balances"]["account-agent-a"] = json!([]),
+            2 => economy["journal"] = json!({}),
+            3 => economy["head_seq"] = json!(-1),
+            4 => economy["schema_version"] = json!("cognition-economy.future"),
+            _ => {
+                economy.as_object_mut().unwrap().remove("operations");
+            }
+        }
+        let before = world.cognition.clone();
+        assert!(
+            matches!(
+                world.visit_iws_genesis_fields(&mut Capture::default()),
+                Err(ProjectionError::Invalid(_))
+            ),
+            "invalid economy mode {mode}"
+        );
+        assert_eq!(world.cognition, before);
+    }
+}
+
+#[test]
+fn economy_empty_balance_accounts_keep_outer_identity_without_rewriting_resources() {
+    let mut world = economy_world_for_projection();
+    for name in ["balances", "provisioned_balances"] {
+        world.cognition["cognition_economy"][name]["empty-account"] = json!({});
+    }
+    let before = world.cognition.clone();
+    let mut sink = Capture::default();
+    world.visit_iws_genesis_fields(&mut sink).unwrap();
+    for field in ["economy.balances", "economy.provisioned_balances"] {
+        assert!(
+            sink.groups[&(FieldOwner::Cognition, field)].contains(&(json!("empty-account"), 0))
+        );
+        assert!(
+            sink.values
+                .get(&(FieldOwner::Cognition, field))
+                .is_none_or(|rows| rows.iter().all(|(key, _)| key[0] != "empty-account"))
+        );
+    }
+    assert_eq!(world.cognition, before);
+}
