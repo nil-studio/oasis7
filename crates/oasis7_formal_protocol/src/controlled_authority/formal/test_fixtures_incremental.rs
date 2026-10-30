@@ -44,7 +44,7 @@ pub fn setup_with_memory(memory: MemoryBudget) -> Setup {
 }
 
 pub fn setup_with_native(memory: MemoryBudget, native: [u8; 32]) -> Setup {
-    setup_with_roots(memory, native, None)
+    setup_with_roots(memory, native, None, None)
 }
 pub fn setup_with_execution_artifacts(
     memory: MemoryBudget,
@@ -54,7 +54,7 @@ pub fn setup_with_execution_artifacts(
     rules: [u8; 32],
     policy: [u8; 32],
 ) -> Setup {
-    setup_with_roots(memory, native, Some([manifest, wasm, rules, policy]))
+    setup_with_roots(memory, native, Some([manifest, wasm, rules, policy]), None)
 }
 pub fn genesis_config(native: [u8; 32]) -> GenesisConfigV1 {
     GenesisConfigV1 {
@@ -65,7 +65,18 @@ pub fn genesis_config(native: [u8; 32]) -> GenesisConfigV1 {
         execution_environment: native,
     }
 }
-fn setup_with_roots(memory: MemoryBudget, native: [u8; 32], refs: Option<[[u8; 32]; 4]>) -> Setup {
+pub fn setup_with_state(
+    memory: MemoryBudget,
+    state: [crate::incremental_state::StateRootV1; 6],
+) -> Setup {
+    setup_with_roots(memory, [4; 32], None, Some(state))
+}
+fn setup_with_roots(
+    memory: MemoryBudget,
+    native: [u8; 32],
+    refs: Option<[[u8; 32]; 4]>,
+    state_roots: Option<[crate::incremental_state::StateRootV1; 6]>,
+) -> Setup {
     let (mut certificate, _, legacy, _) = fixture::initial();
     let config = genesis_config(native);
     let refs = refs.unwrap_or_else(|| {
@@ -85,7 +96,10 @@ fn setup_with_roots(memory: MemoryBudget, native: [u8; 32], refs: Option<[[u8; 3
     certificate.body.runtime_manifest_digest = hex::encode(refs[0]);
     certificate.body.execution_policy_digest = hex::encode(refs[3]);
     let scope = config.scope().unwrap();
-    let roots = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config).unwrap();
+    let mut roots = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config).unwrap();
+    if let Some(state) = state_roots {
+        roots.state = state;
+    }
     let state = hex::encode(roots.digest().unwrap());
     certificate.body.schema_version = IWS_ACTIVATION_SCHEMA;
     certificate.body.authority.profile_version = IWS_AUTHORITY_PROFILE_VERSION;
