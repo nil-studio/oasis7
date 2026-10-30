@@ -294,8 +294,9 @@ impl ParticipantEntry {
                 let quote=path==oasis7_client_api::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH || path==oasis7_client_api::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
                 let allowed = (quote
                     && ["task_quote_base_drift", "task_quote_delivery_drift"].contains(&code))
-                    || (path
-                        == oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_PATH
+                    || (matches!(path,
+                        oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_PATH
+                        | oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH)
                         && code == "task_context_read_delivery_drift");
                 if allowed {
                     return Ok(
@@ -369,7 +370,9 @@ impl ParticipantEntry {
             GOAL_PREPARE_PATH => verified!(PreparedGoalReceiptV1),
             GOAL_CURRENT_PATH => verified!(CurrentGoalResponse),
             TASK_CONTEXT_PREPARE_PATH => verified!(PreparedTaskContextV1),
-            TASK_CONTEXT_READ_PATH => verified!(CapturedTaskContextV1),
+            TASK_CONTEXT_READ_PATH | TASK_CONTEXT_LIVE_READ_PATH => {
+                verified!(CapturedTaskContextV1)
+            }
             TASK_SNAPSHOT_PATH => verified!(GoalExecutionSnapshotV1),
             TASK_RECIPE_QUOTE_PATH => verified!(TaskRecipeQuoteV1),
             TASK_FACTORY_QUOTE_PATH => verified!(TaskFactoryQuoteV1),

@@ -20,6 +20,7 @@ pub enum ContextBodyPortV1 {
 pub enum SessionPurposeTransportV1 {
     GenericOne(SessionPurposeV1),
     ContextBody(Box<ContextBodyTransportV1>),
+    LiveContextRead(Box<LiveContextReadTransportV1>),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -49,6 +50,7 @@ impl SessionPurposeTransportV1 {
         match self {
             Self::GenericOne(p) => *p,
             Self::ContextBody(v) => v.purpose,
+            Self::LiveContextRead(v) => v.purpose,
         }
     }
 }
@@ -103,6 +105,8 @@ pub struct SessionContextV1 {
     pub prefix: Option<ContextPrefixEvidenceV1>,
     pub slots: BTreeMap<ContextBodySlotKindV1, ContextBodyReferenceV1>,
     pub attempts: BTreeMap<String, ContextBodyAttemptV1>,
+    #[serde(default)]
+    pub live_reads: BTreeMap<String, LiveContextReadRecordV1>,
 }
 impl core::fmt::Debug for SessionContextV1 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -224,6 +228,7 @@ impl AccountProvisionApprovalState {
             prefix: None,
             slots: BTreeMap::new(),
             attempts: BTreeMap::new(),
+            live_reads: BTreeMap::new(),
         });
         next.validate_persistence()?;
         *self = next;
@@ -372,3 +377,7 @@ mod restore;
 
 #[path = "test_session_context_checks.rs"]
 mod checks;
+
+#[path = "test_session_live_context.rs"]
+mod live_context;
+pub use live_context::*;

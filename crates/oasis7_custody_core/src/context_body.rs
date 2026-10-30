@@ -191,5 +191,12 @@ pub use artifact::{
     ContextPrefixProofV1, ValidatedContextBody,
 };
 
+mod storage_factory;
+pub use storage_factory::{
+    CapturedContextStorageInput, ContextStorageError, PreparedContextStorageInput,
+    captured_context_storage_checks, prepared_context_storage_checks,
+    validate_captured_context_storage, validate_prepared_context_storage,
+};
+
 #[cfg(test)]
 mod storage_fixture_tests;

@@ -134,6 +134,21 @@ impl AccountProvisionApprovalState {
         self.context_body_matches(id, body)?;
         self.append_context_body_manifest(id, checks, body)
     }
+    pub(super) fn context_historical_body_checks(
+        &self,
+        id: &str,
+        body: &ValidatedContextBody,
+    ) -> Result<ExactSignatureChecks> {
+        self.context_body_matches(id, body)?;
+        let reference = self
+            .test_sessions
+            .get(id)
+            .and_then(|s| s.context.as_ref())
+            .and_then(|c| c.slots.get(&body.scope().slot))
+            .ok_or_else(invalid)?;
+        let checks = crate::approval_admission::context_historical_checks(id, reference)?;
+        self.append_context_body_manifest(id, checks, body)
+    }
     fn append_context_body_manifest(
         &self,
         id: &str,
@@ -238,27 +253,12 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        verify_get(original).map_err(|_| invalid())?;
-        if original.request.context != *prepared.evidence().identity()
-            || original.request.prepare_operation_id != c.original.request.client_operation_id
-            || original.subject_public_key != c.original.subject_public_key
-        {
-            return Err(invalid());
-        }
-        let expected =
-            public_prefix(&prepared.prepared().map_err(body_error)?).map_err(|_| invalid())?;
-        let oasis7_client_api::world_service_wire::WorldServicePayloadV1::Scheduler(signed) =
-            &prefix.original.signed_payload
-        else {
-            return Err(invalid());
-        };
-        if signed.request != expected {
-            return Err(invalid());
-        }
         prefix
-            .validate(
+            .validate_against_prepared(
                 &self.context_scope(id, ContextBodySlotKindV1::Captured)?,
-                &original.request.context,
+                &c.original,
+                &prepared.prepared().map_err(body_error)?,
+                original,
             )
             .map_err(body_error)?;
         Ok(append_context_signature_checks(
