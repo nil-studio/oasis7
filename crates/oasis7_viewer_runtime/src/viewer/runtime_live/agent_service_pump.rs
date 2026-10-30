@@ -10,6 +10,12 @@ use std::sync::{Weak, mpsc};
 
 const PUMP_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_LOCAL_ADVANCES: usize = 8;
+const PUBLICATION_FAILED: &str =
+    "Agent checkpoint publication failed; original work remains pending without dispatch";
+
+fn publication_error_cleared_by_ack(error: Option<&str>) -> bool {
+    error == Some(PUBLICATION_FAILED)
+}
 
 pub(super) fn wait_for_result(
     results: &mpsc::Receiver<AgentServiceIoResult>,
@@ -203,14 +209,17 @@ impl ViewerRuntimeLiveServer {
             return;
         }
         if matches!(progress, AgentServiceProgress::Advanced) {
-            self.agent_service_pump_error = None;
-            if self
-                .latest_player_gameplay_feedback
-                .as_ref()
-                .is_some_and(|feedback| feedback.action == "agent_service")
-            {
-                self.latest_player_gameplay_feedback = None;
-            }
+            self.clear_agent_pump_error();
+        }
+    }
+    fn clear_agent_pump_error(&mut self) {
+        self.agent_service_pump_error = None;
+        if self
+            .latest_player_gameplay_feedback
+            .as_ref()
+            .is_some_and(|feedback| feedback.action == "agent_service")
+        {
+            self.latest_player_gameplay_feedback = None;
         }
     }
 
@@ -469,6 +478,14 @@ impl ViewerRuntimeLiveServer {
                                     current.record_agent_pump_error("Agent checkpoint capture or ticket changed; original batch remains pending");
                                     return;
                                 }
+                                // This exact owner ticket was published and acknowledged
+                                // under the unchanged fence. Retire only its storage blocker;
+                                // unrelated errors and failed/newer tickets remain blocked.
+                                if publication_error_cleared_by_ack(
+                                    current.agent_service_pump_error,
+                                ) {
+                                    current.clear_agent_pump_error();
+                                }
                                 publication_fence.publication_ticket = 0;
                                 current.llm_sidecar.flush_pending_provider_world_events();
                                 if let Some((_, published)) =
@@ -479,7 +496,7 @@ impl ViewerRuntimeLiveServer {
                                 break;
                             }
                             Err(publication_worker::Failure::Publication) => {
-                                current.record_agent_pump_error("Agent checkpoint publication failed; original work remains pending without dispatch");
+                                current.record_agent_pump_error(PUBLICATION_FAILED);
                                 drop(current);
                                 thread::sleep(PUMP_INTERVAL);
                             }
@@ -549,6 +566,20 @@ impl ViewerRuntimeLiveServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn publication_ack_only_retires_its_current_storage_blocker() {
+        assert!(publication_error_cleared_by_ack(Some(PUBLICATION_FAILED)));
+        for error in [
+            None,
+            Some("Agent checkpoint capture failed; original queued and in-flight batches retained"),
+            Some(
+                "Agent checkpoint scope changed; original publication remains retained for recovery",
+            ),
+            Some("Agent service preparation is blocked; original work remains pending"),
+        ] {
+            assert!(!publication_error_cleared_by_ack(error));
+        }
+    }
     #[test]
     fn result_wait_preserves_periodic_timeout_and_disconnect() {
         let (sender, receiver) = mpsc::channel();

@@ -521,8 +521,10 @@ impl RuntimeLlmSidecar {
                     &serde_json::to_vec(&staged)
                         .map_err(|_| "test Wait capture snapshot failed")?,
                 )?;
-                Self::test_write_wait_cleanup_file(root, "wait-capture-before-persist", b"ready")?;
-                Self::test_wait_wait_cleanup_file(root, "wait-capture-release")?;
+                // Async capture is not publication. The worker selects this
+                // exact prepared capsule only after the original queue checkpoint
+                // has actually published, then exposes the filesystem fault gate.
+                Self::test_write_wait_cleanup_file(root, "wait-capture-prepared", b"ready")?;
                 test_persist_attempted = true;
             }
             self.persist_provider_lineage()

@@ -455,3 +455,37 @@ fn lineage_publication_overflow_retains_first_original_and_never_false_acks() {
     assert!(owner.confirm_lineage_publication(ticket).is_err());
     assert!(owner.ensure_lineage_published().is_err());
 }
+
+#[test]
+#[cfg(unix)]
+fn lineage_deferred_rename_directory_failure_retries_exact_original_after_repair() {
+    let root =
+        std::env::temp_dir().join(format!("lineage-rename-directory-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("lineage.json");
+    let owner = sidecar(path.clone(), "rename-original");
+    owner.enable_deferred_publications();
+    owner.persist_provider_lineage().unwrap();
+    let ticket = owner.publication_ticket();
+    let batch = owner.take_queued_publications();
+    assert_eq!(batch.len(), 1);
+    std::fs::create_dir(&path).unwrap();
+    assert!(batch[0].execute().is_err());
+    assert!(
+        !batch[0].permanently_blocked(),
+        "rename to directory is proven unpublished, not an ambiguous publication"
+    );
+    let temporary = batch[0].temporary.get().unwrap().clone();
+    let original = std::fs::read(&temporary).unwrap();
+    assert!(owner.ensure_lineage_published().is_err());
+    assert_eq!(owner.publication_ticket(), ticket);
+    std::fs::remove_dir(&path).unwrap();
+    batch[0].execute().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert!(owner.ensure_lineage_published().is_err());
+    owner.confirm_lineage_publication(ticket).unwrap();
+    assert!(owner.ensure_lineage_published().is_ok());
+    batch[0].execute().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    std::fs::remove_dir_all(root).unwrap();
+}
