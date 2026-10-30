@@ -16,11 +16,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+const CHILD_TEST: &str = "OASIS7_ISOLATED_FORK_TEST";
+
 /// A held pre-exec fork must never inherit another test thread's lifetime locks.
 /// Exec a single-test harness first; the fork still retains this test's real
 /// descriptors, so the writer-release regressions keep their original oracle.
 pub(crate) fn isolate_fork_test() -> bool {
-    const CHILD_TEST: &str = "OASIS7_ISOLATED_FORK_TEST";
     let thread = std::thread::current();
     let name = thread.name().expect("named test thread");
     if std::env::var(CHILD_TEST).as_deref() == Ok(name) {
@@ -60,6 +61,13 @@ pub(crate) struct InheritedDescriptors {
 }
 impl InheritedDescriptors {
     pub(crate) fn fork() -> Self {
+        let thread = std::thread::current();
+        let name = thread.name().expect("named test thread");
+        assert_eq!(
+            std::env::var(CHILD_TEST).as_deref(),
+            Ok(name),
+            "held fork requires isolate_fork_test before retaining descriptors"
+        );
         let (release, wait) = UnixStream::pair().unwrap();
         // SAFETY: Only async-signal-safe libc calls run in the forked child. Holding
         // before exec models another test's concurrent Command::spawn without
