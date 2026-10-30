@@ -426,21 +426,20 @@ pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>
             .into(),
         );
     }
-    if let Some(valid) = original_valid {
-        if !observed
+    if let Some(valid) = original_valid
+        && !observed
             .iter()
             .any(|value| value.starts_with("checkpoint_original:"))
-        {
-            assert!(observed.len() < 4096);
-            observed.push(
-                if valid {
-                    "checkpoint_original:1"
-                } else {
-                    "checkpoint_original:0"
-                }
-                .into(),
-            );
-        }
+    {
+        assert!(observed.len() < 4096);
+        observed.push(
+            if valid {
+                "checkpoint_original:1"
+            } else {
+                "checkpoint_original:0"
+            }
+            .into(),
+        );
     }
     if matches!(&request.signed_payload, WorldServicePayloadV1::Cognition(_)) {
         request
