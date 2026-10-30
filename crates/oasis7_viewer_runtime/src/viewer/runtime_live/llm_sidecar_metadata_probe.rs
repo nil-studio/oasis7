@@ -126,14 +126,35 @@ impl RuntimeLlmSidecar {
 }
 
 impl crate::viewer::ViewerRuntimeLiveServer {
+    #[cfg(test)]
     pub(in crate::viewer::runtime_live) fn prepare_agent_service_io(
         &mut self,
-        _eligible: bool,
+        eligible: bool,
     ) -> Result<AgentServiceProgress, String> {
+        self.prepare_agent_service_io_mode(eligible, false)
+    }
+    pub(in crate::viewer::runtime_live) fn prepare_agent_service_io_deferred(
+        &mut self,
+        eligible: bool,
+    ) -> Result<AgentServiceProgress, String> {
+        self.prepare_agent_service_io_mode(eligible, true)
+    }
+    fn prepare_agent_service_io_mode(
+        &mut self,
+        _eligible: bool,
+        deferred: bool,
+    ) -> Result<AgentServiceProgress, String> {
+        if self.llm_sidecar.hosted_identity_reservation.is_some() {
+            return Ok(AgentServiceProgress::Idle);
+        }
         let service = {
             #[cfg(any(test, feature = "test_tier_required"))]
             let _phase = stream_budget_diagnostics::phase(24);
-            self.prepare_hosted_service_io(_eligible)?
+            if deferred {
+                self.prepare_hosted_service_io_deferred(_eligible)?
+            } else {
+                self.prepare_hosted_service_io(_eligible)?
+            }
         };
         if !matches!(service, AgentServiceProgress::Idle) {
             return Ok(service);
@@ -172,6 +193,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
     pub(in crate::viewer::runtime_live) fn agent_service_io_worker_failed(&mut self) {
         self.llm_sidecar.provider_metadata_inflight = None;
         self.llm_sidecar.hosted_service_inflight = None;
+        self.llm_sidecar.hosted_identity_reservation = None;
         // Canonical maps are durable; next preparation reconstructs original Lookup.
         self.llm_sidecar.hosted_service_phase = None;
     }

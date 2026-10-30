@@ -12,7 +12,11 @@ use oasis7_client_api::world_service::*;
 #[path = "agent_service_phase_direct.rs"]
 mod direct;
 
-#[derive(Clone)]
+#[cfg(any(test, feature = "test_tier_required"))]
+#[path = "agent_service_replay_probe.rs"]
+mod replay_probe;
+
+#[derive(Clone, PartialEq)]
 pub(super) enum HostedServicePhase {
     Act {
         pending: PendingProviderServiceIntent,
@@ -129,8 +133,24 @@ impl crate::viewer::ViewerRuntimeLiveServer {
 
     pub(super) fn prepare_hosted_service_io(
         &mut self,
-        _eligible: bool,
+        eligible: bool,
     ) -> Result<AgentServiceProgress, String> {
+        self.prepare_hosted_service_io_mode(eligible, false)
+    }
+    pub(super) fn prepare_hosted_service_io_deferred(
+        &mut self,
+        eligible: bool,
+    ) -> Result<AgentServiceProgress, String> {
+        self.prepare_hosted_service_io_mode(eligible, true)
+    }
+    fn prepare_hosted_service_io_mode(
+        &mut self,
+        _eligible: bool,
+        defer_identity: bool,
+    ) -> Result<AgentServiceProgress, String> {
+        if self.llm_sidecar.hosted_identity_reservation.is_some() {
+            return Ok(AgentServiceProgress::Idle);
+        }
         // Numeric test evidence only; original expressions and `?` ordering stay intact.
         macro_rules! profiled {
             ($kind:literal, $value:expr) => {{
@@ -465,11 +485,41 @@ impl crate::viewer::ViewerRuntimeLiveServer {
             )?;
             self.llm_sidecar.hosted_service_phase = Some(phase.clone());
         }
-        self.llm_sidecar.hosted_service_generation =
-            self.llm_sidecar.hosted_service_generation.saturating_add(1);
+        self.llm_sidecar.hosted_service_generation = if defer_identity {
+            self.llm_sidecar
+                .hosted_service_generation
+                .checked_add(1)
+                .ok_or("hosted identity generation exhausted")?
+        } else {
+            self.llm_sidecar.hosted_service_generation.saturating_add(1)
+        };
+        let generation = self.llm_sidecar.hosted_service_generation;
+        let config_digest = profiled!(73, self.hosted_service_config_digest())?;
+        if defer_identity {
+            // Keep the existing irreversible submit reservation before releasing
+            // the Viewer lock. The operation above already owns the exact Submit.
+            super::agent_service_io::PreparedHostedIdentity::reserve_submit(
+                self.llm_sidecar.hosted_service_phase.as_mut(),
+            );
+            super::agent_service_io::PreparedHostedIdentity::reserve_submit(Some(&mut phase));
+            self.llm_sidecar.hosted_identity_reservation =
+                Some(super::agent_service_io::HostedIdentityReservation {
+                    generation,
+                    config_digest: config_digest.clone(),
+                });
+            return Ok(AgentServiceProgress::NeedsIdentity(Box::new(
+                super::agent_service_io::PreparedHostedIdentity::new(
+                    generation,
+                    config_digest,
+                    phase,
+                    client,
+                    operation,
+                ),
+            )));
+        }
         let token = AgentServiceIoToken {
-            generation: self.llm_sidecar.hosted_service_generation,
-            config_digest: profiled!(73, self.hosted_service_config_digest())?,
+            generation,
+            config_digest,
             phase_digest: profiled!(74, {
                 #[cfg(any(test, feature = "test_tier_required"))]
                 crate::viewer::runtime_live::stream_budget_diagnostics::identity_barrier();
@@ -478,13 +528,9 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         };
         self.llm_sidecar.hosted_service_inflight = Some(token.clone());
         // After dispatch reservation any worker failure must recover by Lookup.
-        match self.llm_sidecar.hosted_service_phase.as_mut() {
-            Some(HostedServicePhase::Act { submit, .. })
-            | Some(HostedServicePhase::ActSettle { submit, .. })
-            | Some(HostedServicePhase::HandoffWake { submit, .. })
-            | Some(HostedServicePhase::FeedbackAck { submit, .. }) => *submit = false,
-            _ => {}
-        }
+        super::agent_service_io::PreparedHostedIdentity::reserve_submit(
+            self.llm_sidecar.hosted_service_phase.as_mut(),
+        );
         Ok(AgentServiceProgress::NeedsIo(Box::new(AgentServiceIoJob {
             token,
             client: Some(client),
@@ -1089,39 +1135,6 @@ pub(super) fn original_act_requires_replay(
     Ok(matches!(response.outcome, IntentOutcome::Unknown))
 }
 
-#[cfg(any(test, feature = "test_tier_required"))]
-impl crate::viewer::ViewerRuntimeLiveServer {
-    /// Required-tier drive of the production Act reconciliation decision and
-    /// original operation builder with genuine signed service responses.
-    pub fn test_replay_original_hosted_act(
-        client: crate::world_service::client::RemoteWorldServiceClient,
-        original: SubmitIntentRequest<crate::world_service::WorldServicePayloadV1>,
-    ) -> Result<SubmitObservation<serde_json::Value>, String> {
-        use crate::world_service::client::WorldServicePort;
-        original.validate().map_err(|error| error.to_string())?;
-        let response = client
-            .lookup(
-                LookupIntentRequest {
-                    contract_version: WORLD_SERVICE_CONTRACT_VERSION,
-                    key: original.correlation.key.clone(),
-                },
-                original.signed_payload.clone(),
-            )
-            .map_err(|error| error.to_string())?;
-        if !original_act_requires_replay(&response, &original.correlation)? {
-            return Err("test drive requires genuine unpublished original outcome".into());
-        }
-        let AgentServiceIoOperation::Submit(replay) =
-            original_intent_io(&original.correlation, &original.signed_payload, true)
-        else {
-            unreachable!()
-        };
-        assert_eq!(replay.correlation, original.correlation);
-        assert_eq!(replay.signed_payload, original.signed_payload);
-        client.submit(replay).map_err(|error| error.to_string())
-    }
-}
-
 fn original_settlement_requires_replay(
     response: &IntentResponse<serde_json::Value>,
     original: &RequestCorrelation,
@@ -1146,81 +1159,4 @@ fn original_settlement_io(
         payload,
         submit && (!existed || replay_authorized),
     )
-}
-#[cfg(any(test, feature = "test_tier_required"))]
-impl crate::viewer::ViewerRuntimeLiveServer {
-    pub fn test_replay_original_hosted_settlement(
-        client: crate::world_service::client::RemoteWorldServiceClient,
-        original: SubmitIntentRequest<crate::world_service::WorldServicePayloadV1>,
-    ) -> Result<SubmitObservation<serde_json::Value>, String> {
-        use crate::world_service::client::WorldServicePort;
-        original.validate().map_err(|error| error.to_string())?;
-        if !matches!(&original.signed_payload, crate::world_service::WorldServicePayloadV1::Scheduler(s) if matches!(s.request.operation, SchedulerOperationV1::SettleLease {..}))
-        {
-            return Err("settlement operation required".into());
-        }
-        assert!(
-            matches!(
-                original_settlement_io(
-                    &original.correlation,
-                    &original.signed_payload,
-                    true,
-                    true,
-                    false
-                ),
-                AgentServiceIoOperation::Lookup { .. }
-            ),
-            "existing settlement first reconciles by Lookup"
-        );
-        assert!(
-            matches!(
-                original_settlement_io(
-                    &original.correlation,
-                    &original.signed_payload,
-                    true,
-                    false,
-                    false
-                ),
-                AgentServiceIoOperation::Submit(_)
-            ),
-            "new settlement may first Submit"
-        );
-        assert!(
-            matches!(
-                original_settlement_io(
-                    &original.correlation,
-                    &original.signed_payload,
-                    false,
-                    true,
-                    true
-                ),
-                AgentServiceIoOperation::Lookup { .. }
-            ),
-            "dispatch consumes an authorized Submit"
-        );
-        let response = client
-            .lookup(
-                LookupIntentRequest {
-                    contract_version: WORLD_SERVICE_CONTRACT_VERSION,
-                    key: original.correlation.key.clone(),
-                },
-                original.signed_payload.clone(),
-            )
-            .map_err(|e| e.to_string())?;
-        if !original_settlement_requires_replay(&response, &original.correlation)? {
-            return Err("unpublished settlement required".into());
-        }
-        let AgentServiceIoOperation::Submit(replay) = original_settlement_io(
-            &original.correlation,
-            &original.signed_payload,
-            true,
-            true,
-            true,
-        ) else {
-            return Err("retained settlement was not submitted".into());
-        };
-        assert_eq!(replay.correlation, original.correlation);
-        assert_eq!(replay.signed_payload, original.signed_payload);
-        client.submit(replay).map_err(|e| e.to_string())
-    }
 }

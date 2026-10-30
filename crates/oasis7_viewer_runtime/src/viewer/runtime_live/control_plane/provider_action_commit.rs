@@ -519,7 +519,7 @@ impl ViewerRuntimeLiveServer {
     }
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub(in crate::viewer::runtime_live) struct ProviderServiceCognitionReceipt {
     pub(in crate::viewer::runtime_live) commit_record: crate::runtime::WorldCommitRecordV1,
     pub(in crate::viewer::runtime_live) lineage: crate::runtime::RuntimeReceiptLineageV1,
