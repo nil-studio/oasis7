@@ -505,7 +505,7 @@ Client API 中的文件读取、`SystemTime` 等便利 API 也不因 crate 可�
 
 在现有 `oasis7_game_client` 增加原生 Rust `custody_tool_host` / `custody_transport` 模块和窄启动入口，可依赖 custody core 的纯 DTO/profile；新增 crate 仍只有两个。tool-host 保存独立客户端 PoP key、执行/只读凭据及请求日志，不持 login/owner/executor 协议 key。Worker 不能反向依赖 native client、MCP/OAuth、socket、OS vault 或 native TLS。
 
-首个消费者固定 `native-broker-custody-v1` transport + `custody-native-v1` 工具 profile，由受信 launcher 启动 Game Client，模型用现有 `broker-call` 的 socket/resource_id/typed args。首批只登记实际验收的 codex 组合；openclaw 须单独通过 custody transport 验收。受信宿主须隔离模型进程对私密目录、keyring、环境/argv 和内存的访问；同 UID 的 0600 文件或“不要读取”提示不构成隔离。
+首个消费者固定 `native-broker-custody-v1` transport + `custody-native-v1` 工具 profile，由受信 launcher 启动 Game Client，模型用显式 `custody-control-call` 的固定 socket/resource_id/typed args，不依据 sidecar 存在与否回退普通 broker。首批只登记实际验收的 codex 组合；openclaw 须单独通过 custody transport 验收。受信宿主须隔离模型进程对私密目录、keyring、环境/argv 和内存的访问；同 UID 的 0600 文件或“不要读取”提示不构成隔离。
 
 #### 宿主部署声明与实际隔离前置
 
@@ -514,6 +514,22 @@ Client API 中的文件读取、`SystemTime` 等便利 API 也不因 crate 可�
 TestSession basis 的 runtime_ref、skill_ref、source_ref 必须从实际命中部署 allowlist 的 exact descriptor 唯一派生，分别为 restricted runtime identity、正式 Skill manifest digest、该版本 build digest；tool manifest 与全部字段另由完整 descriptor digest 绑定。管理者或模型不能仅回显任意字符串替代来源核验。匹配自报 descriptor 的字段值本身不能使空 allowlist 变为可信。
 
 可接受的隔离必须实际约束模型运行时：宿主与模型采用不同 OS 安全主体/强制沙箱，或模型只通过固定 HTTPS 闭工具面调用独立远程宿主。只有宿主安全主体可读 client key、purpose credential 和持久 inbox。真实验收覆盖文件、keyring、env/argv、debug/process memory、继承句柄、挂载和网络逃逸；同 UID 文件权限、容器名称或 AppSandbox 配置文本不代签这些结果。宿主公钥、instance、descriptor digest、runtime/Skill manifest 或 origin 改变必须重新管理配对，不能用同 key credential replacement 隐式迁移宿主。生产配置默认不启用；合成 fixture 只验证协议实现，不能填实际隔离验收的 PASS。
+
+#### 原生 Control 宿主的窄 IPC 与私密引导
+
+`custody-native-v1` 首个原生宿主只接实际七个 Control POST 路由，不因通用 HTTP profile 的枚举存在而开放 Actions、operation/session GET、Dot 或任意签名。模型方法只接受固定资源 handle 和闭合 Initialize、ToolsList、Heartbeat、RequestFinish、RequestAbort 参数；Finish/Abort 只报告已请求 Closing，不报告 World Closed。模型不能填写 URL、header、purpose token、密钥、解锁材料、descriptor 或运行角色。
+
+Unix 本地纯 UID 配置须把实际 Host 主体 H、受限模型 runtime 主体 M，以及本地 Native/管理主体 N 两两分开。宿主以实际 effective UID 为 H，仅让 H 读取 vault、PoP seed、purpose credential 和 inbox；启动拒绝任一主体 UID 为 0，以及 H=M、H=N 或 M=N。Native 确实远端时不比较跨机器 UID 数字，仍固定远端 authority/origin 并保持本机 H≠M。此代码检查只是必要边界，实际部署仍须通过前述全环境隔离验收，默认 allowlist 保持空。
+
+模型 Unix socket 位于独立、由 H 所有且 M 不能替换的目录，连接权限由受信部署预先配置，不放宽私密 vault 的 0700/0600。服务从 kernel peer credentials 读取 M，拒绝请求中自报 UID/role 和其他 peer；客户端核对固定公开 binding、实际 socket owner 和宿主 identity。原普通 Executor broker 的同 UID/0600 路径不改；`custody-control-call` 只走独立 custody 窄分支，公开 binding 缺失或异常时拒绝，禁止回退普通 `broker-call`，不进入 ExecutorControlStore 或 `--executor-config`。
+
+在没有可信模型 launcher 的首个本地组件中，另以固定 OS 根配置约束同一 M 当前唯一的接线：Linux/BSD 从 `/var/lib/oasis7-custody/model-bindings/<M>.json` 读取，macOS 从无 `/var` 别名的 `/private/var/lib/oasis7-custody/model-bindings/<M>.json` 读取。程序只读此固定路径，逐父目录和文件拒绝 symlink、非 root owner、组/其他可写替换及多链接文件，记录 exact 绑定 H/M/N、identity/descriptor/session/resource/runtime；请求不能选择路径或传 `verified`。缺失、异常或不匹配时 serve、模型调用和自动 heartbeat fail closed，不创建系统文件或 Root 运维签名权根。
+
+该 root-owned 记录只约束 M **当下**的唯一 binding；它不证明模型加载了正式 Skill，也不能阻止 operator 改绑后旧同 UID 进程访问新 binding。可信 launcher、旧进程退役、M 生命周期不可重用及全环境隔离仍须实际验收，未具备时保持 deployment disabled；不得把该记录、artifact hash 或配置文本当作这些项目的 PASS。operator 不应在旧会话/进程未可靠退役时改绑 M。
+
+私密引导 CLI 只由受信 operator 以 H 执行，通过私有 stdin 交接公开邀请/批准会话 metadata，不从模型 argv/env/stdio 取 vault 解锁、密钥或 credential。它生成独立 Host PoP/inbox key，执行实际 Create/Prove 与私密 Claim，完整校验并持久保存回复后才允许模型 Control。若另增引导 socket，kernel-peer operator 集合必须与 M 不交；首版不新增该 RPC。custody service origin 来自固定部署配置，不从 descriptor 的 HTTPS origin 猜测。
+
+Claim 的历史回复只有 purpose/generation，不返回 token。丢失首次 claimed 回复保持 unknown，不能自动重建 session、重领或向模型导出秘密；仅受信 operator 显式指定期望 generation，按既有同 key replacement 合同恢复。每次真实 HTTP 发送先持久登记新 attempt，包括 challenge、失败及重发；无自动 retry、redirect 或退款，重启不得清空账与原件。
 
 #### dot 的固定远程接线
 
