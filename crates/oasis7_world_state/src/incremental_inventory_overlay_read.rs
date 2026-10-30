@@ -2,7 +2,9 @@
 use crate::{
     MaterialLedgerId,
     incremental_inventory_genesis::descriptor,
-    incremental_inventory_read::LedgerQuantityV1,
+    incremental_inventory_read::{
+        InventoryPointV1, InventoryResolvedPointV1, LedgerPointV1, LedgerQuantityV1,
+    },
     incremental_inventory_value_read::InventoryValueReader,
     incremental_projection::FieldShape,
     incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1},
@@ -81,7 +83,7 @@ fn lookup<
     result.map_err(InventoryOverlayReadError::Execution)
 }
 
-fn query<
+pub(crate) fn resolve_point<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -94,7 +96,7 @@ fn query<
     name: &'static str,
     key: &K,
     ledger: Option<&MaterialLedgerId>,
-) -> Result<LedgerQuantityV1, InventoryOverlayReadError> {
+) -> Result<InventoryResolvedPointV1, InventoryOverlayReadError> {
     let field = descriptor(
         name,
         if ledger.is_some() {
@@ -110,30 +112,38 @@ fn query<
         .ok_or(ValueTreeError::Invalid("inventory missing field metadata"))?;
     records.presence(&metadata_root, &metadata, 0)?;
     let group = if let Some(ledger) = ledger {
-        let (group_key, length) = records.key(field, WorldFieldRecordKindV1::Group, ledger)?;
-        let root = lookup(transaction, &group_key, records, take_state_error)?;
+        let (key, length) = records.key(field, WorldFieldRecordKindV1::Group, ledger)?;
+        let root = lookup(transaction, &key, records, take_state_error)?;
         if let Some(root) = root {
-            records.presence(&root, &group_key, length)?;
+            records.presence(&root, &key, length)?;
         }
-        root
+        Some((key, root))
     } else {
         None
     };
     let (entry, length) = records.key(field, WorldFieldRecordKindV1::Entry, key)?;
-    let value = lookup(transaction, &entry, records, take_state_error)?;
-    if ledger.is_some() && group.is_none() {
-        if value.is_some() {
-            return Err(ValueTreeError::Invalid("inventory orphan member").into());
-        }
-        return Ok(LedgerQuantityV1::LedgerAbsent);
+    let root = lookup(transaction, &entry, records, take_state_error)?;
+    if group.as_ref().is_some_and(|(_, group)| group.is_none()) && root.is_some() {
+        return Err(ValueTreeError::Invalid("inventory orphan member").into());
     }
-    match value {
-        None => Ok(LedgerQuantityV1::MaterialAbsent),
-        Some(root) => records
-            .quantity(&root, &entry, length)
-            .map(LedgerQuantityV1::Value)
-            .map_err(Into::into),
-    }
+    let quantity = root
+        .map(|root| records.quantity(&root, &entry, length))
+        .transpose()?;
+    let member = InventoryPointV1 {
+        metadata,
+        metadata_root,
+        key: entry,
+        root,
+        quantity,
+    };
+    Ok(match group {
+        Some((group, group_root)) => InventoryResolvedPointV1::ledger(LedgerPointV1 {
+            group,
+            group_root,
+            member,
+        }),
+        None => InventoryResolvedPointV1::simple(member),
+    })
 }
 
 impl<
@@ -163,7 +173,7 @@ impl<
             {
                 return Err(ValueTreeError::Invalid("inventory overlay pool/class").into());
             }
-            query(
+            resolve_point(
                 transaction,
                 &mut records,
                 take_state_error,
@@ -171,6 +181,7 @@ impl<
                 key,
                 ledger,
             )
+            .map(|point| point.quantity())
         })
     }
     pub fn resource(

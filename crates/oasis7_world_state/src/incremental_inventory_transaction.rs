@@ -1,5 +1,7 @@
 //! Guarded contribution of authenticated inventory points to the shared overlay.
-use crate::incremental_inventory_change::{PreparedInventoryChangeV1, write_digest};
+use crate::incremental_inventory_change::{
+    InventoryOutputV1, PreparedInventoryChangeV1, write_digest,
+};
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionError, ExecutionFence, ExecutionTransaction, PreparedGuard},
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateWriteV1},
@@ -64,68 +66,102 @@ pub fn contribute_inventory_change_v1<R: MerkleNodeReader>(
         {
             return Err(InventoryContributionError::DependencyConflict);
         }
-        if writes.len() != usize::from(prepared.records) || writes.len() > 2 {
+        drop(_workspace);
+        apply_inventory_output_v1(
+            &prepared.output,
+            writes.iter(),
+            transaction,
+            memory,
+            &mut cancelled,
+        )
+    })
+}
+
+pub(crate) fn apply_inventory_output_v1<
+    'w,
+    R: MerkleNodeReader,
+    I: Iterator<Item = &'w ReservedValue<StateWriteV1>> + Clone,
+>(
+    output: &InventoryOutputV1,
+    writes: I,
+    transaction: &mut ExecutionTransaction<'_, R>,
+    memory: &MemoryBudget,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), InventoryContributionError> {
+    if !transaction.uses_budget(memory) {
+        return Err(InventoryContributionError::Invalid(
+            "inventory contribution pool",
+        ));
+    }
+    let _workspace = memory
+        .reserve(4096, MemoryClass::Ordinary)
+        .map_err(ExecutionError::from)?;
+    let count = writes.clone().take(3).count();
+    if count != usize::from(output.records) || count > 2 {
+        return Err(InventoryContributionError::Invalid(
+            "inventory contribution write count",
+        ));
+    }
+    // Validate the whole tiny batch before mutating any overlay entry.
+    for (index, write) in writes.clone().enumerate() {
+        let required =
+            write
+                .key
+                .capacity()
+                .checked_add(1024)
+                .ok_or(InventoryContributionError::Invalid(
+                    "inventory contribution write charge",
+                ))?;
+        if write.reserved_bytes() < required {
             return Err(InventoryContributionError::Invalid(
-                "inventory contribution write count",
+                "inventory contribution write charge",
             ));
         }
-        // Validate the whole tiny batch before mutating any overlay entry.
-        for (index, write) in writes.iter().enumerate() {
-            let required = write.key.capacity().checked_add(1024).ok_or(
-                InventoryContributionError::Invalid("inventory contribution write charge"),
-            )?;
-            if write.reserved_bytes() < required {
-                return Err(InventoryContributionError::Invalid(
-                    "inventory contribution write charge",
-                ));
-            }
-            let digest = write_digest(write).map_err(|_| {
-                InventoryContributionError::Invalid("inventory contribution write key")
-            })?;
-            if prepared.write_digests[index] != Some(digest) {
-                return Err(InventoryContributionError::Invalid(
-                    "inventory contribution prepared write",
-                ));
-            }
-            if !write.uses_budget(memory) || writes[..index].iter().any(|old| old.key == write.key)
-            {
-                return Err(InventoryContributionError::Invalid(
-                    "inventory contribution write ownership/duplicate",
-                ));
-            }
-            let dependency = prepared
-                .dependencies
-                .iter()
-                .flatten()
-                .find(|dependency| dependency.key.as_bytes() == write.key)
-                .ok_or(InventoryContributionError::Invalid(
-                    "inventory contribution unrelated key",
-                ))?;
-            if !dependency.writable || dependency.root != write.before {
-                return Err(InventoryContributionError::Invalid(
-                    "inventory contribution precondition",
-                ));
-            }
+        let digest = write_digest(write)
+            .map_err(|_| InventoryContributionError::Invalid("inventory contribution write key"))?;
+        if output.write_digests[index] != Some(digest) {
+            return Err(InventoryContributionError::Invalid(
+                "inventory contribution prepared write",
+            ));
         }
-        for dependency in prepared.dependencies.iter().flatten() {
-            if cancelled() {
-                return Err(InventoryContributionError::Cancelled);
-            }
-            if transaction.read(StateNamespaceV1::Business, dependency.key.as_bytes())?
-                != dependency.root
-            {
-                return Err(InventoryContributionError::DependencyConflict);
-            }
+        if !write.uses_budget(memory) || writes.clone().take(index).any(|old| old.key == write.key)
+        {
+            return Err(InventoryContributionError::Invalid(
+                "inventory contribution write ownership/duplicate",
+            ));
         }
-        for write in writes {
-            if cancelled() {
-                return Err(InventoryContributionError::Cancelled);
-            }
-            transaction.write(StateNamespaceV1::Business, &write.key, write.after)?;
+        let dependency = output
+            .dependencies
+            .iter()
+            .flatten()
+            .find(|dependency| dependency.key.as_bytes() == write.key)
+            .ok_or(InventoryContributionError::Invalid(
+                "inventory contribution unrelated key",
+            ))?;
+        if !dependency.writable || dependency.root != write.before {
+            return Err(InventoryContributionError::Invalid(
+                "inventory contribution precondition",
+            ));
         }
+    }
+    for dependency in output.dependencies.iter().flatten() {
         if cancelled() {
             return Err(InventoryContributionError::Cancelled);
         }
-        Ok(())
-    })
+        if transaction.read(StateNamespaceV1::Business, dependency.key.as_bytes())?
+            != dependency.root
+        {
+            return Err(InventoryContributionError::DependencyConflict);
+        }
+    }
+    for write in writes {
+        if cancelled() {
+            return Err(InventoryContributionError::Cancelled);
+        }
+        transaction.write(StateNamespaceV1::Business, &write.key, write.after)?;
+    }
+    if cancelled() {
+        return Err(InventoryContributionError::Cancelled);
+    }
+    Ok(())
 }

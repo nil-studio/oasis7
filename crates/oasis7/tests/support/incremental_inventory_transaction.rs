@@ -531,3 +531,6 @@ fn retained_noop_preparations_are_admitted_and_release_their_budget() {
 }
 #[path = "incremental_inventory_overlay_read.rs"]
 mod overlay_read;
+
+#[path = "incremental_inventory_overlay_change.rs"]
+mod overlay_change;

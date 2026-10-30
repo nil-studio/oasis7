@@ -8,7 +8,9 @@ use crate::{
         PresenceRecordLimitsV1, PresenceRecordWriteContext, write_field_group_v1,
     },
     incremental_inventory_genesis::{InventoryWriteSink, descriptor},
-    incremental_inventory_read::{InventoryReadContext, LedgerQuantityV1},
+    incremental_inventory_read::{
+        InventoryReadContext, InventoryResolvedPointV1, LedgerQuantityV1,
+    },
     incremental_projection::{FieldDescriptor, FieldShape},
     incremental_semantic_key::SemanticKeyV1,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
@@ -78,18 +80,22 @@ pub(crate) struct InventoryDependencyV1 {
     pub writable: bool,
 }
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct InventoryOutputV1 {
+    pub records: u8,
+    pub write_digests: [Option<[u8; 32]>; 2],
+    pub dependencies: [Option<InventoryDependencyV1>; 3],
+}
+#[derive(Debug, PartialEq, Eq)]
 pub struct PreparedInventoryChangeV1 {
     pub(crate) before_root: [u8; STATE_ROOT_BYTES],
-    pub(crate) records: u8,
-    pub(crate) write_digests: [Option<[u8; 32]>; 2],
-    pub(crate) dependencies: [Option<InventoryDependencyV1>; 3],
+    pub(crate) output: InventoryOutputV1,
 }
 impl PreparedInventoryChangeV1 {
     pub fn before_root(&self) -> &[u8; STATE_ROOT_BYTES] {
         &self.before_root
     }
     pub fn records(&self) -> u8 {
-        self.records
+        self.output.records
     }
 }
 fn simple_dependencies(
@@ -210,6 +216,47 @@ where
         .map_err(|_| InventoryChangeError::Invalid("inventory source root"))?
         .try_into()
         .map_err(|_| InventoryChangeError::Invalid("inventory source root length"))?;
+    let point = match &change {
+        InventoryChangeRefV1::Resource { key, .. } => {
+            InventoryResolvedPointV1::simple(read.simple_point("resources", key)?)
+        }
+        InventoryChangeRefV1::Material { key, .. } => {
+            InventoryResolvedPointV1::simple(read.simple_point("materials", *key)?)
+        }
+        InventoryChangeRefV1::LedgerMaterial {
+            ledger, material, ..
+        } => InventoryResolvedPointV1::ledger(read.ledger_point(ledger, material)?),
+    };
+    let output =
+        prepare_resolved_inventory_change_v1(change, point, write, sink, &mut read.cancelled)?;
+    let retained = metadata
+        .split(std::mem::size_of::<ReservedValue<PreparedInventoryChangeV1>>())
+        .map_err(ValueTreeError::Invalid)?;
+    Ok(retained.retain(PreparedInventoryChangeV1 {
+        before_root,
+        output,
+    }))
+}
+
+pub(crate) fn prepare_resolved_inventory_change_v1<
+    W: ValueNodeWriter,
+    CW: FnMut() -> bool,
+    S: InventoryWriteSink,
+    C: FnMut() -> bool,
+>(
+    change: InventoryChangeRefV1<'_>,
+    point: InventoryResolvedPointV1,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    sink: &mut S,
+    cancelled_read: &mut C,
+) -> Result<InventoryOutputV1, InventoryChangeError> {
+    if cancelled_read() || (write.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    let _metadata = write
+        .memory
+        .reserve(4096, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
     let mut capture = WriteBinding {
         sink,
         digests: [None, None],
@@ -217,13 +264,18 @@ where
     };
     let sink = &mut capture;
     let mut dependencies = [None, None, None];
-    let records = match change {
-        InventoryChangeRefV1::Resource {
-            key,
-            expected,
-            after,
-        } => {
-            let point = read.simple_point("resources", &key)?;
+    let records = match (change, point) {
+        (
+            InventoryChangeRefV1::Resource {
+                key,
+                expected,
+                after,
+            },
+            InventoryResolvedPointV1 {
+                member: point,
+                group: None,
+            },
+        ) => {
             if point.quantity != expected {
                 return Err(InventoryChangeError::Precondition);
             }
@@ -235,15 +287,20 @@ where
                 after,
                 write,
                 sink,
-                &mut read.cancelled,
+                cancelled_read,
             )?
         }
-        InventoryChangeRefV1::Material {
-            key,
-            expected,
-            after,
-        } => {
-            let point = read.simple_point("materials", key)?;
+        (
+            InventoryChangeRefV1::Material {
+                key,
+                expected,
+                after,
+            },
+            InventoryResolvedPointV1 {
+                member: point,
+                group: None,
+            },
+        ) => {
             if point.quantity != expected {
                 return Err(InventoryChangeError::Precondition);
             }
@@ -255,17 +312,27 @@ where
                 after,
                 write,
                 sink,
-                &mut read.cancelled,
+                cancelled_read,
             )?
         }
-        InventoryChangeRefV1::LedgerMaterial {
-            ledger,
-            material,
-            expected,
-            after,
-            create_ledger,
-        } => {
-            let point = read.ledger_point(ledger, material)?;
+        (
+            InventoryChangeRefV1::LedgerMaterial {
+                ledger,
+                material,
+                expected,
+                after,
+                create_ledger,
+            },
+            InventoryResolvedPointV1 {
+                member: ledger_member,
+                group: Some(group),
+            },
+        ) => {
+            let point = crate::incremental_inventory_read::LedgerPointV1 {
+                group: group.key,
+                group_root: group.root,
+                member: ledger_member,
+            };
             let current = match (point.group_root, point.member.quantity) {
                 (None, _) => LedgerQuantityV1::LedgerAbsent,
                 (Some(_), None) => LedgerQuantityV1::MaterialAbsent,
@@ -309,7 +376,7 @@ where
                             semantic_bytes: write.limits.semantic_bytes,
                             record_bytes: write.limits.record_bytes,
                         },
-                        cancelled: || (read.cancelled)() || (write.cancelled)(),
+                        cancelled: || cancelled_read() || (write.cancelled)(),
                     },
                 )?;
                 if record.field_key.as_bytes() != point.group.as_bytes() {
@@ -317,7 +384,7 @@ where
                         "inventory generated group key",
                     ));
                 }
-                if (read.cancelled)() || (write.cancelled)() {
+                if cancelled_read() || (write.cancelled)() {
                     return Err(ValueTreeError::Cancelled.into());
                 }
                 emit(
@@ -337,23 +404,24 @@ where
                     after,
                     write,
                     sink,
-                    &mut read.cancelled,
+                    cancelled_read,
                 )?
         }
+        _ => {
+            return Err(InventoryChangeError::Invalid(
+                "inventory resolved point shape",
+            ));
+        }
     };
-    if (read.cancelled)() || (write.cancelled)() {
+    if cancelled_read() || (write.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
     if usize::from(records) != capture.count {
         return Err(InventoryChangeError::Invalid("inventory output count"));
     }
-    let retained = metadata
-        .split(std::mem::size_of::<ReservedValue<PreparedInventoryChangeV1>>())
-        .map_err(ValueTreeError::Invalid)?;
-    Ok(retained.retain(PreparedInventoryChangeV1 {
-        before_root,
+    Ok(InventoryOutputV1 {
         records,
         dependencies,
         write_digests: capture.digests,
-    }))
+    })
 }

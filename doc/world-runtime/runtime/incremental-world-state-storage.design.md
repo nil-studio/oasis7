@@ -517,3 +517,16 @@ Runtime 的原 AgentMoved 事件与 BodyAttributesUpdated 复用同一 AgentEven
 事务与值读取必须属于同一进程池，类型化普通执行读取使用 Ordinary，不借 Recovery 额度。语义键、记录字节、value I/O 与事务 read-set 额度保持有限；状态 walk 在分配前取得固定工作区，实际状态 reader 继续执行其 I/O/取消预算。查询在每次 lookup 前后及流式值校验中检查取消。原状态 reader 的 typed error carrier 在 lookup 后读取，即使返回 Ok 也不能忽略 outstanding failure；错误不通过字符串推断，不返回合法缺失。
 
 每次查询包在一次 contribute 中；缺 Metadata、已知 orphan member、错误原键/codec、缺暂存页、损坏、取消或额度不足均使整个事务不可 seal，外层不能捕获查询错误后发布先前部分写。查询成功只提供当前事务的点内容，不授予授权，不完成持久闭包、完整家族枚举、World 激活或 C<T 恢复。当前 owner 仍须在同一事务内依据这些结果计算和提交其业务效果。
+
+
+### 12.12 当前库存 overlay 的连续点写
+
+<a id="iws-inventory-overlay-change-v1"></a>
+
+普通库存点写直接借用 §12.11 的同一 ExecutionTransaction，在精确当前 guard/live fence 校验后，认证当前 overlay 的 Metadata、适用 Group 和成员，再比较 expected-before；它不调用固定 parent root 的准备入口重读旧值。前一笔写9→10后，下一笔必须以10为当前值，并可继续写13；最终事务记录只保留原9的 before 和最终13的 after，业务输入/事件仍由原 owner 按原顺序追加。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+点写复用 §12.9 的封闭记录编码、expected-before 与显式 Group 创建规则，以及 §12.10 的实际输出绑定、带 reservation 的最多两条写和完整依赖检查；不另设键/值 wire。中间暂存批使用固定容量，不复制 World 或重扫 map。读、写、事务和暂存写属于同一 Ordinary 进程池，键工作与 I/O 额度由调用方持续持有，不在每次方法调用中隐式重置。
+
+认证读取、前置条件、暂存编码和贡献位于一次 contribute 内；任何错误、取消、guard/fence 失配、有限额度耗尽或 panic 都使整笔事务不可 seal，不能在失败后发布较早成功点写。新值页在同一事务后续读取前必须可见；页可见和点写成功都不表示业务提交或 head 发布。成功后调用方取得当前 guard 继续后续阶段，原 parent 与已接受 head 保持不变，直到原提交链路实际发布。
+
+该入口写原 owner 已决定的最终数量，不执行费用、余额许可或外部效果；不能用存储 setter 代替业务授权。它不提供完整 World、Group 删除、持久闭包资格、复制或恢复激活，仍须接入完整 owner 与原提交合同。

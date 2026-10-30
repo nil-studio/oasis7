@@ -163,6 +163,8 @@ pub mod incremental_inventory_change;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory_genesis;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory_overlay_change;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory_overlay_read;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory_read;

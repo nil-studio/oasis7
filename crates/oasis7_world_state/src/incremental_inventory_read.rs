@@ -44,6 +44,44 @@ pub(crate) struct LedgerPointV1 {
     pub group_root: Option<[u8; 32]>,
     pub member: InventoryPointV1,
 }
+pub(crate) struct InventoryGroupPointV1 {
+    pub key: WorldFieldKeyV1,
+    pub root: Option<[u8; 32]>,
+}
+pub(crate) struct InventoryResolvedPointV1 {
+    pub member: InventoryPointV1,
+    pub group: Option<InventoryGroupPointV1>,
+}
+impl InventoryResolvedPointV1 {
+    pub(crate) fn simple(member: InventoryPointV1) -> Self {
+        Self {
+            member,
+            group: None,
+        }
+    }
+    pub(crate) fn ledger(point: LedgerPointV1) -> Self {
+        Self {
+            member: point.member,
+            group: Some(InventoryGroupPointV1 {
+                key: point.group,
+                root: point.group_root,
+            }),
+        }
+    }
+    pub(crate) fn quantity(&self) -> LedgerQuantityV1 {
+        match &self.group {
+            None => self
+                .member
+                .quantity
+                .map_or(LedgerQuantityV1::MaterialAbsent, LedgerQuantityV1::Value),
+            Some(group) => match (group.root, self.member.quantity) {
+                (None, _) => LedgerQuantityV1::LedgerAbsent,
+                (Some(_), None) => LedgerQuantityV1::MaterialAbsent,
+                (Some(_), Some(value)) => LedgerQuantityV1::Value(value),
+            },
+        }
+    }
+}
 struct CancelState<'a, M, C> {
     source: &'a M,
     cancelled: RefCell<&'a mut C>,
