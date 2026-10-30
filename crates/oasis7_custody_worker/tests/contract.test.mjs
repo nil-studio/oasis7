@@ -111,7 +111,7 @@ test('public pairing and TestSession Rust fixtures remain closed metadata contra
   const names = ['PairingInviteCreateRequestV1', 'PairingInviteOriginalV1', 'PairingInviteTargetRefV1',
     'HostDeploymentDescriptorV1', 'ClientEnrollmentCreateRequestV1', 'ClientEnrollmentCreateResponseV1',
     'ClientEnrollmentProofRequestV1', 'ClientEnrollmentProofResponseV1', 'ClientCredentialClaimRequestV1',
-    'ClientPairingBindingV1', 'TestSessionBasisRequestV1', 'TestSessionBasisV1', 'TestSessionPrepareRequestV1',
+    'ClientPairingBindingV1', 'TestSessionBasisRequestV1', 'TestSessionBasisV1', 'TestSessionBasisResponseV1', 'TestSessionPrepareRequestV1',
     'TestSessionPrepareResponseV1', 'TestSessionApproveRequestV1', 'TestSessionContinueRequestV1', 'TestSessionProgressV1'];
   for (const name of names) {
     assert.ok(validators[name], `${name} must come from the generated Rust contract`);
@@ -132,6 +132,29 @@ test('public pairing and TestSession Rust fixtures remain closed metadata contra
   const prepare = copy(contract.fixtures.TestSessionPrepareRequestV1[0]);
   delete prepare.plan.control_budget;
   assert.equal(validators.TestSessionPrepareRequestV1(prepare), false, 'preflight control budget is explicit');
+});
+
+test('TestSession basis responses carry the exact Rust digest in a closed wrapper', () => {
+  const original = contract.fixtures.TestSessionBasisResponseV1[0];
+  const validate = validators.TestSessionBasisResponseV1;
+  assert.ok(validate(copy(original)));
+  assert.equal(typeof original.basis_digest, 'string');
+  assert.equal(original.basis_digest === contract.fixtures.TestSessionPrepareRequestV1[0].plan.basis_digest,
+    true, 'the prepare fixture forwards the Rust commitment without a JavaScript hash');
+  for (const field of ['basis', 'basis_digest']) {
+    const missing = copy(original);
+    delete missing[field];
+    assert.equal(validate(missing), false, 'both basis response fields are mandatory');
+  }
+  assert.equal(validate({ ...copy(original), verified_authority: true }), false,
+    'the response wrapper cannot assert authority');
+  const nested = copy(original);
+  nested.basis.verified_authority = true;
+  assert.equal(validate(nested), false, 'the nested basis keeps its original closed schema');
+  const invalidDigestType = copy(original);
+  invalidDigestType.basis_digest = 1;
+  assert.equal(validate(invalidDigestType), false, 'the exact Rust digest is a string');
+  // Digest-to-body equality is checked by Rust, not reimplemented in this schema consumer.
 });
 
 test('custody delegation metadata preserves all three u64 decimal fields through JSON', () => {

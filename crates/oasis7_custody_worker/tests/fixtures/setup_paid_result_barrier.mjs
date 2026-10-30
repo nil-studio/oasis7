@@ -1,32 +1,32 @@
-// Test-only scheduling barrier on one real, already-paid Bind result callback.
+// Test-only scheduling barrier on one real, already-paid fixed-stage result callback.
 // Real bindings are always forwarded; no success, proof, clock or Current is forged.
 import deployed,{AccountAuthority as ActualAccount} from './native_owner_result_loss.mjs';
 export * from './native_owner_result_loss.mjs';
 export default deployed;
 function bound(target,name){const value=Reflect.get(target,name,target);return typeof value==='function'&&name!=='constructor'?value.bind(target):value;}
-function saved(state,id){
+function saved(state,id,selectedStage){
   const row=state.storage.sql.exec("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").one();
   const account=JSON.parse(row.payload).state;
   const setup=account.owner_setups[id];
   if(!setup)throw new Error('fixed setup fixture missing');
-  return {setup,stage:setup.stages.bind};
+  return {setup,stage:setup.stages[selectedStage]};
 }
-function batch(state,id,mode){
-  const before=saved(state,id),source=JSON.stringify(before.stage.source),spent=before.setup.transport.spent;
-  const facts={selected_calls:1,gate_reads:0,fence_reads:0,paid_confirmations:0,callback_before:before.stage.callback_claimed_at!==null,
+function batch(state,id,mode,selectedStage){
+  const before=saved(state,id,selectedStage),source=JSON.stringify(before.stage.source),spent=before.setup.transport.spent;
+  const facts={selected_stage:selectedStage,selected_calls:1,gate_reads:0,fence_reads:0,paid_confirmations:0,callback_before:before.stage.callback_claimed_at!==null,
     callback_claimed:false,result_empty:false,stage_prepaid:false,stage_count:0,setup_transport_spent:null,
     native_source_present:false,canonical_committed:false,source_unchanged:null,spent_unchanged:null,
     result_after:null,gate_status:null,released:null,elapsed_ms:0,first_source_age_ms:null,source_fresh_at_start:false,gate_faulted:false,fence_disabled:false,sql_faults:0,update_attempts:0,target_candidate_seen:false,candidate_source_fresh:false};
   let started=null,timer,resolve;const ready=new Promise(done=>{resolve=done;});
   function release(reason){if(facts.released!==null)return;facts.released=reason;facts.elapsed_ms=Date.now()-started;clearTimeout(timer);resolve();}
-  const control={facts,setupId:id,beforeRaw:state.storage.sql.exec("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").one().payload,
+  const control={facts,setupId:id,selectedStage,beforeRaw:state.storage.sql.exec("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").one().payload,
     beforeAudit:state.storage.sql.exec("SELECT COUNT(*) AS n FROM custody_audit WHERE record_id='custody-provision-approval-v1'").one().n,
     async arrive(kind){
     // SQL-fault mode must observe/forward a mistaken outgoing call, not hide it
     // behind this fixture's paid-state assertion.
     if(mode==='prepay_sql_fail'){facts[kind]++;return;}
 
-    const {setup,stage}=saved(state,id),transport=setup.transport;
+    const {setup,stage}=saved(state,id,selectedStage),transport=setup.transport;
     const count=Object.keys(setup.stages).length;
     const paid=BigInt(transport.spent)===8n+96n*BigInt(count)
       &&BigInt(transport.limit)===BigInt(setup.plan.transport_limit)
@@ -38,10 +38,10 @@ function batch(state,id,mode){
     if(facts.callback_before||!facts.callback_claimed||!facts.result_empty||!paid
       ||!facts.native_source_present||!committed||stage.claimed_at===null
       ||JSON.stringify(stage.source)!==source||transport.spent!==spent){
-      throw new Error('fixed paid Bind callback precondition failed');
+      throw new Error('fixed paid setup callback precondition failed');
     }
     facts.paid_confirmations++;facts[kind]++;
-    if(facts[kind]!==1)throw new Error('fixed Bind readonly input cannot retry');
+    if(facts[kind]!==1)throw new Error('fixed setup readonly input cannot retry');
     if(started===null){
       started=Date.now();
       const observed=Number(stage.source.verification.verification.observed_at);
@@ -52,7 +52,7 @@ function batch(state,id,mode){
     if(mode!=='over_window'&&facts.gate_reads===1&&facts.fence_reads===1)release('independent_reads_started');
     await ready;
   },finish(){
-    const {setup,stage}=saved(state,id);
+    const {setup,stage}=saved(state,id,selectedStage);
     facts.source_unchanged=JSON.stringify(stage.source)===source;
     facts.spent_unchanged=setup.transport.spent===spent;
     facts.result_after=stage.result!==null;
@@ -79,7 +79,7 @@ export class AccountAuthority extends ActualAccount {
               const response=await stub.fetch(...input);active.facts.gate_status=response.status;
               if(env.FIXTURE_SETUP_PAID_RESULT_MODE==='reject_gate'&&response.status===200){
                 await response.arrayBuffer();active.facts.gate_faulted=true;
-                throw new Error('fixed fault after actual successful Bind gate response');
+                throw new Error('fixed fault after actual successful setup gate response');
               }
               return response;
             }
@@ -106,9 +106,11 @@ export class AccountAuthority extends ActualAccount {
         if(env.FIXTURE_SETUP_PAID_RESULT_MODE==='prepay_sql_fail'&&active&&active.facts.sql_faults===0
           &&typeof args[0]==='string'&&args[0].startsWith('UPDATE custody_records SET payload')
           &&args[2]==='custody-provision-approval-v1'){
-          const setup=JSON.parse(args[1]).state.owner_setups[active.setupId],stage=setup?.stages.bind;
+          const setup=JSON.parse(args[1]).state.owner_setups[active.setupId],stage=setup?.stages[active.selectedStage];
           if(stage?.callback_claimed_at!==null&&stage?.callback_claimed_at!==undefined&&stage.result===null){
             active.facts.update_attempts++;active.facts.target_candidate_seen=true;
+            active.facts.stage_count=Object.keys(setup.stages).length;
+            active.facts.setup_transport_spent=Number(setup.transport.spent);
             active.facts.stage_prepaid=BigInt(setup.transport.spent)===8n+96n*BigInt(Object.keys(setup.stages).length);
             active.facts.native_source_present=stage.source.verification!==null;
             const observed=Number(stage.source.verification?.verification.observed_at),now=Date.now();
@@ -127,8 +129,10 @@ export class AccountAuthority extends ActualAccount {
     const wrappedStorage=new Proxy(storage,{get(target,name){if(name==='sql')return sql;return bound(target,name);}});
     const wrappedState=new Proxy(state,{get(target,name){if(name==='storage')return wrappedStorage;return bound(target,name);}});
     super(wrappedState,wrapped);this.fixtureState=state;this.control=control;
+    this.fixtureStage=env.FIXTURE_SETUP_PAID_RESULT_STAGE??'bind';
+    if(!['bind','delegation'].includes(this.fixtureStage))throw new Error('fixed setup result stage invalid');
     this.fixtureEnabled=env.FIXTURE_SETUP_PAID_RESULT_BARRIER==='true';this.fixtureMode=env.FIXTURE_SETUP_PAID_RESULT_MODE??'together';
-    if(!['together','reject_gate','freeze_fence','over_window','prepay_sql_fail'].includes(this.fixtureMode))throw new Error('fixed Bind fixture mode invalid');
+    if(!['together','reject_gate','freeze_fence','over_window','prepay_sql_fail'].includes(this.fixtureMode))throw new Error('fixed setup fixture mode invalid');
   }
   async fetch(request){
     const url=new URL(request.url);
@@ -140,9 +144,9 @@ export class AccountAuthority extends ActualAccount {
     if(this.fixtureEnabled&&request.method==='POST'&&url.origin==='https://account.internal'
       &&url.pathname==='/internal/owner-setup-identity'&&!url.search&&!url.hash){
       const input=await request.clone().json();
-      if(input.stage==='bind'&&input.action?.kind==='record_result'){
-        if(this.control.last)throw new Error('fixed Bind result callback must be once');
-        selected=batch(this.fixtureState,input.request.setup_id,this.fixtureMode);
+      if(input.stage===this.fixtureStage&&input.action?.kind==='record_result'){
+        if(this.control.last)throw new Error('fixed setup result callback must be once');
+        selected=batch(this.fixtureState,input.request.setup_id,this.fixtureMode,this.fixtureStage);
         this.control.active=selected;this.control.last=selected;
       }
     }

@@ -617,7 +617,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             return unavailable();
         }
     } else if let Some(id) = session_basis {
-        let value: TestSessionBasisV1 = serde_json::from_str(&raw)?;
+        let response: TestSessionBasisResponseV1 = serde_json::from_str(&raw)?;
+        if response.validate().is_err() {
+            return unavailable();
+        }
+        let value = response.basis;
         if value.api_version != 1
             || value.provision_id != id
             || value.custody_account_id != value.authority.custody_account_id

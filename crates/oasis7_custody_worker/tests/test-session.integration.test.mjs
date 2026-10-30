@@ -28,6 +28,7 @@ let accountAlarmFault=null;
 let activationReadDelay=false;
 let paidDirectoryBarrier=null;
 let setupPaidResultBarrier=false;
+let setupPaidResultStage='bind';
 let toolNonceFixtureActive=false;
 let toolNonceFaultMode=null;
 const toolNonceSignalNames=["sql_fee_confirmed","sql_update_fault","reply_lost","actions_context"];
@@ -66,7 +67,7 @@ function configureOptions(options){
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
     }
     if(setupPaidResultBarrier&&worker.name==='owner'){
-      worker.bindings={...worker.bindings,FIXTURE_SETUP_PAID_RESULT_BARRIER:'true',FIXTURE_SETUP_PAID_RESULT_MODE:typeof setupPaidResultBarrier==='string'?setupPaidResultBarrier:'together'};
+      worker.bindings={...worker.bindings,FIXTURE_SETUP_PAID_RESULT_BARRIER:'true',FIXTURE_SETUP_PAID_RESULT_STAGE:setupPaidResultStage,FIXTURE_SETUP_PAID_RESULT_MODE:typeof setupPaidResultBarrier==='string'?setupPaidResultBarrier:'together'};
       worker.serviceBindings={...worker.serviceBindings,FIXTURE_FENCE_CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'}};
       worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/setup_paid_result_barrier.mjs')},...worker.modules];
     }
@@ -226,13 +227,15 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
-async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false,wrongBasisDigest=false}={}){
+  const previousFixtureState={ownerDiagnosticActive,identityDiagnosticActive,identitySecretsDisabled,identityCloseReadTrap,accountAlarmFixtureActive,accountAlarmFault,activationReadDelay,paidDirectoryBarrier,toolNonceFixtureActive,toolNonceFaultMode,toolNonceSignals,toolNoncePorts};
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
   toolNonceFixtureActive=toolNonceFixture;
   toolNonceFaultMode=null;
   toolNonceSignals=Object.fromEntries(toolNonceSignalNames.map(name=>[name,0]));
   toolNoncePorts=Object.fromEntries(toolNoncePortNames.map(name=>[name,0]));
   ownerDiagnosticActive=setupDiagnostic;identityDiagnosticActive=setupDiagnostic;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;paidDirectoryBarrier=null;
+  try {
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -273,8 +276,15 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     const proofBody=JSON.stringify({api_version:1,enrollment_id:view.enrollment_id,request_id:'session-proof',target,client_public_key:publicKey,server_nonce:view.server_nonce,challenge_expires_at:view.challenge_expires_at,descriptor_digest:view.descriptor_digest});
     assert.equal((await json(await runtime.publicEnrollmentFetch(`/v1/client-enrollments/${view.enrollment_id}/prove`,{method:'POST',headers:proofHeaders(view,proofBody),body:proofBody}))).status,'proved');
     const cleanup=Date.now()+60000;
-    const basis=await json(await runtime.managementFetch('/test-sessions/basis',{api_version:1,request_id:'session-plan',enrollment_id:view.enrollment_id,cleanup_until:String(cleanup)}));
-    const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest:digest('oasis7.custody.test-session-basis.v1',basis),actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
+    const basisResponse=await json(await runtime.managementFetch('/test-sessions/basis',{api_version:1,request_id:'session-plan',enrollment_id:view.enrollment_id,cleanup_until:String(cleanup)}));
+    const {basis,basis_digest}=basisResponse;
+    const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest,actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
+    if(wrongBasisDigest){
+      const changedDigest=(basis_digest[0]==='0'?'1':'0')+basis_digest.slice(1);
+      const rejected=await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'wrong-basis-approval',plan:{...plan,basis_digest:changedDigest}});
+      assert.equal(rejected.status,503,'a changed Rust basis commitment must be rejected before fresh MFA');
+      await rejected.arrayBuffer();
+    }
     const request=await json(await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'session-approval',plan}));
     const approval=await runtime.approveIntent(request);
     if(approvalFault){await approvalFault(runtime,{basis,plan,request,approval},selectedMode);return;}
@@ -313,6 +323,9 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     await runtime.restart(selectedMode);const count=runtime.nativeRequests();const retry=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));assert.equal(retry.stage,'active');assert.deepEqual(runtime.nativeRequests(),{...count,'/custody/management-session-status':(count['/custody/management-session-status']??0)+1},'history does not repeat source or preflight business HTTP');
     await run(runtime,basis,selectedMode,blocked);
   },{configureOptions});
+  } finally {
+    ({ownerDiagnosticActive,identityDiagnosticActive,identitySecretsDisabled,identityCloseReadTrap,accountAlarmFixtureActive,accountAlarmFault,activationReadDelay,paidDirectoryBarrier,toolNonceFixtureActive,toolNonceFaultMode,toolNonceSignals,toolNoncePorts}=previousFixtureState);
+  }
 }
 
 // Private signed facts and manifest originals flow through Node pipes/memory only.
@@ -382,6 +395,10 @@ async function assertGetterNoEffects(runtime,request,{accepted=true}={}){
   assert.deepEqual(privateMetadata(runtime,'stamp'),before,'getter must not mutate custody records or audits');
   assert.deepEqual(runtime.nativeRequests(),native,'getter must not issue native HTTP');
 }
+
+test('Rust TestSession basis digest is forwarded unchanged and a modified digest is rejected before fresh MFA',{timeout:300000},async()=>{
+  await withActiveSession(async()=>{}, {wrongBasisDigest:true});
+});
 
 test('real fresh MFA activates three roots and the private lifetime getter is readonly without KEKs',{timeout:300000},async()=>{
   await withActiveSession(async(runtime,basis,selectedMode)=>{
@@ -1039,6 +1056,7 @@ for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure pre
       assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
       // These prove the actual target candidate reached the real SQLite UPDATE,
       // not a fixture assertPaid throwing before Rust tried to pay.
+      if(facts.candidate_source_fresh!==true)console.error(JSON.stringify({paid_sql_candidate_freshness:{source_present:facts.candidate_source_present,observed_at:facts.candidate_observed_at,expires_at:facts.candidate_expires_at,checked_at:facts.candidate_checked_at}}));
       assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
       assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
       assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
@@ -1262,8 +1280,10 @@ test('public Tool metadata uses only ReconcileRead funds with Native and private
 });
 
 
-test('actual paid Bind result Directory and Fence reads overlap without renewing source',{timeout:300000},async()=>{
-  setupPaidResultBarrier=true;
+for(const selectedStage of ['bind','delegation']){
+const selectedLabel=selectedStage==='bind'?'Bind':'Delegation';
+test(`actual paid ${selectedLabel} result Directory and Fence reads overlap without renewing source`,{timeout:300000},async()=>{
+  setupPaidResultStage=selectedStage;setupPaidResultBarrier=true;
   try{
     await withRoleRuntime(mode,async runtime=>{
       const initial=await runtime.drive('session-participant');
@@ -1287,7 +1307,8 @@ test('actual paid Bind result Directory and Fence reads overlap without renewing
       assert.equal(status,200,'the unchanged real setup path must return a prepared result');
       assert.equal(progress.stage,'prepared','the already-paid Bind callback must finish under the original source window');
       assert.ok(facts,'the actual selected Bind callback must be reached');
-      assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.selected_stage,selectedStage);assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.stage_count,selectedStage==='bind'?5:4);assert.equal(facts.setup_transport_spent,selectedStage==='bind'?488:392);
       assert.equal(facts.callback_claimed,true);assert.equal(facts.result_empty,true);
       assert.equal(facts.stage_prepaid,true);assert.equal(facts.native_source_present,true);assert.equal(facts.canonical_committed,true);
       assert.equal(facts.source_fresh_at_start,true,'the selected callback must begin inside the original source window');
@@ -1297,12 +1318,12 @@ test('actual paid Bind result Directory and Fence reads overlap without renewing
       assert.equal(facts.source_unchanged,true);assert.equal(facts.spent_unchanged,true);assert.equal(facts.result_after,true);
       assert.equal(facts.setup_transport_spent,8+96*facts.stage_count,'the real preallocated stage96 remains charged exactly once');
     },{configureOptions});
-  }finally{setupPaidResultBarrier=false;}
+  }finally{setupPaidResultBarrier=false;setupPaidResultStage='bind';}
 });
 
 
-for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'])test(`actual paid Bind result rejects ${fault} without admitting stale facts`,{timeout:300000},async()=>{
-  setupPaidResultBarrier=fault;
+for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'])test(`actual paid ${selectedLabel} result rejects ${fault} without admitting stale facts`,{timeout:300000},async()=>{
+  setupPaidResultStage=selectedStage;setupPaidResultBarrier=fault;
   try{
     await withRoleRuntime(mode,async runtime=>{
       const initial=await runtime.drive('session-participant');
@@ -1315,7 +1336,8 @@ for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'
       const facts=await runtime.setupPaidResultStatus();
       console.log(JSON.stringify({setup_paid_result_fault:{fault,status,progress_stage:progress?.stage??null,facts}}));
       assert.ok(facts,'the actual selected Bind callback must be reached');
-      assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.selected_stage,selectedStage);assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.stage_count,selectedStage==='bind'?5:4);assert.equal(facts.setup_transport_spent,selectedStage==='bind'?488:392);
       assert.equal(facts.stage_prepaid,true);assert.equal(facts.native_source_present,true);assert.equal(facts.canonical_committed,true);
       assert.equal(status===200||status===503,true,'only the unchanged setup pending/rejection result is allowed');
       assert.equal(progress?.stage==='prepared',false,'failed readonly evidence cannot complete setup');
@@ -1338,5 +1360,7 @@ for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'
         }
       }
     },{configureOptions});
-  }finally{setupPaidResultBarrier=false;}
+  }finally{setupPaidResultBarrier=false;setupPaidResultStage='bind';}
 });
+
+}

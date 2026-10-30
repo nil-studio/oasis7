@@ -48,7 +48,7 @@ pub(super) async fn observe(
     }
     authority::observe(env, saved.state.draft(), input, signed, inspection_only).await
 }
-/// Only Bind/FinalObservation result callbacks whose local once reservation has
+/// Only Delegation/Bind/FinalObservation result callbacks whose local once reservation has
 /// already committed can overlap these two independent readonly inputs.
 pub(super) async fn observe_paid_result(
     env: &Env,
@@ -83,7 +83,9 @@ pub(super) async fn observe_paid_result(
         .0;
     if !matches!(
         stage,
-        OwnerSetupStageV1::Bind | OwnerSetupStageV1::FinalObservation
+        OwnerSetupStageV1::Delegation
+            | OwnerSetupStageV1::Bind
+            | OwnerSetupStageV1::FinalObservation
     ) || saved.state.frozen()
         || saved.state.draft().world_identity != world
         || plan.transport_limit.0.checked_sub(spent) != Some(remaining)
