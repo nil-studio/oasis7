@@ -238,7 +238,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
             .lock()
             .unwrap()
             .test_canonical_provider_diagnostic_summary();
-        if summary["terminal_states"]["agent-a"]["status"] == "rejected" {
+        if summary["terminal_states"]["agent-a"]["status"] == "rejected"
+            && summary["publication_pending"] == false
+            && summary["publication_capture_failed"] == false
+        {
             terminal_completed = true;
             break;
         }

@@ -13,6 +13,7 @@ use oasis7::world_service::private_task_context::{
 };
 use oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
 use oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
+use oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH;
 
 use oasis7::world_service::private_goal_read::{
     CurrentGoalRequest, CurrentGoalResponse, GOAL_CURRENT_PATH as CURRENT_PATH,
@@ -412,6 +413,7 @@ fn private_route_tag(target: &str) -> &'static str {
         TASK_SNAPSHOT_PATH => "task_snapshot",
         TASK_CONTEXT_PREPARE_PATH => "task_context_prepare",
         TASK_CONTEXT_READ_PATH => "task_context_read",
+        TASK_CONTEXT_LIVE_READ_PATH => "task_context_read_live",
         TASK_RECIPE_QUOTE_PATH => "task_recipe_quote",
         TASK_FACTORY_QUOTE_PATH => "task_factory_quote",
         _ => "other",
@@ -483,6 +485,7 @@ fn maybe_handle_configured(
         TASK_SNAPSHOT_PATH,
         TASK_CONTEXT_PREPARE_PATH,
         TASK_CONTEXT_READ_PATH,
+        TASK_CONTEXT_LIVE_READ_PATH,
         TASK_RECIPE_QUOTE_PATH,
         TASK_FACTORY_QUOTE_PATH,
     ]
@@ -526,6 +529,7 @@ fn maybe_handle_configured(
             TASK_SNAPSHOT_PATH,
             TASK_CONTEXT_PREPARE_PATH,
             TASK_CONTEXT_READ_PATH,
+            TASK_CONTEXT_LIVE_READ_PATH,
             TASK_RECIPE_QUOTE_PATH,
             TASK_FACTORY_QUOTE_PATH,
         ]

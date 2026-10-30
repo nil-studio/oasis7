@@ -42,4 +42,5 @@ pub enum EntryExecutorOperationV1 {
     GoalSnapshot(SignedReadRequest<TaskGoalSnapshotRequestV1>),
     RecipeQuote(SignedReadRequest<TaskRecipeQuoteRequestV1>),
     FactoryQuote(SignedReadRequest<TaskFactoryQuoteRequestV1>),
+    ReadLiveContext(TaskContextLiveReadV1),
 }

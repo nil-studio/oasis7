@@ -67,8 +67,23 @@ pub(super) fn start(root: PathBuf, fixture: &Fixture) -> thread::JoinHandle<Resu
                 b"real target directory",
             )
             .map_err(|e| e.to_string())?;
-            await_marker(&root, "feedback-ack-rollback")?;
-            let after = json(&root, "feedback-ack-after.json")?;
+            await_marker(&root, "feedback-ack-unpublished")?;
+            let after = json(&root, "feedback-ack-publication-original.json")?;
+            if gate.feedback_ack_trace() != trace {
+                return Err("unpublished ACK checkpoint cannot dispatch an ACK".into());
+            }
+            let held_economy = serde_json::to_value(
+                driver
+                    .lock()
+                    .unwrap()
+                    .execution_world
+                    .cognition_economy()
+                    .unwrap(),
+            )
+            .unwrap();
+            if held_economy != economy {
+                return Err("unpublished ACK checkpoint changed economic state".into());
+            }
             if fs::read(&backup).map_err(|e| e.to_string())? != original {
                 return Err("real original checkpoint changed on failed consumption".into());
             }
@@ -107,23 +122,30 @@ pub(super) fn finish(
         "actual memory rollback serving failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let actual_error = json(root, "feedback-ack-rollback").unwrap();
-    let error = actual_error["actual_error"].as_str().unwrap();
+    assert!(root.join("feedback-ack-unpublished").is_file());
     assert!(
-        error.contains("provider lineage checkpoint commit failed"),
-        "must be actual checkpoint atomic commit error, got {error}"
+        root.join("feedback-ack-original-published").is_file(),
+        "same captured original must publish after filesystem repair"
     );
     assert_eq!(proof.before["model_calls"], 1);
     assert_eq!(proof.staged["model_calls"], 1);
-    assert_eq!(proof.after["model_calls"], 1);
     assert_ne!(
         proof.before, proof.staged,
         "real consumption must stage memory/native changes"
     );
-    assert_eq!(
-        proof.before, proof.after,
-        "all actual native and private sidecar ledgers must roll back"
-    );
+    // Deferred capture retains prepared state rather than rolling native state
+    // back after the later worker failure. The exact encoded original remains
+    // immutable and no ACK/economic work can pass its publication fence.
+    for (snapshot, persisted) in [
+        ("memory", "provider_memory_store"),
+        ("pending", "provider_service_pending"),
+    ] {
+        assert!(
+            proof.after[persisted] == proof.before[snapshot]
+                || proof.after[persisted] == proof.staged[snapshot],
+            "retained ACK capsule must come from this original prepared transaction"
+        );
+    }
     assert_eq!(proof.before["runtime_ledgers"].as_array().unwrap().len(), 5);
     assert_ne!(
         proof.before["runtime_ledgers"],
@@ -138,6 +160,10 @@ pub(super) fn finish(
     let restored: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("native-memory-lineage.json")).unwrap())
             .unwrap();
+    assert_eq!(
+        restored["provider_memory_store"], proof.staged["memory"],
+        "same original native memory must persist exactly once"
+    );
     assert!(
         restored["provider_service_pending"]
             .as_object()
@@ -155,7 +181,7 @@ pub(super) fn finish(
     );
     application_feedback_ack_recovery::assert_initial_economic_requests(fixture, 1, 1);
     println!(
-        "PRE2_PRIVATE_MEMORY_ACK_REAL_FS_ROLLBACK_PASSED native_ledgers=5 original_bytes_blake3={}",
+        "PRE2_PRIVATE_MEMORY_ACK_REAL_FS_OWNED_RETRY_PASSED native_ledgers=5 original_bytes_blake3={}",
         blake3::hash(&proof.original)
     );
 }

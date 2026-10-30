@@ -362,10 +362,18 @@ impl OwnedLineagePublication {
         drop(write_phase);
         #[cfg(any(test, feature = "test_tier_required"))]
         publication_gate::wait_at(path, temp_path, false, fresh_original)?;
+        #[cfg(any(test, feature = "test_tier_required"))]
+        publication_failure_probe::before_rename(path, &encoded)?;
         let rename_phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(47);
         if let Err(error) = self.reservation.publish(temp_path) {
-            self.blocked
-                .store(true, std::sync::atomic::Ordering::Release);
+            if error.permanently_blocked() {
+                self.blocked
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+            #[cfg(any(test, feature = "test_tier_required"))]
+            if !error.permanently_blocked() {
+                publication_failure_probe::observe_unpublished(path, temp_path, &encoded)?;
+            }
             return Err(format!(
                 "provider lineage checkpoint commit failed ({}): {error}",
                 path.display()
@@ -374,6 +382,8 @@ impl OwnedLineagePublication {
         drop(rename_phase);
         #[cfg(any(test, feature = "test_tier_required"))]
         publication_gate::after_rename(path, temp_path);
+        #[cfg(any(test, feature = "test_tier_required"))]
+        publication_failure_probe::observe_published(path, &encoded)?;
         self.completed
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
@@ -444,3 +454,7 @@ pub(in crate::viewer::runtime_live) mod publication_gate;
 
 #[path = "llm_sidecar_lineage_ordered_publication.rs"]
 mod ordered_publication;
+
+#[cfg(any(test, feature = "test_tier_required"))]
+#[path = "llm_sidecar_lineage_publication_failure_probe.rs"]
+mod publication_failure_probe;

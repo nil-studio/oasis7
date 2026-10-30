@@ -437,7 +437,7 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     }
     let fs_worker = fs_handoff.then(|| {
         command.env("PRE2_RESUME_HANDOFF_FS_ROOT", &app_dir);
-        application_hosted_resume_write_failure::start(app_dir.clone())
+        application_hosted_resume_write_failure::start(app_dir.clone(), &fixture)
     });
     let wait_fs_worker = fs_wait.then(|| {
         command.env("PRE2_WAIT_CLEANUP_FS_ROOT", &app_dir);
@@ -455,7 +455,7 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         wait_rejected.then(|| application_hosted_wait_rejection::start(&fixture, app_dir.clone()));
     let rejection_fs_worker = rejection_fs.then(|| {
         command.env("PRE2_WAIT_REJECTION_FS_ROOT", &app_dir);
-        application_hosted_wait_rejection_write_failure::start(app_dir.clone())
+        application_hosted_wait_rejection_write_failure::start(app_dir.clone(), &fixture)
     });
     let rejection_selector = rejection_crash
         .then(|| application_hosted_wait_rejection_recovery::start_selector(&fixture));
@@ -465,14 +465,14 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     });
     let resume_rejection_fs_worker = resume_rejection_fs.then(|| {
         command.env("PRE2_RESUME_REJECTION_FS_ROOT", &app_dir);
-        application_hosted_resume_rejection_write_failure::start(app_dir.clone())
+        application_hosted_resume_rejection_write_failure::start(app_dir.clone(), &fixture)
     });
     if resume_rejection_crash {
         command.env("PRE2_RESUME_REJECTION_FS_ROOT", &app_dir);
     }
     let final_budget_fs_worker = final_budget_fs.then(|| {
         command.env("PRE2_FINAL_BUDGET_FS_ROOT", &app_dir);
-        application_hosted_final_budget_write_failure::start(app_dir.clone())
+        application_hosted_final_budget_write_failure::start(app_dir.clone(), &fixture)
     });
     if final_budget_crash {
         command.env("PRE2_FINAL_BUDGET_FS_ROOT", &app_dir);

@@ -70,21 +70,50 @@ pub(super) fn reserve(path: &Path) -> Result<Reservation, String> {
         path,
     })
 }
+pub(super) enum PublicationFailure {
+    PermanentlyBlocked(String),
+    RenameUnpublished(std::io::Error),
+}
+impl PublicationFailure {
+    pub(super) fn permanently_blocked(&self) -> bool {
+        matches!(self, Self::PermanentlyBlocked(_))
+    }
+}
+impl std::fmt::Display for PublicationFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PermanentlyBlocked(reason) => formatter.write_str(reason),
+            Self::RenameUnpublished(error) => {
+                write!(formatter, "lineage publication rename failed: {error}")
+            }
+        }
+    }
+}
 impl Reservation {
-    pub(super) fn publish(&self, temporary: &Path) -> Result<(), String> {
+    pub(super) fn publish(&self, temporary: &Path) -> Result<(), PublicationFailure> {
         // Check and rename share one linearization guard. Encoding/temp writes
         // and test gates never hold it. Rejected original bytes remain at their
         // unique temp path, including rename failures and unknown outcomes.
-        let _publication = self
-            .publisher
-            .rename
-            .lock()
-            .map_err(|_| "lineage publisher poisoned")?;
+        let _publication = self.publisher.rename.lock().map_err(|_| {
+            PublicationFailure::PermanentlyBlocked("lineage publisher poisoned".into())
+        })?;
         if self.generation < self.publisher.published.load(Ordering::Acquire) {
-            return Err("lineage publication superseded; original checkpoint retained".into());
+            return Err(PublicationFailure::PermanentlyBlocked(
+                "lineage publication superseded; original checkpoint retained".into(),
+            ));
         }
-        std::fs::rename(temporary, &self.path)
-            .map_err(|error| format!("lineage publication rename failed: {error}"))?;
+        std::fs::rename(temporary, &self.path).map_err(|error| {
+            // This syscall error proves that no replacement occurred. Keep the
+            // same reservation and fully written temporary for a repaired-path retry.
+            // All other errors retain the conservative permanent fence.
+            if error.kind() == std::io::ErrorKind::IsADirectory {
+                PublicationFailure::RenameUnpublished(error)
+            } else {
+                PublicationFailure::PermanentlyBlocked(format!(
+                    "lineage publication rename failed: {error}"
+                ))
+            }
+        })?;
         self.publisher
             .published
             .store(self.generation, Ordering::Release);

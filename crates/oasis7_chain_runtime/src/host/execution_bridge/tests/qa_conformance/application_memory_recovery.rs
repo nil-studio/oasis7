@@ -190,8 +190,13 @@ fn wait_for_memory_recovery_summary(
     deadline: Instant,
 ) -> serde_json::Value {
     loop {
-        let summary = shared.lock().unwrap().test_canonical_provider_summary();
-        if summary["terminal_states"]["agent-a"]["status"] == "committed"
+        let summary = shared
+            .lock()
+            .unwrap()
+            .test_canonical_provider_diagnostic_summary();
+        if (summary["terminal_states"]["agent-a"]["status"] == "committed"
+            && summary["publication_pending"] == false
+            && summary["publication_capture_failed"] == false)
             || (mode.starts_with("memory-reject-")
                 && summary["hosted_service_memory_failure"] == "restored_memory_checkpoint_invalid")
             || Instant::now() >= deadline

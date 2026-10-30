@@ -10,7 +10,10 @@ fn enabled() -> bool {
 fn await_marker(root: &Path, name: &str) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while !root.join(name).exists() {
-        assert!(Instant::now() < deadline, "clock handoff boundary absent: {name}");
+        assert!(
+            Instant::now() < deadline,
+            "clock handoff boundary absent: {name}"
+        );
         thread::sleep(Duration::from_millis(2));
     }
 }
@@ -32,7 +35,11 @@ pub(super) fn hold_resumed_reserve(
         return;
     }
     let root = gate.root.lock().unwrap().clone().expect("clock test root");
-    application_hosted_wait::publish_marker(&root.join("clock-resumed-reserve-arrived"), b"prepared").unwrap();
+    application_hosted_wait::publish_marker(
+        &root.join("clock-resumed-reserve-arrived"),
+        b"prepared",
+    )
+    .unwrap();
     await_marker(&root, "clock-rescan-complete");
 }
 
@@ -49,9 +56,15 @@ impl Handoff {
             return;
         }
         if self.awaiting_rescan {
-            application_hosted_wait::publish_marker(&root.join("clock-rescan-complete"), b"rescanned").unwrap();
+            application_hosted_wait::publish_marker(
+                &root.join("clock-rescan-complete"),
+                b"rescanned",
+            )
+            .unwrap();
             self.awaiting_rescan = false;
-            println!("PRE2_FINAL_BUDGET_CLOCK_HANDOFF original_wake_consumed_before_rescan=true original_request_unchanged=true");
+            println!(
+                "PRE2_FINAL_BUDGET_CLOCK_HANDOFF original_wake_consumed_before_rescan=true original_request_unchanged=true"
+            );
         } else if origin_wake_created && !self.started {
             self.started = true;
             await_marker(root, "clock-resumed-reserve-arrived");
@@ -75,7 +88,10 @@ fn real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     println!("{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
     fs::remove_dir_all(root).unwrap();
-    assert!(output.status.success(), "clock rescan must preserve the original final-budget oracle");
+    assert!(
+        output.status.success(),
+        "clock rescan must preserve the original final-budget oracle"
+    );
     assert!(stdout.contains("PRE2_FINAL_BUDGET_CLOCK_HANDOFF"));
-    assert!(stdout.contains("PRE2_FINAL_BUDGET_RUNTIME_AND_SIDECAR_ROLLBACK_PASSED"));
+    assert!(stdout.contains("PRE2_FINAL_BUDGET_RUNTIME_AND_SIDECAR_OWNED_RETRY_PASSED"));
 }
