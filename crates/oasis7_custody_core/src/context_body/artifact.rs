@@ -94,6 +94,29 @@ impl ContextPrefixProofV1 {
         }
         Ok(())
     }
+    pub(crate) fn validate_against_prepared(
+        &self,
+        scope: &ContextBodyScopeV1,
+        prepare: &ws::SignedReadRequest<TaskContextPrepareV1>,
+        prepared: &PreparedTaskContextV1,
+        original: &ws::SignedReadRequest<TaskContextGetV1>,
+    ) -> Result<()> {
+        verify_get(original).map_err(|_| ContextBodyError::Invalid)?;
+        if original.request.context != prepared.identity
+            || original.request.prepare_operation_id != prepare.request.client_operation_id
+            || original.subject_public_key != prepare.subject_public_key
+        {
+            return Err(ContextBodyError::Invalid);
+        }
+        let expected = public_prefix(prepared).map_err(|_| ContextBodyError::Invalid)?;
+        let WorldServicePayloadV1::Scheduler(signed) = &self.original.signed_payload else {
+            return Err(ContextBodyError::Invalid);
+        };
+        if signed.request != expected {
+            return Err(ContextBodyError::Invalid);
+        }
+        self.validate(scope, &original.request.context)
+    }
     pub(crate) fn encode(
         &self,
         scope: &ContextBodyScopeV1,
