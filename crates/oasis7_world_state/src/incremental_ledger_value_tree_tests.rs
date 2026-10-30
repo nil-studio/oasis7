@@ -9,8 +9,10 @@ use std::{
     sync::Arc,
 };
 
+type PageMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
+
 struct Pages {
-    nodes: ReservedValue<RefCell<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>>,
+    nodes: ReservedValue<RefCell<PageMap>>,
     reads: Cell<usize>,
 }
 impl Pages {
