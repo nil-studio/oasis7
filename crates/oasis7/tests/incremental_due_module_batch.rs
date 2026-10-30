@@ -13,10 +13,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueIoBudget, ValueNodeWriter, ValueStreamWriter},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{
-    BodyMutationContext, DueModuleBatchLimitsV1, World, WorldState,
-    incremental_agent_body::{WORLD_TIME_KEY_V1, world_time_bytes_v1},
-};
+use oasis7_runtime::{BodyMutationContext, DueModuleBatchLimitsV1, World, WorldState};
 use std::{
     io::Write,
     sync::atomic::{AtomicU64, Ordering},
@@ -79,8 +76,8 @@ fn real_schedule_pages_reopen_and_select_in_original_instance_order() {
                 ..WorldState::default()
             });
             let mut sink = store.value_session(physical());
-            let mut rows = Vec::with_capacity(1);
             let _rows_charge = producer.reserve(4096, MemoryClass::Ordinary).unwrap();
+            let mut rows = Vec::with_capacity(1);
             assert_eq!(
                 world
                     .write_iws_module_schedule_genesis(
@@ -104,7 +101,9 @@ fn real_schedule_pages_reopen_and_select_in_original_instance_order() {
                     .unwrap(),
                 0
             );
-            let clock = world_time_bytes_v1(11);
+            // Independent literal clock fixture; no private Runtime formatter.
+            let mut clock = Vec::from(&b"oasis7.iws.world-time-value.v1\0"[..]);
+            clock.extend_from_slice(&11u64.to_be_bytes());
             let mut quota = logical();
             let mut cancelled = || false;
             let mut writer = ValueStreamWriter::new(
@@ -122,7 +121,7 @@ fn real_schedule_pages_reopen_and_select_in_original_instance_order() {
                 (
                     Ns::Allocator,
                     vec![StateWriteV1 {
-                        key: WORLD_TIME_KEY_V1.to_vec(),
+                        key: b"oasis7.iws.world-time-key.v1\0".to_vec(),
                         before: None,
                         after: Some(clock_root),
                     }],
