@@ -15,9 +15,9 @@
 - Proposed Solution: 将 CI 分层细化到 test case 级别，使用 `test_tier_required`/`test_tier_full` 标签驱动 `required` / `full` 执行路径，并让默认 `commit` baseline 保持命令级轻量门禁。
 - 执行时点与实施状态遵循[PR 快速反馈与四小时完整回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。标签只描述用例职责；实际 package/target/features 和用例集合仍由可信影响计划与执行入口共同确定。
 - Success Criteria:
-  - SC-1: `required` 门禁聚焦最小 smoke case 且执行时长下降。
+  - SC-1: `required` 门禁覆盖受影响行为的最小有效集合，包含适用正常、拒绝、边界与缺陷回归，且执行时长下降。
   - SC-2: `full` 继续覆盖重型特性与联测，保持回归深度。
-  - SC-3: `scripts/ci-tests.sh` 不再依赖硬编码 `--test` 清单。
+  - SC-3: case 职责、package/target/features 与实际调用来自一致的执行定义，不维护互相漂移的手写清单；允许按计划使用 `--test <target>` 缩小编译范围。
   - SC-4: 测试分级策略在文档、脚本、门禁三处保持一致。
 
 <a id="case-tier-requirements"></a>
@@ -34,36 +34,47 @@
   - 策略维护：测试新增/迁移时同步更新标签与脚本。
 - User Stories:
   - PRD-TESTING-CI-TIER-001: As a CI 维护者, I want case-level tier tagging, so that required/full boundaries are explicit.
-  - PRD-TESTING-CI-TIER-002: As a 开发者, I want required checks to run only critical smoke cases, so that feedback is faster.
+  - PRD-TESTING-CI-TIER-002: As a 开发者, I want required checks to cover affected behavior and necessary risk cases, so that feedback is fast and actionable.
   - PRD-TESTING-CI-TIER-003: As a 发布负责人, I want full regression paths preserved, so that release risk remains controlled.
 - Critical User Flows:
   1. Flow-TIER-001: `为测试分配职责 -> 可信计划选择 package/target/features 与必要用例 -> 编译并实际执行 -> 汇总门禁结论`
   2. Flow-TIER-002: `触发 full -> 运行扩展回归（wasmtime/libp2p/viewer）-> 汇总结果`
-  3. Flow-TIER-003: `新增测试 -> 选择 required/full 标签 -> 更新文档与脚本 -> 验证一致性，并确认是否需要进入默认 commit baseline`
+  3. Flow-TIER-003: `新增测试 -> 按准入规则判定职责与风险触发 -> 同步标签和实际调用 -> 验证选择、执行和结果`
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| 测试分级标签 | `test_tier_required` / `test_tier_full` | 用 `#[cfg(feature = ...)]` 标记用例 | `unlabeled -> labeled -> validated` | required 为最小闭环，full 追加重型场景 | 测试维护者审核分级 |
+| 测试分级标签 | `test_tier_required` / `test_tier_full` | 用 `#[cfg(feature = ...)]` 标记用例 | `unlabeled -> labeled -> validated` | 标签描述默认职责；风险命中可将 full 用例定向加入 PR，full 保留全部适用覆盖 | 测试维护者审核分级 |
 | 命令级基线分流 | `commit` / `required` / `full` | 普通 commit 不验证；显式命令可执行 `commit`，PR/CI 执行 `required`，重型回归执行 `full` | `queued -> running -> passed/failed` | commit 与验证解耦，case 标签用于门禁分层 | 开发者/CI 可触发 |
 | required 执行路径 | `scripts/ci-tests.sh required` | 执行适用静态门禁、受影响目标与 required feature，并追加命中风险的必要用例 | `queued -> running -> passed/failed` | 目标按包、target 与用例共同缩小编译和执行范围；当前入口以实现为准 | 开发者按需触发，CI 自动触发 |
 | full 执行路径 | `scripts/ci-tests.sh full` | 在 required 基础上执行扩展回归 | `queued -> running -> passed/failed` | 覆盖优先于耗时 | 发布前必须通过 |
 - Acceptance Criteria:
-  - AC-1: `required` 由 feature 标签筛选 smoke case，不再硬编码 `--test` 清单。
+  - AC-1: feature 标签、影响计划和实际 package/target/features 共同选择必要 case；窄 target 与 case 职责一致，不能用标签或零匹配漏掉受影响行为。
   - AC-2: `full` 保持 `libp2p`、`wasmtime`、viewer 联测路径。
   - AC-3: 文档明确“`commit` 命令级轻量基线 + `required/full` case 级筛选”策略。
   - AC-4: 回归验证与任务日志完整可追溯。
   - AC-5: 迁到周期层的用例仍有相同断言和适用环境的实际调用；快速层保留受影响行为测试，零匹配或只编译不能代替执行成功。
+  - AC-6: full 标签的用例命中关键风险时仍进入 PR；新增、改名、漏标或无耗时历史的测试不会从必要集合静默消失。
 - Non-Goals:
   - 本专题不另建 changed-files 选择器；复用 CI 分级执行设计拥有的影响分析。
   - 不做 smoke case 自动学习/自动生成。
   - 不修改业务测试断言语义。
+
+<a id="case-tier-assignment"></a>
+### 用例标签、默认归属与迁移
+
+跨类型准入规则由 [PR 快速检查原则](ci-tiered-execution.prd.md#ci-pr-fast-selection)拥有；本节只定义 case 标签与实际选择的关系。
+
+- `test_tier_required` 描述通常由受影响 PR 验证的基础行为，不表示每个 PR 都执行，也不证明该用例或整个 package 已满足快速预算。
+- `test_tier_full` 描述扩展组合或重型场景的默认完整回归职责，不表示只能周期运行。命中对应风险的 PR 必须启用实际所需 feature/target 并执行完整 case；若 feature 牵出过多无关用例，优化目标和调用，不改变必要断言。
+- 新增功能或修复的回归测试默认进入本次受影响 PR 的必要集合。仅新增扩展覆盖时，可以按主责规则归入周期层，在同一 PR 说明检测目的、快速层承接、风险触发及周期入口。没有标签、未进入旧清单或暂无耗时数据均不构成跳过理由；沿用所属模块既有必要集合，无法可靠选择时扩大验证。
+- 迁移同步标签、真实 driver、构建目标与结果核验；在旧等待解除前证明新入口实际执行并保留原语义。维护者按现有评审检查，不新增审批表、专用账本或自动 case 学习。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本任务为 CI 测试分层治理）。
 - Evaluation Strategy: 不适用。
 
 ## 4. Technical Specifications
-- Architecture Overview: 在既有 `commit` / `required` / `full` 门禁框架内，把较重回归的 case 选择逻辑从脚本硬编码迁移到测试标签，同时让默认 `commit` baseline 保持不依赖 `oasis7 --tests` heavy shard 的命令级轻量路径。
+- Architecture Overview: case 职责由 feature 标签表达，package/target/features 由同源实际库存及影响计划选择；避免重复手写清单。显式 `commit` baseline 保持不依赖 `oasis7 --tests` heavy shard 的命令级轻量路径。
 - Integration Points:
   - `scripts/ci-tests.sh`
   - `.github/workflows/rust.yml`
@@ -83,7 +94,7 @@
 ## 5. Risks & Roadmap
 - Phased Rollout:
   - MVP (T1): 设计与实际 PR 验证记录对齐；Issue/Project 按跟踪需要使用。
-  - v1.1 (T2): 脚本改造到 case 级 required 筛选并移除硬编码清单。
+  - v1.1 (T2): 按 target 与 case 共同筛选 required，统一实际执行定义并移除重复手写清单。
   - v2.0 (T3/T4): 回归验证、文档回写、巡检与规则同步。
 - Technical Risks:
   - 风险-1: smoke 清单过窄形成覆盖盲区。
@@ -99,7 +110,7 @@
 - Decision Log:
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
 | --- | --- | --- | --- |
-| DEC-TIER-001 | 用 feature 标签筛选 test case | 长期维护硬编码 `--test` 清单 | 标签方案可扩展且维护成本更低。 |
+| DEC-TIER-001 | feature 表达 case 职责，同源计划选择 package/target/features | 职责标签与另一份手写执行清单各自维护 | 同时缩小编译与执行范围，并减少清单漂移；`--test <target>` 仍可作为实际命令参数。 |
 | DEC-TIER-002 | 保留 full 重型回归不变 | 与 required 同步削减 | 发布风险不可接受。 |
 | DEC-TIER-003 | 策略变更同步文档/脚本/任务日志 | 只改脚本不回写文档 | 容易产生口径漂移。 |
 

@@ -111,6 +111,38 @@ PR/push 继续从事件可信 BASE 取得选择策略、配置及汇总规则；
 
 风险映射由真实路径、消费者和行为合同决定，不依赖作者贴标签或模型猜测。没有已验证的窄用例映射时保留相应旧完整组，不能将缺映射解释为无风险。关键改动的定向测试仍在普通 CI 图内；环境专项只用于普通 runner 的具体能力缺口。
 
+<a id="ci-pr-fast-selection-design"></a>
+### 准入规则到实际选择
+
+承接 [快速检查准入规则](ci-tiered-execution.prd.md#ci-pr-fast-selection)。沿用实际 driver 的同源检查定义，关联每项检查的行为合同、适用输入/消费者、默认职责、风险触发、真实命令、构建与环境前置；时延和冷暖缓存样本保留在实际运行记录。无需另一份审批或性能登记账本，也不能把缺少历史样本设为不执行新增测试的条件。
+
+选择按以下顺序进行：
+
+1. **先确定必要覆盖。** 从可信基线规则和完整差异产生基线、受影响快速候选及风险定向集合。修改测试、fixture、生成输入或依赖与修改业务源码一样按真实消费者处理；新增/重命名 case 与实际可执行清单核对，旧枚举、遗漏标签不能让它消失。关键风险所需的 full case 先加入必要集合，再处理其 feature/target 前置。
+2. **再形成可运行计划。** 把必要检查映射到最小完整 package/target/features 和平台闭包。对缺少可信窄映射的范围保留相关旧必要组；不确定图及共享控制仍按既有规则保守扩大。只有符合可重复、隔离、有界要求且整体成本适合快速目标的检查才标为已验证快速；其他必要检查继续执行，普通范围的超预算如实暴露。
+3. **最后核对实际结果。** 计划记录每项选择原因，执行器核对预期 case/命令/平台与真实结果，汇总拒绝缺项。估算关注共享准备与并行依赖形成的关键路径，不以各 case 耗时小于十分钟或相加各阶段 P95 证明达标；整条 workflow 的实际成功反馈 P95 单独验收。
+
+对照可信 BASE 与候选的标签、cfg 和实际清单。候选把 required 改成 full、删除或改名测试，均不能单独缩小本轮基线必要覆盖；删除/改名须核对原行为去留及替代检查，或由可信影响规则确认不再适用。未核清时保留相关旧必要组，预期检查缺失仍失败，不能仅凭候选枚举中已不存在就视为无须执行。
+
+首次切换时逐项比对旧必要集合、新 PR 集合及周期集合。差集中的每个检查均需能回答“验证什么、何时必须回到 PR、由哪个完整入口执行”；相关新行为或缺陷修复所需的回归在本次 PR 首次执行，不能先合入等待周期发现。迁移的真实覆盖验证与 CI 控制独立评审完成后，才解除对应旧等待。
+
+### 现有测试的首批归类依据
+
+下表是拆分目标，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称 fast。
+
+| 现有入口或用例 | PR 快速候选与触发范围 | 合入前必要加测 | 周期完整覆盖 |
+| --- | --- | --- | --- |
+| `run_required_gate_checks()`、文档/路径/可执行位治理 | 基线入口每次执行，正文、引用、索引和配置按真实输入选测；规划及汇总由既有独立入口保证 | 检查器或规则变化执行其合同与失败路径回归 | 全库一致性及历史报告，保持原阻断/报告级别 |
+| `cargo test -p oasis7_consensus --lib`；`proposal_conflict_is_rejected`、`publish_happens_only_after_commit` 等 | 共识及必要消费者变化时保留正常提交、冲突拒绝、发布顺序和快照不变量；按实际 target 成本决定拆分 | 修改真实提交/最终性或身份接续时追加对应进程场景 | 适用共识组合及完整真实进程验收 |
+| `run_oasis7_distfs_tests()`、CAS/Formal 协议库测试 | 存储/编码/协议变化时保留哈希、往返、拒绝与状态不变量；不预设整个 lib 都快 | 持久化时序、原子发布、锁、crash/restart、重试变化追加真实恢复 | 完整恢复矩阵、长记录与多副本场景 |
+| signed-read codegen/Python/JS 合同；custody/signer 库测试 | API、签名、授权及消费者变化时保留编码、身份绑定、允许与拒绝路径 | Worker 平台、真实 HTTP/CLI/浏览器身份链路变化追加实际消费者 | 全部适用平台与完整身份链路 |
+| Viewer `test:frontend-structure`、`test:feedback-contract`、`test:ui` | 前端、接口及消费者变化时执行相关逻辑、反馈合同与必要编译 | auth/会话/权限变化执行 `viewer-auth-browser-security-smoke.mjs`；WASM/runtime 变化验证真实消费者 | 完整浏览器、WASM 构建与跨模块组合 |
+| `oasis7_simulator --test oasis7_init_demo --features test_tier_full`，现有过滤 `oasis7_init_demo_runs_` | 场景资产/初始化及必要消费者变化时保留实际场景验证；能否快速须量测 | 初始化、资源守恒和世界配置的相关完整场景属于必要集合，不因 full 标签推迟 | 全部场景及扩展组合 |
+| Formal 五个逻辑 suite 的完整 case | 有界状态转换与关键不变量先由适用库/合同用例验证 | 历史裁剪、持久化恢复、exactly-once、owner 转移及 CLI 同步变化触发对应完整场景；缺窄映射沿用相关旧组 | 保留全部逻辑 suite 与原 70/40 次长场景，物理分片不决定风险归属 |
+| `workflow_governance`、`packaging_contracts`、Command Center Core/UI/类型合同 | 对应控制、打包、Core/UI 输入变化时执行选测/失败传播/接口等适用合同与编译 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同、原生 App/打包及运维平台矩阵 |
+
+例如 [共识用例](../../../crates/oasis7_consensus/src/quorum/tests.rs)中的冲突拒绝和提交后发布可作为快速层的真实不变量检查；[成员恢复认证矩阵](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs)使用真实签名并检查拒绝后原状态不变，不能用“只保留成功 smoke”替代。Formal 的 `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` 默认周期执行，命中历史裁剪/重开/原结果保留变化时仍须在 PR 执行；`protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_once` 对 durable 阶段和 crash/retry 变化同理。定向选择依据逻辑合同和实际 case，不按物理 shard 名推断覆盖。
+
 ### 快速基础检查与编译范围
 
 baseline 保留必要治理、格式与一致性检查。文档路径先做一次完整差异分类，再检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。复用同一次 Git 快照、清单和解析结果，保留全局 ID/索引等必要不变量，不能简单只读取修改行。历史全库内容报告移到周期层，原告警级别不因此升级或降级。
@@ -190,7 +222,7 @@ Actions 运行记录保存最近启动、最近终态、最近完整成功的时
 
 - **分配与选择**：新增或迁移用例时核对 cfg/feature 标签、Cargo feature 闭包、driver 参数与实际选中列表。
   标签存在但 runner 未执行不是覆盖；同名 case 在不同 target/features 下不能互相代签。
-  required 选择足以检出受影响关键缺陷的用例，full 保留适用 required 及重型回归。
+  按[准入规则到实际选择](#ci-pr-fast-selection-design)形成必要集合；full 标签用例命中风险仍进入 PR，full 保留适用 required 及重型回归。
 - **退化和冲突**：错标、漏标、full 回归被移除、预期用例未执行、旧硬编码与 feature 过滤重复都应可定位。
   先澄清对应需求与消费者再修正分配，不能为时延数字删断言、吞失败或把零匹配当通过。
   影响不明时沿现有选测规则扩大普通 required，不新设任务身份或通用审批。
@@ -210,7 +242,7 @@ Actions 运行记录保存最近启动、最近终态、最近完整成功的时
 
 | 上游要求 | 分配内容 | 本设计 | 负责范围 | 限制 |
 | --- | --- | --- | --- | --- |
-| Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | 十分钟目标、关键改动加测、四小时完整覆盖及同源发布 | [分层实施](#ci-fast-pr-periodic-full-design) | CI 维护者、QA 与发布消费者 | 产品适用性：N/A；reason=开发反馈与验证时点治理；scope=检查选择、构建、调度、汇总、发布消费及实施验收。设计待实现，不改变当前门禁 |
+| Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | 十分钟目标、快速准入/迁出、风险加测、四小时完整覆盖及同源发布 | [分层实施](#ci-fast-pr-periodic-full-design)、[实际选择](#ci-pr-fast-selection-design) | CI 维护者、QA 与发布消费者 | 产品适用性：N/A；reason=开发反馈与验证时点治理；scope=检查选择、构建、调度、汇总、发布消费及实施验收。设计待实现，不改变当前门禁 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | 离线协议、full/wasmtime、降级目标及失败范围 | [覆盖专题](#ci-coverage-design) | CI 维护者与 QA | 不将未接线 snapshot 或文档合并计为覆盖 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | 独立标签语义到实际选中 case 与结果 | [Case 分级](#ci-case-tier-design) | 测试维护者与 CI driver | 不修改断言或扩展任务准入 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | 保留产品测试并按真实影响选择 | [测试范围](#测试范围) | 选择器与执行器 | 解析不确定扩大普通 required，未登记路径另按门禁阻断 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
@@ -487,7 +519,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 | 上游要求 | 本设计 | 验收内容 | 验证来源 | 实际记录 | 限制 |
 | --- | --- | --- | --- | --- | --- |
-| Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | [分层实施](#ci-fast-pr-periodic-full-design) | 普通/例外计划、真实构建范围、全覆盖包含、失败传播、调度并发及同源发布 | [分层验收](../../../testing-manual.md#ci-fast-pr-periodic-full-validation)、实际 workflow/driver、原选择器与结果回归 | 实施 PR 的准确候选、计划、运行链接、观察窗口与耗时分布 | 本次为文档设计；当前门禁与已知 full 缺口保留，静态审读不代签 hosted 验收 |
+| Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | [分层实施](#ci-fast-pr-periodic-full-design)、[实际选择](#ci-pr-fast-selection-design) | 准入/迁出、新增用例默认、风险触发 full case、超预算不减必要覆盖、真实构建范围、全覆盖包含、失败传播、调度及同源发布 | [分层验收](../../../testing-manual.md#ci-fast-pr-periodic-full-validation)、实际 workflow/driver、原选择器与结果回归 | 实施 PR 的准确候选、计划、运行链接、观察窗口与耗时分布 | 本次为文档设计；当前门禁与已知 full 缺口保留，静态审读不代签 hosted 验收 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | [覆盖专题](#ci-coverage-design) | 同候选/环境/features 下离线消息链、full 包含关系、失败及未接线目标 | [测试手册](../../../testing-manual.md)、实际 driver/选中 job；按本节选择正反例 | 实际命令、参数、case、退出与缺口；本次未执行 | 不由 selector fixture、skip 或旧 PASS 代签真实覆盖 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | [Case 分级](#ci-case-tier-design) | 同候选标签到实际执行；漏标、错 feature、零匹配和失败传播 | [测试手册](../../../testing-manual.md)、实际 CI driver；结果函数回归 `scripts/ci-required-result.test.py` 仅作补充 | case/feature/target 与运行结果；本次未执行 | 无 hosted 或性能结论，不改 required/full 保护 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | [测试范围](#测试范围) | 删除、重命名、依赖和未知输入覆盖 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 命令退出码及输出 | 不替代真实产品组运行 |
