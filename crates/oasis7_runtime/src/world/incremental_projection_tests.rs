@@ -9,6 +9,7 @@ struct Capture {
     values: BTreeMap<(FieldOwner, &'static str), Vec<(Value, Value)>>,
     bytes: BTreeMap<&'static str, (usize, usize)>,
     side_counts: BTreeMap<(FieldOwner, &'static str), Option<u64>>,
+    groups: BTreeMap<(FieldOwner, &'static str), Vec<(Value, usize)>>,
     fail_on: Option<&'static str>,
 }
 impl GenesisFieldVisitor for Capture {
@@ -23,6 +24,18 @@ impl GenesisFieldVisitor for Capture {
                 .insert((field.owner, field.name), field)
                 .is_none()
         );
+        Ok(())
+    }
+    fn group<K: Serialize + ?Sized>(
+        &mut self,
+        field: FieldDescriptor,
+        key: &K,
+        entries: usize,
+    ) -> Result<(), Self::Error> {
+        self.groups
+            .entry((field.owner, field.name))
+            .or_default()
+            .push((serde_json::to_value(key).unwrap(), entries));
         Ok(())
     }
     fn entry<K: Serialize + ?Sized, V: Serialize + ?Sized>(
@@ -79,9 +92,18 @@ impl GenesisFieldVisitor for Capture {
 
 #[test]
 fn field_catalogs_cover_runtime_state_and_snapshot_without_building_a_snapshot() {
-    let world = World::new();
+    let mut world = World::new();
+    world
+        .state
+        .data_access_permissions
+        .entry("empty-permission".into())
+        .or_default();
     let mut sink = Capture::default();
     world.visit_iws_genesis_fields(&mut sink).unwrap();
+    assert_eq!(
+        sink.groups[&(FieldOwner::WorldState, "data_access_permissions")],
+        vec![(json!("empty-permission"), 0)]
+    );
     for field in oasis7_world_state::incremental_projection::WORLD_STATE_FIELDS {
         if field.destination != FieldDestination::Children {
             assert_eq!(sink.fields.get(&(field.owner, field.name)), Some(field));
