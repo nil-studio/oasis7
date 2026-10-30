@@ -556,3 +556,23 @@ pub async fn owner_sign_test_session_preflight(
         .await
         .map_err(|_| rejected())
 }
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_query_parents(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    if raw.len() > 32768 {
+        return Err(rejected());
+    }
+    crate::management_metadata_policy::Config::enabled(&env).map_err(|_| rejected())?;
+    let rpc: crate::directory_rpc::ParentsQueryRpc =
+        serde_json::from_str(&raw).map_err(|_| rejected())?;
+    rpc.request.validate().map_err(|_| rejected())?;
+    crate::owner_directory::call_directory(
+        &env,
+        "/internal/management-parents",
+        &raw,
+        &rpc.manager_session,
+    )
+    .await
+    .map_err(|_| rejected())
+}

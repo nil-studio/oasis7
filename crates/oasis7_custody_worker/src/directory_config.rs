@@ -1,26 +1,11 @@
 //! Trusted deployment policy for management routing. No browser selects its principal.
+pub(crate) use crate::management_common::{clock, denied, digest};
 use oasis7_custody_core::{
     DecimalU64,
-    approval::{ApprovedWorldV1, CustodySessionStatusV1, bytes_digest},
+    approval::{ApprovedWorldV1, CustodySessionStatusV1},
     provisioning::*,
 };
-use serde::Serialize;
-use worker::{Env, Error, Result};
-
-pub(crate) fn denied() -> Error {
-    Error::RustError("custody management unavailable or rejected".into())
-}
-pub(crate) fn clock() -> Result<u64> {
-    let n = js_sys::Date::now();
-    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 || n > 9_007_199_254_740_991.0 {
-        return Err(denied());
-    }
-    Ok(n as u64)
-}
-pub(crate) fn digest<T: Serialize>(domain: &str, value: &T) -> Result<String> {
-    let raw = oasis7_wasm_abi::encode_canonical_cbor(&(domain, value)).map_err(|_| denied())?;
-    Ok(bytes_digest(&raw))
-}
+use worker::{Env, Result};
 pub(crate) struct DirectoryConfig {
     pub namespace: String,
     pub epoch: DecimalU64,

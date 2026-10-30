@@ -24,6 +24,7 @@ export { AccountAuthority, ManagerAssociations, RoleKeyVault } from './index.js'
 // Default ingress exposes fetch only, never the generated Rust management RPCs.
 export default { fetch(request, env, ctx) { return new RustWorker(ctx, env).fetch(request); } };
 export class OwnerManagement extends WorkerEntrypoint {
+  async queryParents(raw) { return new RustWorker(this.ctx, this.env).owner_query_parents(this.env, raw); }
   async testSessionInvite(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_invite(this.env,raw); }
   async testSessionBasis(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_basis(this.env,raw); }
   async prepareTestSession(raw) { return new RustWorker(this.ctx,this.env).owner_test_session_prepare(this.env,raw); }

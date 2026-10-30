@@ -33,3 +33,5 @@ pub use oasis7_client_api::world_service::private_goal::signature_metrics;
 pub use oasis7_client_api::world_service::private_goal::with_owner_signature_verification_batch;
 
 pub mod context_body;
+
+pub mod management_metadata;
