@@ -90,6 +90,19 @@ impl AccountProvisionApprovalState {
                 }
             }
         }
+        if let Some(v) = &self.owner_setup_v2 {
+            for r in v.book.records() {
+                if r.input().operation_id == input.operation_id && r.input() == input {
+                    continue;
+                }
+                if r.input().operation_id == input.operation_id {
+                    return Err(ProvisionApprovalError::Conflict);
+                }
+                if same_proof(r.input(), input) {
+                    return Err(ApprovalAdmissionError::NonceReused.into());
+                }
+            }
+        }
         Ok(())
     }
     fn owner_setup_scope(
@@ -100,6 +113,9 @@ impl AccountProvisionApprovalState {
         now: u64,
     ) -> Result<()> {
         plan.validate()?;
+        if self.owner_setup_v2.is_some() {
+            return Err(ProvisionApprovalError::Conflict);
+        }
         input.request.validate(now).map_err(|_| invalid())?;
         let c = current.approval;
         let participant = self

@@ -163,5 +163,6 @@ impl AccountProvisionApprovalState {
                     .flat_map(|v| v.book.records()),
             )
             .chain(self.test_sessions.values().flat_map(|v| v.book.records()))
+            .chain(self.owner_setup_v2.iter().flat_map(|v| v.book.records()))
     }
 }

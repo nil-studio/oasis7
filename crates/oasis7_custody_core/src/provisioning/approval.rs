@@ -23,6 +23,9 @@ pub use participant::*;
 #[path = "owner_setup.rs"]
 mod owner_setup;
 pub use owner_setup::*;
+#[path = "owner_setup_v2_approval.rs"]
+mod owner_setup_v2_approval;
+pub use owner_setup_v2_approval::*;
 #[path = "pairing_invites.rs"]
 mod pairing_invites;
 pub use pairing_invites::*;
@@ -120,6 +123,8 @@ pub struct AccountProvisionApprovalState {
     session_recovery_activation: Option<String>,
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner_setup_v2: Option<OwnerSetupApprovalV2>,
     owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
     pairing_invites: BTreeMap<String, PairingInviteRecordV1>,
     session_inventory: SessionInventoryV1,
@@ -158,6 +163,7 @@ struct RawAccountProvisionApprovalState {
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     #[serde(default)]
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
+    owner_setup_v2: Option<OwnerSetupApprovalV2>,
     #[serde(default)]
     owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
     #[serde(default)]
@@ -188,6 +194,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             session_recovery_activation: raw.session_recovery_activation,
             participant_provisions: raw.participant_provisions,
             owner_setups: raw.owner_setups,
+            owner_setup_v2: raw.owner_setup_v2,
             owner_setup_reconciles: raw.owner_setup_reconciles,
             pairing_invites: raw.pairing_invites,
             session_inventory: raw.session_inventory,
@@ -219,6 +226,7 @@ impl AccountProvisionApprovalState {
             session_recovery_activation: None,
             participant_provisions: BTreeMap::new(),
             owner_setups: BTreeMap::new(),
+            owner_setup_v2: None,
             owner_setup_reconciles: BTreeMap::new(),
             pairing_invites: BTreeMap::new(),
             session_inventory: SessionInventoryV1::Known,
@@ -563,6 +571,7 @@ impl AccountProvisionApprovalState {
         // Stack-local pure-crypto scope: never stored, returned or held over await.
         let mut setup_signatures = RestoreSignatureScope::default();
         self.validate_owner_setup_persistence_scoped(&mut setup_signatures)?;
+        self.validate_owner_setup_v2_persistence()?;
         self.validate_owner_setup_reconcile_persistence()?;
         self.validate_pairing_invite_persistence()?;
         self.validate_test_session_persistence()?;

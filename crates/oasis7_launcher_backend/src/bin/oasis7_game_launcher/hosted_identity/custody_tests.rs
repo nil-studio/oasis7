@@ -14,6 +14,7 @@ use webauthn_rs_core::proto::*;
 pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
     let mut fixture = model_session_tests::fixture();
     fixture.service.custody = Some(CustodyConfig {
+        model_budget_summary_contract_enabled: false,
         revocation: Some(revocation::RevocationConfig::http_fixture(
             "account-authority:test".into(),
         )),
@@ -627,3 +628,6 @@ fn management_status_requires_passkey_and_post_keeps_native_origin_csrf_contract
             .is_ok()
     );
 }
+
+#[path = "custody_model_budget_summary_tests.rs"]
+mod model_budget_summary_tests;

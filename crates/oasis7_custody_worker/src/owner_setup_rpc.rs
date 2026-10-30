@@ -25,7 +25,7 @@ pub(crate) struct OwnerSetupBasisRpc {
 pub(crate) struct OwnerSetupPrepareRpc {
     pub manager_session: CustodySessionStatusV1,
     pub provision_id: String,
-    pub request: OwnerSetupPrepareRequestV1,
+    pub request: OwnerSetupPrepareInput,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -33,7 +33,7 @@ pub(crate) struct OwnerSetupPrepareRpc {
 pub(crate) struct OwnerSetupApproveRpc {
     pub manager_session: CustodySessionStatusV1,
     pub provision_id: String,
-    pub request: OwnerSetupApproveRequestV1,
+    pub request: OwnerSetupApproveInput,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -103,4 +103,85 @@ pub(crate) struct OwnerSetupStageRpc {
 pub(crate) struct OwnerSetupSignRpc {
     pub selector: OwnerSetupStageRpc,
     pub access: OwnerSetupAccessEvidenceV1,
+}
+
+/// Same management route, explicitly versioned plans. Each alternative validates
+/// its own api_version; a V1 plan cannot deserialize or upgrade into V2.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum OwnerSetupPrepareInput {
+    V2(Box<oasis7_custody_core::provisioning::OwnerSetupPrepareRequestV2>),
+    V1(Box<OwnerSetupPrepareRequestV1>),
+}
+impl OwnerSetupPrepareInput {
+    pub(crate) fn approval_request_id(&self) -> &str {
+        match self {
+            Self::V1(v) => &v.approval_request_id,
+            Self::V2(v) => &v.approval_request_id,
+        }
+    }
+    pub(crate) fn expected_intent(
+        &self,
+    ) -> std::result::Result<oasis7_custody_core::approval::CustodyIntentV1, String> {
+        match self {
+            Self::V1(v) => v.plan.intent().map_err(|_| "invalid setup intent".into()),
+            Self::V2(v) => v.plan.intent(),
+        }
+    }
+    pub(crate) fn provision_id(&self) -> &str {
+        match self {
+            Self::V1(v) => &v.plan.provision_id,
+            Self::V2(v) => &v.plan.provision_id,
+        }
+    }
+    pub(crate) fn validate(&self) -> std::result::Result<(), String> {
+        match self {
+            Self::V1(v) => v.validate().map_err(|_| "invalid setup prepare".into()),
+            Self::V2(v) => v.validate(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum OwnerSetupApproveInput {
+    V2(Box<oasis7_custody_core::provisioning::OwnerSetupApproveRequestV2>),
+    V1(Box<OwnerSetupApproveRequestV1>),
+}
+impl OwnerSetupApproveInput {
+    pub(crate) fn api_version(&self) -> u8 {
+        match self {
+            Self::V1(v) => v.api_version,
+            Self::V2(v) => v.api_version,
+        }
+    }
+    pub(crate) fn setup_id(&self) -> &str {
+        match self {
+            Self::V1(v) => &v.plan.setup_id,
+            Self::V2(v) => &v.plan.setup_id,
+        }
+    }
+    pub(crate) fn input(&self) -> &oasis7_custody_core::approval_admission::ApprovalAdmissionInput {
+        match self {
+            Self::V1(v) => &v.input,
+            Self::V2(v) => &v.input,
+        }
+    }
+    pub(crate) fn provision_id(&self) -> &str {
+        match self {
+            Self::V1(v) => &v.plan.provision_id,
+            Self::V2(v) => &v.plan.provision_id,
+        }
+    }
+    pub(crate) fn validate(&self) -> std::result::Result<(), String> {
+        match self {
+            Self::V1(v) => v.validate().map_err(|_| "invalid setup approval".into()),
+            Self::V2(v) => v.validate(),
+        }
+    }
+}
+pub(crate) struct OwnerSetupApproveRpcV1 {
+    pub manager_session: CustodySessionStatusV1,
+    pub provision_id: String,
+    pub request: OwnerSetupApproveRequestV1,
 }

@@ -76,3 +76,10 @@ fn resource_v2_schema_projection_preserves_actual_sdk_selection_wire() {
         assert_eq!(serde_json::to_vec(&projection).unwrap(), bytes);
     }
 }
+
+#[derive(schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum ActionSelectionSchemaV2 {
+    ExactMove0(super::ExactMoveSelectionV2),
+    Resource(ResourceSelectionSchemaV1),
+}

@@ -1142,6 +1142,44 @@ nonce 原件须与首次 creating ingress、实际已付三次记录、完整原
 
 一次关闭依次记录 `closing`、`write_closed`、各自 stop_status/revoke_status、pending 原件核对和自有资源回收；不是第二套世界状态机。仅当 Stop/Revoke 已按当前权威证明、可能派发的 canonical 原件已核清、私有准备/纯读取按 §12.17 明确分类、业务预留已结算/有明确终态、客户端及本轮自有资源回收已记录，才标 `closed`。可能有世界效果而未核清的原件保持 `closing/recovery_required/cleanup_blocked`，保留原件/预留并报告下一步；不能要求 Owner 读取其协议不允许的私有准备结果才能关闭。未关闭测试阻止同账号再次起测；人工处理可以继续独立获准核对/收尾，不能清空记录开新会话。正常 closed 可保留剩余期限内的只读证据访问；显式全会话/账号/身份撤销则连读取也关闭。
 
+<a id="cloud-custody-n-inference-budget"></a>
+#### N 受限推理预算与实际费用图
+
+Trace refs: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede；O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb。
+
+**原件、摘要与 null**
+
+TestSessionPlanV2 和 OwnerSetupPlanV2 增加显式必填 nullable `model_budget`。Rust Option 必须使用 required_option 反序列化，缺字段拒绝，不能仅无 default（serde 的 Option 缺失仍会变 None）。null 只表示没有推理授权，任何 V1 或旧 V2 缺字段都不能升级。Some 必须通过 plan.validate/digest、实际 prepare→Native custody options/get/complete→Account approval 验证，Native 人可读批准摘要显示 N 身份、固定供应商/model、调用/token/价格上限、串行并发、绝对期限以及两次探测计入同预算；只把 opaque digest 塞入 JSON 不算完整摘要。
+
+同一既有 V2 的 action selection 明确分两类：精确 `Move { position_cm }` 的 business 0 分支，或原真实 ResourceBasis Transfer/Build/Schedule 分支。不是新增宽泛 ControlOnly 授权，也不将 Move 塞成 ResourceBasisSelection/空 Transfer。仅精确 Move0 要求 allowed_resource_refs=[]、business_limit=0、唯一 action 逐字段等于批准坐标，prepared_resource_basis_digest 显式 null；Resource 分支保持原非空 refs、真实 owner/grant/ledger/quote/basis 约束且该 digest 必须为真实 Some。missing nullable 字段拒绝，不以默认值升级既有 V1。
+
+两类均须真实 V2 OwnerSetup 四阶段原件/当前强验、独立 fresh-MFA、TestSession consume/preflight/三 sibling roots 激活。不能复制 V1 Prepared 状态当 V2；Move0 仅免除不存在的资源 business basis，不免当前 owner/goal/delegation/fence/Source/Native enrollment。模型在该获批 Move0 会话内只获得独立批准的推理/读取，不能扩 actions 或由推理预算获得执行权限。执行 Context prepared/captured projection 是 roots 激活后的付费阶段，不能循环用它当激活前提或免费创建 context。
+
+`ModelInferenceBudgetV1` 内的 mandatory `approval_contract=native_custody_model_budget_v1` 表示本版真实 UI 摘要与 Native custody UV 合同，并纳入签名原件；旧 opaque Some 记录缺失该标识时失败关闭，不能后补 UI 后静默升级。资格不是 caller rendered/verified bool。预算原件的版本标识本身也不构成 UI 资格：可用 N cap 还必须匹配 Native 独立签名 proof 中的 `model_budget_summary_contract`（固定版本与 exact intent/context/budget 的摘要）。该字段只能由 Native 已实现的固定摘要合同生成并持久在本次 ApprovalRecord；旧记录 None 重送不补，后续 UI 完成也不能静默升级。本版 Native 固定 UI 合同支持开关关闭时仍仅记录 setup 批准事实，Native proof 的该项为 None，不能升级为 Ncap。两次 probe 与每次 inference 的物理 HTTP 上界（各含 H→Account reserve 与所有授权边）也必须显式签入、实际匹配已知完整图；图摘要或用户输入数值本身不证明计费正确。真实 client 在 credentials.get 前必须呈现 target/固定 preset/N/预算/价格/图成本/绝对期限并取得显式确认，缺摘要/错绑定/账号代际变化不能调用 get/complete/approve。
+
+Native 的 `OASIS7_CUSTODY_MODEL_BUDGET_SUMMARY_V1_ENABLED` 默认关闭，仅声明该部署实现固定 Native/UI 摘要合同，不是请求方 `rendered=true` 或远端 DOM 遥测证明。仅新 ApprovalRecord 可固化精确 typed summary contract；旧 None 记录重送不补。实际账户 surface 提供显式 V2 原件入口，仍使用同源 CSRF、固定 endpoints、Rust 返回原件；预算摘要须与原件逐字段相同，显示 target/N/preset/calls/tokens/价格/全图物理 HTTP 上界/期限并显式确认之后才 `credentials.get`。取消、账号切换、摘要缺失/错配或确认时已过期在 get 前拒绝；complete/approve unknown 始终保原正文。该 UI 不自动构建/升级 V1 Move0 plan，不执行 continue，不产生 N capability；完整 graph/cap/activation 另行强验。
+
+`ModelInferenceBudgetV1` 最窄字段：api_version=1；独立 N Ed25519 public key、Native account binding、N process instance public key；preset id/revision/model；ledger_id；runtime/Skill/tool/context policy digests；physical_graph_digest；max_calls（包含两次真实 probe）、max_input_tokens、max_output_tokens、max_total_tokens；max_concurrent=1（其他明确 Unsupported，不能静默下调）；deadline<=write_deadline；price_policy。全数值采用 DecimalU64，checked 算术，禁止浮点。价格候选 `price_policy` 固定 currency、input/output 每百万 token 的最大整数微单位、max_total_micro_units、quote_digest/valid_until；该原件为用户批准的价格上界，不声称是真实账单。具体 preset 当前价格必须由可信 N 预设/运维固定报价产生，M 不得提供；实际服务若不能提供可验证 usage/单价映射，保守保留最大金额且不能宣权威货币结算。不同缓存价/工具费/批处理费等未枚举收费模型不支持；不能套通用 token 单价偷偷启用。预算的 all-in 供应商价若无法精确界定，该 profile 不出站。
+
+**N→H→Account 原子预付与远端 floor**
+
+新增 N 专用独立 IPC，不扩 M 五工具。serve 的 trusted H 配置固定 N peer、本次唯一 approved session/budget/ledger/preset，实际 kernel N UID 非 root 且与 H/M 互异；远端 N 使用独立固定认证协议而非比较跨机 uid。N 独立签名域 `oasis7.custody.model-graph-reservation.v1`，payload 固定 approval/plan/budget digest、N instance key、ledger id、strict next sequence、attempt id、phase(probe1/probe2/infer)、immutable request digest、graph digest、最大 token/价格预留及绝对 deadline；不接受 raw body、URL、H token/key 或 caller verified bool。
+
+H 核实际 N peer+签名和 root registry 后，用自己的 Host possession 调 Account 专用 reserve 路由。Account 验 H 现有权限及 N 签名、真实已批准 V2预算，原子扣本次整个已知图（包括此 H→Account reserve HTTP）到原 Exec400，同时扣 whole-session call/token/price 最大额，记录不可回退 sequence/floor 和 immutable original digest。相同 attempt+完全相同 payload 返回同已保存事实；不能因此再授一次 dispatch。不同 payload 冲突 whole-state 拒绝。floor 由 Account durable state 决定，N 新路径/request id/重启不能重置，H/M 无预算初始化权。
+
+Account 返回固定服务签名图收据（必须通过既有真实服务签名链核验，不另造布尔授权）；N 必须拥有 exact graph/receipt/floor 且 persist 本地预留后才能创建不可 Clone、不可 Deserialize 的 ActiveAttempt。本地 missing/corrupt/below floor/claimedunknown 不重建句柄；N process instance key 是附加防重启绑定，不是 VM rollback 锚。已在途 reserve 回复丢失只恢复原事实，不自动 provider dispatch；未知保留最大 call/token/price/并发占额。没有 finish(None) 释放外层额度。禁止以 N 自报 usage 退 token/金额。
+
+每 edge 在 actual dispatch 前本地 durable once claim，记录 exact canonical request digest/phase/ordinal/issuer/target/pins/deadline；reserved、claimed、observed、authenticated-result 分开。Account 图预付不是 actual HTTP observed。重复 edge/图外 target/不同 body/过期在出站前拒绝。无 retry/redirect/fallback/未知图出站；失败已扣不退、原期限不延。Account floor 与不可反序列化 ActiveAttempt 保障正常重启/N 文件系统回滚失败关闭；完整 VM 加内存快照回滚不在已 qualified 范围，不以 fsync 自证。若增加 recipient once API，其额外 HTTP 必须纳入图，不能递归隐藏。
+
+**真实费用图与实现前置**
+
+不能把 normal SessionModelProvider 五次 BindingAuthority + provider 简化成固定六。candidate/active_preset 在 provider send 之前已有 authorize，因此外层 gate 必须早于 candidate、connection create 和 probe。普通 Executors / SDK devices 不能作为新 custody authority。
+
+现 Core test_session_live_context.rs 是 paid component：IdentityNative、NativeWorldView、NativeWorldLive 三类 port；Descriptor 明确 unsigned/not dispatch permit，实际 trusted RNG/network consumer 尚缺。实际 Native `EntryExecutorOperationV1::ReadLiveContext` 已有接收验证与 World gateway bridge，但这不是 Worker paid NativeContext 的 mounted consumer。新的 CustodyCurrentAuthority 要实际接 Identity paid context source/history/lifetime/Current → Native gateway/cipher → World view/live → 回包验签/归档/准入；每实际服务 HTTP/网关/cipher RPC 都有唯一 edge。需先精确查此完整分支及 Account reservation issuer 的实际签名出口，不可先手填 graph digest 或把 incomplete profile 支持为 true。
+
+首支持图冻结 probe1、probe2、infer 三个 phase，各图具有明确 schema/边列表/有界可选分支，unknown branch 不发送。两次真实 probe 在同预算中预付 call/token/price+Exec400，再执行 create/probe/candidate；生产不能 skipprobe、mark ready 或 fixture ready=true。供应商固定 HTTPS origin/path/model/max output/no proxy/private DNS/no redirect/no retry，clip remaining deadline；截止禁止新 dispatch、迟到结果仅 archive，不承诺远端立即停止计费。
+
+
 #### prepared_world targeted Agent 自测
 
 实施验收复用[开发自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md)、[RunInput/TesterInput/RunResult](../../testing/governance/agent-runtime-self-playtest.design.md#6-接口与数据合同)和既有[试玩任务](../../testing/templates/agent-runtime-playtester-task.template.md)/[报告](../../testing/templates/agent-runtime-playtest-report.template.md)格式，不创建第二套 run schema 或测试专用游戏 Skill。首个实际验收固定 `scope=targeted`、启动模式 `prepared_world`，选一个已真实接通 custody-native-v1 的客户端/runtime（首个为经确认的 codex 原生 profile）；交付的正式 `oasis7-play` Skill 增加该真实客户端的调用方式、原件引用与失败下一步，工具缺失时报告 blocked，不能让试玩者改用本地持钥 CLI 绕过云端接入。

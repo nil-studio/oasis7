@@ -36,13 +36,14 @@ fn scope() -> ResourceTestSessionScopeV2 {
 }
 fn session_plan() -> TestSessionPlanV2 {
     TestSessionPlanV2 {
+        model_budget: None,
         api_version: 2,
         request_id: "session-request".into(),
         enrollment_id: "enrollment".into(),
         basis_digest: "aa".repeat(32),
         owner_setup_plan_digest: plan().digest().unwrap(),
-        prepared_resource_basis_digest: "ab".repeat(32),
-        selection: selection(),
+        prepared_resource_basis_digest: Some("ab".repeat(32)),
+        selection: selection().into(),
         actions: vec![ApprovedActionV1::Transfer {
             from: oasis7_agent_api::world_action::MaterialLedgerId::agent("agent"),
             to: oasis7_agent_api::world_action::MaterialLedgerId::site("site"),
@@ -116,8 +117,9 @@ fn resource_v2_test_session_exact_scope_uses_shared_book_and_actual_signatures()
     book.commit(&input.operation_id, v, &current, 1100, &mut StrictCrypto)
         .unwrap();
     let before = serde_json::to_vec(&book).unwrap();
-    let mut changed = plan.clone();
-    changed.prepared_resource_basis_digest = "ff".repeat(32);
+    let mut changed = serde_json::to_value(&plan).unwrap();
+    changed["prepared_resource_basis_digest"] = serde_json::json!("ff".repeat(32));
+    let changed: TestSessionPlanV2 = serde_json::from_value(changed).unwrap();
     assert!(
         resource_v2_test_session_checks(
             &book,
@@ -142,4 +144,60 @@ fn resource_v2_test_session_exact_scope_uses_shared_book_and_actual_signatures()
     let mut changed = plan;
     changed.cleanup_budget.transport.0 = 25;
     assert!(changed.validate().is_err());
+}
+
+#[test]
+fn model_budget_is_explicit_null_and_missing_is_not_a_legacy_upgrade() {
+    let original = session_plan();
+    original.validate().unwrap();
+    let mut value = serde_json::to_value(&original).unwrap();
+    assert!(value.as_object().unwrap().contains_key("model_budget"));
+    assert!(value["model_budget"].is_null());
+    assert_eq!(
+        serde_json::from_value::<TestSessionPlanV2>(value.clone()).unwrap(),
+        original
+    );
+    value.as_object_mut().unwrap().remove("model_budget");
+    assert!(serde_json::from_value::<TestSessionPlanV2>(value).is_err());
+}
+
+#[test]
+fn explicit_move0_selection_is_distinct_from_a_resource_basis() {
+    let original = session_plan();
+    original.validate().unwrap();
+    let mut value = serde_json::to_value(&original).unwrap();
+    value["selection"] = serde_json::json!({"kind":"move","position_cm":["1","-2","3"]});
+    value["actions"] = serde_json::json!([{"tool":"move","position_cm":["1","-2","3"]}]);
+    value["allowed_resource_refs"] = serde_json::json!([]);
+    value["business_limit"] = serde_json::json!("0");
+    value["prepared_resource_basis_digest"] = serde_json::Value::Null;
+    let accepted: TestSessionPlanV2 =
+        serde_json::from_value(value.clone()).expect("explicit V2 Move0 selection");
+    accepted.validate().unwrap();
+    assert_eq!(
+        serde_json::to_value(&accepted).unwrap()["selection"],
+        value["selection"]
+    );
+    let mut unknown = value.clone();
+    unknown["selection"]["resource_refs"] = serde_json::json!([]);
+    assert!(serde_json::from_value::<TestSessionPlanV2>(unknown).is_err());
+    for case in 0..4 {
+        let mut changed = value.clone();
+        match case {
+            0 => changed["business_limit"] = serde_json::json!("1"),
+            1 => changed["allowed_resource_refs"] = serde_json::json!(["factory"]),
+            2 => changed["prepared_resource_basis_digest"] = serde_json::json!("aa".repeat(32)),
+            _ => changed["actions"][0]["position_cm"][0] = serde_json::json!("2"),
+        }
+        let changed: TestSessionPlanV2 = serde_json::from_value(changed).unwrap();
+        assert!(changed.validate().is_err());
+    }
+    let mut resource = serde_json::to_value(original).unwrap();
+    resource["allowed_resource_refs"] = serde_json::json!([]);
+    assert!(
+        serde_json::from_value::<TestSessionPlanV2>(resource)
+            .unwrap()
+            .validate()
+            .is_err()
+    );
 }

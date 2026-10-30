@@ -4,7 +4,8 @@ use crate::owner_setup_reconcile_rpc::{
 use crate::owner_test_session_rpc::*;
 // Same-origin management routes. Native Passkey/Origin/CSRF checks precede Owner RPC.
 use crate::owner_setup_rpc::{
-    OwnerSetupApproveRpc, OwnerSetupBasisRpc, OwnerSetupContinueRpc, OwnerSetupPrepareRpc,
+    OwnerSetupApproveInput, OwnerSetupApproveRpc, OwnerSetupBasisRpc, OwnerSetupContinueRpc,
+    OwnerSetupPrepareInput, OwnerSetupPrepareRpc,
 };
 use crate::{directory_rpc::*, native_identity::NativeIdentityConfig};
 use oasis7_custody_core::{
@@ -413,12 +414,22 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
         };
-        let value: OwnerSetupPrepareRequestV1 =
-            match serde_json::from_str::<OwnerSetupPrepareRequestV1>(&body) {
+        let value: OwnerSetupPrepareInput =
+            match serde_json::from_str::<OwnerSetupPrepareInput>(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        if value.plan.provision_id != id {
+        if matches!(&value, OwnerSetupPrepareInput::V2(_))
+            && env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+        {
+            return unavailable();
+        }
+        if value.provision_id() != id {
             return Response::error("invalid request", 400);
         }
         prepare_owner_setup(
@@ -435,12 +446,22 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
         };
-        let value: OwnerSetupApproveRequestV1 =
-            match serde_json::from_str::<OwnerSetupApproveRequestV1>(&body) {
+        let value: OwnerSetupApproveInput =
+            match serde_json::from_str::<OwnerSetupApproveInput>(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        if value.plan.provision_id != id {
+        if matches!(&value, OwnerSetupApproveInput::V2(_))
+            && env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+        {
+            return unavailable();
+        }
+        if value.provision_id() != id {
             return Response::error("invalid request", 400);
         }
         approve_owner_setup(

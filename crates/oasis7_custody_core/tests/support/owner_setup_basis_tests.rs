@@ -133,3 +133,144 @@ fn setup_prepare_wrong_basis_plan_manager_epoch_and_stale_current_reject() {
         );
     }
 }
+
+#[test]
+fn setup_v2_prepare_is_mounted_core_producer_and_does_not_upgrade_v1_authority() {
+    let (s, c, _) = fixture::participant_bound();
+    let policy = Policy::new(s.draft());
+    let manager = metadata(&c);
+    let view = policy.current(&c);
+    let current = OwnerSetupManagementCurrent {
+        manager: &manager,
+        authority: &c.authority,
+        policy: view.policy,
+        world_identity: view.world_identity,
+        native_identity_namespace: view.native_identity_namespace,
+        fence: &c.fence,
+        observed_at: 1500,
+    };
+    // A test input is built from the exact genuine participant basis; production
+    // never coerces V1 plans into V2 or supplies the model budget by default.
+    let mut value = serde_json::to_value(plan(&s)).unwrap();
+    value.as_object_mut().unwrap().remove("resource_refs");
+    value["api_version"] = json!(2);
+    value["model_budget"] = serde_json::Value::Null;
+    value["transport_limit"] = json!("584");
+    value["selection"] =
+        json!({"kind":"build","site":"site","factory":"factory","factory_kind":"smelter"});
+    let plan: OwnerSetupPlanV2 = serde_json::from_value(value).unwrap();
+    plan.validate().unwrap();
+    let request = OwnerSetupPrepareRequestV2 {
+        api_version: 2,
+        approval_request_id: "prepare-v2-uv".into(),
+        plan: plan.clone(),
+    };
+    let before = s.clone();
+    let options = s
+        .owner_setup_prepare_request_v2(&request, &current, 1500)
+        .unwrap();
+    assert_eq!(options.context, c.authority);
+    assert_eq!(options.intent, plan.intent().unwrap());
+    assert_eq!(s, before);
+    assert!(s.owner_setups().is_empty());
+    let mut changed = request;
+    changed.plan.executor_public_key = "99".repeat(32);
+    assert!(
+        s.owner_setup_prepare_request_v2(&changed, &current, 1500)
+            .is_err()
+    );
+    assert_eq!(s, before);
+}
+
+#[test]
+fn setup_v2_real_fresh_mfa_book_consumes_once_and_roundtrips_without_v1_dispatch() {
+    let (mut state, mut c, _) = fixture::participant_bound();
+    let mut value = serde_json::to_value(plan(&state)).unwrap();
+    value.as_object_mut().unwrap().remove("resource_refs");
+    value["api_version"] = json!(2);
+    value["model_budget"] = serde_json::Value::Null;
+    value["selection"] =
+        json!({"kind":"build","site":"site","factory":"factory","factory_kind":"smelter"});
+    let plan: OwnerSetupPlanV2 = serde_json::from_value(value).unwrap();
+    plan.validate().unwrap();
+    c.handoff_until = plan.deadline;
+    let mut input = state.accepted_approval().unwrap().input().clone();
+    input.operation_id = plan.setup_id.clone();
+    input.request.context = c.authority.clone();
+    input.request.approval_request_id = "v2-setup-request".into();
+    input.request.intent = plan.intent().unwrap();
+    input.approval.proof.context = input.request.context.clone();
+    input.approval.proof.intent_digest = input.request.intent_digest().unwrap();
+    input.approval.proof.nonce = "v2-new-mfa-nonce".into();
+    input.approval.proof.approval_id = "v2-proof".into();
+    input.approval.proof.approval_request_id = "v2-setup-request".into();
+    input.approval.proof.issued_at = DecimalU64(1500);
+    input.approval.proof.expires_at = DecimalU64(31500);
+    input.approval = sign_proof(input.approval.proof);
+    let policy = Policy::new(state.draft());
+    let record = state
+        .begin_owner_setup_v2(
+            input.clone(),
+            plan.clone(),
+            "b3".repeat(32),
+            &policy.current(&c),
+            1500,
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    let mut fact = verification(&record, &c).verification;
+    fact.observed_at = DecimalU64(1501);
+    let signed = sign_verification(fact);
+    state
+        .commit_owner_setup_v2(
+            &plan.setup_id,
+            signed.clone(),
+            &policy.current(&c),
+            1502,
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    let consumed = state.clone();
+    state
+        .commit_owner_setup_v2(
+            &plan.setup_id,
+            signed,
+            &policy.current(&c),
+            1503,
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    assert_eq!(state, consumed);
+    assert_eq!(
+        state.owner_setup_v2_progress(&plan.setup_id).unwrap().phase,
+        ApprovalPhaseV1::Completed
+    );
+    assert!(state.owner_setups().is_empty());
+    assert!(state.owner_setup_plan(&plan.setup_id).is_none());
+    let value = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        serde_json::from_value::<AccountProvisionApprovalState>(value.clone()).unwrap(),
+        state
+    );
+    let mut malformed = value;
+    malformed["owner_setup_v2"]["plan"]
+        .as_object_mut()
+        .unwrap()
+        .remove("model_budget");
+    assert!(serde_json::from_value::<AccountProvisionApprovalState>(malformed).is_err());
+    let mut different = input;
+    different.request.approval_request_id = "different".into();
+    assert!(
+        state
+            .begin_owner_setup_v2(
+                different,
+                plan,
+                "b3".repeat(32),
+                &policy.current(&c),
+                1503,
+                &mut StrictCrypto
+            )
+            .is_err()
+    );
+    assert_eq!(state, consumed);
+}

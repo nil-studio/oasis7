@@ -21,13 +21,16 @@ pub struct ResourceTestSessionScopeV2 {
 #[serde(deny_unknown_fields)]
 pub struct TestSessionPlanV2 {
     pub api_version: u8,
+    #[serde(deserialize_with = "required_option")]
+    pub model_budget: Option<ModelInferenceBudgetV1>,
     pub request_id: String,
     pub enrollment_id: String,
     pub basis_digest: String,
     pub owner_setup_plan_digest: String,
-    pub prepared_resource_basis_digest: String,
-    #[cfg_attr(test, schemars(with = "super::schema::ResourceSelectionSchemaV1"))]
-    pub selection: wire::ResourceBasisSelectionV1,
+    #[serde(deserialize_with = "required_option")]
+    pub prepared_resource_basis_digest: Option<String>,
+    #[cfg_attr(test, schemars(with = "super::schema::ActionSelectionSchemaV2"))]
+    pub selection: ApprovedActionSelectionV2,
     pub actions: Vec<ApprovedActionV1>,
     pub allowed_resource_refs: Vec<String>,
     pub write_deadline: DecimalU64,
@@ -40,90 +43,38 @@ pub struct TestSessionPlanV2 {
     pub cleanup_budget: PurposeBudgetV1,
     pub control_budget: ControlBudgetV1,
 }
-fn action(s: &wire::ResourceBasisSelectionV1) -> ApprovedActionV1 {
-    match s {
-        wire::ResourceBasisSelectionV1::Transfer {
-            from,
-            to,
-            material,
-            amount,
-            distance_km,
-            priority,
-            routing,
-        } => ApprovedActionV1::Transfer {
-            from: from.clone().into(),
-            to: to.clone().into(),
-            material: material.clone(),
-            amount: DecimalI64(amount.0),
-            distance_km: DecimalI64(distance_km.0),
-            priority: *priority,
-            routing: match routing {
-                wire::ResourceRoutingV1::Direct => ApprovedRoutingV1::Direct,
-                wire::ResourceRoutingV1::Routes { route_ids } => ApprovedRoutingV1::Routes {
-                    route_ids: route_ids.clone(),
-                },
-            },
-        },
-        wire::ResourceBasisSelectionV1::Build {
-            site,
-            factory,
-            factory_kind,
-        } => ApprovedActionV1::Build {
-            site: site.clone(),
-            factory: factory.clone(),
-            factory_kind: factory_kind.clone(),
-        },
-        wire::ResourceBasisSelectionV1::Schedule {
-            factory,
-            recipe,
-            batches,
-        } => ApprovedActionV1::Schedule {
-            factory: factory.clone(),
-            recipe: recipe.clone(),
-            batches: *batches,
-        },
-    }
-}
 impl TestSessionPlanV2 {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(budget) = &self.model_budget {
+            budget.validate(self.write_deadline.0)?;
+            if budget.maximum_physical_http()? > self.transport_limit.0 {
+                return Err(invalid());
+            }
+        }
         self.selection.validate()?;
-        let required = match &self.selection {
-            wire::ResourceBasisSelectionV1::Transfer {
-                from,
-                to,
-                material,
-                routing,
-                ..
-            } => {
-                let mut r = vec![from.reference(), to.reference(), material.clone()];
-                if let wire::ResourceRoutingV1::Routes { route_ids } = routing {
-                    r.extend(route_ids.clone());
-                }
-                r
-            }
-            wire::ResourceBasisSelectionV1::Build { site, factory, .. } => {
-                vec![site.clone(), factory.clone()]
-            }
-            wire::ResourceBasisSelectionV1::Schedule {
-                factory, recipe, ..
-            } => vec![factory.clone(), recipe.clone()],
-        };
+        let required = self.selection.required_resource_refs();
         if required
             .iter()
             .any(|v| !self.allowed_resource_refs.contains(v))
             || self.api_version != 2
             || !id(&self.request_id)
             || !id(&self.enrollment_id)
-            || [
-                &self.basis_digest,
-                &self.owner_setup_plan_digest,
-                &self.prepared_resource_basis_digest,
-            ]
-            .iter()
-            .any(|v| !hex(v))
+            || [&self.basis_digest, &self.owner_setup_plan_digest]
+                .iter()
+                .any(|v| !hex(v))
             || self.actions.len() != 1
-            || self.actions[0] != action(&self.selection)
-            || self.allowed_resource_refs.is_empty()
+            || self.actions[0] != self.selection.approved_action()
+            || if self.selection.is_exact_move0() {
+                !self.allowed_resource_refs.is_empty()
+                    || self.business_limit.0 != 0
+                    || self.prepared_resource_basis_digest.is_some()
+            } else {
+                self.allowed_resource_refs.is_empty()
+                    || self
+                        .prepared_resource_basis_digest
+                        .as_ref()
+                        .is_none_or(|v| !hex(v))
+            }
             || self.allowed_resource_refs.len() > 256
             || self.allowed_resource_refs.iter().any(|v| !id(v))
             || self
@@ -158,6 +109,13 @@ impl TestSessionPlanV2 {
         digest("oasis7.custody.test-session-plan.v2", self)
     }
     pub fn validate_scope(&self, s: &ResourceTestSessionScopeV2, now: u64) -> Result<(), String> {
+        if self
+            .model_budget
+            .as_ref()
+            .is_some_and(|b| b.deadline.0 <= now)
+        {
+            return Err(invalid());
+        }
         self.validate()?;
         s.client_pairing.validate().map_err(|_| invalid())?;
         s.task_fence.validate()?;
