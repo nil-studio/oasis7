@@ -175,7 +175,7 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(result['status'],'PARTIAL');self.assertEqual(result['failure']['cleanup_errors'],[])
 
     def test_metadata_and_timing_can_share_hash_without_double_counting(self):
-        timed=self.complete_record()
+        timed=dict(self.partial_record(),evaluationStrategy='IN_LAYER',pipelineRuns=[])
         meta=self.metadata_record()
         meta['raHash']=timed['raHash'];meta['predicateName']=timed['predicateName']
         raw=self.HEADER+b'\n'.join(json.dumps(v).encode() for v in (meta,timed))
@@ -184,8 +184,8 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(result['untimed_metadata_records'],1)
         self.assertEqual(result['timing_records'],1)
         self.assertEqual(result['metadata_timing_shared_hashes'],1)
-        self.assertEqual(len(result['rankings']['official_millis']),1)
-        for rows in ((meta,meta,timed),(timed,timed),(meta,dict(timed,predicateName='other'))):
+        self.assertEqual(len(result['rankings']['known_iteration_subtotal']),1)
+        for rows in ((meta,meta,timed),(timed,timed),(meta,dict(timed,predicateName='other')),(meta,dict(self.complete_record(),raHash=timed['raHash'],predicateName=timed['predicateName']))):
             with self.assertRaises(ValueError):
                 profile.project_summary(io.BytesIO(self.HEADER+b'\n'.join(json.dumps(v).encode() for v in rows)))
 

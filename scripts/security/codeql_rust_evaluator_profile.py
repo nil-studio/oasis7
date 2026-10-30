@@ -184,11 +184,11 @@ def project_summary(stream, record_limit=32*1024**2, total_limit=256*1024**2, st
         role='metadata' if strategy in ('SENTINEL_EMPTY','CACHACA') else 'timing'
         if count>=100000:raise ValueError('excessive physical summary records')
         if key in seen:
-            name,roles=seen[key]
-            if name!=v['predicateName'] or role in roles:
+            name,roles,strategies_seen=seen[key]
+            if name!=v['predicateName'] or role in roles or strategies_seen|{strategy}!={'SENTINEL_EMPTY','IN_LAYER'}:
                 raise ValueError('duplicate or conflicting summary role identity')
             roles.add(role);shared_hashes+=1
-        else:seen[key]=(v['predicateName'],{role})
+        else:seen[key]=(v['predicateName'],{role},{strategy})
         count+=1
         if strategy in ('SENTINEL_EMPTY','CACHACA'):
             expected={'appearsAs','completionTime','evaluationStrategy','predicateName','raHash'}
