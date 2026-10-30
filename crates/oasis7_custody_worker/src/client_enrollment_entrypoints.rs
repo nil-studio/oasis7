@@ -57,6 +57,17 @@ impl DurableObject for ClientEnrollmentAuthority {
             Err(_) => return Response::error("invalid enrollment request", 400),
         };
         let value = match url.path() {
+            "/internal/management-metadata-abuse" => {
+                let r = serde_json::from_str::<crate::management_metadata::AbuseRequest>(&raw)
+                    .map_err(|_| Error::RustError("management metadata rejected".into()))?;
+                crate::management_metadata_abuse::charge(
+                    &self.state,
+                    &self.env,
+                    &self.actor_id,
+                    &r,
+                )?;
+                return Response::ok("");
+            }
             "/internal/create" => {
                 store::create(&self.state, &self.env, &self.actor_id, &self.realm, &raw).and_then(
                     |s| {

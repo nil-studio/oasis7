@@ -28,6 +28,7 @@ impl Default for Values {
         }
     }
 }
+impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for Values {}
 impl ValueNodeWriter for Values {
     fn put_node(
         &mut self,
@@ -523,3 +524,6 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
     assert_eq!(world.state, original_state);
     assert_eq!(source.reads.get(), 12);
 }
+
+#[path = "incremental_scheduler_tests.rs"]
+mod scheduler;

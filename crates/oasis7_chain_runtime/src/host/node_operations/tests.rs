@@ -353,6 +353,11 @@ fn operation_timeout_cancel_reconciles_original_effect_then_forward_completes() 
 
 #[test]
 fn operation_lost_ledger_query_only_recovery_keeps_original_goal_and_old_instance() {
+    // Exec before acquiring lifetime FDs so unrelated harness forks cannot
+    // retain this fixture's old owner while it tests an immediate replacement.
+    if crate::node_operations::admission_tests::isolate_fork_test() {
+        return;
+    }
     let (_fixture, config, receiver_cleanup, current) = operation_fixture_with_stop_signal();
     let binding = actions::binding(&config).unwrap();
     let root = binding.data_dir.join("management");

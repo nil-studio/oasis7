@@ -9,6 +9,9 @@ use crate::controlled_authority::formal::{
 use oasis7_proto::memory_budget::MemoryReservation;
 use std::{cell::Cell, collections::BTreeMap};
 
+#[path = "incremental_written_values_tests.rs"]
+mod written_value_tests;
+
 struct Objects {
     memory: MemoryBudget,
     class: MemoryClass,
@@ -678,3 +681,6 @@ fn caught_source_unwind_does_not_refund_merkle_allowance() {
     assert_eq!(quota.merkle_reads_remaining, 9999);
     assert_eq!(s.memory.used(), before);
 }
+
+#[path = "incremental_fact_material_tests.rs"]
+mod fact_originals;
