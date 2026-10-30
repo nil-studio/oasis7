@@ -64,6 +64,7 @@ pub use snapshot_delta::{
 mod state;
 pub use oasis7_world_state::types;
 pub use oasis7_world_state::incremental_ledger_value;
+pub use oasis7_world_state::incremental_field_member;
 pub use oasis7_world_state::util;
 mod world;
 pub use oasis7_world_state::world_event;
@@ -125,6 +126,8 @@ pub(crate) use formal_retained_history::{
 pub use formal_retained_history::{
     FormalRetainedHistoryRootV1, RetainedHistoryReadError, VerifiedFormalRetainedHistoryParentV1,
 };
+pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields};
+pub use world::incremental_agent_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
@@ -311,9 +314,9 @@ pub use oasis7_wasm_store::{
     M1_POWER_HARVEST_DISTANCE_STEP_CM, M1_POWER_MODULE_VERSION, M1_POWER_STORAGE_CAPACITY,
     M1_POWER_STORAGE_INITIAL_LEVEL, M1_POWER_STORAGE_MOVE_COST_PER_KM,
     M1_RADIATION_POWER_MODULE_ID, M1_SENSOR_MODULE_ID, M1_STORAGE_CARGO_MODULE_ID,
-    M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION, M1_TRANSFER_RULE_MODULE_ID, M1_VISIBILITY_RULE_MODULE_ID,
-    M4_ECONOMY_MODULE_VERSION, M4_FACTORY_ASSEMBLER_MODULE_ID, M4_FACTORY_MINER_MODULE_ID,
-    M4_FACTORY_SMELTER_MODULE_ID, M4_PRODUCT_ALLOY_PLATE_MODULE_ID,
+    M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION, M1_TRANSFER_RULE_MODULE_ID,
+    M1_VISIBILITY_RULE_MODULE_ID, M4_ECONOMY_MODULE_VERSION, M4_FACTORY_ASSEMBLER_MODULE_ID,
+    M4_FACTORY_MINER_MODULE_ID, M4_FACTORY_SMELTER_MODULE_ID, M4_PRODUCT_ALLOY_PLATE_MODULE_ID,
     M4_PRODUCT_CONTROL_CHIP_MODULE_ID, M4_PRODUCT_FACTORY_CORE_MODULE_ID,
     M4_PRODUCT_IRON_INGOT_MODULE_ID, M4_PRODUCT_LOGISTICS_DRONE_MODULE_ID,
     M4_PRODUCT_MODULE_RACK_MODULE_ID, M4_PRODUCT_MOTOR_MODULE_ID, M4_PRODUCT_SENSOR_PACK_MODULE_ID,
@@ -446,6 +449,11 @@ pub use world::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};
 pub mod world_rules;
 
 pub use world::ResolvedAgentOwnerV1;
+pub use world::{
+    NativeResourceBasisFactV1, ResourceActorOwnerV1, ResourceBasisBlockerV1, ResourceBasisQuoteV1,
+    ResourceBasisRoutingV1, ResourceBasisSelectionV1, ResourceLedgerFactV1, ResourceLedgerOwnerV1,
+    ResourceMaterialBalanceV1, ResourceObjectFactV1, ResourceTransferQuoteV1,
+};
 
 pub use oasis7_agent_api::world_action::GovernanceAuthorizationV1;
 

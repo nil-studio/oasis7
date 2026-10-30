@@ -30,6 +30,8 @@ mod builtin_factory_quote;
 pub use builtin_factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactoryQuote};
 mod builtin_recipe_quote;
 pub use builtin_recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};
+mod native_resource_basis;
+pub use native_resource_basis::*;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;
@@ -1176,6 +1178,7 @@ pub use participant_devlocal::DevLocalParticipantAuthority;
 pub mod incremental_body;
 pub mod incremental_body_event;
 
+pub mod incremental_agent_genesis;
 pub mod incremental_scheduler;
 mod incremental_scheduler_index;
 

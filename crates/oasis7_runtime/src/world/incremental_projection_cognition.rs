@@ -2,6 +2,8 @@
 //! rejected, never silently serialized into a generic business-state value.
 use super::*;
 use serde_json::Value;
+#[path = "incremental_projection_economy.rs"]
+mod economy;
 const REQUIRED: &[&str] = &[
     "schema_version",
     "cognition_journal",
@@ -20,6 +22,11 @@ const OPTIONAL: &[&str] = &[
     "runtime_binding",
     "retention_state",
     "continuation_contexts",
+    "cognition_economy",
+    "agent_delegation",
+    "agent_delegation_active_decision",
+    "continuation_evaluations",
+    "reorg_invalidation_epoch",
 ];
 
 pub(super) fn visit<S: GenesisFieldVisitor>(
@@ -36,6 +43,11 @@ pub(super) fn visit<S: GenesisFieldVisitor>(
     {
         return Err(ProjectionError::Invalid(
             "unclassified or missing cognition field",
+        ));
+    }
+    if object.contains_key("agent_delegation_active_decision") {
+        return Err(ProjectionError::Invalid(
+            "active delegation decision is transaction input, not genesis state",
         ));
     }
     if object["schema_version"].as_str() != Some("cognition-persistence.v1") {
@@ -160,6 +172,34 @@ pub(super) fn visit<S: GenesisFieldVisitor>(
         )
         .map_err(ProjectionError::Sink)?;
     }
+    if let Some(value) = object.get("cognition_economy") {
+        economy::visit(value, sink)?;
+    }
+    if let Some(value) = object.get("agent_delegation") {
+        crate::world::agent_delegation::visit_iws_delegation_projection(value, sink)?;
+    }
+    if let Some(value) = object.get("continuation_evaluations") {
+        // Preserve the original evaluation identity as data. The new-format
+        // runtime owner must separately validate its source-root semantics.
+        state_map(
+            sink,
+            "continuation_evaluations",
+            Namespace::Scheduler,
+            value,
+        )?;
+    }
+    if let Some(value) = object.get("reorg_invalidation_epoch") {
+        if value.as_u64().is_none() {
+            return Err(ProjectionError::Invalid("reorg invalidation epoch shape"));
+        }
+        state_value(
+            sink,
+            "reorg_invalidation_epoch",
+            Namespace::Authorization,
+            value,
+        )?;
+    }
+
     Ok(())
 }
 fn descriptor(
