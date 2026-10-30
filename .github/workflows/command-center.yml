@@ -1,17 +1,25 @@
 name: Command Center
 on:
   workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      package_app:
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
-  group: command-center-${{ github.ref }}
-  cancel-in-progress: true
+  group: command-center-${{ github.run_id }}
+  cancel-in-progress: false
 jobs:
   desktop:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -37,4 +45,5 @@ jobs:
       - name: Check desktop host
         run: env -u RUSTC_WRAPPER cargo clippy --locked --manifest-path tools/oasis7-command-center/Cargo.toml --workspace --all-targets -- -D warnings
       - name: Package development App
+        if: inputs.package_app
         run: env -u RUSTC_WRAPPER npm --prefix tools/oasis7-command-center/ui run desktop:build -- --debug

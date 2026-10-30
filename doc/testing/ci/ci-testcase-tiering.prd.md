@@ -30,7 +30,7 @@
   - 日常本地提交：不执行验证；`commit` baseline 仅可显式调用。
   - PR 门禁：每次执行 required 门禁。
   - 分支合并前回归：关键改动执行受影响的必要定向验证，无法可靠限定范围时保守扩大至完整必要集合；不按风险标签一律追加全仓 full。
-  - 周期回归：目标为每四小时对固定 main SHA 执行完整集合，保留发布候选的手动验证；实施切换条件由上述主责文档规定。
+  - 周期回归：workflow 已配置每四小时对固定 main SHA 展开完整集合，保留固定候选的手动验证；实际调度、完整覆盖与容量按上述主责文档验收。
   - 策略维护：测试新增/迁移时同步更新标签与脚本。
 - User Stories:
   - PRD-TESTING-CI-TIER-001: As a CI 维护者, I want case-level tier tagging, so that required/full boundaries are explicit.
@@ -68,6 +68,10 @@
 - `test_tier_full` 描述扩展组合或重型场景的默认完整回归职责，不表示只能周期运行。命中对应风险的 PR 必须启用实际所需 feature/target 并执行完整 case；若 feature 牵出过多无关用例，优化目标和调用，不改变必要断言。
 - 新增功能或修复的回归测试默认进入本次受影响 PR 的必要集合。仅新增扩展覆盖时，可以按主责规则归入周期层，在同一 PR 说明检测目的、快速层承接、风险触发及周期入口。没有标签、未进入旧清单或暂无耗时数据均不构成跳过理由；沿用所属模块既有必要集合，无法可靠选择时扩大验证。
 - 迁移同步标签、真实 driver、构建目标与结果核验；在旧等待解除前证明新入口实际执行并保留原语义。维护者按现有评审检查，不新增审批表、专用账本或自动 case 学习。
+
+当前 planner 比较可信基线与候选源码中影响测试选择的属性；required/full 迁移在实际支持的 package 上启用 required、full 及适用扩展 features。feature 必须由执行 package 声明并有对应 driver，条件表达式须能证明在实际测试组合中为真；新增 ignore、无法证明的条件门控和仅靠其他 binary 同名函数认领的映射均失败。普通生产平台 cfg 改动保守扩大覆盖，不作为测试退役处理。自动检查不证明任意 Rust 程序的语义等价；普通 case 的合法删除/改名仍由既有评审核对行为去留与替代，Formal 则另以可信最低 case 库存检查预期缺失。
+
+普通 Rust 选择保留所选 package 的全部非 ignored `--tests`，不会仅依据测试名抽样。support 的分级迁移在 PR 保留原 profile 并追加完整 feature 组合；周期和手动完整回归同样执行适用的 support full features，避免首次 PR 通过后该扩展 case 消失。接口详见[当前分层实现](ci-tiered-execution.design.md#ci-pr-fast-selection-design)。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本任务为 CI 测试分层治理）。
