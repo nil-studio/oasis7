@@ -754,7 +754,6 @@ jobs:
           OASIS7_CI_TEST_BUNDLE: ${{ runner.temp }}/native-tests
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           CI_VERBOSE: "1"
-          OASIS7_BFT_MEASURE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ github.sha }}
         run: bash ./scripts/ci-tests.sh required --group "oasis7_required" --repo-root "$GITHUB_WORKSPACE"
