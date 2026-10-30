@@ -227,6 +227,18 @@ fn publish_binding(dir: &Dir, socket: &Path, binding: &PublicBinding) -> Result<
         .follow(FollowSymlinks::No);
     match dir.open_with(&name, &options) {
         Ok(mut f) => {
+            // Public metadata must remain readable to the distinct M principal
+            // even when H uses umask077. Only this newly-created held fd changes.
+            f.set_permissions(cap_std::fs::Permissions::from_mode(0o644))
+                .map_err(|_| denied())?;
+            let opened = f.metadata().map_err(|_| denied())?;
+            if !opened.is_file()
+                || opened.uid() != binding.isolation.host_uid
+                || opened.nlink() != 1
+                || opened.permissions().mode() & 0o7777 != 0o644
+            {
+                return Err(denied());
+            }
             f.write_all(&bytes).map_err(|_| denied())?;
             f.sync_all().map_err(|_| denied())?;
         }
