@@ -301,6 +301,8 @@ Existing reduced-motion path sets animation time to 0; it freezes phase, not nec
 | unknown original outcome | original-operation lookup/recovery | retry as a new command without authority |
 | audience/permission revoked | clear old private canvas/hover/search/DOM before new scope | preserve old private frame as last-known |
 
+关系详情须能读出获准的两端身份、已发布类型及来源/新鲜度；示意线型不能充当一条已确认关系。缺少类型、独立关系来源或任一可信端点时不画连线，仍保留可合法读取的对象与缺失原因。
+
 World Feed remains ambient, even if busy or LIVE. LIVE does not prove causal progress. `position_source`, freshness, relation authority and receipt association are four independent facts, not one green health badge.
 
 <a id="bevy-recovery-handoff"></a>

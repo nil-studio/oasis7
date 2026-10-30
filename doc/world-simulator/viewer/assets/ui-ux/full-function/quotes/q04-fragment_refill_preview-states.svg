@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2180" viewBox="0 0 1600 2180" role="img" aria-labelledby="title desc"><title id="title">区块材料更新 · 状态片段</title><desc id="desc">源码约束的设计提议。所有世界和报价值为虚构示例。非运行截图、非实际验收。</desc>
+<rect width="1600" height="2180" fill="#0b100f"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text x="40" y="46" font-size="30" fill="#edf1e6" font-weight="600">区块材料更新 / 状态与合法操作</text>
+<text x="40" y="83" font-size="18" fill="#b4beb1" font-weight="400">每格是局部状态片段，不是完整页面；保留全部参数控件。虚构数据。</text>
+<rect id="state-empty" x="40" y="116" width="740" height="648" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="60" y="150" font-size="23" fill="#edf1e6" font-weight="600">尚未查询</text>
+<text x="60" y="179" font-size="15" fill="#d0a85b" font-weight="400">当前行为的视觉重排</text>
+<text x="60" y="216" font-size="16" fill="#b4beb1" font-weight="400">区块 X</text>
+<rect id="fragment-60-216-field-0" x="60" y="228" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="72" y="257" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="412" y="216" font-size="16" fill="#b4beb1" font-weight="400">区块 Y</text>
+<rect id="fragment-412-216-field-1" x="412" y="228" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="424" y="257" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="60" y="288" font-size="16" fill="#b4beb1" font-weight="400">区块 Z</text>
+<rect id="fragment-60-288-field-2" x="60" y="300" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="72" y="329" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<rect id="action-empty" x="60" y="368" width="700" height="48" rx="8" fill="#26382d" stroke="#d0a85b"/>
+<text x="76" y="399" font-size="17" fill="#edf1e6" font-weight="600">刷新材料预估</text>
+<text x="60" y="444.0" font-size="17" fill="#edbf72" font-weight="400">无报价结果。填写参数后请求只读预估；空结果不是零成本。</text>
+<rect id="state-pending" x="820" y="116" width="740" height="648" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="840" y="150" font-size="23" fill="#edf1e6" font-weight="600">请求中</text>
+<text x="840" y="179" font-size="15" fill="#d0a85b" font-weight="400">当前行为的视觉重排</text>
+<text x="840" y="216" font-size="16" fill="#b4beb1" font-weight="400">区块 X</text>
+<rect id="fragment-840-216-field-0" x="840" y="228" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="852" y="257" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="1192" y="216" font-size="16" fill="#b4beb1" font-weight="400">区块 Y</text>
+<rect id="fragment-1192-216-field-1" x="1192" y="228" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="1204" y="257" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="840" y="288" font-size="16" fill="#b4beb1" font-weight="400">区块 Z</text>
+<rect id="fragment-840-288-field-2" x="840" y="300" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="852" y="329" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<rect id="action-pending" x="840" y="368" width="700" height="48" rx="8" fill="#28362d" stroke="#647365"/>
+<text x="856" y="399" font-size="17" fill="#b4beb1" font-weight="600">正在请求…（禁用查询）</text>
+<text x="840" y="444.0" font-size="17" fill="#edbf72" font-weight="400">尚无可用新报价；不显示零成本，不宣称执行成功。</text>
+<rect id="state-error" x="40" y="796" width="740" height="648" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="60" y="830" font-size="23" fill="#edf1e6" font-weight="600">获取失败</text>
+<text x="60" y="859" font-size="15" fill="#d0a85b" font-weight="400">当前行为的视觉重排</text>
+<text x="60" y="896" font-size="16" fill="#b4beb1" font-weight="400">区块 X</text>
+<rect id="fragment-60-896-field-0" x="60" y="908" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="72" y="937" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="412" y="896" font-size="16" fill="#b4beb1" font-weight="400">区块 Y</text>
+<rect id="fragment-412-896-field-1" x="412" y="908" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="424" y="937" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="60" y="968" font-size="16" fill="#b4beb1" font-weight="400">区块 Z</text>
+<rect id="fragment-60-968-field-2" x="60" y="980" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="72" y="1009" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<rect id="action-error" x="60" y="1048" width="700" height="48" rx="8" fill="#26382d" stroke="#d0a85b"/>
+<text x="76" y="1079" font-size="17" fill="#edf1e6" font-weight="600">刷新材料预估</text>
+<text x="60" y="1124.0" font-size="17" fill="#f0aaa1" font-weight="400">无法获取预估。检查连接、玩家会话与输入后重试；未执行玩法动作。</text>
+<rect id="state-blocked" x="820" y="796" width="740" height="648" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="840" y="830" font-size="23" fill="#edf1e6" font-weight="600">补充已禁用</text>
+<text x="840" y="859" font-size="15" fill="#d0a85b" font-weight="400">当前行为的视觉重排</text>
+<text x="840" y="896" font-size="16" fill="#b4beb1" font-weight="400">区块 X</text>
+<rect id="fragment-840-896-field-0" x="840" y="908" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="852" y="937" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="1192" y="896" font-size="16" fill="#b4beb1" font-weight="400">区块 Y</text>
+<rect id="fragment-1192-896-field-1" x="1192" y="908" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="1204" y="937" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="840" y="968" font-size="16" fill="#b4beb1" font-weight="400">区块 Z</text>
+<rect id="fragment-840-968-field-2" x="840" y="980" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="852" y="1009" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<rect id="action-blocked" x="840" y="1048" width="700" height="48" rx="8" fill="#26382d" stroke="#d0a85b"/>
+<text x="856" y="1079" font-size="17" fill="#edf1e6" font-weight="600">刷新材料预估</text>
+<text x="840" y="1124.0" font-size="17" fill="#edbf72" font-weight="400">不可等待补充；移动或切换路线</text>
+<rect  x="840" y="1341" width="700" height="72" rx="8" fill="#101713" stroke="#405346"/>
+<text x="854" y="1368" font-size="16" fill="#b4beb1" font-weight="400">补充状态：不可用</text>
+<text x="854" y="1397" font-size="17" fill="#edf1e6" font-weight="400">查询仍可用；阻塞不变成执行按钮。</text>
+<rect id="state-stale" x="40" y="1476" width="740" height="648" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="60" y="1510" font-size="23" fill="#edf1e6" font-weight="600">输入或世界变化</text>
+<text x="60" y="1539" font-size="15" fill="#d0a85b" font-weight="400">当前行为的视觉重排</text>
+<text x="60" y="1576" font-size="16" fill="#b4beb1" font-weight="400">区块 X</text>
+<rect id="fragment-60-1576-field-0" x="60" y="1588" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="72" y="1617" font-size="16" fill="#edf1e6" font-weight="400">1</text>
+<text x="412" y="1576" font-size="16" fill="#b4beb1" font-weight="400">区块 Y</text>
+<rect id="fragment-412-1576-field-1" x="412" y="1588" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="424" y="1617" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="60" y="1648" font-size="16" fill="#b4beb1" font-weight="400">区块 Z</text>
+<rect id="fragment-60-1648-field-2" x="60" y="1660" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="72" y="1689" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<rect id="action-stale" x="60" y="1728" width="700" height="48" rx="8" fill="#26382d" stroke="#d0a85b"/>
+<text x="76" y="1759" font-size="17" fill="#edf1e6" font-weight="600">刷新材料预估</text>
+<text x="60" y="1804.0" font-size="17" fill="#edbf72" font-weight="400">坐标变化：隐藏旧预测结果，提示重新刷新；查询仍可用。</text>
+<rect id="state-unknown" x="820" y="1476" width="740" height="648" rx="8" fill="#161f1a" stroke="#405346"/>
+<text x="840" y="1510" font-size="23" fill="#edf1e6" font-weight="600">字段 / 契约未知</text>
+<text x="840" y="1539" font-size="15" fill="#d0a85b" font-weight="400">当前行为的视觉重排</text>
+<text x="840" y="1576" font-size="16" fill="#b4beb1" font-weight="400">区块 X</text>
+<rect id="fragment-840-1576-field-0" x="840" y="1588" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="852" y="1617" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="1192" y="1576" font-size="16" fill="#b4beb1" font-weight="400">区块 Y</text>
+<rect id="fragment-1192-1576-field-1" x="1192" y="1588" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="1204" y="1617" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<text x="840" y="1648" font-size="16" fill="#b4beb1" font-weight="400">区块 Z</text>
+<rect id="fragment-840-1648-field-2" x="840" y="1660" width="330" height="44" rx="8" fill="#101713" stroke="#738575"/>
+<text x="852" y="1689" font-size="16" fill="#edf1e6" font-weight="400">0</text>
+<rect id="action-unknown" x="840" y="1728" width="700" height="48" rx="8" fill="#26382d" stroke="#d0a85b"/>
+<text x="856" y="1759" font-size="17" fill="#edf1e6" font-weight="600">刷新材料预估</text>
+<text x="840" y="1804.0" font-size="17" fill="#edbf72" font-weight="400">预计补充碎片：不可用；等待成本：不可等待补充。刷新世界状态后重新评估。</text>
+<text x="40" y="2170" font-size="16" fill="#b4beb1" font-weight="400">状态片段只覆盖此处列明的分支；当前不存在的专用 unknown / stale 展示已标为提议。</text>
+</g></svg>

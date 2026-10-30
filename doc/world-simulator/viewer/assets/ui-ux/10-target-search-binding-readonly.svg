@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc"><title id="title">找到目标，不等于获得控制 · 设计目标 · 非运行截图</title><desc id="desc">Targets 搜索 → 目标上下文 → 权限解释 · 列表与详情是不同阅读层。此页为静态设计说明，图中世界、身份、预算、报价和结果均为虚构示例。不是可执行 UI、实际截图或功能验收证明。</desc>
+<rect x="0" y="0" width="1600" height="1200" rx="0" fill="#0b100f" stroke="none" stroke-width="1"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text id="t1" x="48" y="42" font-size="16" fill="#9ca89a" font-weight="400">OASIS7  /  VIEWER DESIGN CONTRACT</text>
+<text id="t2" x="1230" y="42" font-size="18" fill="#d0a85b" font-weight="400">设计目标 · 非运行截图</text>
+<text id="t3" x="48" y="86" font-size="32" fill="#edf1e6" font-weight="600">找到目标，不等于获得控制</text>
+<text id="t4" x="48" y="121" font-size="18" fill="#9ca89a" font-weight="400">10 / Targets 搜索 → 目标上下文 → 权限解释 · 列表与详情是不同阅读层</text>
+<rect x="64" y="165" width="960" height="750" rx="0" fill="#19251f" stroke="#405346" stroke-width="1"/>
+<text id="t5" x="88" y="204" font-size="22" fill="#edf1e6" font-weight="600">示例世界 · 北侧补给区</text>
+<rect x="804" y="180" width="196" height="32" rx="6" fill="#101412" stroke="#9ca89a" stroke-width="1"/>
+<text id="t6" x="816" y="203" font-size="16" fill="#9ca89a" font-weight="400">世界动态 · 收起</text>
+<rect x="82" y="240" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="219" y="329" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="356" y="418" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="493" y="507" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="630" y="596" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="767" y="685" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="904" y="774" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="141" y="303" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="278" y="392" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="415" y="481" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="552" y="570" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="689" y="659" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="826" y="748" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="963" y="277" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="200" y="366" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="337" y="455" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="474" y="544" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="611" y="633" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="748" y="722" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="885" y="251" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="122" y="340" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="259" y="429" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="396" y="518" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="533" y="607" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="670" y="696" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="807" y="785" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="944" y="314" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="181" y="403" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="318" y="492" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="455" y="581" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="592" y="670" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="729" y="759" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="866" y="288" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="103" y="377" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="240" y="466" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="377" y="555" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="514" y="644" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="651" y="733" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="128" y="374" width="246" height="146" rx="0" fill="#29372f" stroke="#35483a" stroke-width="1"/>
+<rect x="163" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="212" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="261" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="256" y="520" width="22" height="191" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="278" y="584" width="480" height="22" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="312" y="546" width="20" height="24" rx="3" fill="#8dc7aa" stroke="#0b100f" stroke-width="1"/>
+<rect x="336" y="845" width="416" height="54" rx="16" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t7" x="358" y="879" font-size="18" fill="#edf1e6" font-weight="600">World</text>
+<rect x="470" y="851" width="130" height="42" rx="10" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+<text id="t8" x="484" y="879" font-size="18" fill="#d0a85b" font-weight="600">Targets</text>
+<text id="t9" x="620" y="879" font-size="18" fill="#edf1e6" font-weight="600">Command</text>
+<rect x="908" y="850" width="92" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t10" x="924" y="879" font-size="18" fill="#edf1e6" font-weight="600">更多</text>
+<rect x="100" y="622" width="292" height="32" rx="6" fill="#101412" stroke="#d0a85b" stroke-width="1"/>
+<text id="t11" x="112" y="645" font-size="16" fill="#d0a85b" font-weight="400">B · 地图当前查看</text>
+<rect x="100" y="677" width="326" height="126" rx="14" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t12" x="120" y="712" font-size="20" fill="#d0a85b" font-weight="600">下一步 · 查看 B 的上下文</text>
+<text id="t13" x="120" y="747" font-size="17" fill="#9ca89a" font-weight="400">仅选择与定位，不提交命令。</text>
+<text id="t14" x="120" y="773" font-size="17" fill="#9ca89a" font-weight="400">原操作 A 的回执独立保留。</text>
+<rect x="458" y="225" width="542" height="601" rx="14" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t15" x="482" y="269" font-size="25" fill="#edf1e6" font-weight="600">Targets / 目标</text>
+<rect x="826" y="242" width="150" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t16" x="842" y="271" font-size="18" fill="#edf1e6" font-weight="600">返回世界</text>
+<rect x="482" y="300" width="494" height="48" rx="8" fill="#161d19" stroke="#d0a85b" stroke-width="2"/>
+<text id="t17" x="498" y="332" font-size="19" fill="#edf1e6" font-weight="400">搜索已授权目标：补给</text>
+<text id="t18" x="482" y="385" font-size="17" fill="#9ca89a" font-weight="400">示例结果 3 项 · 当前展示 1–3</text>
+<text id="t19" x="482" y="411" font-size="17" fill="#9ca89a" font-weight="400">搜索覆盖当前取得的完整授权列表。</text>
+<rect x="482" y="447" width="494" height="81" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t20" x="502" y="478" font-size="21" fill="#edf1e6" font-weight="600">A · 补给 Agent</text>
+<text id="t21" x="502" y="508" font-size="17" fill="#9ca89a" font-weight="400">当前绑定 · 指导仍需当前授权</text>
+<rect x="482" y="542" width="494" height="81" rx="10" fill="#161d19" stroke="#d0a85b" stroke-width="2"/>
+<text id="t22" x="502" y="573" font-size="21" fill="#d0a85b" font-weight="600">B · 补给协作 Agent</text>
+<text id="t23" x="502" y="603" font-size="17" fill="#9ca89a" font-weight="400">当前查看 · 只读；不是当前控制对象</text>
+<rect x="482" y="637" width="494" height="81" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t24" x="502" y="668" font-size="21" fill="#edf1e6" font-weight="600">C · 补给观察 Agent</text>
+<text id="t25" x="502" y="698" font-size="17" fill="#9ca89a" font-weight="400">可查看 · 以当前权限为准</text>
+<text id="t26" x="482" y="765" font-size="17" fill="#9ca89a" font-weight="400">每类别最多挂载 50 行；分页不改变选择。</text>
+<text id="t27" x="482" y="791" font-size="17" fill="#9ca89a" font-weight="400">清空 / 换关键词回首页，失效授权行立即移除。</text>
+<rect x="1050" y="165" width="486" height="257" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t28" x="1074" y="196" font-size="16" fill="#d0a85b" font-weight="600">① 选中 B → 按需详情</text>
+<text id="t29" x="1074" y="235" font-size="23" fill="#edf1e6" font-weight="600">B 的上下文 · 只读</text>
+<text id="t30" x="1074" y="274" font-size="18" fill="#9ca89a" font-weight="400">查看：当前状态、允许公开的来源与时效。</text>
+<text id="t31" x="1074" y="302" font-size="18" fill="#9ca89a" font-weight="400">控制：未获当前授权，不出现假执行按钮。</text>
+<text id="t32" x="1074" y="330" font-size="18" fill="#9ca89a" font-weight="400">可返回 Targets 保留关键词 / 页码；</text>
+<text id="t33" x="1074" y="358" font-size="18" fill="#9ca89a" font-weight="400">不自动切回 A，也不把 A 的结果改标为 B。</text>
+<rect x="1050" y="443" width="486" height="237" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t34" x="1074" y="474" font-size="16" fill="#d0a85b" font-weight="600">② 无绑定 / 同步中 → 解释下一步</text>
+<text id="t35" x="1074" y="513" font-size="23" fill="#edf1e6" font-weight="600">可阅读，暂不能指导</text>
+<text id="t36" x="1074" y="552" font-size="18" fill="#9ca89a" font-weight="400">沿现有合法认领或 binding sync 路径。</text>
+<text id="t37" x="1074" y="580" font-size="18" fill="#9ca89a" font-weight="400">认领 pending 不是 committed。</text>
+<text id="t38" x="1074" y="608" font-size="18" fill="#9ca89a" font-weight="400">看到世界 Agent 不证明你拥有它；</text>
+<text id="t39" x="1074" y="636" font-size="18" fill="#9ca89a" font-weight="400">登录与模型 Key 都不能替代控制绑定。</text>
+<rect x="1050" y="701" width="486" height="214" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t40" x="1074" y="732" font-size="16" fill="#e58f76" font-weight="600">③ 权限变化 → 即刻收缩</text>
+<text id="t41" x="1074" y="771" font-size="23" fill="#edf1e6" font-weight="600">撤权后不保留私有内容</text>
+<text id="t42" x="1074" y="810" font-size="18" fill="#9ca89a" font-weight="400">删除失效列表行、详情与搜索缓存。</text>
+<text id="t43" x="1074" y="838" font-size="18" fill="#9ca89a" font-weight="400">仍有权限的原结果按原身份可回看。</text>
+<text id="t44" x="1074" y="866" font-size="18" fill="#9ca89a" font-weight="400">迟到详情不得越过当前身份 / scope。</text>
+<rect x="64" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t45" x="72" y="979" font-size="17" fill="#d0a85b" font-weight="600">1</text>
+<text id="t46" x="108" y="980" font-size="21" fill="#edf1e6" font-weight="600">搜索是导航，不是世界操作</text>
+<text id="t47" x="108" y="1015" font-size="18" fill="#9ca89a" font-weight="400">地图点击、列表选择和相机定位均不授予执行权。</text>
+<text id="t48" x="108" y="1044" font-size="18" fill="#9ca89a" font-weight="400">一般 snapshot 更新不应无理由清空搜索或抢焦点。</text>
+<rect x="830" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t49" x="838" y="979" font-size="17" fill="#d0a85b" font-weight="600">2</text>
+<text id="t50" x="874" y="980" font-size="21" fill="#edf1e6" font-weight="600">焦点与长中文</text>
+<text id="t51" x="874" y="1015" font-size="18" fill="#9ca89a" font-weight="400">打开 Targets 聚焦标题 / 关闭；返回复原触发点。</text>
+<text id="t52" x="874" y="1044" font-size="18" fill="#9ca89a" font-weight="400">搜索组合输入不驱动世界快捷键，长名可换行查看。</text>
+<path d="M48 1142 L1552 1142" fill="none" stroke="#405346" stroke-width="2"/>
+<text id="t53" x="48" y="1173" font-size="16" fill="#9ca89a" font-weight="400">基线 cd2ba63bf82a · 2026-10-30 · 示例身份 / 数值 / 状态非运行事实</text>
+<text id="t54" x="1415" y="1173" font-size="16" fill="#9ca89a" font-weight="400">UIUX / 10</text>
+</g></svg>
