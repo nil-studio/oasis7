@@ -260,7 +260,7 @@ impl ViewerRuntimeLiveServer {
                         )
                     {
                         let prepare_phase = stream_budget_diagnostics::phase(23);
-                        let prepared = server.prepare_agent_service_io(eligible);
+                        let prepared = server.prepare_agent_service_io_deferred(eligible);
                         drop(prepare_phase);
                         match prepared {
                             Ok(value) => {
@@ -276,6 +276,33 @@ impl ViewerRuntimeLiveServer {
                                 }
                                 progress = None;
                                 server.record_agent_pump_error("Agent service preparation is blocked; original work remains pending");
+                            }
+                        }
+                    }
+                    if matches!(progress, Some(AgentServiceProgress::NeedsIdentity(_))) {
+                        let Some(AgentServiceProgress::NeedsIdentity(prepared)) = progress.take()
+                        else {
+                            unreachable!()
+                        };
+                        let reservation = prepared.reservation();
+                        drop(server);
+                        // Only immutable identity serialization/hash runs here.
+                        // No executor queue or transport can observe this capsule.
+                        let ready = prepared.compute();
+                        server = match shared.lock() {
+                            Ok(server) => server,
+                            Err(_) => break,
+                        };
+                        let completed =
+                            ready.and_then(|ready| server.finish_hosted_identity(ready));
+                        match completed {
+                            Ok(job) => {
+                                progress = Some(AgentServiceProgress::NeedsIo(Box::new(job)))
+                            }
+                            Err(_) => {
+                                server.abandon_hosted_identity(&reservation);
+                                server.record_agent_pump_error("Hosted identity changed before dispatch; original work remains pending");
+                                progress = None;
                             }
                         }
                     }

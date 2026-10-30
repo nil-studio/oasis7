@@ -222,6 +222,9 @@ impl ViewerRuntimeLiveServer {
         pending: PendingProviderServiceIntent,
         submit: bool,
     ) -> Result<(), String> {
+        if self.llm_sidecar.hosted_identity_reservation.is_some() {
+            return Err("hosted identity preparation owns the current dispatch".into());
+        }
         const MAX_DIRECT_IO: usize = 24;
         const MAX_DIRECT_LOCAL_ADVANCES: usize = 16;
 
@@ -276,6 +279,9 @@ impl ViewerRuntimeLiveServer {
                 .ok_or("canonical Agent service phase disappeared before finalization")?
                 .identity()?;
             match self.prepare_hosted_service_io(false)? {
+                AgentServiceProgress::NeedsIdentity(_) => {
+                    return Err("direct hosted driver received deferred identity work".into());
+                }
                 AgentServiceProgress::Idle => {
                     return Err(
                         "canonical Agent action remains pending without an owned phase advance"
