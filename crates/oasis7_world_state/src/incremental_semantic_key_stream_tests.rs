@@ -119,3 +119,62 @@ fn final_source_cancellation_and_unwind_never_return_a_digest_or_restore_work() 
     assert_eq!(budget.bytes_remaining, 0);
     assert_eq!(memory.used(), 0);
 }
+
+struct BodySource<'a> {
+    text: &'a str,
+    in_body: &'a std::cell::Cell<bool>,
+    finished: &'a std::cell::Cell<bool>,
+}
+impl serde::Serialize for BodySource<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.text)
+    }
+}
+impl sealed::Key for BodySource<'_> {
+    fn encode<W: Write>(&self, output: &mut W, _: usize) -> io::Result<()> {
+        output.write_all(&[1])?;
+        output.write_all(&(self.text.len() as u64).to_be_bytes())?;
+        self.in_body.set(true);
+        output.write_all(self.text.as_bytes())?;
+        self.finished.set(true);
+        Ok(())
+    }
+}
+#[test]
+fn cancellation_inside_a_large_write_stops_before_the_source_finishes() {
+    let memory = MemoryBudget::new(512 << 10, 4096).unwrap();
+    let length = 256 << 10;
+    let charge = memory.reserve(length + 128, MemoryClass::Ordinary).unwrap();
+    let text = charge.retain("x".repeat(length));
+    let before = memory.used();
+    let in_body = std::cell::Cell::new(false);
+    let finished = std::cell::Cell::new(false);
+    let source = BodySource {
+        text: &text,
+        in_body: &in_body,
+        finished: &finished,
+    };
+    let mut polls = 0;
+    let mut budget = SemanticKeyBudget {
+        bytes_remaining: (SEMANTIC_KEY_DOMAIN.len() + 9 + length) as u64,
+    };
+    let result = hash_semantic_key_v1(&source, &memory, MemoryClass::Ordinary, &mut budget, || {
+        if in_body.get() {
+            polls += 1;
+            polls >= 3
+        } else {
+            false
+        }
+    });
+    assert!(matches!(result, Err(SemanticKeyError::Cancelled)));
+    assert!(in_body.get());
+    assert!(
+        !finished.get(),
+        "cancellation must be polled inside the large write, not only after it"
+    );
+    assert_eq!(
+        budget.bytes_remaining, 0,
+        "the attempted input write is conservatively charged before processing"
+    );
+    assert_eq!(memory.used(), before);
+}
