@@ -9,6 +9,9 @@ pub use scalar::*;
 #[path = "incremental_agent_visit.rs"]
 mod visit;
 pub use visit::*;
+#[path = "incremental_agent_projection.rs"]
+mod projection;
+pub use projection::visit_agents_projection;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScalarKindV1 {
     U8,
