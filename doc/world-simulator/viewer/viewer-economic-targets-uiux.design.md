@@ -74,6 +74,8 @@
 
 ## 4. 边界与结构
 
+E09 的表格是放大的条件目标字段展开；[平板 shell 组合稿](assets/ui-ux/15-tablet-text-reflow.svg#tablet)展示相同替代方案主题在按需 Command 详情中的主次：世界/观察 B、原操作 A、Next Move 和关闭路径共存。此稿只画“方案是否可执行、能力与提交方式待确认”的组合，不表示已确认没有可行方案，不证明全部 E01–E12 主题、所有状态或响应式完整；技术枚举留在展开依据中，玩家入口称“查看当前替代方案”。
+
 World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/More为次级。Bevy是唯一世界renderer；图稿占位不是JS世界回退。当前主体、观察目标、模型连接、账号、session、admission、control分别表述。
 
 ## 5. 关键交互流程
@@ -488,7 +490,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 - 角色/条件：当前输入/lot owner 与受权执行者；替代 decision 权限不自动扩展至 conversion/cutover。。
 - 字段：same_material_source / 新 ledger/path/owner/custody 重验 / 不继承旧 hold 或顺位；profile_substitute / 准确 input edge / 比例及单位 / quantum / unknown 不默认为 1:1；new_recipe / 全部输入、输出、power、terminal 重验 / 新 candidate；原 W 不继承；decision → conversion WIP / 明确授权上限、已 sink、remaining / start receipt 不是产物；conversion settlement / 实际输出/副产物/损耗/residual / matching receipt 才成为 join 来源
 - 单位：Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.
-- 动作：查看 R-GAME-21 当前读面；确认替代（禁用：执行能力待核）。
+- 动作：查看当前替代方案（对应 R-GAME-21 读面）；确认替代（禁用：执行能力待核）。
 - 状态规范：no_legal_substitute：完整集合检查后才确定；unknown/blocked：尚不能判定合法集合；expired decision：重新读候选，不沿用旧许可；conversion WIP：已 sink / remaining；未完成；converted：仅实际 conversion receipt；不增加原 W/reward。
 - 具体表示：[具体目标稿](assets/ui-ux/full-function/economic-targets/frames/E09-substitution.svg)；`normal_frame`；区域 `rows 1–3 / R1`。
 - 写动作：`contract_blocked_pending_published_capability_and_exact_transport`；目标图不证明transport已接通。
@@ -503,7 +505,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 - 角色/条件：当前输入/lot owner 与受权执行者；替代 decision 权限不自动扩展至 conversion/cutover。。
 - 字段：same_material_source / 新 ledger/path/owner/custody 重验 / 不继承旧 hold 或顺位；profile_substitute / 准确 input edge / 比例及单位 / quantum / unknown 不默认为 1:1；new_recipe / 全部输入、输出、power、terminal 重验 / 新 candidate；原 W 不继承；decision → conversion WIP / 明确授权上限、已 sink、remaining / start receipt 不是产物；conversion settlement / 实际输出/副产物/损耗/residual / matching receipt 才成为 join 来源
 - 单位：Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.
-- 动作：查看 R-GAME-21 当前读面；确认替代（禁用：执行能力待核）。
+- 动作：查看当前替代方案（对应 R-GAME-21 读面）；确认替代（禁用：执行能力待核）。
 - 状态规范：no_legal_substitute：完整集合检查后才确定；unknown/blocked：尚不能判定合法集合；expired decision：重新读候选，不沿用旧许可；conversion WIP：已 sink / remaining；未完成；converted：仅实际 conversion receipt；不增加原 W/reward。
 - 具体表示：[具体目标稿](assets/ui-ux/full-function/economic-targets/frames/E09-substitution.svg)；`normal_frame`；区域 `rows 4–5 / R2`。
 - 写动作：`contract_blocked_pending_published_capability_and_exact_transport`；目标图不证明transport已接通。
@@ -519,7 +521,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 - 角色/条件：当前输入/lot owner 与受权执行者；替代 decision 权限不自动扩展至 conversion/cutover。。
 - 字段：same_material_source / 新 ledger/path/owner/custody 重验 / 不继承旧 hold 或顺位；profile_substitute / 准确 input edge / 比例及单位 / quantum / unknown 不默认为 1:1；new_recipe / 全部输入、输出、power、terminal 重验 / 新 candidate；原 W 不继承；decision → conversion WIP / 明确授权上限、已 sink、remaining / start receipt 不是产物；conversion settlement / 实际输出/副产物/损耗/residual / matching receipt 才成为 join 来源
 - 单位：Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.
-- 动作：查看 R-GAME-21 当前读面；确认替代（禁用：执行能力待核）。
+- 动作：查看当前替代方案（对应 R-GAME-21 读面）；确认替代（禁用：执行能力待核）。
 - 状态规范：no_legal_substitute：完整集合检查后才确定；unknown/blocked：尚不能判定合法集合；expired decision：重新读候选，不沿用旧许可；conversion WIP：已 sink / remaining；未完成；converted：仅实际 conversion receipt；不增加原 W/reward。
 - 具体表示：[具体目标稿](assets/ui-ux/full-function/economic-targets/frames/E09-substitution.svg)；`normal_frame`；区域 `row 3 / R3`。
 - 写动作：`contract_blocked_pending_published_capability_and_exact_transport`；目标图不证明transport已接通。

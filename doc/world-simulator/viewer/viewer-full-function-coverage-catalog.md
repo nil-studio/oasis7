@@ -17,6 +17,10 @@
 - [经济与工业条件目标](viewer-economic-targets-uiux.design.md)：条件目标，不计当前实现数量。
 - [治理、社会与季节条件目标](viewer-governance-targets-uiux.design.md)：条件目标，不计当前实现数量。
 
+## 图稿阅读方式
+
+全功能稿中的并排状态、放大的 Inspector/表单和字段表是局部交接展开，不是默认 Player 首屏布局。经济、治理、玩法稿保留的窄幅 World 是位置参照，不能据其面积比例实现常驻侧栏或压缩世界；实际 shell 遵循[页面分区与首读](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)和单一 Next Move。技术字段/枚举用于对应源合同，玩家表面先呈现可读状态、原因和下一步，原字段只在获准详情中按需披露。局部图没有画出的完整 shell、收起路径和响应式状态仍须另行验证。 [共享组合稿15](assets/ui-ux/15-tablet-text-reflow.svg)实际展示平板 world+Command 详情和文字重排；仅经济替代方案待确认状态已组合，其他主题及状态不能由此推定已绘制。
+
 ## 当前源与设计表示
 
 字段、动作、条件及精确源行见[派生JSON](assets/ui-ux/full-function/coverage-catalog.json)。下表只是入口，不能凭一个normal frame判整个功能状态覆盖。

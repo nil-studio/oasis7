@@ -2573,7 +2573,7 @@
       ],
       "units": "Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.",
       "actions": [
-        "查看 R-GAME-21 当前读面",
+        "查看当前替代方案",
         "确认替代（禁用：执行能力待核）"
       ],
       "role_gate": "当前输入/lot owner 与受权执行者；替代 decision 权限不自动扩展至 conversion/cutover。",
@@ -2675,7 +2675,7 @@
       ],
       "units": "Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.",
       "actions": [
-        "查看 R-GAME-21 当前读面",
+        "查看当前替代方案",
         "确认替代（禁用：执行能力待核）"
       ],
       "role_gate": "当前输入/lot owner 与受权执行者；替代 decision 权限不自动扩展至 conversion/cutover。",
@@ -2784,7 +2784,7 @@
       ],
       "units": "Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.",
       "actions": [
-        "查看 R-GAME-21 当前读面",
+        "查看当前替代方案",
         "确认替代（禁用：执行能力待核）"
       ],
       "role_gate": "当前输入/lot owner 与受权执行者；替代 decision 权限不自动扩展至 conversion/cutover。",

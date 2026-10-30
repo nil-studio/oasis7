@@ -96,13 +96,15 @@ Desktop first viewport:
 
 Mobile reading order:
 
-1. Edge/mobile rail: `World / Targets / Command`, with Search inside Targets and
-   Diagnostics secondary.
-2. Compact stage identity.
-3. Command strip with Next Move on the first row and supporting context on the second row.
-4. World Board/Canvas.
-5. Action Receipt.
+1. Compact world identity and current viewing scope (a place name alone is not world identity).
+2. Command strip with Next Move on the first row and supporting context on the second row.
+3. World Board/Canvas.
+4. Action Receipt.
+5. Reachable `World / Targets / Command` rail, with Search inside Targets and Diagnostics secondary.
 6. Targets, Command, Gameplay Details, Diagnostics through anchors or tabs.
+
+The rail remains reachable regardless of placement; reachability does not make navigation
+more visually prominent than the world identity or the current decision.
 
 ### 2.4 Layout Zones
 The page should behave as a command-table shell:
@@ -345,8 +347,9 @@ Current anchor: `#viewer-targets-panel`.
 
 Role:
 - selection and orientation surface;
-- lets the player choose the agent, location, or target that the stage and
-  command panel will follow.
+- lets the player choose the agent, location, or target shown by the stage and
+  selected-target context. Selection does not retarget a Command draft or an
+  original receipt; their subjects follow the [identity contract](#uiux-context-identity).
 - Search filters the current authoritative visible-target list through
   `#entity-search`; it is not an independent snapshot query. Selection never
   executes an action. Quote remains a contextual Command/Console route, not
@@ -475,7 +478,9 @@ State handling:
 - immersive Player presentation: keep close/`Escape` and command controls reachable.
 
 ## 4. State Model
-All modules should map to these player-facing states:
+This table summarizes visual treatments; the [detailed feedback contract](#uiux-state-feedback)
+separately defines draft, accepted, pending, rejected, unknown, and confirmed outcomes.
+Modules use the applicable states without collapsing their authority or causality:
 
 | State | Visual requirement | Notes |
 | --- | --- | --- |
@@ -484,7 +489,7 @@ All modules should map to these player-facing states:
 | unavailable | clear renderer unavailable label near affected board | raw details stay secondary |
 | blocked | blocker reason near next move and receipt | recovery route visible |
 | no receipt | muted receipt surface remains present | prevents false progress |
-| completed | positive receipt state plus next route | do not imply unsupported runtime causality |
+| completed | authoritative outcome plus next route; neutral treatment when completed without progress | completion alone is not positive progress; preserve confirmed partial effects and pending scope |
 | selected | visible focus state in list, board, and details | selection must not hide objective |
 | long text | wrap or clamp within stable modules | no horizontal overflow |
 | zh locale | CJK labels fit primary controls and panels | screenshot required when touched |
@@ -706,7 +711,7 @@ module-state verification are still required before any completion claim.
 | 区域 | 内容及优先级 | 展开/收起与拥挤处理 |
 | --- | --- | --- |
 | 世界身份 | 世界名、当前范围；只有需要行动的连接异常才提升为警告 | 常规元数据不占第二条主横幅；长名最多两行，完整名在可聚焦详情中 |
-| Next Move | 一个主动作入口；同一区域说明 blocker、不可用原因或继续路径 | 默认进入 Command，不把示意按钮画成已授权直接执行；窄屏第一行 |
+| Next Move | 一个主动作入口；同一区域说明 blocker、不可用原因或继续路径 | 默认进入 Command；文案说明本次目的（如“查看阻碍 · Command”），不把打开表面写成已授权执行；窄屏第一行 |
 | 从属上下文 | Objective 与 Player Leverage；后者仅消费权威投影 | 窄屏第二行；不复制三张等权卡，不补造资源/收益 |
 | 世界舞台 | 地形背景、合法位置、对象/关系、选择与目标 | 最大连续视觉区域；先移除装饰与次级标签，不先缩小关键文字 |
 | 原行动反馈 | Action Receipt、原主体、结果/原因/下一步 | 默认紧邻舞台；保留短摘要及展开入口，不与 Feed 混同 |
@@ -740,7 +745,7 @@ module-state verification are still required before any completion claim.
 - Targets 和舞台强调“已选中 B”；Command 标题明确“发送给 C”；Action Receipt 标明“A · 原操作”。只在确有身份时显示名称，没有 Agent 的玩家级结果保持玩家级，不填最近选中对象。
 - 本人的个人行动反馈与其他玩家/匿名请求隔离；身份切换先清理旧身份私有回执与草稿，再读取当前身份可见结果。公共 Feed 不用作本人反馈来源。
 - 更换草稿主体是显式动作；在有内容时保留原草稿或由用户选择丢弃/另存，不把同一内容静默应用到新主体。此设计不创建新的持久化承诺。
-- 预览展示将受影响对象、现有合同提供的资源/权限条件及不确定性。预览不等于获准；服务器拒绝时说明条件已变化，而非显示成功后再撤回。
+- 预览展示将受影响对象、现有合同提供的资源/权限条件及不确定性。预览不等于获准；服务器拒绝时说明实际权威原因，只有明确报告条件变化时才这样表述；执行受阻另保留已确认的部分效果与待决范围，不先显示成功再撤回。
 - 新世界快照可更新当前观察；不可更改原操作身份。授权收窄应移除私有名称/详情，同时按当前权限保留允许披露的原结果说明。
 - Chat 请求与执行世界 action 分别按其现有授权和可用性判断；没有可执行的世界动作不自动禁用仍获准的 Chat。显式发送只报告聊天请求结果，不展示为世界执行成功。
 - pending 状态选择 B 不自动开回 A、不抢焦点；回执更新采用克制的状态提示。只有用户点击“查看原对象”才导航，且再次确认当前可见性。
@@ -760,6 +765,8 @@ module-state verification are still required before any completion claim.
 | 文本放大/长 CJK | 按内容换行，允许面板纵向滚动；尽量不截断核心状态 | 不缩小文本来适配；完整名称/原因有键盘可达路线 |
 | 移动软键盘 | 使用可见视口安排 Command 输入和当前编辑行；滚动目标为输入上下文 | 不让粘性 rail 遮住输入或发送；键盘关闭恢复可预测位置 |
 
+[平板与文字放大组合稿](assets/ui-ux/15-tablet-text-reflow.svg)给出 1024×768 按需详情与独立的 200% 文字重排目标，非整图等比缩放；上图保留世界身份、唯一 Next Move、原回执和实际关闭控件，关闭后焦点回到仍存在的 Command 导航；下图为详情已关闭的 shell，分别画出导航与获准的原结果查询恢复目标，不声称展示展开后的滚动/关闭几何。查询控件属于 shell 恢复设计目标，不是现有只读回执组件的能力声明。它不证明浏览器实际重排、软键盘或平板触控已通过。
+
 滚动只作用于可理解的区域，避免三个嵌套滚动容器；面板上下边界可识别。安全区、浏览器缩放和软键盘出现时重新核验可用高度。切屏或旋转保留合法选择/草稿，不把 resize 当用户提交。
 
 <a id="uiux-input-access"></a>
@@ -767,6 +774,7 @@ module-state verification are still required before any completion claim.
 
 - 每个图标控件有可见或可访问名称；有状态者暴露当前选中/展开/禁用含义。不能只用颜色或 tooltip 区分 selected、pending、blocked。
 - 键盘顺序按当前活动路线：标题/关闭→主要内容→动作→辅助说明。关闭恢复 invoker；invoker 消失则返回对应导航或舞台标题。焦点环不能被容器裁切或低对比边框吞掉。
+- 真正模态确认开启时，Tab / Shift+Tab 只在当前模态可用控件内循环，背景不得通过键盘或指针触发；提供可命名的取消/关闭路径，关闭后解除隔离并按上述规则返回焦点。非模态 Targets/Command 不套用模态焦点锁；账号强制 gate 的关闭资格仍依账号合同。本条是交互目标，不宣称当前所有弹层已实现隔离。
 - Escape 先关闭最内层 surface，再退出 Focus；compositionstart 至 compositionend 期间及 keyCode 229 的兼容输入不触发发送或关闭。Enter / Shift+Enter 按多行编辑处理，均不发送；只有显式 Send Chat 提交。组合输入与连续键入不得重复插入或提交。
 - 舞台快捷键只在舞台适用焦点内响应；文本输入、contenteditable、浏览器快捷键和 IME 不被截获。控件 disabled 的原因紧邻显示，不能要求点击 disabled 才知道原因。
 - 指针事件归属沿 [Chat 输入验收](viewer-manual.manual.md#当前-agent-chat-与高级-prompt-设置)：输入区、Targets/Command 抽屉及控件内的点击、拖拽、滚轮不能穿透到世界相机或拾取，正文仍可选择复制。舞台平移拖动与点击选择必须区分，拖动结束不再追加一次选择；指针取消或捕获丢失后结束本次手势，不沿用旧拖动状态。后续验证覆盖鼠标、触控、抽屉滚动、拖出边界与取消后再次点击；本稿不设新的手势像素阈值，也不声明当前实现已通过。
@@ -812,7 +820,8 @@ module-state verification are still required before any completion claim.
 | 无回执 | 尚无行动回执 / No action receipt yet | 保留明确空态；Feed 不补位 |
 | 结果不确定 | 结果待确认 / Outcome not yet confirmed | 查询原结果；不是失败重做许可 |
 | 已完成无进展 | 已完成但没有推进 / Completed with no progress | 解释原因和下一步；不用成功庆祝动画 |
-| 被拒绝/受阻 | 未执行：条件已变化 / Not applied: conditions changed | 重新读取/预览合法方案；不自动批准新方案 |
+| 明确被拒绝 | 请求被拒绝：{权威原因} / Rejected: {authoritative reason} | 只按原结果说明是否未执行；不把所有拒绝都写成条件变化 |
+| 执行受阻 | 执行受阻：{权威原因} / Blocked: {authoritative reason} | 保留已确认的部分效果和待决范围；重新读取合法方案，不暗示全部未执行或自动批准新方案 |
 | 已确认结果 | 已完成：{权威结果摘要} / Completed: {confirmed result} | 原主体和影响保持可核对；不外推未来收益 |
 | 渲染不可用 | 渲染器不可用 / Renderer Unavailable | 合法文本、原结果和显式重试；不是世界不可用 |
 | 权限撤销 | 访问权限已变化 / Access has changed | 清理受限内容并提供返回；不将私有快照留作 last-known |
@@ -823,6 +832,8 @@ module-state verification are still required before any completion claim.
 
 <a id="uiux-design-sheets"></a>
 ### 10.8 设计稿索引与对比方案
+
+- [15 平板与文字重排](assets/ui-ux/15-tablet-text-reflow.svg)：1024×768 按需 Command/经济替代方案待确认组合；独立文字重排目标。承接 §10.4、§10.9.4 与既有 `TXT-01`/`FOC-01`/`REC-02` 验收边界，不新增产品要求或宣称设备通过。
 
 全部文件位于 `assets/ui-ux/`，页眉标明 DESIGN TARGET / 设计目标。完整画面稿标注视口；组件、状态与图层解剖稿不代表完整视口。表中区分画面与说明性标注，文档条款提供对应语义。图内世界与数据仅为设计示例，不用于 renderer 真实性验证。
 
@@ -975,6 +986,8 @@ Advanced Prompt Settings 属于 operator-level 次级能力；Preview、Apply、
 
 语言切换、窄屏重排、浏览器缩放和减少动态效果遵循 §10.4–10.5；保留合法选择、原操作身份和安全草稿。关键状态使用文字+符号，等待与未知不使用完成勾。文字放大时允许信息重排和纵向滚动，输入、错误、主行动、关闭以及恢复入口不被 Dock/软键盘遮住；不能靠缩小字号或只剩 icon 解决。系统认证弹窗返回焦点应回到原入口或当前阶段控件；非模态状态、回执更新不抢焦点。
 
+迟到响应同样服从当前身份、世界与请求归属：旧账号/旧授权范围的响应不得重新填入已清理的详情、草稿或画布；A 的迟到结果只更新仍获准的 A 原结果，不覆盖 B 的输入/错误状态，不抢焦点。重连先重新确认当前授权和数据新鲜度，再恢复允许的读取；恢复连接本身不把原结果未知变成失败或重发许可。
+
 隐私清理以当前身份/可见范围为准，而不以“用户看过”作为保留理由。注销、换号、撤权、Director 失效与目标失去访问资格时，清理旧私有详情、受限 Prompt 值和无权诊断；可披露的未知结果按原身份保留安全说明。Screenshot/复制/诊断不得包含 Key、OTP、Cookie、批准码、原始标准认证响应或受限 trace。复制功能的设计只针对已获准的正文与脱敏诊断，不新增自动上传支持工单或外部发送。
 
 Director 仍是次级入口、显式选择、短时服务端能力；没有可信 issuer 时展示 `capability_blocked` 的真实含义。退出或能力失效返回 Player、恢复合理焦点并清理受限内容，不把 Director 成功进入画成默认现状，也不把它与账号登录、Agent 所有权或模型 Key 混为一项权限。
@@ -982,7 +995,7 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 <a id="uiux-whole-viewer-state-matrix"></a>
 #### 10.9.7 屏幕状态覆盖与验证分工
 
-以下是补充设计覆盖，不是已运行的测试结果。表中图号与文字条款共同承接状态要求，不表示每个状态都有独立完整画板；09–14 均为 1600×1200 说明页，实际画面及旁注范围见[设计稿索引](#uiux-design-sheets)。Chat/IME 仍由原03/04和本文承接，12不新增独立Chat画板；200%文字、软键盘与真实焦点仍是待验证状态。状态按身份/权限、连接、资料新鲜度、renderer、原操作结果正交描述；例如世界连接可用、renderer 不可用、获准文本可读、原结果未知可以同时成立，不能压成一个“离线”。当多个 blocker 共存，主提示解释当前任务最先需要解决的条件，其他独立状态仍可查；不提供通用“一键修复”。
+以下是补充设计覆盖，不是已运行的测试结果。表中图号与文字条款共同承接状态要求，不表示每个状态都有独立完整画板；09–14 均为 1600×1200 说明页，实际画面及旁注范围见[设计稿索引](#uiux-design-sheets)。Chat/IME 仍由原03/04和本文承接，12不新增独立Chat画板；15 补充平板及 200% 文字重排的静态目标；真实文字缩放、软键盘与焦点仍是待验证状态。状态按身份/权限、连接、资料新鲜度、renderer、原操作结果正交描述；例如世界连接可用、renderer 不可用、获准文本可读、原结果未知可以同时成立，不能压成一个“离线”。当多个 blocker 共存，主提示解释当前任务最先需要解决的条件，其他独立状态仍可查；不提供通用“一键修复”。
 
 | 屏幕或旅程 | 必须覆盖的状态 | 图示 / 文字承接 | 后续真实证据 |
 | --- | --- | --- | --- |
@@ -995,7 +1008,7 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 | Chat/Quote/Prompt | 草稿、IME、预览、签名中、报价stale、原提交pending、hidden/control_lost | 12；原03/04 | 原请求 ACK/error 竞态、提交参数/授权、中文/焦点、无双提交 |
 | 成果/重入 | confirmed、no progress、partial、unknown、查询不可用、换号旧反馈 | 12；原04/06 | 同原 signer/nonce/payload/target、当前读取 fence 与领域结果；无盲重试 |
 | 模式与 Feed | live、未知profile、offline playback、feed replay/gap/reorg/empty increment | 13；§10.9.5 | no-live-seek、真实控制反馈与 Feed cursor；非live证据不代签live |
-| 次级工具 | en/zh、长CJK、200%文字、低高度、Director拒绝/撤权、安全退出 | 14；原07/08 | 同候选真实浏览器/辅助技术、焦点/几何、权限清理；静态稿不认证a11y |
+| 次级工具 | en/zh、长CJK、200%文字、低高度、Director拒绝/撤权、安全退出 | 14/15；原07/08 | 同候选真实浏览器/辅助技术、焦点/几何、权限清理；静态稿不认证a11y |
 
 跨稿复用同一词义：`账号已登录` 不等于 `已进入世界`；`已选中` 不等于 `可指导`；`检查通过` 不等于 `已开始`；`已受理` 不等于 `已完成`；`原结果未知` 不等于 `未执行`；`已停止新决策` 不等于 `世界作业已取消`。所有能力和恢复入口仍受对应专业 authority 限制，不通过设计稿扩大 current support。
 
