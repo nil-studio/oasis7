@@ -529,3 +529,5 @@ fn retained_noop_preparations_are_admitted_and_release_their_budget() {
     drop(retained);
     assert_eq!(memory.used(), initial);
 }
+#[path = "incremental_inventory_overlay_read.rs"]
+mod overlay_read;

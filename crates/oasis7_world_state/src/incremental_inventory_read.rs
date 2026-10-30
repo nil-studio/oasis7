@@ -1,14 +1,10 @@
 //! Typed point contents for the three inventory fields; no root authority.
 use crate::{
     MaterialLedgerId,
-    incremental_field_member::{
-        MemberPayloadCodecV1, MemberReadProfileV1, MemberRecordLimitsV1,
-        read_member_record_profile_v1,
-    },
-    incremental_field_presence::{PresenceRecordLimitsV1, read_field_presence_v1},
     incremental_inventory_genesis::descriptor,
+    incremental_inventory_value_read::InventoryValueReader,
     incremental_projection::{FieldDescriptor, FieldShape},
-    incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1, hash_semantic_key_v1},
+    incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1},
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
 use oasis7_agent_api::world_action::ResourceKind;
@@ -75,11 +71,12 @@ impl<M: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for CancelState<'
     }
 }
 impl<
+    'v,
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
-> InventoryReadContext<'_, M, R, E, C>
+> InventoryReadContext<'v, M, R, E, C>
 {
     fn check(&mut self) -> Result<(), ValueTreeError> {
         if (self.cancelled)() {
@@ -132,18 +129,17 @@ impl<
         let value = self
             .lookup(&key)?
             .ok_or(ValueTreeError::Invalid("inventory missing field metadata"))?;
-        read_field_presence_v1(
-            &value,
-            &key,
-            &mut self.values,
-            PresenceRecordLimitsV1 {
-                semantic_bytes: 0,
-                record_bytes: self.record_bytes,
-            },
-            &mut std::io::sink(),
-            &mut self.cancelled,
-        )?;
+        self.records().presence(&value, &key, 0)?;
         Ok((field, key, value))
+    }
+    fn records(&mut self) -> InventoryValueReader<'_, 'v, R, C> {
+        InventoryValueReader {
+            values: &mut self.values,
+            key_work: self.key_work,
+            semantic_bytes: self.semantic_bytes,
+            record_bytes: self.record_bytes,
+            cancelled: &mut self.cancelled,
+        }
     }
     fn key<K: SemanticKeyV1 + ?Sized>(
         &mut self,
@@ -151,35 +147,7 @@ impl<
         kind: WorldFieldRecordKindV1,
         key: &K,
     ) -> Result<(WorldFieldKeyV1, u64), ValueTreeError> {
-        let semantic = hash_semantic_key_v1(
-            key,
-            self.values.memory,
-            self.values.class,
-            self.key_work,
-            &mut self.cancelled,
-        )
-        .map_err(|error| match error {
-            crate::incremental_semantic_key::SemanticKeyError::Memory(error) => {
-                ValueTreeError::Memory(error)
-            }
-            crate::incremental_semantic_key::SemanticKeyError::ResourceLimited => {
-                ValueTreeError::ResourceLimited("inventory key work")
-            }
-            crate::incremental_semantic_key::SemanticKeyError::Cancelled => {
-                ValueTreeError::Cancelled
-            }
-            crate::incremental_semantic_key::SemanticKeyError::Invalid(reason) => {
-                ValueTreeError::Invalid(reason)
-            }
-        })?;
-        if semantic.encoded_bytes > self.semantic_bytes {
-            return Err(ValueTreeError::ResourceLimited("inventory semantic length"));
-        }
-        Ok((
-            WorldFieldKeyV1::new(field, kind, Some(semantic.digest))
-                .map_err(ValueTreeError::Invalid)?,
-            semantic.encoded_bytes,
-        ))
+        self.records().key(field, kind, key)
     }
     fn quantity(
         &mut self,
@@ -187,28 +155,7 @@ impl<
         key: &WorldFieldKeyV1,
         semantic_bytes: u64,
     ) -> Result<i64, ValueTreeError> {
-        let mut bytes = [0; 8];
-        read_member_record_profile_v1(
-            value,
-            key,
-            &mut self.values,
-            MemberReadProfileV1 {
-                codec: MemberPayloadCodecV1::I64,
-                semantic_bytes,
-                limits: MemberRecordLimitsV1 {
-                    semantic_bytes: self.semantic_bytes,
-                    payload_bytes: 8,
-                    record_bytes: self.record_bytes,
-                },
-            },
-            &mut std::io::sink(),
-            &mut &mut bytes[..],
-            &mut self.cancelled,
-        )?;
-        if (self.cancelled)() {
-            return Err(ValueTreeError::Cancelled);
-        }
-        Ok(i64::from_be_bytes(bytes))
+        self.records().quantity(value, key, semantic_bytes)
     }
     pub(crate) fn simple_point<K: SemanticKeyV1 + ?Sized>(
         &mut self,
@@ -259,20 +206,7 @@ impl<
         let (group, group_bytes) = self.key(field, WorldFieldRecordKindV1::Group, ledger)?;
         let group_value = self.lookup(&group)?;
         if let Some(value) = group_value {
-            let info = read_field_presence_v1(
-                &value,
-                &group,
-                &mut self.values,
-                PresenceRecordLimitsV1 {
-                    semantic_bytes: self.semantic_bytes,
-                    record_bytes: self.record_bytes,
-                },
-                &mut std::io::sink(),
-                &mut self.cancelled,
-            )?;
-            if info.semantic_bytes != group_bytes {
-                return Err(ValueTreeError::Invalid("inventory group key length"));
-            }
+            self.records().presence(&value, &group, group_bytes)?;
         }
         let (key, bytes) = self.key(field, WorldFieldRecordKindV1::Entry, &(ledger, material))?;
         let value = self.lookup(&key)?;

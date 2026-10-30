@@ -70,6 +70,7 @@ pub use oasis7_world_state::incremental_inventory_genesis;
 pub use oasis7_world_state::incremental_inventory_read;
 pub use oasis7_world_state::incremental_inventory_change;
 pub use oasis7_world_state::incremental_inventory_transaction;
+pub use oasis7_world_state::incremental_inventory_overlay_read;
 pub use oasis7_world_state::util;
 mod world;
 pub use oasis7_world_state::world_event;

@@ -506,3 +506,14 @@ Runtime 的原 AgentMoved 事件与 BodyAttributesUpdated 复用同一 AgentEven
 准备结果的根、条数及写身份保持私有并仅提供只读访问。prepare 内部在输出到 sink 前，为最多两条写分别计算域分隔摘要，覆盖完整键的长度/bytes、before/after 的存在标签和全部 root bytes；导入按原输出顺序比较每条摘要，不能用另一条同键同 before 的任意 after 替换。调用方交付的暂存 StateWrite 必须仍持有同池 reservation，且 reservation bytes 至少覆盖既定记录开销及 key 的实际 capacity；条数与准备结果一致、键不重复、仅对应目标成员或显式新建 Group，before 与认证依赖一致；导入不接受 Metadata 写。全部操作在一次 contribute 内进行；错误、取消、依赖冲突、写集/内存/读取额度耗尽或 panic 都使整个事务不可 seal，不能捕获错误后发布已导入前缀。新增 read-set 条目或执行 write 时事务 revision 变化，旧 guard 随之失效；调用方在贡献成功后取得当前 guard 再执行后续阶段，不假定重复命中已有依赖的纯 no-op 一定改变 revision。
 
 此入口接受原 owner 已决定的最终 after roots，不赋予业务授权，不证明这些 roots 的耐久闭包或完整字段家族，也不安装活 World 或发布 head。基于同一 parent 的多次点计算若触及已改变的依赖须拒绝并重做，不能把此批量贡献冒充 overlay 上的顺序业务计算。
+
+
+### 12.11 共享事务中的类型化库存读取
+
+<a id="iws-inventory-overlay-read-v1"></a>
+
+库存 facade 的事务读取使用同一个 ExecutionTransaction.read，读取当前 overlay 的 Metadata、Group 和成员 root，并复用 §12.8 的规范 typed key、presence 和 I64 内容验证；不绕过 read-set 去读旧 parent tree，也不将尚未 seal 的 overlay 当成已接受 head。前一笔贡献暂存的新值页必须在该事务的 value reader 中可读，后续资源/材料/账本查询才能看到新值或 tombstone，并保持 LedgerAbsent/MaterialAbsent/Value 与显式零的区别。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+事务与值读取必须属于同一进程池，类型化普通执行读取使用 Ordinary，不借 Recovery 额度。语义键、记录字节、value I/O 与事务 read-set 额度保持有限；状态 walk 在分配前取得固定工作区，实际状态 reader 继续执行其 I/O/取消预算。查询在每次 lookup 前后及流式值校验中检查取消。原状态 reader 的 typed error carrier 在 lookup 后读取，即使返回 Ok 也不能忽略 outstanding failure；错误不通过字符串推断，不返回合法缺失。
+
+每次查询包在一次 contribute 中；缺 Metadata、已知 orphan member、错误原键/codec、缺暂存页、损坏、取消或额度不足均使整个事务不可 seal，外层不能捕获查询错误后发布先前部分写。查询成功只提供当前事务的点内容，不授予授权，不完成持久闭包、完整家族枚举、World 激活或 C<T 恢复。当前 owner 仍须在同一事务内依据这些结果计算和提交其业务效果。
