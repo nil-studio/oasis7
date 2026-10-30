@@ -1,6 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 
-use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
 use oasis7_formal_protocol::{
     incremental_state::{StateNamespaceV1, StateRootV1},
