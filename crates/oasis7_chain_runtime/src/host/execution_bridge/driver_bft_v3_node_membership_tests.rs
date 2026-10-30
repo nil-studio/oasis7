@@ -174,7 +174,6 @@ pub(super) fn exercise(
     // later height-6 partition and restart, without changing the original auth.
     wait_height(nodes, snapshots, 4);
     clock_start.start().unwrap();
-    stage_timing::mark("membership_clock_armed");
     if let Some(budget) = confirmation_timeout_budget {
         wait_height_with_budget(nodes, snapshots, 5, budget);
         for snapshot in snapshots {
@@ -225,9 +224,7 @@ pub(super) fn exercise(
         return;
     }
     wait_height(nodes, snapshots, 5);
-    stage_timing::mark("membership_wait_height_6_start");
     wait_height(&nodes[1..], &snapshots[1..], 6);
-    stage_timing::mark("membership_wait_height_6_end");
     assert_eq!(
         snapshots[0]
             .lock()
@@ -399,16 +396,13 @@ pub(super) fn exercise(
             Some(&hex::encode(fixtures::key(123).verifying_key().to_bytes()))
         );
     }
-    stage_timing::mark("membership_stop_start");
     for node in nodes.iter_mut() {
         node.stop().unwrap();
     }
-    stage_timing::mark("membership_stop_end");
     isolation.store(false, std::sync::atomic::Ordering::Release);
     // Independent nodes replay their own original histories concurrently. Keep
     // the protected elapsed clock and original timers running throughout;
     // startup of one node must not serialize every other native provider.
-    stage_timing::mark("membership_restart_start");
     thread::scope(|scope| {
         let starts = nodes
             .iter_mut()
@@ -418,10 +412,7 @@ pub(super) fn exercise(
             start.join().unwrap().unwrap();
         }
     });
-    stage_timing::mark("membership_restart_end");
-    stage_timing::mark("membership_recovered_wait_height_6_start");
     wait_height(nodes, snapshots, 6);
-    stage_timing::mark("membership_recovered_wait_height_6_end");
     for node in nodes.iter() {
         node.submit_consensus_action_payload(9807, payload("membership-after-restart"))
             .unwrap();

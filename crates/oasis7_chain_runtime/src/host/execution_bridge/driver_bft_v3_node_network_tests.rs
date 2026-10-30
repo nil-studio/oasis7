@@ -94,7 +94,6 @@ fn network_case_membership(
     check_membership: bool,
     confirmation_timeout: bool,
 ) {
-    let _membership_measurement_report = check_membership.then(|| stage_timing::Report);
     let count = if check_membership { 4 } else { 3 };
     let h = if check_membership {
         membership_cases::handoff()

@@ -1,5 +1,3 @@
-#[cfg(any(test, feature = "test-hooks"))]
-use super::stage_timing;
 use super::{SelectedNodeBftConfigV3, error, worker};
 use crate::{
     NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3, NodeBftPrivateCandidateV3,
@@ -12,8 +10,6 @@ pub(super) type Hook = Arc<Mutex<Box<dyn NodeExecutionHook>>>;
 pub(super) fn lock_hook(
     hook: &Hook,
 ) -> Result<std::sync::MutexGuard<'_, Box<dyn NodeExecutionHook>>, NodeError> {
-    #[cfg(any(test, feature = "test-hooks"))]
-    let _measure = stage_timing::Span::new("hook.lock_wait");
     hook.lock()
         .map_err(|_| error("wire-3 execution hook poisoned"))
 }
@@ -107,8 +103,6 @@ pub(super) fn candidate(
     value: &BftHeaderValueV3,
     selected: &SelectedNodeBftConfigV3,
 ) -> Result<NodeBftPrivateCandidateV3, NodeError> {
-    #[cfg(any(test, feature = "test-hooks"))]
-    let _measure = stage_timing::Span::new("startup.candidate");
     validate_schedule(schedule, selected)?;
     value
         .validate_for_schedule(schedule)
@@ -136,8 +130,6 @@ pub(super) fn validate_private(
     candidate: &NodeBftPrivateCandidateV3,
     selected: &SelectedNodeBftConfigV3,
 ) -> Result<(), NodeError> {
-    #[cfg(any(test, feature = "test-hooks"))]
-    let _measure = stage_timing::Span::new("startup.validate_private");
     candidate
         .public_value
         .validate_for_schedule(schedule)

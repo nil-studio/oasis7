@@ -93,10 +93,6 @@ pub(crate) fn mark(stage: &'static str) {
         timings.phase = "continuation";
         timings.details = 0;
     }
-    if stage == "membership_clock_armed" {
-        timings.phase = "membership";
-        timings.details = 0;
-    }
     if timings.markers < 256 {
         timings.markers += 1;
         eprintln!(

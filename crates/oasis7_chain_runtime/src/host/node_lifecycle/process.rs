@@ -1127,10 +1127,8 @@ pub(super) fn run_test_receiver_with_stop_signal(
     ready: std::sync::mpsc::Sender<()>,
     signal_stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let ownership = lock(&config.identity.data_dir)
-        .map_err(|error| format!("test receiver ownership before readiness: {error}"))?;
-    write_instance(&config.identity.data_dir, &intent.target)
-        .map_err(|error| format!("test receiver instance write before readiness: {error}"))?;
+    let ownership = lock(&config.identity.data_dir)?;
+    write_instance(&config.identity.data_dir, &intent.target)?;
     ready.send(()).map_err(|e| e.to_string())?;
     supervise_command(config, &mut intent, ownership, command, signal_stop)
 }

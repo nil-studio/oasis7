@@ -1,6 +1,4 @@
 //! Bounded public ingress and nonblocking, separately authorized private fetches.
-#[cfg(any(test, feature = "test-hooks"))]
-use super::super::stage_timing;
 use super::*;
 use crate::node_bft_v3_runtime::private_exchange::{
     NodeBftPrivateCandidateFetchV3, NodeBftPrivateFetchKindV3, NodeBftPrivateFetchRequestV3,
@@ -19,8 +17,6 @@ struct Fetching {
     operation: Box<dyn NodeBftPrivateCandidateFetchV3>,
     deadline: Instant,
     context: NodeBftExecutionContextV3,
-    #[cfg(any(test, feature = "test-hooks"))]
-    measurement_started: Option<Instant>,
 }
 struct HistoryRequest {
     peer: String,
@@ -69,8 +65,6 @@ impl Worker {
         }
     }
     pub(super) fn poll_peers(&mut self) -> Result<(), NodeError> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        let _measure = stage_timing::Span::new("peer.poll");
         let Some(network) = self.selected.network.clone() else {
             return Ok(());
         };
@@ -106,23 +100,14 @@ impl Worker {
             self.peers.request = None;
         }
         if let Some(mut fetching) = self.peers.fetching.take() {
-            let fetched = {
-                #[cfg(any(test, feature = "test-hooks"))]
-                let _poll = stage_timing::Span::new("peer.fetch_poll");
-                fetching.operation.poll()
-            };
-            match fetched {
+            match fetching.operation.poll() {
                 Ok(Some(package)) => {
-                    #[cfg(any(test, feature = "test-hooks"))]
-                    stage_timing::finished("peer.fetch_total", fetching.measurement_started);
                     if package.candidate.public_value
                         == message_value(&fetching.input.message)
                             .ok_or_else(|| error("wire-3 private fetch lost public value"))?
                     {
                         let accepted = {
                             let mut hook = lock_hook(&self.hook)?;
-                            #[cfg(any(test, feature = "test-hooks"))]
-                            let _retain = stage_timing::Span::new("peer.retain_received");
                             hook.retain_received_bft_v3_private_candidate(
                                 &fetching.context,
                                 &package,
@@ -155,11 +140,7 @@ impl Worker {
                     fetching.operation.cancel();
                 }
                 Ok(None) => self.peers.fetching = Some(fetching),
-                Err(_) => {
-                    #[cfg(any(test, feature = "test-hooks"))]
-                    stage_timing::finished("peer.fetch_failed_total", fetching.measurement_started);
-                    fetching.operation.cancel();
-                }
+                Err(_) => fetching.operation.cancel(),
             }
         }
         // The adapter authenticates transport identities; protocol signatures
@@ -345,8 +326,6 @@ impl Worker {
                             operation,
                             context,
                             deadline: Instant::now() + Duration::from_secs(600),
-                            #[cfg(any(test, feature = "test-hooks"))]
-                            measurement_started: stage_timing::enabled().then(Instant::now),
                         });
                     }
                 }
@@ -429,16 +408,12 @@ impl Worker {
         }
     }
     fn accept_materialized(&mut self, message: BftPublicPeerMessageV3) -> Result<(), NodeError> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        let _measure = stage_timing::Span::new("peer.accept_materialized");
         if is_local_echo(&message, &self.selected.binding.local_validator_id) {
             return Ok(());
         }
         let digest = message_digest(&message)?;
         match message {
             BftPublicPeerMessageV3::Proposal(proposal) => {
-                #[cfg(any(test, feature = "test-hooks"))]
-                let _proposal = stage_timing::Span::new("peer.accept_proposal");
                 if super::super::membership::active_key(&self.selected, &self.schedule).is_none() {
                     return Ok(());
                 }

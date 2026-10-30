@@ -1,5 +1,3 @@
-#[cfg(any(test, feature = "test-hooks"))]
-use super::stage_timing;
 use super::startup::{self, Hook, lock_hook};
 use super::{NodeBftStatusV3, SelectedNodeBftConfigV3, error};
 use crate::{
@@ -36,8 +34,6 @@ pub(super) struct Worker {
 }
 impl Worker {
     pub(super) fn run(mut self, stop: mpsc::Receiver<()>) -> Result<(), NodeError> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        let _measurement_report = stage_timing::Report;
         self.publish_recovered_completions()?;
         self.publish_status();
         self.publish_peer_view()?;
@@ -138,8 +134,6 @@ impl Worker {
         )
     }
     fn signer(&self) -> Result<std::sync::MutexGuard<'_, Box<dyn BftSignerLeaseV3>>, NodeError> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        let _measure = stage_timing::Span::new("lease.lock_wait");
         self.lease
             .lock()
             .map_err(|_| error("wire-3 shared signer poisoned"))
@@ -161,10 +155,6 @@ impl Worker {
             .ok_or_else(|| error("wire-3 journal missing"))
     }
     fn advance(&mut self, journal: BftSigningJournalV3) -> Result<(), NodeError> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        let _advance = stage_timing::Span::new("journal.advance");
-        #[cfg(any(test, feature = "test-hooks"))]
-        let measure_verify = stage_timing::Span::new("journal.verify_transition");
         verify_bft_signing_journal_transition_v3(
             &self.journal()?,
             &journal,
@@ -173,22 +163,16 @@ impl Worker {
             self.selected.binding.timeouts,
         )
         .map_err(error)?;
-        #[cfg(any(test, feature = "test-hooks"))]
-        drop(measure_verify);
         let mut candidate = self.checkpoint.state.candidate();
         candidate.journal = Some(journal);
-        let checkpoint = {
-            let mut signer = self.signer()?;
-            #[cfg(any(test, feature = "test-hooks"))]
-            let _rpc = stage_timing::Span::new("journal.advance_rpc");
-            signer
-                .advance(
-                    self.checkpoint.state.revision,
-                    &self.checkpoint.state.state_digest,
-                    candidate,
-                )
-                .map_err(|_| error("wire-3 journal reservation rejected"))?
-        };
+        let checkpoint = self
+            .signer()?
+            .advance(
+                self.checkpoint.state.revision,
+                &self.checkpoint.state.state_digest,
+                candidate,
+            )
+            .map_err(|_| error("wire-3 journal reservation rejected"))?;
         self.checkpoint = checkpoint;
         Ok(())
     }
@@ -444,8 +428,6 @@ impl Worker {
         Ok(())
     }
     fn apply_commit(&mut self, certificate: FormalBftCertifiedHeaderV3) -> Result<(), NodeError> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        let _measure = stage_timing::Span::new("apply_commit");
         let token =
             verify_commit_certificate_token_v3(&self.schedule, &certificate).map_err(error)?;
         let committed = certificate.clone();
@@ -478,44 +460,32 @@ impl Worker {
                 self.advance(journal)?;
             }
         }
-        let checkpoint = {
-            let mut signer = self.signer()?;
-            #[cfg(any(test, feature = "test-hooks"))]
-            let _rpc = stage_timing::Span::new("apply.append_rpc");
-            signer
-                .append_committed_certificate(
-                    self.checkpoint.state.revision,
-                    &self.checkpoint.state.state_digest,
-                    certificate,
-                )
-                .map_err(|_| error("wire-3 protected QC append failed"))?
-        };
+        let checkpoint = self
+            .signer()?
+            .append_committed_certificate(
+                self.checkpoint.state.revision,
+                &self.checkpoint.state.state_digest,
+                certificate,
+            )
+            .map_err(|_| error("wire-3 protected QC append failed"))?;
         self.checkpoint = checkpoint;
         self.selected
             .capacity_exhausted
             .store(self.checkpoint.state.history.len() >= 64, Ordering::Release);
-        let result = {
-            let mut hook = lock_hook(&self.hook)?;
-            #[cfg(any(test, feature = "test-hooks"))]
-            let _hook = stage_timing::Span::new("apply.hook_commit");
-            hook.commit_bft_v3_certificate(token.clone())
-                .map_err(|_| error("wire-3 durable actual commit failed"))?
-        };
+        let result = lock_hook(&self.hook)?
+            .commit_bft_v3_certificate(token.clone())
+            .map_err(|_| error("wire-3 durable actual commit failed"))?;
         startup::validate_result(&token, &result)?;
-        let checkpoint = {
-            let mut signer = self.signer()?;
-            #[cfg(any(test, feature = "test-hooks"))]
-            let _rpc = stage_timing::Span::new("apply.confirm_rpc");
-            signer
-                .confirm_applied(
-                    self.checkpoint.state.revision,
-                    &self.checkpoint.state.state_digest,
-                    result.height,
-                    &result.header_id,
-                    &result.driver_install_digest,
-                )
-                .map_err(|_| error("wire-3 applied install confirmation failed"))?
-        };
+        let checkpoint = self
+            .signer()?
+            .confirm_applied(
+                self.checkpoint.state.revision,
+                &self.checkpoint.state.state_digest,
+                result.height,
+                &result.header_id,
+                &result.driver_install_digest,
+            )
+            .map_err(|_| error("wire-3 applied install confirmation failed"))?;
         self.checkpoint = checkpoint;
         if self.checkpoint.state.pending_driver_apply.is_some()
             || self
@@ -565,13 +535,7 @@ impl Worker {
         startup::validate_schedule(&self.schedule, &self.selected)?;
         {
             let lease = self.lease.clone();
-            #[cfg(any(test, feature = "test-hooks"))]
-            let measure_lock = stage_timing::Span::new("membership.lease_lock_wait");
             let mut signer = lease.lock().map_err(|_| error("wire-3 signer poisoned"))?;
-            #[cfg(any(test, feature = "test-hooks"))]
-            drop(measure_lock);
-            #[cfg(any(test, feature = "test-hooks"))]
-            let _install = stage_timing::Span::new("membership.install");
             super::membership::install(
                 &self.selected,
                 &self.schedule,

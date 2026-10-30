@@ -264,6 +264,3 @@ fn public_partial_capacity_is_global_and_per_peer() {
         .is_err()
     );
 }
-
-#[path = "fifo_tests.rs"]
-mod fifo_tests;
