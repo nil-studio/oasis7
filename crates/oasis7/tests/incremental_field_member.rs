@@ -1,6 +1,9 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
+use oasis7_formal_protocol::incremental_state::{
+    STATE_ROOT_BYTES, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
+};
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use oasis7_runtime::{incremental_field_member::*, types::MaterialLedgerId};
@@ -76,7 +79,7 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
         let MaterialLedgerId::Factory(id) = &*source else {
             unreachable!()
         };
-        let (record, expected_key, expected_payload) = {
+        let (record, state_root_bytes, expected_key, expected_payload) = {
             let _output = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
             // Derive both oracles from frozen wire bytes, not the member writer.
             let mut key_hash = blake3::Hasher::new();
@@ -119,7 +122,35 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
                 },
             )
             .unwrap();
-            (record, key_hash.finalize(), payload_hash.finalize())
+            // Attach the bounded field key to its member value in the actual
+            // state tree; this is provisional content, not an authority head.
+            let state_root_bytes: [u8; STATE_ROOT_BYTES] = {
+                let state_source = store
+                    .state_session(physical(), MemoryClass::Ordinary)
+                    .unwrap();
+                let charge = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
+                let delta = charge.retain(
+                    StateDeltaV1::build(
+                        StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+                        vec![StateWriteV1 {
+                            key: record.field_key.as_bytes().to_vec(),
+                            before: None,
+                            after: Some(record.value_root),
+                        }],
+                        &state_source,
+                        2 << 20,
+                    )
+                    .unwrap(),
+                );
+                sink.put_state_pages(&delta, &memory).unwrap();
+                delta.after.canonical_bytes().unwrap().try_into().unwrap()
+            };
+            (
+                record,
+                state_root_bytes,
+                key_hash.finalize(),
+                payload_hash.finalize(),
+            )
         };
         drop(source);
         assert_eq!(memory.used(), 0);
@@ -136,6 +167,7 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
             let _output = memory.reserve(8192, class).unwrap();
             let store =
                 IncrementalPageStore::open(&path, memory.clone(), compression, class).unwrap();
+            let state_source = store.state_session(physical(), class).unwrap();
             let _filler = if class == MemoryClass::Recovery {
                 let filler = memory
                     .reserve((1 << 20) - memory.used(), MemoryClass::Ordinary)
@@ -145,6 +177,15 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
             } else {
                 None
             };
+            let value_root = {
+                let _query = memory.reserve(512 << 10, class).unwrap();
+                let state_root = StateRootV1::from_canonical_bytes(&state_root_bytes).unwrap();
+                state_root
+                    .get(record.field_key.as_bytes(), &state_source)
+                    .unwrap()
+                    .unwrap()
+            };
+            assert_eq!(value_root, record.value_root);
             let source = store.value_session(physical());
             let mut io = logical();
             let mut reader = ValueReadContext {
@@ -162,7 +203,7 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
                 bytes: 0,
             };
             let info = read_member_record_v1(
-                &record.value_root,
+                &value_root,
                 &record.field_key,
                 &mut reader,
                 MemberRecordLimitsV1 {
