@@ -637,3 +637,6 @@ fn cancellation_at_object_capability_sync_does_not_expose_a_handle() {
     flag.store(false, Ordering::Release);
     IncrementalObjectStore::open(&pages, MemoryClass::Recovery, &mut physical, &flag).unwrap();
 }
+
+#[path = "incremental_material_store_tests.rs"]
+mod material;

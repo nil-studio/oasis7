@@ -564,6 +564,14 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     }))
 }
 
+#[path = "incremental_written_values.rs"]
+mod written_values;
+pub use written_values::*;
+
 #[cfg(test)]
 #[path = "incremental_material_tests.rs"]
 mod tests;
+
+#[path = "incremental_fact_material.rs"]
+mod fact_material;
+pub use fact_material::*;

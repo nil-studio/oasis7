@@ -1176,3 +1176,5 @@ pub mod incremental_body;
 pub mod incremental_body_event;
 
 pub mod incremental_agent_genesis;
+pub mod incremental_scheduler;
+mod incremental_scheduler_index;

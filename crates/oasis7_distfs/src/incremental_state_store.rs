@@ -181,6 +181,9 @@ fn parse_id(id: &str) -> Result<[u8; 32]> {
         .map_err(|_| PageStoreError::Corrupt("Merkle page ID length"))
 }
 
+#[path = "incremental_producer_page_writers.rs"]
+mod producer_writers;
+
 #[cfg(all(test, unix))]
 #[path = "incremental_state_store_tests.rs"]
 mod tests;
