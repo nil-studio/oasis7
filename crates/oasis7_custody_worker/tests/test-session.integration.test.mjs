@@ -220,7 +220,7 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
-async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false,wrongBasisDigest=false}={}){
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
   toolNonceFixtureActive=toolNonceFixture;
   toolNonceFaultMode=null;
@@ -267,8 +267,15 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     const proofBody=JSON.stringify({api_version:1,enrollment_id:view.enrollment_id,request_id:'session-proof',target,client_public_key:publicKey,server_nonce:view.server_nonce,challenge_expires_at:view.challenge_expires_at,descriptor_digest:view.descriptor_digest});
     assert.equal((await json(await runtime.publicEnrollmentFetch(`/v1/client-enrollments/${view.enrollment_id}/prove`,{method:'POST',headers:proofHeaders(view,proofBody),body:proofBody}))).status,'proved');
     const cleanup=Date.now()+60000;
-    const basis=await json(await runtime.managementFetch('/test-sessions/basis',{api_version:1,request_id:'session-plan',enrollment_id:view.enrollment_id,cleanup_until:String(cleanup)}));
-    const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest:digest('oasis7.custody.test-session-basis.v1',basis),actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
+    const basisResponse=await json(await runtime.managementFetch('/test-sessions/basis',{api_version:1,request_id:'session-plan',enrollment_id:view.enrollment_id,cleanup_until:String(cleanup)}));
+    const {basis,basis_digest}=basisResponse;
+    const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest,actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
+    if(wrongBasisDigest){
+      const changedDigest=(basis_digest[0]==='0'?'1':'0')+basis_digest.slice(1);
+      const rejected=await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'wrong-basis-approval',plan:{...plan,basis_digest:changedDigest}});
+      assert.equal(rejected.status,503,'a changed Rust basis commitment must be rejected before fresh MFA');
+      await rejected.arrayBuffer();
+    }
     const request=await json(await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'session-approval',plan}));
     const approval=await runtime.approveIntent(request);
     if(approvalFault){await approvalFault(runtime,{basis,plan,request,approval},selectedMode);return;}
@@ -376,6 +383,10 @@ async function assertGetterNoEffects(runtime,request,{accepted=true}={}){
   assert.deepEqual(privateMetadata(runtime,'stamp'),before,'getter must not mutate custody records or audits');
   assert.deepEqual(runtime.nativeRequests(),native,'getter must not issue native HTTP');
 }
+
+test('Rust TestSession basis digest is forwarded unchanged and a modified digest is rejected before fresh MFA',{timeout:300000},async()=>{
+  await withActiveSession(async()=>{}, {wrongBasisDigest:true});
+});
 
 test('real fresh MFA activates three roots and the private lifetime getter is readonly without KEKs',{timeout:300000},async()=>{
   await withActiveSession(async(runtime,basis,selectedMode)=>{
