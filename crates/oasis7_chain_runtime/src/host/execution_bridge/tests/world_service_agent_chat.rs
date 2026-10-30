@@ -71,6 +71,38 @@ fn fixture_with_controller(
     String,
     String,
 ) {
+    fixture_with_controller_preload(
+        verified_authority,
+        provider_fixture,
+        other_provider,
+        controller,
+        |_| {},
+    )
+}
+pub(super) fn driver_fixture_with_resource_preload(
+    preload: impl FnOnce(&mut oasis7_runtime::World),
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture_with_controller_preload(true, true, false, None, preload)
+}
+fn fixture_with_controller_preload(
+    verified_authority: bool,
+    provider_fixture: bool,
+    other_provider: bool,
+    controller: Option<oasis7_runtime::GovernanceMainTokenControllerRegistry>,
+    preload: impl FnOnce(&mut oasis7_runtime::World),
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
     let dir = temp_dir("world-service-owner-chat");
     let owner = hex::encode([7u8; 32]);
     let public = sign_read_request("owner", (), &owner)
@@ -138,6 +170,7 @@ fn fixture_with_controller(
     world
         .provision_cognition_for_agent("agent-a", "provision-a", "owner-a", 100)
         .unwrap();
+    preload(&mut world);
     let context_hash = super::super::execution_hash::execution_resource_context_hash("w1");
     world
         .save_to_dir_with_chain_resource_context(
