@@ -405,6 +405,15 @@ pub struct NodeExecutionCheckpointInstallContext {
 }
 
 pub trait NodeExecutionHook: Send {
+    /// Dedicated profile admission before enqueueing the new cleanup catalog.
+    /// A signature alone does not qualify Runtime context or block selection.
+    fn validate_cleanup_v2_action_payload(
+        &self,
+        _request: &oasis7_client_api::world_service::task_cleanup_v2::TaskCleanupSubmitV2,
+    ) -> Result<(), String> {
+        Err("execution hook cleanup V2 profile unsupported".into())
+    }
+
     /// Check governance against the current immutable qualified parent before enqueueing.
     /// Unsupported hooks fail closed; execution must verify again at commit time.
     fn validate_governance_action_payload(&self, _payload_cbor: &[u8]) -> Result<(), String> {

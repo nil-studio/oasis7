@@ -230,6 +230,19 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
             replicated_provider_backed_bootstrap,
             service_intents,
         ) = super::super::driver_replicated_input::decode_committed_actions(&context)?;
+        super::super::world_service_cleanup_v2::validate_batch(&service_intents)
+            .map_err(|e| format!("{e:?}"))?;
+        if service_intents.iter().any(|(_, request)| {
+            matches!(
+                request,
+                super::super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(_)
+            )
+        }) && (!decoded_runtime_actions.is_empty()
+            || !decoded_simulator_actions.is_empty()
+            || replicated_provider_backed_bootstrap.is_some())
+        {
+            return Err("UnsupportedMixedV2".into());
+        }
         let decode_ms = decode_started_at.elapsed();
         let runtime_action_count = decoded_runtime_actions.len();
 
@@ -329,12 +342,9 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         let service_admin_only = !service_intents.is_empty()
             && decoded_runtime_actions.is_empty()
             && decoded_simulator_actions.is_empty()
-            && service_intents.iter().all(|(_, request)| {
-                !matches!(
-                    request.signed_payload,
-                    oasis7::world_service::WorldServicePayloadV1::GameplayJson(_)
-                )
-            });
+            && service_intents
+                .iter()
+                .all(|(_, request)| !request.is_gameplay());
         let service_identity = if service_intents.is_empty() {
             None
         } else {
@@ -342,13 +352,14 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                 super::super::world_service_read::identity(&self.world_dir, &context.world_id)
             ))
         };
-        let service_results =
-            rollback_on_error!(super::super::world_service_execution::apply_intents(
+        let service_results = rollback_on_error!(
+            super::super::world_service_cleanup_v2::apply_registered_intents(
                 &mut self.execution_world,
                 &context,
                 service_identity.as_ref(),
                 service_intents
-            ));
+            )
+        );
         let runtime_step_started_at = Instant::now();
         if !resume_after_product_validation_intent {
             for (action, origin, governance_authorization) in decoded_runtime_actions {

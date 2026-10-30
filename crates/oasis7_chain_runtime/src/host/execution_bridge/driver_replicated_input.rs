@@ -27,9 +27,7 @@ pub(super) fn decode_committed_actions(
         Option<Vec<ProviderBackedBootstrapAuthorityV1>>,
         Vec<(
             u64,
-            oasis7::world_service::SubmitIntentRequest<
-                oasis7::world_service::WorldServicePayloadV1,
-            >,
+            super::world_service_cleanup_v2::RegisteredServiceIntent,
         )>,
     ),
     String,
@@ -103,15 +101,34 @@ pub(super) fn decode_committed_actions(
                     }
                 }
                 match envelope.body {
+                    ConsensusActionPayloadBody::WorldCleanupV2 { request } => {
+                        request.validate()?;
+                        service_intents.push((
+                            action.action_id,
+                            super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(
+                                Box::new(request),
+                            ),
+                        ));
+                    }
                     ConsensusActionPayloadBody::WorldServiceIntent { request } => {
-                        service_intents.push((action.action_id, request));
+                        service_intents.push((
+                            action.action_id,
+                            super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(
+                                Box::new(request),
+                            ),
+                        ));
                     }
                     ConsensusActionPayloadBody::RuntimeAction { action: decoded } => {
                         if let RuntimeAction::WorldServiceIntent { request } = decoded {
                             let request = serde_json::from_value(request).map_err(|error| {
                                 format!("invalid registered world-service intent: {error}")
                             })?;
-                            service_intents.push((action.action_id, request));
+                            service_intents.push((
+                                action.action_id,
+                                super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(
+                                    Box::new(request),
+                                ),
+                            ));
                         } else {
                             let origin = envelope.gameplay_submission_origin.map(|submission| {
                                 oasis7_runtime::CommittedRecipeOrigin {

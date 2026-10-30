@@ -29,6 +29,10 @@ mod bft_action_validation;
 #[path = "node_runtime_gameplay_origin.rs"]
 mod gameplay_origin;
 
+#[path = "node_runtime_cleanup_v2_catalog.rs"]
+mod cleanup_v2_catalog;
+use cleanup_v2_catalog::decode_local_consensus_action_payload_envelope;
+
 const CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION: u8 = 1;
 const MAIN_TOKEN_ACTION_AUTH_PAYLOAD_VERSION: u8 = 1;
 const MAIN_TOKEN_TRANSFER_AUTH_SIGNATURE_V1_PREFIX: &str = "octransferauth:v1:";
@@ -89,6 +93,9 @@ struct LocalMainTokenActionAuthProof {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 enum LocalConsensusActionPayloadBody {
+    WorldCleanupV2 {
+        request: Box<oasis7_client_api::world_service::task_cleanup_v2::TaskCleanupSubmitV2>,
+    },
     RuntimeAction {
         action: JsonValue,
     },
@@ -535,30 +542,6 @@ impl NodeRuntime {
         }
         pending.push(announce);
         Ok(())
-    }
-}
-
-fn decode_local_consensus_action_payload_envelope(
-    payload_cbor: &[u8],
-) -> Result<LocalConsensusActionPayloadEnvelope, String> {
-    gameplay_origin::validate_metadata_presence(payload_cbor)?;
-    match serde_cbor::from_slice::<LocalConsensusActionPayloadEnvelope>(payload_cbor) {
-        Ok(envelope) => {
-            gameplay_origin::validate_envelope(&envelope)?;
-            Ok(envelope)
-        }
-        Err(error) if gameplay_origin::recognized_metadata(payload_cbor) => {
-            Err(format!("invalid gameplay origin envelope: {error}"))
-        }
-        Err(_) => Ok(LocalConsensusActionPayloadEnvelope {
-            version: CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION,
-            gameplay_submission_origin: None,
-            auth: None,
-            body: LocalConsensusActionPayloadBody::RuntimeAction {
-                action: serde_cbor::from_slice::<JsonValue>(payload_cbor)
-                    .map_err(|err| format!("legacy runtime action decode failed: {err}"))?,
-            },
-        }),
     }
 }
 
@@ -1195,3 +1178,7 @@ pub(crate) use governance_auth::preflight_with_execution_hook;
 pub(crate) use governance_auth::retain_for_bft_v3_parent;
 pub(crate) use governance_auth::retain_for_proposal as retain_governance_action_for_proposal;
 pub(crate) use governance_auth::validate_consensus_action_payload_auth;
+
+#[cfg(test)]
+#[path = "node_runtime_cleanup_v2_tests.rs"]
+mod cleanup_v2_tests;
