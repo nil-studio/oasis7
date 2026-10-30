@@ -341,6 +341,12 @@ impl NodeExecutionHook for ActualHook {
     ) -> Result<NodeBftPrivateCandidateV3, String> {
         self.0.lock().unwrap().load_bft_v3_private_candidate(v)
     }
+    fn validate_bft_v3_static_action_payload(&mut self, p: &[u8]) -> Result<(), String> {
+        self.0
+            .lock()
+            .unwrap()
+            .validate_bft_v3_static_action_payload(p)
+    }
     fn validate_bft_v3_action_payload(&mut self, p: &[u8]) -> Result<(), String> {
         self.0.lock().unwrap().validate_bft_v3_action_payload(p)
     }
@@ -741,6 +747,15 @@ fn read_generated_cut(
     server.stop().unwrap();
 }
 
+#[path = "driver_bft_v3_node_membership_clock.rs"]
+mod membership_clock;
+
 #[cfg(feature = "node-libp2p")]
 #[path = "driver_bft_v3_node_network_tests.rs"]
 mod node_network_tests;
+
+#[path = "driver_bft_v3_node_capacity_roll_tests.rs"]
+mod capacity_roll_tests;
+
+#[path = "driver_bft_v3_parent_memo_tests.rs"]
+mod parent_memo_tests;

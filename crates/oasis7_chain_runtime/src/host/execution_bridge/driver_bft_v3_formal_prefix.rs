@@ -11,6 +11,14 @@ use std::path::{Path, PathBuf};
 #[path = "driver_bft_v3_formal_node.rs"]
 mod node_execution;
 pub(crate) use node_execution::FormalBftHeaderNodeDriverV3;
+#[cfg(test)]
+pub(crate) use node_execution::OriginalHeaderIdentityV1;
+#[path = "driver_bft_v3_window_execution.rs"]
+mod window_execution;
+#[path = "driver_bft_v3_window_storage.rs"]
+mod window_storage;
+#[cfg(test)]
+pub(crate) use window_execution::FormalBftHeaderActiveExecutionV1;
 
 #[path = "driver_bft_v3_successor_archive.rs"]
 mod successor_archive;
@@ -150,6 +158,64 @@ impl FormalBftHeaderLedgerExecutionV3 {
         Ok(owner)
     }
 
+    fn open_read_only_identity(
+        records: &Path,
+        store: LocalCasStore,
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: ClosedRecord,
+        source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+    ) -> Result<Self, String> {
+        validate_storage_paths(records, store.root())?;
+        let handoff = verify_formal_bft_handoff_v2(&anchor, target.clone())?;
+        validate_handoff_material_for_scope(&anchor, &target.scope, &material)?;
+        let h_bytes = encoded_h_material(&material)?
+            .len()
+            .checked_add(
+                material
+                    .snapshot_bytes()
+                    .map_err(|_| "read-only H snapshot absent")?
+                    .len(),
+            )
+            .and_then(|n| {
+                material
+                    .roots
+                    .get(&ArtifactRole::Journal)
+                    .and_then(|r| material.objects.iter().find(|o| &o.content_hash == r))
+                    .and_then(|o| n.checked_add(o.bytes.len()))
+            })
+            .ok_or("read-only original H material capacity")?;
+        let mut ledger = storage::Ledger::open(records, false, h_bytes)?;
+        ledger.require_completed()?;
+        let seed = ledger.preload(&store, None)?;
+        let origin = FormalBftHeaderExecutionV3::from_handoff(
+            anchor.clone(),
+            target.clone(),
+            &material,
+            source.clone(),
+            seed,
+            true,
+        )?;
+        if ledger.material_pin_digest()? != material_pin_digest(&origin, &material)?
+            || ledger.origin()?.first_height() != handoff.activation_height()?
+        {
+            return Err("read-only original ledger differs from independently restored H".into());
+        }
+        let owner = Self {
+            origin,
+            ledger,
+            store,
+            inputs: Inputs {
+                anchor,
+                target,
+                material,
+                source,
+            },
+        };
+        owner.ensure_origin_material()?;
+        Ok(owner)
+    }
+
     pub(crate) fn install_prefix(
         mut self,
         input: &PrivateHeaderPrefixV3,
@@ -237,6 +303,25 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 &executed,
                 references,
             )?;
+            let record = if let Some(reference) = self
+                .ledger
+                .record_at(entry.certificate.execution_commitment.height)
+                .and_then(|stored| stored.publication_reservation_ref())
+            {
+                super::publication_reservation::PublicationReservationV1::read(
+                    &self.store,
+                    reference,
+                )?
+                .validate_execution(
+                    record.origin_digest(),
+                    record.height(),
+                    &entry.actions_cbor,
+                    &executed,
+                )?;
+                record.with_publication_reservation(Some(reference.to_owned()))?
+            } else {
+                record
+            };
             previous = self.ledger.accept_prepared(
                 record,
                 &executed.snapshot_bytes,
@@ -249,7 +334,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         Ok(previous)
     }
 
-    fn ensure_origin_material(&self) -> Result<(), String> {
+    pub(super) fn ensure_origin_material(&self) -> Result<(), String> {
         self.ledger.verify_carriers()?;
         retain_origin_material(
             &self.store,
@@ -269,6 +354,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
     ) -> Result<(), String> {
         use super::super::formal_ledger::PublicationFault;
         let phase = match phase {
+            "reservation" => PublicationFault::ReservationPublished,
             "pins" => PublicationFault::PinsPublished,
             "intent" => PublicationFault::IntentPublished,
             "link" => PublicationFault::RecordLinked,
@@ -431,3 +517,8 @@ fn retain_origin_material(
     }
     Ok(())
 }
+
+#[cfg(test)]
+pub(crate) use successor_archive::SuccessorPrivateExportRequestV1;
+#[cfg(test)]
+pub(crate) use successor_install::SuccessorPrivateInstallRequestV1;

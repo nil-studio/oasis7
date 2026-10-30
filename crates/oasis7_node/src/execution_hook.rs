@@ -648,6 +648,61 @@ pub trait NodeExecutionHook: Send {
     ) -> Result<Vec<oasis7_proto::distributed_bft::v2::BftCommitCertificateV2>, String> {
         Err("dynamic-set BFT history is unsupported by this hook".into())
     }
+    /// Codec/identity checks only; parent-dependent admission happens after the
+    /// authenticated execution base is installed.
+    fn validate_bft_v3_static_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
+        self.validate_bft_v3_action_payload(payload)
+    }
+
+    /// Second startup phase, after provider acquisition and static input checks.
+    /// Legacy hooks cannot interpret an active/pending checkpoint as H readiness.
+    /// Actual private execution preflight. Unsupported hooks cannot assert
+    /// publication headroom or request an automatic checkpoint.
+    /// Retain the actual publication promise and exact candidate before fresh
+    /// signing. Old hooks cannot silently substitute legacy unreserved storage.
+    fn retain_bft_v3_reserved_candidate(
+        &mut self,
+        _context: &NodeBftExecutionContextV3,
+        _candidate: &NodeBftPrivateCandidateV3,
+    ) -> Result<String, String> {
+        Err("wire-3 durable publication reservation unsupported".into())
+    }
+
+    fn preflight_bft_v3_capacity(
+        &mut self,
+        _context: &NodeBftBuildContextV3,
+    ) -> Result<NodeBftCapacityAdmissionV3, String> {
+        Ok(NodeBftCapacityAdmissionV3::Blocked)
+    }
+
+    fn prepare_bft_v3_execution(
+        &mut self,
+        _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        _deadline: std::time::Instant,
+    ) -> Result<(), String> {
+        let checkpoint = lease.checkpoint().map_err(|error| error.to_string())?;
+        if checkpoint.state.active_window.is_some()
+            || checkpoint
+                .state
+                .successor_window
+                .as_ref()
+                .is_some_and(|window| {
+                    window.reservation.is_some()
+                        || window.requests.iter().any(|record| {
+                            matches!(record.request.status,
+                oasis7_distfs::protected_bft_v3::BftSuccessorWindowStatusV1::Prepared
+                | oasis7_distfs::protected_bft_v3::BftSuccessorWindowStatusV1::InstalledPending)
+                        })
+                })
+        {
+            return Err(
+                "wire-3 active or pending startup requires verified private archive support".into(),
+            );
+        }
+        Ok(())
+    }
+
     fn configure_bft_v3_execution(
         &mut self,
         _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,

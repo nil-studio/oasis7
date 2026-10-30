@@ -1,6 +1,7 @@
 //! Real World/Node/native-provider closure replay. The protected backend/key are
 //! explicit memory doubles; these tests do not prove adoption or height 65.
 use super::super::super::super::formal_header::ActualBftSuccessorWindowDriverVerifierV1;
+use super::super::super::super::formal_header::SuccessorPrivateExportRequestV1;
 use super::*;
 
 #[test]
@@ -60,17 +61,17 @@ fn closure_case() {
         actual
             .lock()
             .unwrap()
-            .export_successor_private_closure(
-                &overlapping,
-                &source,
-                &state,
-                BftSuccessorWindowArchiveUsageV1::default(),
+            .export_successor_private_closure(SuccessorPrivateExportRequestV1 {
+                archive: &overlapping,
+                source: &source,
+                public_state: &state,
+                previous_usage: BftSuccessorWindowArchiveUsageV1::default(),
                 height,
-                &id,
-                1,
-                None,
-                Instant::now() + Duration::from_secs(120),
-            )
+                header_id: &id,
+                sequence: 1,
+                predecessor: None,
+                deadline: Instant::now() + Duration::from_secs(120)
+            })
             .is_err(),
         "immutable archive must not share the live private CAS"
     );
@@ -81,17 +82,17 @@ fn closure_case() {
     let exported = actual
         .lock()
         .unwrap()
-        .export_successor_private_closure(
-            &archive,
-            &source,
-            &state,
-            BftSuccessorWindowArchiveUsageV1::default(),
+        .export_successor_private_closure(SuccessorPrivateExportRequestV1 {
+            archive: &archive,
+            source: &source,
+            public_state: &state,
+            previous_usage: BftSuccessorWindowArchiveUsageV1::default(),
             height,
-            &id,
-            1,
-            None,
-            Instant::now() + Duration::from_secs(120),
-        )
+            header_id: &id,
+            sequence: 1,
+            predecessor: None,
+            deadline: Instant::now() + Duration::from_secs(120),
+        })
         .unwrap();
     assert_eq!(
         exported.cut().snapshot_ref.digest,

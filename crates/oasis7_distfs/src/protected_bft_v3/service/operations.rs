@@ -503,7 +503,6 @@ impl BftSignerServiceV3 {
             snapshot,
         )?;
         let verified = self.validate_provider_state(&snapshot.state, runtime.successor_deadline)?;
-        self.verify_successor_archives(&snapshot.state, runtime.successor_deadline)?;
         if let Some(previous) = &runtime.verified {
             if snapshot.state.revision < previous.state.revision {
                 return Err(invalid("BFT V3 backend state revision regressed"));

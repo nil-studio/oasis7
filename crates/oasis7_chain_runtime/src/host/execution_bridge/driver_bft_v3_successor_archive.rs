@@ -15,10 +15,12 @@ pub(super) const MAX_METADATA: usize = 1024 * 1024;
 pub(super) const MAX_CLOSURE: usize = 512 * 1024 * 1024;
 pub(super) const MAX_REFS: usize = 4096;
 const DOMAIN: &str = "oasis7.formal.bft.successor-private-closure.v1";
+pub(super) const WINDOW_DOMAIN: &str = "oasis7.formal.bft.successor-private-closure.v2";
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum PendingRoleV1 {
+    RetainedLocal,
     Proposal,
     Equivocation,
     BlockPrevote,
@@ -76,10 +78,10 @@ pub(super) fn required_pending(
     if let Some(intent) = journal.pending_proposal_intent() {
         add(&intent.block.block_id()?, PendingRoleV1::PendingProposal);
     }
-    if let Some(intent) = journal.pending_vote_intent() {
-        if let BftVoteValueV3::Block { block_id } = &intent.value {
-            add(block_id, PendingRoleV1::PendingVote);
-        }
+    if let Some(intent) = journal.pending_vote_intent()
+        && let BftVoteValueV3::Block { block_id } = &intent.value
+    {
+        add(block_id, PendingRoleV1::PendingVote);
     }
     if ids.len() > 16 {
         return Err("successor T+1 private candidate capacity".into());
@@ -117,8 +119,16 @@ fn bounded_pending<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct PrivateWindowBaseV1 {
+    pub checkpoint_digest: String,
+    pub window_origin: BftSuccessorWindowArchiveRefV1,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PrivateClosureV1 {
     pub domain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_base: Option<PrivateWindowBaseV1>,
     pub source: BftSuccessorWindowSourceV1,
     pub private_instance_id: String,
     pub material: BftSuccessorWindowArchiveRefV1,
@@ -175,7 +185,12 @@ impl PrivateClosureV1 {
     pub(super) fn validate(&self) -> Result<(), String> {
         self.source.validate().map_err(err)?;
         self.cut.validate().map_err(err)?;
-        if self.domain != DOMAIN
+        if self.domain
+            != if self.active_base.is_some() {
+                WINDOW_DOMAIN
+            } else {
+                DOMAIN
+            }
             || self.private_instance_id.is_empty()
             || self.private_instance_id.len() > 256
             || self.records.is_empty()
@@ -186,6 +201,17 @@ impl PrivateClosureV1 {
             || self.manifests.len() != self.records.len()
         {
             return Err("successor private closure bounds/domain".into());
+        }
+        if let Some(base) = &self.active_base {
+            base.window_origin.validate().map_err(err)?;
+            if base.checkpoint_digest.len() != 64
+                || !base
+                    .checkpoint_digest
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err("private archive predecessor checkpoint encoding".into());
+            }
         }
         let mut total = 0u64;
         for reference in std::iter::once(&self.material)
@@ -215,6 +241,15 @@ impl PrivateClosureV1 {
         {
             return Err("successor pending candidate order/count".into());
         }
+        if self
+            .pending_candidates
+            .iter()
+            .filter(|c| c.roles.contains(&PendingRoleV1::RetainedLocal))
+            .count()
+            > 1
+        {
+            return Err("successor archive has multiple original local selections".into());
+        }
         for candidate in &self.pending_candidates {
             candidate.value.validate_binding()?;
             if candidate.height
@@ -242,12 +277,12 @@ impl PrivateClosureV1 {
 }
 /// Fields are private so only an actual durable exporter can mint this receipt.
 pub(crate) struct ExportedBftSuccessorPrivateClosureV1 {
-    manifest: BftSuccessorWindowArchiveManifestV1,
-    manifest_ref: BftSuccessorWindowArchiveRefV1,
-    metadata_ref: BftSuccessorWindowArchiveRefV1,
-    public_state_ref: BftSuccessorWindowArchiveRefV1,
-    pending_actions: Vec<BftSuccessorWindowArchiveRefV1>,
-    cut: BftSuccessorWindowCutV1,
+    pub(super) manifest: BftSuccessorWindowArchiveManifestV1,
+    pub(super) manifest_ref: BftSuccessorWindowArchiveRefV1,
+    pub(super) metadata_ref: BftSuccessorWindowArchiveRefV1,
+    pub(super) public_state_ref: BftSuccessorWindowArchiveRefV1,
+    pub(super) pending_actions: Vec<BftSuccessorWindowArchiveRefV1>,
+    pub(super) cut: BftSuccessorWindowCutV1,
 }
 impl ExportedBftSuccessorPrivateClosureV1 {
     pub(crate) fn manifest(&self) -> &BftSuccessorWindowArchiveManifestV1 {
@@ -309,6 +344,33 @@ pub(super) fn decode<T: serde::de::DeserializeOwned + Serialize>(
     }
     Ok(value)
 }
+/// Permanent conservative reservation for the next segment's immutable init
+/// metadata and copied original candidate WAL/CAS records. It is not refunded.
+pub(super) fn window_init_reserve(pending: &[PendingCandidateV1]) -> Result<(u64, u64), String> {
+    let mut bytes = 8 * MAX_METADATA as u64;
+    let mut objects = 16u64;
+    for candidate in pending {
+        let data = candidate
+            .actions
+            .bytes
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(candidate.dependencies.len() as u64 * 128))
+            .and_then(|n| n.checked_add(16 * 1024))
+            .ok_or("active init candidate accounting overflow")?;
+        bytes = bytes
+            .checked_add(
+                data.checked_mul(4)
+                    .ok_or("active init WAL accounting overflow")?,
+            )
+            .filter(|n| *n <= MAX_CLOSURE as u64)
+            .ok_or("active init material capacity")?;
+        objects = objects
+            .checked_add(4)
+            .ok_or("active init object accounting overflow")?;
+    }
+    Ok((bytes, objects))
+}
+
 pub(super) fn install_digest(
     material: &str,
     record: &str,
@@ -330,24 +392,38 @@ pub(super) fn install_digest(
     ))
 }
 
+pub(crate) struct SuccessorPrivateExportRequestV1<'a> {
+    pub(crate) archive: &'a LocalBftSuccessorArchiveStoreV1,
+    pub(crate) source: &'a BftSuccessorWindowSourceV1,
+    pub(crate) public_state: &'a oasis7_distfs::protected_bft_v3::BftSignerStateV3,
+    pub(crate) previous_usage: BftSuccessorWindowArchiveUsageV1,
+    pub(crate) height: u64,
+    pub(crate) header_id: &'a str,
+    pub(crate) sequence: u64,
+    pub(crate) predecessor: Option<String>,
+    pub(crate) deadline: Instant,
+}
 impl FormalBftHeaderLedgerExecutionV3 {
     pub(super) fn export_successor_private_closure(
         &mut self,
-        archive: &LocalBftSuccessorArchiveStoreV1,
-        source: &BftSuccessorWindowSourceV1,
-        height: u64,
-        header_id: &str,
-        sequence: u64,
-        predecessor_root: Option<String>,
+        request: SuccessorPrivateExportRequestV1<'_>,
         private_instance_id: &str,
-        public_state: &oasis7_distfs::protected_bft_v3::BftSignerStateV3,
-        previous_usage: BftSuccessorWindowArchiveUsageV1,
         pending_packages: &[(
             BTreeSet<PendingRoleV1>,
             oasis7_node::NodeBftPrivateCandidatePackageV3,
         )],
-        deadline: Instant,
     ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
+        let SuccessorPrivateExportRequestV1 {
+            archive,
+            source,
+            public_state,
+            previous_usage,
+            height,
+            header_id,
+            sequence,
+            predecessor: predecessor_root,
+            deadline,
+        } = request;
         live(deadline)?;
         let cut = self.verified_cut(height, header_id)?;
         live(deadline)?;
@@ -392,166 +468,175 @@ impl FormalBftHeaderLedgerExecutionV3 {
         let public_bytes = encode_protocol(public_state, MAX_CLOSURE)?;
         let mut objects = BTreeMap::<String, BftSuccessorWindowArchiveRefV1>::new();
         let mut total = 0u64;
-        let mut put =
-            |bytes: &[u8], max: usize| -> Result<BftSuccessorWindowArchiveRefV1, String> {
+        let (metadata, metadata_ref, public_state, cut_body) = {
+            let mut put =
+                |bytes: &[u8], max: usize| -> Result<BftSuccessorWindowArchiveRefV1, String> {
+                    live(deadline)?;
+                    let digest = blake3_hex(bytes);
+                    if let Some(reference) = objects.get(&digest) {
+                        return Ok(reference.clone());
+                    }
+                    if objects.len() >= MAX_REFS {
+                        return Err("successor private object count".into());
+                    }
+                    total = total
+                        .checked_add(bytes.len() as u64)
+                        .filter(|n| *n <= MAX_CLOSURE as u64)
+                        .ok_or("successor private archive capacity")?;
+                    let reference = archive.persist_object(bytes, max).map_err(err)?;
+                    if archive.load_object(&reference, max).map_err(err)? != bytes {
+                        return Err("successor private fresh read differs".into());
+                    }
+                    live(deadline)?;
+                    objects.insert(digest, reference.clone());
+                    Ok(reference)
+                };
+            let current_journal = public_state
+                .journal
+                .as_ref()
+                .map(|journal| put(&encode_protocol(journal, MAX_CLOSURE)?, MAX_CLOSURE))
+                .transpose()?;
+            let public_state = put(&public_bytes, MAX_CLOSURE)?;
+            let material = put(&encoded_h_material(&self.inputs.material)?, MAX_H_BYTES)?;
+            let origin = put(&encode(self.ledger.origin()?, MAX_METADATA)?, MAX_METADATA)?;
+            let records = self
+                .ledger
+                .records_through(height)?
+                .map(|r| {
+                    put(
+                        &encode(r, super::super::super::formal_ledger::MAX_RECORD)?,
+                        super::super::super::formal_ledger::MAX_RECORD,
+                    )
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let nodes = self
+                .origin
+                .retained_nodes
+                .accessed_nodes()?
+                .into_values()
+                .map(|bytes| {
+                    put(
+                        &bytes,
+                        super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
+                    )
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let mut nodes = nodes;
+            nodes.sort_by(|a, b| a.digest.cmp(&b.digest));
+            let seed = self
+                .origin
+                .retained_nodes
+                .accessed_nodes()?
+                .into_iter()
+                .collect();
+            let mut replay = FormalBftHeaderExecutionV3::from_handoff(
+                self.inputs.anchor.clone(),
+                self.inputs.target.clone(),
+                &self.inputs.material,
+                self.inputs.source.clone(),
+                seed,
+                true,
+            )?;
+            let mut snapshots = Vec::new();
+            let mut journals = Vec::new();
+            let mut manifests = Vec::new();
+            for record in self.ledger.records_through(height)? {
                 live(deadline)?;
-                let digest = blake3_hex(bytes);
-                if let Some(reference) = objects.get(&digest) {
-                    return Ok(reference.clone());
+                let entry = record.input();
+                let executed = replay.replay_next(&entry.certificate, &entry.actions_cbor)?;
+                let snapshot = put(&executed.snapshot_bytes, MAX_CLOSURE)?;
+                let journal = put(&executed.journal_bytes, MAX_CLOSURE)?;
+                if snapshot.digest != record.snapshot_ref()
+                    || journal.digest != record.journal_ref()
+                {
+                    return Err(
+                        "successor reexecution differs from original Snapshot/Journal".into(),
+                    );
                 }
-                if objects.len() >= MAX_REFS {
-                    return Err("successor private object count".into());
-                }
-                total = total
-                    .checked_add(bytes.len() as u64)
-                    .filter(|n| *n <= MAX_CLOSURE as u64)
-                    .ok_or("successor private archive capacity")?;
-                let reference = archive.persist_object(bytes, max).map_err(err)?;
-                if archive.load_object(&reference, max).map_err(err)? != bytes {
-                    return Err("successor private fresh read differs".into());
-                }
-                live(deadline)?;
-                objects.insert(digest, reference.clone());
-                Ok(reference)
-            };
-        let current_journal = public_state
-            .journal
-            .as_ref()
-            .map(|journal| put(&encode_protocol(journal, MAX_CLOSURE)?, MAX_CLOSURE))
-            .transpose()?;
-        let public_state = put(&public_bytes, MAX_CLOSURE)?;
-        let material = put(&encoded_h_material(&self.inputs.material)?, MAX_H_BYTES)?;
-        let origin = put(&encode(self.ledger.origin()?, MAX_METADATA)?, MAX_METADATA)?;
-        let records = self
-            .ledger
-            .records_through(height)?
-            .map(|r| {
-                put(
-                    &encode(r, super::super::super::formal_ledger::MAX_RECORD)?,
-                    super::super::super::formal_ledger::MAX_RECORD,
-                )
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let nodes = self
-            .origin
-            .retained_nodes
-            .accessed_nodes()?
-            .into_values()
-            .map(|bytes| {
-                put(
-                    &bytes,
-                    super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-                )
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let mut nodes = nodes;
-        nodes.sort_by(|a, b| a.digest.cmp(&b.digest));
-        let seed = self
-            .origin
-            .retained_nodes
-            .accessed_nodes()?
-            .into_iter()
-            .collect();
-        let mut replay = FormalBftHeaderExecutionV3::from_handoff(
-            self.inputs.anchor.clone(),
-            self.inputs.target.clone(),
-            &self.inputs.material,
-            self.inputs.source.clone(),
-            seed,
-            true,
-        )?;
-        let mut snapshots = Vec::new();
-        let mut journals = Vec::new();
-        let mut manifests = Vec::new();
-        for record in self.ledger.records_through(height)? {
-            live(deadline)?;
-            let entry = record.input();
-            let executed = replay.replay_next(&entry.certificate, &entry.actions_cbor)?;
-            let snapshot = put(&executed.snapshot_bytes, MAX_CLOSURE)?;
-            let journal = put(&executed.journal_bytes, MAX_CLOSURE)?;
-            if snapshot.digest != record.snapshot_ref() || journal.digest != record.journal_ref() {
-                return Err("successor reexecution differs from original Snapshot/Journal".into());
+                manifests.push(put(
+                    &encode(executed.world.manifest(), MAX_CLOSURE)?,
+                    MAX_CLOSURE,
+                )?);
+                snapshots.push(snapshot);
+                journals.push(journal);
             }
-            manifests.push(put(
-                &encode(executed.world.manifest(), MAX_CLOSURE)?,
-                MAX_CLOSURE,
-            )?);
-            snapshots.push(snapshot);
-            journals.push(journal);
-        }
-        let snapshot_ref = snapshots.last().ok_or("successor empty cut")?.clone();
-        let journal_ref = journals.last().ok_or("successor empty cut")?.clone();
-        let certificate = cut.proof().certificate().certified_header();
-        let c = &certificate.execution_commitment;
-        let cut_body = BftSuccessorWindowCutV1 {
-            height,
-            header_id: header_id.into(),
-            certificate_digest: blake3_hex(&certificate.canonical_bytes()?),
-            execution_commitment_digest: c.digest()?,
-            snapshot_ref,
-            journal_ref,
-            semantic_state_root: c.state_root.clone(),
-            post_manifest_hash: c.post_manifest_hash.clone(),
-            business_result_root: c.result_root.clone(),
-            driver_record_digest: cut.durable_record_digest().into(),
-            driver_install_digest: install_digest(
-                &source.material_identity,
-                cut.durable_record_digest(),
-                certificate,
-            )?,
-        };
-        if cut_body.snapshot_ref.digest != c.execution_state_root {
-            return Err("successor private Snapshot differs from committed original".into());
-        }
-        let mut pending_candidates = Vec::new();
-        for (roles, package) in pending_packages {
-            let mut dependencies = Vec::new();
-            for (digest, bytes) in &package.dependency_nodes {
-                let reference = put(
-                    bytes,
-                    super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-                )?;
-                if reference.digest != *digest {
-                    return Err("successor pending index identity".into());
-                }
-                dependencies.push(reference);
-            }
-            pending_candidates.push(PendingCandidateV1 {
-                height: height
-                    .checked_add(1)
-                    .ok_or("successor pending height overflow")?,
-                header_id: package.candidate.public_value.block_id()?,
-                roles: roles.clone(),
-                value: package.candidate.public_value.clone(),
-                actions: put(
-                    &package.candidate.actions_cbor,
-                    oasis7_proto::distributed_bft::BFT_MAX_ACTIONS_CBOR_BYTES_V1,
+            let snapshot_ref = snapshots.last().ok_or("successor empty cut")?.clone();
+            let journal_ref = journals.last().ok_or("successor empty cut")?.clone();
+            let certificate = cut.proof().certificate().certified_header();
+            let c = &certificate.execution_commitment;
+            let cut_body = BftSuccessorWindowCutV1 {
+                height,
+                header_id: header_id.into(),
+                certificate_digest: blake3_hex(&certificate.canonical_bytes()?),
+                execution_commitment_digest: c.digest()?,
+                snapshot_ref,
+                journal_ref,
+                semantic_state_root: c.state_root.clone(),
+                post_manifest_hash: c.post_manifest_hash.clone(),
+                business_result_root: c.result_root.clone(),
+                driver_record_digest: cut.durable_record_digest().into(),
+                driver_install_digest: install_digest(
+                    &source.material_identity,
+                    cut.durable_record_digest(),
+                    certificate,
                 )?,
-                dependencies,
-            });
-        }
-        pending_candidates.sort_by(|a, b| a.header_id.cmp(&b.header_id));
-        let metadata = PrivateClosureV1 {
-            domain: DOMAIN.into(),
-            source: source.clone(),
-            private_instance_id: private_instance_id.into(),
-            material,
-            origin,
-            public_state: public_state.clone(),
-            current_journal,
-            pending_candidates,
-            snapshots,
-            journals,
-            manifests,
-            records,
-            nodes,
-            cut: cut_body.clone(),
+            };
+            if cut_body.snapshot_ref.digest != c.execution_state_root {
+                return Err("successor private Snapshot differs from committed original".into());
+            }
+            let mut pending_candidates = Vec::new();
+            for (roles, package) in pending_packages {
+                let mut dependencies = Vec::new();
+                for (digest, bytes) in &package.dependency_nodes {
+                    let reference = put(
+                        bytes,
+                        super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
+                    )?;
+                    if reference.digest != *digest {
+                        return Err("successor pending index identity".into());
+                    }
+                    dependencies.push(reference);
+                }
+                pending_candidates.push(PendingCandidateV1 {
+                    height: height
+                        .checked_add(1)
+                        .ok_or("successor pending height overflow")?,
+                    header_id: package.candidate.public_value.block_id()?,
+                    roles: roles.clone(),
+                    value: package.candidate.public_value.clone(),
+                    actions: put(
+                        &package.candidate.actions_cbor,
+                        oasis7_proto::distributed_bft::BFT_MAX_ACTIONS_CBOR_BYTES_V1,
+                    )?,
+                    dependencies,
+                });
+            }
+            pending_candidates.sort_by(|a, b| a.header_id.cmp(&b.header_id));
+            let metadata = PrivateClosureV1 {
+                domain: DOMAIN.into(),
+                active_base: None,
+                source: source.clone(),
+                private_instance_id: private_instance_id.into(),
+                material,
+                origin,
+                public_state: public_state.clone(),
+                current_journal,
+                pending_candidates,
+                snapshots,
+                journals,
+                manifests,
+                records,
+                nodes,
+                cut: cut_body.clone(),
+            };
+            metadata.validate()?;
+            let metadata_ref = put(&encode(&metadata, MAX_METADATA)?, MAX_METADATA)?;
+            (metadata, metadata_ref, public_state, cut_body)
         };
-        metadata.validate()?;
-        let metadata_ref = put(&encode(&metadata, MAX_METADATA)?, MAX_METADATA)?;
-        drop(put);
+        let (init_bytes, init_objects) = window_init_reserve(&metadata.pending_candidates)?;
         let segment_bytes = total
-            .checked_add(MAX_METADATA as u64)
+            .checked_add(init_bytes)
+            .and_then(|n| n.checked_add(MAX_METADATA as u64))
             .filter(|n| *n <= MAX_CLOSURE as u64)
             .ok_or("successor private segment capacity including public manifest reserve")?;
         let base_bytes = previous_usage
@@ -563,7 +648,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         let object_count = previous_usage
             .objects
             .checked_add(objects.len() as u64)
-            .and_then(|n| n.checked_add(2)) // execution manifest + reserved public manifest
+            .and_then(|n| n.checked_add(2 + init_objects)) // manifests and permanently reserved initialization objects
             .ok_or("successor object usage overflow")?;
         let mut manifest = BftSuccessorWindowArchiveManifestV1 {
             public_index: None,

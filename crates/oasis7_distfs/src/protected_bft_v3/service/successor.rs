@@ -174,12 +174,37 @@ impl BftSuccessorWindowSupportV1 {
                 chain.verify_next(binding, provider, record, &original)?;
             }
         }
-        crate::protected_bft_v3::state::validate_state_with_active_context(
+        // This observation authenticates both committed originals and any
+        // in-progress reservation from the same immutable backend snapshot.
+        // Callers must not traverse the complete chain a second time merely
+        // to validate the reservation's reconstructed original State.
+        if let Some(reservation) = state
+            .successor_window
+            .as_ref()
+            .and_then(|window| window.reservation.as_ref())
+        {
+            let original = reservation.original_state_with_context(
+                binding,
+                state,
+                provider,
+                chain.context().cloned(),
+            )?;
+            validate_actual_public_manifest(&reservation.manifest, &original.state)?;
+            reservation.body.checkpoint.bind_verified_state(
+                binding,
+                &original,
+                chain.context().map(|context| context.checkpoint()),
+            )?;
+        }
+        live(deadline)?;
+        let verified = crate::protected_bft_v3::state::validate_state_with_active_context(
             binding,
             Some(provider),
             state,
             chain.context().cloned(),
-        )
+        )?;
+        live(deadline)?;
+        Ok(verified)
     }
 }
 fn live(deadline: Instant) -> Result<(), BftSignerErrorV3> {
@@ -190,29 +215,6 @@ fn live(deadline: Instant) -> Result<(), BftSignerErrorV3> {
     }
 }
 impl BftSignerServiceV3 {
-    pub(super) fn verify_successor_archives(
-        &self,
-        state: &BftSignerStateV3,
-        deadline: Option<Instant>,
-    ) -> Result<(), BftSignerErrorV3> {
-        if state.successor_window.is_some() {
-            let support = self
-                .successor_support
-                .as_ref()
-                .ok_or_else(|| invalid("successor support is not configured"))?;
-            let deadline = match deadline {
-                Some(value) => value,
-                None => support.deadline(Instant::now())?,
-            };
-            support.verify_archives(
-                &self.binding,
-                state,
-                &self.provider_key.public_key_hex(),
-                deadline,
-            )?;
-        }
-        Ok(())
-    }
     /// Entered only after the enclosing SignedRequest and current lease have
     /// passed the existing service dispatch checks. No new requester identity.
     #[allow(clippy::too_many_arguments)]

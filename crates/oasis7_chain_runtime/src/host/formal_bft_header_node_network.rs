@@ -63,7 +63,7 @@ fn key(path: &Path) -> Result<ed25519_dalek::SigningKey, String> {
 }
 pub(super) fn configure(
     runtime: NodeRuntime,
-    driver: FormalBftHeaderNodeDriverV3,
+    driver: Box<dyn oasis7_node::NodeExecutionHook>,
     binding: BftSignerBindingV3,
     provider: Arc<RemoteBftSignerProviderV3>,
     config: &Config,
@@ -152,7 +152,7 @@ pub(super) fn configure(
         config.peers.clone(),
     )?);
     let state = Arc::new(NodeBftPeerExecutionStateV3::default());
-    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(driver)));
+    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(driver));
     let private = Arc::new(NodeBftLibp2pPrivateCandidateExchangeV3::new(
         net,
         NodeBftPrivateExchangeConfigV3 {

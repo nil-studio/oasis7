@@ -58,6 +58,10 @@ pub struct BftSignerServiceV3 {
     pub(super) runtime: Mutex<BftSignerServiceRuntimeV3>,
 }
 
+/// Owned snapshot freshly authenticated in this dispatch. This proof is never
+/// stored in the runtime or reused by a later independent backend observation.
+struct ObservedSnapshotV3(BftSignerBackendSnapshotV3);
+
 pub(super) struct BftSignerServiceRuntimeV3 {
     successor_deadline: Option<std::time::Instant>,
     read_window: Option<(i64, u16)>,
@@ -177,6 +181,11 @@ impl BftSignerServiceV3 {
                 support.deadline(std::time::Instant::now())?,
             )?
         } else {
+            if snapshot.state.successor_window.is_some() {
+                return Err(invalid(
+                    "nonempty successor state requires explicit support",
+                ));
+            }
             validate_state(&binding, Some(&provider_public_key), &snapshot.state)?
         };
         if verified.schedule.height() < binding.initial_schedule().height()
@@ -184,17 +193,6 @@ impl BftSignerServiceV3 {
             || snapshot.protected_time_floor_ms < 0
         {
             return Err(invalid("BFT V3 provisioned backend snapshot is invalid"));
-        }
-        if snapshot.state.successor_window.is_some() {
-            let support = successor_support
-                .as_ref()
-                .ok_or_else(|| invalid("nonempty successor state requires explicit support"))?;
-            support.verify_archives(
-                &binding,
-                &snapshot.state,
-                &provider_public_key,
-                support.deadline(std::time::Instant::now())?,
-            )?;
         }
         Ok(Self {
             candidate_read_policy: None,
@@ -431,7 +429,7 @@ impl BftSignerServiceV3 {
                     request_digest,
                     credential.clone(),
                     &token_digest,
-                    snapshot,
+                    ObservedSnapshotV3(snapshot),
                     command,
                 )
             }
@@ -699,12 +697,13 @@ impl BftSignerServiceV3 {
         request_digest: &str,
         credential: BftSignerLeaseCredentialV3,
         token_digest: &str,
-        snapshot: BftSignerBackendSnapshotV3,
+        observed: ObservedSnapshotV3,
         command: &BftSignerCommandV3,
     ) -> Result<ReplyDataV3, BftSignerErrorV3> {
         if let BftSignerCommandV3::ReadSuccessorArchive { read } = command {
-            return self.process_archive_query(runtime, request, request_digest, snapshot, read);
+            return self.process_archive_query(runtime, request, request_digest, observed, read);
         }
+        let ObservedSnapshotV3(snapshot) = observed;
         let cached_schedule = runtime
             .verified
             .as_ref()
@@ -1180,6 +1179,9 @@ impl BftSignerServiceV3 {
                 deadline,
             )
         } else {
+            if state.successor_window.is_some() {
+                return Err(invalid("successor support is not configured"));
+            }
             validate_state(
                 &self.binding,
                 Some(&self.provider_key.public_key_hex()),

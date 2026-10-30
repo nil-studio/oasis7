@@ -42,8 +42,8 @@ pub use oasis7_proto::distributed_bft::{
 };
 
 pub use crate::execution_hook::{
-    NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
-    NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
+    NodeBftBuildContextV3, NodeBftCapacityAdmissionV3, NodeBftExecutionCommitResultV3,
+    NodeBftExecutionContextV3, NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
 };
 pub use crate::node_bft_v3_runtime::NodeBftStatusV3;
 

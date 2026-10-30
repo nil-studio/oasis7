@@ -22,6 +22,7 @@ pub(super) struct Worker {
     pub lease: super::private_exchange::NodeBftSharedSignerV3,
     pub peers: peer::PeerRuntime,
     pub checkpoint: BftSignerCheckpointV3,
+    pub base_schedule: BftHeaderHeightScheduleV3,
     pub schedule: BftHeaderHeightScheduleV3,
     pub machine: BftConsensusMachineV3,
     pub effects: VecDeque<BftConsensusActionV3>,

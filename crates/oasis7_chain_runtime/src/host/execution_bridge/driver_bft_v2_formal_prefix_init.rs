@@ -155,13 +155,15 @@ impl<F: Format> GenericLedger<F> {
             None if self.initialize => {
                 let mut random = [0u8; 32];
                 getrandom::fill(&mut random).map_err(|error| error.to_string())?;
-                let pin = F::new_origin(
+                let pin = F::new_origin_at(
                     material_pin_digest,
                     first_height,
                     hex::encode(random),
                     common_storage::lock_carrier_identity(&self._format_lock)?,
                     common_storage::lock_carrier_identity(&self._lock)?,
-                );
+                    &self.root,
+                    &self.dir,
+                )?;
                 pin.validate()?;
                 // Retain this identity in memory even if publication returns
                 // an uncertain error and the same handle is retried.

@@ -11,7 +11,7 @@ pub(super) const NODE_PRIVATE_DIRECTORY: &str = "node-private-v1";
 pub(super) const MARKER: &str = common_storage::FORMAL_HEADER_PREFIX_MARKER;
 pub(super) const DOWNGRADE_FENCE: &[u8] = common_storage::FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE;
 const ORIGIN_DOMAIN: &str = "oasis7.formal.bft.header_prefix.origin.v1";
-const RECORD_DOMAIN: &str = "oasis7.formal.bft.header_prefix.record.v1";
+pub(super) const RECORD_DOMAIN: &str = "oasis7.formal.bft.header_prefix.record.v1";
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +80,8 @@ pub(super) struct Record {
     snapshot_ref: String,
     journal_ref: String,
     business_index_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    publication_reservation_ref: Option<String>,
 }
 impl Record {
     pub(super) fn from_actual(
@@ -106,9 +108,25 @@ impl Record {
             snapshot_ref: blake3_hex(&executed.snapshot_bytes),
             journal_ref: blake3_hex(&executed.journal_bytes),
             business_index_refs,
+            publication_reservation_ref: None,
         };
         record.validate(origin)?;
         Ok(record)
+    }
+    pub(super) fn with_publication_reservation(
+        mut self,
+        reference: Option<String>,
+    ) -> Result<Self, String> {
+        if let Some(reference) = &reference
+            && (reference.len() != 64
+                || !reference
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        {
+            return Err("publication record reservation digest".into());
+        }
+        self.publication_reservation_ref = reference;
+        Ok(self)
     }
     pub(super) fn input(&self) -> PrivateHeaderEntryV3 {
         PrivateHeaderEntryV3 {
@@ -126,6 +144,9 @@ impl RecordContract<Origin> for Record {
             &self.journal_ref,
         ] {
             validate_hash(value)?;
+        }
+        if let Some(reference) = &self.publication_reservation_ref {
+            validate_hash(reference)?;
         }
         let bound = self.certificate.validate_binding()?;
         ValidatedBftPrivatePayloadV3::decode(bound, &self.actions_cbor)?;
@@ -171,11 +192,32 @@ impl RecordContract<Origin> for Record {
     fn business_index_refs(&self) -> &[String] {
         &self.business_index_refs
     }
+    fn publication_reservation_ref(&self) -> Option<&str> {
+        self.publication_reservation_ref.as_deref()
+    }
+    fn publication_binding(
+        &self,
+    ) -> Result<Option<super::super::formal_ledger::PublicationRecordBindingV1>, String> {
+        self.publication_reservation_ref
+            .as_ref()
+            .map(|reference| {
+                self.certificate.header.block_id().map(|header_id| {
+                    super::super::formal_ledger::PublicationRecordBindingV1 {
+                        reservation_ref: reference.clone(),
+                        header_id,
+                        actions_digest: blake3_hex(&self.actions_cbor),
+                    }
+                })
+            })
+            .transpose()
+    }
+
     fn references(&self) -> BTreeSet<String> {
         self.business_index_refs
             .iter()
             .cloned()
             .chain([self.snapshot_ref.clone(), self.journal_ref.clone()])
+            .chain(self.publication_reservation_ref.iter().cloned())
             .collect()
     }
 }
@@ -184,6 +226,22 @@ pub(super) struct HeaderFormat;
 impl Format for HeaderFormat {
     type Origin = Origin;
     type Record = Record;
+    fn publication_proof_bytes(records: &[Self::Record]) -> Result<Option<usize>, String> {
+        if records.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(
+            oasis7_formal_protocol::bft::FormalBftCertifiedHeaderPrefixV3 {
+                schema_version: 1,
+                entries: records
+                    .iter()
+                    .map(|record| record.input().certificate)
+                    .collect(),
+            }
+            .canonical_bytes()?
+            .len(),
+        ))
+    }
     const DIRECTORY: &'static str = DIRECTORY;
     const MARKER: &'static str = MARKER;
     const MARKER_BYTES: &'static [u8] = b"oasis7.formal.bft.header_prefix.required/v1\n";

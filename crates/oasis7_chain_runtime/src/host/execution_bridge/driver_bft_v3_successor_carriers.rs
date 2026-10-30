@@ -29,6 +29,9 @@ impl InstallationRootV1 {
         pin.verify_directories()?;
         Ok(pin)
     }
+    pub(super) fn path(&self) -> &Path {
+        &self.path
+    }
     fn verify_directories(&self) -> Result<(), String> {
         let current = open_absolute_directory(&self.path)?;
         private_directory(&current)?;
@@ -37,13 +40,11 @@ impl InstallationRootV1 {
         private_directory(&prefix)?;
         same_directory(&self.prefix, &prefix)
     }
-    pub(super) fn read_installed(
+    pub(super) fn verify_origin_carriers(
         &self,
         origin: &storage::Origin,
-        original: &BftSuccessorWindowStoredRequestV1,
-        installed: &BftSignerStateV3,
         deadline: Instant,
-    ) -> Result<InstalledPointerV1, String> {
+    ) -> Result<(File, File), String> {
         live(deadline)?;
         self.verify_directories()?;
         let format = open_child(&self.root, "bft-format.lock", false)?;
@@ -65,6 +66,16 @@ impl InstallationRootV1 {
                 return Err("successor original ledger carrier identity changed".into());
             }
         }
+        Ok((format, writer))
+    }
+    pub(super) fn read_installed(
+        &self,
+        origin: &storage::Origin,
+        original: &BftSuccessorWindowStoredRequestV1,
+        installed: &BftSignerStateV3,
+        deadline: Instant,
+    ) -> Result<InstalledPointerV1, String> {
+        let (format, writer) = self.verify_origin_carriers(origin, deadline)?;
         let directory = open_child(&self.root, DIRECTORY, true)?;
         private_directory(&directory)?;
         let expected = InstalledPointerV1::from_original(original, installed)?;
@@ -164,7 +175,7 @@ fn open_component(parent: &File, name: &std::ffi::OsStr, directory: bool) -> Res
     }
     Ok(unsafe { File::from_raw_fd(fd) })
 }
-fn open_absolute_directory(path: &Path) -> Result<File, String> {
+pub(super) fn open_absolute_directory(path: &Path) -> Result<File, String> {
     if !path.is_absolute() {
         return Err("successor installation root must be absolute".into());
     }
@@ -280,4 +291,113 @@ fn clear_errno() -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
     Err("successor directory readback is unsupported on this platform".into())
+}
+
+impl InstallationRootV1 {
+    /// Descriptor-pinned immutable window Origin and exact initialized carriers.
+    pub(super) fn read_window_origin(
+        &self,
+        base: &super::successor_verifier::VerifiedPrivateSuccessorBaseV1,
+        deadline: Instant,
+    ) -> Result<
+        (
+            super::window_storage::WindowOrigin,
+            oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveRefV1,
+        ),
+        String,
+    > {
+        live(deadline)?;
+        self.verify_directories()?;
+        let original = base
+            .original
+            .as_ref()
+            .ok_or("active base original absent")?;
+        let id = original
+            .request
+            .intent
+            .body
+            .checkpoint
+            .digest()
+            .map_err(err)?;
+        let windows = open_child(&self.root, "successor-active-v1", true)?;
+        private_directory(&windows)?;
+        let segment = open_child(&windows, &id, true)?;
+        private_directory(&segment)?;
+        let prefix = open_child(&segment, super::window_storage::DIRECTORY, true)?;
+        private_directory(&prefix)?;
+        let read = |parent: &File, name: &str| -> Result<(File, Vec<u8>), String> {
+            let mut file = open_child(parent, name, false)?;
+            private_file(&file)?;
+            let mut bytes = Vec::new();
+            (&mut file)
+                .take(MAX_METADATA as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(err)?;
+            if bytes.len() > MAX_METADATA {
+                return Err("active Origin metadata capacity".into());
+            }
+            Ok((file, bytes))
+        };
+        let (base_file, base_bytes) = read(&segment, "base.cbor")?;
+        if base_bytes != super::window_execution::base_identity(base)? {
+            return Err("active window original base changed".into());
+        }
+        let (origin_file, bytes) = read(&prefix, "origin.cbor")?;
+        let origin: super::window_storage::WindowOrigin = decode(&bytes, MAX_METADATA)?;
+        origin.validate()?;
+        let path = self.path.join("successor-active-v1").join(&id);
+        let pins = super::window_storage::directories::WindowDirectoryPins::open(&path, &origin)?;
+        pins.verify()?;
+        if origin.material_pin_digest() != blake3_hex(&base_bytes)
+            || origin.first_height() != base.execution.schedule.height()
+        {
+            return Err("active Origin differs from actual verified private base".into());
+        }
+        for name in entry_names(&prefix)? {
+            let name = name.to_str().ok_or("active Origin filename")?;
+            if name == "init-intent.cbor"
+                || files::stage_target(name)
+                    .is_some_and(|target| target == "init-intent.cbor" || target == "origin.cbor")
+            {
+                return Err("active Origin initialization WAL remains unresolved".into());
+            }
+        }
+        let format = open_child(&segment, "bft-format.lock", false)?;
+        let writer = open_child(&prefix, "writer.lock", false)?;
+        let path = self.path.join("successor-active-v1").join(&id);
+        for (file, path, expected) in [
+            (&format, path.join("bft-format.lock"), origin.format_lock()),
+            (
+                &writer,
+                path.join(super::window_storage::DIRECTORY)
+                    .join("writer.lock"),
+                origin.writer_lock(),
+            ),
+        ] {
+            common_storage::verify_lock_carrier(file, &path)?;
+            if &common_storage::lock_carrier_identity(file)? != expected {
+                return Err("active Origin carrier replaced".into());
+            }
+        }
+        same_file(&base_file, &open_child(&segment, "base.cbor", false)?)?;
+        same_file(&origin_file, &open_child(&prefix, "origin.cbor", false)?)?;
+        let current_windows = open_child(&self.root, "successor-active-v1", true)?;
+        same_directory(&windows, &current_windows)?;
+        let current_segment = open_child(&current_windows, &id, true)?;
+        same_directory(&segment, &current_segment)?;
+        same_directory(
+            &prefix,
+            &open_child(&current_segment, super::window_storage::DIRECTORY, true)?,
+        )?;
+        self.verify_directories()?;
+        pins.verify()?;
+        live(deadline)?;
+        Ok((
+            origin,
+            oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveRefV1 {
+                digest: blake3_hex(&bytes),
+                bytes: bytes.len() as u64,
+            },
+        ))
+    }
 }

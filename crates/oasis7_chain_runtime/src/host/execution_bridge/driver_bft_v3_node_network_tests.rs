@@ -546,5 +546,4 @@ mod pending_cases;
 
 #[path = "driver_bft_v3_node_membership_tests.rs"]
 mod membership_cases;
-#[path = "driver_bft_v3_node_membership_clock.rs"]
-mod membership_clock;
+use super::membership_clock;

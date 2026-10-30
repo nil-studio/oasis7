@@ -248,10 +248,10 @@ impl World {
             }
             // Effective authority records, rather than equality of keys, own
             // the source. A revocation or same-key Admission cannot be overlaid.
-            if !authority.contains_key(node) {
-                if let Some(binding) = registry.signer_bindings.get_mut(node) {
-                    *binding = effective;
-                }
+            if !authority.contains_key(node)
+                && let Some(binding) = registry.signer_bindings.get_mut(node)
+            {
+                *binding = effective;
             }
         }
         Ok(())

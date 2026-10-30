@@ -169,7 +169,10 @@ impl NodePrivateStore {
         }
         Ok(())
     }
-    fn exact_slot(&self, value: &BftHeaderValueV3) -> Result<Option<(&Slot, PathBuf)>, String> {
+    pub(super) fn exact_slot(
+        &self,
+        value: &BftHeaderValueV3,
+    ) -> Result<Option<(&Slot, PathBuf)>, String> {
         let height = value.execution_commitment.height;
         let id = value.block_id()?;
         if let Some(slot) = self.candidates.get(&height)
@@ -281,11 +284,13 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
+            publication_reservation_ref: None,
         };
         if let Some((old, path)) = self.exact_slot(&candidate.public_value)? {
             // Legacy originals keep their original schema, bytes and receipt digest.
             data.schema_version = old.data.schema_version;
             data.domain = old.data.domain.clone();
+            data.publication_reservation_ref = old.data.publication_reservation_ref.clone();
             if old.data != data {
                 return Err(
                     "Node received candidate changes original bytes or dependencies".into(),
@@ -363,6 +368,7 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: Vec::new(),
             references: vec![digest.clone()],
+            publication_reservation_ref: None,
         };
         if self
             .selections

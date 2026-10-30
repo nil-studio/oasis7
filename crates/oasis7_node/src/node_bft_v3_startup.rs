@@ -35,66 +35,7 @@ pub(super) fn validate_runtime(
     runtime: &NodeRuntime,
     selected: &SelectedNodeBftConfigV3,
 ) -> Result<(), NodeError> {
-    let b = &selected.binding;
-    b.validate().map_err(|_| error("wire-3 binding rejected"))?;
-    validate_schedule(b.initial_schedule(), selected)?;
-    if let Some(network) = &selected.network {
-        if network.transport.context() != &BftPeerContextV3::from_handoff(b.handoff()) {
-            return Err(error("wire-3 peer transport differs from qualified H"));
-        }
-        if network.transport.peers().is_empty() || network.transport.peers().len() > 256 {
-            return Err(error("wire-3 peer routes missing or oversized"));
-        }
-        network.exchange.validate_binding(b).map_err(error)?;
-        if super::membership::active_key(selected, b.initial_schedule()).is_some() {
-            network
-                .exchange
-                .ensure_local_ready(b.initial_schedule())
-                .map_err(error)?;
-        }
-    } else if b.initial_schedule().active_set().validators().len() != 1 {
-        return Err(error(
-            "wire-3 multiple validators require explicit public and private peer planes",
-        ));
-    }
-    runtime
-        .config
-        .network_policy
-        .validate_for_runtime_role(runtime.config.role)?;
-    if b.scope.world_id != runtime.config.world_id
-        || b.local_validator_id != runtime.config.node_id
-        || runtime.config.network_policy.node_role_claim
-            != oasis7_proto::distributed_dht::PeerNodeRole::ValidatorCore
-        || runtime.config.gossip.is_some()
-        || runtime.local_execution_bootstrap.is_some()
-        || runtime.local_execution_genesis_bootstrap.is_some()
-        || runtime.replication_network_consensus_enabled
-    {
-        return Err(error(
-            "wire-3 Node scope/role/bootstrap or peer transport is unsupported",
-        ));
-    }
-    let replication = runtime
-        .config
-        .replication
-        .as_ref()
-        .ok_or_else(|| error("wire-3 Node requires durable replication configuration"))?;
-    if replication.consensus_signer()?.is_some() {
-        return Err(error("wire-3 Node refuses a local consensus signing key"));
-    }
-    if !selected.membership_enabled
-        && !b.provisioned_signing_keys.iter().any(|key| {
-            b.initial_schedule()
-                .active_set()
-                .validator(&b.local_validator_id)
-                .is_some_and(|v| v.public_key_hex == key.public_key_hex)
-        })
-    {
-        return Err(error(
-            "wire-3 local validator has no provisioned protected key",
-        ));
-    }
-    Ok(())
+    base::validate_runtime(runtime, selected)
 }
 pub(super) fn candidate(
     config: &crate::NodeConfig,
@@ -263,83 +204,18 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     if let Some(network) = &selected.network {
         network.execution.stop_serving();
     }
-    validate_runtime(runtime, &selected)?;
+    base::validate_runtime(runtime, &selected)?;
     let hook = runtime
         .execution_hook
         .clone()
         .ok_or_else(|| error("wire-3 requires actual execution hook"))?;
-    if selected.membership_enabled {
-        lock_hook(&hook)?
-            .enable_bft_v3_membership_execution()
-            .map_err(|_| error("wire-3 driver membership opt-in rejected"))?;
-    }
-    lock_hook(&hook)?
-        .configure_bft_v3_execution(&selected.binding)
-        .map_err(|_| error("wire-3 durable configuration rejected"))?;
-    let mut driver_history = Vec::new();
-    loop {
-        let after = driver_history.last().map_or(
-            selected.binding.handoff_position,
-            |c: &FormalBftCertifiedHeaderV3| c.execution_commitment.height,
-        );
-        let page = lock_hook(&hook)?
-            .load_bft_v3_commit_history_page(&selected.binding, after, 16)
-            .map_err(|_| error("wire-3 driver history unavailable"))?;
-        if page.is_empty() {
-            break;
-        }
-        if page.len() > 16 || driver_history.len() + page.len() > 64 {
-            return Err(error("wire-3 driver history capacity"));
-        }
-        for c in page {
-            let expected = selected
-                .binding
-                .initial_schedule()
-                .height()
-                .checked_add(driver_history.len() as u64)
-                .ok_or_else(|| error("wire-3 height overflow"))?;
-            if c.execution_commitment.height != expected {
-                return Err(error("wire-3 driver history gap"));
-            }
-            driver_history.push(c);
-        }
-    }
-    // Existing queued input must pass the actual H parent policy before a
-    // remote acquisition can fence another owner or any signing is possible.
-    {
-        let pending = runtime
-            .pending_consensus_actions
-            .lock()
-            .map_err(|_| error("wire-3 pending queue poisoned"))?;
-        let mut execution = lock_hook(&hook)?;
-        for action in pending.iter() {
-            super::validate_single_action(action)?;
-            action
-                .validate()
-                .map_err(|_| error("wire-3 queued action rejected"))?;
-            crate::node_runtime_core::validate_consensus_action_payload_auth(
-                &runtime.config,
-                &action.payload_cbor,
-            )?;
-            execution
-                .validate_bft_v3_action_payload(&action.payload_cbor)
-                .map_err(|_| error("wire-3 queued payload is unsupported"))?;
-        }
-    }
-    let original_pending = runtime
-        .pending_consensus_actions
-        .lock()
-        .map_err(|_| error("wire-3 pending queue poisoned"))?
-        .clone();
-    let cached_recovery = runtime
-        .bft_v3_recovery_batches
-        .lock()
-        .map_err(|_| error("wire-3 recovery completion cache poisoned"))?
-        .clone();
-    let mut lease = selected
-        .provider
-        .acquire(&selected.binding)
-        .map_err(|_| error("wire-3 protected provider acquire rejected"))?;
+    let base::PreparedBase {
+        mut lease,
+        schedule: base_schedule,
+        history: driver_history,
+        pending: original_pending,
+        recovery: cached_recovery,
+    } = base::prepare(runtime, &selected, &hook)?;
     let mut checkpoint = lease
         .checkpoint()
         .map_err(|_| error("wire-3 checkpoint unavailable"))?;
@@ -366,7 +242,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             "wire-3 driver is ahead of or conflicts with protected history",
         ));
     }
-    let mut schedule = selected.binding.initial_schedule().clone();
+    let mut schedule = base_schedule.clone();
     let mut recovery_batches = Vec::new();
     let mut actual_tip = None;
     for certificate in &history {
@@ -496,6 +372,33 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         return Err(error("wire-3 replay tip context mismatch"));
     }
     restore(&selected, &schedule, &checkpoint, &hook, &runtime.config)?;
+    // Parent-sensitive queued admission uses the reconstructed current tip.
+    // An already fixed original candidate must run before a future queued batch.
+    {
+        let expected = NodeBftExecutionContextV3::from_schedule(&schedule);
+        let mut execution = lock_hook(&hook)?;
+        if execution
+            .pending_bft_v3_private_candidate(&expected)
+            .map_err(error)?
+            .is_none()
+        {
+            let pending = runtime
+                .pending_consensus_actions
+                .lock()
+                .map_err(|_| error("wire-3 pending queue poisoned"))?
+                .clone();
+            let actions = super::actions::select_prefix(
+                pending,
+                runtime.config.max_engine_pending_consensus_actions,
+            )?;
+            if !actions.is_empty() {
+                execution
+                    .validate_bft_v3_action_batch(&schedule, &actions)
+                    .map_err(error)?;
+            }
+        }
+    }
+
     if let Some(result) = &actual_tip {
         super::membership::install(&selected, &schedule, result, &mut *lease, &mut checkpoint)?;
     }
@@ -528,6 +431,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         lease: Arc::new(Mutex::new(lease)),
         peers: worker::peer::PeerRuntime::default(),
         checkpoint,
+        base_schedule,
         schedule,
         machine,
         effects: effects.into(),
@@ -574,3 +478,6 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         }
     }
 }
+
+#[path = "node_bft_v3_startup_base.rs"]
+mod base;

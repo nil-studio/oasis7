@@ -1,6 +1,9 @@
 //! Original private Node candidates, retained before any remote signing request.
 //! The canonical ledger's OS claim protects this subordinate directory.
 use super::*;
+#[path = "driver_bft_v3_node_private_publication.rs"]
+mod publication;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -15,6 +18,9 @@ const MAX_CANDIDATES_PER_HEIGHT: usize = 16;
 const MAX_CANDIDATES: usize = 256;
 #[path = "driver_bft_v3_node_private_multivalue.rs"]
 mod multivalue;
+use super::super::super::publication_reservation::{
+    PublicationCandidateIdentityV1, PublicationReservationV1,
+};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +37,8 @@ struct Data {
     actions_cbor: Vec<u8>,
     #[serde(deserialize_with = "bounded_references")]
     references: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    publication_reservation_ref: Option<String>,
 }
 impl Data {
     fn validate(&self) -> Result<(), String> {
@@ -41,6 +49,12 @@ impl Data {
             || !canonical_hash(&self.ledger_origin_digest)
             || !canonical_hash(&self.material_identity)
             || !canonical_hash(&self.instance_id)
+            || self
+                .publication_reservation_ref
+                .as_ref()
+                .is_some_and(|id| !canonical_hash(id))
+            || ((self.origin || self.schema_version == 5)
+                && self.publication_reservation_ref.is_some())
             || self.references.len()
                 > super::super::super::super::formal_dependencies::MAX_RETAINED_INDEX_NODES
             || !self.references.windows(2).all(|pair| pair[0] < pair[1])
@@ -99,6 +113,7 @@ impl Data {
             .references
             .iter()
             .cloned()
+            .chain(self.publication_reservation_ref.iter().cloned())
             .chain([self.digest()?])
             .collect())
     }
@@ -179,12 +194,34 @@ impl NodePrivateStore {
         let dir = records
             .join(storage::DIRECTORY)
             .join(storage::NODE_PRIVATE_DIRECTORY);
+        Self::open_directory(dir, store, fallback, None)
+    }
+    pub(super) fn open_window(
+        dir: PathBuf,
+        store: LocalCasStore,
+        fallback: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+        original_instance: &str,
+    ) -> Result<(Self, Arc<dyn BusinessIndexNodeReader + Send + Sync>), String> {
+        if !canonical_hash(original_instance) {
+            return Err("window original private instance encoding".into());
+        }
+        Self::open_directory(dir, store, fallback, Some(original_instance))
+    }
+    fn open_directory(
+        dir: PathBuf,
+        store: LocalCasStore,
+        fallback: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+        original_instance: Option<&str>,
+    ) -> Result<(Self, Arc<dyn BusinessIndexNodeReader + Send + Sync>), String> {
         if fs::symlink_metadata(&dir).is_ok() {
             crate::controlled_live_config::require_private_owned(&dir, true)?;
         }
         let origin = read_slot(&dir.join("origin.cbor"))?;
         let instance_id = match &origin {
             Some(slot) => slot.data.instance_id.clone(),
+            None if original_instance.is_some() => original_instance
+                .ok_or("window instance unavailable")?
+                .to_owned(),
             None => {
                 let mut nonce = [0u8; 32];
                 getrandom::fill(&mut nonce)
@@ -192,6 +229,9 @@ impl NodePrivateStore {
                 hex::encode(nonce)
             }
         };
+        if original_instance.is_some_and(|expected| expected != instance_id) {
+            return Err("window private instance differs from original Node".into());
+        }
         let mut nodes = BTreeMap::new();
         let pending_references = match &origin {
             Some(slot) => {
@@ -271,6 +311,59 @@ impl NodePrivateStore {
         ))
     }
 
+    pub(super) fn require_completed_origin(&self) -> Result<(), String> {
+        let slot = self
+            .origin
+            .as_ref()
+            .ok_or("original private identity absent")?;
+        if !slot.complete || !slot.data.origin {
+            return Err("original private identity WAL unresolved".into());
+        }
+        verify_original_slot(&self.store, &self.dir.join("origin.cbor"), slot)
+    }
+
+    pub(super) fn verify_original_binding(
+        &self,
+        ledger: &str,
+        material: &str,
+        height: u64,
+    ) -> Result<(), String> {
+        self.require_completed_origin()?;
+        let origin = &self
+            .origin
+            .as_ref()
+            .ok_or("original private identity absent")?
+            .data;
+        if origin.ledger_origin_digest != ledger
+            || origin.material_identity != material
+            || origin.height != height
+        {
+            return Err(
+                "read-only original private identity differs from independently verified H".into(),
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn require_completed_inventory(&self) -> Result<(), String> {
+        self.require_completed_origin()?;
+        if self
+            .candidates
+            .values()
+            .chain(self.values.values())
+            .chain(self.selections.values())
+            .any(|s| !s.complete)
+        {
+            return Err("active private candidate WAL remains unresolved before Adopt".into());
+        }
+        Ok(())
+    }
+    pub(super) fn inventory_count(&self) -> usize {
+        self.candidates.len() + self.values.len()
+    }
+    pub(super) fn accounting_store(&self) -> LocalCasStore {
+        self.store.clone()
+    }
     pub(super) fn instance_id(&self) -> &str {
         &self.instance_id
     }
@@ -281,7 +374,10 @@ impl NodePrivateStore {
         material: &str,
         h: u64,
         nodes: &BTreeMap<String, Vec<u8>>,
-        reserve: &mut impl FnMut(usize) -> Result<(), String>,
+        reserve: &mut impl FnMut(
+            usize,
+            super::super::super::super::formal_ledger::PublicationPromiseInventoryV1,
+        ) -> Result<(), String>,
     ) -> Result<(), String> {
         let data = Data {
             schema_version: 3,
@@ -294,6 +390,7 @@ impl NodePrivateStore {
             value: None,
             actions_cbor: Vec::new(),
             references: nodes.keys().cloned().collect(),
+            publication_reservation_ref: None,
         };
         if self.origin.as_ref().is_some_and(|slot| slot.data != data) {
             return Err("Node private origin differs from its exact qualified H".into());
@@ -320,7 +417,7 @@ impl NodePrivateStore {
             complete: false,
         });
         self.load_inventory(ledger_origin, material, h)?;
-        reserve(self.usage_with(None, nodes)?)?;
+        reserve(self.usage_with(None, nodes)?, self.publication_promises()?)?;
         publish(
             &self.store,
             &self.dir.join("origin.cbor"),
@@ -337,7 +434,12 @@ impl NodePrivateStore {
         Ok(())
     }
 
-    fn load_inventory(&mut self, origin: &str, material: &str, h: u64) -> Result<(), String> {
+    pub(super) fn load_inventory(
+        &mut self,
+        origin: &str,
+        material: &str,
+        h: u64,
+    ) -> Result<(), String> {
         let mut heights = BTreeSet::new();
         let mut multi = BTreeSet::new();
         let mut selections = BTreeSet::new();
@@ -441,10 +543,13 @@ impl NodePrivateStore {
             self.candidates.insert(height, slot);
         }
         self.load_multivalue_inventory(origin, material, &multi, &selections)?;
+        for slot in self.candidates.values().chain(self.values.values()) {
+            read_publication(&self.store, &slot.data)?;
+        }
         self.check_counts(None)?;
         Ok(())
     }
-    fn verify_inventory_pins(&self) -> Result<(), String> {
+    pub(super) fn verify_inventory_pins(&self) -> Result<(), String> {
         let origin = self.origin.as_ref().ok_or("Node origin unavailable")?;
         let prefix = format!("ledger-{}-", origin.data.ledger_origin_digest);
         let known: BTreeSet<_> = std::iter::once(origin.data.shard())
@@ -525,7 +630,7 @@ impl NodePrivateStore {
         if height <= origin.height || height - origin.height > 64 {
             return Err("private Node height capacity".into());
         }
-        let data = Data {
+        let mut data = Data {
             schema_version: 3,
             domain: DOMAIN.into(),
             origin: false,
@@ -536,7 +641,13 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
+            publication_reservation_ref: None,
         };
+        // Retries preserve the original Data bytes, including a new-format
+        // reservation commitment; they never retrofit a legacy candidate.
+        if let Some(old) = self.candidates.get(&height) {
+            data.publication_reservation_ref = old.data.publication_reservation_ref.clone();
+        }
         data.validate()?;
         if self
             .candidates
@@ -609,6 +720,12 @@ impl NodePrivateStore {
                 )
                 .filter(|sum| *sum <= 512 * 1024 * 1024)
                 .ok_or("Node cumulative material capacity")?;
+            if let Some(publication) = read_publication(&self.store, data)? {
+                bytes = bytes
+                    .checked_add(publication.accounted_bytes()?)
+                    .filter(|sum| *sum <= 512 * 1024 * 1024)
+                    .ok_or("Node cumulative publication reservation capacity")?;
+            }
             if data.schema_version != 5 {
                 refs.extend(data.references.iter().cloned());
             }
@@ -707,10 +824,40 @@ fn verify_original_slot(store: &LocalCasStore, path: &Path, expected: &Slot) -> 
     if actual.data != expected.data || (expected.complete && !actual.complete) {
         return Err("original private Node metadata changed or regressed".into());
     }
+    read_publication(store, &actual.data)?;
     if retention_required(path)? {
         verify_material(store, &actual.data)?;
     }
     Ok(())
+}
+fn publication_identity(data: &Data) -> Result<PublicationCandidateIdentityV1, String> {
+    if data.origin || data.schema_version == 5 {
+        return Err("publication requires original candidate Data".into());
+    }
+    Ok(PublicationCandidateIdentityV1 {
+        origin: data.ledger_origin_digest.clone(),
+        material: data.material_identity.clone(),
+        instance: data.instance_id.clone(),
+        height: data.height,
+        header: data
+            .value
+            .as_ref()
+            .ok_or("publication value missing")?
+            .block_id()?,
+        actions: blake3_hex(&data.actions_cbor),
+        reservation_ref: data.publication_reservation_ref.clone(),
+    })
+}
+fn read_publication(
+    store: &LocalCasStore,
+    data: &Data,
+) -> Result<Option<PublicationReservationV1>, String> {
+    let Some(reference) = &data.publication_reservation_ref else {
+        return Ok(None);
+    };
+    let value = PublicationReservationV1::read(store, reference)?;
+    value.validate_identity(&publication_identity(data)?)?;
+    Ok(Some(value))
 }
 fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
     store
@@ -719,6 +866,7 @@ fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
     if common_storage::read_cas_bounded(store, &data.digest()?, MAX_RECORD)? != data.bytes()? {
         return Err("original private Node CAS record changed".into());
     }
+    read_publication(store, data)?;
     for reference in &data.references {
         common_storage::read_cas_bounded(
             store,
@@ -753,6 +901,7 @@ fn publish(
     if already_retained {
         verify_material(store, data)?;
     }
+    read_publication(store, data)?;
     let bytes = data.bytes()?;
     let intent = path.with_extension("intent.cbor");
     let reservation = path.with_extension("reservation.cbor");
@@ -894,6 +1043,7 @@ mod tests {
             value: None,
             actions_cbor: Vec::new(),
             references: Vec::new(),
+            publication_reservation_ref: None,
         }
     }
 

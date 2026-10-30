@@ -486,3 +486,120 @@ fn archive_chunk_signed_malformed_summary_is_rejected() {
         );
     }
 }
+
+#[test]
+fn archive_snapshot_validation_is_once_per_observation_and_fresh_next_request() {
+    let (binding, snapshot, archive, original, id, digest) = install(true, true);
+    let (provider, server) = native_successor(&binding, &snapshot, archive.clone(), None);
+    let mut lease = provider.acquire(&binding).unwrap();
+    // One fresh complete validation of the immutable snapshot, then one fresh
+    // selected payload load. No prior request or opening result is reused.
+    let before = archive.loads.load(Ordering::SeqCst);
+    assert_eq!(
+        lease
+            .read_successor_original_state(&id, &digest, deadline())
+            .unwrap()
+            .original_state(),
+        &original,
+    );
+    assert_eq!(archive.loads.load(Ordering::SeqCst) - before, 2);
+    let charged = counter(&snapshot);
+    let before = archive.loads.load(Ordering::SeqCst);
+    assert_eq!(
+        lease
+            .read_successor_original_state(&id, &digest, deadline())
+            .unwrap()
+            .original_state(),
+        &original,
+    );
+    assert_eq!(archive.loads.load(Ordering::SeqCst) - before, 2);
+    assert!(counter(&snapshot) > charged);
+    // A later independent observation must detect missing material even though
+    // this exact snapshot and original S were previously verified successfully.
+    let before_missing = counter(&snapshot);
+    archive.states.lock().unwrap().clear();
+    assert!(
+        lease
+            .read_successor_original_state(&id, &digest, deadline())
+            .is_err()
+    );
+    assert_eq!(counter(&snapshot), before_missing);
+    drop(lease);
+    server.join().unwrap();
+}
+
+#[test]
+fn combined_observation_still_binds_reserved_original_before_service_open() {
+    let (binding, snapshot, archive, original, _, _) = install(true, true);
+    let record = snapshot
+        .lock()
+        .unwrap()
+        .state
+        .successor_window
+        .as_ref()
+        .unwrap()
+        .requests[0]
+        .clone();
+    let mut extension = BftSuccessorWindowStateV1::empty();
+    extension.usage = record.request.intent.body.checkpoint.usage;
+    extension.active_request_id = Some(record.request.intent.body.checkpoint.request_id.clone());
+    extension.reservation = Some(
+        crate::protected_bft_v3::successor_state::BftSuccessorWindowReservationV1 {
+            body: record.request.intent.body.clone(),
+            manifest: record.manifest.clone(),
+            original_public_state: record.original_public_state.clone(),
+            previous: None,
+        },
+    );
+    let reserved = original
+        .with_successor_window_context(&binding, extension, None, false)
+        .unwrap();
+    let open = |state: BftSignerStateV3| {
+        let mut backend = snapshot.lock().unwrap().clone();
+        backend.state = state;
+        BftSignerServiceV3::open_with_successor_window(
+            binding.clone(),
+            Box::new(Handle {
+                key: key(33),
+                disabled: None,
+            }),
+            vec![
+                Box::new(Handle {
+                    key: key(31),
+                    disabled: None,
+                }),
+                Box::new(Handle {
+                    key: key(32),
+                    disabled: None,
+                }),
+            ],
+            Box::new(Backend {
+                binding: binding.digest().unwrap(),
+                snapshot: Arc::new(Mutex::new(backend)),
+            }),
+            BftSuccessorWindowSupportV1::new(archive.clone(), Duration::from_secs(30)).unwrap(),
+        )
+    };
+    assert!(open(reserved.clone()).is_ok());
+    let mut bad = reserved;
+    let reservation = bad
+        .successor_window
+        .as_mut()
+        .unwrap()
+        .reservation
+        .as_mut()
+        .unwrap();
+    // A coherent, well-shaped cut still must bind the reconstructed S's exact
+    // applied driver receipt; structural extension validation alone is insufficient.
+    reservation.body.checkpoint.cut.driver_install_digest = hash(99);
+    reservation.body.driver_evidence_digest = hash(99);
+    bad.state_digest = crate::protected_bft_v3::state::test_state_digest(&bad);
+    assert!(validate_state(&binding, Some(&public(33)), &bad).is_ok());
+    let error = open(bad)
+        .err()
+        .expect("reserved cut must bind authenticated original S");
+    assert!(
+        error.0.contains("actual applied provider cut/schedule"),
+        "{error:?}"
+    );
+}

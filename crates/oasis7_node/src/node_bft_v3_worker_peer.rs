@@ -515,7 +515,7 @@ impl Worker {
         let Some(network) = &self.selected.network else {
             return Ok(());
         };
-        let initial = self.selected.binding.initial_schedule();
+        let initial = &self.base_schedule;
         let anchor_valid = (request.after_height.checked_add(1) == Some(initial.height())
             && request.after_header_id == initial.parent_commit_ref())
             || self.checkpoint.state.history.iter().any(|c| {

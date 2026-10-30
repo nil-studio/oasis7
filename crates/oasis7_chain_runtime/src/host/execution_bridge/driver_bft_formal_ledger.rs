@@ -14,6 +14,14 @@ const LEGACY_MARKER: &str = "formal-bft-read-required-v1";
 #[path = "driver_bft_v2_formal_prefix_init.rs"]
 mod initialization;
 
+#[path = "driver_bft_formal_publication.rs"]
+mod publication;
+pub(super) use publication::{
+    LedgerPublicationAccountingV1, PublicationPromiseInventoryV1, PublicationPromiseV1,
+    PublicationRecordBindingV1, PublicationRecordIdentityV1, RetainedPublicationClaimV1,
+};
+pub(super) const MAX_PUBLICATION_METADATA_BYTES: usize = 16 * 1024;
+
 pub(super) trait OriginContract: Clone + PartialEq + Serialize + DeserializeOwned {
     fn validate(&self) -> Result<(), String>;
     fn digest(&self) -> Result<String, String>;
@@ -34,10 +42,17 @@ pub(super) trait RecordContract<O>:
     fn snapshot_ref(&self) -> &str;
     fn journal_ref(&self) -> &str;
     fn business_index_refs(&self) -> &[String];
+    fn publication_reservation_ref(&self) -> Option<&str> {
+        None
+    }
+    fn publication_binding(&self) -> Result<Option<PublicationRecordBindingV1>, String> {
+        Ok(None)
+    }
     fn references(&self) -> BTreeSet<String> {
         let mut refs: BTreeSet<_> = self.business_index_refs().iter().cloned().collect();
         refs.insert(self.snapshot_ref().into());
         refs.insert(self.journal_ref().into());
+        refs.extend(self.publication_reservation_ref().map(str::to_owned));
         refs
     }
 }
@@ -53,6 +68,35 @@ pub(super) trait Format {
     const OTHER_DIRECTORY: &'static str;
     const OTHER_MARKER: &'static str;
     const EXTRA_PRIVATE_DIRECTORY: Option<&'static str> = None;
+    const EMPTY_PRIVATE_DIRECTORY_DURING_INIT: bool = false;
+    fn publication_proof_bytes(_records: &[Self::Record]) -> Result<Option<usize>, String> {
+        Ok(None)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn new_origin_at(
+        material_pin_digest: &str,
+        first_height: u64,
+        ledger_id: String,
+        format_lock: common_storage::LockCarrierIdentity,
+        writer_lock: common_storage::LockCarrierIdentity,
+        _root: &Path,
+        _dir: &Path,
+    ) -> Result<Self::Origin, String> {
+        Ok(Self::new_origin(
+            material_pin_digest,
+            first_height,
+            ledger_id,
+            format_lock,
+            writer_lock,
+        ))
+    }
+    fn validate_origin_directories(
+        _origin: &Self::Origin,
+        _root: &Path,
+        _dir: &Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     fn new_origin(
         material_pin_digest: &str,
         first_height: u64,
@@ -70,13 +114,43 @@ struct Slot<R> {
     reserved: bool,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct Capacity {
     bytes: usize,
     objects: BTreeSet<String>,
     records: BTreeSet<u64>,
 }
 impl Capacity {
+    /// Pure accounting only: callers still need the original retained claim
+    /// and fixed QC before installing this result. No counter is authoritative.
+    fn plan_held_to_actual(
+        &self,
+        held: usize,
+        apply_actual: impl FnOnce(&mut Capacity) -> Result<(), String>,
+    ) -> Result<(Self, usize), String> {
+        let baseline = self
+            .bytes
+            .checked_sub(held)
+            .ok_or("publication promise is not held")?;
+        let mut next = self.clone();
+        next.bytes = baseline;
+        apply_actual(&mut next)?;
+        let actual = next
+            .bytes
+            .checked_sub(baseline)
+            .ok_or("publication actual accounting regressed")?;
+        let remaining = held
+            .checked_sub(actual)
+            .ok_or("actual publication exceeds original promise")?;
+        // Reused objects do not consume a promise a second time. Conservative
+        // unused headroom stays held, so total accounted bytes cannot decrease.
+        next.charge(remaining)?;
+        if next.bytes != self.bytes {
+            return Err("publication transfer changed total capacity".into());
+        }
+        Ok((next, actual))
+    }
+
     fn charge(&mut self, size: usize) -> Result<(), String> {
         self.bytes = self
             .bytes
@@ -115,6 +189,12 @@ impl Capacity {
     }
 }
 
+pub(super) struct PreparedRecordMaterialV1<'a> {
+    pub(super) snapshot_bytes: &'a [u8],
+    pub(super) journal_bytes: &'a [u8],
+    pub(super) nodes: &'a BTreeMap<String, Vec<u8>>,
+    pub(super) store: &'a LocalCasStore,
+}
 pub(super) struct GenericLedger<F: Format> {
     root: PathBuf,
     dir: PathBuf,
@@ -128,6 +208,8 @@ pub(super) struct GenericLedger<F: Format> {
     proof_bytes: usize,
     origin_bytes: usize,
     external_material_bytes: usize,
+    external_physical_bytes: usize,
+    publication_promises: PublicationPromiseInventoryV1,
     #[cfg(test)]
     fault: Option<(u64, PublicationFault)>,
     #[cfg(test)]
@@ -137,6 +219,7 @@ pub(super) struct GenericLedger<F: Format> {
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum PublicationFault {
+    ReservationPublished,
     PinsPublished,
     IntentPublished,
     RecordLinked,
@@ -261,6 +344,8 @@ impl<F: Format> GenericLedger<F> {
             proof_bytes: 0,
             origin_bytes,
             external_material_bytes: 0,
+            external_physical_bytes: 0,
+            publication_promises: BTreeMap::new(),
             #[cfg(test)]
             fault: None,
             #[cfg(test)]
@@ -299,10 +384,15 @@ impl<F: Format> GenericLedger<F> {
             if F::EXTRA_PRIVATE_DIRECTORY == Some(name.as_str()) {
                 let metadata = fs::symlink_metadata(entry.path())
                     .map_err(|_| "inspect private Node directory")?;
+                let empty_initial_directory = F::EMPTY_PRIVATE_DIRECTORY_DURING_INIT
+                    && self.initialize
+                    && fs::read_dir(entry.path())
+                        .map_err(|e| e.to_string())?
+                        .next()
+                        .is_none();
                 if !metadata.is_dir()
                     || metadata.file_type().is_symlink()
-                    || self.pin.is_none()
-                    || self.init_pending
+                    || ((self.pin.is_none() || self.init_pending) && !empty_initial_directory)
                 {
                     return Err(
                         "private Node storage has no completed original prefix identity".into(),
@@ -338,7 +428,7 @@ impl<F: Format> GenericLedger<F> {
         }
         let mut metadata_bytes = self
             .origin_bytes
-            .checked_add(self.external_material_bytes)
+            .checked_add(self.external_physical_bytes)
             .ok_or("private Node cumulative metadata capacity")?;
         let mut slots = BTreeMap::new();
         let mut previous = self.pin.as_ref().map(OriginContract::digest).transpose()?;
@@ -482,17 +572,6 @@ impl<F: Format> GenericLedger<F> {
         Ok(())
     }
 
-    /// Extra private Node records share this ledger lifetime budget. Successful
-    /// reservations are never refunded by a retry or a durable reread.
-    pub(super) fn reserve_external_material(&mut self, bytes: usize) -> Result<(), String> {
-        if bytes < self.external_material_bytes {
-            return Err("private Node retention inventory regressed".into());
-        }
-        self.capacity.charge(bytes - self.external_material_bytes)?;
-        self.external_material_bytes = bytes;
-        Ok(())
-    }
-
     pub(super) fn bind_retained(
         &mut self,
         material_pin_digest: &str,
@@ -539,6 +618,14 @@ impl<F: Format> GenericLedger<F> {
         for slot in self.slots.values() {
             self.capacity.record::<F::Origin, F::Record>(&slot.record)?;
             let record = &slot.record;
+            if let Some(reference) = record.publication_reservation_ref() {
+                let bytes = common_storage::read_cas_bounded(
+                    store,
+                    reference,
+                    MAX_PUBLICATION_METADATA_BYTES,
+                )?;
+                self.capacity.object(reference, bytes.len())?;
+            }
             if slot.reserved
                 && !store
                     .list_pin_scope_shards(F::SCOPE)
@@ -584,10 +671,45 @@ impl<F: Format> GenericLedger<F> {
             .collect())
     }
 
+    /// Read-only bootstrap must not normalize an unresolved original publication.
+    pub(super) fn require_completed(&self) -> Result<(), String> {
+        self.verify_carriers()?;
+        if self.pin.is_none()
+            || self.init_pending
+            || !files::stages(&self.dir.join("init-intent.cbor"))?.is_empty()
+            || self
+                .slots
+                .values()
+                .any(|s| !s.committed || s.intent || s.reserved)
+        {
+            return Err("formal prefix read-only bootstrap has unresolved original WAL".into());
+        }
+        Ok(())
+    }
+
     pub(super) fn origin(&self) -> Result<&F::Origin, String> {
         self.pin
             .as_ref()
             .ok_or_else(|| "formal prefix origin missing".into())
+    }
+    /// Only an original durable reservation without its pin publication may
+    /// reconstruct missing outputs. Committed/intent history stays read-only.
+    pub(super) fn reservation_without_pins(
+        &self,
+        height: u64,
+        store: &LocalCasStore,
+    ) -> Result<bool, String> {
+        self.verify_carriers()?;
+        let Some(slot) = self.slots.get(&height) else {
+            return Ok(false);
+        };
+        Ok(slot.reserved
+            && !slot.intent
+            && !slot.committed
+            && !store
+                .list_pin_scope_shards(F::SCOPE)
+                .map_err(|e| format!("list reservation pins: {e:?}"))?
+                .contains(&self.shard(height)?))
     }
     pub(super) fn record_at(&self, height: u64) -> Option<&F::Record> {
         self.slots.get(&height).map(|slot| &slot.record)
@@ -649,6 +771,40 @@ impl<F: Format> GenericLedger<F> {
         store: &LocalCasStore,
         append: bool,
     ) -> Result<String, String> {
+        self.accept_prepared_inner(
+            record,
+            PreparedRecordMaterialV1 {
+                snapshot_bytes,
+                journal_bytes,
+                nodes,
+                store,
+            },
+            append,
+            None,
+        )
+    }
+    pub(super) fn accept_prepared_with_publication(
+        &mut self,
+        record: F::Record,
+        material: PreparedRecordMaterialV1<'_>,
+        claim: &dyn RetainedPublicationClaimV1,
+        proof_bytes: Option<usize>,
+    ) -> Result<String, String> {
+        self.accept_prepared_inner(record, material, true, Some((claim, proof_bytes)))
+    }
+    fn accept_prepared_inner(
+        &mut self,
+        record: F::Record,
+        material: PreparedRecordMaterialV1<'_>,
+        append: bool,
+        publication: Option<(&dyn RetainedPublicationClaimV1, Option<usize>)>,
+    ) -> Result<String, String> {
+        let PreparedRecordMaterialV1 {
+            snapshot_bytes,
+            journal_bytes,
+            nodes,
+            store,
+        } = material;
         self.verify_carriers()?;
         formal_dependencies::validate_nodes(nodes)?;
         let height = record.height();
@@ -668,14 +824,99 @@ impl<F: Format> GenericLedger<F> {
         if record.origin_digest() != self.origin_digest()? {
             return Err("formal prefix prepared record origin identity mismatch".into());
         }
-        self.capacity.record::<F::Origin, F::Record>(&record)?;
-        self.capacity
-            .object(record.snapshot_ref(), snapshot_bytes.len())?;
-        self.capacity
-            .object(record.journal_ref(), journal_bytes.len())?;
-        for (reference, bytes) in nodes {
-            self.capacity.object(reference, bytes.len())?;
-        }
+        let metadata_bytes = record
+            .publication_reservation_ref()
+            .map(|reference| {
+                common_storage::read_cas_bounded(store, reference, MAX_PUBLICATION_METADATA_BYTES)
+            })
+            .transpose()?;
+        let recovery = if publication.is_none() && existing.is_some() {
+            self.retained_recovery_claim(&record, store)?
+        } else {
+            None
+        };
+        let recovered_proof = if recovery.is_some() {
+            let mut records = self
+                .slots
+                .values()
+                .filter(|slot| slot.record.height() <= height)
+                .map(|slot| slot.record.clone())
+                .collect::<Vec<_>>();
+            if records.last().is_none_or(|last| last.height() != height) {
+                records.push(record.clone());
+            }
+            F::publication_proof_bytes(&records)?
+        } else {
+            None
+        };
+        let publication = publication.or_else(|| {
+            recovery
+                .as_ref()
+                .map(|claim| (claim as &dyn RetainedPublicationClaimV1, recovered_proof))
+        });
+        let transfer = if let Some((claim, proof)) = publication {
+            let binding = record
+                .publication_binding()?
+                .ok_or("publication record binding absent")?;
+            claim.validate_record(PublicationRecordIdentityV1 {
+                binding: &binding,
+                origin: record.origin_digest(),
+                height: record.height(),
+                snapshot: record.snapshot_ref(),
+                journal: record.journal_ref(),
+                snapshot_bytes: snapshot_bytes.len(),
+                journal_bytes: journal_bytes.len(),
+            })?;
+            if claim.held_bytes() > self.external_material_bytes {
+                return Err("publication promise not held by private usage".into());
+            }
+            let proof_delta = proof
+                .unwrap_or(self.proof_bytes)
+                .saturating_sub(self.proof_bytes);
+            let (next, consumed) =
+                self.capacity
+                    .plan_held_to_actual(claim.held_bytes(), |capacity| {
+                        capacity.record::<F::Origin, F::Record>(&record)?;
+                        capacity.object(record.snapshot_ref(), snapshot_bytes.len())?;
+                        capacity.object(record.journal_ref(), journal_bytes.len())?;
+                        for (reference, bytes) in nodes {
+                            capacity.object(reference, bytes.len())?;
+                        }
+                        capacity.object(
+                            &binding.reservation_ref,
+                            metadata_bytes
+                                .as_ref()
+                                .ok_or("publication metadata missing")?
+                                .len(),
+                        )?;
+                        capacity.charge(proof_delta)
+                    })?;
+            Some((
+                next,
+                self.external_material_bytes
+                    .checked_sub(consumed)
+                    .ok_or("publication transfer underflow")?,
+                proof,
+            ))
+        } else {
+            if append && existing.is_none() && record.publication_reservation_ref().is_some() {
+                return Err("new reserved publication requires original retained claim".into());
+            }
+            self.capacity.record::<F::Origin, F::Record>(&record)?;
+            self.capacity
+                .object(record.snapshot_ref(), snapshot_bytes.len())?;
+            self.capacity
+                .object(record.journal_ref(), journal_bytes.len())?;
+            for (reference, bytes) in nodes {
+                self.capacity.object(reference, bytes.len())?;
+            }
+            if let (Some(reference), Some(bytes)) =
+                (record.publication_reservation_ref(), &metadata_bytes)
+            {
+                self.capacity.object(reference, bytes.len())?;
+            }
+            None
+        };
         let bytes = serde_cbor::to_vec(&record).map_err(|e| e.to_string())?;
         if existing.as_ref().is_some_and(|slot| slot.record != record) {
             return Err(
@@ -689,6 +930,8 @@ impl<F: Format> GenericLedger<F> {
             }
             // Fix the original full QC before any externally retained material.
             files::publish(&self.reservation_path(height), &bytes)?;
+            #[cfg(test)]
+            self.publication_fault(height, PublicationFault::ReservationPublished)?;
             let shard = self.shard(height)?;
             let has_pins = store
                 .list_pin_scope_shards(F::SCOPE)
@@ -765,6 +1008,13 @@ impl<F: Format> GenericLedger<F> {
                 reserved: false,
             },
         );
+        if let Some((next, external, proof)) = transfer {
+            self.capacity = next;
+            self.external_material_bytes = external;
+            if let Some(proof) = proof {
+                self.proof_bytes = self.proof_bytes.max(proof);
+            }
+        }
         record.digest()
     }
     pub(super) fn verify_carriers(&self) -> Result<(), String> {
@@ -775,6 +1025,7 @@ impl<F: Format> GenericLedger<F> {
         common_storage::verify_lock_carrier(&self._lock, &self.dir.join("writer.lock"))?;
         if let Some(pin) = &self.pin {
             canonical_hash(pin.ledger_id())?;
+            F::validate_origin_directories(pin, &self.root, &self.dir)?;
         }
         if let Some(pin) = &self.pin
             && (pin.format_lock() != &common_storage::lock_carrier_identity(&self._format_lock)?
@@ -889,14 +1140,5 @@ fn canonical_hash(value: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod capacity_tests {
-    use super::*;
-    #[test]
-    fn failed_material_reservation_cannot_make_a_retry_skip_the_limit() {
-        let mut capacity = Capacity::default();
-        capacity.charge(MAX_MATERIAL).unwrap();
-        assert!(capacity.object("not-retained", 1).is_err());
-        assert!(capacity.object("not-retained", 1).is_err());
-        assert!(!capacity.objects.contains("not-retained"));
-    }
-}
+#[path = "driver_bft_formal_capacity_tests.rs"]
+mod capacity_tests;

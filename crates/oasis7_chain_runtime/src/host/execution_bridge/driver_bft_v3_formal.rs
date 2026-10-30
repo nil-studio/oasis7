@@ -89,6 +89,82 @@ impl FormalBftHeaderExecutionV3 {
         })
     }
 
+    /// Independent strict overlay rooted in this already replayed exact parent.
+    fn fork_strict(&self) -> Result<Self, String> {
+        self.fork_strict_with_seed(Vec::new())
+    }
+    fn fork_strict_with_seed(&self, seed: Vec<(String, Vec<u8>)>) -> Result<Self, String> {
+        let retained_nodes = formal_dependencies::RecordingBusinessIndexReaderV1::new_closed_layer(
+            self.retained_nodes.clone(),
+            seed,
+        )?;
+        Ok(Self {
+            handoff: self.handoff.clone(),
+            schedule: self.schedule.clone(),
+            parent_record: self.parent_record.clone(),
+            parent_world: self
+                .parent_world
+                .clone_with_independent_formal_history_reader(retained_nodes.clone())?,
+            parent_result_tree: self.parent_result_tree.clone(),
+            business_reader: formal_business_package::SharedBusinessReader(retained_nodes.clone()),
+            retained_nodes,
+            tip: self.tip.clone(),
+        })
+    }
+
+    fn fork_replay_current(&self, seed: Vec<(String, Vec<u8>)>) -> Result<Self, String> {
+        let retained_nodes = self.retained_nodes.replay_current_layer(seed)?;
+        Ok(Self {
+            handoff: self.handoff.clone(),
+            schedule: self.schedule.clone(),
+            parent_record: self.parent_record.clone(),
+            parent_world: self
+                .parent_world
+                .clone_with_independent_formal_history_reader(retained_nodes.clone())?,
+            parent_result_tree: self.parent_result_tree.clone(),
+            business_reader: formal_business_package::SharedBusinessReader(retained_nodes.clone()),
+            retained_nodes,
+            tip: self.tip.clone(),
+        })
+    }
+
+    /// Live derivation may cache newly computed nodes, while every parent read
+    /// remains confined to the already verified strict dependency inventory.
+    fn fork_live_closed(&self) -> Result<Self, String> {
+        let retained_nodes = self.retained_nodes.live_closed_layer()?;
+        Ok(Self {
+            handoff: self.handoff.clone(),
+            schedule: self.schedule.clone(),
+            parent_record: self.parent_record.clone(),
+            parent_world: self
+                .parent_world
+                .clone_with_independent_formal_history_reader(retained_nodes.clone())?,
+            parent_result_tree: self.parent_result_tree.clone(),
+            business_reader: formal_business_package::SharedBusinessReader(retained_nodes.clone()),
+            retained_nodes,
+            tip: self.tip.clone(),
+        })
+    }
+
+    /// Fork only this already replayed parent. The caller must freshly verify
+    /// its exact ledger/CAS identity before using the result for a preview.
+    fn fork_for_preview(&self) -> Result<Self, String> {
+        let retained_nodes = self.retained_nodes.fork_live_preview()?;
+        let parent_world = self
+            .parent_world
+            .clone_with_independent_formal_history_reader(retained_nodes.clone())?;
+        Ok(Self {
+            handoff: self.handoff.clone(),
+            schedule: self.schedule.clone(),
+            parent_record: self.parent_record.clone(),
+            parent_world,
+            parent_result_tree: self.parent_result_tree.clone(),
+            business_reader: formal_business_package::SharedBusinessReader(retained_nodes.clone()),
+            retained_nodes,
+            tip: self.tip.clone(),
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn schedule(&self) -> &BftHeaderHeightScheduleV3 {
         &self.schedule
@@ -102,7 +178,49 @@ impl FormalBftHeaderExecutionV3 {
         &self,
         private_actions: &[u8],
     ) -> Result<FormalBftHeaderCandidateV3, String> {
-        Ok(self.execute(private_actions)?.candidate)
+        let (candidate, capacity) = self.plan_candidate(private_actions)?;
+        match capacity {
+            formal_dependencies::ContentNodeCapacityV1::Fits { .. } => Ok(candidate),
+            formal_dependencies::ContentNodeCapacityV1::Exceeded { .. } => {
+                Err("formal BFT candidate publication requires another dependency window".into())
+            }
+        }
+    }
+
+    /// Actual execution reads plus all derived result-tree writes. A caller
+    /// decides whether a new verified window can fit; this plan grants no cut.
+    fn plan_candidate(
+        &self,
+        private_actions: &[u8],
+    ) -> Result<
+        (
+            FormalBftHeaderCandidateV3,
+            formal_dependencies::ContentNodeCapacityV1,
+        ),
+        String,
+    > {
+        let executed = self.execute(private_actions)?;
+        let writes = executed
+            .result_delta
+            .node_writes
+            .iter()
+            .map(|node| (node.digest.clone(), node.bytes.clone()))
+            .collect::<Vec<_>>();
+        let capacity = self.retained_nodes.plan_content_nodes(&writes)?;
+        Ok((executed.candidate, capacity))
+    }
+
+    /// Only a freshly durable-replayed owner may call this. The empty current
+    /// layer reads through the exact strict parent, never through raw CAS.
+    fn capacity_in_new_layer(
+        &self,
+        actions: &[u8],
+    ) -> Result<formal_dependencies::ContentNodeCapacityV1, String> {
+        // Do not turn a live recorder into authority. The caller must retain
+        // the actual strict durable replay, not the speculative preview fork.
+        let strict = self.fork_strict()?;
+        let live = strict.fork_live_closed()?;
+        Ok(live.plan_candidate(actions)?.1)
     }
 
     pub(crate) fn verify_and_execute(
@@ -314,12 +432,24 @@ pub(crate) use private::{
     PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderEntryV3, PrivateHeaderPrefixV3,
 };
 
+#[path = "driver_bft_v3_publication_plan.rs"]
+mod publication_plan;
+#[path = "driver_bft_v3_node_publication_reservation.rs"]
+mod publication_reservation;
+
 #[path = "driver_bft_v3_formal_storage.rs"]
 mod storage;
 
 #[path = "driver_bft_v3_formal_prefix.rs"]
 mod prefix;
+#[cfg(test)]
 pub(crate) use prefix::{
-    ActualBftSuccessorWindowDriverVerifierV1, FormalBftHeaderLedgerExecutionV3,
-    FormalBftHeaderNodeDriverV3,
+    ActualBftSuccessorWindowDriverVerifierV1, FormalBftHeaderActiveExecutionV1,
+    OriginalHeaderIdentityV1,
 };
+pub(crate) use prefix::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3};
+
+#[cfg(test)]
+pub(crate) use prefix::SuccessorPrivateExportRequestV1;
+#[cfg(test)]
+pub(crate) use prefix::SuccessorPrivateInstallRequestV1;

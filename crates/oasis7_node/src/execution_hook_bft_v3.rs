@@ -129,3 +129,12 @@ mod tests {
         assert!(!debug.contains("actions"));
     }
 }
+
+/// Private execution capacity is independent of public signing authority.
+/// NeedsRoll is allowed only when the same operation fits a verified new layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeBftCapacityAdmissionV3 {
+    Fits,
+    NeedsRoll,
+    Blocked,
+}

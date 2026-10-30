@@ -39,6 +39,7 @@ struct Config {
     requester_signing_key_path: PathBuf,
     provider_timeout_ms: u64,
     completion_timeout_ms: u64,
+    successor_private_archive_directory: Option<PathBuf>,
     #[cfg(feature = "node-libp2p")]
     #[serde(default)]
     network: Option<network::Config>,
@@ -53,7 +54,7 @@ pub(crate) struct BindingReport {
     pub(crate) binding_digest: String,
 }
 struct Prepared {
-    driver: FormalBftHeaderNodeDriverV3,
+    driver: Box<dyn oasis7_node::NodeExecutionHook>,
     binding: BftSignerBindingV3,
     requester: ed25519_dalek::SigningKey,
     #[cfg(feature = "node-libp2p")]
@@ -186,7 +187,7 @@ fn from_paths(
         requester,
         #[cfg(feature = "node-libp2p")]
         initial_trust,
-    } = prepare(&config)?;
+    } = preparation::prepare(&config, false)?;
     let provider = Arc::new(
         RemoteBftSignerProviderV3::new(
             config.provider_address,
@@ -214,13 +215,15 @@ fn from_paths(
         network::configure(runtime, driver, binding, provider, network, initial_trust)?
     } else {
         runtime
-            .with_execution_hook(driver)
+            .try_with_shared_execution_hook(Arc::new(std::sync::Mutex::new(driver)))
+            .map_err(|_| "header Node execution hook rejected")?
             .with_tendermint_v3(binding, provider)
             .map_err(|_| "header Node runtime configuration rejected")?
     };
     #[cfg(not(feature = "node-libp2p"))]
     let mut runtime = runtime
-        .with_execution_hook(driver)
+        .try_with_shared_execution_hook(Arc::new(std::sync::Mutex::new(driver)))
+        .map_err(|_| "header Node execution hook rejected")?
         .with_tendermint_v3(binding, provider)
         .map_err(|_| "header Node runtime configuration rejected")?;
     runtime
@@ -311,7 +314,7 @@ fn load_config(config_path: &Path) -> Result<Config, String> {
 
 pub(super) fn prepare_binding_report(config_path: &Path) -> Result<BindingReport, String> {
     let config = load_config(config_path)?;
-    let Prepared { binding, .. } = prepare(&config)?;
+    let Prepared { binding, .. } = preparation::prepare(&config, true)?;
     let binding_digest = binding
         .digest()
         .map_err(|_| "header Node binding digest rejected")?;
@@ -319,93 +322,6 @@ pub(super) fn prepare_binding_report(config_path: &Path) -> Result<BindingReport
         schema_version: "oasis7.formal_bft_header_node_binding.v3",
         binding,
         binding_digest,
-    })
-}
-
-fn prepare(config: &Config) -> Result<Prepared, String> {
-    // All private inputs and existing directories are checked before creating Node state.
-    let cas = require_existing_directory(&config.cas_directory, "private Node CAS")?;
-    crate::controlled_live_config::require_private_owned(&cas, true)?;
-    for path in [&config.records_directory, &config.replication_directory] {
-        let path = require_existing_directory(path, "private Node state")?;
-        crate::controlled_live_config::require_private_owned(&path, true)?;
-    }
-    let directories = [
-        &cas,
-        &config.records_directory,
-        &config.replication_directory,
-    ]
-    .into_iter()
-    .map(std::fs::canonicalize)
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|_| "header Node state directory resolution rejected")?;
-    for (index, left) in directories.iter().enumerate() {
-        if directories
-            .iter()
-            .skip(index + 1)
-            .any(|right| left.starts_with(right) || right.starts_with(left))
-        {
-            return Err(
-                "header Node CAS, driver and replication directories must be disjoint".into(),
-            );
-        }
-    }
-    if !config.requester_signing_key_path.is_absolute() {
-        return Err("header Node requester key path must be absolute".into());
-    }
-    let requester = crate::controlled_live_config::read_existing_signing_key(
-        &config.requester_signing_key_path,
-    )
-    .map_err(|_| "header Node requester key rejected")?;
-    let trust = load_handoff_trust_config(&config.trust_config_path)
-        .map_err(|_| "header Node qualified H trust rejected")?;
-    let anchor = trust
-        .verified_anchor()
-        .map_err(|_| "header Node qualified H trust rejected")?;
-    if !config.handoff_material_path.is_absolute() {
-        return Err("header Node H material path must be absolute".into());
-    }
-    crate::controlled_live_config::require_private_owned(&config.handoff_material_path, false)?;
-    let material = read_qualified_handoff_material(&config.handoff_material_path)
-        .map_err(|_| "header Node qualified H material rejected")?;
-    let store = LocalCasStore::new(cas);
-    let source = Arc::new(CasBusinessIndexReader {
-        store: store.clone(),
-    });
-    #[cfg(feature = "node-libp2p")]
-    let open_driver = if config.network.is_some() {
-        FormalBftHeaderNodeDriverV3::open_from_handoff_with_peer_network
-    } else {
-        FormalBftHeaderNodeDriverV3::open_from_handoff
-    };
-    #[cfg(not(feature = "node-libp2p"))]
-    let open_driver = FormalBftHeaderNodeDriverV3::open_from_handoff;
-    let driver = open_driver(
-        &config.records_directory,
-        store,
-        anchor,
-        config.target.clone(),
-        material,
-        source,
-    )
-    .map_err(|_| "header Node actual qualified H driver recovery rejected")?;
-    let binding = BftSignerBindingV3::new(
-        driver.handoff().clone(),
-        driver.initial_schedule().clone(),
-        driver.material_identity().into(),
-        config.validator_id.clone(),
-        config.provisioned_signing_keys.clone(),
-        config.timeouts,
-        config.operator_instance_id.clone(),
-        hex::encode(requester.verifying_key().to_bytes()),
-    )
-    .map_err(|_| "header Node trusted signer binding rejected")?;
-    Ok(Prepared {
-        driver,
-        binding,
-        requester,
-        #[cfg(feature = "node-libp2p")]
-        initial_trust: trust.initial_trust,
     })
 }
 
@@ -556,3 +472,6 @@ mod tests {
         assert!(value["receipts"][0].get("actions").is_none());
     }
 }
+
+#[path = "formal_bft_header_node_prepare.rs"]
+mod preparation;

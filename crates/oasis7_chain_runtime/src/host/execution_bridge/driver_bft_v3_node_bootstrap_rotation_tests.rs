@@ -104,7 +104,7 @@ pub(super) fn make_body(
         new_public_key_hex: public(124 + generation as u8),
         decision_height: decision,
         activation_height: decision + 2,
-        target_epoch: (decision + 2) / 3,
+        target_epoch: decision.div_ceil(3),
     }
 }
 pub(super) fn signed(body: &Body, (old, new): Proofs, id: u64) -> (u64, Vec<u8>) {

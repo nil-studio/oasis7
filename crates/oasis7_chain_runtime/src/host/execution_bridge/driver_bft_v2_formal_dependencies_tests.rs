@@ -207,3 +207,250 @@ fn replay_accesses_exclude_unvisited_preloaded_suffix_nodes() {
     );
     assert!(reader.recorded_refs().unwrap().contains(&future.0));
 }
+
+#[test]
+fn closed_layer_reads_verified_parent_lazily_with_its_own_node_budget() {
+    let external = Arc::new(MemoryReader::default());
+    let parent_nodes = (0..MAX_RETAINED_INDEX_NODES)
+        .map(|index| seeded(&index.to_be_bytes()))
+        .collect::<Vec<_>>();
+    let expected = parent_nodes[0].clone();
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), parent_nodes).unwrap();
+    let child = RecordingBusinessIndexReaderV1::new_closed_layer(parent, Vec::new()).unwrap();
+    assert!(child.recorded_nodes().unwrap().is_empty());
+    assert_eq!(
+        child.read_node(&expected.0).unwrap(),
+        Some(expected.1.clone())
+    );
+    assert_eq!(child.recorded_nodes().unwrap(), vec![expected]);
+    assert_eq!(
+        child.read_node(&blake3_hex(b"unverified missing")).unwrap(),
+        None
+    );
+    assert!(
+        child
+            .cache_content_node(&blake3_hex(b"unknown derived"), b"unknown derived")
+            .is_err()
+    );
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cached_reads.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn closed_layer_rejects_an_open_parent_even_when_it_currently_has_seeded_nodes() {
+    let external = Arc::new(MemoryReader::default());
+    let parent =
+        RecordingBusinessIndexReaderV1::new(external.clone(), vec![seeded(b"known")]).unwrap();
+    assert!(RecordingBusinessIndexReaderV1::new_closed_layer(parent, Vec::new()).is_err());
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn closed_layer_missing_nodes_never_fall_back_to_the_ancestors_external_reader() {
+    let external = Arc::new(MemoryReader::default());
+    let digest = external.insert(b"external-only forbidden bytes".to_vec());
+    let retained = seeded(b"verified ancestor bytes");
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), vec![retained.clone()])
+            .unwrap();
+    let child =
+        RecordingBusinessIndexReaderV1::new_closed_layer(parent.clone(), Vec::new()).unwrap();
+    assert_eq!(child.read_node(&digest).unwrap(), None);
+    assert_eq!(child.read_cached_node(&digest).unwrap(), None);
+    child.cache_content_node(&retained.0, &retained.1).unwrap();
+    assert_eq!(child.recorded_nodes().unwrap(), vec![retained]);
+    assert!(parent.accessed_nodes().unwrap().is_empty());
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cached_reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cache_writes.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn closed_layer_parent_reads_cannot_exceed_the_child_node_limit() {
+    let external = Arc::new(MemoryReader::default());
+    let extra = seeded(b"one beyond current segment capacity");
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), vec![extra.clone()]).unwrap();
+    let seed = (0..MAX_RETAINED_INDEX_NODES)
+        .map(|index| seeded(&index.to_be_bytes()))
+        .collect();
+    let child = RecordingBusinessIndexReaderV1::new_closed_layer(parent, seed).unwrap();
+    assert!(child.read_node(&extra.0).is_err());
+    assert!(child.cache_content_node(&extra.0, &extra.1).is_err());
+    assert_eq!(
+        child.recorded_nodes().unwrap().len(),
+        MAX_RETAINED_INDEX_NODES
+    );
+    assert!(child.accessed_nodes().unwrap().is_empty());
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn closed_layer_chain_depth_is_bounded_independently_of_node_count() {
+    let mut parent =
+        RecordingBusinessIndexReaderV1::new_strict(Arc::new(MemoryReader::default()), Vec::new())
+            .unwrap();
+    for _ in 0..64 {
+        parent = RecordingBusinessIndexReaderV1::new_closed_layer(parent, Vec::new()).unwrap();
+    }
+    assert_eq!(
+        parent
+            .read_node(&blake3_hex(b"missing at deepest ancestor"))
+            .unwrap(),
+        None
+    );
+    assert!(RecordingBusinessIndexReaderV1::new_closed_layer(parent, Vec::new()).is_err());
+}
+
+#[test]
+fn closed_layer_parent_reads_cannot_exceed_the_child_byte_limit() {
+    let external = Arc::new(MemoryReader::default());
+    let extra = seeded(b"beyond current segment bytes");
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), vec![extra.clone()]).unwrap();
+    let mut remaining = MAX_RETAINED_INDEX_TOTAL_BYTES;
+    let mut seed = Vec::new();
+    while remaining > 0 {
+        let length = remaining.min(BUSINESS_INDEX_MAX_NODE_BYTES);
+        let mut bytes = vec![0; length];
+        bytes[..8].copy_from_slice(&seed.len().to_be_bytes());
+        seed.push(seeded(&bytes));
+        remaining -= length;
+    }
+    assert!(seed.len() < MAX_RETAINED_INDEX_NODES);
+    let child = RecordingBusinessIndexReaderV1::new_closed_layer(parent, seed).unwrap();
+    assert!(child.read_node(&extra.0).is_err());
+    assert!(child.cache_content_node(&extra.0, &extra.1).is_err());
+    assert!(child.accessed_nodes().unwrap().is_empty());
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn closed_layer_live_derivation_keeps_parent_reads_closed_and_seals_for_replay() {
+    let external = Arc::new(MemoryReader::default());
+    let inherited = seeded(b"original verified parent dependency");
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), vec![inherited.clone()])
+            .unwrap();
+    let current = RecordingBusinessIndexReaderV1::new_closed_layer(parent, Vec::new()).unwrap();
+    let live = current.live_closed_layer().unwrap();
+    assert_eq!(
+        live.read_node(&inherited.0).unwrap(),
+        Some(inherited.1.clone())
+    );
+    let derived = seeded(b"actual locally derived node");
+    live.cache_content_node(&derived.0, &derived.1).unwrap();
+    assert!(RecordingBusinessIndexReaderV1::new_closed_layer(live.clone(), Vec::new()).is_err());
+    let replay = live
+        .replay_current_layer(live.recorded_nodes().unwrap())
+        .unwrap();
+    replay.cache_content_node(&derived.0, &derived.1).unwrap();
+    assert_eq!(replay.read_node(&inherited.0).unwrap(), Some(inherited.1));
+    let unknown = seeded(b"not derived by original execution");
+    assert!(replay.cache_content_node(&unknown.0, &unknown.1).is_err());
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cache_writes.load(Ordering::SeqCst), 0);
+    // Repeated live/replay cycles within a segment do not consume archive depth.
+    let mut replay = replay;
+    for _ in 0..128 {
+        let live = replay.live_closed_layer().unwrap();
+        replay = live
+            .replay_current_layer(live.recorded_nodes().unwrap())
+            .unwrap();
+    }
+}
+
+#[test]
+fn live_preview_forks_keep_parent_accesses_and_isolate_failed_candidate_nodes() {
+    let external = Arc::new(MemoryReader::default());
+    let first = seeded(b"verified parent read");
+    let unvisited = seeded(b"preloaded but unvisited");
+    let later = seeded(b"node produced only by failed alternative");
+    let missing = external.insert(b"unrecorded external node".to_vec());
+    let parent = RecordingBusinessIndexReaderV1::new_strict(
+        external.clone(),
+        vec![first.clone(), unvisited.clone()],
+    )
+    .unwrap();
+    parent.read_node(&first.0).unwrap();
+    let baseline = parent.accessed_nodes().unwrap();
+    let a = parent.fork_live_preview().unwrap();
+    a.read_node(&unvisited.0).unwrap();
+    a.cache_content_node(&later.0, &later.1).unwrap();
+    assert_eq!(a.read_node(&missing).unwrap(), None);
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(parent.accessed_nodes().unwrap(), baseline);
+    let b = parent.fork_live_preview().unwrap();
+    assert_eq!(b.accessed_nodes().unwrap(), baseline);
+    assert_eq!(b.read_node(&later.0).unwrap(), None);
+    assert_eq!(
+        b.recorded_nodes().unwrap(),
+        parent.recorded_nodes().unwrap()
+    );
+    assert!(a.cache_content_node(&first.0, b"foreign bytes").is_err());
+    assert_eq!(b.read_node(&first.0).unwrap(), Some(first.1));
+}
+
+#[test]
+fn live_preview_fork_preserves_closed_parent_without_mutating_ancestor() {
+    let ancestor_node = seeded(b"authenticated ancestor");
+    let local_node = seeded(b"current segment");
+    let ancestor = RecordingBusinessIndexReaderV1::new_strict(
+        Arc::new(MemoryReader::default()),
+        vec![ancestor_node.clone()],
+    )
+    .unwrap();
+    let parent = RecordingBusinessIndexReaderV1::new_closed_layer(
+        ancestor.clone(),
+        vec![local_node.clone()],
+    )
+    .unwrap();
+    let fork = parent.fork_live_preview().unwrap();
+    assert_eq!(
+        fork.read_node(&ancestor_node.0).unwrap(),
+        Some(ancestor_node.1)
+    );
+    assert!(ancestor.accessed_nodes().unwrap().is_empty());
+    assert!(parent.accessed_nodes().unwrap().is_empty());
+    assert_eq!(parent.recorded_nodes().unwrap(), vec![local_node]);
+    assert!(
+        parent
+            .fork_live_preview()
+            .unwrap()
+            .accessed_nodes()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn derived_write_capacity_plan_includes_unread_writes_without_partial_mutation() {
+    let seed = (0..MAX_RETAINED_INDEX_NODES - 1)
+        .map(|n| seeded(format!("actual bounded content {n}").as_bytes()))
+        .collect::<Vec<_>>();
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(Arc::new(MemoryReader::default()), seed.clone())
+            .unwrap();
+    let first = seeded(b"first derived write");
+    let second = seeded(b"second derived write");
+    assert!(matches!(
+        parent
+            .plan_content_nodes(&[first.clone(), first.clone()])
+            .unwrap(),
+        ContentNodeCapacityV1::Fits {
+            nodes: MAX_RETAINED_INDEX_NODES,
+            ..
+        }
+    ));
+    assert!(
+        matches!(parent.plan_content_nodes(&[first, second]).unwrap(),
+        ContentNodeCapacityV1::Exceeded { nodes, .. } if nodes == MAX_RETAINED_INDEX_NODES + 1)
+    );
+    assert_eq!(parent.recorded_nodes().unwrap(), {
+        let mut ordered = seed;
+        ordered.sort_by(|a, b| a.0.cmp(&b.0));
+        ordered
+    });
+    assert!(parent.accessed_nodes().unwrap().is_empty());
+}

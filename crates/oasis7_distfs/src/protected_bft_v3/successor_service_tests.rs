@@ -16,6 +16,7 @@ use std::time::Instant;
 struct Archive {
     states: Mutex<BTreeMap<String, BftSignerStateV3>>,
     fail_write: AtomicUsize,
+    loads: AtomicUsize,
 }
 impl BftSuccessorArchiveStoreV1 for Archive {
     fn persist_public_state(
@@ -36,6 +37,7 @@ impl BftSuccessorArchiveStoreV1 for Archive {
         &self,
         reference: &BftSuccessorWindowArchiveRefV1,
     ) -> Result<BftSignerStateV3, BftSignerErrorV3> {
+        self.loads.fetch_add(1, Ordering::SeqCst);
         self.states
             .lock()
             .unwrap()

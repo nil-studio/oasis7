@@ -9,9 +9,13 @@ impl BftSignerServiceV3 {
         runtime: &mut BftSignerServiceRuntimeV3,
         request: &SignedBftSignerRequestV3,
         digest: &str,
-        snapshot: BftSignerBackendSnapshotV3,
+        observed: ObservedSnapshotV3,
         read: &BftSuccessorArchiveReadV1,
     ) -> Result<ReplyDataV3, BftSignerErrorV3> {
+        // Dispatch just authenticated this exact owned snapshot, including its
+        // complete original archive chain and pending reservation. Payload bytes
+        // are still loaded fresh below, and transfer is reserved before release.
+        let ObservedSnapshotV3(snapshot) = observed;
         read.validate()?;
         let credential = request
             .body
@@ -39,7 +43,6 @@ impl BftSignerServiceV3 {
             .ok_or_else(|| invalid("archive read deadline unavailable"))?;
         archive_live(deadline)?;
         let provider = self.provider_key.public_key_hex();
-        support.verify_archives(&self.binding, &snapshot.state, &provider, deadline)?;
         let window = snapshot
             .state
             .successor_window

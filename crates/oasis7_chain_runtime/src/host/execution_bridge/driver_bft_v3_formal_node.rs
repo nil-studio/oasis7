@@ -14,6 +14,95 @@ use oasis7_node::{
 #[path = "driver_bft_v3_node_private_store.rs"]
 mod private_store;
 use private_store::NodePrivateStore;
+#[path = "driver_bft_v3_parent_memo.rs"]
+mod parent_memo;
+use parent_memo::{ParentMemo, ParentMemoKey};
+#[path = "driver_bft_v3_window_private.rs"]
+mod window_private;
+pub(super) use window_private::WindowPrivateStore;
+
+#[path = "driver_bft_v3_node_auto_prepare.rs"]
+mod auto_prepare;
+
+#[cfg(test)]
+#[path = "driver_bft_v3_node_publication_test_support.rs"]
+mod publication_test_support;
+
+/// Read-only original identity/bootstrap; it never returns a current execution head.
+pub(crate) struct OriginalHeaderIdentityV1 {
+    execution: FormalBftHeaderLedgerExecutionV3,
+    private: NodePrivateStore,
+    material_identity: String,
+}
+impl OriginalHeaderIdentityV1 {
+    pub(crate) fn open(
+        records: &Path,
+        store: LocalCasStore,
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: ClosedRecord,
+        source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+    ) -> Result<Self, String> {
+        let (private, retained) = NodePrivateStore::open(records, store.clone(), source)?;
+        private.require_completed_origin()?;
+        let execution = FormalBftHeaderLedgerExecutionV3::open_read_only_identity(
+            records, store, anchor, target, material, retained,
+        )?;
+        let origin = execution.ledger.origin_digest()?;
+        let material_identity = blake3_hex(
+            &serde_cbor::to_vec(&(
+                "oasis7.formal.bft.node_material.v3",
+                &origin,
+                private.instance_id(),
+                execution.ledger.material_pin_digest()?,
+            ))
+            .map_err(|_| "encode read-only original Node identity")?,
+        );
+        private.verify_original_binding(
+            &origin,
+            &material_identity,
+            execution.origin.handoff.handoff_position(),
+        )?;
+        Ok(Self {
+            execution,
+            private,
+            material_identity,
+        })
+    }
+    #[cfg(test)]
+    pub(crate) fn persist_auto_prepare_for_test(
+        &self,
+        records: &Path,
+        binding: &BftSignerBindingV3,
+        pin: &str,
+        body: oasis7_distfs::protected_bft_v3::BftSuccessorWindowInstallIntentBodyV1,
+        manifest: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveManifestV1,
+    ) -> Result<(), String> {
+        let owner = auto_prepare::AutoPrepareOwnerV1::from_identity(self, pin)?;
+        let intent = auto_prepare::AutoPrepareIntentV1::new(owner, binding, body, manifest)?;
+        self.verify_unchanged()?;
+        intent.persist(records)?;
+        self.verify_unchanged()
+    }
+
+    pub(crate) fn handoff(&self) -> &VerifiedBftHandoffTargetV2 {
+        &self.execution.origin.handoff
+    }
+    pub(crate) fn initial_schedule(&self) -> &BftHeaderHeightScheduleV3 {
+        &self.execution.origin.schedule
+    }
+    pub(crate) fn material_identity(&self) -> &str {
+        &self.material_identity
+    }
+    pub(crate) fn verify_unchanged(&self) -> Result<(), String> {
+        self.execution.ledger.require_completed()?;
+        self.private.verify_original_binding(
+            &self.execution.ledger.origin_digest()?,
+            &self.material_identity,
+            self.handoff().handoff_position(),
+        )
+    }
+}
 
 pub(crate) struct FormalBftHeaderNodeDriverV3 {
     records_root: PathBuf,
@@ -26,6 +115,7 @@ pub(crate) struct FormalBftHeaderNodeDriverV3 {
     installed_world: RuntimeWorld,
     peer_network: bool,
     membership_enabled: bool,
+    parent_memo: Option<ParentMemo>,
 }
 impl FormalBftHeaderNodeDriverV3 {
     pub(crate) fn open_from_handoff(
@@ -97,16 +187,23 @@ impl FormalBftHeaderNodeDriverV3 {
             &material_identity,
             cursor_height,
             &nodes,
-            &mut |bytes| execution.ledger.reserve_external_material(bytes),
+            &mut |bytes, future| {
+                execution
+                    .ledger
+                    .reserve_private_material(bytes, future.clone(), &execution.store)
+            },
         )?;
-        execution
-            .ledger
-            .reserve_external_material(private.usage()?)?;
+        execution.ledger.reserve_private_material(
+            private.usage()?,
+            private.publication_promises()?,
+            &execution.store,
+        )?;
         let installed_world = execution.origin.parent_world.clone();
         Ok(Self {
             records_root: canonical_storage_path(records)?,
             peer_network,
             membership_enabled: false,
+            parent_memo: None,
             installed_world,
             execution,
             private,
@@ -120,16 +217,19 @@ impl FormalBftHeaderNodeDriverV3 {
     /// successor minimum or permit a new signing window.
     pub(crate) fn export_successor_private_closure(
         &mut self,
-        archive: &oasis7_distfs::protected_bft_v3::LocalBftSuccessorArchiveStoreV1,
-        source: &oasis7_distfs::protected_bft_v3::BftSuccessorWindowSourceV1,
-        public_state: &oasis7_distfs::protected_bft_v3::BftSignerStateV3,
-        previous_usage: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveUsageV1,
-        height: u64,
-        header_id: &str,
-        sequence: u64,
-        predecessor: Option<String>,
-        deadline: std::time::Instant,
+        request: super::successor_archive::SuccessorPrivateExportRequestV1<'_>,
     ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
+        let super::successor_archive::SuccessorPrivateExportRequestV1 {
+            archive,
+            source,
+            public_state,
+            previous_usage,
+            height,
+            header_id,
+            sequence,
+            predecessor,
+            deadline,
+        } = request;
         self.require_configured()?;
         let archive_root = canonical_storage_path(archive.root())?;
         crate::controlled_live_config::require_private_owned(&archive_root, true)?;
@@ -155,9 +255,15 @@ impl FormalBftHeaderNodeDriverV3 {
         let next_height = height
             .checked_add(1)
             .ok_or("successor pending height overflow")?;
-        for (id, roles) in
-            super::successor_archive::required_pending(public_state.journal.as_ref())?
-        {
+        let mut required =
+            super::successor_archive::required_pending(public_state.journal.as_ref())?;
+        if let Some(local) = self.private.candidate(next_height)? {
+            required
+                .entry(local.public_value.block_id()?)
+                .or_default()
+                .insert(super::successor_archive::PendingRoleV1::RetainedLocal);
+        }
+        for (id, roles) in required {
             let value = self
                 .private
                 .public_value(next_height, &id)?
@@ -165,29 +271,28 @@ impl FormalBftHeaderNodeDriverV3 {
             pending_packages.push((roles, self.private.export(&value)?));
         }
         self.execution.export_successor_private_closure(
-            archive,
-            source,
-            height,
-            header_id,
-            sequence,
-            predecessor,
+            super::successor_archive::SuccessorPrivateExportRequestV1 {
+                archive,
+                source,
+                public_state,
+                previous_usage,
+                height,
+                header_id,
+                sequence,
+                predecessor,
+                deadline,
+            },
             self.private.instance_id(),
-            public_state,
-            previous_usage,
             &pending_packages,
-            deadline,
         )
     }
+
     pub(crate) fn install_successor_window(
         &mut self,
-        binding: &BftSignerBindingV3,
-        provider_pin: &str,
-        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
-        request_id: &str,
-        checkpoint_digest: &str,
-        archive: Arc<oasis7_distfs::protected_bft_v3::LocalBftSuccessorArchiveStoreV1>,
-        deadline: std::time::Instant,
+        request: super::successor_install::SuccessorPrivateInstallRequestV1<'_>,
     ) -> Result<oasis7_distfs::protected_bft_v3::BftSuccessorWindowAdoptedEvidenceV1, String> {
+        let binding = request.binding;
+        let archive = &request.archive;
         self.require_configured()?;
         if self.check_binding(binding)?
             != *self
@@ -210,15 +315,10 @@ impl FormalBftHeaderNodeDriverV3 {
             &self.records_root,
             &self.material_identity,
             self.cursor_height,
-            binding,
-            provider_pin,
-            lease,
-            request_id,
-            checkpoint_digest,
-            archive,
-            deadline,
+            request,
         )
     }
+
     #[cfg(test)]
     pub(crate) fn inject_publication_failure(
         &mut self,
@@ -282,9 +382,38 @@ impl FormalBftHeaderNodeDriverV3 {
     /// previews cannot contaminate retained dependency observations.
     fn reset_parent(&mut self) -> Result<(), String> {
         self.execution.ledger.reload()?;
+        self.execution.ledger.reserve_private_material(
+            self.private.usage()?,
+            self.private.publication_promises()?,
+            &self.execution.store,
+        )?;
+        // Cached execution never replaces durable material/capacity checks.
+        self.execution.ensure_origin_material()?;
         self.execution
             .ledger
-            .reserve_external_material(self.private.usage()?)?;
+            .preload(&self.execution.store, Some(self.cursor_height))?;
+        let origin_nodes = self.private.origin_nodes()?;
+        let key = ParentMemoKey::new(
+            &self.material_identity,
+            &self.execution.ledger.origin_digest()?,
+            self.execution.ledger.material_pin_digest()?,
+            self.cursor_height,
+            self.execution
+                .ledger
+                .records()
+                .filter(|record| record.height() <= self.cursor_height)
+                .map(|record| record.digest())
+                .collect::<Result<Vec<_>, _>>()?,
+            &origin_nodes,
+        )?;
+        if let Some(memo) = &self.parent_memo
+            && memo.key == key
+        {
+            self.execution.origin = memo.parent.fork_for_preview()?;
+            return Ok(());
+        }
+        // A failed replacement must never revive a previous parent's memo.
+        self.parent_memo = None;
         let h = self.handoff().handoff_position();
         if self.cursor_height == h {
             let seed = self.private.origin_nodes()?;
@@ -342,7 +471,9 @@ impl FormalBftHeaderNodeDriverV3 {
             let entry = record.input();
             live.replay_next(&entry.certificate, &entry.actions_cbor)?;
         }
+        let parent = live.fork_for_preview()?;
         self.execution.origin = live;
+        self.parent_memo = Some(ParentMemo { key, parent });
         Ok(())
     }
     fn expected(&self) -> NodeBftExecutionContextV3 {
@@ -514,6 +645,38 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
     ) -> Result<(), String> {
         self.validate_candidate(expected, candidate)
     }
+    fn retain_bft_v3_reserved_candidate(
+        &mut self,
+        expected: &NodeBftExecutionContextV3,
+        candidate: &NodeBftPrivateCandidateV3,
+    ) -> Result<String, String> {
+        self.validate_candidate(expected, candidate)?;
+        let executed = self.execution.origin.execute(&candidate.actions_cbor)?;
+        let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
+        let prefix = self
+            .execution
+            .ledger
+            .records()
+            .map(|record| record.input().certificate)
+            .collect::<Vec<_>>();
+        let plan = super::super::publication_plan::PublicationPlanV1::from_actual(
+            &self.execution.origin.schedule,
+            &executed,
+            &candidate.actions_cbor,
+            &nodes,
+            &prefix,
+            storage::RECORD_DOMAIN,
+        )?;
+        self.private
+            .retain_planned(candidate, &plan, &nodes, &mut |bytes, future| {
+                self.execution.ledger.reserve_private_material(
+                    bytes,
+                    future.clone(),
+                    &self.execution.store,
+                )
+            })
+    }
+
     fn retain_bft_v3_private_candidate(
         &mut self,
         expected: &NodeBftExecutionContextV3,
@@ -521,8 +684,13 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
     ) -> Result<String, String> {
         self.validate_candidate(expected, candidate)?;
         let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
+        let future = self.private.publication_promises()?;
         self.private.retain(candidate, &nodes, &mut |bytes| {
-            self.execution.ledger.reserve_external_material(bytes)
+            self.execution.ledger.reserve_private_material(
+                bytes,
+                future.clone(),
+                &self.execution.store,
+            )
         })
     }
     fn export_bft_v3_private_candidate(
@@ -560,9 +728,14 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         if nodes != supplied {
             return Err("received Node dependencies differ from actual original transition".into());
         }
+        let future = self.private.publication_promises()?;
         self.private
             .retain_received(&package.candidate, &nodes, &mut |bytes| {
-                self.execution.ledger.reserve_external_material(bytes)
+                self.execution.ledger.reserve_private_material(
+                    bytes,
+                    future.clone(),
+                    &self.execution.store,
+                )
             })
     }
     fn load_bft_v3_private_candidate(
@@ -601,6 +774,17 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             return Ok(None);
         }
         Ok(Some(value))
+    }
+    fn validate_bft_v3_static_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
+        let envelope =
+            oasis7::consensus_action_payload::decode_consensus_action_payload_envelope(payload)
+                .map_err(|_| "Node action payload encoding rejected")?;
+        match envelope.body {
+            oasis7::consensus_action_payload::ConsensusActionPayloadBody::RuntimeAction {
+                ..
+            } => Ok(()),
+            _ => Err("formal header Node requires a closed RuntimeAction payload".into()),
+        }
     }
     fn validate_bft_v3_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
         self.require_configured()?;
@@ -657,109 +841,234 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
             .map(|record| record.input().certificate)
             .collect())
     }
+    fn preflight_bft_v3_capacity(
+        &mut self,
+        context: &NodeBftBuildContextV3,
+    ) -> Result<oasis7_node::NodeBftCapacityAdmissionV3, String> {
+        use formal_dependencies::ContentNodeCapacityV1;
+        use oasis7_node::NodeBftCapacityAdmissionV3 as Admission;
+        self.exact_parent(&context.execution)?;
+        let actions =
+            serde_cbor::to_vec(&context.actions).map_err(|_| "encode capacity actions")?;
+        let current = self.execution.origin.plan_candidate(&actions)?.1;
+        if matches!(current, ContentNodeCapacityV1::Fits { .. })
+            && self.execution.ledger.records().count() < 64
+        {
+            return Ok(Admission::Fits);
+        }
+        // Empty segments cannot improve the operation's capacity, and cannot
+        // provide an applied cut. No speculative checkpoint loop is permitted.
+        if self.cursor_height == self.handoff().handoff_position() {
+            return Ok(Admission::Blocked);
+        }
+        // reset_parent exposes a live preview fork (legacy has no closed_parent).
+        // Obtain the opaque strict durable replay again before selecting a
+        // new layer; speculative reads cannot authorize that parent inventory.
+        let record = self
+            .execution
+            .ledger
+            .record_at(self.cursor_height)
+            .ok_or("capacity cut lost original canonical record")?;
+        let id = record.input().certificate.header.block_id()?;
+        self.execution.verified_cut(self.cursor_height, &id)?;
+        Ok(
+            if matches!(
+                self.execution.origin.capacity_in_new_layer(&actions)?,
+                ContentNodeCapacityV1::Fits { .. }
+            ) {
+                Admission::NeedsRoll
+            } else {
+                Admission::Blocked
+            },
+        )
+    }
+
     fn commit_bft_v3_certificate(
         &mut self,
         token: VerifiedBftHeaderCertificateV3,
     ) -> Result<NodeBftExecutionCommitResultV3, String> {
-        self.require_configured()?;
-        self.reset_parent()?;
-        if token.schedule() != &self.execution.origin.schedule {
-            return Err("Node commit differs from actual parent schedule".into());
-        }
-        let certificate = token.certified_header().clone();
-        let value = BftHeaderValueV3 {
-            header: certificate.header.clone(),
-            execution_commitment: certificate.execution_commitment.clone(),
-        };
-        let private = self.private_candidate(&value)?;
-        let executed = self
-            .execution
-            .origin
-            .replay_next(&certificate, &private.actions_cbor)
-            .map_err(|_| "Node canonical private execution rejected")?;
-        let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
-        let height = certificate.execution_commitment.height;
-        let previous = if height == self.initial_schedule.height() {
-            self.execution.ledger.origin_digest()?
-        } else {
-            self.execution
+        #[cfg(test)]
+        let mut diagnostic_stage = "entry";
+        let result: Result<NodeBftExecutionCommitResultV3, String> = (|| {
+            #[cfg(test)]
+            {
+                diagnostic_stage = "configure";
+            }
+            self.require_configured()?;
+            #[cfg(test)]
+            {
+                diagnostic_stage = "reset_parent";
+            }
+            self.reset_parent()?;
+            if token.schedule() != &self.execution.origin.schedule {
+                return Err("Node commit differs from actual parent schedule".into());
+            }
+            let certificate = token.certified_header().clone();
+            let value = BftHeaderValueV3 {
+                header: certificate.header.clone(),
+                execution_commitment: certificate.execution_commitment.clone(),
+            };
+            #[cfg(test)]
+            {
+                diagnostic_stage = "private_candidate";
+            }
+            let private = self.private_candidate(&value)?;
+            #[cfg(test)]
+            {
+                diagnostic_stage = "execute";
+            }
+            let executed = self
+                .execution
+                .origin
+                .replay_next(&certificate, &private.actions_cbor)
+                .map_err(|reason| {
+                    #[cfg(test)]
+                    eprintln!(
+                        "wire3_private_commit_execution_failure category={}",
+                        commit_failure_category(&reason)
+                    );
+                    #[cfg(not(test))]
+                    let _ = reason;
+                    "Node canonical private execution rejected"
+                })?;
+            #[cfg(test)]
+            {
+                diagnostic_stage = "dependencies";
+            }
+            let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
+            let height = certificate.execution_commitment.height;
+            let previous = if height == self.initial_schedule.height() {
+                self.execution.ledger.origin_digest()?
+            } else {
+                self.execution
+                    .ledger
+                    .record_at(height - 1)
+                    .ok_or("Node canonical predecessor unavailable")?
+                    .digest()?
+            };
+            let entry = PrivateHeaderEntryV3 {
+                certificate: certificate.clone(),
+                actions_cbor: private.actions_cbor.clone(),
+            };
+            #[cfg(test)]
+            {
+                diagnostic_stage = "record";
+            }
+            let record = storage::Record::from_actual(
+                self.execution.ledger.origin()?,
+                &previous,
+                &entry,
+                &executed,
+                nodes.keys().cloned().collect(),
+            )?;
+            #[cfg(test)]
+            {
+                diagnostic_stage = "reserve";
+            }
+            self.execution.ledger.reserve_private_material(
+                self.private.usage()?,
+                self.private.publication_promises()?,
+                &self.execution.store,
+            )?;
+            let accounting = self
+                .execution
                 .ledger
-                .record_at(height - 1)
-                .ok_or("Node canonical predecessor unavailable")?
-                .digest()?
-        };
-        let entry = PrivateHeaderEntryV3 {
-            certificate: certificate.clone(),
-            actions_cbor: private.actions_cbor,
-        };
-        let record = storage::Record::from_actual(
-            self.execution.ledger.origin()?,
-            &previous,
-            &entry,
-            &executed,
-            nodes.keys().cloned().collect(),
-        )?;
-        self.execution
-            .ledger
-            .reserve_external_material(self.private.usage()?)?;
-        let mut entries = self
-            .execution
-            .ledger
-            .records()
-            .filter(|record| record.height() < height)
-            .map(|record| record.input().certificate)
-            .collect::<Vec<_>>();
-        entries.push(certificate.clone());
-        let public_prefix = FormalBftCertifiedHeaderPrefixV3 {
-            schema_version: 1,
-            entries,
-        };
-        self.execution
-            .ledger
-            .charge_proof(public_prefix.canonical_bytes()?.len())?;
-        self.execution.ledger.accept_prepared(
-            record,
-            &executed.snapshot_bytes,
-            &executed.journal_bytes,
-            &nodes,
-            &self.execution.store,
-            true,
-        )?;
-        // Obtain the installed World only from a fresh strict durable replay.
-        let cut = self.execution.verified_cut(height, token.block_id())?;
-        let c = cut.proof().commitment();
-        let install = blake3_hex(
-            &serde_cbor::to_vec(&(
-                "oasis7.formal.bft.node_install.v3",
-                &self.material_identity,
-                cut.durable_record_digest(),
-                token.block_id(),
-                &certificate.header.execution_commitment_hash,
-                &c.execution_state_root,
-                &c.state_root,
-                &c.post_manifest_hash,
-            ))
-            .map_err(|_| "encode exact Node canonical install")?,
-        );
-        self.installed_world = cut.world().clone();
-        self.cursor_height = height;
-        let installed_semantic_root = self
-            .world()
-            .execution_state_identity()
-            .map_err(|_| "installed Node World identity unavailable")?
-            .state_root_hash;
-        if installed_semantic_root != c.state_root {
-            return Err("installed Node World differs from durable execution receipt".into());
+                .publication_accounting(&self.execution.store)?;
+            let claim =
+                self.private
+                    .publication_claim_for_actual(&private, &executed, &accounting)?;
+            let record = record.with_publication_reservation(
+                claim.as_ref().map(|retained| retained.reference.clone()),
+            )?;
+            let mut entries = self
+                .execution
+                .ledger
+                .records()
+                .filter(|record| record.height() < height)
+                .map(|record| record.input().certificate)
+                .collect::<Vec<_>>();
+            entries.push(certificate.clone());
+            let public_prefix = FormalBftCertifiedHeaderPrefixV3 {
+                schema_version: 1,
+                entries,
+            };
+            let proof_bytes = public_prefix.canonical_bytes()?.len();
+            #[cfg(test)]
+            {
+                diagnostic_stage = "publish";
+            }
+            if let Some(retained) = claim {
+                self.execution.ledger.accept_prepared_with_publication(
+                    record,
+                    super::super::super::formal_ledger::PreparedRecordMaterialV1 {
+                        snapshot_bytes: &executed.snapshot_bytes,
+                        journal_bytes: &executed.journal_bytes,
+                        nodes: &nodes,
+                        store: &self.execution.store,
+                    },
+                    retained.claim.as_ref(),
+                    Some(proof_bytes),
+                )?;
+            } else {
+                self.execution.ledger.charge_proof(proof_bytes)?;
+                self.execution.ledger.accept_prepared(
+                    record,
+                    &executed.snapshot_bytes,
+                    &executed.journal_bytes,
+                    &nodes,
+                    &self.execution.store,
+                    true,
+                )?;
+            }
+            // Obtain the installed World only from a fresh strict durable replay.
+            #[cfg(test)]
+            {
+                diagnostic_stage = "durable_replay";
+            }
+            let cut = self.execution.verified_cut(height, token.block_id())?;
+            let c = cut.proof().commitment();
+            let install = blake3_hex(
+                &serde_cbor::to_vec(&(
+                    "oasis7.formal.bft.node_install.v3",
+                    &self.material_identity,
+                    cut.durable_record_digest(),
+                    token.block_id(),
+                    &certificate.header.execution_commitment_hash,
+                    &c.execution_state_root,
+                    &c.state_root,
+                    &c.post_manifest_hash,
+                ))
+                .map_err(|_| "encode exact Node canonical install")?,
+            );
+            self.installed_world = cut.world().clone();
+            self.cursor_height = height;
+            let installed_semantic_root = self
+                .world()
+                .execution_state_identity()
+                .map_err(|_| "installed Node World identity unavailable")?
+                .state_root_hash;
+            if installed_semantic_root != c.state_root {
+                return Err("installed Node World differs from durable execution receipt".into());
+            }
+            Ok(NodeBftExecutionCommitResultV3 {
+                height,
+                header_id: token.block_id().into(),
+                execution_commitment_hash: certificate.header.execution_commitment_hash,
+                execution_state_root: c.execution_state_root.clone(),
+                state_root: installed_semantic_root,
+                post_manifest_hash: c.post_manifest_hash.clone(),
+                driver_install_digest: install,
+            })
+        })();
+        #[cfg(test)]
+        if let Err(reason) = &result {
+            let category = commit_failure_category(reason);
+            eprintln!(
+                "wire3_private_commit_failure stage={} category={} cursor={}",
+                diagnostic_stage, category, self.cursor_height
+            );
         }
-        Ok(NodeBftExecutionCommitResultV3 {
-            height,
-            header_id: token.block_id().into(),
-            execution_commitment_hash: certificate.header.execution_commitment_hash,
-            execution_state_root: c.execution_state_root.clone(),
-            state_root: installed_semantic_root,
-            post_manifest_hash: c.post_manifest_hash.clone(),
-            driver_install_digest: install,
-        })
+        result
     }
 }
 
@@ -803,4 +1112,28 @@ fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[path = "driver_bft_v3_node_deferred.rs"]
+mod deferred;
+
+#[cfg(test)]
+fn commit_failure_category(reason: &str) -> &'static str {
+    if reason.contains("retained index node count exceeds bound") {
+        "index_node_capacity"
+    } else if reason.contains("retained index bytes")
+        || reason.contains("retained dependency bytes exceed")
+    {
+        "index_byte_capacity"
+    } else if reason.contains("unrecorded index node") {
+        "unrecorded_node"
+    } else if reason.contains("unretained dependency") {
+        "unretained_dependency"
+    } else if reason.contains("capacity") || reason.contains("exceeds bound") {
+        "other_capacity"
+    } else if reason.contains("conflict") || reason.contains("differs") {
+        "identity_conflict"
+    } else {
+        "other"
+    }
 }

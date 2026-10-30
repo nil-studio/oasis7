@@ -77,6 +77,7 @@ impl InstalledPointerV1 {
     }
     pub(super) fn evidence(&self) -> BftSuccessorWindowAdoptedEvidenceV1 {
         BftSuccessorWindowAdoptedEvidenceV1 {
+            active_segment_origin: None,
             checkpoint_digest: self.receipt.body.checkpoint_digest.clone(),
             driver_install_digest: self.checkpoint.cut.driver_install_digest.clone(),
             schedule_digest: self.checkpoint.successor_schedule_digest.clone(),
@@ -168,20 +169,32 @@ pub(super) fn read_installed(
     live(deadline)?;
     Ok(actual)
 }
+pub(crate) struct SuccessorPrivateInstallRequestV1<'a> {
+    pub(crate) binding: &'a BftSignerBindingV3,
+    pub(crate) provider_pin: &'a str,
+    pub(crate) lease: &'a mut dyn BftSignerLeaseV3,
+    pub(crate) request_id: &'a str,
+    pub(crate) checkpoint_digest: &'a str,
+    pub(crate) archive: Arc<LocalBftSuccessorArchiveStoreV1>,
+    pub(crate) deadline: Instant,
+}
 impl FormalBftHeaderLedgerExecutionV3 {
     pub(super) fn install_successor_window(
         &mut self,
         records: &Path,
         material_identity: &str,
         cursor_height: u64,
-        binding: &BftSignerBindingV3,
-        provider_pin: &str,
-        lease: &mut dyn BftSignerLeaseV3,
-        request_id: &str,
-        checkpoint_digest: &str,
-        archive: Arc<LocalBftSuccessorArchiveStoreV1>,
-        deadline: Instant,
+        request: SuccessorPrivateInstallRequestV1<'_>,
     ) -> Result<BftSuccessorWindowAdoptedEvidenceV1, String> {
+        let SuccessorPrivateInstallRequestV1 {
+            binding,
+            provider_pin,
+            lease,
+            request_id,
+            checkpoint_digest,
+            archive,
+            deadline,
+        } = request;
         live(deadline)?;
         self.ledger.verify_carriers()?;
         // Remote lease validates signatures/current lease/challenge and exact
@@ -198,7 +211,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         {
             return Err("successor private owner/cursor differs from original cut".into());
         }
-        let pointer = InstalledPointerV1::from_original(&original, &checkpoint.state)?;
+        InstalledPointerV1::from_original(&original, &checkpoint.state)?;
         let cut = self.verified_cut(body.cut.height, &body.cut.header_id)?;
         if cut.durable_record_digest() != body.cut.driver_record_digest
             || cut
@@ -216,68 +229,89 @@ impl FormalBftHeaderLedgerExecutionV3 {
             self.inputs.target.clone(),
             archive,
         )?;
-        verifier.verify_original_closure(&original, deadline)?;
+        let base = verifier.verify_original_closure_with_origin(&original, deadline)?;
+        let active_origin =
+            super::window_execution::layout::prepare(records, self.store.clone(), &base, deadline)?;
+        super::window_execution::layout::verify_ready(
+            records,
+            self.store.clone(),
+            &base,
+            &active_origin,
+            true,
+            deadline,
+        )?;
         live(deadline)?;
-        let (intent, installed) = paths(records, body)?;
-        let dir = intent.parent().ok_or("successor install parent absent")?;
-        if !dir.exists() {
-            super::super::super::super::super::super::super::controlled_live::private_directory(
-                dir,
-            )?;
-            files::sync(records)?;
-        }
-        // At most the protocol's 64 immutable request originals. Never evict a
-        // completed pointer or discard an unknown/inconsistent WAL to make room.
-        let mut originals = BTreeSet::from([checkpoint_digest.to_owned()]);
-        let mut files_count = 0usize;
-        for entry in std::fs::read_dir(dir).map_err(err)? {
-            let entry = entry.map_err(err)?;
-            if !entry.file_type().map_err(err)?.is_file() {
-                return Err("successor install nonregular entry".into());
-            }
-            let name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| "successor install filename")?;
-            let target = files::stage_target(&name).unwrap_or(&name);
-            let digest = target
-                .strip_suffix(".intent.cbor")
-                .or_else(|| target.strip_suffix(".installed.cbor"))
-                .ok_or("successor install unknown original entry")?;
-            if digest.len() != 64
-                || !digest
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            {
-                return Err("successor install filename digest".into());
-            }
-            originals.insert(digest.to_owned());
-            files_count = files_count
-                .checked_add(1)
-                .ok_or("successor install count overflow")?;
-            if originals.len() > 64 || files_count > 256 {
-                return Err("successor install directory capacity".into());
-            }
-        }
-        let bytes = encode(&pointer, MAX_METADATA)?;
+        let installed = publish_installed(records, &original, &checkpoint.state, deadline)?;
         self.ledger.verify_carriers()?;
-        if common_storage::read_optional_bytes(&installed, MAX_METADATA)?.is_none() {
-            files::publish(&intent, &bytes)?;
-            live(deadline)?;
-            files::link_record(&installed, &intent, &bytes)?;
-        }
-        live(deadline)?;
-        // Finish verifies equivalent bytes before deleting the original intent;
-        // a conflicting old pointer is never replaced.
-        if common_storage::read_optional_bytes(&intent, MAX_METADATA)?.is_some() {
-            files::finish(&installed, &intent, &bytes)?;
-        }
-        live(deadline)?;
-        files::clean_equivalent_stages(&intent, &bytes)?;
-        files::clean_equivalent_stages(&installed, &bytes)?;
-        files::sync(dir)?;
-        self.ledger.verify_carriers()?;
-        let installed = read_installed(records, &original, &checkpoint.state, deadline)?;
-        Ok(installed.evidence())
+        let mut evidence = installed.evidence();
+        evidence.active_segment_origin = Some(active_origin);
+        Ok(evidence)
     }
+}
+
+pub(super) fn publish_installed(
+    records: &Path,
+    original: &BftSuccessorWindowStoredRequestV1,
+    state: &BftSignerStateV3,
+    deadline: Instant,
+) -> Result<InstalledPointerV1, String> {
+    let pointer = InstalledPointerV1::from_original(original, state)?;
+    let checkpoint_digest = pointer.checkpoint.digest().map_err(err)?;
+    let (intent, installed) = paths(records, &pointer.checkpoint)?;
+    let dir = intent.parent().ok_or("successor install parent absent")?;
+    if !dir.exists() {
+        super::super::super::super::super::super::super::controlled_live::private_directory(dir)?;
+        files::sync(records)?;
+    }
+    // At most the protocol's 64 immutable request originals. Never evict a
+    // completed pointer or discard an unknown/inconsistent WAL to make room.
+    let mut originals = BTreeSet::from([checkpoint_digest.to_owned()]);
+    let mut files_count = 0usize;
+    for entry in std::fs::read_dir(dir).map_err(err)? {
+        let entry = entry.map_err(err)?;
+        if !entry.file_type().map_err(err)?.is_file() {
+            return Err("successor install nonregular entry".into());
+        }
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| "successor install filename")?;
+        let target = files::stage_target(&name).unwrap_or(&name);
+        let digest = target
+            .strip_suffix(".intent.cbor")
+            .or_else(|| target.strip_suffix(".installed.cbor"))
+            .ok_or("successor install unknown original entry")?;
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err("successor install filename digest".into());
+        }
+        originals.insert(digest.to_owned());
+        files_count = files_count
+            .checked_add(1)
+            .ok_or("successor install count overflow")?;
+        if originals.len() > 64 || files_count > 256 {
+            return Err("successor install directory capacity".into());
+        }
+    }
+    let bytes = encode(&pointer, MAX_METADATA)?;
+    if common_storage::read_optional_bytes(&installed, MAX_METADATA)?.is_none() {
+        files::publish(&intent, &bytes)?;
+        live(deadline)?;
+        files::link_record(&installed, &intent, &bytes)?;
+    }
+    live(deadline)?;
+    // Finish verifies equivalent bytes before deleting the original intent;
+    // a conflicting old pointer is never replaced.
+    if common_storage::read_optional_bytes(&intent, MAX_METADATA)?.is_some() {
+        files::finish(&installed, &intent, &bytes)?;
+    }
+    live(deadline)?;
+    files::clean_equivalent_stages(&intent, &bytes)?;
+    files::clean_equivalent_stages(&installed, &bytes)?;
+    files::sync(dir)?;
+    let installed = read_installed(records, original, state, deadline)?;
+    Ok(installed)
 }

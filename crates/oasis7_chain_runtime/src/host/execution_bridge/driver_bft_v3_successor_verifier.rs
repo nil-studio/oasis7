@@ -9,7 +9,7 @@ use oasis7_distfs::protected_bft_v3::{
     BftSuccessorWindowDriverVerifierV1, BftSuccessorWindowStoredRequestV1,
     LocalBftSuccessorArchiveStoreV1,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 pub(crate) struct ActualBftSuccessorWindowDriverVerifierV1 {
@@ -17,14 +17,24 @@ pub(crate) struct ActualBftSuccessorWindowDriverVerifierV1 {
     target: BftProfileTargetV2,
     archive: Arc<LocalBftSuccessorArchiveStoreV1>,
     installation_root: Option<super::successor_carriers::InstallationRootV1>,
+    active_private_store: Option<LocalCasStore>,
 }
-/// Strict replay does not consult an external/live business-index reader.
-struct NoExternalIndex;
-impl BusinessIndexNodeReader for NoExternalIndex {
-    fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
-        Err("successor replay attempted an external dependency read".into())
-    }
+/// Constructed only after actual H/archive replay and original pending reproduction.
+/// It grants private execution continuity, not provider signing authority.
+pub(crate) struct VerifiedPrivateSuccessorBaseV1 {
+    pub(super) origin: storage::Origin,
+    pub(super) anchor: VerifiedFormalReadAnchorV1,
+    pub(super) target: BftProfileTargetV2,
+    pub(super) execution: Box<FormalBftHeaderExecutionV3>,
+    pub(super) metadata: PrivateClosureV1,
+    pub(super) original: Option<BftSuccessorWindowStoredRequestV1>,
+    pub(super) public_state: BftSignerStateV3,
+    pub(super) pending: Vec<(
+        BTreeSet<PendingRoleV1>,
+        oasis7_node::NodeBftPrivateCandidatePackageV3,
+    )>,
 }
+
 impl ActualBftSuccessorWindowDriverVerifierV1 {
     pub(crate) fn new(
         anchor: VerifiedFormalReadAnchorV1,
@@ -39,6 +49,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             target,
             archive,
             installation_root: None,
+            active_private_store: None,
         })
     }
     pub(crate) fn with_installation_root(mut self, records: PathBuf) -> Result<Self, String> {
@@ -51,36 +62,21 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         self.installation_root = Some(super::successor_carriers::InstallationRootV1::new(root)?);
         Ok(self)
     }
-    pub(super) fn verify_original_closure(
+    pub(crate) fn recover_private_base(
         &self,
         original: &BftSuccessorWindowStoredRequestV1,
+        verified_public: &oasis7_distfs::protected_bft_v3::ValidatedBftSuccessorOriginalStateV1,
         deadline: Instant,
-    ) -> Result<(), String> {
-        self.verify_original_closure_with_origin(original, deadline)
-            .map(|_| ())
-    }
-    fn verify_original_closure_with_origin(
-        &self,
-        original: &BftSuccessorWindowStoredRequestV1,
-        deadline: Instant,
-    ) -> Result<storage::Origin, String> {
-        let bytes = self.load(&original.original_public_state, MAX_CLOSURE, deadline)?;
-        let state: BftSignerStateV3 = serde_cbor::from_slice(&bytes).map_err(err)?;
-        let body = &original.request.intent.body;
-        if encode_protocol(&state, MAX_CLOSURE)? != bytes
-            || state.revision != body.expected_revision
-            || state.state_digest != body.expected_state_digest
-        {
-            return Err("successor immutable original S differs from protected request".into());
+    ) -> Result<VerifiedPrivateSuccessorBaseV1, String> {
+        let base = self.verify_original_closure_with_origin(original, deadline)?;
+        if &base.public_state != verified_public.original_state() {
+            return Err(
+                "private active base differs from fully authenticated original public State".into(),
+            );
         }
-        super::successor_install::preflight_pointer(original)?;
-        self.verify_closure_with_origin(
-            &body.checkpoint,
-            &state,
-            &original.original_public_state,
-            deadline,
-        )
+        Ok(base)
     }
+
     fn load(
         &self,
         reference: &BftSuccessorWindowArchiveRefV1,
@@ -103,13 +99,14 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         self.verify_closure_with_origin(checkpoint, public_state, expected_public_ref, deadline)
             .map(|_| ())
     }
-    fn verify_closure_with_origin(
+    fn verify_one_closure(
         &self,
         checkpoint: &BftSuccessorWindowCheckpointBodyV1,
         public_state: &BftSignerStateV3,
         expected_public_ref: &BftSuccessorWindowArchiveRefV1,
         deadline: Instant,
-    ) -> Result<storage::Origin, String> {
+        predecessor: Option<&VerifiedPrivateSuccessorBaseV1>,
+    ) -> Result<VerifiedPrivateSuccessorBaseV1, String> {
         live(deadline)?;
         checkpoint.validate().map_err(err)?;
         let manifest_bytes =
@@ -170,6 +167,12 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
                 return Err("successor private duplicate digest with conflicting length".into());
             }
         }
+        if let Some(base) = &metadata.active_base {
+            expected_objects.insert(
+                base.window_origin.digest.clone(),
+                base.window_origin.clone(),
+            );
+        }
         for candidate in &metadata.pending_candidates {
             for reference in std::iter::once(&candidate.actions).chain(&candidate.dependencies) {
                 if expected_objects
@@ -208,15 +211,17 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             .as_ref()
             .map(|s| s.usage)
             .unwrap_or_default();
+        let (init_bytes, init_objects) = window_init_reserve(&metadata.pending_candidates)?;
         let charged_bytes = previous_usage
             .total_bytes
             .checked_add(total)
+            .and_then(|n| n.checked_add(init_bytes))
             .and_then(|n| n.checked_add(MAX_METADATA as u64))
             .ok_or("successor private cumulative accounting overflow")?;
         let charged_objects = previous_usage
             .objects
             .checked_add(manifest.entries.len() as u64)
-            .and_then(|n| n.checked_add(2))
+            .and_then(|n| n.checked_add(2 + init_objects))
             .ok_or("successor private cumulative object overflow")?;
         if manifest.segment_sequence
             != previous_usage
@@ -230,126 +235,21 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         {
             return Err("successor private archive undercharged usage".into());
         }
-        let material_bytes = self.load(&metadata.material, MAX_H_BYTES, deadline)?;
-        let material: ClosedRecord = serde_cbor::from_slice(&material_bytes).map_err(err)?;
-        if encoded_h_material(&material)? != material_bytes {
-            return Err("successor original H material not canonical".into());
-        }
-        let origin: storage::Origin = decode(
-            &self.load(&metadata.origin, MAX_METADATA, deadline)?,
-            MAX_METADATA,
+        let replay::ReplayedPrivateSegmentV1 {
+            origin,
+            execution,
+            previous,
+            segment_start,
+            window_origin,
+        } = self.replay_segment(
+            checkpoint,
+            public_state,
+            &manifest,
+            &metadata,
+            deadline,
+            predecessor,
         )?;
-        origin.validate()?;
-        let handoff = verify_formal_bft_handoff_v2(&self.anchor, self.target.clone())?;
         let source = &metadata.source;
-        if source.scope != handoff.target().scope
-            || source.handoff_position != handoff.handoff_position()
-            || source.handoff_record_id != handoff.handoff_head().record_id
-            || source.handoff_snapshot_root != handoff.raw_snapshot_root()
-            || source.target_digest != handoff.target_digest()
-            || source.activation_digest != handoff.activation_digest()
-            || origin.first_height() != handoff.activation_height()?
-            || manifest.first_height != origin.first_height()
-        {
-            return Err("successor private closure differs from independently trusted H".into());
-        }
-        let mut seed = Vec::new();
-        for reference in &metadata.nodes {
-            seed.push((
-                reference.digest.clone(),
-                self.load(
-                    reference,
-                    super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-                    deadline,
-                )?,
-            ));
-        }
-        let mut execution = FormalBftHeaderExecutionV3::from_handoff(
-            self.anchor.clone(),
-            self.target.clone(),
-            &material,
-            Arc::new(NoExternalIndex),
-            seed,
-            true,
-        )?;
-        if material_pin_digest(&execution, &material)? != origin.material_pin_digest() {
-            return Err("successor H material differs from original ledger pin".into());
-        }
-        let material_identity = blake3_hex(
-            &serde_cbor::to_vec(&(
-                "oasis7.formal.bft.node_material.v3",
-                origin.digest()?,
-                &metadata.private_instance_id,
-                origin.material_pin_digest(),
-            ))
-            .map_err(err)?,
-        );
-        if material_identity != source.material_identity {
-            return Err("successor private original Node identity changed".into());
-        }
-        let mut previous = origin.digest()?;
-        if public_state.history.len() != metadata.records.len() {
-            return Err("successor original history length differs".into());
-        }
-        for (index, reference) in metadata.records.iter().enumerate() {
-            live(deadline)?;
-            let record: storage::Record = decode(
-                &self.load(
-                    reference,
-                    super::super::super::formal_ledger::MAX_RECORD,
-                    deadline,
-                )?,
-                super::super::super::formal_ledger::MAX_RECORD,
-            )?;
-            record.validate(&origin)?;
-            let entry = record.input();
-            if entry.certificate != public_state.history[index] {
-                return Err("successor original certificate changed".into());
-            }
-            let executed = execution.replay_next(&entry.certificate, &entry.actions_cbor)?;
-            let nodes = execution.retained_nodes.accessed_nodes()?;
-            let reproduced = storage::Record::from_actual(
-                &origin,
-                &previous,
-                &entry,
-                &executed,
-                nodes.keys().cloned().collect(),
-            )?;
-            if reproduced != record {
-                return Err(
-                    "successor canonical Record/actions/index dependencies did not reproduce"
-                        .into(),
-                );
-            }
-            if self.load(&metadata.snapshots[index], MAX_CLOSURE, deadline)?
-                != executed.snapshot_bytes
-                || self.load(&metadata.journals[index], MAX_CLOSURE, deadline)?
-                    != executed.journal_bytes
-                || metadata.snapshots[index].digest != record.snapshot_ref()
-                || metadata.journals[index].digest != record.journal_ref()
-            {
-                return Err("successor original Snapshot/Journal did not reproduce".into());
-            }
-            if self.load(&metadata.manifests[index], MAX_CLOSURE, deadline)?
-                != encode(executed.world.manifest(), MAX_CLOSURE)?
-                || executed.world.current_manifest_hash().map_err(err)?
-                    != entry.certificate.execution_commitment.post_manifest_hash
-            {
-                return Err("successor original execution manifest did not reproduce".into());
-            }
-            previous = record.digest()?;
-        }
-        let observed = execution.retained_nodes.accessed_nodes()?;
-        if observed
-            .keys()
-            .map(String::as_str)
-            .ne(metadata.nodes.iter().map(|r| r.digest.as_str()))
-        {
-            return Err(
-                "successor private closure contains unobserved or missing index dependencies"
-                    .into(),
-            );
-        }
         let tip = execution
             .tip
             .as_ref()
@@ -375,9 +275,13 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         {
             return Err("successor exact executed cut or schedule differs".into());
         }
+        let mut pending = Vec::new();
         let mut required = required_pending(public_state.journal.as_ref())?;
         for candidate in &metadata.pending_candidates {
-            if required.remove(&candidate.header_id).as_ref() != Some(&candidate.roles) {
+            let mut journal_roles = candidate.roles.clone();
+            journal_roles.remove(&PendingRoleV1::RetainedLocal);
+            let expected_roles = required.remove(&candidate.header_id).unwrap_or_default();
+            if expected_roles != journal_roles || (candidate.roles.is_empty()) {
                 return Err(
                     "successor pending package role/header differs from original journal".into(),
                 );
@@ -396,25 +300,27 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             }
             // Each alternative starts from the same independently replayed T.
             // Detached execution cannot advance the committed parent or sign.
-            let mut detached = FormalBftHeaderExecutionV3::from_handoff(
-                self.anchor.clone(),
-                self.target.clone(),
-                &material,
-                Arc::new(NoExternalIndex),
-                seed,
-                true,
-            )?;
+            let mut detached = segment_start.fork_replay_current(seed)?;
             for reference in &metadata.records {
                 live(deadline)?;
-                let record: storage::Record = decode(
-                    &self.load(
-                        reference,
-                        super::super::super::formal_ledger::MAX_RECORD,
-                        deadline,
-                    )?,
+                let bytes = self.load(
+                    reference,
                     super::super::super::formal_ledger::MAX_RECORD,
+                    deadline,
                 )?;
-                let entry = record.input();
+                let entry = if window_origin.is_some() {
+                    decode::<super::window_storage::WindowRecord>(
+                        &bytes,
+                        super::super::super::formal_ledger::MAX_RECORD,
+                    )?
+                    .input()
+                } else {
+                    decode::<storage::Record>(
+                        &bytes,
+                        super::super::super::formal_ledger::MAX_RECORD,
+                    )?
+                    .input()
+                };
                 detached.replay_next(&entry.certificate, &entry.actions_cbor)?;
             }
             let actions = self.load(
@@ -440,6 +346,12 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             {
                 return Err("successor original T+1 actions/value/dependencies did not reproduce at the same cut".into());
             }
+            pending.push((candidate.roles.clone(), oasis7_node::NodeBftPrivateCandidatePackageV3 {
+                candidate: oasis7_node::NodeBftPrivateCandidateV3 { public_value: candidate.value.clone(), actions_cbor: actions },
+                dependency_nodes: candidate.dependencies.iter().map(|reference| {
+                    Ok((reference.digest.clone(), self.load(reference, super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES, deadline)?))
+                }).collect::<Result<Vec<_>, String>>()?,
+            }));
         }
         if !required.is_empty() {
             return Err("successor original journal is missing required private candidates".into());
@@ -466,7 +378,16 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             _ => return Err("successor synthesized or removed T+1 journal".into()),
         }
         live(deadline)?;
-        Ok(origin)
+        Ok(VerifiedPrivateSuccessorBaseV1 {
+            origin,
+            anchor: self.anchor.clone(),
+            target: self.target.clone(),
+            execution,
+            metadata,
+            original: None,
+            public_state: public_state.clone(),
+            pending,
+        })
     }
 }
 impl BftSuccessorWindowDriverVerifierV1 for ActualBftSuccessorWindowDriverVerifierV1 {
@@ -506,8 +427,37 @@ impl BftSuccessorWindowDriverVerifierV1 for ActualBftSuccessorWindowDriverVerifi
                 .as_ref()
                 .ok_or("successor trusted installation root is not configured")?;
             let origin = self.verify_original_closure_with_origin(original, deadline)?;
-            let pointer = root.read_installed(&origin, original, installed, deadline)?;
-            if pointer.evidence() != *evidence {
+            let pointer = root.read_installed(&origin.origin, original, installed, deadline)?;
+            let expected_origin = evidence
+                .active_segment_origin
+                .as_ref()
+                .ok_or("successor active Origin commitment missing")?;
+            let store = self
+                .active_private_store
+                .as_ref()
+                .ok_or("successor trusted active private CAS is not configured")?;
+            let (actual_origin, actual_ref) = root.read_window_origin(&origin, deadline)?;
+            if &actual_ref != expected_origin {
+                return Err("successor active Origin differs from adoption commitment".into());
+            }
+            let records = root.path();
+            super::node_execution::WindowPrivateStore::verify_ready(
+                super::window_execution::layout::segment_path(records, &origin)?
+                    .join(super::window_storage::DIRECTORY)
+                    .join(storage::NODE_PRIVATE_DIRECTORY),
+                store.clone(),
+                &origin,
+                &actual_origin,
+                true,
+            )?;
+            if root.read_window_origin(&origin, deadline)?.1 != actual_ref {
+                return Err(
+                    "successor active Origin changed during independent ready readback".into(),
+                );
+            }
+            let mut expected = pointer.evidence();
+            expected.active_segment_origin = Some(actual_ref);
+            if expected != *evidence {
                 return Err("successor installed readback evidence differs".into());
             }
             live(deadline)
@@ -515,3 +465,9 @@ impl BftSuccessorWindowDriverVerifierV1 for ActualBftSuccessorWindowDriverVerifi
         result.map_err(BftSignerErrorV3)
     }
 }
+
+#[path = "driver_bft_v3_window_replay.rs"]
+mod replay;
+
+#[path = "driver_bft_v3_window_chain.rs"]
+mod chain;

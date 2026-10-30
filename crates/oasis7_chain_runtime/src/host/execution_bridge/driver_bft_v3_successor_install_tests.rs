@@ -1,7 +1,13 @@
 //! Actual World/native-provider min CAS and independently read-back adoption.
-//! Key and protected backend are explicit memory doubles. No hot-window reset,
-//! automatic startup continuation or height-65 support is asserted.
-use super::super::super::super::formal_header::ActualBftSuccessorWindowDriverVerifierV1;
+//! Keys and protected backend are explicit memory doubles. Private rolling and
+//! actual Node startup have separate behavioral cases below.
+use super::super::super::super::formal_header::{
+    ActualBftSuccessorWindowDriverVerifierV1, FormalBftHeaderActiveExecutionV1,
+    OriginalHeaderIdentityV1,
+};
+use super::super::super::super::formal_header::{
+    SuccessorPrivateExportRequestV1, SuccessorPrivateInstallRequestV1,
+};
 use super::*;
 
 struct StopNextPrecommit {
@@ -47,6 +53,90 @@ fn wire3_successor_actual_minimum_pointer_and_new_owner_adoption() {
         .unwrap();
 }
 fn install_case() {
+    install_case_with_active(false);
+}
+#[test]
+fn wire3_private_active_segment_executes_height65_and_cold_reopens() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active(true))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+#[test]
+fn wire3_native_node_two_phase_active_start_replays_before_serving() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, false, 0))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+#[path = "driver_bft_v3_window_execution_tests.rs"]
+mod active_tests;
+#[test]
+fn wire3_native_node_resumes_original_prepared_window_before_serving() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, false, u64::MAX - 1))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+#[test]
+fn wire3_native_node_resumes_original_installed_pending_before_serving() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, false, u64::MAX))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+#[test]
+fn wire3_shipping_cli_two_phase_active_start_commits_nonempty_business() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, false, u64::MAX - 2))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+#[test]
+fn wire3_native_node_reservation_only_cold_start_never_exposes_legacy_execution() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, false, u64::MAX - 3))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+#[path = "driver_bft_v3_node_active_start_tests.rs"]
+mod native_active_start;
+#[path = "driver_bft_v3_node_reservation_start_tests.rs"]
+mod reservation_start;
+#[test]
+fn wire3_private_active_segment_recovers_pre_pin_reservation() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, true, 66))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+fn install_case_with_active(exercise_active: bool) {
+    install_case_with_active_and_pre_pin(exercise_active, false, 66);
+}
+#[test]
+fn wire3_private_active_two_windows_replay_and_cold_open() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| install_case_with_active_and_pre_pin(true, false, 8))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, target_offset: u64) {
     let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
     let root = Scratch::new();
     let store = cas(root.path());
@@ -142,10 +232,19 @@ fn install_case() {
         )
         .unwrap()
         .with_installation_root(root.path().join("ledger"))
+        .unwrap()
+        .with_active_private_store(store.clone())
         .unwrap(),
     );
-    let support = BftSuccessorWindowSupportV1::new(public_archive, Duration::from_secs(120))
+    let public_material: Arc<dyn oasis7_distfs::protected_bft_v3::BftSuccessorArchiveStoreV1> =
+        if exercise_active && target_offset == u64::MAX - 3 {
+            Arc::new(reservation_start::PauseFirstMaterial::new(public_archive))
+        } else {
+            public_archive
+        };
+    let support = BftSuccessorWindowSupportV1::new(public_material, Duration::from_secs(120))
         .unwrap()
+        .with_active_window_rebase()
         .with_driver_verifier(verifier);
     let readback_signatures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let successor_service = Arc::new(
@@ -165,10 +264,32 @@ fn install_case() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     listener.set_nonblocking(true).unwrap();
+    let connections = if exercise_active {
+        match target_offset {
+            0 => 6,
+            n if n == u64::MAX - 2 => 6,
+            n if n == u64::MAX - 3 => usize::MAX,
+            u64::MAX => 4,
+            n if n == u64::MAX - 1 => 3,
+            _ => 2,
+        }
+    } else {
+        2
+    };
+    // This scenario adds independent negative owners and a full cold Node.
+    // Its server lifetime is explicit; connection count is not a hidden budget.
+    let server_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_stopping = server_stop.clone();
     let server = thread::spawn(move || {
-        for _ in 0..2 {
+        for _ in 0..connections {
+            if server_stopping.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
             let deadline = Instant::now() + Duration::from_secs(180);
             let mut stream = loop {
+                if server_stopping.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
                 match listener.accept() {
                     Ok((stream, _)) => break stream,
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -208,17 +329,17 @@ fn install_case() {
     let exported = actual
         .lock()
         .unwrap()
-        .export_successor_private_closure(
-            &private_archive,
-            &source,
-            &original.state,
-            BftSuccessorWindowArchiveUsageV1::default(),
+        .export_successor_private_closure(SuccessorPrivateExportRequestV1 {
+            archive: &private_archive,
+            source: &source,
+            public_state: &original.state,
+            previous_usage: BftSuccessorWindowArchiveUsageV1::default(),
             height,
-            &id,
-            1,
-            None,
-            Instant::now() + Duration::from_secs(120),
-        )
+            header_id: &id,
+            sequence: 1,
+            predecessor: None,
+            deadline: Instant::now() + Duration::from_secs(120),
+        })
         .unwrap();
     let mut schedule = binding.initial_schedule().clone();
     for certificate in &original.state.history {
@@ -327,23 +448,64 @@ fn install_case() {
     fs::write(&pending_path, pending_bytes).unwrap();
     let checkpoint_digest = body.digest().unwrap();
     let request_id = body.request_id.clone();
-    let (prepared, _) = lease
-        .prepare_successor_window(
-            BftSuccessorWindowInstallIntentBodyV1 {
-                schema_version: 1,
-                checkpoint: body.clone(),
-                expected_lease_generation: original.lease_generation,
-                expected_revision: original.state.revision,
-                expected_state_digest: original.state.state_digest.clone(),
-                driver_evidence_digest: body.cut.driver_install_digest.clone(),
-            },
+    let prepare_body = BftSuccessorWindowInstallIntentBodyV1 {
+        schema_version: 1,
+        checkpoint: body.clone(),
+        expected_lease_generation: original.lease_generation,
+        expected_revision: original.state.revision,
+        expected_state_digest: original.state.state_digest.clone(),
+        driver_evidence_digest: body.cut.driver_install_digest.clone(),
+    };
+    let prepared_result =
+        lease.prepare_successor_window(prepare_body.clone(), public_manifest.clone());
+    if exercise_active && target_offset == u64::MAX - 3 {
+        assert!(
+            prepared_result.is_err(),
+            "material failure must interrupt original Prepare after reservation CAS"
+        );
+        drop(actual);
+        drop(lease);
+        reservation_start::exercise(
+            &h,
+            &root,
+            store,
+            &binding,
+            &provider_pin,
+            address,
+            private_archive,
+            snapshot.clone(),
+            readback_signatures.clone(),
+            prepare_body,
             public_manifest,
-        )
-        .unwrap();
+        );
+        server_stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        server.join().unwrap();
+        return;
+    }
+    let (prepared, _) = prepared_result.unwrap();
     assert_eq!(
         prepared.request.status,
         BftSuccessorWindowStatusV1::Prepared
     );
+    if exercise_active && target_offset == u64::MAX - 1 {
+        drop(actual);
+        drop(lease);
+        native_active_start::run(
+            &h,
+            &root,
+            store,
+            &binding,
+            &provider_pin,
+            address,
+            private_archive,
+            snapshot.clone(),
+            readback_signatures.clone(),
+            false,
+            false,
+        );
+        server.join().unwrap();
+        return;
+    }
     let (committed, installed) = lease
         .commit_successor_window(&request_id, &checkpoint_digest)
         .unwrap();
@@ -357,6 +519,7 @@ fn install_case() {
         Some(body.minimum().unwrap())
     );
     let premature = BftSuccessorWindowAdoptedEvidenceV1 {
+        active_segment_origin: None,
         checkpoint_digest: checkpoint_digest.clone(),
         driver_install_digest: body.cut.driver_install_digest.clone(),
         schedule_digest: body.successor_schedule_digest.clone(),
@@ -382,15 +545,15 @@ fn install_case() {
     let evidence = actual
         .lock()
         .unwrap()
-        .install_successor_window(
-            &binding,
-            &provider_pin,
-            lease.as_mut(),
-            &request_id,
-            &checkpoint_digest,
-            private_archive.clone(),
-            Instant::now() + Duration::from_secs(120),
-        )
+        .install_successor_window(SuccessorPrivateInstallRequestV1 {
+            binding: &binding,
+            provider_pin: &provider_pin,
+            lease: lease.as_mut(),
+            request_id: &request_id,
+            checkpoint_digest: &checkpoint_digest,
+            archive: private_archive.clone(),
+            deadline: Instant::now() + Duration::from_secs(120),
+        })
         .unwrap();
     let signing_calls_before_reads = interrupted.load(std::sync::atomic::Ordering::SeqCst);
     let archived = lease
@@ -486,15 +649,15 @@ fn install_case() {
     let retried = actual
         .lock()
         .unwrap()
-        .install_successor_window(
-            &binding,
-            &provider_pin,
-            lease.as_mut(),
-            &request_id,
-            &checkpoint_digest,
-            private_archive,
-            Instant::now() + Duration::from_secs(120),
-        )
+        .install_successor_window(SuccessorPrivateInstallRequestV1 {
+            binding: &binding,
+            provider_pin: &provider_pin,
+            lease: lease.as_mut(),
+            request_id: &request_id,
+            checkpoint_digest: &checkpoint_digest,
+            archive: private_archive.clone(),
+            deadline: Instant::now() + Duration::from_secs(120),
+        })
         .unwrap();
     assert_eq!(retried, evidence);
     assert_eq!(
@@ -573,6 +736,25 @@ fn install_case() {
         );
         assert_eq!(snapshot.lock().unwrap().state, installed.state);
     }
+    if exercise_active && target_offset == u64::MAX {
+        drop(actual);
+        drop(lease);
+        native_active_start::run(
+            &h,
+            &root,
+            store,
+            &binding,
+            &provider_pin,
+            address,
+            private_archive,
+            snapshot.clone(),
+            readback_signatures.clone(),
+            false,
+            false,
+        );
+        server.join().unwrap();
+        return;
+    }
     let calls_before_adoption = interrupted.load(std::sync::atomic::Ordering::SeqCst);
     let (adopted, final_state) = lease
         .confirm_successor_window_adopted(&request_id, &checkpoint_digest, evidence.clone())
@@ -585,8 +767,17 @@ fn install_case() {
         installed.state.successor_window.as_ref().unwrap().minimum
     );
     assert_eq!(
-        final_state.state.history, original.state.history,
-        "this slice never clears hot history"
+        final_state
+            .state
+            .active_window
+            .as_ref()
+            .unwrap()
+            .checkpoint_digest,
+        checkpoint_digest
+    );
+    assert!(
+        final_state.state.history.is_empty(),
+        "Adopted active base archives the old public suffix"
     );
     assert_eq!(
         interrupted.load(std::sync::atomic::Ordering::SeqCst),
@@ -603,6 +794,42 @@ fn install_case() {
         0,
         "prepare/minimum/install/readback/adopt never sign a new T+1 proposal or vote"
     );
+    if exercise_active && (target_offset == 0 || target_offset == u64::MAX - 2) {
+        drop(actual);
+        drop(lease);
+        native_active_start::run(
+            &h,
+            &root,
+            store,
+            &binding,
+            &provider_pin,
+            address,
+            private_archive,
+            snapshot.clone(),
+            readback_signatures.clone(),
+            true,
+            target_offset == u64::MAX - 2,
+        );
+        server.join().unwrap();
+        return;
+    }
+    if exercise_active {
+        drop(actual);
+        active_tests::exercise(
+            &h,
+            &root,
+            store.clone(),
+            &binding,
+            &provider_pin,
+            &detached_verifier,
+            &archived,
+            &adopted,
+            lease.as_mut(),
+            pre_pin,
+            private_archive.clone(),
+            target_offset,
+        );
+    }
     drop(lease);
     server.join().unwrap();
 }
