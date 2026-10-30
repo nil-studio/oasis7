@@ -156,6 +156,10 @@ pub mod incremental_ledger_value;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_field_member;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_field_presence;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_key_output;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_agent_fields;

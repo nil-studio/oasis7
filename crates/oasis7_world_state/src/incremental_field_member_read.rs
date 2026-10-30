@@ -2,24 +2,8 @@ use super::*;
 use crate::incremental_world_field_key::WORLD_FIELD_KEY_MAX_BYTES;
 use oasis7_formal_protocol::incremental_value::{ValueNodeReader, ValueReadContext};
 
-struct KeyOutput<'a, W> {
-    output: &'a mut W,
-    hash: blake3::Hasher,
-}
-impl<W: Write> Write for KeyOutput<'_, W> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        // Return control to ValueReadContext after every underlying attempt
-        // so it can observe cancellation before retrying a short/Interrupted write.
-        let written = self.output.write(bytes)?;
-        if written <= bytes.len() {
-            self.hash.update(&bytes[..written]);
-        }
-        Ok(written)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.output.flush()
-    }
-}
+use crate::incremental_key_output::KeyOutput;
+
 /// Authenticates framing and original-key digest, then returns raw key/payload
 /// ranges. This does NOT decode semantic tokens, UTF-8 or payload values.
 /// Both output sinks remain provisional until success; their storage is caller
