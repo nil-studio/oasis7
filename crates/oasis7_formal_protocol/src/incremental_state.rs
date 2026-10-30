@@ -95,6 +95,32 @@ pub struct StateDeltaV1 {
     pub new_nodes: Vec<StateNodeWriteV1>,
 }
 
+/// Provisional charged state pages, also usable by streaming genesis builders.
+/// This does not validate an execution record or select/authorize any head.
+pub trait StatePageWriter: crate::incremental_value::ValueNodeWriter {
+    fn put_state_pages(
+        &mut self,
+        delta: &oasis7_proto::memory_budget::ReservedValue<StateDeltaV1>,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<(), crate::incremental_value::ValueTreeError> {
+        use crate::incremental_value::ValueTreeError;
+        use oasis7_proto::memory_budget::MemoryClass;
+        if !delta.uses_budget(memory) {
+            return Err(ValueTreeError::Invalid("state producer pool"));
+        }
+        for page in &delta.new_nodes {
+            page.verified_links()
+                .map_err(|_| ValueTreeError::Invalid("state producer page"))?;
+            let charge = memory.reserve(page.bytes.len(), MemoryClass::Ordinary)?;
+            self.put_node(
+                *blake3::hash(&page.bytes).as_bytes(),
+                charge.retain(page.bytes.clone()),
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl StateRootV1 {
     pub fn empty(namespace: StateNamespaceV1) -> Result<Self, String> {
         Ok(Self {
