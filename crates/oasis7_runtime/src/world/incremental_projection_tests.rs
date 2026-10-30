@@ -458,8 +458,9 @@ fn economy_empty_balance_accounts_keep_outer_identity_without_rewriting_resource
 
 fn delegation_world_for_projection() -> World {
     use crate::gameplay_state::StarterOcClaimState;
-    use crate::{AgentCell, AgentDelegationGrantV1, AgentState};
+    use crate::{AgentCell, AgentDelegationGrantV1};
     use oasis7_agent_api::world_action::GeoPos;
+    use oasis7_world_state::agent_state::AgentState;
     let mut world = World::new();
     let agent = "projection-agent";
     world.state.agents.insert(
