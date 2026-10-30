@@ -14,11 +14,13 @@ pub(crate) fn publish_ready_marker(path: &Path) -> Result<(), String> {
 fn publish_with(path: &Path, write: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let temporary = path.with_extension(format!(
-        "ready-{}-{}",
+    let mut temporary = path.as_os_str().to_os_string();
+    temporary.push(format!(
+        ".ready-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
+    let temporary = std::path::PathBuf::from(temporary);
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)
