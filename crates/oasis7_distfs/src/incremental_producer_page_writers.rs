@@ -11,9 +11,15 @@ impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for ValueP
         if !self.store.memory.same_pool(memory) || !delta.uses_budget(memory) {
             return Err(ValueTreeError::Invalid("schedule producer pool"));
         }
-        for page in &delta.new_nodes {
-            page.verified_links()
-                .map_err(|_| ValueTreeError::Invalid("schedule producer page"))?;
+        check_cancelled(&self.cancelled).map_err(value_error)?;
+        {
+            // Validation finishes before the separate pack-metadata phase.
+            let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
+            for page in &delta.new_nodes {
+                check_cancelled(&self.cancelled).map_err(value_error)?;
+                page.verified_links()
+                    .map_err(|_| ValueTreeError::Invalid("schedule producer page"))?;
+            }
         }
         let io = self
             .io
@@ -42,9 +48,14 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
         if !self.store.memory.same_pool(memory) || !delta.uses_budget(memory) {
             return Err(ValueTreeError::Invalid("state producer pool"));
         }
-        for page in &delta.new_nodes {
-            page.verified_links()
-                .map_err(|_| ValueTreeError::Invalid("state producer page"))?;
+        check_cancelled(&self.cancelled).map_err(value_error)?;
+        {
+            let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
+            for page in &delta.new_nodes {
+                check_cancelled(&self.cancelled).map_err(value_error)?;
+                page.verified_links()
+                    .map_err(|_| ValueTreeError::Invalid("state producer page"))?;
+            }
         }
         let io = self
             .io

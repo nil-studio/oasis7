@@ -108,6 +108,8 @@ pub trait StatePageWriter: crate::incremental_value::ValueNodeWriter {
         if !delta.uses_budget(memory) {
             return Err(ValueTreeError::Invalid("state producer pool"));
         }
+        // Admit bounded typed-codec scratch before validation allocates.
+        let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
         for page in &delta.new_nodes {
             page.verified_links()
                 .map_err(|_| ValueTreeError::Invalid("state producer page"))?;
