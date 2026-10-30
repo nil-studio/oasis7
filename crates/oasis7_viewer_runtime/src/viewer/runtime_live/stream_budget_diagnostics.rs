@@ -78,6 +78,44 @@ mod enabled {
         }
         DROPPED.fetch_add(1, Ordering::Relaxed);
     }
+    #[derive(Default)]
+    struct IdentityGate {
+        armed: bool,
+        entered: bool,
+        released: bool,
+        returned: bool,
+        timed_out: bool,
+    }
+    static IDENTITY_GATE: (Mutex<IdentityGate>, std::sync::Condvar) = (
+        Mutex::new(IdentityGate {
+            armed: false,
+            entered: false,
+            released: false,
+            returned: false,
+            timed_out: false,
+        }),
+        std::sync::Condvar::new(),
+    );
+    // Only the fixed prepare-token identity leaf reaches this hook. The actual
+    // identity computation still follows; no result, state or timing is forged.
+    pub(crate) fn identity_barrier() {
+        let (lock, changed) = &IDENTITY_GATE;
+        let mut gate = lock.lock().unwrap();
+        if !gate.armed {
+            return;
+        }
+        gate.armed = false;
+        gate.entered = true;
+        changed.notify_all();
+        let (mut gate, timeout) = changed
+            .wait_timeout_while(gate, std::time::Duration::from_secs(3), |gate| {
+                !gate.released
+            })
+            .unwrap();
+        gate.timed_out = timeout.timed_out() && !gate.released;
+        gate.returned = true;
+        changed.notify_all();
+    }
     pub(crate) struct Phase(Option<(u64, u64)>);
     pub(crate) fn phase(kind: u64) -> Phase {
         Phase(ENABLED.load(Ordering::Relaxed).then(|| (kind, now())))
@@ -99,6 +137,29 @@ mod enabled {
             DROPPED.store(0, Ordering::Relaxed);
             ENABLED.store(true, Ordering::Relaxed);
         }
+        pub fn test_arm_hosted_identity_barrier() {
+            *IDENTITY_GATE.0.lock().unwrap() = IdentityGate {
+                armed: true,
+                ..IdentityGate::default()
+            };
+        }
+        pub fn test_wait_hosted_identity_barrier(timeout: std::time::Duration) -> bool {
+            let gate = IDENTITY_GATE.0.lock().unwrap();
+            let (gate, _) = IDENTITY_GATE
+                .1
+                .wait_timeout_while(gate, timeout, |gate| !gate.entered)
+                .unwrap();
+            gate.entered
+        }
+        pub fn test_release_hosted_identity_barrier() {
+            let mut gate = IDENTITY_GATE.0.lock().unwrap();
+            gate.released = true;
+            IDENTITY_GATE.1.notify_all();
+        }
+        pub fn test_hosted_identity_barrier_facts() -> (bool, bool, bool) {
+            let gate = IDENTITY_GATE.0.lock().unwrap();
+            (gate.entered, gate.returned, gate.timed_out)
+        }
         pub fn test_record_stream_budget_connection(observer: bool) {
             record(200, now(), u64::from(observer), 0);
         }
@@ -114,7 +175,7 @@ mod enabled {
     }
 }
 #[cfg(any(test, feature = "test_tier_required"))]
-pub(super) use enabled::phase;
+pub(super) use enabled::{identity_barrier, phase};
 #[cfg(not(any(test, feature = "test_tier_required")))]
 pub(super) struct Phase;
 #[cfg(not(any(test, feature = "test_tier_required")))]

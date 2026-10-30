@@ -470,7 +470,11 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         let token = AgentServiceIoToken {
             generation: self.llm_sidecar.hosted_service_generation,
             config_digest: profiled!(73, self.hosted_service_config_digest())?,
-            phase_digest: profiled!(74, phase.identity())?,
+            phase_digest: profiled!(74, {
+                #[cfg(any(test, feature = "test_tier_required"))]
+                crate::viewer::runtime_live::stream_budget_diagnostics::identity_barrier();
+                phase.identity()
+            })?,
         };
         self.llm_sidecar.hosted_service_inflight = Some(token.clone());
         // After dispatch reservation any worker failure must recover by Lookup.
