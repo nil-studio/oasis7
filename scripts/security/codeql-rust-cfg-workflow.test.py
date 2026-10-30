@@ -88,7 +88,7 @@ class CfgWorkflow(unittest.TestCase):
         self.assertEqual(TEXT.count("--scope-identities"),2)
         self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
         capacity=(ROOT/".github/workflows/codeql-rust-capacity.yml").read_text()
-        self.assertIn("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6' }}",capacity)
+        self.assertIn("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'f9ab0ca14620f118c84130b3d558e48dc1e6314d' }}",capacity)
         self.assertIn("ref: ${{ env.CAPACITY_SOURCE }}",capacity)
         self.assertEqual(capacity.count('--source-sha "$CAPACITY_SOURCE"'),4)
 
