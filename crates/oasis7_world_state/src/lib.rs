@@ -150,3 +150,23 @@ pub mod segmentation;
 pub mod incremental_agent_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_event_fields;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_ledger_value;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_field_member;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_fields;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_projection;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_scheduler_fields;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_field_key;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_semantic_key;

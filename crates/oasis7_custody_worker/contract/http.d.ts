@@ -365,6 +365,12 @@ export type ApprovalOptionsRequestV1 = {
   "context": ApprovalContextV1;
   "intent": CustodyIntentV1;
 };
+export type ManagementParentV1 = {
+  "custody_account_id": string;
+  "environment": string;
+  "provision_id": string;
+  "world_id": string;
+};
 export type ManagerClosureStatus = "open" | "pending" | "closed";
 export type OwnerSetupPlanV1 = {
   "api_version": number;
@@ -723,6 +729,15 @@ export type ClientEnrollmentProofResponseV1 = {
   "enrollment_id": string;
   "status": ClientEnrollmentProofStatusV1;
 };
+export type CustodyManagementCapabilityV1 = {
+  "api_version": number;
+  "audience"?: (string | null);
+  "available": boolean;
+  "complete_path": string;
+  "environment"?: (string | null);
+  "options_path": string;
+  "parents_query_path": string;
+};
 export type CustodySessionStatusV1 = {
   "account_id": string;
   "api_version": number;
@@ -747,6 +762,20 @@ export type ManagedLoginApprovalViewV1 = {
 export type ManagedLoginApproveRequestV1 = {
   "api_version": number;
   "input": ApprovalAdmissionInput;
+};
+export type ManagementParentsPageV1 = {
+  "api_version": number;
+  "directory_revision": string;
+  "frozen": boolean;
+  "inventory_complete": boolean;
+  "items": Array<ManagementParentV1>;
+  "next_after_custody_account_id"?: (string | null);
+};
+export type ManagementParentsQueryV1 = {
+  "after_custody_account_id"?: (string | null);
+  "api_version": number;
+  "directory_revision"?: (string | null);
+  "limit": number;
 };
 export type ManagerClosureViewV1 = {
   "api_version": number;

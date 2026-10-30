@@ -256,6 +256,11 @@ export async function withRoleRuntime(mode, run, {configureOptions}={}) {
         await reply.arrayBuffer();return reply.status;
       },
       publicEnrollmentFetch:async(path,init)=>{assert.match(path,/^\/v1\/client-enrollments(?:\/[A-Za-z0-9._~-]+\/prove)?$/);const incoming=new Headers(init.headers);for(const key of ['cookie','authorization','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public enrollment never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      setupPaidResultStatus:async()=>{
+        const {ACCOUNTS}=await mf.getBindings('owner');
+        const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/setup-paid-result-status',{method:'POST'});
+        assert.equal(response.status,200,'fixed actual Bind callback scheduling status unavailable');return response.json();
+      },
       paidDirectoryFenceStatus:async()=>{
         const {ACCOUNTS}=await mf.getBindings('owner');
         const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/paid-directory-fence-status',{method:'POST'});
@@ -400,4 +405,26 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
  except sqlite3.Error: pass
 print(json.dumps(result))
 `,persist,account,corruptIdentity?'yes':'no'],{encoding:'utf8'}));
+}
+
+// Local browser harness only. It supplies the actual browser-created manager
+// before any directory/provision request; it does not patch signed payloads.
+export function browserUvRoleOptions(persist,data,bridge,manager,origin,adapterModule) {
+  assert.ok(typeof manager==='string' && manager.length>0);
+  return options(persist,data,bridge,'native-participant-owner-setup-real-fence',raw=>{
+    const identity=raw.workers.find(w=>w.name==='identity');
+    identity.modules[0]={type:'ESModule',path:adapterModule};
+    identity.bindings.CUSTODY_NATIVE_ORIGIN=origin;
+    identity.bindings.CUSTODY_PUBLIC_ORIGIN=origin;
+    identity.bindings.CUSTODY_MANAGEMENT_METADATA_ENABLED='true';
+    identity.bindings.CUSTODY_MANAGEMENT_METADATA_REALM='isolated-browser-uv';
+    identity.durableObjects.CLIENT_ENROLLMENTS={className:'ClientEnrollmentAuthority',useSQLite:true};
+    const owner=raw.workers.find(w=>w.name==='owner');
+    owner.bindings.CUSTODY_NATIVE_ORIGIN=origin;
+    owner.bindings.CUSTODY_PUBLIC_ORIGIN=origin;
+    owner.bindings.CUSTODY_MANAGEMENT_METADATA_ENABLED='true';
+    owner.bindings.CUSTODY_MANAGEMENT_METADATA_REALM='isolated-browser-uv';
+    owner.bindings.CUSTODY_BOOTSTRAP_MANAGERS=JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:manager},environments:['test']}]);
+    return raw;
+  });
 }

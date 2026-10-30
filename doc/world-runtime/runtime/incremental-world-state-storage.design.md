@@ -377,6 +377,54 @@ Trace refs: O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916；承接 [REQ-LWS-009](.
 
 Runtime/DistFS 在首个实现接受新创世前冻结 canonical 编码向量、domain/type/version、Merkle 键编码及 put/delete/排序规则、完整字段到 namespace 映射，以及 commit catalog 的前缀追加、范围证明和 GenesisConfigId/GenesisCommitId 边界。未完成时新格式保持不可启用，不能由暂定序列化器输出产生正式历史。
 
+<a id="iws-ledger-value-v1"></a>
+
+`ledger-value.v1` 只冻结 `MaterialLedgerId` 值的无损原语，不是通用 entry wire、字段登记或 World 启用。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。工厂、配方、运输等聚合值内的账本 ID 仍须由后续 typed 值 codec 显式接入；键 codec 或任意 `Serialize` 不能替代值编码和准入。
+
+值 bytes 固定为 ASCII `oasis7.iws.ledger-value.v1` 加零字节、kind u8（World=0、Agent=1、Site=2、Factory=3）、原 ID 的 u64 大端 UTF-8 字节长度、原 UTF-8 bytes。World 的长度必须为零；其他 kind 保留包括空文本在内的原值，业务合法性由原 owner 验证。编码长度必须 checked，未知 kind、错误 domain/总长、尾随 bytes 和非法 UTF-8 明确拒绝。不调用账本 ID 的格式化或 Serde 转换，不聚合另一个 ID 字符串，也不重写其业务身份。
+
+借用解码的来源 bytes 由调用者持有并准入。树上流读先用预期 value-root ID 验证 descriptor，再核对固定头与完整逻辑长度，按显式读取类别和有限 I/O 预算读取；UTF-8 跨块只保留至多三个未完成字节，输出在整体校验和最终取消检查成功前均为暂态。逻辑长度额度是操作预算，不是格式上限；失败或取消不退回已消耗工作，也不授予字段归属、授权、head 接受或恢复后可服务资格。原始 side/history 中的浮点及其他 entry 值类型不在本原语中；完整字段/值/闭包和生命周期能力仍须按本节其余条件完成后才能启用新格式。
+
 页面/块大小、fanout、事务工作集、并发/cache、history 段封闭、后台节奏和磁盘余量由实现候选的测量决定，记录实际选择与范围；它们不作为本文虚构的通用 SLO。逻辑布局参数与操作配额必须分开，前者变化需要显式格式规则，后者不能改变共识可见结果。
 
 WASM/Runtime/外部效果 owner 共同确认 scheduler、allocator、授权/去重及 unknown 的完整语义；QA 在非空续跑和原效果不重派上独立审读。ops/P2P 提供实际独立域与恢复证据，缺失时只接受已验证的本地范围。本文提供新格式系统合同，不声明源码实施、原世界修复、生产重置或部署完成。
+
+### 12.3 通用字段键与语义投影边界
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；落实 §6.2 的完整字段归属与 §12.2 的编码冻结，不新增业务要求。
+
+`GenesisFieldVisitor` 是借用来源接口，不是 wire。Agent、body/mailbox、module instance 等已定义的专用 typed 键和值继续由其唯一 codec 负责；模块选择、状态和工件等字段在专用 codec 接入时也遵循同一边界。通用字段键不能替代它们或写一套影子状态。其他字段使用显式 `world-field-key.v1` 键族，消费者须将解析结果与受支持的字段描述符及该 namespace 中的实际键核对。解析一个结构正确的键，不授予字段归属、授权、执行或接受资格。
+
+键的字节布局固定为：ASCII domain `oasis7.iws.world-field-key.v1` 加单个零字节；owner u8；namespace u16 大端；shape u8；record-kind u8；name-byte-length u16 大端；name ASCII bytes；semantic-key digest 32 bytes。owner 固定 WorldState=1、Runtime=2、Cognition=3；namespace 沿用状态树的 1..6 标签；shape 固定 Value=1、Map=2、NestedMap=3、Set=4、MapSet=5、Ordered=6、ByteMap=7。History、Process、Children 不是状态字段 wire shape。name 为 1..128 个 ASCII 字母、数字、下划线及点，首字符为字母，各点分段非空。这是固定字段名上限，不是实体 ID 或大字段内容上限。
+
+record-kind 固定 Metadata=1、Group=2、Entry=3、Bytes=4。Metadata 的 digest 必须全零；其他 kind 必须由调用者显式提供语义键摘要，全零摘要并不被擅自当成“没有成员”。Group 仅用于 NestedMap/MapSet 的外层存在标记，Bytes 仅用于 ByteMap；Entry 对应语义成员。不同 kind、owner、namespace、shape 或 name 均形成不同键，不用空 key 的特殊值模拟缺失。未知标签、错误 domain/长度、尾随 bytes 和不合法组合明确拒绝。
+
+嵌套 map/map-set 对每个 outer key 先输出 `group`，包括零成员，再输出实际成员。group 的成员数是准入元数据，不代替未来字段值/索引的认证内容。Agent 等稀疏 typed 子字段由原 Identity、presence 和 count codec 表达 owner/集合存在，不要求所有 NestedMap 描述符都输出 group。任一 sink 错误后须丢弃整个暂存前缀。
+
+本节只冻结通用字段键。语义 key 的规范摘要前像见 §12.4；对应 value/outer marker 的编码、完整字段登记、借用来源到专用 codec 的路由，以及恢复消费者仍须在其实现中冻结并验证；在这些义务和 §12.2 其他条件完成前，新格式世界保持不可启用。不能仅凭本键 codec 宣称完整 World 创世、闭包验证、恢复或 GC 已接通。
+
+
+### 12.4 语义键的借用编码与摘要
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。通用字段的实际 key 来源采用封闭的 `SemanticKeyV1` 类型集合，不用任意 Serde 对象作为身份前像。当前来源为 unit、UTF-8 文本、u64、ResourceKind、MaterialLedgerId、这些类型的借用以及二元组。新增来源类型须显式选择格式能力，不能依赖 Rust 类型名、Serde `into` 转换或不稳定 map 顺序自动扩展。
+
+canonical bytes 为 ASCII `oasis7.iws.semantic-key.v1` 加零字节，再接一个自定界 token；摘要为完整 canonical bytes 的 BLAKE3。token 标签：unit=0；text=1 加 u64 大端字节长度和原 UTF-8 bytes；u64=2 加八字节大端值；resource=3 加固定 Electricity=1/Data=2；ledger=4 加 World=0/Agent=1/Site=2/Factory=3，非 World 再接 text token 形式的原 ID；pair=5 后顺序编码两个子 token。引用和 String/str 不另加标签，不复制原文；ledger 类型与同文字符串不互相冒充。允许空文本、原 Unicode 和 u64 极值；业务 ID 合法性仍由原字段消费者验证。
+
+pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改变编码、摘要或树形。读取检查完整 domain、token、UTF-8、长度、已知枚举、深度与末尾边界，返回借用内容和已验证的 pair 子 token，不聚合原 key。哈希先取得同进程预算的固定 workspace，并在逐块处理前检查取消与有限字节额度；失败和 unwind 不发出成功摘要，已消耗的工作额度不回退。流式输出在整体成功前均为暂态，实际 sink 须自行持有分配/I/O reservation。
+
+本节不把 schema-owned 原文键的解析升级为字段注册、授权或 head 接受资格。原语义键须随对应 value/索引内容保留以供恢复并重新核对摘要；完整 value wire、producer/reader 与 World 生命周期仍按 §12.3/§12.2 接通后才允许激活。
+
+
+### 12.5 generic field member 原键与值封装
+
+<a id="iws-field-member-v1"></a>
+
+`field-member.v1` 为 §12.3 的 generic `Entry`/`Bytes` 成员保留 §12.4 的原始语义键字节与显式选定的值原语。专用 Agent、模块等 key family 仍由各自 codec 负责；本封装不重映射其键，不接管字段登记或 World 启用。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
+
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）。Bytes key 只配 Bytes payload；Entry 只配前六种。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+
+写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
+
+raw reader 从期望值 root 与期望完整 field key 开始，以明确 pool/class 和有限节点/读写额度验证 descriptor、固定有界 header、field key、长度以及原语义键 digest；先确认声明总长与认证 root 自洽，再应用操作额度。key digest 匹配后才输出 payload。两段输出在整个读取成功前均为 provisional。该接口提供认证范围，不解析语义 token/UTF-8 或 payload，不返回已解码业务值；owner 后续必须按已登记 profile 验证键、值及业务身份，不能用 raw read 代签 typed 恢复。恢复 class 不得偷偷借用 Ordinary 配额，取消、错误和未完成读取均不得产出完成元数据。

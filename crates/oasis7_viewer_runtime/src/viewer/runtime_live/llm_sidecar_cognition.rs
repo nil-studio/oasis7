@@ -25,7 +25,7 @@ use provider_observation::{
 
 const PROVIDER_ADAPTER_PROTOCOL_VERSION: &str = "world-simulator-provider-loopback-http-v1";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub(in crate::viewer::runtime_live) struct ProviderContextState {
     pub(in crate::viewer::runtime_live) turn_context: ContinuousAgentTurnContextV1,
     pub(in crate::viewer::runtime_live) request_context: ContinuousAgentRequestContextV1,

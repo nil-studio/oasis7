@@ -20,6 +20,7 @@ pub(super) struct Observations {
     gate: crate::directory_rpc::ProvisionGateView,
     fence: RecoveryFence,
     fence_started: DecimalU64,
+    paid_started: Option<DecimalU64>,
     inspection_only: bool,
 }
 fn manager(
@@ -135,6 +136,7 @@ pub(super) async fn observe(
         gate,
         fence,
         fence_started,
+        paid_started: None,
         inspection_only,
     })
 }
@@ -166,6 +168,42 @@ pub(super) async fn observe_paid_test_session_factory(
         gate,
         fence,
         fence_started,
+        paid_started: None,
+        inspection_only: false,
+    })
+}
+/// Called only after the selected setup result callback's paid once-slot is
+/// committed. Configuration/principal checks run synchronously before either read.
+pub(super) async fn observe_paid_owner_setup_result(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
+    let manager = manager(&input, signed);
+    let config = Config::load(env)?;
+    if config.directory.principal(&manager)? != draft.entry.manager {
+        return Err(denied());
+    }
+    let rpc = ApproveRpc {
+        manager_session: manager.clone(),
+        provision_id: draft.entry.provision_id.clone(),
+        request: oasis7_custody_core::provisioning::ProvisionApproveRequestV1 {
+            api_version: 1,
+            input: input.clone(),
+        },
+    };
+    let paid_started = DecimalU64(clock()?);
+    let (gate_result, fence_result) = paid_factory_reads(gate(env, &rpc, draft), fence(env)).await;
+    let gate = gate_result?;
+    let (fence, fence_started) = fence_result?;
+    Ok(Observations {
+        input,
+        manager,
+        gate,
+        fence,
+        fence_started,
+        paid_started: Some(paid_started),
         inspection_only: false,
     })
 }
@@ -225,6 +263,7 @@ pub(super) async fn observe_fresh_manager(
         gate,
         fence,
         fence_started,
+        paid_started: None,
         inspection_only: false,
     })
 }
@@ -262,6 +301,9 @@ fn build_current(
     let now = clock()?;
     check_gate(&observed.gate, draft, now)?;
     fresh(observed.fence_started, now)?;
+    if let Some(started) = observed.paid_started {
+        fresh(started, now)?;
+    }
     observed
         .fence
         .check_epoch(config.service_epoch.0)
