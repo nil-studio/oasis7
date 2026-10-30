@@ -468,6 +468,11 @@ fn running(config: &model::NodeConfig) -> process::Instance {
 }
 #[test]
 fn local_node_real_child_stop_preserves_data_and_late_instance_cannot_stop_replacement() {
+    // Exec before acquiring lifetime FDs so unrelated harness forks cannot
+    // retain this fixture's old owner while it tests an immediate replacement.
+    if crate::node_operations::admission_tests::isolate_fork_test() {
+        return;
+    }
     let fixture = Fixture::new();
     let config = fixture.initialize();
     let key = config.identity.data_dir.join("keys/node-keypair.toml");
@@ -528,6 +533,11 @@ fn local_node_stop_timeout_keeps_original_action_and_queries_same_live_instance(
 
 #[test]
 fn local_node_action_identity_retries_original_receipt_without_touching_later_generation() {
+    // Exec before acquiring lifetime FDs so unrelated harness forks cannot
+    // retain this fixture's old owner while it tests an immediate replacement.
+    if crate::node_operations::admission_tests::isolate_fork_test() {
+        return;
+    }
     let fixture = Fixture::new();
     let config = fixture.initialize();
     let digest =
@@ -911,4 +921,26 @@ fn receiver_startup_failure_reports_the_original_lock_error() {
         "{cause}"
     );
     drop(ownership);
+}
+
+
+#[test]
+fn stopped_receiver_ownership_waits_for_inherited_child_descriptor() {
+    use crate::node_operations::admission_tests::{InheritedDescriptors, isolate_fork_test};
+    if isolate_fork_test() {
+        return;
+    }
+    let (_fixture, config_path, receiver, current) = operation_fixture_with_stop_signal();
+    let config = model::NodeConfig::load(&config_path).unwrap();
+    let inherited = InheritedDescriptors::fork();
+    let stopped = process::stop_instance(&config, &current, 2000).unwrap();
+    receiver.finish(false).unwrap();
+    assert_eq!(stopped["instance"]["state"], "stopped");
+    assert!(stopped["instance"]["runtime_pid"].is_null());
+    assert!(inherited.is_waiting());
+    // Stop and receiver join cannot release a file description inherited by
+    // another child. Lifetime fencing must fail closed until that child exits.
+    assert!(process::lock(&config.identity.data_dir).is_err());
+    drop(inherited);
+    let _ownership = process::lock(&config.identity.data_dir).unwrap();
 }
