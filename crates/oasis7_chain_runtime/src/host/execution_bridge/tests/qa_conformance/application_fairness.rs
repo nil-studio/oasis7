@@ -82,7 +82,9 @@ impl Session {
     }
     fn receive_snapshot(&mut self, budget: Duration, require_ack: bool) -> bool {
         // Numeric diagnostics only; preserve every original read, branch and partial-line discard.
-        let sample_start = self.diagnostic.then(ViewerRuntimeLiveServer::test_stream_budget_timestamp);
+        let sample_start = self
+            .diagnostic
+            .then(ViewerRuntimeLiveServer::test_stream_budget_timestamp);
         let deadline = Instant::now() + budget;
         let began = deadline - budget;
         let mut ack = !require_ack;
@@ -125,7 +127,8 @@ impl Session {
                             }
                             if value["type"] == "snapshot" && self.diagnostic {
                                 snapshot_count += 1;
-                                first_snapshot_us.get_or_insert_with(|| began.elapsed().as_micros());
+                                first_snapshot_us
+                                    .get_or_insert_with(|| began.elapsed().as_micros());
                             }
                             if ack && value["type"] == "snapshot" {
                                 return true;
@@ -136,12 +139,13 @@ impl Session {
                         if matches!(
                             e.kind(),
                             std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                        ) => {
-                            if self.diagnostic {
-                                timeouts += 1;
-                                partial_bytes += line.len();
-                            }
+                        ) =>
+                    {
+                        if self.diagnostic {
+                            timeouts += 1;
+                            partial_bytes += line.len();
                         }
+                    }
                     Err(e) => {
                         other_error = Some(e.kind());
                         return false;
@@ -154,10 +158,20 @@ impl Session {
             let sample_end = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
             // Store only numbers until both workers join; no diagnostic I/O in the 150ms sample.
             self.last_receive_diagnostic = Some(ReceiveDiagnostic {
-                start_us: sample_start, end_us: sample_end, budget_us: budget.as_micros(),
-                result, ack_seen: ack, complete_lines: lines, ack_count, snapshot_count,
-                first_ack_us, first_snapshot_us, timeouts, timeout_partial_bytes: partial_bytes,
-                eof, other_error_kind: other_error,
+                start_us: sample_start,
+                end_us: sample_end,
+                budget_us: budget.as_micros(),
+                result,
+                ack_seen: ack,
+                complete_lines: lines,
+                ack_count,
+                snapshot_count,
+                first_ack_us,
+                first_snapshot_us,
+                timeouts,
+                timeout_partial_bytes: partial_bytes,
+                eof,
+                other_error_kind: other_error,
             });
         }
         result
@@ -414,6 +428,24 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let requests = slow.send_snapshot_burst(128);
     let (kernel_pressure, maximum_queued) = slow.wait_for_kernel_pressure(Duration::from_secs(1));
 
+    // Explicit diagnostic experiment only; ordinary fairness runs are unchanged.
+    struct IdentityGateRelease(bool);
+    impl Drop for IdentityGateRelease {
+        fn drop(&mut self) {
+            if self.0 {
+                ViewerRuntimeLiveServer::test_release_hosted_identity_barrier();
+            }
+        }
+    }
+    let identity_barrier = std::env::var("OASIS7_PERIODIC_IDENTITY_BARRIER").as_deref() == Ok("1");
+    let identity_release = IdentityGateRelease(identity_barrier);
+    if identity_barrier {
+        ViewerRuntimeLiveServer::test_arm_hosted_identity_barrier();
+        assert!(
+            ViewerRuntimeLiveServer::test_wait_hosted_identity_barrier(Duration::from_secs(2)),
+            "actual hosted token identity leaf must be reached before the observer sample"
+        );
+    }
     observer.send(serde_json::json!({"type":"hello_v2","client":"PRE2 periodic in-flight observer","version":2,"capabilities":[]}));
     observer.send(serde_json::json!({"type":"request_snapshot"}));
     let began = Instant::now();
@@ -421,6 +453,7 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let observer_elapsed = began.elapsed();
     let still_held_during_observer = !root.join("world-periodic-view-release").exists();
 
+    drop(identity_release);
     gate_release.release();
     let completion_deadline = Instant::now() + Duration::from_secs(2);
     while !root.join("world-periodic-view-completed").exists()
@@ -436,14 +469,45 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let observer_join = observer.finish();
     let slow_join = slow.finish();
     if let Some(r) = observer.last_receive_diagnostic.take() {
-        let _ = writeln!(std::io::stderr().lock(),
+        let _ = writeln!(
+            std::io::stderr().lock(),
             "periodic_observer_receive start_us={:?} end_us={} budget_us={} result={} ack_seen={} complete_lines={} ack_count={} snapshot_count={} first_ack_us={:?} first_snapshot_us={:?} timeouts={} timeout_partial_bytes={} eof={} other_error_kind={:?}",
-            r.start_us, r.end_us, r.budget_us, r.result, r.ack_seen, r.complete_lines,
-            r.ack_count, r.snapshot_count, r.first_ack_us, r.first_snapshot_us,
-            r.timeouts, r.timeout_partial_bytes, r.eof, r.other_error_kind);
+            r.start_us,
+            r.end_us,
+            r.budget_us,
+            r.result,
+            r.ack_seen,
+            r.complete_lines,
+            r.ack_count,
+            r.snapshot_count,
+            r.first_ack_us,
+            r.first_snapshot_us,
+            r.timeouts,
+            r.timeout_partial_bytes,
+            r.eof,
+            r.other_error_kind
+        );
+    }
+    if identity_barrier {
+        let facts = ViewerRuntimeLiveServer::test_hosted_identity_barrier_facts();
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "hosted_identity_barrier entered={} returned={} timed_out={}",
+            facts.0,
+            facts.1,
+            facts.2
+        );
+        assert_eq!(
+            facts,
+            (true, true, false),
+            "real identity barrier must release without its safety timeout"
+        );
     }
     let stages = ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics();
-    let _ = writeln!(std::io::stderr().lock(), "periodic_observer_stages={stages}");
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "periodic_observer_stages={stages}"
+    );
     let periodic_arm_removed = fs::remove_file(root.join("world-periodic-view-arm")).is_ok();
 
     println!(
