@@ -682,6 +682,8 @@
         "scripts/document*",
         "scripts/product-doc-*",
         "scripts/product_doc*",
+        "scripts/resolve-product-doc-ci-range.py",
+        "scripts/resolve-product-doc-ci-range.test.py",
         "scripts/system-design-traceability*",
         "scripts/find-python-with-module*"
       ],

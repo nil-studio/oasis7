@@ -32,6 +32,39 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_product_doc_ci_range_exact_ownership_uses_trusted_config(self):
+        paths = ('scripts/resolve-product-doc-ci-range.py', 'scripts/resolve-product-doc-ci-range.test.py')
+        trusted = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = json.loads(json.dumps(trusted))
+        rule = next(rule for rule in old['rules'] if rule['reason'] == 'document_checker')
+        rule['match'] = [pattern for pattern in rule['match'] if pattern not in paths]
+        for path in paths:
+            self.write(path, '# existing resolver input\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.base = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '# changed resolver input\n')
+                    head = self.commit()
+                    plan = selector.select(trusted, self.base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(set(plan['groups']), {'baseline', 'doc_checker_contracts'})
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(old, self.base, head)
+                    self.base = head
+            # Candidate configuration, even a shared-control full fallback,
+            # cannot enrol this same change against the old trusted policy.
+            self.write('scripts/ci-required-scope.json', json.dumps(trusted))
+            self.write(paths[1], '# candidate also changes its own test\n')
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, head)
+            self.base = head
+            self.write('scripts/resolve-product-doc-ci-range-extra.py', '# unregistered neighbor\n')
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(trusted, self.base, self.commit())
+
     def test_dot_todo_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'dot_todo_contracts'])

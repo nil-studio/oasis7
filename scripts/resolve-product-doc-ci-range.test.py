@@ -6,7 +6,6 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -169,53 +168,18 @@ class RangeTests(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/rust.yml').read_text()
         baseline = workflow.split('\n  baseline:', 1)[1].split('\n  rust-baseline:', 1)[0]
         self.assertEqual(workflow.count('python3 scripts/resolve-product-doc-ci-range.py'), 1)
-        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', baseline)
-        self.assertIn('TESTED_SHA: ${{ needs.select.outputs.tested_sha }}', baseline)
-        self.assertIn('CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}', baseline)
-        self.assertIn('--tested-oid "$TESTED_SHA" >>"$GITHUB_ENV"', baseline)
+        self.assertIn('--tested-oid "$GITHUB_SHA" >>"$GITHUB_ENV"', baseline)
         self.assertIn('--event-path "$GITHUB_EVENT_PATH"', baseline)
         self.assertIn('--event-name "$GITHUB_EVENT_NAME"', baseline)
         self.assertLess(baseline.index('Resolve tested product-document range'), baseline.index('Execute selected group'))
         self.assertNotIn('OASIS7_PRODUCT_DOC_BASE:', baseline)
         self.assertNotIn('OASIS7_PRODUCT_DOC_HEAD:', baseline)
-        self.assertIn('OASIS7_CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}', baseline)
         selector = workflow.split('\n  select:', 1)[1].split('\n  baseline:', 1)[0]
         self.assertIn('BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}', selector)
         self.assertEqual(workflow.count("base_oid=\"$(git rev-parse --verify 'HEAD^1')\""), 2)
         driver = (SCRIPTS / 'ci-tests.sh').read_text()
         group = driver.split('run_doc_checker_contract_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertEqual(group.count('run python3 ./scripts/resolve-product-doc-ci-range.test.py'), 1)
-
-        # Execute the actual workflow step against real Git history. The event
-        # SHA deliberately differs from the selected tested checkout: a manual
-        # full run can validate a candidate other than its workflow/policy SHA.
-        step = baseline.split('      - name: Resolve tested product-document range\n', 1)[1]
-        step = step.split('      - name: Execute selected group\n', 1)[0]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-        self.history()
-        self.write('scripts/resolve-product-doc-ci-range.py', HELPER.read_text())
-        event_path = Path(self.temp.name) / 'workflow-event.json'
-        exports = Path(self.temp.name) / 'github-env'
-        for profile, event_name, event, tested, expected_base in (
-                ('pr-fast', 'pull_request', self.event, self.merge, self.target),
-                ('', 'pull_request', self.event, self.merge, self.target),
-                ('main-fast', 'push', {'before': self.base, 'after': self.merge}, self.merge, self.base),
-                ('periodic-full', 'schedule', {}, self.merge, self.target),
-                ('candidate-full', 'workflow_dispatch', {}, self.source, self.base)):
-            with self.subTest(profile=profile, event_name=event_name):
-                self.git('checkout', '-q', '--detach', tested)
-                event_path.write_text(json.dumps(event))
-                exports.write_text('')
-                env = dict(os.environ, CI_PROFILE=profile, TESTED_SHA=tested,
-                           GITHUB_SHA=self.target, GITHUB_EVENT_NAME=event_name,
-                           GITHUB_EVENT_PATH=str(event_path), GITHUB_ENV=str(exports),
-                           GITHUB_WORKSPACE=str(self.root))
-                result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
-                                        cwd=self.root, env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(exports.read_text(),
-                                 f'OASIS7_PRODUCT_DOC_BASE={expected_base}\nOASIS7_PRODUCT_DOC_HEAD={tested}\n')
-                self.assertEqual(self.git('rev-parse', 'HEAD'), tested)
 
 
 if __name__ == '__main__':

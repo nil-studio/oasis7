@@ -328,11 +328,12 @@ jobs:
             printf 'OASIS7_PRODUCT_DOC_BASE=%s\nOASIS7_PRODUCT_DOC_HEAD=%s\n' \
               "$(git rev-parse 'HEAD^1')" "$TESTED_SHA" >>"$GITHUB_ENV"
           else
+            test "$TESTED_SHA" = "$GITHUB_SHA"
             python3 scripts/resolve-product-doc-ci-range.py \
               --repo-root "$GITHUB_WORKSPACE" \
               --event-name "$GITHUB_EVENT_NAME" \
               --event-path "$GITHUB_EVENT_PATH" \
-              --tested-oid "$TESTED_SHA" >>"$GITHUB_ENV"
+              --tested-oid "$GITHUB_SHA" >>"$GITHUB_ENV"
           fi
       - name: Execute selected group
         shell: bash

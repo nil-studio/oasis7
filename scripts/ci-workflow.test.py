@@ -317,6 +317,81 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('dc.validate_evidence(view, model)', checker)
         self.assertIn('evidence_policy.validate_evidence_policy(view, model, baseline)', checker)
 
+    def test_baseline_document_range_binds_ordinary_event_and_fixed_full_source(self):
+        baseline = JOBS['baseline']
+        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', baseline)
+        self.assertIn('TESTED_SHA: ${{ needs.select.outputs.tested_sha }}', baseline)
+        self.assertIn('CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}', baseline)
+        self.assertIn('OASIS7_CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}', baseline)
+        step = baseline.split('      - name: Resolve tested product-document range\n', 1)[1]
+        step = step.split('      - name: Execute selected group\n', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        self.assertLess(script.index('test "$TESTED_SHA" = "$GITHUB_SHA"'),
+                        script.index('python3 scripts/resolve-product-doc-ci-range.py'))
+        self.assertIn('--tested-oid "$GITHUB_SHA" >>"$GITHUB_ENV"', script)
+        self.assertNotRegex(script, r'\bGITHUB_SHA\s*=')
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / 'repo'
+            repo.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repo), *args],
+                                               text=True, stderr=subprocess.PIPE).strip()
+            def commit(message):
+                git('add', '.')
+                git('commit', '-qm', message)
+                return git('rev-parse', 'HEAD')
+            git('init', '-q', '-b', 'main')
+            git('config', 'user.name', 'Range fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (repo / 'scripts').mkdir()
+            helper = 'scripts/resolve-product-doc-ci-range.py'
+            (repo / helper).write_bytes((ROOT / helper).read_bytes())
+            (repo / 'README.md').write_text('# Base\n')
+            base = commit('event base')
+            git('checkout', '-qb', 'feature')
+            (repo / 'candidate.md').write_text('# Candidate\n')
+            source = commit('candidate')
+            git('checkout', '-q', 'main')
+            (repo / 'main-only.md').write_text('# Main advanced\n')
+            target = commit('main advanced after event base')
+            git('merge', '--no-ff', '--no-commit', 'feature')
+            (repo / 'merge-only.md').write_text('# Tested merge\n')
+            merged = commit('synthetic merge')
+            pr = {'pull_request': {'base': {'sha': base}, 'head': {'sha': source}}}
+            event_path = Path(directory) / 'event.json'
+            exports = Path(directory) / 'github-env'
+            cases = (
+                ('pr-fast', 'pull_request', pr, merged, merged, target),
+                ('', 'pull_request', pr, merged, merged, target),
+                ('main-fast', 'push', {'before': base, 'after': merged}, merged, merged, base),
+                ('periodic-full', 'schedule', {}, merged, target, target),
+                ('candidate-full', 'workflow_dispatch', {}, source, merged, base),
+            )
+            for profile, event_name, event, tested, event_sha, expected_base in cases:
+                with self.subTest(profile=profile, event_name=event_name):
+                    git('checkout', '-q', '--detach', tested)
+                    event_path.write_text(json.dumps(event))
+                    exports.write_text('')
+                    environment = dict(os.environ, CI_PROFILE=profile, TESTED_SHA=tested,
+                                       GITHUB_SHA=event_sha, GITHUB_EVENT_NAME=event_name,
+                                       GITHUB_EVENT_PATH=str(event_path), GITHUB_ENV=str(exports),
+                                       GITHUB_WORKSPACE=str(repo))
+                    result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+                                            cwd=repo, env=environment, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(exports.read_text(),
+                                     f'OASIS7_PRODUCT_DOC_BASE={expected_base}\nOASIS7_PRODUCT_DOC_HEAD={tested}\n')
+                    self.assertEqual(git('rev-parse', 'HEAD'), tested)
+                    if event_name in ('pull_request', 'push'):
+                        # The old helper alone would accept this event/checkout.
+                        # A conflicting selected SHA must fail before any export.
+                        exports.write_text('')
+                        environment['TESTED_SHA'] = source
+                        result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+                                                cwd=repo, env=environment, text=True, capture_output=True)
+                        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertEqual(exports.read_text(), '')
+
     def test_formal_suites_share_build_and_propagate_all_failures(self):
         matrix = JOBS['formal-process-tests']
         self.assertIn('needs: [select, formal-test-build, formal-test-build-trusted]', matrix)
