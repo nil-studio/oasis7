@@ -4,6 +4,64 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const QUOTA: usize = 16 * 1024 * 1024;
 
+#[test]
+fn default_state_writer_keeps_charges_and_rejects_foreign_or_exhausted_pool() {
+    use crate::incremental_value::{ValueNodeWriter, ValueTreeError};
+    use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+    #[derive(Default)]
+    struct Sink(Vec<ReservedValue<Vec<u8>>>);
+    impl ValueNodeWriter for Sink {
+        fn put_node(
+            &mut self,
+            id: [u8; 32],
+            bytes: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            assert_eq!(id, *blake3::hash(&bytes).as_bytes());
+            self.0.push(bytes);
+            Ok(())
+        }
+    }
+    impl StatePageWriter for Sink {}
+    let memory = MemoryBudget::new(8 << 20, 1 << 20).unwrap();
+    let charge = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
+    let delta = charge.retain(
+        StateDeltaV1::build(
+            StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+            vec![write(b"alice", None, Some(7))],
+            &Pages::default(),
+            4 << 20,
+        )
+        .unwrap(),
+    );
+    let used = memory.used();
+    let mut sink = Sink::default();
+    let foreign = MemoryBudget::new(8 << 20, 1 << 20).unwrap();
+    assert!(matches!(
+        sink.put_state_pages(&delta, &foreign),
+        Err(ValueTreeError::Invalid("state producer pool"))
+    ));
+    assert!(sink.0.is_empty());
+    let filler = memory
+        .reserve((7 << 20) - used, MemoryClass::Ordinary)
+        .unwrap();
+    assert!(matches!(
+        sink.put_state_pages(&delta, &memory),
+        Err(ValueTreeError::Memory(_))
+    ));
+    assert!(sink.0.is_empty());
+    drop(filler);
+    sink.put_state_pages(&delta, &memory).unwrap();
+    assert_eq!(sink.0.len(), delta.new_nodes.len());
+    assert!(memory.used() > used);
+    for (actual, expected) in sink.0.iter().zip(&delta.new_nodes) {
+        assert_eq!(actual.as_slice(), expected.bytes);
+        assert!(actual.uses_budget(&memory));
+        assert!(actual.reserved_bytes() >= actual.capacity());
+    }
+    drop(sink);
+    assert_eq!(memory.used(), used);
+}
+
 #[derive(Default)]
 struct Pages {
     nodes: BTreeMap<String, Vec<u8>>,

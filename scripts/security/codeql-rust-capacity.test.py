@@ -28,7 +28,7 @@ def workflow_steps():
 
 class Capacity(unittest.TestCase):
     def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
-        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.CAPACITY_SOURCE):
+        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.PROFILE_SOURCE,m.CAPACITY_SOURCE):
             with tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); source=root/"source";source.mkdir()
                 argv=["capacity","capture","--source",str(source),"--database",str(root/"db"),"--output",str(root/"out"),"--work",str(root/"work"),"--sarif",str(root/"sarif"),"--deadline",str(time.time()+300)]
@@ -422,6 +422,49 @@ class Capacity(unittest.TestCase):
             self.assertEqual(terminal['lock_observation_gate'],'FAIL')
             self.assertEqual(json.loads((out/'input-observation-post-analyze.json').read_text())['changed_locks'],['Cargo.lock'])
 
+    def test_core_lock_receipt_is_saved_before_log_capture(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
+            db=root/'db';(db/'log').mkdir(parents=True)
+            deadline=time.time()+1000;end=time.monotonic()+1000
+            (out/'manifest-inventory.json').write_text('["Cargo.toml"]')
+            initial=m.evidence.lock_inventory(source,['Cargo.toml'],out,end,m.SOURCE,stage='initial',fixed_deadline=deadline)
+            m.observe_inputs(source,out,end,deadline,['Cargo.toml'],initial,'pre-analyze',identity={'status':'PASS'})
+            observed=[]
+            def logs(*args,**kw):
+                receipt=out/'input-observation-post-analyze.json'
+                observed.append(receipt.is_file())
+                # Optional logs exhaust their write gate, not the terminal reserve.
+                (out/'large-log').write_bytes(b'x'*max(0,m.runtime.WRITE_CAP-m.runtime.output_bytes(out)))
+                return {'status':'PARTIAL','files':[]}
+            with patch.object(m.evidence,'capture_identity',return_value={'status':'PASS'}),patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14570}),patch.object(m.evidence,'collect_logs',side_effect=logs),patch.object(m.runtime,'CAP',1024**2),patch.object(m.runtime,'WRITE_CAP',900*1024):
+                m.capture_failure_evidence(SimpleNamespace(database=db,deadline=deadline),source,out,end,{}, {'secondary_errors':[]})
+            self.assertEqual(observed,[True])
+            self.assertEqual(json.loads((out/'capacity-capture-terminal.json').read_text())['lock_observation_gate'],'PASS')
+            self.assertTrue((out/'input-observation-post-analyze.json').is_file())
+
+    def test_core_terminal_write_failure_does_not_skip_logs(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
+            db=root/'db';(db/'log').mkdir(parents=True)
+            deadline=time.time()+1000;end=time.monotonic()+1000
+            (out/'manifest-inventory.json').write_text('["Cargo.toml"]')
+            initial=m.evidence.lock_inventory(source,['Cargo.toml'],out,end,m.SOURCE,stage='initial',fixed_deadline=deadline)
+            m.observe_inputs(source,out,end,deadline,['Cargo.toml'],initial,'pre-analyze',identity={'status':'PASS'})
+            original=m.runtime.save;failed=[]
+            def save(path,*a,**kw):
+                if path.name=='capacity-capture-terminal.json' and not failed:
+                    failed.append(True);raise OSError('injected ENOSPC')
+                return original(path,*a,**kw)
+            with patch.object(m.evidence,'capture_identity',return_value={'status':'PASS'}),patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14570}),patch.object(m.evidence,'collect_logs',return_value={'status':'PARTIAL','files':[]}) as logs,patch.object(m.runtime,'save',side_effect=save):
+                m.capture_failure_evidence(SimpleNamespace(database=db,deadline=deadline),source,out,end,{}, {'secondary_errors':[]})
+            logs.assert_called_once()
+            terminal=json.loads((out/'capacity-capture-terminal.json').read_text())
+            self.assertEqual(terminal['core_receipt_gate'],'FAIL')
+            self.assertTrue(any(item['stage']=='core-receipt' for item in terminal['secondary_errors']))
+
     def test_research_allocation_is_distinct_and_bounded(self):
         self.assertEqual(m.analysis_budget('capacity',2547)['analysis_allocated_minutes'],32)
         research=m.analysis_budget('official-default-research',21400)
@@ -430,8 +473,8 @@ class Capacity(unittest.TestCase):
         self.assertEqual(research['post_analysis_reserve_seconds'],600)
         with self.assertRaises(ValueError):m.analysis_budget('unknown',21400)
 
-    def test_capacity_40_minute_analysis_preserves_global_reserve(self):
-        for remaining,minutes in ((3300,40),(3110,40),(2999,39),(660,1),(600,0)):
+    def test_capacity_45_minute_analysis_preserves_global_reserve(self):
+        for remaining,minutes in ((3300,45),(3110,41),(3059,40),(2999,39),(660,1),(600,0)):
             budget=m.analysis_budget('capacity',remaining)
             self.assertEqual(budget['job_budget_seconds'],3300)
             self.assertEqual(budget['analysis_allocated_minutes'],minutes)

@@ -359,10 +359,39 @@ fn receiver(
     let config = config.clone();
     let intent = process::test_intent(&config).unwrap();
     let (sender, receiver) = std::sync::mpsc::channel();
+    let generation = intent.target.generation;
+    let phase = if generation == 1 {
+        "initial"
+    } else {
+        "replacement"
+    };
     let handle =
         std::thread::spawn(move || process::run_test_receiver(&config, intent, command, sender));
-    receiver.recv_timeout(Duration::from_secs(3)).unwrap();
-    handle
+    match receiver.recv_timeout(Duration::from_secs(3)) {
+        Ok(()) => handle,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            // Only this worker owns the sender. With no queued ready message,
+            // disconnection means startup exited or panicked; retain its cause.
+            match handle.join() {
+                Ok(result) => panic!(
+                    "test receiver ({phase}, generation={generation}) exited before readiness: {result:?}"
+                ),
+                Err(payload) => {
+                    let cause = payload
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| payload.downcast_ref::<&str>().copied())
+                        .unwrap_or("non-string panic payload");
+                    panic!(
+                        "test receiver ({phase}, generation={generation}) panicked before readiness: {cause}"
+                    );
+                }
+            }
+        }
+        Err(error) => {
+            panic!("test receiver ({phase}, generation={generation}) readiness failed: {error}")
+        }
+    }
 }
 pub(crate) struct TestReceiverGuard {
     signal_stop: Arc<AtomicBool>,
@@ -439,6 +468,11 @@ fn running(config: &model::NodeConfig) -> process::Instance {
 }
 #[test]
 fn local_node_real_child_stop_preserves_data_and_late_instance_cannot_stop_replacement() {
+    // Exec before acquiring lifetime FDs so unrelated harness forks cannot
+    // retain this fixture's old owner while it tests an immediate replacement.
+    if crate::node_operations::admission_tests::isolate_fork_test() {
+        return;
+    }
     let fixture = Fixture::new();
     let config = fixture.initialize();
     let key = config.identity.data_dir.join("keys/node-keypair.toml");
@@ -499,6 +533,11 @@ fn local_node_stop_timeout_keeps_original_action_and_queries_same_live_instance(
 
 #[test]
 fn local_node_action_identity_retries_original_receipt_without_touching_later_generation() {
+    // Exec before acquiring lifetime FDs so unrelated harness forks cannot
+    // retain this fixture's old owner while it tests an immediate replacement.
+    if crate::node_operations::admission_tests::isolate_fork_test() {
+        return;
+    }
     let fixture = Fixture::new();
     let config = fixture.initialize();
     let digest =
@@ -859,4 +898,49 @@ pub(crate) fn operation_replacement_receiver(
     let handle = receiver(&config, command);
     let current = running(&config);
     (handle, current)
+}
+
+#[test]
+fn receiver_startup_failure_reports_the_original_lock_error() {
+    let fixture = Fixture::new();
+    let config = fixture.initialize();
+    let ownership = process::lock(&config.identity.data_dir).unwrap();
+    let mut command = Command::new("/bin/sleep");
+    command.arg("100");
+    let failure =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| receiver(&config, command)));
+    let payload = failure.expect_err("fixture startup must fail while ownership is held");
+    let cause = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or("non-string panic");
+    assert!(cause.contains("initial"), "{cause}");
+    assert!(
+        cause.contains("another process retains this exact local node ownership lock"),
+        "{cause}"
+    );
+    drop(ownership);
+}
+
+
+#[test]
+fn stopped_receiver_ownership_waits_for_inherited_child_descriptor() {
+    use crate::node_operations::admission_tests::{InheritedDescriptors, isolate_fork_test};
+    if isolate_fork_test() {
+        return;
+    }
+    let (_fixture, config_path, receiver, current) = operation_fixture_with_stop_signal();
+    let config = model::NodeConfig::load(&config_path).unwrap();
+    let inherited = InheritedDescriptors::fork();
+    let stopped = process::stop_instance(&config, &current, 2000).unwrap();
+    receiver.finish(false).unwrap();
+    assert_eq!(stopped["instance"]["state"], "stopped");
+    assert!(stopped["instance"]["runtime_pid"].is_null());
+    assert!(inherited.is_waiting());
+    // Stop and receiver join cannot release a file description inherited by
+    // another child. Lifetime fencing must fail closed until that child exits.
+    assert!(process::lock(&config.identity.data_dir).is_err());
+    drop(inherited);
+    let _ownership = process::lock(&config.identity.data_dir).unwrap();
 }

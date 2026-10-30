@@ -28,7 +28,7 @@ pub struct AgentEventContext<'a, V, W, C, F> {
     pub max_event_bytes: usize,
 }
 
-fn read_fixed<const N: usize, V: ValueNodeReader, R: MerkleNodeReader, W, C>(
+pub(super) fn read_fixed<const N: usize, V: ValueNodeReader, R: MerkleNodeReader, W, C>(
     txn: &mut ExecutionTransaction<'_, R>,
     namespace: Ns,
     key: &[u8],
