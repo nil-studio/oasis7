@@ -393,4 +393,15 @@ record-kind 固定 Metadata=1、Group=2、Entry=3、Bytes=4。Metadata 的 diges
 
 嵌套 map/map-set 对每个 outer key 先输出 `group`，包括零成员，再输出实际成员。group 的成员数是准入元数据，不代替未来字段值/索引的认证内容。Agent 等稀疏 typed 子字段由原 Identity、presence 和 count codec 表达 owner/集合存在，不要求所有 NestedMap 描述符都输出 group。任一 sink 错误后须丢弃整个暂存前缀。
 
-本节只冻结通用字段键。语义 key 的规范摘要前像、对应 value/outer marker 的编码、完整字段登记、借用来源到专用 codec 的路由，以及恢复消费者仍须在其实现中冻结并验证；在这些义务和 §12.2 其他条件完成前，新格式世界保持不可启用。不能仅凭本键 codec 宣称完整 World 创世、闭包验证、恢复或 GC 已接通。
+本节只冻结通用字段键。语义 key 的规范摘要前像见 §12.4；对应 value/outer marker 的编码、完整字段登记、借用来源到专用 codec 的路由，以及恢复消费者仍须在其实现中冻结并验证；在这些义务和 §12.2 其他条件完成前，新格式世界保持不可启用。不能仅凭本键 codec 宣称完整 World 创世、闭包验证、恢复或 GC 已接通。
+
+
+### 12.4 语义键的借用编码与摘要
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。通用字段的实际 key 来源采用封闭的 `SemanticKeyV1` 类型集合，不用任意 Serde 对象作为身份前像。当前来源为 unit、UTF-8 文本、u64、ResourceKind、MaterialLedgerId、这些类型的借用以及二元组。新增来源类型须显式选择格式能力，不能依赖 Rust 类型名、Serde `into` 转换或不稳定 map 顺序自动扩展。
+
+canonical bytes 为 ASCII `oasis7.iws.semantic-key.v1` 加零字节，再接一个自定界 token；摘要为完整 canonical bytes 的 BLAKE3。token 标签：unit=0；text=1 加 u64 大端字节长度和原 UTF-8 bytes；u64=2 加八字节大端值；resource=3 加固定 Electricity=1/Data=2；ledger=4 加 World=0/Agent=1/Site=2/Factory=3，非 World 再接 text token 形式的原 ID；pair=5 后顺序编码两个子 token。引用和 String/str 不另加标签，不复制原文；ledger 类型与同文字符串不互相冒充。允许空文本、原 Unicode 和 u64 极值；业务 ID 合法性仍由原字段消费者验证。
+
+pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改变编码、摘要或树形。读取检查完整 domain、token、UTF-8、长度、已知枚举、深度与末尾边界，返回借用内容和已验证的 pair 子 token，不聚合原 key。哈希先取得同进程预算的固定 workspace，并在逐块处理前检查取消与有限字节额度；失败和 unwind 不发出成功摘要，已消耗的工作额度不回退。流式输出在整体成功前均为暂态，实际 sink 须自行持有分配/I/O reservation。
+
+本节不把 schema-owned 原文键的解析升级为字段注册、授权或 head 接受资格。原语义键须随对应 value/索引内容保留以供恢复并重新核对摘要；完整 value wire、producer/reader 与 World 生命周期仍按 §12.3/§12.2 接通后才允许激活。
