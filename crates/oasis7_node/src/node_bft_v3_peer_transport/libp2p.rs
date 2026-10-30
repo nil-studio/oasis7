@@ -404,11 +404,10 @@ fn send(
                 .request_authenticated_to_peer_with_timeout(PROTOCOL, &frame, peer, timeout)
             {
                 Ok(reply) => {
-                    if let Err(error) = assembly::check_ack(&reply, context, &p.digest, next) {
+                    assembly::check_ack(&reply, context, &p.digest, next).inspect_err(|_| {
                         #[cfg(any(test, feature = "test-hooks"))]
                         route_trace::parcel_event(route, p, "send", "bad_ack", started.elapsed());
-                        return Err(error);
-                    }
+                    })?;
                     break;
                 }
                 Err(WorldError::NetworkRequestFailed {

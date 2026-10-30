@@ -8,9 +8,11 @@ static LOST: [AtomicU64; 257] = [const { AtomicU64::new(0) }; 257];
 static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
 static UNTRACKED_ROUTES: AtomicU64 = AtomicU64::new(0);
 pub(super) fn owner() -> u64 {
-    enabled()
-        .then(|| NEXT_OWNER.fetch_add(1, Ordering::Relaxed))
-        .unwrap_or(0)
+    if enabled() {
+        NEXT_OWNER.fetch_add(1, Ordering::Relaxed)
+    } else {
+        0
+    }
 }
 static NEXT_PARCEL: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy)]
