@@ -72,3 +72,42 @@ Test fresh initialization and actual pinned read, matching rerun after state adv
 Record the actual source and binaries used. Cross-platform generation is not presumed compatible: relevant schema/hash/persistence code must be equivalent and the target machine must actually open and verify the pin.
 
 These materials prove isolated preview initialization only. Pending cognition binding and bounded local commits do not certify formal finality, activation/profile history, distributed consensus, independent failure-domain durability, production minting or invitation readiness. Complete account/world-control and applicable gameplay acceptance separately before expanding the player entry; deployment observations belong in the delivery issue.
+
+## Explicit offline historical material rehydration
+
+Stop the original writer. Keep the original root, signed initial-publication archive, commit envelopes,
+records and CAS intact. `rehydrate-preview-history` acquires the same world-writer exclusion as the
+node; a running writer is a hard refusal. Supply the independent service public-key pin, an absent
+scratch path outside the source root, and finite operator budgets. It reads no signing seed and makes
+no network or model call.
+
+```sh
+oasis7_chain_runtime rehydrate-preview-history \
+  --storage-profile dev_local --root /absolute/original-preview \
+  --scratch /absolute/private-scratch/history-17 \
+  --world-id exact-world --node-id exact-node --service-public-key INDEPENDENT_PUBLIC_PIN \
+  --height 17 --max-replay-heights 13 --max-replay-bytes 67108864 --deadline-ms 60000 \
+  --max-store-bytes OPERATOR_CAS_BYTE_CAP --max-new-bytes OPERATOR_NEW_BYTE_CAP \
+  --max-store-objects OPERATOR_OBJECT_CAP --max-history-cuts 4
+```
+
+The numeric replay values above illustrate one original h4 to h17 cut; they are not defaults or formal
+BFT limits. The history cache has a separate implementation bound of 64 cuts. The store cap counts
+physical CAS blob entries, including orphan and failed publication temporaries, with new objects
+reserved at their conservative raw size. It is not a cap on the whole world root. Pin metadata is
+separately bounded by the cut count and the 16 KiB per-shard reader limit. The command never prunes
+existing material to fit a budget. If an explicit DevLocal participant context is genuinely required,
+provide its independently fixed public pin through `--operator-public-key`; snapshots cannot select it.
+
+Only after exact original replay and complete proof/effect comparison does publication copy missing
+hash-identical historical bytes into original CAS and publish an independent exact pin. A partial
+failure may retain unreferenced verified bytes or a private publication temporary; retries count those
+bytes/objects against the same store cap. An incomplete pin-namespace temporary blocks subsequent
+publication rather than allowing an unbounded series of new metadata files. Investigate such errors;
+do not delete unknown material or treat a failed command as a completed read.
+
+The old compact record, current head, world state, nonce and model ledger remain unchanged. Historical
+queries read the original proof, exact pin and CAS through the strict restore path; they never run
+replay or repair pins. Missing closure remains `HistoryUnavailable`, and corruption fails closed.
+The history pin also protects its original record/proof from later cooperative retention. Retain the
+scratch until the result has been checked; no implicit cleanup or formal/network finality claim is made.

@@ -18,6 +18,11 @@ use std::{
 };
 
 const MAX_FILE: usize = 16 * 1024 * 1024;
+#[path = "preview_world_history_publish.rs"]
+mod publication;
+pub(super) use publication::run;
+#[cfg(test)]
+pub(super) use publication::{PublicationBudget, rehydrate};
 /// Trusted local configuration, never decoded from a remote request.
 pub(super) struct ReplayBudget {
     pub max_heights: u64,
@@ -118,21 +123,9 @@ impl Budget {
     }
     fn cas(&mut self, store: &LocalCasStore, hash: &str) -> Result<Vec<u8>, String> {
         self.check()?;
-        let path = store.blobs_dir().join(format!("{hash}.blob"));
-        if !fs::symlink_metadata(&path)
-            .map_err(|_| "preview history CAS closure unavailable")?
-            .file_type()
-            .is_file()
-        {
-            return Err("preview history CAS closure must be a regular file".into());
-        }
-        let (bytes, complete) = store
-            .get_range(hash, 0, MAX_FILE + 1)
-            .map_err(|_| "preview history CAS closure unavailable")?;
+        let bytes = bridge::historical_material::cas(store, hash)?
+            .ok_or("preview history CAS closure unavailable")?;
         self.charge(bytes.len())?;
-        if !complete || bytes.len() > MAX_FILE || blake3_hex(&bytes) != hash {
-            return Err("preview history CAS closure hash or bound rejected".into());
-        }
         Ok(bytes)
     }
 }
@@ -200,13 +193,6 @@ fn authenticate(envelope: &Envelope, pin: &str, world: &str, node: &str) -> Resu
 /// `service_pin` must be independently provisioned. The receipt authenticates
 /// the initial envelope bytes, which in turn fix the original consensus signer.
 /// The result grants no authority and is never installed into the source root.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "First offline slice is intentionally not wired into shipping reads."
-    )
-)]
 #[expect(
     clippy::too_many_arguments,
     reason = "Offline resource budget and separately provisioned local authority remain explicit."
@@ -499,7 +485,7 @@ pub(super) fn create_scratch(root: &Path, scratch: &Path) -> Result<(), String> 
     if !scratch.is_absolute()
         || parent.starts_with(&source)
         || source.starts_with(
-            &parent.join(
+            parent.join(
                 scratch
                     .file_name()
                     .ok_or("preview history scratch name missing")?,

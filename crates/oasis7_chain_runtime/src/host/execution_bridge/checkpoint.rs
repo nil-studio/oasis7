@@ -15,6 +15,13 @@ use super::{
 
 const EXECUTION_BRIDGE_PIN_SCOPE: &str = "execution_bridge_v1";
 type CheckpointRetentionPolicy = (u64, usize);
+fn all_protected_heights(records: &Path, store: &LocalCasStore) -> Result<BTreeSet<u64>, String> {
+    let mut protected = task_evidence::protected_heights(records, store)?;
+    protected.extend(super::historical_material::protected_heights(
+        records, store,
+    )?);
+    Ok(protected)
+}
 #[cfg(test)]
 pub(super) mod task_evidence;
 #[cfg(not(test))]
@@ -446,7 +453,7 @@ fn build_execution_bridge_pin_set(
     execution_store: &LocalCasStore,
     hot_window_heights: u64,
 ) -> Result<ExecutionBridgePinSet, String> {
-    let protected = task_evidence::protected_heights(execution_records_dir, execution_store)?;
+    let protected = all_protected_heights(execution_records_dir, execution_store)?;
     let record_heights = list_execution_bridge_record_heights(execution_records_dir)?;
     let checkpoint_heights = list_execution_checkpoint_heights(execution_records_dir)?
         .into_iter()
@@ -504,7 +511,7 @@ pub(super) fn sync_execution_bridge_pin_set(
 ) -> Result<ExecutionBridgePinSet, String> {
     let pin_set =
         build_execution_bridge_pin_set(execution_records_dir, execution_store, hot_window_heights)?;
-    let protected = task_evidence::protected_heights(execution_records_dir, execution_store)?;
+    let protected = all_protected_heights(execution_records_dir, execution_store)?;
     let mut desired_pins = pin_set.pinned_refs.clone();
     for pinned_ref in pin_set
         .best_effort_pinned_refs
@@ -850,7 +857,7 @@ pub(super) fn run_execution_bridge_incremental_retention_maintenance(
     checkpoint_interval_heights: u64,
     checkpoint_keep_latest: usize,
 ) -> Result<u64, String> {
-    let protected = task_evidence::protected_heights(execution_records_dir, execution_store)?;
+    let protected = all_protected_heights(execution_records_dir, execution_store)?;
     let degraded_marker = execution_records_dir.join(EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER);
     let was_degraded = degraded_marker.exists();
     run_execution_bridge_incremental_retention_maintenance_inner(
@@ -876,7 +883,11 @@ pub(super) fn run_execution_bridge_incremental_retention_maintenance_after_task_
     checkpoint_interval_heights: u64,
     checkpoint_keep_latest: usize,
 ) -> Result<u64, String> {
-    let protected = validated.into_protected(execution_records_dir, execution_store, record)?;
+    let mut protected = validated.into_protected(execution_records_dir, execution_store, record)?;
+    protected.extend(super::historical_material::protected_heights(
+        execution_records_dir,
+        execution_store,
+    )?);
     let degraded_marker = execution_records_dir.join(EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER);
     let was_degraded = degraded_marker.exists();
     run_execution_bridge_incremental_retention_maintenance_inner(
@@ -1122,7 +1133,7 @@ pub(super) fn run_execution_bridge_retention_maintenance(
             execution_store,
             hot_window_heights,
         )?;
-        let protected = task_evidence::protected_heights(execution_records_dir, execution_store)?;
+        let protected = all_protected_heights(execution_records_dir, execution_store)?;
         compact_execution_bridge_records(execution_records_dir, &pin_set, &protected)?;
         sync_execution_bridge_pin_set(execution_records_dir, execution_store, hot_window_heights)?;
         execution_store

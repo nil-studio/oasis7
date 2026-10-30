@@ -1,5 +1,7 @@
 //! Real signed Node commits, hot-window compaction and isolated driver replay.
-use super::super::super::preview_world_history::{ReplayBudget, create_scratch, reconstruct};
+use super::super::super::preview_world_history::{
+    PublicationBudget, ReplayBudget, create_scratch, reconstruct, rehydrate,
+};
 use super::*;
 
 fn budget(heights: u64) -> ReplayBudget {
@@ -8,6 +10,16 @@ fn budget(heights: u64) -> ReplayBudget {
         max_total_bytes: 64 * 1024 * 1024,
         deadline: Instant::now() + Duration::from_secs(60),
         diagnostic_sink: None,
+    }
+}
+
+fn publication_budget() -> PublicationBudget {
+    PublicationBudget {
+        max_store_bytes: 512 * 1024 * 1024,
+        max_new_bytes: 32 * 1024 * 1024,
+        max_store_objects: 4096,
+        max_history_cuts: 4,
+        before_pin: None,
     }
 }
 
@@ -173,6 +185,226 @@ fn preview_history_reconstructs_compacted_original_without_changing_source() {
     assert!(
         fs::read(options.root.join("initialization-receipt.json")).unwrap() == original_receipt
     );
+
+    // Source identity loss/substitution must never be repaired or replaced by
+    // replay. These are fixture faults; each invocation leaves its input alone.
+    let identity_path = options.root.join("world/world-service-identity.json");
+    let original_identity = fs::read(&identity_path).unwrap();
+    fs::remove_file(&identity_path).unwrap();
+    assert!(
+        reconstruct(
+            &options.root,
+            &directory.0.join("missing-identity"),
+            &options.world_id,
+            &options.node_id,
+            &receipt.service_public_key,
+            target,
+            budget(1),
+            None
+        )
+        .is_err()
+    );
+    assert!(!identity_path.exists());
+    fs::write(&identity_path, &original_identity).unwrap();
+    let mut wrong_identity: Value = serde_json::from_slice(&original_identity).unwrap();
+    wrong_identity["genesis_digest"] = json!("blake3:".to_owned() + &"00".repeat(32));
+    let wrong_identity_bytes = serde_json::to_vec(&wrong_identity).unwrap();
+    fs::write(&identity_path, &wrong_identity_bytes).unwrap();
+    assert!(
+        reconstruct(
+            &options.root,
+            &directory.0.join("wrong-identity"),
+            &options.world_id,
+            &options.node_id,
+            &receipt.service_public_key,
+            target,
+            budget(1),
+            None
+        )
+        .is_err()
+    );
+    assert!(fs::read(&identity_path).unwrap() == wrong_identity_bytes);
+    fs::write(&identity_path, &original_identity).unwrap();
+
+    let source = oasis7_runtime::LocalCasStore::new(options.root.join("store"));
+    let pin_path = bridge::historical_material::shard(&source, target);
+    let mut no_new = publication_budget();
+    no_new.max_new_bytes = 0;
+    assert!(
+        rehydrate(
+            &options.root,
+            &directory.0.join("publication-quota"),
+            &options.world_id,
+            &options.node_id,
+            &receipt.service_public_key,
+            target,
+            budget(1),
+            no_new,
+            None
+        )
+        .is_err()
+    );
+    assert!(!pin_path.exists());
+    let mut partial = publication_budget();
+    partial.before_pin = Some(|| Err("injected publication stop before pin".into()));
+    assert!(
+        rehydrate(
+            &options.root,
+            &directory.0.join("publication-partial"),
+            &options.world_id,
+            &options.node_id,
+            &receipt.service_public_key,
+            target,
+            budget(1),
+            partial,
+            None
+        )
+        .is_err()
+    );
+    assert!(!pin_path.exists());
+    assert!(
+        bridge::world_service_read::pin_retained_at_height(
+            &options.root.join("records"),
+            &options.root.join("store"),
+            &receipt.world,
+            target
+        )
+        .unwrap()
+        .is_none()
+    );
+    assert!(
+        !pin_path.exists(),
+        "read must not heal a partial publication"
+    );
+    let published = rehydrate(
+        &options.root,
+        &directory.0.join("publication-complete"),
+        &options.world_id,
+        &options.node_id,
+        &receipt.service_public_key,
+        target,
+        budget(1),
+        publication_budget(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(published, expected);
+    let historical = bridge::world_service_read::pin_retained_at_height(
+        &options.root.join("records"),
+        &options.root.join("store"),
+        &receipt.world,
+        target,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(historical.commit, expected);
+    assert!(
+        historical
+            .world
+            .capability_revocation_state()
+            .world_service_results
+            .get(&result_key)
+            == Some(&expected_result)
+    );
+    assert!(
+        bridge::historical_material::protected_heights(&options.root.join("records"), &source)
+            .unwrap()
+            .contains(&target)
+    );
+    source.prune_orphan_blobs().unwrap();
+    assert!(
+        bridge::world_service_read::pin_retained_at_height(
+            &options.root.join("records"),
+            &options.root.join("store"),
+            &receipt.world,
+            target
+        )
+        .unwrap()
+        .is_some()
+    );
+    let restored_blob = bridge::historical_material::cas(
+        &oasis7_runtime::LocalCasStore::new(directory.0.join("scratch/store")),
+        &expected.state_root_ref,
+    )
+    .unwrap()
+    .unwrap();
+    fs::remove_file(
+        source
+            .blobs_dir()
+            .join(format!("{}.blob", expected.state_root_ref)),
+    )
+    .unwrap();
+    assert!(
+        bridge::world_service_read::pin_retained_at_height(
+            &options.root.join("records"),
+            &options.root.join("store"),
+            &receipt.world,
+            target
+        )
+        .unwrap()
+        .is_none(),
+        "a cached successful read cannot hide subsequently missing CAS"
+    );
+    oasis7_runtime::BlobStore::put(&source, &expected.state_root_ref, &restored_blob).unwrap();
+    let original_pins = fs::read(&pin_path).unwrap();
+    fs::remove_file(&pin_path).unwrap();
+    assert!(
+        bridge::world_service_read::pin_retained_at_height(
+            &options.root.join("records"),
+            &options.root.join("store"),
+            &receipt.world,
+            target
+        )
+        .unwrap()
+        .is_none()
+    );
+    assert!(
+        !pin_path.exists(),
+        "query must never recreate a missing pin"
+    );
+    fs::write(&pin_path, &original_pins).unwrap();
+    fs::write(&pin_path, br#"{"pins":[]}"#).unwrap();
+    assert!(
+        bridge::world_service_read::pin_retained_at_height(
+            &options.root.join("records"),
+            &options.root.join("store"),
+            &receipt.world,
+            target
+        )
+        .is_err()
+    );
+    fs::write(&pin_path, &original_pins).unwrap();
+    let mut conflicting: bridge::ExecutionBridgeRecord =
+        serde_json::from_slice(&original_header).unwrap();
+    conflicting.snapshot_ref = Some("00".repeat(32));
+    assert!(bridge::historical_material::hydrate(&conflicting, &source).is_err());
+    assert!(fs::read(&target_path).unwrap() == original_header);
+    assert!(fs::read(options.root.join("state.json")).unwrap() == current);
+    assert!(
+        fs::read(options.root.join("initialization-receipt.json")).unwrap() == original_receipt
+    );
+    {
+        let _live_owner = super::super::super::world_writer_lock::acquire_live_world_writer_lock(
+            &options.root.join("world"),
+        )
+        .unwrap();
+        let stopped_scratch = directory.0.join("writer-still-live");
+        assert!(
+            rehydrate(
+                &options.root,
+                &stopped_scratch,
+                &options.world_id,
+                &options.node_id,
+                &receipt.service_public_key,
+                target,
+                budget(1),
+                publication_budget(),
+                None
+            )
+            .is_err()
+        );
+        assert!(!stopped_scratch.exists());
+    }
 
     // An explicit local capability still cannot change this public profile's
     // hardened restore policy. It is not inferred from a receipt or snapshot.
@@ -401,4 +633,99 @@ fn write_private_diagnostic(root: &Path, reason: &str) -> Result<(), ()> {
     output
         .write_all(&reason.as_bytes()[..reason.len().min(16 * 1024)])
         .map_err(|_| ())
+}
+
+#[cfg(unix)]
+#[test]
+fn preview_history_pin_namespace_symlinks_refuse_reads_and_publication() {
+    use std::os::unix::fs::symlink;
+    for alias_kind in ["pin-parent", "pin-scope", "blobs"] {
+        let directory = Directory::new();
+        let root = directory.0.join("source");
+        fs::create_dir(&root).unwrap();
+        let storage = root.join("store");
+        fs::create_dir(&storage).unwrap();
+        fs::create_dir(storage.join("blobs")).unwrap();
+        fs::write(storage.join("blobs/source-canary"), b"source unchanged").unwrap();
+        let external = directory.0.join("external");
+        fs::create_dir(&external).unwrap();
+        let scope = bridge::historical_material::SCOPE;
+        let external_scope = if alias_kind == "pin-parent" {
+            fs::create_dir(external.join(scope)).unwrap();
+            symlink(&external, storage.join("pin_scopes")).unwrap();
+            external.join(scope)
+        } else if alias_kind == "pin-scope" {
+            fs::create_dir(storage.join("pin_scopes")).unwrap();
+            symlink(&external, storage.join("pin_scopes").join(scope)).unwrap();
+            external.clone()
+        } else {
+            // The pin suffix is deliberately absent: blob admission must run
+            // before any early "no pin" return in reader/GC/publication.
+            fs::rename(storage.join("blobs"), external.join("moved-blobs")).unwrap();
+            symlink(external.join("moved-blobs"), storage.join("blobs")).unwrap();
+            external.clone()
+        };
+        let external_pin = external_scope.join(format!("{:020}.json", 17));
+        fs::write(&external_pin, b"not a pin: must never be parsed").unwrap();
+        fs::create_dir(root.join("records")).unwrap();
+        let header = serde_json::to_vec(&json!({"schema_version":3,"world_id":"namespace-world",
+            "height":17,"node_block_hash":null,"execution_block_hash":"11".repeat(32),
+            "execution_state_root":"22".repeat(32),"journal_len":0,"timestamp_ms":0}))
+        .unwrap();
+        let record_path = root.join("records").join(format!("{:020}.json", 17));
+        fs::write(&record_path, &header).unwrap();
+        let identity = oasis7::world_service::WorldIdentity {
+            world_id: "namespace-world".into(),
+            genesis_digest: "namespace-genesis".into(),
+        };
+        let source = oasis7_runtime::LocalCasStore::new(&storage);
+        let expected_error = if alias_kind == "blobs" {
+            "historical blob namespace carrier invalid"
+        } else {
+            "historical pin namespace carrier invalid"
+        };
+        let error = bridge::world_service_read::pin_retained_at_height(
+            &root.join("records"),
+            &storage,
+            &identity,
+            17,
+        )
+        .err()
+        .expect("reader must reject the namespace before parsing external bytes");
+        assert_eq!(error, expected_error);
+        assert_eq!(
+            bridge::historical_material::protected_heights(&root.join("records"), &source)
+                .err()
+                .unwrap(),
+            expected_error
+        );
+        let scratch = directory.0.join("scratch");
+        let error = rehydrate(
+            &root,
+            &scratch,
+            "namespace-world",
+            "node",
+            &"33".repeat(32),
+            17,
+            budget(13),
+            publication_budget(),
+            None,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error, expected_error);
+        assert!(!scratch.exists());
+        assert!(
+            !root.join("world").exists(),
+            "rejection precedes writer-lock or replay setup"
+        );
+        assert_eq!(fs::read_dir(storage.join("blobs")).unwrap().count(), 1);
+        assert!(fs::read(storage.join("blobs/source-canary")).unwrap() == b"source unchanged");
+        assert!(fs::read(&record_path).unwrap() == header);
+        assert!(fs::read(&external_pin).unwrap() == b"not a pin: must never be parsed");
+        assert_eq!(
+            fs::read_dir(&external_scope).unwrap().count(),
+            if alias_kind == "blobs" { 2 } else { 1 }
+        );
+    }
 }

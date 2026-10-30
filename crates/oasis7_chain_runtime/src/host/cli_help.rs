@@ -12,6 +12,9 @@ pub(crate) fn render_help() -> String {
         text.push_str(&format!("  {} {}\n", command.name, command.usage));
     }
     text.push_str(
+        "  rehydrate-preview-history --storage-profile dev_local --root <original> --scratch <absent> ...\n    Explicit offline bounded historical-material recovery; requires stopped writer and independent pins. See rehydrate-preview-history --help.\n",
+    );
+    text.push_str(
         "  initialize-preview-world --root <fresh-root> --world-id <id> --node-id <id> --key-dir <secure-config> --genesis-nonce <64-hex> --status-bind <loopback:port>\n    Creates a fresh local preview world from genuine Runtime and NodeRuntime commits; default is public-read only. Explicit --profile devlocal-provider-v1 adds bounded DevLocal provider authority and canonical owner/delegation before first publication; see initialize-preview-world --help. It does not activate formal network finality.\n",
     );
     text.push_str(

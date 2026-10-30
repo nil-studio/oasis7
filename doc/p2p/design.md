@@ -946,8 +946,21 @@ payload hash 或当前状态中的结果索引不构成历史 World。归档校�
 profile 复用其已签名声明的 DevLocal policy。所需 participant authority 必须由调用者独立
 固定 operator pin 后显式传入，不能从 snapshot/receipt 自授。缺物料、越界或 deadline 到期即
 拒绝，不补造旧签名、不改原 records/CAS/current World，不产生新模型调用或写入权限。
-该 helper 的首片仅供显式隔离只读诊断，不自动接管 shipping read/recovery，也不授正式
-BFT 或跨故障域恢复资格；scratch 的重建字节只有全部检查通过后才能作为该原高度的读取。
+隔离 replay 不在 WorldService query 内运行。显式 `rehydrate-preview-history` 仅接受原
+DevLocal preview 身份与独立 service pin，先取得既有 World writer 排他锁证明原 writer 已停，
+再在独立 scratch 完成全部检查。操作员必须明确给出 replay 高度/累计字节/deadline，及
+目标 CAS 总物理字节、新增字节、对象数和历史 cut 数预算；无默认无界 cap，不冒用正式
+protected ledger 的 4 GiB 预算，也不删除旧对象腾配额。所有预检成功后，持同一 CAS
+retention guard 发布缺失的 hash-identical snapshot/journal 原字节及独立 pin shard；原
+current head、compact record、World 状态、nonce、模型 ledger、密钥和原创建 receipt 不变。
+失败可以留下尚未引用的已验证 CAS 字节，但没有完整 exact pin/闭包不得报告可读。
+
+历史 reader 只从原 record 绑定的原 world-head proof 推导缺失 refs，核对独立 scope 的
+exact pins、CAS hash/boundary，再复用严格 World restore；补 refs 仅在内存 record clone，
+不回写原 record，不在 query 中重放或修 pin。缺闭包仍是 `HistoryUnavailable`，冲突/损坏
+立即拒绝。独立 pin scope 同时进入既有 GC/record-retention protected height 集合，避免后续
+pruning 丢失原 proof 入口；它是可验证读取材料的保留缓存，不授当前 head、服务/签名或正式
+BFT authority。该恢复只证明相同 DevLocal 原高度的执行结果，不授跨故障域耐久资格。
 
 私钥只保留在受保护配置中。公开初始化 receipt 给出 identity、材料承诺和 derived
 feedback-submit service public key，不提供 node seed 或消费者签名私钥。操作员通过独立

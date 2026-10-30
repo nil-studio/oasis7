@@ -35,6 +35,7 @@ mod product_validation_intent;
 mod provider_bootstrap;
 mod world_service_execution;
 pub(crate) mod world_service_read;
+pub(crate) mod historical_material;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionBridgeState {
