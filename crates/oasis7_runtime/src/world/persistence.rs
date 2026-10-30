@@ -844,7 +844,7 @@ impl World {
                 })?;
         }
 
-        let mut world = Self::new_with_state(snapshot.state);
+        let mut world = Self::new_with_state_for_restore(snapshot.state);
         if let Some(release) = release {
             world.release_security_policy = release;
         }

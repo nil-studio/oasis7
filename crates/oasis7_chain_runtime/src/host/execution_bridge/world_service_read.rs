@@ -31,7 +31,7 @@ impl RestoreContext {
         }
         Ok(Self { release, local })
     }
-    pub(super) fn restore(
+    pub(crate) fn restore(
         &self,
         snapshot: Snapshot,
         journal: Journal,
@@ -159,6 +159,47 @@ pub(crate) fn verify_archived_initial_publication(
     identity: &WorldIdentity,
     expected_commit: &CommitRef,
 ) -> Result<(), String> {
+    verify_archived_initial_publication_inner(
+        record_bytes,
+        snapshot_bytes,
+        journal_bytes,
+        proof_bytes,
+        identity,
+        expected_commit,
+        None,
+    )
+}
+
+/// Same immutable archive checks with a separately trusted Host restore context.
+/// Snapshot fields never select a DevLocal authority or release policy.
+pub(crate) fn verify_archived_initial_publication_with_context(
+    record_bytes: &[u8],
+    snapshot_bytes: &[u8],
+    journal_bytes: &[u8],
+    proof_bytes: &[u8],
+    identity: &WorldIdentity,
+    expected_commit: &CommitRef,
+    context: &RestoreContext,
+) -> Result<(), String> {
+    verify_archived_initial_publication_inner(
+        record_bytes,
+        snapshot_bytes,
+        journal_bytes,
+        proof_bytes,
+        identity,
+        expected_commit,
+        Some(context),
+    )
+}
+fn verify_archived_initial_publication_inner(
+    record_bytes: &[u8],
+    snapshot_bytes: &[u8],
+    journal_bytes: &[u8],
+    proof_bytes: &[u8],
+    identity: &WorldIdentity,
+    expected_commit: &CommitRef,
+    context: Option<&RestoreContext>,
+) -> Result<(), String> {
     let record: ExecutionBridgeRecord =
         serde_json::from_slice(record_bytes).map_err(|_| "initial execution record invalid")?;
     let snapshot_ref = record
@@ -213,8 +254,24 @@ pub(crate) fn verify_archived_initial_publication(
     {
         return Err("pinned proof does not bind execution record and CAS refs".into());
     }
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
-        .map_err(|_| "pinned world snapshot could not be restored")?;
+    let world = match context {
+        Some(context) => context.restore(snapshot, journal),
+        None => oasis7::runtime_host::world::from_snapshot(snapshot, journal),
+    }
+    .map_err(|error| match (context, error) {
+        (None, _) => "pinned world snapshot could not be restored",
+        (Some(_), oasis7_runtime::WorldError::JournalMismatch) => {
+            "archived World restore rejected: journal_mismatch"
+        }
+        (Some(_), oasis7_runtime::WorldError::DistributedValidationFailed { reason }) => {
+            if reason.contains("DevLocal participant authority") {
+                "archived World restore rejected: devlocal_participant_context"
+            } else {
+                "archived World restore rejected: distributed_validation"
+            }
+        }
+        (Some(_), _) => "archived World restore rejected: runtime_validation",
+    })?;
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|_| "pinned binding unavailable")?;

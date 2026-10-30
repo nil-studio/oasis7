@@ -6,6 +6,8 @@ use std::{
     fs,
     sync::{Arc, Barrier},
 };
+#[path = "preview_world_history_tests.rs"]
+mod historical_replay;
 #[path = "preview_world_init_provider_tests.rs"]
 mod provider_profile;
 struct Directory(PathBuf);

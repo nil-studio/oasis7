@@ -935,6 +935,20 @@ initializer source commitment 变化仍按原合同拒绝旧版本重跑，不�
 没有该认证归档，只能从已验证备份恢复，初始化器不重建、不重签、不改写旧证明；幂等查询也
 不因后续真实提交推进而把原初始锚改写成当前 head。
 
+DevLocal 历史读取缺失热窗口物料时，不把当前 root 当成旧提交，也不将
+`HistoryUnavailable` 降为可重放的 `Unknown`。显式离线诊断可在独立空 scratch 中，先
+验证独立 service pin 固定的原 receipt、创世与 initial-publication 完整归档，再消费该
+归档认证的节点 signer 所签的逐高度原 consensus envelope。必须有完整有序动作字节、
+原模块依赖与 external-effect/proof 闭包；使用真实 execution driver 重执行，并逐高度核验
+动作 root、前驱执行链、execution hash、state root 与原 proof/materialization。仅校验
+payload hash 或当前状态中的结果索引不构成历史 World。归档校验、初始 World 恢复和最终
+读取使用同一个受信 Host RestoreContext；public profile 保持 hardened policy，显式 provider
+profile 复用其已签名声明的 DevLocal policy。所需 participant authority 必须由调用者独立
+固定 operator pin 后显式传入，不能从 snapshot/receipt 自授。缺物料、越界或 deadline 到期即
+拒绝，不补造旧签名、不改原 records/CAS/current World，不产生新模型调用或写入权限。
+该 helper 的首片仅供显式隔离只读诊断，不自动接管 shipping read/recovery，也不授正式
+BFT 或跨故障域恢复资格；scratch 的重建字节只有全部检查通过后才能作为该原高度的读取。
+
 私钥只保留在受保护配置中。公开初始化 receipt 给出 identity、材料承诺和 derived
 feedback-submit service public key，不提供 node seed 或消费者签名私钥。操作员通过独立
 认证的部署通道核对该 pin 后，将 endpoint/world/genesis/service key 和独立 public-read
