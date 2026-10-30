@@ -690,6 +690,29 @@ Owner 使用独立命名撤销入口验证固定原生签名，持久关闭目�
 
 目录缺失、版本不明或未收齐确认时不宣称 custody authorization closed，也不继续新增授权。该目录是 Owner 内的路由/撤销协调记录，不另设 grant/预算 authority。
 
+##### OwnerSetup V1 管理页面与目录元数据
+
+本切片复用上述 custody options、complete、批准原件和未知结果恢复合同；普通 Passkey ceremony 不能替代 custody 批准。首个页面只准备和批准 OwnerSetup V1：`resource_refs` 必须为空，仅支持精确 Move business 0 的既有边界；不发行 Host、TestSession 或 TaskSession，不启用 Execution、自动 continue 或世界写。下述页面与目录 DTO 是待实施合同，不能由独立组件或本地夹具宣称生产可用。
+
+**同源入口与能力。** 页面挂在现有 `mountPasskeyAccount` 账户管理界面，通过相对路径使用同一受控 HTTPS RP origin 的 Native `/api/public/hosted-account/v2/...` 和 Worker `/v1/...`，不增加跨域 Cookie 代理、用户可选服务地址或 CORS 凭证通道。Native `/capabilities` 可新增闭集、非秘密的 custody 管理能力元数据，仅给出版本、是否已配置、固定 audience/environment 和固定相对路径；这不是当前来源、ACL、RF 或授权成功证明。`/session` 的实际认证方式须保留到页面状态；native-key 会话显示须使用 Passkey 重新登录，不能代签。Native 仍逐次检查真实 WebAuthn management session、参与资格、同源 Origin/CSRF 和配置，Worker 仍经固定 management-session-status 验证唯一 SID；配置缺失保持不可用。
+
+**新的有界父项投影。** 新增 `POST /v1/management/parents/query`，Rust 闭集 `ManagementParentsQueryV1` 只接受 `api_version=1`、`limit`（1 至 16）、可空 `after_custody_account_id` 和与非空游标同时必需的 `directory_revision`；不接受 manager、DO、World、Account 路由或查询参数。身份只从实际 Native management source 取得。响应 `ManagementParentsPageV1` 只含本人目录中的 custody account/provision 引用、environment/world 公共标识、目录 revision、冻结/库存完整标记、有界 items 和 next 游标；最多 16 项、编码最多 32 KiB，目录总量沿现有 256 项上限。游标只在同一真实 manager/environment/identity epoch 的目录内定位，revision 不同拒绝重新选择；不返回 private plan、goal、Cookie、assertion、proof、seed 或 key material。Native 能力发布由独立 `OASIS7_CUSTODY_MANAGEMENT_UI_ENABLED=true` 控制，Worker/Owner 查询由独立 `CUSTODY_MANAGEMENT_METADATA_ENABLED=true` 控制，两者缺省均关闭；后者还要求有界非空 `CUSTODY_MANAGEMENT_METADATA_REALM`、精确相等的固定 `CUSTODY_PUBLIC_ORIGIN` 与 `CUSTODY_NATIVE_ORIGIN` 及已有完整 Native/Directory pins。能力只能报告配置，不能假设另一个服务已开启。metadata limiter 在既有 `CLIENT_ENROLLMENTS` 物理 binding 内使用独立 actor 分域与独立必需计数状态，不要求启用 Enrollment，也不复用其限额。
+
+该投影只读取 ManagerAssociations 现有 index/draft 的公共关联，不扇出 AccountAuthority、Native 托管账号或 World，不读取资源、grant、quote，也不把目录登记、label、库存完整或旧阶段当作当前可批准资格。缺目录不初始化业务目录，不把旧库存缺少完整标记升格为空全集。选择父项后，用户明确触发该 provision 的既有 OwnerSetup basis，再以实际 Rust prepare 响应展示并批准；Account ACL、当前来源、Directory/RF 和提交检查不因列表省略。页面不后台轮询列表、basis、prepare 或业务进度。
+
+**独立元数据收费与物理 I/O。** 现有 Native options 的 source 60/min、manager 10/min 及 complete 的 source 60/min 不覆盖新查询。新查询须先以可信 provider ingress 和实际来源 IP，在独立 `management_metadata` 类别内依次持久扣 provider 32/min、realm 1024/min，再发 Native management 认证。复用既有 provider→realm 有界 Durable Object 收费机制，但使用独立分域键和计数，不借 Enrollment、ClientHttp、Control、Host、Native、Execution、Read 或 Cleanup 预算；失败不退款。provider 拒绝后不消耗 realm；缺可信 ingress、时钟回退或状态不明拒绝，不接受普通自报 IP header。认证后在对应目录的元数据事务持久扣该 manager 16/min，再读投影；计数不是权限，不写业务目录/Account、不推进阶段、不生成 grant。重试与翻页都重新计费，不能通过缓存或批次隐藏出站。
+
+一次合法查询的外向服务调用上限为：两个前置收费 DO HTTP、一个固定 Native management-session-status HTTP、一个固定 Identity→OwnerManagement binding RPC、一个 Owner→ManagerAssociations DO HTTP，共五次；目录本地元数据收费与投影在同一有界事务，不另跨 actor 查询。拒绝路径只允许已付费前缀。浏览器到 Worker 请求、独立 `/capabilities` CSRF 获取和 Native 本地数据库操作须分别计数，不能混同这五次或称零成本；写请求若沿现有 helper 再取 capabilities，也须真实记录。这里增加管理元数据防滥用费用，不提高会话业务预算。构建入口必须提供可信收费 context；DTO 大小、目录满量、拒绝前缀、真实 bridge counters、限额隔离未通过时，该目录查询与页面能力保持关闭，不能以本地路由可达代替证明。
+
+**专用批准客户端与 RAM 生命周期。** 页面只复用 WebAuthn 字节转换和实际 assertion 序列化 helper，不调用普通 ceremony 的 complete、cancel 或 operation-status。用户手势前冻结同一父项的 Rust basis/prepare 请求、原 plan、稳定 IDs、完整 Rust intent/audience/environment/World pins、范围/预算/截止和 policy/security 版本；JS 不计算协议 digest，不要求手输 JSON，不从历史 Captured quote 派生当前权限。以安全文本展示完整批准摘要和 V1 资源限制；明确确认后调用 custody options，再使用实际 options 调用 `navigator.credentials.get`。complete 只发送返回的精确 `approval_id`、`ceremony_id`、`operation_id`、`intent_digest` 和实际 assertion response；不假定三个 ID 相等、不补 fallback、不展开原 options 请求。
+
+plan、assertion、proof 和待重试 complete 正文仅存该挂载实例 RAM，不进入 URL、持久存储、DOM debug、日志或分析事件。CSRF 取实际同源值，proof 只交同一冻结 OwnerSetup approve 原件。双击复用同一在途任务。complete unknown 保留确切正文，可显式重送同一 complete，不重生 challenge、request ID 或 assertion；Owner approve unknown 查询原 provision/operation 实际状态，不用新 proof 覆盖未核清结果。proof 过期只按既有核清合同提示重新 MFA，不自动批准。120 秒 challenge、至多 30 秒 proof 和全部五秒 Current/Directory/Fence 检查不变。
+
+取消 WebAuthn 只终止本地交互，不宣称撤销 Native challenge 或 Owner 操作；Native 没有 custody cancel/status API，不调用普通 ceremony 路由。未消费同一原件仅在既有期限内显式重试或等待到期。logout、账户切换与 unmount 递增实例 generation、清除私有 RAM，迟到回调不得对新账户提交或显示成功；已发服务端操作仍须原账户以后经既有状态入口核清，不能把清内存当取消。报错使用闭集阶段/状态，不渲染原始私有正文或内部错误。
+
+**实施与本地证据。** Rust Core 持有新 metadata/capability DTO、校验和 schema 导出；Native 发布非秘密能力且保持批准权威；Worker/Owner 实现可信预收费、ACL 目录投影和真实计数；现有账户模块实现专用客户端与实际 mount。浏览器不新增授权服务。隔离本地 HTTPS 单 origin 组合真实 Native、Worker/Owner、一次性 SQLite 与受控 ACL，沿实际页面以浏览器 CDP virtual UV authenticator 完成 options→get→complete→同一 OwnerSetup approve；不以测试签名 helper 或普通登录 ceremony 代签。覆盖 exact IDs/CSRF、native-key 拒绝、取消、unknown 同正文重送、账户切换迟到结果、双击、目录满量/越界/revision/他人父项、收费拒绝前缀及真实调用计数，并在桌面/窄屏检查键盘操作和批准摘要。软件 authenticator 只证明本地集成，不代硬件、部署或生产测试；后续步骤按用户限制暂停。复用既有 CLOUD003、CLOUD006、CLOUD007 要求追踪，不新增任务身份，不宣称整体 #5076 完成。
+
+
 ##### 原生托管反向绑定与首次会话
 
 反向绑定使用固定服务 pin 验证的签名事实，不采纳自报 native account、公钥或 manager registry。

@@ -396,3 +396,25 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
 print(json.dumps(result))
 `,persist,account,corruptIdentity?'yes':'no'],{encoding:'utf8'}));
 }
+
+// Local browser harness only. It supplies the actual browser-created manager
+// before any directory/provision request; it does not patch signed payloads.
+export function browserUvRoleOptions(persist,data,bridge,manager,origin,adapterModule) {
+  assert.ok(typeof manager==='string' && manager.length>0);
+  return options(persist,data,bridge,'native-participant-owner-setup-real-fence',raw=>{
+    const identity=raw.workers.find(w=>w.name==='identity');
+    identity.modules[0]={type:'ESModule',path:adapterModule};
+    identity.bindings.CUSTODY_NATIVE_ORIGIN=origin;
+    identity.bindings.CUSTODY_PUBLIC_ORIGIN=origin;
+    identity.bindings.CUSTODY_MANAGEMENT_METADATA_ENABLED='true';
+    identity.bindings.CUSTODY_MANAGEMENT_METADATA_REALM='isolated-browser-uv';
+    identity.durableObjects.CLIENT_ENROLLMENTS={className:'ClientEnrollmentAuthority',useSQLite:true};
+    const owner=raw.workers.find(w=>w.name==='owner');
+    owner.bindings.CUSTODY_NATIVE_ORIGIN=origin;
+    owner.bindings.CUSTODY_PUBLIC_ORIGIN=origin;
+    owner.bindings.CUSTODY_MANAGEMENT_METADATA_ENABLED='true';
+    owner.bindings.CUSTODY_MANAGEMENT_METADATA_REALM='isolated-browser-uv';
+    owner.bindings.CUSTODY_BOOTSTRAP_MANAGERS=JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:manager},environments:['test']}]);
+    return raw;
+  });
+}

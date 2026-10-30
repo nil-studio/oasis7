@@ -462,6 +462,26 @@
         }
       }
     ],
+    "CustodyManagementCapabilityV1": [
+      {
+        "api_version": 1,
+        "audience": null,
+        "available": false,
+        "complete_path": "/api/public/hosted-account/v2/custody/approvals/complete",
+        "environment": null,
+        "options_path": "/api/public/hosted-account/v2/custody/approvals/options",
+        "parents_query_path": "/v1/management/parents/query"
+      },
+      {
+        "api_version": 1,
+        "audience": "account-authority:test",
+        "available": true,
+        "complete_path": "/api/public/hosted-account/v2/custody/approvals/complete",
+        "environment": "test",
+        "options_path": "/api/public/hosted-account/v2/custody/approvals/options",
+        "parents_query_path": "/v1/management/parents/query"
+      }
+    ],
     "CustodySessionStatusV1": [
       {
         "account_id": "native-one",
@@ -564,6 +584,31 @@
             }
           }
         }
+      }
+    ],
+    "ManagementParentsPageV1": [
+      {
+        "api_version": 1,
+        "directory_revision": "abababababababababababababababababababababababababababababababab",
+        "frozen": false,
+        "inventory_complete": true,
+        "items": [
+          {
+            "custody_account_id": "custody-one",
+            "environment": "test",
+            "provision_id": "provision-one",
+            "world_id": "world-one"
+          }
+        ],
+        "next_after_custody_account_id": null
+      }
+    ],
+    "ManagementParentsQueryV1": [
+      {
+        "after_custody_account_id": null,
+        "api_version": 1,
+        "directory_revision": null,
+        "limit": 16
       }
     ],
     "ManagerClosureViewV1": [
@@ -4140,6 +4185,51 @@
       "title": "ClientPairingBindingV1",
       "type": "object"
     },
+    "CustodyManagementCapabilityV1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "audience": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "complete_path": {
+          "type": "string"
+        },
+        "environment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options_path": {
+          "type": "string"
+        },
+        "parents_query_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "available",
+        "parents_query_path",
+        "options_path",
+        "complete_path"
+      ],
+      "title": "CustodyManagementCapabilityV1",
+      "type": "object"
+    },
     "CustodySessionStatusV1": {
       "$defs": {
         "DecimalU64": {
@@ -5429,6 +5519,110 @@
         "input"
       ],
       "title": "ManagedLoginApproveRequestV1",
+      "type": "object"
+    },
+    "ManagementParentsPageV1": {
+      "$defs": {
+        "ManagementParentV1": {
+          "additionalProperties": false,
+          "properties": {
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custody_account_id",
+            "provision_id",
+            "environment",
+            "world_id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directory_revision": {
+          "type": "string"
+        },
+        "frozen": {
+          "type": "boolean"
+        },
+        "inventory_complete": {
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ManagementParentV1"
+          },
+          "type": "array"
+        },
+        "next_after_custody_account_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "api_version",
+        "directory_revision",
+        "frozen",
+        "inventory_complete",
+        "items"
+      ],
+      "title": "ManagementParentsPageV1",
+      "type": "object"
+    },
+    "ManagementParentsQueryV1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "after_custody_account_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directory_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_version",
+        "limit"
+      ],
+      "title": "ManagementParentsQueryV1",
       "type": "object"
     },
     "ManagerClosureViewV1": {

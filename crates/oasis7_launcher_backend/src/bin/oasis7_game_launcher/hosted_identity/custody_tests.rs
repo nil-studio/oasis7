@@ -627,3 +627,6 @@ fn management_status_requires_passkey_and_post_keeps_native_origin_csrf_contract
             .is_ok()
     );
 }
+
+#[path = "custody_browser_uv_fixture.rs"]
+mod browser_uv_fixture;

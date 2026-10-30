@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+// Actual local-only Native SQLite + workerd + Chrome UV. No production claims.
+import assert from 'node:assert/strict';
+import {mkdtempSync,chmodSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {tmpdir} from 'node:os';import {resolve,dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';
+import {spawn} from 'node:child_process';import {setTimeout as delay} from 'node:timers/promises';import {createRequire} from 'node:module';
+import {Miniflare,Response as MiniflareResponse} from 'miniflare';
+import {worldAuthority} from '../tests/fixtures/world_runtime_support.mjs';
+import {browserUvRoleOptions} from '../tests/fixtures/role_runtime_native_support.mjs';
+import {browserHttps} from '../tests/fixtures/custody_browser_https.mjs';
+import {approveProvision} from '../tests/fixtures/custody_browser_actions.mjs';
+import {signFixtureRecoveryActivation} from '../tests/fixtures/fence_activation_signer.mjs';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');const repo=resolve(root,'../..');
+const directory=mkdtempSync(join(tmpdir(),'oasis7-browser-uv-'));chmodSync(directory,0o700);
+let world,https,native,mf,browser,context,page;let stage='startup';let exited=false;
+const ready=resolve(directory,'native-ready.json'),stop=resolve(directory,'native-stop');
+try {
+  stage='world';world=await worldAuthority(directory);
+  https=await browserHttps(directory,resolve(repo,'crates/oasis7_viewer/software_safe_src'));
+  const origin=https.origin;
+  stage='native';const binary=readFileSync(resolve(root,'artifacts/native-test-binary.txt'),'utf8').trim();
+  native=spawn('rtk',['proxy',binary,'serve_custody_browser_uv_fixture','--ignored','--nocapture','--test-threads=1'],{
+    env:{PATH:process.env.PATH,...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('OASIS7_'))),OASIS7_CUSTODY_BROWSER_READY:ready,OASIS7_CUSTODY_BROWSER_STOP:stop,
+      OASIS7_CUSTODY_BROWSER_ORIGIN:origin,OASIS7_CUSTODY_BROWSER_WORLD_TRUST:JSON.stringify(world.data)},stdio:'ignore'});native.once('exit',()=>{exited=true;});
+  for(let i=0;!existsSync(ready);i++){assert.ok(!exited&&i<1500,'Native browser fixture readiness failed');await delay(20);}
+  const data=JSON.parse(readFileSync(ready,'utf8'));https.setNative(data.address);
+  stage='browser-launch';const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES;
+  const require=modules?createRequire(join(modules,'local-browser-uv.cjs')):createRequire(import.meta.url);browser=await require('playwright').chromium.launch({channel:'chrome',headless:!process.argv.includes('--headed')});
+  context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1280,height:960}});page=await context.newPage();
+  const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
+  stage='browser-register';await page.goto(origin+'/');await page.getByRole('button',{name:'免邮箱创建账号',exact:true}).click();await page.getByRole('heading',{name:'账号与安全',exact:true}).waitFor();
+  const manager=await page.evaluate(async()=>{const r=await fetch('/api/public/hosted-account/v2/session');const s=await r.json();if(s.authentication.method!=='webauthn')throw Error('actual UV required');return s.account.account_id;});
+  const capability=await page.evaluate(async()=>fetch('/api/public/hosted-account/v2/capabilities').then(r=>r.json()));
+  const cookies=await context.cookies(origin);const sid=cookies.find(c=>c.name==='__Host-oasis7_sid');assert.ok(sid,'actual browser SID required');
+  const sourceHeaders={Cookie:`${sid.name}=${sid.value}`,Origin:origin,'Content-Type':'application/json','X-Oasis7-CSRF':capability.csrf_token};
+  stage='manager-bootstrap';const enrolled=await fetch(data.address+'/_fixture/browser-manager',{method:'POST',headers:sourceHeaders,body:'{}'});assert.equal(enrolled.status,200,'fixed actual browser manager bootstrap failed');
+  assert.equal((await enrolled.json()).manager_account_id,manager);
+  const nativeCounts={};const bridge=async request=>{
+    const url=new URL(request.url);assert.equal(url.origin,origin,'fixed local Native origin');assert.ok(url.pathname.startsWith('/api/public/hosted-account/v2/'));
+    nativeCounts[url.pathname]=(nativeCounts[url.pathname]??0)+1;
+    const headers=new Headers();for(const key of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']){const v=request.headers.get(key);if(v!==null)headers.set(key,v);}
+    const response=await fetch(data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+    return new MiniflareResponse(await response.arrayBuffer(),{status:response.status,headers:response.headers});
+  };
+  stage='workerd';const runtimeData={...data,world:world.data.world,adapter_secret:'34'.repeat(32),revocation_poll_secret:'53'.repeat(32),revocation_ack_secret:'54'.repeat(32)};
+  mf=new Miniflare(browserUvRoleOptions(resolve(directory,'workerd'),runtimeData,bridge,manager,origin,resolve(root,'tests/fixtures/custody_browser_provider_adapter.mjs')));
+  https.setIdentity(async request=>mf.dispatchFetch(request.url,{method:request.method,headers:request.headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())})}));
+  const controller=await mf.getWorker('fence-controller');const description=await(await controller.fetch('https://fixture.test/describe',{method:'POST'})).json();
+  assert.equal((await controller.fetch('https://fixture.test/activate',{method:'POST',body:JSON.stringify(signFixtureRecoveryActivation(description,'browser-fixture-bootstrap'))})).status,200,'real Fence activation');
+  stage='parent-precondition';
+  const draft={api_version:1,client_request_id:'browser-parent',plan:{environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:world.data.world.world_id,purpose:'Local browser precondition fixture',expires_at:String(Date.now()+180000),transport_limit:'400'}};
+  const identity=await mf.getWorker('identity');const created=await identity.fetch(origin+'/v1/account-provisions',{method:'POST',headers:sourceHeaders,body:JSON.stringify(draft)});assert.equal(created.status,200,'parent draft failed');const original=await created.json();
+  const request={approval_request_id:'browser-parent-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},
+    intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world.data.world,identity_route:'native-one',world_route:'world-route-one',native_identity_namespace:data.namespace,register_request_id:'browser-parent-register',login_request_id:'browser-parent-login',deadline:draft.plan.expires_at,transport_limit:'400'}};
+  await approveProvision(page,request);
+  const continued=await identity.fetch(origin+`/v1/account-provisions/${original.entry.provision_id}/continue`,{method:'POST',headers:sourceHeaders,body:JSON.stringify({api_version:1,operation_id:'browser-parent-participant'})});assert.equal(continued.status,200,'parent participant continuation failed');assert.equal((await continued.json()).stage,'participant_bound','actual parent fixture must reach participant_bound');
+  stage='mounted-refresh';await page.evaluate(()=>window.surface.refresh());stage='metadata-load';await page.getByRole('button',{name:'加载本人可见父项',exact:true}).click();
+  stage='metadata-select';
+  await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).waitFor();await page.getByLabel(/本次私有目标/).fill('Public local fixture: Move business 0 only');
+  stage='plan-prepare';await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).click();await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).waitFor();
+  await page.screenshot({path:resolve(directory,'desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve(directory,'narrow.png'),fullPage:true});
+  stage='owner-uv-and-approve';await page.getByRole('button',{name:'确认摘要并使用通行密钥批准',exact:true}).click();await page.getByText('OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。',{exact:true}).waitFor();
+  const facts=https.facts();assert.equal(facts.bypass_attempts,0);assert.ok(!Object.keys(facts.counts).some(path=>path.includes('/owner-setups/continue')),'OwnerSetup must never continue');
+  const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();assert.equal(nativeFacts.bypass_attempts,0);assert.equal(nativeFacts.manager_configured,true);
+  const evidence={kind:'local_native_workerd_browser_uv',status:'passed',software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
+  writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify({status:'passed',evidence_directory:directory,kind:evidence.kind}));
+}catch(error) {
+  await page?.screenshot({path:resolve(directory,'failure.png'),fullPage:true}).catch(()=>{});
+  const counts=https?.facts().counts??{};
+  const sum=suffix=>Object.entries(counts).filter(([key])=>key.endsWith(suffix)).reduce((n,[,value])=>n+value,0);
+  const kind=['AssertionError','TimeoutError'].includes(error?.name)?error.name:'Error';
+  console.error(JSON.stringify({status:'failed',stage,error_kind:kind,evidence_directory:directory,
+    phase_counts:{options:sum('/custody/approvals/options'),complete:sum('/custody/approvals/complete'),prepare:sum('/owner-setups/prepare'),approve:sum('/owner-setups/approve')}}));process.exitCode=1;
+}
+finally {await context?.close();await browser?.close();await mf?.dispose();if(native&&!exited){writeFileSync(stop,'stop');for(let i=0;!exited&&i<250;i++)await delay(20);if(!exited)native.kill('SIGTERM');}await https?.close();await world?.close();}
