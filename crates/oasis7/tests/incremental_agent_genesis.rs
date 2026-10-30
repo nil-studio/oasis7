@@ -12,6 +12,9 @@ use oasis7_runtime::{
     incremental_event_fields::{MailboxKeyV1, mailbox_event_id_v1},
 };
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 fn physical() -> PageIoBudget {
     PageIoBudget {
@@ -35,8 +38,9 @@ impl Directory {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "oasis7-agent-fields-{}-{nonce}",
+            "oasis7-agent-fields-{}-{nonce}-{sequence}",
             std::process::id()
         ));
         std::fs::create_dir(&path).unwrap();
