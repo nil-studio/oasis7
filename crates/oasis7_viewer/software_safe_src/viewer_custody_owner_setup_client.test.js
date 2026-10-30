@@ -33,7 +33,7 @@ function fixture(overrides={}) {
     return new Response(JSON.stringify(value),{status:200,headers:{"content-type":"application/json"}});
   });
   const get=overrides.get||vi.fn(async()=>credential());
-  const client=createOwnerSetupClient({fetch,credentials:{get},browserPasskeyOptions,serializePasskey,now:()=>1000});
+  const client=createOwnerSetupClient({fetch,credentials:{get},browserPasskeyOptions,serializePasskey,now:overrides.now||(()=>1000)});
   client.setSession({account_id:"manager"},{method:"webauthn"},cap);
   return {client,calls,fetch,get,loseComplete(){nextUnknown=true;}};
 }
@@ -102,5 +102,49 @@ describe("dedicated OwnerSetup custody browser client",()=>{
       await vi.waitFor(()=>expect(root.textContent).toContain("为此父项准备批准摘要"));
       expect(f.calls.filter(x=>x.url===CUSTODY_PATHS.parents_query_path)).toHaveLength(1);
     } finally {surface.dispose();vi.unstubAllGlobals();}
+  });
+});
+
+describe("cancelled custody approval expiry recovery",()=>{
+  function cancelledFixture() {
+    let clock=1000;
+    const get=vi.fn().mockRejectedValueOnce(new DOMException("cancelled","NotAllowedError")).mockImplementation(async()=>credential());
+    const f=fixture({now:()=>clock,get,fetch:async(url)=> url===CUSTODY_PATHS.options_path
+      ? new Response(JSON.stringify({api_version:1,phase:"pending",approval_id:"approval-A",ceremony_id:"ceremony-B",operation_id:"operation-C",
+        intent_digest:"78".repeat(32),audience:"custody",ceremony_expires_at:String(clock+1000),options:{publicKey:{challenge:"AQ",allowCredentials:[]}}}),{status:200}) : undefined});
+    return {...f,setClock(value){clock=value;}};
+  }
+  it("only explicitly discards a never-submitted cancellation after the original challenge expires, with zero discard I/O",async()=>{
+    const f=cancelledFixture();await f.client.prepare(parent,"First goal");
+    await expect(f.client.approve()).rejects.toMatchObject({code:"custody_authenticator_cancelled"});
+    const original=f.client.summary();const before=f.calls.length;
+    await expect(f.client.discardCancelled()).rejects.toMatchObject({code:"custody_cancelled_not_expired"});
+    expect(f.client.summary()).toEqual(original);expect(f.calls).toHaveLength(before);
+    f.setClock(2000);await f.client.discardCancelled();
+    expect(f.client.summary()).toBeNull();expect(f.calls).toHaveLength(before);
+    const fresh=await f.client.prepare(parent,"Second goal");
+    expect(fresh.plan.setup_id).not.toBe(original.plan.setup_id);
+    await f.client.approve();expect(f.get).toHaveBeenCalledTimes(2);
+    expect(f.calls.filter(x=>x.url===CUSTODY_PATHS.options_path)).toHaveLength(2);
+    expect(f.calls.filter(x=>x.url===CUSTODY_PATHS.complete_path)).toHaveLength(1);
+  });
+  it("cannot discard complete unknown after challenge and plan expiry or replace its exact retry original",async()=>{
+    let clock=1000;const f=fixture({now:()=>clock});await f.client.prepare(parent,"Goal");f.loseComplete();
+    await expect(f.client.approve()).rejects.toMatchObject({code:"custody_outcome_unknown"});
+    const original=f.client.summary();const before=f.calls.length;clock=99999999999999;
+    await expect(f.client.discardCancelled()).rejects.toMatchObject({code:"custody_original_pending"});
+    expect(f.client.summary()).toEqual(original);expect(f.calls).toHaveLength(before);
+    await f.client.retry();const complete=f.calls.filter(x=>x.url===CUSTODY_PATHS.complete_path);
+    expect(complete[0].options.body).toBe(complete[1].options.body);expect(f.get).toHaveBeenCalledTimes(1);
+  });
+  it("cannot discard approve unknown after expiry; the original approved body remains the only retry",async()=>{
+    let clock=1000,lose=true;
+    const f=fixture({now:()=>clock,fetch:async(url)=>{if(url.endsWith("/approve")&&lose){lose=false;throw new Error("lost");}}});
+    await f.client.prepare(parent,"Goal");await expect(f.client.approve()).rejects.toMatchObject({code:"custody_outcome_unknown"});
+    const original=f.client.summary();const before=f.calls.length;clock=99999999999999;
+    await expect(f.client.discardCancelled()).rejects.toMatchObject({code:"custody_original_pending"});
+    expect(f.client.summary()).toEqual(original);expect(f.calls).toHaveLength(before);
+    await f.client.retry();const approvals=f.calls.filter(x=>x.url.endsWith("/approve"));
+    expect(approvals[0].options.body).toBe(approvals[1].options.body);expect(f.get).toHaveBeenCalledTimes(1);
   });
 });
