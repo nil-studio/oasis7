@@ -98,6 +98,13 @@ export type ControlBudgetV1 = {
   "transport_per_hop": DecimalU64;
 };
 export type CustodyIntentV1 = ({
+  "kind": "owner_setup_v2";
+  "plan": OwnerSetupPlanV2;
+} | {
+  "kind": "test_session_v2";
+  "plan": TestSessionPlanV2;
+  "scope": ResourceTestSessionScopeV2;
+} | {
   "bootstrap_config_version": DecimalU64;
   "deadline": DecimalU64;
   "identity_route": string;
@@ -195,8 +202,38 @@ export type GameTaskFenceV1 = {
   "world_id": string;
 };
 export type GameTaskStatusV1 = "suspended" | "active";
+export type GoalContentV1 = {
+  "goal_text": string;
+  "soft_constraints": Array<string>;
+};
 export type MaterialLedgerId = string;
 export type MaterialTransitPriority = "urgent" | "standard";
+export type OwnerSetupPlanV2 = {
+  "api_version": number;
+  "bind_operation_id": string;
+  "bootstrap_config_version": DecimalU64;
+  "create_operation_id": string;
+  "deadline": DecimalU64;
+  "delegation_generation": DecimalU64;
+  "delegation_nonce": DecimalU64;
+  "delegation_operation_id": string;
+  "executor_id": string;
+  "executor_key_ref": string;
+  "executor_public_key": string;
+  "goal_content": GoalContentV1;
+  "owner_key_ref": string;
+  "participant_receipt_digest": string;
+  "prepare_nonce": string;
+  "prepare_operation_id": string;
+  "provision_id": string;
+  "publish_operation_id": string;
+  "request_limit": DecimalU64;
+  "selection": ResourceSelectionSchemaV1;
+  "setup_id": string;
+  "transport_limit": DecimalU64;
+  "world_identity": ApprovedWorldV1;
+  "write_limit": DecimalU64;
+};
 export type OwnerSetupReconcilePlanV1 = {
   "api_version": number;
   "attempt_limit": number;
@@ -225,6 +262,77 @@ export type PurposeBudgetV1 = {
   "business": DecimalU64;
   "requests": DecimalU64;
   "transport": DecimalU64;
+};
+export type ResourceLedgerSchemaV1 = ({
+  "kind": "world";
+} | {
+  "agent_id": string;
+  "kind": "agent";
+} | {
+  "kind": "site";
+  "site_id": string;
+} | {
+  "factory_id": string;
+  "kind": "factory";
+});
+export type ResourceRoutingSchemaV1 = ({
+  "kind": "direct";
+} | {
+  "kind": "routes";
+  "route_ids": Array<string>;
+});
+export type ResourceSelectionSchemaV1 = ({
+  "amount": string;
+  "distance_km": string;
+  "from": ResourceLedgerSchemaV1;
+  "kind": "transfer";
+  "material": string;
+  "priority": MaterialTransitPriority;
+  "routing": ResourceRoutingSchemaV1;
+  "to": ResourceLedgerSchemaV1;
+} | {
+  "factory": string;
+  "factory_kind": string;
+  "kind": "build";
+  "site": string;
+} | {
+  "batches": number;
+  "factory": string;
+  "kind": "schedule";
+  "recipe": string;
+});
+export type ResourceTestSessionScopeV2 = {
+  "client_binding": ApprovedClientBindingV1;
+  "client_pairing": ClientPairingBindingV1;
+  "executor_key_ref": string;
+  "native_account_id": string;
+  "runtime_ref": string;
+  "session_id": string;
+  "skill_ref": string;
+  "source_ref": string;
+  "task_fence": GameTaskFenceV1;
+  "termination_plan_digest": string;
+  "world_identity": ApprovedWorldV1;
+};
+export type TestSessionPlanV2 = {
+  "actions": Array<ApprovedActionV1>;
+  "allowed_resource_refs": Array<string>;
+  "api_version": number;
+  "basis_digest": string;
+  "business_limit": DecimalU64;
+  "cleanup_budget": PurposeBudgetV1;
+  "cleanup_until": DecimalU64;
+  "control_budget": ControlBudgetV1;
+  "enrollment_id": string;
+  "owner_setup_plan_digest": string;
+  "prepared_resource_basis_digest": string;
+  "read_budget": PurposeBudgetV1;
+  "read_until": DecimalU64;
+  "request_id": string;
+  "request_limit": DecimalU64;
+  "selection": ResourceSelectionSchemaV1;
+  "transport_limit": DecimalU64;
+  "write_deadline": DecimalU64;
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
 export type TestSessionPurposeV1 = "execute" | "read" | "cleanup";
@@ -258,10 +366,6 @@ export type ApprovalOptionsRequestV1 = {
   "intent": CustodyIntentV1;
 };
 export type ManagerClosureStatus = "open" | "pending" | "closed";
-export type GoalContentV1 = {
-  "goal_text": string;
-  "soft_constraints": Array<string>;
-};
 export type OwnerSetupPlanV1 = {
   "api_version": number;
   "bind_operation_id": string;
@@ -300,6 +404,51 @@ export type OwnerSetupBlockedOperationV1 = {
   "stage": OwnerSetupStageV1;
 };
 export type ProvisionStage = "draft" | "approved" | "role_keys_ready" | "native_registered" | "native_session_ready" | "participant_bound" | "ready_for_setup" | "prepared";
+export type PaidResourceReadStageV1 = "owner_setup_final" | "test_session_owner_read";
+export type PaidResourceReadPayloadV1 = {
+  "api_version": number;
+  "approval_input_digest": string;
+  "approval_operation_id": string;
+  "custody_account_id": string;
+  "directory_generation": DecimalU64;
+  "expires_at": DecimalU64;
+  "issued_at": DecimalU64;
+  "issuer_config_generation": DecimalU64;
+  "issuer_environment": string;
+  "issuer_epoch": DecimalU64;
+  "issuer_key_id": string;
+  "issuer_namespace": string;
+  "issuer_service_id": string;
+  "manager_native_account_id": string;
+  "native_audience_origin": string;
+  "native_http_units": DecimalU64;
+  "native_path": string;
+  "native_request_digest": string;
+  "owner_binding": string;
+  "owner_public_key": string;
+  "paid_attempt_id": string;
+  "paid_record_digest": string;
+  "participant_native_account_id": string;
+  "plan_digest": string;
+  "preflight_world_request_digest": (string | null);
+  "prepared_resource_basis_digest": (string | null);
+  "provision_id": string;
+  "resource_flag_generation": DecimalU64;
+  "selection_digest": string;
+  "service_epoch": DecimalU64;
+  "setup_id": string;
+  "signer_record_digest": string;
+  "source_operation_id": string;
+  "source_record_digest": string;
+  "source_security_epoch": DecimalU64;
+  "stage": PaidResourceReadStageV1;
+  "task_fence_digest": string;
+  "test_session_id": (string | null);
+  "world_audience": ApprovedWorldV1;
+  "world_http_units": DecimalU64;
+  "world_path": string;
+  "world_request_digest": string;
+};
 export type ProvisionPlan = {
   "environment": string;
   "expires_at": DecimalU64;
@@ -712,6 +861,28 @@ export type OwnerSetupReconcileProgressV1 = {
   "setup_id": string;
   "stage": OwnerSetupStageV1;
   "transport_remaining": DecimalU64;
+};
+export type PaidResourceReadIssuerFloorV1 = {
+  "config_generation": DecimalU64;
+  "issuer_epoch": DecimalU64;
+};
+export type PaidResourceReadIssuerPinV1 = {
+  "allowed_stage": PaidResourceReadStageV1;
+  "environment": string;
+  "issuer_config_generation": DecimalU64;
+  "issuer_epoch": DecimalU64;
+  "key_id": string;
+  "namespace": string;
+  "native_audience_origin": string;
+  "not_after": DecimalU64;
+  "not_before": DecimalU64;
+  "public_key": string;
+  "service_id": string;
+  "world_audience": ApprovedWorldV1;
+};
+export type PaidResourceReadProofV1 = {
+  "payload": PaidResourceReadPayloadV1;
+  "signature_hex": string;
 };
 export type PairingInviteCreateRequestV1 = {
   "api_version": number;

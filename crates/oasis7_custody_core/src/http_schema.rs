@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 mod owner_setup;
 #[path = "http_schema_reconcile.rs"]
 mod reconcile;
+#[path = "http_schema_resource_v2.rs"]
+mod resource_v2;
 #[path = "http_schema_test_session.rs"]
 mod test_session;
 
@@ -461,6 +463,10 @@ pub(super) fn export(directory: &std::path::Path) {
         signature: "fixture-signature".into(),
     };
     let mut schemas = http_schemas();
+    schemas
+        .as_object_mut()
+        .unwrap()
+        .extend(resource_v2::schemas().as_object().unwrap().clone());
     schemas
         .as_object_mut()
         .unwrap()
