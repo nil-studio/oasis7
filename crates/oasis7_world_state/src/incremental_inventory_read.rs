@@ -36,6 +36,16 @@ pub enum LedgerQuantityV1 {
     MaterialAbsent,
     Value(i64),
 }
+pub(crate) struct InventoryPointV1 {
+    pub key: WorldFieldKeyV1,
+    pub root: Option<[u8; 32]>,
+    pub quantity: Option<i64>,
+}
+pub(crate) struct LedgerPointV1 {
+    pub group: WorldFieldKeyV1,
+    pub group_root: Option<[u8; 32]>,
+    pub member: InventoryPointV1,
+}
 struct CancelState<'a, M, C> {
     source: &'a M,
     cancelled: RefCell<&'a mut C>,
@@ -198,29 +208,48 @@ impl<
         }
         Ok(i64::from_be_bytes(bytes))
     }
-    fn simple<K: SemanticKeyV1 + ?Sized>(
+    pub(crate) fn simple_point<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         name: &'static str,
         key: &K,
-    ) -> Result<Option<i64>, ValueTreeError> {
+    ) -> Result<InventoryPointV1, ValueTreeError> {
         let field = self.metadata(name, FieldShape::Map)?;
         let (key, bytes) = self.key(field, WorldFieldRecordKindV1::Entry, key)?;
-        let Some(value) = self.lookup(&key)? else {
-            return Ok(None);
-        };
-        self.quantity(&value, &key, bytes).map(Some)
+        let root = self.lookup(&key)?;
+        let quantity = root
+            .map(|value| self.quantity(&value, &key, bytes))
+            .transpose()?;
+        Ok(InventoryPointV1 {
+            key,
+            root,
+            quantity,
+        })
     }
     pub fn resource(&mut self, key: ResourceKind) -> Result<Option<i64>, ValueTreeError> {
-        self.simple("resources", &key)
+        self.simple_point("resources", &key)
+            .map(|point| point.quantity)
     }
     pub fn material(&mut self, key: &str) -> Result<Option<i64>, ValueTreeError> {
-        self.simple("materials", key)
+        self.simple_point("materials", key)
+            .map(|point| point.quantity)
     }
     pub fn ledger(
         &mut self,
         ledger: &MaterialLedgerId,
         material: &str,
     ) -> Result<LedgerQuantityV1, ValueTreeError> {
+        let point = self.ledger_point(ledger, material)?;
+        Ok(match (point.group_root, point.member.quantity) {
+            (None, _) => LedgerQuantityV1::LedgerAbsent,
+            (Some(_), None) => LedgerQuantityV1::MaterialAbsent,
+            (Some(_), Some(value)) => LedgerQuantityV1::Value(value),
+        })
+    }
+    pub(crate) fn ledger_point(
+        &mut self,
+        ledger: &MaterialLedgerId,
+        material: &str,
+    ) -> Result<LedgerPointV1, ValueTreeError> {
         let field = self.metadata("material_ledgers", FieldShape::NestedMap)?;
         let (group, group_bytes) = self.key(field, WorldFieldRecordKindV1::Group, ledger)?;
         let group_value = self.lookup(&group)?;
@@ -242,13 +271,20 @@ impl<
         }
         let (key, bytes) = self.key(field, WorldFieldRecordKindV1::Entry, &(ledger, material))?;
         let value = self.lookup(&key)?;
-        match (group_value, value) {
-            (None, Some(_)) => Err(ValueTreeError::Invalid("inventory orphan member")),
-            (None, None) => Ok(LedgerQuantityV1::LedgerAbsent),
-            (Some(_), None) => Ok(LedgerQuantityV1::MaterialAbsent),
-            (Some(_), Some(value)) => self
-                .quantity(&value, &key, bytes)
-                .map(LedgerQuantityV1::Value),
+        if group_value.is_none() && value.is_some() {
+            return Err(ValueTreeError::Invalid("inventory orphan member"));
         }
+        let quantity = value
+            .map(|value| self.quantity(&value, &key, bytes))
+            .transpose()?;
+        Ok(LedgerPointV1 {
+            group,
+            group_root: group_value,
+            member: InventoryPointV1 {
+                key,
+                root: value,
+                quantity,
+            },
+        })
     }
 }
