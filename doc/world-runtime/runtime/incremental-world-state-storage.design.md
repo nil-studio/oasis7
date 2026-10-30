@@ -432,3 +432,18 @@ payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（
 写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
 
 raw reader 从期望值 root 与期望完整 field key 开始，以明确 pool/class 和有限节点/读写额度验证 descriptor、固定有界 header、field key、长度以及原语义键 digest；先确认声明总长与认证 root 自洽，再应用操作额度。key digest 匹配后才输出 payload。两段输出在整个读取成功前均为 provisional。该接口提供认证范围，不解析语义 token/UTF-8 或 payload，不返回已解码业务值；owner 后续必须按已登记 profile 验证键、值及业务身份，不能用 raw read 代签 typed 恢复。恢复 class 不得偷偷借用 Ordinary 配额，取消、错误和未完成读取均不得产出完成元数据。
+
+
+### 12.6 generic field 与 outer group 存在标记
+
+<a id="iws-field-presence-v1"></a>
+
+`field-presence.v1` 独立表示 §12.3 的 Metadata/Group 存在性，避免空集合、空 outer group 在成员列表中消失；不以伪造的 Entry 或空字符串键替代。专用 Agent/模块 codec 仍保持原合同。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+固定布局为 ASCII `oasis7.iws.field-presence.v1` 加单个零字节、field-key-byte-length u16 大端、semantic-key-byte-length u64 大端、完整 world-field-key.v1 bytes、原 semantic-key.v1 bytes。没有 payload 或尾随填充；checked 总长必须恰好等于认证值树 logical length。Metadata 的 field key 必须没有 semantic digest，semantic length 必须为零；Group 只接受 NestedMap/MapSet 的合法 Group field key，semantic length 至少为一，完整原键的 BLAKE3 必须匹配其中 digest。Entry/Bytes 不能使用本 profile。
+
+标记不保存成员数。§12.3 visitor 提供的 entries/count 仍仅供准入，不能因一个存在标记就推断集合为空、全部成员完整或 count 已获认证。Group 对所有实际存在的 outer key 写入，包括空 group；普通点更新保留其原身份，仅在 owner 实际删除 outer group 时删除标记。Metadata 表示已登记字段的存在，不授予字段登记；实际 field profile、完整集合枚举/成员关系及业务资格仍由 owner 和认证根/索引验证。
+
+写者分别提供 Metadata 与借用原 Group key 的封闭入口，显式限制 semantic/record bytes，使用有限 key hash 工作额度、固定准入 workspace 和 ValueStreamWriter，不构造完整原键编码缓冲。读取从期望 root 和完整期望 field key 开始，在应用操作额度前核对 framing 与认证总长，显式使用 pool/class 和有限 I/O；Group 原键流式输出并核对 digest，Metadata 不调用原键输出。每次底层输出尝试后返回外层取消检查，hash 仅计成功接受前缀。输出、暂存页和返回 root 在原事务发布前均非权威；读取整体完成及最终取消检查前输出保持暂态。
+
+raw reader 不解析语义 token 或业务身份，不用结构合法或摘要匹配代签 typed 恢复、完整 World 创世、激活、复制闭包或 GC。缺标记与认证缺失的判定须经实际字段恢复流程，不能把预算不足、取消或读失败当作空集合。
