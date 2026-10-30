@@ -1,3 +1,4 @@
+import { createOwnerSetupPanel } from "./viewer_custody_owner_setup_panel.js";
 import { renderAccountEmailRecovery } from "./viewer_account_email_recovery.js";
 import { renderImportedKey } from "./viewer_imported_key.js";
 const API = "/api/public/hosted-account/v2";
@@ -385,6 +386,8 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
   let generation = 0;
   let account = null;
   let capabilities = {};
+  let authentication = null;
+  const custody = createOwnerSetupPanel({ browserPasskeyOptions, serializePasskey });
   let credentialList = [];
   let sessionList = [];
   let notice = "";
@@ -476,15 +479,18 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
       if (credentialList.some(key => key.state === "active" && key.type === "passkey")) root.append(button("改用通行密钥确认安全操作", () => client.clearImportedKey()));
     }
     if (credentialsLoaded) renderAccountEmailRecovery(root, { state: emailRecoveryState, account, credentials: credentialList, capabilities, client, run, render });
+    custody.update(account, authentication, capabilities.custody_management);
+    custody.renderInto(root);
     root.append(element("h3", "已登录会话"));
     for (const session of sessionList) {
       const row = element("div"); row.append(element("span", session.current ? "当前会话" : (session.device_label || "未知设备")));
-      row.append(button(session.current ? "退出当前会话" : "退出该会话", () => client.revokeSession(session))); root.append(row);
+      row.append(button(session.current ? "退出当前会话" : "退出该会话", () => { if (session.current) custody.clear(); return client.revokeSession(session); })); root.append(row);
     }
-    root.append(button("退出登录", async () => { await client.logout(); account = null; onAccountState({ signedIn: false }); onSessionInvalidated(); }));
+    root.append(button("退出登录", async () => { custody.clear(); await client.logout(); account = null; onAccountState({ signedIn: false }); onSessionInvalidated(); }));
   }
   function invalidate() {
     const hadAccount = account;
+    custody.clear(); authentication = null;
     account = null; credentialList = []; sessionList = []; managementErrors = {}; credentialsLoaded = false;
     client.clearImportedKey?.();
     onAccountState({ signedIn: false });
@@ -514,7 +520,8 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
     // Capability failures cannot hide an otherwise valid session.
     const capabilityResult = client.capabilities().then(value => ({ value }), error => ({ error }));
     let nextAccount;
-    try { const session = await client.session(); nextAccount = session.account || null; }
+    try { const session = await client.session(); nextAccount = session.account || null;
+      if (!disposed && revision === generation) { authentication = session.authentication || null; custody.update(nextAccount, authentication, capabilities.custody_management); } }
     catch (error) {
       if (!invalidSession(error)) throw error;
       nextAccount = null;
@@ -534,5 +541,5 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
   }
   render();
   refresh().catch(error => { if (!disposed) { notice = accountErrorNotice(error, "会话确认"); render(); } });
-  return { refresh, dispose() { client.clearImportedKey?.(); disposed = true; ++generation; root.replaceChildren(); } };
+  return { refresh, dispose() { custody.dispose(); client.clearImportedKey?.(); disposed = true; ++generation; root.replaceChildren(); } };
 }
