@@ -158,31 +158,33 @@ fn large_summary_streams_and_small_status_update_reopens_independently() {
     let root_path = dir.0.join("pages");
     let store =
         IncrementalPageStore::create(&root_path, memory.clone(), PageCompression::Raw).unwrap();
-    let mut sink = store.value_session(physical());
-    let mut io = logical();
-    let mut context = BodyMutationContext {
-        sink: &mut sink,
-        memory: &memory,
-        io: &mut io,
-        cancelled: || false,
+    let (summary, status) = {
+        let mut sink = store.value_session(physical());
+        let mut io = logical();
+        let mut context = BodyMutationContext {
+            sink: &mut sink,
+            memory: &memory,
+            io: &mut io,
+            cancelled: || false,
+        };
+        let summary = write_agent_scalar_value(
+            AgentFieldV1::IntentSummary,
+            AgentScalarRefV1::Text(source.as_str()),
+            &mut context,
+            128 << 20,
+        )
+        .unwrap();
+        let before = context.io.nodes_remaining;
+        let status = write_agent_scalar_value(
+            AgentFieldV1::IntentStatus,
+            AgentScalarRefV1::Text("committed"),
+            &mut context,
+            4096,
+        )
+        .unwrap();
+        assert_eq!(before - context.io.nodes_remaining, 2);
+        (summary, status)
     };
-    let summary = write_agent_scalar_value(
-        AgentFieldV1::IntentSummary,
-        AgentScalarRefV1::Text(source.as_str()),
-        &mut context,
-        128 << 20,
-    )
-    .unwrap();
-    let before = context.io.nodes_remaining;
-    let status = write_agent_scalar_value(
-        AgentFieldV1::IntentStatus,
-        AgentScalarRefV1::Text("committed"),
-        &mut context,
-        4096,
-    )
-    .unwrap();
-    assert_eq!(before - context.io.nodes_remaining, 2);
-    drop(sink);
     drop(store);
     drop(source);
     let recovery = MemoryBudget::new(4 << 20, 1 << 20).unwrap();
