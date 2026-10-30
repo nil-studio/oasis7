@@ -1,5 +1,5 @@
 //! Guarded contribution of authenticated inventory points to the shared overlay.
-use crate::incremental_inventory_change::PreparedInventoryChangeV1;
+use crate::incremental_inventory_change::{PreparedInventoryChangeV1, write_digest};
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionError, ExecutionFence, ExecutionTransaction, PreparedGuard},
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateWriteV1},
@@ -71,6 +71,22 @@ pub fn contribute_inventory_change_v1<R: MerkleNodeReader>(
         }
         // Validate the whole tiny batch before mutating any overlay entry.
         for (index, write) in writes.iter().enumerate() {
+            let required = write.key.capacity().checked_add(1024).ok_or(
+                InventoryContributionError::Invalid("inventory contribution write charge"),
+            )?;
+            if write.reserved_bytes() < required {
+                return Err(InventoryContributionError::Invalid(
+                    "inventory contribution write charge",
+                ));
+            }
+            let digest = write_digest(write).map_err(|_| {
+                InventoryContributionError::Invalid("inventory contribution write key")
+            })?;
+            if prepared.write_digests[index] != Some(digest) {
+                return Err(InventoryContributionError::Invalid(
+                    "inventory contribution prepared write",
+                ));
+            }
             if !write.uses_budget(memory) || writes[..index].iter().any(|old| old.key == write.key)
             {
                 return Err(InventoryContributionError::Invalid(

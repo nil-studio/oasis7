@@ -7,8 +7,8 @@ use oasis7_formal_protocol::{
     incremental_state::StateNamespaceV1,
     incremental_value::ValueNodeWriter,
 };
+use oasis7_runtime::incremental_field_member::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 use oasis7_runtime::incremental_inventory_transaction::*;
-use oasis7_runtime::incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 
 fn limits() -> TransactionLimits {
     TransactionLimits {
@@ -44,7 +44,7 @@ fn complete_point_dependencies_seal_to_an_independently_verified_cold_root() {
             let root = StateRootV1::from_canonical_bytes(&bytes).unwrap();
             let ledger = MaterialLedgerId::Site("new".into());
             let no = Cell::new(false);
-            let mut writes = Writes::new();
+            let mut writes = Writes::new(&memory);
             let (prepared, _) = prepare(
                 InventoryChangeRefV1::LedgerMaterial {
                     ledger: &ledger,
@@ -134,7 +134,9 @@ fn complete_point_dependencies_seal_to_an_independently_verified_cold_root() {
                 verified.record.after.state[0].canonical_bytes().unwrap(),
             )
         };
-        let store = IncrementalPageStore::open(&path, memory.clone()).unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
+                .unwrap();
         assert_eq!(
             quantity(
                 &StateRootV1::from_canonical_bytes(&old).unwrap(),
@@ -162,7 +164,7 @@ fn conflicts_in_metadata_group_or_member_poison_the_shared_transaction() {
     let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
     let _source_charge = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
     let store = IncrementalPageStore::create(
-        directory.0.join("pages"),
+        &directory.0.join("pages"),
         memory.clone(),
         PageCompression::Raw,
     )
@@ -171,7 +173,7 @@ fn conflicts_in_metadata_group_or_member_poison_the_shared_transaction() {
     let root = StateRootV1::from_canonical_bytes(&bytes).unwrap();
     let ledger = MaterialLedgerId::Agent("a".into());
     let no = Cell::new(false);
-    let mut writes = Writes::new();
+    let mut writes = Writes::new(&memory);
     let (prepared, _) = prepare(
         InventoryChangeRefV1::LedgerMaterial {
             ledger: &ledger,
@@ -236,7 +238,7 @@ fn conflicts_in_metadata_group_or_member_poison_the_shared_transaction() {
         ));
     }
     // Even a no-op contributes the authenticated read dependencies.
-    let mut none = Writes::new();
+    let mut none = Writes::new(&memory);
     let (noop, _) = prepare(
         InventoryChangeRefV1::Resource {
             key: ResourceKind::Data,
@@ -253,17 +255,18 @@ fn conflicts_in_metadata_group_or_member_poison_the_shared_transaction() {
     let mut transaction =
         ExecutionTransaction::begin(parent, [6; 32], &state, &memory, limits()).unwrap();
     let guard = transaction.guard();
-    contribute_inventory_change_v1(
-        &noop.unwrap(),
-        &[],
-        &mut transaction,
-        &guard,
-        &live,
-        &memory,
-        || false,
-    )
+    let noop = noop.unwrap();
+    contribute_inventory_change_v1(&noop, &[], &mut transaction, &guard, &live, &memory, || {
+        false
+    })
     .unwrap();
     let guard = transaction.guard();
+    contribute_inventory_change_v1(&noop, &[], &mut transaction, &guard, &live, &memory, || {
+        false
+    })
+    .unwrap();
+    // Re-reading already registered dependencies for a no-op changes no revision.
+    transaction.validate_guard(&guard, &live).unwrap();
     let sealed = transaction.seal(&guard, &live, 0).unwrap();
     assert_eq!(sealed.record.reads.len(), 2);
     assert!(sealed.record.writes.is_empty());
@@ -275,7 +278,7 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
     let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
     let _source_charge = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
     let store = IncrementalPageStore::create(
-        directory.0.join("pages"),
+        &directory.0.join("pages"),
         memory.clone(),
         PageCompression::Raw,
     )
@@ -284,7 +287,7 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
     let root = StateRootV1::from_canonical_bytes(&bytes).unwrap();
     let ledger = MaterialLedgerId::Site("new".into());
     let no = Cell::new(false);
-    let mut writes = Writes::new();
+    let mut writes = Writes::new(&memory);
     let (prepared, _) = prepare(
         InventoryChangeRefV1::LedgerMaterial {
             ledger: &ledger,
@@ -307,7 +310,7 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
     let foreign_memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
-    for case in 0..13 {
+    for case in 0..16 {
         let mut limit = limits();
         if case == 0 {
             limit.max_writes = 1;
@@ -315,22 +318,30 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
         if case == 1 {
             limit.max_reads = 1;
         }
-        let mut transaction =
-            ExecutionTransaction::begin(parent.clone(), [6; 32], &state, &memory, limit).unwrap();
+        let mut transaction_parent = parent.clone();
+        if case == 4 {
+            transaction_parent.roots.state[0] =
+                StateRootV1::empty(StateNamespaceV1::Business).unwrap();
+        }
+        let mut transaction = ExecutionTransaction::begin(
+            transaction_parent.clone(),
+            [6; 32],
+            &state,
+            &memory,
+            limit,
+        )
+        .unwrap();
         let guard = transaction.guard();
         if case == 2 {
             transaction
                 .read(StateNamespaceV1::Allocator, b"prior-read")
                 .unwrap();
         }
-        let mut fence = live;
+        let mut fence = transaction_parent.fence().unwrap();
         if case == 3 {
             fence.authority.epoch += 1;
         }
-        let mut source = prepared.clone();
-        if case == 4 {
-            source.before_root[0] ^= 1;
-        }
+        let source = prepared.clone();
         let rows = writes.rows.borrow();
         let _batch_charge = memory.reserve(4096, MemoryClass::Ordinary).unwrap();
         let mut altered = Vec::new();
@@ -339,6 +350,9 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
                 let row = &rows[if case == 9 { 0 } else { index }];
                 let mut key = row.key.clone();
                 let mut before = row.before;
+                if case == 15 {
+                    key.reserve(1024);
+                }
                 if index == 0 {
                     if case == 10 {
                         key = b"unrelated".to_vec();
@@ -359,12 +373,19 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
                     }
                 }
                 let charge = memory
-                    .reserve(1024 + key.len(), MemoryClass::Ordinary)
+                    .reserve(
+                        if case == 14 { 0 } else { 1024 + key.len() },
+                        MemoryClass::Ordinary,
+                    )
                     .unwrap();
                 altered.push(charge.retain(StateWriteV1 {
                     key,
                     before,
-                    after: row.after,
+                    after: if case == 13 {
+                        Some([88; 32])
+                    } else {
+                        row.after
+                    },
                 }));
             }
         }
@@ -411,10 +432,10 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
                 result,
                 Err(InventoryContributionError::DependencyConflict)
             )),
-            5 | 6 | 9..=12 => assert!(matches!(
-                result,
-                Err(InventoryContributionError::Invalid(_))
-            )),
+            5 | 6 | 9..=15 => assert!(
+                matches!(result, Err(InventoryContributionError::Invalid(_))),
+                "case={case}: {result:?}"
+            ),
             _ => assert!(matches!(result, Err(InventoryContributionError::Cancelled))),
         }
         if case == 8 {

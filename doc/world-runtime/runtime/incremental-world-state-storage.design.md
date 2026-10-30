@@ -503,6 +503,6 @@ Runtime 的原 AgentMoved 事件与 BodyAttributesUpdated 复用同一 AgentEven
 
 §12.9 的准备结果同时保留固定数量的完整点读依赖：字段 Metadata、适用的 Group 及目标成员，各含完整结构键与原 value root/absent。它们使用固定大小存储，不复制原业务大键。导入共享 ExecutionTransaction 前校验同一进程预算、精确 prepared guard/live fence 和同一 Business parent root，再逐项将依赖登记到该事务的 read-set；overlay 中的当前 root 必须与原依赖一致，不能把先前贡献已修改的内容当作旧根结果继续覆盖。即使最终没有写入，读依赖仍须登记。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
-调用方交付的暂存 StateWrite 必须仍持有同池 reservation、条数与准备结果一致、键不重复、仅对应目标成员或显式新建 Group，before 与认证依赖一致；导入不接受 Metadata 写。全部操作在一次 contribute 内进行；错误、取消、依赖冲突、写集/内存/读取额度耗尽或 panic 都使整个事务不可 seal，不能捕获错误后发布已导入前缀。成功后旧 guard 已因 read/write revision 变化而失效，调用方取得新 guard 再执行后续阶段。
+准备结果的根、条数及写身份保持私有并仅提供只读访问。prepare 内部在输出到 sink 前，为最多两条写分别计算域分隔摘要，覆盖完整键的长度/bytes、before/after 的存在标签和全部 root bytes；导入按原输出顺序比较每条摘要，不能用另一条同键同 before 的任意 after 替换。调用方交付的暂存 StateWrite 必须仍持有同池 reservation，且 reservation bytes 至少覆盖既定记录开销及 key 的实际 capacity；条数与准备结果一致、键不重复、仅对应目标成员或显式新建 Group，before 与认证依赖一致；导入不接受 Metadata 写。全部操作在一次 contribute 内进行；错误、取消、依赖冲突、写集/内存/读取额度耗尽或 panic 都使整个事务不可 seal，不能捕获错误后发布已导入前缀。新增 read-set 条目或执行 write 时事务 revision 变化，旧 guard 随之失效；调用方在贡献成功后取得当前 guard 再执行后续阶段，不假定重复命中已有依赖的纯 no-op 一定改变 revision。
 
 此入口接受原 owner 已决定的最终 after roots，不赋予业务授权，不证明这些 roots 的耐久闭包或完整字段家族，也不安装活 World 或发布 head。基于同一 parent 的多次点计算若触及已改变的依赖须拒绝并重做，不能把此批量贡献冒充 overlay 上的顺序业务计算。

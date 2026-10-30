@@ -13,6 +13,10 @@ use crate::{
     incremental_semantic_key::SemanticKeyV1,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
+#[path = "incremental_inventory_change_binding.rs"]
+mod binding;
+use binding::WriteBinding;
+pub(crate) use binding::write_digest;
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, STATE_ROOT_BYTES, StateWriteV1},
@@ -75,9 +79,18 @@ pub(crate) struct InventoryDependencyV1 {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedInventoryChangeV1 {
-    pub before_root: [u8; STATE_ROOT_BYTES],
-    pub records: u8,
+    pub(crate) before_root: [u8; STATE_ROOT_BYTES],
+    pub(crate) records: u8,
+    pub(crate) write_digests: [Option<[u8; 32]>; 2],
     pub(crate) dependencies: [Option<InventoryDependencyV1>; 3],
+}
+impl PreparedInventoryChangeV1 {
+    pub fn before_root(&self) -> &[u8; STATE_ROOT_BYTES] {
+        &self.before_root
+    }
+    pub fn records(&self) -> u8 {
+        self.records
+    }
 }
 fn simple_dependencies(
     point: &crate::incremental_inventory_read::InventoryPointV1,
@@ -197,6 +210,12 @@ where
         .map_err(|_| InventoryChangeError::Invalid("inventory source root"))?
         .try_into()
         .map_err(|_| InventoryChangeError::Invalid("inventory source root length"))?;
+    let mut capture = WriteBinding {
+        sink,
+        digests: [None, None],
+        count: 0,
+    };
+    let sink = &mut capture;
     let mut dependencies = [None, None, None];
     let records = match change {
         InventoryChangeRefV1::Resource {
@@ -325,9 +344,13 @@ where
     if (read.cancelled)() || (write.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
+    if usize::from(records) != capture.count {
+        return Err(InventoryChangeError::Invalid("inventory output count"));
+    }
     Ok(PreparedInventoryChangeV1 {
         before_root,
         records,
         dependencies,
+        write_digests: capture.digests,
     })
 }

@@ -94,12 +94,12 @@ fn apply(
     memory: &MemoryBudget,
 ) -> [u8; STATE_ROOT_BYTES] {
     assert_eq!(
-        prepared.before_root.as_slice(),
+        prepared.before_root().as_slice(),
         root.canonical_bytes().unwrap()
     );
     let charge = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
     let rows = writes.rows.borrow();
-    assert_eq!(rows.len(), prepared.records as usize);
+    assert_eq!(rows.len(), prepared.records() as usize);
     let mut changes: Vec<_> = rows
         .iter()
         .map(|row| StateWriteV1 {
@@ -211,7 +211,7 @@ fn point_changes_preserve_old_root_and_touch_only_their_exact_leaves() {
                 let prepared = prepare(change, &root, &store, &memory, &mut writes, &no, &no)
                     .0
                     .unwrap();
-                assert_eq!(prepared.records, if case == 3 { 2 } else { 1 });
+                assert_eq!(prepared.records(), if case == 3 { 2 } else { 1 });
                 for row in writes.rows.borrow().iter() {
                     assert!(row.uses_budget(&memory));
                 }
@@ -331,7 +331,7 @@ fn preconditions_noops_and_explicit_empty_group_creation_are_distinct() {
         &no,
         &no,
     );
-    assert_eq!(result.unwrap().records, 0);
+    assert_eq!(result.unwrap().records(), 0);
     assert!(writes.rows.borrow().is_empty());
     assert_eq!(io.nodes_remaining, 100_000);
     let ledger = MaterialLedgerId::Site("new".into());
@@ -375,7 +375,7 @@ fn preconditions_noops_and_explicit_empty_group_creation_are_distinct() {
     )
     .0
     .unwrap();
-    assert_eq!(prepared.records, 1);
+    assert_eq!(prepared.records(), 1);
     let after = apply(&prepared, &root, &writes, &store, &memory);
     let after = StateRootV1::from_canonical_bytes(&after).unwrap();
     assert_eq!(
@@ -413,7 +413,7 @@ fn cancellation_after_group_output_stops_before_member_encoding_and_no_success_e
         &no,
         &no,
     );
-    assert_eq!(complete.unwrap().records, 1);
+    assert_eq!(complete.unwrap().records(), 1);
     let flag = Rc::new(Cell::new(false));
     let mut writes = Writes::new(&memory);
     writes.cancel = Some(flag.clone());
