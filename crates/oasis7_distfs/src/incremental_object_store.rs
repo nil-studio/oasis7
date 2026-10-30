@@ -59,6 +59,12 @@ impl<'a> IncrementalObjectStore<'a> {
         if capability != CAPABILITY {
             return Err(PageStoreError::Corrupt("object capability version"));
         }
+        // Capability publication may have failed on an already live page
+        // handle after the marker became readable. Complete its durability
+        // before this object handle can acknowledge any original writes.
+        files::sync(&pages.root.join("objects-format"))?;
+        files::sync(&pages.root)?;
+        check_cancelled(cancelled)?;
         Ok(IncrementalObjectStore {
             pages,
             _charge: charge,

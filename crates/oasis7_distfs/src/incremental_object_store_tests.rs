@@ -592,3 +592,48 @@ fn empty_locator_with_nonempty_root_remains_corruption_not_budget_exhaustion() {
         Err(PageStoreError::Corrupt("object root length"))
     ));
 }
+
+#[test]
+fn opening_objects_on_a_live_page_handle_finishes_capability_durability() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(12 << 20, 3 << 20).unwrap();
+    let pages =
+        IncrementalPageStore::create(&fixture.store(), memory, PageCompression::Raw).unwrap();
+    files::create_directory(&pages.root.join("objects")).unwrap();
+    // A failed capability publication may leave a readable marker on an
+    // already live page handle. Reopening pages is not required by this API.
+    fs::write(pages.root.join("objects-format"), CAPABILITY).unwrap();
+    let cancelled = AtomicBool::new(false);
+    let mut physical = physical_io();
+    for path in [pages.root.join("objects-format"), pages.root.clone()] {
+        let observed = Arc::new(AtomicBool::new(false));
+        files::cancel_after_sync(path.clone(), observed.clone(), 1);
+        let objects =
+            IncrementalObjectStore::open(&pages, MemoryClass::Ordinary, &mut physical, &cancelled)
+                .unwrap();
+        assert!(
+            observed.load(Ordering::Acquire),
+            "object open did not sync {}",
+            path.display()
+        );
+        drop(objects);
+    }
+}
+
+#[test]
+fn cancellation_at_object_capability_sync_does_not_expose_a_handle() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(12 << 20, 3 << 20).unwrap();
+    let pages =
+        IncrementalPageStore::create(&fixture.store(), memory, PageCompression::Raw).unwrap();
+    let mut physical = physical_io();
+    let flag = Arc::new(AtomicBool::new(false));
+    drop(IncrementalObjectStore::create(&pages, &mut physical, &flag).unwrap());
+    files::cancel_after_sync(pages.root.join("objects-format"), flag.clone(), 1);
+    assert!(matches!(
+        IncrementalObjectStore::open(&pages, MemoryClass::Recovery, &mut physical, &flag),
+        Err(PageStoreError::Cancelled)
+    ));
+    flag.store(false, Ordering::Release);
+    IncrementalObjectStore::open(&pages, MemoryClass::Recovery, &mut physical, &flag).unwrap();
+}
