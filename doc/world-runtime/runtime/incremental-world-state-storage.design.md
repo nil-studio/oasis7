@@ -380,3 +380,17 @@ Runtime/DistFS 在首个实现接受新创世前冻结 canonical 编码向量、
 页面/块大小、fanout、事务工作集、并发/cache、history 段封闭、后台节奏和磁盘余量由实现候选的测量决定，记录实际选择与范围；它们不作为本文虚构的通用 SLO。逻辑布局参数与操作配额必须分开，前者变化需要显式格式规则，后者不能改变共识可见结果。
 
 WASM/Runtime/外部效果 owner 共同确认 scheduler、allocator、授权/去重及 unknown 的完整语义；QA 在非空续跑和原效果不重派上独立审读。ops/P2P 提供实际独立域与恢复证据，缺失时只接受已验证的本地范围。本文提供新格式系统合同，不声明源码实施、原世界修复、生产重置或部署完成。
+
+### 12.3 通用字段键与语义投影边界
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；落实 §6.2 的完整字段归属与 §12.2 的编码冻结，不新增业务要求。
+
+`GenesisFieldVisitor` 是借用来源接口，不是 wire。Agent、body/mailbox、module instance 等已定义的专用 typed 键和值继续由其唯一 codec 负责；模块选择、状态和工件等字段在专用 codec 接入时也遵循同一边界。通用字段键不能替代它们或写一套影子状态。其他字段使用显式 `world-field-key.v1` 键族，消费者须将解析结果与受支持的字段描述符及该 namespace 中的实际键核对。解析一个结构正确的键，不授予字段归属、授权、执行或接受资格。
+
+键的字节布局固定为：ASCII domain `oasis7.iws.world-field-key.v1` 加单个零字节；owner u8；namespace u16 大端；shape u8；record-kind u8；name-byte-length u16 大端；name ASCII bytes；semantic-key digest 32 bytes。owner 固定 WorldState=1、Runtime=2、Cognition=3；namespace 沿用状态树的 1..6 标签；shape 固定 Value=1、Map=2、NestedMap=3、Set=4、MapSet=5、Ordered=6、ByteMap=7。History、Process、Children 不是状态字段 wire shape。name 为 1..128 个 ASCII 字母、数字、下划线及点，首字符为字母，各点分段非空。这是固定字段名上限，不是实体 ID 或大字段内容上限。
+
+record-kind 固定 Metadata=1、Group=2、Entry=3、Bytes=4。Metadata 的 digest 必须全零；其他 kind 必须由调用者显式提供语义键摘要，全零摘要并不被擅自当成“没有成员”。Group 仅用于 NestedMap/MapSet 的外层存在标记，Bytes 仅用于 ByteMap；Entry 对应语义成员。不同 kind、owner、namespace、shape 或 name 均形成不同键，不用空 key 的特殊值模拟缺失。未知标签、错误 domain/长度、尾随 bytes 和不合法组合明确拒绝。
+
+嵌套 map/map-set 对每个 outer key 先输出 `group`，包括零成员，再输出实际成员。group 的成员数是准入元数据，不代替未来字段值/索引的认证内容。Agent 等稀疏 typed 子字段由原 Identity、presence 和 count codec 表达 owner/集合存在，不要求所有 NestedMap 描述符都输出 group。任一 sink 错误后须丢弃整个暂存前缀。
+
+本节只冻结通用字段键。语义 key 的规范摘要前像、对应 value/outer marker 的编码、完整字段登记、借用来源到专用 codec 的路由，以及恢复消费者仍须在其实现中冻结并验证；在这些义务和 §12.2 其他条件完成前，新格式世界保持不可启用。不能仅凭本键 codec 宣称完整 World 创世、闭包验证、恢复或 GC 已接通。
