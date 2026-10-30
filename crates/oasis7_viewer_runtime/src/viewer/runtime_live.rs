@@ -34,7 +34,7 @@ use oasis7_simulator::{
     WorldConfig, WorldModel, WorldScenario,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 #[cfg(test)]
 use std::path::Path;
@@ -49,6 +49,7 @@ mod agent_service_phase;
 mod agent_service_pump;
 mod periodic_connection_diagnostic;
 mod periodic_service_io;
+mod request_frame;
 mod response_outbox;
 mod stream_budget_diagnostics;
 use tracing::Level;
@@ -82,6 +83,7 @@ mod control_feedback;
 mod control_mode;
 #[path = "runtime_live/control_plane.rs"]
 mod control_plane;
+mod control_state;
 #[path = "runtime_live/control_utils.rs"]
 mod control_utils;
 #[path = "runtime_live/decision_trace.rs"]
@@ -187,6 +189,7 @@ pub struct ViewerRuntimeLiveServer {
     world: RuntimeWorld,
     initial_world_time: u64,
     auto_play_paused: bool,
+    control_state: control_state::ControlStatePublisher,
     next_auto_play_step_at: Option<Instant>,
     last_chain_committed_height: u64,
     verified_world_view: Option<crate::world_service::verified_view::VerifiedWorldView>,
@@ -419,6 +422,7 @@ impl ViewerRuntimeLiveServer {
         let next_virtual_event_id = latest_runtime_event_seq(&world).saturating_add(1).max(1);
         let mut server = Self {
             auto_play_paused: !config.auto_play_on_connect,
+            control_state: control_state::ControlStatePublisher::new(!config.auto_play_on_connect)?,
             config,
             world,
             initial_world_time,
@@ -696,6 +700,7 @@ impl ViewerRuntimeLiveServer {
 
         let reader_stream = stream.try_clone()?;
         let mut reader = BufReader::new(reader_stream);
+        let mut frame = request_frame::RequestFrame::default();
         let mut socket = stream;
         let limits = {
             let server = lock_shared_server(&shared)?;
@@ -711,20 +716,19 @@ impl ViewerRuntimeLiveServer {
                 let _phase = stream_budget_diagnostics::phase(2);
                 Self::start_agent_service_pump(&shared)?;
             }
-            let mut line = String::new();
             let read_result = {
                 let _phase = stream_budget_diagnostics::phase(3);
-                reader.read_line(&mut line)
+                frame.read(&mut reader)
             };
             match read_result {
-                Ok(0) => {
+                Ok(None) => {
                     if let Some(connection) = &connection {
                         connection
                             .set_close_reason(periodic_connection_diagnostic::CloseReason::Eof);
                     }
                     return Ok(());
                 }
-                Ok(_) => {
+                Ok(Some(line)) => {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
                         let mut output = response_outbox::ResponseOutbox::new(limits);
@@ -820,7 +824,13 @@ impl ViewerRuntimeLiveServer {
                         }
                     }
                 }
-                Err(err) if is_timeout_error(&err) => {}
+                Err(err) if is_timeout_error(&err) =>
+                {
+                    #[cfg(test)]
+                    if let Some(connection) = &connection {
+                        connection.emit_read_timeout(frame.buffered_bytes());
+                    }
+                }
                 Err(err) if is_expected_disconnect_error(&err) => {
                     if let Some(connection) = &connection {
                         connection.set_close_reason(
@@ -883,6 +893,7 @@ impl ViewerRuntimeLiveServer {
             let driven = {
                 let mut server = lock_shared_server(&shared)?;
                 agent_presence.observe(&mut server, &session);
+                server.publish_live_control_state(&mut session, &mut output, None, false)?;
                 if server.authoritative_recovery_write_fence.is_none()
                     && server.config.world_service.is_none()
                 {

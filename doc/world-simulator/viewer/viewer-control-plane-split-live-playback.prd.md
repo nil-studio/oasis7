@@ -33,6 +33,25 @@
 - legacy `Control` 仅是兼容桥接；若旧调用方仍向 live handler 发送 seek，handler 只记录并忽略该请求，世界保持单调前进。
 - live 禁止 seek 只适用于 live 服务，不改变非 live 的历史浏览/回放语义。
 
+<a id="live-control-observation"></a>
+### Live 调度控制的可观察状态
+
+Trace refs: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef；承接
+[REQ-AGENT-SURFACE-001](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-001)
+的最近可信反馈与恢复入口子范围。Play/Pause 的适用权威是当前 Viewer 服务的新决策调度
+策略；外部链的时间、已受理世界作业和已经在途的供应商请求仍可能推进。
+
+支持 `live_control_state_v1` 的客户端通过 HelloV2 显式协商后，读取带 process observation
+epoch、单调 revision、paused 和可选原 request_id 的 typed `LiveControlState`。Play/Pause
+成功后立即返回当前状态；握手、显式快照和周期同步提供当前状态，重连及其他连接改变策略后
+也能恢复观察。该状态只确认调度策略，不是 canonical action receipt、模型完成或世界进展。
+
+客户端只接受当前连接首次固定 epoch 下的非回退 revision；同 revision 的 paused 必须一致。
+迟到确认只能结束其对应原请求，不能覆盖更新状态或完成另一个请求。未协商、断连、非法状态
+和未确认请求保持“状态未确认”，不能从点击、按钮 timer、tick 或无模型调用推断已暂停/启用。
+Pause 仍可在 provider、资金或实体缺失时发送；既有独立 control/auth 边界不变。
+未协商的旧客户端不接收新消息，Step 的进展 ACK 与 playback 合同保持不变。
+
 <a id="playback-step-progress"></a>
 ### 离线 Step 的进展与回执
 

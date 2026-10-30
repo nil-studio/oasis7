@@ -49,12 +49,20 @@ fn empty_entity_guard_marks_gameplay_snapshot_blocked() {
         Some(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
     );
     assert!(first_agent_claim_action.disabled_reason.is_none());
+    let pause = gameplay
+        .available_actions
+        .iter()
+        .find(|action| action.protocol_action == "live_control.pause")
+        .expect("Pause remains available for an empty world");
+    assert!(pause.disabled_reason.is_none());
+
     assert!(
         gameplay
             .available_actions
             .iter()
             .filter(|action| {
                 action.protocol_action != "request_snapshot"
+                    && action.protocol_action != "live_control.pause"
                     && action.action_id != crate::viewer::ACTION_CLAIM_FIRST_AGENT
             })
             .all(|action| action.disabled_reason.is_some())

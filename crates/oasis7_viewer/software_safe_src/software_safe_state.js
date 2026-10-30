@@ -42,6 +42,8 @@ export function createSoftwareSafeState() {
     server: null,
     wsUrl: null,
     lastControlFeedback: null,
+    liveControlState: { supported: false, verified: false, epoch: null, revision: 0, paused: null },
+    liveControlPendingRequestId: null,
     lastPromptFeedback: null,
     lastChatFeedback: null,
     lastGameplayActionFeedback: null,

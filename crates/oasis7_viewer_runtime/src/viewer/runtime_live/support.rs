@@ -260,6 +260,7 @@ pub(super) struct RuntimeLiveSession {
     pub(super) local_gameplay_feedback:
         Arc<Mutex<super::gameplay_feedback_scope::SessionGameplayFeedback>>,
     pub(super) playing: bool,
+    pub(super) last_live_control_revision: Option<u64>,
     pub(super) next_play_step_at: Option<Instant>,
     pub(super) next_background_snapshot_at: Option<Instant>,
     pub(super) next_chain_poll_at: Option<Instant>,
@@ -298,6 +299,7 @@ impl RuntimeLiveSession {
             gameplay_feedback_owner: None,
             local_gameplay_feedback: Arc::new(Mutex::new(Default::default())),
             playing,
+            last_live_control_revision: None,
             next_play_step_at: None,
             next_background_snapshot_at: None,
             next_chain_poll_at: None,

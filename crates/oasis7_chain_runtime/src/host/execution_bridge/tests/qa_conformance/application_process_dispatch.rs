@@ -153,7 +153,11 @@ fn run_inner() {
     }
     if matches!(
         env("PRE2_APP_ADMISSION").as_str(),
-        "repeated-turns" | "slow-consumer"
+        "repeated-turns"
+            | "slow-consumer"
+            | "checkpoint-fairness"
+            | "checkpoint-scope-fence"
+            | "checkpoint-pause-resume"
     ) {
         application_stream_boundaries::verify(&client, &env("PRE2_APP_ADMISSION"));
         return;

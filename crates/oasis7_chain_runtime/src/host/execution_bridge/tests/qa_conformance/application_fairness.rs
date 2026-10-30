@@ -414,11 +414,13 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let requests = slow.send_snapshot_burst(128);
     let (kernel_pressure, maximum_queued) = slow.wait_for_kernel_pressure(Duration::from_secs(1));
 
+    let diagnostic_started = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
     observer.send(serde_json::json!({"type":"hello_v2","client":"PRE2 periodic in-flight observer","version":2,"capabilities":[]}));
     observer.send(serde_json::json!({"type":"request_snapshot"}));
     let began = Instant::now();
     let observer_responsive = observer.receive_snapshot(Duration::from_millis(150), true);
     let observer_elapsed = began.elapsed();
+    let diagnostic_finished = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
     let still_held_during_observer = !root.join("world-periodic-view-release").exists();
 
     gate_release.release();
@@ -445,6 +447,16 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let stages = ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics();
     let _ = writeln!(std::io::stderr().lock(), "periodic_observer_stages={stages}");
     let periodic_arm_removed = fs::remove_file(root.join("world-periodic-view-arm")).is_ok();
+    // Dump after both serving workers finish, before outcome assertions. This
+    // retains the failing measurement too; no logging runs in the measured path.
+    application_stream_budget_diagnostics::dump_captured(stages, &[serde_json::json!({
+        "diagnostic_started_us": diagnostic_started,
+        "diagnostic_finished_us": diagnostic_finished,
+        "response_within_150ms": observer_responsive && observer_elapsed <= Duration::from_millis(150),
+        "original_response_complete": observer_responsive,
+        "under_pressure": kernel_pressure && gate_is_held && still_held_during_observer,
+        "useful_elapsed_us": observer_elapsed.as_micros().min(u64::MAX as u128) as u64,
+    })]);
 
     println!(
         "hosted_periodic_view_fairness primed={observer_primed} gate_started={gate_started} signature_verified={} min_commit_position={:?} baseline_position={} gate_held={gate_is_held} slow_primed={slow_primed} slow_requests={requests} kernel_pressure={kernel_pressure} maximum_queued_bytes={maximum_queued} observer_snapshot_before_release={observer_responsive} observer_elapsed_ms={} gate_still_held={still_held_during_observer} gate_returned={gate_returned} handler_completed={handler_completed} drained_snapshots={snapshots_drained} drain_hello_ack_seen={drain_hello_ack_seen} drain_complete={slow_drained} observer_join={observer_join:?} slow_join={slow_join:?}",

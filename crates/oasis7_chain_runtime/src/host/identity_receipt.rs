@@ -13,6 +13,9 @@ pub(super) fn dispatch<'a>(mut args: impl Iterator<Item = &'a str>) -> Option<Re
     if command == "devlocal-participant" {
         return Some(super::devlocal_participant_cli::run(args));
     }
+    if command == "rehydrate-preview-history" {
+        return Some(super::preview_world_history::run(args));
+    }
     if command == "initialize-preview-world" {
         return Some(super::preview_world_init::run(args));
     }

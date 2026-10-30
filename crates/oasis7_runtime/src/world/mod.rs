@@ -562,7 +562,20 @@ impl World {
         Ok(world)
     }
 
-    pub fn new_with_state(mut state: WorldState) -> Self {
+    pub fn new_with_state(state: WorldState) -> Self {
+        Self::assemble_with_state(state, true)
+    }
+
+    // A persisted state's identities belong to its sealed Tick commitment.
+    // Keep existing compatibility hydration, but never add a fixture identity
+    // just because the reader binary enables test support.
+    fn new_with_state_for_restore(state: WorldState) -> Self {
+        Self::assemble_with_state(state, false)
+    }
+
+    fn assemble_with_state(mut state: WorldState, fresh_fixture_identity: bool) -> Self {
+        #[cfg(not(any(test, feature = "test_tier_required", feature = "test_tier_full")))]
+        let _ = fresh_fixture_identity;
         state.migrate_compat_material_ledgers();
         state
             .node_identity_bindings
@@ -596,10 +609,12 @@ impl World {
                 });
         }
         #[cfg(any(test, feature = "test_tier_required", feature = "test_tier_full"))]
-        state
-            .node_identity_bindings
-            .entry(TEST_MODULE_SIGNER_NODE_ID.to_string())
-            .or_insert_with(test_module_signer_public_key_hex);
+        if fresh_fixture_identity {
+            state
+                .node_identity_bindings
+                .entry(TEST_MODULE_SIGNER_NODE_ID.to_string())
+                .or_insert_with(test_module_signer_public_key_hex);
+        }
         if state.governance_finality_signer_registry.is_none() {
             for (node_id, public_key_hex) in
                 governance::local_governance_finality_signer_public_keys()
@@ -1171,6 +1186,9 @@ mod participant_devlocal_tests;
 
 mod participant_devlocal;
 pub use participant_devlocal::DevLocalParticipantAuthority;
+
+#[cfg(test)]
+mod persistence_fixture_identity_tests;
 
 pub mod incremental_body;
 pub mod incremental_body_event;

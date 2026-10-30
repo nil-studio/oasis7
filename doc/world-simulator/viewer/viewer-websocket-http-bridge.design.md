@@ -41,6 +41,8 @@ Owner：viewer_engineer；消费者为 Web Viewer、live TCP 服务与本地 lau
 
 连接成功后建立 upstream TCP socket；text frame 追加换行并 flush，upstream 按完整行回推 text frame。拆分到多次读取的行必须保留缓冲，不能当作多条响应。业务 JSON 的接受/拒绝由上游 Viewer 协议处理，bridge 转发成功不是 world applied。
 
+Viewer TCP 入站（shared 服务与 `run_once()` 独占会话）同样按完整换行帧接收：`TimedOut`／`WouldBlock` 保留未完成的字节前缀，完整帧形成后才做 UTF-8／JSON 解码，不因 TCP 分片重建或丢弃命令。每帧 JSON payload 上限为 64 MiB（不含末尾 LF），与当前 bridge 使用的 tungstenite 默认 WebSocket message 上限一致；追加到缓冲前检查累计长度，超限关闭连接。空缓冲 EOF 正常结束；带未完成帧的 EOF 作为截断错误关闭，不执行缺少 LF 的请求。该传输约束不改变业务授权或 Pause 的世界效果；回归须在观测到真实读取超时后续传半帧，验证 Pause 实际生效与后继帧仍可解析。
+
 浏览器 close、协议错误或上游结束使本会话退出，必须 shutdown upstream 两端以释放 clone 持有的连接；随后刷新可建立新会话。当前 `web_bridge.rs::serve_stream` 使用短读超时轮询与上游非阻塞读取，独立会话由线程承接。原 PRD 的读写分离风险描述不应理解为必须恢复旧读线程拓扑。
 
 bridge 不持久化世界状态，不创建重试队列，不在重连时自动重发业务动作。前端 error/close 必须可诊断；重新连上只证明传输恢复，世界状态须以重新收到的权威消息为准。

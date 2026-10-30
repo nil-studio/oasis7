@@ -12,6 +12,7 @@ impl HostedServicePhase {
     #[cfg(any(test, feature = "test_tier_required"))]
     pub(in crate::viewer::runtime_live) fn test_phase_label(&self) -> &'static str {
         match self {
+            Self::Orphan(_) => "orphan",
             Self::Act { .. } => "act",
             Self::ActView { settled: false, .. } => "act_view",
             Self::ActView { settled: true, .. } => "act_settled_view",
@@ -26,7 +27,11 @@ impl HostedServicePhase {
     }
 
     pub(in crate::viewer::runtime_live) fn identity(&self) -> Result<String, String> {
+        if let Self::Orphan(orphan) = self {
+            return orphan.identity();
+        }
         let (label, pending, receipt, details) = match self {
+            Self::Orphan(_) => unreachable!("handled above"),
             Self::Act { pending, .. } => ("act", pending, None, serde_json::Value::Null),
             Self::ActView {
                 pending,
@@ -125,8 +130,9 @@ impl HostedServicePhase {
         ))
     }
 
-    fn pending(&self) -> &PendingProviderServiceIntent {
+    fn pending(&self) -> Result<&PendingProviderServiceIntent, String> {
         match self {
+            Self::Orphan(_) => Err("orphan recovery owns hosted work; defer direct action".into()),
             Self::Act { pending, .. }
             | Self::ActView { pending, .. }
             | Self::ActSettle { pending, .. }
@@ -135,7 +141,7 @@ impl HostedServicePhase {
             | Self::Feedback { pending, .. }
             | Self::FeedbackAck { pending, .. }
             | Self::FeedbackAckView { pending, .. }
-            | Self::Finalize { pending, .. } => pending,
+            | Self::Finalize { pending, .. } => Ok(pending),
         }
     }
 
@@ -151,7 +157,7 @@ impl HostedServicePhase {
 
     fn same_pending(&self, candidate: &PendingProviderServiceIntent) -> Result<bool, String> {
         Ok(
-            serde_json::to_value(self.pending()).map_err(|error| error.to_string())?
+            serde_json::to_value(self.pending()?).map_err(|error| error.to_string())?
                 == serde_json::to_value(candidate).map_err(|error| error.to_string())?,
         )
     }
@@ -162,6 +168,7 @@ impl ViewerRuntimeLiveServer {
         &self,
         cognition: &RuntimeProviderActionContext,
     ) -> Result<(), String> {
+        self.llm_sidecar.ensure_lineage_published()?;
         let agent_id = &cognition.request.request_context.agent_subject;
         if self.agent_service_pump_started
             || self.llm_sidecar.hosted_service_inflight.is_some()
@@ -184,7 +191,7 @@ impl ViewerRuntimeLiveServer {
             return Err("another canonical Agent intent is pending; defer direct action".into());
         }
         if let Some(phase) = self.llm_sidecar.hosted_service_phase.as_ref() {
-            if serde_json::to_value(&phase.pending().cognition)
+            if serde_json::to_value(&phase.pending()?.cognition)
                 .map_err(|error| error.to_string())?
                 != serde_json::to_value(cognition).map_err(|error| error.to_string())?
             {
@@ -276,6 +283,7 @@ impl ViewerRuntimeLiveServer {
                 .ok_or("canonical Agent service phase disappeared before finalization")?
                 .identity()?;
             match self.prepare_hosted_service_io(false)? {
+                AgentServiceProgress::Blocked(blocker) => return Err(blocker.reason().into()),
                 AgentServiceProgress::Idle => {
                     return Err(
                         "canonical Agent action remains pending without an owned phase advance"
@@ -315,7 +323,11 @@ impl ViewerRuntimeLiveServer {
                         self.llm_sidecar.hosted_service_inflight = None;
                         return Err("canonical Agent action exceeded bounded direct I/O; checkpoint retained".into());
                     }
-                    self.apply_hosted_service_io(job.execute())?;
+                    if let AgentServiceProgress::Blocked(blocker) =
+                        self.apply_hosted_service_io(job.execute())?
+                    {
+                        return Err(blocker.reason().into());
+                    }
                     if !self
                         .llm_sidecar
                         .provider_service_pending

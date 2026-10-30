@@ -31,7 +31,7 @@ impl RestoreContext {
         }
         Ok(Self { release, local })
     }
-    pub(super) fn restore(
+    pub(crate) fn restore(
         &self,
         snapshot: Snapshot,
         journal: Journal,
@@ -159,6 +159,47 @@ pub(crate) fn verify_archived_initial_publication(
     identity: &WorldIdentity,
     expected_commit: &CommitRef,
 ) -> Result<(), String> {
+    verify_archived_initial_publication_inner(
+        record_bytes,
+        snapshot_bytes,
+        journal_bytes,
+        proof_bytes,
+        identity,
+        expected_commit,
+        None,
+    )
+}
+
+/// Same immutable archive checks with a separately trusted Host restore context.
+/// Snapshot fields never select a DevLocal authority or release policy.
+pub(crate) fn verify_archived_initial_publication_with_context(
+    record_bytes: &[u8],
+    snapshot_bytes: &[u8],
+    journal_bytes: &[u8],
+    proof_bytes: &[u8],
+    identity: &WorldIdentity,
+    expected_commit: &CommitRef,
+    context: &RestoreContext,
+) -> Result<(), String> {
+    verify_archived_initial_publication_inner(
+        record_bytes,
+        snapshot_bytes,
+        journal_bytes,
+        proof_bytes,
+        identity,
+        expected_commit,
+        Some(context),
+    )
+}
+fn verify_archived_initial_publication_inner(
+    record_bytes: &[u8],
+    snapshot_bytes: &[u8],
+    journal_bytes: &[u8],
+    proof_bytes: &[u8],
+    identity: &WorldIdentity,
+    expected_commit: &CommitRef,
+    context: Option<&RestoreContext>,
+) -> Result<(), String> {
     let record: ExecutionBridgeRecord =
         serde_json::from_slice(record_bytes).map_err(|_| "initial execution record invalid")?;
     let snapshot_ref = record
@@ -213,8 +254,24 @@ pub(crate) fn verify_archived_initial_publication(
     {
         return Err("pinned proof does not bind execution record and CAS refs".into());
     }
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
-        .map_err(|_| "pinned world snapshot could not be restored")?;
+    let world = match context {
+        Some(context) => context.restore(snapshot, journal),
+        None => oasis7::runtime_host::world::from_snapshot(snapshot, journal),
+    }
+    .map_err(|error| match (context, error) {
+        (None, _) => "pinned world snapshot could not be restored",
+        (Some(_), oasis7_runtime::WorldError::JournalMismatch) => {
+            "archived World restore rejected: journal_mismatch"
+        }
+        (Some(_), oasis7_runtime::WorldError::DistributedValidationFailed { reason }) => {
+            if reason.contains("DevLocal participant authority") {
+                "archived World restore rejected: devlocal_participant_context"
+            } else {
+                "archived World restore rejected: distributed_validation"
+            }
+        }
+        (Some(_), _) => "archived World restore rejected: runtime_validation",
+    })?;
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|_| "pinned binding unavailable")?;
@@ -305,19 +362,16 @@ pub(crate) fn pin_retained_at_height_with_context(
     height: u64,
     context: &RestoreContext,
 ) -> Result<Option<PinnedWorld>, String> {
-    let path = checkpoint::execution_bridge_record_path(records, height);
-    match std::fs::metadata(&path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("historical record unavailable".into()),
-        Ok(_) => {}
-    }
-    let record = checkpoint::load_execution_bridge_record(&path)?;
+    let Some(record) = super::historical_material::load_record(records, height)? else {
+        return Ok(None);
+    };
     if record.world_id != identity.world_id || record.height != height || height == 0 {
         return Err("historical record world or height invalid".into());
     }
     if record.snapshot_ref.is_none()
         && record.latest_state_ref.is_none()
         && record.journal_ref.is_none()
+        && super::historical_material::hydrate(&record, &LocalCasStore::new(storage))?.is_none()
     {
         return Ok(None);
     }
@@ -377,10 +431,9 @@ fn load_with_cache_context(
     {
         return Err("fixed commit world mismatch".into());
     }
-    let record = if let Some(height) = height {
-        checkpoint::load_execution_bridge_record(&checkpoint::execution_bridge_record_path(
-            records, height,
-        ))?
+    let mut record = if let Some(height) = height {
+        super::historical_material::load_record(records, height)?
+            .ok_or("historical record unavailable")?
     } else {
         checkpoint::load_highest_valid_execution_bridge_record(records)?
             .ok_or("committed view unavailable")?
@@ -389,6 +442,14 @@ fn load_with_cache_context(
         return Err("record world or height invalid".into());
     }
     let store = LocalCasStore::new(storage);
+    let rehydrated = height.is_some()
+        && record.snapshot_ref.is_none()
+        && record.latest_state_ref.is_none()
+        && record.journal_ref.is_none();
+    if rehydrated {
+        record = super::historical_material::hydrate(&record, &store)?
+            .ok_or("record historical material unavailable")?;
+    }
     let snapshot_ref = record
         .snapshot_ref
         .as_deref()
@@ -400,12 +461,18 @@ fn load_with_cache_context(
     if record.latest_state_ref.as_deref() != Some(snapshot_ref) {
         return Err("record snapshot refs disagree".into());
     }
-    let snapshot_bytes = store
-        .get_verified(snapshot_ref)
-        .map_err(|e| format!("snapshot CAS: {e:?}"))?;
-    let journal_bytes = store
-        .get_verified(journal_ref)
-        .map_err(|e| format!("journal CAS: {e:?}"))?;
+    let read_blob = |hash: &str| -> Result<Vec<u8>, String> {
+        if rehydrated {
+            super::historical_material::cas(&store, hash)?
+                .ok_or("historical CAS disappeared".into())
+        } else {
+            store
+                .get_verified(hash)
+                .map_err(|e| format!("pinned CAS: {e:?}"))
+        }
+    };
+    let snapshot_bytes = read_blob(snapshot_ref)?;
+    let journal_bytes = read_blob(journal_ref)?;
     let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes)
         .map_err(|e| e.to_string())?;
     let journal: Journal =
@@ -421,9 +488,7 @@ fn load_with_cache_context(
         .world_head_proof_ref
         .as_deref()
         .ok_or("record world head proof unavailable")?;
-    let proof_bytes = store
-        .get_verified(proof_ref)
-        .map_err(|e| format!("proof CAS: {e:?}"))?;
+    let proof_bytes = read_blob(proof_ref)?;
     let proof: WorldHeadProofV1 =
         serde_cbor::from_slice(&proof_bytes).map_err(|e| e.to_string())?;
     proof.validate_contract()?;
