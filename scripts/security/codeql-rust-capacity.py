@@ -444,7 +444,7 @@ def analysis_budget(mode,remaining):
     research=mode=='official-default-research'
     budget=21600 if research else 3300
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(40,minutes)
+    if not research:minutes=min(45,minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,

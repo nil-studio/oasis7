@@ -473,8 +473,8 @@ class Capacity(unittest.TestCase):
         self.assertEqual(research['post_analysis_reserve_seconds'],600)
         with self.assertRaises(ValueError):m.analysis_budget('unknown',21400)
 
-    def test_capacity_40_minute_analysis_preserves_global_reserve(self):
-        for remaining,minutes in ((3300,40),(3110,40),(2999,39),(660,1),(600,0)):
+    def test_capacity_45_minute_analysis_preserves_global_reserve(self):
+        for remaining,minutes in ((3300,45),(3110,41),(3059,40),(2999,39),(660,1),(600,0)):
             budget=m.analysis_budget('capacity',remaining)
             self.assertEqual(budget['job_budget_seconds'],3300)
             self.assertEqual(budget['analysis_allocated_minutes'],minutes)
