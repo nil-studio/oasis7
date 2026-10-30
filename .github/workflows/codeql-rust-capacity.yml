@@ -32,7 +32,7 @@ jobs:
       cancel-in-progress: false
     env:
       CAPACITY_MODE: ${{ inputs.mode }}
-      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6' }}
+      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'f9ab0ca14620f118c84130b3d558e48dc1e6314d' }}
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_RAM: ''
