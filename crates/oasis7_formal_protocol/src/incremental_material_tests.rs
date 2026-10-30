@@ -9,6 +9,9 @@ use crate::controlled_authority::formal::{
 use oasis7_proto::memory_budget::MemoryReservation;
 use std::{cell::Cell, collections::BTreeMap};
 
+#[path = "incremental_written_values_tests.rs"]
+mod written_value_tests;
+
 struct Objects {
     memory: MemoryBudget,
     class: MemoryClass,
