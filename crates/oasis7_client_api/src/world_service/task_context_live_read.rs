@@ -22,6 +22,10 @@ pub fn verify_live_context_read(request: &TaskContextLiveReadV1) -> Result<(), S
     verify_get(&request.original)
 }
 
+type LiveContextReadResponse<C, P, L, CP, ST, R, D, X> = SignedServiceResponse<
+    CapturedTaskContextV1<C, SchedulerIntentV1<SchedulerOperationV1<P, L, CP, ST, R, D, X>>>,
+>;
+
 pub fn verify_live_context_reply<
     C: Serialize,
     P: Serialize + PartialEq,
@@ -33,9 +37,7 @@ pub fn verify_live_context_reply<
     X: Serialize + PartialEq,
 >(
     request: &TaskContextLiveReadV1,
-    response: &SignedServiceResponse<
-        CapturedTaskContextV1<C, SchedulerIntentV1<SchedulerOperationV1<P, L, CP, ST, R, D, X>>>,
-    >,
+    response: &LiveContextReadResponse<C, P, L, CP, ST, R, D, X>,
     world_public_key: &str,
 ) -> Result<(), String> {
     verify_live_context_read(request)?;
