@@ -622,3 +622,124 @@ fn raw_authenticated_key_bytes_are_not_typed_semantic_validation() {
     assert_eq!(payload, [1]);
     assert!(crate::incremental_semantic_key::read_semantic_key_v1(&key).is_err());
 }
+
+#[test]
+fn key_output_cancellation_stops_before_retry_or_payload_output() {
+    struct CancelKey<'a> {
+        flag: &'a Cell<bool>,
+        interrupted: bool,
+        calls: usize,
+    }
+    impl Write for CancelKey<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.calls += 1;
+            if self.calls == 1 {
+                self.flag.set(true);
+                if self.interrupted {
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                return Ok(bytes.len().min(1));
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
+    let mut pages = Pages::new(&memory);
+    let record = write(
+        &mut pages,
+        &memory,
+        MemberPayloadRefV1::Text("payload"),
+        WorldFieldRecordKindV1::Entry,
+    );
+    for interrupted in [true, false] {
+        let cancelled = Cell::new(false);
+        let mut key = CancelKey {
+            flag: &cancelled,
+            interrupted,
+            calls: 0,
+        };
+        let mut payload = Vec::new();
+        assert!(matches!(
+            read(
+                &record,
+                &pages,
+                &memory,
+                limits(),
+                &mut key,
+                &mut payload,
+                || cancelled.get()
+            ),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert_eq!(key.calls, 1, "interrupted={interrupted}");
+        assert!(payload.is_empty());
+    }
+}
+
+#[test]
+fn key_digest_covers_each_accepted_byte_once_across_short_and_interrupted_writes() {
+    struct ShortKey {
+        bytes: Vec<u8>,
+        width: usize,
+        interrupt_next: bool,
+    }
+    impl Write for ShortKey {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.interrupt_next {
+                self.interrupt_next = false;
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            self.interrupt_next = true;
+            let count = bytes.len().min(self.width);
+            self.bytes.extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
+    let mut pages = Pages::new(&memory);
+    let record = write(
+        &mut pages,
+        &memory,
+        MemberPayloadRefV1::Text("payload"),
+        WorldFieldRecordKindV1::Entry,
+    );
+    let mut expected_key = Vec::new();
+    let mut expected_payload = Vec::new();
+    let expected = read(
+        &record,
+        &pages,
+        &memory,
+        limits(),
+        &mut expected_key,
+        &mut expected_payload,
+        || false,
+    )
+    .unwrap();
+    for width in 1..=expected_key.len() {
+        let mut key = ShortKey {
+            bytes: Vec::new(),
+            width,
+            interrupt_next: true,
+        };
+        let mut payload = Vec::new();
+        let actual = read(
+            &record,
+            &pages,
+            &memory,
+            limits(),
+            &mut key,
+            &mut payload,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(key.bytes, expected_key);
+        assert_eq!(payload, expected_payload);
+    }
+}

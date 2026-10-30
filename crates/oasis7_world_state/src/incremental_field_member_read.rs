@@ -8,9 +8,13 @@ struct KeyOutput<'a, W> {
 }
 impl<W: Write> Write for KeyOutput<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.hash.update(bytes);
-        self.output.write_all(bytes)?;
-        Ok(bytes.len())
+        // Return control to ValueReadContext after every underlying attempt
+        // so it can observe cancellation before retrying a short/Interrupted write.
+        let written = self.output.write(bytes)?;
+        if written <= bytes.len() {
+            self.hash.update(&bytes[..written]);
+        }
+        Ok(written)
     }
     fn flush(&mut self) -> io::Result<()> {
         self.output.flush()
