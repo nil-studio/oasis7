@@ -236,3 +236,7 @@ mod tests {
         assert!(descriptor.validate().is_err());
     }
 }
+
+#[path = "native_environment_verification.rs"]
+mod verification;
+pub use verification::*;

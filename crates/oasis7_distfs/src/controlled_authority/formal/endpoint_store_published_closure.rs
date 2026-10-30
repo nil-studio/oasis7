@@ -327,7 +327,7 @@ impl ClosureJob {
                 .into_iter()
                 .flatten()
                 .map(crate::controlled_authority::formal::native_environment::VerificationJob::new)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             native_index: 0,
             roots,
             work: Vec::new(),
