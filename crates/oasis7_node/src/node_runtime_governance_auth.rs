@@ -159,6 +159,24 @@ pub(crate) fn validate_consensus_action_payload_auth(
             reason: format!("decode consensus action payload auth envelope failed: {err}"),
         }
     })?;
+    if let LocalConsensusActionPayloadBody::WorldCleanupV2 { request } = &envelope.body {
+        if envelope.version != CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION
+            || envelope.auth.is_some()
+            || envelope.gameplay_submission_origin.is_some()
+        {
+            return Err(NodeError::Consensus {
+                reason: "invalid cleanup v2 catalog envelope".into(),
+            });
+        }
+        request
+            .verify_owner_signature()
+            .map_err(|_| NodeError::Consensus {
+                reason: "invalid cleanup v2 Owner signature".into(),
+            })?;
+        // Canonical Owner authentication does not assert current World authority.
+        // Runtime checks it inside its begun committed-tick transaction.
+        return Ok(());
+    }
     if validate(&envelope)? {
         return Ok(());
     }
@@ -226,6 +244,9 @@ fn governance_preflight_required(payload_cbor: &[u8]) -> Result<bool, NodeError>
     Ok(matches!(
         envelope.auth,
         Some(LocalConsensusActionAuthEnvelope::GovernanceAction(_))
+    ) || matches!(
+        envelope.body,
+        LocalConsensusActionPayloadBody::WorldCleanupV2 { .. }
     ))
 }
 
@@ -233,6 +254,15 @@ fn validate_governance_preflight(
     hook: &dyn NodeExecutionHook,
     payload_cbor: &[u8],
 ) -> Result<(), NodeError> {
+    let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
+        .map_err(|reason| NodeError::Consensus { reason })?;
+    if let LocalConsensusActionPayloadBody::WorldCleanupV2 { request } = &envelope.body {
+        return hook
+            .validate_cleanup_v2_action_payload(request)
+            .map_err(|reason| NodeError::Consensus {
+                reason: format!("cleanup V2 profile preflight rejected: {reason}"),
+            });
+    }
     hook.validate_governance_action_payload(payload_cbor)
         .map_err(|reason| NodeError::Consensus {
             reason: format!("governance authorization preflight rejected: {reason}"),

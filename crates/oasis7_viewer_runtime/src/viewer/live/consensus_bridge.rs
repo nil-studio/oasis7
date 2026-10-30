@@ -75,7 +75,8 @@ impl LiveConsensusBridge {
                             .push_back(CommittedLiveAction { action, submitter });
                     }
                     Ok(ConsensusActionPayloadBody::RuntimeAction { .. }) => {}
-                    Ok(ConsensusActionPayloadBody::WorldServiceIntent { .. }) => {
+                    Ok(ConsensusActionPayloadBody::WorldServiceIntent { .. })
+                    | Ok(ConsensusActionPayloadBody::WorldCleanupV2 { .. }) => {
                         return Err(ViewerLiveServerError::Node(
                             "authenticated world-service intent requires canonical chain execution"
                                 .into(),
