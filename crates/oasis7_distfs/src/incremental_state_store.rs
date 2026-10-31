@@ -148,24 +148,49 @@ fn persist_nodes_profile<'a>(
     nodes: impl Iterator<Item = (&'a str, &'a [u8])>,
     compression: PageCompression,
 ) -> Result<()> {
+    persist_nodes_profile_cancelled(store, class, io, cancelled, nodes, compression, &mut || {
+        false
+    })
+}
+fn persist_nodes_profile_cancelled<'a>(
+    store: &IncrementalPageStore,
+    class: MemoryClass,
+    io: &mut PageIoBudget,
+    cancelled: &AtomicBool,
+    nodes: impl Iterator<Item = (&'a str, &'a [u8])>,
+    compression: PageCompression,
+    external_cancelled: &mut dyn FnMut() -> bool,
+) -> Result<()> {
+    let mut check = || {
+        check_cancelled(cancelled)?;
+        if external_cancelled() {
+            return Err(PageStoreError::Cancelled);
+        }
+        Ok(())
+    };
+    check()?;
     let _metadata = store.memory.reserve(64 * 1024, class)?;
     let mut batch = Vec::with_capacity(pack::MAX_ENTRIES);
     for (id, bytes) in nodes {
-        check_cancelled(cancelled)?;
+        check()?;
         if bytes.len() > STATE_MAX_PAGE_BYTES {
             return Err(PageStoreError::Corrupt("Merkle page bound"));
         }
         let id = parse_id(id)?;
         batch.push((id, bytes));
         if batch.len() == pack::MAX_ENTRIES {
+            check()?;
             store.put_page_batch_with_compression(&batch, class, io, cancelled, compression)?;
+            check()?;
             batch.clear();
         }
     }
     if !batch.is_empty() {
+        check()?;
         store.put_page_batch_with_compression(&batch, class, io, cancelled, compression)?;
+        check()?;
     }
-    Ok(())
+    check()
 }
 fn parse_id(id: &str) -> Result<[u8; 32]> {
     if id.len() != 64
