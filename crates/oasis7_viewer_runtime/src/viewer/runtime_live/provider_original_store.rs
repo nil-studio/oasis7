@@ -1036,7 +1036,7 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
         &self,
         request: &ContinuousAgentRequestContextV1,
         expected_body_id: [u8; 32],
-        original_body: &mut dyn Read,
+        mut original_body: &mut dyn Read,
         length: u64,
     ) -> Result<ProviderMaterialAttemptV1, String> {
         self.require_writable()?;
@@ -1153,7 +1153,7 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
         attempt: &ProviderMaterialAttemptV1,
         status: u16,
         expected_body_id: [u8; 32],
-        original_body: &mut dyn Read,
+        mut original_body: &mut dyn Read,
         length: u64,
     ) -> Result<[u8; 32], String> {
         self.require_writable()?;
