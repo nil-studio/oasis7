@@ -62,6 +62,58 @@ fn default_state_writer_keeps_charges_and_rejects_foreign_or_exhausted_pool() {
     assert_eq!(memory.used(), used);
 }
 
+#[test]
+fn cancellable_state_writer_stops_after_first_and_final_put() {
+    use crate::incremental_value::{ValueNodeWriter, ValueTreeError};
+    use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+    struct Sink<'a> {
+        writes: usize,
+        stop_at: usize,
+        cancelled: &'a Cell<bool>,
+    }
+    impl ValueNodeWriter for Sink<'_> {
+        fn put_node(
+            &mut self,
+            _: [u8; 32],
+            _: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            self.writes += 1;
+            if self.writes == self.stop_at {
+                self.cancelled.set(true);
+            }
+            Ok(())
+        }
+    }
+    impl StatePageWriter for Sink<'_> {}
+    let memory = MemoryBudget::new(8 << 20, 1 << 20).unwrap();
+    let delta = memory
+        .reserve(4 << 20, MemoryClass::Ordinary)
+        .unwrap()
+        .retain(
+            StateDeltaV1::build(
+                StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+                vec![write(b"alice", None, Some(7))],
+                &Pages::default(),
+                4 << 20,
+            )
+            .unwrap(),
+        );
+    assert!(delta.new_nodes.len() > 1);
+    for stop_at in [1, delta.new_nodes.len()] {
+        let cancelled = Cell::new(false);
+        let mut sink = Sink {
+            writes: 0,
+            stop_at,
+            cancelled: &cancelled,
+        };
+        assert!(matches!(
+            sink.put_state_pages_cancelled(&delta, &memory, &mut || cancelled.get()),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert_eq!(sink.writes, stop_at);
+    }
+}
+
 #[derive(Default)]
 struct Pages {
     nodes: BTreeMap<String, Vec<u8>>,
