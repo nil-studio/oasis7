@@ -149,7 +149,9 @@ fn direct_capture_request(request_id: &str) -> ContinuousAgentRequestContextV1 {
         test_provider_context("provider-owner-agent", "provider-owner-turn", request_id, 1)
             .request_context;
     let digest = |label: &str| {
-        oasis7::simulator::Digest32::from(blake3::hash(label.as_bytes()).to_hex().to_string())
+        let digest = crate::simulator::h_v1("oasis7.test.provider-original.v1", &label);
+        assert!(digest.is_canonical_blake3());
+        digest
     };
     request.runtime_binding.base_world_hash = digest("fixture world hash");
     request.runtime_binding.runtime_manifest_hash = digest("fixture manifest hash");
