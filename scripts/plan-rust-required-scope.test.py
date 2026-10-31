@@ -2217,7 +2217,9 @@ class Selection(unittest.TestCase):
     def test_native_default_driver_inherits_unix_without_expanded_feature_permission(self):
         config = self.fast_config()
         package = 'oasis7_distfs'
-        config['package_groups'][package] = ['other']
+        config['groups'].append('distfs')
+        config['resources']['distfs'] = []
+        config['package_groups'][package] = ['distfs']
         self.write(f'crates/{package}/Cargo.toml',
                    '[package]\nname="oasis7_distfs"\nversion="0.1.0"\n'
                    '[features]\ntest_tier_full=[]\noptional_lane=[]\n')
@@ -2227,7 +2229,7 @@ class Selection(unittest.TestCase):
         base = self.commit()
         self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
-        self.assertIn('other', plan['groups'])
+        self.assertIn('distfs', plan['groups'])
         for expression in ('windows', 'feature="optional_lane"',
                            'all(unix, feature="test_tier_full")'):
             with self.subTest(expression=expression):
@@ -2242,6 +2244,21 @@ class Selection(unittest.TestCase):
         self.write('crates/other/src/lib.rs',
                    '#[path="../../oasis7_distfs/src/nested.rs"] mod shared;\n')
         self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_storage_mapping_does_not_authorize_an_unexecuted_binary(self):
+        config = self.fast_config()
+        config['groups'].append('distfs')
+        config['resources']['distfs'] = []
+        config['package_groups']['oasis7_distfs'] = ['distfs']
+        self.write('crates/oasis7_distfs/Cargo.toml',
+                   '[package]\nname="oasis7_distfs"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_distfs/src/lib.rs', '')
+        path = 'crates/oasis7_distfs/src/bin/unexecuted.rs'
+        self.write(path, 'fn main() {}\n')
+        base = self.commit()
+        self.write(path, 'fn main() {}\n#[cfg(unix)] #[test] fn unexecuted() {}\n')
         with self.assertRaises(selector.TestPolicyError):
             selector.select(config, base, self.commit(), profile='pr-fast')
 

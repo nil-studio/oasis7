@@ -1006,12 +1006,21 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             result.update(inherited_gates(parent, native, visiting | {path}))
         return result
 
+    def native_context(path):
+        owners = feature_owners.get(path, set())
+        if path in ordinary_roots or owners and owners.issubset(feature_packages):
+            return True
+        # A package-level default driver covers only its executed lib tree,
+        # not arbitrary bins/targets. Prove the literal module path to a known
+        # root under native predicates before granting target knowledge.
+        return bool(owners and owners.issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES)
+                    and ordinary_source_context(path, True))
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
         if before != after:
-            native = (path in ordinary_roots or bool(feature_owners.get(path))
-                      and feature_owners[path].issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES))
+            native = native_context(path)
             analyses.append((path, attributes(before, native), attributes(after, native)))
     # Keep both rename endpoints and removals in the review evidence. A new
     # marker is exempt only when this change contains no retiring test owner.
@@ -1021,8 +1030,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         after_attrs, new_ignored, new_test_owners, _, ordinary_owners = after[:5]
         test_owners = old_test_owners | new_test_owners
         changes = before_attrs ^ after_attrs
-        native = (path in ordinary_roots or bool(feature_owners.get(path))
-                  and feature_owners[path].issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES))
+        native = native_context(path)
         ordinary_source = ordinary_source_context(path, native)
         new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
