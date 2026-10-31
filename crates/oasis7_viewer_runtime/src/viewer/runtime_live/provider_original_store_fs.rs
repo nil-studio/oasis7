@@ -20,6 +20,9 @@ pub(super) struct OwnerFiles {
 impl OwnerFiles {
     pub(super) fn create(root: &Path) -> Result<Self, String> {
         validate_path(root)?;
+        // Create exactly one directory entry: the caller supplies an existing
+        // parent. Sync the new root and that parent below; higher ancestors
+        // have no changed entries and may be outside the caller's sandbox.
         let mut builder = fs::DirBuilder::new();
         builder.mode(0o700);
         builder
