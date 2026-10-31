@@ -62,6 +62,58 @@ fn default_state_writer_keeps_charges_and_rejects_foreign_or_exhausted_pool() {
     assert_eq!(memory.used(), used);
 }
 
+#[test]
+fn cancellable_state_writer_stops_after_first_and_final_put() {
+    use crate::incremental_value::{ValueNodeWriter, ValueTreeError};
+    use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+    struct Sink<'a> {
+        writes: usize,
+        stop_at: usize,
+        cancelled: &'a Cell<bool>,
+    }
+    impl ValueNodeWriter for Sink<'_> {
+        fn put_node(
+            &mut self,
+            _: [u8; 32],
+            _: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            self.writes += 1;
+            if self.writes == self.stop_at {
+                self.cancelled.set(true);
+            }
+            Ok(())
+        }
+    }
+    impl StatePageWriter for Sink<'_> {}
+    let memory = MemoryBudget::new(8 << 20, 1 << 20).unwrap();
+    let delta = memory
+        .reserve(4 << 20, MemoryClass::Ordinary)
+        .unwrap()
+        .retain(
+            StateDeltaV1::build(
+                StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+                vec![write(b"alice", None, Some(7))],
+                &Pages::default(),
+                4 << 20,
+            )
+            .unwrap(),
+        );
+    assert!(delta.new_nodes.len() > 1);
+    for stop_at in [1, delta.new_nodes.len()] {
+        let cancelled = Cell::new(false);
+        let mut sink = Sink {
+            writes: 0,
+            stop_at,
+            cancelled: &cancelled,
+        };
+        assert!(matches!(
+            sink.put_state_pages_cancelled(&delta, &memory, &mut || cancelled.get()),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert_eq!(sink.writes, stop_at);
+    }
+}
+
 #[derive(Default)]
 struct Pages {
     nodes: BTreeMap<String, Vec<u8>>,
@@ -420,6 +472,63 @@ fn namespace_format_and_key_bounds_are_enforced() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn state_entry_key_digest_matches_codec_and_binds_namespace_and_key_bounds() {
+    let key = b"factory:outer/\xce\x94".to_vec();
+    let entry = StateEntryV1 {
+        namespace: StateNamespaceV1::Business,
+        key: key.clone(),
+        value: [7; 32],
+    };
+    assert_eq!(
+        entry.key_digest().unwrap(),
+        StateCodec::key(&entry).unwrap()
+    );
+
+    let mut preimage = b"oasis7.iws.state-key.v1\0".to_vec();
+    preimage.extend_from_slice(&(StateNamespaceV1::Business as u16).to_be_bytes());
+    preimage.extend_from_slice(&(key.len() as u16).to_be_bytes());
+    preimage.extend_from_slice(&key);
+    assert_eq!(
+        entry.key_digest().unwrap(),
+        *blake3::hash(&preimage).as_bytes()
+    );
+
+    let allocator_entry = StateEntryV1 {
+        namespace: StateNamespaceV1::Allocator,
+        ..entry.clone()
+    };
+    assert_ne!(
+        entry.key_digest().unwrap(),
+        allocator_entry.key_digest().unwrap()
+    );
+
+    let mut pages = Pages::default();
+    let root = StateRootV1::empty(entry.namespace).unwrap();
+    let delta = StateDeltaV1::build(
+        root,
+        vec![StateWriteV1 {
+            key: entry.key.clone(),
+            before: None,
+            after: Some(entry.value),
+        }],
+        &pages,
+        QUOTA,
+    )
+    .unwrap();
+    pages.persist(&delta);
+    assert_eq!(
+        delta.after.get(&entry.key, &pages).unwrap(),
+        Some(entry.value)
+    );
+
+    let oversized = StateEntryV1 {
+        key: vec![0; STATE_MAX_KEY_BYTES + 1],
+        ..entry
+    };
+    assert!(oversized.key_digest().is_err());
 }
 
 #[test]

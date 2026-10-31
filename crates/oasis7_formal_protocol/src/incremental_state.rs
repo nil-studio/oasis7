@@ -44,6 +44,15 @@ pub struct StateEntryV1 {
     pub value: [u8; 32],
 }
 
+impl StateEntryV1 {
+    /// Returns the namespace-bound sparse-tree path for this entry's key.
+    /// This exposes the existing state-key profile without changing or
+    /// duplicating its encoding.
+    pub fn key_digest(&self) -> Result<[u8; 32], String> {
+        key_digest(self.namespace, &self.key)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateWriteV1 {
     pub key: Vec<u8>,
@@ -103,14 +112,33 @@ pub trait StatePageWriter: crate::incremental_value::ValueNodeWriter {
         delta: &oasis7_proto::memory_budget::ReservedValue<StateDeltaV1>,
         memory: &oasis7_proto::memory_budget::MemoryBudget,
     ) -> Result<(), crate::incremental_value::ValueTreeError> {
+        self.put_state_pages_cancelled(delta, memory, &mut || false)
+    }
+
+    /// The entire result remains provisional. Cancellation may leave a bounded
+    /// physical batch present, but never returns completion. The default sink
+    /// checks immediately after each put; optimized sinks must also check
+    /// before/after each bounded physical batch and retain session cancellation.
+    fn put_state_pages_cancelled(
+        &mut self,
+        delta: &oasis7_proto::memory_budget::ReservedValue<StateDeltaV1>,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), crate::incremental_value::ValueTreeError> {
         use crate::incremental_value::ValueTreeError;
         use oasis7_proto::memory_budget::MemoryClass;
         if !delta.uses_budget(memory) {
             return Err(ValueTreeError::Invalid("state producer pool"));
         }
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
         // Admit bounded typed-codec scratch before validation allocates.
         let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
         for page in &delta.new_nodes {
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled);
+            }
             page.verified_links()
                 .map_err(|_| ValueTreeError::Invalid("state producer page"))?;
             let charge = memory.reserve(page.bytes.len(), MemoryClass::Ordinary)?;
@@ -118,6 +146,12 @@ pub trait StatePageWriter: crate::incremental_value::ValueNodeWriter {
                 *blake3::hash(&page.bytes).as_bytes(),
                 charge.retain(page.bytes.clone()),
             )?;
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled);
+            }
+        }
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
         }
         Ok(())
     }
