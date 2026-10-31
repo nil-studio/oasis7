@@ -23,12 +23,26 @@ use support::*;
 #[test]
 fn actual_agent_events_reopen_originals_and_continue_from_authenticated_pages() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let directory = Directory::new();
+        let root = directory.0.join("pages");
+        let seed_memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+        let seed_store =
+            IncrementalPageStore::create(&root, seed_memory.clone(), compression).unwrap();
+        let (world, parent) = fixture(&seed_store, &seed_memory);
+        drop(seed_store);
+        drop(seed_memory);
+        // Both independent branches start at the same immutable genesis root.
+        // Close/reopen each branch with fresh sessions and memory; unrelated
+        // provisional pages in this CAS cannot replace its authenticated root.
         for movement in [false, true] {
-            let directory = Directory::new();
-            let root = directory.0.join("pages");
             let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
-            let store = IncrementalPageStore::create(&root, memory.clone(), compression).unwrap();
-            let (world, parent) = fixture(&store, &memory);
+            let store = IncrementalPageStore::open(
+                &root,
+                memory.clone(),
+                compression,
+                MemoryClass::Ordinary,
+            )
+            .unwrap();
             let original = event(&world, 1, movement);
             let first = contribute(&world, &original, parent.clone(), &store, &memory);
             let mut source = store
