@@ -3,14 +3,12 @@
 pub use crate::incremental_projection::{
     FieldDescriptor, FieldDestination, FieldOwner, FieldShape,
 };
-pub use crate::incremental_semantic_key::SemanticKeyBudget;
+pub use crate::incremental_semantic_key::{SemanticKeyBudget, SemanticKeyError};
 pub use crate::incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 use crate::{
     MaterialLedgerId,
     incremental_ledger_value::{ledger_value_len_v1, write_ledger_value_v1},
-    incremental_semantic_key::{
-        SemanticKeyError, SemanticKeyV1, hash_semantic_key_v1, write_semantic_key_v1,
-    },
+    incremental_semantic_key::{SemanticKeyV1, hash_semantic_key_v1, write_semantic_key_v1},
     state::ProductValidationDeliveryCursor,
 };
 use oasis7_formal_protocol::incremental_value::{
@@ -33,6 +31,7 @@ pub enum MemberPayloadCodecV1 {
     Ledger = 6,
     Bytes = 7,
     DeliveryCursor = 8,
+    IdentityU64Triple = 9,
 }
 impl MemberPayloadCodecV1 {
     fn parse(tag: u8) -> Result<Self, &'static str> {
@@ -45,6 +44,7 @@ impl MemberPayloadCodecV1 {
             6 => Self::Ledger,
             7 => Self::Bytes,
             8 => Self::DeliveryCursor,
+            9 => Self::IdentityU64Triple,
             _ => return Err("member payload codec"),
         })
     }
@@ -53,6 +53,9 @@ impl MemberPayloadCodecV1 {
             || kind == WorldFieldRecordKindV1::Entry && self != Self::Bytes)
         {
             return Err("member key/payload kind");
+        }
+        if self == Self::IdentityU64Triple && length < 32 {
+            return Err("member identity triple length");
         }
         let fixed = match self {
             Self::Unit => Some(0),
@@ -77,6 +80,10 @@ pub enum MemberPayloadRefV1<'a> {
     Ledger(&'a MaterialLedgerId),
     Bytes(&'a [u8]),
     DeliveryCursor(&'a ProductValidationDeliveryCursor),
+    IdentityU64Triple {
+        identity: &'a str,
+        amounts: [u64; 3],
+    },
 }
 impl MemberPayloadRefV1<'_> {
     fn profile(self) -> Result<(MemberPayloadCodecV1, u64), &'static str> {
@@ -90,10 +97,24 @@ impl MemberPayloadRefV1<'_> {
             Self::Ledger(v) => (MemberPayloadCodecV1::Ledger, ledger_value_len_v1(v)?),
             Self::Bytes(b) => (MemberPayloadCodecV1::Bytes, length(b.len())?),
             Self::DeliveryCursor(_) => (MemberPayloadCodecV1::DeliveryCursor, 16),
+            Self::IdentityU64Triple { identity, .. } => (
+                MemberPayloadCodecV1::IdentityU64Triple,
+                length(identity.len())?
+                    .checked_add(32)
+                    .ok_or("member identity triple overflow")?,
+            ),
         })
     }
     fn write(self, output: &mut impl Write) -> io::Result<()> {
         match self {
+            Self::IdentityU64Triple { identity, amounts } => {
+                output.write_all(&(identity.len() as u64).to_be_bytes())?;
+                output.write_all(identity.as_bytes())?;
+                for amount in amounts {
+                    output.write_all(&amount.to_be_bytes())?;
+                }
+                Ok(())
+            }
             Self::Unit => Ok(()),
             Self::U64(v) => output.write_all(&v.to_be_bytes()),
             Self::I64(v) => output.write_all(&v.to_be_bytes()),

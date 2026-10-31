@@ -219,3 +219,16 @@ pub mod incremental_authenticated_nonces;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_authorization_mapsets;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_expected_bytes;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_identity_amounts;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_installed_module_targets;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_utf8_output;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_balances;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_text_maps;
