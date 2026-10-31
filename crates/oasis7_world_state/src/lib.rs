@@ -159,6 +159,8 @@ pub mod incremental_field_member;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_field_presence;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory_change;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory_genesis;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory_read;

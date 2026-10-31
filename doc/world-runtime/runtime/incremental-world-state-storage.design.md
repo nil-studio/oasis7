@@ -473,3 +473,16 @@ raw reader 不解析语义 token 或业务身份，不用结构合法或摘要�
 状态页和 value reader 必须使用同一进程预算及同一 Ordinary/Recovery class。状态 lookup 前取得固定 query workspace，逐节点检查取消；语义键哈希、节点/读写和记录字节均有有限额度。状态 reader 的旧 String 错误边界由调用方提供原 typed-error carrier 恢复 Memory/ResourceLimited/Cancelled/I/O；没有原 typed error 的验证错误明确为 Invalid，不通过匹配错误文本猜测类型，任何失败都不返回合法缺失。输出按原 key digest 绑定到调用方的规范 typed key，不物化巨大原键。
 
 这提供指定根下的类型化点内容，不授予根 authority，也不证明完整 family 闭包、完整 World 恢复或可激活。原 root/物理代保护、完整 owner 登记、源身份和业务授权仍由外层负责。
+
+
+### 12.9 库存数量的有界点变更准备
+
+<a id="iws-inventory-point-change-v1"></a>
+
+本入口针对 §12.7 三字段准备单个资源/材料数量的最终点写，或显式允许创建的账本及其中一个数量，不重扫 map，不 clone World，不执行费用、外部效果或 head 发布。调用方提供原 typed key、精确 expected-before 和最终 after（None 表示删除该成员，Some(0) 保留零值），业务计算和授权仍由原 owner 承担。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+先按 §12.8 在给定不可变 Business 根下认证 Metadata、Group、原键和 I64；expected-before 不符返回独立 precondition 错误，不能在失败后写值或输出 StateWrite。资源/材料的缺失与零值、账本/材料各自的缺失分别比较。缺失账本只有在显式 create-ledger 许可下才写 Group；删除最后一个已知成员也保留 Group，不凭一次点读推断其他成员不存在。本入口不支持删除 Group，后者需要完整的成员关系依据。
+
+每次最多输出两条已计费 StateWrite，记录原 value root 为 before、新暂存 root 或 tombstone 为 after；不改无关 Metadata/Group/成员。before 与 after 相同时不重写成员。读写使用同一进程内存池；普通点准备明确使用 Ordinary，拒绝把 Recovery reader 的专用额度转给隐式 Ordinary 写者。读、写各自有限工作/I/O 额度及取消回调仍适用，调用方组织整个操作的总准入。owned 写键在分配前取得 reservation 并由 sink 保留；任何错误或取消不返回完成结果，调用方丢弃整段暂存前缀。
+
+完成结果携带源 StateRoot 的完整规范 bytes，外层必须绑定同一 prepared guard、合并业务已决定的最终写集、校验全部读依赖并在有界批次中构建 StateDelta；不能把同一旧根上的多次独立计算误当作可顺序重放的业务命令。暂存页、点写完成和业务提交/接受保持不同状态。本片不提供完整事务、账本删除、完整 World facade、authority 发布或恢复续跑的验收。
