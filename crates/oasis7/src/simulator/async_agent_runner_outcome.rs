@@ -51,6 +51,9 @@ pub(super) fn outcome_from_completion(completion: ActorCompletion) -> AsyncAgent
             prepared_context: completion.prepared_context,
             prepared_request_context: completion.prepared_request_context,
             prepared_response_context: completion.prepared_response_context,
+            provider_original_material_refs: completion.provider_original_material_refs,
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_response_context_lease: completion.provider_response_context_lease,
             cognition_lease: None,
             memory_write_intents: completion.memory_write_intents,
         };
@@ -75,6 +78,9 @@ pub(super) fn outcome_from_completion(completion: ActorCompletion) -> AsyncAgent
             prepared_context: completion.prepared_context,
             prepared_request_context: completion.prepared_request_context,
             prepared_response_context: completion.prepared_response_context,
+            provider_original_material_refs: completion.provider_original_material_refs,
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_response_context_lease: completion.provider_response_context_lease,
             cognition_lease: None,
             memory_write_intents: completion.memory_write_intents,
         };
@@ -116,6 +122,9 @@ pub(super) fn outcome_from_completion(completion: ActorCompletion) -> AsyncAgent
         prepared_context: completion.prepared_context,
         prepared_request_context: completion.prepared_request_context,
         prepared_response_context: completion.prepared_response_context,
+        provider_original_material_refs: completion.provider_original_material_refs,
+        #[cfg(not(target_arch = "wasm32"))]
+        provider_response_context_lease: completion.provider_response_context_lease,
         cognition_lease: None,
         memory_write_intents: completion.memory_write_intents,
     }
@@ -135,6 +144,9 @@ pub(super) fn compatibility_outcome_from_harness(
         decision_trace: None,
         prepared_context: metadata.context.clone(),
         prepared_response_context: None,
+        provider_original_material_refs: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        provider_response_context_lease: None,
         memory_write_intents: Vec::new(),
     });
     let mut outcome = outcome_from_completion(ActorCompletion {
@@ -145,6 +157,9 @@ pub(super) fn compatibility_outcome_from_harness(
         prepared_context: result.prepared_context.or(metadata.context),
         prepared_request_context: None,
         prepared_response_context: result.prepared_response_context,
+        provider_original_material_refs: result.provider_original_material_refs,
+        #[cfg(not(target_arch = "wasm32"))]
+        provider_response_context_lease: result.provider_response_context_lease,
         memory_write_intents: result.memory_write_intents,
         panicked: provider_error
             .as_ref()

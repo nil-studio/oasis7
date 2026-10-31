@@ -653,7 +653,7 @@ impl RuntimeLlmSidecar {
         &mut self,
         world: &mut RuntimeWorld,
         kernel: &mut WorldKernel,
-        outcome: AsyncAgentTurnOutcome,
+        mut outcome: AsyncAgentTurnOutcome,
     ) -> RuntimeLlmDecision {
         let agent_id = outcome.agent_id.clone();
         let cognition_lease = outcome
@@ -680,12 +680,14 @@ impl RuntimeLlmSidecar {
         }
         let cognition = context
             .clone()
-            .zip(outcome.prepared_response_context.clone())
+            .zip(outcome.prepared_response_context.take())
             .map(|(request, response)| RuntimeProviderActionContext {
                 request,
                 response,
                 cognition_lease: cognition_lease.clone(),
                 memory_write_intents: outcome.memory_write_intents.clone(),
+                provider_original_material_refs: outcome.provider_original_material_refs.clone(),
+                provider_response_context_lease: outcome.provider_response_context_lease.take(),
             });
         if let Some(context) = context.as_ref() {
             let Some(lease) = cognition_lease.as_ref() else {
@@ -839,6 +841,7 @@ impl RuntimeLlmSidecar {
         } else if decision_trace
             .as_ref()
             .is_some_and(provider_trace_retryable)
+            && !self.provider_original_material_capture_enabled()
         {
             if let Some(context) = context {
                 if context.request_context.transport_attempt < MAX_PROVIDER_TRANSPORT_ATTEMPTS {

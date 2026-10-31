@@ -1,3 +1,6 @@
+use std::io::{self, Write};
+
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::super::{
@@ -16,7 +19,70 @@ const MAX_PROVIDER_SUMMARY_BYTES: usize = 1024;
 const MAX_PROVIDER_TRACE_BYTES: usize = 32 * 1024;
 const MAX_PROVIDER_UPSTREAM_TRACE_BYTES: usize = 4 * 1024;
 const TRACE_REDACTED_VALUE: &str = "<redacted>";
+const TRACE_OMITTED_VALUE: &str = "<omitted: trace field exceeds bound>";
 const TRACE_OVERFLOW_DIAGNOSTIC: &str = "trace_payload_too_large";
+
+struct BoundedTraceWriter<const CAPACITY: usize> {
+    bytes: [u8; CAPACITY],
+    written: usize,
+    exceeded: bool,
+}
+
+impl<const CAPACITY: usize> BoundedTraceWriter<CAPACITY> {
+    fn new() -> Self {
+        Self {
+            bytes: [0; CAPACITY],
+            written: 0,
+            exceeded: false,
+        }
+    }
+}
+
+impl<const CAPACITY: usize> Write for BoundedTraceWriter<CAPACITY> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        let remaining = CAPACITY.saturating_sub(self.written);
+        if remaining == 0 {
+            self.exceeded = true;
+            return Err(io::Error::other("bounded provider trace serialization"));
+        }
+        let copied = bytes.len().min(remaining);
+        self.bytes[self.written..self.written + copied].copy_from_slice(&bytes[..copied]);
+        self.written += copied;
+        if copied != bytes.len() {
+            self.exceeded = true;
+        }
+        Ok(copied)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn bounded_json_text<T: Serialize, const CAPACITY: usize>(
+    value: &T,
+    max_bytes: usize,
+    overflow: &mut bool,
+) -> Option<String> {
+    let mut writer = BoundedTraceWriter::<CAPACITY>::new();
+    let encoded = serde_json::to_writer(&mut writer, value);
+    if writer.exceeded || writer.written > max_bytes {
+        *overflow = true;
+        return Some(TRACE_OMITTED_VALUE.to_string());
+    }
+    encoded.ok()?;
+    let text = std::str::from_utf8(&writer.bytes[..writer.written]).ok()?;
+    Some(normalize_trace_text(text, max_bytes, overflow))
+}
+
+fn bounded_json_exceeds<T: Serialize, const CAPACITY: usize>(value: &T, max_bytes: usize) -> bool {
+    let mut writer = BoundedTraceWriter::<CAPACITY>::new();
+    let encoded = serde_json::to_writer(&mut writer, value);
+    writer.exceeded || writer.written > max_bytes || encoded.is_err()
+}
 
 fn trace_key_is_sensitive(key: &str) -> bool {
     let normalized = key
@@ -43,7 +109,6 @@ fn trace_key_is_sensitive(key: &str) -> bool {
 }
 
 fn trace_text_is_sensitive(text: &str) -> bool {
-    let normalized = text.to_ascii_lowercase();
     [
         "credential",
         "authorization",
@@ -61,15 +126,24 @@ fn trace_text_is_sensitive(text: &str) -> bool {
         "session_key",
         "cookie",
         "/private/",
+        "token-secret",
+        "token=",
+        "token:",
+        "bearer ",
+        "set-cookie",
+        "-----begin",
     ]
     .iter()
-    .any(|marker| normalized.contains(marker))
-        || normalized.contains("token-secret")
-        || normalized.contains("token=")
-        || normalized.contains("token:")
-        || normalized.contains("bearer ")
-        || normalized.contains("set-cookie")
-        || normalized.contains("-----begin")
+    .any(|marker| contains_ascii_case_insensitive(text, marker))
+}
+
+fn contains_ascii_case_insensitive(text: &str, needle: &str) -> bool {
+    let needle = needle.as_bytes();
+    !needle.is_empty()
+        && text
+            .as_bytes()
+            .windows(needle.len())
+            .any(|candidate| candidate.eq_ignore_ascii_case(needle))
 }
 
 fn redact_trace_json(value: &Value) -> Value {
@@ -109,7 +183,20 @@ fn redact_trace_text(text: &str) -> String {
     }
 }
 
-fn truncate_trace_text(text: &str, max_bytes: usize) -> String {
+fn normalize_trace_text(text: &str, max_bytes: usize, overflow: &mut bool) -> String {
+    if text.len() > max_bytes {
+        *overflow = true;
+        return TRACE_OMITTED_VALUE.to_string();
+    }
+    let redacted = redact_trace_text(text);
+    if redacted.len() > max_bytes {
+        *overflow = true;
+        return TRACE_OMITTED_VALUE.to_string();
+    }
+    redacted
+}
+
+fn truncate_trace_prefix(text: &str, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         return text.to_string();
     }
@@ -120,22 +207,9 @@ fn truncate_trace_text(text: &str, max_bytes: usize) -> String {
     text[..end].to_string()
 }
 
-fn normalize_trace_text(text: &str, max_bytes: usize, overflow: &mut bool) -> String {
-    if text.len() > max_bytes {
-        *overflow = true;
-    }
-    let redacted = redact_trace_text(text);
-    truncate_trace_text(&redacted, max_bytes)
-}
-
-fn normalize_trace_fallback_text(text: &str, max_bytes: usize, overflow: &mut bool) -> String {
-    normalize_trace_text(text, max_bytes, overflow)
-}
-
 fn normalize_trace_json(value: &Value, max_bytes: usize, overflow: &mut bool) -> String {
-    let serialized =
-        serde_json::to_string(value).unwrap_or_else(|_| TRACE_REDACTED_VALUE.to_string());
-    normalize_trace_text(&serialized, max_bytes, overflow)
+    bounded_json_text::<_, { MAX_PROVIDER_SUMMARY_BYTES + 1 }>(value, max_bytes, overflow)
+        .unwrap_or_else(|| TRACE_REDACTED_VALUE.to_string())
 }
 
 fn provider_trace_payload_exceeds_bounds(payload: &ProviderTraceEnvelope) -> bool {
@@ -161,26 +235,43 @@ fn provider_trace_payload_exceeds_bounds(payload: &ProviderTraceEnvelope) -> boo
             .tool_trace
             .iter()
             .any(|entry| entry.len() > MAX_PROVIDER_TOOL_TRACE_ENTRY_BYTES);
-    let upstream_exceeds = payload
-        .upstream_trace
-        .as_ref()
-        .and_then(|trace| serde_json::to_vec(trace).ok())
-        .is_some_and(|trace| trace.len() > MAX_PROVIDER_UPSTREAM_TRACE_BYTES);
+    let upstream_exceeds = payload.upstream_trace.as_ref().is_some_and(|trace| {
+        bounded_json_exceeds::<_, { MAX_PROVIDER_UPSTREAM_TRACE_BYTES + 1 }>(
+            trace,
+            MAX_PROVIDER_UPSTREAM_TRACE_BYTES,
+        )
+    });
     summary_exceeds || transcript_exceeds || tool_trace_exceeds || upstream_exceeds
 }
 
 fn serialized_trace_size(trace: &AgentDecisionTrace) -> usize {
-    serde_json::to_vec(trace).map_or(usize::MAX, |serialized| serialized.len())
+    let mut writer = BoundedTraceWriter::<{ MAX_PROVIDER_TRACE_BYTES + 1 }>::new();
+    let encoded = serde_json::to_writer(&mut writer, trace);
+    if writer.exceeded || writer.written > MAX_PROVIDER_TRACE_BYTES || encoded.is_err() {
+        usize::MAX
+    } else {
+        writer.written
+    }
 }
 
 fn append_trace_overflow_diagnostic(trace: &mut AgentDecisionTrace) {
     let message = match trace.llm_error.take() {
-        Some(existing) if existing.contains(TRACE_OVERFLOW_DIAGNOSTIC) => existing,
-        Some(existing) if existing.is_empty() => TRACE_OVERFLOW_DIAGNOSTIC.to_string(),
-        Some(existing) => format!("{TRACE_OVERFLOW_DIAGNOSTIC}: {existing}"),
-        None => TRACE_OVERFLOW_DIAGNOSTIC.to_string(),
+        Some(existing)
+            if existing.contains(TRACE_OVERFLOW_DIAGNOSTIC)
+                && existing.len() <= MAX_PROVIDER_SUMMARY_BYTES =>
+        {
+            existing
+        }
+        Some(existing)
+            if !existing.is_empty()
+                && TRACE_OVERFLOW_DIAGNOSTIC.len() + 2 + existing.len()
+                    <= MAX_PROVIDER_SUMMARY_BYTES =>
+        {
+            format!("{TRACE_OVERFLOW_DIAGNOSTIC}: {existing}")
+        }
+        _ => TRACE_OVERFLOW_DIAGNOSTIC.to_string(),
     };
-    trace.llm_error = Some(truncate_trace_text(&message, MAX_PROVIDER_SUMMARY_BYTES));
+    trace.llm_error = Some(message);
 }
 
 fn normalize_trace_aggregate(trace: &mut AgentDecisionTrace, mut overflow: bool) {
@@ -218,7 +309,7 @@ fn normalize_trace_aggregate(trace: &mut AgentDecisionTrace, mut overflow: bool)
     // compact diagnostic projection; the candidate decision itself is held
     // separately by the caller and is not changed by this fallback.
     if serialized_trace_size(trace) > MAX_PROVIDER_TRACE_BYTES {
-        trace.agent_id = truncate_trace_text(&trace.agent_id, 256);
+        trace.agent_id = truncate_trace_prefix(&trace.agent_id, 256);
         trace.decision = AgentDecision::Wait;
         trace.llm_input = None;
         trace.llm_output = None;
@@ -302,14 +393,19 @@ pub(super) fn response_to_trace(
         .as_deref()
         .map(|summary| normalize_trace_text(summary, MAX_PROVIDER_SUMMARY_BYTES, &mut overflow))
         .or_else(|| {
-            serde_json::to_string(request).ok().map(|summary| {
-                normalize_trace_fallback_text(&summary, MAX_PROVIDER_SUMMARY_BYTES, &mut overflow)
-            })
+            bounded_json_text::<_, { MAX_PROVIDER_SUMMARY_BYTES + 1 }>(
+                request,
+                MAX_PROVIDER_SUMMARY_BYTES,
+                &mut overflow,
+            )
         });
     let output_summary = outer_response
-        .and_then(|outer| serde_json::to_string(outer).ok())
-        .map(|summary| {
-            normalize_trace_fallback_text(&summary, MAX_PROVIDER_SUMMARY_BYTES, &mut overflow)
+        .and_then(|outer| {
+            bounded_json_text::<_, { MAX_PROVIDER_SUMMARY_BYTES + 1 }>(
+                outer,
+                MAX_PROVIDER_SUMMARY_BYTES,
+                &mut overflow,
+            )
         })
         .or_else(|| {
             response
@@ -321,9 +417,11 @@ pub(super) fn response_to_trace(
                 })
         })
         .or_else(|| {
-            serde_json::to_string(response).ok().map(|summary| {
-                normalize_trace_fallback_text(&summary, MAX_PROVIDER_SUMMARY_BYTES, &mut overflow)
-            })
+            bounded_json_text::<_, { MAX_PROVIDER_SUMMARY_BYTES + 1 }>(
+                response,
+                MAX_PROVIDER_SUMMARY_BYTES,
+                &mut overflow,
+            )
         });
     let transcript = response
         .trace_payload

@@ -498,7 +498,7 @@ fn provider_trace_is_bounded_redacted_and_non_authoritative() {
 fn upstream_trace_over_four_kib_retains_overflow_diagnostic() {
     let mut response = wait_response_with_memory_intent();
     response.trace_payload.upstream_trace = Some(json!({
-        "provider_payload": "x".repeat(8 * 1024)
+        "provider_payload": format!("{}{}", "x".repeat(8 * 1024), "late-provider-secret"),
     }));
     let mut runner = provider_backed_runner_with_response(response);
     runner
@@ -508,6 +508,42 @@ fn upstream_trace_over_four_kib_retains_overflow_diagnostic() {
     let trace = outcome
         .decision_trace
         .expect("overflow fixture retains trace");
+    let serialized_trace = serde_json::to_string(&trace).expect("serialize bounded trace");
+    assert!(
+        !serialized_trace.contains("late-provider-secret"),
+        "an oversized provider trace must be omitted before a truncated JSON prefix can leak it"
+    );
+    assert!(
+        trace
+            .llm_error
+            .as_deref()
+            .is_some_and(|error| error.contains("trace_payload_too_large"))
+    );
+}
+
+#[test]
+fn oversized_provider_trace_is_bounded_before_redaction_and_summary_copy() {
+    let mut response = wait_response_with_memory_intent();
+    response.trace_payload.upstream_trace = Some(json!({
+        "provider_payload": format!(
+            "{}{}",
+            "x".repeat(64 * 1024),
+            "late-provider-secret"
+        ),
+    }));
+    let mut runner = provider_backed_runner_with_response(response);
+    runner
+        .start_turn_with_context(AGENT_ID, host_context())
+        .expect("open oversized trace fixture turn");
+    let outcome = completed_turn(&mut runner);
+    let trace = outcome
+        .decision_trace
+        .expect("oversized trace still produces bounded diagnostics");
+    let serialized_trace = serde_json::to_string(&trace).expect("serialize bounded trace");
+    assert!(!serialized_trace.contains("late-provider-secret"));
+    assert!(trace.llm_output.as_ref().is_some_and(|output| {
+        output.len() <= MAX_PROVIDER_SUMMARY_BYTES && output.contains("omitted")
+    }));
     assert!(
         trace
             .llm_error

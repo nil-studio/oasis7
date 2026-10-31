@@ -31,9 +31,12 @@ mod memory;
 mod model_provider;
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod provider_json_admission;
+#[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_http;
+mod provider_material_capture;
 mod runner;
 pub(crate) mod runtime_perf;
 #[cfg(not(target_arch = "wasm32"))]
@@ -120,6 +123,16 @@ pub use oasis7_simulator::{
     CM3_PER_M3, CompoundComposition, CuboidSizeCm, FragmentBlock, FragmentBlockField,
     FragmentCompoundKind, FragmentPhysicalProfile, GridPosCm, MIN_BLOCK_EDGE_CM, infer_element_ppm,
     mass_grams_from_volume_density, synthesize_fragment_budget, synthesize_fragment_profile,
+};
+pub use provider_material_capture::{
+    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
+    ProviderPendingStateRootsV1,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use provider_material_capture::{
+    ProviderMaterialAuthority, ProviderOriginalMaterialStore, ProviderSpoolReservation,
 };
 
 #[cfg(not(target_arch = "wasm32"))]

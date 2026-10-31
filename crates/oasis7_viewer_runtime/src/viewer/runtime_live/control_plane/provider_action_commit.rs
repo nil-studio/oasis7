@@ -30,6 +30,8 @@ impl ViewerRuntimeLiveServer {
             else {
                 return Err("pending Agent recovery has wrong operation".into());
             };
+            self.llm_sidecar
+                .verify_provider_original_materials(&pending.cognition)?;
             return self
                 .submit_provider_service_action(
                     &signed.request.action,
@@ -43,6 +45,8 @@ impl ViewerRuntimeLiveServer {
         else {
             return Ok(());
         };
+        self.llm_sidecar
+            .verify_provider_original_materials(&cognition)?;
         let request = &cognition.request.request_context;
         let marker = self
             .world
@@ -76,6 +80,17 @@ impl ViewerRuntimeLiveServer {
             .map_err(|error| {
                 format!("Runtime cognition receipt recovery verification failed: {error:?}")
             })?;
+        if lineage.receipt_id != marker.receipt_id
+            || lineage.action_id != format!("action:{action_id}")
+        {
+            return Err("Runtime cognition receipt recovery identity mismatch".into());
+        }
+        self.llm_sidecar
+            .mark_provider_original_materials_committed(
+                &cognition,
+                lineage.receipt_id.as_str(),
+                action_id,
+            )?;
         self.settle_provider_cognition_lease_for_request(
             request.agent_subject.as_str(),
             cognition.cognition_lease.clone(),
@@ -168,6 +183,9 @@ impl ViewerRuntimeLiveServer {
         cognition: &RuntimeProviderActionContext,
         simulator_action: SimulatorAction,
     ) -> Result<(), ProviderRuntimeActionCommitError> {
+        self.llm_sidecar
+            .verify_provider_original_materials(cognition)
+            .map_err(ProviderRuntimeActionCommitError::Message)?;
         if self.chain_link_enabled() {
             return self.submit_provider_service_action(
                 runtime_action,
@@ -287,6 +305,13 @@ impl ViewerRuntimeLiveServer {
                 "Runtime cognition receipt readback identity mismatch".to_string(),
             ));
         }
+        self.llm_sidecar
+            .mark_provider_original_materials_committed(
+                cognition,
+                lineage.receipt_id.as_str(),
+                action_id,
+            )
+            .map_err(ProviderRuntimeActionCommitError::PostCommit)?;
         self.llm_sidecar
             .clear_provider_stale_replans(cognition.request.request_context.agent_subject.as_str());
         let feedback = self.llm_sidecar.provider_feedback(
@@ -507,6 +532,9 @@ impl ViewerRuntimeLiveServer {
         cognition: &RuntimeProviderActionContext,
         simulator_action: SimulatorAction,
     ) -> Result<(), ProviderRuntimeActionCommitError> {
+        self.llm_sidecar
+            .verify_provider_original_materials(cognition)
+            .map_err(ProviderRuntimeActionCommitError::Message)?;
         self.ensure_direct_hosted_service_owner(cognition)
             .map_err(ProviderRuntimeActionCommitError::Message)?;
         let (pending, existed) = self.prepare_provider_service_action_checkpoint(

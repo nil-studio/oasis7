@@ -7,10 +7,17 @@ use super::{
     DecisionResponse, FeedbackEnvelope, FeedbackEnvelopeV1, ProviderDecision, ProviderFeedbackAck,
     ProviderLoopbackHttpClient, ProviderLoopbackHttpError,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use super::{
+    ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
+    provider_json_admission::ProviderResponseContextLease,
+};
 use oasis7_wasm_abi::{
     AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleCommandDeclaration,
     ModuleCommandValidationError, ModuleSchemaDeclarations, validate_module_command_declarations,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 
 /// Host-owned seam between the simulator provider loop and the runtime
 /// capability executor.  Provider output is accepted as a typed response,
@@ -101,10 +108,24 @@ const PHASE1_ALLOWED_ACTION_REFS: &[&str] = &[
     "simple_interact",
 ];
 
-#[derive(Debug)]
 pub struct ProviderLoopbackAdapter {
     provider_id: String,
     client: ProviderLoopbackHttpClient,
+    #[cfg(not(target_arch = "wasm32"))]
+    original_material_store: Option<Arc<dyn ProviderOriginalMaterialStore>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_original_material_refs: Option<ProviderOriginalMaterialRefsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_response_context_lease: Option<ProviderResponseContextLease>,
+}
+
+impl std::fmt::Debug for ProviderLoopbackAdapter {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProviderLoopbackAdapter")
+            .field("provider_id", &self.provider_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderLoopbackAdapter {
@@ -140,7 +161,24 @@ impl ProviderLoopbackAdapter {
                 provider_id
             },
             client,
+            #[cfg(not(target_arch = "wasm32"))]
+            original_material_store: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_original_material_refs: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_response_context_lease: None,
         }
+    }
+
+    /// Install the explicitly selected new-format pending owner. This is never
+    /// inferred from the legacy provider-lineage checkpoint path.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_original_material_store(
+        mut self,
+        store: Arc<dyn ProviderOriginalMaterialStore>,
+    ) -> Self {
+        self.original_material_store = Some(store);
+        self
     }
 
     pub fn phase1_allowed_action_refs() -> &'static [&'static str] {
@@ -474,6 +512,11 @@ impl DecisionProvider for ProviderLoopbackAdapter {
         &mut self,
         request: &DecisionRequest,
     ) -> Result<DecisionResponse, DecisionProviderError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pending_original_material_refs = None;
+            self.pending_response_context_lease = None;
+        }
         let response = self
             .client
             .request_decision(request)
@@ -488,6 +531,11 @@ impl DecisionProvider for ProviderLoopbackAdapter {
         turn_context: &ContinuousAgentTurnContextV1,
         request_context: &ContinuousAgentRequestContextV1,
     ) -> Result<ContinuousAgentResponseContextV1, DecisionProviderError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pending_original_material_refs = None;
+            self.pending_response_context_lease = None;
+        }
         request_context
             .validate_production_lane()
             .map_err(|error| DecisionProviderError::new(error.code(), error.message(), false))?;
@@ -503,6 +551,32 @@ impl DecisionProvider for ProviderLoopbackAdapter {
                 false,
             ));
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let response = if let Some(store) = self.original_material_store.as_deref() {
+            let (response, refs, response_context_lease) = self
+                .client
+                .request_decision_with_context_and_material_store(request_context, store)
+                .map_err(|error| {
+                    DecisionProviderError::new(
+                        "provider_attempt_retained",
+                        format!(
+                            "captured provider attempt is retained under its original identity: {error}"
+                        ),
+                        false,
+                    )
+                })?;
+            // Keep the references even if the subsequent semantic validation
+            // fails: the owner must retain the raw response as pending rather
+            // than treating an invalid response as if no external effect ran.
+            self.pending_original_material_refs = Some(refs);
+            self.pending_response_context_lease = Some(response_context_lease);
+            response
+        } else {
+            self.client
+                .request_decision_with_context(request_context)
+                .map_err(Self::map_http_error)?
+        };
+        #[cfg(target_arch = "wasm32")]
         let response = self
             .client
             .request_decision_with_context(request_context)
@@ -548,6 +622,16 @@ impl DecisionProvider for ProviderLoopbackAdapter {
             .map_err(|error| DecisionProviderError::new(error.code(), error.message(), false))?;
         self.validate_response(request, &response.base_decision_response)?;
         Ok(response)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_original_material_refs(&mut self) -> Option<ProviderOriginalMaterialRefsV1> {
+        self.pending_original_material_refs.take()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_response_context_lease(&mut self) -> Option<ProviderResponseContextLease> {
+        self.pending_response_context_lease.take()
     }
 
     fn push_feedback(&mut self, feedback: &FeedbackEnvelope) -> Result<(), DecisionProviderError> {

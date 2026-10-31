@@ -81,6 +81,8 @@ impl RuntimeLlmSidecar {
             pending_provider_world_events: BTreeMap::new(),
             provider_world_event_quarantine: BTreeMap::new(),
             provider_lineage_store: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_original_material_store: None,
             provider_lineage_binding: None,
             provider_lineage_restored: false,
             provider_lineage_hydrated: false,

@@ -1,17 +1,154 @@
 use std::error::Error;
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::IpAddr;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use reqwest::blocking::{Client, RequestBuilder};
-use reqwest::{Method, StatusCode, Url};
+use oasis7_proto::memory_budget::MemoryClass;
+use reqwest::blocking::{Body, Client, RequestBuilder};
+use reqwest::{Method, StatusCode, Url, header::CONTENT_TYPE};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, DecisionRequest,
-    DecisionResponse, FeedbackEnvelope, FeedbackEnvelopeV1,
+    DecisionResponse, FeedbackEnvelope, FeedbackEnvelopeV1, ProviderOriginalMaterialRefsV1,
+    ProviderOriginalMaterialStore,
 };
+
+const PROVIDER_CAPTURE_COPY_BYTES: usize = 64 * 1024;
+static NEXT_PROVIDER_SPOOL_ID: AtomicU64 = AtomicU64::new(1);
+
+/// An anonymous, bounded disk spool. The body is never accumulated in an
+/// unbounded Vec; the capture owner separately reserves a finite spool quota.
+struct ProviderBodySpool {
+    file: Option<File>,
+    length: u64,
+    limit: u64,
+}
+
+impl ProviderBodySpool {
+    fn new(limit: u64) -> std::io::Result<Self> {
+        for _ in 0..32 {
+            let sequence = NEXT_PROVIDER_SPOOL_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "oasis7-provider-material-{}-{sequence}.spool",
+                std::process::id()
+            ));
+            let mut options = OpenOptions::new();
+            options.read(true).write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
+                Ok(file) => {
+                    // Keep only the open handle. A crash cannot leave prompt or
+                    // response bytes behind in the system temp directory.
+                    if let Err(error) = std::fs::remove_file(&path) {
+                        drop(file);
+                        let _ = std::fs::remove_file(&path);
+                        return Err(error);
+                    }
+                    return Ok(Self {
+                        file: Some(file),
+                        length: 0,
+                        limit,
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "provider body spool name space exhausted",
+        ))
+    }
+
+    fn length(&self) -> u64 {
+        self.length
+    }
+
+    fn rewind(&mut self) -> std::io::Result<&mut File> {
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("provider body spool already transferred"))?;
+        file.flush()?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(file)
+    }
+
+    fn into_file(mut self) -> std::io::Result<File> {
+        let mut file = self
+            .file
+            .take()
+            .ok_or_else(|| std::io::Error::other("provider body spool already transferred"))?;
+        file.flush()?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(file)
+    }
+}
+
+fn provider_spool_excerpt(spool: &mut ProviderBodySpool) -> String {
+    let mut excerpt = [0u8; 4096];
+    match spool.rewind() {
+        Ok(file) => match file.read(&mut excerpt) {
+            Ok(count) => String::from_utf8_lossy(&excerpt[..count])
+                .trim()
+                .to_string(),
+            Err(_) => String::new(),
+        },
+        Err(_) => String::new(),
+    }
+}
+
+fn provider_spool_digest(
+    spool: &mut ProviderBodySpool,
+    buffer: &mut [u8],
+) -> std::io::Result<[u8; 32]> {
+    let mut hasher = blake3::Hasher::new();
+    let file = spool.rewind()?;
+    loop {
+        let read = file.read(buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(*hasher.finalize().as_bytes())
+}
+
+impl Write for ProviderBodySpool {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("provider body spool already transferred"))?;
+        let remaining = self.limit.saturating_sub(self.length);
+        if bytes.len() as u64 > remaining {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "provider body exceeds capture limit",
+            ));
+        }
+        let written = file.write(bytes)?;
+        self.length = self.length.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("provider body spool already transferred"))?
+            .flush()
+    }
+}
 
 pub use oasis7_client_api::{
     ProviderCompatibilityReport, ProviderCompatibilityStatus, ProviderHealth, ProviderInfo,
@@ -155,6 +292,9 @@ pub struct ProviderLoopbackHttpClient {
     base_url: Url,
     auth_token: Option<String>,
     http: Client,
+    captured_http: OnceLock<Result<Client, String>>,
+    timeout: Duration,
+    no_proxy: bool,
 }
 
 impl ProviderLoopbackHttpClient {
@@ -179,8 +319,10 @@ impl ProviderLoopbackHttpClient {
     ) -> Result<Self, ProviderLoopbackHttpError> {
         let transport = transport.trim();
         let base_url = validate_provider_http_base_url(base_url, transport)?;
-        let mut builder = Client::builder().timeout(Duration::from_millis(timeout_ms.max(1)));
-        if transport == LOOPBACK_HTTP_PROVIDER_TRANSPORT {
+        let timeout = Duration::from_millis(timeout_ms.max(1));
+        let no_proxy = transport == LOOPBACK_HTTP_PROVIDER_TRANSPORT;
+        let mut builder = Client::builder().timeout(timeout);
+        if no_proxy {
             builder = builder.no_proxy();
         }
         let http = builder
@@ -196,6 +338,9 @@ impl ProviderLoopbackHttpClient {
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned),
             http,
+            captured_http: OnceLock::new(),
+            timeout,
+            no_proxy,
         })
     }
 
@@ -219,6 +364,308 @@ impl ProviderLoopbackHttpClient {
         request: &ContinuousAgentRequestContextV1,
     ) -> Result<ContinuousAgentResponseContextV1, ProviderLoopbackHttpError> {
         self.post_json("/v1/world-simulator/decision-context", request)
+    }
+
+    /// Native new-format lane: persist the exact request body before dispatch,
+    /// send that same bounded spool, persist the exact HTTP entity body before
+    /// decoding it, and return only the resulting content references beside
+    /// the existing typed response.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn request_decision_with_context_and_material_store(
+        &self,
+        request: &ContinuousAgentRequestContextV1,
+        store: &dyn ProviderOriginalMaterialStore,
+    ) -> Result<
+        (
+            ContinuousAgentResponseContextV1,
+            ProviderOriginalMaterialRefsV1,
+            super::provider_json_admission::ProviderResponseContextLease,
+        ),
+        ProviderLoopbackHttpError,
+    > {
+        let path = "/v1/world-simulator/decision-context";
+        let binding = store.owner_binding();
+        binding
+            .validate()
+            .map_err(|detail| ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: detail.into(),
+            })?;
+        if binding.world_id != request.runtime_binding.world_id {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider request world does not match its installed pending owner".into(),
+            });
+        }
+        store.validate_request_owner(request).map_err(|detail| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider request owner binding rejected: {detail}"),
+            }
+        })?;
+        let request_limit = store.request_body_limit_bytes();
+        let response_limit = store.response_body_limit_bytes();
+        if request_limit == 0 || response_limit == 0 {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider capture body limits must be nonzero".into(),
+            });
+        }
+        let _spool_reservation = store
+            .reserve_body_spools(request_limit, response_limit)
+            .map_err(|detail| ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider body spool admission failed: {detail}"),
+            })?;
+        let _copy_workspace = store
+            .memory_budget()
+            .reserve(PROVIDER_CAPTURE_COPY_BYTES, MemoryClass::Ordinary)
+            .map_err(|error| ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider body copy admission failed: {error}"),
+            })?;
+        if store.cancelled() {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider material capture cancelled before request encoding".into(),
+            });
+        }
+
+        let mut request_spool = ProviderBodySpool::new(request_limit).map_err(|error| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider request spool creation failed: {error}"),
+            }
+        })?;
+        serde_json::to_writer(&mut request_spool, request).map_err(|error| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider request exceeded its bounded spool: {error}"),
+            }
+        })?;
+        request_spool
+            .flush()
+            .map_err(|error| ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider request spool flush failed: {error}"),
+            })?;
+        let request_length = request_spool.length();
+        let mut buffer = [0u8; PROVIDER_CAPTURE_COPY_BYTES];
+        let request_object_id =
+            provider_spool_digest(&mut request_spool, &mut buffer).map_err(|error| {
+                ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider request spool digest failed: {error}"),
+                }
+            })?;
+        let attempt = {
+            let request_file = request_spool.rewind().map_err(|error| {
+                ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider request spool rewind failed: {error}"),
+                }
+            })?;
+            store
+                .persist_request(request, request_object_id, request_file, request_length)
+                .map_err(|detail| ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider request persistence failed: {detail}"),
+                })?
+        };
+        if attempt.owner != *binding
+            || attempt.operation_id != request.provider_invocation_key().to_string()
+            || attempt.transport_attempt != request.transport_attempt
+            || attempt.request_object_id != request_object_id
+        {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider request attempt identity differs from the captured bytes".into(),
+            });
+        }
+        if store.cancelled() {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider material capture cancelled before dispatch".into(),
+            });
+        }
+        // Resolve all local request construction and spool rewinding before
+        // publishing DispatchedOrUnknown. From this point, every error is
+        // non-retryable under this transport lane.
+        let request_file = request_spool.into_file().map_err(|error| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider request body rewind failed: {error}"),
+            }
+        })?;
+        let request_builder = self
+            .build_captured_request(Method::POST, path)?
+            .header(CONTENT_TYPE, "application/json");
+        store.mark_dispatched(&attempt).map_err(|detail| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider dispatch marker persistence failed: {detail}"),
+            }
+        })?;
+        if store.cancelled() {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail:
+                    "provider material capture cancelled after dispatch marker and before HTTP send"
+                        .into(),
+            });
+        }
+
+        let body = Body::sized(request_file, request_length);
+        let mut response = request_builder.body(body).send().map_err(|error| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: error.to_string(),
+            }
+        })?;
+        let status = response.status();
+        if response
+            .content_length()
+            .is_some_and(|length| length > response_limit)
+        {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider response content length exceeds capture limit".into(),
+            });
+        }
+        let mut response_spool = ProviderBodySpool::new(response_limit).map_err(|error| {
+            ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider response spool creation failed: {error}"),
+            }
+        })?;
+        loop {
+            if store.cancelled() {
+                return Err(ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: "provider material capture cancelled while reading response".into(),
+                });
+            }
+            let read = response.read(&mut buffer).map_err(|error| {
+                ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider response body read failed: {error}"),
+                }
+            })?;
+            if read == 0 {
+                break;
+            }
+            response_spool.write_all(&buffer[..read]).map_err(|error| {
+                ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider response exceeded its bounded spool: {error}"),
+                }
+            })?;
+        }
+        response_spool
+            .flush()
+            .map_err(|error| ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider response spool flush failed: {error}"),
+            })?;
+        let response_length = response_spool.length();
+        let response_bytes_id =
+            provider_spool_digest(&mut response_spool, &mut buffer).map_err(|error| {
+                ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider response spool digest failed: {error}"),
+                }
+            })?;
+        let response_object_id = {
+            let response_file = response_spool.rewind().map_err(|error| {
+                ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider response spool rewind failed: {error}"),
+                }
+            })?;
+            store
+                .persist_response_body(
+                    &attempt,
+                    status.as_u16(),
+                    response_bytes_id,
+                    response_file,
+                    response_length,
+                )
+                .map_err(|detail| ProviderLoopbackHttpError::RequestFailed {
+                    path: path.to_string(),
+                    detail: format!("provider response persistence failed: {detail}"),
+                })?
+        };
+        if response_object_id != response_bytes_id {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider response object identity differs from captured bytes".into(),
+            });
+        }
+
+        if status == StatusCode::UNAUTHORIZED {
+            let detail = provider_spool_excerpt(&mut response_spool);
+            return Err(ProviderLoopbackHttpError::Unauthorized {
+                path: path.to_string(),
+                detail: if detail.is_empty() {
+                    "HTTP 401".into()
+                } else {
+                    detail
+                },
+            });
+        }
+        if !status.is_success() {
+            return Err(ProviderLoopbackHttpError::UnexpectedStatus {
+                path: path.to_string(),
+                status_code: status.as_u16(),
+                body: provider_spool_excerpt(&mut response_spool),
+            });
+        }
+        if store.cancelled() {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider material capture cancelled before response decode".into(),
+            });
+        }
+        let (decoded, response_context_lease) = {
+            let response_file = response_spool.rewind().map_err(|error| {
+                ProviderLoopbackHttpError::DecodeFailed {
+                    path: path.to_string(),
+                    detail: format!("provider response spool rewind failed: {error}"),
+                }
+            })?;
+            super::provider_json_admission::decode_response_context_with_lease(
+                response_file,
+                response_limit,
+                &store.memory_budget(),
+                MemoryClass::Ordinary,
+                || store.cancelled(),
+            )
+            .map_err(|error| ProviderLoopbackHttpError::DecodeFailed {
+                path: path.to_string(),
+                detail: error.to_string(),
+            })?
+        };
+        let refs = store
+            .finish_response(&attempt, status.as_u16(), response_object_id, &decoded)
+            .map_err(|detail| ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: format!("provider typed response persistence failed: {detail}"),
+            })?;
+        if refs.owner != attempt.owner
+            || refs.operation_id != attempt.operation_id
+            || refs.transport_attempt != attempt.transport_attempt
+            || refs.attempt_id != attempt.attempt_id
+            || refs.request_object_id != attempt.request_object_id
+            || refs.request_context_object_id != attempt.request_context_object_id
+            || refs.response_object_id != response_object_id
+            || refs.response_status != status.as_u16()
+        {
+            return Err(ProviderLoopbackHttpError::RequestFailed {
+                path: path.to_string(),
+                detail: "provider response references do not match the captured attempt".into(),
+            });
+        }
+        Ok((decoded, refs, response_context_lease))
     }
 
     pub fn submit_feedback(
@@ -279,11 +726,45 @@ impl ProviderLoopbackHttpClient {
         method: Method,
         path: &str,
     ) -> Result<RequestBuilder, ProviderLoopbackHttpError> {
+        self.build_request_with_client(&self.http, method, path)
+    }
+
+    fn build_captured_request(
+        &self,
+        method: Method,
+        path: &str,
+    ) -> Result<RequestBuilder, ProviderLoopbackHttpError> {
+        let capture_client = self.captured_http.get_or_init(|| {
+            let mut builder = Client::builder()
+                .timeout(self.timeout)
+                .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never());
+            if self.no_proxy {
+                builder = builder.no_proxy();
+            }
+            builder.build().map_err(|error| error.to_string())
+        });
+        let capture_client =
+            capture_client
+                .as_ref()
+                .map_err(|detail| ProviderLoopbackHttpError::RequestFailed {
+                    path: "<capture-client>".to_string(),
+                    detail: detail.clone(),
+                })?;
+        self.build_request_with_client(capture_client, method, path)
+    }
+
+    fn build_request_with_client(
+        &self,
+        client: &Client,
+        method: Method,
+        path: &str,
+    ) -> Result<RequestBuilder, ProviderLoopbackHttpError> {
         let url = self
             .base_url
             .join(path.trim_start_matches('/'))
             .map_err(|err| ProviderLoopbackHttpError::InvalidBaseUrl(err.to_string()))?;
-        let mut request = self.http.request(method, url);
+        let mut request = client.request(method, url);
         if let Some(token) = &self.auth_token {
             request = request.bearer_auth(token);
         }
