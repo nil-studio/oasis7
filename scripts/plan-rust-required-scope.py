@@ -693,6 +693,56 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             if not any(start < index < stop and start not in module_braces
                        for start, stop in closing.items()):
                 ordinary_context.add(item_owners[index])
+        # A local `let` cfg is not an item. Absolute token offsets are not
+        # lexical identities: inserting an unrelated struct must not make an
+        # unchanged macOS statement look like a newly gated Linux test. Keep
+        # this exception narrow: direct free-function-body lets only, with complete
+        # statement tokens and their enclosing qualified function as identity.
+        # Changed expressions/initializers, new statements and moved scopes
+        # remain additions and go through the existing validated-driver check.
+        function_bodies = []
+        for start, owner in item_owners.items():
+            if owner[0] != 'fn':
+                continue
+            cursor = start + 2
+            while cursor < len(tokens) and tokens[cursor][1] not in ('{', ';'):
+                if cursor in closing and tokens[cursor][1] in ('(', '['):
+                    cursor = closing[cursor] + 1
+                else:
+                    cursor += 1
+            if cursor in closing and tokens[cursor][1] == '{':
+                function_bodies.append((cursor, closing[cursor], owner))
+        statement_owners, statement_occurrences = {}, {}
+        for start, (_, value, _) in enumerate(tokens):
+            if value != 'let':
+                continue
+            bodies = [(left, right, owner) for left, right, owner in function_bodies
+                      if left < start < right]
+            if not bodies:
+                continue
+            left, right, function = min(bodies, key=lambda body: body[1] - body[0])
+            if any(opening < left < right < stop and tokens[opening][1] == '{'
+                   and opening not in module_braces for opening, stop in closing.items()):
+                continue  # Impl/trait/nested-function/macro owners remain conservative.
+            if any(left < opening < start < stop <= right and tokens[opening][1] == '{'
+                   for opening, stop in closing.items()):
+                continue  # Nested blocks/macros retain conservative handling.
+            end = start + 1
+            while end < right and tokens[end][1] != ';':
+                if end in closing:
+                    end = closing[end] + 1
+                else:
+                    end += 1
+            if end >= right:
+                continue
+            identity = hashlib.sha256(json.dumps(
+                [token for _, token, _ in tokens[start:end + 1]],
+                ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+            key = function, identity
+            occurrence = statement_occurrences.get(key, 0)
+            statement_occurrences[key] = occurrence + 1
+            statement_owners[start] = ('statement', f'{function[1]}#{function[2]}::let:{identity}', occurrence)
+
         for index, (_, token, _) in enumerate(tokens):
             inner = index + 1 < len(tokens) and tokens[index + 1][1] == '!'
             opening = index + 2 if inner else index + 1
@@ -711,6 +761,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 cursor += 1
             owner = (('module', '::'.join(module_path(index)), 0) if inner else
                      item_owners.get(cursor, ('unresolved', '::'.join(module_path(index)), cursor)))
+            if owner[0] == 'unresolved':
+                target = end + 1
+                while target < len(tokens) and tokens[target][1] == '#' and target + 1 in closing:
+                    target = closing[target + 1] + 1
+                owner = statement_owners.get(target, owner)
             annotations.add((values, owner))
             if values[0] not in ('cfg', 'cfg_attr', 'ignore') and 'test' not in values:
                 continue
