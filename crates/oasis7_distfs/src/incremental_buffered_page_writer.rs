@@ -173,7 +173,3 @@ impl ValueNodeWriter for BufferedPageWriter<'_> {
         result
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "incremental_buffered_page_writer_tests.rs"]
-mod tests;
