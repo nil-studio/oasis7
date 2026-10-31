@@ -428,6 +428,22 @@ impl IdentityService {
         payload: &Value,
         now: u64,
     ) -> Option<Result<Value, StoreError>> {
+        #[cfg(test)]
+        if path == "/_fixture/resource-basis/owner-view" {
+            return Some((|| {
+                if method != "POST" {
+                    return Err(reject("method_not_allowed"));
+                }
+                let q: oasis7_client_api::world_service::resource_basis::ParticipantOwnerResourceViewRequestV1 = parse_request(&serde_json::to_vec(payload).map_err(|_| reject("invalid_request"))?).map_err(|_| reject("invalid_request"))?;
+                let bytes = self.owner_resource_component(sid, &q, now)?;
+                let reply: oasis7_client_api::world_service::resource_basis::NativeResourceEnvelopeV1<oasis7_client_api::world_service::resource_basis::ParticipantOwnerResourceObservationV1> = parse_request(&bytes).map_err(|_| reject("invalid_request"))?;
+                serde_json::to_value(reply).map_err(|_| reject("invalid_request"))
+            })());
+        }
+        if path == "/participant/owner-resource-view" {
+            // No approved V2 scope/prepaid-once verifier: no environment-only enablement.
+            return Some(Err(reject("participant_unavailable")));
+        }
         if ![
             "/participant/policy-original",
             "/participant/authorize",
@@ -736,3 +752,7 @@ impl IdentityService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "participant_resource_component.rs"]
+mod resource_component;

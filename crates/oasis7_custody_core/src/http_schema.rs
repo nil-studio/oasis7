@@ -8,6 +8,8 @@ mod management_metadata;
 mod owner_setup;
 #[path = "http_schema_reconcile.rs"]
 mod reconcile;
+#[path = "http_schema_resource_v2.rs"]
+mod resource_v2;
 #[path = "http_schema_test_session.rs"]
 mod test_session;
 
@@ -467,6 +469,10 @@ pub(super) fn export(directory: &std::path::Path) {
     schemas
         .as_object_mut()
         .unwrap()
+        .extend(resource_v2::schemas().as_object().unwrap().clone());
+    schemas
+        .as_object_mut()
+        .unwrap()
         .extend(test_session::schemas().as_object().unwrap().clone());
     let mut fixtures = json!({
         "ManagedLoginApproveRequestV1":[managed_login_approve],
@@ -497,6 +503,10 @@ pub(super) fn export(directory: &std::path::Path) {
         .as_object_mut()
         .unwrap()
         .extend(management_metadata::fixtures().as_object().unwrap().clone());
+    fixtures
+        .as_object_mut()
+        .unwrap()
+        .extend(resource_v2::fixtures().as_object().unwrap().clone());
     let decimal_fixtures = decimal_fixtures();
     let document: Value = json!({"metadata":schemars::schema_for!(ServiceMetadata),"error":schemars::schema_for!(ErrorResponse),
         "native":schemas,"fixtures":fixtures,"decimal_fixtures":decimal_fixtures});
