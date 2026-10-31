@@ -1024,7 +1024,11 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
             .ok_or("provider spool reservation overflow")?;
         self.memory
             .reserve(bytes, MemoryClass::Ordinary)
-            .map(|reservation| Box::new(SpoolReservation(reservation)) as _)
+            .map(|reservation| {
+                Box::new(SpoolReservation {
+                    _lease: reservation,
+                }) as _
+            })
             .map_err(|error| error.to_string())
     }
 
@@ -1478,7 +1482,9 @@ fn make_attempt_id(
     *hash.finalize().as_bytes()
 }
 
-struct SpoolReservation(MemoryReservation);
+struct SpoolReservation {
+    _lease: MemoryReservation,
+}
 impl ProviderSpoolReservation for SpoolReservation {}
 
 /// Explicit installer. Call only after the Runtime owner has verified the

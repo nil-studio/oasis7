@@ -5,6 +5,10 @@ use crate::simulator::{
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
     ProviderSpoolReservation, cognition_response_digest,
 };
+use crate::viewer::{
+    ProviderOriginalMaterialOwnerV1, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
+    install_provider_original_material_owner,
+};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -13,7 +17,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-struct TestSpoolReservation(MemoryReservation);
+struct TestSpoolReservation {
+    _lease: MemoryReservation,
+}
 impl ProviderSpoolReservation for TestSpoolReservation {}
 
 #[derive(Default)]
@@ -185,7 +191,11 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
             .ok_or_else(|| "spool reservation size overflow".to_string())?;
         self.memory
             .reserve(bytes, MemoryClass::Ordinary)
-            .map(|reservation| Box::new(TestSpoolReservation(reservation)) as _)
+            .map(|reservation| {
+                Box::new(TestSpoolReservation {
+                    _lease: reservation,
+                }) as _
+            })
             .map_err(|error| error.to_string())
     }
 
@@ -482,7 +492,7 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
     });
 
     let world_id = "provider-capture-config-world";
-    let config = ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
+    let config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal)
         .with_world_id(world_id)
         .with_decision_mode(ViewerLiveDecisionMode::Llm);
     let mut server = ViewerRuntimeLiveServer::new(config).expect("create configured live server");

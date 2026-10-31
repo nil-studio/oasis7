@@ -1,14 +1,18 @@
 use super::*;
 
+use crate::viewer::{
+    ProviderOriginalMaterialOwnerV1, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
+    install_provider_original_material_owner,
+};
 use oasis7::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialAuthority, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
-    ProviderPendingAttemptPhaseV1, ProviderPendingRootsCursorV1,
+    ProviderPendingAttemptPhaseV1, ProviderPendingRootsCursorV1, cognition_response_digest,
 };
 use oasis7_distfs::incremental_page_store::PageCompression;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -259,7 +263,7 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
     });
 
     let world_id = "provider-durable-owner-world";
-    let config = ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
+    let config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal)
         .with_world_id(world_id)
         .with_decision_mode(ViewerLiveDecisionMode::Llm);
     let mut server = ViewerRuntimeLiveServer::new(config).expect("create configured live server");
