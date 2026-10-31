@@ -741,9 +741,9 @@ fn invalid_captured_response_is_persisted_before_decode_and_stays_unconsumed() {
 }
 
 fn captured_provider_request() -> ContinuousAgentRequestContextV1 {
-    super::agent_cognition_identity::request_from_value(
-        super::agent_cognition_identity::production_request_fixture(1, 5_000),
-    )
+    let mut fixture = super::agent_cognition_identity::production_request_fixture(1, 5_000);
+    fixture["retry_seq"] = serde_json::json!(1);
+    super::agent_cognition_identity::request_from_value(fixture)
 }
 
 fn captured_provider_response(

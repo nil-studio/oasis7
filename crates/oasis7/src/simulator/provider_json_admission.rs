@@ -389,15 +389,18 @@ fn scan_reader<R: Read + Seek>(
 struct CancellationReader<'a, R, F> {
     inner: &'a mut R,
     cancelled: &'a F,
+    observed_cancellation: bool,
 }
 
 impl<R: Read, F: Fn() -> bool> Read for CancellationReader<'_, R, F> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         if (self.cancelled)() {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "provider JSON decode cancelled",
-            ));
+            self.observed_cancellation = true;
+            // serde_json reads through `Read::bytes()`, which retries
+            // Interrupted errors. Use a non-retryable kind and preserve the
+            // cancellation fact separately so the caller still gets the
+            // typed Cancelled result.
+            return Err(io::Error::other("provider JSON decode cancelled"));
         }
         self.inner.read(output)
     }
@@ -434,18 +437,25 @@ where
     let mut charge = memory
         .reserve(parse_bytes, class)
         .map_err(ProviderJsonAdmissionError::Memory)?;
-    let decoded = {
+    let (decoded, observed_cancellation) = {
         let mut source = CancellationReader {
             inner: reader,
             cancelled: &cancelled,
+            observed_cancellation: false,
         };
-        serde_json::from_reader(&mut source).map_err(|error| {
-            if cancelled() {
+        let decoded = serde_json::from_reader(&mut source);
+        (decoded, source.observed_cancellation)
+    };
+    let decoded = match (decoded, observed_cancellation) {
+        (_, true) => return Err(ProviderJsonAdmissionError::Cancelled),
+        (Ok(decoded), false) => decoded,
+        (Err(error), false) => {
+            return Err(if cancelled() {
                 ProviderJsonAdmissionError::Cancelled
             } else {
                 ProviderJsonAdmissionError::Decode(error)
-            }
-        })?
+            });
+        }
     };
     if cancelled() {
         return Err(ProviderJsonAdmissionError::Cancelled);
