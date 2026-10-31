@@ -529,10 +529,14 @@ impl RuntimeLlmSidecar {
                     "wait-capture-after.json",
                     &serde_json::to_vec(&after).map_err(|_| "test Wait capture snapshot failed")?,
                 )?;
+                // The observer may exit the process as soon as this file is
+                // visible. Publish and flush the diagnostic before that signal.
+                eprintln!("hosted_wait_capture_persistence_failed");
+                std::io::Write::flush(&mut std::io::stderr())
+                    .map_err(|_| "test Wait capture diagnostic failed")?;
                 Self::test_write_wait_cleanup_file(root, "wait-capture-failed", b"persist failed")
             });
             if recorded.is_ok() {
-                eprintln!("hosted_wait_capture_persistence_failed");
                 let _ = Self::test_wait_wait_cleanup_file(root, "wait-capture-crash-release");
             }
         }

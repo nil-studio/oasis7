@@ -9,9 +9,11 @@ pub fn validate_executor_owner(
     world: &World,
     signed: &SignedReadRequest<GameExecutorControlV1>,
 ) -> Result<(), String> {
+    super::ensure_task_not_closed(world, &signed.request.fence.task_id)?;
     verify_executor_control(signed)?;
     let f = &signed.request.fence;
-    let identity = world.current_agent_identity(&f.agent_id)
+    let identity = world
+        .current_agent_identity(&f.agent_id)
         .ok_or("executor owner identity unavailable")?;
     let runtime = world
         .current_cognition_runtime_binding()
@@ -97,6 +99,7 @@ fn validate_current_against_tasks(
     fence: &GameTaskFenceV1,
     tasks: &BTreeMap<String, ReducedTask>,
 ) -> Result<(), String> {
+    super::ensure_task_not_closed(world, &fence.task_id)?;
     fence.validate()?;
     let control = select_current(world, &fence.agent_id, tasks)?
         .map(|task| &task.control)
@@ -198,6 +201,9 @@ pub fn validate_cognition_fence_staged<'a>(
     generation: u64,
     staged: impl IntoIterator<Item = &'a CanonicalIntentResultV1>,
 ) -> Result<(), String> {
+    if let Some(fence) = fence {
+        super::ensure_task_not_closed(world, &fence.task_id)?;
+    }
     let tasks = reduce(collect(world, staged)?)?;
     validate_cognition_fence_against_tasks(world, agent, fence, subject, generation, &tasks)
 }
@@ -211,6 +217,17 @@ pub(super) fn validate_cognition_fence_against_tasks(
     tasks: &BTreeMap<String, ReducedTask>,
 ) -> Result<(), String> {
     let current = select_current(world, agent, tasks)?.map(|t| &t.control);
+    if current.is_none() && fence.is_none()
+        && world.capability_revocation_state().task_terminals_v2.as_ref()
+            .is_some_and(|index| index.records.values().any(|r| r.closed.initial_fence.agent_id == agent)) {
+        return Err("a terminal Agent needs a real new task, not taskless cognition".into());
+    }
+    if let Some(control) = current {
+        super::ensure_task_not_closed(world, &control.task_id)?;
+    }
+    if let Some(fence) = fence {
+        super::ensure_task_not_closed(world, &fence.task_id)?;
+    }
     match fence {
         Some(f) => {
             f.validate()?;
