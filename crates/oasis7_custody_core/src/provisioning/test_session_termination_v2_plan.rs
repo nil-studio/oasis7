@@ -51,15 +51,15 @@ impl TerminationPlanV2 {
     pub fn digest(&self) -> PlanResult<String> {
         self.validate()?;
         crate::provisioning::types::digest(&(TERMINATION_PLAN_DOMAIN_V2, self))
-            .map_err(|e| e.to_string())
+            .map_err(|_| "invalid termination plan v2".to_owned())
     }
     pub fn expected_stop_operation_id(&self) -> PlanResult<String> {
         super::termination_id("stop", &self.session_id, &self.prepared_result_digest)
-            .map_err(|e| e.to_string())
+            .map_err(|_| "invalid termination plan v2".to_owned())
     }
     pub fn expected_close_operation_id(&self) -> PlanResult<String> {
         super::termination_id("close-v2", &self.session_id, &self.prepared_result_digest)
-            .map_err(|e| e.to_string())
+            .map_err(|_| "invalid termination plan v2".to_owned())
     }
     pub fn validate(&self) -> PlanResult<()> {
         self.initial_fence.validate()?;

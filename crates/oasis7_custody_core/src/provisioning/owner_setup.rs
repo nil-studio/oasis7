@@ -573,3 +573,7 @@ pub use test_session::*;
 #[path = "test_session_execution_book_v2.rs"]
 mod execution_book_v2;
 pub(in crate::provisioning) use execution_book_v2::SessionExecutionBookV2;
+
+#[path = "owner_setup_v2_prepared.rs"]
+mod prepared_v2;
+pub use prepared_v2::*;

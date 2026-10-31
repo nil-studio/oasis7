@@ -1,6 +1,7 @@
 //! V2 persisted outbox shape. Construction is private to the actual Account
 //! factory; a deserialized book or public wire is never a dispatch permission.
 use super::*;
+use crate::time_units::UnixMillis;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

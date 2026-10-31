@@ -318,13 +318,3 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
-fn same_proof(a: &ApprovalAdmissionInput, b: &ApprovalAdmissionInput) -> bool {
-    let (a, b) = (&a.approval.proof, &b.approval.proof);
-    a.nonce == b.nonce
-        || (a.identity_namespace == b.identity_namespace
-            && a.identity_instance_epoch == b.identity_instance_epoch
-            && (a.approval_id == b.approval_id || a.approval_request_id == b.approval_request_id))
-}
-fn id_nonempty(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
-}

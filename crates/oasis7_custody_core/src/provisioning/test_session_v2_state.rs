@@ -267,6 +267,12 @@ impl AccountProvisionApprovalState {
             .iter()
             .chain(session.preflight_lifetime.iter())
             .chain(session.termination_state.stored_native_lifetimes())
+            .chain(
+                session
+                    .credential_claims
+                    .values()
+                    .map(|claim| &claim.lifetime),
+            )
         {
             let digest = super::super::types::digest(&(
                 "oasis7.custody.test-session-native-history.v2",
@@ -275,7 +281,11 @@ impl AccountProvisionApprovalState {
             checks.push(registered_native_fact_checks(
                 id,
                 &digest,
-                &session.input.request.context,
+                session
+                    .book
+                    .original(id)
+                    .ok_or_else(invalid)?
+                    .recorded_context(),
                 NativeFact::Lifetime(lifetime),
                 native.native_root_key_id,
                 native.native_root_public_key,

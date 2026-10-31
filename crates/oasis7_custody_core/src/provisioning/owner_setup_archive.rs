@@ -9,7 +9,7 @@ impl AccountProvisionApprovalState {
         context: &OwnerSetupArchiveContext<'_>,
     ) -> Result<ExactSignatureChecks> {
         self.validate_owner_setup_archive(id, stage, fact, context)?;
-        let setup = self.owner_setup_engine_record(id)?;
+        self.owner_setup_engine_record(id)?;
         let original = self
             .owner_setup_outbox(id, stage)
             .and_then(|o| o.original.as_ref())

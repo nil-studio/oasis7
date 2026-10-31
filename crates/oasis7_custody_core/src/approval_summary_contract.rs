@@ -29,13 +29,13 @@ pub struct NativeFullSessionSummaryContractV2 {
 struct RequiredNullableBudgetContract;
 #[cfg(test)]
 impl schemars::JsonSchema for RequiredNullableBudgetContract {
-    fn schema_name() -> String {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
         "RequiredNullableBudgetContract".into()
     }
-    fn is_referenceable() -> bool {
-        false
+    fn inline_schema() -> bool {
+        true
     }
-    fn json_schema(g: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
         <Option<NativeModelBudgetSummaryContractV1> as schemars::JsonSchema>::json_schema(g)
     }
 }
@@ -131,9 +131,15 @@ mod schema_tests {
     #[test]
     fn full_summary_nested_budget_is_required_and_nullable_in_schema() {
         let schema = schemars::schema_for!(NativeFullSessionSummaryContractV2);
-        let object = schema.schema.object.unwrap();
-        assert!(object.required.contains("model_budget_contract"));
-        let property = serde_json::to_value(&object.properties["model_budget_contract"]).unwrap();
+        let object = serde_json::to_value(schema).unwrap();
+        assert!(
+            object["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "model_budget_contract")
+        );
+        let property = &object["properties"]["model_budget_contract"];
         assert!(property.to_string().contains("null"));
     }
 }

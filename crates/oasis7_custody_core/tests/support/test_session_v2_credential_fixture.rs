@@ -4,6 +4,15 @@ use super::*;
 use oasis7_custody_core::http_pop::*;
 use sha2::{Digest, Sha256};
 
+fn public_challenge_nonce(salt: u8) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"oasis7.fixture.test-session-v2.public-challenge-nonce.v1");
+    hash.update([salt]);
+    let nonce = URL_SAFE_NO_PAD.encode(hash.finalize());
+    assert!(nonce != URL_SAFE_NO_PAD.encode([salt; 32]));
+    nonce
+}
+
 fn http(
     f: &SessionFixture,
     body: &[u8],
@@ -13,6 +22,44 @@ fn http(
     nonce: Option<&str>,
     now: u64,
 ) -> HttpPossessionReceipt {
+    let saved = f.state.test_session_v2_snapshot(&f.session_id).unwrap();
+    let CustodyIntentV1::TestSessionV2 { plan, scope } = &saved.input().request.intent else {
+        panic!("actual V2 session input required");
+    };
+    let host = SigningKey::from_bytes(&[8; 32]);
+    let public: String = host
+        .verifying_key()
+        .to_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert!(public == scope.client_pairing.client_public_key);
+    assert!(public == f.fact.registration.request.descriptor.client_public_key);
+    assert!(scope.client_pairing.client_key_id == f.fact.registration.key_id);
+    let (purpose, challenge) = if let Some(nonce) = nonce {
+        let value = serde_json::to_value(saved).unwrap();
+        let selected = value["challenges"]
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|v| serde_json::from_value::<SessionChallengeV1>(v.clone()).unwrap())
+            .find(|c| c.nonce == nonce)
+            .expect("actual recorded nonce");
+        (selected.purpose, Some(selected))
+    } else {
+        let q: SessionChallengeRequestV1 = serde_json::from_slice(body).unwrap();
+        (q.purpose, None)
+    };
+    let mut until = match purpose {
+        SessionPurposeV1::Execution => plan.write_deadline.0,
+        SessionPurposeV1::ReconcileRead => plan.read_until.0,
+        SessionPurposeV1::TerminationPlan => panic!("no public termination fixture"),
+    };
+    // A consumed nonce is an authenticated history reference, not a new grant.
+    // Only an unconsumed challenge adds its own earlier proof expiry bound.
+    if let Some(c) = challenge.filter(|c| c.consumed_by.is_none()) {
+        until = until.min(c.expires_at.get());
+    }
     let target = CanonicalHttpTarget::new(
         "https://custody.example",
         HttpPopRoute::ScopedClient {
@@ -23,24 +70,22 @@ fn http(
     )
     .unwrap();
     let created = UnixMillis::new(now).floor_seconds();
+    let expires = UnixSeconds::new((created.get() + 20).min(until / 1000));
+    assert!(expires.checked_millis().unwrap().get() > now);
     let material = build_http_pop_signing_material(&HttpPopSigningInput {
         profile,
         target: &target,
-        key_id: &f.fact.registration.key_id,
+        key_id: &scope.client_pairing.client_key_id,
         binding_id: &f.session_id,
         request_id,
         nonce,
         token: None,
         created,
-        expires: UnixSeconds::new(created.get() + 20),
+        expires,
         body,
     })
     .unwrap();
-    let signed = material.signed_headers(
-        &SigningKey::from_bytes(&[8; 32])
-            .sign(material.signature_base())
-            .to_bytes(),
-    );
+    let signed = material.signed_headers(&host.sign(material.signature_base()).to_bytes());
     let request = SessionClientHttpRequestV1 {
         session_id: f.session_id.clone(),
         method: target.method().into(),
@@ -214,7 +259,11 @@ fn claim(
         api_version: 1,
         session_id: f.session_id.clone(),
         request_id: format!("challenge-{salt}"),
-        purpose: SessionPurposeV1::Execution,
+        purpose: match request.purposes.first().unwrap() {
+            TestSessionPurposeV1::Execute => SessionPurposeV1::Execution,
+            TestSessionPurposeV1::Read => SessionPurposeV1::ReconcileRead,
+            _ => panic!("unsupported fixture purpose"),
+        },
         kind: SessionChallengeKindV1::CredentialClaim,
         logical_request_id: request.request_id.clone(),
         operation_request_digest: request.test_session_digest().unwrap(),
@@ -253,7 +302,7 @@ fn claim(
                 original_bytes: &bytes,
                 possession: &pop,
             },
-            &URL_SAFE_NO_PAD.encode([salt; 32]),
+            &public_challenge_nonce(salt),
             &current,
             UnixMillis::new(now + 2),
             &mut StrictCrypto,
@@ -349,7 +398,7 @@ fn session_v2_real_claim_and_replacement_preserve_retired_history() {
             .newly_claimed
     );
     let body = serde_json::to_vec(&first).unwrap();
-    let nonce = URL_SAFE_NO_PAD.encode([31; 32]);
+    let nonce = public_challenge_nonce(31);
     let pop = http(
         &f,
         &body,
@@ -399,3 +448,51 @@ fn session_v2_real_claim_and_replacement_preserve_retired_history() {
         .remove("claim-one");
     assert!(serde_json::from_value::<AccountProvisionApprovalState>(corrupt).is_err());
 }
+
+#[test]
+fn session_v2_real_claim_both_purposes_then_read_replacement() {
+    let mut f = activation_tests::activated(9000);
+    let mut q = request(&f, "both-first", None);
+    q.purposes.push(TestSessionPurposeV1::Read);
+    let execute = allocation(41);
+    let mut read = allocation(42);
+    read.purpose = SessionPurposeV1::ReconcileRead;
+    let outcome = claim(&mut f, &q, &[execute, read], 41, 12_000).unwrap();
+    assert!(outcome.newly_claimed);
+    assert_eq!(
+        outcome.roots,
+        vec![
+            (SessionPurposeV1::Execution, DecimalU64(1)),
+            (SessionPurposeV1::ReconcileRead, DecimalU64(1))
+        ]
+    );
+    let mut q = request(&f, "read-replacement", Some(1));
+    q.purposes = vec![TestSessionPurposeV1::Read];
+    let mut colliding = allocation(41);
+    colliding.purpose = SessionPurposeV1::ReconcileRead;
+    assert!(claim(&mut f, &q, &[colliding], 42, 13_000).is_err());
+    let mut q = request(&f, "read-replacement-valid", Some(1));
+    q.purposes = vec![TestSessionPurposeV1::Read];
+    let mut fresh = allocation(43);
+    fresh.purpose = SessionPurposeV1::ReconcileRead;
+    let outcome = claim(&mut f, &q, &[fresh], 43, 14_000).unwrap();
+    assert_eq!(
+        outcome.roots,
+        vec![(SessionPurposeV1::ReconcileRead, DecimalU64(2))]
+    );
+    let snapshot = serde_json::to_vec(&f.state).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<AccountProvisionApprovalState>(&snapshot).unwrap(),
+        f.state
+    );
+    for byte in [41, 42, 43] {
+        assert!(
+            !std::str::from_utf8(&snapshot)
+                .unwrap()
+                .contains(&URL_SAFE_NO_PAD.encode([byte; 32]))
+        );
+    }
+}
+
+#[path = "test_session_v2_credential_native_history_tests.rs"]
+mod native_history;

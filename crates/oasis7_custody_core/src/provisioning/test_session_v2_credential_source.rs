@@ -36,6 +36,27 @@ pub(in crate::provisioning) fn lifetime_attempt_v2(
     ))
 }
 impl AccountProvisionApprovalState {
+    /// Immutable approved-input routing commitment, never a dispatch grant.
+    pub fn test_session_v2_credential_input_digest(&self, id: &str) -> Result<String> {
+        self.test_session_v2_record(id)?.input_digest()
+    }
+    /// Persisted ticket metadata only; this does not reserve or grant a port.
+    pub fn test_session_v2_credential_source_ticket(
+        &self,
+        id: &str,
+        source_id: &str,
+    ) -> Result<u8> {
+        let s = self.test_session_v2_record(id)?;
+        let source = s.sources.get(source_id).ok_or_else(invalid)?;
+        if source.api_version != 2 || source.approved_input_digest != s.input_digest()? {
+            return Err(invalid());
+        }
+        s.source_oracle_reads
+            .get(source_id)
+            .copied()
+            .ok_or_else(invalid)
+    }
+
     /// Metadata only. Store/Identity independently buy and verify each Source
     /// observation, Directory/RF and current private generation before/after
     /// the fixed four-actor private read.

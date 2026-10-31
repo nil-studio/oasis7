@@ -2,11 +2,8 @@
 use super::*;
 #[path = "owner_setup_v2_phase.rs"]
 mod phase;
-#[path = "owner_setup_v2_prepared.rs"]
-mod prepared;
 use phase::OwnerSetupSdkPhaseProjectionV2;
 pub use phase::derive_owner_setup_move0_sdk_plan_v2;
-pub use prepared::*;
 fn invalid() -> ProvisionApprovalError {
     ProvisionApprovalError::BindingMismatch
 }
