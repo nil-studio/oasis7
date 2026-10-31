@@ -427,7 +427,7 @@ pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改�
 
 固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
 
-payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）、RecordRoot=10（固定165字节的 typed child root）、FixedU64x7=11、ModuleVisualEntity=12、ModuleArtifactListing=13、ModuleArtifactBids=14（§12.22；这些聚合 codec 仅为过渡候选，后续需替换为 per-field child record）。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
 
 写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
 
@@ -644,6 +644,17 @@ main_token_balances 与 node_asset_balances 均沿 WorldState/Map/Business 唯�
 余额共享事务入口以具名借用 view 同时表示原身份和三个量，view 由原结构无省略解构得到，创世与点更新复用同一映射。field 与 view 类型不符立即拒绝，不能把节点余额的三个数按主代币余额解释。一次 contribute 认证 Metadata 和当前成员，流式比较 expected 原身份，并精确比较原具名数值与缺失状态；不收集旧身份，不以 map key 回填。检查当前 guard/live fence、读写同池 Ordinary、有限原身份/record/key/I/O 与组合取消后，保存 owner 的最终 after 或成员 tombstone；Metadata 不删除。no-op 保留两项读取依赖，并在可能较长的 view 比较后再查取消。类型/预期/原记录/额度/取消或后续写入失败均 poison 整笔事务。view/存储 setter 不校验供给、业务余额约束、转账/铸造权限或全字段资格，原 owner 仍须在同一共享事务内接通这些规则。
 
 完整 WorldState owner 检查对 `installed_module_targets` 要求其 Artifacts descriptor、Metadata 和每个原键对应的 Unit/Text 成员；对 `main_token_balances` 与 `node_asset_balances` 要求 Business descriptor、Metadata 和每个原键对应的 tag 9 身份/三数值 payload。检查将记录数、原键摘要、记录 kind、namespace、codec 与原身份 UTF-8 绑定，缺项、额外或类型错配均拒绝。该检查只闭合这三个已覆盖字段，不取代剩余 WorldState、Runtime/Cognition owner 的资格验证，也不授予安装、余额业务权限、激活或完整 GC 标记资格。
+
+
+### 12.22 模块视觉实体与工件市场记录
+
+<a id="iws-module-marketplace-records-v1"></a>
+
+`module_visual_entities`、`module_artifact_listings` 与 `module_artifact_bids` 沿唯一 WorldState/Map/Business 登记；每个字段要求一个 Metadata，空 Map 有效。成员语义键保留源 Map 的完整 String key；它不由嵌套值的 entity/order ID 推导或替换。生产者借用各源 Map 和值，不 clone World、不序列化完整聚合值，也不授予显示、上架、出价、购买或安装权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+三种 Entry payload 使用 field-member.v1 的封闭 codec。ModuleVisualEntity(tag 12) 由专属 domain `oasis7.iws.module-visual-entity.v1\0`、entity_id/module_id/kind 的 u64 大端长度与原 UTF-8 字节、label 的 None=0 或 Some=1 加长度/原字节，以及 anchor tag 和原字段构成：Agent=0 加 agent ID，Location=1 加 location ID，Absolute=2 加 x/y/z 三个 i64 大端。Optional 空文本与 None 不合并。ModuleArtifactListing(tag 13) 使用专属 domain、order_id u64、seller_agent_id 原 UTF-8、ResourceKind 固定 Electricity=0/Data=1、price_amount i64 与 listed_at u64。ModuleArtifactBids(tag 14) 使用专属 domain、Vec 长度 u64，再按原 Vec 次序逐项写 order_id u64、bidder_agent_id 原 UTF-8、ResourceKind 标签、price_amount i64 与 bid_at u64；不得排序、去重或将 Vec 当成 Map。所有文本长度使用 u64 大端，checked 计算总长度，读者拒绝未知标签、非法 UTF-8、长度不匹配及尾随 bytes。
+
+创世按原 BTreeMap 遍历写 Metadata 与各 Entry；有限记录数、语义键/值长度、I/O、共享 Ordinary 内存池和取消预算由同一调用者持续提供。Owner 检查须先绑定登记的 owner/shape/Business namespace 和完整 field key，再校验文本语义键、codec 与全部 payload framing。逐项错误或取消都使输出前缀保持暂态，由调用者整批丢弃。该 owner 检查仅覆盖三类结构和值的完整性；不验证市场、WASM、安装、购买或视觉业务规则，不代表普通提交已接线、完整 World qualification、恢复续跑、GC 或新格式启用。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
 <a id="iws-factory-records-v1"></a>
 ### 12.28 工厂与待建造记录

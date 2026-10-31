@@ -35,6 +35,8 @@ use std::{cell::RefCell, io, io::Write};
 
 #[path = "incremental_owner_closure_module_instances.rs"]
 mod module_instances;
+#[path = "incremental_owner_closure_module_marketplace.rs"]
+mod module_marketplace;
 #[path = "incremental_owner_closure_typed_maps.rs"]
 mod typed_maps;
 
@@ -63,6 +65,7 @@ pub struct UnsupportedWorldStateOwnersV1 {
     checked_installed_target_fields: u8,
     checked_world_balance_fields: u8,
     checked_module_instance_fields: u8,
+    checked_module_marketplace_fields: u8,
 }
 
 impl UnsupportedWorldStateOwnersV1 {
@@ -108,6 +111,10 @@ impl UnsupportedWorldStateOwnersV1 {
 
     pub fn checked_module_instance_fields(&self) -> u8 {
         self.checked_module_instance_fields
+    }
+
+    pub fn checked_module_marketplace_fields(&self) -> u8 {
+        self.checked_module_marketplace_fields
     }
 }
 
@@ -833,12 +840,27 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                             &mut cancel_now,
                         )?;
                     }
+                    WorldFieldRecordKindV1::Entry
+                        if module_marketplace::field_from_descriptor(field).is_some() =>
+                    {
+                        seen[index].entries = seen[index].entries.saturating_add(1);
+                        let mut cancel_now = || (cancelled.borrow_mut())();
+                        module_marketplace::validate_member(
+                            field,
+                            entry,
+                            parsed,
+                            values,
+                            max_value_bytes,
+                            &mut cancel_now,
+                        )?;
+                    }
                     _ if u64_field(field).is_some()
                         || id_set_field(field).is_some()
                         || number_map_field(field).is_some()
                         || text_byte_field(field).is_some()
                         || typed_maps::is_installed_target(field)
-                        || typed_maps::is_world_balance(field) =>
+                        || typed_maps::is_world_balance(field)
+                        || module_marketplace::field_from_descriptor(field).is_some() =>
                     {
                         return Err(WorldStateOwnerError::Invalid(
                             "unexpected typed owner record kind",
@@ -903,6 +925,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     let mut checked_text_byte_fields = 0u8;
     let mut checked_installed_target_fields = 0u8;
     let mut checked_world_balance_fields = 0u8;
+    let mut checked_module_marketplace_fields = 0u8;
     for (index, field) in WORLD_STATE_FIELDS.iter().copied().enumerate() {
         let FieldDestination::State(_) = field.destination else {
             continue;
@@ -979,6 +1002,18 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                 ));
             }
             checked_world_balance_fields = checked_world_balance_fields.saturating_add(1);
+        } else if module_marketplace::field_from_descriptor(field).is_some() {
+            if seen[index].metadata != 1 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "required module marketplace metadata missing or duplicate",
+                ));
+            }
+            if !module_marketplace::valid_descriptor(field) {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module marketplace descriptor registration",
+                ));
+            }
+            checked_module_marketplace_fields = checked_module_marketplace_fields.saturating_add(1);
         } else {
             if seen[index].metadata != 1 {
                 return Err(WorldStateOwnerError::Invalid(
@@ -990,6 +1025,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     }
     if checked_installed_target_fields != typed_maps::INSTALLED_TARGET_FIELD_COUNT
         || checked_world_balance_fields != typed_maps::WORLD_BALANCE_FIELD_COUNT
+        || checked_module_marketplace_fields != module_marketplace::FIELD_COUNT
     {
         return Err(WorldStateOwnerError::Invalid(
             "typed map owner descriptor coverage",
@@ -1025,6 +1061,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_installed_target_fields,
         checked_world_balance_fields,
         checked_module_instance_fields,
+        checked_module_marketplace_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))

@@ -127,6 +127,11 @@ enum FixtureIssue {
     WrongTextCodec,
     WrongBytesCodec,
     MissingTextMetadata,
+    MissingModuleMarketplaceMetadata,
+    WrongModuleMarketplaceKey,
+    WrongModuleMarketplaceCodec,
+    InvalidModuleMarketplacePayload,
+    EmptyModuleMarketplaceMaps,
     MissingInstalledTargetMetadata,
     WrongInstalledTargetKey,
     WrongInstalledTargetCodec,
@@ -147,6 +152,49 @@ struct FixtureWriteContext<'a> {
     value_io: &'a mut ValueIoBudget,
     key_work: &'a mut SemanticKeyBudget,
     writes: &'a mut BTreeMap<StateNamespaceV1, Vec<StateWriteV1>>,
+}
+
+fn marketplace_visual() -> oasis7_agent_api::world_entity::ModuleVisualEntity {
+    use oasis7_agent_api::{world_action::GeoPos, world_entity::ModuleVisualAnchor};
+    oasis7_agent_api::world_entity::ModuleVisualEntity {
+        entity_id: "visual/内部".into(),
+        module_id: "module/α".into(),
+        kind: "artifact\0mesh".into(),
+        label: Some(String::new()),
+        anchor: ModuleVisualAnchor::Absolute {
+            pos: GeoPos::new(i64::MIN, 0, i64::MAX),
+        },
+    }
+}
+
+fn marketplace_listing() -> crate::state::ModuleArtifactListingState {
+    crate::state::ModuleArtifactListingState {
+        order_id: u64::MAX,
+        seller_agent_id: "seller/雪".into(),
+        price_kind: oasis7_agent_api::world_action::ResourceKind::Data,
+        price_amount: i64::MIN,
+        listed_at: u64::MAX,
+    }
+}
+
+fn marketplace_bids() -> Vec<crate::state::ModuleArtifactBidState> {
+    [
+        crate::state::ModuleArtifactBidState {
+            order_id: u64::MAX,
+            bidder_agent_id: "bidder/東京".into(),
+            price_kind: oasis7_agent_api::world_action::ResourceKind::Electricity,
+            price_amount: i64::MIN,
+            bid_at: 0,
+        },
+        crate::state::ModuleArtifactBidState {
+            order_id: 0,
+            bidder_agent_id: "bidder/β".into(),
+            price_kind: oasis7_agent_api::world_action::ResourceKind::Data,
+            price_amount: i64::MAX,
+            bid_at: u64::MAX,
+        },
+    ]
+    .into()
 }
 
 impl FixtureWriteContext<'_> {
@@ -278,6 +326,8 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
         };
         let omit_metadata = (issue == Some(FixtureIssue::MissingTextMetadata)
             && field.name == "node_identity_bindings")
+            || (issue == Some(FixtureIssue::MissingModuleMarketplaceMetadata)
+                && field.name == "module_visual_entities")
             || (issue == Some(FixtureIssue::MissingInstalledTargetMetadata)
                 && field.name == "installed_module_targets")
             || (issue == Some(FixtureIssue::MissingWorldBalanceMetadata)
@@ -553,6 +603,68 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                 }
             }
         }
+
+        if let Some(owner) = super::module_marketplace::field_from_descriptor(field)
+            && issue != Some(FixtureIssue::EmptyModuleMarketplaceMaps)
+        {
+            match (owner, issue) {
+                    (_, Some(FixtureIssue::WrongModuleMarketplaceKey))
+                        if owner == crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::VisualEntities =>
+                    {
+                        fixture_writer!().append_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            &17u64,
+                            MemberPayloadRefV1::ModuleVisualEntity(&marketplace_visual()),
+                        );
+                    }
+                    (_, Some(FixtureIssue::WrongModuleMarketplaceCodec))
+                        if owner == crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactListings =>
+                    {
+                        fixture_writer!().append_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            "listing-key",
+                            MemberPayloadRefV1::Text("wrong codec"),
+                        );
+                    }
+                    (_, Some(FixtureIssue::InvalidModuleMarketplacePayload))
+                        if owner == crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactBids =>
+                    {
+                        fixture_writer!().append_raw_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            "bid-key",
+                            owner.codec(),
+                            b"not a bids payload",
+                        );
+                    }
+                    (crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::VisualEntities, _) => {
+                        fixture_writer!().append_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            "visual/雪",
+                            MemberPayloadRefV1::ModuleVisualEntity(&marketplace_visual()),
+                        );
+                    }
+                    (crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactListings, _) => {
+                        fixture_writer!().append_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            "listing/α",
+                            MemberPayloadRefV1::ModuleArtifactListing(&marketplace_listing()),
+                        );
+                    }
+                    (crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactBids, _) => {
+                        fixture_writer!().append_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            "bid-key",
+                            MemberPayloadRefV1::ModuleArtifactBids(&marketplace_bids()),
+                        );
+                    }
+                }
+        }
     }
 
     let instance = crate::ModuleInstanceState {
@@ -740,6 +852,7 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert_eq!(report.checked_installed_target_fields(), 1);
     assert_eq!(report.checked_world_balance_fields(), 2);
     assert_eq!(report.checked_module_instance_fields(), 8);
+    assert_eq!(report.checked_module_marketplace_fields(), 3);
     assert!(report.unsupported_fields().contains(&"resources"));
     assert!(
         !report
@@ -750,6 +863,44 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(!report.unsupported_fields().is_empty());
+}
+
+#[test]
+fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
+    let complete = verify(&fixture(true), || false).unwrap();
+    assert_eq!(complete.checked_module_marketplace_fields(), 3);
+
+    let empty = verify(
+        &fixture_with_issue(true, Some(FixtureIssue::EmptyModuleMarketplaceMaps)),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(empty.checked_module_marketplace_fields(), 3);
+
+    for (issue, expected) in [
+        (
+            FixtureIssue::MissingModuleMarketplaceMetadata,
+            "required module marketplace metadata missing or duplicate",
+        ),
+        (
+            FixtureIssue::WrongModuleMarketplaceKey,
+            "module marketplace semantic key profile",
+        ),
+        (
+            FixtureIssue::WrongModuleMarketplaceCodec,
+            "module marketplace payload codec",
+        ),
+        (
+            FixtureIssue::InvalidModuleMarketplacePayload,
+            "module marketplace typed payload",
+        ),
+    ] {
+        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        assert!(
+            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
+            "{issue:?}: {result:?}"
+        );
+    }
 }
 
 #[test]
