@@ -534,3 +534,5 @@ pub use oasis7_world_state::incremental_world_rule_lineages;
 pub use oasis7_world_state::incremental_world_rule_shipments;
 pub use oasis7_world_state::incremental_world_rule_organization;
 pub use oasis7_world_state::incremental_world_rule_supply_root;
+
+pub use oasis7_world_state::incremental_diplomacy;
