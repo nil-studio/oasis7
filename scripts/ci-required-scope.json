@@ -1,4 +1,78 @@
 {
+  "fast_scope_version": 1,
+  "oasis7_required_packages": [
+    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
+    "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
+    "oasis7_chain_runtime", "oasis7_client_cli", "oasis7_protocol_tools",
+    "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
+    "oasis7_provider_local_bridge", "oasis7_provider_tools", "oasis7_viewer_runtime",
+    "oasis7_viewer_codec", "oasis7_observability", "oasis7_hosted_access",
+    "oasis7_letai_credit_adapter", "oasis7_launcher_config", "oasis7_wasm_materializer",
+    "oasis7_game_client", "oasis7_browser_game_client", "oasis7_cas", "oasis7_formal_protocol"
+  ],
+  "oasis7_required_wasm_packages": [
+    "oasis7_agent_api", "oasis7_simulator", "oasis7_viewer_codec", "oasis7_viewer_runtime"
+  ],
+  "command_center_fast_paths": [
+    "tools/oasis7-command-center/core/src/document*",
+    "tools/oasis7-command-center/core/src/index*",
+    "tools/oasis7-command-center/ui/src/**",
+    "tools/oasis7-command-center/ui/index.html",
+    "tools/oasis7-command-center/ui/preview.html"
+  ],
+  "formal_risk_rules": [
+    {
+      "match": ["crates/oasis7_viewer_codec/src/**", "crates/oasis7_viewer_codec/tests/**",
+                "crates/oasis7_observability/src/**", "crates/oasis7_observability/tests/**",
+                "crates/oasis7/src/geometry.rs", "crates/oasis7_simulator/src/fragment_physics.rs",
+                "crates/oasis7_simulator/src/asteroid_fragment.rs", "crates/oasis7_simulator/src/frag_spawn.rs"],
+      "suites": [],
+      "reason": "codec_observability_and_geometry_behavior_in_affected_tests"
+    },
+    {
+      "match": ["crates/oasis7_world_projection/src/**", "crates/oasis7_world_projection/tests/**"],
+      "suites": ["runtime-protocol", "world-history"],
+      "reason": "formal_read_projection_and_retained_history_encoding"
+    },
+    {
+      "match": ["crates/oasis7_world_state/src/formal_retained_history*",
+                "crates/oasis7_chain_runtime/src/host/formal_live_protected_long_history_tests.rs"],
+      "suites": ["world-history"],
+      "reason": "retained_world_history_prune_reopen_original"
+    },
+    {
+      "match": ["crates/oasis7_consensus/src/**", "crates/oasis7_consensus/tests/**"],
+      "suites": ["runtime-protocol", "healthy-set", "lifecycle-cli"],
+      "reason": "consensus_identity_membership_and_publication"
+    },
+    {
+      "match": ["crates/oasis7_distfs/src/**", "crates/oasis7_distfs/tests/**",
+                "crates/oasis7_cas/src/**", "crates/oasis7_cas/tests/**",
+                "crates/oasis7_formal_protocol/src/**", "crates/oasis7_formal_protocol/tests/**"],
+      "suites": ["runtime-protocol", "world-history", "healthy-set", "storage-recovery", "lifecycle-cli"],
+      "reason": "shared_storage_and_wire_contracts_retain_all_process_consumers"
+    },
+    {
+      "match": ["crates/oasis7_chain_runtime/src/host/node_lifecycle*",
+                "crates/oasis7_chain_runtime/src/host/world_initialization*",
+                "crates/oasis7_chain_runtime/src/host/formal_full_state_sync*",
+                "scripts/local-node-lifecycle.test.sh", "scripts/legacy-observer-migration.test.sh"],
+      "suites": ["lifecycle-cli"],
+      "reason": "node_cli_initialization_sync_and_migration"
+    },
+    {
+      "match": ["crates/oasis7_chain_runtime/src/host/formal_live_protected_crash_tests.rs",
+                "crates/oasis7_chain_runtime/src/host/formal_effect*"],
+      "suites": ["runtime-protocol"],
+      "reason": "durable_effect_crash_retry_and_original_result"
+    },
+    {
+      "match": ["crates/oasis7_chain_runtime/src/host/formal_live_healthy*",
+                "crates/oasis7_chain_runtime/src/host/formal_live_protected_durable_set*"],
+      "suites": ["healthy-set"],
+      "reason": "healthy_replica_set_operation_and_owner_transfer"
+    }
+  ],
   "groups": [
     "baseline",
     "rust_baseline",
@@ -608,6 +682,8 @@
         "scripts/document*",
         "scripts/product-doc-*",
         "scripts/product_doc*",
+        "scripts/resolve-product-doc-ci-range.py",
+        "scripts/resolve-product-doc-ci-range.test.py",
         "scripts/system-design-traceability*",
         "scripts/find-python-with-module*"
       ],

@@ -153,6 +153,7 @@ def parse_name_status(output: str) -> dict[str, str]:
     return changed
 
 
+@lru_cache(maxsize=128)
 def without_html_comments(text: str) -> str:
     def preserve_newlines(match: re.Match[str]) -> str:
         return "".join(character for character in match.group(0) if character in "\r\n")
@@ -502,18 +503,19 @@ def authority_impacted_design_paths(
     return impacted
 
 
-def visible_lines(text: str) -> list[tuple[int, str]]:
+@lru_cache(maxsize=128)
+def visible_lines(text: str) -> tuple[tuple[int, str], ...]:
     text = without_html_comments(text)
     excluded_lines = {
         number
         for block in parse_markdown_blocks(text)
         for number in range(block.start_line, block.end_line + 1)
     }
-    return [
+    return tuple(
         (number, line)
         for number, line in enumerate(text.splitlines(), start=1)
         if number not in excluded_lines
-    ]
+    )
 
 
 def table_cells(line: str) -> tuple[str, ...]:
@@ -610,29 +612,39 @@ def github_heading_slug(value: str) -> str:
     return re.sub(r"\s+", "-", value)
 
 
-def fragment_occurrences(text: str, fragment: str) -> int:
-    wanted = fragment.strip().casefold()
-    anchor_occurrences = sum(
-        anchor.strip().casefold() == wanted
+@lru_cache(maxsize=128)
+def fragment_counts(text: str) -> tuple[tuple[str, int], ...]:
+    """Index the original heading/real-HTML semantics once per exact text."""
+    counts: dict[str, int] = {}
+    for anchor in (
+        anchor.strip().casefold()
         for node in parse_markdown_html(without_html_comments(text))
         for anchor in re.findall(r"<a\s+[^>]*\bid\s*=\s*[\"']([^\"']+)[\"'][^>]*>", node.content, re.IGNORECASE)
-    )
-    heading_occurrences = 0
+    ):
+        counts[anchor] = counts.get(anchor, 0) + 1
     for _number, line in visible_lines(text):
         match = re.match(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
-        if match and github_heading_slug(match.group(1)) == wanted:
-            heading_occurrences += 1
-    return anchor_occurrences + heading_occurrences
+        if match:
+            slug = github_heading_slug(match.group(1))
+            counts[slug] = counts.get(slug, 0) + 1
+    return tuple(counts.items())
+
+
+@lru_cache(maxsize=1024)
+def fragment_occurrences(text: str, fragment: str) -> int:
+    return dict(fragment_counts(text)).get(fragment.strip().casefold(), 0)
 
 
 GLOBAL_TRACE_RE = re.compile(r"(?<![A-Za-z0-9_-])O7-REQ-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![A-Za-z0-9_-])")
 
 
-def formal_trace_fields(text: str):
+@lru_cache(maxsize=256)
+def formal_trace_fields(text: str) -> tuple[tuple[str, str], ...]:
     """Recognize existing paragraph/list/cell/column Trace syntax, not mentions."""
     lines = visible_lines(text)
     table = {}
     headings = []
+    fields = []
     for index, (_, line) in enumerate(lines):
         heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
         if heading:
@@ -658,13 +670,14 @@ def formal_trace_fields(text: str):
         if table and cells:
             for i, role in table.items():
                 if i < len(cells):
-                    yield role, cells[i]
+                    fields.append((role, cells[i]))
         candidates = cells or (re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?", "", line),)
         for cell in candidates:
             cell = re.sub(r"^`(Trace (?:ID|refs)\s*[:：])`\s*", r"\1 ", cell.strip())
             match = re.match(r"^Trace (ID|refs)\s*[:：]\s*(.*)$", cell)
             if match:
-                yield match[1], match[2]
+                fields.append((match[1], match[2]))
+    return tuple(fields)
 
 
 def parse_trace_payload(payload: str) -> tuple[set[str], set[str]]:
@@ -724,6 +737,7 @@ def declared_trace_ids(text: str) -> set[str]:
     return result
 
 
+@lru_cache(maxsize=1024)
 def fragment_section(text: str, fragment: str) -> str | None:
     """Return only the addressed heading/anchor section, excluding child clauses.
 

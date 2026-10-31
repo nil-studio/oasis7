@@ -110,6 +110,64 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 ## CI 现状与缺口（事实口径）
 
+要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。当前候选已接入快速 profile、完整库存、四小时 schedule 和发布结果消费；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
+
+<a id="ci-fast-pr-periodic-full-validation"></a>
+### 快速 PR 与周期完整回归的实施验收
+
+承接[分层设计](doc/testing/ci/ci-tiered-execution.design.md#ci-fast-pr-periodic-full-design)。先固定 source、实际 tested commit 与可信 policy，使用当前选择器、driver 和 workflow 核对下表。新 profile 仅在可信 BASE 支持时启用，旧 BASE 继续旧完整必要范围。
+
+| 验收对象 | 方法与通过边界 |
+| --- | --- |
+| 普通文档/配置 PR | 只运行适用基础与增量关系检查，无关子检查及时结束；改动删除/重命名/索引时仍能发现失效关系；全库历史报告在周期层出现 |
+| 普通 Rust/Web PR | 计划选择实际 crate/target/features 与必要消费者，保留适用正常/拒绝/边界/缺陷回归；日志证明编译闭包和行为用例均收窄，不能只用测试名过滤或零匹配证明提速 |
+| 准入与默认归属 | 按[准入规则](doc/testing/ci/ci-tiered-execution.prd.md#ci-pr-fast-selection)对照纯文档、普通逻辑、接口拒绝及恢复变更，分别得到可解释的基线/影响/风险集合；新增、改名、漏标或无耗时历史的回归不会消失 |
+| 候选变更测试分级 | required 改 full 必须在实际 owner/driver 上扩测；嵌套 cfg、跨 module 同名、缺 feature 声明、无扩展 driver 和新 ignore 均有负例。普通 case 删除/改名核对语义替代；Formal 的可信最低库存缺项必须失败 |
+| 周期用例回到 PR | 修改历史裁剪、crash/retry、身份或平台行为时，即使相关 case 标 full 也触发真实验证；缺窄映射保留相关旧必要组，mock 或另一个平台成功不能代替 |
+| 超预算与不稳定 | 构造 case 很短但编译很重、整体预计超预算及已有 flaky 的情形；必要集合不被静默裁剪，普通样本不在运行后改类，首次失败不被重试覆盖 |
+| 关键边界与共享输入 | 身份/持久化/共识等命中必要定向加测；依赖/工具链或影响不确定时保守扩大并显示原因；未知路径仍失败 |
+| 完整覆盖 | 对同源适用清单核对快速集合与迁出项均在 full 执行；保留原断言、场景长度和平台，包含 Clippy、独立浏览器安全 smoke、Command Center 及真实平台矩阵；故意漏项被识别 |
+| 失败与产物 | 选中检查失败、取消、超时、缺产物、错 features/target、零匹配、意外 skipped 均使最终汇总失败；未选中与未执行严格区分 |
+| 周期与并发 | 检查四小时 cron、固定 SHA、完整回归独立并发、旧 PR 取消、漏跑/超时可见；main push 不重复触发全部重型回归 |
+| 发布与恢复 | 同源 receipt 对应实际当前 run/attempt、成功完整 gate 和相同检查定义；错误 SHA、bootstrap、过期/歧义产物、失败重跑和 API 缺页阻止发布。Testnet 固定候选只可从可信 main 入口验证，原包 smoke 与授权回滚保留 |
+| 反馈与容量 | 按 PRD 口径报告窗口与样本数、普通成功 P95、失败/超时/取消和例外、排队/编译/执行及冷暖缓存；完整回归能在周期内完成并保留 PR 容量 |
+
+构造负例时复用现有 selector/result/driver 回归，不以 fake 构建代替真实消费者。实际 hosted 验收至少覆盖上述输入类别和冷缓存；有意注入失败只在隔离候选执行，不修改生产门禁。定时回归持续失败时先定位并验证修复，不能以换频率代替恢复。
+
+### 当前计划与执行命令
+
+workflow 将可信 BASE 的 planner、scope、结果汇总器和 Formal 库存放在同一 authority 目录。下面的变量代表这次已固定的输入；`CI_AUTHORITY` 不能指向候选自行修改的策略目录。
+
+```bash
+python3 "$CI_AUTHORITY/plan-rust-required-scope.py" \
+  --profile pr-fast --base-ref "$BASE_SHA" --head-ref "$SOURCE_SHA" \
+  --test-ref "$TESTED_SHA" --policy-ref "$BASE_SHA" \
+  --formal-config "$CI_AUTHORITY/ci-formal-process-suites.json" --output "$PLAN_PATH"
+./scripts/ci-tests.sh required --group oasis7_required --plan "$PLAN_PATH"
+```
+
+仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 继续以 `--support-plan` 接收完整 JSON，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。
+
+`main-fast` 使用 push 的完整差异；`periodic-full`/`candidate-full` 无须 diff，直接从可信库存展开全部组。完整 hosted 图并行执行普通组、Formal、平台和 `./scripts/ci-tests.sh full-extended`，最后由 `explicit-full-gate` 核齐。`full-extended` 单独成功不代表完整回归，本地 `full`/`full-standard` 也不能代签其他 OS 的结果。
+
+发布候选通过 main 上的可信入口固定版本：
+
+```bash
+gh workflow run rust.yml --ref main -f run_mode=full -f source_ref="$SOURCE_SHA"
+```
+
+不传 `source_ref` 时验证所选 main 事件的固定 SHA。非 main 的 `--ref <candidate-branch-or-tag>` 仍可只读验证接线；可信 main 尚无新 profile 时，该首次运行使用旧完整库存并标记 `bootstrap_full`，不能取得发布资格。所有 manual full 都不能替代 PR 必需事件的检查。
+
+发布消费者使用 `ci-full-result.py verify --source <sha>`，默认完整查询最近 30 天相关 main full runs，并消费保留 30 天的准确 attempt receipt。`--run-id` 可限定准确运行，仍核对其当前 attempt、固定 source/tested/policy、检查定义及真实完整 gate；较新同源运行缺当前成功结果（含 pending/running）或失败重跑不会自动退回旧绿色。Testnet 的 `--allow-candidate-source` 只允许 main 上的 `testnet-packages.yml` 使用，保留固定候选来源，不免除完整验证；Release/Mainnet/ECS 继续要求原 main 来源合同。
+
+主线健康只读检查使用已获准的 `GH_TOKEN`/`GITHUB_TOKEN`，不在命令中打印凭据：
+
+```bash
+GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
+```
+
+它查询最近两天 schedule，报告最近运行、最近成功 SHA 与提交区间。五小时未启动、未完成轮超四小时、无最近成功或失败均返回非零；新 pending/running 不清除上一终态失败。该命令不是发布 qualification，也不代表外部定时巡检已启用，既有 CI 回顾任务按实际授权调用。
+
 ### 当前 CI/脚本已覆盖
 - 入口 A：`scripts/ci-tests.sh`（主流程）
 - `commit`：
@@ -127,7 +185,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
   - `./scripts/check-rust-file-size.sh`
   - `cargo fmt --check`
   - `cargo test -p oasis7 --tests --features test_tier_required`
-    - 该 shard 现在只覆盖轻量核心基线；需要注册或执行 builtin wasm artifact 的 runtime 闭环用例已下放到 `test_tier_full`。
+    - 这是该 package 的必要 feature 入口；hosted ordinary 实际按计划选择 package，并保留全部适用非 ignored 测试。runtime builtin wasm 扩展用例保留在 full，命中必要风险或分级迁移时仍在 PR 加测；标签本身不证明轻量。
   - `cargo test -p oasis7_consensus --lib`
   - `cargo test -p oasis7_distfs --lib`
   - `npm --prefix crates/oasis7_viewer run test:feedback-contract`
@@ -135,19 +193,20 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
   - `npm --prefix crates/oasis7_viewer run build:software-safe`
   - 变更 `oasis7_game_client` 时，`workspace_support` 运行独立包的全部 targets strict Clippy 和库测试，并沿 Cargo 依赖图保留主应用消费者。CLI 可用 `cargo run -p oasis7_game_client --bin oasis7_game_client -- --help` 单独验证。
   - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
-  - profile 计划版本为 1；空、未知、重复 profile、未知版本或 full 计划漏项均拒绝。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/未知输入及非包规则继续保守全量。每个 profile 的命令成功后才输出完成标记，任何失败退出仍由原 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
-  - planner 始终声明 `required_gate_baseline`：这是 required-gate 的普适治理/契约 authority，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。
+  - support profile 计划版本为 1；空、未知、重复 profile 或未知版本拒绝，保守 full scope 展开完整库存。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/影响不确定及非包规则保守扩大，已确认的未登记路径明确失败。每个 profile 的命令成功后才输出完成标记，失败仍由 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
+  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。快速 baseline 保留增量与必要全局不变量，完整 profile 另运行 `--full-corpus` 历史报告。
   - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
-  - 调用 `run_full_required_superset`、`rust_baseline` 及下列 full 测试；函数名不代表当前已覆盖 `required` 的每个子检查。
-  - 当前仍缺 `oasis7` / consensus / distfs / node / net / net-libp2p 的组级 Clippy 和 `viewer-auth-browser-security-smoke.mjs`；workspace-support 的 Clippy 仍会执行。`full-standard` 同样存在这些缺口，`full` 另加 `formal_process`。
-  - `required` 全量包含于 full 是 [CI 分层设计](doc/testing/ci/ci-tiered-execution.design.md) 的目标，尚不能凭本入口通过宣称实现；应按变更范围执行实际选中的 required 组。
+  - 调用 `run_full_required_superset`、`rust_baseline` 及 full 扩展，另加 `formal_process`；`full-standard` 保留普通与扩展部分。
+  - 已补齐 `oasis7` / consensus / distfs / node / net / net-libp2p 的组级 Clippy、默认 snapshot 回归，以及依赖本轮实际构建的 `viewer-auth-browser-security-smoke.mjs`；workspace-support 的原检查保留。
+  - hosted 完整覆盖由全部配置组、平台矩阵和 full 扩展共同提供，不能仅凭本地函数名或单个 `full` 命令通过推断跨平台完整结果。
   - `cargo test -p oasis7 -p oasis7_viewer_runtime --tests --features test_tier_full,wasmtime,viewer_live_integration`
   - `cargo test -p oasis7_node --lib`
   - `cargo test -p oasis7_net --lib`
   - `cargo test -p oasis7_net --features libp2p --lib`
   - `./scripts/llm-baseline-fixture-smoke.sh`
+  - `run_workspace_support_full_feature_tests` 按实际 manifest 对适用 support 包执行 required/full/wasmtime/viewer 等完整 feature 并集和 `--all-targets`，与原 profile 共同保留首次 PR 之后的周期覆盖。
   - 构建真实生产 `oasis7_chain_runtime` / `oasis7_game_launcher`：Chain 所属包启用 `wasmtime`，Launcher 使用 `oasis7_launcher_backend` 的默认 features，两者均不含 test-tier feature。`scripts/hosted-local-mock-production-guard.py` 按所属包核对 Cargo artifact 清单中的 manifest、bin target、非 test harness 与各自的 feature 要求，再分别启动并核对 Hosted local-mock funding 参数被生产 guard 精确拒绝；不以其他启动错误代替拒绝结果。
   - `cargo test -p oasis7 --features test_tier_required,wasmtime --lib --bins`：启用跨 crate 测试夹具，保持未启用 `test_tier_full` 时的严格 Wasmtime 默认预算。驱动按相同 features 构建 Viewer，并通过 `PRE2_VIEWER_BINARY` 传入 Cargo 返回的真实路径；不依赖预先存在的 executable。
   - `run_full_required_superset` 显式调用当前 scoped-required capability；重叠 support shard 只保留一次。仍以实际命令为准，不能据函数名推断每个 required 子检查都覆盖。
@@ -161,9 +220,9 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
   - `required-gate` 是最后汇总，明确依赖 select 和所有测试组；选中组必须真实成功，失败、取消、缺失及意外跳过均失败。
   - 控制逻辑或共享输入变化、未知影响及依赖解析失败扩大普通 required；迁移 PR 使用完整保留组，不由候选选择器缩小覆盖。
   - CI 和评审结果使用真实 HEAD、测试对象、Actions 运行和 review 记录，不依赖 Task、Project 或通用 receipt。
-  - `full` 可显式本地运行；nightly full 保留广覆盖回归，专项环境仅在普通 CI 存在具体不足时使用。
-  - 候选全量回归：`gh workflow run rust.yml --ref <candidate-branch-or-tag> -f run_mode=full`。所选 ref 必须包含该入口；非 main 手动运行执行 `candidate-full-regression`，缓存只读、不写 trusted sentinel，普通 PR 默认选择不变。main 手动 full 和 nightly 仍由原 trusted writer 执行。
-  - 候选运行 summary 记录实际 commit 和 tree，并核对 checkout 与 event SHA 相等；它验证所选源版本，不自动代表最新 main 合并组合。检查该 job 实际成功，不能将其他跳过的 job 或旧运行算作全量通过。
+  - `full` 可显式本地运行；schedule 为 UTC `17 */4 * * *`，完整 profile 展开全部配置组和平台，专项环境仅在普通 CI 存在具体不足时使用。
+  - 新 `pr-fast`/`main-fast` 只读消费缓存；可信 main 的完整 producer 保留预算内写入，旧 BASE 回退保留原权限分支。候选完整回归缓存只读、不写 trusted sentinel。
+  - select summary 记录 source/tested/policy 三个 SHA，candidate-full 另记录实际 tree；artifact 绑定 tested commit 与真实构建输入。main manual full 可固定不同于 workflow 事件的 candidate source。它验证所选源版本，不自动代表最新 main 合并组合，必须核对 `explicit-full-gate` 的所有实际依赖，而非单个扩展 job 或旧运行。
 - 入口 C：`.github/workflows/wasm-determinism-gate.yml`（构建 hash / receipt evidence 独立 gate）
   - GitHub-hosted runner 矩阵：`(m1|m4|m5) x (ubuntu-24.04/linux-x86_64)`
   - planner 先执行：`./scripts/plan-wasm-determinism-scope.sh --event-name <push|pull_request|workflow_dispatch> --base-ref <base> --head-ref <head>`
@@ -192,9 +251,10 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 - `./scripts/ci-tests.sh required`：普通检查，不隐式启动独立重型链路。
 - `./scripts/ci-tests.sh required --group formal_process`：准备产物后顺序执行全部真实进程分片；兼容入口 `./scripts/formal-live-local-tests.sh "$PWD"` 调用相同清单和运行器。
-- `./scripts/ci-tests.sh full`：full-standard 加重型验收。本地/CI 内部 `full-standard` 只执行普通与扩展检查；nightly/manual-full 另起共享产物矩阵，不执行两次重型链路。
+- `./scripts/ci-tests.sh full`：full-standard 加重型验收。本地 `full-standard` 执行普通与扩展检查；hosted periodic/manual full 分别启动全部普通组、`full-extended` 与共享 Formal 产物矩阵，不重复调用整套普通入口。
 - 合同回归：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/plan-rust-required-scope.test.py`、`python3 scripts/ci-required-result.test.py`、`python3 scripts/ci-workflow.test.py`。使用 Python 3.11+；覆盖精确零匹配、清单遗漏/重复、旧基线扩大、选中后失败/取消/跳过、绝对期限和真实小型 libtest。
 - hosted 验证检查构建与各消费 job 位于不同 Linux runner：下载同 tested SHA 的消费者 tar.gz、核对 manifest 与所选执行闭包、无本地 target 前置时运行全部真实用例。不得在分片调用 Cargo。普通组与正式矩阵分别依赖各自 producer，正式矩阵不等待普通构建；互斥正式 producer 恰有一个成功且另一个跳过，任一必选分片失败则固定汇总失败。
+- Formal build/pack/run 使用同一可信 `--formal-config`、计划与 source；失败任务重跑可复用实际成功 select/producer 的先前 attempt，产物按真实 producer attempt 核验，不要求三步都发生在当前 attempt。BASE 最低 case/ignored filter/batch/script 与候选新增项取并集，manifest 绑定 authority 摘要。删除候选条目不能消除旧预期 case，缺 case、身份变化、计划外物理 shard 或 authority 不符必须失败；普通测试的语义退役仍按既有评审处理。
 - 优化回归核对全部完整用例在逻辑 suite 与物理 shard 中恰好一次，保留长历史 70 次及健康集合 40 次连续操作。比较 producer、分包原始/压缩 bytes、下载、实际测试、重开/冷查/stop 各阶段；记录缓存来源、是否命中及 8 GiB 保存预算结果。fixture 和本地计数器只能证明对应机制，整体耗时改善须用实际 runner 结果另证。
 - workspace 缓存回归使用真实小型 Cargo workspace：分开保存依赖与本地编译单位，在相同绝对路径重建 checkout 后恢复，核对 Cargo JSON 的 fresh 和实际程序输出。修改源码、build.rs 观察的未跟踪输入、权限或刻意保留旧 mtime 的输入须正常重编；新增/删除输入、损坏、symlink、路径穿越和不完整缓存须安全回到冷路径。核对 build-script 编译与执行两类目录均完整，原始 fingerprint 不被修改。真实 producer 另记录完整 target 与所选 workspace 的逻辑/硬链接去重 bytes、目录归因、8 GiB 保存结果及两类缓存的恢复耗时；本地 fixture 不代签 main writer 已保存或后续 hosted reader 已复用。
 - `output/formal-process/results.jsonl` 记录每个命令的开始时间、耗时、退出码、超时、测试数和清理状态。只上传此安全摘要；详细输出查看 job 日志，失败世界目录不自动上传。缺摘要、缺产物和构建失败须从 Actions 失败步骤诊断，不能计为通过。

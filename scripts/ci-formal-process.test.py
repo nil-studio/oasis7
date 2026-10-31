@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -119,6 +120,268 @@ class Coverage(unittest.TestCase):
         changed['case_shards']['runtime-tests']['renamed_or_missing_case'] = 'healthy-set'
         with self.assertRaises(ValueError):
             artifacts.resolve_shards(changed, suites)
+
+    def test_trusted_formal_inventory_survives_candidate_removal_and_keeps_additions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority, candidate = root / 'authority.json', root / 'candidate.json'
+            authority.write_text(json.dumps(self.config))
+            changed = copy.deepcopy(self.config)
+            old = changed['suites']['world-history'].pop()
+            for key in ('environment_formal_batches', 'shell_tests', 'binary_dependencies',
+                        'script_dependencies', 'legacy_ignored_filters', 'auxiliary_entries'):
+                changed[key] = {}
+            candidate.write_text(json.dumps(changed))
+            with patch.object(artifacts, 'CONFIG', candidate), patch.object(artifacts, 'FORMAL_AUTHORITY', authority):
+                effective = artifacts.formal_configuration()
+                self.assertEqual(effective, self.config)
+                artifacts.resolve_suites(effective, self.binaries)
+                missing = copy.deepcopy(self.binaries)
+                missing[old['binary']]['ignored_tests'].remove(old['name'])
+                with self.assertRaisesRegex(ValueError, 'missing ignored acceptance'):
+                    artifacts.resolve_suites(effective, missing)
+                added = dict(binary='runtime-tests', name='protected_endpoint_children_new_acceptance', ignored=True)
+                changed['suites']['runtime-protocol'].append(added)
+                candidate.write_text(json.dumps(changed))
+                binaries = copy.deepcopy(self.binaries)
+                binaries['runtime-tests']['tests'].append(added['name'])
+                binaries['runtime-tests']['ignored_tests'].append(added['name'])
+                suites = artifacts.resolve_suites(artifacts.formal_configuration(), binaries)
+                self.assertIn(old, suites['world-history'])
+                self.assertIn(added, suites['runtime-protocol'])
+                self.assertEqual(sum(entry.get('ignored', False) for cases in suites.values() for entry in cases), 30)
+
+    def test_candidate_cannot_relabel_formal_case_or_move_it_to_an_unplanned_shard(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority, candidate = root / 'authority.json', root / 'candidate.json'
+            authority.write_text(json.dumps(self.config))
+            changed = copy.deepcopy(self.config)
+            entry = changed['suites']['world-history'].pop()
+            changed['suites']['runtime-protocol'].append(entry)
+            candidate.write_text(json.dumps(changed))
+            with patch.object(artifacts, 'CONFIG', candidate), patch.object(artifacts, 'FORMAL_AUTHORITY', authority):
+                with self.assertRaisesRegex(ValueError, 'trusted Formal case identity'):
+                    artifacts.formal_configuration()
+                changed = copy.deepcopy(self.config)
+                changed['case_shards'].setdefault(entry['binary'], {})[entry['name']] = 'healthy-set'
+                candidate.write_text(json.dumps(changed))
+                selected = FastExecutionSelection().selection(suites=('world-history',))
+                selected['formal_shards'] = ['world-history']
+                with self.assertRaisesRegex(ValueError, 'outside the trusted plan'):
+                    artifacts.formal_shards(selected)
+                selected['formal_shards'].append('healthy-set')
+                self.assertEqual(artifacts.formal_shards(selected), ['healthy-set'])
+
+    def test_formal_bundle_rejects_another_authority_before_files_or_execution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority, candidate = root / 'authority.json', root / 'candidate.json'
+            authority.write_text(json.dumps(self.config))
+            candidate.write_text(json.dumps(self.config))
+            manifest = dict(tested_sha='tested', source_sha='source', producer_run_id='local',
+                checkout=str(root), config_sha256=artifacts.digest(candidate), formal_authority_sha256='other',
+                rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'),
+                runner_image=os.environ.get('ImageOS', sys.platform))
+            (root / 'manifest.json').write_text(json.dumps(manifest))
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', candidate), \
+                 patch.object(artifacts, 'FORMAL_AUTHORITY', authority), patch.object(artifacts, 'output', return_value='tested'), \
+                 patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='local'):
+                with self.assertRaisesRegex(ValueError, 'Formal authority mismatch'):
+                    artifacts.pack(root, root / 'unused.tar.gz', shard='world-history')
+                with self.assertRaisesRegex(ValueError, 'formal_authority_sha256'):
+                    artifacts.load(root, shard='world-history')
+
+    def test_environment_batch_case_cannot_escape_the_trusted_physical_shards(self):
+        config = copy.deepcopy(self.config)
+        config['case_shards'].setdefault('runtime-tests', {})['formal::logic'] = 'healthy-set'
+        selected = FastExecutionSelection().selection(suites=('runtime-protocol',))
+        selected['formal_shards'] = ['runtime-protocol']
+        manifest = dict(execution_plan=selected, suites=artifacts.resolve_suites(config, self.binaries))
+        with self.assertRaisesRegex(ValueError, 'resolved Formal coverage'):
+            artifacts.selected_entries(manifest, config, shard='runtime-protocol')
+
+
+class FastExecutionSelection(unittest.TestCase):
+    def selection(self, packages=('oasis7_viewer_codec',), suites=()):
+        return dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
+                    groups=['baseline', 'oasis7_required'] + (['formal_process'] if suites else []),
+                    oasis7_required_packages=list(packages),
+                    oasis7_required_wasm_packages=[p for p in packages if p in artifacts.PORTABLE_REQUIRED_PACKAGES],
+                    formal_suites=list(suites), test_policy_changed=False,
+                    architecture=dict(source='source', tested='tested'))
+
+    def test_leaf_package_does_not_build_unrelated_harnesses_or_viewer(self):
+        variants = artifacts.build_variants('ordinary', self.selection())
+        self.assertEqual([name for name, _, _ in variants], ['required'])
+        command = variants[0][1]
+        self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == '-p'], ['oasis7_viewer_codec'])
+        self.assertIn('--tests', command)
+        self.assertIn('--no-run', command)
+        self.assertEqual(command[command.index('--features') + 1], 'oasis7_viewer_codec/test_tier_required')
+        self.assertEqual(artifacts.required_arguments(self.selection(), 'wasm'),
+                         ['-p', 'oasis7_viewer_codec', '--lib', '--target', 'wasm32-unknown-unknown', '--locked'])
+
+    def test_process_consumers_keep_viewer_and_only_applicable_default_regressions(self):
+        plan = self.selection(('oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+        variants = artifacts.build_variants('ordinary', plan)
+        self.assertEqual({name for name, _, _ in variants}, {'required', 'viewer', 'viewer-snapshot-tests'})
+        manifest = dict(execution_plan=plan)
+        self.assertEqual(artifacts.snapshot_regressions(manifest), (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[0],))
+        core = self.selection(('oasis7',))
+        self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=core)),
+                         (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[1],))
+
+    def test_old_planner_and_uncertain_scope_cannot_narrow_old_inventory(self):
+        old = dict(groups=['oasis7_required'], scope='targeted')
+        self.assertEqual(artifacts.build_variants('ordinary', old), artifacts.build_variants('ordinary'))
+        plan = self.selection()
+        plan['scope'] = 'full'
+        self.assertEqual(set(artifacts.required_packages(plan)), set(artifacts.required_packages()))
+        self.assertEqual(artifacts.required_wasm_packages(plan), list(artifacts.PORTABLE_REQUIRED_PACKAGES))
+
+    def test_changed_test_policy_includes_expanded_features_before_merge(self):
+        plan = self.selection(('oasis7_runtime', 'oasis7_viewer_codec'))
+        plan['test_policy_changed'] = True
+        features = artifacts.package_features(plan['oasis7_required_packages'], plan)
+        self.assertIn('oasis7_runtime/test_tier_full', features)
+        self.assertIn('oasis7_runtime/test_tier_required', features)
+        self.assertIn('oasis7_viewer_codec/test_tier_required', features)
+        self.assertNotIn('oasis7_viewer_codec/test_tier_full', features)
+
+    def test_invalid_or_missing_package_selections_fail_before_build(self):
+        for key, bad in [('fast_plan_version', 2), ('fast_plan_version', True),
+                         ('oasis7_required_packages', []), ('oasis7_required_packages', ['unknown']),
+                         ('oasis7_required_packages', ['oasis7', 'oasis7']),
+                         ('groups', ['baseline']), ('test_policy_changed', 'false')]:
+            plan = self.selection()
+            plan[key] = bad
+            with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
+                artifacts.build_variants('ordinary', plan)
+        plan = self.selection()
+        del plan['oasis7_required_wasm_packages']
+        with self.assertRaises(ValueError):
+            artifacts.required_arguments(plan, 'wasm')
+
+    def test_case_shard_overrides_do_not_change_logical_selection(self):
+        plan = self.selection(suites=('healthy-set',))
+        self.assertEqual(artifacts.formal_shards(plan), ['healthy-set', 'storage-recovery', 'lifecycle-cli'])
+        config = json.loads(artifacts.CONFIG.read_text())
+        manifest = dict(execution_plan=plan, suites=config['suites'])
+        entries = artifacts.selected_entries(manifest, config, shard='storage-recovery')
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['suite'], 'healthy-set')
+        self.assertIn('cold_original_lookup', entries[0]['name'])
+        self.assertEqual(artifacts.selected_entries(manifest, config, shard='runtime-protocol'), [])
+        with self.assertRaises(ValueError):
+            artifacts.selected_entries(manifest, config, suite='storage-recovery')
+
+    def test_source_and_tested_merge_are_bound_separately(self):
+        plan = self.selection()
+        with patch.object(artifacts, 'output', return_value='tested'), patch.dict(os.environ, SOURCE_SHA='source'):
+            artifacts.validate_plan_identity(plan)
+            for key in ('source', 'tested'):
+                altered = copy.deepcopy(plan)
+                altered['architecture'][key] = 'other'
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'identity mismatch'):
+                    artifacts.validate_plan_identity(altered)
+                altered[key + '_sha'] = 'source' if key == 'source' else 'tested'
+                with self.subTest(key=key, contradictory=True), self.assertRaisesRegex(ValueError, 'identity mismatch'):
+                    artifacts.validate_plan_identity(altered)
+
+    def test_subset_artifact_rejects_another_consumer_plan_before_files(self):
+        plan = self.selection()
+        other = self.selection(('oasis7_runtime',))
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            (bundle / 'manifest.json').write_text(json.dumps(dict(execution_plan=plan)))
+            with self.assertRaisesRegex(ValueError, 'execution plan mismatch'):
+                artifacts.pack(bundle, bundle / 'archive.tar.gz', suite='ordinary', plan=other)
+
+    def test_selected_package_or_behavior_cannot_disappear_from_artifact(self):
+        plan = self.selection()
+        binary = dict(ordinary=True, package='oasis7_viewer_codec', tests=['round_trip'], ignored_tests=[])
+        manifest = dict(scope='ordinary', execution_plan=plan, binaries={'codec': binary})
+        artifacts.validate_ordinary_selection(manifest)
+        for mutation in ('missing', 'other', 'no_behavior'):
+            changed = copy.deepcopy(manifest)
+            if mutation == 'missing':
+                changed['binaries'].clear()
+            elif mutation == 'other':
+                changed['binaries']['codec']['package'] = 'unselected'
+            else:
+                changed['binaries']['codec']['ignored_tests'] = ['round_trip']
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(changed)
+
+    def test_selected_fast_bundle_runs_behavior_and_rejects_zero_execution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / 'fixture'
+            manifest = dict(scope='ordinary', execution_plan=self.selection(), binaries={
+                'codec': dict(path='fixture', ordinary=True, test=True, cwd='.',
+                              package='oasis7_viewer_codec', tests=['round_trip'], ignored_tests=[])})
+            for count in (1, 0):
+                executable.write_text('#!' + sys.executable + '\n'
+                                      'print("test result: ok. ' + str(count) +
+                                      ' passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s")\n')
+                executable.chmod(0o755)
+                results = root / ('results-' + str(count) + '.jsonl')
+                # Process ownership has its own real-process suite below. This
+                # fixture exercises dispatch and libtest count propagation.
+                with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'load', return_value=(manifest, dict(os.environ))), \
+                     patch('ci_process_runner.cleanup', return_value=('clean', False)):
+                    if count:
+                        artifacts.execute(root, 'ordinary', results, plan=self.selection())
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            artifacts.execute(root, 'ordinary', results, plan=self.selection())
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertEqual(records[0]['passed'], count == 1)
+                self.assertEqual(records[0]['suite'], 'ordinary')
+
+
+class DriverCoverage(unittest.TestCase):
+    def invoke(self, commands, fail_browser=False):
+        driver = (HERE / 'ci-tests.sh').read_text()
+        functions = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))
+        retained = {'run_group', 'run_full_required_superset', 'run_all_required_gate_capability_contract_tests',
+                    'run_selected_workspace_support'}
+        definitions = []
+        for name, body in functions.items():
+            if name in retained:
+                definitions.append(name + '() {\n' + body + '}\n')
+            elif name not in ('run', 'run_cargo'):
+                definitions.append(name + '() { printf "%s\\n" ' + name + '; }\n')
+        script = 'set -euo pipefail\nsupport_profiles=""; required_plan=""\n'
+        script += '\n'.join(definitions)
+        script += 'run_cargo() { printf "cargo:%s\\n" "$*"; }\n'
+        script += 'run() { printf "command:%s\\n" "$*"; [[ "${FAIL_BROWSER:-}" != 1 || "$*" != *viewer-auth-browser-security-smoke.mjs* ]] || return 17; }\n'
+        script += commands
+        return subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                              env=dict(os.environ, FAIL_BROWSER='1' if fail_browser else '0'))
+
+    def test_full_driver_contains_every_locally_supported_required_group(self):
+        groups = ['baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'node', 'net',
+                  'viewer_js_required', 'viewer_performance_report', 'pixel_world_bridge', 'launcher_web',
+                  'workspace_support', 'scenario_regression', 'operational_contracts', 'packaging_contracts',
+                  'workflow_governance', 'codex_agent_config_validation', 'compile_metrics', 'site_quality',
+                  'doc_checker_contracts', 'cargo_tooling_contracts']
+        required = self.invoke('\n'.join('run_group ' + group for group in groups))
+        full = self.invoke('run_full_required_superset\nrun_rust_baseline\n')
+        self.assertEqual(required.returncode, 0, required.stderr)
+        self.assertEqual(full.returncode, 0, full.stderr)
+        self.assertLessEqual(set(required.stdout.splitlines()), set(full.stdout.splitlines()))
+        self.assertIn('run_oasis7_required_tier_clippy', full.stdout)
+        self.assertIn('viewer-auth-browser-security-smoke.mjs', full.stdout)
+
+    def test_full_browser_failure_cannot_be_hidden_by_later_success(self):
+        result = self.invoke('run_full_required_superset\n', fail_browser=True)
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertIn('run_oasis7_viewer_software_safe_build', result.stdout)
+        self.assertIn('viewer-auth-browser-security-smoke.mjs', result.stdout)
+        self.assertNotIn('run_pixel_world_bridge_lib_tests', result.stdout)
 
 
 class BuildAndBundles(unittest.TestCase):
@@ -1214,6 +1477,54 @@ class Process(unittest.TestCase):
         self.assertEqual(result['exit_code'], 0)
         self.assertFalse(result['passed'])
 
+    def test_real_selected_build_keeps_required_features_and_excludes_unrelated_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers=["codec","unrelated"]\nresolver="2"\n')
+            for directory, package, source in (
+                ('codec', 'oasis7_viewer_codec', '#[cfg(feature="test_tier_required")] #[test] fn round_trip() { assert_eq!(1 + 1, 2); }\n'
+                 '#[cfg(feature="test_tier_full")] #[test] fn extended_round_trip() { assert_eq!(2 + 2, 4); }'),
+                ('unrelated', 'oasis7_runtime', 'compile_error!("unrelated target was incorrectly selected");'),
+            ):
+                member = root / directory
+                (member / 'src').mkdir(parents=True)
+                (member / 'Cargo.toml').write_text('[package]\nname="' + package +
+                    '"\nversion="0.1.0"\nedition="2021"\n[features]\ntest_tier_required=[]\ntest_tier_full=[]\n')
+                (member / 'src/lib.rs').write_text(source)
+            config = root / 'scripts/ci-formal-process-suites.json'
+            config.parent.mkdir()
+            config.write_text('{}')
+            subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for command in (['git', 'init', '-q'], ['git', 'add', '.'],
+                            ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                             'commit', '-qm', 'fixture']):
+                subprocess.run(command, cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+            plan = FastExecutionSelection().selection()
+            plan['architecture'] = dict(source=sha, tested=sha)
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                for expanded, expected_count in ((False, 1), (True, 2)):
+                    plan['test_policy_changed'] = expanded
+                    bundle, consumer = root / ('producer-' + str(expanded)), root / ('consumer-' + str(expanded))
+                    artifacts.build(bundle, 'ordinary', plan=plan)
+                    manifest = json.loads((bundle / 'manifest.json').read_text())
+                    self.assertEqual({entry['package'] for entry in manifest['binaries'].values()}, {'oasis7_viewer_codec'})
+                    archive_path = root / ('ordinary-' + str(expanded) + '.tar.gz')
+                    artifacts.pack(bundle, archive_path, suite='ordinary', plan=plan)
+                    with tarfile.open(archive_path) as archive:
+                        archive.extractall(consumer, filter='data')
+                    results = root / ('results-' + str(expanded) + '.jsonl')
+                    artifacts.execute(consumer, 'ordinary', results, plan=plan)
+                    records = [json.loads(line) for line in results.read_text().splitlines()]
+                    self.assertEqual(len(records), 1)
+                    self.assertTrue(records[0]['passed'])
+                    self.assertEqual(records[0]['expected_count'], expected_count)
+                plan['oasis7_required_packages'].append('oasis7_runtime')
+                with self.assertRaisesRegex(RuntimeError, 'build failed'):
+                    artifacts.build(root / 'expanded', 'ordinary', plan=plan)
+
     def test_absolute_timeout_is_not_reset_by_heartbeats(self):
         result = self.execute([sys.executable, '-c', 'import time; time.sleep(30)'], count=None, timeout_seconds=0.2, heartbeat_seconds=0.05)
         self.assertTrue(result['timeout'])
@@ -1316,19 +1627,27 @@ class Process(unittest.TestCase):
                     ignored_tests=artifacts.inventory(destination, True) if name == 'runtime-tests' else [],
                     libraries=[])
             config_path = root / 'suites.json'
-            config = dict(suites={'healthy-set': [dict(binary='runtime-tests', name='formal_acceptance', ignored=True)]},
+            config = dict(schema_version=2, suites={'healthy-set': [dict(binary='runtime-tests', name='formal_acceptance', ignored=True)]},
                 environment_formal_batches={}, legacy_ignored_filters={'runtime-tests': ['formal_acceptance']},
                 shell_tests={}, auxiliary_entries={'runtime-tests': ['crash_child']},
                 binary_dependencies={'runtime-tests': ['runtime']},
                 case_shards={'runtime-tests': {'formal_acceptance': 'storage-recovery'}})
-            config_path.write_text(json.dumps(config))
+            authority_path = root / 'trusted-suites.json'
+            authority_path.write_text(json.dumps(config))
+            candidate = copy.deepcopy(config)
+            candidate['suites']['healthy-set'] = []
+            candidate['legacy_ignored_filters'] = {}
+            config_path.write_text(json.dumps(candidate))
             manifest = dict(schema_version=2, scope='formal', tested_sha='tested', source_sha='source',
                 producer_run_id='run', checkout=str(root), config_sha256=artifacts.digest(config_path),
+                formal_authority_sha256=artifacts.digest(authority_path),
                 rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'), runner_image=os.environ.get('ImageOS', sys.platform),
                 binaries=binaries, suites=artifacts.resolve_suites(config, binaries), libraries={})
             (bundle / 'manifest.json').write_text(json.dumps(manifest))
             archive_path, consumer = root / 'storage-recovery.tar.gz', root / 'consumer'
-            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config_path), patch.object(artifacts, 'output', return_value='tested'), patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='run'):
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config_path), \
+                 patch.object(artifacts, 'FORMAL_AUTHORITY', authority_path), patch.object(artifacts, 'output', return_value='tested'), \
+                 patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='run'):
                 artifacts.pack(bundle, archive_path, shard='storage-recovery')
                 with tarfile.open(archive_path) as archive:
                     archive.extractall(consumer, filter='data')

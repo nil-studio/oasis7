@@ -62,7 +62,7 @@ def validate_candidate_graph(workflow, config):
     for group in config['groups']:
         job = jobs[group.replace('_', '-')]
         if group == 'formal_process':
-            if 'always()' not in job or 'ci-formal-plan.py --selected' not in job:
+            if 'always()' not in job or 'ci-formal-plan.py" --selected' not in job:
                 raise ValueError('formal aggregation must execute and validate results')
             continue
         if ("needs.select.result == 'success'" not in job
@@ -78,111 +78,209 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
-    def test_manual_and_scheduled_selection_stays_explicit_full(self):
-        self.assertIn("if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'",
-                      JOBS['select'])
-        select_step = JOBS['select'].split('      - id: select\n', 1)[1].split(
-            '      - id: formal-select\n', 1)[0]
-        select_script = textwrap.dedent(select_step.split('        run: |\n', 1)[1])
-        formal_step = JOBS['select'].split('      - id: formal-select\n', 1)[1].split(
-            '      - uses:', 1)[0]
-        formal_script = textwrap.dedent(formal_step.split('        run: |\n', 1)[1])
+    def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='', real_receipt=False):
+        """Execute the real workflow shell against immutable local Git fixtures."""
+        repo = Path(directory) / 'repo'
+        repo.mkdir()
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(repo)], check=True)
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
+        git('config', 'user.name', 'CI fixture')
+        git('config', 'user.email', 'fixture@example.invalid')
+        (repo / 'scripts').mkdir()
+        files = ('plan-rust-required-scope.py', 'ci-required-scope.json', 'ci-required-result.py',
+                 'ci-formal-plan.py', 'ci-formal-process-suites.json')
+        for name in files:
+            (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if real_receipt:
+            import runpy
+            policy_files = runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))['POLICY_FILES']
+            for path in policy_files:
+                destination = repo / path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / path).read_bytes())
+        else:
+            (repo / 'scripts/ci-full-result.py').write_text('# producer is not executed by selection\n')
+        if legacy:
+            (repo / 'scripts/plan-rust-required-scope.py').write_text('''import argparse,json,pathlib
+p=argparse.ArgumentParser()
+for key in ('base-ref','head-ref','test-ref','github-output','output'): p.add_argument('--'+key)
+a=p.parse_args()
+plan={'scope':'full','groups':json.loads(pathlib.Path(__file__).with_name('ci-required-scope.json').read_text())['groups']}
+pathlib.Path(a.output).write_text(json.dumps(plan))
+with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(plan)+'\\n')
+''')
+        git('add', '.')
+        git('commit', '-qm', 'trusted policy')
+        policy = git('rev-parse', 'HEAD')
+        git('remote', 'add', 'origin', str(repo))
+        git('checkout', '-qb', 'candidate')
+        (repo / 'README.md').write_text('candidate behavior\n')
+        # If the shell accidentally runs candidate policy instead of BASE, fail.
+        (repo / 'scripts/plan-rust-required-scope.py').write_text("raise SystemExit('untrusted candidate planner executed')\n")
+        git('add', '.')
+        git('commit', '-qm', 'candidate')
+        source = git('rev-parse', 'HEAD')
+        if not candidate and not source_ref:
+            git('checkout', '-q', 'main')
+            source = policy
+        requested = source if source_ref == 'candidate' else source_ref
+        step = JOBS['select'].split('      - id: select\n', 1)[1].split('      - id: formal-select\n', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        output = Path(directory) / 'github-output'
+        environment = dict(os.environ, EVENT_NAME=event, SOURCE_REF=requested,
+            SOURCE_SHA=source if candidate else policy, BASE_SHA=policy, WORKFLOW_SHA=source if candidate else policy,
+            GITHUB_SHA=source if candidate else policy,
+            GITHUB_REF='refs/heads/candidate' if candidate and event != 'pull_request' else
+                       'refs/pull/1/merge' if event == 'pull_request' else 'refs/heads/main',
+            RUNNER_TEMP=str(directory), GITHUB_OUTPUT=str(output),
+            GITHUB_STEP_SUMMARY=str(Path(directory) / 'summary'))
+        result = subprocess.run(['bash', '-c', script], cwd=repo, env=environment,
+                                text=True, capture_output=True)
+        values = dict(line.split('=', 1) for line in output.read_text().splitlines()) if output.exists() else {}
+        plan = json.loads(values['plan']) if 'plan' in values else None
+        return result, values, plan, policy, source
+
+    def test_manual_and_scheduled_selection_expands_complete_fixed_inventory(self):
         for event in ('workflow_dispatch', 'schedule'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
-                output = Path(directory) / 'github-output'
-                result = subprocess.run(
-                    ['bash', '-c', select_script],
-                    cwd=ROOT,
-                    env=dict(os.environ, EVENT_NAME=event, GITHUB_OUTPUT=str(output)),
-                    text=True,
-                    capture_output=True,
-                )
+                result, values, plan, policy, source = self.run_selection(directory, event=event)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                plan_line = next(line for line in output.read_text().splitlines()
-                                 if line.startswith('plan='))
-                plan = json.loads(plan_line.removeprefix('plan='))
-                self.assertEqual(plan, {'scope': 'explicit-full', 'groups': []})
-                output.write_text('')
-                formal_result = subprocess.run(
-                    ['bash', '-c', formal_script],
-                    cwd=ROOT,
-                    env=dict(os.environ, EVENT_NAME=event, GITHUB_OUTPUT=str(output)),
-                    text=True,
-                    capture_output=True,
-                )
-                self.assertEqual(formal_result.returncode, 0, formal_result.stderr)
-                self.assertIn('run_formal_process=true', output.read_text().splitlines())
+                self.assertEqual(set(plan['groups']), set(CONFIG['groups']))
+                self.assertEqual(plan['scope'], 'explicit-full')
+                self.assertEqual(plan['source_sha'], source)
+                self.assertEqual(plan['tested_sha'], source)
+                self.assertEqual(plan['policy_sha'], policy)
+                self.assertEqual(values['trusted_source'], 'true')
+                for group in CONFIG['groups']:
+                    self.assertEqual(values['run_' + group], 'true')
+        with tempfile.TemporaryDirectory() as directory:
+            result, values, plan, policy, source = self.run_selection(directory, event='workflow_dispatch', source_ref='candidate')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(source, policy)
+            self.assertEqual(plan['source_sha'], source)
+            self.assertEqual(plan['policy_sha'], policy)
+            self.assertEqual(values['trusted_source'], 'false')
 
-        # Explicit-full builds the shared bundle without activating the
-        # baseline job's PR/push-only range resolver.
-        self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'explicit-full'",
-                      JOBS['oasis7-test-build'])
-        self.assertNotIn("fromJSON(needs.select.outputs.plan).scope == 'explicit-full'",
-                         JOBS['baseline'])
-        self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", JOBS['baseline'])
+    def test_old_policy_cannot_be_replaced_by_candidate_fast_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, values, plan, policy, source = self.run_selection(directory, event='pull_request', legacy=True, candidate=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('fast_plan_version', plan)
+            self.assertEqual(set(plan['groups']), set(CONFIG['groups']))
+            self.assertEqual(values['policy_sha'], policy)
+        with tempfile.TemporaryDirectory() as directory:
+            result, values, plan, policy, source = self.run_selection(directory, legacy=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(plan)
+        with tempfile.TemporaryDirectory() as directory:
+            result, values, plan, policy, source = self.run_selection(directory, event='workflow_dispatch', legacy=True, candidate=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(plan['bootstrap_full'])
+            self.assertNotIn('fast_plan_version', plan)
+            self.assertEqual(set(plan['groups']), set(CONFIG['groups']))
+            self.assertEqual(values['trusted_source'], 'false')
 
-    def test_explicit_full_gate_requires_event_specific_completion(self):
+    def test_candidate_source_input_requires_trusted_main_dispatch(self):
+        for event, candidate in (('schedule', False), ('workflow_dispatch', True)):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                result, values, plan, policy, source = self.run_selection(
+                    directory, event=event, candidate=candidate, source_ref='candidate')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIsNone(plan)
+
+    def test_selection_artifacts_preserve_the_select_attempt_on_failed_job_reruns(self):
+        job = JOBS['select']
+        step = job.split('      - id: selection-artifacts\n', 1)[1].split('      - uses:', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        attempts = []
+        with tempfile.TemporaryDirectory() as directory:
+            for attempt in (1, 2):
+                output = Path(directory) / str(attempt)
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                    env=dict(os.environ, GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT=str(attempt),
+                             GITHUB_OUTPUT=str(output)), text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                names = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                self.assertEqual(names, {'selection_artifact': f'ci-selection-123-{attempt}',
+                                         'authority_artifact': f'ci-authority-123-{attempt}'})
+                attempts.append(names)
+        self.assertNotEqual(attempts[0], attempts[1])
+        for kind in ('selection', 'authority'):
+            output = kind + '_artifact'
+            self.assertIn(f'{output}: ${{{{ steps.selection-artifacts.outputs.{output} }}}}', job)
+            self.assertIn(f'name: ${{{{ steps.selection-artifacts.outputs.{output} }}}}', job)
+            consumers = [body for name, body in JOBS.items() if name != 'select'
+                         and f'needs.select.outputs.{output}' in body]
+            self.assertTrue(consumers)
+            for body in consumers:
+                self.assertIn(f'name: ${{{{ needs.select.outputs.{output} }}}}', body)
+                self.assertNotIn(f'name: ci-{kind}-${{{{ github.run_id }}}}', body)
+
+    def test_explicit_full_gate_covers_every_group_and_records_only_success(self):
         gate = JOBS['explicit-full-gate']
-        condition = gate.split('    runs-on:', 1)[0]
-        self.assertIn('always()', condition)
-        self.assertIn("github.event_name == 'schedule'", condition)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'", condition)
-        self.assertNotIn("inputs.run_mode == 'newapi_bridge_package'", condition)
-        self.assertIn('needs: [select, oasis7-test-build, formal-process, full-regression, candidate-full-regression]', gate)
-        script = textwrap.dedent(gate.split('        run: |\n', 1)[1])
+        dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
+        self.assertEqual(set(dependencies), {'select', 'oasis7-test-build', 'full-regression',
+            'candidate-full-regression', *(group.replace('_', '-') for group in CONFIG['groups'])})
+        self.assertEqual(len(dependencies), len(set(dependencies)))
+        self.assertIn('always()', gate)
+        self.assertIn('ci-required-result.py" --full', gate)
+        self.assertIn('ci-full-result.py" produce', gate)
+        self.assertIn('name: ci-full-result-${{ github.run_id }}-${{ github.run_attempt }}', gate)
+        self.assertNotIn('if: always()', gate.split('ci-full-result.py" produce', 1)[1])
+        self.assertIn('if-no-files-found: error', gate)
 
-        def run_gate(event, ref, run_mode, overrides=None):
-            values = {
-                'EVENT_NAME': event,
-                'REF': ref,
-                'RUN_MODE': run_mode,
-                'PLAN': '{"scope":"explicit-full","groups":[]}',
-                'SELECT_RESULT': 'success',
-                'TEST_BUILD_RESULT': 'success',
-                'FORMAL_RESULT': 'success',
-                'FULL_RESULT': 'skipped',
-                'CANDIDATE_RESULT': 'skipped',
-            }
-            values.update(overrides or {})
-            return subprocess.run(['bash', '-c', script], text=True, capture_output=True,
-                                  env=dict(os.environ, **values))
-
-        valid_runs = (
-            ('schedule', 'refs/heads/main', '', {'FULL_RESULT': 'success'}),
-            ('workflow_dispatch', 'refs/heads/main', 'full', {'FULL_RESULT': 'success'}),
-            ('workflow_dispatch', 'refs/heads/feature', 'full', {'CANDIDATE_RESULT': 'success'}),
-        )
-        for event, ref, run_mode, overrides in valid_runs:
-            with self.subTest(event=event, ref=ref):
-                result = run_gate(event, ref, run_mode, overrides)
+    def test_full_gate_produces_verifiable_policy_bound_receipt_from_real_authority(self):
+        import runpy
+        helper = runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))
+        gate = JOBS['explicit-full-gate']
+        step = gate.split('      - name: Require complete full inventory and exact source\n', 1)[1]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1].split('      - uses:', 1)[0])
+        for event, requested in (('schedule', ''), ('workflow_dispatch', 'candidate')):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                result, outputs, plan, policy, source = self.run_selection(
+                    directory, event=event, source_ref=requested, real_receipt=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-
-        for variable in ('SELECT_RESULT', 'TEST_BUILD_RESULT', 'FORMAL_RESULT', 'FULL_RESULT'):
-            for state in ('', 'skipped', 'failure', 'cancelled'):
-                with self.subTest(variable=variable, state=state):
-                    result = run_gate('schedule', 'refs/heads/main', '',
-                                      {'FULL_RESULT': 'success', variable: state})
+                repo = Path(directory) / 'repo'
+                subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
+                needs = {group.replace('_', '-'): {'result': 'success'} for group in CONFIG['groups']}
+                needs.update(select={'result': 'success'}, **{'oasis7-test-build': {'result': 'success'}})
+                trusted = source == policy
+                needs['full-regression'] = {'result': 'success' if trusted else 'skipped'}
+                needs['candidate-full-regression'] = {'result': 'skipped' if trusted else 'success'}
+                environment = dict(os.environ, RUNNER_TEMP=directory, GITHUB_WORKSPACE=str(repo),
+                    GITHUB_REPOSITORY='fixture/oasis7', GITHUB_EVENT_NAME=event,
+                    GITHUB_REF='refs/heads/main', GITHUB_SHA=policy, GITHUB_WORKFLOW_SHA=policy,
+                    GITHUB_WORKFLOW_REF='fixture/oasis7/.github/workflows/rust.yml@refs/heads/main',
+                    GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2',
+                    EVENT_NAME=event, REF='refs/heads/main', WORKFLOW_SHA=policy, SOURCE_SHA=source,
+                    RUN_MODE='full' if event == 'workflow_dispatch' else '',
+                    PLAN=json.dumps(plan), NEEDS=json.dumps(needs))
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                    cwd=repo, env=environment, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                receipt_path = Path(directory) / 'full-result.json'
+                receipt = json.loads(receipt_path.read_text())
+                self.assertEqual(receipt['context']['run_attempt'], 2)
+                self.assertEqual(receipt['plan']['source_sha'], source)
+                self.assertEqual(receipt['plan']['policy_sha'], policy)
+                digest = helper['definition_digest'](repo, policy)
+                self.assertEqual(receipt['definition_sha256'], digest)
+                run = dict(id=123, run_attempt=2, workflow_id=10, path='.github/workflows/rust.yml',
+                           head_branch='main', head_sha=policy, event=event, status='completed', conclusion='success')
+                jobs = [dict(id=1, name='explicit-full-gate', run_attempt=2, status='completed', conclusion='success')]
+                verified = helper['verify_receipt'](receipt, run, jobs, source=source,
+                    repository='fixture/oasis7', workflow_id=10, config=CONFIG, digest=digest)
+                self.assertEqual(verified, receipt)
+                # The same exact gate shell may never publish success after a
+                # selected native platform group fails, skips or is cancelled.
+                for result_name in ('failure', 'skipped', 'cancelled'):
+                    receipt_path.unlink(missing_ok=True)
+                    failed = dict(needs, **{'fleet-health': {'result': result_name}})
+                    result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                        cwd=repo, env=dict(environment, NEEDS=json.dumps(failed)), text=True, capture_output=True)
                     self.assertNotEqual(result.returncode, 0)
-
-        for state in ('', 'success', 'failure', 'cancelled'):
-            with self.subTest(unexpected_candidate_state=state):
-                result = run_gate('schedule', 'refs/heads/main', '',
-                                  {'FULL_RESULT': 'success', 'CANDIDATE_RESULT': state})
-                self.assertNotEqual(result.returncode, 0)
-        for state in ('', 'skipped', 'failure', 'cancelled'):
-            with self.subTest(missing_or_failed_candidate_state=state):
-                result = run_gate('workflow_dispatch', 'refs/heads/feature', 'full',
-                                  {'CANDIDATE_RESULT': state})
-                self.assertNotEqual(result.returncode, 0)
-        for state in ('', 'success', 'failure', 'cancelled'):
-            with self.subTest(unexpected_main_state=state):
-                result = run_gate('workflow_dispatch', 'refs/heads/feature', 'full',
-                                  {'CANDIDATE_RESULT': 'success', 'FULL_RESULT': state})
-                self.assertNotEqual(result.returncode, 0)
-
-        nonfull = run_gate('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package',
-                           {'FULL_RESULT': 'success'})
-        self.assertNotEqual(nonfull.returncode, 0)
+                    self.assertFalse(receipt_path.exists())
 
     def test_command_center_is_reusable_and_required(self):
         workflow = (ROOT / '.github/workflows/command-center.yml').read_text()
@@ -219,13 +317,88 @@ class Workflow(unittest.TestCase):
         self.assertIn('dc.validate_evidence(view, model)', checker)
         self.assertIn('evidence_policy.validate_evidence_policy(view, model, baseline)', checker)
 
+    def test_baseline_document_range_binds_ordinary_event_and_fixed_full_source(self):
+        baseline = JOBS['baseline']
+        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', baseline)
+        self.assertIn('TESTED_SHA: ${{ needs.select.outputs.tested_sha }}', baseline)
+        self.assertIn('CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}', baseline)
+        self.assertIn('OASIS7_CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}', baseline)
+        step = baseline.split('      - name: Resolve tested product-document range\n', 1)[1]
+        step = step.split('      - name: Execute selected group\n', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        self.assertLess(script.index('test "$TESTED_SHA" = "$GITHUB_SHA"'),
+                        script.index('python3 scripts/resolve-product-doc-ci-range.py'))
+        self.assertIn('--tested-oid "$GITHUB_SHA" >>"$GITHUB_ENV"', script)
+        self.assertNotRegex(script, r'\bGITHUB_SHA\s*=')
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / 'repo'
+            repo.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repo), *args],
+                                               text=True, stderr=subprocess.PIPE).strip()
+            def commit(message):
+                git('add', '.')
+                git('commit', '-qm', message)
+                return git('rev-parse', 'HEAD')
+            git('init', '-q', '-b', 'main')
+            git('config', 'user.name', 'Range fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (repo / 'scripts').mkdir()
+            helper = 'scripts/resolve-product-doc-ci-range.py'
+            (repo / helper).write_bytes((ROOT / helper).read_bytes())
+            (repo / 'README.md').write_text('# Base\n')
+            base = commit('event base')
+            git('checkout', '-qb', 'feature')
+            (repo / 'candidate.md').write_text('# Candidate\n')
+            source = commit('candidate')
+            git('checkout', '-q', 'main')
+            (repo / 'main-only.md').write_text('# Main advanced\n')
+            target = commit('main advanced after event base')
+            git('merge', '--no-ff', '--no-commit', 'feature')
+            (repo / 'merge-only.md').write_text('# Tested merge\n')
+            merged = commit('synthetic merge')
+            pr = {'pull_request': {'base': {'sha': base}, 'head': {'sha': source}}}
+            event_path = Path(directory) / 'event.json'
+            exports = Path(directory) / 'github-env'
+            cases = (
+                ('pr-fast', 'pull_request', pr, merged, merged, target),
+                ('', 'pull_request', pr, merged, merged, target),
+                ('main-fast', 'push', {'before': base, 'after': merged}, merged, merged, base),
+                ('periodic-full', 'schedule', {}, merged, target, target),
+                ('candidate-full', 'workflow_dispatch', {}, source, merged, base),
+            )
+            for profile, event_name, event, tested, event_sha, expected_base in cases:
+                with self.subTest(profile=profile, event_name=event_name):
+                    git('checkout', '-q', '--detach', tested)
+                    event_path.write_text(json.dumps(event))
+                    exports.write_text('')
+                    environment = dict(os.environ, CI_PROFILE=profile, TESTED_SHA=tested,
+                                       GITHUB_SHA=event_sha, GITHUB_EVENT_NAME=event_name,
+                                       GITHUB_EVENT_PATH=str(event_path), GITHUB_ENV=str(exports),
+                                       GITHUB_WORKSPACE=str(repo))
+                    result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+                                            cwd=repo, env=environment, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(exports.read_text(),
+                                     f'OASIS7_PRODUCT_DOC_BASE={expected_base}\nOASIS7_PRODUCT_DOC_HEAD={tested}\n')
+                    self.assertEqual(git('rev-parse', 'HEAD'), tested)
+                    if event_name in ('pull_request', 'push'):
+                        # The old helper alone would accept this event/checkout.
+                        # A conflicting selected SHA must fail before any export.
+                        exports.write_text('')
+                        environment['TESTED_SHA'] = source
+                        result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+                                                cwd=repo, env=environment, text=True, capture_output=True)
+                        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertEqual(exports.read_text(), '')
+
     def test_formal_suites_share_build_and_propagate_all_failures(self):
         matrix = JOBS['formal-process-tests']
         self.assertIn('needs: [select, formal-test-build, formal-test-build-trusted]', matrix)
         self.assertNotIn('needs: oasis7-required', matrix)
         self.assertIn('fail-fast: false', matrix)
         self.assertIn('max-parallel: 5', matrix)
-        self.assertIn('shard: [runtime-protocol, world-history, healthy-set, storage-recovery, lifecycle-cli]', matrix)
+        self.assertIn('shard: ${{ fromJSON(needs.select.outputs.formal_shards) }}', matrix)
         self.assertIn('actions/download-artifact@', matrix)
         self.assertNotIn('cargo build', matrix)
         self.assertNotIn('cargo test', matrix)
@@ -233,8 +406,9 @@ class Workflow(unittest.TestCase):
         self.assertIn('--results output/formal-process/results.jsonl', matrix)
         self.assertIn('needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]', JOBS['formal-process'])
         for name in ['full-regression', 'candidate-full-regression']:
-            self.assertIn('./scripts/ci-tests.sh full-standard', JOBS[name])
-            self.assertIn('needs: oasis7-test-build', JOBS[name])
+            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
+            self.assertIn('needs: select', JOBS[name])
+            self.assertNotIn('oasis7-test-build', JOBS[name])
         self.assertIn('compression-level: 0', JOBS['oasis7-test-build-candidate'])
         self.assertIn('overwrite: true', JOBS['oasis7-test-build-candidate'])
         self.assertIn('--scope ordinary', JOBS['oasis7-test-build-candidate'])
@@ -333,13 +507,14 @@ class Workflow(unittest.TestCase):
                     expected = (candidate, trusted) in (('success', 'skipped'), ('skipped', 'success'))
                     self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
 
-    def test_ordinary_consumers_handle_skipped_ancestors_and_require_build_success(self):
+    def test_consumers_require_their_actual_dependency_and_handle_cancellation(self):
         for name in ('oasis7-required', 'full-regression', 'candidate-full-regression'):
             header = JOBS[name].split('    runs-on:', 1)[0]
             condition = header.split('    if:', 1)[1].strip()
             condition = condition.removeprefix('>-').strip()
             self.assertIn('always() && !cancelled()', condition)
-            self.assertIn("needs.oasis7-test-build.result == 'success'", condition)
+            predecessor = 'oasis7-test-build' if name == 'oasis7-required' else 'select'
+            self.assertIn(f"needs.{predecessor}.result == 'success'", condition)
             for result in ('success', 'failure', 'skipped', 'cancelled', '', 'unknown'):
                 for cancelled in (False, True):
                     for event, ref, mode, scope, expected in (
@@ -351,9 +526,13 @@ class Workflow(unittest.TestCase):
                             ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', 'explicit-full', None)):
                         values = {
                             'always()': True, 'cancelled()': cancelled,
-                            'needs.oasis7-test-build.result': result, 'needs.select.result': 'success',
+                            'needs.oasis7-test-build.result': result,
+                            'needs.select.result': 'success' if name == 'oasis7-required' else result,
                             'needs.select.outputs.run_oasis7_required': 'false',
                             'fromJSON(needs.select.outputs.plan).scope': scope,
+                            'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
+                            'fromJSON(needs.select.outputs.plan).execution_profile': '',
+                            'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
                             'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
                         }
                         expression = condition
@@ -368,7 +547,7 @@ class Workflow(unittest.TestCase):
 
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
-        self.assertIn('needs: [oasis7-test-build-trusted, formal-test-build-trusted, full-regression]', job)
+        self.assertIn('needs: [select, oasis7-test-build-trusted, formal-test-build-trusted, full-regression]', job)
         self.assertIn('always() && !cancelled()', job.split('    steps:', 1)[0])
         for producer in ('oasis7-test-build-trusted', 'formal-test-build-trusted'):
             self.assertIn(f"needs.{producer}.result == 'success'", job)
@@ -380,7 +559,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('actions: write', job)
         self.assertIn('cancel-in-progress: false', job)
         self.assertIn('group: ci-cache-maintenance-main', job)
-        self.assertIn('ref: ${{ github.sha }}', job)
+        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', job)
         self.assertIn('CACHE_MAINTENANCE_TOKEN: ${{ github.token }}', job)
         self.assertIn('ci-cache-maintenance.py --recover --apply', job)
         self.assertNotIn('Swatinem/rust-cache', job)
@@ -431,6 +610,9 @@ class Workflow(unittest.TestCase):
                                     'needs.oasis7-test-build-trusted.outputs.cache_confirmed': confirmed,
                                     'needs.formal-test-build-trusted.outputs.cache_confirmed': confirmed,
                                     'needs.native-trusted.outputs.cache_confirmed': confirmed,
+                                    'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
+                                    'fromJSON(needs.select.outputs.plan).execution_profile': '',
+                                    'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
                                     'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
                                     'github.workflow_sha': 'a' if matching_workflow else 'b', 'github.sha': 'a',
                                 }
@@ -451,7 +633,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('actions: write', bootstrap)
         self.assertIn('group: ci-cache-maintenance-main', bootstrap)
         self.assertIn('cancel-in-progress: false', bootstrap)
-        self.assertIn('ref: ${{ github.sha }}', bootstrap)
+        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', bootstrap)
         self.assertIn('persist-credentials: false', bootstrap)
         self.assertIn('ci-cache-maintenance.py --recover --apply', bootstrap)
         for forbidden in ('--current-key', 'actions/cache/', 'Swatinem/rust-cache', 'cargo '):
@@ -483,6 +665,9 @@ class Workflow(unittest.TestCase):
                                 'needs.select.outputs.run_oasis7_required': str(ordinary).lower(),
                                 'needs.select.outputs.run_formal_process': str(formal).lower(),
                                 'fromJSON(needs.select.outputs.plan).scope': scope,
+                            'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
+                            'fromJSON(needs.select.outputs.plan).execution_profile': '',
+                            'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
                                 'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
                                 'github.workflow_sha': 'a' if matching_workflow else 'b', 'github.sha': 'a',
                             }
@@ -531,7 +716,7 @@ class Workflow(unittest.TestCase):
 
     def test_manual_candidate_full_is_read_only_and_not_scheduled(self):
         candidate = JOBS['candidate-full-regression']
-        self.assertIn("github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'", candidate)
+        self.assertIn("needs.select.outputs.trusted_source != 'true' && github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'", candidate)
         self.assertIn('cache-mode: read', candidate)
         self.assertNotIn('cache-mode: write', candidate)
         self.assertNotIn('trusted cache sentinel', candidate)
@@ -539,7 +724,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('save-if: false', candidate)
         self.assertIn('actions/cache/restore@', candidate)
         self.assertIn('git rev-parse --verify', candidate)
-        self.assertIn('GITHUB_SHA', candidate)
+        self.assertIn('SOURCE_SHA', candidate)
         self.assertIn('GITHUB_STEP_SUMMARY', candidate)
         self.assertIn('CI_VERBOSE=1 ./scripts/ci-tests.sh full', candidate)
 
@@ -995,7 +1180,7 @@ release_web_fixture_start() { record start; }
     def test_full_tail_keeps_strict_wasmtime_profile_and_fixture_viewer(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
-                     for name in ('run_oasis7_package_tests', 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer')]
+                     for name in ('run_oasis7_package_tests', 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer', 'run_full_extended_tier_tests')]
         full = re.search(r'^    full\|full-standard\) (.*?) ;;$', driver, re.M).group(1)
         with tempfile.TemporaryDirectory() as temporary:
             viewer = Path(temporary) / 'oasis7_viewer_live'
@@ -1007,6 +1192,7 @@ ci_python=python3
 run_full_required_superset() { :; }
 run_rust_baseline() { :; }
 run_oasis7_full_tier_tests() { :; }
+run_workspace_support_full_feature_tests() { :; }
 run_oasis7_llm_baseline_fixture_smoke() { :; }
 run_group() { [[ "$1" == formal_process ]] || return 50; printf 'FORMAL\\n' >> "$CI_LOG"; }
 run_oasis7_production_mock_guard() { printf 'GUARD\\n' >> "$CI_LOG"; [[ "${FAIL_PHASE:-}" != guard ]] || return 49; }
@@ -1261,7 +1447,7 @@ run_cargo() {
         self.assertIn('./scripts/ci-tests.sh cache-native', completion)
         self.assertNotIn('continue-on-error', completion)
         self.assertNotIn('if:', completion)
-        self.assertLess(writer.index('./scripts/ci-tests.sh full-standard'), writer.index(completion))
+        self.assertLess(writer.index('./scripts/ci-tests.sh full-extended'), writer.index(completion))
         for name, job in JOBS.items():
             if name != 'full-regression' and 'shared-key: ci-shared-native-trusted-v3' in job:
                 self.assertIn('save-if: false', job, name)
@@ -1362,11 +1548,13 @@ run_cargo() {
 
     def test_trusted_closure_and_safe_checkout(self):
         select = JOBS['select']
-        self.assertIn('git show "${BASE_SHA}:scripts/${file}"', select)
+        self.assertIn('policy_sha="$BASE_SHA"', select)
+        self.assertIn('git show "${policy_sha}:scripts/${file}"', select)
         self.assertIn('--test-ref "$tested_sha"', select)
-        self.assertIn('for file in plan-rust-required-scope.py ci-required-scope.json ci-required-result.py;', select)
-        self.assertNotIn('cp scripts/', select)
-        self.assertEqual(WORKFLOW.count('name: ci-authority'), 2)
+        self.assertIn('for file in plan-rust-required-scope.py ci-required-scope.json ci-required-result.py ci-formal-plan.py ci-formal-process-suites.json;', select)
+        self.assertIn('bootstrap_full=true', select)
+        self.assertIn('&& "$GITHUB_REF" != refs/heads/main', select)
+        self.assertEqual(WORKFLOW.count('name: ${{ needs.select.outputs.authority_artifact }}'), 5)
         self.assertNotIn('matrix.group', WORKFLOW)
         self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', WORKFLOW)), WORKFLOW.count('persist-credentials: false'))
         self.assertNotIn('secrets.', WORKFLOW)
@@ -1519,8 +1707,74 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
         self.assertIn("format('run-{0}', github.run_id)", WORKFLOW)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", WORKFLOW)
         concurrency = WORKFLOW.split('concurrency:', 1)[1].split('permissions:', 1)[0]
-        self.assertNotIn('github.sha', concurrency)
+        self.assertIn("'periodic-full-main'", concurrency)
+        self.assertIn("format('candidate-full-{0}-{1}'", concurrency)
+        self.assertIn('cron: "17 */4 * * *"', WORKFLOW)
         self.assertIn('github.workflow', concurrency)
+
+    def test_partial_fast_builds_and_main_dispatched_candidates_never_write_cache(self):
+        cases = (
+            ('main-fast', 1, 'push', 'refs/heads/main', True, False),
+            ('pr-fast', 1, 'pull_request', 'refs/pull/1/merge', False, False),
+            ('periodic-full', 1, 'schedule', 'refs/heads/main', True, True),
+            ('candidate-full', 1, 'workflow_dispatch', 'refs/heads/main', True, True),
+            ('candidate-full', 1, 'workflow_dispatch', 'refs/heads/main', False, False),
+            ('candidate-full', 1, 'workflow_dispatch', 'refs/heads/candidate', False, False),
+            ('', 0, 'push', 'refs/heads/main', True, True),
+        )
+        for profile, version, event, ref, trusted_source, writer_expected in cases:
+            values = {
+                'always()': True, 'cancelled()': False, 'needs.select.result': 'success',
+                'needs.select.outputs.run_oasis7_required': 'true',
+                'needs.select.outputs.run_formal_process': 'true',
+                'needs.select.outputs.trusted_source': str(trusted_source).lower(),
+                'fromJSON(needs.select.outputs.plan).scope': 'full',
+                'fromJSON(needs.select.outputs.plan).execution_profile': profile,
+                'fromJSON(needs.select.outputs.plan).fast_plan_version': version,
+                'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': 'full',
+                'github.workflow_sha': 'a', 'github.sha': 'a',
+            }
+            for reader, writer in (('oasis7-test-build-candidate', 'oasis7-test-build-trusted'),
+                                   ('formal-test-build', 'formal-test-build-trusted')):
+                for name, expected in ((reader, not writer_expected), (writer, writer_expected)):
+                    condition = JOBS[name].split('    if:', 1)[1].split('    runs-on:', 1)[0].strip().removeprefix('>-')
+                    for token, value in values.items():
+                        condition = condition.replace(token, repr(value))
+                    condition = re.sub(r'!(?!=)', 'not ', condition.replace('&&', ' and ').replace('||', ' or '))
+                    with self.subTest(job=name, profile=profile, trusted=trusted_source):
+                        self.assertEqual(eval(' '.join(condition.split()), {'__builtins__': {}}, {}), expected)
+
+    def test_selected_jobs_consume_fixed_source_and_same_plan(self):
+        for name in ('baseline', 'oasis7-test-build-candidate', 'formal-test-build', 'oasis7-required',
+                     'formal-process-tests', 'workspace-support', 'full-regression', 'candidate-full-regression',
+                     'windows-rollout', 'fleet-health'):
+            with self.subTest(job=name):
+                self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', JOBS[name])
+        for name in ('oasis7-test-build-candidate', 'formal-test-build', 'oasis7-required', 'formal-process-tests'):
+            with self.subTest(plan_consumer=name):
+                self.assertIn('name: ${{ needs.select.outputs.selection_artifact }}', JOBS[name])
+                self.assertIn('--plan "$RUNNER_TEMP/selection.json"', JOBS[name])
+        for name in ('formal-test-build', 'formal-process-tests'):
+            with self.subTest(formal_policy_consumer=name):
+                self.assertIn('name: ${{ needs.select.outputs.authority_artifact }}', JOBS[name])
+                commands = [line for line in JOBS[name].splitlines()
+                            if re.search(r'ci-test-artifacts.py (?:build|pack|run) ', line)]
+                self.assertTrue(commands)
+                for command in commands:
+                    self.assertIn('--formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json"', command)
+        for name in ('full-regression', 'candidate-full-regression'):
+            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
+            self.assertNotIn('full-extended --plan', JOBS[name])
+            self.assertNotIn('OASIS7_CI_TEST_BUNDLE', JOBS[name])
+            self.assertNotIn('name: native-tests-', JOBS[name])
+        center = (ROOT / '.github/workflows/command-center.yml').read_text()
+        self.assertIn('ref: ${{ inputs.source_sha }}', center)
+        self.assertIn('package_app: ${{ needs.select.outputs.command_center_package', JOBS['command-center'])
+        self.assertIn('- name: Package development App\n        if: inputs.package_app', center)
+        host = center.split('      - name: Check desktop host\n', 1)[1].split('      - name:', 1)[0]
+        self.assertNotIn('if:', host)
+        self.assertIn('--workspace --all-targets', host)
+        self.assertIn('cancel-in-progress: false', center)
 
     def test_clippy_precedes_heavy_group_tests(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()

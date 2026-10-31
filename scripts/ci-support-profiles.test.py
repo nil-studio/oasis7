@@ -2,8 +2,10 @@
 """Execute the real profile dispatcher with recording Cargo functions."""
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -119,7 +121,7 @@ class Profiles(unittest.TestCase):
             with self.subTest(path=name):
                 self.assertIn(prefix + name, paths)
 
-    def invoke(self, profiles, fail=False, fail_protocol=False):
+    def invoke(self, profiles, fail=False, fail_protocol=False, fail_expanded=False, cwd=None):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"
 run() { echo "contract $*"; }
@@ -132,11 +134,74 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
             script += 'run() { echo "contract $*"; return 19; }\n'
         if fail:
             script += 'run_cargo() { return 17; }\n'
+        if fail_expanded:
+            script += 'run_cargo() { echo "cargo $*"; [[ "$*" != *--features* ]] || return 23; }\n'
         script += 'run_selected_workspace_support() {' + FUNCTION
         script += '\nrun_selected_workspace_support\n'
         return subprocess.run(['bash', '-c', script, 'test', sys.executable,
                                str(ROOT / 'scripts'), profiles],
-                              text=True, capture_output=True)
+                              text=True, capture_output=True, cwd=cwd)
+
+    def test_new_support_tier_executes_before_merge_and_propagates_failure(self):
+        plan = dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
+                    groups=['workspace_support'], workspace_support_profile_version=1,
+                    workspace_support_profiles=['oasis7_agent_harness'], test_policy_changed=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers=["harness"]\n')
+            package = root / 'harness'
+            package.mkdir()
+            (package / 'Cargo.toml').write_text('[package]\nname="oasis7_agent_harness"\n'
+                                              '[features]\ntest_tier_required=[]\n'
+                                              'test_tier_full=["test_tier_required"]\n')
+            for fail in (False, True):
+                result = self.invoke('plan:' + json.dumps(plan), fail_expanded=fail, cwd=root)
+                self.assertEqual(result.returncode, 23 if fail else 0, result.stderr)
+                self.assertIn('cargo test -p oasis7_agent_harness --lib', result.stdout)
+                self.assertIn('cargo test -p oasis7_agent_harness --all-targets --features oasis7_agent_harness/test_tier_required,oasis7_agent_harness/test_tier_full', result.stdout)
+                self.assertEqual('support profile completed' in result.stdout, not fail)
+
+    @unittest.skipUnless(shutil.which('cargo') and shutil.which('rustc'), 'requires a Rust toolchain')
+    def test_full_support_features_run_required_and_integration_cases_without_a_policy_change(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('full_support_scope', ROOT / 'scripts/plan-rust-required-scope.py')
+        scope = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(scope)
+        body = DRIVER.split('run_workspace_support_full_feature_tests() {', 1)[1].split('\n}', 1)[0]
+        script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"\n'
+        script += 'run_cargo() { cargo "$@"; }\nrun_workspace_support_full_feature_tests() {' + body + '\n}\n'
+        script += 'run_workspace_support_full_feature_tests\n'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('[workspace]\nresolver="2"\nmembers=' +
+                                            json.dumps(list(scope.SUPPORT_PROFILES)) + '\n')
+            for package in scope.SUPPORT_PROFILES:
+                member = root / package
+                (member / 'src').mkdir(parents=True)
+                manifest = '[package]\nname="' + package + '"\nversion="0.1.0"\nedition="2021"\n'
+                if package == 'oasis7_agent_harness':
+                    manifest += '[features]\ntest_tier_required=[]\ntest_tier_full=[]\nwasmtime=[]\nviewer_live_integration=[]\n'
+                (member / 'Cargo.toml').write_text(manifest)
+                (member / 'src/lib.rs').write_text('#[cfg(feature="test_tier_required")] #[test] fn required_case() {}\n'
+                                                  if package == 'oasis7_agent_harness' else '')
+            integration = root / 'oasis7_agent_harness/tests/integration.rs'
+            integration.parent.mkdir()
+            for fail in (False, True):
+                integration.write_text('#[cfg(feature="test_tier_full")] #[test] fn expanded_integration() { '
+                                       'assert!(cfg!(feature="wasmtime") && cfg!(feature="viewer_live_integration")); '
+                                       + ('panic!("expanded regression");' if fail else '') + ' }\n')
+                result = subprocess.run(['bash', '-c', script, 'full-support', sys.executable, str(ROOT / 'scripts')],
+                                        cwd=root, text=True, capture_output=True)
+                if fail:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('expanded_integration ... FAILED', result.stdout)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('required_case ... ok', result.stdout)
+                    self.assertIn('expanded_integration ... ok', result.stdout)
+                self.assertEqual(result.stdout.count('+ complete support features:'), 1)
+        full = DRIVER.split('run_full_extended_tier_tests() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('run_workspace_support_full_feature_tests', full)
 
     def test_custody_worker_runs_platform_proof_in_isolation(self):
         result = self.invoke(json.dumps(['oasis7_custody_worker']))

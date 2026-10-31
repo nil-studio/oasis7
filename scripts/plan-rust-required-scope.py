@@ -14,6 +14,10 @@ except ModuleNotFoundError:
 from pathlib import Path
 
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
+EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
+FAST_PLAN_VERSION = 1
+CHECK_INVENTORY_VERSION = 1
+FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
     'oasis7_client_storage', 'oasis7_signer_protocol',
@@ -36,6 +40,10 @@ class UnknownInputsError(ValueError):
         super().__init__('unknown CI inputs: ' + json.dumps(sorted(set(paths)))
                          + '; register ownership and validation in the trusted baseline '
                          + 'before introducing these paths')
+
+
+class TestPolicyError(ValueError):
+    """An ignored test needs a trusted real execution path, not just a new tag."""
 
 
 def git(*args):
@@ -68,7 +76,31 @@ def independent_target_input(path, directory, manifest):
     return not library.startswith(roots)
 
 
-def rust_source_inputs(source):
+def known_test_target_root(path, directory, manifest):
+    """Only standalone Cargo roots can prove that no external mod cfg applies."""
+    relative = posixpath.relpath(path, directory or '.')
+    package, library = manifest.get('package', {}), manifest.get('lib', {})
+    if (('lib' in manifest or package.get('autolib', True)) and library.get('test', True)
+            and library.get('harness', True)
+            and relative == posixpath.normpath(library.get('path', 'src/lib.rs'))):
+        return True
+    for kind in ('bin', 'test'):
+        targets = manifest.get(kind, [])
+        if any(target.get('path') and relative == posixpath.normpath(target['path'])
+               and target.get('test', True) and target.get('harness', True)
+               and not target.get('required-features') for target in targets):
+            return True
+        # Explicit declarations can override automatic target test settings.
+        if targets or not package.get('auto' + kind + 's', True):
+            continue
+        pattern = (r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))'
+                   if kind == 'bin' else r'tests/[^/.][^/]*(?:\.rs|/main\.rs)')
+        if re.fullmatch(pattern, relative):
+            return True
+    return False
+
+
+def rust_source_inputs(source, return_tokens=False):
     """Read literal tokens and real include calls without expanding candidate macros.
 
     Rust fixture strings are a single token, not another source file. Unknown
@@ -171,6 +203,8 @@ def rust_source_inputs(source):
             closing[stack.pop()] = index
     if stack:
         raise ValueError('unclosed Rust token delimiter')
+    if return_tokens:
+        return tokens, closing
 
     # Decode only forms whose Rust path value is exact. Escapes and other
     # expressions remain conservative instead of using Python/JSON semantics.
@@ -504,10 +538,418 @@ def validate_config(config):
                 or len(outputs) != len(set(outputs))):
             raise ValueError('invalid generated input identity')
         packages.add(package)
+    if 'fast_scope_version' in config:
+        if config['fast_scope_version'] != FAST_PLAN_VERSION:
+            raise ValueError('unknown fast scope version')
+        for key in ('oasis7_required_packages', 'oasis7_required_wasm_packages'):
+            inventory = config.get(key)
+            if (not isinstance(inventory, list) or not inventory
+                    or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name)
+                           for name in inventory)
+                    or len(inventory) != len(set(inventory))):
+                raise ValueError('invalid ' + key)
+        risk_rules = config.get('formal_risk_rules')
+        if not isinstance(risk_rules, list):
+            raise ValueError('missing formal risk rules')
+        for rule in risk_rules:
+            if (not isinstance(rule, dict) or not isinstance(rule.get('match'), list)
+                    or not rule['match'] or not isinstance(rule.get('suites'), list)
+                    or not set(rule['suites']).issubset(FORMAL_SUITES)
+                    or len(rule['suites']) != len(set(rule['suites']))
+                    or not isinstance(rule.get('reason'), str) or not rule['reason']):
+                raise ValueError('invalid formal risk rule')
+            for pattern in rule['match']:
+                if (not isinstance(pattern, str) or not pattern or posixpath.isabs(pattern)
+                        or '..' in pattern.split('/') or '\\' in pattern):
+                    raise ValueError('invalid formal risk path')
+        fast_paths = config.get('command_center_fast_paths', [])
+        if (not isinstance(fast_paths, list) or any(
+                not isinstance(pattern, str) or not pattern.startswith('tools/oasis7-command-center/')
+                or '..' in pattern.split('/') or '\\' in pattern for pattern in fast_paths)):
+            raise ValueError('invalid command center fast paths')
     return config
 
 
-def select(config, base, source_head, test_head=None, additions=()):
+def resolve_commit(ref):
+    return git('rev-parse', '--verify', ref + '^{commit}').decode().strip()
+
+
+def formal_shards(suites, inventory):
+    """Logical suites keep all their cases even when balancing moved a case."""
+    if not suites:
+        return []
+    if inventory is None:
+        return sorted(FORMAL_SUITES)
+    if not isinstance(inventory, dict) or set(inventory.get('suites', {})) != set(FORMAL_SUITES):
+        raise ValueError('invalid trusted formal suite inventory')
+    overrides = inventory.get('case_shards', {})
+    result = set(suites)
+    for suite in suites:
+        for entry in inventory['suites'][suite]:
+            shard = overrides.get(entry.get('binary'), {}).get(entry.get('name'), suite)
+            if shard not in FORMAL_SUITES:
+                raise ValueError('unknown trusted formal shard')
+            result.add(shard)
+    return sorted(result)
+
+
+def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
+                        ordinary_roots=()):
+    """Detect selection-affecting edits without executing candidate Rust.
+
+    Full-feature execution preserves a required->full move. Semantic retirement
+    of a removed/renamed case remains part of independent review; this is not a
+    Rust parser or a claim that a replacement proves the old behavior.
+    """
+    rust_paths = [path for path in paths if path.endswith('.rs')]
+    if not rust_paths:
+        return [], False, []
+    policy_paths = []
+    production_cfg_paths = []
+    enabled_features = {'test_tier_required', 'test_tier_full', 'wasmtime', 'viewer_live_integration'}
+
+    def applies_to(owner, test_owner):
+        return owner == test_owner or (owner[0] in ('mod', 'module') and
+               (not owner[1] or test_owner[1].startswith(owner[1] + '::')))
+
+    def ordinary_attribute(values):
+        return (values in (('test',), ('cfg', '(', 'test', ')'))
+                or (values[:4] == ('tokio', ':', ':', 'test')
+                    and (len(values) == 4 or (values[4:5] == ('(',) and values[-1] == ')')))
+                or values[0] in ('allow', 'warn', 'deny', 'forbid', 'expect', 'doc', 'should_panic'))
+
+    def attributes(source):
+        tokens, closing = rust_source_inputs(source, return_tokens=True)
+        selection, ignored, test_owners = set(), set(), set()
+        annotations, ordinary_context = set(), set()
+        modules = [(index + 2, closing[index + 2], tokens[index + 1][1])
+                   for index, (_, value, _) in enumerate(tokens[:-2])
+                   if value == 'mod' and tokens[index + 1][0] == 'identifier'
+                   and tokens[index + 2][1] == '{' and index + 2 in closing]
+        module_braces = {start for start, _, _ in modules}
+
+        def module_path(index):
+            return tuple(name for start, end, name in modules if start < index < end)
+
+        # Qualified lexical ownership prevents two modules' regression() cases
+        # from cancelling out in the before/after attribute comparison. Repeated
+        # item names under mutually exclusive cfgs get separate occurrences too.
+        item_owners, occurrences = {}, {}
+        item_kinds = {'fn', 'mod', 'struct', 'enum', 'trait', 'type', 'const', 'static', 'impl', 'use'}
+        for index, (_, value, _) in enumerate(tokens[:-1]):
+            if value not in item_kinds:
+                continue
+            name = '::'.join((*module_path(index), tokens[index + 1][1]))
+            key = value, name
+            occurrence = occurrences.get(key, 0)
+            occurrences[key] = occurrence + 1
+            item_owners[index] = (*key, occurrence)
+        for index, (_, token, _) in enumerate(tokens):
+            inner = index + 1 < len(tokens) and tokens[index + 1][1] == '!'
+            opening = index + 2 if inner else index + 1
+            if token != '#' or opening not in closing or tokens[opening][1] != '[':
+                continue
+            end = closing[opening]
+            values = tuple(value for _, value, _ in tokens[opening + 1:end])
+            if not values:
+                continue
+            cursor = end + 1
+            while cursor < len(tokens) and cursor not in item_owners and tokens[cursor][1] not in ('{', ';'):
+                if tokens[cursor][1] == '#' and cursor + 1 in closing:
+                    cursor = closing[cursor + 1] + 1
+                    continue
+                cursor += 1
+            owner = (('module', '::'.join(module_path(index)), 0) if inner else
+                     item_owners.get(cursor, ('unresolved', '::'.join(module_path(index)), cursor)))
+            annotations.add((values, owner))
+            if owner[0] == 'fn' and not any(
+                    start < index < stop and start not in module_braces
+                    for start, stop in closing.items()):
+                ordinary_context.add(owner)
+            if values[0] not in ('cfg', 'cfg_attr', 'ignore') and 'test' not in values:
+                continue
+            if values[0] == 'cfg_attr':
+                # Lint/derive attributes do not select test execution. A nested
+                # cfg/cfg_attr/test/ignore payload does and needs proof below.
+                nesting = 0
+                comma = None
+                for offset, value in enumerate(values[2:], 2):
+                    if value == ',' and nesting == 0:
+                        comma = offset
+                        break
+                    nesting += (value == '(') - (value == ')')
+                if comma is not None and not set(values[comma + 1:]) & {'cfg', 'cfg_attr', 'test', 'ignore'}:
+                    continue
+            selection.add((values, owner))
+            if values[0] not in ('cfg', 'cfg_attr') and 'test' in values:
+                test_owners.add(owner)
+            if values[0] == 'ignore':
+                ignored.add(owner)
+        ordinary_owners = {owner for owner in test_owners & ordinary_context
+                           if all(ordinary_attribute(attribute) for attribute, target in annotations
+                                  if applies_to(target, owner))}
+        return selection, ignored, test_owners, set(item_owners.values()), ordinary_owners
+
+    def test_related(item, test_owners, path):
+        attribute, owner = item
+        if attribute[0] not in ('cfg', 'cfg_attr'):
+            return True
+        if 'test' in attribute or any('test_tier_' in token for token in attribute):
+            return True
+        if owner in test_owners:
+            return True
+        if owner[0] in ('mod', 'module') and any(
+                not owner[1] or test_owner[1].startswith(owner[1] + '::') for test_owner in test_owners):
+            return True
+        short_name = owner[1].rsplit('::', 1)[-1]
+        return ('/tests/' in path or path.endswith(('_tests.rs', '/tests.rs'))
+                or (owner[0] == 'mod'
+                    and (short_name == 'tests' or short_name.startswith('test_') or short_name.endswith('_tests'))))
+
+    def enabled_gate(attribute, native_linux):
+        # Accept only a known expression that is actually true in the expanded
+        # driver feature and native target combination. Mentioning an allowed
+        # feature is insufficient: all(feature="test_tier_full", any()) is false.
+        if len(attribute) < 4 or attribute[0:2] != ('cfg', '(') or attribute[-1] != ')':
+            return False
+        values = attribute[2:-1]
+
+        def expression(cursor):
+            if cursor >= len(values):
+                raise ValueError('missing cfg predicate')
+            value = values[cursor]
+            if value == 'test':
+                return True, cursor + 1
+            if native_linux and value in ('unix', 'windows'):
+                return value == 'unix', cursor + 1
+            if value == 'feature' and values[cursor + 1:cursor + 2] == ('=',):
+                if cursor + 2 >= len(values):
+                    raise ValueError('missing cfg feature')
+                return values[cursor + 2].strip('"') in enabled_features, cursor + 3
+            native_values = {'target_os': 'linux', 'target_family': 'unix',
+                             'target_arch': 'x86_64', 'target_pointer_width': '64',
+                             'target_endian': 'little', 'target_env': 'gnu'}
+            if native_linux and value in native_values and values[cursor + 1:cursor + 2] == ('=',):
+                if cursor + 2 >= len(values):
+                    raise ValueError('missing target cfg value')
+                return values[cursor + 2].strip('"') == native_values[value], cursor + 3
+            if value not in ('all', 'any', 'not') or values[cursor + 1:cursor + 2] != ('(',):
+                raise ValueError('unsupported cfg predicate')
+            cursor += 2
+            predicates = []
+            while cursor < len(values) and values[cursor] != ')':
+                result, cursor = expression(cursor)
+                predicates.append(result)
+                if cursor < len(values) and values[cursor] == ',':
+                    cursor += 1
+                elif cursor >= len(values) or values[cursor] != ')':
+                    raise ValueError('invalid cfg expression')
+            if cursor >= len(values):
+                raise ValueError('unclosed cfg expression')
+            if value == 'not':
+                if len(predicates) != 1:
+                    raise ValueError('invalid negated cfg expression')
+                return not predicates[0], cursor + 1
+            return (all(predicates) if value == 'all' else any(predicates)), cursor + 1
+
+        try:
+            enabled, end = expression(0)
+            return enabled and end == len(values)
+        except ValueError:
+            return False
+
+    def source_at(ref, path):
+        try:
+            return git('show', f'{ref}:{path}').decode('utf-8', 'replace')
+        except subprocess.CalledProcessError:
+            return ''  # Both rename endpoints and additions/deletions are present.
+
+    analyses = []
+    for path in rust_paths:
+        before, after = source_at(base, path), source_at(source, path)
+        if before != after:
+            analyses.append((path, attributes(before), attributes(after)))
+    # Keep both rename endpoints and removals in the review evidence. A new
+    # marker is exempt only when this change contains no retiring test owner.
+    has_removed_tests = any(before[2] - after[2] for _, before, after in analyses)
+    for path, before, after in analyses:
+        before_attrs, old_ignored, old_test_owners, old_items, _ = before
+        after_attrs, new_ignored, new_test_owners, _, ordinary_owners = after
+        test_owners = old_test_owners | new_test_owners
+        changes = before_attrs ^ after_attrs
+        new_ordinary = ordinary_owners - old_items if path in ordinary_roots and not has_removed_tests else set()
+        benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
+        for attribute, owner in after_attrs - before_attrs:
+            if attribute == ('cfg', '(', 'test', ')') and owner[0] == 'mod' and owner not in old_items:
+                children = {test for test in new_test_owners if applies_to(owner, test)}
+                if children and children.issubset(new_ordinary):
+                    benign_additions.add((attribute, owner))
+        changes -= benign_additions
+        test_changes = {item for item in changes if test_related(item, test_owners, path)}
+        added_attrs = {item for item in after_attrs - before_attrs if test_related(item, test_owners, path)}
+        # A new case inherits unchanged module/file gates too. They must be
+        # executable under the same expanded combination as a newly added gate.
+        added_attrs.update((attribute, owner) for attribute, owner in after_attrs
+                           if attribute[0] in ('cfg', 'cfg_attr')
+                           and any(applies_to(owner, test) for test in new_test_owners - old_test_owners))
+        if test_changes:
+            policy_paths.append(path)
+        if changes - test_changes:
+            production_cfg_paths.append(path)
+        conditional_ignore = any('ignore' in attribute and attribute[0] == 'cfg_attr'
+                                 for attribute, _ in added_attrs)
+        newly_ignored = new_ignored - old_ignored
+        # A short function name does not establish a Cargo binary + qualified
+        # case identity. Existing registered ignored cases are unchanged here;
+        # a new ignore needs a separately provable runner mapping.
+        if conditional_ignore or newly_ignored:
+            raise TestPolicyError('new ignored test lacks a trusted execution mapping: ' + path
+                                  + '; keep it executable or register its actual ignored-test runner')
+        for attribute, _ in added_attrs:
+            if attribute[0] not in ('cfg', 'cfg_attr'):
+                continue
+            features = {attribute[index + 2].strip('"') for index, value in enumerate(attribute[:-2])
+                        if value == 'feature' and attribute[index + 1] == '='}
+            mapped_native_driver = (bool(feature_owners.get(path))
+                                    and feature_owners[path].issubset(feature_packages))
+            if features - enabled_features or not enabled_gate(attribute, mapped_native_driver):
+                raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
+            if features and (not feature_owners.get(path)
+                             or not feature_owners[path].issubset(feature_packages)):
+                raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
+            if features and any(not features.issubset(available_features.get(package, set()))
+                                for package in feature_owners[path]):
+                raise TestPolicyError('changed test feature is not declared by its executing package: ' + path)
+    return sorted(policy_paths), False, sorted(production_cfg_paths)
+
+
+def full_plan(config, profile, source_head, test_head=None, policy_ref=None, formal_inventory=None):
+    """Expand the trusted full inventory, independently of a commit diff."""
+    validate_config(config)
+    if profile not in ('periodic-full', 'candidate-full'):
+        raise ValueError('not a full execution profile')
+    if config.get('fast_scope_version') != FAST_PLAN_VERSION:
+        raise ValueError('full profiles require a trusted versioned inventory')
+    source = resolve_commit(source_head)
+    tested = resolve_commit(test_head or source_head)
+    policy = resolve_commit(policy_ref or source_head)
+    groups = sorted(config['groups'])
+    suites = list(FORMAL_SUITES) if 'formal_process' in groups else []
+    return {
+        'scope': 'explicit-full', 'groups': groups,
+        'resources': sorted({resource for group in groups for resource in config['resources'][group]}),
+        'architecture': {'version': 1, 'mode': 'full', 'packages': [],
+                         'base': policy, 'source': source, 'tested': tested},
+        'workspace_support_profile_version': 1, 'workspace_support_profiles': sorted(SUPPORT_PROFILES),
+        'execution_profile': profile, 'fast_plan_version': FAST_PLAN_VERSION,
+        'check_inventory_version': CHECK_INVENTORY_VERSION,
+        'source_sha': source, 'tested_sha': tested, 'policy_sha': policy,
+        'oasis7_required_packages': sorted(config['oasis7_required_packages']),
+        'oasis7_required_wasm_packages': sorted(config['oasis7_required_wasm_packages']),
+        'formal_suites': sorted(suites), 'formal_shards': formal_shards(suites, formal_inventory),
+        'command_center_package': True, 'test_policy_changed': False, 'test_policy_paths': [],
+        'fast_plan_exceptions': [], 'reasons': ['complete trusted inventory; no changed-files filter'],
+    }
+
+
+def fast_plan(config, plan, base, source, tested, paths, affected, path_affected,
+              path_rules, additions, profile, formal_inventory=None, policy_ref=None,
+              comparisons=None, feature_owners=None, feature_manifests=None, test_target_roots=None):
+    if config.get('fast_scope_version') != FAST_PLAN_VERSION:
+        # The version capability comes from BASE. Candidate metadata cannot opt in.
+        raise ValueError('fast profiles require trusted baseline fast_scope_version')
+    chosen = set(plan['groups'])
+    conservative = plan['scope'] == 'full'
+    exceptions = []
+    policy_paths, ignored_risk, production_cfg_paths = set(), False, set()
+    for before, after in comparisons or [(base, source)]:
+        changed_policy, changed_ignored, production_cfg = changed_test_policy(
+            before, after, paths, feature_owners or {},
+            set(config['oasis7_required_packages']) | set(SUPPORT_PROFILES),
+            (feature_manifests or {}).get(resolve_commit(after), {}),
+            (test_target_roots or {}).get(resolve_commit(after), set()))
+        policy_paths.update(changed_policy)
+        ignored_risk |= changed_ignored
+        production_cfg_paths.update(production_cfg)
+    policy_paths = sorted(policy_paths)
+    if production_cfg_paths:
+        # Production platform/feature edits are not test retirement. Preserve
+        # the old necessary groups and platform jobs instead of rejecting code.
+        conservative = True
+        chosen = set(config['groups'])
+        plan['scope'] = 'full'
+        plan['architecture']['mode'] = 'full'
+        plan['workspace_support_profiles'] = sorted(SUPPORT_PROFILES)
+        plan['reasons'].extend('production cfg changed; conservative platform coverage: ' + path
+                               for path in sorted(production_cfg_paths))
+    if conservative:
+        exceptions.append('shared control or uncertain impact; original necessary groups retained')
+    if policy_paths:
+        exceptions.append('test execution policy changed; full features and independent retirement review required')
+        plan['reasons'].extend('test execution policy changed: ' + path for path in policy_paths)
+    core_inventory = set(config['oasis7_required_packages'])
+    selected_core = affected & core_inventory
+    core_fallback = (conservative or 'oasis7_required' in additions
+                     or any('oasis7_required' in groups for groups in path_rules.values())
+                     or not selected_core)
+    if 'oasis7_required' not in chosen:
+        selected_core, wasm = set(), set()
+    elif core_fallback:
+        selected_core, wasm = core_inventory, set(config['oasis7_required_wasm_packages'])
+    else:
+        wasm = affected & set(config['oasis7_required_wasm_packages'])
+
+    suites = set()
+    if 'formal_process' in chosen:
+        if conservative or 'formal_process' in additions or ignored_risk:
+            suites.update(FORMAL_SUITES)
+        else:
+            for path in paths:
+                path_groups = set(path_rules.get(path, ()))
+                path_groups.update(group for package in path_affected.get(path, ())
+                                   for group in config['package_groups'].get(package, ()))
+                if 'formal_process' not in path_groups:
+                    continue
+                matches = [rule for rule in config['formal_risk_rules']
+                           if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])]
+                if not matches:
+                    suites.update(FORMAL_SUITES)
+                    plan['reasons'].append('no trusted narrow Formal mapping: ' + path)
+                for rule in matches:
+                    suites.update(rule['suites'])
+                    plan['reasons'].append('Formal risk ' + rule['reason'] + ': ' + path)
+            if not paths:
+                suites.update(FORMAL_SUITES)
+        if not suites:
+            chosen.remove('formal_process')
+            plan['reasons'].append('Formal infrastructure unchanged; affected behavior stays in ordinary tests')
+        else:
+            exceptions.append('necessary Formal risk suites: ' + ', '.join(sorted(suites)))
+
+    center_paths = [path for path in paths if
+                    'command_center' in path_rules.get(path, ()) or any(
+                        'command_center' in config['package_groups'].get(package, ())
+                        for package in path_affected.get(path, ()))]
+    center_package = ('command_center' in chosen and (conservative or 'command_center' in additions
+                      or not center_paths or any(not any(fnmatch.fnmatchcase(path, pattern)
+                          for pattern in config.get('command_center_fast_paths', [])) for path in center_paths)))
+    plan.update(groups=sorted(chosen),
+                resources=sorted({resource for group in chosen for resource in config['resources'][group]}),
+                execution_profile=profile, fast_plan_version=FAST_PLAN_VERSION,
+                check_inventory_version=CHECK_INVENTORY_VERSION,
+                source_sha=resolve_commit(source), tested_sha=resolve_commit(tested or source),
+                policy_sha=resolve_commit(policy_ref or base),
+                oasis7_required_packages=sorted(selected_core), oasis7_required_wasm_packages=sorted(wasm),
+                formal_suites=sorted(suites), formal_shards=formal_shards(suites, formal_inventory),
+                command_center_package=center_package,
+                test_policy_changed=bool(policy_paths), test_policy_paths=policy_paths,
+                fast_plan_exceptions=exceptions)
+    plan['reasons'] = list(dict.fromkeys(plan['reasons']))
+    return plan
+
+
+def select(config, base, source_head, test_head=None, additions=(), profile=None,
+           formal_inventory=None, policy_ref=None):
     validate_config(config)
     groups = set(config['groups'])
     chosen = {'baseline'}
@@ -519,6 +961,12 @@ def select(config, base, source_head, test_head=None, additions=()):
     full = False
     support_rule = False
     path_support_profiles = set()
+    path_affected = {}
+    path_rules = {}
+    feature_owners = {}
+    feature_manifests = {}
+    test_target_roots = {}
+    policy_comparisons = [(base, source_head)]
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
         # exclude target history already present in the actual first parent.
@@ -540,6 +988,7 @@ def select(config, base, source_head, test_head=None, additions=()):
                 source_base = forks[0]
                 paths = list(dict.fromkeys(changed_paths(source_base, source_oid)
                                            + changed_paths(target, test_head)))
+                policy_comparisons = [(source_base, source_oid), (target, test_head)]
                 graph_refs.extend([source_base, target])
         except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
             full = True
@@ -547,7 +996,15 @@ def select(config, base, source_head, test_head=None, additions=()):
         graphs = []
         for ref in dict.fromkeys(graph_refs):
             try:
-                graphs.append(cargo_graph(ref, config.get('generated_inputs', [])))
+                graph = cargo_graph(ref, config.get('generated_inputs', []))
+                graphs.append(graph)
+                if profile is not None:
+                    feature_manifests[resolve_commit(ref)] = {
+                        package: set(manifest.get('features', {}))
+                        for package, (_, manifest) in graph[0].items()}
+                    test_target_roots[resolve_commit(ref)] = {
+                        path for path in paths if any(known_test_target_root(path, directory, manifest)
+                                                     for directory, manifest in graph[0].values())}
             except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
                 # Keep usable graphs to establish ownership even when another
                 # registered input cannot be parsed. Uncertainty is not registration.
@@ -555,10 +1012,14 @@ def select(config, base, source_head, test_head=None, additions=()):
                 reasons.append('uncertain Git/dependency inputs: ' + str(error))
         reported_embeds = False
         for path in paths:
+            path_affected[path] = set()
+            path_rules[path] = set()
+            feature_owners[path] = set()
             controlled = any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
             scoped_groups = config.get('scoped_control_paths', {}).get(path)
             if scoped_groups is not None:
                 chosen.update(scoped_groups)
+                path_rules[path].update(scoped_groups)
                 support_rule |= 'workspace_support' in scoped_groups
                 reasons.append('scoped CI control changed: ' + path)
             elif controlled:
@@ -574,6 +1035,7 @@ def select(config, base, source_head, test_head=None, additions=()):
                                     if (not directory or path.startswith(directory + '/')) for reader in readers}
                 owners.update(imported_readers)
                 if owners:
+                    feature_owners[path].update(owners)
                     # Inferred directory readers widen tests; they do not register new inputs.
                     matched |= bool(registered_owners)
                     leaf = all(independent_target_input(path, *manifests[n]) for n in owners) and not any(
@@ -586,21 +1048,24 @@ def select(config, base, source_head, test_head=None, additions=()):
                     architecture_inputs.update(owners)
                     affected.update(owners)
                     affected.update(reverse_consumers(library_owners, reverse))
+                    path_affected[path].update(owners)
+                    path_affected[path].update(reverse_consumers(library_owners, reverse))
             for rule in config['rules']:
                 if (any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
                         and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule.get('exclude', []))):
                     matched = True
                     chosen.update(rule.get('groups', []))
+                    path_rules[path].update(rule.get('groups', []))
                     support_rule |= 'workspace_support' in rule.get('groups', [])
                     full |= rule.get('full', False)
                     reasons.append(rule['reason'] + ': ' + path)
             # Add an audited cross-package test consumer without flattening the
             # support group. This does not register ownership for unknown paths.
-            for profile, patterns in config.get('workspace_support_profile_paths', {}).items():
+            for support_profile, patterns in config.get('workspace_support_profile_paths', {}).items():
                 if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
                     chosen.add('workspace_support')
-                    path_support_profiles.add(profile)
-                    reasons.append('workspace support profile consumer ' + profile + ': ' + path)
+                    path_support_profiles.add(support_profile)
+                    reasons.append('workspace support profile consumer ' + support_profile + ': ' + path)
             if any(embedded.get('__unresolved_embed__') for _, _, embedded in graphs) and not any(
                     directory and path.startswith(directory + '/') for manifests, _, _ in graphs
                     for directory, _ in manifests.values()):
@@ -653,7 +1118,7 @@ def select(config, base, source_head, test_head=None, additions=()):
             and package not in SUPPORT_PROFILES for package in affected)
         if full or support_rule or unmapped_support or not support_profiles or 'workspace_support' in additions:
             support_profiles = sorted(SUPPORT_PROFILES)
-    return {'groups': sorted(chosen), 'resources': resources,
+    plan = {'groups': sorted(chosen), 'resources': resources,
             'architecture': {'version': 1, 'mode': 'full' if full or additions or any(
                 fnmatch.fnmatchcase(path, 'scripts/cargo-dev*') for path in paths) else 'targeted',
                 'packages': sorted(architecture_inputs), 'base': base, 'source': source_head,
@@ -661,13 +1126,23 @@ def select(config, base, source_head, test_head=None, additions=()):
             'workspace_support_profiles': support_profiles,
             'workspace_support_profile_version': 1,
             'reasons': list(dict.fromkeys(reasons)), 'scope': 'full' if full else 'targeted'}
+    if profile is not None:
+        if profile not in ('pr-fast', 'main-fast'):
+            raise ValueError('select requires a fast execution profile')
+        return fast_plan(config, plan, base, source_head, test_head, paths, affected,
+                         path_affected, path_rules, additions, profile, formal_inventory, policy_ref,
+                         policy_comparisons, feature_owners, feature_manifests, test_target_roots)
+    return plan
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--base-ref', required=True)
+    parser.add_argument('--base-ref')
     parser.add_argument('--head-ref', required=True, help='source HEAD')
     parser.add_argument('--test-ref', help='actual tested merge/tree commit')
+    parser.add_argument('--profile', choices=EXECUTION_PROFILES)
+    parser.add_argument('--policy-ref', help='fixed trusted workflow/policy commit')
+    parser.add_argument('--formal-config', default=str(Path(__file__).with_name('ci-formal-process-suites.json')))
     parser.add_argument('--config', default=str(Path(__file__).with_name('ci-required-scope.json')))
     parser.add_argument('--add-group', action='append', default=[])
     parser.add_argument('--github-output')
@@ -675,8 +1150,19 @@ def main():
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     try:
-        plan = select(config, args.base_ref, args.head_ref, args.test_ref, args.add_group)
-    except UnknownInputsError as error:
+        formal_inventory = (json.loads(Path(args.formal_config).read_text())
+                            if args.profile and Path(args.formal_config).is_file() else None)
+        if args.profile in ('periodic-full', 'candidate-full'):
+            if args.add_group:
+                raise ValueError('full inventory does not accept additional group requests')
+            plan = full_plan(config, args.profile, args.head_ref, args.test_ref,
+                             args.policy_ref or args.base_ref, formal_inventory)
+        else:
+            if not args.base_ref:
+                raise ValueError('--base-ref is required for changed-files planning')
+            plan = select(config, args.base_ref, args.head_ref, args.test_ref, args.add_group,
+                          args.profile, formal_inventory, args.policy_ref)
+    except (UnknownInputsError, TestPolicyError, ValueError) as error:
         parser.exit(2, f"CI scope planning failed: {error}\n")
     encoded = json.dumps(plan, ensure_ascii=True, separators=(',', ':'))
     if args.output:
@@ -686,6 +1172,9 @@ def main():
             output.write('plan=' + encoded + '\n')
             for group in config['groups']:
                 output.write(f'run_{group}=' + str(group in plan['groups']).lower() + '\n')
+            if args.profile:
+                output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
+                output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
     print(encoded)
 
 

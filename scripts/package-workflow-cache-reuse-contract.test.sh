@@ -73,7 +73,7 @@ for lane in ('package-native', 'package-native-trusted'):
     body = re.search(rf'^  {lane}:\n(.*?)(?=^  [\w-]+:\n|\Z)', testnet, re.M | re.S)[1]
     assert '      - build-web-dist' not in body
 assembly = testnet.split('  package-installers:\n', 1)[1]
-for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted'):
+for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted', 'full-regression-qualification'):
     assert '      - ' + dependency + '\n' in assembly
 assert '!cancelled()' in assembly and "needs.build-web-dist.result == 'success'" in assembly
 assert '--native-binaries' in assembly and 'Swatinem/rust-cache@' not in assembly
@@ -93,15 +93,17 @@ def condition(name):
 # cancellation, unknown results, or both producers selected.
 import itertools
 join = condition('package-installers')
-for web, candidate, trusted in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=3):
+for web, candidate, trusted, full_ci in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=4):
     expression = join.replace('!cancelled()', 'True')
     values = {'needs.plan.result': 'success', 'needs.build-web-dist.result': web,
-              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted}
+              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted,
+              'needs.full-regression-qualification.result': full_ci}
     for key in sorted(values, key=len, reverse=True):
         expression = expression.replace(key, repr(values[key]))
     actual = eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}})
-    expected = web == 'success' and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')]
-    assert actual == expected, (web, candidate, trusted)
+    expected = (full_ci == 'success' and web == 'success'
+                and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')])
+    assert actual == expected, (web, candidate, trusted, full_ci)
 
 trusted_condition = condition("package-native-trusted")
 candidate_condition = condition("package-native")
@@ -439,7 +441,7 @@ base_context = {"github.ref": "refs/heads/main", "github.event_name": "workflow_
                 "github.workflow_sha": "event", "github.sha": "event",
                 "needs.plan.outputs.checkoutSha": "event", "needs.plan.result": "success",
                 "needs.build-web-dist.result": "success", "needs.package-native.result": "success",
-                "needs.release_gate.result": "success"}
+                "needs.release_gate.result": "success", "needs.full-regression-qualification.result": "success"}
 for name in ("cache-bootstrap-maintenance", "cache-maintenance"):
     body = job_body(release, name)
     assert "    cache-mode: none\n" in body
@@ -467,10 +469,12 @@ for name, required in (("build-web-dist", "release_gate"),
                        ("package-native", "build-web-dist"), ("publish-release", "package-native")):
     body = job_body(release, name)
     assert "cache-maintenance" not in body
-    for plan, producer, maintenance in itertools.product(("success", "failure", "skipped"), repeat=3):
+    for plan, producer, maintenance, full_ci in itertools.product(
+            ("success", "failure", "skipped", "cancelled", "unknown"), repeat=4):
         context = base_context | {"needs.plan.result": plan, "needs." + required + ".result": producer,
-                                  "needs.cache-bootstrap-maintenance.result": maintenance}
-        expected = plan == producer == "success"
+                                  "needs.cache-bootstrap-maintenance.result": maintenance,
+                                  "needs.full-regression-qualification.result": full_ci}
+        expected = plan == producer == "success" and (name != "publish-release" or full_ci == "success")
         assert evaluate(release_condition(name), context) == expected, (name, context)
         assert not evaluate(release_condition(name), context, cancelled=True)
 

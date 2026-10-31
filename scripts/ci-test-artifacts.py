@@ -19,11 +19,228 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
+FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 DEFAULT_SNAPSHOT_REGRESSIONS = (
     ('viewer-snapshot-tests', 'snapshot_progress::'),
     ('snapshot-tests', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'),
 )
+PORTABLE_REQUIRED_PACKAGES = ('oasis7_agent_api', 'oasis7_simulator', 'oasis7_viewer_codec', 'oasis7_viewer_runtime')
+# These roots contain shipped Viewer subprocess consumers or their integration
+# fixtures. Other roots do not need a second, unrelated Viewer binary build.
+VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_chain_runtime',
+                                     'oasis7_launcher_backend', 'oasis7_viewer_runtime'))
+FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
+
+
+def fast_plan(plan):
+    """Old trusted planners retain the complete previous execution inventory."""
+    if plan is None or (isinstance(plan, dict) and 'fast_plan_version' not in plan):
+        return None
+    if (not isinstance(plan, dict) or type(plan.get('fast_plan_version')) is not int
+            or plan.get('fast_plan_version') != 1 or plan.get('execution_profile') not in FAST_PROFILES
+            or plan.get('scope') not in ('targeted', 'full', 'explicit-full')
+            or not isinstance(plan.get('groups'), list)
+            or any(not isinstance(group, str) for group in plan['groups'])
+            or len(plan['groups']) != len(set(plan['groups']))
+            or type(plan.get('test_policy_changed', False)) is not bool):
+        raise ValueError('unsupported fast execution plan')
+    return plan
+
+
+def plan_list(plan, key, inventory, *, nonempty=True):
+    value = plan.get(key)
+    if (not isinstance(value, list) or (nonempty and not value)
+            or any(not isinstance(item, str) for item in value)
+            or len(value) != len(set(value)) or not set(value) <= set(inventory)):
+        raise ValueError('invalid execution selection: ' + key)
+    return value
+
+
+def required_packages(plan=None):
+    command = next(args for name, args, _ in build_variants('ordinary') if name == 'required')
+    inventory = [command[index + 1] for index, value in enumerate(command) if value == '-p']
+    plan = fast_plan(plan)
+    if plan is None:
+        return inventory
+    selected = plan_list(plan, 'oasis7_required_packages', inventory)
+    if 'oasis7_required' not in plan.get('groups', []):
+        raise ValueError('ordinary build is not selected by plan')
+    if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
+        return inventory
+    return selected
+
+
+def required_wasm_packages(plan=None):
+    plan = fast_plan(plan)
+    if plan is None:
+        return list(PORTABLE_REQUIRED_PACKAGES)
+    selected = plan_list(plan, 'oasis7_required_wasm_packages', PORTABLE_REQUIRED_PACKAGES, nonempty=False)
+    if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
+        return list(PORTABLE_REQUIRED_PACKAGES)
+    return selected
+
+
+def package_features(packages, plan=None, *, include_full=False):
+    """Activate only features actually owned by a selected Cargo package."""
+    workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+    manifests = {}
+    for member in workspace['members']:
+        for directory in ROOT.glob(member):
+            manifest = tomllib.loads((directory / 'Cargo.toml').read_text())
+            manifests[manifest['package']['name']] = manifest
+    expanded = include_full or (fast_plan(plan) is not None and plan.get('test_policy_changed', False))
+    features = []
+    for package in packages:
+        if package not in manifests:
+            raise ValueError('selected package has no workspace manifest: ' + package)
+        available = manifests[package].get('features', {})
+        # An edited full=>required feature edge cannot silently drop the
+        # existing required integration tests during a policy transition.
+        tiers = ('test_tier_required', 'test_tier_full') if expanded else ('test_tier_required',)
+        features.extend(package + '/' + tier for tier in tiers if tier in available)
+        if expanded:
+            features.extend(package + '/' + feature for feature in ('wasmtime', 'viewer_live_integration') if feature in available)
+    return features
+
+
+def required_arguments(plan=None, phase='native'):
+    if phase == 'wasm':
+        packages = required_wasm_packages(plan)
+        return [value for package in packages for value in ('-p', package)] + (
+            ['--lib', '--target', 'wasm32-unknown-unknown', '--locked'] if packages else [])
+    packages = required_packages(plan)
+    if phase == 'packages':
+        return packages
+    if phase != 'native':
+        raise ValueError('unknown ordinary command phase')
+    if fast_plan(plan) is None:
+        command = next(args for name, args, _ in build_variants('ordinary') if name == 'required')
+        return command[1:-1]
+    args = [value for package in packages for value in ('-p', package)] + ['--tests']
+    features = package_features(packages, plan)
+    return args + (['--features', ','.join(features)] if features else [])
+
+
+def formal_suites(plan=None):
+    plan = fast_plan(plan)
+    if plan is None:
+        return list(SHARDS)
+    selected = plan_list(plan, 'formal_suites', SHARDS, nonempty=False)
+    if bool(selected) != ('formal_process' in plan.get('groups', [])):
+        raise ValueError('formal suite selection disagrees with selected groups')
+    if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
+        if not selected:
+            raise ValueError('complete profile is missing formal suites')
+        return list(SHARDS)
+    return selected
+
+
+def formal_configuration():
+    candidate = json.loads(CONFIG.read_text())
+    if FORMAL_AUTHORITY is None:
+        return candidate
+    trusted = json.loads(FORMAL_AUTHORITY.read_text())
+    if trusted.get('schema_version') != 2 or candidate.get('schema_version') != 2:
+        raise ValueError('unsupported trusted Formal inventory schema')
+    result = json.loads(json.dumps(trusted))
+    owners = {}
+    for suite, entries in trusted['suites'].items():
+        for entry in entries:
+            owners[(entry['binary'], entry['name'])] = (suite, entry)
+    candidate_cases = set()
+    for suite, entries in candidate['suites'].items():
+        if suite not in SHARDS:
+            raise ValueError('unknown logical Formal suite: ' + suite)
+        for entry in entries:
+            key = (entry['binary'], entry['name'])
+            if key in candidate_cases:
+                raise ValueError('duplicate candidate Formal case: ' + str(key))
+            candidate_cases.add(key)
+            if key in owners:
+                if owners[key] != (suite, entry):
+                    raise ValueError('candidate changes a trusted Formal case identity: ' + str(key))
+            else:
+                result['suites'].setdefault(suite, []).append(entry)
+                owners[key] = (suite, entry)
+    # A candidate can add coverage and dependencies. Removing its local entry
+    # cannot remove the trusted expected case, ignored filter, batch or script.
+    for key in ('binary_dependencies', 'script_dependencies', 'shell_tests',
+                'legacy_ignored_filters', 'auxiliary_entries'):
+        for owner, entries in candidate.get(key, {}).items():
+            result.setdefault(key, {}).setdefault(owner, [])
+            result[key][owner] = list(dict.fromkeys([*result[key][owner], *entries]))
+    for binary, suite in candidate['environment_formal_batches'].items():
+        previous = result['environment_formal_batches'].get(binary)
+        if previous is not None and previous != suite:
+            raise ValueError('candidate changes a trusted Formal batch owner: ' + binary)
+        result['environment_formal_batches'][binary] = suite
+    # Placement may change for whole cases only. The trusted selected physical
+    # shard set is checked below before building or packaging any executable.
+    for binary, entries in candidate.get('case_shards', {}).items():
+        result.setdefault('case_shards', {}).setdefault(binary, {}).update(entries)
+    return result
+
+
+def formal_authority_digest():
+    return digest(FORMAL_AUTHORITY) if FORMAL_AUTHORITY is not None else None
+
+
+def formal_shards(plan=None):
+    selected = set(formal_suites(plan))
+    config = formal_configuration()
+    # Logical ownership stays independent from the placement of whole cases.
+    suites = {suite: entries for suite, entries in config['suites'].items() if suite in selected}
+    overrides = config.get('case_shards', {})
+    shards = {overrides.get(entry['binary'], {}).get(entry['name'], suite)
+              for suite, entries in suites.items() for entry in entries}
+    shards.update(suite for suite, entries in config['shell_tests'].items() if suite in selected and entries)
+    shards.update(suite for suite in config['environment_formal_batches'].values() if suite in selected)
+    if shards - set(SHARDS):
+        raise ValueError('unknown physical Formal shard')
+    if fast_plan(plan) is not None and 'formal_shards' in plan:
+        expected = set(plan_list(plan, 'formal_shards', SHARDS, nonempty=False))
+        if not shards <= expected:
+            raise ValueError('Formal coverage requires a shard outside the trusted plan')
+    return [shard for shard in SHARDS if shard in shards]
+
+
+def validate_plan_identity(plan):
+    plan = fast_plan(plan)
+    if plan is None:
+        return
+    architecture = plan.get('architecture', {})
+    if not isinstance(architecture, dict):
+        raise ValueError('invalid execution architecture identity')
+    expected = {'tested': output(['git', 'rev-parse', 'HEAD']),
+                'source': os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD']))}
+    for key, actual in expected.items():
+        claims = [container[field] for container, field in ((plan, key + '_sha'), (architecture, key))
+                  if field in container]
+        if not claims or any(claimed != actual for claimed in claims):
+            raise ValueError('execution plan identity mismatch: ' + key)
+
+
+def snapshot_regressions(manifest):
+    plan = fast_plan(manifest.get('execution_plan'))
+    if plan is None:
+        return DEFAULT_SNAPSHOT_REGRESSIONS
+    packages = set(required_packages(plan))
+    owners = {'viewer-snapshot-tests': 'oasis7_viewer_runtime', 'snapshot-tests': 'oasis7'}
+    return tuple((owner, pattern) for owner, pattern in DEFAULT_SNAPSHOT_REGRESSIONS if owners[owner] in packages)
+
+
+def validate_ordinary_selection(manifest):
+    plan = fast_plan(manifest.get('execution_plan'))
+    if plan is None or manifest.get('scope') != 'ordinary':
+        return
+    expected = set(required_packages(plan))
+    actual = {entry.get('package') for entry in manifest['binaries'].values() if entry.get('ordinary')}
+    if actual != expected:
+        raise ValueError('ordinary test package inventory mismatch')
+    if not any(entry.get('ordinary') and set(entry['tests']) - set(entry['ignored_tests'])
+               for entry in manifest['binaries'].values()):
+        raise ValueError('selected ordinary packages have no executable behavior tests')
 
 
 def output(command):
@@ -100,7 +317,7 @@ def resolve_shards(config, suites):
     return result
 
 
-def build_variants(scope):
+def build_variants(scope, plan=None):
     required_features = ['test_tier_required']
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
@@ -115,6 +332,18 @@ def build_variants(scope):
     if scope == 'all':
         return variants
     if scope == 'ordinary':
+        if fast_plan(plan) is not None:
+            packages = set(required_packages(plan))
+            native_args = required_arguments(plan)
+            features = native_args[native_args.index('--features') + 1].split(',') if '--features' in native_args else []
+            selected = [('required', ['test', *native_args, '--no-run'], features)]
+            if packages & VIEWER_REQUIRED_CONSUMERS:
+                viewer_features = package_features(['oasis7_viewer_runtime'], plan)
+                selected.insert(0, ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live',
+                                               '--features', ','.join(viewer_features)], viewer_features))
+            owners = {'snapshot-tests': 'oasis7', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
+            selected.extend(v for v in variants if owners.get(v[0]) in packages)
+            return selected
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage'):
         # Keep both core libraries and the exact Chain binary harness. Chain
@@ -186,7 +415,10 @@ def validate_profile(logical, binary, scope=None):
             raise ValueError('expected optimized storage artifact with assertions and overflow checks')
 
 
-def build(bundle, scope='all', cache_state_path=None):
+def build(bundle, scope='all', cache_state_path=None, plan=None):
+    validate_plan_identity(plan)
+    if scope != 'ordinary' and FORMAL_AUTHORITY is not None:
+        formal_shards(plan)
     bundle.mkdir(parents=True, exist_ok=False)
     (bundle / 'bin').mkdir()
     (bundle / 'lib').mkdir()
@@ -201,7 +433,7 @@ def build(bundle, scope='all', cache_state_path=None):
                                target=str((ROOT / 'target').resolve()), selection=selection,
                                complete=False, error=str(error))
     binaries, timings = {}, []
-    variants = build_variants(scope)
+    variants = build_variants(scope, plan) if plan is not None else build_variants(scope)
     for variant, args, features in variants:
         started = time.monotonic()
         local_units = local_fresh = dependency_units = dependency_fresh = 0
@@ -275,19 +507,24 @@ def build(bundle, scope='all', cache_state_path=None):
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), checkout=str(ROOT), binaries=binaries,
         config_sha256=digest(CONFIG), build_timings=timings)
+    if fast_plan(plan) is not None:
+        manifest['execution_plan'] = plan
+    if FORMAL_AUTHORITY is not None:
+        manifest['formal_authority_sha256'] = formal_authority_digest()
     list_env = dict(env, LD_LIBRARY_PATH=str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', ''))
     for logical, binary in binaries.items():
         if binary['test']:
             binary['tests'] = inventory(bundle / binary['path'], env=list_env)
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
-    config = json.loads(CONFIG.read_text())
+    config = formal_configuration()
     manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' else {}
     if scope != 'ordinary':
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
+    validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
         try:
@@ -305,8 +542,18 @@ def build(bundle, scope='all', cache_state_path=None):
 def selected_entries(manifest, config, suite=None, shard=None):
     if bool(suite) == bool(shard):
         raise ValueError('select exactly one logical suite or physical shard')
+    plan = fast_plan(manifest.get('execution_plan'))
+    selected = set(formal_suites(plan))
+    resolved = resolve_shards(config, manifest['suites'])
+    if plan is not None and 'formal_shards' in plan:
+        expected = set(plan_list(plan, 'formal_shards', SHARDS, nonempty=False))
+        actual = {name for name, entries in resolved.items() if any(entry['suite'] in selected for entry in entries)}
+        if not actual <= expected:
+            raise ValueError('resolved Formal coverage requires a shard outside the trusted plan')
     if shard:
-        return resolve_shards(config, manifest['suites'])[shard]
+        return [entry for entry in resolved[shard] if entry['suite'] in selected]
+    if suite not in selected:
+        raise ValueError('logical suite was not selected: ' + str(suite))
     return [dict(entry, suite=suite) for entry in manifest['suites'][suite]]
 
 
@@ -316,9 +563,13 @@ def dependency_closure(manifest, config, suite=None, shard=None):
         required = {name for name, binary in binaries.items()
                     if (binary.get('ordinary') and set(binary['tests']) - set(binary['ignored_tests']))
                     or name in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests') or name.startswith('required-executable-')}
-        for owner, _ in DEFAULT_SNAPSHOT_REGRESSIONS:
+        for owner, _ in snapshot_regressions(manifest):
             if owner not in required:
                 raise ValueError('missing default-feature snapshot harness: ' + owner)
+        if (fast_plan(manifest.get('execution_plan')) is not None
+                and set(required_packages(manifest['execution_plan'])) & VIEWER_REQUIRED_CONSUMERS
+                and 'viewer' not in required):
+            raise ValueError('missing selected Viewer process dependency')
         return required
     required = set()
     for entry in selected_entries(manifest, config, suite, shard):
@@ -348,10 +599,15 @@ def checked_file(bundle, name, sha):
     return path
 
 
-def pack(bundle, archive_path, suite=None, shard=None):
+def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     """Publish one consumption closure; the producer's complete inventory remains auditable."""
     manifest = json.loads((bundle / 'manifest.json').read_text())
-    config = json.loads(CONFIG.read_text())
+    if manifest.get('execution_plan') != fast_plan(plan):
+        raise ValueError('artifact execution plan mismatch')
+    if manifest.get('formal_authority_sha256') != formal_authority_digest():
+        raise ValueError('artifact Formal authority mismatch')
+    validate_ordinary_selection(manifest)
+    config = formal_configuration()
     included = dependency_closure(manifest, config, suite, shard)
     if not included:
         raise ValueError('empty native artifact closure')
@@ -929,15 +1185,20 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
     return report
 
 
-def load(bundle, suite=None, shard=None):
+def load(bundle, suite=None, shard=None, plan=None):
+    validate_plan_identity(plan)
     manifest = json.loads((bundle / 'manifest.json').read_text())
+    if manifest.get('execution_plan') != fast_plan(plan):
+        raise ValueError('artifact execution plan mismatch')
+    validate_ordinary_selection(manifest)
     if manifest.get('scope') == 'storage' and manifest.get('schema_version') != 2:
         raise ValueError('expected schema 2 storage artifact')
-    config = json.loads(CONFIG.read_text())
+    config = formal_configuration()
     expected = dict(tested_sha=output(['git', 'rev-parse', 'HEAD']),
                     source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
                     producer_run_id=os.environ.get('GITHUB_RUN_ID', 'local'), checkout=str(ROOT),
                     config_sha256=digest(CONFIG),
+                    formal_authority_sha256=formal_authority_digest(),
                     rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'),
                     runner_image=os.environ.get('ImageOS', sys.platform))
     for key, value in expected.items():
@@ -993,12 +1254,12 @@ def load(bundle, suite=None, shard=None):
     return manifest, env
 
 
-def execute(bundle, suite, results, shard=None):
+def execute(bundle, suite, results, shard=None, plan=None):
     from ci_process_runner import run
-    manifest, env = load(bundle, suite if not shard else None, shard)
+    manifest, env = load(bundle, suite if not shard else None, shard, plan)
     if suite == 'ordinary' and not shard:
         entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items() if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
-        for owner, pattern in DEFAULT_SNAPSHOT_REGRESSIONS:
+        for owner, pattern in snapshot_regressions(manifest):
             if owner not in manifest['binaries']:
                 raise ValueError('missing default-feature snapshot harness: ' + owner)
             binary = manifest['binaries'][owner]
@@ -1011,7 +1272,9 @@ def execute(bundle, suite, results, shard=None):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
                 env.pop(variable)
     else:
-        entries = selected_entries(manifest, json.loads(CONFIG.read_text()), suite if not shard else None, shard)
+        entries = selected_entries(manifest, formal_configuration(), suite if not shard else None, shard)
+    if not entries:
+        raise ValueError('selected test execution is empty')
     failed = False
     for entry in entries:
         logical_suite = entry.get('suite', suite)
@@ -1057,9 +1320,9 @@ def execute(bundle, suite, results, shard=None):
 
 
 def main():
-    global ROOT, CONFIG
+    global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
+    parser.add_argument('action', choices=['build', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
@@ -1073,9 +1336,21 @@ def main():
     parser.add_argument('--cache-state', type=Path)
     parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
+    parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
+    parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
+    parser.add_argument('--phase', choices=['native', 'wasm', 'packages'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
+    FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
+    plan = json.loads(args.plan.read_text()) if args.plan else None
+    if args.action == 'shards':
+        print(json.dumps(formal_shards(plan)))
+        return
+    if args.action == 'required-args':
+        validate_plan_identity(plan)
+        print('\n'.join(required_arguments(plan, args.phase)))
+        return
     if args.measure_only and args.action != 'cache-stage':
         parser.error('--measure-only requires cache-stage')
     if args.action == 'cache-build':
@@ -1110,17 +1385,17 @@ def main():
     if not args.bundle:
         parser.error('--bundle is required for build, run and pack')
     if args.action == 'build':
-        build(args.bundle.resolve(), args.scope, args.cache_state)
+        build(args.bundle.resolve(), args.scope, args.cache_state, plan)
     elif args.action == 'pack':
         if not args.output:
             parser.error('pack requires --output')
         if args.split_formal:
-            for shard in SHARDS:
-                pack(args.bundle.resolve(), args.output / (shard + '.tar.gz'), shard=shard)
+            for shard in formal_shards(plan):
+                pack(args.bundle.resolve(), args.output / (shard + '.tar.gz'), shard=shard, plan=plan)
         else:
-            pack(args.bundle.resolve(), args.output, None if args.shard else args.suite, args.shard)
+            pack(args.bundle.resolve(), args.output, None if args.shard else args.suite, args.shard, plan)
     else:
-        execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl', args.shard)
+        execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl', args.shard, plan)
 
 
 if __name__ == '__main__':
