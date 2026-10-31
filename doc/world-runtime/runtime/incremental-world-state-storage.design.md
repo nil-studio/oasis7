@@ -737,3 +737,5 @@ GEN 借用全部原值并流写；空创建要求精确完整家族资格、guar
 完整 root-only 资格不要求原 World/完整 DTO，有限地检查四字段 Metadata、六根错位、引用绑定、全部 primitive/UTF8/Option/闭合枚举、Vec ordinal 小于 length 且实际数量相等、Outcome 完整列和无未知/孤儿。正常接收器先验证通用转移，再按实际外写与内部 Merkle 差分验证变化路径并继承未变闭包，不全扫未变大对象；计费、组合取消和最后取消贯穿，失败不返回后继资格，事务贡献失败 poison 先前前缀。
 
 页 mark/transfer 复用同一完整 owner 资格并追随所有内部根；sink 输出在包括 buffered finish 的全部步骤成功前保持暂态。本四字段资格不是完整 World、协议接受、业务权限或全局 GC live set；必须组合其他 owner/历史/lease/未决和回滚保护。独立字面 oracle、Raw/Zstd 冷恢复、合法后继、预算/取消/真实 put/poison 和缺页拒绝分别验证，不把 visitor/typecheck 当完整实现。
+
+`change_qualified_diplomacy_scalar_v1` 是这四个 owner 的普通单列更新入口：调用者显式选取封闭字段枚举及其 typed expected/after，仅校验该列的原值；Option 只额外校验并原子编辑同列旗标，不读无关标量、长 Text 或 Vec。`change_qualified_diplomacy_scalars_v1` 是显式完整 expected 投影核对，成本为 O(S)，不能用于证明普通单列更新的固定 Δ。单列更新须以未变 32 MiB charter、仅改 formed_at、receiver payload 上限165的公开冷根证据证明未扫描无关内容。
