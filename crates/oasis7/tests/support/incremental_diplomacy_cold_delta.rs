@@ -379,7 +379,7 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
         cancelled: || false,
     };
     let guard = ctx.transaction.guard();
-    change_qualified_diplomacy_scalar_v1(
+    let changed = change_qualified_diplomacy_scalar_v1(
         DiplomacyScalarChangeV1 {
             field: DiplomacyFieldV1::Alliances,
             id: KEY,
@@ -397,6 +397,33 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
     )
     .unwrap()
     .unwrap();
+    {
+        let mut point_io = logical();
+        let mut point_keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut point = fixed!(
+            changed.root(),
+            &state,
+            &values,
+            &memory,
+            &mut point_io,
+            &mut point_keys
+        );
+        assert_eq!(
+            read_qualified_diplomacy_scalar_v1(
+                KEY,
+                DiplomacyFieldV1::Alliances,
+                DiplomacyScalarV1::Alliance(AllianceScalarV1::FormedAt),
+                &changed,
+                &mut point,
+                165,
+                &mut std::io::sink()
+            )
+            .unwrap(),
+            Some(DiplomacyValueV1::Unsigned(0))
+        );
+    }
     let guard = ctx.transaction.guard();
     let prepared = tx.seal(&guard, &live, 1).unwrap();
     assert_eq!(prepared.record.writes.len(), 1);
