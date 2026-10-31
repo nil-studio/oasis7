@@ -532,3 +532,5 @@ pub use oasis7_world_state::incremental_runtime_capability_records;
 pub use oasis7_world_state::incremental_world_rule_effects;
 pub use oasis7_world_state::incremental_world_rule_lineages;
 pub use oasis7_world_state::incremental_world_rule_shipments;
+pub use oasis7_world_state::incremental_world_rule_organization;
+pub use oasis7_world_state::incremental_world_rule_supply_root;
