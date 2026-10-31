@@ -35,11 +35,13 @@ fn publish_observed(
         options.mode(0o600);
     }
     let mut file = options.open(&temp)?;
+    let mut owns_temp = true;
     let result = (|| {
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
         fs::rename(&temp, path)?;
+        owns_temp = false;
         // Unix is the existing formal durable deployment profile. Sync the
         // complete directory chain because create_dir_all may have created
         // several ancestors. Other platforms retain their existing directory
@@ -70,8 +72,9 @@ fn publish_observed(
         }
         Ok(())
     })();
-    if result.is_err() {
-        // An uncertain canonical publication is never rolled back.
+    if result.is_err() && owns_temp {
+        // After rename this pathname is free for another owner. Never remove
+        // it on a later uncertain canonical publication or readback failure.
         let _ = fs::remove_file(temp);
     }
     result
@@ -177,8 +180,10 @@ mod tests {
         let path = directory.0.join("lineage.json");
         for changed in [b"short".as_slice(), b"original-active-turn-extra"] {
             assert!(
-                publish_observed(&path, b"original-active-turn", |_| fs::write(&path, changed))
-                    .is_err()
+                publish_observed(&path, b"original-active-turn", |_| fs::write(
+                    &path, changed
+                ))
+                .is_err()
             );
         }
     }
@@ -193,8 +198,10 @@ mod tests {
             Err(io::Error::other("injected post-publication failure"))
         });
         assert!(result.is_err());
-        assert_eq!(fs::read(released.unwrap()).unwrap(), b"another writer's record");
+        assert_eq!(
+            fs::read(released.unwrap()).unwrap(),
+            b"another writer's record"
+        );
         assert_eq!(fs::read(&path).unwrap(), b"original-active-turn");
     }
-
 }
