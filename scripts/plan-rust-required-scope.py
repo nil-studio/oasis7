@@ -1060,7 +1060,24 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             ordinary_gate = enabled_gate(attribute, native, set())
             if not ordinary_gate and features and not mapped_native_driver:
                 raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
-            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver):
+            actual_features = set(enabled_features)
+            defaults = []
+            for package in feature_owners.get(path, ()):
+                table = available_features.get(package, {})
+                # A set-only legacy caller provides declarations, not activation.
+                table = table if isinstance(table, dict) else {}
+                active, pending = set(), ['default']
+                while pending:
+                    feature = pending.pop()
+                    if feature in active or feature not in table:
+                        continue
+                    active.add(feature)
+                    pending.extend(table[feature])
+                defaults.append(active)
+            if defaults:
+                # Every source owner must execute the inherited condition.
+                actual_features.update(set.intersection(*defaults))
+            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver, actual_features):
                 raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
             if features and (not feature_owners.get(path) or any(
                     not features.issubset(available_features.get(package, set()))
@@ -1254,7 +1271,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         reasons.extend('uncertain Rust module input: ' + path
                                        for path in sorted(graph[2]['__uncertain_module_sources__']))
                     feature_manifests[resolve_commit(ref)] = {
-                        package: set(manifest.get('features', {}))
+                        package: manifest.get('features', {})
                         for package, (_, manifest) in graph[0].items()}
                     test_target_roots[resolve_commit(ref)] = {
                         path for path in sources for package, (directory, manifest) in graph[0].items()
