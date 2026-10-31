@@ -113,7 +113,7 @@ fn nested_fixture() -> (StateRootV1, StateRootV1, Source) {
     }
     let outer_delta = StateDeltaV1::build(
         StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
-        [write(b"nested-child-root", None, Some([9; 32]))].into(),
+        [write(b"nested-child-root", None, Some(9))].into(),
         &source,
         QUOTA,
     )
@@ -143,7 +143,7 @@ fn nested_walk_spends_the_parent_leaf_allowance_and_scan_io() {
     .visit_entries_with_reader(
         &outer,
         |entry, reader| {
-            assert_eq!(entry.value, [9; 32]);
+            assert_eq!(entry.key, b"nested-child-root");
             let nested = reader.visit_entries(&child, |entry| {
                 nested_keys.push(entry.key.clone());
                 Ok::<_, ()>(())
@@ -233,6 +233,76 @@ fn caught_nested_cancellation_is_sticky_and_blocks_more_source_reads() {
     );
     assert!(matches!(result, Err(StateScanError::Cancelled)));
     assert!(source.reads.get() > reads_before);
+}
+
+#[test]
+fn caught_cancellation_precedes_nested_memory_and_leaf_limits() {
+    for exhaust_memory in [false, true] {
+        let (outer, child, source) = nested_fixture();
+        let cancelled = Cell::new(false);
+        let mut budget = StateScanBudget {
+            nodes_remaining: 10_000,
+            read_bytes_remaining: 1 << 24,
+            leaves_remaining: outer.leaf_count + child.leaf_count,
+        };
+        let reads_before = source.reads.get();
+        let mut reads_after_cancel = None;
+        let result = StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut budget,
+        }
+        .visit_entries_with_reader(
+            &outer,
+            |_, reader| {
+                let mut nested_visits = 0;
+                let reads_before_cancel = source.reads.get();
+                assert!(matches!(
+                    reader.visit_entries(&child, |_| {
+                        nested_visits += 1;
+                        if nested_visits == 1 {
+                            cancelled.set(true);
+                        }
+                        Ok::<_, ()>(())
+                    }),
+                    Err(StateScanError::Cancelled)
+                ));
+                assert_eq!(nested_visits, 1);
+                assert!(source.reads.get() > reads_before_cancel);
+                reads_after_cancel = Some(source.reads.get());
+
+                // The first cancelled traversal has already consumed a leaf.
+                // Exhaust both later allowances to verify that the sticky
+                // cancellation remains the reported cause on the retry.
+                reader.leaves.set(0);
+                // In one case the nested reader's workspace cannot be
+                // admitted either. The sticky cancellation must take priority
+                // over that later memory failure as well as the leaf limit.
+                let _memory_pressure = if exhaust_memory {
+                    let ordinary_limit: usize = (16 << 20) - (1 << 20);
+                    let remaining = ordinary_limit.saturating_sub(source.memory.used());
+                    Some(
+                        source
+                            .memory
+                            .reserve(remaining, MemoryClass::Ordinary)
+                            .unwrap(),
+                    )
+                } else {
+                    None
+                };
+                assert!(matches!(
+                    reader.visit_entries(&child, |_| Ok::<_, ()>(())),
+                    Err(StateScanError::Cancelled)
+                ));
+                assert_eq!(source.reads.get(), reads_after_cancel.unwrap());
+                Ok::<_, StateScanError<()>>(())
+            },
+            || cancelled.get(),
+        );
+        assert!(matches!(result, Err(StateScanError::Cancelled)));
+        assert!(reads_after_cancel.unwrap() > reads_before);
+    }
 }
 
 #[test]

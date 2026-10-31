@@ -256,7 +256,9 @@ fn outer_child(
                 && key.semantic_key == Some(semantic_digest)
         })
         .expect("outer record write");
-    let key = WorldFieldKeyV1::from_bytes(&write.mutation.key).unwrap();
+    let parsed_key = WorldFieldKeyV1::from_bytes(&write.mutation.key).unwrap();
+    let key = WorldFieldKeyV1::new(descriptor, parsed_key.kind, parsed_key.semantic_key).unwrap();
+    assert_eq!(key.as_bytes(), write.mutation.key);
     let root = write.mutation.after.unwrap();
     let (info, actual_semantic, payload) = read_member(&root, &key, values, memory);
     assert_eq!(info.codec, MemberPayloadCodecV1::RecordRoot);

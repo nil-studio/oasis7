@@ -100,6 +100,20 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanRead
     }
 }
 impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
+    fn check_stop_or_cancelled<E>(&self) -> Result<(), StateScanError<E>> {
+        if let Some(stop) = self.stop.get() {
+            return Err(match stop {
+                Stop::Limited => StateScanError::ResourceLimited,
+                Stop::Cancelled => StateScanError::Cancelled,
+            });
+        }
+        if (self.cancelled.borrow_mut())() {
+            self.stop.set(Some(Stop::Cancelled));
+            return Err(StateScanError::Cancelled);
+        }
+        Ok(())
+    }
+
     /// Whether the original scan source remains tied to the same classed
     /// memory pool used by an owner-specific value reader.
     pub fn source_matches(&self, memory: &MemoryBudget, class: MemoryClass) -> bool {
@@ -121,16 +135,15 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
         root: &StateRootV1,
         mut visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
     ) -> Result<u64, StateScanError<E>> {
-        let _workspace = self
-            .memory
-            .reserve(128 * 1024, self.class)
-            .map_err(StateScanError::Memory)?;
-        if let Some(stop) = self.stop.get() {
-            return Err(match stop {
-                Stop::Limited => StateScanError::ResourceLimited,
-                Stop::Cancelled => StateScanError::Cancelled,
-            });
-        }
+        self.check_stop_or_cancelled()?;
+        let _workspace = match self.memory.reserve(128 * 1024, self.class) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                self.check_stop_or_cancelled()?;
+                return Err(StateScanError::Memory(error));
+            }
+        };
+        self.check_stop_or_cancelled()?;
         if self.source.allocation_class() != Some(self.class)
             || !self
                 .source
@@ -140,27 +153,15 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
             return Err(StateScanError::Invalid("state scan source pool/class"));
         }
         root.validate().map_err(StateScanError::Tree)?;
+        self.check_stop_or_cancelled()?;
         if root.leaf_count > self.leaves.get() {
             self.stop.set(Some(Stop::Limited));
             return Err(StateScanError::ResourceLimited);
         }
-        if (self.cancelled.borrow_mut())() {
-            self.stop.set(Some(Stop::Cancelled));
-            return Err(StateScanError::Cancelled);
-        }
         let mut view =
             Updater::<StateCodec, _>::new(self, empty_hashes().map_err(StateScanError::Tree)?, 0);
         let result = view.visit_leaves(&root.node_root, |entry| {
-            if let Some(stop) = self.stop.get() {
-                return Err(match stop {
-                    Stop::Limited => StateScanError::ResourceLimited,
-                    Stop::Cancelled => StateScanError::Cancelled,
-                });
-            }
-            if (self.cancelled.borrow_mut())() {
-                self.stop.set(Some(Stop::Cancelled));
-                return Err(StateScanError::Cancelled);
-            }
+            self.check_stop_or_cancelled()?;
             if entry.namespace != root.namespace {
                 return Err(StateScanError::Invalid("state scan namespace"));
             }
@@ -184,10 +185,7 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
         if count != root.leaf_count {
             return Err(StateScanError::Invalid("state scan leaf count"));
         }
-        if (self.cancelled.borrow_mut())() {
-            self.stop.set(Some(Stop::Cancelled));
-            return Err(StateScanError::Cancelled);
-        }
+        self.check_stop_or_cancelled()?;
         Ok(count)
     }
 }
@@ -215,10 +213,22 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
         mut visit: impl FnMut(&StateEntryV1, &StateScanReader<'_, R, C>) -> Result<(), E>,
         cancelled: C,
     ) -> Result<u64, StateScanError<E>> {
-        let _workspace = self
-            .memory
-            .reserve(128 * 1024, self.class)
-            .map_err(StateScanError::Memory)?;
+        let cancelled = RefCell::new(cancelled);
+        if (cancelled.borrow_mut())() {
+            return Err(StateScanError::Cancelled);
+        }
+        let _workspace = match self.memory.reserve(128 * 1024, self.class) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                if (cancelled.borrow_mut())() {
+                    return Err(StateScanError::Cancelled);
+                }
+                return Err(StateScanError::Memory(error));
+            }
+        };
+        if (cancelled.borrow_mut())() {
+            return Err(StateScanError::Cancelled);
+        }
         if self.source.allocation_class() != Some(self.class)
             || !self
                 .source
@@ -228,12 +238,11 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
             return Err(StateScanError::Invalid("state scan source pool/class"));
         }
         root.validate().map_err(StateScanError::Tree)?;
-        if root.leaf_count > self.io.leaves_remaining {
-            return Err(StateScanError::ResourceLimited);
-        }
-        let cancelled = RefCell::new(cancelled);
         if (cancelled.borrow_mut())() {
             return Err(StateScanError::Cancelled);
+        }
+        if root.leaf_count > self.io.leaves_remaining {
+            return Err(StateScanError::ResourceLimited);
         }
         let stop = Cell::new(None);
         let source = StateScanReader {
@@ -253,12 +262,17 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
         );
         let result = view.visit_leaves(&root.node_root, |entry| {
             if (cancelled.borrow_mut())() {
+                stop.set(Some(Stop::Cancelled));
                 return Err(StateScanError::Cancelled);
             }
             if entry.namespace != root.namespace {
                 return Err(StateScanError::Invalid("state scan namespace"));
             }
             if source.leaves.get() == 0 {
+                if (cancelled.borrow_mut())() {
+                    stop.set(Some(Stop::Cancelled));
+                    return Err(StateScanError::Cancelled);
+                }
                 return Err(StateScanError::ResourceLimited);
             }
             source.leaves.set(source.leaves.get() - 1);

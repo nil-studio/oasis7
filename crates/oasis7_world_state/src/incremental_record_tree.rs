@@ -222,7 +222,7 @@ pub(crate) fn get<R: ValueNodeReader, C: FnMut() -> bool>(
     }
     let _workspace = match values.memory.reserve(8 << 10, values.class) {
         Ok(workspace) => workspace,
-        Err(error) if cancelled() => return Err(ValueTreeError::Cancelled),
+        Err(_) if cancelled() => return Err(ValueTreeError::Cancelled),
         Err(error) => return Err(ValueTreeError::Memory(error)),
     };
     let error = RefCell::new(None);
