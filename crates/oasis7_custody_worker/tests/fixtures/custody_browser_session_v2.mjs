@@ -52,7 +52,7 @@ print(json.dumps(found[0]))
   catch {throw Error('safe V2 SQL fact unavailable');}
   return JSON.parse(raw);
 }
-export async function acceptSessionV2({page,identity,origin,sourceHeaders,parent,world,setStage,persist,onActivated,nativeCounts}){
+export async function acceptSessionV2({page,identity,origin,sourceHeaders,parent,world,setStage,persist,onActivated,nativeCounts,hostEnrollment}){
   const prefix=`browser-v2-${randomBytes(8).toString('hex')}`;
   const base=`/v1/account-provisions/${encodeURIComponent(parent.entry.provision_id)}`;
   const post=async(path,body,headers=sourceHeaders)=>{
@@ -73,9 +73,18 @@ export async function acceptSessionV2({page,identity,origin,sourceHeaders,parent
   await page.reload();await page.getByRole('heading',{name:'账号与安全',exact:true}).waitFor();
   setStage('v2-enrollment');const invite=await post(base+'/test-sessions/invite',{api_version:1,request_id:prefix+'-invite',transport_profile:'native-broker-custody-v1',tool_profile:'custody-native-v1'});
   const target={custody_account_id:parentView.custody_account_id,provision_id:parentView.provision_id,invite_id:invite.invite_id,invite_digest:digest('oasis7.custody.pairing-invite.v1',invite)};
-  const view=await post('/v1/client-enrollments',{api_version:1,request_id:prefix+'-enroll',target,descriptor},{'content-type':'application/json'});assert.equal(view.descriptor_digest,descriptorDigest);
-  const body=JSON.stringify({api_version:1,enrollment_id:view.enrollment_id,request_id:'browser-v2-proof',target,client_public_key:publicKey,server_nonce:view.server_nonce,challenge_expires_at:view.challenge_expires_at,descriptor_digest:view.descriptor_digest});
-  assert.equal((await post(`/v1/client-enrollments/${view.enrollment_id}/prove`,body,proofHeaders(origin,view,body))).status,'proved');
+  let view;
+  if(hostEnrollment){
+    const actual=await hostEnrollment({target,origin});
+    assert.equal(actual.authority_granted,false);
+    assert.equal(actual.descriptor.transport_profile,'native-broker-custody-v1');
+    assert.equal(actual.descriptor_digest,digest('oasis7.custody.host-deployment-descriptor.v1',actual.descriptor));
+    view={enrollment_id:actual.enrollment_id,key_id:actual.client_key_id,descriptor_digest:actual.descriptor_digest};
+  }else{
+    view=await post('/v1/client-enrollments',{api_version:1,request_id:prefix+'-enroll',target,descriptor},{'content-type':'application/json'});assert.equal(view.descriptor_digest,descriptorDigest);
+    const body=JSON.stringify({api_version:1,enrollment_id:view.enrollment_id,request_id:'browser-v2-proof',target,client_public_key:publicKey,server_nonce:view.server_nonce,challenge_expires_at:view.challenge_expires_at,descriptor_digest:view.descriptor_digest});
+    assert.equal((await post(`/v1/client-enrollments/${view.enrollment_id}/prove`,body,proofHeaders(origin,view,body))).status,'proved');
+  }
   setStage('v2-session-metadata');const cleanup=Date.now()+90000;
   const basis=await post(base+'/test-sessions/basis',{api_version:2,request_id:prefix+'-session',enrollment_id:view.enrollment_id,setup_id:prefix,cleanup_until:String(cleanup)});
   const sessionPlan={api_version:2,model_budget:null,termination:basis.termination,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest:basis.basis_digest,owner_setup_plan_digest:basis.owner_setup_plan_digest,prepared_resource_basis_digest:null,selection,actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:[],write_deadline:String(cleanup-30000),read_until:String(cleanup+30000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
@@ -92,8 +101,9 @@ export async function acceptSessionV2({page,identity,origin,sourceHeaders,parent
   const saved=sqlFacts(persist,parentView.custody_account_id,basis.scope.session_id);assert.equal(saved.activated,true);assert.deepEqual(saved.roots,['execution','reconcile_read','termination_plan']);assert.equal(saved.claims,0);assert.equal(saved.old_v1_sessions,0);assert.equal(saved.execution_book_absent,true);
   let claimFacts={};
   if(onActivated) claimFacts=await onActivated({
-    cycle:credentialCycle({identity,origin,scope:basis.scope,enrollment:view,plan:sessionPlan,prefix,nativeCounts}),
-    counters:()=>credentialCounters(persist,parentView.custody_account_id,basis.scope.session_id),setStage,
+    cycle:hostEnrollment?undefined:credentialCycle({identity,origin,scope:basis.scope,enrollment:view,plan:sessionPlan,prefix,nativeCounts}),
+    host_binding:{session_id:basis.scope.session_id,resource_id:prefix+'-host-control',pairing:basis.scope.client_pairing,plan:sessionPlan},
+    counters:()=>credentialCounters(persist,parentView.custody_account_id,basis.scope.session_id),setStage,nativeCounts,
   });
   return {consume_zero_roots:true,final_sql_three_roots:true,owner_v2_actual_prepared:true,session_v2_actual_activation:true,actual_two_separate_uv:true,model_budget:'none-no-inference',world:'local-fixture-not-liveplay',os_isolation:'not_tested',cleanup:'not_tested',...claimFacts};
 }
@@ -163,11 +173,20 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
   roots={}
   for purpose,wrapped in v['roots'].items():
    r=wrapped['root'];roots[purpose]={'transport':remaining(r['budgets']['transport']),'business':remaining(r['budgets']['business']),'history':len(r['credential_history']),'generation':None if r['credential'] is None else r['credential']['generation']}
-  found.append({'host':remaining(v['control']['transport']),'native':remaining(v['identity_transport']),'requests':remaining(v['control']['requests']),'sources':len(v['sources']),'claims':len(v['credential_claims']),'purposes':roots,'execution_book_absent':v['execution_book'] is None,'old_v1_sessions':len(s.get('test_sessions',{}))})
+  found.append({'host':remaining(v['control']['transport']),'native':remaining(v['identity_transport']),'requests':remaining(v['control']['requests']),'sources':len(v['sources']),'claims':len(v['credential_claims']),'model_controls':sum(k.startswith('actual-host-v2-control-') for k in v['controls']),'closing_reason':None if v['closing'] is None else v['closing'][0],'purposes':roots,'execution_book_absent':v['execution_book'] is None,'old_v1_sessions':len(s.get('test_sessions',{}))})
  except (sqlite3.Error,KeyError,TypeError,ValueError):pass
 if len(found)!=1:raise SystemExit(2)
 print(json.dumps(found[0]))
 `,persist,account,id],{encoding:'utf8',maxBuffer:4096,stdio:['ignore','pipe','ignore']});}
   catch {throw Error('safe V2 credential SQL counters unavailable');}
   return JSON.parse(raw);
+}
+
+export function withActualHostDescriptor(options,actual){
+  assert.equal(actual.api_version,1);assert.equal(actual.transport_profile,'native-broker-custody-v1');
+  assert.equal(actual.tool_profile,'custody-native-v1');
+  const expected=digest('oasis7.custody.host-deployment-descriptor.v1',actual);
+  for(const worker of options.workers){if(['identity','owner'].includes(worker.name))
+    worker.bindings={...worker.bindings,CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:actual.environment,host_instance_id:actual.host_instance_id,descriptor_digest:expected,client_public_key:actual.client_public_key}])};}
+  return options;
 }
