@@ -145,6 +145,14 @@ mod tests {
         ] {
             publish(&path, original).unwrap();
             assert_eq!(fs::read(&path).unwrap(), original);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
         }
     }
     #[test]
