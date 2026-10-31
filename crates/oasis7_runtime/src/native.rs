@@ -473,3 +473,17 @@ pub use world::{
     DelegationControlDisposition, DelegationControlError, DelegationControlOperation,
     DelegationControlOutcome, DelegationControlStage, DelegationReplayMatch,
 };
+
+pub use oasis7_world_state::{incremental_field_read, incremental_world_u64};
+
+pub use oasis7_world_state::incremental_field_overlay;
+
+pub use oasis7_world_state::incremental_delivery_cursor;
+
+pub use oasis7_world_state::incremental_world_id_sets;
+
+pub use oasis7_world_state::incremental_world_number_maps;
+
+pub use oasis7_world_state::incremental_authenticated_nonces;
+
+pub use oasis7_world_state::incremental_authorization_mapsets;

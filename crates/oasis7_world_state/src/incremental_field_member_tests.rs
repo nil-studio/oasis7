@@ -790,3 +790,145 @@ fn expected_i64_profile_rejects_malformed_fixed_length_before_payload_limits() {
     assert!(key.is_empty());
     assert!(payload.is_empty());
 }
+
+#[test]
+fn world_u64_genesis_preserves_namespace_unit_and_full_unsigned_range() {
+    use crate::{incremental_world_u64::*, state::WorldState};
+    let source = WorldState {
+        time: 0,
+        next_industry_settlement_order: u64::MAX,
+        next_module_release_request_id: 2,
+        next_module_instance_id: 3,
+        next_module_market_order_id: 4,
+        next_module_market_sale_id: 5,
+        agent_claim_last_processed_epoch: 6,
+        ..WorldState::default()
+    };
+    let memory = MemoryBudget::new(4 << 20, 4096).unwrap();
+    let mut pages = Pages::new(&memory);
+    let mut writes = Vec::new();
+    let mut remaining = 14;
+    prepare_world_u64_genesis_v1(
+        &source,
+        &mut MemberRecordWriteContext {
+            sink: &mut pages,
+            memory: &memory,
+            io: &mut quota(),
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 4096,
+            },
+            limits: limits(),
+            cancelled: || false,
+        },
+        &mut remaining,
+        &mut |write| {
+            writes.push(write);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(remaining, 0);
+    assert_eq!(writes.len(), 14);
+    let expected = [
+        ("time", Ns::Allocator, 0),
+        ("next_industry_settlement_order", Ns::Allocator, u64::MAX),
+        ("next_module_release_request_id", Ns::Allocator, 2),
+        ("next_module_instance_id", Ns::Allocator, 3),
+        ("next_module_market_order_id", Ns::Allocator, 4),
+        ("next_module_market_sale_id", Ns::Allocator, 5),
+        ("agent_claim_last_processed_epoch", Ns::Scheduler, 6),
+    ];
+    for (pair, (name, namespace, value)) in writes.chunks_exact(2).zip(expected) {
+        let descriptor = crate::incremental_projection::WORLD_STATE_FIELDS
+            .iter()
+            .find(|field| field.name == name)
+            .copied()
+            .unwrap();
+        for write in pair {
+            assert_eq!(write.namespace, namespace);
+            assert_eq!(write.mutation.before, None);
+        }
+        let metadata_key =
+            WorldFieldKeyV1::new(descriptor, WorldFieldRecordKindV1::Metadata, None).unwrap();
+        assert_eq!(pair[0].mutation.key, metadata_key.as_bytes());
+        let semantic = crate::incremental_semantic_key::hash_semantic_key_v1(
+            &(),
+            &memory,
+            MemoryClass::Ordinary,
+            &mut SemanticKeyBudget {
+                bytes_remaining: 4096,
+            },
+            || false,
+        )
+        .unwrap();
+        let entry_key = WorldFieldKeyV1::new(
+            descriptor,
+            WorldFieldRecordKindV1::Entry,
+            Some(semantic.digest),
+        )
+        .unwrap();
+        assert_eq!(pair[1].mutation.key, entry_key.as_bytes());
+        let mut payload = [0; 8];
+        read_member_record_profile_v1(
+            &pair[1].mutation.after.unwrap(),
+            &entry_key,
+            &mut ValueReadContext {
+                source: &pages,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut quota(),
+            },
+            MemberReadProfileV1 {
+                codec: MemberPayloadCodecV1::U64,
+                semantic_bytes: (crate::incremental_semantic_key::SEMANTIC_KEY_DOMAIN.len() + 1)
+                    as u64,
+                limits: limits(),
+            },
+            &mut std::io::sink(),
+            &mut &mut payload[..],
+            || false,
+        )
+        .unwrap();
+        assert_eq!(u64::from_be_bytes(payload), value);
+        let bytes = raw(&pages, &memory, &pair[1].mutation.after.unwrap());
+        assert_eq!(&bytes[bytes.len() - 8..], &value.to_be_bytes());
+        // Unit is one zero token, not an empty semantic key.
+        assert_eq!(bytes[bytes.len() - 9], 0);
+    }
+}
+
+#[test]
+fn world_u64_genesis_stops_on_record_limit_or_sink_rejection() {
+    use crate::{incremental_world_u64::*, state::WorldState};
+    for reject in [false, true] {
+        let memory = MemoryBudget::new(4 << 20, 4096).unwrap();
+        let mut pages = Pages::new(&memory);
+        let mut accepted = 0;
+        let result = prepare_world_u64_genesis_v1(
+            &WorldState::default(),
+            &mut MemberRecordWriteContext {
+                sink: &mut pages,
+                memory: &memory,
+                io: &mut quota(),
+                key_work: &mut SemanticKeyBudget {
+                    bytes_remaining: 4096,
+                },
+                limits: limits(),
+                cancelled: || false,
+            },
+            &mut if reject { 14 } else { 3 },
+            &mut |_| {
+                if reject && accepted == 2 {
+                    return Err(ValueTreeError::Invalid("sink rejected"));
+                }
+                accepted += 1;
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(accepted, if reject { 2 } else { 3 });
+    }
+}
+
+#[path = "incremental_delivery_cursor_tests.rs"]
+mod delivery_cursor;

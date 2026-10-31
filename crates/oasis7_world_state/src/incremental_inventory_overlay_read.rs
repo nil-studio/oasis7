@@ -7,81 +7,22 @@ use crate::{
     },
     incremental_inventory_value_read::InventoryValueReader,
     incremental_projection::FieldShape,
-    incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1},
+    incremental_semantic_key::SemanticKeyV1,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_formal_protocol::{
-    incremental_execution::{ExecutionError, ExecutionTransaction},
-    incremental_state::{MerkleNodeReader, StateNamespaceV1},
-    incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
+    incremental_execution::ExecutionTransaction,
+    incremental_state::MerkleNodeReader,
+    incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;
 
-#[derive(Debug)]
-pub enum InventoryOverlayReadError {
-    Execution(ExecutionError),
-    Value(ValueTreeError),
-}
-impl From<ExecutionError> for InventoryOverlayReadError {
-    fn from(error: ExecutionError) -> Self {
-        Self::Execution(error)
-    }
-}
-impl From<ValueTreeError> for InventoryOverlayReadError {
-    fn from(error: ValueTreeError) -> Self {
-        Self::Value(error)
-    }
-}
-impl std::fmt::Display for InventoryOverlayReadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Execution(error) => error.fmt(f),
-            Self::Value(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for InventoryOverlayReadError {}
-
-pub struct InventoryOverlayReadContext<'t, 's, 'v, M, R, E, C> {
-    pub transaction: &'t mut ExecutionTransaction<'s, M>,
-    pub values: ValueReadContext<'v, R>,
-    pub key_work: &'v mut SemanticKeyBudget,
-    pub semantic_bytes: u64,
-    pub record_bytes: u64,
-    pub take_state_error: E,
-    pub cancelled: C,
-}
-
-fn lookup<
-    M: MerkleNodeReader,
-    R: ValueNodeReader,
-    E: FnMut() -> Option<ValueTreeError>,
-    C: FnMut() -> bool,
->(
-    transaction: &mut ExecutionTransaction<'_, M>,
-    key: &WorldFieldKeyV1,
-    records: &mut InventoryValueReader<'_, '_, R, C>,
-    take_state_error: &mut E,
-) -> Result<Option<[u8; 32]>, InventoryOverlayReadError> {
-    if (records.cancelled)() {
-        return Err(ValueTreeError::Cancelled.into());
-    }
-    let _workspace = records
-        .values
-        .memory
-        .reserve(512 << 10, MemoryClass::Ordinary)
-        .map_err(ValueTreeError::Memory)?;
-    let result = transaction.read(StateNamespaceV1::Business, key.as_bytes());
-    let original = take_state_error();
-    if (records.cancelled)() {
-        return Err(ValueTreeError::Cancelled.into());
-    }
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    result.map_err(InventoryOverlayReadError::Execution)
-}
+use crate::incremental_field_overlay::lookup;
+pub use crate::incremental_field_overlay::{
+    WorldFieldOverlayContextV1 as InventoryOverlayReadContext,
+    WorldFieldOverlayErrorV1 as InventoryOverlayReadError,
+};
 
 pub(crate) fn resolve_point<
     M: MerkleNodeReader,
