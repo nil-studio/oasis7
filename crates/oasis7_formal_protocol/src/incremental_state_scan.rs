@@ -126,6 +126,36 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
                 .is_some_and(|source| source.same_pool(memory))
     }
 
+    /// Look up one key through the active scan's guarded reader. The path
+    /// shares node/byte allowances and sticky cancellation with the enclosing
+    /// walk, but does not consume an outer leaf visit.
+    pub fn get(
+        &self,
+        root: &StateRootV1,
+        key: &[u8],
+    ) -> Result<Option<[u8; 32]>, StateScanError<String>> {
+        self.check_stop_or_cancelled()?;
+        let _workspace = match self.memory.reserve(8 * 1024, self.class) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                self.check_stop_or_cancelled()?;
+                return Err(StateScanError::Memory(error));
+            }
+        };
+        self.check_stop_or_cancelled()?;
+        if self.source.allocation_class() != Some(self.class)
+            || !self
+                .source
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(self.memory))
+        {
+            return Err(StateScanError::Invalid("state scan source pool/class"));
+        }
+        let result = root.get(key, self).map_err(StateScanError::Tree);
+        self.check_stop_or_cancelled()?;
+        result
+    }
+
     /// Visit every authenticated leaf in a child root using the same scan
     /// budget and cancellation state as the enclosing owner-coverage walk.
     /// This proves the child's physical leaf set is complete; a declared

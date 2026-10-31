@@ -21,7 +21,11 @@ use oasis7_formal_protocol::{
     },
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
+    sync::Arc,
+};
 
 struct StatePage(Arc<ReservedValue<Vec<u8>>>);
 impl AsRef<[u8]> for StatePage {
@@ -32,14 +36,20 @@ impl AsRef<[u8]> for StatePage {
 
 struct StatePages {
     memory: MemoryBudget,
+    read_class: Cell<MemoryClass>,
     pages: RefCell<BTreeMap<String, Arc<ReservedValue<Vec<u8>>>>>,
 }
 impl StatePages {
     fn new(memory: MemoryBudget) -> Self {
         Self {
             memory,
+            read_class: Cell::new(MemoryClass::Ordinary),
             pages: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    fn set_read_class(&self, class: MemoryClass) {
+        self.read_class.set(class);
     }
 
     fn add_delta(&self, delta: StateDeltaV1) {
@@ -62,7 +72,7 @@ impl MerkleNodeReader for StatePages {
     }
 
     fn allocation_class(&self) -> Option<MemoryClass> {
-        Some(MemoryClass::Ordinary)
+        Some(self.read_class.get())
     }
 
     fn read_node(&self, id: &str, max_bytes: usize) -> Result<Option<Self::Node>, String> {
@@ -107,7 +117,7 @@ impl ValueNodeReader for ValuePages {
             .get(id)
             .cloned()
             .ok_or(ValueTreeError::Invalid("owner test missing value page"))?;
-        if class != MemoryClass::Ordinary || !page.uses_budget(memory) || page.len() > max_bytes {
+        if !page.uses_budget(memory) || page.len() > max_bytes {
             return Err(ValueTreeError::Invalid("owner test value pool/class/bound"));
         }
         Ok(page)
@@ -136,6 +146,9 @@ enum FixtureIssue {
     UnknownModuleMarketplaceChild,
     WrongModuleMarketplaceChildCount,
     EmptyModuleMarketplaceMaps,
+    InvalidModuleBidParentLink,
+    SharedModuleBidChild,
+    ModuleBidChildCycle,
     MissingInstalledTargetMetadata,
     WrongInstalledTargetKey,
     WrongInstalledTargetCodec,
@@ -876,11 +889,26 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                             let ordinal = ordinal as u64;
                             let bid_id = ordinal;
                             let bid_key = ("bid", bid_id);
-                            let index_fields = if ordinal == 0 {
+                            let mut index_fields = if ordinal == 0 {
                                 [u64::MAX, u64::MAX, 0, 0, 0, 0, 1]
                             } else {
                                 [0, u64::MAX, 1, 1, 0, 0, u64::MAX]
                             };
+                            if issue == Some(FixtureIssue::InvalidModuleBidParentLink)
+                                && ordinal == 0
+                            {
+                                index_fields[6] = u64::MAX;
+                            }
+                            if issue == Some(FixtureIssue::SharedModuleBidChild) && ordinal == 1 {
+                                index_fields = [0, 0, 1, 1, 1, 1, u64::MAX];
+                            }
+                            if issue == Some(FixtureIssue::ModuleBidChildCycle) {
+                                index_fields = if ordinal == 0 {
+                                    [u64::MAX, 1, 0, 0, 2, 2, 1]
+                                } else {
+                                    [0, u64::MAX, 1, 1, 0, 0, 0]
+                                };
+                            }
                             writer.append_child(
                                 field,
                                 &(bid_key, "index_node"),
@@ -1080,6 +1108,14 @@ fn verify(
     fixture: &Fixture,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
+    verify_with_class(fixture, MemoryClass::Ordinary, cancelled)
+}
+
+fn verify_with_class(
+    fixture: &Fixture,
+    class: MemoryClass,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
     let mut value_io = ValueIoBudget {
         nodes_remaining: 100_000,
         read_bytes_remaining: 64 << 20,
@@ -1088,7 +1124,7 @@ fn verify(
     let mut values = ValueReadContext {
         source: &fixture.values,
         memory: &fixture.memory,
-        class: MemoryClass::Ordinary,
+        class,
         io: &mut value_io,
     };
     let mut state_io = StateScanBudget {

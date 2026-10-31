@@ -30,7 +30,7 @@ use oasis7_formal_protocol::{
     },
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::ReservedValue;
 use std::{cell::RefCell, io, io::Write};
 
 #[path = "incremental_owner_closure_module_instances.rs"]
@@ -660,7 +660,6 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         || !state
             .allocation_budget()
             .is_some_and(|pool| pool.same_pool(values.memory))
-        || values.class != MemoryClass::Ordinary
     {
         return Err(WorldStateOwnerError::Invalid("owner source pool/class"));
     }

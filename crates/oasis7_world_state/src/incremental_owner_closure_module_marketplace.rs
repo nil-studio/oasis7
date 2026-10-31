@@ -6,10 +6,12 @@ use crate::{
     incremental_module_marketplace::ModuleMarketplaceFieldV1,
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
     incremental_semantic_key::{
-        SemanticKeyBudget, SemanticKeyError, SemanticKeyRefV1, hash_semantic_key_v1,
+        SemanticKeyBudget, SemanticKeyError, SemanticKeyRefV1, SemanticKeyV1, hash_semantic_key_v1,
         read_semantic_key_v1,
     },
-    incremental_world_field_key::{WorldFieldKeyRefV1, WorldFieldRecordKindV1},
+    incremental_world_field_key::{
+        WORLD_FIELD_KEY_MAX_BYTES, WorldFieldKeyRefV1, WorldFieldRecordKindV1,
+    },
 };
 use oasis7_formal_protocol::{
     incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1},
@@ -19,7 +21,6 @@ use oasis7_formal_protocol::{
     },
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::MemoryClass;
 use std::{
     cell::RefCell,
     io::{self, Write},
@@ -31,6 +32,7 @@ mod bids;
 pub(super) const FIELD_COUNT: u8 = ModuleMarketplaceFieldV1::ALL.len() as u8;
 
 const CHILD_SEMANTIC_CAPACITY: usize = 128;
+const CHILD_ENTRY_KEY_WORKSPACE: usize = 512;
 const CHILD_BID_FIELDS: u8 = 6;
 const CHILD_BID_MASK: u8 = (1 << CHILD_BID_FIELDS) - 1;
 
@@ -424,6 +426,52 @@ fn map_scan_error(error: StateScanError<WorldStateOwnerError>) -> WorldStateOwne
     }
 }
 
+fn map_scan_lookup_error(error: StateScanError<String>) -> WorldStateOwnerError {
+    match error {
+        StateScanError::Visitor(error) | StateScanError::Tree(error) => {
+            WorldStateOwnerError::Scan(error)
+        }
+        StateScanError::Memory(error) => WorldStateOwnerError::Memory(error),
+        StateScanError::Invalid(error) => WorldStateOwnerError::Invalid(error),
+        StateScanError::ResourceLimited => {
+            WorldStateOwnerError::ResourceLimited("module marketplace child lookup")
+        }
+        StateScanError::Cancelled => WorldStateOwnerError::Value(ValueTreeError::Cancelled),
+    }
+}
+
+fn make_semantic_key<K: SemanticKeyV1 + ?Sized, R: ValueNodeReader>(
+    field: FieldDescriptor,
+    semantic: &K,
+    values: &ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<WorldFieldKeyV1, WorldStateOwnerError> {
+    let key = hash_semantic_key_v1(
+        semantic,
+        values.memory,
+        values.class,
+        key_work,
+        &mut *cancelled,
+    )
+    .map_err(|error| match error {
+        SemanticKeyError::Memory(error) => WorldStateOwnerError::Memory(error),
+        SemanticKeyError::ResourceLimited => {
+            WorldStateOwnerError::ResourceLimited("module marketplace semantic key")
+        }
+        SemanticKeyError::Cancelled => WorldStateOwnerError::Value(ValueTreeError::Cancelled),
+        SemanticKeyError::Invalid(reason) => WorldStateOwnerError::Invalid(reason),
+    })?;
+    if key.encoded_bytes > max_value_bytes {
+        return Err(WorldStateOwnerError::ResourceLimited(
+            "module marketplace semantic key",
+        ));
+    }
+    WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Entry, Some(key.digest))
+        .map_err(WorldStateOwnerError::Invalid)
+}
+
 fn make_text_key<R: ValueNodeReader>(
     field: FieldDescriptor,
     text: &'static str,
@@ -432,22 +480,132 @@ fn make_text_key<R: ValueNodeReader>(
     max_value_bytes: u64,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<WorldFieldKeyV1, WorldStateOwnerError> {
-    let key = hash_semantic_key_v1(text, values.memory, values.class, key_work, &mut *cancelled)
-        .map_err(|error| match error {
-            SemanticKeyError::Memory(error) => WorldStateOwnerError::Memory(error),
-            SemanticKeyError::ResourceLimited => {
-                WorldStateOwnerError::ResourceLimited("module marketplace semantic key")
-            }
-            SemanticKeyError::Cancelled => WorldStateOwnerError::Value(ValueTreeError::Cancelled),
-            SemanticKeyError::Invalid(reason) => WorldStateOwnerError::Invalid(reason),
-        })?;
-    if key.encoded_bytes > max_value_bytes {
-        return Err(WorldStateOwnerError::ResourceLimited(
-            "module marketplace semantic key",
+    make_semantic_key(field, text, values, key_work, max_value_bytes, cancelled)
+}
+
+pub(super) fn read_bid_member<M, R, C>(
+    child: &StateRootV1,
+    state_reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    bid_id: u64,
+    name: &'static str,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ChildValue, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let semantic = (("bid", bid_id), name);
+    let key = make_semantic_key(
+        field,
+        &semantic,
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    read_bid_value_at_key(
+        child,
+        state_reader,
+        field,
+        &key,
+        ChildSemantic::Bid {
+            bid_id,
+            field: name,
+        },
+        values,
+        max_value_bytes,
+        cancelled,
+    )
+}
+
+pub(super) fn read_bid_field<M, R, C>(
+    child: &StateRootV1,
+    state_reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    name: &'static str,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ChildValue, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let key = make_text_key(field, name, values, key_work, max_value_bytes, cancelled)?;
+    read_bid_value_at_key(
+        child,
+        state_reader,
+        field,
+        &key,
+        ChildSemantic::Field(name),
+        values,
+        max_value_bytes,
+        cancelled,
+    )
+}
+
+fn read_bid_value_at_key<M, R, C>(
+    child: &StateRootV1,
+    state_reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    key: &WorldFieldKeyV1,
+    expected: ChildSemantic,
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ChildValue, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let Some(value) = state_reader
+        .get(child, key.as_bytes())
+        .map_err(map_scan_lookup_error)?
+    else {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace bid member missing",
+        ));
+    };
+    let _entry_key = values
+        .memory
+        .reserve(CHILD_ENTRY_KEY_WORKSPACE, values.class)
+        .map_err(WorldStateOwnerError::Memory)?;
+    if key.as_bytes().len() > WORLD_FIELD_KEY_MAX_BYTES {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace bid key length",
         ));
     }
-    WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Entry, Some(key.digest))
-        .map_err(WorldStateOwnerError::Invalid)
+    let mut owned_key = Vec::new();
+    owned_key
+        .try_reserve_exact(key.as_bytes().len())
+        .map_err(|_| WorldStateOwnerError::ResourceLimited("module marketplace bid key"))?;
+    if owned_key.capacity() > CHILD_ENTRY_KEY_WORKSPACE {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace bid key allocation",
+        ));
+    }
+    owned_key.extend_from_slice(key.as_bytes());
+    let entry = StateEntryV1 {
+        namespace: child.namespace,
+        key: owned_key,
+        value,
+    };
+    let (actual_semantic, value) =
+        read_child_member(&entry, field, values, max_value_bytes, cancelled)?;
+    if actual_semantic != expected {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace bid member identity",
+        ));
+    }
+    Ok(value)
 }
 
 fn validate_child_entries<M, V, C, F>(
@@ -817,7 +975,6 @@ where
         || parsed.shape != FieldShape::Map
         || parsed.kind != WorldFieldRecordKindV1::Entry
         || entry.namespace != StateNamespaceV1::Business
-        || values.class != MemoryClass::Ordinary
     {
         return Err(WorldStateOwnerError::Invalid(
             "module marketplace descriptor/member binding",

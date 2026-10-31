@@ -64,6 +64,9 @@ pub use snapshot_delta::{
 mod state;
 pub use oasis7_world_state::incremental_field_member;
 pub use oasis7_world_state::incremental_field_presence;
+pub use oasis7_world_state::{
+    incremental_module_marketplace, incremental_owner_closure, incremental_projection,
+};
 pub use oasis7_world_state::incremental_inventory_change;
 pub use oasis7_world_state::incremental_inventory_genesis;
 pub use oasis7_world_state::incremental_inventory_overlay_change;
@@ -375,7 +378,8 @@ pub use state::{
     FactoryConstructionPowerProfileV1, FactoryProductionFailureDispositionV1,
     FactoryProductionState, FactoryProductionStatus, FactoryRecycleReceiptV1,
     FactorySiteAuthorityV1, FactoryState, IndustryProgressState, LocationAnchorV1,
-    LogisticsRouteV1, MaterialTransferReceiptV1, MaterialTransitJobState, ModuleInstanceState,
+    LogisticsRouteV1, MaterialTransferReceiptV1, MaterialTransitJobState,
+    ModuleArtifactBidState, ModuleArtifactListingState, ModuleInstanceState,
     ModuleReleaseAttestationState, ModuleReleaseManifestMappingState, ProductValidationAttemptV1,
     ProductValidationDeliveryCursor, ProductValidationReceiptV1, RecipeCompletionReceiptV1,
     RecipeJobState, STARTER_ASSEMBLER_FACTORY_ID, STARTER_INDUSTRIAL_COMPLETION_BOUNDARY,

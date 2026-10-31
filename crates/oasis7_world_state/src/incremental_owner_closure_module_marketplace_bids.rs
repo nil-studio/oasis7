@@ -1,77 +1,179 @@
 use super::*;
 
 #[derive(Clone, Copy)]
-struct BidFieldRow {
-    bid_id: u64,
-    bit: u8,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct BidIndexRow {
-    bid_id: u64,
-    node: crate::incremental_module_marketplace::bid_index::BidIndexNodeV1,
-}
-
-#[derive(Clone, Copy)]
 struct BidIndexSummary {
     size: u64,
     height: u64,
 }
 
-fn validate_bid_index_tree(
-    id: u64,
-    parent_id: u64,
-    depth: usize,
-    nodes: &[BidIndexRow],
-    marks: &mut [u8],
-) -> Result<BidIndexSummary, WorldStateOwnerError> {
-    use crate::incremental_module_marketplace::bid_index::NO_BID_ID;
-    if id == NO_BID_ID {
-        return Ok(BidIndexSummary { size: 0, height: 0 });
+fn read_index_node<M, R, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    bid_id: u64,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<crate::incremental_module_marketplace::bid_index::BidIndexNodeV1, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    match super::read_bid_member(
+        child,
+        reader,
+        field,
+        bid_id,
+        "index_node",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )? {
+        ChildValue::BidIndexNode(node) => Ok(node),
+        _ => Err(WorldStateOwnerError::Invalid("module bid AVL field type")),
     }
-    if depth >= crate::incremental_module_marketplace::bid_index::MAX_BID_INDEX_DEPTH {
+}
+
+fn validate_bid_node_links<M, R, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    bid_id: u64,
+    node: crate::incremental_module_marketplace::bid_index::BidIndexNodeV1,
+    root_id: u64,
+    length: u64,
+    next_bid_id: u64,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<BidIndexSummary, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    use crate::incremental_module_marketplace::bid_index::{MAX_BID_INDEX_DEPTH, NO_BID_ID};
+
+    if bid_id >= next_bid_id
+        || node.left_id == bid_id
+        || node.right_id == bid_id
+        || (node.left_id != NO_BID_ID && node.left_id == node.right_id)
+    {
+        return Err(WorldStateOwnerError::Invalid("module bid AVL node IDs"));
+    }
+    let summary = node
+        .summary()
+        .map_err(|_| WorldStateOwnerError::Invalid("module bid AVL node summary"))?;
+    if summary.height > MAX_BID_INDEX_DEPTH as u64 {
         return Err(WorldStateOwnerError::ResourceLimited(
             "module bid AVL depth",
         ));
     }
-    let index = nodes
-        .binary_search_by_key(&id, |node| node.bid_id)
-        .map_err(|_| WorldStateOwnerError::Invalid("module bid AVL dangling link"))?;
-    if marks[index] != 0 {
-        return Err(WorldStateOwnerError::Invalid(
-            "module bid AVL cycle or shared child",
-        ));
+
+    if bid_id == root_id {
+        if node.parent_id != NO_BID_ID || summary.size != length {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL root summary"));
+        }
+    } else {
+        if node.parent_id == NO_BID_ID || node.parent_id >= next_bid_id {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL parent link"));
+        }
+        let parent = read_index_node(
+            child,
+            reader,
+            field,
+            node.parent_id,
+            values,
+            key_work,
+            max_value_bytes,
+            cancelled,
+        )?;
+        if parent.left_id == parent.right_id && parent.left_id != NO_BID_ID {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL shared child"));
+        }
+        if parent.left_id != bid_id && parent.right_id != bid_id {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL parent link"));
+        }
     }
-    marks[index] = 1;
-    let node = nodes[index].node;
-    if node.parent_id != parent_id {
-        return Err(WorldStateOwnerError::Invalid("module bid AVL parent link"));
+
+    for (child_id, child_size, child_height) in [
+        (node.left_id, node.left_size, node.left_height),
+        (node.right_id, node.right_size, node.right_height),
+    ] {
+        if child_id == NO_BID_ID {
+            if child_size != 0 || child_height != 0 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module bid AVL empty child summary",
+                ));
+            }
+            continue;
+        }
+        if child_id >= next_bid_id || child_height >= summary.height {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL child link"));
+        }
+        let child_node = read_index_node(
+            child,
+            reader,
+            field,
+            child_id,
+            values,
+            key_work,
+            max_value_bytes,
+            cancelled,
+        )?;
+        if child_node.parent_id != bid_id {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL parent link"));
+        }
+        let child_summary = child_node
+            .summary()
+            .map_err(|_| WorldStateOwnerError::Invalid("module bid AVL child summary"))?;
+        if child_summary.size != child_size || child_summary.height != child_height {
+            return Err(WorldStateOwnerError::Invalid(
+                "module bid AVL cached summary",
+            ));
+        }
     }
-    let left = validate_bid_index_tree(node.left_id, id, depth + 1, nodes, marks)?;
-    let right = validate_bid_index_tree(node.right_id, id, depth + 1, nodes, marks)?;
-    if (node.left_id == NO_BID_ID) != (node.left_size == 0 && node.left_height == 0)
-        || (node.right_id == NO_BID_ID) != (node.right_size == 0 && node.right_height == 0)
-        || node.left_size != left.size
-        || node.left_height != left.height
-        || node.right_size != right.size
-        || node.right_height != right.height
-        || left.height.abs_diff(right.height) > 1
-    {
-        return Err(WorldStateOwnerError::Invalid(
-            "module bid AVL cached summary or balance",
-        ));
+
+    for (name, expected) in [
+        ("present", 0),
+        ("order_id", 1),
+        ("bidder_agent_id", 2),
+        ("price_kind", 3),
+        ("price_amount", 4),
+        ("bid_at", 5),
+    ] {
+        let value = super::read_bid_member(
+            child,
+            reader,
+            field,
+            bid_id,
+            name,
+            values,
+            key_work,
+            max_value_bytes,
+            cancelled,
+        )?;
+        let valid = match (expected, value) {
+            (0, ChildValue::Unit)
+            | (1, ChildValue::U64(_))
+            | (2, ChildValue::Text)
+            | (4, ChildValue::I64(_))
+            | (5, ChildValue::U64(_)) => true,
+            (3, ChildValue::U64(kind)) => kind <= 1,
+            _ => false,
+        };
+        if !valid {
+            return Err(WorldStateOwnerError::Invalid("module bid field profile"));
+        }
     }
-    marks[index] = 2;
+
     Ok(BidIndexSummary {
-        size: 1u64
-            .checked_add(left.size)
-            .and_then(|size| size.checked_add(right.size))
-            .ok_or(WorldStateOwnerError::Invalid(
-                "module bid AVL size overflow",
-            ))?,
-        height: 1u64.checked_add(left.height.max(right.height)).ok_or(
-            WorldStateOwnerError::Invalid("module bid AVL height overflow"),
-        )?,
+        size: summary.size,
+        height: summary.height,
     })
 }
 
@@ -90,6 +192,7 @@ where
     C: FnMut() -> bool,
 {
     use crate::incremental_module_marketplace::bid_index::NO_BID_ID;
+
     let length = read_bid_length(
         child,
         reader,
@@ -123,7 +226,7 @@ where
         return Err(WorldStateOwnerError::Invalid("module bids next ID"));
     }
     let expected_leaves = length
-        .checked_mul(u64::from(CHILD_BID_FIELDS) + 1)
+        .checked_mul(7)
         .and_then(|count| count.checked_add(3))
         .ok_or(WorldStateOwnerError::Invalid(
             "module bids leaf count overflow",
@@ -131,51 +234,18 @@ where
     if expected_leaves != child.leaf_count {
         return Err(WorldStateOwnerError::Invalid("module bids leaf count"));
     }
-    let count = usize::try_from(length)
-        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bids count"))?;
-    let field_count = count
-        .checked_mul(usize::from(CHILD_BID_FIELDS))
-        .ok_or(WorldStateOwnerError::ResourceLimited("module bids fields"))?;
-    let field_bytes = field_count
-        .checked_mul(std::mem::size_of::<BidFieldRow>())
-        .ok_or(WorldStateOwnerError::ResourceLimited("module bids fields"))?;
-    let node_bytes = count
-        .checked_mul(std::mem::size_of::<BidIndexRow>())
-        .ok_or(WorldStateOwnerError::ResourceLimited(
-            "module bid AVL nodes",
-        ))?;
-    let marks_bytes = count.checked_mul(std::mem::size_of::<u8>()).ok_or(
-        WorldStateOwnerError::ResourceLimited("module bid AVL marks"),
-    )?;
-    let reservation_bytes = field_bytes
-        .checked_add(node_bytes)
-        .and_then(|bytes| bytes.checked_add(marks_bytes))
-        .ok_or(WorldStateOwnerError::ResourceLimited("module bids closure"))?
-        .max(1);
-    let _rows_charge = values
-        .memory
-        .reserve(reservation_bytes, MemoryClass::Ordinary)
-        .map_err(WorldStateOwnerError::Memory)?;
-    let mut fields = Vec::new();
-    fields
-        .try_reserve_exact(field_count)
-        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bids fields"))?;
-    let mut nodes = Vec::new();
-    nodes
-        .try_reserve_exact(count)
-        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bid AVL nodes"))?;
-    let mut marks = Vec::new();
-    marks
-        .try_reserve_exact(count)
-        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bid AVL marks"))?;
-    if fields.capacity() * std::mem::size_of::<BidFieldRow>() > field_bytes
-        || nodes.capacity() * std::mem::size_of::<BidIndexRow>() > node_bytes
-        || marks.capacity() * std::mem::size_of::<u8>() > marks_bytes
+    if (length == 0) != (sequence_root_id == NO_BID_ID)
+        || (sequence_root_id != NO_BID_ID && sequence_root_id >= next_bid_id)
     {
-        return Err(WorldStateOwnerError::Invalid("module bids row admission"));
+        return Err(WorldStateOwnerError::Invalid("module bid AVL root ID"));
     }
-    marks.resize(count, 0);
-    validate_child_entries(
+
+    let mut scalar_mask = 0u8;
+    let mut index_nodes = 0u64;
+    let mut bid_fields = 0u64;
+    let mut roots = 0u64;
+    let mut root_summary = None;
+    let scanned = validate_child_entries(
         child,
         reader,
         field,
@@ -183,22 +253,20 @@ where
         max_value_bytes,
         cancelled,
         |semantic, value| match semantic {
-            ChildSemantic::Field("length") if value == ChildValue::U64(length) => Ok(()),
-            ChildSemantic::Field("length") => Err(WorldStateOwnerError::Invalid(
-                "module bids length changed during scan",
-            )),
-            ChildSemantic::Field("next_bid_id") if value == ChildValue::U64(next_bid_id) => Ok(()),
-            ChildSemantic::Field("next_bid_id") => Err(WorldStateOwnerError::Invalid(
-                "module bids next ID changed during scan",
-            )),
+            ChildSemantic::Field("length") if value == ChildValue::U64(length) => {
+                scalar_mask |= 1;
+                Ok(())
+            }
+            ChildSemantic::Field("next_bid_id") if value == ChildValue::U64(next_bid_id) => {
+                scalar_mask |= 2;
+                Ok(())
+            }
             ChildSemantic::Field("sequence_root_id")
                 if value == ChildValue::U64(sequence_root_id) =>
             {
+                scalar_mask |= 4;
                 Ok(())
             }
-            ChildSemantic::Field("sequence_root_id") => Err(WorldStateOwnerError::Invalid(
-                "module bids sequence root changed during scan",
-            )),
             ChildSemantic::Field(_) => Err(WorldStateOwnerError::Invalid(
                 "module bids unexpected scalar child",
             )),
@@ -206,16 +274,41 @@ where
                 bid_id,
                 field: "index_node",
             } => {
-                if bid_id >= next_bid_id {
-                    return Err(WorldStateOwnerError::Invalid("module bid ID range"));
-                }
                 let ChildValue::BidIndexNode(node) = value else {
                     return Err(WorldStateOwnerError::Invalid("module bid AVL field type"));
                 };
-                if nodes.len() == count {
-                    return Err(WorldStateOwnerError::Invalid("module bid AVL node count"));
+                index_nodes =
+                    index_nodes
+                        .checked_add(1)
+                        .ok_or(WorldStateOwnerError::ResourceLimited(
+                            "module bid AVL node count",
+                        ))?;
+                let summary = validate_bid_node_links(
+                    child,
+                    reader,
+                    field,
+                    bid_id,
+                    node,
+                    sequence_root_id,
+                    length,
+                    next_bid_id,
+                    values,
+                    key_work,
+                    max_value_bytes,
+                    cancelled,
+                )?;
+                if bid_id == sequence_root_id {
+                    roots = roots
+                        .checked_add(1)
+                        .ok_or(WorldStateOwnerError::ResourceLimited(
+                            "module bid AVL root count",
+                        ))?;
+                    root_summary = Some(summary);
+                } else if node.parent_id == NO_BID_ID {
+                    return Err(WorldStateOwnerError::Invalid(
+                        "module bid AVL unexpected root",
+                    ));
                 }
-                nodes.push(BidIndexRow { bid_id, node });
                 Ok(())
             }
             ChildSemantic::Bid {
@@ -225,133 +318,109 @@ where
                 if bid_id >= next_bid_id {
                     return Err(WorldStateOwnerError::Invalid("module bid ID range"));
                 }
-                let bit = match (name, value) {
-                    ("present", ChildValue::Unit) => 1 << 0,
-                    ("order_id" | "bid_at", ChildValue::U64(_)) => {
-                        if name == "order_id" {
-                            1 << 1
-                        } else {
-                            1 << 5
-                        }
-                    }
-                    ("bidder_agent_id", ChildValue::Text) => 1 << 2,
-                    ("price_kind", ChildValue::U64(kind)) if kind <= 1 => 1 << 3,
-                    ("price_amount", ChildValue::I64(_)) => 1 << 4,
-                    _ => return Err(WorldStateOwnerError::Invalid("module bid field profile")),
+                let valid = match (name, value) {
+                    ("present", ChildValue::Unit)
+                    | ("order_id" | "bid_at", ChildValue::U64(_))
+                    | ("bidder_agent_id", ChildValue::Text)
+                    | ("price_amount", ChildValue::I64(_)) => true,
+                    ("price_kind", ChildValue::U64(kind)) => kind <= 1,
+                    _ => false,
                 };
-                fields.push(BidFieldRow { bid_id, bit });
+                if !valid {
+                    return Err(WorldStateOwnerError::Invalid("module bid field profile"));
+                }
+                bid_fields =
+                    bid_fields
+                        .checked_add(1)
+                        .ok_or(WorldStateOwnerError::ResourceLimited(
+                            "module bid field count",
+                        ))?;
                 Ok(())
             }
         },
     )?;
-    if fields.len() != field_count || nodes.len() != count {
-        return Err(WorldStateOwnerError::Invalid(
-            "module bid membership counts",
-        ));
-    }
-    fields.sort_unstable_by_key(|field| (field.bid_id, field.bit));
-    let mut index = 0usize;
-    while index < fields.len() {
-        let bid_id = fields[index].bid_id;
-        let mut mask = 0u8;
-        while index < fields.len() && fields[index].bid_id == bid_id {
-            let field = fields[index];
-            if mask & field.bit != 0 {
-                return Err(WorldStateOwnerError::Invalid("module bid duplicate field"));
-            }
-            mask |= field.bit;
-            index += 1;
-        }
-        if mask != CHILD_BID_MASK {
-            return Err(WorldStateOwnerError::Invalid("module bid record closure"));
-        }
-    }
-    nodes.sort_unstable_by_key(|node| node.bid_id);
-    fields.sort_unstable_by_key(|field| field.bid_id);
-    if nodes
-        .windows(2)
-        .any(|pair| pair[0].bid_id == pair[1].bid_id)
-        || fields
-            .chunks_exact(usize::from(CHILD_BID_FIELDS))
-            .zip(nodes.iter())
-            .any(|(fields, node)| {
-                fields
-                    .first()
-                    .is_none_or(|field| field.bid_id != node.bid_id)
-            })
+
+    let expected_bid_fields =
+        length
+            .checked_mul(6)
+            .ok_or(WorldStateOwnerError::ResourceLimited(
+                "module bid field count",
+            ))?;
+    if scanned != expected_leaves
+        || scalar_mask != 0b111
+        || index_nodes != length
+        || bid_fields != expected_bid_fields
     {
-        return Err(WorldStateOwnerError::Invalid(
-            "module bid payload/index identity closure",
-        ));
+        return Err(WorldStateOwnerError::Invalid("module bids record closure"));
     }
     if length == 0 {
-        if sequence_root_id != NO_BID_ID || !nodes.is_empty() {
+        if roots != 0 || root_summary.is_some() {
             return Err(WorldStateOwnerError::Invalid("module bid empty AVL root"));
         }
-    } else {
-        if sequence_root_id == NO_BID_ID || sequence_root_id >= next_bid_id {
-            return Err(WorldStateOwnerError::Invalid("module bid AVL root ID"));
-        }
-        let summary = validate_bid_index_tree(sequence_root_id, NO_BID_ID, 0, &nodes, &mut marks)?;
-        if summary.size != length || marks.iter().any(|mark| *mark != 2) {
-            return Err(WorldStateOwnerError::Invalid(
-                "module bid AVL reachability/count",
-            ));
-        }
+    } else if roots != 1 || root_summary.is_none_or(|summary| summary.size != length) {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid AVL reachability/count",
+        ));
     }
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::incremental_module_marketplace::bid_index::{BidIndexNodeV1, NO_BID_ID};
+fn read_bid_length<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, V>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<u64, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let value = super::read_bid_field(
+        child,
+        reader,
+        field,
+        "length",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    match value {
+        ChildValue::U64(length) => Ok(length),
+        _ => Err(WorldStateOwnerError::Invalid("module bids length value")),
+    }
+}
 
-    #[test]
-    fn bid_index_closure_checks_parent_links() {
-        let root = BidIndexNodeV1 {
-            left_id: 0,
-            right_id: NO_BID_ID,
-            left_size: 1,
-            left_height: 1,
-            right_size: 0,
-            right_height: 0,
-            parent_id: NO_BID_ID,
-        };
-        let leaf = BidIndexNodeV1 {
-            parent_id: 1,
-            ..BidIndexNodeV1::LEAF
-        };
-        let valid = [
-            BidIndexRow {
-                bid_id: 0,
-                node: leaf,
-            },
-            BidIndexRow {
-                bid_id: 1,
-                node: root,
-            },
-        ];
-        let mut marks = [0; 2];
-        let summary = validate_bid_index_tree(1, NO_BID_ID, 0, &valid, &mut marks).unwrap();
-        assert_eq!(summary.size, 2);
-        assert_eq!(summary.height, 2);
-        assert_eq!(marks, [2, 2]);
-
-        let invalid = [
-            BidIndexRow {
-                bid_id: 0,
-                node: BidIndexNodeV1::LEAF,
-            },
-            BidIndexRow {
-                bid_id: 1,
-                node: root,
-            },
-        ];
-        let mut marks = [0; 2];
-        assert!(matches!(
-            validate_bid_index_tree(1, NO_BID_ID, 0, &invalid, &mut marks),
-            Err(WorldStateOwnerError::Invalid("module bid AVL parent link"))
-        ));
+fn read_bid_scalar<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    name: &'static str,
+    values: &mut ValueReadContext<'_, V>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<u64, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    match super::read_bid_field(
+        child,
+        reader,
+        field,
+        name,
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )? {
+        ChildValue::U64(value) => Ok(value),
+        _ => Err(WorldStateOwnerError::Invalid("module bids scalar value")),
     }
 }

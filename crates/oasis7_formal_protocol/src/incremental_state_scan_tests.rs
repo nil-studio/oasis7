@@ -746,15 +746,37 @@ fn caught_nested_cancellation_is_sticky_and_cannot_become_resource_limited() {
         &root,
         |_, reader| {
             cancel_next_read.set(true);
-            first_lookup_failed = Some(root.get(b"a", reader).is_err());
+            first_lookup_failed = Some(matches!(
+                reader.get(&root, b"a"),
+                Err(StateScanError::Cancelled)
+            ));
             let reads = source.reads.get();
             reads_after_cancellation = Some(reads);
+
+            // A caught cancellation stays the dominant result even after the
+            // remaining scan allowances and Ordinary memory have been
+            // exhausted. A follow-up point lookup must not read more pages.
+            reader.nodes.set(0);
+            reader.bytes.set(0);
+            let ordinary_limit = (16 << 20) - (1 << 20);
+            let memory_used = source.memory.used();
+            assert!(memory_used <= ordinary_limit);
+            let _memory_pressure = source
+                .memory
+                .reserve(ordinary_limit - memory_used, MemoryClass::Ordinary)
+                .unwrap();
 
             // A visitor is permitted to catch a failed sibling lookup. The
             // scan reader must still reject every later lookup without I/O.
             followup_lookups_failed = [
-                Some(root.get(b"a", reader).is_err()),
-                Some(root.get(b"a", reader).is_err()),
+                Some(matches!(
+                    reader.get(&root, b"a"),
+                    Err(StateScanError::Cancelled)
+                )),
+                Some(matches!(
+                    reader.get(&root, b"a"),
+                    Err(StateScanError::Cancelled)
+                )),
             ];
             reads_after_followups = Some(source.reads.get());
             Ok::<_, ()>(())
@@ -769,4 +791,134 @@ fn caught_nested_cancellation_is_sticky_and_cannot_become_resource_limited() {
     assert_eq!(first_lookup_failed, Some(true));
     assert_eq!(followup_lookups_failed, [Some(true), Some(true)]);
     assert_eq!(reads_after_cancellation, reads_after_followups);
+}
+
+#[test]
+fn guarded_get_spends_exact_node_and_byte_budget_without_leaf_visits() {
+    let build_source = source;
+    let (root, source) = build_source(&[b"a"]);
+
+    let run = |nodes_remaining: u64, read_bytes_remaining: u64| {
+        let nodes = Cell::new(nodes_remaining);
+        let bytes = Cell::new(read_bytes_remaining);
+        let leaves = Cell::new(7);
+        let cancelled = RefCell::new(|| false);
+        let stop = Cell::new(None);
+        let reader = StateScanReader {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            nodes: &nodes,
+            bytes: &bytes,
+            leaves: &leaves,
+            cancelled: &cancelled,
+            stop: &stop,
+        };
+        let result = reader.get(&root, b"a");
+        (result, nodes.get(), bytes.get(), leaves.get())
+    };
+
+    let initial_bytes = 1 << 24;
+    let (result, nodes_left, bytes_left, leaves_left) = run(10_000, initial_bytes);
+    let expected = result.unwrap();
+    assert!(expected.is_some());
+    let node_cost = 10_000 - nodes_left;
+    let byte_cost = initial_bytes - bytes_left;
+    assert!(node_cost > 0);
+    assert!(byte_cost > 0);
+    assert_eq!(leaves_left, 7);
+
+    let (exact, nodes_left, bytes_left, leaves_left) = run(node_cost, byte_cost);
+    assert!(exact.unwrap().is_some());
+    assert_eq!(nodes_left, 0);
+    assert_eq!(bytes_left, 0);
+    assert_eq!(leaves_left, 7);
+
+    assert!(matches!(
+        run(node_cost - 1, byte_cost).0,
+        Err(StateScanError::ResourceLimited)
+    ));
+    assert!(matches!(
+        run(node_cost, byte_cost - 1).0,
+        Err(StateScanError::ResourceLimited)
+    ));
+
+    assert_eq!(run(node_cost, byte_cost).0.unwrap(), expected);
+    assert!(run(10_000, initial_bytes).0.unwrap().is_some());
+    assert_eq!(run(10_000, initial_bytes).3, 7);
+
+    let (cancelled_root, source) = build_source(&[b"a"]);
+    let foreign_memory = MemoryBudget::new(2 << 20, 1 << 20).unwrap();
+    let nodes = Cell::new(10_000);
+    let bytes = Cell::new(1 << 24);
+    let leaves = Cell::new(7);
+    let cancelled = RefCell::new(|| false);
+    let stop = Cell::new(None);
+    let reader = StateScanReader {
+        source: &source,
+        memory: &foreign_memory,
+        class: MemoryClass::Ordinary,
+        nodes: &nodes,
+        bytes: &bytes,
+        leaves: &leaves,
+        cancelled: &cancelled,
+        stop: &stop,
+    };
+    assert!(matches!(
+        reader.get(&cancelled_root, b"a"),
+        Err(StateScanError::Invalid("state scan source pool/class"))
+    ));
+    assert_eq!(source.reads.get(), 0);
+
+    let mut other_namespace = cancelled_root.clone();
+    other_namespace.namespace = StateNamespaceV1::Allocator;
+    let nodes = Cell::new(10_000);
+    let bytes = Cell::new(1 << 24);
+    let leaves = Cell::new(7);
+    let cancelled = RefCell::new(|| false);
+    let stop = Cell::new(None);
+    let reader = StateScanReader {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        nodes: &nodes,
+        bytes: &bytes,
+        leaves: &leaves,
+        cancelled: &cancelled,
+        stop: &stop,
+    };
+    assert_eq!(reader.get(&cancelled_root, b"missing").unwrap(), None);
+    assert!(!matches!(
+        reader.get(&other_namespace, b"a"),
+        Ok(value) if value == expected
+    ));
+    assert_eq!(leaves.get(), 7);
+
+    let ordinary_limit = (16 << 20) - (1 << 20);
+    let memory_used = source.memory.used();
+    let _memory_pressure = source
+        .memory
+        .reserve(ordinary_limit - memory_used, MemoryClass::Ordinary)
+        .unwrap();
+    let nodes = Cell::new(10_000);
+    let bytes = Cell::new(1 << 24);
+    let leaves = Cell::new(7);
+    let cancelled = RefCell::new(|| false);
+    let stop = Cell::new(None);
+    let reader = StateScanReader {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        nodes: &nodes,
+        bytes: &bytes,
+        leaves: &leaves,
+        cancelled: &cancelled,
+        stop: &stop,
+    };
+    let reads_before_memory_error = source.reads.get();
+    assert!(matches!(
+        reader.get(&cancelled_root, b"a"),
+        Err(StateScanError::Memory(_))
+    ));
+    assert_eq!(source.reads.get(), reads_before_memory_error);
 }
