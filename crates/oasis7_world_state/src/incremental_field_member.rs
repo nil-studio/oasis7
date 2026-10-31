@@ -11,6 +11,7 @@ use crate::{
     incremental_semantic_key::{SemanticKeyV1, hash_semantic_key_v1, write_semantic_key_v1},
     state::ProductValidationDeliveryCursor,
 };
+use oasis7_formal_protocol::incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1};
 use oasis7_formal_protocol::incremental_value::{
     ValueIoBudget, ValueNodeWriter, ValueStreamWriter, ValueTreeError,
 };
@@ -32,6 +33,7 @@ pub enum MemberPayloadCodecV1 {
     Bytes = 7,
     DeliveryCursor = 8,
     IdentityU64Triple = 9,
+    RecordRoot = 10,
 }
 impl MemberPayloadCodecV1 {
     fn parse(tag: u8) -> Result<Self, &'static str> {
@@ -45,6 +47,7 @@ impl MemberPayloadCodecV1 {
             7 => Self::Bytes,
             8 => Self::DeliveryCursor,
             9 => Self::IdentityU64Triple,
+            10 => Self::RecordRoot,
             _ => return Err("member payload codec"),
         })
     }
@@ -62,6 +65,7 @@ impl MemberPayloadCodecV1 {
             Self::U64 | Self::I64 => Some(8),
             Self::Bool => Some(1),
             Self::DeliveryCursor => Some(16),
+            Self::RecordRoot => Some(RECORD_ROOT_BYTES as u64),
             _ => None,
         };
         if fixed.is_some_and(|n| n != length) {
@@ -80,6 +84,7 @@ pub enum MemberPayloadRefV1<'a> {
     Ledger(&'a MaterialLedgerId),
     Bytes(&'a [u8]),
     DeliveryCursor(&'a ProductValidationDeliveryCursor),
+    RecordRoot(&'a RecordRootRefV1),
     IdentityU64Triple {
         identity: &'a str,
         amounts: [u64; 3],
@@ -89,6 +94,7 @@ impl MemberPayloadRefV1<'_> {
     fn profile(self) -> Result<(MemberPayloadCodecV1, u64), &'static str> {
         let length = |n| u64::try_from(n).map_err(|_| "member payload length");
         Ok(match self {
+            Self::RecordRoot(_) => (MemberPayloadCodecV1::RecordRoot, RECORD_ROOT_BYTES as u64),
             Self::Unit => (MemberPayloadCodecV1::Unit, 0),
             Self::U64(_) => (MemberPayloadCodecV1::U64, 8),
             Self::I64(_) => (MemberPayloadCodecV1::I64, 8),
@@ -114,6 +120,9 @@ impl MemberPayloadRefV1<'_> {
                     output.write_all(&amount.to_be_bytes())?;
                 }
                 Ok(())
+            }
+            Self::RecordRoot(reference) => {
+                output.write_all(&reference.canonical_bytes().map_err(io::Error::other)?)
             }
             Self::Unit => Ok(()),
             Self::U64(v) => output.write_all(&v.to_be_bytes()),
@@ -279,6 +288,7 @@ pub fn write_member_record_v1<K: SemanticKeyV1 + ?Sized, W: ValueNodeWriter, C: 
 
 #[path = "incremental_field_member_read.rs"]
 mod read;
+pub(crate) use read::read_member_record_header_v1;
 pub use read::{read_member_record_profile_v1, read_member_record_v1};
 
 #[cfg(test)]

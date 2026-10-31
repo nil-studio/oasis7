@@ -55,7 +55,7 @@ pub fn write_ledger_value_v1(value: &MaterialLedgerId, output: &mut impl Write) 
     output.write_all(id.as_bytes())?;
     Ok(length)
 }
-fn header_v1(header: &[u8], total: u64) -> Result<LedgerValueInfoV1, &'static str> {
+pub(crate) fn header_v1(header: &[u8], total: u64) -> Result<LedgerValueInfoV1, &'static str> {
     if header.len() != LEDGER_VALUE_HEADER_BYTES || !header.starts_with(LEDGER_VALUE_DOMAIN) {
         return Err("ledger value domain/header");
     }
