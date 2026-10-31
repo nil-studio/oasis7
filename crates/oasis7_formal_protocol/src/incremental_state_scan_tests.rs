@@ -486,3 +486,65 @@ fn nested_lookup_errors_and_cancellation_are_not_treated_as_absence() {
         Err(StateScanError::Cancelled)
     ));
 }
+
+#[test]
+fn caught_nested_cancellation_is_sticky_and_cannot_become_resource_limited() {
+    let (root, source) = source(&[b"a"]);
+
+    // Calibrate the outer traversal and one complete point read independently,
+    // then leave exactly enough node allowance for the post-cancel lookup to
+    // read the tree once. A third lookup would otherwise reach the node limit.
+    let mut scan_io = io();
+    let before_scan = source.reads.get();
+    scan(&root, &source, &mut scan_io, |_| Ok::<_, ()>(()), || false).unwrap();
+    let scan_reads = source.reads.get() - before_scan;
+
+    let before_point = source.reads.get();
+    assert!(root.get(b"a", &source).unwrap().is_some());
+    let point_reads = source.reads.get() - before_point;
+    assert!(point_reads > 0);
+
+    let mut limited = StateScanBudget {
+        nodes_remaining: scan_reads + point_reads,
+        read_bytes_remaining: 1 << 24,
+        leaves_remaining: 1,
+    };
+    let cancel_next_read = Cell::new(false);
+    let mut first_lookup_failed = None;
+    let mut followup_lookups_failed = [None, None];
+    let mut reads_after_cancellation = None;
+    let mut reads_after_followups = None;
+    let result = StateScanContext {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut limited,
+    }
+    .visit_entries_with_reader(
+        &root,
+        |_, reader| {
+            cancel_next_read.set(true);
+            first_lookup_failed = Some(root.get(b"a", reader).is_err());
+            let reads = source.reads.get();
+            reads_after_cancellation = Some(reads);
+
+            // A visitor is permitted to catch a failed sibling lookup. The
+            // scan reader must still reject every later lookup without I/O.
+            followup_lookups_failed = [
+                Some(root.get(b"a", reader).is_err()),
+                Some(root.get(b"a", reader).is_err()),
+            ];
+            reads_after_followups = Some(source.reads.get());
+            Ok::<_, ()>(())
+        },
+        || cancel_next_read.replace(false),
+    );
+
+    assert!(
+        matches!(&result, Err(StateScanError::Cancelled)),
+        "terminal scan result: {result:?}"
+    );
+    assert_eq!(first_lookup_failed, Some(true));
+    assert_eq!(followup_lookups_failed, [Some(true), Some(true)]);
+    assert_eq!(reads_after_cancellation, reads_after_followups);
+}

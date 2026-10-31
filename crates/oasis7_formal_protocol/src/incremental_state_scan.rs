@@ -58,6 +58,13 @@ pub(crate) type Guarded<'a, R, C> = StateScanReader<'a, R, C>;
 impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanReader<'_, R, C> {
     type Node = R::Node;
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
+        if let Some(stop) = self.stop.get() {
+            return Err(match stop {
+                Stop::Limited => "state scan allowance",
+                Stop::Cancelled => "state scan cancelled",
+            }
+            .into());
+        }
         if (self.cancelled.borrow_mut())() {
             self.stop.set(Some(Stop::Cancelled));
             return Err("state scan cancelled".into());
@@ -75,7 +82,7 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanRead
             // admitted, treat rejection as incomplete work; retry with enough
             // allowance can still expose a genuine tree error. Explicit None
             // remains a missing-page result, never a resource-limit success.
-            if admitted < max {
+            if admitted < max && self.stop.get().is_none() {
                 self.stop.set(Some(Stop::Limited));
             }
         })?;
