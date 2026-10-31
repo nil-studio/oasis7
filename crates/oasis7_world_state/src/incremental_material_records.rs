@@ -1,7 +1,7 @@
 //! Closed original material-profile and immediate-transfer records.
 //! These are storage records, not business or commit authority.
 use crate::MaterialTransferReceiptV1;
-use crate::incremental_world_field_key::WorldFieldRecordKindV1;
+use crate::incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 use crate::{incremental_field_member::*, incremental_projection::WORLD_STATE_FIELDS};
 use oasis7_agent_api::world_action::MaterialTransitPriority;
 use oasis7_formal_protocol::{
@@ -154,3 +154,13 @@ pub use genesis::{MaterialWorkBudgetV1, prepare_material_records_genesis_v1};
 #[cfg(test)]
 #[path = "incremental_material_records_tests.rs"]
 mod tests;
+
+#[path = "incremental_material_records_closure.rs"]
+mod closure;
+pub use closure::{MaterialRecordQualificationV1, qualify_material_body_v1};
+#[path = "incremental_material_records_read.rs"]
+mod read;
+pub use read::{
+    MaterialCellRequestV1, MaterialValueV1, inspect_material_record_root_v1,
+    read_qualified_material_cell_v1,
+};
