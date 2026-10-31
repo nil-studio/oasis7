@@ -1,8 +1,7 @@
 //! Physical candidate persistence and body continuation, no canonical acceptance.
-use super::super::physical::{Directory, install_fixture_pages, logical_io, physical_io};
 use super::*;
 use oasis7_distfs::incremental_page_store::{
-    IncrementalPageStore, PageCompression,
+    IncrementalPageStore, PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
 };
 use oasis7_formal_protocol::{
@@ -267,5 +266,67 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         assert_eq!(resumed.history().body, expected.history().body);
         assert_eq!(resumed.catalog().after, expected.catalog().after);
         assert!(resumed.uses_budget(&recovery));
+    }
+}
+
+pub(super) fn physical_io() -> PageIoBudget {
+    PageIoBudget {
+        reads_remaining: 100_000,
+        read_bytes_remaining: 128 << 20,
+        writes_remaining: 100_000,
+        write_bytes_remaining: 128 << 20,
+    }
+}
+pub(super) fn logical_io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget {
+    oasis7_formal_protocol::incremental_value::ValueIoBudget {
+        nodes_remaining: 100_000,
+        read_bytes_remaining: 128 << 20,
+        write_bytes_remaining: 128 << 20,
+    }
+}
+pub(super) struct Directory(pub(super) std::path::PathBuf);
+impl Directory {
+    pub(super) fn new() -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "oasis7-runtime-commit-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+impl Drop for Directory {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+pub(super) fn install_fixture_pages(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    state: &Pages,
+    values: &Values,
+) {
+    let cancelled = AtomicBool::new(false);
+    for (id, bytes) in &state.0 {
+        let id: [u8; 32] = hex::decode(id).unwrap().try_into().unwrap();
+        let charge = memory.reserve(bytes.len(), MemoryClass::Ordinary).unwrap();
+        store
+            .put_page(
+                id,
+                &charge.retain(bytes.clone()),
+                &mut physical_io(),
+                &cancelled,
+            )
+            .unwrap();
+    }
+    for (id, bytes) in values.pages.borrow().iter() {
+        store
+            .put_page(*id, bytes, &mut physical_io(), &cancelled)
+            .unwrap();
     }
 }
