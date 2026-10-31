@@ -148,6 +148,17 @@ fn direct_capture_request(request_id: &str) -> ContinuousAgentRequestContextV1 {
     let mut request =
         test_provider_context("provider-owner-agent", "provider-owner-turn", request_id, 1)
             .request_context;
+    let digest = |label: &str| {
+        oasis7::simulator::Digest32::from(blake3::hash(label.as_bytes()).to_hex().to_string())
+    };
+    request.runtime_binding.base_world_hash = digest("fixture world hash");
+    request.runtime_binding.runtime_manifest_hash = digest("fixture manifest hash");
+    request.observation_digest = digest("fixture observation digest");
+    request.capability_catalog_digest = digest("fixture capability catalog digest");
+    request.capability_invocation_context_digest = digest("fixture capability invocation digest");
+    request.memory_snapshot_digest = digest("fixture memory snapshot digest");
+    request.goal_snapshot_digest = digest("fixture goal snapshot digest");
+    request.continuation_digest = digest("fixture continuation digest");
     request.request_digest = request.request_digest();
     request.validate().expect("validate provider owner request");
     request
