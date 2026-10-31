@@ -325,3 +325,6 @@ mod receiver_faults;
 
 #[path = "support/incremental_diplomacy_cold_delta.rs"]
 mod cold_delta;
+
+#[path = "support/incremental_diplomacy_point_scalars.rs"]
+mod point_scalars;

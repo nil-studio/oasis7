@@ -15,6 +15,8 @@ struct Writer<'a, W> {
     written: &'a Cell<usize>,
     cancel: &'a Cell<bool>,
     mode: usize,
+    option: bool,
+    batches: &'a Cell<usize>,
 }
 impl<W: ValueNodeReader> ValueNodeReader for Writer<'_, W> {
     fn read_node(
@@ -33,7 +35,7 @@ impl<W: ValueNodeWriter> ValueNodeWriter for Writer<'_, W> {
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
     ) -> Result<(), ValueTreeError> {
-        if self.enabled.get() && self.mode == 2 && self.written.get() == 1 {
+        if self.enabled.get() && !self.option && self.mode == 2 && self.written.get() == 1 {
             return Err(ValueTreeError::Io(std::io::Error::other(
                 "diplomacy injected put",
             )));
@@ -41,7 +43,7 @@ impl<W: ValueNodeWriter> ValueNodeWriter for Writer<'_, W> {
         self.source.put_node(id, bytes)?;
         if self.enabled.get() {
             self.written.set(self.written.get() + 1);
-            if self.mode == 1 {
+            if self.mode == 1 && !self.option {
                 self.cancel.set(true);
             }
         }
@@ -55,11 +57,35 @@ impl<W: StatePageWriter> StatePageWriter for Writer<'_, W> {
         memory: &MemoryBudget,
         cancel: &mut dyn FnMut() -> bool,
     ) -> Result<(), ValueTreeError> {
-        self.source.put_state_pages_cancelled(delta, memory, cancel)
+        self.source
+            .put_state_pages_cancelled(delta, memory, cancel)?;
+        if self.enabled.get() {
+            self.batches.set(self.batches.get() + 1);
+            if self.option && self.mode == 1 {
+                self.cancel.set(true);
+            }
+            if self.option && self.mode == 2 {
+                return Err(ValueTreeError::Io(std::io::Error::other(
+                    "after actual Option flag state batch",
+                )));
+            }
+        }
+        Ok(())
     }
 }
 #[test]
 fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
+    fault_cases(false, false);
+}
+#[test]
+fn point_scalar_final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
+    fault_cases(true, false);
+}
+#[test]
+fn option_flag_batch_then_failure_never_publishes_half_a_column() {
+    fault_cases(true, true);
+}
+fn fault_cases(point: bool, option: bool) {
     let final_noop = Cell::new(0usize);
     // Baseline measures the public callback boundary; subsequent identical NoOp
     // cancels exactly at its observed final check (no production test hook).
@@ -121,6 +147,7 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
         let callbacks = Cell::new(0usize);
         let cancelled = Cell::new(false);
         let written = Cell::new(0usize);
+        let batches = Cell::new(0usize);
         let mut overlay_io = logical();
         let mut overlay_keys = SemanticKeyBudget {
             bytes_remaining: 1 << 20,
@@ -154,6 +181,8 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
             written: &written,
             cancel: &cancelled,
             mode,
+            option,
+            batches: &batches,
         };
         let mut write_io = logical();
         let mut write_keys = SemanticKeyBudget {
@@ -170,7 +199,7 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
         let mut alliance = source().alliances.remove(KEY).unwrap();
         alliance.members.clear();
         let guard = overlay.transaction.guard();
-        let proof = create_qualified_diplomacy_empty_v1(
+        let mut proof = create_qualified_diplomacy_empty_v1(
             DiplomacyEmptyCreateV1 {
                 id: KEY,
                 source: DiplomacySourceV1::Alliance(&alliance),
@@ -184,6 +213,46 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
             &mut 128,
         )
         .unwrap();
+        if point {
+            let guard = overlay.transaction.guard();
+            proof = change_qualified_diplomacy_scalar_v1(
+                DiplomacyScalarChangeV1 {
+                    field: DiplomacyFieldV1::Alliances,
+                    id: KEY,
+                    column: DiplomacyScalarV1::Alliance(AllianceScalarV1::FormedAt),
+                    qualification: &proof,
+                    expected: Some(DiplomacyScalarValueV1::U64(u64::MAX)),
+                    after: Some(DiplomacyScalarValueV1::U64(0)),
+                    max_current_payload_bytes: 165,
+                    max_pending_node_bytes: 4 << 20,
+                },
+                &mut overlay,
+                &mut write,
+                &guard,
+                &live,
+            )
+            .unwrap()
+            .unwrap();
+            alliance.formed_at = 0;
+        }
+        if option {
+            let crisis = source().crises.remove(KEY).unwrap();
+            let guard = overlay.transaction.guard();
+            proof = create_qualified_diplomacy_empty_v1(
+                DiplomacyEmptyCreateV1 {
+                    id: KEY,
+                    source: DiplomacySourceV1::Crisis(&crisis),
+                    family: &family,
+                    max_pending_node_bytes: 4 << 20,
+                },
+                &mut overlay,
+                &mut write,
+                &guard,
+                &live,
+                &mut 128,
+            )
+            .unwrap();
+        }
         let prefix_recipes = std::fs::read_dir(store.root().join("recipes"))
             .unwrap()
             .count();
@@ -202,7 +271,44 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
             overlay.key_work.bytes_remaining = 0;
         }
         let guard = overlay.transaction.guard();
-        let result = if mode == 6 {
+        let result = if point {
+            change_qualified_diplomacy_scalar_v1(
+                DiplomacyScalarChangeV1 {
+                    field: if option {
+                        DiplomacyFieldV1::Crises
+                    } else {
+                        DiplomacyFieldV1::Alliances
+                    },
+                    id: KEY,
+                    column: if option {
+                        DiplomacyScalarV1::Crisis(CrisisScalarV1::Strategy)
+                    } else {
+                        DiplomacyScalarV1::Alliance(AllianceScalarV1::Charter)
+                    },
+                    qualification: &proof,
+                    expected: if mode == 6 {
+                        Some(DiplomacyScalarValueV1::U64(0))
+                    } else if option {
+                        None
+                    } else {
+                        Some(DiplomacyScalarValueV1::Text(""))
+                    },
+                    after: if matches!(mode, 1 | 2) {
+                        Some(DiplomacyScalarValueV1::Text("new-value"))
+                    } else if option {
+                        None
+                    } else {
+                        Some(DiplomacyScalarValueV1::Text(""))
+                    },
+                    max_current_payload_bytes: 165,
+                    max_pending_node_bytes: 4 << 20,
+                },
+                &mut overlay,
+                &mut write,
+                &guard,
+                &live,
+            )
+        } else if mode == 6 {
             change_qualified_diplomacy_member_v1(
                 DiplomacyMemberChangeV1 {
                     field: DiplomacyFieldV1::Alliances,
@@ -242,7 +348,10 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
                 assert_eq!(written.get(), 0);
                 assert!(callbacks.get() > 1);
                 final_noop.set(callbacks.get());
-                eprintln!("63a29 public final NoOp callback={}", callbacks.get());
+                eprintln!(
+                    "public final NoOp point={point} option={option} callback={}",
+                    callbacks.get()
+                );
                 continue;
             }
             1 | 3 => assert!(
@@ -283,7 +392,14 @@ fn final_noop_and_real_put_failures_poison_a_successful_typed_prefix() {
             _ => unreachable!(),
         }
         if matches!(mode, 1 | 2) {
-            assert_eq!(written.get(), 1);
+            assert_eq!(written.get(), if option { 4 } else { 1 });
+            if option {
+                assert_eq!(
+                    batches.get(),
+                    1,
+                    "the Option flag StateDelta batch really completed before failure"
+                );
+            }
             assert!(
                 std::fs::read_dir(store.root().join("recipes"))
                     .unwrap()
