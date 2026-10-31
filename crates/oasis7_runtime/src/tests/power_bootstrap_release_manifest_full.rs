@@ -116,15 +116,22 @@ fn production_policy_surfaces_fault_signature_when_manifest_identity_drifts() {
 
     let radiation_wasm_bytes = b"manifest-identity-drift-radiation";
     let radiation_wasm_hash = util::sha256_hex(radiation_wasm_bytes);
-    let storage_wasm_bytes = b"manifest-identity-drift-storage";
-    let storage_wasm_hash = util::sha256_hex(storage_wasm_bytes);
+    // Reach the identity check through the public bootstrap entrypoint using
+    // an approved current-version binary, rather than failing the version gate.
+    let storage_wasm_bytes =
+        crate::m1_builtin_wasm_artifact::m1_builtin_wasm_module_artifact_bytes(
+            M1_STORAGE_POWER_MODULE_ID,
+        )
+        .expect("materialize approved storage artifact");
+    let storage_wasm_hash = util::sha256_hex(&storage_wasm_bytes);
+    assert!(crate::m1_builtin_wasm_artifact::storage_power_v2_hash_matches(&storage_wasm_hash));
     let store = LocalCasStore::new_with_hash_algorithm(&temp_root, HashAlgorithm::Sha256);
     store
         .put(radiation_wasm_hash.as_str(), radiation_wasm_bytes)
         .expect("store radiation wasm blob");
     store
-        .put(storage_wasm_hash.as_str(), storage_wasm_bytes)
-        .expect("store storage wasm blob");
+        .put(storage_wasm_hash.as_str(), &storage_wasm_bytes)
+        .expect("store approved storage wasm blob");
 
     let drift_hash = "4444444444444444444444444444444444444444444444444444444444444444";
     let _distfs_guard = EnvVarGuard::capture(BUILTIN_WASM_DISTFS_ROOT_ENV);
