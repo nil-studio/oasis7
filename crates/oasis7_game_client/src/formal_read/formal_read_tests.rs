@@ -1124,3 +1124,62 @@ fn generic_formal_verifier_owns_envelope_checks_even_with_noop_schema_validator(
         "generic verifier accepted mismatched envelope: {accepted:?}"
     );
 }
+
+#[test]
+fn independent_reader_transport_reuse_isolates_formal_failure_and_trust() {
+    use crate::remote_world_service::{
+        FormalReadTrustConfigV1, RemoteWorldServiceReader, WorldServiceClientConfig,
+    };
+    let (world, trust, anchor, _) = protocol_initial_fixture();
+    let checkpoint = anchor.checkpoint();
+    let config = WorldServiceClientConfig {
+        formal_read_trust: Some(FormalReadTrustConfigV1 {
+            initial_trust: trust,
+            checkpoint_digest: checkpoint.digest().unwrap(),
+            checkpoint,
+        }),
+        endpoint: "http://127.0.0.1:9".into(),
+        trusted_service_public_key: public(9),
+        expected_world: commit_ref(&anchor, &projection(&world)).world,
+        scope_id: "public".into(),
+        read_private_key_hex: h(7),
+        timeout: std::time::Duration::from_secs(1),
+        max_response_bytes: 1_048_576,
+    };
+    let seed = RemoteWorldServiceReader::<WorldServiceProjection>::new(config.clone()).unwrap();
+    let fork = seed.independent_clone().unwrap();
+    assert!(fork.config() == &config);
+    assert_eq!(
+        fork.read_authority_identity().unwrap(),
+        seed.read_authority_identity().unwrap()
+    );
+    assert!(!std::sync::Arc::ptr_eq(
+        seed.formal_read.as_ref().unwrap(),
+        fork.formal_read.as_ref().unwrap()
+    ));
+    let original = seed.formal_current_anchor().unwrap();
+    let poisoned = fork.formal_read.as_ref().unwrap().clone();
+    assert!(
+        std::thread::spawn(move || {
+            let _guard = poisoned.lock().unwrap();
+            panic!("injected isolated reader failure");
+        })
+        .join()
+        .is_err()
+    );
+    assert!(fork.formal_current_anchor().is_err());
+    assert_eq!(
+        seed.formal_current_anchor()
+            .unwrap()
+            .checkpoint()
+            .digest()
+            .unwrap(),
+        original.checkpoint().digest().unwrap()
+    );
+    assert!(
+        seed.independent_clone()
+            .unwrap()
+            .formal_current_anchor()
+            .is_ok()
+    );
+}
