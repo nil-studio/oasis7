@@ -357,6 +357,8 @@ Rust 公共模型的有界诊断承接 [CQ-R03](#cq-r03)、[CQ-R05](#cq-r05) 与
 
 冻结一个真实 main 提交和完整官方 bundle，保留生产 `rust-repo/default` 的全仓源码上下文、独立 manifest、本地维护 vendor、features、targets、模板与既有排除规则；不得换成单 crate、旧 NodeOnly 或伪造投影。记录 bundle/解析包、实际项目工具链、分析工具链和归档标准库来源。线程与内存采用生产所固定 CodeQL Action 的选择逻辑及实际环境值，记录 runner、CPU/cgroup/内存来源与实际参数；不能把原诊断的 2 threads/3072 MiB 或数据文件限制当生产配置。
 
+经单独授权可在 CFG 手动入口使用默认关闭的 `callee=true`，固定 f9ab 容量失败业务快照，保持官方2.27.3、生产自动资源、单业务采集根和45分钟总截止。该模式与 profile 互斥，只提取/finalize及四个调用目标诊断查询，不运行安全suite或原CFG图测量。按第42行调用AST、语法路径、静态目标、目标名、目标位置分别计数，另保留目标声明及原CallsCandidate结果；零值与无位置必须显式可见，不改变原容量验收断言。每命令最多900秒、共享原总截止并预留180秒采证收尾；每表最多100行、每行最多8192字符、解码文件8MiB、总artifact256MiB。查询未执行或失败保持NOT_REACHED/INCOMPLETE；诊断完成不等于容量通过或根因确认，不跨数据库关联内部ID。
+
 固定业务 checkout 必须占据 `GITHUB_WORKSPACE` 根，使 Action 的实际进程目录、Rust `trace-command` / `index-files` 起点与数据库 source root 一致；`source-root` 或 `checkout_path` 配置正确本身不证明采集隔离。工具 checkout 先在同一根读取，将有摘要的最小 Python 工具闭包复制到 `RUNNER_TEMP`，再切换到固定业务提交；不得在采集树内保留第二个 checkout。初始化前保存真实 cwd、workspace、Git 根/HEAD/状态、工具位置与摘要的独立校验。预检记录下一步 Action 的预期采集起点，实际 trace 命令仍须以执行日志核对。
 
 容量评估 job 最多 60 分钟，分析阶段上限 45 分钟，并按当时剩余时间减 600 秒公共见证、结果校验和收尾预留动态缩短；这不改变正式生产扫描的 45 分钟预算；60 分钟评估成功不能直接证明该生产预算可行。整个评估包含动作准备、下载、提取、官方默认安全查询、全部规定公共正负见证、解码、结果和证据落盘。起点绑定真实 job 启动身份，内部截止为收尾及 artifact 保存预留时间；排队与运行分别记录。成功既要求默认查询集完整完成，也要求公共 DF、closure、真实 callee 来源、legacy、Linux 平台判据和源码/manifest 覆盖校验通过，不能用默认查询完成代签缺失的语义见证。所有阶段共用一个全局剩余预算，缓存预计算和额外见证成本不得隐去。
