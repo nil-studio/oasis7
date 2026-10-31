@@ -5,10 +5,7 @@ use crate::simulator::{
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
     ProviderSpoolReservation, cognition_response_digest,
 };
-use crate::viewer::{
-    ProviderOriginalMaterialOwnerV1, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
-    install_provider_original_material_owner,
-};
+use crate::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
