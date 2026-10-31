@@ -132,7 +132,11 @@ fn effect_attempt_readback_failure_prevents_the_first_delivery_post() {
     let transport = FormalEffectDeliveryTransport::new(vec![contract], sender, store.clone()).unwrap();
     // The fault happens after file/parent fsync, before the transport receives
     // permission to send. The actual published file, not an in-memory DTO, is altered.
-    store.inject_attempt_publish_for_test(|path| fs::write(path, b"corrupt published attempt").unwrap());
+    store.inject_attempt_publish_for_test(|path| {
+        let mut bytes = fs::read(path).unwrap();
+        bytes[0] ^= 1;
+        fs::write(path, bytes).unwrap();
+    });
     let result = transport.drive_qualified_obligation(&effect);
     let posts = receiver.posts();
     let executions = receiver.executions();
@@ -141,7 +145,7 @@ fn effect_attempt_readback_failure_prevents_the_first_delivery_post() {
     assert!(store.read(&effect.identity).is_err());
     assert!(matches!(transport.drive_qualified_obligation(&effect), EffectDeliveryDriveResultV1::Unknown { .. }));
     assert_eq!(receiver.posts(), 0);
-    receiver.stop();
+    receiver.stop().unwrap();
 }
 
 #[test]
