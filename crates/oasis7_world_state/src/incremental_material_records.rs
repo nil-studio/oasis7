@@ -185,3 +185,10 @@ pub use lifecycle::{
     MaterialRecordCreateV1, MaterialRecordDeleteV1, create_qualified_material_record_v1,
     delete_qualified_material_record_v1,
 };
+
+#[path = "incremental_material_records_pages.rs"]
+mod pages;
+pub use pages::{
+    MaterialFamilyPagesV1, MaterialPagesWorkV1, mark_material_family_pages_v1,
+    transfer_material_family_pages_v1,
+};
