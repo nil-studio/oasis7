@@ -13,6 +13,11 @@ on:
         type: boolean
         default: false
 
+      callee:
+        description: Diagnose candidate call syntax, static resolution and target locations only
+        type: boolean
+        default: false
+
 permissions:
   contents: read
   actions: read
@@ -20,7 +25,7 @@ permissions:
 jobs:
   capacity:
     name: CodeQL Rust CFG diagnostic
-    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.profile != true
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && (inputs.profile != true || inputs.callee == true)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     concurrency:
@@ -29,6 +34,7 @@ jobs:
       cancel-in-progress: false
     env:
       CAPACITY_MODE: official-default-research
+      DIAGNOSTIC_SOURCE: ${{ inputs.callee == true && 'f9ab0ca14620f118c84130b3d558e48dc1e6314d' || 'c65098923e8d9aad6813d49ac48cc2540627c96d' }}
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_RAM: ''
@@ -48,6 +54,7 @@ jobs:
           with urllib.request.urlopen(request,timeout=20) as response: value=json.load(response)
           jobs=[job for job in value['jobs'] if job['name']=='CodeQL Rust CFG diagnostic' and job['status']=='in_progress']
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
+          if '${{ inputs.callee }}' == 'true' and '${{ inputs.profile }}' == 'true':raise SystemExit('callee and profile are mutually exclusive')
           mode=os.environ['CAPACITY_MODE']
           if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
           budget=2700
@@ -71,7 +78,7 @@ jobs:
       - id: source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: c65098923e8d9aad6813d49ac48cc2540627c96d
+          ref: ${{ env.DIAGNOSTIC_SOURCE }}
           clean: true
           persist-credentials: false
       - id: layout
@@ -80,7 +87,7 @@ jobs:
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
             --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" \
-            --source-sha c65098923e8d9aad6813d49ac48cc2540627c96d --deadline "$CAPACITY_DEADLINE"
+            --source-sha "$DIAGNOSTIC_SOURCE" --deadline "$CAPACITY_DEADLINE"
       - id: tools
         name: Prepare pinned production tools
         timeout-minutes: 5
@@ -117,7 +124,7 @@ jobs:
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" --source-sha c65098923e8d9aad6813d49ac48cc2540627c96d \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" --source-sha "$DIAGNOSTIC_SOURCE" \
             --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
@@ -126,6 +133,7 @@ jobs:
         name: Check exact diagnostic imports before extraction
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+          CALLEE_DIAGNOSTIC: ${{ inputs.callee }}
         run: |
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py" --verify-context-exclusion --scope-identities --check-only             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
       - id: finalize
@@ -157,6 +165,7 @@ jobs:
         name: Measure original CFG inputs and bounded source graph contributors
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+          CALLEE_DIAGNOSTIC: ${{ inputs.callee }}
         run: |
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py" --verify-context-exclusion --scope-identities             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
       - id: integrity
@@ -186,7 +195,7 @@ jobs:
         if: always() && steps.prepare.outcome == 'success'
         timeout-minutes: 2
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE" --source-sha c65098923e8d9aad6813d49ac48cc2540627c96d             --checkout-outcome "${{ steps.source.outcome }}" --layout-outcome "${{ steps.layout.outcome }}"             --tools-outcome "${{ steps.tools.outcome }}" --init-outcome "${{ steps.init.outcome }}"             --prepare-outcome "${{ steps.prepare.outcome }}" --analyze-outcome "${{ steps.finalize.outcome }}"             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data"             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE" --source-sha "$DIAGNOSTIC_SOURCE"             --checkout-outcome "${{ steps.source.outcome }}" --layout-outcome "${{ steps.layout.outcome }}"             --tools-outcome "${{ steps.tools.outcome }}" --init-outcome "${{ steps.init.outcome }}"             --prepare-outcome "${{ steps.prepare.outcome }}" --analyze-outcome "${{ steps.finalize.outcome }}"             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data"             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: evidence
         name: Seal available bounded CFG evidence
         if: always()
@@ -203,6 +212,7 @@ jobs:
           GRAPH_OUTCOME: ${{ steps.graph.outcome }}
           INTEGRITY_OUTCOME: ${{ steps.integrity.outcome }}
           ANALYSIS_MINUTES: ${{ steps.prepare.outputs.analysis_minutes }}
+          CALLEE_DIAGNOSTIC: ${{ inputs.callee }}
         run: |
           python3 - <<'PY'
           import hashlib,json,os,pathlib,time
@@ -223,7 +233,7 @@ jobs:
           minutes=int(os.environ['ANALYSIS_MINUTES']) if os.environ.get('ANALYSIS_MINUTES') else None
           write('job-clock.json',{'job_id':os.environ.get('CAPACITY_JOB_ID'),'fixed_job_deadline':deadline,
               'analysis_allocated_minutes':minutes,'remaining_before_upload':deadline-time.time() if deadline is not None else None,
-              'mode':'cfg-graph-diagnostic','final_job_duration_requires_terminal_readback':True})
+              'mode':'callee-stages' if os.environ.get('CALLEE_DIAGNOSTIC')=='true' else 'cfg-graph-diagnostic','final_job_duration_requires_terminal_readback':True})
           if not (root/'context-exclusion-report.json').exists():
               write('context-exclusion-report.json',{'status':'NOT_VERIFIED',
                   'reason':'No completed database witness; inspect actual stage outcomes and raw query evidence',
@@ -246,7 +256,7 @@ jobs:
 
   evaluator_profile:
     name: CodeQL Rust evaluator profile
-    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.profile == true
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.profile == true && inputs.callee != true
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     concurrency:
