@@ -245,9 +245,9 @@ pub mod incremental_world_rule_supply_root;
 mod incremental_family_page_tracking;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod incremental_record_value_read;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_diplomacy;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_record_value_read;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_record_tree;
