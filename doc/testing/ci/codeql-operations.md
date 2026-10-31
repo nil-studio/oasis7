@@ -162,6 +162,8 @@ observe 只能在 hosted 验收完成且明确授权后设置，并读回实际�
 
 先审阅私有 QLL 可见性补丁和查询实际解析路径，再执行 scope 汇总及有界 top scope 图检查。结果必须分别记录全图汇总、选中 scope 覆盖、跨 scope/未知归属、分量与可达对计算是否完整；只输出达到限制前的局部数据时保持 INCOMPLETE。保存工具/业务/官方源码身份、精确 QL、解码结果、原始日志、退出码和固定时钟；不保存或导出完整巨型闭包。新运行只能说明新冻结数据库，不能复原旧 run 的图。
 
+使用 `codeql-rust-cfg-diagnostic.yml` 的 `execute=true, callee=true, profile=false` 可进行一次调用目标分阶段诊断，固定 f9ab 失败输入，只提取及执行 Syntax、ResolutionCounts、TargetFunctions、原 CallsCandidate 四表。先核调用节点，再核静态解析及目标位置；声明存在不证明调用已解析。45分钟总预算、每命令900秒、180秒收尾预留及100行表上限均不可通过重试续期。结果仅定位失败边界，完整覆盖和生产容量保持独立；不得把缺失目标替换成语法名来放行验收，无SARIF/数据库上传。
+
 官方默认 evaluator profile 使用默认关闭的 `codeql-rust-cfg-diagnostic.yml` 显式 `profile=true` 分支，仅手动一次运行。保持55分钟job、40分钟共享提取/查询窗口、固定e205源码与完整官方2.27.3默认suite，不上传SARIF/数据库、不启用批次。查询后先冻结不可覆盖的query终态及原始profile哈希，再保存身份/资源/锁与核心capture终态，最后才尝试数据库日志及官方字段投影摘要。
 
 摘要仅单次运行官方 `--format=predicates --minify-output` 并流式投影，增量8MiB、命令20秒/阶段30秒且截止不晚于job截止前300秒；总写入248MiB/终态256MiB不变。不足空间或时间不spawn，已有摘要不覆盖，unsafe或核心证据不完整拒绝。摘要PARTIAL/NOT_RUN不得覆盖主查询及原始profile；保留旧run40898591506的各阶段失败。投影中的计时不是独占CPU，部分输出不得当完整成本排名；本诊断不代规定公共见证、结果解码、生产容量或完整Rust验收。
