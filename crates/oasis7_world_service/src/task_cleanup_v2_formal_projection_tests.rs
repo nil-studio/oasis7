@@ -12,6 +12,41 @@ fn cleanup_v2_actual_closed_world_preserves_versioned_formal_publication() {
         .unwrap()
         .root()
         .unwrap();
+    let owner = request.subject_public_key.clone();
+    let delegate = world.capability_revocation_state().agent_signer_delegations["agent"]
+        .delegate_public_key
+        .clone();
+    let audiences = [
+        oasis7_client_api::formal_projection::ProjectionAudienceV1::public(),
+        oasis7_client_api::formal_projection::ProjectionAudienceV1::agent("agent", owner).unwrap(),
+        oasis7_client_api::formal_projection::ProjectionAudienceV1::agent("agent", delegate)
+            .unwrap(),
+    ];
+    let leaves = audiences
+        .into_iter()
+        .map(|audience| {
+            let (agent, reader) = if audience.scope_id == "public" {
+                (None, "")
+            } else {
+                (
+                    Some("agent"),
+                    audience.reader_public_key.as_deref().unwrap(),
+                )
+            };
+            let projection =
+                crate::projection::from_formal_committed_world(&world, agent, reader).unwrap();
+            let leaf =
+                oasis7_world_projection::codec::projection_leaf(&audience, &projection).unwrap();
+            (audience, leaf)
+        })
+        .collect();
+    assert_eq!(
+        active_root,
+        oasis7_client_api::formal_projection::ProjectionCommitmentsV1::from_leaves(leaves)
+            .unwrap()
+            .root()
+            .unwrap()
+    );
     let (mut world, _, active_anchor, _) =
         crate::formal_read_fixtures::actual_world_initial_fixture_from_world(
             world,
@@ -36,6 +71,34 @@ fn cleanup_v2_actual_closed_world_preserves_versioned_formal_publication() {
         .root()
         .unwrap();
     assert_ne!(terminal_root, active_root);
+    let owner = request.subject_public_key.clone();
+    let audience =
+        oasis7_client_api::formal_projection::ProjectionAudienceV1::agent("agent", owner.clone())
+            .unwrap();
+    let Some(oasis7_agent_api::game::GameTaskStateV2::Closed(closed)) =
+        world.current_game_task_state_v2("agent").unwrap()
+    else {
+        panic!("actual terminal state missing");
+    };
+    let typed = oasis7_client_api::formal_projection::ClosedTaskFormalProjectionV2 {
+        api_revision: 2,
+        closed,
+    };
+    typed.validate(&audience).unwrap();
+    let proof = crate::formal_projection::commitments_for_world(&world)
+        .unwrap()
+        .inclusion(&audience)
+        .unwrap();
+    proof.verify(&audience, &typed, &terminal_root).unwrap();
+    assert!(proof.verify(&audience, &(), &terminal_root).is_err());
+    assert!(crate::projection::from_formal_committed_world(&world, Some("agent"), &owner).is_err());
+    let value = serde_json::to_value(&typed).unwrap();
+    let restored: oasis7_client_api::formal_projection::ClosedTaskFormalProjectionV2 =
+        serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(restored, typed);
+    let mut extra = value;
+    extra["unrecognized"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<oasis7_client_api::formal_projection::ClosedTaskFormalProjectionV2>(extra).is_err());
     let (closed, closed_anchor, _) =
         crate::formal_read_fixtures::actual_world_successor_fixture(&active_anchor, world);
     crate::formal_read_service::FormalReadPublication::new(closed_anchor, closed.clone()).unwrap();
