@@ -34,6 +34,18 @@ pub struct OwnerSetupDriveRequestV1 {
     pub setup_id: String,
 }
 impl OwnerSetupDriveRequestV1 {
+    /// Private SDK selector shape only. The Account must compare this explicit
+    /// version to the actual approved record before any source/network call.
+    pub fn validate_sdk_selector(&self) -> Result<()> {
+        if !matches!(self.api_version, 1 | 2)
+            || [&self.custody_account_id, &self.provision_id, &self.setup_id]
+                .iter()
+                .any(|v| !id(v))
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
     pub fn validate(&self) -> Result<()> {
         if self.api_version != 1
             || [&self.custody_account_id, &self.provision_id, &self.setup_id]
@@ -60,9 +72,9 @@ pub struct OwnerSetupProgressV1 {
 }
 impl AccountProvisionApprovalState {
     pub fn owner_setup_progress(&self, id: &str) -> Result<OwnerSetupProgressV1> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         Ok(OwnerSetupProgressV1 {
-            api_version: 1,
+            api_version: self.owner_setup_engine_version(id)?,
             custody_account_id: self.draft.entry.custody_account_id.clone(),
             provision_id: self.draft.entry.provision_id.clone(),
             setup_id: v.plan.setup_id.clone(),

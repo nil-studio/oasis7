@@ -1,0 +1,227 @@
+//! V2 persisted outbox shape. Construction is private to the actual Account
+//! factory; a deserialized book or public wire is never a dispatch permission.
+use super::*;
+use crate::time_units::UnixMillis;
+fn required_option<'de, D, T>(deserializer: D) -> core::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(in crate::provisioning) enum MoveExecutionStageV2 {
+    Prepare,
+    Prefix,
+    Get,
+    Cognition,
+}
+
+/// Complete canonical bytes of one fixed *public* signed stage original.
+/// Private slot bodies/envelopes are not an accepted kind. The owning factory
+/// must decode the exact SDK type, reencode, verify signatures and reconstruct
+/// the expected candidate before accepting an original into this field.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicStageOriginalV2 {
+    stage: MoveExecutionStageV2,
+    canonical_cbor_hex: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveStageAllocationV2 {
+    operation_id: String,
+    allocation_sequence: DecimalU64,
+    source_operation_id: String,
+    source_digest: String,
+    source_observed_at: UnixMillis,
+    source_expires_at: UnixMillis,
+    allocated_at: UnixMillis,
+    // Only schemas which actually have a client nonce may allocate one.
+    #[serde(deserialize_with = "required_option")]
+    client_nonce: Option<String>,
+    #[serde(deserialize_with = "required_option")]
+    observation_nonce: Option<String>,
+    gateway_nonce: String,
+    #[serde(deserialize_with = "required_option")]
+    predecessor_digest: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveStageSendClaimV2 {
+    attempt_id: String,
+    source_operation_id: String,
+    original_digest: String,
+    claimed_at: UnixMillis,
+    native_transports: MoveNativeTransportClaimV2,
+}
+
+/// Only the three demonstrated Native-operation edges. Actor, factory,
+/// coordinator, Current/Directory/RF and reconciliation ports are separate
+/// real charges; this tuple is not a complete execution graph.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveNativeTransportClaimV2 {
+    identity_to_native: String,
+    native_to_world_view: String,
+    native_to_world_operation: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveStageOutboxV2 {
+    allocation: MoveStageAllocationV2,
+    candidate_digest: String,
+    #[serde(deserialize_with = "required_option")]
+    original: Option<PublicStageOriginalV2>,
+    #[serde(deserialize_with = "required_option")]
+    send_claim: Option<MoveStageSendClaimV2>,
+    lookup_claims: BTreeMap<String, MoveStageLookupClaimV2>,
+    /// An immutable, typed-and-verified public fact's canonical bytes. It does
+    /// not carry Current or mean the action succeeded; admission is separate.
+    #[serde(deserialize_with = "required_option")]
+    archived_fact_cbor_hex: Option<String>,
+    #[serde(deserialize_with = "required_option")]
+    admitted_at: Option<UnixMillis>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveStageLookupClaimV2 {
+    purpose: SessionPurposeV1,
+    source_operation_id: String,
+    claimed_at: UnixMillis,
+    original_digest: String,
+    gateway_nonce: String,
+    native_transports: MoveNativeTransportClaimV2,
+}
+
+// This stored wire container confers no verification. The source-safe profile
+// rejects every nonempty slot; the queued SDK/Scope2 consumer must be composed
+// explicitly before a validated public Ref can be inserted or used.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicSlotRefV2 {
+    canonical_cbor_hex: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::provisioning) struct SessionExecutionBookV2 {
+    api_version: u8,
+    session_id: String,
+    plan_digest: String,
+    approved_input_digest: String,
+    session_intent_digest: String,
+    world: crate::approval::ApprovedWorldV1,
+    identity_scope: crate::role_key_slot::RoleKeySlotScopeV1,
+    native_binding_digest: String,
+    execution_deadline: UnixMillis,
+    action_request_id: String,
+    credential_generation: DecimalU64,
+    approved_position_cm: [i64; 3],
+    started_at: UnixMillis,
+    challenge_request_id: String,
+    http_ingress_attempt_id: String,
+    source_operation_id: String,
+    lifetime_transport_id: String,
+    lifetime_claimed_at: UnixMillis,
+    #[serde(deserialize_with = "required_option")]
+    archived_lifetime: Option<crate::native_binding::SignedManagedNativeSessionLifetimeV1>,
+    #[serde(deserialize_with = "required_option")]
+    lifetime_archived_at: Option<UnixMillis>,
+    #[serde(deserialize_with = "required_option")]
+    lifetime_admitted_at: Option<UnixMillis>,
+    /// Internal allocation provenance only, never a delegation HWM/floor.
+    last_allocation_sequence: DecimalU64,
+    stages: BTreeMap<MoveExecutionStageV2, MoveStageOutboxV2>,
+    context_slots: BTreeMap<crate::context_body::ContextBodySlotKindV1, PublicSlotRefV2>,
+}
+
+impl core::fmt::Debug for SessionExecutionBookV2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SessionExecutionBookV2")
+            .field("api_version", &self.api_version)
+            .field("stage_count", &self.stages.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl SessionExecutionBookV2 {
+    /// Occupancy only. This does not authenticate the candidate id, fund a
+    /// source, authorize a new attempt, or make historical work dispatchable.
+    /// The referenced action/challenge/Host-ingress ids remain occupied by
+    /// their original challenge/paid maps; they are not new transport ids.
+    pub(in crate::provisioning) fn transport_id_in_use(&self, id: &str) -> bool {
+        self.session_id == id
+            || self.source_operation_id == id
+            || self.lifetime_transport_id == id
+            || self.stages.values().any(|stage| {
+                let allocation = &stage.allocation;
+                allocation.operation_id == id
+                    || allocation.source_operation_id == id
+                    || allocation.client_nonce.as_deref() == Some(id)
+                    || allocation.observation_nonce.as_deref() == Some(id)
+                    || allocation.gateway_nonce == id
+                    || stage.lookup_claims.iter().any(|(attempt, claim)| {
+                        attempt == id
+                            || claim.source_operation_id == id
+                            || claim.gateway_nonce == id
+                            || claim.native_transports.identity_to_native == id
+                            || claim.native_transports.native_to_world_view == id
+                            || claim.native_transports.native_to_world_operation == id
+                    })
+                    || stage.send_claim.as_ref().is_some_and(|claim| {
+                        claim.attempt_id == id
+                            || claim.source_operation_id == id
+                            || claim.native_transports.identity_to_native == id
+                            || claim.native_transports.native_to_world_view == id
+                            || claim.native_transports.native_to_world_operation == id
+                    })
+            })
+    }
+}
+
+#[path = "test_session_execution_source_binding_v2.rs"]
+mod source_binding;
+
+#[path = "test_session_execution_start_v2.rs"]
+mod start;
+
+#[path = "test_session_execution_lifetime_v2.rs"]
+mod lifetime;
+
+#[path = "test_session_execution_restore_v2.rs"]
+mod restore;
+
+/// Borrowed historical record view, never an authorization or dispatch token.
+pub(in crate::provisioning) struct ExecutionJournalRecordV2<'a> {
+    pub request_id: &'a str,
+    pub ingress_attempt_id: &'a str,
+    pub challenge_request_id: &'a str,
+    pub source_operation_id: &'a str,
+    pub started_at: UnixMillis,
+    pub lifetime_claimed_at: UnixMillis,
+    pub lifetime_archived_at: Option<UnixMillis>,
+    pub lifetime_admitted_at: Option<UnixMillis>,
+    pub credential_generation: DecimalU64,
+}
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn journal_record(&self) -> ExecutionJournalRecordV2<'_> {
+        ExecutionJournalRecordV2 {
+            request_id: &self.action_request_id,
+            ingress_attempt_id: &self.http_ingress_attempt_id,
+            challenge_request_id: &self.challenge_request_id,
+            source_operation_id: &self.source_operation_id,
+            started_at: self.started_at,
+            lifetime_claimed_at: self.lifetime_claimed_at,
+            lifetime_archived_at: self.lifetime_archived_at,
+            lifetime_admitted_at: self.lifetime_admitted_at,
+            credential_generation: self.credential_generation,
+        }
+    }
+}

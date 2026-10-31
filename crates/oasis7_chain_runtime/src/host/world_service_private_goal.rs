@@ -14,6 +14,10 @@ use oasis7::world_service::private_task_context::{
 use oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
 use oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
 use oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH;
+use oasis7_client_api::world_service::task_context_projection::{
+    CONTEXT_MOVE_PROJECTION_PATH_V2, CONTEXT_PREPARE_ATTESTED_PATH_V2,
+    CONTEXT_READ_ATTESTED_PATH_V2,
+};
 
 use oasis7::world_service::private_goal_read::{
     CurrentGoalRequest, CurrentGoalResponse, GOAL_CURRENT_PATH as CURRENT_PATH,
@@ -92,6 +96,7 @@ enum PrivateError {
     ContextReadDeliveryDrift(Option<task_context::ReadConflictStage>),
     Recovery,
     Unavailable,
+    ContextTooLarge,
 }
 impl From<String> for PrivateError {
     fn from(_: String) -> Self {
@@ -506,6 +511,9 @@ fn maybe_handle_configured(
         TASK_CONTEXT_PREPARE_PATH,
         TASK_CONTEXT_READ_PATH,
         TASK_CONTEXT_LIVE_READ_PATH,
+        CONTEXT_PREPARE_ATTESTED_PATH_V2,
+        CONTEXT_READ_ATTESTED_PATH_V2,
+        CONTEXT_MOVE_PROJECTION_PATH_V2,
         TASK_RECIPE_QUOTE_PATH,
         TASK_FACTORY_QUOTE_PATH,
     ]
@@ -562,6 +570,9 @@ fn maybe_handle_configured(
             TASK_CONTEXT_PREPARE_PATH,
             TASK_CONTEXT_READ_PATH,
             TASK_CONTEXT_LIVE_READ_PATH,
+            CONTEXT_PREPARE_ATTESTED_PATH_V2,
+            CONTEXT_READ_ATTESTED_PATH_V2,
+            CONTEXT_MOVE_PROJECTION_PATH_V2,
             TASK_RECIPE_QUOTE_PATH,
             TASK_FACTORY_QUOTE_PATH,
         ]
@@ -590,6 +601,7 @@ fn maybe_handle_configured(
         Err(error) => {
             let (status, code, stage) = match error {
                 PrivateError::Invalid => (400, "invalid_private_goal_request", None),
+                PrivateError::ContextTooLarge => (409, "context_too_large", None),
                 PrivateError::Forbidden => (403, "private_goal_forbidden", None),
                 PrivateError::Conflict => (409, "private_goal_conflict", None),
                 PrivateError::TaskContextReadConflict(stage) => {

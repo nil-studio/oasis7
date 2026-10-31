@@ -18,6 +18,21 @@ pub(crate) async fn dispatch(
     session_authority::enabled(env)?;
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let admission = &rpc.admission;
+    if matches!(&rpc.action, TestSessionClientAction::Admit) {
+        let saved = store.snapshot().map_err(|_| denied())?;
+        let id = &admission.http.selector.session_id;
+        let v1 = saved.state.test_sessions().contains_key(id);
+        let v2 = saved.state.test_session_v2_original(id).is_some();
+        match (v1, v2) {
+            (false, true) => {
+                return super::super::first_client_v2_admit(state, env, admission, operation, role)
+                    .await;
+            }
+            (true, false) => {}
+            _ => return Err(denied()),
+        }
+    }
+
     let selector = &admission.http.selector;
     let id = &selector.session_id;
     if matches!(operation, SessionClientOperation::ToolNonce) {

@@ -13,7 +13,7 @@ pub(super) async fn continue_setup(
     env: &Env,
     rpc: OwnerSetupContinueRpc,
 ) -> Result<OwnerSetupProgressV1> {
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     setup_authority::enabled(env)?;
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let saved = store.snapshot().map_err(|_| denied())?;
@@ -23,6 +23,21 @@ pub(super) async fn continue_setup(
         || rpc.provision_id != draft.entry.provision_id
         || rpc.request.provision_id != draft.entry.provision_id
         || rpc.request.custody_account_id != draft.entry.custody_account_id
+    {
+        return Err(denied());
+    }
+    if saved
+        .state
+        .owner_setup_engine_version(&rpc.request.setup_id)
+        .map_err(|_| denied())?
+        != rpc.request.api_version
+        || rpc.request.api_version == 2
+            && env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
     {
         return Err(denied());
     }
@@ -44,7 +59,8 @@ pub(super) async fn continue_setup(
     }
     if saved
         .state
-        .owner_setup_source(id)
+        .owner_setup_phase_source(id)
+        .ok()
         .is_none_or(|v| v.verification.is_none())
     {
         setup_dispatch::prepare_source(state, env, id, None).await?;
