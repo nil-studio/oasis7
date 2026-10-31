@@ -91,6 +91,10 @@ mod terminal_budget;
 mod test_support;
 use self::test_support::{BlockingProviderBehavior, BuiltinWaitBehavior};
 
+#[cfg(test)]
+#[path = "async_agent_runner_response_lease_tests.rs"]
+mod response_lease_tests;
+
 const DEFAULT_MAILBOX_CAPACITY: usize = 16;
 /// Stable identifier for an actor turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
