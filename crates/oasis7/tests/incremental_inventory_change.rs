@@ -43,9 +43,10 @@ fn prepare(
     Result<ReservedValue<PreparedInventoryChangeV1>, InventoryChangeError>,
     ValueIoBudget,
 ) {
-    let state = store
-        .state_session(physical(), MemoryClass::Ordinary)
-        .unwrap();
+    let state = match store.state_session(physical(), MemoryClass::Ordinary) {
+        Ok(state) => state,
+        Err(error) => return (Err(InventoryChangeError::Value(typed(error))), logical()),
+    };
     let values = store.value_session(physical());
     let mut input_io = logical();
     let mut input_work = SemanticKeyBudget {

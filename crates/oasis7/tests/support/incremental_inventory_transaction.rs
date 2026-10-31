@@ -475,9 +475,12 @@ fn retained_noop_preparations_are_admitted_and_release_their_budget() {
         )
         .unwrap();
     let mut retained = Vec::with_capacity(128);
+    // Existing read path admits a 2 MiB decode workspace, 512 KiB inventory
+    // workspace and bounded frame/session metadata before any retained output.
+    let read_headroom = (2 << 20) + (512 << 10) + (128 << 10);
     let _pressure = memory
         .reserve(
-            (31 << 20) - memory.used() - (64 << 10),
+            (31 << 20) - memory.used() - read_headroom,
             MemoryClass::Ordinary,
         )
         .unwrap();
