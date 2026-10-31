@@ -486,3 +486,14 @@ raw reader 不解析语义 token 或业务身份，不用结构合法或摘要�
 每次最多输出两条已计费 StateWrite，记录原 value root 为 before、新暂存 root 或 tombstone 为 after；不改无关 Metadata/Group/成员。before 与 after 相同时不重写成员。读写使用同一进程内存池；普通点准备明确使用 Ordinary，拒绝把 Recovery reader 的专用额度转给隐式 Ordinary 写者。读、写各自有限工作/I/O 额度及取消回调仍适用，调用方组织整个操作的总准入。owned 写键在分配前取得 reservation 并由 sink 保留；任何错误或取消不返回完成结果，调用方丢弃整段暂存前缀。
 
 完成结果携带源 StateRoot 的完整规范 bytes，外层必须绑定同一 prepared guard、合并业务已决定的最终写集、校验全部读依赖并在有界批次中构建 StateDelta；不能把同一旧根上的多次独立计算误当作可顺序重放的业务命令。暂存页、点写完成和业务提交/接受保持不同状态。本片不提供完整事务、账本删除、完整 World facade、authority 发布或恢复续跑的验收。
+
+
+### AgentMoved 的共享事务贡献
+
+<a id="iws-agent-move-v1"></a>
+
+Runtime 的原 AgentMoved 事件与 BodyAttributesUpdated 复用同一 AgentEventContext 和 ExecutionTransaction。位置处理从当前认证 overlay 读取 world clock、body/last_active 与三个具名 i64 坐标，按原 reducer 的 to 写变化坐标并更新 last_active；from 仅保留在原事件中，不作为过期 World 缓存的额外前置条件。不得 clone Agent/World、重建旧 Tick 共识或扫描完整历史来计算点变化。原 allocator 的 event ID/era、邮箱 frontier/ordinal、原事件 canonical bytes 及其原 flat ID 在同次贡献中处理；原件写入回调只持久保存暂态对象，不发布业务接受。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+输入事件、原件编码临时空间、页和输出均须按适用范围预先准入；读写使用同一预算池的 Ordinary 额度以及有限 I/O/记录上限和取消。任一原类型、clock/allocator/mailbox 前置、读写、原件回调或取消失败使整笔共享事务不能 seal，不能采用先前成功写入。此贡献入口不执行移动权限、费用结算、M1-v2 era 接受检查或 authority/head 发布；适用原 owner 与外层 driver 仍须在接受链路接通，不将暂态 contributor 当作新格式激活。
+
+物理分量验证保存原事件后关闭并重开实际 Raw/Zstd store，以认证根继续 body/move，独立核对原事件 bytes 与缓存相等目标的坐标前后值。此 fixture 仍保留 World 的旧上下文和预期 transition 元数据，不声称完整 World 重建、C<T 非空后缀恢复、到期模块动作或正式独立持久保障。
