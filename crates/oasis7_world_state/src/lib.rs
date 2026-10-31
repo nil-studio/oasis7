@@ -231,6 +231,8 @@ pub mod incremental_industry_jobs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_installed_module_targets;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_material_records;
+#[cfg(not(target_arch = "wasm32"))]
 mod incremental_record_tree;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_utf8_output;

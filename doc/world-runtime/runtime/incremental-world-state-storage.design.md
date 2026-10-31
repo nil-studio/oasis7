@@ -677,3 +677,11 @@ factories 保持 WorldState/Map/Business，pending_factory_builds 保持 WorldSt
 借用创世完整枚举五族全部真实字段，遍历与分配先获有限 quota/Ordinary admission；标量、账本、长文本、集合成员复用既有封闭编码。正常 point 只沿 outer RootRef 和目标相对路径，不扫描未变 payload/成员。新建只能依据绑定同一父 RootSet 的 opaque 闭包资格，不能凭缺 marker 接纳孤儿。原始根/恢复以有限预算认证完整顶层及 typed child 值/状态页、白名单、键 preimage、Option 关系和真实集合计数；通用 transition verifier 之外必须从 qualified parent 与完整 changed-write-set 增量验证本族闭包。通用顶层 values marker 不代签 typed child 闭包。
 
 公开 oracle 应独立列出五族原键/原值，覆盖原 outer/embedded ID 不同、None/空/非空、重复列表值、原 Unicode 与整数极值；冷读固定小池，普通 Δ 扩大未变 sibling 时计数不得跟随其大小。错误/取消发生于准备、no-op、真实 put 和最终 buffered flush 时不得接受 token/mark/root；typed transfer 必须先成功 finish 目标 sink 再接受闭包回执，根恢复必须在新 pool 重开验证。
+
+### 12.33 Material profile 与直接转移原始回执
+
+`material_profiles`（Business，原 String 外键）与 `direct_material_transfer_receipts`（Authorization，原 ActionId 外键）各使用隔离的 record StateRoot；外键与原记录内 kind/transfer_id 独立保留，不能因不一致而归一化。每个 record 包含唯一 metadata、Unit 记录标记和封闭原字段，未知字段或缺失字段拒绝完整资格。原始大 Text 与 Ledger 身份沿既有流式 codec 处理，不将完整记录串行化为单个 Vec。
+
+MaterialProfile 保留 kind、tier、category、stack_limit、transport_loss_class、decay_bps_per_tick、default_priority。tier 以 U64 精确承载 u8 范围；loss class 的封闭值为 Low=0、Medium=1、High=2；default priority 为 Urgent=0、Standard=1。直接转移回执保留 transfer_id、requester_agent_id、from_ledger、to_ledger、kind、amount、distance_km、priority、route_id；Ledger 用原完整 enum 身份，priority 为原 Urgent=0、Standard=1，route_id 以独立 Bool presence 和可选 Text 区分 None 与 Some(empty)。
+
+GEN、完整 family 资格、本地列更新与接收端验证使用同一封闭 schema；本地变更必须绑定已验证原 record root、精确 expected 值与同一事务 guard。页传输在完整 typed 闭包与缓冲 sink finish 都成功后才可作为完整交付；这些能力不授予 authority、全 World 激活或全局 GC 资格。实现与物理验证仍须在当前 PR 提供，不由本节文字代签。
