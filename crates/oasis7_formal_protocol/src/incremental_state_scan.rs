@@ -49,8 +49,11 @@ pub(crate) enum Stop {
 /// allowance; `leaves_remaining` accounts only for the outer ordered scan.
 pub struct StateScanReader<'a, R, C> {
     pub(crate) source: &'a R,
+    pub(crate) memory: &'a MemoryBudget,
+    pub(crate) class: MemoryClass,
     pub(crate) nodes: &'a Cell<u64>,
     pub(crate) bytes: &'a Cell<u64>,
+    pub(crate) leaves: &'a Cell<u64>,
     pub(crate) cancelled: &'a RefCell<C>,
     pub(crate) stop: &'a Cell<Option<Stop>>,
 }
@@ -94,6 +97,98 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanRead
                 .set(self.bytes.get() + (admitted - bytes.as_ref().len()) as u64);
         }
         Ok(result)
+    }
+}
+impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
+    /// Whether the original scan source remains tied to the same classed
+    /// memory pool used by an owner-specific value reader.
+    pub fn source_matches(&self, memory: &MemoryBudget, class: MemoryClass) -> bool {
+        self.class == class
+            && self.memory.same_pool(memory)
+            && self.source.allocation_class() == Some(class)
+            && self
+                .source
+                .allocation_budget()
+                .is_some_and(|source| source.same_pool(memory))
+    }
+
+    /// Visit every authenticated leaf in a child root using the same scan
+    /// budget and cancellation state as the enclosing owner-coverage walk.
+    /// This proves the child's physical leaf set is complete; a declared
+    /// `leaf_count` alone is only a limit hint and is not a closure proof.
+    pub fn visit_entries<E>(
+        &self,
+        root: &StateRootV1,
+        mut visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
+    ) -> Result<u64, StateScanError<E>> {
+        let _workspace = self
+            .memory
+            .reserve(128 * 1024, self.class)
+            .map_err(StateScanError::Memory)?;
+        if let Some(stop) = self.stop.get() {
+            return Err(match stop {
+                Stop::Limited => StateScanError::ResourceLimited,
+                Stop::Cancelled => StateScanError::Cancelled,
+            });
+        }
+        if self.source.allocation_class() != Some(self.class)
+            || !self
+                .source
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(self.memory))
+        {
+            return Err(StateScanError::Invalid("state scan source pool/class"));
+        }
+        root.validate().map_err(StateScanError::Tree)?;
+        if root.leaf_count > self.leaves.get() {
+            self.stop.set(Some(Stop::Limited));
+            return Err(StateScanError::ResourceLimited);
+        }
+        if (self.cancelled.borrow_mut())() {
+            self.stop.set(Some(Stop::Cancelled));
+            return Err(StateScanError::Cancelled);
+        }
+        let mut view =
+            Updater::<StateCodec, _>::new(self, empty_hashes().map_err(StateScanError::Tree)?, 0);
+        let result = view.visit_leaves(&root.node_root, |entry| {
+            if let Some(stop) = self.stop.get() {
+                return Err(match stop {
+                    Stop::Limited => StateScanError::ResourceLimited,
+                    Stop::Cancelled => StateScanError::Cancelled,
+                });
+            }
+            if (self.cancelled.borrow_mut())() {
+                self.stop.set(Some(Stop::Cancelled));
+                return Err(StateScanError::Cancelled);
+            }
+            if entry.namespace != root.namespace {
+                return Err(StateScanError::Invalid("state scan namespace"));
+            }
+            if self.leaves.get() == 0 {
+                self.stop.set(Some(Stop::Limited));
+                return Err(StateScanError::ResourceLimited);
+            }
+            self.leaves.set(self.leaves.get() - 1);
+            visit(entry).map_err(StateScanError::Visitor)
+        });
+        if let Some(stop) = self.stop.get() {
+            return Err(match stop {
+                Stop::Limited => StateScanError::ResourceLimited,
+                Stop::Cancelled => StateScanError::Cancelled,
+            });
+        }
+        let count = result.map_err(|error| match error {
+            crate::merkle::VisitError::Tree(error) => StateScanError::Tree(error),
+            crate::merkle::VisitError::Visitor(error) => error,
+        })?;
+        if count != root.leaf_count {
+            return Err(StateScanError::Invalid("state scan leaf count"));
+        }
+        if (self.cancelled.borrow_mut())() {
+            self.stop.set(Some(Stop::Cancelled));
+            return Err(StateScanError::Cancelled);
+        }
+        Ok(count)
     }
 }
 impl<R: MerkleNodeReader> StateScanContext<'_, R> {
@@ -143,8 +238,11 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
         let stop = Cell::new(None);
         let source = StateScanReader {
             source: self.source,
+            memory: self.memory,
+            class: self.class,
             nodes: Cell::from_mut(&mut self.io.nodes_remaining),
             bytes: Cell::from_mut(&mut self.io.read_bytes_remaining),
+            leaves: Cell::from_mut(&mut self.io.leaves_remaining),
             cancelled: &cancelled,
             stop: &stop,
         };
@@ -160,10 +258,10 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
             if entry.namespace != root.namespace {
                 return Err(StateScanError::Invalid("state scan namespace"));
             }
-            if self.io.leaves_remaining == 0 {
+            if source.leaves.get() == 0 {
                 return Err(StateScanError::ResourceLimited);
             }
-            self.io.leaves_remaining -= 1;
+            source.leaves.set(source.leaves.get() - 1);
             visit(entry, &source).map_err(StateScanError::Visitor)
         });
         match stop.get() {

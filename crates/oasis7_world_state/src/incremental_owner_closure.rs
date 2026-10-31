@@ -849,6 +849,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                             field,
                             entry,
                             parsed,
+                            scan_reader,
                             values,
                             max_value_bytes,
                             &mut cancel_now,

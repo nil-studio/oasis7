@@ -1,7 +1,9 @@
 use super::*;
 use crate::incremental_projection::{FieldDestination, FieldOwner, FieldShape};
 use oasis7_formal_protocol::{
+    incremental_record_root::RecordRootRefV1,
     incremental_state::StateNamespaceV1 as Ns,
+    incremental_state::StateRootV1,
     incremental_value::{ValueNodeReader, ValueReadContext, write_value},
 };
 use oasis7_proto::memory_budget::ReservedValue;
@@ -265,73 +267,20 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
     let _output = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
     let ledger = MaterialLedgerId::Factory("甲".into());
-    let visual = oasis7_agent_api::world_entity::ModuleVisualEntity {
-        entity_id: "visual/内部".into(),
-        module_id: "module/α".into(),
-        kind: "artifact\0mesh".into(),
-        label: Some(String::new()),
-        anchor: oasis7_agent_api::world_entity::ModuleVisualAnchor::Absolute {
-            pos: oasis7_agent_api::world_action::GeoPos::new(i64::MIN, 0, i64::MAX),
-        },
-    };
-    let listing = crate::state::ModuleArtifactListingState {
-        order_id: u64::MAX,
-        seller_agent_id: "seller/雪".into(),
-        price_kind: oasis7_agent_api::world_action::ResourceKind::Data,
-        price_amount: i64::MIN,
-        listed_at: u64::MAX,
-    };
-    let bids = [
-        crate::state::ModuleArtifactBidState {
-            order_id: u64::MAX,
-            bidder_agent_id: "bidder/東京".into(),
-            price_kind: oasis7_agent_api::world_action::ResourceKind::Electricity,
-            price_amount: i64::MIN,
-            bid_at: 0,
-        },
-        crate::state::ModuleArtifactBidState {
-            order_id: 0,
-            bidder_agent_id: "bidder/β".into(),
-            price_kind: oasis7_agent_api::world_action::ResourceKind::Data,
-            price_amount: i64::MAX,
-            bid_at: u64::MAX,
-        },
-    ];
-    let text = |value: &str| {
-        [
-            u64::try_from(value.len()).unwrap().to_be_bytes().as_slice(),
-            value.as_bytes(),
-        ]
-        .concat()
-    };
-    let mut visual_bytes = b"oasis7.iws.module-visual-entity.v1\0".to_vec();
-    visual_bytes.extend(text("visual/内部"));
-    visual_bytes.extend(text("module/α"));
-    visual_bytes.extend(text("artifact\0mesh"));
-    visual_bytes.extend([1]);
-    visual_bytes.extend(0u64.to_be_bytes());
-    visual_bytes.extend([2]);
-    visual_bytes.extend(i64::MIN.to_be_bytes());
-    visual_bytes.extend(0i64.to_be_bytes());
-    visual_bytes.extend(i64::MAX.to_be_bytes());
-    let mut listing_bytes = b"oasis7.iws.module-artifact-listing.v1\0".to_vec();
-    listing_bytes.extend(u64::MAX.to_be_bytes());
-    listing_bytes.extend(text("seller/雪"));
-    listing_bytes.extend([1]); // ResourceKind::Data
-    listing_bytes.extend(i64::MIN.to_be_bytes());
-    listing_bytes.extend(u64::MAX.to_be_bytes());
-    let mut bids_bytes = b"oasis7.iws.module-artifact-bids.v1\0".to_vec();
-    bids_bytes.extend(2u64.to_be_bytes());
-    bids_bytes.extend(u64::MAX.to_be_bytes());
-    bids_bytes.extend(text("bidder/東京"));
-    bids_bytes.extend([0]); // ResourceKind::Electricity
-    bids_bytes.extend(i64::MIN.to_be_bytes());
-    bids_bytes.extend(0u64.to_be_bytes());
-    bids_bytes.extend(0u64.to_be_bytes());
-    bids_bytes.extend(text("bidder/β"));
-    bids_bytes.extend([1]); // ResourceKind::Data
-    bids_bytes.extend(i64::MAX.to_be_bytes());
-    bids_bytes.extend(u64::MAX.to_be_bytes());
+    let key = [
+        b"oasis7.iws.semantic-key.v1\0".as_slice(),
+        &[1],
+        &2_u64.to_be_bytes(),
+        "é".as_bytes(),
+    ]
+    .concat();
+    let record_root = RecordRootRefV1::new(
+        [7; 32],
+        *blake3::hash(&key).as_bytes(),
+        StateRootV1::empty(Ns::Business).unwrap(),
+    )
+    .unwrap();
+    let record_root_bytes = record_root.canonical_bytes().unwrap().to_vec();
     let cases = [
         (MemberPayloadRefV1::Unit, 1, Vec::new()),
         (
@@ -374,37 +323,11 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
             .concat(),
         ),
         (
-            MemberPayloadRefV1::ModuleVisualEntity(&visual),
+            MemberPayloadRefV1::RecordRoot(&record_root),
             10,
-            visual_bytes,
-        ),
-        (
-            MemberPayloadRefV1::ModuleArtifactListing(&listing),
-            11,
-            listing_bytes,
-        ),
-        (
-            MemberPayloadRefV1::ModuleArtifactBids(&bids),
-            12,
-            bids_bytes,
-        ),
-        (
-            MemberPayloadRefV1::ModuleArtifactBids(&[]),
-            12,
-            [
-                b"oasis7.iws.module-artifact-bids.v1\0".as_slice(),
-                &0u64.to_be_bytes(),
-            ]
-            .concat(),
+            record_root_bytes,
         ),
     ];
-    let key = [
-        b"oasis7.iws.semantic-key.v1\0".as_slice(),
-        &[1],
-        &2_u64.to_be_bytes(),
-        "é".as_bytes(),
-    ]
-    .concat();
     for (payload, codec, payload_bytes) in cases {
         let mut pages = Pages::new(&memory);
         let kind = if codec == 7 {

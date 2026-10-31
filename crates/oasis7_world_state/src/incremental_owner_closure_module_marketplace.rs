@@ -1,18 +1,37 @@
 use super::{OwnerKeyKind, OwnerSemanticKeyProbe, WorldStateOwnerError};
 use crate::{
-    incremental_field_member::{MemberRecordLimitsV1, WorldFieldKeyV1, read_member_record_v1},
+    incremental_field_member::{
+        MemberPayloadCodecV1, MemberRecordLimitsV1, WorldFieldKeyV1, read_member_record_v1,
+    },
     incremental_module_marketplace::ModuleMarketplaceFieldV1,
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
+    incremental_semantic_key::{
+        SemanticKeyBudget, SemanticKeyError, SemanticKeyRefV1, hash_semantic_key_v1,
+        read_semantic_key_v1,
+    },
     incremental_world_field_key::{WorldFieldKeyRefV1, WorldFieldRecordKindV1},
 };
 use oasis7_formal_protocol::{
-    incremental_state::{StateEntryV1, StateNamespaceV1},
+    incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1},
+    incremental_state::{
+        MerkleNodeReader, StateEntryV1, StateNamespaceV1, StateRootV1, StateScanError,
+        StateScanReader,
+    },
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;
-use std::io;
+use std::{
+    cell::RefCell,
+    io::{self, Write},
+};
 
 pub(super) const FIELD_COUNT: u8 = ModuleMarketplaceFieldV1::ALL.len() as u8;
+
+const CHILD_SEMANTIC_CAPACITY: usize = 128;
+const CHILD_BID_FIELDS: u8 = 6;
+const CHILD_BID_MASK: u8 = (1 << CHILD_BID_FIELDS) - 1;
+const CHILD_BID_INDEX_FIELDS: u8 = 6;
+const CHILD_BID_INDEX_MASK: u8 = (1 << CHILD_BID_INDEX_FIELDS) - 1;
 
 pub(super) fn field_from_descriptor(field: FieldDescriptor) -> Option<ModuleMarketplaceFieldV1> {
     ModuleMarketplaceFieldV1::from_name(field.name)
@@ -26,14 +45,1120 @@ pub(super) fn valid_descriptor(field: FieldDescriptor) -> bool {
             .is_some_and(|candidate| candidate.descriptor().ok() == Some(field))
 }
 
-pub(super) fn validate_member<R: ValueNodeReader>(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChildSemantic {
+    Field(&'static str),
+    Bid { bid_id: u64, field: &'static str },
+}
+
+impl ChildSemantic {
+    fn field(self) -> &'static str {
+        match self {
+            Self::Field(field) | Self::Bid { field, .. } => field,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChildPayloadKind {
+    Unit,
+    Bool,
+    U64,
+    I64,
+    Text,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChildValue {
+    Unit,
+    Bool(bool),
+    U64(u64),
+    I64(i64),
+    Text,
+}
+
+fn child_payload_kind(field: &str) -> Option<ChildPayloadKind> {
+    Some(match field {
+        "present" => ChildPayloadKind::Unit,
+        "label_present" => ChildPayloadKind::Bool,
+        "anchor_kind" | "length" | "next_bid_id" | "sequence_root_id" | "index_left_id"
+        | "index_right_id" | "index_left_size" | "index_left_height" | "index_right_size"
+        | "index_right_height" | "order_id" | "price_kind" | "listed_at" | "bid_at" => {
+            ChildPayloadKind::U64
+        }
+        "anchor_x_cm" | "anchor_y_cm" | "anchor_z_cm" | "price_amount" => ChildPayloadKind::I64,
+        "entity_id" | "module_id" | "kind" | "label_text" | "anchor_agent_id"
+        | "anchor_location_id" | "seller_agent_id" | "bidder_agent_id" => ChildPayloadKind::Text,
+        _ => return None,
+    })
+}
+
+fn child_codec(kind: ChildPayloadKind) -> MemberPayloadCodecV1 {
+    match kind {
+        ChildPayloadKind::Unit => MemberPayloadCodecV1::Unit,
+        ChildPayloadKind::Bool => MemberPayloadCodecV1::Bool,
+        ChildPayloadKind::U64 => MemberPayloadCodecV1::U64,
+        ChildPayloadKind::I64 => MemberPayloadCodecV1::I64,
+        ChildPayloadKind::Text => MemberPayloadCodecV1::Text,
+    }
+}
+
+fn static_field(name: &str) -> Option<&'static str> {
+    child_payload_kind(name).map(|_| match name {
+        "present" => "present",
+        "label_present" => "label_present",
+        "anchor_kind" => "anchor_kind",
+        "length" => "length",
+        "next_bid_id" => "next_bid_id",
+        "sequence_root_id" => "sequence_root_id",
+        "index_left_id" => "index_left_id",
+        "index_right_id" => "index_right_id",
+        "index_left_size" => "index_left_size",
+        "index_left_height" => "index_left_height",
+        "index_right_size" => "index_right_size",
+        "index_right_height" => "index_right_height",
+        "order_id" => "order_id",
+        "price_kind" => "price_kind",
+        "listed_at" => "listed_at",
+        "bid_at" => "bid_at",
+        "anchor_x_cm" => "anchor_x_cm",
+        "anchor_y_cm" => "anchor_y_cm",
+        "anchor_z_cm" => "anchor_z_cm",
+        "price_amount" => "price_amount",
+        "entity_id" => "entity_id",
+        "module_id" => "module_id",
+        "kind" => "kind",
+        "label_text" => "label_text",
+        "anchor_agent_id" => "anchor_agent_id",
+        "anchor_location_id" => "anchor_location_id",
+        "seller_agent_id" => "seller_agent_id",
+        "bidder_agent_id" => "bidder_agent_id",
+        _ => unreachable!(),
+    })
+}
+
+fn classify_semantic(bytes: &[u8]) -> Option<ChildSemantic> {
+    match read_semantic_key_v1(bytes).ok()? {
+        SemanticKeyRefV1::Text(field) => Some(ChildSemantic::Field(static_field(field)?)),
+        SemanticKeyRefV1::Pair { left, right } => match (left.decode().ok()?, right.decode().ok()?)
+        {
+            (
+                SemanticKeyRefV1::Pair {
+                    left: bid_name,
+                    right: bid_id,
+                },
+                SemanticKeyRefV1::Text(field),
+            ) if bid_name.decode().ok()? == SemanticKeyRefV1::Text("bid") => {
+                let SemanticKeyRefV1::Unsigned(bid_id) = bid_id.decode().ok()? else {
+                    return None;
+                };
+                Some(ChildSemantic::Bid {
+                    bid_id,
+                    field: static_field(field)?,
+                })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+struct ChildProbe {
+    semantic_bytes: [u8; CHILD_SEMANTIC_CAPACITY],
+    semantic_len: usize,
+    semantic: Option<ChildSemantic>,
+    fixed: [u8; 8],
+    fixed_len: usize,
+    payload_bytes_seen: u64,
+    utf8_pending: [u8; 4],
+    utf8_pending_len: usize,
+    invalid: bool,
+}
+
+impl Default for ChildProbe {
+    fn default() -> Self {
+        Self {
+            semantic_bytes: [0; CHILD_SEMANTIC_CAPACITY],
+            semantic_len: 0,
+            semantic: None,
+            fixed: [0; 8],
+            fixed_len: 0,
+            payload_bytes_seen: 0,
+            utf8_pending: [0; 4],
+            utf8_pending_len: 0,
+            invalid: false,
+        }
+    }
+}
+
+impl ChildProbe {
+    fn push_utf8(&mut self, mut bytes: &[u8]) -> bool {
+        if self.utf8_pending_len != 0 {
+            let width = match self.utf8_pending[0] {
+                0xc2..=0xdf => 2,
+                0xe0..=0xef => 3,
+                0xf0..=0xf4 => 4,
+                _ => return false,
+            };
+            let take = (width - self.utf8_pending_len).min(bytes.len());
+            self.utf8_pending[self.utf8_pending_len..self.utf8_pending_len + take]
+                .copy_from_slice(&bytes[..take]);
+            self.utf8_pending_len += take;
+            bytes = &bytes[take..];
+            if self.utf8_pending_len < width {
+                return true;
+            }
+            if std::str::from_utf8(&self.utf8_pending[..width]).is_err() {
+                return false;
+            }
+            self.utf8_pending_len = 0;
+        }
+        match std::str::from_utf8(bytes) {
+            Ok(_) => true,
+            Err(error) if error.error_len().is_none() => {
+                let tail = &bytes[error.valid_up_to()..];
+                if tail.len() > 3 {
+                    return false;
+                }
+                self.utf8_pending[..tail.len()].copy_from_slice(tail);
+                self.utf8_pending_len = tail.len();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn value(
+        &self,
+        info: crate::incremental_field_member::MemberRecordInfoV1,
+    ) -> Option<ChildValue> {
+        let semantic = self.semantic?;
+        let kind = child_payload_kind(semantic.field())?;
+        if info.codec != child_codec(kind)
+            || info.semantic_bytes != self.semantic_len as u64
+            || info.payload_bytes != self.payload_bytes_seen
+        {
+            return None;
+        }
+        Some(match kind {
+            ChildPayloadKind::Unit if info.payload_bytes == 0 && self.fixed_len == 0 => {
+                ChildValue::Unit
+            }
+            ChildPayloadKind::Bool
+                if info.payload_bytes == 1 && self.fixed_len == 1 && self.fixed[0] <= 1 =>
+            {
+                ChildValue::Bool(self.fixed[0] != 0)
+            }
+            ChildPayloadKind::U64 if info.payload_bytes == 8 && self.fixed_len == 8 => {
+                ChildValue::U64(u64::from_be_bytes(self.fixed))
+            }
+            ChildPayloadKind::I64 if info.payload_bytes == 8 && self.fixed_len == 8 => {
+                ChildValue::I64(i64::from_be_bytes(self.fixed))
+            }
+            ChildPayloadKind::Text if info.payload_bytes > 0 || self.utf8_pending_len == 0 => {
+                if self.utf8_pending_len != 0 {
+                    return None;
+                }
+                ChildValue::Text
+            }
+            _ => return None,
+        })
+    }
+}
+
+struct ChildKeyOutput<'a>(&'a RefCell<ChildProbe>);
+impl Write for ChildKeyOutput<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let mut probe = self.0.borrow_mut();
+        let Some(end) = probe.semantic_len.checked_add(bytes.len()) else {
+            probe.invalid = true;
+            return Err(io::Error::other("market child semantic length"));
+        };
+        if end > probe.semantic_bytes.len() {
+            probe.invalid = true;
+            return Err(io::Error::other("market child semantic bound"));
+        }
+        let start = probe.semantic_len;
+        probe.semantic_bytes[start..end].copy_from_slice(bytes);
+        probe.semantic_len = end;
+        probe.semantic = classify_semantic(&probe.semantic_bytes[..end]);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+struct ChildPayloadOutput<'a>(&'a RefCell<ChildProbe>);
+impl Write for ChildPayloadOutput<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let mut probe = self.0.borrow_mut();
+        let Some(semantic) = probe.semantic else {
+            probe.invalid = true;
+            return Err(io::Error::other("market child semantic profile"));
+        };
+        let Some(kind) = child_payload_kind(semantic.field()) else {
+            probe.invalid = true;
+            return Err(io::Error::other("market child field profile"));
+        };
+        let Some(payload_bytes_seen) = probe.payload_bytes_seen.checked_add(bytes.len() as u64)
+        else {
+            probe.invalid = true;
+            return Err(io::Error::other("market child payload length"));
+        };
+        probe.payload_bytes_seen = payload_bytes_seen;
+        match kind {
+            ChildPayloadKind::Unit => {
+                probe.invalid = true;
+                return Err(io::Error::other("market child unit payload"));
+            }
+            ChildPayloadKind::Text => {
+                if !probe.push_utf8(bytes) {
+                    probe.invalid = true;
+                    return Err(io::Error::other("market child text UTF-8"));
+                }
+            }
+            ChildPayloadKind::Bool | ChildPayloadKind::U64 | ChildPayloadKind::I64 => {
+                let Some(end) = probe.fixed_len.checked_add(bytes.len()) else {
+                    probe.invalid = true;
+                    return Err(io::Error::other("market child fixed payload length"));
+                };
+                if end > probe.fixed.len() {
+                    probe.invalid = true;
+                    return Err(io::Error::other("market child fixed payload length"));
+                }
+                let start = probe.fixed_len;
+                probe.fixed[start..end].copy_from_slice(bytes);
+                probe.fixed_len = end;
+            }
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn read_child_member<R: ValueNodeReader>(
+    entry: &StateEntryV1,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(ChildSemantic, ChildValue), WorldStateOwnerError> {
+    let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(WorldStateOwnerError::Invalid)?;
+    if parsed.owner != FieldOwner::WorldState
+        || parsed.namespace != StateNamespaceV1::Business
+        || parsed.shape != FieldShape::Map
+        || parsed.kind != WorldFieldRecordKindV1::Entry
+        || parsed.name != field.name
+        || entry.namespace != StateNamespaceV1::Business
+    {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace child descriptor binding",
+        ));
+    }
+    let key = WorldFieldKeyV1::new(field, parsed.kind, parsed.semantic_key)
+        .map_err(WorldStateOwnerError::Invalid)?;
+    if key.as_bytes() != entry.key.as_slice() {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace child key mismatch",
+        ));
+    }
+    let probe = RefCell::new(ChildProbe::default());
+    let info = read_member_record_v1(
+        &entry.value,
+        &key,
+        values,
+        MemberRecordLimitsV1 {
+            semantic_bytes: max_value_bytes,
+            payload_bytes: max_value_bytes,
+            record_bytes: max_value_bytes,
+        },
+        &mut ChildKeyOutput(&probe),
+        &mut ChildPayloadOutput(&probe),
+        &mut *cancelled,
+    );
+    let probe = probe.into_inner();
+    if probe.invalid {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace child member framing",
+        ));
+    }
+    let info = info.map_err(WorldStateOwnerError::Value)?;
+    let semantic = probe.semantic.ok_or(WorldStateOwnerError::Invalid(
+        "module marketplace child semantic key",
+    ))?;
+    let value = probe.value(info).ok_or(WorldStateOwnerError::Invalid(
+        "module marketplace child payload profile",
+    ))?;
+    Ok((semantic, value))
+}
+
+fn map_scan_error(error: StateScanError<WorldStateOwnerError>) -> WorldStateOwnerError {
+    match error {
+        StateScanError::Visitor(error) => error,
+        StateScanError::Tree(error) => WorldStateOwnerError::Scan(error),
+        StateScanError::Memory(error) => WorldStateOwnerError::Memory(error),
+        StateScanError::Invalid(error) => WorldStateOwnerError::Invalid(error),
+        StateScanError::ResourceLimited => {
+            WorldStateOwnerError::ResourceLimited("module marketplace child scan")
+        }
+        StateScanError::Cancelled => WorldStateOwnerError::Value(ValueTreeError::Cancelled),
+    }
+}
+
+fn make_text_key<R: ValueNodeReader>(
+    field: FieldDescriptor,
+    text: &'static str,
+    values: &ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<WorldFieldKeyV1, WorldStateOwnerError> {
+    let key = hash_semantic_key_v1(text, values.memory, values.class, key_work, &mut *cancelled)
+        .map_err(|error| match error {
+            SemanticKeyError::Memory(error) => WorldStateOwnerError::Memory(error),
+            SemanticKeyError::ResourceLimited => {
+                WorldStateOwnerError::ResourceLimited("module marketplace semantic key")
+            }
+            SemanticKeyError::Cancelled => WorldStateOwnerError::Value(ValueTreeError::Cancelled),
+            SemanticKeyError::Invalid(reason) => WorldStateOwnerError::Invalid(reason),
+        })?;
+    if key.encoded_bytes > max_value_bytes {
+        return Err(WorldStateOwnerError::ResourceLimited(
+            "module marketplace semantic key",
+        ));
+    }
+    WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Entry, Some(key.digest))
+        .map_err(WorldStateOwnerError::Invalid)
+}
+
+fn validate_child_entries<M, V, C, F>(
+    child: &StateRootV1,
+    state_reader: &StateScanReader<'_, M, C>,
+    descriptor: FieldDescriptor,
+    values: &mut ValueReadContext<'_, V>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+    mut visit: F,
+) -> Result<u64, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+    F: FnMut(ChildSemantic, ChildValue) -> Result<(), WorldStateOwnerError>,
+{
+    state_reader
+        .visit_entries(child, |entry| {
+            let (semantic, value) =
+                read_child_member(entry, descriptor, values, max_value_bytes, cancelled)?;
+            visit(semantic, value)
+        })
+        .map_err(map_scan_error)
+}
+
+fn read_outer_child<R: ValueNodeReader>(
+    owner: ModuleMarketplaceFieldV1,
     field: FieldDescriptor,
     entry: &StateEntryV1,
     parsed: WorldFieldKeyRefV1<'_>,
     values: &mut ValueReadContext<'_, R>,
     max_value_bytes: u64,
     cancelled: &mut impl FnMut() -> bool,
-) -> Result<(), WorldStateOwnerError> {
+) -> Result<StateRootV1, WorldStateOwnerError> {
+    let key = WorldFieldKeyV1::new(field, parsed.kind, parsed.semantic_key)
+        .map_err(WorldStateOwnerError::Invalid)?;
+    if key.as_bytes() != entry.key.as_slice() {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace outer field key mismatch",
+        ));
+    }
+    let mut outer_key = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, max_value_bytes);
+    let mut bytes = [0; RECORD_ROOT_BYTES];
+    let info = read_member_record_v1(
+        &entry.value,
+        &key,
+        values,
+        MemberRecordLimitsV1 {
+            semantic_bytes: max_value_bytes,
+            payload_bytes: RECORD_ROOT_BYTES as u64,
+            record_bytes: max_value_bytes,
+        },
+        &mut outer_key,
+        &mut &mut bytes[..],
+        &mut *cancelled,
+    );
+    if outer_key.invalid {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace outer semantic key",
+        ));
+    }
+    let info = info.map_err(WorldStateOwnerError::Value)?;
+    if !outer_key.finish() {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace outer semantic key framing",
+        ));
+    }
+    if info.codec != MemberPayloadCodecV1::RecordRoot
+        || info.payload_bytes != RECORD_ROOT_BYTES as u64
+    {
+        return Err(WorldStateOwnerError::Invalid(
+            "module marketplace outer record-root profile",
+        ));
+    }
+    let reference = RecordRootRefV1::from_canonical_bytes(&bytes)
+        .map_err(|_| WorldStateOwnerError::Invalid("module marketplace record root"))?;
+    let digest = parsed.semantic_key.ok_or(WorldStateOwnerError::Invalid(
+        "module marketplace owner digest missing",
+    ))?;
+    let child = reference
+        .validate_binding(&owner.schema(), &digest, StateNamespaceV1::Business)
+        .map_err(|_| WorldStateOwnerError::Invalid("module marketplace root binding"))?
+        .clone();
+    Ok(child)
+}
+
+fn validate_visual<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, V>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    const ENTITY: u16 = 1 << 0;
+    const MODULE: u16 = 1 << 1;
+    const KIND: u16 = 1 << 2;
+    const LABEL_PRESENT: u16 = 1 << 3;
+    const ANCHOR_KIND: u16 = 1 << 4;
+    const LABEL_TEXT: u16 = 1 << 5;
+    const AGENT_ID: u16 = 1 << 6;
+    const LOCATION_ID: u16 = 1 << 7;
+    const X: u16 = 1 << 8;
+    const Y: u16 = 1 << 9;
+    const Z: u16 = 1 << 10;
+
+    let mut seen = 0u16;
+    let mut label_present = None;
+    let mut anchor_kind = None;
+    validate_child_entries(
+        child,
+        reader,
+        field,
+        values,
+        max_value_bytes,
+        cancelled,
+        |semantic, value| {
+            let ChildSemantic::Field(name) = semantic else {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module visual unexpected pair key",
+                ));
+            };
+            let (bit, expected_kind) = match name {
+                "entity_id" => (ENTITY, ChildPayloadKind::Text),
+                "module_id" => (MODULE, ChildPayloadKind::Text),
+                "kind" => (KIND, ChildPayloadKind::Text),
+                "label_present" => (LABEL_PRESENT, ChildPayloadKind::Bool),
+                "anchor_kind" => (ANCHOR_KIND, ChildPayloadKind::U64),
+                "label_text" => (LABEL_TEXT, ChildPayloadKind::Text),
+                "anchor_agent_id" => (AGENT_ID, ChildPayloadKind::Text),
+                "anchor_location_id" => (LOCATION_ID, ChildPayloadKind::Text),
+                "anchor_x_cm" => (X, ChildPayloadKind::I64),
+                "anchor_y_cm" => (Y, ChildPayloadKind::I64),
+                "anchor_z_cm" => (Z, ChildPayloadKind::I64),
+                _ => {
+                    return Err(WorldStateOwnerError::Invalid(
+                        "module visual unknown child field",
+                    ));
+                }
+            };
+            if seen & bit != 0 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module visual duplicate child field",
+                ));
+            }
+            if child_payload_kind(name) != Some(expected_kind) {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module visual field codec table",
+                ));
+            }
+            match (name, value) {
+                ("label_present", ChildValue::Bool(value)) => label_present = Some(value),
+                ("anchor_kind", ChildValue::U64(value)) if value <= 2 => anchor_kind = Some(value),
+                ("anchor_kind", _) => {
+                    return Err(WorldStateOwnerError::Invalid("module visual anchor kind"));
+                }
+                (
+                    "entity_id" | "module_id" | "kind" | "label_text" | "anchor_agent_id"
+                    | "anchor_location_id",
+                    ChildValue::Text,
+                )
+                | ("anchor_x_cm" | "anchor_y_cm" | "anchor_z_cm", ChildValue::I64(_)) => {}
+                _ => {
+                    return Err(WorldStateOwnerError::Invalid(
+                        "module visual child value kind",
+                    ));
+                }
+            }
+            seen |= bit;
+            Ok(())
+        },
+    )?;
+    let mut expected = ENTITY | MODULE | KIND | LABEL_PRESENT | ANCHOR_KIND;
+    if label_present == Some(true) {
+        expected |= LABEL_TEXT;
+    }
+    match anchor_kind {
+        Some(0) => expected |= AGENT_ID,
+        Some(1) => expected |= LOCATION_ID,
+        Some(2) => expected |= X | Y | Z,
+        _ => {
+            return Err(WorldStateOwnerError::Invalid(
+                "module visual required anchor kind missing",
+            ));
+        }
+    }
+    if label_present.is_none() || seen != expected {
+        return Err(WorldStateOwnerError::Invalid("module visual child closure"));
+    }
+    Ok(())
+}
+
+fn validate_listing<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, V>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let mut seen = 0u8;
+    validate_child_entries(
+        child,
+        reader,
+        field,
+        values,
+        max_value_bytes,
+        cancelled,
+        |semantic, value| {
+            let ChildSemantic::Field(name) = semantic else {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module listing unexpected pair key",
+                ));
+            };
+            let (bit, expected_kind) = match name {
+                "order_id" => (1 << 0, ChildPayloadKind::U64),
+                "seller_agent_id" => (1 << 1, ChildPayloadKind::Text),
+                "price_kind" => (1 << 2, ChildPayloadKind::U64),
+                "price_amount" => (1 << 3, ChildPayloadKind::I64),
+                "listed_at" => (1 << 4, ChildPayloadKind::U64),
+                _ => {
+                    return Err(WorldStateOwnerError::Invalid(
+                        "module listing unknown child field",
+                    ));
+                }
+            };
+            if seen & bit != 0 || child_payload_kind(name) != Some(expected_kind) {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module listing duplicate/profile",
+                ));
+            }
+            let valid_value = match (name, value) {
+                ("order_id" | "listed_at", ChildValue::U64(_))
+                | ("seller_agent_id", ChildValue::Text)
+                | ("price_amount", ChildValue::I64(_)) => true,
+                ("price_kind", ChildValue::U64(value)) => value <= 1,
+                _ => false,
+            };
+            if !valid_value {
+                return Err(WorldStateOwnerError::Invalid("module listing child value"));
+            }
+            seen |= bit;
+            Ok(())
+        },
+    )?;
+    if seen != 0b1_1111 {
+        return Err(WorldStateOwnerError::Invalid(
+            "module listing child closure",
+        ));
+    }
+    Ok(())
+}
+
+fn read_bid_length<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, V>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<u64, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let key = make_text_key(
+        field,
+        "length",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    let root = child
+        .get(key.as_bytes(), reader)
+        .map_err(WorldStateOwnerError::Scan)?
+        .ok_or(WorldStateOwnerError::Invalid("module bids length missing"))?;
+    let entry = StateEntryV1 {
+        namespace: child.namespace,
+        key: key.as_bytes().to_vec(),
+        value: root,
+    };
+    let (semantic, value) = read_child_member(&entry, field, values, max_value_bytes, cancelled)?;
+    if semantic != ChildSemantic::Field("length") {
+        return Err(WorldStateOwnerError::Invalid("module bids length key"));
+    }
+    match value {
+        ChildValue::U64(length) => Ok(length),
+        _ => Err(WorldStateOwnerError::Invalid("module bids length value")),
+    }
+}
+
+fn read_bid_scalar<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    name: &'static str,
+    values: &mut ValueReadContext<'_, V>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<u64, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let key = make_text_key(field, name, values, key_work, max_value_bytes, cancelled)?;
+    let root = child
+        .get(key.as_bytes(), reader)
+        .map_err(WorldStateOwnerError::Scan)?
+        .ok_or(WorldStateOwnerError::Invalid("module bids scalar missing"))?;
+    let entry = StateEntryV1 {
+        namespace: child.namespace,
+        key: key.as_bytes().to_vec(),
+        value: root,
+    };
+    let (semantic, value) = read_child_member(&entry, field, values, max_value_bytes, cancelled)?;
+    if semantic != ChildSemantic::Field(name) {
+        return Err(WorldStateOwnerError::Invalid("module bids scalar key"));
+    }
+    match value {
+        ChildValue::U64(value) => Ok(value),
+        _ => Err(WorldStateOwnerError::Invalid("module bids scalar value")),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BidFieldRow {
+    bid_id: u64,
+    bit: u8,
+}
+
+#[derive(Clone, Copy)]
+struct BidIndexFieldRow {
+    bid_id: u64,
+    bit: u8,
+    value: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BidIndexRow {
+    bid_id: u64,
+    left_id: u64,
+    right_id: u64,
+    left_size: u64,
+    left_height: u64,
+    right_size: u64,
+    right_height: u64,
+}
+
+impl BidIndexRow {
+    fn node(self) -> crate::incremental_module_marketplace::bid_index::BidIndexNodeV1 {
+        crate::incremental_module_marketplace::bid_index::BidIndexNodeV1 {
+            left_id: self.left_id,
+            right_id: self.right_id,
+            left_size: self.left_size,
+            left_height: self.left_height,
+            right_size: self.right_size,
+            right_height: self.right_height,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BidIndexSummary {
+    size: u64,
+    height: u64,
+}
+
+fn validate_bid_index_tree(
+    id: u64,
+    depth: usize,
+    nodes: &[BidIndexRow],
+    marks: &mut [u8],
+) -> Result<BidIndexSummary, WorldStateOwnerError> {
+    use crate::incremental_module_marketplace::bid_index::NO_BID_ID;
+    if id == NO_BID_ID {
+        return Ok(BidIndexSummary { size: 0, height: 0 });
+    }
+    if depth >= crate::incremental_module_marketplace::bid_index::MAX_BID_INDEX_DEPTH {
+        return Err(WorldStateOwnerError::ResourceLimited(
+            "module bid AVL depth",
+        ));
+    }
+    let index = nodes
+        .binary_search_by_key(&id, |node| node.bid_id)
+        .map_err(|_| WorldStateOwnerError::Invalid("module bid AVL dangling link"))?;
+    if marks[index] != 0 {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid AVL cycle or shared child",
+        ));
+    }
+    marks[index] = 1;
+    let node = nodes[index];
+    let left = validate_bid_index_tree(node.left_id, depth + 1, nodes, marks)?;
+    let right = validate_bid_index_tree(node.right_id, depth + 1, nodes, marks)?;
+    if (node.left_id == NO_BID_ID) != (node.left_size == 0 && node.left_height == 0)
+        || (node.right_id == NO_BID_ID) != (node.right_size == 0 && node.right_height == 0)
+        || node.left_size != left.size
+        || node.left_height != left.height
+        || node.right_size != right.size
+        || node.right_height != right.height
+        || left.height.abs_diff(right.height) > 1
+    {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid AVL cached summary or balance",
+        ));
+    }
+    marks[index] = 2;
+    Ok(BidIndexSummary {
+        size: 1u64
+            .checked_add(left.size)
+            .and_then(|size| size.checked_add(right.size))
+            .ok_or(WorldStateOwnerError::Invalid(
+                "module bid AVL size overflow",
+            ))?,
+        height: 1u64.checked_add(left.height.max(right.height)).ok_or(
+            WorldStateOwnerError::Invalid("module bid AVL height overflow"),
+        )?,
+    })
+}
+
+fn validate_bids<M, V, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, V>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let length = read_bid_length(
+        child,
+        reader,
+        field,
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    let next_bid_id = read_bid_scalar(
+        child,
+        reader,
+        field,
+        "next_bid_id",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    let sequence_root_id = read_bid_scalar(
+        child,
+        reader,
+        field,
+        "sequence_root_id",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    if next_bid_id < length {
+        return Err(WorldStateOwnerError::Invalid("module bids next ID"));
+    }
+    let expected_leaves = length
+        .checked_mul(u64::from(CHILD_BID_FIELDS + CHILD_BID_INDEX_FIELDS))
+        .and_then(|count| count.checked_add(3))
+        .ok_or(WorldStateOwnerError::Invalid(
+            "module bids leaf count overflow",
+        ))?;
+    if expected_leaves != child.leaf_count {
+        return Err(WorldStateOwnerError::Invalid("module bids leaf count"));
+    }
+    let count = usize::try_from(length)
+        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bids count"))?;
+    let field_count = count
+        .checked_mul(usize::from(CHILD_BID_FIELDS))
+        .ok_or(WorldStateOwnerError::ResourceLimited("module bids fields"))?;
+    let field_bytes = field_count
+        .checked_mul(std::mem::size_of::<BidFieldRow>())
+        .ok_or(WorldStateOwnerError::ResourceLimited("module bids fields"))?;
+    let index_field_count = count
+        .checked_mul(usize::from(CHILD_BID_INDEX_FIELDS))
+        .ok_or(WorldStateOwnerError::ResourceLimited(
+            "module bid index fields",
+        ))?;
+    let index_field_bytes = index_field_count
+        .checked_mul(std::mem::size_of::<BidIndexFieldRow>())
+        .ok_or(WorldStateOwnerError::ResourceLimited(
+            "module bid index fields",
+        ))?;
+    let node_bytes = count
+        .checked_mul(std::mem::size_of::<BidIndexRow>())
+        .ok_or(WorldStateOwnerError::ResourceLimited(
+            "module bid AVL nodes",
+        ))?;
+    let marks_bytes = count.checked_mul(std::mem::size_of::<u8>()).ok_or(
+        WorldStateOwnerError::ResourceLimited("module bid AVL marks"),
+    )?;
+    let reservation_bytes = field_bytes
+        .checked_add(index_field_bytes)
+        .and_then(|bytes| bytes.checked_add(node_bytes))
+        .and_then(|bytes| bytes.checked_add(marks_bytes))
+        .ok_or(WorldStateOwnerError::ResourceLimited("module bids closure"))?
+        .max(1);
+    let _rows_charge = values
+        .memory
+        .reserve(reservation_bytes, MemoryClass::Ordinary)
+        .map_err(WorldStateOwnerError::Memory)?;
+    let mut fields = Vec::new();
+    fields
+        .try_reserve_exact(field_count)
+        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bids fields"))?;
+    let mut index_fields = Vec::new();
+    index_fields
+        .try_reserve_exact(index_field_count)
+        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bid index fields"))?;
+    let mut nodes = Vec::new();
+    nodes
+        .try_reserve_exact(count)
+        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bid AVL nodes"))?;
+    let mut marks = Vec::new();
+    marks
+        .try_reserve_exact(count)
+        .map_err(|_| WorldStateOwnerError::ResourceLimited("module bid AVL marks"))?;
+    if fields.capacity() * std::mem::size_of::<BidFieldRow>() > field_bytes
+        || index_fields.capacity() * std::mem::size_of::<BidIndexFieldRow>() > index_field_bytes
+        || nodes.capacity() * std::mem::size_of::<BidIndexRow>() > node_bytes
+        || marks.capacity() * std::mem::size_of::<u8>() > marks_bytes
+    {
+        return Err(WorldStateOwnerError::Invalid("module bids row admission"));
+    }
+    marks.resize(count, 0);
+    validate_child_entries(
+        child,
+        reader,
+        field,
+        values,
+        max_value_bytes,
+        cancelled,
+        |semantic, value| match semantic {
+            ChildSemantic::Field("length") if value == ChildValue::U64(length) => Ok(()),
+            ChildSemantic::Field("length") => Err(WorldStateOwnerError::Invalid(
+                "module bids length changed during scan",
+            )),
+            ChildSemantic::Field("next_bid_id") if value == ChildValue::U64(next_bid_id) => Ok(()),
+            ChildSemantic::Field("next_bid_id") => Err(WorldStateOwnerError::Invalid(
+                "module bids next ID changed during scan",
+            )),
+            ChildSemantic::Field("sequence_root_id")
+                if value == ChildValue::U64(sequence_root_id) =>
+            {
+                Ok(())
+            }
+            ChildSemantic::Field("sequence_root_id") => Err(WorldStateOwnerError::Invalid(
+                "module bids sequence root changed during scan",
+            )),
+            ChildSemantic::Field(_) => Err(WorldStateOwnerError::Invalid(
+                "module bids unexpected scalar child",
+            )),
+            ChildSemantic::Bid {
+                bid_id,
+                field: name,
+            } => {
+                if bid_id >= next_bid_id {
+                    return Err(WorldStateOwnerError::Invalid("module bid ID range"));
+                }
+                if let Some(bit) = match name {
+                    "index_left_id" => Some(1 << 0),
+                    "index_right_id" => Some(1 << 1),
+                    "index_left_size" => Some(1 << 2),
+                    "index_left_height" => Some(1 << 3),
+                    "index_right_size" => Some(1 << 4),
+                    "index_right_height" => Some(1 << 5),
+                    _ => None,
+                } {
+                    let ChildValue::U64(value) = value else {
+                        return Err(WorldStateOwnerError::Invalid("module bid AVL field type"));
+                    };
+                    index_fields.push(BidIndexFieldRow { bid_id, bit, value });
+                    return Ok(());
+                }
+                let bit = match (name, value) {
+                    ("present", ChildValue::Unit) => 1 << 0,
+                    ("order_id" | "bid_at", ChildValue::U64(_)) => {
+                        if name == "order_id" {
+                            1 << 1
+                        } else {
+                            1 << 5
+                        }
+                    }
+                    ("bidder_agent_id", ChildValue::Text) => 1 << 2,
+                    ("price_kind", ChildValue::U64(kind)) if kind <= 1 => 1 << 3,
+                    ("price_amount", ChildValue::I64(_)) => 1 << 4,
+                    _ => return Err(WorldStateOwnerError::Invalid("module bid field profile")),
+                };
+                fields.push(BidFieldRow { bid_id, bit });
+                Ok(())
+            }
+        },
+    )?;
+    if fields.len() != field_count || index_fields.len() != index_field_count {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid membership counts",
+        ));
+    }
+    fields.sort_unstable_by_key(|field| (field.bid_id, field.bit));
+    let mut index = 0usize;
+    while index < fields.len() {
+        let bid_id = fields[index].bid_id;
+        let mut mask = 0u8;
+        while index < fields.len() && fields[index].bid_id == bid_id {
+            let field = fields[index];
+            if mask & field.bit != 0 {
+                return Err(WorldStateOwnerError::Invalid("module bid duplicate field"));
+            }
+            mask |= field.bit;
+            index += 1;
+        }
+        if mask != CHILD_BID_MASK {
+            return Err(WorldStateOwnerError::Invalid("module bid record closure"));
+        }
+    }
+    index_fields.sort_unstable_by_key(|field| (field.bid_id, field.bit));
+    let mut index = 0usize;
+    while index < index_fields.len() {
+        let bid_id = index_fields[index].bid_id;
+        let mut mask = 0u8;
+        let mut values = [0u64; CHILD_BID_INDEX_FIELDS as usize];
+        while index < index_fields.len() && index_fields[index].bid_id == bid_id {
+            let field = index_fields[index];
+            if mask & field.bit != 0 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module bid AVL duplicate field",
+                ));
+            }
+            mask |= field.bit;
+            values[field.bit.trailing_zeros() as usize] = field.value;
+            index += 1;
+        }
+        if mask != CHILD_BID_INDEX_MASK {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL node closure"));
+        }
+        if nodes.len() == count {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL node count"));
+        }
+        nodes.push(BidIndexRow {
+            bid_id,
+            left_id: values[0],
+            right_id: values[1],
+            left_size: values[2],
+            left_height: values[3],
+            right_size: values[4],
+            right_height: values[5],
+        });
+    }
+    if nodes.len() != count {
+        return Err(WorldStateOwnerError::Invalid("module bid AVL node count"));
+    }
+    nodes.sort_unstable_by_key(|node| node.bid_id);
+    fields.sort_unstable_by_key(|field| field.bid_id);
+    if fields
+        .chunks_exact(usize::from(CHILD_BID_FIELDS))
+        .zip(nodes.iter())
+        .any(|(fields, node)| {
+            fields
+                .first()
+                .is_none_or(|field| field.bid_id != node.bid_id)
+        })
+    {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid payload/index identity closure",
+        ));
+    }
+    use crate::incremental_module_marketplace::bid_index::NO_BID_ID;
+    if length == 0 {
+        if sequence_root_id != NO_BID_ID || !nodes.is_empty() {
+            return Err(WorldStateOwnerError::Invalid("module bid empty AVL root"));
+        }
+    } else {
+        if sequence_root_id == NO_BID_ID || sequence_root_id >= next_bid_id {
+            return Err(WorldStateOwnerError::Invalid("module bid AVL root ID"));
+        }
+        let summary = validate_bid_index_tree(sequence_root_id, 0, &nodes, &mut marks)?;
+        if summary.size != length || marks.iter().any(|mark| *mark != 2) {
+            return Err(WorldStateOwnerError::Invalid(
+                "module bid AVL reachability/count",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_member<M, R, C>(
+    field: FieldDescriptor,
+    entry: &StateEntryV1,
+    parsed: WorldFieldKeyRefV1<'_>,
+    state_reader: &StateScanReader<'_, M, C>,
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
     let Some(owner) = field_from_descriptor(field) else {
         return Err(WorldStateOwnerError::Invalid(
             "module marketplace field descriptor",
@@ -51,220 +1176,48 @@ pub(super) fn validate_member<R: ValueNodeReader>(
             "module marketplace descriptor/member binding",
         ));
     }
-    let key = WorldFieldKeyV1::new(field, parsed.kind, parsed.semantic_key)
-        .map_err(WorldStateOwnerError::Invalid)?;
-    if key.as_bytes() != entry.key.as_slice() {
+    if !state_reader.source_matches(values.memory, values.class) {
         return Err(WorldStateOwnerError::Invalid(
-            "module marketplace field key mismatch",
+            "module marketplace state/value pool binding",
         ));
     }
-    let codec = owner.codec();
-    let limits = MemberRecordLimitsV1 {
-        semantic_bytes: max_value_bytes,
-        payload_bytes: max_value_bytes,
-        record_bytes: max_value_bytes,
-    };
-    let mut key_probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, max_value_bytes);
-    let mut discard = io::sink();
-    let info = read_member_record_v1(
-        &entry.value,
-        &key,
-        values,
-        limits,
-        &mut key_probe,
-        &mut discard,
-        &mut *cancelled,
-    );
-    if key_probe.invalid {
-        return Err(WorldStateOwnerError::Invalid(
-            "module marketplace semantic key profile",
-        ));
-    }
-    let info = info.map_err(WorldStateOwnerError::Value)?;
-    if !key_probe.finish() {
-        return Err(WorldStateOwnerError::Invalid(
-            "module marketplace semantic key framing",
-        ));
-    }
-    if info.codec != codec {
-        return Err(WorldStateOwnerError::Invalid(
-            "module marketplace payload codec",
-        ));
-    }
-    validate_payload(
+    let child = read_outer_child(
         owner,
-        info.payload_bytes,
-        &entry.value,
-        &key,
+        field,
+        entry,
+        parsed,
         values,
         max_value_bytes,
         cancelled,
-    )
-}
-
-fn validate_payload<R: ValueNodeReader>(
-    owner: ModuleMarketplaceFieldV1,
-    payload_bytes: u64,
-    value: &[u8; 32],
-    key: &WorldFieldKeyV1,
-    values: &mut ValueReadContext<'_, R>,
-    max_value_bytes: u64,
-    cancelled: &mut impl FnMut() -> bool,
-) -> Result<(), WorldStateOwnerError> {
-    if payload_bytes > max_value_bytes {
-        return Err(WorldStateOwnerError::ResourceLimited(
-            "module marketplace payload",
-        ));
-    }
-    let payload_len = usize::try_from(payload_bytes)
-        .map_err(|_| WorldStateOwnerError::Invalid("module marketplace payload length"))?;
-    let charge = values
-        .memory
-        .reserve(payload_len, values.class)
-        .map_err(WorldStateOwnerError::Memory)?;
-    let mut payload = Vec::new();
-    payload
-        .try_reserve_exact(payload_len)
-        .map_err(|_| WorldStateOwnerError::ResourceLimited("module marketplace payload"))?;
-    if payload.capacity() > charge.bytes() {
-        return Err(WorldStateOwnerError::Invalid(
-            "module marketplace payload allocation",
-        ));
-    }
-    payload.resize(payload_len, 0);
-    let mut key_probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, max_value_bytes);
-    let info = read_member_record_v1(
-        value,
-        key,
-        values,
-        MemberRecordLimitsV1 {
-            semantic_bytes: max_value_bytes,
-            payload_bytes: max_value_bytes,
-            record_bytes: max_value_bytes,
-        },
-        &mut key_probe,
-        &mut payload.as_mut_slice(),
-        &mut *cancelled,
-    )
-    .map_err(WorldStateOwnerError::Value)?;
-    if key_probe.invalid || !key_probe.finish() {
-        return Err(WorldStateOwnerError::Invalid(
-            "module marketplace semantic key framing",
-        ));
-    }
-    if info.codec != owner.codec()
-        || info.payload_bytes != payload_bytes
-        || !validate_typed_payload(owner, &payload)
-    {
-        return Err(WorldStateOwnerError::Invalid(
-            "module marketplace typed payload",
-        ));
-    }
-    if cancelled() {
-        return Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled));
-    }
-    Ok(())
-}
-
-fn validate_typed_payload(owner: ModuleMarketplaceFieldV1, bytes: &[u8]) -> bool {
+    )?;
+    let mut key_work = SemanticKeyBudget {
+        bytes_remaining: max_value_bytes,
+    };
     match owner {
-        ModuleMarketplaceFieldV1::VisualEntities => parse_visual_entity(bytes),
-        ModuleMarketplaceFieldV1::ArtifactListings => parse_artifact_listing(bytes),
-        ModuleMarketplaceFieldV1::ArtifactBids => parse_artifact_bids(bytes),
+        ModuleMarketplaceFieldV1::VisualEntities => validate_visual(
+            &child,
+            state_reader,
+            field,
+            values,
+            max_value_bytes,
+            cancelled,
+        ),
+        ModuleMarketplaceFieldV1::ArtifactListings => validate_listing(
+            &child,
+            state_reader,
+            field,
+            values,
+            max_value_bytes,
+            cancelled,
+        ),
+        ModuleMarketplaceFieldV1::ArtifactBids => validate_bids(
+            &child,
+            state_reader,
+            field,
+            values,
+            &mut key_work,
+            max_value_bytes,
+            cancelled,
+        ),
     }
-}
-
-fn take<'a>(bytes: &mut &'a [u8], length: usize) -> Option<&'a [u8]> {
-    let (prefix, suffix) = bytes.split_at_checked(length)?;
-    *bytes = suffix;
-    Some(prefix)
-}
-fn u8_value(bytes: &mut &[u8]) -> Option<u8> {
-    Some(*take(bytes, 1)?.first()?)
-}
-fn u64_value(bytes: &mut &[u8]) -> Option<u64> {
-    Some(u64::from_be_bytes(take(bytes, 8)?.try_into().ok()?))
-}
-fn i64_value(bytes: &mut &[u8]) -> Option<i64> {
-    Some(i64::from_be_bytes(take(bytes, 8)?.try_into().ok()?))
-}
-fn text(bytes: &mut &[u8]) -> Option<()> {
-    let length = usize::try_from(u64_value(bytes)?).ok()?;
-    std::str::from_utf8(take(bytes, length)?).ok()?;
-    Some(())
-}
-fn resource_tag(bytes: &mut &[u8]) -> Option<()> {
-    match u8_value(bytes)? {
-        0 | 1 => Some(()),
-        _ => None,
-    }
-}
-fn starts_with_domain(bytes: &mut &[u8], domain: &[u8]) -> bool {
-    take(bytes, domain.len()).is_some_and(|found| found == domain)
-}
-fn no_trailing(bytes: &[u8]) -> bool {
-    bytes.is_empty()
-}
-
-fn parse_visual_entity(mut bytes: &[u8]) -> bool {
-    if !starts_with_domain(
-        &mut bytes,
-        crate::incremental_field_member::MODULE_VISUAL_ENTITY_DOMAIN,
-    ) {
-        return false;
-    }
-    if text(&mut bytes).is_none() || text(&mut bytes).is_none() || text(&mut bytes).is_none() {
-        return false;
-    }
-    match u8_value(&mut bytes) {
-        Some(0) => {}
-        Some(1) if text(&mut bytes).is_some() => {}
-        _ => return false,
-    }
-    let anchor_valid = match u8_value(&mut bytes) {
-        Some(0 | 1) => text(&mut bytes).is_some(),
-        Some(2) => {
-            i64_value(&mut bytes).is_some()
-                && i64_value(&mut bytes).is_some()
-                && i64_value(&mut bytes).is_some()
-        }
-        _ => false,
-    };
-    anchor_valid && no_trailing(bytes)
-}
-fn parse_artifact_listing(mut bytes: &[u8]) -> bool {
-    starts_with_domain(
-        &mut bytes,
-        crate::incremental_field_member::MODULE_ARTIFACT_LISTING_DOMAIN,
-    ) && u64_value(&mut bytes).is_some()
-        && text(&mut bytes).is_some()
-        && resource_tag(&mut bytes).is_some()
-        && i64_value(&mut bytes).is_some()
-        && u64_value(&mut bytes).is_some()
-        && no_trailing(bytes)
-}
-fn parse_artifact_bids(mut bytes: &[u8]) -> bool {
-    if !starts_with_domain(
-        &mut bytes,
-        crate::incremental_field_member::MODULE_ARTIFACT_BIDS_DOMAIN,
-    ) {
-        return false;
-    }
-    let Some(count) = u64_value(&mut bytes) else {
-        return false;
-    };
-    if count > (bytes.len() as u64) / 33 {
-        return false;
-    }
-    for _ in 0..count {
-        if u64_value(&mut bytes).is_none()
-            || text(&mut bytes).is_none()
-            || resource_tag(&mut bytes).is_none()
-            || i64_value(&mut bytes).is_none()
-            || u64_value(&mut bytes).is_none()
-        {
-            return false;
-        }
-    }
-    no_trailing(bytes)
 }

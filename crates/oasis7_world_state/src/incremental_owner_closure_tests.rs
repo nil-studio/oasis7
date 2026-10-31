@@ -11,6 +11,7 @@ use crate::{
     incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1, write_semantic_key_v1},
 };
 use oasis7_formal_protocol::{
+    incremental_record_root::RecordRootRefV1,
     incremental_state::{
         MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StateRootV1, StateScanBudget,
         StateWriteV1,
@@ -131,6 +132,9 @@ enum FixtureIssue {
     WrongModuleMarketplaceKey,
     WrongModuleMarketplaceCodec,
     InvalidModuleMarketplacePayload,
+    MissingModuleMarketplaceChild,
+    UnknownModuleMarketplaceChild,
+    WrongModuleMarketplaceChildCount,
     EmptyModuleMarketplaceMaps,
     MissingInstalledTargetMetadata,
     WrongInstalledTargetKey,
@@ -149,6 +153,7 @@ enum FixtureIssue {
 struct FixtureWriteContext<'a> {
     values: &'a mut ValuePages,
     memory: &'a MemoryBudget,
+    state: &'a StatePages,
     value_io: &'a mut ValueIoBudget,
     key_work: &'a mut SemanticKeyBudget,
     writes: &'a mut BTreeMap<StateNamespaceV1, Vec<StateWriteV1>>,
@@ -187,7 +192,7 @@ fn marketplace_bids() -> Vec<crate::state::ModuleArtifactBidState> {
             bid_at: 0,
         },
         crate::state::ModuleArtifactBidState {
-            order_id: 0,
+            order_id: u64::MAX,
             bidder_agent_id: "bidder/β".into(),
             price_kind: oasis7_agent_api::world_action::ResourceKind::Data,
             price_amount: i64::MAX,
@@ -198,13 +203,13 @@ fn marketplace_bids() -> Vec<crate::state::ModuleArtifactBidState> {
 }
 
 impl FixtureWriteContext<'_> {
-    fn append_member<K: SemanticKeyV1 + ?Sized>(
+    fn make_member<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         field: FieldDescriptor,
         kind: WorldFieldRecordKindV1,
         key: &K,
         payload: MemberPayloadRefV1<'_>,
-    ) {
+    ) -> StateWriteV1 {
         let member = write_member_record_v1(
             field,
             kind,
@@ -227,14 +232,79 @@ impl FixtureWriteContext<'_> {
         let FieldDestination::State(namespace) = field.destination else {
             unreachable!();
         };
-        self.writes
-            .entry(namespace)
-            .or_default()
-            .push(StateWriteV1 {
-                key: member.field_key.as_bytes().to_vec(),
-                before: None,
-                after: Some(member.value_root),
-            });
+        let _ = namespace;
+        StateWriteV1 {
+            key: member.field_key.as_bytes().to_vec(),
+            before: None,
+            after: Some(member.value_root),
+        }
+    }
+
+    fn append_member<K: SemanticKeyV1 + ?Sized>(
+        &mut self,
+        field: FieldDescriptor,
+        kind: WorldFieldRecordKindV1,
+        key: &K,
+        payload: MemberPayloadRefV1<'_>,
+    ) {
+        let FieldDestination::State(namespace) = field.destination else {
+            unreachable!();
+        };
+        let write = self.make_member(field, kind, key, payload);
+        self.writes.entry(namespace).or_default().push(write);
+    }
+
+    fn append_child<K: SemanticKeyV1 + ?Sized>(
+        &mut self,
+        field: FieldDescriptor,
+        key: &K,
+        payload: MemberPayloadRefV1<'_>,
+        writes: &mut Vec<StateWriteV1>,
+    ) {
+        writes.push(self.make_member(field, WorldFieldRecordKindV1::Entry, key, payload));
+    }
+
+    fn finish_marketplace_record<K: SemanticKeyV1 + ?Sized>(
+        &mut self,
+        owner: crate::incremental_module_marketplace::ModuleMarketplaceFieldV1,
+        field: FieldDescriptor,
+        outer_key: &K,
+        mut child_writes: Vec<StateWriteV1>,
+        issue: Option<FixtureIssue>,
+    ) {
+        child_writes.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+        assert!(
+            child_writes
+                .windows(2)
+                .all(|pair| pair[0].key < pair[1].key)
+        );
+        let _workspace = self.memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
+        let delta = StateDeltaV1::build(
+            StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+            child_writes,
+            self.state,
+            16 << 20,
+        )
+        .unwrap();
+        let mut child = delta.after.clone();
+        self.state.add_delta(delta);
+        if issue == Some(FixtureIssue::WrongModuleMarketplaceChildCount) {
+            child.leaf_count = child.leaf_count.checked_add(1).unwrap();
+        }
+        let mut semantic = Vec::new();
+        write_semantic_key_v1(outer_key, &mut semantic).unwrap();
+        let mut schema = owner.schema();
+        if issue == Some(FixtureIssue::InvalidModuleMarketplacePayload) {
+            schema[0] ^= 1;
+        }
+        let reference =
+            RecordRootRefV1::new(schema, *blake3::hash(&semantic).as_bytes(), child).unwrap();
+        self.append_member(
+            field,
+            WorldFieldRecordKindV1::Entry,
+            outer_key,
+            MemberPayloadRefV1::RecordRoot(&reference),
+        );
     }
 
     fn append_raw_member(
@@ -314,6 +384,7 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
             FixtureWriteContext {
                 values: &mut values,
                 memory: &memory,
+                state: &state,
                 value_io: &mut value_io,
                 key_work: &mut key_work,
                 writes: &mut writes,
@@ -607,63 +678,269 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
         if let Some(owner) = super::module_marketplace::field_from_descriptor(field)
             && issue != Some(FixtureIssue::EmptyModuleMarketplaceMaps)
         {
-            match (owner, issue) {
-                    (_, Some(FixtureIssue::WrongModuleMarketplaceKey))
-                        if owner == crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::VisualEntities =>
+            use crate::incremental_module_marketplace::ModuleMarketplaceFieldV1 as Market;
+
+            match owner {
+                Market::VisualEntities => {
+                    let visual = marketplace_visual();
+                    let mut children = Vec::new();
                     {
-                        fixture_writer!().append_member(
+                        let mut writer = fixture_writer!();
+                        writer.append_child(
                             field,
-                            WorldFieldRecordKindV1::Entry,
-                            &17u64,
-                            MemberPayloadRefV1::ModuleVisualEntity(&marketplace_visual()),
+                            "entity_id",
+                            MemberPayloadRefV1::Text(&visual.entity_id),
+                            &mut children,
                         );
+                        writer.append_child(
+                            field,
+                            "module_id",
+                            MemberPayloadRefV1::Text(&visual.module_id),
+                            &mut children,
+                        );
+                        writer.append_child(
+                            field,
+                            "kind",
+                            MemberPayloadRefV1::Text(&visual.kind),
+                            &mut children,
+                        );
+                        writer.append_child(
+                            field,
+                            "label_present",
+                            MemberPayloadRefV1::Bool(visual.label.is_some()),
+                            &mut children,
+                        );
+                        if issue != Some(FixtureIssue::MissingModuleMarketplaceChild) {
+                            writer.append_child(
+                                field,
+                                "label_text",
+                                MemberPayloadRefV1::Text(visual.label.as_deref().unwrap()),
+                                &mut children,
+                            );
+                        }
+                        let mut anchor_kind = None;
+                        match &visual.anchor {
+                            oasis7_agent_api::world_entity::ModuleVisualAnchor::Agent {
+                                agent_id,
+                            } => {
+                                anchor_kind = Some(0);
+                                writer.append_child(
+                                    field,
+                                    "anchor_agent_id",
+                                    MemberPayloadRefV1::Text(agent_id),
+                                    &mut children,
+                                );
+                            }
+                            oasis7_agent_api::world_entity::ModuleVisualAnchor::Location {
+                                location_id,
+                            } => {
+                                anchor_kind = Some(1);
+                                writer.append_child(
+                                    field,
+                                    "anchor_location_id",
+                                    MemberPayloadRefV1::Text(location_id),
+                                    &mut children,
+                                );
+                            }
+                            oasis7_agent_api::world_entity::ModuleVisualAnchor::Absolute {
+                                pos,
+                            } => {
+                                anchor_kind = Some(2);
+                                writer.append_child(
+                                    field,
+                                    "anchor_x_cm",
+                                    MemberPayloadRefV1::I64(pos.x_cm),
+                                    &mut children,
+                                );
+                                writer.append_child(
+                                    field,
+                                    "anchor_y_cm",
+                                    MemberPayloadRefV1::I64(pos.y_cm),
+                                    &mut children,
+                                );
+                                writer.append_child(
+                                    field,
+                                    "anchor_z_cm",
+                                    MemberPayloadRefV1::I64(pos.z_cm),
+                                    &mut children,
+                                );
+                            }
+                        }
+                        writer.append_child(
+                            field,
+                            "anchor_kind",
+                            MemberPayloadRefV1::U64(anchor_kind.unwrap()),
+                            &mut children,
+                        );
+                        if issue == Some(FixtureIssue::UnknownModuleMarketplaceChild) {
+                            writer.append_child(
+                                field,
+                                "unregistered_child",
+                                MemberPayloadRefV1::Unit,
+                                &mut children,
+                            );
+                        }
+                        if issue == Some(FixtureIssue::WrongModuleMarketplaceKey) {
+                            writer.finish_marketplace_record(owner, field, &17u64, children, None);
+                        } else {
+                            writer.finish_marketplace_record(
+                                owner,
+                                field,
+                                "visual/雪",
+                                children,
+                                issue,
+                            );
+                        }
                     }
-                    (_, Some(FixtureIssue::WrongModuleMarketplaceCodec))
-                        if owner == crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactListings =>
+                }
+                Market::ArtifactListings
+                    if issue == Some(FixtureIssue::WrongModuleMarketplaceCodec) =>
+                {
+                    fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        "listing/α",
+                        MemberPayloadRefV1::Text("wrong codec"),
+                    );
+                }
+                Market::ArtifactListings => {
+                    let listing = marketplace_listing();
+                    let mut children = Vec::new();
                     {
-                        fixture_writer!().append_member(
+                        let mut writer = fixture_writer!();
+                        writer.append_child(
                             field,
-                            WorldFieldRecordKindV1::Entry,
-                            "listing-key",
-                            MemberPayloadRefV1::Text("wrong codec"),
+                            "order_id",
+                            MemberPayloadRefV1::U64(listing.order_id),
+                            &mut children,
                         );
-                    }
-                    (_, Some(FixtureIssue::InvalidModuleMarketplacePayload))
-                        if owner == crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactBids =>
-                    {
-                        fixture_writer!().append_raw_member(
+                        writer.append_child(
                             field,
-                            WorldFieldRecordKindV1::Entry,
-                            "bid-key",
-                            owner.codec(),
-                            b"not a bids payload",
+                            "seller_agent_id",
+                            MemberPayloadRefV1::Text(&listing.seller_agent_id),
+                            &mut children,
                         );
-                    }
-                    (crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::VisualEntities, _) => {
-                        fixture_writer!().append_member(
+                        writer.append_child(
                             field,
-                            WorldFieldRecordKindV1::Entry,
-                            "visual/雪",
-                            MemberPayloadRefV1::ModuleVisualEntity(&marketplace_visual()),
+                            "price_kind",
+                            MemberPayloadRefV1::U64(match listing.price_kind {
+                                oasis7_agent_api::world_action::ResourceKind::Electricity => 0,
+                                oasis7_agent_api::world_action::ResourceKind::Data => 1,
+                            }),
+                            &mut children,
                         );
-                    }
-                    (crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactListings, _) => {
-                        fixture_writer!().append_member(
+                        writer.append_child(
                             field,
-                            WorldFieldRecordKindV1::Entry,
+                            "price_amount",
+                            MemberPayloadRefV1::I64(listing.price_amount),
+                            &mut children,
+                        );
+                        writer.append_child(
+                            field,
+                            "listed_at",
+                            MemberPayloadRefV1::U64(listing.listed_at),
+                            &mut children,
+                        );
+                        writer.finish_marketplace_record(
+                            owner,
+                            field,
                             "listing/α",
-                            MemberPayloadRefV1::ModuleArtifactListing(&marketplace_listing()),
-                        );
-                    }
-                    (crate::incremental_module_marketplace::ModuleMarketplaceFieldV1::ArtifactBids, _) => {
-                        fixture_writer!().append_member(
-                            field,
-                            WorldFieldRecordKindV1::Entry,
-                            "bid-key",
-                            MemberPayloadRefV1::ModuleArtifactBids(&marketplace_bids()),
+                            children,
+                            issue,
                         );
                     }
                 }
+                Market::ArtifactBids => {
+                    let bids = marketplace_bids();
+                    let mut children = Vec::new();
+                    {
+                        let mut writer = fixture_writer!();
+                        writer.append_child(
+                            field,
+                            "length",
+                            MemberPayloadRefV1::U64(bids.len() as u64),
+                            &mut children,
+                        );
+                        writer.append_child(
+                            field,
+                            "next_bid_id",
+                            MemberPayloadRefV1::U64(bids.len() as u64),
+                            &mut children,
+                        );
+                        writer.append_child(
+                            field,
+                            "sequence_root_id",
+                            MemberPayloadRefV1::U64(1),
+                            &mut children,
+                        );
+                        for (ordinal, bid) in bids.iter().enumerate() {
+                            let ordinal = ordinal as u64;
+                            let bid_id = ordinal;
+                            let bid_key = ("bid", bid_id);
+                            let index = if ordinal == 0 {
+                                [u64::MAX, u64::MAX, 0, 0, 0, 0]
+                            } else {
+                                [0, u64::MAX, 1, 1, 0, 0]
+                            };
+                            for (name, value) in [
+                                ("index_left_id", index[0]),
+                                ("index_right_id", index[1]),
+                                ("index_left_size", index[2]),
+                                ("index_left_height", index[3]),
+                                ("index_right_size", index[4]),
+                                ("index_right_height", index[5]),
+                            ] {
+                                writer.append_child(
+                                    field,
+                                    &(bid_key, name),
+                                    MemberPayloadRefV1::U64(value),
+                                    &mut children,
+                                );
+                            }
+                            writer.append_child(
+                                field,
+                                &(bid_key, "present"),
+                                MemberPayloadRefV1::Unit,
+                                &mut children,
+                            );
+                            writer.append_child(
+                                field,
+                                &(bid_key, "order_id"),
+                                MemberPayloadRefV1::U64(bid.order_id),
+                                &mut children,
+                            );
+                            writer.append_child(
+                                field,
+                                &(bid_key, "bidder_agent_id"),
+                                MemberPayloadRefV1::Text(&bid.bidder_agent_id),
+                                &mut children,
+                            );
+                            writer.append_child(
+                                field,
+                                &(bid_key, "price_kind"),
+                                MemberPayloadRefV1::U64(match bid.price_kind {
+                                    oasis7_agent_api::world_action::ResourceKind::Electricity => 0,
+                                    oasis7_agent_api::world_action::ResourceKind::Data => 1,
+                                }),
+                                &mut children,
+                            );
+                            writer.append_child(
+                                field,
+                                &(bid_key, "price_amount"),
+                                MemberPayloadRefV1::I64(bid.price_amount),
+                                &mut children,
+                            );
+                            writer.append_child(
+                                field,
+                                &(bid_key, "bid_at"),
+                                MemberPayloadRefV1::U64(bid.bid_at),
+                                &mut children,
+                            );
+                        }
+                        writer.finish_marketplace_record(owner, field, "bid-key", children, issue);
+                    }
+                }
+            }
         }
     }
 
@@ -884,15 +1161,15 @@ fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
         ),
         (
             FixtureIssue::WrongModuleMarketplaceKey,
-            "module marketplace semantic key profile",
+            "module marketplace outer semantic key",
         ),
         (
             FixtureIssue::WrongModuleMarketplaceCodec,
-            "module marketplace payload codec",
+            "module marketplace outer record-root profile",
         ),
         (
             FixtureIssue::InvalidModuleMarketplacePayload,
-            "module marketplace typed payload",
+            "module marketplace root binding",
         ),
     ] {
         let result = verify(&fixture_with_issue(true, Some(issue)), || false);
@@ -901,6 +1178,31 @@ fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
             "{issue:?}: {result:?}"
         );
     }
+
+    for (issue, expected) in [
+        (
+            FixtureIssue::MissingModuleMarketplaceChild,
+            "module visual child closure",
+        ),
+        (
+            FixtureIssue::UnknownModuleMarketplaceChild,
+            "module marketplace child semantic key",
+        ),
+    ] {
+        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        assert!(
+            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
+            "{issue:?}: {result:?}"
+        );
+    }
+
+    assert!(matches!(
+        verify(
+            &fixture_with_issue(true, Some(FixtureIssue::WrongModuleMarketplaceChildCount)),
+            || false
+        ),
+        Err(WorldStateOwnerError::Invalid("state scan leaf count"))
+    ));
 }
 
 #[test]

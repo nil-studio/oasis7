@@ -33,6 +33,8 @@ pub mod incremental_module_marketplace;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_owner_closure;
 #[cfg(not(target_arch = "wasm32"))]
+mod incremental_record_tree;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod main_token;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod manifest;

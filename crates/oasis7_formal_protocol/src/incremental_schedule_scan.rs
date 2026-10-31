@@ -46,10 +46,16 @@ impl<R: MerkleNodeReader> ScheduleScanContext<'_, R> {
             return Err(ScheduleScanError::Cancelled);
         }
         let stop = Cell::new(None);
+        // Schedule instance visits and any nested state-root scans share one
+        // leaf allowance, just as they share the node and byte allowances.
+        let leaves = Cell::from_mut(&mut self.io.instances_remaining);
         let source = Guarded {
             source: self.source,
+            memory: self.memory,
+            class: self.class,
             nodes: Cell::from_mut(&mut self.io.nodes_remaining),
             bytes: Cell::from_mut(&mut self.io.read_bytes_remaining),
+            leaves: &leaves,
             cancelled: &cancelled,
             stop: &stop,
         };
@@ -93,10 +99,10 @@ impl<R: MerkleNodeReader> ScheduleScanContext<'_, R> {
                     let Leaf::Instance(instance) = leaf else {
                         return Err(ScheduleScanError::Invalid("schedule instance type"));
                     };
-                    if self.io.instances_remaining == 0 {
+                    if source.leaves.get() == 0 {
                         return Err(ScheduleScanError::ResourceLimited);
                     }
-                    self.io.instances_remaining -= 1;
+                    source.leaves.set(source.leaves.get() - 1);
                     total = total
                         .checked_add(1)
                         .ok_or(ScheduleScanError::Invalid("schedule count overflow"))?;

@@ -83,6 +83,158 @@ fn scan<E>(
     }
     .visit_entries(root, visitor, cancel)
 }
+
+fn nested_fixture() -> (StateRootV1, StateRootV1, Source) {
+    let memory = MemoryBudget::new(16 << 20, 1 << 20).unwrap();
+    let mut source = Source {
+        _metadata: memory.reserve(512 * 1024, MemoryClass::Ordinary).unwrap(),
+        memory,
+        nodes: BTreeMap::new(),
+        reads: Cell::new(0),
+    };
+    let _workspace = source
+        .memory
+        .reserve(4 << 20, MemoryClass::Ordinary)
+        .unwrap();
+    let child_delta = StateDeltaV1::build(
+        StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+        [
+            write(b"child-a", None, Some(1)),
+            write(b"child-b", None, Some(2)),
+        ]
+        .into(),
+        &source,
+        QUOTA,
+    )
+    .unwrap();
+    let child = child_delta.after.clone();
+    for node in child_delta.new_nodes {
+        insert(&mut source, node.digest, node.bytes);
+    }
+    let outer_delta = StateDeltaV1::build(
+        StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+        [write(b"nested-child-root", None, Some([9; 32]))].into(),
+        &source,
+        QUOTA,
+    )
+    .unwrap();
+    let outer = outer_delta.after.clone();
+    for node in outer_delta.new_nodes {
+        insert(&mut source, node.digest, node.bytes);
+    }
+    (outer, child, source)
+}
+
+#[test]
+fn nested_walk_spends_the_parent_leaf_allowance_and_scan_io() {
+    let (outer, child, source) = nested_fixture();
+    let mut budget = StateScanBudget {
+        nodes_remaining: 10_000,
+        read_bytes_remaining: 1 << 24,
+        leaves_remaining: outer.leaf_count + child.leaf_count,
+    };
+    let mut nested_keys = Vec::new();
+    let count = StateScanContext {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut budget,
+    }
+    .visit_entries_with_reader(
+        &outer,
+        |entry, reader| {
+            assert_eq!(entry.value, [9; 32]);
+            let nested = reader.visit_entries(&child, |entry| {
+                nested_keys.push(entry.key.clone());
+                Ok::<_, ()>(())
+            })?;
+            assert_eq!(nested, 2);
+            Ok::<_, StateScanError<()>>(())
+        },
+        || false,
+    )
+    .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(budget.leaves_remaining, 0);
+    assert_eq!(nested_keys.len(), 2);
+
+    // The outer leaf consumes one slot. The child count is checked against
+    // the remaining shared allowance before the child performs any I/O.
+    let mut limited = StateScanBudget {
+        nodes_remaining: 10_000,
+        read_bytes_remaining: 1 << 24,
+        leaves_remaining: outer.leaf_count + child.leaf_count - 1,
+    };
+    let reads_before = source.reads.get();
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut limited,
+        }
+        .visit_entries_with_reader(
+            &outer,
+            |_, reader| {
+                assert!(matches!(
+                    reader.visit_entries(&child, |_| Ok::<_, ()>(())),
+                    Err(StateScanError::ResourceLimited)
+                ));
+                let after_child_rejection = source.reads.get();
+                assert!(
+                    reader
+                        .read_node(&outer.node_root, STATE_MAX_PAGE_BYTES)
+                        .is_err()
+                );
+                assert_eq!(source.reads.get(), after_child_rejection);
+                Ok::<_, StateScanError<()>>(())
+            },
+            || false,
+        ),
+        Err(StateScanError::ResourceLimited)
+    ));
+    assert!(source.reads.get() > reads_before);
+}
+
+#[test]
+fn caught_nested_cancellation_is_sticky_and_blocks_more_source_reads() {
+    let (outer, child, source) = nested_fixture();
+    let cancelled = Cell::new(false);
+    let mut budget = StateScanBudget {
+        nodes_remaining: 10_000,
+        read_bytes_remaining: 1 << 24,
+        leaves_remaining: outer.leaf_count + child.leaf_count,
+    };
+    let reads_before = source.reads.get();
+    let result = StateScanContext {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut budget,
+    }
+    .visit_entries_with_reader(
+        &outer,
+        |_, reader| {
+            cancelled.set(true);
+            assert!(matches!(
+                reader.visit_entries(&child, |_| Ok::<_, ()>(())),
+                Err(StateScanError::Cancelled)
+            ));
+            let after_cancel = source.reads.get();
+            assert!(
+                reader
+                    .read_node(&outer.node_root, STATE_MAX_PAGE_BYTES)
+                    .is_err()
+            );
+            assert_eq!(source.reads.get(), after_cancel);
+            Ok::<_, StateScanError<()>>(())
+        },
+        || cancelled.get(),
+    );
+    assert!(matches!(result, Err(StateScanError::Cancelled)));
+    assert!(source.reads.get() > reads_before);
+}
+
 #[test]
 fn complete_scan_has_independent_tree_and_key_order_with_exact_allowances() {
     let keys: [&[u8]; 3] = [b"a", b"b", b"c"];

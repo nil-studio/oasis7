@@ -6,16 +6,12 @@ pub use crate::incremental_projection::{
 pub use crate::incremental_semantic_key::{SemanticKeyBudget, SemanticKeyError};
 pub use crate::incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 use crate::{
-    MaterialLedgerId, ModuleArtifactBidState, ModuleArtifactListingState,
+    MaterialLedgerId,
     incremental_ledger_value::{ledger_value_len_v1, write_ledger_value_v1},
     incremental_semantic_key::{SemanticKeyV1, hash_semantic_key_v1, write_semantic_key_v1},
     state::ProductValidationDeliveryCursor,
 };
 use oasis7_formal_protocol::incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1};
-use oasis7_agent_api::{
-    world_action::ResourceKind,
-    world_entity::{ModuleVisualAnchor, ModuleVisualEntity},
-};
 use oasis7_formal_protocol::incremental_value::{
     ValueIoBudget, ValueNodeWriter, ValueStreamWriter, ValueTreeError,
 };
@@ -38,9 +34,6 @@ pub enum MemberPayloadCodecV1 {
     DeliveryCursor = 8,
     IdentityU64Triple = 9,
     RecordRoot = 10,
-    ModuleVisualEntity = 12,
-    ModuleArtifactListing = 13,
-    ModuleArtifactBids = 14,
 }
 impl MemberPayloadCodecV1 {
     fn parse(tag: u8) -> Result<Self, &'static str> {
@@ -55,9 +48,6 @@ impl MemberPayloadCodecV1 {
             8 => Self::DeliveryCursor,
             9 => Self::IdentityU64Triple,
             10 => Self::RecordRoot,
-            12 => Self::ModuleVisualEntity,
-            13 => Self::ModuleArtifactListing,
-            14 => Self::ModuleArtifactBids,
             _ => return Err("member payload codec"),
         })
     }
@@ -94,20 +84,16 @@ pub enum MemberPayloadRefV1<'a> {
     Ledger(&'a MaterialLedgerId),
     Bytes(&'a [u8]),
     DeliveryCursor(&'a ProductValidationDeliveryCursor),
-    RecordRoot(&'a RecordRootRefV1),
     IdentityU64Triple {
         identity: &'a str,
         amounts: [u64; 3],
     },
-    ModuleVisualEntity(&'a ModuleVisualEntity),
-    ModuleArtifactListing(&'a ModuleArtifactListingState),
-    ModuleArtifactBids(&'a [ModuleArtifactBidState]),
+    RecordRoot(&'a RecordRootRefV1),
 }
 impl MemberPayloadRefV1<'_> {
     fn profile(self) -> Result<(MemberPayloadCodecV1, u64), &'static str> {
         let length = |n| u64::try_from(n).map_err(|_| "member payload length");
         Ok(match self {
-            Self::RecordRoot(_) => (MemberPayloadCodecV1::RecordRoot, RECORD_ROOT_BYTES as u64),
             Self::Unit => (MemberPayloadCodecV1::Unit, 0),
             Self::U64(_) => (MemberPayloadCodecV1::U64, 8),
             Self::I64(_) => (MemberPayloadCodecV1::I64, 8),
@@ -122,18 +108,10 @@ impl MemberPayloadRefV1<'_> {
                     .checked_add(32)
                     .ok_or("member identity triple overflow")?,
             ),
-            Self::ModuleVisualEntity(value) => (
-                MemberPayloadCodecV1::ModuleVisualEntity,
-                module_visual_entity_len(value)?,
-            ),
-            Self::ModuleArtifactListing(value) => (
-                MemberPayloadCodecV1::ModuleArtifactListing,
-                module_artifact_listing_len(value)?,
-            ),
-            Self::ModuleArtifactBids(values) => (
-                MemberPayloadCodecV1::ModuleArtifactBids,
-                module_artifact_bids_len(values)?,
-            ),
+            Self::RecordRoot(value) => {
+                value.canonical_bytes().map_err(|_| "member record root")?;
+                (MemberPayloadCodecV1::RecordRoot, RECORD_ROOT_BYTES as u64)
+            }
         })
     }
     fn write(self, output: &mut impl Write) -> io::Result<()> {
@@ -147,7 +125,10 @@ impl MemberPayloadRefV1<'_> {
                 Ok(())
             }
             Self::RecordRoot(reference) => {
-                output.write_all(&reference.canonical_bytes().map_err(io::Error::other)?)
+                let bytes = reference.canonical_bytes().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "member record root")
+                })?;
+                output.write_all(&bytes)
             }
             Self::Unit => Ok(()),
             Self::U64(v) => output.write_all(&v.to_be_bytes()),
@@ -164,147 +145,8 @@ impl MemberPayloadRefV1<'_> {
                 output.write_all(&event_id_era.to_be_bytes())?;
                 output.write_all(&routed_through_event_id.to_be_bytes())
             }
-            Self::ModuleVisualEntity(value) => write_module_visual_entity(value, output),
-            Self::ModuleArtifactListing(value) => write_module_artifact_listing(value, output),
-            Self::ModuleArtifactBids(values) => write_module_artifact_bids(values, output),
         }
     }
-}
-
-pub(crate) const MODULE_VISUAL_ENTITY_DOMAIN: &[u8] = b"oasis7.iws.module-visual-entity.v1\0";
-pub(crate) const MODULE_ARTIFACT_LISTING_DOMAIN: &[u8] = b"oasis7.iws.module-artifact-listing.v1\0";
-pub(crate) const MODULE_ARTIFACT_BIDS_DOMAIN: &[u8] = b"oasis7.iws.module-artifact-bids.v1\0";
-
-fn checked_add(total: &mut u64, length: u64) -> Result<(), &'static str> {
-    *total = total
-        .checked_add(length)
-        .ok_or("module value length overflow")?;
-    Ok(())
-}
-
-fn text_len(value: &str) -> Result<u64, &'static str> {
-    u64::try_from(value.len())
-        .ok()
-        .and_then(|length| length.checked_add(8))
-        .ok_or("module text length overflow")
-}
-
-fn module_visual_entity_len(value: &ModuleVisualEntity) -> Result<u64, &'static str> {
-    let mut length = u64::try_from(MODULE_VISUAL_ENTITY_DOMAIN.len())
-        .map_err(|_| "module visual domain length")?;
-    for text in [&value.entity_id, &value.module_id, &value.kind] {
-        checked_add(&mut length, text_len(text)?)?;
-    }
-    checked_add(&mut length, 1)?;
-    if let Some(label) = &value.label {
-        checked_add(&mut length, text_len(label)?)?;
-    }
-    match &value.anchor {
-        ModuleVisualAnchor::Agent { agent_id }
-        | ModuleVisualAnchor::Location {
-            location_id: agent_id,
-        } => {
-            checked_add(&mut length, 1)?;
-            checked_add(&mut length, text_len(agent_id)?)?;
-        }
-        ModuleVisualAnchor::Absolute { .. } => checked_add(&mut length, 1 + 24)?,
-    }
-    Ok(length)
-}
-
-fn module_artifact_listing_len(value: &ModuleArtifactListingState) -> Result<u64, &'static str> {
-    let mut length = u64::try_from(MODULE_ARTIFACT_LISTING_DOMAIN.len())
-        .map_err(|_| "module listing domain length")?;
-    checked_add(&mut length, 8)?;
-    checked_add(&mut length, text_len(&value.seller_agent_id)?)?;
-    checked_add(&mut length, 1 + 8 + 8)?;
-    Ok(length)
-}
-
-fn module_artifact_bids_len(values: &[ModuleArtifactBidState]) -> Result<u64, &'static str> {
-    let mut length = u64::try_from(MODULE_ARTIFACT_BIDS_DOMAIN.len())
-        .map_err(|_| "module bids domain length")?;
-    checked_add(&mut length, 8)?;
-    u64::try_from(values.len()).map_err(|_| "module bids count length")?;
-    for value in values {
-        checked_add(&mut length, 8)?;
-        checked_add(&mut length, text_len(&value.bidder_agent_id)?)?;
-        checked_add(&mut length, 1 + 8 + 8)?;
-    }
-    Ok(length)
-}
-
-fn write_text(output: &mut impl Write, value: &str) -> io::Result<()> {
-    output.write_all(&(value.len() as u64).to_be_bytes())?;
-    output.write_all(value.as_bytes())
-}
-
-fn resource_kind_tag(value: ResourceKind) -> u8 {
-    match value {
-        ResourceKind::Electricity => 0,
-        ResourceKind::Data => 1,
-    }
-}
-
-fn write_module_visual_entity(
-    value: &ModuleVisualEntity,
-    output: &mut impl Write,
-) -> io::Result<()> {
-    output.write_all(MODULE_VISUAL_ENTITY_DOMAIN)?;
-    write_text(output, &value.entity_id)?;
-    write_text(output, &value.module_id)?;
-    write_text(output, &value.kind)?;
-    match &value.label {
-        None => output.write_all(&[0])?,
-        Some(label) => {
-            output.write_all(&[1])?;
-            write_text(output, label)?;
-        }
-    }
-    match &value.anchor {
-        ModuleVisualAnchor::Agent { agent_id } => {
-            output.write_all(&[0])?;
-            write_text(output, agent_id)
-        }
-        ModuleVisualAnchor::Location { location_id } => {
-            output.write_all(&[1])?;
-            write_text(output, location_id)
-        }
-        ModuleVisualAnchor::Absolute { pos } => {
-            output.write_all(&[2])?;
-            output.write_all(&pos.x_cm.to_be_bytes())?;
-            output.write_all(&pos.y_cm.to_be_bytes())?;
-            output.write_all(&pos.z_cm.to_be_bytes())
-        }
-    }
-}
-
-fn write_module_artifact_listing(
-    value: &ModuleArtifactListingState,
-    output: &mut impl Write,
-) -> io::Result<()> {
-    output.write_all(MODULE_ARTIFACT_LISTING_DOMAIN)?;
-    output.write_all(&value.order_id.to_be_bytes())?;
-    write_text(output, &value.seller_agent_id)?;
-    output.write_all(&[resource_kind_tag(value.price_kind)])?;
-    output.write_all(&value.price_amount.to_be_bytes())?;
-    output.write_all(&value.listed_at.to_be_bytes())
-}
-
-fn write_module_artifact_bids(
-    values: &[ModuleArtifactBidState],
-    output: &mut impl Write,
-) -> io::Result<()> {
-    output.write_all(MODULE_ARTIFACT_BIDS_DOMAIN)?;
-    output.write_all(&(values.len() as u64).to_be_bytes())?;
-    for value in values {
-        output.write_all(&value.order_id.to_be_bytes())?;
-        write_text(output, &value.bidder_agent_id)?;
-        output.write_all(&[resource_kind_tag(value.price_kind)])?;
-        output.write_all(&value.price_amount.to_be_bytes())?;
-        output.write_all(&value.bid_at.to_be_bytes())?;
-    }
-    Ok(())
 }
 #[derive(Debug, Clone, Copy)]
 pub struct MemberRecordLimitsV1 {

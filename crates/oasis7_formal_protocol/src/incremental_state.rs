@@ -174,14 +174,28 @@ impl StateRootV1 {
         Ok(())
     }
 
-    pub fn canonical_bytes(&self) -> Result<Vec<u8>, String> {
+    /// Encode the fixed-size root without allocating. Record references and
+    /// other bounded metadata codecs should use this form while holding only
+    /// their fixed workspace reservation.
+    pub fn canonical_bytes_fixed(&self) -> Result<[u8; STATE_ROOT_BYTES], String> {
         self.validate()?;
-        let mut bytes = b"oasis7.iws.state-root.v1\0".to_vec();
-        bytes.extend_from_slice(&42u32.to_be_bytes());
-        bytes.extend_from_slice(&(self.namespace as u16).to_be_bytes());
-        bytes.extend_from_slice(&self.leaf_count.to_be_bytes());
-        bytes.extend_from_slice(&codec::parse_digest(&self.node_root)?);
+        const MAGIC: &[u8] = b"oasis7.iws.state-root.v1\0";
+        let mut bytes = [0; STATE_ROOT_BYTES];
+        bytes[..MAGIC.len()].copy_from_slice(MAGIC);
+        let mut offset = MAGIC.len();
+        bytes[offset..offset + 4].copy_from_slice(&42u32.to_be_bytes());
+        offset += 4;
+        bytes[offset..offset + 2].copy_from_slice(&(self.namespace as u16).to_be_bytes());
+        offset += 2;
+        bytes[offset..offset + 8].copy_from_slice(&self.leaf_count.to_be_bytes());
+        offset += 8;
+        bytes[offset..].copy_from_slice(&codec::parse_digest(&self.node_root)?);
+        debug_assert_eq!(offset + 32, STATE_ROOT_BYTES);
         Ok(bytes)
+    }
+
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, String> {
+        Ok(self.canonical_bytes_fixed()?.to_vec())
     }
 
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, String> {
