@@ -28,6 +28,12 @@ SUPPORT_PROFILES = (
     'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
     'oasis7_client_launcher', 'wasm_build_suite', 'wasm_module_observe',
 )
+# The distfs group runs these lib harnesses with Cargo defaults on Ubuntu.
+# This proves native target predicates only, never expanded feature activation.
+# Keep synchronized with run_oasis7_distfs_tests and rust.yml's distfs runner.
+NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
+    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs',
+))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
            'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py')
@@ -1005,7 +1011,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         before, after = source_at(base, path), source_at(source, path)
         if before != after:
             native = (path in ordinary_roots or bool(feature_owners.get(path))
-                      and feature_owners[path].issubset(feature_packages))
+                      and feature_owners[path].issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES))
             analyses.append((path, attributes(before, native), attributes(after, native)))
     # Keep both rename endpoints and removals in the review evidence. A new
     # marker is exempt only when this change contains no retiring test owner.
@@ -1016,7 +1022,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         test_owners = old_test_owners | new_test_owners
         changes = before_attrs ^ after_attrs
         native = (path in ordinary_roots or bool(feature_owners.get(path))
-                  and feature_owners[path].issubset(feature_packages))
+                  and feature_owners[path].issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES))
         ordinary_source = ordinary_source_context(path, native)
         new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}

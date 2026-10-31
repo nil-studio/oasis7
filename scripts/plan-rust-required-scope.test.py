@@ -2214,6 +2214,37 @@ class Selection(unittest.TestCase):
         with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
             selector.select(config, base, self.commit(), profile='pr-fast')
 
+    def test_native_default_driver_inherits_unix_without_expanded_feature_permission(self):
+        config = self.fast_config()
+        package = 'oasis7_distfs'
+        config['package_groups'][package] = ['other']
+        self.write(f'crates/{package}/Cargo.toml',
+                   '[package]\nname="oasis7_distfs"\nversion="0.1.0"\n'
+                   '[features]\ntest_tier_full=[]\noptional_lane=[]\n')
+        self.write(f'crates/{package}/src/lib.rs', '#[cfg(all(test, unix))] mod nested;\n')
+        path = f'crates/{package}/src/nested.rs'
+        self.write(path, '#[test] fn original() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertIn('other', plan['groups'])
+        for expression in ('windows', 'feature="optional_lane"',
+                           'all(unix, feature="test_tier_full")'):
+            with self.subTest(expression=expression):
+                self.write(path, '#[test] fn original() {}\n'
+                           + f'#[cfg({expression})] #[test] fn added() {{}}\n')
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+        # A shared source cannot borrow the known package's Linux mapping
+        # for another owner without a proven native/expanded test driver.
+        config['oasis7_required_packages'].remove('other')
+        self.write('crates/other/src/lib.rs',
+                   '#[path="../../oasis7_distfs/src/nested.rs"] mod shared;\n')
+        self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
     def test_fast_inherited_default_feature_uses_owning_package_manifest(self):
         config = self.fast_config()
         manifest = Path('crates/core/Cargo.toml').read_text()
