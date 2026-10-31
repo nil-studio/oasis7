@@ -144,7 +144,7 @@ impl ProviderOriginalMaterialStore for CancelAfterDispatchStore<'_> {
     }
 }
 
-fn direct_capture_request(request_id: &str) -> ContinuousAgentRequestContextV1 {
+pub(super) fn direct_capture_request(request_id: &str) -> ContinuousAgentRequestContextV1 {
     let mut request =
         test_provider_context("provider-owner-agent", "provider-owner-turn", request_id, 1)
             .request_context;
@@ -191,6 +191,33 @@ fn fixture_owner(
     )
     .expect("create provider owner");
     (binding, authority, owner)
+}
+
+pub(super) fn fixture_owner_with_memory(
+    root: &std::path::Path,
+    memory: MemoryBudget,
+) -> (
+    ProviderMaterialOwnerBindingV1,
+    Arc<ProviderOriginalMaterialOwnerV1>,
+) {
+    let binding = ProviderMaterialOwnerBindingV1 {
+        world_id: "world".to_string(),
+        genesis_root: [0x71; 32],
+        owner_id: [0x72; 32],
+    };
+    let authority = Arc::new(FixtureProviderAuthority {
+        world_id: binding.world_id.clone(),
+        owner_id: binding.owner_id,
+    });
+    let owner = ProviderOriginalMaterialOwnerV1::create(
+        root,
+        binding.clone(),
+        memory,
+        PageCompression::Raw,
+        authority,
+    )
+    .expect("create provider owner with selected memory pool");
+    (binding, owner)
 }
 
 fn read_original_object(

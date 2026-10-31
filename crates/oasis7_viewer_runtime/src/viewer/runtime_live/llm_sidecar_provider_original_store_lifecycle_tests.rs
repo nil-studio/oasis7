@@ -149,6 +149,19 @@ fn store_captured_attempt(
     ContinuousAgentResponseContextV1,
     ProviderOriginalMaterialRefsV1,
 ) {
+    store_captured_attempt_with_response(owner, base, suffix, captured_response)
+}
+
+fn store_captured_attempt_with_response(
+    owner: &ProviderOriginalMaterialOwnerV1,
+    base: &ContinuousAgentRequestContextV1,
+    suffix: &str,
+    build_response: impl FnOnce(&ContinuousAgentRequestContextV1) -> ContinuousAgentResponseContextV1,
+) -> (
+    ContinuousAgentRequestContextV1,
+    ContinuousAgentResponseContextV1,
+    ProviderOriginalMaterialRefsV1,
+) {
     let mut request = base.clone();
     request.decision_request_id.push_str(suffix);
     request.request_digest = request.request_digest();
@@ -168,7 +181,7 @@ fn store_captured_attempt(
         .mark_dispatched(&attempt)
         .expect("persist synthetic dispatch phase");
 
-    let response = captured_response(&request);
+    let response = build_response(&request);
     let response_body = serde_json::to_vec(&response).expect("encode synthetic response");
     let response_id = *blake3::hash(&response_body).as_bytes();
     let mut response_reader = std::io::Cursor::new(response_body.as_slice());
@@ -185,6 +198,78 @@ fn store_captured_attempt(
         .finish_response(&attempt, 200, response_id, &response)
         .expect("persist synthetic response context");
     (request, response, refs)
+}
+
+#[test]
+fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
+    const OWNER_MEMORY_BYTES: usize = 128 * 1024 * 1024;
+    const RECOVERY_RESERVE_BYTES: usize = 8 * 1024 * 1024;
+    const VERIFY_ORDINARY_HEADROOM_BYTES: usize = 4 * 1024 * 1024;
+    const ARRAY_ITEMS: usize = 180_000;
+    const LEGACY_CONTEXT_CHARGE_BYTES: usize = 1024 * 1024;
+
+    let root = capture_root();
+    let memory = MemoryBudget::new(OWNER_MEMORY_BYTES, RECOVERY_RESERVE_BYTES)
+        .expect("bounded provider owner pool");
+    let (_binding, owner) = interruption_tests::fixture_owner_with_memory(&root, memory.clone());
+    let request = interruption_tests::direct_capture_request("json-heap-admission");
+    let (request, response, refs) = store_captured_attempt_with_response(
+        owner.as_ref(),
+        &request,
+        "-large-upstream-trace",
+        |request| {
+            let mut response = captured_response(request);
+            response.base_decision_response.trace_payload.upstream_trace =
+                Some(serde_json::Value::Array(vec![
+                    serde_json::Value::Null;
+                    ARRAY_ITEMS
+                ]));
+            response.response_digest = cognition_response_digest(&response.base_decision_response);
+            response
+        },
+    );
+    let wire_bytes = serde_json::to_vec(&response).expect("encode large original response");
+    let decoded_value_lower_bound = ARRAY_ITEMS * std::mem::size_of::<serde_json::Value>();
+    assert!(wire_bytes.len() < LEGACY_CONTEXT_CHARGE_BYTES);
+    assert!(decoded_value_lower_bound > VERIFY_ORDINARY_HEADROOM_BYTES);
+    assert!(
+        wire_bytes.len() + LEGACY_CONTEXT_CHARGE_BYTES < VERIFY_ORDINARY_HEADROOM_BYTES,
+        "the legacy raw body plus fixed decode charge fits the deliberately available pool"
+    );
+    drop(wire_bytes);
+
+    let _already_decoded_response_charge = memory
+        .reserve(
+            decoded_value_lower_bound + std::mem::size_of::<ContinuousAgentResponseContextV1>(),
+            MemoryClass::Ordinary,
+        )
+        .expect("the upstream response was already admitted before commit verification");
+
+    let ordinary_limit = OWNER_MEMORY_BYTES - RECOVERY_RESERVE_BYTES;
+    let ordinary_available = ordinary_limit.saturating_sub(memory.used());
+    assert!(ordinary_available > VERIFY_ORDINARY_HEADROOM_BYTES);
+    let _held_pressure = memory
+        .reserve(
+            ordinary_available - VERIFY_ORDINARY_HEADROOM_BYTES,
+            MemoryClass::Ordinary,
+        )
+        .expect("leave the precise bounded verification headroom");
+    assert_eq!(
+        ordinary_limit - memory.used(),
+        VERIFY_ORDINARY_HEADROOM_BYTES
+    );
+
+    let error = owner
+        .verify_commit_materials(&refs, &request, &response)
+        .expect_err("decoded Value allocation must be admitted before JSON parsing");
+    assert!(
+        error.contains("provider JSON memory admission"),
+        "must reject at the JSON heap-admission boundary, not at an earlier read: {error}"
+    );
+    drop(_held_pressure);
+    drop(_already_decoded_response_charge);
+    drop(owner);
+    std::fs::remove_dir_all(&root).expect("remove bounded admission fixture store");
 }
 
 #[test]
