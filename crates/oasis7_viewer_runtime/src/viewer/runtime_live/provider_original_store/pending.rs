@@ -117,15 +117,15 @@ impl ProviderOriginalMaterialOwnerV1 {
             read_bytes_remaining: 256 * 1024 * 1024,
             leaves_remaining: limit as u64,
         };
-        let mut scan = oasis7_formal_protocol::incremental_state::StateScanContext {
-            source: &session,
-            memory: &self.memory,
-            class: MemoryClass::Recovery,
-            io: &mut scan_budget,
-        };
         let prefix = b"oasis7.iws.provider-pending-operation-key.v1\0";
-        let page = scan
-            .visit_entries_page(
+        let page = {
+            let mut scan = oasis7_formal_protocol::incremental_state::StateScanContext {
+                source: &session,
+                memory: &self.memory,
+                class: MemoryClass::Recovery,
+                io: &mut scan_budget,
+            };
+            scan.visit_entries_page(
                 &inner.head.pending,
                 cursor_state.after_key_digest,
                 limit,
@@ -152,8 +152,8 @@ impl ProviderOriginalMaterialOwnerV1 {
                 },
                 || self.cancelled(),
             )
-            .map_err(|error| error.to_string());
-        drop(scan);
+            .map_err(|error| error.to_string())
+        };
         if let Some(error) = session.take_read_error() {
             return Err(error.to_string());
         }
