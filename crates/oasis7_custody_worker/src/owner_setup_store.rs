@@ -5,9 +5,9 @@ impl OwnerProvisionApprovalStore {
     pub fn owner_setup_plan(&self, id: &str) -> Result<OwnerSetupPlanV1> {
         self.snapshot()?
             .state
-            .owner_setup_plan(id)
+            .owner_setup_phase_sdk_plan(id)
             .cloned()
-            .ok_or_else(rejected)
+            .map_err(|_| rejected())
     }
     pub fn owner_setup_outbox(
         &self,

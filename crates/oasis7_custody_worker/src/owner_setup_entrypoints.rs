@@ -103,7 +103,7 @@ pub(super) async fn prepare(env: &Env, raw: &str) -> Result<String, JsValue> {
     let rpc: OwnerSetupPrepareRpc = serde_json::from_str(raw).map_err(|_| denied())?;
     rpc.request.validate().map_err(|_| denied())?;
     let view = draft(env, &rpc.manager_session, &rpc.provision_id).await?;
-    if rpc.request.plan.provision_id != rpc.provision_id {
+    if rpc.request.provision_id() != rpc.provision_id {
         return Err(denied());
     }
     let value: OwnerSetupPrepareResponseV1 = serde_json::from_str(
@@ -117,8 +117,8 @@ pub(super) async fn prepare(env: &Env, raw: &str) -> Result<String, JsValue> {
     )
     .map_err(|_| denied())?;
     if value.context.custody_account_id != view.entry.custody_account_id
-        || value.approval_request_id != rpc.request.approval_request_id
-        || value.intent != rpc.request.plan.intent().map_err(|_| denied())?
+        || value.approval_request_id != rpc.request.approval_request_id()
+        || value.intent != rpc.request.expected_intent().map_err(|_| denied())?
     {
         return Err(denied());
     }
@@ -133,7 +133,7 @@ pub(super) async fn runtime(
         return Err(denied());
     }
     let rpc: OwnerSetupRuntimeRpc = serde_json::from_str(raw).map_err(|_| denied())?;
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     let path = match role {
         oasis7_custody_core::http::Role::Identity => "/internal/owner-setup-identity",
         oasis7_custody_core::http::Role::Owner => "/internal/owner-setup-owner",
@@ -149,22 +149,35 @@ pub(super) async fn approve(env: &Env, raw: &str) -> Result<String, JsValue> {
     let rpc: OwnerSetupApproveRpc = serde_json::from_str(raw).map_err(|_| denied())?;
     rpc.request.validate().map_err(|_| denied())?;
     let view = draft(env, &rpc.manager_session, &rpc.provision_id).await?;
-    if rpc.request.plan.provision_id != rpc.provision_id
-        || rpc.request.input.request.context.custody_account_id != view.entry.custody_account_id
+    if rpc.request.provision_id() != rpc.provision_id
+        || rpc.request.input().request.context.custody_account_id != view.entry.custody_account_id
     {
         return Err(denied());
     }
-    let result = forward(
+    let raw_result = fetch_account(
         env,
         &view.entry.custody_account_id,
         "/internal/owner-setup-approve",
         raw,
     )
     .await?;
+    if rpc.request.api_version() == 2 {
+        let result: OwnerSetupApprovalProgressV2 =
+            serde_json::from_str(&raw_result).map_err(|_| denied())?;
+        if result.api_version != 2
+            || result.custody_account_id != view.entry.custody_account_id
+            || result.provision_id != rpc.provision_id
+            || result.setup_id != rpc.request.setup_id()
+        {
+            return Err(denied());
+        }
+        return serde_json::to_string(&result).map_err(|_| denied());
+    }
+    let result: OwnerSetupProgressV1 = serde_json::from_str(&raw_result).map_err(|_| denied())?;
     if result.api_version != 1
         || result.custody_account_id != view.entry.custody_account_id
         || result.provision_id != rpc.provision_id
-        || result.setup_id != rpc.request.plan.setup_id
+        || result.setup_id != rpc.request.setup_id()
     {
         return Err(denied());
     }
@@ -176,7 +189,7 @@ pub(super) async fn advance(env: &Env, raw: &str) -> Result<String, JsValue> {
         return Err(denied());
     }
     let rpc: OwnerSetupContinueRpc = serde_json::from_str(raw).map_err(|_| denied())?;
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     let view = draft(env, &rpc.manager_session, &rpc.provision_id).await?;
     if rpc.request.provision_id != rpc.provision_id
         || rpc.request.custody_account_id != view.entry.custody_account_id

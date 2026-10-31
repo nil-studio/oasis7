@@ -1,6 +1,7 @@
 use super::*;
 impl AccountProvisionApprovalState {
     pub(in crate::provisioning) fn validate_test_session_persistence(&self) -> Result<()> {
+        self.validate_test_session_v2_persistence()?;
         if self.session_inventory == SessionInventoryV1::UnknownLegacy {
             return if self.test_sessions.is_empty() {
                 Ok(())
@@ -424,6 +425,10 @@ impl AccountProvisionApprovalState {
         for invite in self.pairing_invites.values() {
             if let Some(id) = &invite.consumed_session {
                 if !self.test_sessions.get(id).is_some_and(|s| {
+                    s.approved_at.is_some()
+                        && s.enrollment.registration.request.target.invite_id
+                            == invite.original.invite_id
+                }) && !self.test_sessions_v2.get(id).is_some_and(|s| {
                     s.approved_at.is_some()
                         && s.enrollment.registration.request.target.invite_id
                             == invite.original.invite_id
