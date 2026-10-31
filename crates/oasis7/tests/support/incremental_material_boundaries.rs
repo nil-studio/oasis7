@@ -741,3 +741,312 @@ fn material_point_noop_both_channels_and_uncertain_puts_poison_prefix() {
         ));
     }
 }
+
+fn seed_with_category(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    text: usize,
+) -> RootSetV1 {
+    let _caller = memory
+        .reserve(text + (2 << 20), MemoryClass::Ordinary)
+        .unwrap();
+    let mut source = source();
+    source.material_profiles.get_mut(PROFILE).unwrap().category = "x".repeat(text);
+    let mut writer = store.value_session(physical_scope());
+    let mut io = logical();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut rows = Vec::with_capacity(16);
+    let _rows = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
+    assert_eq!(
+        prepare_material_records_genesis_v1(
+            &source,
+            &mut MemberRecordWriteContext {
+                sink: &mut writer,
+                memory,
+                io: &mut io,
+                key_work: &mut keys,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 1024,
+                    payload_bytes: (text.max(1024)) as u64,
+                    record_bytes: (text + 8192) as u64
+                },
+                cancelled: || false
+            },
+            &mut 1000,
+            &mut MaterialWorkBudgetV1 {
+                cells_remaining: 1000,
+                max_pending_node_bytes: 2 << 20,
+                scan: scan()
+            },
+            &mut |row| {
+                assert!(rows.len() < 16);
+                rows.push(row);
+                Ok(())
+            }
+        )
+        .unwrap(),
+        3
+    );
+    // Only emitted RootRef IDs are needed now: retain no unused source World
+    // while admitting the outer Delta and Zstd encoder concurrently.
+    drop(source);
+    drop(_caller);
+    let mut roots = RootSetV1::empty("material-boundary-cost".into(), [0x65; 32]).unwrap();
+    for namespace in [StateNamespaceV1::Business, StateNamespaceV1::Authorization] {
+        let state = store
+            .state_session(physical_scope(), MemoryClass::Ordinary)
+            .unwrap();
+        let mut writes = rows
+            .iter()
+            .filter(|row| row.namespace == namespace)
+            .map(|row| StateWriteV1 {
+                key: row.mutation.key.clone(),
+                before: None,
+                after: row.mutation.after,
+            })
+            .collect::<Vec<_>>();
+        writes.sort_by(|a, b| a.key.cmp(&b.key));
+        let charge = memory.reserve(8 << 20, MemoryClass::Ordinary).unwrap();
+        let delta = charge.retain(
+            StateDeltaV1::build(
+                StateRootV1::empty(namespace).unwrap(),
+                writes,
+                &state,
+                2 << 20,
+            )
+            .unwrap(),
+        );
+        writer.put_state_pages(&delta, memory).unwrap();
+        *roots
+            .state
+            .iter_mut()
+            .find(|root| root.namespace == namespace)
+            .unwrap() = delta.after.clone();
+    }
+    roots
+}
+#[test]
+fn material_tier_delta_cost_does_not_scan_growing_unchanged_category() {
+    let mut samples = Vec::new();
+    for text in [64usize, 1 << 20, 32 << 20] {
+        let directory = Directory::new();
+        let path = directory.0.join("cost");
+        let canonical = {
+            let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+            let store =
+                IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
+            seed_with_category(&store, &memory, text)
+                .canonical_bytes()
+                .unwrap()
+        };
+        // Original World/store/producer pool have gone. Bootstrap is complete under
+        // Recovery4MiB, before any ordinary point operation or inherited closure.
+        let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
+        let store = IncrementalPageStore::open(
+            &path,
+            memory.clone(),
+            PageCompression::Zstd,
+            MemoryClass::Recovery,
+        )
+        .unwrap();
+        let roots = RootSetV1::from_canonical_bytes(&canonical).unwrap();
+        let key = MaterialRecordKeyV1::Profile(PROFILE);
+        let top = roots
+            .state
+            .iter()
+            .find(|r| r.namespace == key.kind().namespace())
+            .unwrap();
+        let (family, proof) = {
+            let state = store
+                .state_session(physical_scope(), MemoryClass::Recovery)
+                .unwrap();
+            let values = store.value_session(physical_scope());
+            let mut io = logical();
+            let mut keys = SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            };
+            let mut ctx = read_ctx!(
+                top,
+                &state,
+                &values,
+                &memory,
+                MemoryClass::Recovery,
+                &mut io,
+                &mut keys
+            );
+            ctx.record_bytes = (text + 8192) as u64;
+            let family = qualify_material_family_v1(
+                &roots,
+                &mut ctx,
+                &mut scan(),
+                &mut scan(),
+                &mut 8192,
+                text.max(1024) as u64,
+            )
+            .unwrap();
+            assert_eq!(family.record_counts(), [1, 2]);
+            ctx.root = top;
+            let proof = open_qualified_material_record_v1(key, &roots, &family, &mut ctx)
+                .unwrap()
+                .unwrap();
+            (family, proof)
+        };
+        let parent = parent(roots);
+        let live = parent.fence().unwrap();
+        let state = store
+            .state_session(physical_scope(), MemoryClass::Ordinary)
+            .unwrap();
+        let values = store.value_session(physical_scope());
+        let mut tx = ExecutionTransaction::begin(
+            parent.clone(),
+            [6; 32],
+            &state,
+            &memory,
+            TransactionLimits {
+                max_reads: 16,
+                max_writes: 4,
+                max_facts: 4,
+                max_pending_node_bytes: 4 << 20,
+            },
+        )
+        .unwrap();
+        let mut io = logical();
+        io.nodes_remaining = 4096;
+        io.read_bytes_remaining = 512 << 10;
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut overlay = WorldFieldOverlayContextV1 {
+            transaction: &mut tx,
+            values: ValueReadContext {
+                source: &values,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut io,
+            },
+            key_work: &mut keys,
+            semantic_bytes: 1024,
+            record_bytes: 4096,
+            take_state_error: || state.take_read_error().map(state_error),
+            cancelled: || false,
+        };
+        let mut writer = store.value_session(physical_scope());
+        let mut write_io = logical();
+        let mut write_keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut write = write_ctx!(&mut writer, &memory, &mut write_io, &mut write_keys);
+        let guard = overlay.transaction.guard();
+        let changed = change_qualified_material_cell_v1(
+            MaterialCellChangeV1 {
+                key,
+                cell: MaterialCellV1::Tier,
+                qualification: &proof,
+                expected: Some(MaterialCellValueRefV1::U64(255)),
+                after: Some(MaterialCellValueRefV1::U64(0)),
+                max_current_payload_bytes: 165,
+                max_pending_node_bytes: 4 << 20,
+            },
+            &mut overlay,
+            &mut write,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap();
+        let sender = (
+            4096 - overlay.values.io.nodes_remaining,
+            (512 << 10) - overlay.values.io.read_bytes_remaining,
+            100000 - write.io.nodes_remaining,
+            (256 << 20) - write.io.write_bytes_remaining,
+        );
+        let sender_state = state.remaining_io().unwrap();
+        let sender_values = values.remaining_io().unwrap();
+        let guard = overlay.transaction.guard();
+        let sealed = tx.seal(&guard, &live, 1).unwrap();
+        assert_eq!(sealed.record.writes.len(), 1);
+        for node in &sealed.new_nodes {
+            writer
+                .put_node(
+                    *blake3::hash(&node.bytes).as_bytes(),
+                    memory
+                        .reserve(node.bytes.len(), MemoryClass::Ordinary)
+                        .unwrap()
+                        .retain(node.bytes.clone()),
+                )
+                .unwrap();
+        }
+        let after = sealed
+            .record
+            .after
+            .state
+            .iter()
+            .find(|r| r.namespace == key.kind().namespace())
+            .unwrap();
+        let verifier = TransitionVerifier {
+            parent: &parent,
+            operation: [6; 32],
+            source: &state,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: 4 << 20,
+        };
+        let mut receiver_io = logical();
+        receiver_io.nodes_remaining = 4096;
+        receiver_io.read_bytes_remaining = 512 << 10;
+        let mut receiver_keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut ctx = read_ctx!(
+            after,
+            &state,
+            &values,
+            &memory,
+            MemoryClass::Ordinary,
+            &mut receiver_io,
+            &mut receiver_keys
+        );
+        let accepted = accept_material_transition_v1(
+            &family,
+            &verifier,
+            &sealed.record,
+            &mut ctx,
+            &mut scan(),
+            &mut 8192,
+            165,
+        )
+        .unwrap();
+        assert_eq!(accepted.record_counts(), [1, 2]);
+        let receiver = (
+            4096 - ctx.values.io.nodes_remaining,
+            (512 << 10) - ctx.values.io.read_bytes_remaining,
+        );
+        eprintln!(
+            "material category={text}: sender={sender:?}, receiver={receiver:?}, sender physical state={sender_state:?} values={sender_values:?}; after receiver state={:?} values={:?}",
+            state.remaining_io(),
+            values.remaining_io()
+        );
+        let mut output = Vec::new();
+        assert_eq!(
+            read_qualified_material_cell_v1(
+                MaterialCellRequestV1 {
+                    key,
+                    cell: MaterialCellV1::Tier,
+                    qualification: &changed
+                },
+                &mut ctx,
+                165,
+                &mut output
+            )
+            .unwrap(),
+            Some(MaterialValueV1::Unsigned(0))
+        );
+        samples.push((sender, receiver));
+    }
+    assert!(
+        samples.windows(2).all(|pair| pair[0] == pair[1]),
+        "unchanged payload growth cannot change measured fixed-delta logical work: {samples:?}"
+    );
+}
