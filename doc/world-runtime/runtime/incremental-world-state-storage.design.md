@@ -793,3 +793,34 @@ bucket 八字段、issuance 七字段、grant 十一字段均为原类型的独�
 借用 GEN 完整投影原状态，root-only family 恢复仅凭六根、原 schema/semantic binding 与有限 state/value/key/cell/heap/pending 预算验证全部已保存关系，不以原 World snapshot 为必需 oracle。未知/缺列、孤儿、错误 codec/范围/标签、原键错配、child leaf_count/path/页缺失均拒绝。普通单列点读写要求精确 expected、同事务 guard/live、同池 Ordinary、组合取消与失败 poison；Option 作为一个完整目标列更新，不扫描无关长 symbol、reason、recipient。NoOp 最终取消须使用独立 getter 基线检验额外返回边界。
 
 后继接收端先独立 generic replay，再根据 actual outer writes 与 changed Merkle 子树验证本 owner 闭包，继承 qualified 父的未变关系，不重复扫描未变 Text。页 mark/transfer 复用完整本组资格并显式追踪 child state/value，集合分配前计费，含 buffered finish 的全部输出成功前均为暂态。本组资格只证明存储完整性，不授代币发行、grant 花费或政策生效权限，不代签完整 World 激活/GC。独立字面字段/键 oracle、Raw/Zstd 冷根恢复及合法后继、generic-valid/typed-invalid、真实发布故障与取消、预算原子性和固定增量成本分别验证，未完成者不得由 GEN/check 或局部 visitor 冒称已闭合。
+### 12.22 世界规则治理效果映射
+
+<a id="iws-world-rule-effects-v1"></a>
+
+world_rules 保持 WorldState/Value/Authorization 的唯一字段登记，内部增长集合分开保存，不能把整个 WorldRulesStateV1 序列化为单叶。此片固定可选父状态与 governance_effects：必需 Metadata，Unit Entry/Bool 明确记录原 Option 是否为 Some；false 不同于缺失 marker，true 的空映射也不同于 None。治理效果成员使用规范二元 Text 语义键 (固定子字段名 governance_effects, 原 proposal key)，Entry/Text 保存原 result ID，保留空字符串、UTF-8、NUL 与空白，不连接/规范化/换算身份。字段仍是 Value，不能套用不合法的 Group 标记或更改为另一主责登记。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世借用原 Option 与 map，流写 Metadata、父存在 marker 和原成员，不 clone/收集整表，不使用任意 Serialize。记录数、原键哈希、payload/record、I/O、内存与取消持续有限，源对象和sink批次由调用方准入，失败丢弃整个暂态前缀。固定根点读先共同认证 Metadata、父 marker 与目标成员，返回 RulesAbsent、EffectAbsent、原 Text 字节长度三态；父 false 但目标成员存在必须拒绝。三态只描述当前查询路径，不能推定所有兄弟字段无 orphan，更不能证明其余规则字段已覆盖；结果和流输出只在全调用及最终取消成功后采用。
+
+共享事务点读/点写在同一次 contribute 中保留三项读取依赖，精确比较三态 expected 和原 Text 字节，核对当前 guard/live fence、同池 Ordinary、有限额度和读写组合取消。此子字段 setter 不能把原 None 创建为 Some，也不删除父 marker；父不存在时仅允许精确 RulesAbsent→无成员的 no-op，不能据此局部构造其余尚未接通的规则状态。成员 put/delete 仍由原 owner 决定，no-op 在长字符串比较后检查取消，任何后续失败使整笔事务不可 seal。原治理提案、幂等、权限、result 身份及跨字段规则仍由业务 owner 接通；本入口不授予治理权限、完整世界规则族资格、World/C<T 恢复或激活。
+
+
+### 12.23 世界规则供应谱系固定记录
+
+<a id="iws-world-rule-lineages-v1"></a>
+
+world_rules.supply_lineages 继续属于原 world_rules Value/Authorization 登记，不另造主责字段。复用 §12.22 的父 Metadata 与 Unit/Bool Option marker。每个原 String map key 使用二元 Text 语义键 (supply_lineages, 原 key) 的 Entry/Unit 记录存在；target、fulfilled、reserved 各为 Entry/I64，语义键为 ((supply_lineages, 原 key), 固定原字段名)。三量保留原 i64 全部位，不规范化谱系 ID，不将全零记录当缺失，也不连接字符串编码复合键。此记录布局封闭于原 SupplyLineageV1 三个字段，不能当动态 Group 并推定兄弟数量。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+子字段创世生产者只借用原谱系 map，为每个原记录写存在标记与三个具名量，不重复写父 Metadata/Option；同一创世 owner 必须先用同一冻结来源生产一次父字段标记，再组合各子字段。None 与 Some(empty) 仍由父 marker 区分；单个子字段生产成功不签发完整 world_rules 覆盖资格。所有记录共享有限记录数、语义键哈希、I/O、字节、内存及取消额度，调用方准入源与批次，失败丢弃整个组合前缀。
+
+固定根与共享事务查询共同认证父两项、记录存在及三个数值，共六项路径依赖。父或记录不存在但当前四个子记录任一存在均拒绝；存在记录缺少任何数值、错 codec/原键/长度均拒绝，不补零。返回 RulesAbsent、LineageAbsent 或原具名三量；不扫描其他谱系或签发完整字段族资格。事务 setter 精确比较完整三态，核对当前 guard/live、同池 Ordinary、有限额度与组合取消；父 None 不允许局部创建。新增谱系必须原子写完整四项，变更只写不同数值，删除仅移除本封闭记录四项，父 marker 保留。no-op 保留六项依赖，任何后续失败 poison 整笔事务。原供应政策、授权、供需约束和原结果仍由 owner 决定，本存储入口不激活草案供应路径或完整 World/C<T。
+
+
+### 12.24 世界规则供应运输封闭记录
+
+<a id="iws-world-rule-supply-shipments-v1"></a>
+
+world_rules.supply_shipments 仍属于原 world_rules Value/Authorization 登记，复用可选父的 Metadata 与 Unit/Bool marker。每个原 u64 map key 的存在记录使用 (supply_shipments, 原 u64) 的 Entry/Unit；authorization_id、batch_id、beneficiary_id、lineage_id 分别按原名以 Entry/Text 保存原字符串；input_amount、delivered_amount 为 Entry/I64，settled 为 Entry/Bool。列语义键为 ((supply_shipments, 原 u64), 原列名)，不能把 map key 改成 String、规范化或以摘要替换内部身份。原 SupplyShipmentV1 的七个字段全部显式匹配；此布局只封闭该记录，不把动态子 map 序列化为单叶。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世只借用原来源，并由同一冻结来源的 owner 先生成一次父标记；每条运输记录写完整八项，失败丢弃整个组合前缀。固定根和事务点读认证父两项及完整八项，返回父不存在、记录不存在或有界摘要，并将四段原 UTF-8 流向调用者已准入输出；空 String、NUL、Unicode、零和 i64 极值均保留，输出只在整个调用及最终取消成功后采用。父/存在 marker 缺失但当前列存在、存在记录缺列、错误类型/长度/Bool/UTF-8 均拒绝，不以默认值补齐。查询只证明当前闭合记录，不扫描其他运输或证明全规则族。
+
+事务 setter 用原完整七字段 expected，四段 Text 经借用流比较，数值/Bool 精确比较；长比较后仍检查取消。当前 guard/live、同池 Ordinary、有限原键/记录/内存/I/O 和读写组合取消持续生效；每次贡献保留完整十项依赖，失败使整个事务不可 seal。新增八项原子写入、只更新真正不同列、删除完整封闭记录而不删父 marker；父 None 不得局部创建。此存储入口不授予供应权限、结算权限或激活被禁止草案路径。SupplyAuthorization/Batch 的动态集合须另行分解，未覆盖它们、其他规则状态和 World/C<T 时不得宣称完整 supply/world_rules 资格。
