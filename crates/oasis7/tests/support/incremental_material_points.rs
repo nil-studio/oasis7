@@ -227,7 +227,6 @@ fn original_point_columns_and_route_options_share_one_transaction_and_receiver()
             &live,
         )
         .unwrap();
-        drop(overlay);
         let guard = tx.guard();
         let sealed = tx.seal(&guard, &live, 1).unwrap();
         assert_eq!(sealed.record.writes.len(), 4);
