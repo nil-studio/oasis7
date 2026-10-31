@@ -386,6 +386,32 @@ fn native_formal_dual_material_qualification_and_permanent_original_query() {
 }
 
 #[test]
+fn local_coordinator_forwards_cancellation_to_endpoint_before_prepare_write() {
+    let fixture = Fixture::new();
+    let request = fixture.initial.candidate.record.request_digest.clone();
+    let mut coordinator = fixture.coordinator();
+    let mut checks = 0;
+    let result = coordinator.submit_with_cancel(fixture.initial.clone(), || {
+        checks += 1;
+        checks >= 2
+    });
+    assert!(matches!(
+        result,
+        Err(FormalCoordinatorErrorV1::OutcomeUnknown { .. })
+    ));
+    assert_eq!(checks, 2, "coordinator must forward its cancel source");
+    let (primary, replica) = coordinator.endpoints_mut();
+    assert_eq!(
+        primary.query(&request).unwrap(),
+        FormalQueryOutcomeV1::NotRecorded
+    );
+    assert_eq!(
+        replica.query(&request).unwrap(),
+        FormalQueryOutcomeV1::NotRecorded
+    );
+}
+
+#[test]
 fn native_formal_long_history_minimum_and_corruption_fail_closed() {
     let fixture = Fixture::new();
     let mut coordinator = fixture.coordinator();

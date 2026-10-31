@@ -151,6 +151,13 @@ impl IncrementalPageStore {
         &self.root
     }
 
+    /// Shared admission pool used by every state/value page session opened
+    /// from this store. Endpoint verifiers must reuse this exact pool for
+    /// original-object copies and all derived verification workspaces.
+    pub fn memory_budget(&self) -> &MemoryBudget {
+        &self.memory
+    }
+
     pub fn put_page(
         &self,
         id: [u8; 32],
