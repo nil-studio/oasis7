@@ -215,7 +215,7 @@ impl FileFormalEndpoint {
             &state,
             memory,
             &mut core_budget,
-            || cancelled(),
+            &mut *cancelled,
         )
         .map_err(|error| {
             state
@@ -276,7 +276,7 @@ impl FileFormalEndpoint {
             &mut value_context,
             &mut scan,
             &mut full_values,
-            || cancelled(),
+            &mut *cancelled,
         )
         .map_err(|error| {
             state
@@ -295,7 +295,8 @@ impl FileFormalEndpoint {
                 &state,
                 &mut value_context,
                 &mut scan,
-                || cancelled(),
+                limits.max_full_value_bytes,
+                cancelled,
             )
             .map_err(|error| {
                 state
@@ -305,6 +306,8 @@ impl FileFormalEndpoint {
             })?;
         if checked.body_id() != coverage.body_id()
             || coverage.checked_u64_fields() != 7
+            || coverage.checked_id_set_fields() != 5
+            || coverage.checked_number_map_fields() != 11
             || !coverage.unsupported_fields().is_empty()
             || coverage.runtime_registry_missing()
             || coverage.cognition_registry_missing()

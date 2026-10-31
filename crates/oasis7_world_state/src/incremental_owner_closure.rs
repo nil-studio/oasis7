@@ -2,20 +2,23 @@
 //!
 //! Generic state/value verification proves the six trees and all referenced
 //! value bytes. This layer binds structural keys to the frozen WorldState
-//! registry and verifies the currently implemented scalar-u64 owner family.
+//! registry and verifies the currently implemented scalar, set and number-map
+//! owner families.
 //! Other WorldState, Runtime, and Cognition owners remain explicit gaps; this
 //! report is never a receipt or an activation token.
 
 use crate::{
     incremental_field_member::{
         MemberPayloadCodecV1, MemberReadProfileV1, MemberRecordLimitsV1, WorldFieldKeyV1,
-        WorldFieldRecordKindV1, read_member_record_profile_v1,
+        WorldFieldRecordKindV1, read_member_record_profile_v1, read_member_record_v1,
     },
     incremental_field_presence::{PresenceRecordLimitsV1, read_field_presence_v1},
     incremental_projection::{
         FieldDescriptor, FieldDestination, FieldOwner, FieldShape, WORLD_STATE_FIELDS,
     },
     incremental_semantic_key::{SEMANTIC_KEY_DOMAIN, SemanticKeyRefV1, read_semantic_key_v1},
+    incremental_world_id_sets::WorldIdSetFieldV1,
+    incremental_world_number_maps::WorldNumberMapFieldV1,
     incremental_world_u64::WorldU64FieldV1,
 };
 use oasis7_formal_protocol::{
@@ -26,7 +29,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
-use std::{cell::RefCell, io};
+use std::{cell::RefCell, io, io::Write};
 
 const OWNER_SCAN_METADATA_BYTES: usize = 4096;
 const U64_SEMANTIC_BYTES: u64 = (SEMANTIC_KEY_DOMAIN.len() + 1) as u64;
@@ -47,6 +50,8 @@ pub struct UnsupportedWorldStateOwnersV1 {
     runtime_registry_missing: bool,
     cognition_registry_missing: bool,
     checked_u64_fields: u8,
+    checked_id_set_fields: u8,
+    checked_number_map_fields: u8,
 }
 
 impl UnsupportedWorldStateOwnersV1 {
@@ -68,6 +73,14 @@ impl UnsupportedWorldStateOwnersV1 {
 
     pub fn checked_u64_fields(&self) -> u8 {
         self.checked_u64_fields
+    }
+
+    pub fn checked_id_set_fields(&self) -> u8 {
+        self.checked_id_set_fields
+    }
+
+    pub fn checked_number_map_fields(&self) -> u8 {
+        self.checked_number_map_fields
     }
 }
 
@@ -122,6 +135,260 @@ fn u64_field(field: FieldDescriptor) -> Option<WorldU64FieldV1> {
         .find(|candidate| candidate.descriptor().ok() == Some(field))
 }
 
+fn id_set_field(field: FieldDescriptor) -> Option<WorldIdSetFieldV1> {
+    WorldIdSetFieldV1::ALL
+        .into_iter()
+        .find(|candidate| candidate.name() == field.name)
+}
+
+fn number_map_field(field: FieldDescriptor) -> Option<WorldNumberMapFieldV1> {
+    WorldNumberMapFieldV1::ALL
+        .into_iter()
+        .find(|candidate| candidate.name() == field.name)
+}
+
+#[derive(Clone, Copy)]
+enum OwnerKeyKind {
+    Text,
+    Action,
+}
+
+/// Validates closed text/action semantic-key tokens without materializing
+/// arbitrarily long original keys. The record reader separately hashes the
+/// full stream and binds it to the structural field-key digest.
+struct OwnerSemanticKeyProbe {
+    expected: OwnerKeyKind,
+    prefix: [u8; SEMANTIC_KEY_DOMAIN.len() + 9],
+    prefix_len: usize,
+    expected_total: Option<u64>,
+    bytes_seen: u64,
+    max_bytes: u64,
+    utf8_pending: [u8; 4],
+    utf8_pending_len: usize,
+    invalid: bool,
+}
+
+impl OwnerSemanticKeyProbe {
+    fn new(expected: OwnerKeyKind, max_bytes: u64) -> Self {
+        Self {
+            expected,
+            prefix: [0; SEMANTIC_KEY_DOMAIN.len() + 9],
+            prefix_len: 0,
+            expected_total: None,
+            bytes_seen: 0,
+            max_bytes,
+            utf8_pending: [0; 4],
+            utf8_pending_len: 0,
+            invalid: false,
+        }
+    }
+
+    fn fail(&mut self) -> io::Error {
+        self.invalid = true;
+        io::Error::other("WorldState owner semantic key")
+    }
+
+    fn parse_prefix(&mut self) -> io::Result<()> {
+        let domain_len = SEMANTIC_KEY_DOMAIN.len();
+        if &self.prefix[..domain_len] != SEMANTIC_KEY_DOMAIN {
+            return Err(self.fail());
+        }
+        match (self.expected, self.prefix[domain_len]) {
+            (OwnerKeyKind::Text, 1) => {
+                let length = u64::from_be_bytes(
+                    self.prefix[domain_len + 1..domain_len + 9]
+                        .try_into()
+                        .map_err(|_| self.fail())?,
+                );
+                self.expected_total = Some(
+                    (self.prefix.len() as u64)
+                        .checked_add(length)
+                        .filter(|total| *total <= self.max_bytes)
+                        .ok_or_else(|| self.fail())?,
+                );
+            }
+            (OwnerKeyKind::Action, 2) => {
+                if self.prefix.len() as u64 > self.max_bytes {
+                    return Err(self.fail());
+                }
+                self.expected_total = Some(self.prefix.len() as u64);
+            }
+            _ => return Err(self.fail()),
+        }
+        Ok(())
+    }
+
+    fn validate_text(&mut self, mut bytes: &[u8]) -> io::Result<()> {
+        if self.utf8_pending_len != 0 {
+            let width = match self.utf8_pending[0] {
+                0xc2..=0xdf => 2,
+                0xe0..=0xef => 3,
+                0xf0..=0xf4 => 4,
+                _ => return Err(self.fail()),
+            };
+            let take = (width - self.utf8_pending_len).min(bytes.len());
+            self.utf8_pending[self.utf8_pending_len..self.utf8_pending_len + take]
+                .copy_from_slice(&bytes[..take]);
+            self.utf8_pending_len += take;
+            bytes = &bytes[take..];
+            if self.utf8_pending_len < width {
+                return Ok(());
+            }
+            if std::str::from_utf8(&self.utf8_pending[..width]).is_err() {
+                return Err(self.fail());
+            }
+            self.utf8_pending_len = 0;
+        }
+        match std::str::from_utf8(bytes) {
+            Ok(_) => Ok(()),
+            Err(error) if error.error_len().is_none() => {
+                let tail = &bytes[error.valid_up_to()..];
+                if tail.len() > 3 {
+                    return Err(self.fail());
+                }
+                self.utf8_pending[..tail.len()].copy_from_slice(tail);
+                self.utf8_pending_len = tail.len();
+                Ok(())
+            }
+            Err(_) => Err(self.fail()),
+        }
+    }
+
+    fn finish(&self) -> bool {
+        self.expected_total == Some(self.bytes_seen)
+            && self.prefix_len == self.prefix.len()
+            && (matches!(self.expected, OwnerKeyKind::Action) || self.utf8_pending_len == 0)
+            && !self.invalid
+    }
+}
+
+impl Write for OwnerSemanticKeyProbe {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.invalid {
+            return Err(io::Error::other("WorldState owner semantic key"));
+        }
+        let Some(seen) = self.bytes_seen.checked_add(bytes.len() as u64) else {
+            return Err(self.fail());
+        };
+        if seen > self.max_bytes {
+            return Err(self.fail());
+        }
+        self.bytes_seen = seen;
+        let mut offset = 0;
+        if self.prefix_len < self.prefix.len() {
+            let take = (self.prefix.len() - self.prefix_len).min(bytes.len());
+            self.prefix[self.prefix_len..self.prefix_len + take].copy_from_slice(&bytes[..take]);
+            self.prefix_len += take;
+            offset = take;
+            if self.prefix_len == self.prefix.len() {
+                self.parse_prefix()?;
+            } else {
+                return Ok(bytes.len());
+            }
+        }
+        let expected_total = self.expected_total.ok_or_else(|| self.fail())?;
+        if self.bytes_seen > expected_total {
+            return Err(self.fail());
+        }
+        let tail = &bytes[offset..];
+        match self.expected {
+            OwnerKeyKind::Text => self.validate_text(tail)?,
+            OwnerKeyKind::Action if !tail.is_empty() => return Err(self.fail()),
+            OwnerKeyKind::Action => {}
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if self.invalid {
+            Err(io::Error::other("WorldState owner semantic key"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn read_typed_member<R: ValueNodeReader>(
+    value: &[u8; 32],
+    field_key: &WorldFieldKeyV1,
+    profile: OwnerMemberProfile,
+    values: &mut ValueReadContext<'_, R>,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), WorldStateOwnerError> {
+    let mut key_probe = OwnerSemanticKeyProbe::new(profile.key_kind, profile.max_record_bytes);
+    let mut payload = [0u8; 8];
+    let result = read_member_record_v1(
+        value,
+        field_key,
+        values,
+        MemberRecordLimitsV1 {
+            semantic_bytes: profile.max_record_bytes,
+            payload_bytes: payload.len() as u64,
+            record_bytes: profile.max_record_bytes,
+        },
+        &mut key_probe,
+        &mut &mut payload[..],
+        cancelled,
+    );
+    if key_probe.invalid {
+        return Err(WorldStateOwnerError::Invalid(
+            "typed owner semantic key profile",
+        ));
+    }
+    let info = result.map_err(WorldStateOwnerError::Value)?;
+    if !key_probe.finish() {
+        return Err(WorldStateOwnerError::Invalid(
+            "typed owner semantic key framing",
+        ));
+    }
+    if info.codec != profile.codec || info.payload_bytes != profile.payload_bytes {
+        return Err(WorldStateOwnerError::Invalid("typed owner payload profile"));
+    }
+    if profile.codec == MemberPayloadCodecV1::U64 {
+        let _value = u64::from_be_bytes(payload);
+    } else if profile.codec == MemberPayloadCodecV1::I64 {
+        let _value = i64::from_be_bytes(payload);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct OwnerMemberProfile {
+    key_kind: OwnerKeyKind,
+    codec: MemberPayloadCodecV1,
+    payload_bytes: u64,
+    max_record_bytes: u64,
+}
+
+fn id_set_key_kind(field: WorldIdSetFieldV1) -> OwnerKeyKind {
+    match field {
+        WorldIdSetFieldV1::CompletedLogisticsRoutes | WorldIdSetFieldV1::RetiredFactories => {
+            OwnerKeyKind::Text
+        }
+        WorldIdSetFieldV1::SettledLogisticsTransits
+        | WorldIdSetFieldV1::SettledFactoryBuilds
+        | WorldIdSetFieldV1::SettledRecipeJobs => OwnerKeyKind::Action,
+    }
+}
+
+fn number_map_profile(field: WorldNumberMapFieldV1) -> (OwnerKeyKind, MemberPayloadCodecV1) {
+    let key = if field == WorldNumberMapFieldV1::IndustrySettlementOrders {
+        OwnerKeyKind::Action
+    } else {
+        OwnerKeyKind::Text
+    };
+    let codec = if matches!(
+        field,
+        WorldNumberMapFieldV1::ReputationWindowAccumulated
+            | WorldNumberMapFieldV1::ReputationScores
+    ) {
+        MemberPayloadCodecV1::I64
+    } else {
+        MemberPayloadCodecV1::U64
+    };
+    (key, codec)
+}
+
 fn read_u64_entry<R: ValueNodeReader>(
     scalar: WorldU64FieldV1,
     field: FieldDescriptor,
@@ -162,7 +429,7 @@ fn read_u64_entry<R: ValueNodeReader>(
         profile,
         &mut semantic_output,
         &mut payload_output,
-        || cancelled(),
+        cancelled,
     )
     .map_err(WorldStateOwnerError::Value)?;
     if info.codec != MemberPayloadCodecV1::U64
@@ -181,8 +448,8 @@ fn read_u64_entry<R: ValueNodeReader>(
 /// Scan all six namespaces and bind every encountered structural key to the
 /// frozen WorldState descriptor table. `verify_state_values` must already have
 /// established every value-tree closure. This function adds owner typing for
-/// the seven implemented scalar-u64 descriptors, checks their required
-/// metadata/entry records, and returns explicit unsupported owner families.
+/// the implemented scalar-u64, ID-set and number-map descriptors, checks
+/// required metadata/entry records, and returns explicit unsupported owners.
 /// Callers must reject the incomplete report before issuing a profile-3 receipt.
 pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader>(
     roots: &[StateRootV1; 6],
@@ -190,6 +457,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     state: &S,
     values: &mut ValueReadContext<'_, V>,
     state_io: &mut StateScanBudget,
+    max_value_bytes: u64,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
     if state.allocation_class() != Some(values.class)
@@ -274,9 +542,60 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                         let mut cancel_now = || (cancelled.borrow_mut())();
                         read_u64_entry(scalar, field, key, &entry.value, values, &mut cancel_now)?;
                     }
-                    _ if u64_field(field).is_some() => {
+                    WorldFieldRecordKindV1::Entry if let Some(set) = id_set_field(field) => {
+                        if field.owner != FieldOwner::WorldState
+                            || field.shape != FieldShape::Set
+                            || field.destination
+                                != FieldDestination::State(StateNamespaceV1::Authorization)
+                        {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "world ID set descriptor registration",
+                            ));
+                        }
+                        let mut cancel_now = || (cancelled.borrow_mut())();
+                        read_typed_member(
+                            &entry.value,
+                            &key,
+                            OwnerMemberProfile {
+                                key_kind: id_set_key_kind(set),
+                                codec: MemberPayloadCodecV1::Unit,
+                                payload_bytes: 0,
+                                max_record_bytes: max_value_bytes,
+                            },
+                            values,
+                            &mut cancel_now,
+                        )?;
+                    }
+                    WorldFieldRecordKindV1::Entry if let Some(map) = number_map_field(field) => {
+                        if field.owner != FieldOwner::WorldState
+                            || field.shape != FieldShape::Map
+                            || field.destination != FieldDestination::State(map.namespace())
+                        {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "world number map descriptor registration",
+                            ));
+                        }
+                        let (key_kind, codec) = number_map_profile(map);
+                        let mut cancel_now = || (cancelled.borrow_mut())();
+                        read_typed_member(
+                            &entry.value,
+                            &key,
+                            OwnerMemberProfile {
+                                key_kind,
+                                codec,
+                                payload_bytes: 8,
+                                max_record_bytes: max_value_bytes,
+                            },
+                            values,
+                            &mut cancel_now,
+                        )?;
+                    }
+                    _ if u64_field(field).is_some()
+                        || id_set_field(field).is_some()
+                        || number_map_field(field).is_some() =>
+                    {
                         return Err(WorldStateOwnerError::Invalid(
-                            "unexpected scalar-u64 record kind",
+                            "unexpected typed owner record kind",
                         ));
                     }
                     _ => {
@@ -332,6 +651,8 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     }
 
     let mut checked_u64_fields = 0u8;
+    let mut checked_id_set_fields = 0u8;
+    let mut checked_number_map_fields = 0u8;
     for (index, field) in WORLD_STATE_FIELDS.iter().copied().enumerate() {
         let FieldDestination::State(_) = field.destination else {
             continue;
@@ -346,6 +667,34 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                 return Err(WorldStateOwnerError::Invalid("scalar-u64 descriptor"));
             }
             checked_u64_fields = checked_u64_fields.saturating_add(1);
+        } else if let Some(set) = id_set_field(field) {
+            if seen[index].metadata != 1 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "required ID-set metadata missing or duplicate",
+                ));
+            }
+            if field.owner != FieldOwner::WorldState
+                || field.shape != FieldShape::Set
+                || field.destination != FieldDestination::State(StateNamespaceV1::Authorization)
+                || set.name() != field.name
+            {
+                return Err(WorldStateOwnerError::Invalid("ID-set descriptor"));
+            }
+            checked_id_set_fields = checked_id_set_fields.saturating_add(1);
+        } else if let Some(map) = number_map_field(field) {
+            if seen[index].metadata != 1 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "required number-map metadata missing or duplicate",
+                ));
+            }
+            if field.owner != FieldOwner::WorldState
+                || field.shape != FieldShape::Map
+                || field.destination != FieldDestination::State(map.namespace())
+                || map.name() != field.name
+            {
+                return Err(WorldStateOwnerError::Invalid("number-map descriptor"));
+            }
+            checked_number_map_fields = checked_number_map_fields.saturating_add(1);
         } else {
             if seen[index].metadata != 1 {
                 return Err(WorldStateOwnerError::Invalid(
@@ -378,6 +727,8 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         runtime_registry_missing: true,
         cognition_registry_missing: true,
         checked_u64_fields,
+        checked_id_set_fields,
+        checked_number_map_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))

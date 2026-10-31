@@ -70,9 +70,11 @@ impl MerkleNodeReader for StatePages {
     }
 }
 
+type ChargedValuePages = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
+
 #[derive(Default)]
 struct ValuePages {
-    pages: RefCell<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>,
+    pages: RefCell<ChargedValuePages>,
 }
 impl ValueNodeWriter for ValuePages {
     fn put_node(
@@ -154,33 +156,132 @@ fn fixture(include_u64_entries: bool) -> Fixture {
         });
 
         if include_u64_entries {
-            let Some(scalar) = u64_field(field) else {
-                continue;
-            };
-            let entry = write_member_record_v1(
-                field,
-                WorldFieldRecordKindV1::Entry,
-                &(),
-                MemberPayloadRefV1::U64(scalar.value(&crate::state::WorldState::default())),
-                &mut MemberRecordWriteContext {
-                    sink: &mut values,
-                    memory: &memory,
-                    io: &mut value_io,
-                    key_work: &mut key_work,
-                    limits: MemberRecordLimitsV1 {
-                        semantic_bytes: U64_SEMANTIC_BYTES,
-                        payload_bytes: 8,
-                        record_bytes: 4096,
+            if let Some(scalar) = u64_field(field) {
+                let entry = write_member_record_v1(
+                    field,
+                    WorldFieldRecordKindV1::Entry,
+                    &(),
+                    MemberPayloadRefV1::U64(scalar.value(&crate::state::WorldState::default())),
+                    &mut MemberRecordWriteContext {
+                        sink: &mut values,
+                        memory: &memory,
+                        io: &mut value_io,
+                        key_work: &mut key_work,
+                        limits: MemberRecordLimitsV1 {
+                            semantic_bytes: U64_SEMANTIC_BYTES,
+                            payload_bytes: 8,
+                            record_bytes: 4096,
+                        },
+                        cancelled: || false,
                     },
-                    cancelled: || false,
-                },
-            )
-            .unwrap();
-            writes.entry(namespace).or_default().push(StateWriteV1 {
-                key: entry.field_key.as_bytes().to_vec(),
-                before: None,
-                after: Some(entry.value_root),
-            });
+                )
+                .unwrap();
+                writes.entry(namespace).or_default().push(StateWriteV1 {
+                    key: entry.field_key.as_bytes().to_vec(),
+                    before: None,
+                    after: Some(entry.value_root),
+                });
+            }
+
+            if let Some(set) = id_set_field(field) {
+                let entry = match id_set_key_kind(set) {
+                    OwnerKeyKind::Text => write_member_record_v1(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        "typed-owner-set-key",
+                        MemberPayloadRefV1::Unit,
+                        &mut MemberRecordWriteContext {
+                            sink: &mut values,
+                            memory: &memory,
+                            io: &mut value_io,
+                            key_work: &mut key_work,
+                            limits: MemberRecordLimitsV1 {
+                                semantic_bytes: 1024,
+                                payload_bytes: 8,
+                                record_bytes: 4096,
+                            },
+                            cancelled: || false,
+                        },
+                    ),
+                    OwnerKeyKind::Action => write_member_record_v1(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        &42u64,
+                        MemberPayloadRefV1::Unit,
+                        &mut MemberRecordWriteContext {
+                            sink: &mut values,
+                            memory: &memory,
+                            io: &mut value_io,
+                            key_work: &mut key_work,
+                            limits: MemberRecordLimitsV1 {
+                                semantic_bytes: 1024,
+                                payload_bytes: 8,
+                                record_bytes: 4096,
+                            },
+                            cancelled: || false,
+                        },
+                    ),
+                }
+                .unwrap();
+                writes.entry(namespace).or_default().push(StateWriteV1 {
+                    key: entry.field_key.as_bytes().to_vec(),
+                    before: None,
+                    after: Some(entry.value_root),
+                });
+            }
+
+            if let Some(map) = number_map_field(field) {
+                let (key_kind, codec) = number_map_profile(map);
+                let payload = match codec {
+                    MemberPayloadCodecV1::U64 => MemberPayloadRefV1::U64(123),
+                    MemberPayloadCodecV1::I64 => MemberPayloadRefV1::I64(-123),
+                    _ => unreachable!(),
+                };
+                let entry = match key_kind {
+                    OwnerKeyKind::Text => write_member_record_v1(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        "typed-owner-map-key",
+                        payload,
+                        &mut MemberRecordWriteContext {
+                            sink: &mut values,
+                            memory: &memory,
+                            io: &mut value_io,
+                            key_work: &mut key_work,
+                            limits: MemberRecordLimitsV1 {
+                                semantic_bytes: 1024,
+                                payload_bytes: 8,
+                                record_bytes: 4096,
+                            },
+                            cancelled: || false,
+                        },
+                    ),
+                    OwnerKeyKind::Action => write_member_record_v1(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        &43u64,
+                        payload,
+                        &mut MemberRecordWriteContext {
+                            sink: &mut values,
+                            memory: &memory,
+                            io: &mut value_io,
+                            key_work: &mut key_work,
+                            limits: MemberRecordLimitsV1 {
+                                semantic_bytes: 1024,
+                                payload_bytes: 8,
+                                record_bytes: 4096,
+                            },
+                            cancelled: || false,
+                        },
+                    ),
+                }
+                .unwrap();
+                writes.entry(namespace).or_default().push(StateWriteV1 {
+                    key: entry.field_key.as_bytes().to_vec(),
+                    before: None,
+                    after: Some(entry.value_root),
+                });
+            }
         }
     }
 
@@ -241,20 +342,48 @@ fn verify(
         &fixture.state,
         &mut values,
         &mut state_io,
+        1 << 20,
         cancelled,
     )
 }
 
 #[test]
-fn complete_registered_metadata_and_u64_families_are_typed_but_not_complete_world_owners() {
+fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owners() {
     let fixture = fixture(true);
     let report = verify(&fixture, || false).unwrap();
     assert_eq!(report.body_id(), [0x5a; 32]);
     assert_eq!(report.checked_u64_fields(), 7);
+    assert_eq!(report.checked_id_set_fields(), 5);
+    assert_eq!(report.checked_number_map_fields(), 11);
     assert!(report.unsupported_fields().contains(&"resources"));
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(!report.unsupported_fields().is_empty());
+}
+
+#[test]
+fn owner_semantic_key_probe_handles_utf8_boundaries_and_rejects_wrong_tokens() {
+    let ascii_prefix_len = 64 * 1024 - (SEMANTIC_KEY_DOMAIN.len() + 9) - 1;
+    let text = format!("{}é-tail", "a".repeat(ascii_prefix_len));
+    let mut encoded = Vec::new();
+    crate::incremental_semantic_key::write_semantic_key_v1(text.as_str(), &mut encoded).unwrap();
+    let mut probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, encoded.len() as u64);
+    for byte in &encoded {
+        probe.write_all(std::slice::from_ref(byte)).unwrap();
+    }
+    assert!(probe.finish(), "split multi-byte UTF-8 key should validate");
+
+    let mut wrong_token = OwnerSemanticKeyProbe::new(OwnerKeyKind::Action, 128);
+    assert!(wrong_token.write_all(&encoded).is_err());
+    assert!(!wrong_token.finish());
+
+    let mut malformed = SEMANTIC_KEY_DOMAIN.to_vec();
+    malformed.push(1);
+    malformed.extend_from_slice(&1u64.to_be_bytes());
+    malformed.push(0xff);
+    let mut invalid_utf8 = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, 128);
+    assert!(invalid_utf8.write_all(&malformed).is_err());
+    assert!(!invalid_utf8.finish());
 }
 
 #[test]
