@@ -309,52 +309,53 @@ fn authorization_mapset_genesis_stops_on_record_limit_and_cancellation() {
         let cancelled = std::cell::Cell::new(cancel_before);
         let mut count = 0;
         let mut remaining = records;
-        let mut values = store.value_session(physical());
-        let result = prepare_authorization_mapsets_genesis_v1(
-            &source,
-            &mut MemberRecordWriteContext {
-                sink: &mut values,
-                memory: &memory,
-                io: &mut logical(),
-                key_work: &mut SemanticKeyBudget {
-                    bytes_remaining: 8192,
+        {
+            let mut values = store.value_session(physical());
+            let result = prepare_authorization_mapsets_genesis_v1(
+                &source,
+                &mut MemberRecordWriteContext {
+                    sink: &mut values,
+                    memory: &memory,
+                    io: &mut logical(),
+                    key_work: &mut SemanticKeyBudget {
+                        bytes_remaining: 8192,
+                    },
+                    limits: MemberRecordLimitsV1 {
+                        semantic_bytes: 1024,
+                        payload_bytes: 0,
+                        record_bytes: 4096,
+                    },
+                    cancelled: || cancelled.get(),
                 },
-                limits: MemberRecordLimitsV1 {
-                    semantic_bytes: 1024,
-                    payload_bytes: 0,
-                    record_bytes: 4096,
+                &mut remaining,
+                &mut |_provisional| {
+                    count += 1;
+                    if cancel_after_prefix {
+                        cancelled.set(true);
+                    }
+                    Ok(())
                 },
-                cancelled: || cancelled.get(),
-            },
-            &mut remaining,
-            &mut |_provisional| {
-                count += 1;
-                if cancel_after_prefix {
-                    cancelled.set(true);
-                }
-                Ok(())
-            },
-        );
-        assert_eq!(
-            count, expected_prefix,
-            "records={records}, cancel_before={cancel_before}, cancel_after_prefix={cancel_after_prefix}: {result:?}"
-        );
-        if cancel_before || cancel_after_prefix {
-            assert!(matches!(
-                result,
-                Err(MemberRecordError::Value(ValueTreeError::Cancelled))
-            ));
-        } else {
-            assert_eq!(remaining, 0);
-            assert!(matches!(
-                result,
-                Err(MemberRecordError::Value(ValueTreeError::ResourceLimited(
-                    "authorization MapSet records"
-                )))
-            ));
+            );
+            assert_eq!(
+                count, expected_prefix,
+                "records={records}, cancel_before={cancel_before}, cancel_after_prefix={cancel_after_prefix}: {result:?}"
+            );
+            if cancel_before || cancel_after_prefix {
+                assert!(matches!(
+                    result,
+                    Err(MemberRecordError::Value(ValueTreeError::Cancelled))
+                ));
+            } else {
+                assert_eq!(remaining, 0);
+                assert!(matches!(
+                    result,
+                    Err(MemberRecordError::Value(ValueTreeError::ResourceLimited(
+                        "authorization MapSet records"
+                    )))
+                ));
+            }
+            // The provisional sink drops all rows; no StateRoot is ever constructed.
         }
-        // The provisional sink drops all rows; no StateRoot is ever constructed.
-        drop(values);
         assert_eq!(memory.used(), store_admission);
     }
 }
