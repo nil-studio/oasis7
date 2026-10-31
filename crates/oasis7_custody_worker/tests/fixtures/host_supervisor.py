@@ -138,6 +138,16 @@ def registry(binding):
     os.chmod(path, 0o644)
     registry_created = True
 
+def retire_binding():
+    global registry_created
+    path = pathlib.Path(f'/var/lib/oasis7-custody/model-bindings/{M}.json')
+    if not registry_created or path.is_symlink() or not path.is_file():
+        deny('fixture_binding_retirement_rejected')
+    path.unlink()
+    registry_created = False
+    if path.exists() or path.is_symlink():
+        deny('fixture_binding_retirement_failed')
+
 def handle(request):
     global initialized, server
     if not isinstance(request, dict) or set(request) != {'operation','input'}:
@@ -203,7 +213,9 @@ def handle(request):
             deny('fixture_model_probe_rejected')
         retire_model()
         reply = json.loads(result.stdout)
-        reply['model_namespace_retired'] = not model_pids()
+        retire_binding()
+        reply['model_processes_reaped'] = not model_pids()
+        reply['model_binding_retired'] = not pathlib.Path(f'/var/lib/oasis7-custody/model-bindings/{M}.json').exists()
         return reply
     if operation == 'control' and server is not None:
         # M enters the actual public CLI; no direct Rust call or role claim.
@@ -235,7 +247,7 @@ def main():
     finally:
         retire_model()
         if registry_created:
-            pathlib.Path(f'/var/lib/oasis7-custody/model-bindings/{M}.json').unlink()
+            retire_binding()
         if relay is not None:
             relay.terminate();relay.wait(timeout=5)
         if server is not None:

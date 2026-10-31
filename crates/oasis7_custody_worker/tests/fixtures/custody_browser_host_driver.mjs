@@ -49,11 +49,11 @@ export function actualHostDriver({directory,fixtureSource,port}){
     setStage('v2-actual-formal-skill-m-launch');
     const probe=await rpc('model_probe',{resource_id:host_binding.resource_id});
     assert.equal(probe.kind,'deterministic_component_not_real_model');
-    assert.equal(probe.formal_skill_bytes_loaded,true);assert.equal(probe.model_namespace_retired,true);
+    assert.equal(probe.formal_skill_bytes_loaded,true);assert.equal(probe.model_processes_reaped,true);assert.equal(probe.model_binding_retired,true);
     assert.deepEqual(probe.replies.map(v=>v.method),['initialize','heartbeat','tools_list','request_finish','request_abort']);
     assert.ok(probe.replies.every(v=>v.accepted));
     const after=counters();assert.equal(before.native-after.native,20,'actual Native160 ledger must match 20 observed Native HTTP');for(const purpose of ['execution','reconcile_read'])assert.equal(after.purposes[purpose].transport,before.purposes[purpose].transport,'closed Control must not borrow purpose transport');assert.equal(after.model_controls,5);assert.equal(after.closing_reason,'finished');assert.equal(Object.values(nativeCounts).reduce((a,b)=>a+b,0)-nativeBefore,20,'actual joint claim4 plus closed five Control16 Native HTTP');assert.equal(after.execution_book_absent,true);assert.equal(after.old_v1_sessions,0);
     return {actual_linux_h_m_kernel_cli:true,native_placement:'actual-remote-https',n_local_negative_witness:true,
-      model_lifecycle:'owned_fixture_pid_namespace_retired_only',runtime_skill_loading:'actual_bytes_in_deterministic_m_process_not_real_model',world_closed:'not_claimed',actual_host_control_methods:5};
+      model_lifecycle:'model_processes_reaped_and_root_binding_removed_only',runtime_skill_loading:'actual_bytes_in_deterministic_m_process_not_real_model',world_closed:'not_claimed',actual_host_control_methods:5};
   },async close(){if(exited)return;child.stdin.end();await new Promise(resolve=>{const timer=setTimeout(()=>{child.kill('SIGTERM');resolve();},7000);child.once('exit',()=>{clearTimeout(timer);resolve();});});lines.close();}};
 }
