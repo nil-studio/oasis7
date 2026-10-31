@@ -1,5 +1,6 @@
 use super::*;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
+use std::cell::RefCell;
 use std::sync::Arc;
 struct Source {
     memory: MemoryBudget,

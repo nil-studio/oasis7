@@ -3,9 +3,12 @@ use super::*;
 #[derive(Clone, Copy)]
 struct BidIndexSummary {
     size: u64,
-    height: u64,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Reads one typed AVL node using the caller's shared scan, value and cancellation budgets."
+)]
 fn read_index_node<M, R, C>(
     child: &StateRootV1,
     reader: &StateScanReader<'_, M, C>,
@@ -37,6 +40,10 @@ where
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Checks linked AVL nodes with the same scan, value, key and cancellation budgets."
+)]
 fn validate_bid_node_links<M, R, C>(
     child: &StateRootV1,
     reader: &StateScanReader<'_, M, C>,
@@ -171,10 +178,7 @@ where
         }
     }
 
-    Ok(BidIndexSummary {
-        size: summary.size,
-        height: summary.height,
-    })
+    Ok(BidIndexSummary { size: summary.size })
 }
 
 pub(super) fn validate_bids<M, V, C>(
@@ -245,100 +249,93 @@ where
     let mut bid_fields = 0u64;
     let mut roots = 0u64;
     let mut root_summary = None;
-    let scanned = validate_child_entries(
-        child,
-        reader,
-        field,
-        values,
-        max_value_bytes,
-        cancelled,
-        |semantic, value| match semantic {
-            ChildSemantic::Field("length") if value == ChildValue::U64(length) => {
-                scalar_mask |= 1;
-                Ok(())
-            }
-            ChildSemantic::Field("next_bid_id") if value == ChildValue::U64(next_bid_id) => {
-                scalar_mask |= 2;
-                Ok(())
-            }
-            ChildSemantic::Field("sequence_root_id")
-                if value == ChildValue::U64(sequence_root_id) =>
-            {
-                scalar_mask |= 4;
-                Ok(())
-            }
-            ChildSemantic::Field(_) => Err(WorldStateOwnerError::Invalid(
-                "module bids unexpected scalar child",
-            )),
-            ChildSemantic::Bid {
-                bid_id,
-                field: "index_node",
-            } => {
-                let ChildValue::BidIndexNode(node) = value else {
-                    return Err(WorldStateOwnerError::Invalid("module bid AVL field type"));
-                };
-                index_nodes =
-                    index_nodes
-                        .checked_add(1)
-                        .ok_or(WorldStateOwnerError::ResourceLimited(
-                            "module bid AVL node count",
-                        ))?;
-                let summary = validate_bid_node_links(
-                    child,
-                    reader,
-                    field,
-                    bid_id,
-                    node,
-                    sequence_root_id,
-                    length,
-                    next_bid_id,
-                    values,
-                    key_work,
-                    max_value_bytes,
-                    cancelled,
-                )?;
-                if bid_id == sequence_root_id {
-                    roots = roots
-                        .checked_add(1)
-                        .ok_or(WorldStateOwnerError::ResourceLimited(
-                            "module bid AVL root count",
-                        ))?;
-                    root_summary = Some(summary);
-                } else if node.parent_id == NO_BID_ID {
-                    return Err(WorldStateOwnerError::Invalid(
-                        "module bid AVL unexpected root",
-                    ));
+    let scanned =
+        reader
+            .visit_entries(child, |entry| {
+                let (semantic, value) =
+                    super::read_child_member(entry, field, values, max_value_bytes, cancelled)?;
+                match semantic {
+                    ChildSemantic::Field("length") if value == ChildValue::U64(length) => {
+                        scalar_mask |= 1;
+                        Ok(())
+                    }
+                    ChildSemantic::Field("next_bid_id")
+                        if value == ChildValue::U64(next_bid_id) =>
+                    {
+                        scalar_mask |= 2;
+                        Ok(())
+                    }
+                    ChildSemantic::Field("sequence_root_id")
+                        if value == ChildValue::U64(sequence_root_id) =>
+                    {
+                        scalar_mask |= 4;
+                        Ok(())
+                    }
+                    ChildSemantic::Field(_) => Err(WorldStateOwnerError::Invalid(
+                        "module bids unexpected scalar child",
+                    )),
+                    ChildSemantic::Bid {
+                        bid_id,
+                        field: "index_node",
+                    } => {
+                        let ChildValue::BidIndexNode(node) = value else {
+                            return Err(WorldStateOwnerError::Invalid("module bid AVL field type"));
+                        };
+                        index_nodes = index_nodes.checked_add(1).ok_or(
+                            WorldStateOwnerError::ResourceLimited("module bid AVL node count"),
+                        )?;
+                        let summary = validate_bid_node_links(
+                            child,
+                            reader,
+                            field,
+                            bid_id,
+                            node,
+                            sequence_root_id,
+                            length,
+                            next_bid_id,
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        if bid_id == sequence_root_id {
+                            roots = roots.checked_add(1).ok_or(
+                                WorldStateOwnerError::ResourceLimited("module bid AVL root count"),
+                            )?;
+                            root_summary = Some(summary);
+                        } else if node.parent_id == NO_BID_ID {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid AVL unexpected root",
+                            ));
+                        }
+                        Ok(())
+                    }
+                    ChildSemantic::Bid {
+                        bid_id,
+                        field: name,
+                    } => {
+                        if bid_id >= next_bid_id {
+                            return Err(WorldStateOwnerError::Invalid("module bid ID range"));
+                        }
+                        let valid = match (name, value) {
+                            ("present", ChildValue::Unit)
+                            | ("order_id" | "bid_at", ChildValue::U64(_))
+                            | ("bidder_agent_id", ChildValue::Text)
+                            | ("price_amount", ChildValue::I64(_)) => true,
+                            ("price_kind", ChildValue::U64(kind)) => kind <= 1,
+                            _ => false,
+                        };
+                        if !valid {
+                            return Err(WorldStateOwnerError::Invalid("module bid field profile"));
+                        }
+                        bid_fields = bid_fields.checked_add(1).ok_or(
+                            WorldStateOwnerError::ResourceLimited("module bid field count"),
+                        )?;
+                        Ok(())
+                    }
                 }
-                Ok(())
-            }
-            ChildSemantic::Bid {
-                bid_id,
-                field: name,
-            } => {
-                if bid_id >= next_bid_id {
-                    return Err(WorldStateOwnerError::Invalid("module bid ID range"));
-                }
-                let valid = match (name, value) {
-                    ("present", ChildValue::Unit)
-                    | ("order_id" | "bid_at", ChildValue::U64(_))
-                    | ("bidder_agent_id", ChildValue::Text)
-                    | ("price_amount", ChildValue::I64(_)) => true,
-                    ("price_kind", ChildValue::U64(kind)) => kind <= 1,
-                    _ => false,
-                };
-                if !valid {
-                    return Err(WorldStateOwnerError::Invalid("module bid field profile"));
-                }
-                bid_fields =
-                    bid_fields
-                        .checked_add(1)
-                        .ok_or(WorldStateOwnerError::ResourceLimited(
-                            "module bid field count",
-                        ))?;
-                Ok(())
-            }
-        },
-    )?;
+            })
+            .map_err(super::map_scan_error)?;
 
     let expected_bid_fields =
         length
@@ -395,6 +392,10 @@ where
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Reads a bid scalar with the active scan, value, semantic-key and cancellation budgets."
+)]
 fn read_bid_scalar<M, V, C>(
     child: &StateRootV1,
     reader: &StateScanReader<'_, M, C>,

@@ -109,7 +109,7 @@ impl ValueNodeReader for ValuePages {
         id: &[u8; 32],
         max_bytes: usize,
         memory: &MemoryBudget,
-        class: MemoryClass,
+        _class: MemoryClass,
     ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
         let page = self
             .pages

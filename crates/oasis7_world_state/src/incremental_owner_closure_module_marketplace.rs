@@ -33,8 +33,6 @@ pub(super) const FIELD_COUNT: u8 = ModuleMarketplaceFieldV1::ALL.len() as u8;
 
 const CHILD_SEMANTIC_CAPACITY: usize = 128;
 const CHILD_ENTRY_KEY_WORKSPACE: usize = 512;
-const CHILD_BID_FIELDS: u8 = 6;
-const CHILD_BID_MASK: u8 = (1 << CHILD_BID_FIELDS) - 1;
 
 pub(super) fn field_from_descriptor(field: FieldDescriptor) -> Option<ModuleMarketplaceFieldV1> {
     ModuleMarketplaceFieldV1::from_name(field.name)
@@ -483,7 +481,11 @@ fn make_text_key<R: ValueNodeReader>(
     make_semantic_key(field, text, values, key_work, max_value_bytes, cancelled)
 }
 
-pub(super) fn read_bid_member<M, R, C>(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Reads a bid member through the caller's shared scan, value and cancellation budgets."
+)]
+fn read_bid_member<M, R, C>(
     child: &StateRootV1,
     state_reader: &StateScanReader<'_, M, C>,
     field: FieldDescriptor,
@@ -523,7 +525,11 @@ where
     )
 }
 
-pub(super) fn read_bid_field<M, R, C>(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Reads a scalar child while preserving the active owner's shared budgets and cancellation."
+)]
+fn read_bid_field<M, R, C>(
     child: &StateRootV1,
     state_reader: &StateScanReader<'_, M, C>,
     field: FieldDescriptor,
@@ -551,6 +557,10 @@ where
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Authenticates one typed bid value with the caller's scan, value and cancellation context."
+)]
 fn read_bid_value_at_key<M, R, C>(
     child: &StateRootV1,
     state_reader: &StateScanReader<'_, M, C>,
@@ -868,86 +878,6 @@ where
         ));
     }
     Ok(())
-}
-
-fn read_bid_length<M, V, C>(
-    child: &StateRootV1,
-    reader: &StateScanReader<'_, M, C>,
-    field: FieldDescriptor,
-    values: &mut ValueReadContext<'_, V>,
-    key_work: &mut SemanticKeyBudget,
-    max_value_bytes: u64,
-    cancelled: &mut impl FnMut() -> bool,
-) -> Result<u64, WorldStateOwnerError>
-where
-    M: MerkleNodeReader,
-    V: ValueNodeReader,
-    C: FnMut() -> bool,
-{
-    let key = make_text_key(
-        field,
-        "length",
-        values,
-        key_work,
-        max_value_bytes,
-        cancelled,
-    )?;
-    let root = child
-        .get(key.as_bytes(), reader)
-        .map_err(WorldStateOwnerError::Scan)?
-        .ok_or(WorldStateOwnerError::Invalid("module bids length missing"))?;
-    let entry = StateEntryV1 {
-        namespace: child.namespace,
-        key: key.as_bytes().to_vec(),
-        value: root,
-    };
-    let (semantic, value) = read_child_member(&entry, field, values, max_value_bytes, cancelled)?;
-    if semantic != ChildSemantic::Field("length") {
-        return Err(WorldStateOwnerError::Invalid("module bids length key"));
-    }
-    match value {
-        ChildValue::U64(length) => Ok(length),
-        _ => Err(WorldStateOwnerError::Invalid("module bids length value")),
-    }
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Reads one bid field with the caller's shared scan and value budgets and exact typed profile."
-)]
-fn read_bid_scalar<M, V, C>(
-    child: &StateRootV1,
-    reader: &StateScanReader<'_, M, C>,
-    field: FieldDescriptor,
-    name: &'static str,
-    values: &mut ValueReadContext<'_, V>,
-    key_work: &mut SemanticKeyBudget,
-    max_value_bytes: u64,
-    cancelled: &mut impl FnMut() -> bool,
-) -> Result<u64, WorldStateOwnerError>
-where
-    M: MerkleNodeReader,
-    V: ValueNodeReader,
-    C: FnMut() -> bool,
-{
-    let key = make_text_key(field, name, values, key_work, max_value_bytes, cancelled)?;
-    let root = child
-        .get(key.as_bytes(), reader)
-        .map_err(WorldStateOwnerError::Scan)?
-        .ok_or(WorldStateOwnerError::Invalid("module bids scalar missing"))?;
-    let entry = StateEntryV1 {
-        namespace: child.namespace,
-        key: key.as_bytes().to_vec(),
-        value: root,
-    };
-    let (semantic, value) = read_child_member(&entry, field, values, max_value_bytes, cancelled)?;
-    if semantic != ChildSemantic::Field(name) {
-        return Err(WorldStateOwnerError::Invalid("module bids scalar key"));
-    }
-    match value {
-        ChildValue::U64(value) => Ok(value),
-        _ => Err(WorldStateOwnerError::Invalid("module bids scalar value")),
-    }
 }
 
 pub(super) fn validate_member<M, R, C>(

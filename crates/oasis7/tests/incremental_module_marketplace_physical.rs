@@ -35,7 +35,7 @@ use oasis7_runtime::{
         prepare_module_marketplace_genesis_v1,
     },
     incremental_owner_closure::verify_world_state_owner_coverage,
-    incremental_projection::{FieldDestination, WORLD_STATE_FIELDS},
+    incremental_projection::{FieldDestination, FieldOwner, FieldShape, WORLD_STATE_FIELDS},
     incremental_world_u64::{WorldU64FieldV1, prepare_world_u64_genesis_v1},
 };
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
@@ -135,8 +135,10 @@ fn prepare_state_roots(path: &std::path::Path, compression: PageCompression) -> 
     };
 
     // Metadata for every state descriptor makes the synthetic roots complete
-    // at the schema-marker layer. The marketplace and seven u64 fields get
-    // their metadata from their real typed producers below.
+    // at the schema-marker layer. The module-instance child visitor's eight
+    // derived descriptors also need explicit empty-map markers. The
+    // marketplace and seven u64 fields get their metadata from their real
+    // typed producers below.
     let market_names = ModuleMarketplaceFieldV1::ALL.map(ModuleMarketplaceFieldV1::name);
     let u64_names = WorldU64FieldV1::ALL.map(WorldU64FieldV1::name);
     let mut value_writer = store.value_session(physical());
@@ -167,6 +169,46 @@ fn prepare_state_roots(path: &std::path::Path, compression: PageCompression) -> 
             &memory,
             &mut rows,
             namespace,
+            record.field_key.as_bytes(),
+            record.value_root,
+        );
+    }
+
+    for name in [
+        "module_instances.instance_id",
+        "module_instances.module_id",
+        "module_instances.module_version",
+        "module_instances.wasm_hash",
+        "module_instances.owner_agent_id",
+        "module_instances.install_target",
+        "module_instances.active",
+        "module_instances.installed_at",
+    ] {
+        let descriptor = oasis7_runtime::incremental_projection::FieldDescriptor {
+            owner: FieldOwner::WorldState,
+            name,
+            destination: FieldDestination::State(StateNamespaceV1::Business),
+            shape: FieldShape::Map,
+        };
+        let record = write_field_metadata_v1(
+            descriptor,
+            &mut PresenceRecordWriteContext {
+                sink: &mut value_writer,
+                memory: &memory,
+                io: &mut value_io,
+                key_work: &mut key_work,
+                limits: PresenceRecordLimitsV1 {
+                    semantic_bytes: 0,
+                    record_bytes: 512,
+                },
+                cancelled: || false,
+            },
+        )
+        .unwrap();
+        push_row(
+            &memory,
+            &mut rows,
+            StateNamespaceV1::Business,
             record.field_key.as_bytes(),
             record.value_root,
         );
@@ -204,7 +246,6 @@ fn prepare_state_roots(path: &std::path::Path, compression: PageCompression) -> 
         },
     )
     .unwrap();
-    drop(member_write);
     drop(value_writer);
 
     rows.sort_by(|left, right| {
@@ -263,7 +304,7 @@ fn verify_world_state_closure(
     let mut value_io = oasis7_formal_protocol::incremental_value::ValueIoBudget {
         nodes_remaining: 200_000,
         read_bytes_remaining: 512 << 20,
-        write_bytes_remaining: 0,
+        write_bytes_remaining: 256 << 20,
     };
     let mut value_context = ValueReadContext {
         source: &values,
@@ -301,8 +342,8 @@ fn verify_world_state_closure(
                 state_io.nodes_remaining,
                 state_io.read_bytes_remaining,
                 state_io.leaves_remaining,
-                value_io.nodes_remaining,
-                value_io.read_bytes_remaining,
+                value_context.io.nodes_remaining,
+                value_context.io.read_bytes_remaining,
                 state.remaining_io()
             ),
         }
@@ -315,10 +356,12 @@ fn verify_world_state_closure(
     let generic_scan_nodes = 2_000_000 - state_io.nodes_remaining;
     let generic_scan_bytes = (256 << 20) - state_io.read_bytes_remaining;
     let generic_scan_leaves = 100_000 - state_io.leaves_remaining;
-    let generic_value_nodes_remaining = value_io.nodes_remaining;
-    let generic_value_bytes_remaining = value_io.read_bytes_remaining;
-    let generic_value_nodes = 200_000 - value_io.nodes_remaining;
-    let generic_value_bytes = (512 << 20) - value_io.read_bytes_remaining;
+    let generic_value_nodes_remaining = value_context.io.nodes_remaining;
+    let generic_value_bytes_remaining = value_context.io.read_bytes_remaining;
+    let generic_value_output_remaining = value_context.io.write_bytes_remaining;
+    let generic_value_nodes = 200_000 - value_context.io.nodes_remaining;
+    let generic_value_bytes = (512 << 20) - value_context.io.read_bytes_remaining;
+    let generic_value_output_bytes = (256 << 20) - value_context.io.write_bytes_remaining;
     let generic_physical = state.remaining_io().unwrap();
 
     let report = verify_world_state_owner_coverage(
@@ -338,15 +381,18 @@ fn verify_world_state_closure(
     );
     assert!(state.take_read_error().is_none());
     drop(report);
-    drop(value_context);
+    let owner_value_nodes_remaining = value_context.io.nodes_remaining;
+    let owner_value_bytes_remaining = value_context.io.read_bytes_remaining;
+    let owner_value_output_remaining = value_context.io.write_bytes_remaining;
     let physical_remaining = state.remaining_io().unwrap();
     eprintln!(
-        "combined generic+owner closure: generic_leaves={leaves}; generic scan nodes={generic_scan_nodes} bytes={generic_scan_bytes} leaves={generic_scan_leaves}; owner scan nodes={} bytes={} leaves={}; generic value nodes={generic_value_nodes} bytes={generic_value_bytes}; owner value nodes={} bytes={}; generic physical reads={} bytes={}; owner physical reads={} bytes={}",
+        "combined generic+owner closure: generic_leaves={leaves}; generic scan nodes={generic_scan_nodes} bytes={generic_scan_bytes} leaves={generic_scan_leaves}; owner scan nodes={} bytes={} leaves={}; generic value nodes={generic_value_nodes} bytes={generic_value_bytes} output_bytes={generic_value_output_bytes}; owner value nodes={} bytes={} output_bytes={}; generic physical reads={} bytes={}; owner physical reads={} bytes={}",
         generic_scan_nodes_remaining - state_io.nodes_remaining,
         generic_scan_bytes_remaining - state_io.read_bytes_remaining,
         generic_scan_leaves_remaining - state_io.leaves_remaining,
-        generic_value_nodes_remaining - value_io.nodes_remaining,
-        generic_value_bytes_remaining - value_io.read_bytes_remaining,
+        generic_value_nodes_remaining - owner_value_nodes_remaining,
+        generic_value_bytes_remaining - owner_value_bytes_remaining,
+        generic_value_output_remaining - owner_value_output_remaining,
         2_000_000 - generic_physical.reads_remaining,
         (256 << 20) - generic_physical.read_bytes_remaining,
         generic_physical.reads_remaining - physical_remaining.reads_remaining,
@@ -640,8 +686,6 @@ fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
                 )
                 .unwrap()
             );
-            drop(write);
-            drop(read);
             let guard = transaction.guard();
             let prepared = transaction.seal(&guard, &live, 0).unwrap();
             let verifier_state = store
@@ -753,8 +797,6 @@ fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
                 &live,
             );
             assert!(result.is_err(), "cancelled value write must not complete");
-            drop(write);
-            drop(read);
             assert!(cancelled.get());
             assert!(value_writer.puts > 0, "cancellation must follow a real put");
             let guard = transaction.guard();
