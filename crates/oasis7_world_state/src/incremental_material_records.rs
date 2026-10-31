@@ -164,3 +164,7 @@ pub use read::{
     MaterialCellRequestV1, MaterialValueV1, inspect_material_record_root_v1,
     read_qualified_material_cell_v1,
 };
+
+#[path = "incremental_material_records_family.rs"]
+mod family;
+pub use family::{MaterialFamilyQualificationV1, qualify_material_family_v1};

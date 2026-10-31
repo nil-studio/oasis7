@@ -355,3 +355,62 @@ fn material_genesis_root_only_qualification_and_all_column_reads_preserve_origin
         }
     }
 }
+
+#[test]
+fn material_family_cold_roots_qualify_both_namespaces() {
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let directory = Directory::new();
+        let path = directory.0.join("family-pages");
+        let roots = {
+            let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+            let source = source();
+            let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
+            seed(&store, &memory, &source)
+        };
+        for class in [MemoryClass::Ordinary, MemoryClass::Recovery] {
+            let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+            let store =
+                IncrementalPageStore::open(&path, memory.clone(), compression, class).unwrap();
+            let state = store.state_session(physical_scope(), class).unwrap();
+            let values = store.value_session(physical_scope());
+            let mut io = logical();
+            let mut keys = SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            };
+            let mut outer = scan();
+            let mut inner = scan();
+            let mut cells = 1000;
+            let mut ctx = WorldFieldReadContextV1 {
+                root: &roots.state[0],
+                state: &state,
+                values: ValueReadContext {
+                    source: &values,
+                    memory: &memory,
+                    class,
+                    io: &mut io,
+                },
+                key_work: &mut keys,
+                semantic_bytes: 1024,
+                record_bytes: 4096,
+                take_state_error: || {
+                    state
+                        .take_read_error()
+                        .map(|e| ValueTreeError::Io(std::io::Error::other(e.to_string())))
+                },
+                cancelled: || false,
+            };
+            let proof = qualify_material_family_v1(
+                &roots,
+                &mut ctx,
+                &mut outer,
+                &mut inner,
+                &mut cells,
+                1 << 20,
+            )
+            .unwrap();
+            assert_eq!(proof.record_counts(), [1, 2]);
+            proof.validate_binding(&roots.digest().unwrap()).unwrap();
+            assert!(proof.validate_binding(&[0; 32]).is_err());
+        }
+    }
+}

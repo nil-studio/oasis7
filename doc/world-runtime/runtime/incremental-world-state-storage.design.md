@@ -685,3 +685,5 @@ factories 保持 WorldState/Map/Business，pending_factory_builds 保持 WorldSt
 MaterialProfile 保留 kind、tier、category、stack_limit、transport_loss_class、decay_bps_per_tick、default_priority。tier 以 U64 精确承载 u8 范围；loss class 的封闭值为 Low=0、Medium=1、High=2；default priority 为 Urgent=0、Standard=1。直接转移回执保留 transfer_id、requester_agent_id、from_ledger、to_ledger、kind、amount、distance_km、priority、route_id；Ledger 用原完整 enum 身份，priority 为原 Urgent=0、Standard=1，route_id 以独立 Bool presence 和可选 Text 区分 None 与 Some(empty)。
 
 GEN、完整 family 资格、本地列更新与接收端验证使用同一封闭 schema；本地变更必须绑定已验证原 record root、精确 expected 值与同一事务 guard。页传输在完整 typed 闭包与缓冲 sink finish 都成功后才可作为完整交付；这些能力不授予 authority、全 World 激活或全局 GC 资格。实现与物理验证仍须在当前 PR 提供，不由本节文字代签。
+
+原始家族恢复通过全部 top-level roots 的连续预算扫描，认证两个命名空间内的 Metadata、格式标记、原始外键类型及每个完整 child；返回资格仅绑定这两个家族和原 RootSet digest。它不授予其他 owner 的完整性。RecordRoot 点读中的原 Text/U64 键在同一次认证 member 读取中流式校验，固定前缀和 UTF-8 状态不保留完整原身份。
