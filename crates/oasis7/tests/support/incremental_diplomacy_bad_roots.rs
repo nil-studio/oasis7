@@ -68,7 +68,7 @@ fn independent_orphan_required_column_option_enum_and_u32_roots_rejected() {
     for case in 0..8 {
         let (field, index) = match case {
             0 => (DiplomacyFieldV1::Alliances, 0),
-            1 | 2 | 3 => (DiplomacyFieldV1::Wars, 1),
+            1..=3 => (DiplomacyFieldV1::Wars, 1),
             4 | 5 => (DiplomacyFieldV1::Crises, 2),
             _ => (DiplomacyFieldV1::EconomicContracts, 3),
         };
