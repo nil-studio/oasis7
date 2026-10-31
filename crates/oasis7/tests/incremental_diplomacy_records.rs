@@ -310,3 +310,18 @@ fn four_owner_genesis_root_only_cold_and_ordered_points() {
 
 #[path = "support/incremental_diplomacy_transitions.rs"]
 mod transitions;
+
+#[path = "support/incremental_diplomacy_bad_roots.rs"]
+mod bad_roots;
+
+#[path = "support/incremental_diplomacy_pages.rs"]
+mod pages;
+
+#[path = "support/incremental_diplomacy_transaction_faults.rs"]
+mod transaction_faults;
+
+#[path = "support/incremental_diplomacy_receiver.rs"]
+mod receiver_faults;
+
+#[path = "support/incremental_diplomacy_cold_delta.rs"]
+mod cold_delta;

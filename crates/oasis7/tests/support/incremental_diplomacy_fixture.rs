@@ -12,6 +12,14 @@ pub(super) fn produce(
     memory: &MemoryBudget,
     source: &WorldState,
 ) -> Rows {
+    produce_with_limits(store, memory, source, limits())
+}
+pub(super) fn produce_with_limits(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    source: &WorldState,
+    record_limits: MemberRecordLimitsV1,
+) -> Rows {
     let mut values = store.value_session(physical());
     let mut rows: Vec<ReservedValue<ExecutionWriteV1>> = Vec::with_capacity(8);
     let mut remaining = 4096;
@@ -24,7 +32,7 @@ pub(super) fn produce(
             key_work: &mut SemanticKeyBudget {
                 bytes_remaining: 1 << 20,
             },
-            limits: limits(),
+            limits: record_limits,
             cancelled: || false,
         },
         &mut remaining,
