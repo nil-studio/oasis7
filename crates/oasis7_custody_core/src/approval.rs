@@ -23,6 +23,13 @@ pub struct ApprovalContextV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CustodyIntentV1 {
+    OwnerSetupV2 {
+        plan: Box<crate::provisioning::OwnerSetupPlanV2>,
+    },
+    TestSessionV2 {
+        plan: Box<crate::provisioning::TestSessionPlanV2>,
+        scope: Box<crate::provisioning::ResourceTestSessionScopeV2>,
+    },
     Provision {
         provision_id: String,
         purpose: String,
@@ -356,7 +363,15 @@ pub fn complete_body_digest<T: Serialize>(value: &T) -> Result<String, String> {
 }
 impl ApprovalOptionsRequestV1 {
     pub fn intent_digest(&self) -> Result<String, String> {
-        encode("oasis7.custody.intent.v1", self).map(|v| bytes_digest(&v))
+        let domain = if matches!(
+            &self.intent,
+            CustodyIntentV1::OwnerSetupV2 { .. } | CustodyIntentV1::TestSessionV2 { .. }
+        ) {
+            "oasis7.custody.intent.v2"
+        } else {
+            "oasis7.custody.intent.v1"
+        };
+        encode(domain, self).map(|v| bytes_digest(&v))
     }
     pub fn validate(&self, now: u64) -> Result<(), String> {
         let required = [
@@ -374,6 +389,14 @@ impl ApprovalOptionsRequestV1 {
             return Err("invalid approval context".into());
         }
         let valid = match &self.intent {
+            CustodyIntentV1::OwnerSetupV2 { plan } => {
+                plan.validate().is_ok()
+                    && plan.deadline.0 > now
+                    && plan.deadline.0 <= now.saturating_add(1_800_000)
+            }
+            CustodyIntentV1::TestSessionV2 { plan, scope } => {
+                plan.validate_scope(scope, now).is_ok()
+            }
             CustodyIntentV1::Provision {
                 provision_id,
                 purpose,
