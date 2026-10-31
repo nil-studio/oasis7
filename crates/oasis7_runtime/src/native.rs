@@ -66,6 +66,7 @@ pub use oasis7_world_state::types;
 pub use oasis7_world_state::incremental_ledger_value;
 pub use oasis7_world_state::incremental_field_member;
 pub use oasis7_world_state::incremental_field_presence;
+pub use oasis7_world_state::incremental_inventory_genesis;
 pub use oasis7_world_state::util;
 mod world;
 pub use oasis7_world_state::world_event;
