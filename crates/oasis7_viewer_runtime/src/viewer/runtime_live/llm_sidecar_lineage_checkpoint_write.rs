@@ -50,6 +50,6 @@ impl RuntimeLlmSidecar {
         let encoded = serde_json::to_vec_pretty(&checkpoint)
             .map_err(|error| format!("provider lineage checkpoint encode failed: {error}"))?;
         checkpoint_io::publish(path, &encoded)
-            .map_err(|error| format!("provider lineage checkpoint publication failed: {error}"))
+            .map_err(|error| format!("provider lineage checkpoint commit failed: {error}"))
     }
 }
