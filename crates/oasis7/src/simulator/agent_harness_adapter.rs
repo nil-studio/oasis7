@@ -40,7 +40,7 @@ pub(super) struct BehaviorTurnResult {
     pub prepared_context: Option<ContinuousAgentTurnContextV1>,
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
-    pub provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    pub provider_original_material_refs: Option<crate::simulator::ProviderOriginalMaterialRefsV1>,
     pub memory_write_intents: Vec<MemoryWriteIntent>,
 }
 

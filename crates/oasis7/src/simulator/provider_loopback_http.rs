@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, DecisionRequest,
-    DecisionResponse, FeedbackEnvelope, FeedbackEnvelopeV1, ProviderMaterialAttemptV1,
-    ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
+    DecisionResponse, FeedbackEnvelope, FeedbackEnvelopeV1, ProviderOriginalMaterialRefsV1,
+    ProviderOriginalMaterialStore,
 };
 
 const PROVIDER_CAPTURE_COPY_BYTES: usize = 64 * 1024;
