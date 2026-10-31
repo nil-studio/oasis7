@@ -121,7 +121,8 @@ class Profiles(unittest.TestCase):
             with self.subTest(path=name):
                 self.assertIn(prefix + name, paths)
 
-    def invoke(self, profiles, fail=False, fail_protocol=False, fail_expanded=False, cwd=None):
+    def invoke(self, profiles, fail=False, fail_protocol=False, fail_expanded=False, cwd=None,
+               real_cargo=False):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"
 run() { echo "contract $*"; }
@@ -136,6 +137,9 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
             script += 'run_cargo() { return 17; }\n'
         if fail_expanded:
             script += 'run_cargo() { echo "cargo $*"; [[ "$*" != *--features* ]] || return 23; }\n'
+        if real_cargo:
+            script += 'run_cargo() { echo "cargo $*"; env -u RUSTC_WRAPPER cargo "$@"; }\n'
+            script += 'run_cargo_clippy() { env -u RUSTC_WRAPPER cargo clippy "$@" -- -D warnings; }\n'
         script += 'run_selected_workspace_support() {' + FUNCTION
         script += '\nrun_selected_workspace_support\n'
         return subprocess.run(['bash', '-c', script, 'test', sys.executable,
@@ -162,14 +166,71 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
                 self.assertEqual('support profile completed' in result.stdout, not fail)
 
     @unittest.skipUnless(shutil.which('cargo') and shutil.which('rustc'), 'requires a Rust toolchain')
-    def test_full_support_features_run_required_and_integration_cases_without_a_policy_change(self):
+    def test_changed_support_policy_runs_no_feature_integration_before_completion(self):
+        plan = dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
+                    groups=['workspace_support'], workspace_support_profile_version=1,
+                    workspace_support_profiles=['oasis7_agent_harness'])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('[workspace]\nresolver="2"\nmembers=["harness"]\n')
+            member = root / 'harness'
+            (member / 'src').mkdir(parents=True)
+            (member / 'tests').mkdir()
+            (member / 'Cargo.toml').write_text('[package]\nname="oasis7_agent_harness"\n'
+                                               'version="0.1.0"\nedition="2021"\n')
+            (member / 'src/lib.rs').write_text('#[test] fn original_library_case() {}\n')
+            integration = member / 'tests/integration.rs'
+            integration.write_text('#[test] fn no_feature_integration() { panic!("regression"); }\n')
+            # An unchanged fast plan and an old trusted plan retain their
+            # original --lib profile; the new policy flag is not self-implied.
+            legacy = {key: value for key, value in plan.items() if key != 'fast_plan_version'}
+            legacy['test_policy_changed'] = True
+            for ordinary in (plan, legacy):
+                result = self.invoke('plan:' + json.dumps(ordinary), cwd=root, real_cargo=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('original_library_case ... ok', result.stdout)
+                self.assertNotIn('no_feature_integration ...', result.stdout)
+            plan['test_policy_changed'] = True
+            for fail in (True, False):
+                integration.write_text('#[test] fn no_feature_integration() { '
+                                       + ('panic!("regression");' if fail else '') + ' }\n')
+                result = self.invoke('plan:' + json.dumps(plan), cwd=root, real_cargo=True)
+                self.assertIn('original_library_case ... ok', result.stdout)
+                self.assertNotIn('--features', result.stdout)
+                if fail:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('no_feature_integration ... FAILED', result.stdout)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('no_feature_integration ... ok', result.stdout)
+                self.assertEqual('support profile completed' in result.stdout, not fail)
+
+    def test_changed_policy_reuses_completed_all_targets_only_without_feature_expansion(self):
+        plan = dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
+                    groups=['workspace_support'], workspace_support_profile_version=1,
+                    workspace_support_profiles=['oasis7_context'], test_policy_changed=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers=["context"]\n')
+            member = root / 'context'
+            member.mkdir()
+            for feature_section in ('', '[features]\ntest_tier_required=[]\ntest_tier_full=[]\n'):
+                (member / 'Cargo.toml').write_text('[package]\nname="oasis7_context"\n' + feature_section)
+                result = self.invoke('plan:' + json.dumps(plan), cwd=root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('cargo test -p oasis7_context --all-targets --locked', result.stdout)
+                self.assertEqual(result.stdout.count('cargo test -p oasis7_context '),
+                                 2 if feature_section else 1)
+
+    @unittest.skipUnless(shutil.which('cargo') and shutil.which('rustc'), 'requires a Rust toolchain')
+    def test_full_support_runs_featured_and_no_feature_integration_cases(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location('full_support_scope', ROOT / 'scripts/plan-rust-required-scope.py')
         scope = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(scope)
         body = DRIVER.split('run_workspace_support_full_feature_tests() {', 1)[1].split('\n}', 1)[0]
-        script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"\n'
-        script += 'run_cargo() { cargo "$@"; }\nrun_workspace_support_full_feature_tests() {' + body + '\n}\n'
+        script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"\nexport OASIS7_WASM_BUILD_STD=1\n'
+        script += 'run_cargo() { echo "cargo $*"; env -u RUSTC_WRAPPER cargo "$@"; }\nrun_workspace_support_full_feature_tests() {' + body + '\n}\n'
         script += 'run_workspace_support_full_feature_tests\n'
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -184,22 +245,33 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
                 (member / 'Cargo.toml').write_text(manifest)
                 (member / 'src/lib.rs').write_text('#[cfg(feature="test_tier_required")] #[test] fn required_case() {}\n'
                                                   if package == 'oasis7_agent_harness' else '')
+                if package in ('wasm_build_suite', 'wasm_module_observe'):
+                    (member / 'src/lib.rs').write_text('#[test] fn uses_installed_wasm_target() { '
+                                                      'assert_eq!(std::env::var("OASIS7_WASM_BUILD_STD").as_deref(), Ok("0")); }\n')
             integration = root / 'oasis7_agent_harness/tests/integration.rs'
             integration.parent.mkdir()
-            for fail in (False, True):
+            plain_integration = root / 'oasis7_client_storage/tests/integration.rs'
+            plain_integration.parent.mkdir()
+            for failure in ('no_features', None, 'features'):
                 integration.write_text('#[cfg(feature="test_tier_full")] #[test] fn expanded_integration() { '
                                        'assert!(cfg!(feature="wasmtime") && cfg!(feature="viewer_live_integration")); '
-                                       + ('panic!("expanded regression");' if fail else '') + ' }\n')
+                                       + ('panic!("expanded regression");' if failure == 'features' else '') + ' }\n')
+                plain_integration.write_text('#[test] fn no_feature_integration() { '
+                                             + ('panic!("plain regression");' if failure == 'no_features' else '') + ' }\n')
                 result = subprocess.run(['bash', '-c', script, 'full-support', sys.executable, str(ROOT / 'scripts')],
                                         cwd=root, text=True, capture_output=True)
-                if fail:
+                if failure:
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertIn('expanded_integration ... FAILED', result.stdout)
+                    case = 'no_feature_integration' if failure == 'no_features' else 'expanded_integration'
+                    self.assertIn(case + ' ... FAILED', result.stdout)
                 else:
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertIn('required_case ... ok', result.stdout)
                     self.assertIn('expanded_integration ... ok', result.stdout)
-                self.assertEqual(result.stdout.count('+ complete support features:'), 1)
+                    self.assertIn('no_feature_integration ... ok', result.stdout)
+                    self.assertIn('cargo test -p oasis7_client_storage --all-targets\n', result.stdout)
+                    self.assertEqual(result.stdout.count('uses_installed_wasm_target ... ok'), 2)
+                    self.assertEqual(result.stdout.count('+ complete support features:'), len(scope.SUPPORT_PROFILES))
         full = DRIVER.split('run_full_extended_tier_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('run_workspace_support_full_feature_tests', full)
 

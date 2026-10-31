@@ -344,7 +344,8 @@ run_selected_workspace_support() {
     run_oasis7_workspace_support_crate_tests
     return
   fi
-  local selected profile expanded_features
+  local selected profile expand_targets expanded_features complete_targets
+  local -a expanded_args
   selected=$("$ci_python" - "$support_profiles" "$driver_dir" <<'PY'
 import importlib.util, json, sys
 from pathlib import Path
@@ -383,29 +384,35 @@ if expanded:
     artifacts.ROOT = Path.cwd()
 for profile in sorted(profiles):
     features = artifacts.package_features([profile], plan) if expanded else []
-    print(profile + '|' + ','.join(features))
+    print(profile + '|' + ('true' if expanded else 'false') + '|' + ','.join(features))
 PY
   ) || return 2
-  while IFS='|' read -r profile expanded_features; do
+  while IFS='|' read -r profile expand_targets expanded_features; do
     echo "+ support profile: $profile"
+    complete_targets=false
     case "$profile" in
       oasis7_agent_api) run_signed_read_protocol_contract_tests; run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
-      oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets ;;
+      oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets; complete_targets=true ;;
       oasis7_agent_harness|oasis7_game_client|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
-      oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked ;;
+      oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
-      oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked ;;
+      oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
       oasis7_client_launcher) run_cargo test -p "$profile" --bin oasis7_client_launcher ;;
       wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" ;;
       *) run_cargo test -p "$profile" --lib ;;
     esac
-    if [[ -n "$expanded_features" ]]; then
-      # A changed test tier must execute before merge even for a support crate;
-      # retain its original profile and add the broader affected test targets.
-      run_cargo test -p "$profile" --all-targets --features "$expanded_features"
+    if [[ "$expand_targets" == true && ( -n "$expanded_features" || "$complete_targets" != true ) ]]; then
+      # A new target must run even when this package has no tier features.
+      # Reuse only actual same-combination all-targets tests, never Clippy.
+      expanded_args=()
+      if [[ -n "$expanded_features" ]]; then expanded_args=(--features "$expanded_features"); fi
+      case "$profile" in
+        wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" --all-targets "${expanded_args[@]}" ;;
+        *) run_cargo test -p "$profile" --all-targets "${expanded_args[@]}" ;;
+      esac
     fi
     echo "+ support profile completed: $profile"
   done <<< "$selected"
@@ -853,6 +860,7 @@ run_full_required_superset() {
 
 run_workspace_support_full_feature_tests() {
   local selected profile features
+  local -a feature_args
   selected=$("$ci_python" - "$driver_dir" <<'PY'
 import importlib.util, sys
 from pathlib import Path
@@ -865,14 +873,18 @@ artifacts = modules['ci-test-artifacts']
 artifacts.ROOT = Path.cwd()
 for package in sorted(modules['plan-rust-required-scope'].SUPPORT_PROFILES):
     features = artifacts.package_features([package], include_full=True)
-    if features:
-        print(package + '|' + ','.join(features))
+    print(package + '|' + ','.join(features))
 PY
   ) || return 2
   while IFS='|' read -r profile features; do
     [[ -n "$profile" ]] || continue
     echo "+ complete support features: $profile"
-    run_cargo test -p "$profile" --all-targets --features "$features"
+    feature_args=()
+    if [[ -n "$features" ]]; then feature_args=(--features "$features"); fi
+    case "$profile" in
+      wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" --all-targets "${feature_args[@]}" ;;
+      *) run_cargo test -p "$profile" --all-targets "${feature_args[@]}" ;;
+    esac
   done <<<"$selected"
 }
 

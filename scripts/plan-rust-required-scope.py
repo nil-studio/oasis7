@@ -100,7 +100,16 @@ def known_test_target_root(path, directory, manifest):
     return False
 
 
-def rust_source_inputs(source, return_tokens=False):
+def rust_literal_path(value):
+    """Decode exact unescaped/raw path literals; escaped paths stay uncertain."""
+    plain = re.fullmatch(r'"([^"\\]+)"', value)
+    raw = re.fullmatch(r'r(#+)"(.*)"\1', value)
+    if value.startswith('r"') and value.endswith('"'):
+        return value[2:-1]
+    return plain.group(1) if plain else raw.group(2) if raw else None
+
+
+def rust_source_inputs(source, return_tokens=False, with_module_paths=False):
     """Read literal tokens and real include calls without expanding candidate macros.
 
     Rust fixture strings are a single token, not another source file. Unknown
@@ -255,6 +264,28 @@ def rust_source_inputs(source, return_tokens=False):
                 call.update(kind='manifest' if concatenated.group(1) == 'CARGO_MANIFEST_DIR' else 'generated',
                             path=concatenated.group(2))
         calls.append(call)
+    if with_module_paths:
+        uncertain_module_paths = False
+        for index, (_, token, _) in enumerate(tokens[:-1]):
+            if token != '#' or index + 1 not in closing or tokens[index + 1][1] != '[':
+                continue
+            values = tuple(value.removeprefix('r#') if kind == 'identifier' else value
+                           for kind, value, _ in tokens[index + 2:closing[index + 1]])
+            # Inline #[path] changes the directory of descendant modules. Keep
+            # its unresolved edges even when every literal is individually exact.
+            cursor = closing[index + 1] + 1
+            while cursor < len(tokens) and tokens[cursor][1] not in ('mod', '{', '}', ';'):
+                if tokens[cursor][1] == '#' and cursor + 1 in closing:
+                    cursor = closing[cursor + 1] + 1
+                else:
+                    cursor += 1
+            inline_path = (values and values[0] == 'path' and cursor + 2 < len(tokens)
+                           and tokens[cursor][1] == 'mod' and tokens[cursor + 2][1] == '{')
+            if values and (values[0] == 'path' and (len(values) != 3 or values[1] != '='
+                                                  or rust_literal_path(values[2]) is None)
+                           or values[0] == 'cfg_attr' and 'path' in values or inline_path):
+                uncertain_module_paths = True
+        return literals, calls, uncertain_module_paths
     return literals, calls
 
 
@@ -364,7 +395,7 @@ def cargo_graph(ref, generated_inputs=()):
     def inputs(path):
         if path not in source_inputs:
             try:
-                source_inputs[path] = rust_source_inputs(blobs[path].decode('utf-8', 'replace'))
+                source_inputs[path] = rust_source_inputs(blobs[path].decode('utf-8', 'replace'), with_module_paths=True)
             except ValueError as error:
                 raise ValueError(f'{path}: {error}') from error
         return source_inputs[path]
@@ -383,7 +414,7 @@ def cargo_graph(ref, generated_inputs=()):
                               or any(not d or path.startswith(d + '/') for d in library_directories)}
             if not library_owners:
                 continue
-            literals, includes = inputs(path)
+            literals, includes = inputs(path)[:2]
             for token in literals:
                 for owner in library_owners:
                     directory = manifests[owner][0]
@@ -409,6 +440,7 @@ def cargo_graph(ref, generated_inputs=()):
     # Embedded inputs retain whether their reader is a library or a leaf target.
     embedded = {}
     library_embeds = {}
+    included_sources, unresolved_source_owners, uncertain_includes = set(), set(), set()
 
     for path in paths:
         owners = [n for n, (d, _) in manifests.items()
@@ -417,10 +449,16 @@ def cargo_graph(ref, generated_inputs=()):
                                        if (not directory or path.startswith(directory + '/')) for reader in readers})
         if not path.endswith('.rs') or not owners:
             continue
-        literals, includes = inputs(path)
+        literals, includes = inputs(path)[:2]
         library_owners = set(owners) if path not in leaf_inputs else set()
         for call in includes:
             if call['macro'] == 'include':
+                if call['kind'] == 'literal':
+                    included_sources.add(posixpath.normpath(posixpath.join(posixpath.dirname(path), call['path'])))
+                else:
+                    unresolved_source_owners.update(owners)
+                    if call['kind'] == 'unknown':
+                        uncertain_includes.add(path)
                 continue
             if call['kind'] == 'literal':
                 candidate = posixpath.normpath(posixpath.join(posixpath.dirname(path), call['path']))
@@ -461,6 +499,11 @@ def cargo_graph(ref, generated_inputs=()):
     embedded['__library_directories__'] = library_directories
     embedded['__library_readers__'] = library_readers
     embedded['__library_embeds__'] = library_embeds
+    # Reuse the exact Git blobs for bounded module-context proofs in fast mode.
+    embedded['__rust_sources__'] = {path: content for path, content in blobs.items() if path.endswith('.rs')}
+    embedded['__rust_include_targets__'] = included_sources
+    embedded['__unresolved_rust_include_owners__'] = unresolved_source_owners
+    embedded['__uncertain_module_sources__'] = {path for path, details in source_inputs.items() if details[2]} | uncertain_includes
     return manifests, reverse, embedded
 
 
@@ -594,7 +637,7 @@ def formal_shards(suites, inventory):
 
 
 def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
-                        ordinary_roots=()):
+                        ordinary_roots=(), source_inputs=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -612,17 +655,20 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         return owner == test_owner or (owner[0] in ('mod', 'module') and
                (not owner[1] or test_owner[1].startswith(owner[1] + '::')))
 
-    def ordinary_attribute(values):
-        return (values in (('test',), ('cfg', '(', 'test', ')'))
+    def ordinary_attribute(values, native_linux=False):
+        return (values == ('test',)
+                or enabled_gate(values, native_linux, set())
+                or (len(values) == 3 and values[:2] == ('path', '=')
+                    and rust_literal_path(values[2]) is not None)
                 or (values[:4] == ('tokio', ':', ':', 'test')
                     and (len(values) == 4 or (values[4:5] == ('(',) and values[-1] == ')')))
                 or values[0] in ('allow', 'warn', 'deny', 'forbid', 'expect', 'doc', 'should_panic'))
 
-    def attributes(source):
+    def attributes(source, native_linux=False):
         tokens, closing = rust_source_inputs(source, return_tokens=True)
         selection, ignored, test_owners = set(), set(), set()
         annotations, ordinary_context = set(), set()
-        modules = [(index + 2, closing[index + 2], tokens[index + 1][1])
+        modules = [(index + 2, closing[index + 2], tokens[index + 1][1].removeprefix('r#'))
                    for index, (_, value, _) in enumerate(tokens[:-2])
                    if value == 'mod' and tokens[index + 1][0] == 'identifier'
                    and tokens[index + 2][1] == '{' and index + 2 in closing]
@@ -637,20 +683,24 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         item_owners, occurrences = {}, {}
         item_kinds = {'fn', 'mod', 'struct', 'enum', 'trait', 'type', 'const', 'static', 'impl', 'use'}
         for index, (_, value, _) in enumerate(tokens[:-1]):
-            if value not in item_kinds:
+            if value not in item_kinds and not (value == 'include' and tokens[index + 1][1] == '!'):
                 continue
-            name = '::'.join((*module_path(index), tokens[index + 1][1]))
+            name = '::'.join((*module_path(index), tokens[index + 1][1].removeprefix('r#')))
             key = value, name
             occurrence = occurrences.get(key, 0)
             occurrences[key] = occurrence + 1
             item_owners[index] = (*key, occurrence)
+            if not any(start < index < stop and start not in module_braces
+                       for start, stop in closing.items()):
+                ordinary_context.add(item_owners[index])
         for index, (_, token, _) in enumerate(tokens):
             inner = index + 1 < len(tokens) and tokens[index + 1][1] == '!'
             opening = index + 2 if inner else index + 1
             if token != '#' or opening not in closing or tokens[opening][1] != '[':
                 continue
             end = closing[opening]
-            values = tuple(value for _, value, _ in tokens[opening + 1:end])
+            values = tuple(value.removeprefix('r#') if kind == 'identifier' else value
+                           for kind, value, _ in tokens[opening + 1:end])
             if not values:
                 continue
             cursor = end + 1
@@ -662,10 +712,6 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             owner = (('module', '::'.join(module_path(index)), 0) if inner else
                      item_owners.get(cursor, ('unresolved', '::'.join(module_path(index)), cursor)))
             annotations.add((values, owner))
-            if owner[0] == 'fn' and not any(
-                    start < index < stop and start not in module_braces
-                    for start, stop in closing.items()):
-                ordinary_context.add(owner)
             if values[0] not in ('cfg', 'cfg_attr', 'ignore') and 'test' not in values:
                 continue
             if values[0] == 'cfg_attr':
@@ -685,16 +731,18 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 test_owners.add(owner)
             if values[0] == 'ignore':
                 ignored.add(owner)
-        ordinary_owners = {owner for owner in test_owners & ordinary_context
-                           if all(ordinary_attribute(attribute) for attribute, target in annotations
-                                  if applies_to(target, owner))}
-        return selection, ignored, test_owners, set(item_owners.values()), ordinary_owners
+        ordinary_items = {owner for owner in ordinary_context
+                          if all(ordinary_attribute(attribute, native_linux)
+                                 for attribute, target in annotations if applies_to(target, owner))}
+        return (selection, ignored, test_owners, set(item_owners.values()),
+                test_owners & ordinary_items, ordinary_items, annotations,
+                tokens, closing, item_owners, modules, ordinary_context)
 
     def test_related(item, test_owners, path):
         attribute, owner = item
         if attribute[0] not in ('cfg', 'cfg_attr'):
             return True
-        if 'test' in attribute or any('test_tier_' in token for token in attribute):
+        if any('test_tier_' in token for token in attribute):
             return True
         if owner in test_owners:
             return True
@@ -702,17 +750,19 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 not owner[1] or test_owner[1].startswith(owner[1] + '::') for test_owner in test_owners):
             return True
         short_name = owner[1].rsplit('::', 1)[-1]
-        return ('/tests/' in path or path.endswith(('_tests.rs', '/tests.rs'))
+        return (('test' in attribute and owner[0] != 'fn')
+                or '/tests/' in path or path.endswith(('_tests.rs', '/tests.rs'))
                 or (owner[0] == 'mod'
                     and (short_name == 'tests' or short_name.startswith('test_') or short_name.endswith('_tests'))))
 
-    def enabled_gate(attribute, native_linux):
+    def enabled_gate(attribute, native_linux, enabled=None):
         # Accept only a known expression that is actually true in the expanded
         # driver feature and native target combination. Mentioning an allowed
         # feature is insufficient: all(feature="test_tier_full", any()) is false.
         if len(attribute) < 4 or attribute[0:2] != ('cfg', '(') or attribute[-1] != ')':
             return False
         values = attribute[2:-1]
+        actual_features = enabled_features if enabled is None else enabled
 
         def expression(cursor):
             if cursor >= len(values):
@@ -725,7 +775,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             if value == 'feature' and values[cursor + 1:cursor + 2] == ('=',):
                 if cursor + 2 >= len(values):
                     raise ValueError('missing cfg feature')
-                return values[cursor + 2].strip('"') in enabled_features, cursor + 3
+                return (True if values[cursor + 2].strip('"') in actual_features else None), cursor + 3
             native_values = {'target_os': 'linux', 'target_family': 'unix',
                              'target_arch': 'x86_64', 'target_pointer_width': '64',
                              'target_endian': 'little', 'target_env': 'gnu'}
@@ -749,12 +799,16 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             if value == 'not':
                 if len(predicates) != 1:
                     raise ValueError('invalid negated cfg expression')
-                return not predicates[0], cursor + 1
-            return (all(predicates) if value == 'all' else any(predicates)), cursor + 1
+                return (None if predicates[0] is None else not predicates[0]), cursor + 1
+            if value == 'all':
+                result = False if False in predicates else (None if None in predicates else True)
+            else:
+                result = True if True in predicates else (None if None in predicates else False)
+            return result, cursor + 1
 
         try:
             enabled, end = expression(0)
-            return enabled and end == len(values)
+            return enabled is True and end == len(values)
         except ValueError:
             return False
 
@@ -764,34 +818,170 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         except subprocess.CalledProcessError:
             return ''  # Both rename endpoints and additions/deletions are present.
 
+    source_inputs = source_inputs or {}
+    sources = source_inputs.get('sources', {})
+    directories = source_inputs.get('directories', {})
+    parsed_sources, parent_cache, context_cache = {}, {}, {}
+
+    def source_owners(path):
+        return {name for name, directory in directories.items()
+                if path.startswith(directory + '/') or not directory}
+
+    def parsed(path, native):
+        key = path, native
+        if key not in parsed_sources:
+            parsed_sources[key] = attributes(sources[path].decode('utf-8', 'replace'), native)
+        return parsed_sources[key]
+
+    def parents(path, native):
+        """Find every literal mod/include reference without expanding macros.
+
+        Only same-package, unambiguous static references can prove ordinary
+        execution. The file's own inner attributes are checked by its caller.
+        """
+        key = path, native
+        if key in parent_cache:
+            return parent_cache[key]
+        owners = source_owners(path)
+        stem = (posixpath.basename(posixpath.dirname(path)) if path.endswith('/mod.rs')
+                else posixpath.basename(path).removesuffix('.rs'))
+        name = re.compile(rb'(?<![A-Za-z0-9_])' + re.escape(stem.encode()) + rb'(?![A-Za-z0-9_])')
+        candidates = [candidate for candidate, contents in sources.items()
+                      if candidate in source_inputs.get('uncertain_modules', ())
+                      or ((source_owners(candidate) == owners or posixpath.basename(path).encode() in contents)
+                          and (name.search(contents) or posixpath.basename(path).encode() in contents))]
+        references = []
+        for parent in candidates:
+            info = parsed(parent, native)
+            annotations, tokens, closing, items, modules, context = info[6:]
+            directory = posixpath.dirname(parent)
+            module_directory = (directory if parent in ordinary_roots
+                                or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
+                                or parent in source_inputs.get('includes', ())
+                                else parent.removesuffix('.rs'))
+            for index, owner in items.items():
+                kind = tokens[index][1]
+                inline = tuple(name for start, end, name in modules if start < index < end)
+                attributes_here = [attribute for attribute, target in annotations if applies_to(target, owner)]
+                known = owner in context and source_owners(parent) == owners
+                targets = []
+                if kind == 'mod' and tokens[index + 2][1] == ';':
+                    name = tokens[index + 1][1].removeprefix('r#')
+                    inherited_path = any(attribute[0] in ('path', 'cfg_attr') and 'path' in attribute
+                                         for attribute, target in annotations
+                                         if target != owner and applies_to(target, owner))
+                    path_attrs = [attribute for attribute, target in annotations
+                                  if target == owner and attribute[0] == 'path']
+                    conditional_paths = [attribute for attribute, target in annotations
+                                         if target == owner and attribute[0] == 'cfg_attr' and 'path' in attribute]
+                    if conditional_paths:
+                        # Neither an alternate path nor its inherited cfg may
+                        # be inferred from whichever filename happens to exist.
+                        targets.append(path)
+                        known = False
+                    if path_attrs:
+                        if (len(path_attrs) == 1 and len(path_attrs[0]) == 3
+                                and rust_literal_path(path_attrs[0][2]) is not None and not inline):
+                            targets.append(posixpath.normpath(posixpath.join(directory, rust_literal_path(path_attrs[0][2]))))
+                        else:
+                            # A possible nonliteral parent cannot disappear
+                            # just because another parent is easy to resolve.
+                            targets.append(path)
+                            known = False
+                    else:
+                        prefix = posixpath.join(module_directory, *inline, name)
+                        targets.extend(target for target in (prefix + '.rs', prefix + '/mod.rs') if target in sources)
+                        known &= len(targets) == 1
+                    if inherited_path:
+                        targets.append(path)
+                        known = False
+                elif kind == 'include':
+                    known &= not inline
+                    end = closing.get(index + 2)
+                    values = [value for _, value, _ in tokens[index + 3:end]] if end is not None else []
+                    if values and values[-1] == ',':
+                        values.pop()
+                    if len(values) == 1 and rust_literal_path(values[0]) is not None:
+                        value = rust_literal_path(values[0])
+                        targets.append(posixpath.normpath(posixpath.join(directory, value)))
+                        known &= '/' not in value and '\\' not in value
+                    else:
+                        targets.append(path)
+                        known = False
+                if path in targets:
+                    references.append((parent, kind, known and all(
+                        ordinary_attribute(attribute, native) for attribute in attributes_here), attributes_here))
+        parent_cache[key] = references
+        return references
+
+    def ordinary_source_context(path, native, visiting=frozenset()):
+        key = path, native
+        if key in context_cache:
+            return context_cache[key]
+        if path in visiting:
+            return False
+        if source_inputs.get('uncertain_modules'):
+            return False
+        if path not in sources:
+            return path in ordinary_roots
+        if source_owners(path) & set(source_inputs.get('unresolved_includes', ())):
+            return False
+        references = parents(path, native)
+        # Mixing include! with an external mod changes the implicit directory
+        # for nested modules; no one convenient context can authorise the other.
+        mixed = len({kind for _, kind, _, _ in references}) > 1
+        enabled = bool(path in ordinary_roots or references) and not mixed
+        enabled &= all(known and ordinary_source_context(parent, native, visiting | {path})
+                       for parent, _, known, _ in references)
+        context_cache[key] = enabled
+        return enabled
+
+    def inherited_gates(path, native, visiting=frozenset()):
+        if path in visiting or path not in sources:
+            return set()
+        result = set()
+        for parent, _, _, annotations in parents(path, native):
+            result.update(attribute for attribute in annotations if attribute[0] in ('cfg', 'cfg_attr'))
+            result.update(inherited_gates(parent, native, visiting | {path}))
+        return result
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
         if before != after:
-            analyses.append((path, attributes(before), attributes(after)))
+            native = (path in ordinary_roots or bool(feature_owners.get(path))
+                      and feature_owners[path].issubset(feature_packages))
+            analyses.append((path, attributes(before, native), attributes(after, native)))
     # Keep both rename endpoints and removals in the review evidence. A new
     # marker is exempt only when this change contains no retiring test owner.
     has_removed_tests = any(before[2] - after[2] for _, before, after in analyses)
     for path, before, after in analyses:
-        before_attrs, old_ignored, old_test_owners, old_items, _ = before
-        after_attrs, new_ignored, new_test_owners, _, ordinary_owners = after
+        before_attrs, old_ignored, old_test_owners, old_items, _ = before[:5]
+        after_attrs, new_ignored, new_test_owners, _, ordinary_owners = after[:5]
         test_owners = old_test_owners | new_test_owners
         changes = before_attrs ^ after_attrs
-        new_ordinary = ordinary_owners - old_items if path in ordinary_roots and not has_removed_tests else set()
+        native = (path in ordinary_roots or bool(feature_owners.get(path))
+                  and feature_owners[path].issubset(feature_packages))
+        ordinary_source = ordinary_source_context(path, native)
+        new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
         for attribute, owner in after_attrs - before_attrs:
-            if attribute == ('cfg', '(', 'test', ')') and owner[0] == 'mod' and owner not in old_items:
-                children = {test for test in new_test_owners if applies_to(owner, test)}
-                if children and children.issubset(new_ordinary):
-                    benign_additions.add((attribute, owner))
+            if (ordinary_source and not has_removed_tests
+                    and ordinary_attribute(attribute, native)
+                    and ((owner in after[5] and owner not in old_items)
+                         or (owner == ('module', '', 0) and not source_at(base, path)))):
+                benign_additions.add((attribute, owner))
         changes -= benign_additions
         test_changes = {item for item in changes if test_related(item, test_owners, path)}
         added_attrs = {item for item in after_attrs - before_attrs if test_related(item, test_owners, path)}
+        added_attrs.update(item for item in benign_additions if item[0][0] in ('cfg', 'cfg_attr'))
         # A new case inherits unchanged module/file gates too. They must be
         # executable under the same expanded combination as a newly added gate.
         added_attrs.update((attribute, owner) for attribute, owner in after_attrs
                            if attribute[0] in ('cfg', 'cfg_attr')
                            and any(applies_to(owner, test) for test in new_test_owners - old_test_owners))
+        if new_test_owners - old_test_owners:
+            added_attrs.update((attribute, ('module', '', 0)) for attribute in inherited_gates(path, native))
         if test_changes:
             policy_paths.append(path)
         if changes - test_changes:
@@ -812,13 +1002,14 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         if value == 'feature' and attribute[index + 1] == '='}
             mapped_native_driver = (bool(feature_owners.get(path))
                                     and feature_owners[path].issubset(feature_packages))
-            if features - enabled_features or not enabled_gate(attribute, mapped_native_driver):
-                raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
-            if features and (not feature_owners.get(path)
-                             or not feature_owners[path].issubset(feature_packages)):
+            ordinary_gate = enabled_gate(attribute, native, set())
+            if not ordinary_gate and features and not mapped_native_driver:
                 raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
-            if features and any(not features.issubset(available_features.get(package, set()))
-                                for package in feature_owners[path]):
+            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver):
+                raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
+            if features and (not feature_owners.get(path) or any(
+                    not features.issubset(available_features.get(package, set()))
+                    for package in feature_owners[path])):
                 raise TestPolicyError('changed test feature is not declared by its executing package: ' + path)
     return sorted(policy_paths), False, sorted(production_cfg_paths)
 
@@ -854,7 +1045,8 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
 
 def fast_plan(config, plan, base, source, tested, paths, affected, path_affected,
               path_rules, additions, profile, formal_inventory=None, policy_ref=None,
-              comparisons=None, feature_owners=None, feature_manifests=None, test_target_roots=None):
+              comparisons=None, feature_owners=None, feature_manifests=None, test_target_roots=None,
+              source_inputs=None):
     if config.get('fast_scope_version') != FAST_PLAN_VERSION:
         # The version capability comes from BASE. Candidate metadata cannot opt in.
         raise ValueError('fast profiles require trusted baseline fast_scope_version')
@@ -867,7 +1059,8 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             before, after, paths, feature_owners or {},
             set(config['oasis7_required_packages']) | set(SUPPORT_PROFILES),
             (feature_manifests or {}).get(resolve_commit(after), {}),
-            (test_target_roots or {}).get(resolve_commit(after), set()))
+            (test_target_roots or {}).get(resolve_commit(after), set()),
+            (source_inputs or {}).get(resolve_commit(after), {}))
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
         production_cfg_paths.update(production_cfg)
@@ -966,6 +1159,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
     feature_owners = {}
     feature_manifests = {}
     test_target_roots = {}
+    source_inputs = {}
     policy_comparisons = [(base, source_head)]
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
@@ -998,13 +1192,30 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             try:
                 graph = cargo_graph(ref, config.get('generated_inputs', []))
                 graphs.append(graph)
+                sources = graph[2].pop('__rust_sources__', {})
                 if profile is not None:
+                    if graph[2].get('__uncertain_module_sources__'):
+                        full = True
+                        reasons.extend('uncertain Rust module input: ' + path
+                                       for path in sorted(graph[2]['__uncertain_module_sources__']))
                     feature_manifests[resolve_commit(ref)] = {
                         package: set(manifest.get('features', {}))
                         for package, (_, manifest) in graph[0].items()}
                     test_target_roots[resolve_commit(ref)] = {
-                        path for path in paths if any(known_test_target_root(path, directory, manifest)
-                                                     for directory, manifest in graph[0].values())}
+                        path for path in sources for package, (directory, manifest) in graph[0].items()
+                        if known_test_target_root(path, directory, manifest)
+                        and (package in config.get('oasis7_required_packages', ())
+                             or (set(config['package_groups'].get(package, ()))
+                                 & {'consensus', 'distfs', 'node', 'net'}
+                                 and posixpath.relpath(path, directory or '.')
+                                 == manifest.get('lib', {}).get('path', 'src/lib.rs')))}
+                    source_inputs[resolve_commit(ref)] = {
+                        'sources': sources,
+                        'directories': {package: directory for package, (directory, _) in graph[0].items()},
+                        'includes': graph[2].get('__rust_include_targets__', ()),
+                        'unresolved_includes': graph[2].get('__unresolved_rust_include_owners__', ()),
+                        'uncertain_modules': graph[2].get('__uncertain_module_sources__', ()),
+                    }
             except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
                 # Keep usable graphs to establish ownership even when another
                 # registered input cannot be parsed. Uncertainty is not registration.
@@ -1131,7 +1342,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             raise ValueError('select requires a fast execution profile')
         return fast_plan(config, plan, base, source_head, test_head, paths, affected,
                          path_affected, path_rules, additions, profile, formal_inventory, policy_ref,
-                         policy_comparisons, feature_owners, feature_manifests, test_target_roots)
+                         policy_comparisons, feature_owners, feature_manifests, test_target_roots, source_inputs)
     return plan
 
 

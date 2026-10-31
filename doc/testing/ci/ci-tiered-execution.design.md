@@ -134,7 +134,11 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 2. **再形成可运行计划。** 把必要检查映射到最小完整 package/target/features 和平台闭包。对缺少可信窄映射的范围保留相关旧必要组；不确定图及共享控制仍按既有规则保守扩大。只有符合可重复、隔离、有界要求且整体成本适合快速目标的检查才标为已验证快速；其他必要检查继续执行，普通范围的超预算如实暴露。
 3. **最后核对实际结果。** 计划记录每项选择原因，执行器核对预期 case/命令/平台与真实结果，汇总拒绝缺项。估算关注共享准备与并行依赖形成的关键路径，不以各 case 耗时小于十分钟或相加各阶段 P95 证明达标；整条 workflow 的实际成功反馈 P95 单独验收。
 
-对照可信 BASE 与候选的标签、cfg 和实际清单。planner 按完整词法 module/函数归属比较选择属性，required 改 full 时标记 `test_policy_changed`，在有实际扩展 driver 且 manifest 声明 feature 的 package 上显式启用 required、full、wasmtime/viewer 等适用组合。条件表达式必须在实际 native Linux 测试组合中为真；无法证明的嵌套选择门控、未映射的新 ignore 和跨 binary 同名短函数均不能让用例消失。普通生产平台 cfg 改动保守扩大组及平台覆盖，不误判为测试退役。
+对照可信 BASE 与候选的标签、cfg 和实际清单。planner 按完整词法 module/函数归属比较选择属性，required 改 full 时标记 `test_policy_changed`，在有实际扩展 driver 且 manifest 声明 feature 的 package 上显式启用 required、full、wasmtime/viewer 等适用组合。条件表达式按实际执行组合求值；例如 `any(test, feature = "test-support")` 在测试 harness 中为真，不能只因另一个分支的 feature 未启用就拒绝。引用的 feature 仍须由真实 owner 声明，声明不等于已经启用；普通组合无法证明时才检查实际扩展 driver。无法证明的嵌套选择门控、未映射的新 ignore 和跨 binary 同名短函数均不能让用例消失。
+
+新增且可证明可达的 item 不等于已有测试门控迁移。普通新增测试及其辅助模块，必须能从实际 Cargo test target 沿静态 `mod` 或 `#[path]` 链确认执行归属，并证明文件、父模块和 item 的全部条件在普通 native Linux 测试组合中成立；不能仅凭文件名、函数名或某一层 `cfg(test)` 放行。满足条件时沿用受影响 package、必要反向消费者和风险规则，不追加无关 full features。Windows-only 条件、未知宏、无法解析的外部模块链、禁用 harness/测试 target 或未满足的 required-features 均不能取得普通新增豁免。
+
+生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖；这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。
 
 自动检查不冻结普通测试名称，也不证明任意 Rust 修改语义等价。普通 case 的删除/改名由既有独立评审核对原行为去留、替代检查或可信规则确认的不适用；未核清时保留相关旧必要组。Formal 的预期 case 另由可信最低库存强制核对，不能仅凭候选清单删除就视为无须执行。
 
@@ -161,7 +165,7 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。快速 baseline 不再附加 `--full-corpus` 历史内容报告，完整 profile 仍运行，原告警级别不变。
 
-`oasis7_required` 从可信 26 包库存选择受影响 package，对所选包执行 strict Clippy 和全部非 ignored `--tests`；便携 WASM 编译从原四包库存取实际受影响闭包。Viewer 子进程与默认 feature snapshot 变体只在对应真实消费者被选中时构建。support 保留所选完整 profile；测试政策变化时在原 profile 外补跑适用 full features。未知映射或保守 scope 恢复旧库存，不以空 package 列表通过选中的 ordinary 组。
+`oasis7_required` 从可信 26 包库存选择受影响 package，对所选包执行 strict Clippy 和全部非 ignored `--tests`；便携 WASM 编译从原四包库存取实际受影响闭包。Viewer 子进程与默认 feature snapshot 变体只在对应真实消费者被选中时构建。support 的普通 profile 可能只执行 library 或指定 binary，不能据 Cargo target 存在就认定普通入口会执行它；测试政策变化时保留原 profile，并追加所选包的 `--all-targets` 及适用 full features。扩展 feature 集合为空仍执行这些 target，省略空的 `--features` 参数；空 feature 不表示没有新增用例。未知映射或保守 scope 恢复旧库存，不以空 package 列表通过选中的 ordinary 组。
 
 Formal 只在风险规则要求时构建其既有共用依赖闭包，再执行选中逻辑 suite 的全部 case；当前没有声称按任意单 case 继续收窄这份共用编译。逻辑 suite 按可信 `case_shards` 映射物理 shard，跨 shard 的完整 case 必须保留。artifact 把可信 BASE 最低库存与候选新增项合并，既有 case 身份、ignored filters、环境 batch、shell tests 与依赖不能由候选删除；缺预期 case 或新增所需 shard 不在可信计划内均失败。build、pack、run 绑定同一 authority 摘要、同一计划和实际 tested source。
 
@@ -177,7 +181,7 @@ Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证�
 
 完整计划展开可信 scope 的全部 26 组，包含组级 Clippy、依赖本轮真实构建的 Viewer auth browser smoke、Command Center App、Windows rollout、macOS 包合同及 fleet-health 三平台。普通产物、Formal 产物/物理矩阵、平台组和 `full-extended` 可并行，`explicit-full-gate` 等待所有组、ordinary producer，以及恰好一个成功的可信或候选 full producer。
 
-`full-extended` 只运行 core 扩展 features、适用 support full features、fixture smoke 与生产 mock guard，不重复整个 required 清单；它单独成功不代表完整回归。support full features 按真实 manifest 生成 `--all-targets` 调用，即使该轮没有 `test_policy_changed` 也执行。`full-standard` 保留本地普通加扩展入口，并补齐原遗漏的 Clippy/browser smoke；`full` 再加 Formal，但两者都不能代签 hosted 的多平台集合。
+`full-extended` 只运行 core 扩展 features、support 的完整 target/feature 组合、fixture smoke 与生产 mock guard，不重复整个 required 清单；它单独成功不代表完整回归。support 按真实 manifest 生成 `--all-targets` 调用，启用适用 full features；没有扩展 feature 或该轮没有 `test_policy_changed` 时也执行，保留不在普通 profile 中的 integration 等 target。`full-standard` 保留本地普通加扩展入口，并补齐原遗漏的 Clippy/browser smoke；`full` 再加 Formal，但两者都不能代签 hosted 的多平台集合。
 
 PR 汇总只等待本 PR 计划的必要检查，周期汇总等待本轮完整集合。保留可靠 always 收口：规划失败、选中任务失败/取消/超时/缺失、应执行却 skipped 均失败；未选中可以 skipped。预期矩阵单元须全部终态，不能用其它单元成功或总测试数掩盖漏项。新提交取消的旧运行不为新 source HEAD 放行。
 

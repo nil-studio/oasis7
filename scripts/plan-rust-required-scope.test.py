@@ -1736,6 +1736,287 @@ class Selection(unittest.TestCase):
                 self.assertEqual(plan['fast_plan_exceptions'], [])
                 self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
 
+    def test_fast_test_support_helper_does_not_change_test_execution(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'test-support=[]\n')
+        self.write('crates/core/src/lib.rs', '#[cfg(test)] mod tests { #[test] fn existing() {} }\n')
+        base = self.commit()
+        self.write('crates/core/src/lib.rs', '#[cfg(test)] mod tests { #[test] fn existing() {} }\n'
+                   '#[cfg(any(test, feature="test-support"))] pub mod measurement_counts;\n')
+        self.write('crates/core/src/measurement_counts.rs', 'pub fn count() -> usize { 0 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+        # A known --lib driver needs no expanded-feature support when `test`
+        # proves this helper's condition independently of the extra feature.
+        config['oasis7_required_packages'].remove('core')
+        config['package_groups']['core'] = ['consensus']
+        config['groups'].append('consensus')
+        config['resources']['consensus'] = []
+        plan = selector.select(config, base, self.git('rev-parse', 'HEAD'), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_fast_test_support_boolean_proof_preserves_declaration_and_gate_checks(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() {}\n'
+                   '#[cfg(any(test, feature="undeclared"))] mod helper {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'not declared by its executing package'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'test-support=[]\n')
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        for gate in ('all(test, feature="test-support")', 'not(test)',
+                     'all(any(test, feature="test-support"), any())'):
+            self.write(path, f'#[cfg({gate})] #[test] fn existing() {{}}\n')
+            with self.subTest(gate=gate), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_new_native_items_keep_affected_packages_and_formal_risks(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, 'pub fn existing() {}\n')
+        base = self.commit()
+        for addition in ('#[cfg(not(target_arch="wasm32"))] pub fn added() {}\n',
+                         '#[cfg(all(unix, not(target_arch="wasm32")))] mod native;\n'):
+            self.write(path, 'pub fn existing() {}\n' + addition)
+            self.write('crates/core/src/native.rs', 'pub fn behavior() {}\n')
+            with self.subTest(addition=addition):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+                self.assertEqual(plan['formal_suites'], [])
+                self.assertFalse(plan['test_policy_changed'])
+        self.write(path, 'pub fn existing() {}\nmod history;\n')
+        self.write('crates/core/src/history.rs', '#[cfg(unix)] pub fn added_history() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+
+    def test_fast_new_native_items_do_not_hide_existing_or_unknown_gates(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, 'pub fn existing() {}\n')
+        base = self.commit()
+        for after in ('#[cfg(unix)] pub fn existing() {}\n',
+                      'pub fn existing() {}\n#[cfg(windows)] pub fn added() {}\n',
+                      'pub fn existing() {}\n#[cfg(unknown_target)] pub fn added() {}\n',
+                      'pub fn existing() {}\ngenerate! { #[cfg(unix)] pub fn added() {} }\n'):
+            self.write(path, after)
+            with self.subTest(after=after):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'full')
+
+    def test_fast_native_integration_file_and_literal_child_use_ordinary_driver(self):
+        config = self.fast_config()
+        parent = 'crates/core/tests/behavior.rs'
+        child = 'crates/core/tests/support/behavior.rs'
+        base = self.git('rev-parse', 'HEAD')
+        self.write(parent, '#![cfg(all(unix, not(target_arch="wasm32")))]\n'
+                   '#[path="support/behavior.rs"] mod support;\n')
+        self.write(child, '#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['oasis7_required_packages'], ['core'])
+        base = self.git('rev-parse', 'HEAD')
+        self.write(child, '#[test] fn added() {}\n#[test] fn another() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_fast_external_module_requires_every_parent_and_real_harness(self):
+        config = self.fast_config()
+        parent = 'crates/core/tests/behavior.rs'
+        child = 'crates/core/tests/support/behavior.rs'
+        self.write(parent, '#[path="support/behavior.rs"] mod support;\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        self.write('crates/core/tests/full.rs', '#![cfg(feature="test_tier_full")]\n'
+                   '#[path="support/behavior.rs"] mod full_support;\n')
+        base = self.commit()
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+
+        self.assertIn(child, plan['test_policy_paths'])
+        self.write('crates/core/tests/full.rs', '')
+        self.write('crates/core/Cargo.toml', Path('crates/core/Cargo.toml').read_text()
+                   + '\n[[test]]\nname="behavior"\npath="tests/behavior.rs"\nharness=false\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_raw_path_cannot_hide_a_full_parent_of_a_shared_test_file(self):
+        config = self.fast_config()
+        child = 'crates/core/tests/support/cases.rs'
+        self.write('crates/core/tests/ordinary.rs', '#[path="support/cases.rs"] mod ordinary;\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        for spelling in ('r"support/cases.rs"', 'r#"support/cases.rs"#'):
+            self.write('crates/core/tests/full.rs', '#![cfg(feature="test_tier_full")]\n'
+                       f'#[path={spelling}] mod expanded;\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(spelling=spelling):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_cross_package_path_and_include_cannot_authorize_shared_tests(self):
+        config = self.fast_config()
+        child = 'crates/core/src/lib.rs'
+        for reference in ('#[path="../../core/src/lib.rs"] mod shared;',
+                          'include!("../../core/src/lib.rs");'):
+            self.write(child, '#[test] fn existing() {}\n')
+            self.write('crates/other/src/lib.rs', '#[cfg(feature="test_tier_full")]\n' + reference + '\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(reference=reference):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertIn('other', plan['oasis7_required_packages'])
+
+    def test_fast_new_production_helper_excluded_from_harness_is_conservative(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(test))] pub fn production_helper() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['scope'], 'full')
+
+    def test_fast_escaped_module_paths_preserve_all_consumers_and_feature_checks(self):
+        config = self.fast_config()
+        cases = [
+            ('crates/core/tests/support/cases.rs', 'crates/core/tests/full.rs',
+             r'#[path="support/ca\x73es.rs"] mod expanded;'),
+            ('crates/core/src/lib.rs', 'crates/other/src/lib.rs',
+             r'#[path="../../core/src/li\x62.rs"] mod expanded;'),
+        ]
+        for child, parent, link in cases:
+            self.write('crates/core/tests/ordinary.rs', '#[path="support/cases.rs"] mod ordinary;\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            self.write(parent, '#[cfg(feature="test_tier_full")]\n' + link + '\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(link=link):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'full')
+                self.assertEqual(set(plan['groups']), set(config['groups']))
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core', 'other'])
+                self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_inline_raw_identifier_preserves_full_parent_context(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[path="type/cases.rs"] mod ordinary;\n'
+                   'mod r#type { #[cfg(feature="test_tier_full")] mod cases; }\n')
+        child = 'crates/core/src/type/cases.rs'
+        self.write(child, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_known_include_chain_keeps_native_module_additions_ordinary(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] include!("native.rs");\n')
+        self.write('crates/core/src/native.rs', 'mod world;\n')
+        self.write('crates/core/src/world.rs', 'pub fn existing() {}\n')
+        base = self.commit()
+        self.write('crates/core/src/world.rs', 'pub fn existing() {}\n'
+                   '#[cfg(not(target_arch="wasm32"))] pub fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+
+    def test_fast_new_external_case_cannot_inherit_a_disabled_parent(self):
+        config = self.fast_config()
+        child = 'crates/core/src/checks.rs'
+        for gate in ('windows', 'all(test, feature="unexecuted")'):
+            self.write('crates/core/src/lib.rs', f'#[cfg({gate})] mod checks;\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(gate=gate), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_escaped_unknown_parent_gate_cannot_hide_new_cases_in_full_scope(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'custom_off=[]\n')
+        child = 'crates/core/src/cases.rs'
+        for reference in (r'#[path="ca\x73es.rs"] mod child;',
+                          r'#[cfg_attr(test, path="ca\x73es.rs")] mod child;',
+                          r'include!("ca\x73es.rs");'):
+            self.write('crates/core/src/lib.rs', '#[cfg(feature="custom_off")]\n' + reference + '\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(reference=reference), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_inline_include_keeps_every_parent_gate(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'custom_off=[]\n')
+        child = 'crates/core/src/cases.rs'
+        for feature in ('test_tier_full', 'custom_off'):
+            self.write('crates/core/src/lib.rs', '#[path="cases.rs"] mod ordinary;\n'
+                       f'#[cfg(feature="{feature}")] mod expanded {{ include!("cases.rs"); }}\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(feature=feature):
+                if feature == 'custom_off':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                        selector.select(config, base, self.commit(), profile='pr-fast')
+                else:
+                    plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                    self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_inline_path_context_cannot_hide_an_additional_parent_gate(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'custom_off=[]\n')
+        child = 'crates/core/src/full/cases.rs'
+        for feature in ('test_tier_full', 'custom_off'):
+            self.write('crates/core/src/lib.rs', '#[path="full/cases.rs"] mod ordinary;\n'
+                       '#[path="full"] mod expanded {\n'
+                       f'    #[cfg(feature="{feature}")] mod cases;\n}}\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(feature=feature):
+                if feature == 'custom_off':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                        selector.select(config, base, self.commit(), profile='pr-fast')
+                else:
+                    plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                    self.assertTrue(plan['test_policy_changed'])
+                    self.assertEqual(plan['scope'], 'full')
+
+    def test_fast_support_integration_addition_requires_expanded_target_execution(self):
+        config = self.fast_config()
+        package = 'oasis7_agent_harness'
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        config['package_groups'][package] = ['workspace_support']
+        self.write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        self.write(f'crates/{package}/src/lib.rs', '')
+        base = self.commit()
+        path = f'crates/{package}/tests/new.rs'
+        self.write(path, '#[test] fn integration_regression() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [path])
+        self.assertEqual(plan['workspace_support_profiles'], [package])
+
     def test_fast_added_plain_case_does_not_mask_an_existing_tier_change(self):
         config = self.fast_config()
         path = 'crates/core/src/lib.rs'
@@ -1769,15 +2050,16 @@ class Selection(unittest.TestCase):
                 self.assertEqual(plan['test_policy_paths'], [path])
                 self.assertTrue(any('full features' in reason for reason in plan['fast_plan_exceptions']))
 
-    def test_fast_new_file_level_cfg_keeps_existing_conservative_policy(self):
+    def test_fast_new_file_level_test_gate_is_ordinary_but_full_still_expands(self):
         config = self.fast_config()
         for index, gate in enumerate(('test', 'feature = "test_tier_full"')):
             path = f'crates/core/tests/added_{index}.rs'
             base = self.git('rev-parse', 'HEAD')
             self.write(path, f'#![cfg({gate})]\n#[test] fn added() {{}}\n')
             plan = selector.select(config, base, self.commit(), profile='pr-fast')
-            self.assertTrue(plan['test_policy_changed'])
-            self.assertEqual(plan['test_policy_paths'], [path])
+            expanded = gate != 'test'
+            self.assertEqual(plan['test_policy_changed'], expanded)
+            self.assertEqual(plan['test_policy_paths'], [path] if expanded else [])
             self.assertEqual(plan['oasis7_required_packages'], ['core'])
 
     def test_fast_plain_case_in_external_module_keeps_unresolved_parent_gate_coverage(self):
@@ -1974,8 +2256,10 @@ class Selection(unittest.TestCase):
 
     def test_fast_production_platform_cfg_expands_without_test_policy_rejection(self):
         config = self.fast_config()
+        self.write('crates/core/src/lib.rs', 'pub fn product_path() {}\n')
+        base = self.commit()
         self.write('crates/core/src/lib.rs', '#[cfg(unix)]\npub fn product_path() {}\n')
-        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
         self.assertEqual(plan['scope'], 'full')
         self.assertEqual(set(plan['groups']), set(config['groups']))
         self.assertFalse(plan['test_policy_changed'])
