@@ -229,6 +229,7 @@ impl RuntimeLlmSidecar {
                     cognition_lease: self.provider_cognition_lease(tick.agent_id.as_str()),
                     memory_write_intents: memory_write_intents.clone(),
                     provider_original_material_refs: None,
+                    provider_response_context_lease: None,
                 });
             if let Some(cognition) = cognition.as_ref() {
                 if tick.decision_trace.as_ref().is_none_or(|trace| {

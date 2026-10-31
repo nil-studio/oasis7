@@ -41,6 +41,9 @@ pub(super) struct BehaviorTurnResult {
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
     pub provider_original_material_refs: Option<crate::simulator::ProviderOriginalMaterialRefsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub provider_response_context_lease:
+        Option<crate::simulator::provider_json_admission::ProviderResponseContextLease>,
     pub memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
@@ -208,6 +211,8 @@ impl OasisBehaviorProvider {
             prepared_response_context: self.behavior.take_continuous_response_context(),
             #[cfg(not(target_arch = "wasm32"))]
             provider_original_material_refs: self.behavior.take_provider_original_material_refs(),
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_response_context_lease: self.behavior.take_provider_response_context_lease(),
             memory_write_intents: self.behavior.take_memory_write_intents(),
         }
     }
@@ -287,10 +292,10 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
             Some(&input.turn_context),
             Some(&input.request_context),
         );
-        if let Ok(mut state) = self.control.0.lock() {
-            state.production_results.insert(key, result.clone());
-        }
         let response = decision_response(&result);
+        if let Ok(mut state) = self.control.0.lock() {
+            state.production_results.insert(key, result);
+        }
         Ok(ApiResponseContext {
             base_decision_response: response.clone(),
             context_discriminator: request.context_discriminator.clone(),

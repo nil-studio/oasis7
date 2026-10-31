@@ -38,6 +38,8 @@ pub(super) fn normalize_completion(
         prepared_request_context: completion.prepared_request_context,
         prepared_response_context: completion.prepared_response_context,
         provider_original_material_refs: completion.provider_original_material_refs,
+        #[cfg(not(target_arch = "wasm32"))]
+        provider_response_context_lease: completion.provider_response_context_lease,
         cognition_lease: None,
         memory_write_intents: Vec::new(),
     })

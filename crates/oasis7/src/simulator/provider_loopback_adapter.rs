@@ -8,7 +8,10 @@ use super::{
     ProviderLoopbackHttpClient, ProviderLoopbackHttpError,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use super::{ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore};
+use super::{
+    ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
+    provider_json_admission::ProviderResponseContextLease,
+};
 use oasis7_wasm_abi::{
     AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleCommandDeclaration,
     ModuleCommandValidationError, ModuleSchemaDeclarations, validate_module_command_declarations,
@@ -112,6 +115,8 @@ pub struct ProviderLoopbackAdapter {
     original_material_store: Option<Arc<dyn ProviderOriginalMaterialStore>>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_original_material_refs: Option<ProviderOriginalMaterialRefsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_response_context_lease: Option<ProviderResponseContextLease>,
 }
 
 impl std::fmt::Debug for ProviderLoopbackAdapter {
@@ -160,6 +165,8 @@ impl ProviderLoopbackAdapter {
             original_material_store: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_original_material_refs: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_response_context_lease: None,
         }
     }
 
@@ -508,6 +515,7 @@ impl DecisionProvider for ProviderLoopbackAdapter {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.pending_original_material_refs = None;
+            self.pending_response_context_lease = None;
         }
         let response = self
             .client
@@ -526,6 +534,7 @@ impl DecisionProvider for ProviderLoopbackAdapter {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.pending_original_material_refs = None;
+            self.pending_response_context_lease = None;
         }
         request_context
             .validate_production_lane()
@@ -544,7 +553,7 @@ impl DecisionProvider for ProviderLoopbackAdapter {
         }
         #[cfg(not(target_arch = "wasm32"))]
         let response = if let Some(store) = self.original_material_store.as_deref() {
-            let (response, refs) = self
+            let (response, refs, response_context_lease) = self
                 .client
                 .request_decision_with_context_and_material_store(request_context, store)
                 .map_err(|error| {
@@ -560,6 +569,7 @@ impl DecisionProvider for ProviderLoopbackAdapter {
             // fails: the owner must retain the raw response as pending rather
             // than treating an invalid response as if no external effect ran.
             self.pending_original_material_refs = Some(refs);
+            self.pending_response_context_lease = Some(response_context_lease);
             response
         } else {
             self.client
@@ -617,6 +627,11 @@ impl DecisionProvider for ProviderLoopbackAdapter {
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_original_material_refs(&mut self) -> Option<ProviderOriginalMaterialRefsV1> {
         self.pending_original_material_refs.take()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_response_context_lease(&mut self) -> Option<ProviderResponseContextLease> {
+        self.pending_response_context_lease.take()
     }
 
     fn push_feedback(&mut self, feedback: &FeedbackEnvelope) -> Result<(), DecisionProviderError> {

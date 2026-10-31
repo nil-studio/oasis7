@@ -379,6 +379,7 @@ impl ProviderLoopbackHttpClient {
         (
             ContinuousAgentResponseContextV1,
             ProviderOriginalMaterialRefsV1,
+            super::provider_json_admission::ProviderResponseContextLease,
         ),
         ProviderLoopbackHttpError,
     > {
@@ -625,18 +626,23 @@ impl ProviderLoopbackHttpClient {
                 detail: "provider material capture cancelled before response decode".into(),
             });
         }
-        let decoded: ContinuousAgentResponseContextV1 = {
+        let (decoded, response_context_lease) = {
             let response_file = response_spool.rewind().map_err(|error| {
                 ProviderLoopbackHttpError::DecodeFailed {
                     path: path.to_string(),
                     detail: format!("provider response spool rewind failed: {error}"),
                 }
             })?;
-            serde_json::from_reader(response_file).map_err(|error| {
-                ProviderLoopbackHttpError::DecodeFailed {
-                    path: path.to_string(),
-                    detail: error.to_string(),
-                }
+            super::provider_json_admission::decode_response_context_with_lease(
+                response_file,
+                response_limit,
+                &store.memory_budget(),
+                MemoryClass::Ordinary,
+                || store.cancelled(),
+            )
+            .map_err(|error| ProviderLoopbackHttpError::DecodeFailed {
+                path: path.to_string(),
+                detail: error.to_string(),
             })?
         };
         let refs = store
@@ -659,7 +665,7 @@ impl ProviderLoopbackHttpClient {
                 detail: "provider response references do not match the captured attempt".into(),
             });
         }
-        Ok((decoded, refs))
+        Ok((decoded, refs, response_context_lease))
     }
 
     pub fn submit_feedback(

@@ -155,6 +155,12 @@ pub struct AsyncAgentTurnOutcome {
     /// added to the provider API response DTO.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    /// Process-local memory admission for the decoded native response. The
+    /// provider JSON and material-reference wire formats do not carry leases.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[serde(skip)]
+    pub provider_response_context_lease:
+        Option<super::provider_json_admission::ProviderResponseContextLease>,
     /// Runtime-issued reservation carried through the provider outcome. The
     /// Agent runner may validate and retain this identity, but only Runtime
     /// can settle, release, or refund the lease.
@@ -235,6 +241,9 @@ struct ActorCompletion {
     prepared_request_context: Option<ContinuousAgentRequestContextV1>,
     prepared_response_context: Option<ContinuousAgentResponseContextV1>,
     provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    provider_response_context_lease:
+        Option<super::provider_json_admission::ProviderResponseContextLease>,
     memory_write_intents: Vec<MemoryWriteIntent>,
     panicked: bool,
 }
@@ -275,6 +284,8 @@ fn production_outcome_from_harness(
         prepared_context: metadata.context.clone(),
         prepared_response_context: None,
         provider_original_material_refs: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        provider_response_context_lease: None,
         memory_write_intents: Vec::new(),
     });
     let mut outcome = outcome_from_completion(ActorCompletion {
@@ -286,6 +297,8 @@ fn production_outcome_from_harness(
         prepared_request_context: metadata.request_context,
         prepared_response_context: result.prepared_response_context,
         provider_original_material_refs: result.provider_original_material_refs,
+        #[cfg(not(target_arch = "wasm32"))]
+        provider_response_context_lease: result.provider_response_context_lease,
         memory_write_intents: result.memory_write_intents,
         panicked,
     });

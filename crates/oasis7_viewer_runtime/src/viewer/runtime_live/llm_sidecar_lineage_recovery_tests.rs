@@ -739,6 +739,7 @@ fn committed_marker_recovery_settles_provider_lease_before_clearing_mirror() {
                 tags: vec!["crash".to_string()],
             }],
             provider_original_material_refs: None,
+            provider_response_context_lease: None,
         };
     first.provider_held_decisions.insert(
         "agent-a".to_string(),

@@ -1,3 +1,5 @@
+use std::io::Cursor;
+
 use super::*;
 
 impl ProviderOriginalMaterialOwnerV1 {
@@ -31,21 +33,23 @@ impl ProviderOriginalMaterialOwnerV1 {
             MAX_CONTEXT_BYTES,
             MemoryClass::Ordinary,
         )?;
-        let stored_request = self
-            .memory
-            .reserve(MAX_CONTEXT_BYTES, MemoryClass::Ordinary)
-            .map_err(|error| error.to_string())?
-            .retain(
-                serde_json::from_slice::<ContinuousAgentRequestContextV1>(
-                    request_context.as_slice(),
-                )
-                .map_err(|error| error.to_string())?,
-            );
-        if *stored_request != *request
-            || (*stored_request).provider_invocation_key() != request.provider_invocation_key()
         {
-            return Err("provider request typed context differs from durable original".into());
+            let stored_request =
+                oasis7::simulator::provider_json_admission::decode_request_context(
+                    &mut Cursor::new(request_context.as_slice()),
+                    MAX_CONTEXT_BYTES as u64,
+                    &self.memory,
+                    MemoryClass::Ordinary,
+                    || self.cancelled(),
+                )
+                .map_err(|error| error.to_string())?;
+            if *stored_request != *request
+                || stored_request.provider_invocation_key() != request.provider_invocation_key()
+            {
+                return Err("provider request typed context differs from durable original".into());
+            }
         }
+        drop(request_context);
         let request_bytes = self.json_bytes(request, MAX_CONTEXT_BYTES)?;
         if *blake3::hash(&request_bytes.bytes).as_bytes() != record.request_object_id {
             return Err("provider request context is not the original HTTP bytes".into());
@@ -67,19 +71,21 @@ impl ProviderOriginalMaterialOwnerV1 {
             MAX_CONTEXT_BYTES,
             MemoryClass::Ordinary,
         )?;
-        let stored_response = self
-            .memory
-            .reserve(MAX_CONTEXT_BYTES, MemoryClass::Ordinary)
-            .map_err(|error| error.to_string())?
-            .retain(
-                serde_json::from_slice::<ContinuousAgentResponseContextV1>(
-                    response_context.as_slice(),
+        {
+            let stored_response =
+                oasis7::simulator::provider_json_admission::decode_response_context(
+                    &mut Cursor::new(response_context.as_slice()),
+                    MAX_CONTEXT_BYTES as u64,
+                    &self.memory,
+                    MemoryClass::Ordinary,
+                    || self.cancelled(),
                 )
-                .map_err(|error| error.to_string())?,
-            );
-        if *stored_response != *response {
-            return Err("provider response typed context differs from durable original".into());
+                .map_err(|error| error.to_string())?;
+            if *stored_response != *response {
+                return Err("provider response typed context differs from durable original".into());
+            }
         }
+        drop(response_context);
         let response_body = self.read_object_bytes(
             &record
                 .response_object_id
@@ -87,18 +93,18 @@ impl ProviderOriginalMaterialOwnerV1 {
             usize::try_from(MAX_RESPONSE_BYTES).map_err(|_| "provider response bound")?,
             MemoryClass::Ordinary,
         )?;
-        let decoded = self
-            .memory
-            .reserve(MAX_CONTEXT_BYTES, MemoryClass::Ordinary)
-            .map_err(|error| error.to_string())?
-            .retain(
-                serde_json::from_slice::<ContinuousAgentResponseContextV1>(
-                    response_body.as_slice(),
-                )
-                .map_err(|error| error.to_string())?,
-            );
-        if *decoded != *response {
-            return Err("provider typed response is not the original HTTP body".into());
+        {
+            let decoded = oasis7::simulator::provider_json_admission::decode_response_context(
+                &mut Cursor::new(response_body.as_slice()),
+                MAX_RESPONSE_BYTES,
+                &self.memory,
+                MemoryClass::Ordinary,
+                || self.cancelled(),
+            )
+            .map_err(|error| error.to_string())?;
+            if *decoded != *response {
+                return Err("provider typed response is not the original HTTP body".into());
+            }
         }
         Ok(())
     }

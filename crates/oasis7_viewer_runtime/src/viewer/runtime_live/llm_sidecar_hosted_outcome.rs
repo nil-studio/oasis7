@@ -48,6 +48,7 @@ impl RuntimeLlmSidecar {
                 cognition_lease: Some(lease),
                 memory_write_intents: outcome.memory_write_intents.clone(),
                 provider_original_material_refs: outcome.provider_original_material_refs.clone(),
+                provider_response_context_lease: outcome.provider_response_context_lease,
             };
             let decision = async_support::RuntimeLlmDecision {
                 agent_id: outcome.agent_id,

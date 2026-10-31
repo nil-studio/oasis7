@@ -156,6 +156,15 @@ pub trait DecisionProvider {
         None
     }
 
+    /// Keep the charged native response decode alive while the accepted DTO
+    /// crosses the in-process actor and Runtime outcome sidechannels.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_response_context_lease(
+        &mut self,
+    ) -> Option<super::provider_json_admission::ProviderResponseContextLease> {
+        None
+    }
+
     fn push_feedback(&mut self, _feedback: &FeedbackEnvelope) -> Result<(), DecisionProviderError> {
         Ok(())
     }
@@ -347,6 +356,9 @@ pub struct ProviderBackedAgentBehavior<P: DecisionProvider> {
     pending_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_provider_response_context_lease:
+        Option<super::provider_json_admission::ProviderResponseContextLease>,
     pending_memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
@@ -382,6 +394,8 @@ impl<P: DecisionProvider> ProviderBackedAgentBehavior<P> {
             pending_response_context: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_provider_original_material_refs: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_provider_response_context_lease: None,
             pending_memory_write_intents: Vec::new(),
         }
     }
@@ -614,6 +628,7 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.pending_provider_original_material_refs = None;
+            self.pending_provider_response_context_lease = None;
         }
         if self.require_continuous_request_context && self.continuous_request_context.is_none() {
             let mut trace = Self::provider_error_to_trace(&DecisionProviderError::new(
@@ -632,7 +647,6 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
             .map(|context| context.base_decision_request.clone())
             .unwrap_or_else(|| self.build_request(observation));
         let started_at = Instant::now();
-        let mut outer_response = None;
         let response = if let (Some(turn_context), Some(request_context)) = (
             self.continuous_turn_context.as_ref(),
             self.continuous_request_context.as_ref(),
@@ -646,6 +660,8 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
             {
                 self.pending_provider_original_material_refs =
                     self.provider.take_provider_original_material_refs();
+                self.pending_provider_response_context_lease =
+                    self.provider.take_provider_response_context_lease();
             }
             let response = match response {
                 Ok(response) => response,
@@ -669,8 +685,7 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
                 return AgentDecision::Wait;
             }
             let inner_response = response.base_decision_response.clone();
-            self.pending_response_context = Some(response.clone());
-            outer_response = Some(response);
+            self.pending_response_context = Some(response);
             inner_response
         } else if let Some(context) = self.continuous_turn_context.as_ref() {
             let response = match context.validate_for_agent(&self.agent_id) {
@@ -687,6 +702,8 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
             {
                 self.pending_provider_original_material_refs =
                     self.provider.take_provider_original_material_refs();
+                self.pending_provider_response_context_lease =
+                    self.provider.take_provider_response_context_lease();
             }
             let response = match response {
                 Ok(response) => response,
@@ -708,8 +725,7 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
                 return AgentDecision::Wait;
             }
             let inner_response = response.base_decision_response.clone();
-            self.pending_response_context = Some(response.clone());
-            outer_response = Some(response);
+            self.pending_response_context = Some(response);
             inner_response
         } else {
             let result = self.provider.decide(&request);
@@ -717,6 +733,8 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
             {
                 self.pending_provider_original_material_refs =
                     self.provider.take_provider_original_material_refs();
+                self.pending_provider_response_context_lease =
+                    self.provider.take_provider_response_context_lease();
             }
             match result {
                 Ok(response) => response,
@@ -848,7 +866,7 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
             observation,
             &request,
             &response,
-            outer_response.as_ref(),
+            self.pending_response_context.as_ref(),
             &decision,
             parse_error,
             provider_error,
@@ -904,6 +922,13 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
         &mut self,
     ) -> Option<super::ProviderOriginalMaterialRefsV1> {
         self.pending_provider_original_material_refs.take()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_response_context_lease(
+        &mut self,
+    ) -> Option<super::provider_json_admission::ProviderResponseContextLease> {
+        self.pending_provider_response_context_lease.take()
     }
 
     fn take_memory_write_intents(&mut self) -> Vec<MemoryWriteIntent> {

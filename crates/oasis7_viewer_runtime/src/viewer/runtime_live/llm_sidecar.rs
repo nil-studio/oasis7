@@ -63,6 +63,11 @@ pub(in crate::viewer::runtime_live) struct RuntimeProviderActionContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::viewer::runtime_live) provider_original_material_refs:
         Option<crate::simulator::ProviderOriginalMaterialRefsV1>,
+    /// Process-local charge for the decoded response context. This lease is
+    /// intentionally absent from the persisted lineage representation.
+    #[serde(skip)]
+    pub(in crate::viewer::runtime_live) provider_response_context_lease:
+        Option<crate::simulator::provider_json_admission::ProviderResponseContextLease>,
 }
 const BUILTIN_LLM_DECISION_SOURCE: &str = "builtin_llm";
 const PROVIDER_BACKED_DECISION_SOURCE: &str = "provider_backed";

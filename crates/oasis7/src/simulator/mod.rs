@@ -31,6 +31,8 @@ mod memory;
 mod model_provider;
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod provider_json_admission;
+#[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_http;

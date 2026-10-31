@@ -463,7 +463,7 @@ fn captured_provider_call_persists_exact_request_before_send_and_raw_response_be
     let client = ProviderLoopbackHttpClient::new(base_url.as_str(), None, 5_000)
         .expect("build provider client");
 
-    let (response, refs) = client
+    let (response, refs, _response_context_lease) = client
         .request_decision_with_context_and_material_store(&request, store.as_ref())
         .expect("captured request/response round trip");
 
