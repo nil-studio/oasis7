@@ -794,3 +794,10 @@ fn logistics_final_real_root_put_cancel_or_failure_never_seals_prefix() {
 mod flush;
 #[path = "support/incremental_logistics_oracle.rs"]
 mod oracle;
+
+#[path = "support/incremental_material_logistics.rs"]
+mod combined;
+#[test]
+fn material_and_logistics_namespaces_qualify_together_from_same_roots() {
+    combined::both_owners_qualify_from_the_same_roots();
+}
