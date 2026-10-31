@@ -418,10 +418,10 @@ fn material_family_cold_roots_qualify_both_namespaces() {
 #[path = "support/incremental_material_points.rs"]
 mod points;
 
-#[path = "support/incremental_material_pages.rs"]
-mod pages;
 #[path = "support/incremental_material_boundaries.rs"]
 mod boundaries;
+#[path = "support/incremental_material_pages.rs"]
+mod pages;
 
 #[path = "support/incremental_material_overlay.rs"]
 mod overlay_reads;
