@@ -19,8 +19,10 @@ fn challenge_result(
     let pop = control_pop(
         f,
         &bytes,
-        HttpPopRoute::ProofChallenges,
-        HttpPopProfileV1::CustodyChallenge,
+        (
+            HttpPopRoute::ProofChallenges,
+            HttpPopProfileV1::CustodyChallenge,
+        ),
         &r.request_id,
         None,
         purpose,
@@ -78,8 +80,7 @@ fn complete_existing(
     let pop = control_pop(
         f,
         &bytes,
-        route,
-        HttpPopProfileV1::Custody,
+        (route, HttpPopProfileV1::Custody),
         &q.request_id,
         Some(&nonce),
         purpose,
@@ -132,6 +133,37 @@ fn complete_existing(
     out
 }
 
+// Rebind retained Control facts to the actual complete Account transaction order.
+fn reindex_journal(s: &mut serde_json::Value) {
+    let positions: Vec<_> = s["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e["event"]["kind"].as_str().unwrap() {
+            "challenge_issued" if e["event"]["profile"] == "control" => {
+                Some((e["event"]["request_id"].as_str().unwrap().to_owned(), i + 1))
+            }
+            "control_acknowledged" => {
+                Some((e["event"]["request_id"].as_str().unwrap().to_owned(), i + 1))
+            }
+            _ => None,
+        })
+        .collect();
+    for (id, ordinal) in positions {
+        assert!(s["control_records"][&id].is_object());
+        s["control_records"][&id]["sequence"] = serde_json::json!(ordinal);
+    }
+}
+fn remove_ack_event(s: &mut serde_json::Value, id: &str) {
+    let events = s["events"].as_array_mut().unwrap();
+    let before = events.len();
+    events.retain(|e| {
+        !(e["event"]["kind"] == "control_acknowledged" && e["event"]["request_id"] == id)
+    });
+    assert_eq!(before - events.len(), 1);
+    reindex_journal(s);
+}
 #[test]
 fn session_v2_control_restore_rejects_nine_historically_overlapping_pending_challenges() {
     let mut f = claimed();
@@ -196,6 +228,7 @@ fn session_v2_control_restore_rejects_nine_historically_overlapping_pending_chal
             record["sequence"] = serde_json::json!(value - 1);
         }
     }
+    remove_ack_event(s, &first_request.request_id);
     // Charges, signed Source/LF and all nine original challenge facts remain.
     assert!(
         serde_json::from_value::<AccountProvisionApprovalState>(raw).is_err(),
@@ -253,8 +286,7 @@ fn credential_challenge_only(
         source_ticket: 4,
         observed_at: UnixMillis::new(now),
     };
-    let challenge = f
-        .state
+    f.state
         .issue_test_session_v2_credential_challenge(
             SessionProofRequest {
                 ingress_attempt_id: &ingress,
@@ -266,8 +298,7 @@ fn credential_challenge_only(
             UnixMillis::new(now + 2),
             &mut StrictCrypto,
         )
-        .unwrap();
-    challenge
+        .unwrap()
 }
 
 #[test]
@@ -354,11 +385,25 @@ fn session_v2_control_restore_pending_peak_is_shared_with_real_credential_challe
     // Both actual events commit at 21_005. Preserve their existing Control
     // sequence; a timestamp-only count would miss an issue-before-consume peak.
     let mut reversed = raw.clone();
-    let records = &mut reversed["test_sessions_v2"][&f.session_id]["control_records"];
-    let consumed_sequence = records[&first_request.request_id]["sequence"].clone();
-    let issued_sequence = records["ctrl-challenge-132"]["sequence"].clone();
-    records[&first_request.request_id]["sequence"] = issued_sequence;
-    records["ctrl-challenge-132"]["sequence"] = consumed_sequence;
+    let session = &mut reversed["test_sessions_v2"][&f.session_id];
+    let events = session["events"].as_array_mut().unwrap();
+    let ack_index = events
+        .iter()
+        .position(|e| {
+            e["event"]["kind"] == "control_acknowledged"
+                && e["event"]["request_id"] == first_request.request_id
+        })
+        .unwrap();
+    let ack = events.remove(ack_index);
+    let issue_index = events
+        .iter()
+        .position(|e| {
+            e["event"]["kind"] == "challenge_issued"
+                && e["event"]["request_id"] == "ctrl-challenge-132"
+        })
+        .unwrap();
+    events.insert(issue_index + 1, ack);
+    reindex_journal(session);
     assert!(
         serde_json::from_value::<AccountProvisionApprovalState>(reversed).is_err(),
         "same-ms issue before consumption reaches nine shared pending slots"
@@ -382,8 +427,12 @@ fn session_v2_control_restore_pending_peak_is_shared_with_real_credential_challe
             record["sequence"] = serde_json::json!(n - 1);
         }
     }
+    remove_ack_event(s, &first_request.request_id);
     assert!(
         serde_json::from_value::<AccountProvisionApprovalState>(raw).is_err(),
         "eight-slot history is shared, not eight Control plus credential slots"
     );
 }
+
+#[path = "test_session_v2_journal_shape_tests.rs"]
+mod journal_shape;

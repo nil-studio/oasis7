@@ -65,6 +65,7 @@ pub struct TestSessionAuthorityV2 {
     pub(in crate::provisioning) closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
     pub(in crate::provisioning) controls: BTreeMap<String, SessionControlAckV1>,
     pub(in crate::provisioning) control_records: BTreeMap<String, SessionControlRecordV2>,
+    pub(in crate::provisioning) events: Vec<SessionEventV2>,
     pub(in crate::provisioning) control_logicals: BTreeMap<String, String>,
     pub(in crate::provisioning) challenges: BTreeMap<String, SessionChallengeV1>,
     pub(in crate::provisioning) actions: BTreeMap<String, SessionActionOriginalV1>,
@@ -234,8 +235,15 @@ impl AccountProvisionApprovalState {
             return Ok(());
         }
         let mut next = self.clone();
-        next.test_session_v2_record_mut(id)?.closing =
-            Some((TestSessionClosingReasonV1::Deadline, now));
+        let s = next.test_session_v2_record_mut(id)?;
+        s.closing = Some((TestSessionClosingReasonV1::Deadline, now));
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::Expired {
+                reason: TestSessionClosingReasonV1::Deadline,
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())

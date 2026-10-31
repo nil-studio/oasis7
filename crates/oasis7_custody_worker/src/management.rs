@@ -257,10 +257,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionBasisRequestV2 = match serde_json::from_str::<TestSessionBasisRequestV2>(&body) {
-                Ok(v) if v.validate().is_ok() => v,
-                _ => return Response::error("invalid request", 400),
-            };
+            let value: TestSessionBasisRequestV2 =
+                match serde_json::from_str::<TestSessionBasisRequestV2>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
             session_management_v2 = true;
             test_session_basis(
                 &env,
@@ -306,10 +307,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionPrepareRequestV2 = match serde_json::from_str::<TestSessionPrepareRequestV2>(&body) {
-                Ok(v) if v.validate().is_ok() => v,
-                _ => return Response::error("invalid request", 400),
-            };
+            let value: TestSessionPrepareRequestV2 =
+                match serde_json::from_str::<TestSessionPrepareRequestV2>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
             session_management_v2 = true;
             prepare_test_session(
                 &env,
@@ -355,10 +357,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionApproveRequestV2 = match serde_json::from_str::<TestSessionApproveRequestV2>(&body) {
-                Ok(v) if v.validate().is_ok() => v,
-                _ => return Response::error("invalid request", 400),
-            };
+            let value: TestSessionApproveRequestV2 =
+                match serde_json::from_str::<TestSessionApproveRequestV2>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
             session_management_v2 = true;
             approve_test_session(
                 &env,
@@ -404,10 +407,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionContinueRequestV2 = match serde_json::from_str::<TestSessionContinueRequestV2>(&body) {
-                Ok(v) if v.validate().is_ok() => v,
-                _ => return Response::error("invalid request", 400),
-            };
+            let value: TestSessionContinueRequestV2 =
+                match serde_json::from_str::<TestSessionContinueRequestV2>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
             session_management_v2 = true;
             continue_test_session(
                 &env,

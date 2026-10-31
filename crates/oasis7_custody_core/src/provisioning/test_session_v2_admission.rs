@@ -251,6 +251,7 @@ impl AccountProvisionApprovalState {
                 closing: None,
                 controls: BTreeMap::new(),
                 control_records: BTreeMap::new(),
+                events: Vec::new(),
                 control_logicals: BTreeMap::new(),
                 challenges: BTreeMap::new(),
                 actions: BTreeMap::new(),
@@ -290,6 +291,9 @@ impl AccountProvisionApprovalState {
             now.get(),
             verifier,
         )?;
+        if s.events.is_empty() {
+            append_session_event_v2(s, SessionEventKindV2::PreflightReservation, now)?;
+        }
         next.validate_persistence()?;
         *self = next;
         Ok(record)
@@ -315,6 +319,7 @@ impl AccountProvisionApprovalState {
             .charge(1)
             .map_err(|_| invalid())?;
         s.approval_verification_claimed_at = Some(now);
+        append_session_event_v2(s, SessionEventKindV2::ApprovalVerificationClaim, now)?;
         let request = s
             .book
             .original(id)
@@ -378,6 +383,7 @@ impl AccountProvisionApprovalState {
         }
         s.consumed_at = Some(now);
         s.preflight_source_nonce = Some(commit.source_nonce);
+        append_session_event_v2(s, SessionEventKindV2::ApprovalConsumed, now)?;
         let result = s.clone();
         next.validate_persistence()?;
         *self = next;

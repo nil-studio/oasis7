@@ -56,6 +56,13 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<()> {
+        if let Some(saved) = self.test_session_v2_record(id)?.preflight_lifetime.as_ref() {
+            return if saved == &lifetime {
+                Ok(())
+            } else {
+                Err(ProvisionApprovalError::Conflict)
+            };
+        }
         verifier.verify(
             &self.test_session_v2_preflight_lifetime_checks(id, &lifetime, current, now)?,
         )?;
@@ -64,6 +71,11 @@ impl AccountProvisionApprovalState {
             .get_mut(id)
             .ok_or_else(invalid)?
             .preflight_lifetime = Some(lifetime);
+        append_session_event_v2(
+            next.test_session_v2_record_mut(id)?,
+            SessionEventKindV2::PreflightLifetimeRecorded,
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())

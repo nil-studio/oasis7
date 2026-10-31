@@ -156,8 +156,7 @@ fn setup_v2_prepare_is_mounted_core_producer_and_does_not_upgrade_v1_authority()
     value["api_version"] = json!(2);
     value["model_budget"] = serde_json::Value::Null;
     value["transport_limit"] = json!("584");
-    value["selection"] =
-        json!({"kind":"build","site":"site","factory":"factory","factory_kind":"factory.smelter.mk1"});
+    value["selection"] = json!({"kind":"build","site":"site","factory":"factory","factory_kind":"factory.smelter.mk1"});
     let plan: OwnerSetupPlanV2 = serde_json::from_value(value).unwrap();
     plan.validate().unwrap();
     let request = OwnerSetupPrepareRequestV2 {
@@ -189,8 +188,7 @@ fn setup_v2_real_fresh_mfa_book_consumes_once_and_roundtrips_without_v1_dispatch
     value.as_object_mut().unwrap().remove("resource_refs");
     value["api_version"] = json!(2);
     value["model_budget"] = serde_json::Value::Null;
-    value["selection"] =
-        json!({"kind":"build","site":"site","factory":"factory","factory_kind":"factory.smelter.mk1"});
+    value["selection"] = json!({"kind":"build","site":"site","factory":"factory","factory_kind":"factory.smelter.mk1"});
     let plan: OwnerSetupPlanV2 = serde_json::from_value(value).unwrap();
     plan.validate().unwrap();
     c.handoff_until = plan.deadline;

@@ -166,6 +166,19 @@ impl AccountProvisionApprovalState {
         );
         s.challenges.insert(q.request_id, challenge.clone());
         super::super::v2_credential_http::close_if_control_exhausted(s, now);
+        if append_session_event_v2(
+            s,
+            SessionEventKindV2::ChallengeIssued {
+                request_id: challenge.request_id.clone(),
+                source_operation_id: current.source_operation_id.into(),
+                ingress_attempt_id: proof.ingress_attempt_id.into(),
+                profile: SessionJournalProfileV2::Control,
+            },
+            now,
+        )? != sequence
+        {
+            return Err(invalid());
+        }
         next.validate_persistence()?;
         *self = next;
         Ok(challenge)
@@ -280,6 +293,16 @@ impl AccountProvisionApprovalState {
             },
         );
         super::super::v2_credential_http::close_if_control_exhausted(s, now);
+        if append_session_event_v2(
+            s,
+            SessionEventKindV2::ControlAcknowledged {
+                request_id: ack.request_id.clone(),
+            },
+            now,
+        )? != sequence
+        {
+            return Err(invalid());
+        }
         next.validate_persistence()?;
         *self = next;
         Ok(ack)

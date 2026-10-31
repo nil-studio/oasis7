@@ -254,6 +254,13 @@ impl AccountProvisionApprovalState {
             },
         );
         super::super::v2_credential_http::close_if_control_exhausted(s, now);
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::ClientHttpCharged {
+                ingress_attempt_id: a.ingress_attempt_id.into(),
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())

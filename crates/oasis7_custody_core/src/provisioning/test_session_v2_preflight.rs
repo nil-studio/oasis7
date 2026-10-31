@@ -126,6 +126,11 @@ impl AccountProvisionApprovalState {
             .get_mut(id)
             .ok_or_else(invalid)?
             .preflight_claimed_at = Some(now);
+        append_session_event_v2(
+            next.test_sessions_v2.get_mut(id).ok_or_else(invalid)?,
+            SessionEventKindV2::PreflightClaimed,
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(d)
@@ -160,6 +165,7 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         s.preflight_oracle_reads = ticket;
+        append_session_event_v2(s, SessionEventKindV2::PreflightReadReserved { ticket }, now)?;
         next.validate_persistence()?;
         *self = next;
         Ok(ticket)
@@ -264,6 +270,7 @@ impl AccountProvisionApprovalState {
             })
             .map_err(|_| invalid())?;
         s.preflight_steps.insert(step, now);
+        append_session_event_v2(s, SessionEventKindV2::PreflightStep { step }, now)?;
         let d = next.test_session_v2_preflight_descriptor(id)?;
         next.validate_persistence()?;
         *self = next;
@@ -359,12 +366,24 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<()> {
+        if let Some(saved) = self.test_session_v2_record(id)?.preflight_access.as_ref() {
+            return if saved == &e {
+                Ok(())
+            } else {
+                Err(ProvisionApprovalError::Conflict)
+            };
+        }
         verifier.verify(&self.test_session_v2_preflight_access_checks(id, &e, current, now)?)?;
         let mut next = self.clone();
         next.test_sessions_v2
             .get_mut(id)
             .ok_or_else(invalid)?
             .preflight_access = Some(e);
+        append_session_event_v2(
+            next.test_session_v2_record_mut(id)?,
+            SessionEventKindV2::PreflightAccessRecorded,
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())
@@ -432,6 +451,13 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<()> {
+        if let Some(saved) = self.test_session_v2_record(id)?.preflight_read.as_ref() {
+            return if saved.as_ref() == &original {
+                Ok(())
+            } else {
+                Err(ProvisionApprovalError::Conflict)
+            };
+        }
         verifier
             .verify(&self.test_session_v2_preflight_publish_checks(id, &original, current, now)?)?;
         let mut next = self.clone();
@@ -439,6 +465,11 @@ impl AccountProvisionApprovalState {
             .get_mut(id)
             .ok_or_else(invalid)?
             .preflight_read = Some(Box::new(original));
+        append_session_event_v2(
+            next.test_session_v2_record_mut(id)?,
+            SessionEventKindV2::PreflightReadPublished,
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())

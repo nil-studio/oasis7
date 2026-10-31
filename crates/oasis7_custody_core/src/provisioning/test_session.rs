@@ -486,3 +486,18 @@ mod v2_control;
 pub(in crate::provisioning) use v2_control::{
     SessionControlRecordV2, authenticated_receipt_v2, control_lifetime_claimed_v2,
 };
+
+#[path = "test_session_v2_journal.rs"]
+mod v2_journal;
+pub(in crate::provisioning) use v2_journal::{
+    SessionEventKindV2, SessionEventV2, SessionJournalProfileV2, append_session_event_v2,
+    next_session_ordinal_v2, session_event_ordinal_v2,
+};
+
+#[path = "test_session_v2_action_http.rs"]
+mod v2_action_http;
+#[path = "test_session_v2_purpose_http.rs"]
+mod v2_purpose_http;
+#[path = "test_session_v2_tool_nonce.rs"]
+mod v2_tool_nonce;
+pub use v2_action_http::SessionActionRequestV2;

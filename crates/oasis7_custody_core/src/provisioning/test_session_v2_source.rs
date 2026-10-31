@@ -138,6 +138,16 @@ impl AccountProvisionApprovalState {
         s.sources.insert(operation_id.into(), wrapper.clone());
         s.source_oracle_reads.insert(operation_id.into(), 0);
         s.source_funding.insert(operation_id.into(), funding);
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::SourceReserved {
+                source_operation_id: operation_id.into(),
+            },
+            now,
+        )?;
+        if s.approved_at.is_some() {
+            super::v2_credential_http::close_if_control_exhausted(s, now);
+        }
         next.validate_persistence()?;
         *self = next;
         Ok(wrapper)
@@ -169,6 +179,14 @@ impl AccountProvisionApprovalState {
         }
         *reads += 1;
         let result = *reads;
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::SourceReadReserved {
+                source_operation_id: source_id.into(),
+                ticket: result,
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(result)
@@ -207,6 +225,13 @@ impl AccountProvisionApprovalState {
         wrapper.source.claimed_at = Some(DecimalU64(now.get()));
         wrapper.source.request_bytes =
             Some(serde_json::to_string(&request).map_err(|_| invalid())?);
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::SourceVerificationClaimed {
+                source_operation_id: source_id.into(),
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(request)
@@ -253,6 +278,18 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<()> {
+        if let Some(saved) = self
+            .test_session_v2_record(id)?
+            .sources
+            .get(source_id)
+            .and_then(|w| w.source.verification.as_ref())
+        {
+            return if saved == &signed {
+                Ok(())
+            } else {
+                Err(ProvisionApprovalError::Conflict)
+            };
+        }
         verifier
             .verify(&self.test_session_v2_source_checks(id, source_id, &signed, current, now)?)?;
         let mut next = self.clone();
@@ -263,6 +300,13 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         wrapper.source.verification = Some(signed);
         wrapper.source.verified_at = Some(DecimalU64(now.get()));
+        append_session_event_v2(
+            next.test_session_v2_record_mut(id)?,
+            SessionEventKindV2::SourceVerified {
+                source_operation_id: source_id.into(),
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())
@@ -280,7 +324,7 @@ fn v2_control_exhausted(s: &TestSessionAuthorityV2) -> bool {
             .as_ref()
             .is_some_and(|b| b.remaining() == Ok(0))
 }
-fn v2_purpose_exhausted(s: &TestSessionAuthorityV2) -> bool {
+pub(super) fn v2_purpose_exhausted(s: &TestSessionAuthorityV2) -> bool {
     [SessionPurposeV1::Execution, SessionPurposeV1::ReconcileRead]
         .iter()
         .any(|p| {

@@ -35,6 +35,7 @@ impl AccountProvisionApprovalState {
                     TestSessionClosingReasonV1::Deadline
                 };
                 session.closing = Some((reason, now));
+                append_session_event_v2(session, SessionEventKindV2::Expired { reason }, now)?;
                 closed.push(id.clone());
             }
         }

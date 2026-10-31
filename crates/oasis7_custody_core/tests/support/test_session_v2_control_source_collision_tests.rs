@@ -55,6 +55,16 @@ fn session_v2_control_restore_source_id_cannot_alias_a_real_control_native_lifet
             .unwrap();
         s[map][&collision] = value;
     }
+    let mut renamed = 0;
+    for event in s["events"].as_array_mut().unwrap() {
+        if event["event"]["kind"] == "source_reserved"
+            && event["event"]["source_operation_id"] == "source-B-reserved"
+        {
+            event["event"]["source_operation_id"] = serde_json::json!(collision);
+            renamed += 1;
+        }
+    }
+    assert_eq!(renamed, 1);
     // A's real fixed-Root LF signature and all source/transport charges stay exact.
     assert!(
         serde_json::from_value::<AccountProvisionApprovalState>(raw).is_err(),

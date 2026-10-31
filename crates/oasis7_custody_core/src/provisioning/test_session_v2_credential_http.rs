@@ -58,7 +58,7 @@ pub(super) fn control_exhausted(s: &TestSessionAuthorityV2) -> bool {
             .is_some_and(|b| b.remaining() == Ok(0))
 }
 pub(super) fn close_if_control_exhausted(s: &mut TestSessionAuthorityV2, now: UnixMillis) {
-    if control_exhausted(s) && s.closing.is_none() {
+    if (control_exhausted(s) || super::source_v2::v2_purpose_exhausted(s)) && s.closing.is_none() {
         s.closing = Some((TestSessionClosingReasonV1::BudgetExhausted, now));
     }
 }
@@ -267,6 +267,13 @@ impl AccountProvisionApprovalState {
             },
         );
         close_if_control_exhausted(s, now);
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::ClientHttpCharged {
+                ingress_attempt_id: admission.ingress_attempt_id.into(),
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(())

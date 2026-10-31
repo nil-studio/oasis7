@@ -41,7 +41,9 @@ pub(in crate::provisioning) fn validate(
     // Overall restoration already replays the real preflight once-steps and
     // Native transport ledger before this validator, including pending phases.
     for (id, body) in &s.control_logicals {
-        if id == &preflight_id && body == &preflight_body { continue; }
+        if id == &preflight_id && body == &preflight_body {
+            continue;
+        }
         if !s
             .challenges
             .values()
@@ -50,7 +52,6 @@ pub(in crate::provisioning) fn validate(
             return Err(invalid());
         }
     }
-    super::pending_restore::validate(s)?;
     if s.control_records.len() > 1104 || s.controls.len() > 80 {
         return Err(invalid());
     }
@@ -115,11 +116,25 @@ pub(in crate::provisioning) fn validate(
             .min(write),
     );
     let mut heartbeat = None;
-    let mut previous = approved;
     let mut used_sources = BTreeSet::new();
     let mut first_requested_close = None;
-    for (index, (sequence, (key, record))) in ordered.iter().enumerate() {
-        if *sequence != u64::try_from(index + 1).map_err(|_| invalid())? {
+    for (sequence, (key, record)) in &ordered {
+        let kind = match record {
+            SessionControlRecordV2::Challenge {
+                observation,
+                ingress_attempt_id,
+                ..
+            } => SessionEventKindV2::ChallengeIssued {
+                request_id: (*key).clone(),
+                source_operation_id: observation.source_operation_id.clone(),
+                ingress_attempt_id: ingress_attempt_id.clone(),
+                profile: SessionJournalProfileV2::Control,
+            },
+            SessionControlRecordV2::Control { .. } => SessionEventKindV2::ControlAcknowledged {
+                request_id: (*key).clone(),
+            },
+        };
+        if session_event_ordinal_v2(s, &kind)? != Some(*sequence) {
             return Err(invalid());
         }
         let at = match record {
@@ -236,10 +251,9 @@ pub(in crate::provisioning) fn validate(
                 ack.acknowledged_at
             }
         };
-        if at.get() < previous.get() {
+        if at.get() < approved.get() {
             return Err(invalid());
         }
-        previous = at;
     }
     if s.last_heartbeat != heartbeat || s.lease_until != Some(lease) {
         return Err(invalid());

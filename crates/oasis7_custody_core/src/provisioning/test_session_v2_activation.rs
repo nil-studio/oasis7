@@ -277,6 +277,8 @@ impl AccountProvisionApprovalState {
                 .min(write_deadline.0),
         ));
         s.native_lifetime = Some(current.lifetime.clone());
+        append_session_event_v2(s, SessionEventKindV2::Activated, now)?;
+        super::v2_credential_http::close_if_control_exhausted(s, now);
         let invite = s.enrollment.registration.request.target.invite_id.clone();
         for record in next
             .pairing_invites

@@ -68,7 +68,8 @@ impl AccountProvisionApprovalState {
                     TestSessionClosingReasonV1::BudgetExhausted => {
                         s.approved_at
                             .is_some_and(|approved| at.get() >= approved.get())
-                            && super::v2_credential_http::control_exhausted(s)
+                            && (super::v2_credential_http::control_exhausted(s)
+                                || super::source_v2::v2_purpose_exhausted(s))
                     }
                     TestSessionClosingReasonV1::Finished | TestSessionClosingReasonV1::Aborted => {
                         super::v2_control::validate_control_records_v2(self, s).is_ok()
@@ -83,13 +84,17 @@ impl AccountProvisionApprovalState {
             self.validate_session_v2_control_persistence(s)?;
             super::v2_credential_restore::validate(self, id, s)?;
             super::v2_control::validate_control_records_v2(self, s)?;
+            super::v2_purpose_http::validate_purpose_http_v2(s)?;
+            self.validate_session_v2_tool_nonce_persistence(s)?;
+            super::v2_journal::validate(s)?;
             // These old V1 execution/control formats never become V2 execution authority.
             if s.context.is_some()
                 || !s.actions.is_empty()
-                || !s.tool_nonce_ingresses.is_empty()
-                || !s.tool_nonce_links.is_empty()
-                || !s.purpose_transports.is_empty()
-                || !s.purpose_http_admissions.is_empty()
+                || s.purpose_transports.keys().any(|key| {
+                    !s.tool_nonce_ingresses
+                        .values()
+                        .any(|n| n.owner_attempt == *key || n.account_attempt == *key)
+                })
             {
                 return Err(invalid());
             }
@@ -164,6 +169,24 @@ impl AccountProvisionApprovalState {
                         .filter(|f| f.purpose() == Some(purpose))
                         .count() as u64;
                     expected.transport.charge(sources).map_err(|_| invalid())?;
+                    expected
+                        .transport
+                        .charge(
+                            s.purpose_transports
+                                .values()
+                                .filter(|a| a.purpose() == purpose)
+                                .count() as u64,
+                        )
+                        .map_err(|_| invalid())?;
+                    expected
+                        .transport
+                        .charge(
+                            s.purpose_http_admissions
+                                .values()
+                                .filter(|a| a.purpose == purpose)
+                                .count() as u64,
+                        )
+                        .map_err(|_| invalid())?;
                     if purpose == SessionPurposeV1::TerminationPlan {
                         let allocations = s.termination_state.allocated_request_count();
                         expected

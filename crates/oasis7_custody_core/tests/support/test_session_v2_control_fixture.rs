@@ -26,13 +26,13 @@ fn claimed() -> SessionFixture {
 fn control_pop(
     f: &SessionFixture,
     body: &[u8],
-    route: HttpPopRoute,
-    profile: HttpPopProfileV1,
+    route_profile: (HttpPopRoute, HttpPopProfileV1),
     request_id: &str,
     nonce: Option<&SessionChallengeV1>,
     purpose: SessionPurposeV1,
     now: u64,
 ) -> HttpPossessionReceipt {
+    let (route, profile) = route_profile;
     let root = f
         .state
         .test_session_v2_snapshot(&f.session_id)
@@ -163,10 +163,20 @@ fn control_source(
     v.observed_at = DecimalU64(now);
     // The fixture emulates the actual Native origin inspector after the one
     // consumed human MFA expires; the original proof and deadline stay exact.
-    v.proof_state = if now >= f.state.test_session_v2_original(&f.session_id)
-        .unwrap().input().approval.proof.expires_at.0 {
+    v.proof_state = if now
+        >= f.state
+            .test_session_v2_original(&f.session_id)
+            .unwrap()
+            .input()
+            .approval
+            .proof
+            .expires_at
+            .0
+    {
         ProofStateV1::Expired
-    } else { ProofStateV1::Active };
+    } else {
+        ProofStateV1::Active
+    };
     f.state
         .complete_test_session_v2_source(
             &f.session_id,
@@ -256,8 +266,10 @@ fn challenge(
     let pop = control_pop(
         f,
         &bytes,
-        HttpPopRoute::ProofChallenges,
-        HttpPopProfileV1::CustodyChallenge,
+        (
+            HttpPopRoute::ProofChallenges,
+            HttpPopProfileV1::CustodyChallenge,
+        ),
         &r.request_id,
         None,
         purpose,
@@ -312,8 +324,7 @@ fn call(
     let pop = control_pop(
         f,
         &bytes,
-        route,
-        HttpPopProfileV1::Custody,
+        (route, HttpPopProfileV1::Custody),
         &q.request_id,
         Some(&nonce),
         purpose,
@@ -446,8 +457,10 @@ fn session_v2_control_ack_history_needs_a_new_paid_http_but_no_native_or_lease_r
     let pop = control_pop(
         &f,
         &bytes,
-        HttpPopRoute::Initialize(f.session_id.clone()),
-        HttpPopProfileV1::Custody,
+        (
+            HttpPopRoute::Initialize(f.session_id.clone()),
+            HttpPopProfileV1::Custody,
+        ),
         &request.request_id,
         Some(&challenge),
         SessionPurposeV1::Execution,
@@ -501,7 +514,7 @@ fn session_v2_control_expiry_is_durable_local_closing_without_cleanup_effects() 
     assert_eq!(restored, f.state);
 }
 
-#[path="test_session_v2_control_pending_restore_tests.rs"]
+#[path = "test_session_v2_control_pending_restore_tests.rs"]
 mod pending_restore_tests;
 
 #[path = "test_session_v2_control_budget_cause_tests.rs"]

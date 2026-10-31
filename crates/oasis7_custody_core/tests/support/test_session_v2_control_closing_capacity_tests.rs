@@ -179,10 +179,34 @@ fn session_v2_control_restore_execution_issue_cannot_cross_same_ms_finish_capaci
         valid["control_logicals"][&execution.request_id].clone();
     target["control"]["requests"]["reservations"][&execution.request_id] =
         valid["control"]["requests"]["reservations"][&execution.request_id].clone();
-    // Before Finish there were eight pending; after Finish Execution was closed.
-    // All Host/Source/LF originals and charges above are genuine and unchanged.
-    assert!(
-        serde_json::from_value::<AccountProvisionApprovalState>(impossible).is_err(),
-        "no same-ms ordering can both preserve eight pending slots and issue Execution before Closing"
-    );
+    let issue = valid["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| {
+            e["event"]["kind"] == "challenge_issued"
+                && e["event"]["request_id"] == original.request_id
+        })
+        .unwrap()
+        .clone();
+    // Complete retained fact+event pairs in both possible relative orders.
+    // Source, fee and LF events are already present before these insertions.
+    for before_finish in [true, false] {
+        let mut ordered = impossible.clone();
+        let target = &mut ordered["test_sessions_v2"][&f.session_id];
+        let events = target["events"].as_array_mut().unwrap();
+        let finish_index = events
+            .iter()
+            .position(|e| {
+                e["event"]["kind"] == "control_acknowledged"
+                    && e["event"]["request_id"] == finish.request_id
+            })
+            .unwrap();
+        events.insert(finish_index + usize::from(!before_finish), issue.clone());
+        super::reindex_journal(target);
+        assert!(
+            serde_json::from_value::<AccountProvisionApprovalState>(ordered).is_err(),
+            "complete issue-before-Finish must fail capacity; issue-after-Finish must fail phase"
+        );
+    }
 }

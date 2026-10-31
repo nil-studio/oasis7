@@ -71,7 +71,9 @@ pub(in crate::provisioning) fn validate(
             || !hex64(&challenge.body_digest)
             || !matches!(
                 challenge.kind,
-                SessionChallengeKindV1::CredentialClaim | SessionChallengeKindV1::Control(_)
+                SessionChallengeKindV1::CredentialClaim
+                    | SessionChallengeKindV1::Control(_)
+                    | SessionChallengeKindV1::ToolMetadata
             )
             || challenge.purpose == SessionPurposeV1::TerminationPlan
             || approved.is_none_or(|t| start < t.get())
@@ -81,7 +83,9 @@ pub(in crate::provisioning) fn validate(
                     .checked_add(30_000)
                     .ok_or_else(invalid)?
                     .min(root.deadline.get())
-            || s.control_logicals.get(&challenge.logical_request_id) != Some(&challenge.body_digest)
+            || (challenge.kind != SessionChallengeKindV1::ToolMetadata
+                && s.control_logicals.get(&challenge.logical_request_id)
+                    != Some(&challenge.body_digest))
             || challenge.credential_generation.0
                 > root.credential.as_ref().map_or(0, |c| c.generation.0)
         {

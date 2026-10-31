@@ -97,6 +97,15 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         super::super::v2_credential_http::close_if_control_exhausted(s, now);
+        append_session_event_v2(
+            s,
+            SessionEventKindV2::LifetimeClaimed {
+                source_operation_id: source_id.into(),
+                ingress_attempt_id: proof.ingress_attempt_id.into(),
+                profile: SessionJournalProfileV2::Control,
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(nonce)

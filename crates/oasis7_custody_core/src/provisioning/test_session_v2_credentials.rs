@@ -255,6 +255,7 @@ impl AccountProvisionApprovalState {
             .get_mut(&challenge_id)
             .ok_or_else(invalid)?
             .consumed_by = Some(request.request_id.clone());
+        let journal_id = request.request_id.clone();
         session.credential_claims.insert(
             request.request_id.clone(),
             SessionCredentialClaimRecordV2 {
@@ -272,6 +273,13 @@ impl AccountProvisionApprovalState {
                 lifetime: (*current.lifetime).clone(),
             },
         );
+        append_session_event_v2(
+            session,
+            SessionEventKindV2::CredentialClaimed {
+                request_id: journal_id,
+            },
+            now,
+        )?;
         next.validate_persistence()?;
         *self = next;
         Ok(SessionCredentialClaimOutcome {

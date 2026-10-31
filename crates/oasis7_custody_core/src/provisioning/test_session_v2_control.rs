@@ -20,6 +20,11 @@ pub(in crate::provisioning) struct ControlObservationV2 {
     lifetime: SignedManagedNativeSessionLifetimeV1,
     checked_at: UnixMillis,
 }
+impl ControlObservationV2 {
+    pub(in crate::provisioning) fn source_operation_id(&self) -> &str {
+        &self.source_operation_id
+    }
+}
 impl core::fmt::Debug for ControlObservationV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("ControlObservationV2(<private>)")
@@ -116,20 +121,8 @@ fn observation(
     })
 }
 
-fn next_sequence(s: &TestSessionAuthorityV2, now: UnixMillis) -> Result<u64> {
-    if s.challenges
-        .values()
-        .any(|c| c.created_at.get() > now.get())
-        || s.controls
-            .values()
-            .any(|c| c.acknowledged_at.get() > now.get())
-    {
-        return Err(invalid());
-    }
-    u64::try_from(s.control_records.len())
-        .map_err(|_| invalid())?
-        .checked_add(1)
-        .ok_or_else(invalid)
+fn next_sequence(s: &TestSessionAuthorityV2, _now: UnixMillis) -> Result<u64> {
+    next_session_ordinal_v2(s)
 }
 
 pub(in crate::provisioning) fn id_in_use_v2(s: &TestSessionAuthorityV2, id: &str) -> bool {
@@ -147,6 +140,3 @@ pub(in crate::provisioning) fn authenticated_receipt_v2<'a>(
 ) -> Result<&'a SessionCredentialV1> {
     http::authenticated(s, purpose, proof, now)
 }
-
-#[path="test_session_v2_control_pending_restore.rs"]
-mod pending_restore;
