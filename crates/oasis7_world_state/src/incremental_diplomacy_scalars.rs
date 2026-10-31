@@ -99,6 +99,8 @@ pub struct DiplomacyScalarsChangeV1<'a> {
     pub max_current_payload_bytes: u64,
     pub max_pending_node_bytes: usize,
 }
+/// Full expected projection: this operation streams every closed scalar (O(S)).
+/// Use change_qualified_diplomacy_scalar_v1 for ordinary point edits.
 /// Only closed scalar columns are compared/replaced. Source collections may be
 /// nonempty and remain entirely outside this operation; use member setters.
 pub fn change_qualified_diplomacy_scalars_v1<

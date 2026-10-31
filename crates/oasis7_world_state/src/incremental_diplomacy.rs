@@ -157,3 +157,9 @@ pub use member_read::{
 #[path = "incremental_diplomacy_delete.rs"]
 mod delete;
 pub use delete::{DiplomacyClosedDeleteV1, delete_qualified_diplomacy_closed_v1};
+
+#[path = "incremental_diplomacy_scalar_point.rs"]
+mod scalar_point;
+pub use scalar_point::{
+    DiplomacyScalarChangeV1, DiplomacyScalarValueV1, change_qualified_diplomacy_scalar_v1,
+};
