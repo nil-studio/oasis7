@@ -231,6 +231,8 @@ pub mod incremental_industry_jobs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_installed_module_targets;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_logistics_records;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_material_records;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_record_diff;
@@ -246,3 +248,6 @@ mod incremental_utf8_output;
 pub mod incremental_world_balances;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_text_maps;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_family_page_tracking;
