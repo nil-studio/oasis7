@@ -121,7 +121,7 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
     let driver = fixture.driver.clone();
     let worker = thread::spawn(move || {
         let started = Instant::now();
-        let deadline = started + Duration::from_secs(25);
+        let deadline = started + application_hosted_final_budget_window::PRODUCER_BUDGET;
         timing(
             "clock_started",
             started,

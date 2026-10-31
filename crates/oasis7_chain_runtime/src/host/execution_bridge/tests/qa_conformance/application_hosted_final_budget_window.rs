@@ -3,7 +3,7 @@
 use super::*;
 use std::path::Path;
 
-const PRODUCER_BUDGET: Duration = Duration::from_secs(25);
+pub(super) const PRODUCER_BUDGET: Duration = Duration::from_secs(25);
 const CONSUMER_BUDGET: Duration = Duration::from_secs(14);
 const LATE_CLOCK_ENV: &str = "PRE2_FINAL_BUDGET_LATE_CLOCK";
 const ORIGINAL_WINDOW_MARKER: &str = "final-budget-original-window-elapsed";
