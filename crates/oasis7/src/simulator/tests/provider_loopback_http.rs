@@ -1,12 +1,12 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use super::*;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use oasis7_proto::memory_budget::MemoryBudget;
 
 #[derive(Debug, Clone)]
 struct RecordedHttpRequest {
@@ -470,15 +470,29 @@ fn captured_provider_call_persists_exact_request_before_send_and_raw_response_be
     assert_eq!(response, expected_response);
     let captured = store.snapshot();
     let expected_request_bytes = serde_json::to_vec(&request).expect("encode request bytes");
-    assert_eq!(captured.request_body.as_deref(), Some(expected_request_bytes.as_slice()));
-    assert_eq!(captured.response_body.as_deref(), Some(response_bytes.as_slice()));
+    assert_eq!(
+        captured.request_body.as_deref(),
+        Some(expected_request_bytes.as_slice())
+    );
+    assert_eq!(
+        captured.response_body.as_deref(),
+        Some(response_bytes.as_slice())
+    );
     assert_eq!(
         captured.events,
-        ["persist_request", "mark_dispatched", "persist_response", "finish_response"]
+        [
+            "persist_request",
+            "mark_dispatched",
+            "persist_response",
+            "finish_response"
+        ]
     );
     assert!(captured.committed.is_none());
     assert_eq!(refs.owner, *store.owner_binding());
-    assert_eq!(refs.operation_id, request.provider_invocation_key().to_string());
+    assert_eq!(
+        refs.operation_id,
+        request.provider_invocation_key().to_string()
+    );
     assert_eq!(refs.transport_attempt, request.transport_attempt);
 
     let recorded = recorded.lock().unwrap();
@@ -493,7 +507,9 @@ fn captured_request_persistence_failure_makes_zero_http_calls() {
     let store = Arc::new(TestProviderMaterialStore::new(
         request.runtime_binding.world_id.clone(),
     ));
-    store.fail_request_persistence.store(true, Ordering::Release);
+    store
+        .fail_request_persistence
+        .store(true, Ordering::Release);
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind no-send listener");
     listener
         .set_nonblocking(true)
@@ -538,7 +554,10 @@ fn captured_dispatch_cancellation_after_marker_does_not_enter_http() {
         std::io::ErrorKind::WouldBlock,
         "HTTP must not be reached after cancellation"
     );
-    assert_eq!(store.snapshot().events, ["persist_request", "mark_dispatched"]);
+    assert_eq!(
+        store.snapshot().events,
+        ["persist_request", "mark_dispatched"]
+    );
 }
 
 #[test]
@@ -576,14 +595,24 @@ fn captured_http_failure_is_nonretryable_and_retains_the_attempt() {
         )
         .expect_err("captured 503 remains pending and fails closed");
 
-    assert!(!error.retryable, "unknown captured attempts cannot auto-retry");
+    assert!(
+        !error.retryable,
+        "unknown captured attempts cannot auto-retry"
+    );
     assert_eq!(error.code, "provider_attempt_retained");
     let captured = store.snapshot();
     assert_eq!(captured.response_body.as_deref(), Some(body.as_slice()));
-    assert_eq!(captured.events, ["persist_request", "mark_dispatched", "persist_response"]);
+    assert_eq!(
+        captured.events,
+        ["persist_request", "mark_dispatched", "persist_response"]
+    );
     assert!(captured.committed.is_none());
     let recorded = recorded.lock().unwrap();
-    assert_eq!(recorded.len(), 1, "transport failure must not create attempt two");
+    assert_eq!(
+        recorded.len(),
+        1,
+        "transport failure must not create attempt two"
+    );
 }
 
 #[test]
@@ -596,7 +625,9 @@ fn captured_lane_does_not_follow_post_redirects_to_a_second_endpoint() {
     second_listener
         .set_nonblocking(true)
         .expect("make redirect target nonblocking");
-    let second_address = second_listener.local_addr().expect("redirect target address");
+    let second_address = second_listener
+        .local_addr()
+        .expect("redirect target address");
     let second_endpoint_received = Arc::new(AtomicBool::new(false));
     let second_endpoint_received_thread = Arc::clone(&second_endpoint_received);
     let second_endpoint_thread = std::thread::spawn(move || {
@@ -623,10 +654,10 @@ fn captured_lane_does_not_follow_post_redirects_to_a_second_endpoint() {
     });
 
     let first_listener = TcpListener::bind("127.0.0.1:0").expect("bind redirect source");
-    let first_address = first_listener.local_addr().expect("redirect source address");
-    let redirect_location = format!(
-        "http://{second_address}/v1/world-simulator/decision-context"
-    );
+    let first_address = first_listener
+        .local_addr()
+        .expect("redirect source address");
+    let redirect_location = format!("http://{second_address}/v1/world-simulator/decision-context");
     let first_endpoint_thread = std::thread::spawn(move || {
         let (mut stream, _) = first_listener.accept().expect("accept captured request");
         let _request = read_http_request(&mut stream);
@@ -651,10 +682,14 @@ fn captured_lane_does_not_follow_post_redirects_to_a_second_endpoint() {
             ..
         }
     ));
-    first_endpoint_thread.join().expect("redirect source finished");
-    assert!(!second_endpoint_thread
+    first_endpoint_thread
         .join()
-        .expect("redirect target finished"));
+        .expect("redirect source finished");
+    assert!(
+        !second_endpoint_thread
+            .join()
+            .expect("redirect target finished")
+    );
     assert!(!second_endpoint_received.load(Ordering::Acquire));
     assert_eq!(
         store.snapshot().events,
@@ -687,10 +722,19 @@ fn invalid_captured_response_is_persisted_before_decode_and_stays_unconsumed() {
         .request_decision_with_context_and_material_store(&request, store.as_ref())
         .expect_err("invalid JSON must fail after preserving raw response");
 
-    assert!(matches!(error, ProviderLoopbackHttpError::DecodeFailed { .. }));
+    assert!(matches!(
+        error,
+        ProviderLoopbackHttpError::DecodeFailed { .. }
+    ));
     let captured = store.snapshot();
-    assert_eq!(captured.response_body.as_deref(), Some(raw_response.as_slice()));
-    assert_eq!(captured.events, ["persist_request", "mark_dispatched", "persist_response"]);
+    assert_eq!(
+        captured.response_body.as_deref(),
+        Some(raw_response.as_slice())
+    );
+    assert_eq!(
+        captured.events,
+        ["persist_request", "mark_dispatched", "persist_response"]
+    );
     assert!(!captured.events.contains(&"finish_response"));
     assert!(captured.committed.is_none());
     assert_eq!(recorded.lock().unwrap().len(), 1);
@@ -744,9 +788,7 @@ impl TestProviderMaterialStore {
             owner: ProviderMaterialOwnerBindingV1 {
                 world_id,
                 genesis_root: [1; 32],
-                parent_root_set: [2; 32],
-                authority_snapshot: [3; 32],
-                pending_protection_root: [4; 32],
+                owner_id: [4; 32],
             },
             state: Mutex::new(TestProviderMaterialState::default()),
             memory: MemoryBudget::new(2 * 1024 * 1024, 256 * 1024).expect("test memory pool"),
@@ -780,6 +822,49 @@ impl ProviderSpoolReservation for TestProviderSpoolReservation {}
 impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
     fn owner_binding(&self) -> &ProviderMaterialOwnerBindingV1 {
         &self.owner
+    }
+
+    fn pending_protection_root(&self) -> Result<[u8; 32], String> {
+        Ok([4; 32])
+    }
+
+    fn protected_roots_page(
+        &self,
+        _cursor: Option<&ProviderPendingRootsCursorV1>,
+        _limit: usize,
+    ) -> Result<ProviderPendingRootsPageV1, String> {
+        let charge = self
+            .memory
+            .reserve(0, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let owner_charge = self
+            .memory
+            .reserve(512, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let attempts = self
+            .memory
+            .reserve(0, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let roots = self
+            .memory
+            .reserve(512, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let empty = oasis7_formal_protocol::incremental_state::StateRootV1::empty(
+            oasis7_formal_protocol::incremental_state::StateNamespaceV1::Effects,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(ProviderPendingRootsPageV1 {
+            owner: Arc::new(owner_charge.retain(self.owner.clone())),
+            pending_root: [4; 32],
+            object_ids: Arc::new(charge.retain(Vec::new())),
+            attempts: Arc::new(attempts.retain(Vec::new())),
+            state_roots: Arc::new(roots.retain(ProviderPendingStateRootsV1 {
+                events: empty.clone(),
+                pending: empty.clone(),
+                seen: empty,
+            })),
+            next_cursor: None,
+        })
     }
 
     fn validate_request_owner(
@@ -822,11 +907,16 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
     fn persist_request(
         &self,
         request: &ContinuousAgentRequestContextV1,
+        expected_body_id: [u8; 32],
         original_body: &mut dyn Read,
         length: u64,
     ) -> Result<ProviderMaterialAttemptV1, String> {
         if self.fail_request_persistence.load(Ordering::Acquire) {
-            self.state.lock().unwrap().events.push("persist_request_failed");
+            self.state
+                .lock()
+                .unwrap()
+                .events
+                .push("persist_request_failed");
             return Err("injected request persistence failure".into());
         }
         if length > self.request_body_limit_bytes() {
@@ -840,18 +930,27 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
         if request_body.len() as u64 != length {
             return Err("request spool length mismatch".into());
         }
-        let request_context_bytes = serde_json::to_vec(request).map_err(|error| error.to_string())?;
+        let request_object_id = *blake3::hash(&request_body).as_bytes();
+        if request_object_id != expected_body_id {
+            return Err("request body ID differs from HTTP spool".into());
+        }
+        let request_context_bytes =
+            serde_json::to_vec(request).map_err(|error| error.to_string())?;
         let operation_id = request.provider_invocation_key().to_string();
         let mut attempt_hasher = blake3::Hasher::new();
+        attempt_hasher.update(&self.owner.owner_id);
         attempt_hasher.update(operation_id.as_bytes());
         attempt_hasher.update(&request.transport_attempt.to_be_bytes());
+        attempt_hasher.update(&request_object_id);
         let attempt_id = *attempt_hasher.finalize().as_bytes();
         let attempt = ProviderMaterialAttemptV1 {
             owner: self.owner.clone(),
             operation_id,
             transport_attempt: request.transport_attempt,
             attempt_id,
-            request_object_id: *blake3::hash(&request_body).as_bytes(),
+            parent_root_set: [2; 32],
+            authority_snapshot: [3; 32],
+            request_object_id,
             request_context_object_id: *blake3::hash(&request_context_bytes).as_bytes(),
         };
         let mut state = self.state.lock().unwrap();
@@ -878,6 +977,7 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
         &self,
         attempt: &ProviderMaterialAttemptV1,
         _status: u16,
+        expected_body_id: [u8; 32],
         original_body: &mut dyn Read,
         length: u64,
     ) -> Result<[u8; 32], String> {
@@ -892,13 +992,17 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
         if response_body.len() as u64 != length {
             return Err("response spool length mismatch".into());
         }
+        let response_id = *blake3::hash(&response_body).as_bytes();
+        if response_id != expected_body_id {
+            return Err("response body ID differs from HTTP spool".into());
+        }
         let mut state = self.state.lock().unwrap();
         if state.attempt.as_ref() != Some(attempt) || !state.events.contains(&"mark_dispatched") {
             return Err("response arrived without a durable dispatch marker".into());
         }
         state.events.push("persist_response");
         state.response_body = Some(response_body.clone());
-        Ok(*blake3::hash(&response_body).as_bytes())
+        Ok(response_id)
     }
 
     fn finish_response(
@@ -908,7 +1012,8 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
         response_object_id: [u8; 32],
         response: &ContinuousAgentResponseContextV1,
     ) -> Result<ProviderOriginalMaterialRefsV1, String> {
-        let response_context_bytes = serde_json::to_vec(response).map_err(|error| error.to_string())?;
+        let response_context_bytes =
+            serde_json::to_vec(response).map_err(|error| error.to_string())?;
         let mut state = self.state.lock().unwrap();
         if state.attempt.as_ref() != Some(attempt) || state.response_body.is_none() {
             return Err("typed response completed before raw response persistence".into());
@@ -919,6 +1024,8 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
             operation_id: attempt.operation_id.clone(),
             transport_attempt: attempt.transport_attempt,
             attempt_id: attempt.attempt_id,
+            parent_root_set: attempt.parent_root_set,
+            authority_snapshot: attempt.authority_snapshot,
             request_object_id: attempt.request_object_id,
             request_context_object_id: attempt.request_context_object_id,
             response_object_id,
@@ -955,6 +1062,14 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
         }
         self.state.lock().unwrap().committed = Some((receipt_id.to_string(), action_id));
         Ok(())
+    }
+
+    fn mark_rejected(
+        &self,
+        _attempt: &ProviderMaterialAttemptV1,
+        _evidence: ProviderDispositionEvidenceV1,
+    ) -> Result<(), String> {
+        Err("test store does not support rejection evidence".into())
     }
 }
 

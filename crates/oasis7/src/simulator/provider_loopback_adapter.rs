@@ -9,12 +9,12 @@ use super::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use super::{ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore};
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::Arc;
 use oasis7_wasm_abi::{
     AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleCommandDeclaration,
     ModuleCommandValidationError, ModuleSchemaDeclarations, validate_module_command_declarations,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 
 /// Host-owned seam between the simulator provider loop and the runtime
 /// capability executor.  Provider output is accepted as a typed response,

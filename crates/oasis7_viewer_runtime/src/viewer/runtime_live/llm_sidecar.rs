@@ -14,6 +14,9 @@ use crate::runtime::{
 use crate::simulator::AgentRunner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::simulator::AsyncAgentRunner;
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_arch = "wasm32"))]
+use crate::simulator::ProviderOriginalMaterialStore;
 use crate::simulator::{
     ActionCatalogEntry, AgentDecision, AgentDecisionTrace,
     ContinuationProposalV1 as SimulatorContinuationProposalV1, ContinuousAgentResponseContextV1,
@@ -22,9 +25,6 @@ use crate::simulator::{
     ProviderLoopbackAdapter, ProviderLoopbackHttpClient, RuntimeBindingV1, WorldEvent, WorldKernel,
     evaluate_provider_compatibility, provider_agent_chat_log_key,
 };
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(not(target_arch = "wasm32"))]
-use crate::simulator::ProviderOriginalMaterialStore;
 use crate::viewer::live::ViewerLiveDecisionMode;
 use crate::viewer::protocol::{AgentChatAck, AgentChatError};
 use oasis7_simulator::{
@@ -426,7 +426,9 @@ impl RuntimeLlmSidecar {
         Ok(())
     }
 
-    pub(in crate::viewer::runtime_live) fn provider_original_material_capture_enabled(&self) -> bool {
+    pub(in crate::viewer::runtime_live) fn provider_original_material_capture_enabled(
+        &self,
+    ) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.provider_original_material_store.is_some()

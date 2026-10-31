@@ -90,12 +90,16 @@ impl ViewerRuntimeLiveServer {
         if crate::viewer::runtime_live::control_plane::runtime_provider_settings_from_env()?
             .is_none()
         {
-            return Err("provider original material owner requires an explicit provider backend".into());
+            return Err(
+                "provider original material owner requires an explicit provider backend".into(),
+            );
         }
         let owner = store.owner_binding();
         owner.validate().map_err(|error| error.to_string())?;
         if owner.world_id != self.config.world_id {
-            return Err("provider original material owner world does not match this Viewer runtime".into());
+            return Err(
+                "provider original material owner world does not match this Viewer runtime".into(),
+            );
         }
         self.llm_sidecar
             .install_provider_original_material_store(store)

@@ -6,7 +6,9 @@
 
 use std::io::Read;
 
-use oasis7_proto::memory_budget::MemoryBudget;
+use oasis7_formal_protocol::incremental_state::StateRootV1;
+use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+use std::sync::Arc;
 
 use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
 
@@ -19,15 +21,14 @@ use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
 pub struct ProviderMaterialOwnerBindingV1 {
     pub world_id: String,
     pub genesis_root: [u8; 32],
-    pub parent_root_set: [u8; 32],
-    pub authority_snapshot: [u8; 32],
-    pub pending_protection_root: [u8; 32],
+    /// Stable identifier for this independently owned pending store.
+    pub owner_id: [u8; 32],
 }
 
 impl ProviderMaterialOwnerBindingV1 {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.world_id.trim().is_empty() {
-            return Err("provider pending owner world id is empty");
+        if self.world_id.trim().is_empty() || self.world_id.len() > 256 {
+            return Err("provider pending owner world id is empty or too long");
         }
         Ok(())
     }
@@ -40,6 +41,10 @@ pub struct ProviderMaterialAttemptV1 {
     pub operation_id: String,
     pub transport_attempt: u64,
     pub attempt_id: [u8; 32],
+    /// Exact authenticated parent and authority for this invocation. These
+    /// belong to the attempt, not the long-lived owner scope.
+    pub parent_root_set: [u8; 32],
+    pub authority_snapshot: [u8; 32],
     pub request_object_id: [u8; 32],
     pub request_context_object_id: [u8; 32],
 }
@@ -53,11 +58,113 @@ pub struct ProviderOriginalMaterialRefsV1 {
     pub operation_id: String,
     pub transport_attempt: u64,
     pub attempt_id: [u8; 32],
+    pub parent_root_set: [u8; 32],
+    pub authority_snapshot: [u8; 32],
     pub request_object_id: [u8; 32],
     pub request_context_object_id: [u8; 32],
     pub response_object_id: [u8; 32],
     pub response_context_object_id: [u8; 32],
     pub response_status: u16,
+}
+
+/// Per-invocation binding returned by the already verified new-format Runtime
+/// owner. `RuntimeBindingV1::base_world_hash` is not an exact RootSet and must
+/// not be substituted here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderAttemptAuthorityBindingV1 {
+    pub parent_root_set: [u8; 32],
+    pub authority_snapshot: [u8; 32],
+}
+
+/// Evidence must be checked by the installed trusted authority before an
+/// unresolved provider attempt can leave the protected set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderDispositionEvidenceV1 {
+    pub evidence_object_id: [u8; 32],
+    pub disposition_digest: [u8; 32],
+}
+
+/// Opaque continuation for a single protected-roots snapshot. Callers can
+/// retain and return a cursor produced by the owner, but cannot choose an
+/// arbitrary lexical offset that skips unresolved attempts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPendingRootsCursorV1 {
+    pub(crate) pending_root: [u8; 32],
+    pub(crate) after_operation_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderPendingAttemptPhaseV1 {
+    RequestPrepared,
+    DispatchedOrUnknown,
+    ResponseBodyPlanned,
+    ResponseBodyDurable,
+    ResponseContextPlanned,
+    ResponseCaptured,
+    RejectionEvidencePlanned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPendingAttemptSummaryV1 {
+    pub attempt: ProviderMaterialAttemptV1,
+    pub phase: ProviderPendingAttemptPhaseV1,
+    pub response_object_id: Option<[u8; 32]>,
+    pub response_context_object_id: Option<[u8; 32]>,
+    pub response_status: Option<u16>,
+    pub terminal_evidence_object_id: Option<[u8; 32]>,
+}
+
+/// Actual roots needed to retain the independent owner's event and index pages.
+/// `pending_root` in the page is a cursor binding digest, not a substitute for
+/// these Merkle root descriptors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPendingStateRootsV1 {
+    pub events: StateRootV1,
+    pub pending: StateRootV1,
+    pub seen: StateRootV1,
+}
+
+#[derive(Debug)]
+pub struct ProviderPendingRootsPageV1 {
+    pub owner: Arc<ReservedValue<ProviderMaterialOwnerBindingV1>>,
+    pub pending_root: [u8; 32],
+    /// Charged page of event-record and original-material content IDs. The
+    /// cursor bounds this output; callers retain the carrier while using the
+    /// roots.
+    pub object_ids: Arc<ReservedValue<Vec<[u8; 32]>>>,
+    /// Charged unresolved identities and current phase, for recovery to resume
+    /// only by same-identity inspection. This is not retry authorization.
+    pub attempts: Arc<ReservedValue<Vec<ProviderPendingAttemptSummaryV1>>>,
+    /// Charged actual Merkle roots backing the independent pending ledger.
+    pub state_roots: Arc<ReservedValue<ProviderPendingStateRootsV1>>,
+    pub next_cursor: Option<Arc<ReservedValue<ProviderPendingRootsCursorV1>>>,
+}
+
+/// Trusted new-format owner seam. Implementations verify the exact parent and
+/// authority for each request and authenticate terminal disposition evidence;
+/// they are supplied by the Runtime owner, never reconstructed from a legacy
+/// lineage checkpoint or from provider-supplied fields.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait ProviderMaterialAuthority: Send + Sync {
+    fn verify_owner_scope(&self, owner: &ProviderMaterialOwnerBindingV1) -> Result<(), String>;
+    fn request_binding(
+        &self,
+        owner: &ProviderMaterialOwnerBindingV1,
+        request: &ContinuousAgentRequestContextV1,
+    ) -> Result<ProviderAttemptAuthorityBindingV1, String>;
+    fn verify_commit(
+        &self,
+        owner: &ProviderMaterialOwnerBindingV1,
+        materials: &ProviderOriginalMaterialRefsV1,
+        receipt_id: &str,
+        action_id: u64,
+    ) -> Result<(), String>;
+    fn verify_rejection(
+        &self,
+        owner: &ProviderMaterialOwnerBindingV1,
+        attempt: &ProviderMaterialAttemptV1,
+        evidence: ProviderDispositionEvidenceV1,
+    ) -> Result<(), String>;
 }
 
 /// A finite allowance for on-disk request/response spools. Implementations
@@ -75,6 +182,20 @@ pub trait ProviderSpoolReservation: Send {}
 pub trait ProviderOriginalMaterialStore: Send + Sync {
     /// Verified owner binding and independent pending protection root.
     fn owner_binding(&self) -> &ProviderMaterialOwnerBindingV1;
+
+    /// Current durable protected-root digest. It changes as unresolved
+    /// attempts are appended or disposed and is intentionally not part of the
+    /// immutable owner scope.
+    fn pending_protection_root(&self) -> Result<[u8; 32], String>;
+
+    /// Bounded page over unresolved request/response material. A cursor is
+    /// bound to one exact protected-root digest; callers must restart if the
+    /// root changes. This is store-local protection, not a global GC registry.
+    fn protected_roots_page(
+        &self,
+        cursor: Option<&ProviderPendingRootsCursorV1>,
+        limit: usize,
+    ) -> Result<ProviderPendingRootsPageV1, String>;
 
     /// Check the captured operation against the verified owner binding before
     /// any request bytes are prepared for dispatch.
@@ -100,6 +221,7 @@ pub trait ProviderOriginalMaterialStore: Send + Sync {
     fn persist_request(
         &self,
         request: &ContinuousAgentRequestContextV1,
+        expected_body_id: [u8; 32],
         original_body: &mut dyn Read,
         length: u64,
     ) -> Result<ProviderMaterialAttemptV1, String>;
@@ -112,6 +234,7 @@ pub trait ProviderOriginalMaterialStore: Send + Sync {
         &self,
         attempt: &ProviderMaterialAttemptV1,
         status: u16,
+        expected_body_id: [u8; 32],
         original_body: &mut dyn Read,
         length: u64,
     ) -> Result<[u8; 32], String>;
@@ -141,5 +264,13 @@ pub trait ProviderOriginalMaterialStore: Send + Sync {
         materials: &ProviderOriginalMaterialRefsV1,
         receipt_id: &str,
         action_id: u64,
+    ) -> Result<(), String>;
+
+    /// Close only with authority-verified evidence of a terminal rejection.
+    /// A transport error or missing typed response is not such evidence.
+    fn mark_rejected(
+        &self,
+        attempt: &ProviderMaterialAttemptV1,
+        evidence: ProviderDispositionEvidenceV1,
     ) -> Result<(), String>;
 }

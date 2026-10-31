@@ -1,9 +1,9 @@
 use super::*;
 
 use crate::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
-    ProviderOriginalMaterialStore, ProviderSpoolReservation, cognition_response_digest,
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ProviderMaterialAttemptV1,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
+    ProviderSpoolReservation, cognition_response_digest,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -41,9 +41,7 @@ impl TestProviderMaterialOwner {
             binding: ProviderMaterialOwnerBindingV1 {
                 world_id: world_id.to_string(),
                 genesis_root: [0x11; 32],
-                parent_root_set: [0x22; 32],
-                authority_snapshot: [0x33; 32],
-                pending_protection_root: [0x44; 32],
+                owner_id: [0x44; 32],
             },
             state: Mutex::new(CapturedProviderMaterialState::default()),
             memory: MemoryBudget::new(16 * 1024 * 1024, 2 * 1024 * 1024)
@@ -106,6 +104,51 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
         &self.binding
     }
 
+    fn pending_protection_root(&self) -> Result<[u8; 32], String> {
+        Ok([0x44; 32])
+    }
+
+    fn protected_roots_page(
+        &self,
+        _cursor: Option<&oasis7::simulator::ProviderPendingRootsCursorV1>,
+        _limit: usize,
+    ) -> Result<oasis7::simulator::ProviderPendingRootsPageV1, String> {
+        let charge = self
+            .memory
+            .reserve(0, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let owner_charge = self
+            .memory
+            .reserve(512, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let attempt_charge = self
+            .memory
+            .reserve(0, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let roots_charge = self
+            .memory
+            .reserve(512, MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        let empty = oasis7_formal_protocol::incremental_state::StateRootV1::empty(
+            oasis7_formal_protocol::incremental_state::StateNamespaceV1::Effects,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(oasis7::simulator::ProviderPendingRootsPageV1 {
+            owner: std::sync::Arc::new(owner_charge.retain(self.binding.clone())),
+            pending_root: [0x44; 32],
+            object_ids: std::sync::Arc::new(charge.retain(Vec::new())),
+            attempts: std::sync::Arc::new(attempt_charge.retain(Vec::new())),
+            state_roots: std::sync::Arc::new(roots_charge.retain(
+                oasis7::simulator::ProviderPendingStateRootsV1 {
+                    events: empty.clone(),
+                    pending: empty.clone(),
+                    seen: empty,
+                },
+            )),
+            next_cursor: None,
+        })
+    }
+
     fn validate_request_owner(
         &self,
         request: &ContinuousAgentRequestContextV1,
@@ -153,17 +196,24 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
     fn persist_request(
         &self,
         request: &ContinuousAgentRequestContextV1,
+        expected_body_id: [u8; 32],
         original_body: &mut dyn Read,
         length: u64,
     ) -> Result<ProviderMaterialAttemptV1, String> {
         let body = read_exact_bounded_body(original_body, length, self.request_body_limit_bytes())?;
+        if object_id(&body) != expected_body_id {
+            return Err("request body ID differs from HTTP spool".into());
+        }
         let context_bytes = serde_json::to_vec(request).map_err(|error| error.to_string())?;
         let request_object_id = object_id(&body);
+        if request_object_id != expected_body_id {
+            return Err("request body ID differs from HTTP spool".into());
+        }
         let request_context_object_id = object_id(&context_bytes);
         let operation_id = request.provider_invocation_key().to_string();
         let attempt_id = object_id(
             &[
-                self.binding.pending_protection_root.as_slice(),
+                self.binding.owner_id.as_slice(),
                 operation_id.as_bytes(),
                 &request.transport_attempt.to_be_bytes(),
                 request_object_id.as_slice(),
@@ -175,6 +225,8 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
             operation_id,
             transport_attempt: request.transport_attempt,
             attempt_id,
+            parent_root_set: [0x22; 32],
+            authority_snapshot: [0x33; 32],
             request_object_id,
             request_context_object_id,
         };
@@ -198,11 +250,16 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
         &self,
         attempt: &ProviderMaterialAttemptV1,
         _status: u16,
+        expected_body_id: [u8; 32],
         original_body: &mut dyn Read,
         length: u64,
     ) -> Result<[u8; 32], String> {
-        let body = read_exact_bounded_body(original_body, length, self.response_body_limit_bytes())?;
+        let body =
+            read_exact_bounded_body(original_body, length, self.response_body_limit_bytes())?;
         let response_id = object_id(&body);
+        if response_id != expected_body_id {
+            return Err("response body ID differs from HTTP spool".into());
+        }
         let mut state = self.state.lock().expect("capture state lock");
         if state.attempt.as_ref() != Some(attempt) {
             return Err("response belongs to a different attempt".to_string());
@@ -225,6 +282,8 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
             operation_id: attempt.operation_id.clone(),
             transport_attempt: attempt.transport_attempt,
             attempt_id: attempt.attempt_id,
+            parent_root_set: attempt.parent_root_set,
+            authority_snapshot: attempt.authority_snapshot,
             request_object_id: attempt.request_object_id,
             request_context_object_id: attempt.request_context_object_id,
             response_object_id,
@@ -251,9 +310,19 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
             || materials.operation_id != request.provider_invocation_key().to_string()
             || materials.transport_attempt != request.transport_attempt
             || materials.request_object_id
-                != object_id(state.request_body.as_deref().ok_or("request body missing")?)
+                != object_id(
+                    state
+                        .request_body
+                        .as_deref()
+                        .ok_or("request body missing")?,
+                )
             || materials.response_object_id
-                != object_id(state.response_body.as_deref().ok_or("response body missing")?)
+                != object_id(
+                    state
+                        .response_body
+                        .as_deref()
+                        .ok_or("response body missing")?,
+                )
             || response.request_digest != request.request_digest
         {
             return Err("captured material identity does not match Runtime action".to_string());
@@ -274,6 +343,14 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
         state.committed = Some((receipt_id.to_string(), action_id));
         Ok(())
     }
+
+    fn mark_rejected(
+        &self,
+        _attempt: &ProviderMaterialAttemptV1,
+        _evidence: oasis7::simulator::ProviderDispositionEvidenceV1,
+    ) -> Result<(), String> {
+        Err("test owner does not support rejection evidence".into())
+    }
 }
 
 fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
@@ -288,7 +365,9 @@ fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
     let mut content_length = None;
     loop {
         line.clear();
-        reader.read_line(&mut line).expect("read HTTP request header");
+        reader
+            .read_line(&mut line)
+            .expect("read HTTP request header");
         if line == "\r\n" || line == "\n" {
             break;
         }
@@ -300,7 +379,9 @@ fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
     }
     let length = content_length.expect("provider request content length");
     let mut body = vec![0u8; length];
-    reader.read_exact(&mut body).expect("read provider request body");
+    reader
+        .read_exact(&mut body)
+        .expect("read provider request body");
     (path, body)
 }
 
@@ -345,7 +426,10 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
     listener
         .set_nonblocking(true)
         .expect("make provider fixture nonblocking");
-    let base_url = format!("http://{}/v1", listener.local_addr().expect("fixture address"));
+    let base_url = format!(
+        "http://{}/v1",
+        listener.local_addr().expect("fixture address")
+    );
     // SAFETY: This test owns the canonical provider environment lock and
     // restores the previous process environment when it exits.
     unsafe {
@@ -386,7 +470,10 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
                     return (request_body, response_body);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    assert!(Instant::now() < deadline, "provider adapter made no request");
+                    assert!(
+                        Instant::now() < deadline,
+                        "provider adapter made no request"
+                    );
                     thread::sleep(Duration::from_millis(2));
                 }
                 Err(error) => panic!("provider fixture accept failed: {error}"),
@@ -456,10 +543,11 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let decision = loop {
-        if let Some(decision) = server
-            .llm_sidecar
-            .next_async_provider_decision(&mut server.world, &mut kernel, world_id)
-        {
+        if let Some(decision) = server.llm_sidecar.next_async_provider_decision(
+            &mut server.world,
+            &mut kernel,
+            world_id,
+        ) {
             if decision.cognition.is_some() {
                 break decision;
             }
@@ -471,10 +559,16 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
                 panic!("provider sidecar returned before the captured response: {error}");
             }
         }
-        assert!(Instant::now() < deadline, "provider response did not return to Runtime");
+        assert!(
+            Instant::now() < deadline,
+            "provider response did not return to Runtime"
+        );
         thread::sleep(Duration::from_millis(3));
     };
-    let cognition = decision.cognition.as_ref().expect("provider cognition result");
+    let cognition = decision
+        .cognition
+        .as_ref()
+        .expect("provider cognition result");
     let refs = cognition
         .provider_original_material_refs
         .as_ref()
@@ -488,13 +582,40 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
         .join()
         .expect("join one-request provider fixture");
     let captured = owner.snapshot();
-    assert_eq!(captured.request_body.as_deref(), Some(http_request_body.as_slice()));
-    assert_eq!(captured.response_body.as_deref(), Some(http_response_body.as_slice()));
-    assert_eq!(captured.events, ["persist_request", "mark_dispatched", "persist_response", "finish_response"]);
+    assert_eq!(
+        captured.request_body.as_deref(),
+        Some(http_request_body.as_slice())
+    );
+    assert_eq!(
+        captured.response_body.as_deref(),
+        Some(http_response_body.as_slice())
+    );
+    assert_eq!(
+        captured.events,
+        [
+            "persist_request",
+            "mark_dispatched",
+            "persist_response",
+            "finish_response"
+        ]
+    );
     assert_eq!(refs.owner, *owner.owner_binding());
-    assert_eq!(refs.operation_id, cognition.request.request_context.provider_invocation_key().to_string());
-    assert_eq!(refs.transport_attempt, cognition.request.request_context.transport_attempt);
+    assert_eq!(
+        refs.operation_id,
+        cognition
+            .request
+            .request_context
+            .provider_invocation_key()
+            .to_string()
+    );
+    assert_eq!(
+        refs.transport_attempt,
+        cognition.request.request_context.transport_attempt
+    );
     assert_eq!(refs.request_object_id, object_id(&http_request_body));
     assert_eq!(refs.response_object_id, object_id(&http_response_body));
-    assert!(captured.committed.is_none(), "the test stops before a Runtime receipt closes the pending attempt");
+    assert!(
+        captured.committed.is_none(),
+        "the test stops before a Runtime receipt closes the pending attempt"
+    );
 }
