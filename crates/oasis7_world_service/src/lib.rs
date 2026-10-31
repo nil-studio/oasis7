@@ -59,3 +59,6 @@ pub(crate) mod formal_read_response_fixture;
 pub mod participant;
 
 pub mod starter;
+
+#[cfg(test)]
+mod task_cleanup_v2_formal_projection_tests;

@@ -271,6 +271,9 @@ impl World {
                     .insert(key.clone(), record);
                 Ok(())
             }
+            CapabilityAuthorizationEvent::TaskTerminalRecordedV2 { record } => {
+                super::task_terminal_v2::project(self, capability_revocation_state, record)
+            }
             CapabilityAuthorizationEvent::WorldServiceIntentRecorded { key, record } => {
                 crate::service_admission::correlation::validate_result(key, record)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
