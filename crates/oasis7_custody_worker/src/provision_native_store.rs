@@ -985,3 +985,6 @@ pub mod setup_reconcile;
 pub(crate) mod client;
 #[path = "test_session_store.rs"]
 pub(crate) mod test_session;
+
+#[path = "owner_setup_v2_store.rs"]
+mod owner_setup_v2_store;

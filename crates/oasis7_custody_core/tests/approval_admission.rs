@@ -106,6 +106,7 @@ fn fixture() -> (ApprovalAdmissionInput, ApprovalAdmissionContext) {
         },
     };
     let proof = CustodyApprovalProofV1 {
+        model_budget_summary_contract: None,
         version: 1,
         key_id: "native-one".into(),
         identity_namespace: "identity:test".into(),

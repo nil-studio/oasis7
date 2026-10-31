@@ -301,6 +301,12 @@ pub enum ApprovalPhaseV1 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalOptionsResponseV1 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custody_session_summary_v2: Option<Box<NativeSessionApprovalSummaryV2>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_budget_summary: Option<crate::provisioning::ModelInferenceBudgetV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_budget_summary_contract: Option<NativeCustodySummaryContractV1>,
     pub api_version: u8,
     pub phase: ApprovalPhaseV1,
     pub approval_id: String,
@@ -391,6 +397,10 @@ impl ApprovalOptionsRequestV1 {
         let valid = match &self.intent {
             CustodyIntentV1::OwnerSetupV2 { plan } => {
                 plan.validate().is_ok()
+                    && plan
+                        .model_budget
+                        .as_ref()
+                        .is_none_or(|b| b.deadline.0 > now)
                     && plan.deadline.0 > now
                     && plan.deadline.0 <= now.saturating_add(1_800_000)
             }
@@ -571,6 +581,10 @@ impl ApprovalOptionsRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustodyApprovalProofV1 {
+    /// Produced by the Native summary-contract implementation, never by a
+    /// request rendered/verified flag. None preserves V1 signing bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_budget_summary_contract: Option<NativeCustodySummaryContractV1>,
     pub version: u8,
     pub key_id: String,
     pub identity_namespace: String,
@@ -596,6 +610,9 @@ impl CustodyApprovalProofV1 {
         encode("oasis7.custody.approval.v1", self)
     }
 }
+#[path = "approval_summary_contract.rs"]
+mod summary_contract;
+pub use summary_contract::*;
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -708,6 +725,7 @@ mod tests {
     #[test]
     fn signing_domains_and_versions_have_frozen_canonical_vectors() {
         let proof = CustodyApprovalProofV1 {
+            model_budget_summary_contract: None,
             version: 1,
             key_id: "key-one".into(),
             identity_namespace: "identity:test".into(),

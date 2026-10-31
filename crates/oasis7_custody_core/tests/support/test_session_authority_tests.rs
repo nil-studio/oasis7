@@ -1,7 +1,7 @@
 use super::*;
 use oasis7_custody_core::{client_enrollment::*, http_pop::*, time_units::*};
 use sha2::{Digest, Sha256};
-fn enrollment(
+pub(super) fn enrollment(
     target: PairingInviteTargetRefV1,
     environment: String,
     profile: HostTransportProfileV1,
@@ -117,7 +117,7 @@ fn enrollment(
     s.prove(&body, receipt, &physical, UnixMillis::new(8001))
         .unwrap()
 }
-fn metadata(c: &ApprovalAdmissionContext) -> CustodySessionStatusV1 {
+pub(super) fn metadata(c: &ApprovalAdmissionContext) -> CustodySessionStatusV1 {
     CustodySessionStatusV1 {
         api_version: 1,
         identity_namespace: c.identity_namespace.clone(),
