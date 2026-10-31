@@ -19,6 +19,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "llm_sidecar_provider_original_store_interruption_tests.rs"]
+mod interruption_tests;
+
 const FIXTURE_PARENT_ROOT_SET: [u8; 32] = [0x22; 32];
 const FIXTURE_AUTHORITY_SNAPSHOT: [u8; 32] = [0x33; 32];
 
