@@ -136,6 +136,9 @@ impl AccountProvisionApprovalState {
             current,
             now,
         )?)?;
+        if super::control_lifetime_claimed_v2(s, source_id)? {
+            return Err(invalid());
+        }
         let attempt = lifetime_attempt_v2(s, source_id)?;
         self.test_session_v2_transport_id_available(id, &attempt)?;
         let nonce = self.test_session_v2_lifetime_nonce(id, source_id)?;

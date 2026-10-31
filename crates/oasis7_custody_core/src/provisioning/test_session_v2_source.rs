@@ -38,6 +38,7 @@ impl AccountProvisionApprovalState {
             || s.purpose_transports.contains_key(attempt) || s.purpose_http_admissions.contains_key(attempt)
             || s.control_transports.contains_key(attempt) || s.client_http_admissions.contains_key(attempt)
             || super::v2_credentials::credential_claim_id_in_use_v2(s, attempt)
+            || super::v2_control::id_in_use_v2(s, attempt)
             || s.sources.values().any(|source| source.source.verify_nonce == attempt)
             || s.tool_nonce_ingresses.contains_key(attempt) || s.termination_state.transport_id_in_use(attempt)
             // ExecutionBook supplies its exact occupancy method before any execution is mounted.

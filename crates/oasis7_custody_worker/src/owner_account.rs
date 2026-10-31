@@ -257,6 +257,22 @@ impl DurableObject for AccountAuthority {
             )
             .await;
         }
+        if crate::owner_test_session_v2_control_entry::operation(url.path()).is_some() {
+            return crate::owner_test_session_v2_control_entry::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
+        if crate::owner_test_session_v2_credential_entry::operation(url.path()).is_some() {
+            return crate::owner_test_session_v2_credential_entry::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
         if crate::owner_test_session_client_entry::operation(url.path()).is_some() {
             return crate::owner_test_session_client_entry::handle(
                 &self.state,
@@ -337,77 +353,189 @@ impl DurableObject for AccountAuthority {
                             .and_then(|v| Ok(serde_json::to_string(&v)?))
                     }
                     "/internal/test-session-basis" => {
-                        let rpc = match serde_json::from_str::<
-                            crate::owner_test_session_rpc::TestSessionBasisRpc,
-                        >(&body)
+                        if crate::owner_test_session_rpc::session_management_version(&body).ok()
+                            == Some(2)
                         {
-                            Ok(v) => v,
-                            Err(_) => return Response::error("invalid request", 400),
-                        };
-                        crate::owner_provision::native::test_session::basis(&self.state, env, rpc)
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionBasisRpcV2,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::basis_v2(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
                             .await
                             .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        } else {
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionBasisRpc,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::basis(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        }
                     }
                     "/internal/test-session-prepare" => {
-                        let rpc = match serde_json::from_str::<
-                            crate::owner_test_session_rpc::TestSessionPrepareRpc,
-                        >(&body)
+                        if crate::owner_test_session_rpc::session_management_version(&body).ok()
+                            == Some(2)
                         {
-                            Ok(v) => v,
-                            Err(_) => return Response::error("invalid request", 400),
-                        };
-                        crate::owner_provision::native::test_session::prepare(&self.state, env, rpc)
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionPrepareRpcV2,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::prepare_v2(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
                             .await
                             .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        } else {
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionPrepareRpc,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::prepare(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        }
                     }
                     "/internal/test-session-approve" => {
-                        let rpc = match serde_json::from_str::<
-                            crate::owner_test_session_rpc::TestSessionApproveRpc,
-                        >(&body)
+                        if crate::owner_test_session_rpc::session_management_version(&body).ok()
+                            == Some(2)
                         {
-                            Ok(v) => v,
-                            Err(_) => return Response::error("invalid request", 400),
-                        };
-                        crate::owner_provision::native::test_session::approve(&self.state, env, rpc)
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionApproveRpcV2,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::approve_v2(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
                             .await
                             .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        } else {
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionApproveRpc,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::approve(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        }
                     }
                     "/internal/test-session-continue" => {
-                        let rpc = match serde_json::from_str::<
-                            crate::owner_test_session_rpc::TestSessionContinueRpc,
-                        >(&body)
+                        if crate::owner_test_session_rpc::session_management_version(&body).ok()
+                            == Some(2)
                         {
-                            Ok(v) => v,
-                            Err(_) => return Response::error("invalid request", 400),
-                        };
-                        crate::owner_provision::native::test_session::continue_session(
-                            &self.state,
-                            env,
-                            rpc,
-                        )
-                        .await
-                        .and_then(|v| Ok(serde_json::to_string(&v)?))
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionContinueRpcV2,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::continue_v2(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        } else {
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionContinueRpc,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            crate::owner_provision::native::test_session::continue_session(
+                                &self.state,
+                                env,
+                                rpc,
+                            )
+                            .await
+                            .and_then(|v| Ok(serde_json::to_string(&v)?))
+                        }
                     }
                     "/internal/test-session-identity" | "/internal/test-session-owner" => {
-                        let rpc = match serde_json::from_str::<
-                            crate::owner_test_session_rpc::TestSessionRuntimeRpc,
-                        >(&body)
+                        if crate::owner_test_session_rpc::session_management_version(&body).ok()
+                            == Some(2)
                         {
-                            Ok(v) => v,
-                            Err(_) => return Response::error("invalid request", 400),
-                        };
-                        let role = if url.path() == "/internal/test-session-owner" {
-                            Role::Owner
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionRuntimeRpcV2,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            let role = if url.path() == "/internal/test-session-owner" {
+                                Role::Owner
+                            } else {
+                                Role::Identity
+                            };
+                            crate::owner_provision::native::test_session::dispatch_v2(
+                                &self.state,
+                                env,
+                                rpc,
+                                role,
+                            )
+                            .await
                         } else {
-                            Role::Identity
-                        };
-                        crate::owner_provision::native::test_session::dispatch(
-                            &self.state,
-                            env,
-                            rpc,
-                            role,
-                        )
-                        .await
+                            let rpc = match serde_json::from_str::<
+                                crate::owner_test_session_rpc::TestSessionRuntimeRpc,
+                            >(&body)
+                            {
+                                Ok(v) => v,
+                                Err(_) => return Response::error("invalid request", 400),
+                            };
+                            let role = if url.path() == "/internal/test-session-owner" {
+                                Role::Owner
+                            } else {
+                                Role::Identity
+                            };
+                            crate::owner_provision::native::test_session::dispatch(
+                                &self.state,
+                                env,
+                                rpc,
+                                role,
+                            )
+                            .await
+                        }
                     }
                     "/internal/owner-setup-reconcile-basis" => {
                         let rpc = match serde_json::from_str::<

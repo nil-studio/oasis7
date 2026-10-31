@@ -72,12 +72,6 @@ pub(super) async fn basis(
     rpc: crate::owner_setup_rpc::OwnerSetupBasisRpc,
 ) -> Result<oasis7_custody_core::provisioning::OwnerSetupBasisV1> {
     rpc.request.validate().map_err(|_| denied())?;
-    if matches!(
-        &rpc.request,
-        crate::owner_setup_rpc::OwnerSetupPrepareInput::V2(_)
-    ) {
-        v2_approval_enabled(env)?;
-    }
     setup_authority::management_read(
         state,
         env,
@@ -93,6 +87,12 @@ pub(super) async fn prepare(
     rpc: crate::owner_setup_rpc::OwnerSetupPrepareRpc,
 ) -> Result<oasis7_custody_core::provisioning::OwnerSetupPrepareResponseV1> {
     rpc.request.validate().map_err(|_| denied())?;
+    if matches!(
+        &rpc.request,
+        crate::owner_setup_rpc::OwnerSetupPrepareInput::V2(_)
+    ) {
+        v2_approval_enabled(env)?;
+    }
     setup_authority::management_read(
         state,
         env,

@@ -250,6 +250,7 @@ impl AccountProvisionApprovalState {
                 last_heartbeat: None,
                 closing: None,
                 controls: BTreeMap::new(),
+                control_records: BTreeMap::new(),
                 control_logicals: BTreeMap::new(),
                 challenges: BTreeMap::new(),
                 actions: BTreeMap::new(),

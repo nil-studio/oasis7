@@ -218,6 +218,7 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return Ok(response);
     }
     // The request never supplies a manager selector. Metadata remains inside this private hop.
+    let mut session_management_v2 = false;
     let result = if let Some(id) = session_invite {
         let body = match request_text(&request).await {
             Ok(v) => v,
@@ -242,77 +243,197 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
         };
-        let value: TestSessionBasisRequestV1 =
-            match serde_json::from_str::<TestSessionBasisRequestV1>(&body) {
+        if serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+            == Some(2)
+        {
+            if env
+                .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+            {
+                return unavailable();
+            }
+            let value: TestSessionBasisRequestV2 = match serde_json::from_str(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        test_session_basis(
-            &env,
-            &serde_json::to_string(&TestSessionBasisRpc {
-                manager_session: manager,
-                provision_id: id.into(),
-                request: value,
-            })?,
-        )
-        .await
+            session_management_v2 = true;
+            test_session_basis(
+                &env,
+                &serde_json::to_string(&TestSessionBasisRpcV2 {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        } else {
+            let value: TestSessionBasisRequestV1 =
+                match serde_json::from_str::<TestSessionBasisRequestV1>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
+            test_session_basis(
+                &env,
+                &serde_json::to_string(&TestSessionBasisRpc {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        }
     } else if let Some(id) = session_prepare {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
         };
-        let value: TestSessionPrepareRequestV1 =
-            match serde_json::from_str::<TestSessionPrepareRequestV1>(&body) {
+        if serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+            == Some(2)
+        {
+            if env
+                .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+            {
+                return unavailable();
+            }
+            let value: TestSessionPrepareRequestV2 = match serde_json::from_str(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        prepare_test_session(
-            &env,
-            &serde_json::to_string(&TestSessionPrepareRpc {
-                manager_session: manager,
-                provision_id: id.into(),
-                request: value,
-            })?,
-        )
-        .await
+            session_management_v2 = true;
+            prepare_test_session(
+                &env,
+                &serde_json::to_string(&TestSessionPrepareRpcV2 {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        } else {
+            let value: TestSessionPrepareRequestV1 =
+                match serde_json::from_str::<TestSessionPrepareRequestV1>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
+            prepare_test_session(
+                &env,
+                &serde_json::to_string(&TestSessionPrepareRpc {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        }
     } else if let Some(id) = session_approve {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
         };
-        let value: TestSessionApproveRequestV1 =
-            match serde_json::from_str::<TestSessionApproveRequestV1>(&body) {
+        if serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+            == Some(2)
+        {
+            if env
+                .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+            {
+                return unavailable();
+            }
+            let value: TestSessionApproveRequestV2 = match serde_json::from_str(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        approve_test_session(
-            &env,
-            &serde_json::to_string(&TestSessionApproveRpc {
-                manager_session: manager,
-                provision_id: id.into(),
-                request: value,
-            })?,
-        )
-        .await
+            session_management_v2 = true;
+            approve_test_session(
+                &env,
+                &serde_json::to_string(&TestSessionApproveRpcV2 {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        } else {
+            let value: TestSessionApproveRequestV1 =
+                match serde_json::from_str::<TestSessionApproveRequestV1>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
+            approve_test_session(
+                &env,
+                &serde_json::to_string(&TestSessionApproveRpc {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        }
     } else if let Some(id) = session_continue {
         let body = match request_text(&request).await {
             Ok(v) => v,
             Err(_) => return Response::error("invalid request", 400),
         };
-        let value: TestSessionContinueRequestV1 =
-            match serde_json::from_str::<TestSessionContinueRequestV1>(&body) {
+        if serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+            == Some(2)
+        {
+            if env
+                .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+            {
+                return unavailable();
+            }
+            let value: TestSessionContinueRequestV2 = match serde_json::from_str(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        continue_test_session(
-            &env,
-            &serde_json::to_string(&TestSessionContinueRpc {
-                manager_session: manager,
-                provision_id: id.into(),
-                request: value,
-            })?,
-        )
-        .await
+            session_management_v2 = true;
+            continue_test_session(
+                &env,
+                &serde_json::to_string(&TestSessionContinueRpcV2 {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        } else {
+            let value: TestSessionContinueRequestV1 =
+                match serde_json::from_str::<TestSessionContinueRequestV1>(&body) {
+                    Ok(v) if v.validate().is_ok() => v,
+                    _ => return Response::error("invalid request", 400),
+                };
+            continue_test_session(
+                &env,
+                &serde_json::to_string(&TestSessionContinueRpc {
+                    manager_session: manager,
+                    provision_id: id.into(),
+                    request: value,
+                })?,
+            )
+            .await
+        }
     } else if let Some(id) = reconcile_basis {
         let body = match request_text(&request).await {
             Ok(v) => v,
@@ -485,10 +606,16 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         };
         let value: OwnerSetupDriveRequestV1 =
             match serde_json::from_str::<OwnerSetupDriveRequestV1>(&body) {
-                Ok(v) if v.validate().is_ok() => v,
+                Ok(v) if v.validate_sdk_selector().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
-        if value.provision_id != id {
+        if value.provision_id != id
+            || (value.api_version == 2
+                && env
+                    .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                    .ok()
+                    .is_none_or(|v| v.to_string() != "true"))
+        {
             return Response::error("invalid request", 400);
         }
         continue_owner_setup(
@@ -643,36 +770,76 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             return unavailable();
         }
     } else if let Some(id) = session_basis {
-        let response: TestSessionBasisResponseV1 = serde_json::from_str(&raw)?;
-        if response.validate().is_err() {
-            return unavailable();
-        }
-        let value = response.basis;
-        if value.api_version != 1
-            || value.provision_id != id
-            || value.custody_account_id != value.authority.custody_account_id
-            || value.authority.security_version.0 == 0
-            || value.authority.service_epoch.0 == 0
-        {
-            return unavailable();
+        if session_management_v2 {
+            let value: TestSessionBasisV2 = serde_json::from_str(&raw)?;
+            if value.api_version != 2
+                || value.provision_id != id
+                || value.scope.client_pairing.target.custody_account_id != value.custody_account_id
+                || value.scope.client_pairing.target.provision_id != id
+                || value.termination.validate_scope(&value.scope).is_err()
+            {
+                return unavailable();
+            }
+        } else {
+            let response: TestSessionBasisResponseV1 = serde_json::from_str(&raw)?;
+            if response.validate().is_err() {
+                return unavailable();
+            }
+            let value = response.basis;
+            if value.api_version != 1
+                || value.provision_id != id
+                || value.custody_account_id != value.authority.custody_account_id
+                || value.authority.security_version.0 == 0
+                || value.authority.service_epoch.0 == 0
+            {
+                return unavailable();
+            }
         }
     } else if session_prepare.is_some() {
         let value: TestSessionPrepareResponseV1 = serde_json::from_str(&raw)?;
-        if !matches!(
-            value.intent,
-            oasis7_custody_core::approval::CustodyIntentV1::TestSession { .. }
-        ) || value.context.custody_account_id.is_empty()
+        let valid_intent = if session_management_v2 {
+            matches!(&value.intent,oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { plan, scope }
+                if Some(plan.termination.provision_id.as_str())==session_prepare
+                    && scope.client_pairing.target.custody_account_id==value.context.custody_account_id)
+        } else {
+            matches!(
+                &value.intent,
+                oasis7_custody_core::approval::CustodyIntentV1::TestSession { .. }
+            )
+        };
+        if !valid_intent
+            || value.context.custody_account_id.is_empty()
             || value.context.security_version.0 == 0
             || value.context.service_epoch.0 == 0
         {
             return unavailable();
         }
     } else if session_approve.is_some() || session_continue.is_some() {
-        let value: TestSessionProgressV1 = serde_json::from_str(&raw)?;
-        if value.api_version != 1
-            || Some(value.provision_id.as_str()) != session_approve.or(session_continue)
-        {
-            return unavailable();
+        if session_management_v2 && session_continue.is_some() {
+            let value: TestSessionActivationProgressV2 = serde_json::from_str(&raw)?;
+            if value.api_version != 2
+                || Some(value.provision_id.as_str()) != session_continue
+                || value.custody_account_id.is_empty()
+                || value.session_id.is_empty()
+            {
+                return unavailable();
+            }
+        } else if session_management_v2 {
+            let value: TestSessionApprovalProgressV2 = serde_json::from_str(&raw)?;
+            if value.api_version != 2
+                || Some(value.provision_id.as_str()) != session_approve
+                || value.custody_account_id.is_empty()
+                || value.session_id.is_empty()
+            {
+                return unavailable();
+            }
+        } else {
+            let value: TestSessionProgressV1 = serde_json::from_str(&raw)?;
+            if value.api_version != 1
+                || Some(value.provision_id.as_str()) != session_approve.or(session_continue)
+            {
+                return unavailable();
+            }
         }
     } else if let Some(id) = reconcile_basis {
         let value: OwnerSetupReconcileBasisV1 = serde_json::from_str(&raw)?;

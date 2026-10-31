@@ -133,7 +133,7 @@ pub(super) async fn runtime(
         return Err(denied());
     }
     let rpc: OwnerSetupRuntimeRpc = serde_json::from_str(raw).map_err(|_| denied())?;
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     let path = match role {
         oasis7_custody_core::http::Role::Identity => "/internal/owner-setup-identity",
         oasis7_custody_core::http::Role::Owner => "/internal/owner-setup-owner",
@@ -189,7 +189,7 @@ pub(super) async fn advance(env: &Env, raw: &str) -> Result<String, JsValue> {
         return Err(denied());
     }
     let rpc: OwnerSetupContinueRpc = serde_json::from_str(raw).map_err(|_| denied())?;
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     let view = draft(env, &rpc.manager_session, &rpc.provision_id).await?;
     if rpc.request.provision_id != rpc.provision_id
         || rpc.request.custody_account_id != view.entry.custody_account_id

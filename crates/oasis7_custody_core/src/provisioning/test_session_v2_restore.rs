@@ -70,8 +70,9 @@ impl AccountProvisionApprovalState {
                             .is_some_and(|approved| at.get() >= approved.get())
                             && super::v2_credential_http::control_exhausted(s)
                     }
-                    // Other V2 Control transitions require their own persisted
-                    // typed originals before restoration can admit them.
+                    TestSessionClosingReasonV1::Finished | TestSessionClosingReasonV1::Aborted => {
+                        super::v2_control::validate_control_records_v2(self, s).is_ok()
+                    }
                     _ => false,
                 };
                 if !justified || at.get() < s.budget_authorized_at.get() {
@@ -81,10 +82,10 @@ impl AccountProvisionApprovalState {
             self.validate_session_v2_preflight_persistence(id, s)?;
             self.validate_session_v2_control_persistence(s)?;
             super::v2_credential_restore::validate(self, id, s)?;
+            super::v2_control::validate_control_records_v2(self, s)?;
             // These old V1 execution/control formats never become V2 execution authority.
             if s.context.is_some()
                 || !s.actions.is_empty()
-                || !s.controls.is_empty()
                 || !s.tool_nonce_ingresses.is_empty()
                 || !s.tool_nonce_links.is_empty()
                 || !s.purpose_transports.is_empty()
@@ -95,6 +96,7 @@ impl AccountProvisionApprovalState {
             if s.approved_at.is_none() {
                 if !s.roots.is_empty()
                     || !s.credential_claims.is_empty()
+                    || !s.control_records.is_empty()
                     || !s.challenges.is_empty()
                     || s.native_lifetime.is_some()
                     || s.lease_until.is_some()
@@ -202,6 +204,7 @@ impl AccountProvisionApprovalState {
                     || key != &source.operation_id
                     || !id_nonempty(key)
                     || !hex64(&source.verify_nonce)
+                    || super::v2_control::id_in_use_v2(s, &source.verify_nonce)
                     || source.created_at.0 < s.consumed_at.ok_or_else(invalid)?.get()
                     || source.expires_at.0 <= source.created_at.0
                     || source.expires_at.0

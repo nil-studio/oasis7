@@ -496,3 +496,6 @@ fn session_v2_real_claim_both_purposes_then_read_replacement() {
 
 #[path = "test_session_v2_credential_native_history_tests.rs"]
 mod native_history;
+
+#[path = "test_session_v2_control_fixture.rs"]
+mod control_tests;

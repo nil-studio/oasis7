@@ -69,7 +69,10 @@ pub(in crate::provisioning) fn validate(
             || URL_SAFE_NO_PAD.encode(nonce) != challenge.nonce
             || !nonces.insert(&challenge.nonce)
             || !hex64(&challenge.body_digest)
-            || challenge.kind != SessionChallengeKindV1::CredentialClaim
+            || !matches!(
+                challenge.kind,
+                SessionChallengeKindV1::CredentialClaim | SessionChallengeKindV1::Control(_)
+            )
             || challenge.purpose == SessionPurposeV1::TerminationPlan
             || approved.is_none_or(|t| start < t.get())
             || start >= root.deadline.get()
@@ -88,13 +91,15 @@ pub(in crate::provisioning) fn validate(
         if per_second[&(start / 1000)] > 2 {
             return Err(invalid());
         }
-        if let Some(consumed) = &challenge.consumed_by {
-            let claim = s.credential_claims.get(consumed).ok_or_else(invalid)?;
-            if consumed != &challenge.logical_request_id
-                || claim.challenge_request_id != *key
-                || claim.request.test_session_digest()? != challenge.body_digest
-            {
-                return Err(invalid());
+        if challenge.kind == SessionChallengeKindV1::CredentialClaim {
+            if let Some(consumed) = &challenge.consumed_by {
+                let claim = s.credential_claims.get(consumed).ok_or_else(invalid)?;
+                if consumed != &challenge.logical_request_id
+                    || claim.challenge_request_id != *key
+                    || claim.request.test_session_digest()? != challenge.body_digest
+                {
+                    return Err(invalid());
+                }
             }
         }
     }

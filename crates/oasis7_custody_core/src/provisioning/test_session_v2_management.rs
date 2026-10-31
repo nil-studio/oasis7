@@ -321,3 +321,40 @@ impl AccountProvisionApprovalState {
         })
     }
 }
+
+/// Readonly operation receipt. It cannot be used as a Native certificate or
+/// substitute for the actual three-root Account record.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestSessionActivationProgressV2 {
+    pub api_version: u8,
+    pub custody_account_id: String,
+    pub provision_id: String,
+    pub session_id: String,
+    #[serde(deserialize_with = "required_activation_timestamp")]
+    #[cfg_attr(test, schemars(with = "RequiredActivationTimestampSchema"))]
+    pub activated_at: Option<UnixMillis>,
+    pub preflight_pending: bool,
+    pub closing: bool,
+}
+fn required_activation_timestamp<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<UnixMillis>, D::Error> {
+    Option::<UnixMillis>::deserialize(d)
+}
+
+#[cfg(test)]
+struct RequiredActivationTimestampSchema;
+#[cfg(test)]
+impl schemars::JsonSchema for RequiredActivationTimestampSchema {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "RequiredActivationTimestampSchema".into()
+    }
+    fn inline_schema() -> bool {
+        true
+    }
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        <Option<UnixMillis> as schemars::JsonSchema>::json_schema(g)
+    }
+}

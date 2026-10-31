@@ -64,6 +64,7 @@ pub struct TestSessionAuthorityV2 {
     #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
     pub(in crate::provisioning) controls: BTreeMap<String, SessionControlAckV1>,
+    pub(in crate::provisioning) control_records: BTreeMap<String, SessionControlRecordV2>,
     pub(in crate::provisioning) control_logicals: BTreeMap<String, String>,
     pub(in crate::provisioning) challenges: BTreeMap<String, SessionChallengeV1>,
     pub(in crate::provisioning) actions: BTreeMap<String, SessionActionOriginalV1>,
@@ -273,6 +274,7 @@ impl AccountProvisionApprovalState {
                     .values()
                     .map(|claim| &claim.lifetime),
             )
+            .chain(super::v2_control::stored_lifetimes_v2(session))
         {
             let digest = super::super::types::digest(&(
                 "oasis7.custody.test-session-native-history.v2",
@@ -306,5 +308,14 @@ impl TestSessionAuthorityV2 {
         &oasis7_client_api::world_service::participant_discovery::ParticipantOwnerViewRequestV1,
     > {
         self.preflight_read.as_deref()
+    }
+}
+
+impl TestSessionAuthorityV2 {
+    pub fn preflight_claimed_at(&self) -> Option<UnixMillis> {
+        self.preflight_claimed_at
+    }
+    pub fn closing_metadata(&self) -> Option<(TestSessionClosingReasonV1, UnixMillis)> {
+        self.closing
     }
 }

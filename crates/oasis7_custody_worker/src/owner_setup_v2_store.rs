@@ -56,6 +56,7 @@ impl OwnerProvisionApprovalStore {
     where
         F: Fn() -> Result<NativeStageCurrent>,
     {
+        let source_nonce = crate::approval_crypto::verification_nonce().map_err(|_| rejected())?;
         self.native_verified(
             &current,
             "owner_setup_v2_consumed",
@@ -67,9 +68,19 @@ impl OwnerProvisionApprovalStore {
                         .map_err(|_| rejected())?,
                 ])
             },
-            |state, _scope, context, time, cache| {
+            |state, scope, context, time, cache| {
                 state
-                    .commit_owner_setup_v2(id, signed.clone(), context, time, cache)
+                    .commit_owner_setup_v2(
+                        CommitOwnerSetupV2 {
+                            id: id.into(),
+                            signed: signed.clone(),
+                            source_nonce: source_nonce.clone(),
+                        },
+                        scope,
+                        context,
+                        time,
+                        cache,
+                    )
                     .map_err(|_| rejected())
             },
         )

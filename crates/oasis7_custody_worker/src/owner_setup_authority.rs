@@ -46,7 +46,14 @@ pub(super) async fn observe(
     if saved.state.draft().plan.world_identity != world.world_id {
         return Err(denied());
     }
-    authority::observe(env, saved.state.draft(), input, signed, inspection_only).await
+    if matches!(
+        &input.request.intent,
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
+    ) {
+        authority::observe_v2(env, saved.state.draft(), input, signed, inspection_only).await
+    } else {
+        authority::observe(env, saved.state.draft(), input, signed, inspection_only).await
+    }
 }
 /// Only Delegation/Bind/FinalObservation result callbacks whose local once reservation has
 /// already committed can overlap these two independent readonly inputs.
@@ -112,7 +119,14 @@ pub(super) async fn observe_manager(
     manager: CustodySessionStatusV1,
 ) -> Result<authority::Observations> {
     enabled(env)?;
-    authority::observe_fresh_manager(env, saved.state.draft(), input, manager).await
+    if matches!(
+        &input.request.intent,
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
+    ) {
+        authority::observe_manager_v2(env, saved.state.draft(), input, manager).await
+    } else {
+        authority::observe_fresh_manager(env, saved.state.draft(), input, manager).await
+    }
 }
 pub(super) fn current(
     state: &JsValue,
@@ -121,7 +135,14 @@ pub(super) fn current(
     require_business: bool,
 ) -> std::result::Result<NativeStageCurrent, JsValue> {
     let world = enabled(env).map_err(|_| JsValue::from_str("owner setup unavailable"))?;
-    let current = authority::current(state, env, observed, require_business)?;
+    let current = if matches!(
+        authority::observed_custody_intent(observed),
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
+    ) {
+        authority::current_v2(state, env, observed, require_business)?
+    } else {
+        authority::current(state, env, observed, require_business)?
+    };
     if current.provision.approval.authority.security_version.0 == 0
         || current.provision.world_identity != world
     {
