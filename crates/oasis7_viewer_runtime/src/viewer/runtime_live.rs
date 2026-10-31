@@ -274,13 +274,9 @@ impl ViewerRuntimeLiveServer {
                 "Agent signer requires a world service connection".into(),
             ));
         }
-        #[cfg(not(test))]
-        if config.chain_status_bind.is_some() && config.world_service.is_none() {
-            return Err(ViewerRuntimeLiveServerError::Init(
-                "node-directory chain sync is closed; configure the authenticated world service"
-                    .into(),
-            ));
-        }
+        config
+            .validate_connection_mode()
+            .map_err(ViewerRuntimeLiveServerError::Init)?;
         config
             .validate_prompt_result_limits()
             .map_err(ViewerRuntimeLiveServerError::Init)?;
