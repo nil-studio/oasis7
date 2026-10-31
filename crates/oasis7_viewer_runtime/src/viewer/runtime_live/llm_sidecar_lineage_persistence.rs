@@ -8,7 +8,6 @@ use crate::simulator::AsyncAgentTurnOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
-use std::path::Path;
 
 const LEGACY_PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 1;
 const PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 2;
