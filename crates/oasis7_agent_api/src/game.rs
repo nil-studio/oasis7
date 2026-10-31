@@ -160,6 +160,3 @@ impl ActionSubmissionV1 {
 mod starter;
 pub use starter::*;
 
-#[path = "game/task_cleanup_v2.rs"]
-mod task_cleanup_v2;
-pub use task_cleanup_v2::*;
