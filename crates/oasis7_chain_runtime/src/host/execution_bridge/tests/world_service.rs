@@ -486,7 +486,7 @@ mod cognition_rejection_tests;
 #[path = "world_service_safe_alternative.rs"]
 mod safe_alternative;
 
-#[path="participant_http.rs"]
+#[path = "participant_http.rs"]
 mod participant_http;
 
 #[path = "world_service_executor_rotation.rs"]
@@ -494,3 +494,7 @@ mod executor_rotation_tests;
 
 #[path = "participant_devlocal_host.rs"]
 mod participant_devlocal_host;
+
+#[cfg(unix)]
+#[path = "world_service_resource_basis_v2.rs"]
+mod resource_basis_v2;

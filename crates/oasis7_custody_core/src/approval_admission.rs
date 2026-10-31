@@ -475,6 +475,8 @@ fn deadline(input: &ApprovalAdmissionInput, context: &ApprovalAdmissionContext) 
         | CustodyIntentV1::OwnerSetup { deadline, .. }
         | CustodyIntentV1::ManagedLogin { deadline, .. } => deadline.0,
         CustodyIntentV1::OwnerSetupReconcile { plan } => plan.deadline.0,
+        CustodyIntentV1::OwnerSetupV2 { plan } => plan.deadline.0,
+        CustodyIntentV1::TestSessionV2 { plan, .. } => plan.write_deadline.0,
         CustodyIntentV1::TestSession { write_deadline, .. } => write_deadline.0,
     };
     [
@@ -548,6 +550,11 @@ fn validate_input(
             != input
                 .request
                 .intent_digest()
+                .map_err(|_| ApprovalAdmissionError::Invalid)?
+        || p.model_budget_summary_contract
+            != input
+                .request
+                .expected_model_budget_summary_contract()
                 .map_err(|_| ApprovalAdmissionError::Invalid)?
         || p.manager_account_id != s.manager_account_id
         || p.manager_session_ref != s.manager_session_ref

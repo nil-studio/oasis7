@@ -23,6 +23,13 @@ pub struct ApprovalContextV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CustodyIntentV1 {
+    OwnerSetupV2 {
+        plan: Box<crate::provisioning::OwnerSetupPlanV2>,
+    },
+    TestSessionV2 {
+        plan: Box<crate::provisioning::TestSessionPlanV2>,
+        scope: Box<crate::provisioning::ResourceTestSessionScopeV2>,
+    },
     Provision {
         provision_id: String,
         purpose: String,
@@ -294,6 +301,12 @@ pub enum ApprovalPhaseV1 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalOptionsResponseV1 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custody_session_summary_v2: Option<Box<NativeSessionApprovalSummaryV2>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_budget_summary: Option<crate::provisioning::ModelInferenceBudgetV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_budget_summary_contract: Option<NativeCustodySummaryContractV1>,
     pub api_version: u8,
     pub phase: ApprovalPhaseV1,
     pub approval_id: String,
@@ -356,7 +369,15 @@ pub fn complete_body_digest<T: Serialize>(value: &T) -> Result<String, String> {
 }
 impl ApprovalOptionsRequestV1 {
     pub fn intent_digest(&self) -> Result<String, String> {
-        encode("oasis7.custody.intent.v1", self).map(|v| bytes_digest(&v))
+        let domain = if matches!(
+            &self.intent,
+            CustodyIntentV1::OwnerSetupV2 { .. } | CustodyIntentV1::TestSessionV2 { .. }
+        ) {
+            "oasis7.custody.intent.v2"
+        } else {
+            "oasis7.custody.intent.v1"
+        };
+        encode(domain, self).map(|v| bytes_digest(&v))
     }
     pub fn validate(&self, now: u64) -> Result<(), String> {
         let required = [
@@ -374,6 +395,18 @@ impl ApprovalOptionsRequestV1 {
             return Err("invalid approval context".into());
         }
         let valid = match &self.intent {
+            CustodyIntentV1::OwnerSetupV2 { plan } => {
+                plan.validate().is_ok()
+                    && plan
+                        .model_budget
+                        .as_ref()
+                        .is_none_or(|b| b.deadline.0 > now)
+                    && plan.deadline.0 > now
+                    && plan.deadline.0 <= now.saturating_add(1_800_000)
+            }
+            CustodyIntentV1::TestSessionV2 { plan, scope } => {
+                plan.validate_scope(scope, now).is_ok()
+            }
             CustodyIntentV1::Provision {
                 provision_id,
                 purpose,
@@ -548,6 +581,10 @@ impl ApprovalOptionsRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustodyApprovalProofV1 {
+    /// Produced by the Native summary-contract implementation, never by a
+    /// request rendered/verified flag. None preserves V1 signing bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_budget_summary_contract: Option<NativeCustodySummaryContractV1>,
     pub version: u8,
     pub key_id: String,
     pub identity_namespace: String,
@@ -573,6 +610,9 @@ impl CustodyApprovalProofV1 {
         encode("oasis7.custody.approval.v1", self)
     }
 }
+#[path = "approval_summary_contract.rs"]
+mod summary_contract;
+pub use summary_contract::*;
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -685,6 +725,7 @@ mod tests {
     #[test]
     fn signing_domains_and_versions_have_frozen_canonical_vectors() {
         let proof = CustodyApprovalProofV1 {
+            model_budget_summary_contract: None,
             version: 1,
             key_id: "key-one".into(),
             identity_namespace: "identity:test".into(),

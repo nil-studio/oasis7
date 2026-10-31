@@ -9,7 +9,7 @@ impl AccountProvisionApprovalState {
         r: &ApprovalAdmissionRecord,
         signature_scope: &mut RestoreSignatureScope,
     ) -> Result<()> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let consumed = r.consumed_at().ok_or_else(invalid)?;
         let signed = r.verification().ok_or_else(invalid)?;
         let source = &o.source;
@@ -205,7 +205,7 @@ impl AccountProvisionApprovalState {
             ledger::stage_operation_id(&v.plan, stage)?,
             digest(&(
                 "oasis7.custody.owner-setup-stage.v1",
-                v.plan.digest()?,
+                self.owner_setup_signed_plan_digest(id)?,
                 stage,
             ))?,
         )

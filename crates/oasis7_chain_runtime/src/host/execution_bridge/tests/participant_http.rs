@@ -8,21 +8,23 @@ use oasis7_runtime::service_admission::participant::*;
 use std::{
     net::TcpListener,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
-#[path = "participant_governance.rs"]
-mod governance;
-#[path = "participant_starter.rs"]
-mod starter;
-#[path = "participant_owner_view.rs"]
-mod owner_view;
-#[path = "participant_transport.rs"]
-mod transport;
 #[path = "participant_http_fixture.rs"]
 mod custody_fixture;
+#[path = "participant_governance.rs"]
+mod governance;
+#[path = "participant_owner_view.rs"]
+mod owner_view;
+#[path = "participant_resource_view.rs"]
+mod resource_view;
+#[path = "participant_starter.rs"]
+mod starter;
+#[path = "participant_transport.rs"]
+mod transport;
 fn namespace() -> GameIdentityNamespaceV1 {
     GameIdentityNamespaceV1 {
         service_id: "private-fixture-identity".into(),
@@ -183,8 +185,9 @@ fn settled(
                 key: correlation.key,
             },
             original,
-        ) && let IntentOutcome::Committed { receipt, .. } = response.outcome {
-                return serde_json::from_value(receipt).unwrap();
+        ) && let IntentOutcome::Committed { receipt, .. } = response.outcome
+        {
+            return serde_json::from_value(receipt).unwrap();
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -254,6 +257,7 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
         );
         let receipt_a = settled(&a, &root, &identity, "account-a", "register-a", &key_a);
         owner_view::exercise(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
+        resource_view::exercise(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
         assert!(dropped.load(Ordering::SeqCst));
         let again = a
             .submit(request(
@@ -290,20 +294,23 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             matches!(unknown.outcome, IntentOutcome::Unknown),
             "an existing account binding is not an original operation result"
         );
-        assert!(b
-            .submit(request(
+        assert!(
+            b.submit(request(
                 &identity,
                 payload(&root, &identity, "account-a", "wrong-owner", &key_b)
             ))
-            .is_err());
+            .is_err()
+        );
         let before_close = pin(&root, &identity);
         assert_eq!(before_close.world.state().agents.len(), 3);
         for (receipt, key) in [(&receipt_a, &key_a), (&receipt_b, &key_b)] {
-            assert!(before_close
-                .world
-                .state()
-                .agents
-                .contains_key(&receipt.agent_id));
+            assert!(
+                before_close
+                    .world
+                    .state()
+                    .agents
+                    .contains_key(&receipt.agent_id)
+            );
             assert_eq!(
                 agent_authority::owner_public_key(&before_close.world, &receipt.agent_id).unwrap(),
                 sign_read_request("fixture", (), key)
@@ -383,12 +390,13 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             .outcome,
             IntentOutcome::Unknown
         ));
-        assert!(a
-            .submit(request(
+        assert!(
+            a.submit(request(
                 &identity,
                 payload(&root, &identity, "account-c", "register-c", &key_a)
             ))
-            .is_err());
+            .is_err()
+        );
         a.submit(request(
             &identity,
             payload(

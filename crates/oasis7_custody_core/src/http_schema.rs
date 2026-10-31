@@ -8,6 +8,8 @@ mod management_metadata;
 mod owner_setup;
 #[path = "http_schema_reconcile.rs"]
 mod reconcile;
+#[path = "http_schema_resource_v2.rs"]
+mod resource_v2;
 #[path = "http_schema_test_session.rs"]
 mod test_session;
 
@@ -183,6 +185,7 @@ pub(super) fn export(directory: &std::path::Path) {
     let requests = options();
     let intent_digest = requests[0].intent_digest().unwrap();
     let proof = CustodyApprovalProofV1 {
+        model_budget_summary_contract: None,
         version: 1,
         key_id: "key-one".into(),
         identity_namespace: "identity:test".into(),
@@ -248,6 +251,9 @@ pub(super) fn export(directory: &std::path::Path) {
         response: json!({"type":"public-key"}),
     };
     let options_response = ApprovalOptionsResponseV1 {
+        custody_session_summary_v2: None,
+        model_budget_summary: None,
+        model_budget_summary_contract: None,
         api_version: 1,
         phase: ApprovalPhaseV1::Pending,
         approval_id: "approval-one".into(),
@@ -464,6 +470,10 @@ pub(super) fn export(directory: &std::path::Path) {
         signature: "fixture-signature".into(),
     };
     let mut schemas = http_schemas();
+    schemas
+        .as_object_mut()
+        .unwrap()
+        .extend(resource_v2::schemas().as_object().unwrap().clone());
     schemas
         .as_object_mut()
         .unwrap()

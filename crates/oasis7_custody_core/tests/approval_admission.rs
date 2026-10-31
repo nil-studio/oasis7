@@ -106,6 +106,7 @@ fn fixture() -> (ApprovalAdmissionInput, ApprovalAdmissionContext) {
         },
     };
     let proof = CustodyApprovalProofV1 {
+        model_budget_summary_contract: None,
         version: 1,
         key_id: "native-one".into(),
         identity_namespace: "identity:test".into(),
@@ -648,3 +649,6 @@ fn capacity_never_deletes_nonce_evidence_and_original_retries_still_work() {
 
 #[path = "support/provision_approval.rs"]
 mod provision_approval;
+
+#[path = "support/resource_v2_contract_tests.rs"]
+mod resource_v2_contract_tests;
