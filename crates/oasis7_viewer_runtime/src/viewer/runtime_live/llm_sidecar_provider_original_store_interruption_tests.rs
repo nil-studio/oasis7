@@ -219,7 +219,10 @@ fn read_original_object(
     let mut logical = ValueIoBudget {
         nodes_remaining: 10_000,
         read_bytes_remaining: 64 * 1024 * 1024,
-        write_bytes_remaining: 0,
+        // `read_object_owned` stages the complete verified range before it
+        // returns. Admit at most the caller's explicit object bound; the
+        // actual allocation is separately charged by the shared memory pool.
+        write_bytes_remaining: u64::try_from(max_bytes).expect("object bound fits u64"),
     };
     objects
         .read_object_owned(
