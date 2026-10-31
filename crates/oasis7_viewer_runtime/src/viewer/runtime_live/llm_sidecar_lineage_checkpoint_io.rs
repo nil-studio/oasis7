@@ -109,8 +109,9 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "oasis7-provider-barrier-{}-{serial}",
-                std::process::id()
+                "oasis7-provider-barrier-{}-{serial}-{}",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&path).unwrap();
             Self(path)
