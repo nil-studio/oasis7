@@ -289,4 +289,5 @@ pub mod incremental_world_rule_organization;
 pub mod incremental_world_rule_supply_root;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_diplomacy;
