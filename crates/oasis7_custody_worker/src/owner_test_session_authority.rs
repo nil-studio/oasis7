@@ -376,3 +376,40 @@ fn management_diagnostic(stage: &str, error: worker::Error) -> worker::Error {
     let _ = stage;
     error
 }
+
+#[path = "owner_test_session_authority_v2.rs"]
+mod v2;
+pub(super) use v2::{
+    current_v2, observe_manager_v2, observe_v2, runtime_observe_paid_factory_v2, runtime_observe_v2,
+};
+
+pub(super) fn approval_current_v2(
+    state: &JsValue,
+    env: &Env,
+    observed: &authority::Observations,
+    enrollment: &Enrollment,
+    observed_at: u64,
+) -> std::result::Result<TestSessionApprovalOwned, JsValue> {
+    let config = crate::client_enrollment_authority::Config::load(env)?;
+    if config.realm != enrollment.realm
+        || config.origin != enrollment.origin
+        || config.actor_id(env, &enrollment.fact.fact.registration.enrollment_id)?
+            != enrollment.expected_actor
+    {
+        return Err(JsValue::from_str("test session unavailable"));
+    }
+    Ok(TestSessionApprovalOwned {
+        native: current_v2(state, env, observed, true)?,
+        enrollment: crate::client_enrollment_reader::FactView {
+            actual_actor_id: enrollment.fact.actual_actor_id.clone(),
+            realm: enrollment.fact.realm.clone(),
+            public_origin: enrollment.fact.public_origin.clone(),
+            fact: enrollment.fact.fact.clone(),
+        },
+        expected_actor_id: enrollment.expected_actor.clone(),
+        expected_realm: config.realm,
+        expected_origin: config.origin,
+        deployments: config.deployments,
+        observed_at,
+    })
+}

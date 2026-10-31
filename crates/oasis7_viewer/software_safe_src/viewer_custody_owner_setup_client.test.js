@@ -190,3 +190,70 @@ describe("cancelled recovery expiry validation and mounted controls",()=>{
     } finally {panel.dispose();}
   });
 });
+
+// Component mocks exercise ordering and rendering, not Native signature/UV or
+// actual Account/World/inference qualification.
+const summaryContract = {api_version:1,summary_digest:"91".repeat(32)};
+function v2Draft() {
+  return {api_version:2,approval_request_id:"v2-approval",plan:{api_version:2,setup_id:"v2-setup",provision_id:parent.provision_id,
+    world_identity:world,participant_receipt_digest:"34".repeat(32),owner_key_ref:"owner",executor_key_ref:"executor",executor_public_key:"12".repeat(32),
+    bootstrap_config_version:"1",goal_content:{goal_text:"Bound private goal",soft_constraints:[]},create_operation_id:"v2-create",prepare_operation_id:"v2-prepare",prepare_nonce:"21".repeat(32),
+    publish_operation_id:"v2-publish",delegation_operation_id:"v2-delegate",bind_operation_id:"v2-bind",executor_id:"v2-executor",delegation_generation:"1",delegation_nonce:"1",
+    selection:{kind:"build",site:"site",factory:"factory",factory_kind:"smelter"},deadline:"100000",request_limit:"6",transport_limit:"584",write_limit:"4",
+    model_budget:{api_version:1,approval_contract:"native_custody_model_budget_v1",native_account_id:"native",native_public_key:"11".repeat(32),native_instance_public_key:"22".repeat(32),
+      ledger_id:"ledger",preset_id:"fixed-preset",preset_revision:"1",model:"fixed-model",runtime_digest:"33".repeat(32),skill_digest:"44".repeat(32),tools_digest:"55".repeat(32),context_policy_digest:"66".repeat(32),
+      physical_graph_digest:"77".repeat(32),probe_physical_http:["10","10"],inference_physical_http:"10",max_calls:"3",max_input_tokens:"100",max_output_tokens:"50",max_total_tokens:"450",max_concurrent:"1",deadline:"90000",
+      price_policy:{currency:"USD",input_micro_units_per_million:"1000000",output_micro_units_per_million:"2000000",max_total_micro_units:"600",quote_digest:"88".repeat(32),valid_until:"100000"}}}};
+}
+function v2Fixture(change={}) {
+  let prepared;
+  return fixture({now:change.now,fetch(url,options,body){
+    let value;
+    if(url.endsWith("/prepare")&&body.api_version===2){prepared={approval_request_id:body.approval_request_id,
+      context:{environment:"fixture",custody_account_id:parent.custody_account_id,audience:"custody",policy_version:"1",security_version:"1",service_epoch:"1"},
+      intent:{kind:"owner_setup_v2",plan:body.plan}};value=prepared;}
+    else if(url===CUSTODY_PATHS.options_path){value={api_version:1,phase:"pending",approval_id:"A",ceremony_id:"B",operation_id:"C",intent_digest:"78".repeat(32),
+      audience:"custody",ceremony_expires_at:"99000",options:{publicKey:{challenge:"AQ",allowCredentials:[]}},model_budget_summary:structuredClone(prepared.intent.plan.model_budget),
+      model_budget_summary_contract:summaryContract};change.options?.(value);}
+    else if(url===CUSTODY_PATHS.complete_path)value={api_version:1,phase:"completed",approval:{proof:{approval_id:"A",intent_digest:"78".repeat(32),context:prepared.context,model_budget_summary_contract:summaryContract},signature:"fixture-only"},proof_bytes:"not-authority"};
+    else if(url.endsWith("/approve"))value={api_version:2,...parent,setup_id:prepared.intent.plan.setup_id,phase:"completed",model_budget_digest:"92".repeat(32)};
+    if(value!==undefined)return new Response(JSON.stringify(value),{status:200});
+  }});
+}
+describe("V2 Native model budget summary contract",()=>{
+  it("does not invoke get when Native contract or actual confirmation consumer is missing",async()=>{
+    for(const change of [{},{options:v=>delete v.model_budget_summary_contract},{options:v=>v.model_budget_summary.native_public_key="99".repeat(32)}]){
+      const f=v2Fixture(change);await f.client.prepareV2(parent,v2Draft());
+      await expect(f.client.approve()).rejects.toMatchObject({code:"custody_budget_summary_required"});
+      expect(f.get).not.toHaveBeenCalled();expect(f.calls.some(c=>c.url===CUSTODY_PATHS.complete_path||c.url.endsWith("/approve"))).toBe(false);
+    }
+  });
+  it("awaits explicit summary completion before actual get and preserves versioned original through Owner approve",async()=>{
+    const f=v2Fixture();await f.client.prepareV2(parent,v2Draft());let release;
+    const confirmModelBudget=vi.fn(()=>new Promise(resolve=>{release=resolve;}));
+    const result=f.client.approve({confirmModelBudget});await vi.waitFor(()=>expect(confirmModelBudget).toHaveBeenCalledTimes(1));
+    expect(f.get).not.toHaveBeenCalled();expect(confirmModelBudget.mock.calls[0][0].budget).toEqual(v2Draft().plan.model_budget);
+    release();await result;expect(f.get).toHaveBeenCalledTimes(1);
+    expect(f.calls.find(c=>c.url.endsWith("/approve")).body.api_version).toBe(2);
+    expect(f.calls.some(c=>c.url.endsWith("/continue"))).toBe(false);
+  });
+  it("account switch or deadline during confirmation prevents get, complete and approve",async()=>{
+    for(const switched of [true,false]){let now=1000;const f=v2Fixture({now:()=>now});await f.client.prepareV2(parent,v2Draft());let release;
+      const promise=f.client.approve({confirmModelBudget:()=>new Promise(resolve=>{release=resolve;})});await vi.waitFor(()=>expect(release).toBeTypeOf("function"));
+      if(switched)f.client.setSession({account_id:"other"},{method:"webauthn"},cap);else now=95000;
+      release();await expect(promise).rejects.toMatchObject({code:switched?"custody_session_changed":"custody_budget_summary_expired"});
+      expect(f.get).not.toHaveBeenCalled();expect(f.calls.some(c=>c.url===CUSTODY_PATHS.complete_path||c.url.endsWith("/approve"))).toBe(false);
+    }
+  });
+  it("renders the actual panel budget and target before explicit confirmation, then gets once",async()=>{
+    const f=v2Fixture();const panel=createOwnerSetupPanel({client:f.client});const root=document.createElement("div");document.body.append(root);
+    panel.update({account_id:"manager"},{method:"webauthn"},cap);panel.renderInto(root);
+    try{await panel.prepareV2(parent,v2Draft());[...root.querySelectorAll("button")].find(b=>b.textContent==="确认摘要并使用通行密钥批准").click();
+      await vi.waitFor(()=>expect(root.querySelector('[role="dialog"]')).not.toBeNull());expect(f.get).not.toHaveBeenCalled();
+      const text=root.querySelector('[role="dialog"]').textContent;
+      for(const value of ["Bound private goal","fixed-preset","fixed-model","包含两次真实探测","物理 HTTP","USD / 600","90000"])expect(text).toContain(value);
+      [...root.querySelectorAll("button")].find(b=>b.textContent==="已核对预算，继续通行密钥").click();
+      await vi.waitFor(()=>expect(f.get).toHaveBeenCalledTimes(1));await vi.waitFor(()=>expect(f.client.summary().state).toBe("approved"));
+    }finally{panel.dispose();root.remove();}
+  });
+});

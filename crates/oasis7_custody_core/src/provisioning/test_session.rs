@@ -436,3 +436,68 @@ pub use tool_nonce::{SessionToolNonceIngressV1, SessionToolNonceLinkV1};
 #[path = "test_session_context.rs"]
 mod context;
 pub use context::*;
+
+#[path = "test_session_v2_state.rs"]
+mod state_v2;
+pub use state_v2::*;
+
+#[path = "test_session_v2_admission.rs"]
+mod admission_v2;
+pub use admission_v2::TestSessionAdmissionV2;
+
+#[path = "test_session_v2_source.rs"]
+mod source_v2;
+
+#[path = "test_session_v2_live.rs"]
+mod live_v2;
+
+#[path = "test_session_v2_activation.rs"]
+mod activation_v2;
+
+#[path = "test_session_v2_preflight.rs"]
+mod preflight_v2;
+pub use preflight_v2::*;
+
+#[path = "test_session_v2_restore.rs"]
+mod restore_v2;
+
+#[path = "test_session_v2_management.rs"]
+mod management_v2;
+pub use management_v2::*;
+
+#[path = "test_session_v2_expiry.rs"]
+mod expiry_v2;
+
+#[path = "test_session_v2_credentials.rs"]
+mod v2_credentials;
+pub use v2_credentials::{SessionCredentialAllocationFactV2, SessionCredentialClaimRecordV2};
+#[path = "test_session_v2_credential_challenge.rs"]
+mod v2_credential_challenge;
+#[path = "test_session_v2_credential_http.rs"]
+mod v2_credential_http;
+#[path = "test_session_v2_credential_source.rs"]
+mod v2_credential_source;
+pub use v2_credential_source::TestSessionCredentialLiveDescriptorV2;
+#[path = "test_session_v2_credential_restore.rs"]
+mod v2_credential_restore;
+
+#[path = "test_session_v2_control.rs"]
+mod v2_control;
+pub(in crate::provisioning) use v2_control::{
+    SessionControlRecordV2, authenticated_receipt_v2, control_lifetime_claimed_v2,
+};
+
+#[path = "test_session_v2_journal.rs"]
+mod v2_journal;
+pub(in crate::provisioning) use v2_journal::{
+    SessionEventKindV2, SessionEventV2, SessionJournalProfileV2, append_session_event_v2,
+    next_session_ordinal_v2, session_event_ordinal_v2,
+};
+
+#[path = "test_session_v2_action_http.rs"]
+mod v2_action_http;
+#[path = "test_session_v2_purpose_http.rs"]
+mod v2_purpose_http;
+#[path = "test_session_v2_tool_nonce.rs"]
+mod v2_tool_nonce;
+pub use v2_action_http::SessionActionRequestV2;
