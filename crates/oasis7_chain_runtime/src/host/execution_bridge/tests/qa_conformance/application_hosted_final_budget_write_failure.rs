@@ -58,7 +58,7 @@ pub(super) fn start(root: PathBuf) -> thread::JoinHandle<Result<FaultProof, Stri
         await_marker_for(
             &root,
             "hosted-final-budget-selected.json",
-            application_hosted_final_budget_window::PRODUCER_BUDGET,
+            application_hosted_final_budget::PRODUCER_BUDGET,
         )?;
         await_marker(&root, "final-budget-before-persist")?;
         let target = root.join("hosted-final-budget-private-lineage.json");
