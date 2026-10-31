@@ -90,7 +90,7 @@ fn wasm_hash(bytes: &[u8]) -> String {
 fn percentile(samples: &mut [u128], percentile: u32) -> u128 {
     samples.sort_unstable();
     let len = samples.len();
-    let rank = ((len * percentile as usize) + 99) / 100;
+    let rank = (len * percentile as usize).div_ceil(100);
     let index = rank.saturating_sub(1).min(len.saturating_sub(1));
     samples[index]
 }
