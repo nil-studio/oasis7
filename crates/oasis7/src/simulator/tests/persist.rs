@@ -188,7 +188,7 @@ fn kernel_loads_tracked_llm_baseline_fixture_state() {
         "baseline should contain multiple generated locations"
     );
     assert!(
-        kernel.model().factories.len() >= 1,
+        !kernel.model().factories.is_empty(),
         "baseline should already contain at least one factory"
     );
     assert!(
