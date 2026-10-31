@@ -80,7 +80,9 @@ impl ViewerRuntimeLiveServer {
             .map_err(|error| {
                 format!("Runtime cognition receipt recovery verification failed: {error:?}")
             })?;
-        if lineage.receipt_id != marker.receipt_id || lineage.action_id != action_id {
+        if lineage.receipt_id != marker.receipt_id
+            || lineage.action_id != format!("action:{action_id}")
+        {
             return Err("Runtime cognition receipt recovery identity mismatch".into());
         }
         self.llm_sidecar

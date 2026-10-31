@@ -83,7 +83,7 @@ impl ViewerRuntimeLiveServer {
     ) -> Result<(), String> {
         if !matches!(
             &self.config.decision_mode,
-            super::ViewerLiveDecisionMode::Llm
+            crate::viewer::ViewerLiveDecisionMode::Llm
         ) {
             return Err("provider original material owner requires LLM decision mode".into());
         }

@@ -17,7 +17,7 @@ use oasis7::simulator::{
     ProviderSpoolReservation,
 };
 use oasis7_distfs::incremental_page_store::{
-    IncrementalPageStore, PageCompression, PageIoBudget, StatePageSession, ValuePageSession,
+    IncrementalPageStore, PageCompression, PageIoBudget, ValuePageSession,
     objects::{IncrementalObjectStore, ObjectIo},
 };
 use oasis7_formal_protocol::incremental_state::{
@@ -29,7 +29,7 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use super::provider_original_store_codec::{
     EventPhase, EventRecord, MAX_EVENT_BYTES, MAX_EVENTS, MAX_OPERATION_ID_BYTES,
     MAX_OWNER_ID_BYTES, MAX_PENDING_ATTEMPTS, MAX_PROTECTED_ROOT_PAGE, OwnerHead, decode_event,
-    decode_head, encode_event, encode_head, event_key, operation_key, pending_root_digest,
+    decode_head, encode_event, event_key, operation_key, pending_root_digest,
 };
 use super::provider_original_store_fs::OwnerFiles;
 
@@ -1080,7 +1080,7 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
         .map_err(|error| error.to_string())?;
         let actual_body_id = objects
             .write_object(
-                original_body,
+                &mut original_body,
                 length,
                 Some(expected_body_id),
                 &mut ObjectIo {
@@ -1187,7 +1187,7 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
         })?;
         let actual = objects
             .write_object(
-                original_body,
+                &mut original_body,
                 length,
                 Some(expected_body_id),
                 &mut ObjectIo {
