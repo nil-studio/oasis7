@@ -125,16 +125,7 @@ fn seed(
         },
     )
     .unwrap();
-    write_field_bytes(
-        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(world.state.time),
-        &mut BodyMutationContext {
-            sink: values,
-            memory,
-            io: &mut io(),
-            cancelled: || false,
-        },
-    )
-    .unwrap();
+
     assert_eq!(world.state.agents.len(), 1);
 }
 fn event(world: &World, id: u64) -> WorldEvent {
@@ -199,7 +190,7 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
     let guard = txn.guard();
     let prepared = txn.seal(&guard, &live, 0).unwrap();
     assert_eq!(prepared.record.writes.len(), 4);
-    assert_eq!(prepared.record.reads.len(), 5); // clock, body, sequence, frontier, absent ordinal
+    assert_eq!(prepared.record.reads.len(), 6); // clock metadata/entry, body, sequence, frontier, ordinal
     assert_eq!(prepared.record.facts.len(), 1);
     let fact = &prepared.record.facts[0];
     assert_eq!(fact.kind, ExecutionFactKindV1::Event);
@@ -525,10 +516,10 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
     assert_eq!(source.reads.get(), 12);
 }
 
-#[path = "incremental_scheduler_tests.rs"]
-mod scheduler;
 #[path = "incremental_agent_move_tests.rs"]
 mod moves;
+#[path = "incremental_scheduler_tests.rs"]
+mod scheduler;
 
 #[path = "incremental_commit_tests.rs"]
 mod commit_driver;

@@ -82,13 +82,3 @@ impl AgentBodyValueV1 {
         })
     }
 }
-
-/// Scalar clock lowering, separate from simulation tick and commit height.
-pub const WORLD_TIME_KEY_V1: &[u8] = b"oasis7.iws.world-time-key.v1\0";
-pub fn world_time_bytes_v1(time: WorldTime) -> [u8; b"oasis7.iws.world-time-value.v1\0".len() + 8] {
-    const DOMAIN: &[u8] = b"oasis7.iws.world-time-value.v1\0";
-    let mut bytes = [0; b"oasis7.iws.world-time-value.v1\0".len() + 8];
-    bytes[..DOMAIN.len()].copy_from_slice(DOMAIN);
-    bytes[DOMAIN.len()..].copy_from_slice(&time.to_be_bytes());
-    bytes
-}

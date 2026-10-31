@@ -18,11 +18,8 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_wasm_abi::ModuleTickLifecycleDirective;
-use oasis7_world_state::{
-    incremental_agent_body::{WORLD_TIME_KEY_V1, world_time_bytes_v1},
-    incremental_scheduler_fields::{
-        MODULE_WAKE_BYTES, MODULE_WAKE_INDEX_KEY_V1, ModuleWakeKeyV1, ModuleWakeV1,
-    },
+use oasis7_world_state::incremental_scheduler_fields::{
+    MODULE_WAKE_BYTES, MODULE_WAKE_INDEX_KEY_V1, ModuleWakeKeyV1, ModuleWakeV1,
 };
 
 fn cancelled<W, C: FnMut() -> bool>(
@@ -37,23 +34,14 @@ fn cancelled<W, C: FnMut() -> bool>(
 fn check_clock<R: MerkleNodeReader, V: ValueNodeReader, W, C: FnMut() -> bool>(
     now: u64,
     txn: &mut ExecutionTransaction<'_, R>,
-    values: &V,
+    _values: &V,
     context: &mut BodyMutationContext<'_, W, C>,
 ) -> Result<(), BodyMutationError> {
     if !txn.uses_budget(context.memory) {
         return Err(BodyMutationError::Invalid("scheduler transaction pool"));
     }
     cancelled(context)?;
-    let bytes = read_fixed::<{ b"oasis7.iws.world-time-value.v1\0".len() + 8 }, _, _, _, _>(
-        txn,
-        Ns::Allocator,
-        WORLD_TIME_KEY_V1,
-        values,
-        context,
-    )?;
-    if bytes != world_time_bytes_v1(now) {
-        return Err(BodyMutationError::Invalid("scheduler clock precondition"));
-    }
+    super::incremental_clock::check_clock(now, txn, context)?;
     Ok(())
 }
 fn read_wake<R: MerkleNodeReader, V: ValueNodeReader, W, C: FnMut() -> bool>(

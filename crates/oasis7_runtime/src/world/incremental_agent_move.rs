@@ -12,10 +12,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueNodeWriter},
 };
 use oasis7_world_state::{
-    incremental_agent_body::{
-        AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1, WORLD_TIME_KEY_V1,
-        world_time_bytes_v1,
-    },
+    incremental_agent_body::{AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1},
     incremental_agent_fields::{
         AGENT_I64_VALUE_BYTES, AgentFieldKeyV1, AgentFieldV1, AgentScalarRefV1,
     },
@@ -38,16 +35,7 @@ pub(super) fn contribute_move<
         if !txn.uses_budget(context.memory) {
             return Err(BodyMutationError::Invalid("transaction memory pool"));
         }
-        let clock = read_fixed::<{ b"oasis7.iws.world-time-value.v1\0".len() + 8 }, _, _, _, _>(
-            txn,
-            Ns::Allocator,
-            WORLD_TIME_KEY_V1,
-            values,
-            context,
-        )?;
-        if clock != world_time_bytes_v1(time) {
-            return Err(BodyMutationError::Invalid("move clock precondition"));
-        }
+        super::incremental_clock::check_clock(time, txn, context)?;
         let key = AgentBodyKeyV1::new(agent).map_err(BodyMutationError::Invalid)?;
         let mut body = AgentBodyValueV1::from_canonical_bytes(&read_fixed::<
             AGENT_BODY_VALUE_BYTES,

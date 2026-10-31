@@ -10,14 +10,11 @@ use oasis7_formal_protocol::{
     incremental_state::{
         StateDeltaV1, StateNamespaceV1 as Ns, StatePageWriter, StateRootV1, StateWriteV1,
     },
-    incremental_value::{ValueIoBudget, ValueNodeWriter, ValueStreamWriter},
+    incremental_value::{ValueIoBudget, ValueNodeWriter},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use oasis7_runtime::{BodyMutationContext, DueModuleBatchLimitsV1, World, WorldState};
-use std::{
-    io::Write,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Directory(std::path::PathBuf);
 impl Directory {
@@ -101,33 +98,27 @@ fn real_schedule_pages_reopen_and_select_in_original_instance_order() {
                     .unwrap(),
                 0
             );
-            // Independent literal clock fixture; no private Runtime formatter.
-            let mut clock = Vec::from(&b"oasis7.iws.world-time-value.v1\0"[..]);
-            clock.extend_from_slice(&11u64.to_be_bytes());
-            let mut quota = logical();
-            let mut cancelled = || false;
-            let mut writer = ValueStreamWriter::new(
-                &mut sink,
-                &producer,
-                &mut quota,
-                clock.len() as u64,
-                &mut cancelled,
-            )
-            .unwrap();
-            writer.write_all(&clock).unwrap();
-            let clock_root = writer.finish().unwrap().digest().unwrap();
+            let mut clock_rows = Vec::with_capacity(2);
+            world
+                .write_iws_clock_genesis(
+                    &mut BodyMutationContext {
+                        sink: &mut sink,
+                        memory: &producer,
+                        io: &mut logical(),
+                        cancelled: || false,
+                    },
+                    |key, id| {
+                        clock_rows.push(StateWriteV1 {
+                            key: key.to_vec(),
+                            before: None,
+                            after: Some(id),
+                        });
+                        Ok(())
+                    },
+                )
+                .unwrap();
             let mut roots = RootSetV1::empty("due-batch".into(), [3; 32]).unwrap();
-            for (namespace, writes) in [
-                (
-                    Ns::Allocator,
-                    vec![StateWriteV1 {
-                        key: b"oasis7.iws.world-time-key.v1\0".to_vec(),
-                        before: None,
-                        after: Some(clock_root),
-                    }],
-                ),
-                (Ns::Scheduler, rows),
-            ] {
+            for (namespace, writes) in [(Ns::Allocator, clock_rows), (Ns::Scheduler, rows)] {
                 let source = store
                     .state_session(physical(), MemoryClass::Ordinary)
                     .unwrap();
@@ -271,7 +262,7 @@ fn real_schedule_pages_reopen_and_select_in_original_instance_order() {
         txn.validate_guard(batch.guard(), &live).unwrap();
         let sealed = txn.seal(batch.guard(), &live, 2).unwrap();
         assert!(sealed.record.writes.is_empty());
-        assert_eq!(sealed.record.reads.len(), 6);
+        assert_eq!(sealed.record.reads.len(), 7);
         let verifier = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
