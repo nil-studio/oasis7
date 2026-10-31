@@ -420,3 +420,5 @@ mod points;
 
 #[path = "support/incremental_material_pages.rs"]
 mod pages;
+#[path = "support/incremental_material_boundaries.rs"]
+mod boundaries;
