@@ -722,3 +722,18 @@ QualifiedOrganizationParent 私有构造只认证确切父 roots 中这两个家
 Organization Case/Estate 的 RootRef 是实际子 StateRoot 出边，不能只保留顶层 value 页。标记与传输入口复用完整 family qualification，遍历六个认证顶层树、可选父依赖及 Case/Estate 记录中的 typed 内部 state/value 闭包；所有 read、scan、cell、语义键与记录字节额度由调用者连续提供，不按记录重置。有限 max_pages 的去重集合须在分配前按最坏节点开销准入，持有期间保持计费。重复原页只输出一次，hash、来源池/页界限或缺失子页不合法时不返回完成集合或资格。
 
 传输只向调用者暂存目的地输出原始物理页的 bytes/hash，不授予 World authority。输出拷贝先在同一进程 Ordinary 预算取得准入；若目的地采用缓冲 writer，调用者还必须成功 finish 后才能采用返回的 family 资格或标记集合。错误、取消、配额不足和 sink 失败保留已写暂存前缀但不得宣称完成。此集合只承接 Organization 与为其证明读取的顶层/父依赖；全局 GC/复制必须合并其余 owner、历史、读者 lease、未决和回滚保护，不以本入口替代全 World live set 或独立故障域持久证明。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+### 12.34 联盟、战争、危机和经济合同的专业 owner 闭包
+
+<a id="iws-diplomacy-contract-records-v1"></a>
+
+alliances、wars、crises、economic_contracts 保留各自 WorldState/Map/Business 唯一登记。每字段必需原 Metadata；原 String map key 的 Entry/RecordRoot 保留完整原键前像，165 字节引用绑定字段专属封闭 schema、原键 digest 和 Business namespace。每原记录有独立 Business StateRoot，内层以 Unit 相对寻址；不把业务内部 ID 与 map key 归一，不改业务治理、战争结算或经济合同权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+AllianceState 五字段、WarState 十八字段及 WarParticipantOutcome 四字段、CrisisState 十一字段、EconomicContractState 十六字段均穷尽原 DTO 显式生产。Text/U64/I64/Bool 使用既有 primitive；u32 以 U64 无损保存并拒越界；CrisisStatus、EconomicContractStatus、FulfillmentKind、ResourceKind 保留闭合原标签。所有 Option 分为原名 Bool 存在及独立 value，None 与 Some(false/0/空字符串) 不同。members Vec<String> 与 participant_outcomes Vec<Outcome> 独立保存 Unit 集合标记和 U64 length，成员保原零基 ordinal、重复和顺序；每个 Outcome 原 ordinal 对应 Unit 加 agent_id/electricity_delta/data_delta/reputation_delta 四列，不能聚合 Serialize 叶或 clone 整记录。
+
+GEN 借用全部原值并流写；空创建要求精确完整家族资格、guard/live/同池 Ordinary，且在任何写前拒非空 Vec，随后可同事务添加成员。标量 expected/update 不比较或替换动态 Vec。正常字段与 ordinal 操作只读目标及其必需关系，不扫描无关长 Text/成员；Vec 仅原位更新、追加、尾弹，长度先于正文 expected；无全关系依据不暴露动态 owner 整删。纯闭合 Crisis/Contract 删除仍需完整 expected。
+
+完整 root-only 资格不要求原 World/完整 DTO，有限地检查四字段 Metadata、六根错位、引用绑定、全部 primitive/UTF8/Option/闭合枚举、Vec ordinal 小于 length 且实际数量相等、Outcome 完整列和无未知/孤儿。正常接收器先验证通用转移，再按实际外写与内部 Merkle 差分验证变化路径并继承未变闭包，不全扫未变大对象；计费、组合取消和最后取消贯穿，失败不返回后继资格，事务贡献失败 poison 先前前缀。
+
+页 mark/transfer 复用同一完整 owner 资格并追随所有内部根；sink 输出在包括 buffered finish 的全部步骤成功前保持暂态。本四字段资格不是完整 World、协议接受、业务权限或全局 GC live set；必须组合其他 owner/历史/lease/未决和回滚保护。独立字面 oracle、Raw/Zstd 冷恢复、合法后继、预算/取消/真实 put/poison 和缺页拒绝分别验证，不把 visitor/typecheck 当完整实现。
