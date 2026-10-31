@@ -427,7 +427,7 @@ pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改�
 
 固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
 
-payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）。Bytes key 只配 Bytes payload；Entry 只配前六种。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
 
 写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
 
@@ -530,3 +530,55 @@ Runtime 的原 AgentMoved 事件与 BodyAttributesUpdated 复用同一 AgentEven
 认证读取、前置条件、暂存编码和贡献位于一次 contribute 内；任何错误、取消、guard/fence 失配、有限额度耗尽或 panic 都使整笔事务不可 seal，不能在失败后发布较早成功点写。新值页在同一事务后续读取前必须可见；页可见和点写成功都不表示业务提交或 head 发布。成功后调用方取得当前 guard 继续后续阶段，原 parent 与已接受 head 保持不变，直到原提交链路实际发布。
 
 该入口写原 owner 已决定的最终数量，不执行费用、余额许可或外部效果；不能用存储 setter 代替业务授权。它不提供完整 World、Group 删除、持久闭包资格、复制或恢复激活，仍须接入完整 owner 与原提交合同。
+
+
+### 12.13 世界时钟与固定 u64 字段
+
+<a id="iws-world-u64-fields-v1"></a>
+
+类型化标量入口覆盖 WorldState 的 time、next_industry_settlement_order、next_module_release_request_id、next_module_instance_id、next_module_market_order_id、next_module_market_sale_id 和 agent_claim_last_processed_epoch。沿用唯一字段登记：前六项属于 Allocator，最后一项属于 Scheduler，均为 Value；不把 WorldTime 当成 RootSet.simulation_tick，不将任何业务字段擅自迁入 Business。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每个字段写一条 Metadata 和一条以规范 Unit 语义键索引的 Entry/U64 记录，payload 为8字节大端。零、u64::MAX 和字段原值完整保留；这七项均是必需标量，缺 Metadata 或 Entry 是错误，不默认零，也不提供删除入口。创世仅借用这七个原字段，最多输出14条带 namespace 和 reservation 的暂存写，不遍历其他状态或历史；失败不返回完整结果，调用方丢弃全部暂存前缀。
+
+七字段创世生产、固定根类型化读取及当前事务 overlay 点读/点写已提供；完整 World 接线仍待完成。固定根读取使用同池同 class 的 Ordinary/Recovery reader，按已登记结构键的 namespace 在状态 I/O 前拒绝错根，缺失 Metadata/Entry 均报错；事务内读写须复用共享字段上下文，按结构键的已登记 namespace 查询同一 ExecutionTransaction。共用键/presence/固定8字节认证，U64 codec 必须显式匹配，不能把 I64 同位模式或错误字段的值当成合法 u64。事务写在同一 contribute 内检查当前 guard/live fence、同池 Ordinary、当前值 expected-before 和实际 writer 输出键，再直接贡献该字段最终根；no-op 保留读依赖，任一失败/取消使整个事务不可 seal。读、写及状态查找持续使用调用方的有限额度，owned 写键在分配前取得 reservation。
+
+标量 setter 接受原 owner 已决定的值，不分配 ID、不替代 era/防重放规则、时钟推进或调度业务授权；包含 rollover 的变化仍须由同一完整事务更新相关控制字段。共享字段读取上下文只提供各 typed adapter 共用的有限读取与错误传播，不因通用化而授予字段/根 authority。此片不代表完整 World、C<T 恢复、复制/GC 或规模验收，结构化可增长字段仍须单独实现，禁止以整块 Serde 代替。
+
+### 12.14 产品验证交付游标
+
+<a id="iws-delivery-cursor-v1"></a>
+
+product_validation_delivery_cursor 沿唯一字段登记保持 WorldState/Value/Scheduler，不能用 simulation_tick 或最高事件 ID 单独替代。其必需 Metadata 与规范 Unit Entry 共同认证，Entry 使用 field-member.v1 的封闭 DeliveryCursor codec（tag 8），payload 固定16字节：event_id_era u64大端，随后 routed_through_event_id u64大端；零和最大值完整保留，不用 Serde 或整段历史恢复该游标。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世生产借用原游标，仅输出两条带 reservation 的 Scheduler 写；缺失 Metadata/Entry、错 namespace、错 codec、固定长度错误均报错，不默认游标零值。固定根读取沿用同池/class、有限键/I/O/内存和逐节点取消合同，Ordinary/Recovery 均可使用。生产入口只保存原 owner 决定的 era-aware 游标，不调用 advance_to 或授权重送；完整事件身份、原结果、交付账本和共享事务仍须原提交链路共同认证。事务内入口在同一 contribute 中认证当前 Metadata 与 Unit Entry，比较完整 era/event ID expected-before；守住当前 guard/live fence、同池 Ordinary、组合读写取消及封闭 writer 输出键。no-op 保留两条读取依赖，任一失败使整笔事务不可 seal。它直接保存原 owner 决定的最终游标，不自行调用 advance_to；跨 era 的后续合法交付仍由原业务合同决定。该单字段接线与持久成功不代替完整 World 或 C<T 续跑资格。
+
+### 12.15 结算与回收 ID 集合
+
+<a id="iws-world-id-sets-v1"></a>
+
+completed_logistics_route_ids、retired_factory_ids 保留原 String ID；settled_logistics_transit_ids、settled_factory_build_ids、settled_recipe_job_ids 保留原 ActionId/u64。五项沿唯一登记保持 WorldState/Set/Authorization，各自必需 Metadata，成员以原完整语义键索引 Entry/Unit（零 payload）。文本与数值键保持不同规范 token；类型不符的请求必须拒绝，不能把字符串“1”当 ActionId 1。零、极值、空字符串及 Unicode 原键不能裁剪或改写。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世按源集合借用逐项输出，不 clone World 或先收集全部 ID；记录数、键工作、I/O、取消及进程池额度持续有限。空集合仍保留 Metadata；缺必需 Metadata 是错误，只有在认证有效字段根后查不到成员才是 false。固定根点查使用同池同 class 的 Ordinary/Recovery reader，认证原键、Unit codec 和零 payload。全部暂存输出保持 provisional，失败须整体丢弃。集合点变更将由同一业务事务贡献，不能将集合落盘视为结算授权、完整 receipt、实际费用或交付已完成；相应 owner 仍须原子提交原结果及必需控制字段。集合事务点查及增删在同一 contribute 中认证当前 Metadata/成员，核对当前 guard/live fence、同池 Ordinary、完整类型化 key 与 expected-before；no-op 保留依赖，失败或取消使整个事务不可 seal。删除只移除成员，永不删除必需 Metadata。创世、点读及事务增删仍不构成完整 World 资格或上层结算链路已接通。
+
+### 12.16 固定数值映射
+
+<a id="iws-world-number-maps-v1"></a>
+
+industry_settlement_orders 保留 ActionId/u64 键与 u64 原序号；agent_claim_acquisition_sequences 保留 String 键与 u64 原序号，两者属于 Allocator。contract_pair_last_success_settled_at、reputation_reward_window_started_at 保留 String/u64；reputation_reward_window_accumulated、reputation_scores 保留 String/i64，四项属于 Business。main_token_treasury_balances 保留 String/u64，属于 Business；main_token_claim_nonces、main_token_transfer_nonces、node_redeem_nonces、governance_authorization_nonces 保留 String/u64，属于 Authorization。十一项沿 WorldState/Map 的唯一字段登记，必需 Metadata 和原键 Entry/U64 或 Entry/I64；codec 不允许有符号/无符号位模式互换，文本键与数值键不得互换。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世借用对应 map 逐条输出，空 map 仍保存 Metadata，不先收集或 clone 全部键值。固定根点读只有认证有效字段且成员缺失时返回 None；Some(0)、i64::MIN/MAX 和 u64::MAX 保留原值，缺 Metadata、错误键类型、错误 codec 或 namespace 均拒绝。所有读写沿用有限键工作、I/O、记录数、同池/class、预准入与取消规则。事务入口在同一 contribute 中认证当前 Metadata/成员、检查当前 guard/live fence 与同池 Ordinary，并比较完整 Option<有符号/无符号数值> expected-before；None 与 Some(0) 不合并。新增和替换使用原封闭 codec，删除只移除成员，必需 Metadata 保留。键/数值类型不符、前置冲突、取消或额度失败使整笔事务不可 seal；no-op 保留读取依赖。原 owner 的完整业务结果仍需接通，不把数值 setter 当成结算、声望或 ID 分配授权，也不以部分字段 root 取得完整 World 资格。
+
+### 12.17 认证采集 nonce 映射
+
+<a id="iws-authenticated-nonces-v1"></a>
+
+authenticated_collect_data_last_nonces 沿唯一登记保持 WorldState/NestedMap/Authorization，原 outer player_id 与 inner public_key 均以完整 String 编码，nonce 保留原 u64。必需 Metadata 之外，每个玩家（包括空 map）有独立 Group，成员使用规范二元语义键 (player_id, public_key) 和 Entry/U64；不能连接字符串代替二元键，不能规范化或重写公钥文本。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世借用原 nested map 逐组逐项流写，不 clone 玩家 map 或汇总全部 nonce；空玩家 Group 仍输出，记录数、键/I/O、内存与取消使用持续有限额度。固定根点查分别返回 PlayerAbsent、KeyAbsent、Value(u64)，不将三者或 Value(0) 合并。Metadata 缺失、当前查询成员的 orphan、原键/codec/namespace 错误均拒绝，目标 Group 与成员必须共同认证。PlayerAbsent 只说明该查询路径的玩家 Group 标记缺失，点读不扫描兄弟公钥，不能据此证明整个玩家子图没有 orphan；接入业务授权前必须依赖 §12.2 的完整字段族资格，当前点查入口本身不产生该资格。读者支持同池/class 的 Ordinary/Recovery，所有暂存写在完整调用成功前 provisional。事务点读/更新在一次 contribute 中认证当前 Metadata/Group/成员，精确比较三态 expected-before，并检查当前 guard/live fence、同池 Ordinary、组合取消及 writer 实际返回键。新增玩家 Group 必须显式 create_player；该标志可单独创建空 Group，删除只移除目标成员，不推定无兄弟键或删除 Group。任何失败使整笔事务不可 seal，no-op 保留三条读取依赖。原验签、nonce 单调性、费用与原业务结果仍须由 owner 在共享事务内接通，存储记录本身不授予采集或重放权限，不代表完整 World/C<T 续跑资格。
+
+
+### 12.18 授权 MapSet 原键成员
+
+<a id="iws-authorization-mapsets-v1"></a>
+
+data_access_permissions 与 module_release_role_bindings 沿 WorldState/MapSet/Authorization 唯一登记。必需 Metadata，每个原主体 String（包括空集合）有 Group；成员以规范二元语义键 (主体, 原成员 String) 写 Entry/Unit，不能拼接、规范化或重命名任一部分。创世借用原 map/set 逐条输出，不 clone 或收集全部成员。固定根点读分别返回 GroupAbsent、MemberAbsent、Present，只有认证 Metadata、目标 Group 与成员之后才返回；缺 Metadata、目标 orphan、错误 codec/namespace 均拒绝。GroupAbsent 只描述当前 Group 标记，不能证明所有兄弟成员无 orphan；业务授权仍要求 §12.2 的完整字段族资格及原 owner 校验。原角色或权限含义不由该存储入口授予。沿用有限记录数、语义键、I/O、同池/class 预算及取消；共享事务入口在同一次 contribute 中认证当前 Metadata/Group/成员并比较完整三态 expected，核对当前 guard/live fence、同池 Ordinary 及读写组合取消。新增组必须显式 create_group，允许单独建立空组；删除只移除目标成员，不能从点查推定空组并删除 Group。no-op 保留三条读取依赖，任何冲突、预算或取消失败使整笔不可 seal。原 owner 仍决定权限/角色变化，存储 setter 不提供业务授权或完整 World 激活。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。

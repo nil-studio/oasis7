@@ -193,3 +193,29 @@ pub mod incremental_semantic_key;
 mod task_terminal_v2;
 #[cfg(not(target_arch = "wasm32"))]
 pub use task_terminal_v2::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_u64;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_field_read;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_field_overlay;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_delivery_cursor;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_field_write;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_id_sets;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_number_maps;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_authenticated_nonces;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_authorization_mapsets;

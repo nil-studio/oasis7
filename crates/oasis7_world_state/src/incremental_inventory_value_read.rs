@@ -62,17 +62,36 @@ impl<R: ValueNodeReader, C: FnMut() -> bool> InventoryValueReader<'_, '_, R, C> 
         key: &WorldFieldKeyV1,
         semantic_bytes: u64,
     ) -> Result<i64, ValueTreeError> {
-        let mut bytes = [0; 8];
+        self.fixed(value, key, semantic_bytes, MemberPayloadCodecV1::I64)
+            .map(i64::from_be_bytes)
+    }
+    pub(crate) fn unsigned(
+        &mut self,
+        value: &[u8; 32],
+        key: &WorldFieldKeyV1,
+        semantic_bytes: u64,
+    ) -> Result<u64, ValueTreeError> {
+        self.fixed(value, key, semantic_bytes, MemberPayloadCodecV1::U64)
+            .map(u64::from_be_bytes)
+    }
+    pub(crate) fn fixed<const N: usize>(
+        &mut self,
+        value: &[u8; 32],
+        key: &WorldFieldKeyV1,
+        semantic_bytes: u64,
+        codec: MemberPayloadCodecV1,
+    ) -> Result<[u8; N], ValueTreeError> {
+        let mut bytes = [0; N];
         read_member_record_profile_v1(
             value,
             key,
             &mut *self.values,
             MemberReadProfileV1 {
-                codec: MemberPayloadCodecV1::I64,
+                codec,
                 semantic_bytes,
                 limits: MemberRecordLimitsV1 {
                     semantic_bytes: self.semantic_bytes,
-                    payload_bytes: 8,
+                    payload_bytes: N as u64,
                     record_bytes: self.record_bytes,
                 },
             },
@@ -83,7 +102,7 @@ impl<R: ValueNodeReader, C: FnMut() -> bool> InventoryValueReader<'_, '_, R, C> 
         if (self.cancelled)() {
             return Err(ValueTreeError::Cancelled);
         }
-        Ok(i64::from_be_bytes(bytes))
+        Ok(bytes)
     }
     pub(crate) fn presence(
         &mut self,

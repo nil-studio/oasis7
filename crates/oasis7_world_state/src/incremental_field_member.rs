@@ -11,6 +11,7 @@ use crate::{
     incremental_semantic_key::{
         SemanticKeyError, SemanticKeyV1, hash_semantic_key_v1, write_semantic_key_v1,
     },
+    state::ProductValidationDeliveryCursor,
 };
 use oasis7_formal_protocol::incremental_value::{
     ValueIoBudget, ValueNodeWriter, ValueStreamWriter, ValueTreeError,
@@ -31,6 +32,7 @@ pub enum MemberPayloadCodecV1 {
     Text = 5,
     Ledger = 6,
     Bytes = 7,
+    DeliveryCursor = 8,
 }
 impl MemberPayloadCodecV1 {
     fn parse(tag: u8) -> Result<Self, &'static str> {
@@ -42,6 +44,7 @@ impl MemberPayloadCodecV1 {
             5 => Self::Text,
             6 => Self::Ledger,
             7 => Self::Bytes,
+            8 => Self::DeliveryCursor,
             _ => return Err("member payload codec"),
         })
     }
@@ -55,6 +58,7 @@ impl MemberPayloadCodecV1 {
             Self::Unit => Some(0),
             Self::U64 | Self::I64 => Some(8),
             Self::Bool => Some(1),
+            Self::DeliveryCursor => Some(16),
             _ => None,
         };
         if fixed.is_some_and(|n| n != length) {
@@ -72,6 +76,7 @@ pub enum MemberPayloadRefV1<'a> {
     Text(&'a str),
     Ledger(&'a MaterialLedgerId),
     Bytes(&'a [u8]),
+    DeliveryCursor(&'a ProductValidationDeliveryCursor),
 }
 impl MemberPayloadRefV1<'_> {
     fn profile(self) -> Result<(MemberPayloadCodecV1, u64), &'static str> {
@@ -84,6 +89,7 @@ impl MemberPayloadRefV1<'_> {
             Self::Text(s) => (MemberPayloadCodecV1::Text, length(s.len())?),
             Self::Ledger(v) => (MemberPayloadCodecV1::Ledger, ledger_value_len_v1(v)?),
             Self::Bytes(b) => (MemberPayloadCodecV1::Bytes, length(b.len())?),
+            Self::DeliveryCursor(_) => (MemberPayloadCodecV1::DeliveryCursor, 16),
         })
     }
     fn write(self, output: &mut impl Write) -> io::Result<()> {
@@ -95,6 +101,14 @@ impl MemberPayloadRefV1<'_> {
             Self::Text(s) => output.write_all(s.as_bytes()),
             Self::Ledger(v) => write_ledger_value_v1(v, output).map(|_| ()),
             Self::Bytes(b) => output.write_all(b),
+            Self::DeliveryCursor(cursor) => {
+                let ProductValidationDeliveryCursor {
+                    event_id_era,
+                    routed_through_event_id,
+                } = cursor;
+                output.write_all(&event_id_era.to_be_bytes())?;
+                output.write_all(&routed_through_event_id.to_be_bytes())
+            }
         }
     }
 }
