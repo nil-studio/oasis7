@@ -12,7 +12,7 @@ fn charged(memory: &MemoryBudget, data: &[u8]) -> ReservedValue<Vec<u8>> {
 fn buffered_transfer_finishes_exact_pages_and_drop_never_flushes() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let fixture = Fixture::new();
-        let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
+        let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
         let store =
             IncrementalPageStore::create(&fixture.store(), memory.clone(), compression).unwrap();
         let baseline = memory.used();
@@ -59,7 +59,7 @@ fn buffered_transfer_finishes_exact_pages_and_drop_never_flushes() {
 fn buffered_transfer_observes_cancel_after_real_final_publication() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let fixture = Fixture::new();
-        let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
+        let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
         let store =
             IncrementalPageStore::create(&fixture.store(), memory.clone(), compression).unwrap();
         let cancelled = AtomicBool::new(false);
