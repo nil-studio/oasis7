@@ -147,12 +147,26 @@ struct Partial {
     bytes: Vec<u8>,
     deadline: Instant,
 }
+#[cfg(any(test, feature = "test-hooks"))]
+struct TraceCompletion {
+    route: usize,
+    kind: &'static str,
+    completed: Instant,
+    digest: String,
+    position: Option<super::route_trace::Position>,
+}
 pub(super) struct Inbox {
     partial: BTreeMap<(PeerId, String), Partial>,
     complete: VecDeque<(usize, NodeBftReceivedPublicV3)>,
     completed: BTreeMap<(PeerId, String), (usize, Instant)>,
     partial_bytes: usize,
     complete_bytes: usize,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_scope: Option<super::route_trace::NodeBftRouteTraceScopeV3>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_routes: BTreeMap<PeerId, usize>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    trace_complete: VecDeque<TraceCompletion>,
 }
 impl Inbox {
     pub fn new() -> Self {
@@ -162,7 +176,26 @@ impl Inbox {
             completed: BTreeMap::new(),
             partial_bytes: 0,
             complete_bytes: 0,
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_scope: None,
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_routes: BTreeMap::new(),
+            #[cfg(any(test, feature = "test-hooks"))]
+            trace_complete: VecDeque::new(),
         }
+    }
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub(super) fn trace_routes(
+        &mut self,
+        peers: &[PeerId],
+        local: PeerId,
+        scope: super::route_trace::NodeBftRouteTraceScopeV3,
+    ) {
+        self.trace_routes = peers
+            .iter()
+            .map(|peer| (*peer, super::route_trace::route(&scope, *peer, local)))
+            .collect();
+        self.trace_scope = Some(scope);
     }
     pub fn receive(
         &mut self,
@@ -246,6 +279,38 @@ impl Inbox {
             let p = self.partial.remove(&key).ok_or("public assembly missing")?;
             self.partial_bytes -= p.total;
             self.complete_bytes += p.total;
+            #[cfg(any(test, feature = "test-hooks"))]
+            {
+                let observation = self.trace_scope.as_ref().map(|scope| {
+                    let route = self.trace_routes.get(&peer).copied().unwrap_or(256);
+                    let kind = super::route_trace::kind(&message);
+                    let position = super::route_trace::position(&message);
+                    let age = now.saturating_duration_since(p.deadline - TTL);
+                    super::route_trace::event_message(
+                        scope,
+                        route,
+                        kind,
+                        "assembly_complete",
+                        "received",
+                        age,
+                        age,
+                        p.deadline.saturating_duration_since(now),
+                        0,
+                        Some(&f.digest),
+                        position,
+                    );
+                    TraceCompletion {
+                        route,
+                        kind,
+                        completed: now,
+                        digest: f.digest.clone(),
+                        position,
+                    }
+                });
+                if let Some(observation) = observation {
+                    self.trace_complete.push_back(observation);
+                }
+            }
             self.complete.push_back((
                 p.total,
                 NodeBftReceivedPublicV3 {
@@ -288,6 +353,30 @@ impl Inbox {
                 break;
             };
             self.complete_bytes -= n;
+            #[cfg(any(test, feature = "test-hooks"))]
+            if let Some(TraceCompletion {
+                route,
+                kind,
+                completed,
+                digest,
+                position,
+            }) = self.trace_complete.pop_front()
+                && let Some(scope) = &self.trace_scope
+            {
+                super::route_trace::event_message(
+                    scope,
+                    route,
+                    kind,
+                    "drain",
+                    "delivered",
+                    completed.elapsed(),
+                    completed.elapsed(),
+                    Duration::ZERO,
+                    0,
+                    Some(&digest),
+                    position,
+                );
+            }
             out.push(message);
         }
         out

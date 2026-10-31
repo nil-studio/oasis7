@@ -116,6 +116,7 @@ fn public_vote_uses_two_noise_tcp_swarms_and_nonblocking_queue() {
         vec![a.peer_id().to_string(), PeerId::random().to_string()],
     )
     .unwrap();
+    assert!(ta.trace_scope.is_none() && tb.trace_scope.is_none());
     let msg = vote();
     let before = Instant::now();
     tb.broadcast_public(&msg).unwrap();

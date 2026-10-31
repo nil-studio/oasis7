@@ -17,6 +17,10 @@ struct Fetching {
     operation: Box<dyn NodeBftPrivateCandidateFetchV3>,
     deadline: Instant,
     context: NodeBftExecutionContextV3,
+    #[cfg(any(test, feature = "test-hooks"))]
+    // End means this fetch was released, not that it succeeded. A ready fetch
+    // additionally enters materialize; only journal_advanced marks durable admission.
+    _diagnostic_lifetime: Option<Box<dyn Send>>,
 }
 struct HistoryRequest {
     peer: String,
@@ -59,12 +63,27 @@ impl PeerRuntime {
     }
 }
 impl Worker {
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn message_span(
+        &self,
+        stage: &'static str,
+        peer: &str,
+        message: &BftPublicPeerMessageV3,
+    ) -> Option<Box<dyn Send>> {
+        self.selected.network.as_ref().and_then(|network| {
+            network
+                .transport
+                .diagnostic_message_span_for_test(stage, peer, message)
+        })
+    }
     pub(super) fn broadcast(&self, message: BftPublicPeerMessageV3) {
         if let Some(network) = &self.selected.network {
             let _ = network.transport.broadcast_public(&message);
         }
     }
     pub(super) fn poll_peers(&mut self) -> Result<(), NodeError> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let _scope = self.diagnostic_span("worker.poll");
         let Some(network) = self.selected.network.clone() else {
             return Ok(());
         };
@@ -100,8 +119,21 @@ impl Worker {
             self.peers.request = None;
         }
         if let Some(mut fetching) = self.peers.fetching.take() {
-            match fetching.operation.poll() {
+            #[cfg(any(test, feature = "test-hooks"))]
+            // A worker has one fetch; its persistent lifetime already carries
+            // the message. Avoid re-encoding that message on every Pending poll.
+            let poll_span = self.diagnostic_span("worker.fetch_poll");
+            let fetched = fetching.operation.poll();
+            #[cfg(any(test, feature = "test-hooks"))]
+            drop(poll_span);
+            match fetched {
                 Ok(Some(package)) => {
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    let _materialize_span = self.message_span(
+                        "worker.materialize",
+                        &fetching.input.peer,
+                        &fetching.input.message,
+                    );
                     if package.candidate.public_value
                         == message_value(&fetching.input.message)
                             .ok_or_else(|| error("wire-3 private fetch lost public value"))?
@@ -133,7 +165,10 @@ impl Worker {
                             )
                             .is_ok()
                             {
-                                self.accept_materialized(fetching.input.message)?;
+                                self.accept_materialized(
+                                    &fetching.input.peer,
+                                    fetching.input.message,
+                                )?;
                             }
                         }
                     }
@@ -146,7 +181,12 @@ impl Worker {
         // The adapter authenticates transport identities; protocol signatures
         // remain separately checked against the admitted current schedule.
         let configured_peers = network.transport.peers();
-        for received in network.transport.drain_public(32).map_err(error)? {
+        let received_public = {
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope = self.diagnostic_span("worker.drain");
+            network.transport.drain_public(32).map_err(error)?
+        };
+        for received in received_public {
             if !configured_peers.contains(&received.peer_id) {
                 continue;
             }
@@ -158,6 +198,11 @@ impl Worker {
                 Err(_) => continue,
             };
             let digest = message_digest(&received.message)?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            let input_span =
+                self.message_span("worker.input", &received.peer_id, &received.message);
+            #[cfg(any(test, feature = "test-hooks"))]
+            let diagnostic_input = input_span.as_ref().map(|_| received.message.clone());
             match received.message {
                 BftPublicPeerMessageV3::HistoryRequest(request) => {
                     self.serve_history(&received.peer_id, request)?
@@ -254,6 +299,14 @@ impl Worker {
                                 continue;
                             }
                             self.advance(journal)?;
+                            #[cfg(any(test, feature = "test-hooks"))]
+                            if let Some(message) = &diagnostic_input {
+                                drop(self.message_span(
+                                    "worker.journal_advanced",
+                                    &received.peer_id,
+                                    message,
+                                ));
+                            }
                             self.machine = next;
                             self.effects.extend(effects);
                             self.peers.seen.insert(digest);
@@ -262,6 +315,9 @@ impl Worker {
                         && self.peers.queued.len() < QUEUED_COUNT
                         && self.peers.queued_bytes.saturating_add(encoded.len()) <= QUEUED_BYTES
                     {
+                        #[cfg(any(test, feature = "test-hooks"))]
+                        let _queued_span =
+                            self.message_span("worker.queued", &received.peer_id, &message);
                         self.peers.queued_bytes += encoded.len();
                         self.peers.queued.push_back(Incoming {
                             peer: received.peer_id,
@@ -287,8 +343,15 @@ impl Worker {
                 item
             };
             if let Some(input) = input
-                && self.validate_public_input(&input.message).is_ok()
+                && {
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    drop(self.message_span("worker.selected", &input.peer, &input.message));
+                    self.validate_public_input(&input.message).is_ok()
+                }
             {
+                #[cfg(any(test, feature = "test-hooks"))]
+                let _materialize_span =
+                    self.message_span("worker.materialize", &input.peer, &input.message);
                 let value = message_value(&input.message)
                     .ok_or_else(|| error("wire-3 missing public value"))?;
                 if startup::candidate(
@@ -300,7 +363,7 @@ impl Worker {
                 )
                 .is_ok()
                 {
-                    self.accept_materialized(input.message)?;
+                    self.accept_materialized(&input.peer, input.message)?;
                 } else if self.peers.fetch_budget.reserve(
                     &configured_peers,
                     &input.peer,
@@ -312,6 +375,9 @@ impl Worker {
                     } else {
                         NodeBftPrivateFetchKindV3::PendingCandidate
                     };
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    let diagnostic_lifetime =
+                        self.message_span("worker.fetch_lifetime", &input.peer, &input.message);
                     if let Ok(operation) = network.exchange.start_fetch(
                         NodeBftPrivateFetchRequestV3 {
                             peer_id: input.peer.clone(),
@@ -322,6 +388,8 @@ impl Worker {
                         self.lease.clone(),
                     ) {
                         self.peers.fetching = Some(Fetching {
+                            #[cfg(any(test, feature = "test-hooks"))]
+                            _diagnostic_lifetime: diagnostic_lifetime,
                             input,
                             operation,
                             context,
@@ -407,11 +475,19 @@ impl Worker {
             _ => Err("wire-3 private input requested for unsupported message".into()),
         }
     }
-    fn accept_materialized(&mut self, message: BftPublicPeerMessageV3) -> Result<(), NodeError> {
+    fn accept_materialized(
+        &mut self,
+        _peer: &str,
+        message: BftPublicPeerMessageV3,
+    ) -> Result<(), NodeError> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let accept_span = self.message_span("worker.accept_materialized", _peer, &message);
         if is_local_echo(&message, &self.selected.binding.local_validator_id) {
             return Ok(());
         }
         let digest = message_digest(&message)?;
+        #[cfg(any(test, feature = "test-hooks"))]
+        let diagnostic_input = accept_span.as_ref().map(|_| message.clone());
         match message {
             BftPublicPeerMessageV3::Proposal(proposal) => {
                 if super::super::membership::active_key(&self.selected, &self.schedule).is_none() {
@@ -434,6 +510,10 @@ impl Worker {
                         return Ok(());
                     }
                     self.advance(journal)?;
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    if let Some(message) = &diagnostic_input {
+                        drop(self.message_span("worker.journal_advanced", _peer, message));
+                    }
                     self.machine = next;
                     self.effects.extend(effects);
                     self.peers.seen.insert(digest);

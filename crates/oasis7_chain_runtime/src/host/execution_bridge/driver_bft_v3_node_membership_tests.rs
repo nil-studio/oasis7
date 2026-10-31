@@ -155,7 +155,7 @@ fn admission_payloads(driver: &FormalBftHeaderNodeDriverV3) -> Vec<(u64, Vec<u8>
     clippy::too_many_arguments,
     reason = "actual nodes, authorities and their binding policies remain explicit"
 )]
-pub(super) fn exercise(
+pub(super) fn exercise<G>(
     nodes: &mut [NodeRuntime],
     actual: &[Arc<Mutex<FormalBftHeaderNodeDriverV3>>],
     snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
@@ -164,6 +164,7 @@ pub(super) fn exercise(
     clock_start: &membership_clock::ElapsedClock,
     bindings: &[BftSignerBindingV3],
     confirmation_timeout_budget: Option<Duration>,
+    begin_wait_h6_scope: impl FnOnce() -> G,
 ) {
     // Node zero is isolated at height 6 by the transport fixture, before it
     // can contribute a vote or deliver a locally assembled certificate.
@@ -224,7 +225,10 @@ pub(super) fn exercise(
         return;
     }
     wait_height(nodes, snapshots, 5);
-    wait_height(&nodes[1..], &snapshots[1..], 6);
+    {
+        let _wait_h6_scope = begin_wait_h6_scope();
+        wait_height(&nodes[1..], &snapshots[1..], 6);
+    }
     assert_eq!(
         snapshots[0]
             .lock()
@@ -639,6 +643,18 @@ impl HeightPartition {
     }
 }
 impl oasis7_node::NodeBftPeerTransportV3 for HeightPartition {
+    fn diagnostic_span_for_test(&self, stage: &'static str) -> Option<Box<dyn Send>> {
+        self.inner.diagnostic_span_for_test(stage)
+    }
+    fn diagnostic_message_span_for_test(
+        &self,
+        stage: &'static str,
+        peer: &str,
+        message: &oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3,
+    ) -> Option<Box<dyn Send>> {
+        self.inner
+            .diagnostic_message_span_for_test(stage, peer, message)
+    }
     fn context(&self) -> &oasis7_consensus::tendermint_v3::BftPeerContextV3 {
         self.inner.context()
     }
@@ -790,5 +806,124 @@ fn wait_height_with_budget(
                 .collect::<Vec<_>>()
         );
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn membership_transport_wrappers_preserve_scoped_diagnostics() {
+    use oasis7_node::NodeBftPeerTransportV3;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    struct Probe {
+        drops: Arc<AtomicU64>,
+    }
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    struct Inner {
+        enabled: bool,
+        calls: Arc<AtomicU64>,
+        drops: Arc<AtomicU64>,
+    }
+    impl NodeBftPeerTransportV3 for Inner {
+        fn diagnostic_span_for_test(&self, stage: &'static str) -> Option<Box<dyn Send>> {
+            assert_eq!(stage, "worker.poll");
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.enabled.then(|| {
+                Box::new(Probe {
+                    drops: self.drops.clone(),
+                }) as Box<dyn Send>
+            })
+        }
+        fn diagnostic_message_span_for_test(
+            &self,
+            stage: &'static str,
+            peer: &str,
+            message: &oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3,
+        ) -> Option<Box<dyn Send>> {
+            assert_eq!(stage, "worker.materialize");
+            assert_eq!(peer, "opaque-peer");
+            assert!(matches!(
+                message,
+                oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3::HistoryRequest(_)
+            ));
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.enabled.then(|| {
+                Box::new(Probe {
+                    drops: self.drops.clone(),
+                }) as Box<dyn Send>
+            })
+        }
+        fn context(&self) -> &oasis7_consensus::tendermint_v3::BftPeerContextV3 {
+            panic!("diagnostics must not invoke protocol context")
+        }
+        fn peers(&self) -> Vec<String> {
+            panic!("diagnostics must not query peers")
+        }
+        fn broadcast_public(
+            &self,
+            _: &oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3,
+        ) -> Result<(), String> {
+            panic!("diagnostics must not broadcast")
+        }
+        fn send_public(
+            &self,
+            _: &str,
+            _: &oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3,
+        ) -> Result<(), String> {
+            panic!("diagnostics must not send")
+        }
+        fn drain_public(
+            &self,
+            _: usize,
+        ) -> Result<Vec<oasis7_node::NodeBftReceivedPublicV3>, String> {
+            panic!("diagnostics must not drain")
+        }
+    }
+    for enabled in [false, true] {
+        let calls = Arc::new(AtomicU64::new(0));
+        let drops = Arc::new(AtomicU64::new(0));
+        let partition = Arc::new(fetch_cases::PartitionedPublic {
+            inner: Arc::new(Inner {
+                enabled,
+                calls: calls.clone(),
+                drops: drops.clone(),
+            }),
+            enabled: Arc::new(AtomicBool::new(false)),
+            held: Mutex::new(Vec::new()),
+            drains: Arc::new(AtomicU64::new(0)),
+            received: Arc::new(AtomicU64::new(0)),
+        });
+        let single = partition.diagnostic_span_for_test("worker.poll");
+        assert_eq!(single.is_some(), enabled);
+        drop(single);
+        let outer = HeightPartition {
+            confirmation_timeout: true,
+            inner: partition.clone(),
+            isolated: Arc::new(AtomicBool::new(true)),
+        };
+        let nested = outer.diagnostic_span_for_test("worker.poll");
+        assert_eq!(nested.is_some(), enabled);
+        drop(nested);
+        let message = oasis7_consensus::tendermint_v3::BftPublicPeerMessageV3::HistoryRequest(
+            oasis7_consensus::tendermint_v3::BftPeerHistoryRequestV3 {
+                nonce: "00".repeat(32),
+                after_height: 0,
+                after_header_id: "test".into(),
+                max_entries: 1,
+            },
+        );
+        let correlated =
+            outer.diagnostic_message_span_for_test("worker.materialize", "opaque-peer", &message);
+        assert_eq!(correlated.is_some(), enabled);
+        drop(correlated);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(drops.load(Ordering::SeqCst), if enabled { 3 } else { 0 });
+        assert!(partition.held.lock().unwrap().is_empty());
+        assert_eq!(partition.drains.load(Ordering::SeqCst), 0);
+        assert_eq!(partition.received.load(Ordering::SeqCst), 0);
+        assert!(!partition.enabled.load(Ordering::Acquire));
+        assert!(outer.isolated.load(Ordering::Acquire));
     }
 }

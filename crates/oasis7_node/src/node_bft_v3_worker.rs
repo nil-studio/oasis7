@@ -33,11 +33,20 @@ pub(super) struct Worker {
     pub batches: Arc<(Mutex<Vec<NodeCommittedActionBatch>>, Condvar)>,
 }
 impl Worker {
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn diagnostic_span(&self, stage: &'static str) -> Option<Box<dyn Send>> {
+        self.selected
+            .network
+            .as_ref()
+            .and_then(|network| network.transport.diagnostic_span_for_test(stage))
+    }
     pub(super) fn run(mut self, stop: mpsc::Receiver<()>) -> Result<(), NodeError> {
         self.publish_recovered_completions()?;
         self.publish_status();
         self.publish_peer_view()?;
         loop {
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _loop_scope = self.diagnostic_span("worker.loop");
             match stop.try_recv() {
                 Ok(()) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -134,6 +143,8 @@ impl Worker {
         )
     }
     fn signer(&self) -> Result<std::sync::MutexGuard<'_, Box<dyn BftSignerLeaseV3>>, NodeError> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let _scope = self.diagnostic_span("signer.lock_wait");
         self.lease
             .lock()
             .map_err(|_| error("wire-3 shared signer poisoned"))
@@ -177,6 +188,8 @@ impl Worker {
         Ok(())
     }
     fn propose(&mut self) -> Result<(), NodeError> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let _propose_span = self.diagnostic_span("worker.propose");
         if self
             .schedule
             .expected_proposer_for_round(self.machine.round())
@@ -289,10 +302,14 @@ impl Worker {
             journal.pending_proposal_intent = Some(intent.clone());
             self.advance(journal)?;
         }
-        let (proposal, checkpoint) = self
-            .signer()?
-            .sign_proposal(self.checkpoint.state.revision, &intent)
-            .map_err(|_| error("wire-3 protected proposal signing failed"))?;
+        let (proposal, checkpoint) = {
+            let mut signer = self.signer()?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope = self.diagnostic_span("signer.proposal_rpc");
+            signer
+                .sign_proposal(self.checkpoint.state.revision, &intent)
+                .map_err(|_| error("wire-3 protected proposal signing failed"))?
+        };
         let mut unsigned = proposal.header.clone();
         unsigned.signature_hex.clear();
         if unsigned != intent.header
@@ -392,10 +409,14 @@ impl Worker {
             journal.pending_vote_intent = Some(intent.clone());
             self.advance(journal)?;
         }
-        let (vote, checkpoint) = self
-            .signer()?
-            .sign_vote(self.checkpoint.state.revision, &intent)
-            .map_err(|_| error("wire-3 protected vote signing failed"))?;
+        let (vote, checkpoint) = {
+            let mut signer = self.signer()?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope = self.diagnostic_span("signer.vote_rpc");
+            signer
+                .sign_vote(self.checkpoint.state.revision, &intent)
+                .map_err(|_| error("wire-3 protected vote signing failed"))?
+        };
         if vote.height != intent.height
             || vote.round != intent.round
             || vote.phase != intent.phase
@@ -428,6 +449,8 @@ impl Worker {
         Ok(())
     }
     fn apply_commit(&mut self, certificate: FormalBftCertifiedHeaderV3) -> Result<(), NodeError> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let _scope = self.diagnostic_span("commit.total");
         let token =
             verify_commit_certificate_token_v3(&self.schedule, &certificate).map_err(error)?;
         let committed = certificate.clone();
@@ -435,13 +458,17 @@ impl Worker {
             header: certificate.header.clone(),
             execution_commitment: certificate.execution_commitment.clone(),
         };
-        let private = startup::candidate(
-            &self.config,
-            &self.hook,
-            &self.schedule,
-            &value,
-            &self.selected,
-        )?;
+        let private = {
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope = self.diagnostic_span("commit.candidate");
+            startup::candidate(
+                &self.config,
+                &self.hook,
+                &self.schedule,
+                &value,
+                &self.selected,
+            )?
+        };
         let actions = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(
             &private.actions_cbor,
         )
@@ -460,32 +487,48 @@ impl Worker {
                 self.advance(journal)?;
             }
         }
-        let checkpoint = self
-            .signer()?
-            .append_committed_certificate(
-                self.checkpoint.state.revision,
-                &self.checkpoint.state.state_digest,
-                certificate,
-            )
-            .map_err(|_| error("wire-3 protected QC append failed"))?;
+        let checkpoint = {
+            let mut signer = self.signer()?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope_stage = self.diagnostic_span("commit.append_rpc");
+            signer
+                .append_committed_certificate(
+                    self.checkpoint.state.revision,
+                    &self.checkpoint.state.state_digest,
+                    certificate,
+                )
+                .map_err(|_| error("wire-3 protected QC append failed"))?
+        };
         self.checkpoint = checkpoint;
         self.selected
             .capacity_exhausted
             .store(self.checkpoint.state.history.len() >= 64, Ordering::Release);
-        let result = lock_hook(&self.hook)?
-            .commit_bft_v3_certificate(token.clone())
-            .map_err(|_| error("wire-3 durable actual commit failed"))?;
+        let result = {
+            #[cfg(any(test, feature = "test-hooks"))]
+            let scope_hook_lock = self.diagnostic_span("commit.hook_lock_wait");
+            let mut hook = lock_hook(&self.hook)?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            drop(scope_hook_lock);
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope_stage = self.diagnostic_span("commit.hook");
+            hook.commit_bft_v3_certificate(token.clone())
+                .map_err(|_| error("wire-3 durable actual commit failed"))?
+        };
         startup::validate_result(&token, &result)?;
-        let checkpoint = self
-            .signer()?
-            .confirm_applied(
-                self.checkpoint.state.revision,
-                &self.checkpoint.state.state_digest,
-                result.height,
-                &result.header_id,
-                &result.driver_install_digest,
-            )
-            .map_err(|_| error("wire-3 applied install confirmation failed"))?;
+        let checkpoint = {
+            let mut signer = self.signer()?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope_stage = self.diagnostic_span("commit.confirm_rpc");
+            signer
+                .confirm_applied(
+                    self.checkpoint.state.revision,
+                    &self.checkpoint.state.state_digest,
+                    result.height,
+                    &result.header_id,
+                    &result.driver_install_digest,
+                )
+                .map_err(|_| error("wire-3 applied install confirmation failed"))?
+        };
         self.checkpoint = checkpoint;
         if self.checkpoint.state.pending_driver_apply.is_some()
             || self
@@ -535,7 +578,13 @@ impl Worker {
         startup::validate_schedule(&self.schedule, &self.selected)?;
         {
             let lease = self.lease.clone();
+            #[cfg(any(test, feature = "test-hooks"))]
+            let scope_install_lock = self.diagnostic_span("commit.install_lock_wait");
             let mut signer = lease.lock().map_err(|_| error("wire-3 signer poisoned"))?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            drop(scope_install_lock);
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope_stage = self.diagnostic_span("commit.install");
             super::membership::install(
                 &self.selected,
                 &self.schedule,
@@ -551,23 +600,33 @@ impl Worker {
             return Ok(());
         }
         if super::membership::active_key(&self.selected, &self.schedule).is_none() {
-            let (machine, _) = startup::restore(
-                &self.selected,
-                &self.schedule,
-                &self.checkpoint,
-                &self.hook,
-                &self.config,
-            )?;
+            let (machine, _) = {
+                #[cfg(any(test, feature = "test-hooks"))]
+                let _scope = self.diagnostic_span("commit.restore");
+                startup::restore(
+                    &self.selected,
+                    &self.schedule,
+                    &self.checkpoint,
+                    &self.hook,
+                    &self.config,
+                )?
+            };
             self.machine = machine;
             self.effects.clear();
             self.publish_status();
             return Ok(());
         }
-        let checkpoint = self
-            .signer()?
-            .start_height_timer(self.checkpoint.state.revision)
-            .map_err(|_| error("wire-3 successor timer rejected"))?;
+        let checkpoint = {
+            let mut signer = self.signer()?;
+            #[cfg(any(test, feature = "test-hooks"))]
+            let _scope = self.diagnostic_span("commit.start_timer");
+            signer
+                .start_height_timer(self.checkpoint.state.revision)
+                .map_err(|_| error("wire-3 successor timer rejected"))?
+        };
         self.checkpoint = checkpoint;
+        #[cfg(any(test, feature = "test-hooks"))]
+        let scope_restore = self.diagnostic_span("commit.restore");
         let (machine, effects) = startup::restore(
             &self.selected,
             &self.schedule,
@@ -575,12 +634,16 @@ impl Worker {
             &self.hook,
             &self.config,
         )?;
+        #[cfg(any(test, feature = "test-hooks"))]
+        drop(scope_restore);
         self.machine = machine;
         self.effects = effects.into();
         self.publish_status();
         Ok(())
     }
     fn publish_status(&self) {
+        #[cfg(any(test, feature = "test-hooks"))]
+        let _scope = self.diagnostic_span("commit.status");
         let mut state = crate::runtime_util::lock_state(&self.state);
         state.bft_v3_status = Some(NodeBftStatusV3 {
             running: true,
