@@ -51,6 +51,7 @@ mod periodic_connection_diagnostic;
 mod periodic_service_io;
 mod response_outbox;
 mod stream_budget_diagnostics;
+mod world_service_client_cache;
 use tracing::Level;
 
 #[cfg(test)]
@@ -191,6 +192,7 @@ pub struct ViewerRuntimeLiveServer {
     last_chain_committed_height: u64,
     verified_world_view: Option<crate::world_service::verified_view::VerifiedWorldView>,
     world_service_query_state: crate::world_service::client::WorldServiceQueryState,
+    world_service_clients: world_service_client_cache::ClientCache,
     periodic_service_executor: Option<Arc<periodic_service_io::Executor>>,
     prepared_owner_read: Option<Box<owner_read::PreparedOwnerRead>>,
     prepared_safe_alternative: Option<Result<serde_json::Value, String>>,
@@ -416,6 +418,10 @@ impl ViewerRuntimeLiveServer {
                 &generation.session_side_effects,
             );
         }
+        // Construct TLS/HTTP and validate configured credentials before this
+        // server is published behind its shared serving mutex.
+        let world_service_clients =
+            world_service_client_cache::ClientCache::new(config.world_service.as_ref())?;
         let next_virtual_event_id = latest_runtime_event_seq(&world).saturating_add(1).max(1);
         let mut server = Self {
             auto_play_paused: !config.auto_play_on_connect,
@@ -426,6 +432,7 @@ impl ViewerRuntimeLiveServer {
             last_chain_committed_height: 0,
             verified_world_view: None,
             world_service_query_state,
+            world_service_clients,
             periodic_service_executor: None,
             prepared_owner_read: None,
             prepared_safe_alternative: None,
@@ -605,22 +612,22 @@ impl ViewerRuntimeLiveServer {
         Option<crate::world_service::client::RemoteWorldServiceClient>,
         ViewerRuntimeLiveServerError,
     > {
-        self.config
-            .world_service
-            .clone()
-            .map(
-                |config| -> Result<_, crate::world_service::client::WorldServiceClientError> {
-                    let formal = config.formal_read_trust.is_some();
-                    let client =
-                        crate::world_service::client::RemoteWorldServiceClient::new(config)?;
-                    if formal && let Some(view) = &self.verified_world_view {
-                        client.resume_formal_view(view)?;
-                    }
-                    Ok(client.with_query_state(self.world_service_query_state.clone()))
-                },
-            )
-            .transpose()
-            .map_err(|error| ViewerRuntimeLiveServerError::Init(error.to_string()))
+        let Some(client) = self
+            .world_service_clients
+            .get(self.config.world_service.as_ref())?
+        else {
+            return Ok(None);
+        };
+        if client.config().formal_read_trust.is_some()
+            && let Some(view) = &self.verified_world_view
+        {
+            client
+                .resume_formal_view(view)
+                .map_err(|error| ViewerRuntimeLiveServerError::Init(error.to_string()))?;
+        }
+        Ok(Some(
+            client.with_query_state(self.world_service_query_state.clone()),
+        ))
     }
 
     fn supports_agent_chat(&self) -> bool {

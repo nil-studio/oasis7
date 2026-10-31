@@ -86,6 +86,13 @@ pub struct RemoteWorldServiceClient<H: ClientWorldProfile> {
     marker: std::marker::PhantomData<H>,
 }
 impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
+    /// Clone the validated transport without sharing mutable formal read progress.
+    pub fn independent_clone(&self) -> Result<Self, WorldServiceClientError> {
+        Ok(Self {
+            reader: self.reader.independent_clone()?,
+            marker: std::marker::PhantomData,
+        })
+    }
     pub fn new(config: WorldServiceClientConfig) -> Result<Self, WorldServiceClientError> {
         Ok(Self {
             reader: RemoteWorldServiceReader::new(config)?,
