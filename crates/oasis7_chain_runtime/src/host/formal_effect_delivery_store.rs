@@ -493,6 +493,11 @@ impl FormalEffectDeliveryStore {
                 hook(&path);
             }
         }
+        if let Err(error) = verify_published_record_bytes(&path, &bytes) {
+            let reason = format!("effect delivery state publication outcome unknown: {error}");
+            self.poison(&reason);
+            return Err(reason);
+        }
         Ok(())
     }
 
@@ -526,6 +531,47 @@ impl FormalEffectDeliveryStore {
             *poisoned = Some(reason.to_owned());
         }
     }
+}
+
+/// Reopen the published path after directory fsync. Compare original bytes in
+/// fixed scratch space: an in-memory record or a matching file size does not
+/// prove the dispatch marker was published intact.
+fn verify_published_record_bytes(path: &Path, expected: &[u8]) -> Result<(), String> {
+    super::controlled_live_config::require_private_owned(path, false)?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("open published effect state for readback failed: {error}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("inspect published effect state failed: {error}"))?;
+    if !metadata.is_file() || metadata.len() != expected.len() as u64 {
+        return Err("published effect state readback size/type mismatch".into());
+    }
+    let mut scratch = [0u8; 8192];
+    for chunk in expected.chunks(scratch.len()) {
+        let actual = &mut scratch[..chunk.len()];
+        file.read_exact(actual)
+            .map_err(|error| format!("read published effect state failed: {error}"))?;
+        if actual != chunk {
+            return Err("published effect state readback bytes mismatch".into());
+        }
+    }
+    let mut tail = [0];
+    if file
+        .read(&mut tail)
+        .map_err(|error| format!("finish published effect state readback failed: {error}"))?
+        != 0
+    {
+        return Err("published effect state readback has a trailing byte".into());
+    }
+    Ok(())
 }
 
 static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
