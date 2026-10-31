@@ -10,13 +10,13 @@ use std::{
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    publish_observed(path, bytes, || Ok(()))
+    publish_observed(path, bytes, |_| Ok(()))
 }
 
 fn publish_observed(
     path: &Path,
     bytes: &[u8],
-    after_publication: impl FnOnce() -> io::Result<()>,
+    after_publication: impl FnOnce(&Path) -> io::Result<()>,
 ) -> io::Result<()> {
     let parent = path
         .parent()
@@ -46,7 +46,7 @@ fn publish_observed(
         // durability scope; this helper grants no cross-platform IWS receipt.
         #[cfg(unix)]
         sync_directories(parent)?;
-        after_publication()?;
+        after_publication(&temp)?;
         let mut published = fs::File::open(path)?;
         if !published.metadata()?.is_file() || published.metadata()?.len() != bytes.len() as u64 {
             return Err(io::Error::other(
@@ -124,7 +124,7 @@ mod tests {
         let directory = Directory::new();
         let path = directory.0.join("lineage.json");
         let original = br#"{"original":"request-and-response","phase":"active"}"#;
-        let result = publish_observed(&path, original, || {
+        let result = publish_observed(&path, original, |_| {
             let mut changed = original.to_vec();
             changed[0] ^= 1;
             fs::write(&path, changed)
@@ -161,7 +161,7 @@ mod tests {
         let path = directory.0.join("lineage.json");
         let original = b"original-active-turn";
         assert!(
-            publish_observed(&path, original, || Err(io::Error::other(
+            publish_observed(&path, original, |_| Err(io::Error::other(
                 "injected failure"
             )))
             .is_err()
@@ -177,9 +177,24 @@ mod tests {
         let path = directory.0.join("lineage.json");
         for changed in [b"short".as_slice(), b"original-active-turn-extra"] {
             assert!(
-                publish_observed(&path, b"original-active-turn", || fs::write(&path, changed))
+                publish_observed(&path, b"original-active-turn", |_| fs::write(&path, changed))
                     .is_err()
             );
         }
     }
+    #[test]
+    fn released_temporary_name_is_not_owned_after_rename() {
+        let directory = Directory::new();
+        let path = directory.0.join("lineage.json");
+        let mut released = None;
+        let result = publish_observed(&path, b"original-active-turn", |temp| {
+            fs::write(temp, b"another writer's record")?;
+            released = Some(temp.to_path_buf());
+            Err(io::Error::other("injected post-publication failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read(released.unwrap()).unwrap(), b"another writer's record");
+        assert_eq!(fs::read(&path).unwrap(), b"original-active-turn");
+    }
+
 }
