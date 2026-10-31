@@ -73,6 +73,9 @@ fn source_current(f: &mut SessionFixture, d: &TestSessionPreflightDescriptorV2, 
 pub(super) fn activated(start: u64) -> SessionFixture {
     activate_fixture(pending_fixture(), start)
 }
+pub(super) fn activated_with_control_requests(start: u64, requests: u64) -> SessionFixture {
+    activate_fixture(pending_fixture_with_control_requests(requests), start)
+}
 fn activate_fixture(mut f: SessionFixture, start: u64) -> SessionFixture {
     let d = f
         .state

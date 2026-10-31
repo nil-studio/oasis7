@@ -4,7 +4,7 @@ use crate::{
     provision_approval_store::native::client::ClientLiveCurrent, test_session_client_response::*,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use oasis7_custody_core::{client_enrollment::ClientCredentialClaimRequestV1, provisioning::*};
+use oasis7_custody_core::client_enrollment::ClientCredentialClaimRequestV1;
 use zeroize::Zeroizing;
 
 pub(super) async fn claim(

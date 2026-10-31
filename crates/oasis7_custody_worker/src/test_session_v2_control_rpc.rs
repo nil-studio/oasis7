@@ -42,12 +42,14 @@ pub(crate) struct ControlAdmissionRoutingV2 {
     #[serde(deserialize_with = "required_option")]
     pub immediate_reply: Option<oasis7_custody_core::provisioning::SessionControlAckV1>,
 }
+#[cfg(feature = "identity")]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ControlBoundAdmissionV2 {
     pub approved_input_digest: String,
     pub original: crate::test_session_client_rpc::TestSessionClientAdmissionRpc,
 }
+#[cfg(feature = "identity")]
 impl core::ops::Deref for ControlBoundAdmissionV2 {
     type Target = crate::test_session_client_rpc::TestSessionClientAdmissionRpc;
     fn deref(&self) -> &Self::Target {
@@ -76,6 +78,6 @@ pub(crate) enum TestSessionControlActionV2 {
         lifetime: Box<oasis7_custody_core::native_binding::SignedManagedNativeSessionLifetimeV1>,
     },
 }
-pub(crate) use crate::test_session_v2_credential_rpc::{
-    TestSessionCredentialObservationV2, TestSessionCredentialObservedV2,
-};
+pub(crate) use crate::test_session_v2_credential_rpc::TestSessionCredentialObservationV2;
+#[cfg(feature = "owner")]
+pub(crate) use crate::test_session_v2_credential_rpc::TestSessionCredentialObservedV2;

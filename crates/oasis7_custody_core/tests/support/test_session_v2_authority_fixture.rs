@@ -11,6 +11,9 @@ struct SessionFixture {
     deployments: HostDeploymentAllowlist,
 }
 fn pending_fixture() -> SessionFixture {
+    pending_fixture_with_control_requests(80)
+}
+fn pending_fixture_with_control_requests(control_requests: u64) -> SessionFixture {
     let (mut s, mut c, pin) = prepared_move0_v2_fixture();
     c.handoff_until = DecimalU64(80_000);
     let policy = Policy::new(s.draft());
@@ -117,7 +120,7 @@ fn pending_fixture() -> SessionFixture {
             business: DecimalU64(0),
         },
         control_budget: ControlBudgetV1 {
-            requests: DecimalU64(80),
+            requests: DecimalU64(control_requests),
             transport_per_hop: DecimalU64(240),
             identity_transport: DecimalU64(160),
             transport_hops: 1,

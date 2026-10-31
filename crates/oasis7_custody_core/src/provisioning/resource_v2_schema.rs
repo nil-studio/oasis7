@@ -77,9 +77,46 @@ fn resource_v2_schema_projection_preserves_actual_sdk_selection_wire() {
     }
 }
 
-#[derive(schemars::JsonSchema)]
+#[derive(schemars::JsonSchema, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ActionSelectionSchemaV2 {
     ExactMove0(super::ExactMoveSelectionV2),
     Resource(ResourceSelectionSchemaV1),
+}
+
+#[test]
+fn resource_v2_action_schema_projection_preserves_both_actual_selection_json_branches() {
+    use super::{ApprovedActionSelectionV2, ExactMoveSelectionV2};
+    use oasis7_client_api::world_service::resource_basis as wire;
+    // The real production wrapper owns JSON/CBOR behavior. This test-only
+    // schema facade is checked only for exact JSON parity and closedness.
+    for selected in [
+        ApprovedActionSelectionV2::ExactMove0(ExactMoveSelectionV2::Move {
+            position_cm: [
+                crate::approval::DecimalI64(i64::MIN),
+                crate::approval::DecimalI64(0),
+                crate::approval::DecimalI64(i64::MAX),
+            ],
+        }),
+        ApprovedActionSelectionV2::Resource(wire::ResourceBasisSelectionV1::Build {
+            site: "site".into(),
+            factory: "factory".into(),
+            factory_kind: "factory.smelter.mk1".into(),
+        }),
+    ] {
+        selected.validate().unwrap();
+        let bytes = serde_json::to_vec(&selected).unwrap();
+        let projection: ActionSelectionSchemaV2 = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&projection).unwrap(), bytes);
+        let actual: ApprovedActionSelectionV2 =
+            serde_json::from_slice(&serde_json::to_vec(&projection).unwrap()).unwrap();
+        assert_eq!(actual, selected);
+        let mut unknown = serde_json::to_value(&selected).unwrap();
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("verified".into(), serde_json::json!(true));
+        assert!(serde_json::from_value::<ActionSelectionSchemaV2>(unknown.clone()).is_err());
+        assert!(serde_json::from_value::<ApprovedActionSelectionV2>(unknown).is_err());
+    }
 }

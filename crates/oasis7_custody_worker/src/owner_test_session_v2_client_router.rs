@@ -4,7 +4,7 @@ use crate::test_session_client_rpc::TestSessionClientAdmissionRpc;
 use oasis7_custody_core::provisioning::{
     SessionChallengeKindV1, SessionChallengeRequestV1, SessionClientOperation, SessionControlKindV1,
 };
-pub(super) async fn first_admit(
+pub(crate) async fn first_admit(
     state: &JsValue,
     env: &Env,
     admission: &TestSessionClientAdmissionRpc,

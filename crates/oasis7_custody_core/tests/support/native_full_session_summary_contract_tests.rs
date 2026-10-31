@@ -169,3 +169,48 @@ fn termination_metadata_matches_the_exact_approved_parent_scope() {
         assert!(changed.validate_scope(&scoped).is_err());
     }
 }
+
+#[test]
+fn emit_full_session_ui_contract_fixture() {
+    let mut cases = Vec::new();
+    for model in [false, true] {
+        let (input, current) = input_with_summary(model);
+        native_signature_is_valid(&input);
+        ApprovalAdmissionBook::default()
+            .begin(
+                input.clone(),
+                "full-ui-contract".into(),
+                &current,
+                1000,
+                &mut StrictCrypto,
+            )
+            .unwrap();
+        let CustodyIntentV1::TestSessionV2 { plan, scope } = &input.request.intent else {
+            panic!("expected the actual full-session request")
+        };
+        plan.validate_scope(scope, 1000).unwrap();
+        let original = TestSessionPrepareRequestV2 {
+            api_version: 2,
+            approval_request_id: input.request.approval_request_id.clone(),
+            plan: plan.as_ref().clone(),
+            scope: scope.as_ref().clone(),
+        };
+        original.validate().unwrap();
+        cases.push(json!({
+            "original": original,
+            "prepared": input.request,
+            "contract": input.request.expected_model_budget_summary_contract().unwrap().unwrap(),
+            "summary": input.request.native_session_summary_v2().unwrap(),
+            "budget": plan.model_budget,
+            "input": input,
+        }));
+    }
+    let document = json!({
+        "api_version": 1, "fixture_only": true, "now_ms": 1000, "cases": cases,
+    });
+    // The vectors validate Native signatures and the pending Book only. They
+    // do not consume MFA, issue roots, render a browser or attest actual UI.
+    if let Some(path) = std::env::var_os("OASIS7_SESSION_V2_UI_CONTRACT_OUTPUT") {
+        std::fs::write(path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+    }
+}

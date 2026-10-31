@@ -101,6 +101,8 @@ fn serve_custody_browser_uv_fixture() {
         revocation: None,
         managed_binding: Some(managed_binding::ManagedBindingConfig::native_http_fixture()),
         managed_binding_state: managed_binding::ManagedBindingConfigState::Ready,
+        model_budget_summary_contract_enabled: std::env::var("OASIS7_CUSTODY_BROWSER_SESSION_V2").as_deref() == Ok("true"),
+        full_session_v2_summary_contract_enabled: std::env::var("OASIS7_CUSTODY_BROWSER_SESSION_V2").as_deref() == Ok("true"),
     });
     service.custody_management_enabled = true;
     let trusted: Value = serde_json::from_str(

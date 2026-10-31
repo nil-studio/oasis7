@@ -499,3 +499,6 @@ mod native_history;
 
 #[path = "test_session_v2_control_fixture.rs"]
 mod control_tests;
+
+#[path="test_session_v2_control_preflight_restore_tests.rs"]
+mod control_preflight_restore_tests;

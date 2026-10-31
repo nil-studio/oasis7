@@ -17,6 +17,7 @@ pub(crate) type TestSessionContinueRpcV2 =
     TestSessionManagementRpcV2<oasis7_custody_core::provisioning::TestSessionContinueRequestV2>;
 /// Select only the explicit numeric wire version; unknown versions never fall
 /// back through a permissive legacy DTO or infer a version from field presence.
+#[cfg(feature = "owner")]
 pub(crate) fn session_management_version(raw: &str) -> std::result::Result<u64, serde_json::Error> {
     let value: serde_json::Value = serde_json::from_str(raw)?;
     Ok(value

@@ -147,3 +147,6 @@ pub(in crate::provisioning) fn authenticated_receipt_v2<'a>(
 ) -> Result<&'a SessionCredentialV1> {
     http::authenticated(s, purpose, proof, now)
 }
+
+#[path="test_session_v2_control_pending_restore.rs"]
+mod pending_restore;

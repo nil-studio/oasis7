@@ -45,12 +45,14 @@ pub(crate) struct CredentialAdmissionRoutingV2 {
     #[serde(deserialize_with = "required_option")]
     pub historical_reply: Option<String>,
 }
+#[cfg(feature = "identity")]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CredentialBoundAdmissionV2 {
     pub approved_input_digest: String,
     pub original: crate::test_session_client_rpc::TestSessionClientAdmissionRpc,
 }
+#[cfg(feature = "identity")]
 impl core::ops::Deref for CredentialBoundAdmissionV2 {
     type Target = crate::test_session_client_rpc::TestSessionClientAdmissionRpc;
     fn deref(&self) -> &Self::Target {

@@ -3,7 +3,6 @@ use super::*;
 use crate::{
     test_session_client_rpc::TestSessionClientAdmissionRpc, test_session_v2_control_rpc::*,
 };
-use oasis7_custody_core::provisioning::*;
 fn json<T: serde::Serialize>(v: T) -> Result<String> {
     Ok(serde_json::to_string(&v)?)
 }

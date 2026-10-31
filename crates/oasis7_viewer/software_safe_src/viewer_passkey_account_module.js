@@ -541,5 +541,11 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
   }
   render();
   refresh().catch(error => { if (!disposed) { notice = accountErrorNotice(error, "会话确认"); render(); } });
-  return { refresh, dispose() { custody.dispose(); client.clearImportedKey?.(); disposed = true; ++generation; root.replaceChildren(); } };
+  return { refresh, async prepareCustodyV2(parent, original) {
+    if (disposed || !account || authentication?.method !== "webauthn") throw Object.assign(new Error("custody_not_ready"), {code:"custody_not_ready"});
+    await custody.prepareV2(parent, original);
+  }, async prepareCustodySessionV2(parent, original) {
+    if (disposed || !account || authentication?.method !== "webauthn") throw Object.assign(new Error("custody_not_ready"), {code:"custody_not_ready"});
+    await custody.prepareSessionV2(parent, original);
+  }, dispose() { custody.dispose(); client.clearImportedKey?.(); disposed = true; ++generation; root.replaceChildren(); } };
 }

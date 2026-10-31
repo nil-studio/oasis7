@@ -5,7 +5,7 @@ use crate::{
     test_session_client_rpc::TestSessionClientAdmissionRpc, test_session_v2_credential_rpc::*,
 };
 use oasis7_custody_core::{
-    client_enrollment::*, native_binding::SignedManagedNativeSessionLifetimeV1, provisioning::*,
+    client_enrollment::*, native_binding::SignedManagedNativeSessionLifetimeV1,
     time_units::UnixMillis,
 };
 #[path = "owner_test_session_v2_credential_live.rs"]

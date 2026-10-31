@@ -17,7 +17,31 @@ pub(in crate::provisioning) fn validate(
     state: &AccountProvisionApprovalState,
     s: &TestSessionAuthorityV2,
 ) -> Result<()> {
+    // begin_test_session_v2 owns one exact full-input preflight reservation.
+    // It exists before any public challenge; it is not a generic orphan escape.
+    let preflight_id = digest(&(
+        "oasis7.custody.test-session-preflight-control-id.v2",
+        &s.input.operation_id,
+        s.input.request.intent_digest().map_err(|_| invalid())?,
+    ))?;
+    let preflight_body = digest(&(
+        "oasis7.custody.test-session-preflight-control-body.v2",
+        &s.input,
+    ))?;
+    let record = s.book.original(&s.input.operation_id).ok_or_else(invalid)?;
+    let requests = &s.control.as_ref().ok_or_else(invalid)?.requests;
+    let mut reserved = requests.clone();
+    reserved.reserve(&preflight_id, 1).map_err(|_| invalid())?;
+    if record.input() != &s.input
+        || s.control_logicals.get(&preflight_id) != Some(&preflight_body)
+        || &reserved != requests
+    {
+        return Err(invalid());
+    }
+    // Overall restoration already replays the real preflight once-steps and
+    // Native transport ledger before this validator, including pending phases.
     for (id, body) in &s.control_logicals {
+        if id == &preflight_id && body == &preflight_body { continue; }
         if !s
             .challenges
             .values()
@@ -26,6 +50,7 @@ pub(in crate::provisioning) fn validate(
             return Err(invalid());
         }
     }
+    super::pending_restore::validate(s)?;
     if s.control_records.len() > 1104 || s.controls.len() > 80 {
         return Err(invalid());
     }

@@ -161,7 +161,12 @@ fn control_source(
     v.purpose = VerificationPurposeV1::InspectOrigin;
     v.verify_nonce = nonce;
     v.observed_at = DecimalU64(now);
-    v.proof_state = ProofStateV1::Active;
+    // The fixture emulates the actual Native origin inspector after the one
+    // consumed human MFA expires; the original proof and deadline stay exact.
+    v.proof_state = if now >= f.state.test_session_v2_original(&f.session_id)
+        .unwrap().input().approval.proof.expires_at.0 {
+        ProofStateV1::Expired
+    } else { ProofStateV1::Active };
     f.state
         .complete_test_session_v2_source(
             &f.session_id,
@@ -495,3 +500,9 @@ fn session_v2_control_expiry_is_durable_local_closing_without_cleanup_effects() 
     let restored: AccountProvisionApprovalState = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(restored, f.state);
 }
+
+#[path="test_session_v2_control_pending_restore_tests.rs"]
+mod pending_restore_tests;
+
+#[path = "test_session_v2_control_budget_cause_tests.rs"]
+mod budget_cause_tests;

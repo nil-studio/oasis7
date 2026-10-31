@@ -204,6 +204,7 @@ impl AccountProvisionApprovalState {
                     || key != &source.operation_id
                     || !id_nonempty(key)
                     || !hex64(&source.verify_nonce)
+                    || super::v2_control::id_in_use_v2(s, key)
                     || super::v2_control::id_in_use_v2(s, &source.verify_nonce)
                     || source.created_at.0 < s.consumed_at.ok_or_else(invalid)?.get()
                     || source.expires_at.0 <= source.created_at.0

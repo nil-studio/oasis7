@@ -273,12 +273,19 @@ pub(super) fn fixtures() -> Value {
     session.validate_scope(&scope, 1000).unwrap();
     let (proof, pin, floor) = fixture_paid();
     proof.verify_issuer(&pin, &floor, 1000).unwrap();
-    json!({
+    let mut value = json!({
         "OwnerSetupPlanV2": [owner],
         "TestSessionPlanV2": [session],
         "ResourceTestSessionScopeV2": [scope],
         "PaidResourceReadProofV1": [proof],
         "PaidResourceReadIssuerPinV1": [pin],
         "PaidResourceReadIssuerFloorV1": [floor]
-    })
+    });
+    value
+        .as_object_mut()
+        .unwrap()
+        .extend(management::fixtures().as_object().unwrap().clone());
+    value
 }
+#[path = "http_schema_resource_v2_management_fixtures.rs"]
+mod management;

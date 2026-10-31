@@ -114,12 +114,14 @@ pub(crate) enum OwnerSetupPrepareInput {
     V1(Box<OwnerSetupPrepareRequestV1>),
 }
 impl OwnerSetupPrepareInput {
+    #[cfg(feature = "owner")]
     pub(crate) fn approval_request_id(&self) -> &str {
         match self {
             Self::V1(v) => &v.approval_request_id,
             Self::V2(v) => &v.approval_request_id,
         }
     }
+    #[cfg(feature = "owner")]
     pub(crate) fn expected_intent(
         &self,
     ) -> std::result::Result<oasis7_custody_core::approval::CustodyIntentV1, String> {
@@ -149,18 +151,21 @@ pub(crate) enum OwnerSetupApproveInput {
     V1(Box<OwnerSetupApproveRequestV1>),
 }
 impl OwnerSetupApproveInput {
+    #[cfg(feature = "owner")]
     pub(crate) fn api_version(&self) -> u8 {
         match self {
             Self::V1(v) => v.api_version,
             Self::V2(v) => v.api_version,
         }
     }
+    #[cfg(feature = "owner")]
     pub(crate) fn setup_id(&self) -> &str {
         match self {
             Self::V1(v) => &v.plan.setup_id,
             Self::V2(v) => &v.plan.setup_id,
         }
     }
+    #[cfg(feature = "owner")]
     pub(crate) fn input(&self) -> &oasis7_custody_core::approval_admission::ApprovalAdmissionInput {
         match self {
             Self::V1(v) => &v.input,
@@ -180,6 +185,7 @@ impl OwnerSetupApproveInput {
         }
     }
 }
+#[cfg(feature = "owner")]
 pub(crate) struct OwnerSetupApproveRpcV1 {
     pub manager_session: CustodySessionStatusV1,
     pub provision_id: String,

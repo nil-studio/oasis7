@@ -257,7 +257,7 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionBasisRequestV2 = match serde_json::from_str(&body) {
+            let value: TestSessionBasisRequestV2 = match serde_json::from_str::<TestSessionBasisRequestV2>(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
@@ -306,7 +306,7 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionPrepareRequestV2 = match serde_json::from_str(&body) {
+            let value: TestSessionPrepareRequestV2 = match serde_json::from_str::<TestSessionPrepareRequestV2>(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
@@ -355,7 +355,7 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionApproveRequestV2 = match serde_json::from_str(&body) {
+            let value: TestSessionApproveRequestV2 = match serde_json::from_str::<TestSessionApproveRequestV2>(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };
@@ -404,7 +404,7 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             {
                 return unavailable();
             }
-            let value: TestSessionContinueRequestV2 = match serde_json::from_str(&body) {
+            let value: TestSessionContinueRequestV2 = match serde_json::from_str::<TestSessionContinueRequestV2>(&body) {
                 Ok(v) if v.validate().is_ok() => v,
                 _ => return Response::error("invalid request", 400),
             };

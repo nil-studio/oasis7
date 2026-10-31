@@ -1,6 +1,5 @@
 use super::*;
 use crate::provision_approval_store::native::client::ClientLiveCurrent;
-use crate::test_session_v2_control_rpc::*;
 use oasis7_custody_core::{
     native_binding::SignedManagedNativeSessionLifetimeV1, time_units::UnixMillis,
 };
