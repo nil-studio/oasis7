@@ -33,8 +33,6 @@ pub(super) const FIELD_COUNT: u8 = ModuleMarketplaceFieldV1::ALL.len() as u8;
 const CHILD_SEMANTIC_CAPACITY: usize = 128;
 const CHILD_BID_FIELDS: u8 = 6;
 const CHILD_BID_MASK: u8 = (1 << CHILD_BID_FIELDS) - 1;
-const CHILD_BID_INDEX_FIELDS: u8 = 6;
-const CHILD_BID_INDEX_MASK: u8 = (1 << CHILD_BID_INDEX_FIELDS) - 1;
 
 pub(super) fn field_from_descriptor(field: FieldDescriptor) -> Option<ModuleMarketplaceFieldV1> {
     ModuleMarketplaceFieldV1::from_name(field.name)
@@ -69,6 +67,7 @@ enum ChildPayloadKind {
     U64,
     I64,
     Text,
+    FixedU64x7,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,20 +77,19 @@ enum ChildValue {
     U64(u64),
     I64(i64),
     Text,
+    BidIndexNode(crate::incremental_module_marketplace::bid_index::BidIndexNodeV1),
 }
 
 fn child_payload_kind(field: &str) -> Option<ChildPayloadKind> {
     Some(match field {
         "present" => ChildPayloadKind::Unit,
         "label_present" => ChildPayloadKind::Bool,
-        "anchor_kind" | "length" | "next_bid_id" | "sequence_root_id" | "index_left_id"
-        | "index_right_id" | "index_left_size" | "index_left_height" | "index_right_size"
-        | "index_right_height" | "order_id" | "price_kind" | "listed_at" | "bid_at" => {
-            ChildPayloadKind::U64
-        }
+        "anchor_kind" | "length" | "next_bid_id" | "sequence_root_id" | "order_id"
+        | "price_kind" | "listed_at" | "bid_at" => ChildPayloadKind::U64,
         "anchor_x_cm" | "anchor_y_cm" | "anchor_z_cm" | "price_amount" => ChildPayloadKind::I64,
         "entity_id" | "module_id" | "kind" | "label_text" | "anchor_agent_id"
         | "anchor_location_id" | "seller_agent_id" | "bidder_agent_id" => ChildPayloadKind::Text,
+        "index_node" => ChildPayloadKind::FixedU64x7,
         _ => return None,
     })
 }
@@ -103,6 +101,7 @@ fn child_codec(kind: ChildPayloadKind) -> MemberPayloadCodecV1 {
         ChildPayloadKind::U64 => MemberPayloadCodecV1::U64,
         ChildPayloadKind::I64 => MemberPayloadCodecV1::I64,
         ChildPayloadKind::Text => MemberPayloadCodecV1::Text,
+        ChildPayloadKind::FixedU64x7 => MemberPayloadCodecV1::FixedU64x7,
     }
 }
 
@@ -114,12 +113,7 @@ fn static_field(name: &str) -> Option<&'static str> {
         "length" => "length",
         "next_bid_id" => "next_bid_id",
         "sequence_root_id" => "sequence_root_id",
-        "index_left_id" => "index_left_id",
-        "index_right_id" => "index_right_id",
-        "index_left_size" => "index_left_size",
-        "index_left_height" => "index_left_height",
-        "index_right_size" => "index_right_size",
-        "index_right_height" => "index_right_height",
+        "index_node" => "index_node",
         "order_id" => "order_id",
         "price_kind" => "price_kind",
         "listed_at" => "listed_at",
@@ -170,7 +164,7 @@ struct ChildProbe {
     semantic_bytes: [u8; CHILD_SEMANTIC_CAPACITY],
     semantic_len: usize,
     semantic: Option<ChildSemantic>,
-    fixed: [u8; 8],
+    fixed: [u8; crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES],
     fixed_len: usize,
     payload_bytes_seen: u64,
     utf8_pending: [u8; 4],
@@ -184,7 +178,7 @@ impl Default for ChildProbe {
             semantic_bytes: [0; CHILD_SEMANTIC_CAPACITY],
             semantic_len: 0,
             semantic: None,
-            fixed: [0; 8],
+            fixed: [0; crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES],
             fixed_len: 0,
             payload_bytes_seen: 0,
             utf8_pending: [0; 4],
@@ -253,16 +247,30 @@ impl ChildProbe {
                 ChildValue::Bool(self.fixed[0] != 0)
             }
             ChildPayloadKind::U64 if info.payload_bytes == 8 && self.fixed_len == 8 => {
-                ChildValue::U64(u64::from_be_bytes(self.fixed))
+                let bytes: [u8; 8] = self.fixed[..8].try_into().ok()?;
+                ChildValue::U64(u64::from_be_bytes(bytes))
             }
             ChildPayloadKind::I64 if info.payload_bytes == 8 && self.fixed_len == 8 => {
-                ChildValue::I64(i64::from_be_bytes(self.fixed))
+                let bytes: [u8; 8] = self.fixed[..8].try_into().ok()?;
+                ChildValue::I64(i64::from_be_bytes(bytes))
             }
             ChildPayloadKind::Text if info.payload_bytes > 0 || self.utf8_pending_len == 0 => {
                 if self.utf8_pending_len != 0 {
                     return None;
                 }
                 ChildValue::Text
+            }
+            ChildPayloadKind::FixedU64x7
+                if info.payload_bytes
+                    == crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES as u64
+                    && self.fixed_len
+                        == crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES =>
+            {
+                let bytes: &[u8; crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES] =
+                    self.fixed.as_slice().try_into().ok()?;
+                ChildValue::BidIndexNode(
+                    crate::incremental_module_marketplace::bid_index::BidIndexNodeV1::decode(bytes),
+                )
             }
             _ => return None,
         })
@@ -322,7 +330,10 @@ impl Write for ChildPayloadOutput<'_> {
                     return Err(io::Error::other("market child text UTF-8"));
                 }
             }
-            ChildPayloadKind::Bool | ChildPayloadKind::U64 | ChildPayloadKind::I64 => {
+            ChildPayloadKind::Bool
+            | ChildPayloadKind::U64
+            | ChildPayloadKind::I64
+            | ChildPayloadKind::FixedU64x7 => {
                 let Some(end) = probe.fixed_len.checked_add(bytes.len()) else {
                     probe.invalid = true;
                     return Err(io::Error::other("market child fixed payload length"));
@@ -742,6 +753,10 @@ where
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Reads one bid field with the caller's shared scan and value budgets and exact typed profile."
+)]
 fn read_bid_scalar<M, V, C>(
     child: &StateRootV1,
     reader: &StateScanReader<'_, M, C>,

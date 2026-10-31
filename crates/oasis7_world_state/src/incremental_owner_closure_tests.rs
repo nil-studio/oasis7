@@ -718,34 +718,32 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                                 &mut children,
                             );
                         }
-                        let mut anchor_kind = None;
-                        match &visual.anchor {
+                        let anchor_kind = match &visual.anchor {
                             oasis7_agent_api::world_entity::ModuleVisualAnchor::Agent {
                                 agent_id,
                             } => {
-                                anchor_kind = Some(0);
                                 writer.append_child(
                                     field,
                                     "anchor_agent_id",
                                     MemberPayloadRefV1::Text(agent_id),
                                     &mut children,
                                 );
+                                0
                             }
                             oasis7_agent_api::world_entity::ModuleVisualAnchor::Location {
                                 location_id,
                             } => {
-                                anchor_kind = Some(1);
                                 writer.append_child(
                                     field,
                                     "anchor_location_id",
                                     MemberPayloadRefV1::Text(location_id),
                                     &mut children,
                                 );
+                                1
                             }
                             oasis7_agent_api::world_entity::ModuleVisualAnchor::Absolute {
                                 pos,
                             } => {
-                                anchor_kind = Some(2);
                                 writer.append_child(
                                     field,
                                     "anchor_x_cm",
@@ -764,12 +762,13 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                                     MemberPayloadRefV1::I64(pos.z_cm),
                                     &mut children,
                                 );
+                                2
                             }
-                        }
+                        };
                         writer.append_child(
                             field,
                             "anchor_kind",
-                            MemberPayloadRefV1::U64(anchor_kind.unwrap()),
+                            MemberPayloadRefV1::U64(anchor_kind),
                             &mut children,
                         );
                         if issue == Some(FixtureIssue::UnknownModuleMarketplaceChild) {
@@ -877,26 +876,17 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                             let ordinal = ordinal as u64;
                             let bid_id = ordinal;
                             let bid_key = ("bid", bid_id);
-                            let index = if ordinal == 0 {
-                                [u64::MAX, u64::MAX, 0, 0, 0, 0]
+                            let index_fields = if ordinal == 0 {
+                                [u64::MAX, u64::MAX, 0, 0, 0, 0, 1]
                             } else {
-                                [0, u64::MAX, 1, 1, 0, 0]
+                                [0, u64::MAX, 1, 1, 0, 0, u64::MAX]
                             };
-                            for (name, value) in [
-                                ("index_left_id", index[0]),
-                                ("index_right_id", index[1]),
-                                ("index_left_size", index[2]),
-                                ("index_left_height", index[3]),
-                                ("index_right_size", index[4]),
-                                ("index_right_height", index[5]),
-                            ] {
-                                writer.append_child(
-                                    field,
-                                    &(bid_key, name),
-                                    MemberPayloadRefV1::U64(value),
-                                    &mut children,
-                                );
-                            }
+                            writer.append_child(
+                                field,
+                                &(bid_key, "index_node"),
+                                MemberPayloadRefV1::FixedU64x7(index_fields),
+                                &mut children,
+                            );
                             writer.append_child(
                                 field,
                                 &(bid_key, "present"),
@@ -1117,283 +1107,7 @@ fn verify(
     )
 }
 
-#[test]
-fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owners() {
-    let fixture = fixture(true);
-    let report = verify(&fixture, || false).unwrap();
-    assert_eq!(report.body_id(), [0x5a; 32]);
-    assert_eq!(report.checked_u64_fields(), 7);
-    assert_eq!(report.checked_id_set_fields(), 5);
-    assert_eq!(report.checked_number_map_fields(), 11);
-    assert_eq!(report.checked_text_byte_fields(), 4);
-    assert_eq!(report.checked_installed_target_fields(), 1);
-    assert_eq!(report.checked_world_balance_fields(), 2);
-    assert_eq!(report.checked_module_instance_fields(), 8);
-    assert_eq!(report.checked_module_marketplace_fields(), 3);
-    assert!(report.unsupported_fields().contains(&"resources"));
-    assert!(
-        !report
-            .unsupported_fields()
-            .contains(&"installed_module_targets")
-    );
-    assert!(!report.unsupported_fields().contains(&"main_token_balances"));
-    assert!(report.runtime_registry_missing());
-    assert!(report.cognition_registry_missing());
-    assert!(!report.unsupported_fields().is_empty());
-}
-
-#[test]
-fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
-    let complete = verify(&fixture(true), || false).unwrap();
-    assert_eq!(complete.checked_module_marketplace_fields(), 3);
-
-    let empty = verify(
-        &fixture_with_issue(true, Some(FixtureIssue::EmptyModuleMarketplaceMaps)),
-        || false,
-    )
-    .unwrap();
-    assert_eq!(empty.checked_module_marketplace_fields(), 3);
-
-    for (issue, expected) in [
-        (
-            FixtureIssue::MissingModuleMarketplaceMetadata,
-            "required module marketplace metadata missing or duplicate",
-        ),
-        (
-            FixtureIssue::WrongModuleMarketplaceKey,
-            "module marketplace outer semantic key",
-        ),
-        (
-            FixtureIssue::WrongModuleMarketplaceCodec,
-            "module marketplace outer record-root profile",
-        ),
-        (
-            FixtureIssue::InvalidModuleMarketplacePayload,
-            "module marketplace root binding",
-        ),
-    ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
-        assert!(
-            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
-            "{issue:?}: {result:?}"
-        );
-    }
-
-    for (issue, expected) in [
-        (
-            FixtureIssue::MissingModuleMarketplaceChild,
-            "module visual child closure",
-        ),
-        (
-            FixtureIssue::UnknownModuleMarketplaceChild,
-            "module marketplace child semantic key",
-        ),
-    ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
-        assert!(
-            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
-            "{issue:?}: {result:?}"
-        );
-    }
-
-    assert!(matches!(
-        verify(
-            &fixture_with_issue(true, Some(FixtureIssue::WrongModuleMarketplaceChildCount)),
-            || false
-        ),
-        Err(WorldStateOwnerError::Invalid("state scan leaf count"))
-    ));
-}
-
-#[test]
-fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
-    let complete = verify(&fixture(true), || false).unwrap();
-    assert_eq!(complete.checked_installed_target_fields(), 1);
-    assert_eq!(complete.checked_world_balance_fields(), 2);
-
-    let empty = verify(
-        &fixture_with_issue(true, Some(FixtureIssue::EmptyTargetAndBalanceMaps)),
-        || false,
-    )
-    .unwrap();
-    assert_eq!(empty.checked_installed_target_fields(), 1);
-    assert_eq!(empty.checked_world_balance_fields(), 2);
-
-    for (issue, expected) in [
-        (
-            FixtureIssue::MissingInstalledTargetMetadata,
-            "required installed-target metadata missing or duplicate",
-        ),
-        (
-            FixtureIssue::WrongInstalledTargetKey,
-            "installed target semantic key profile",
-        ),
-        (
-            FixtureIssue::WrongInstalledTargetCodec,
-            "installed target payload profile",
-        ),
-        (
-            FixtureIssue::MissingWorldBalanceMetadata,
-            "required world-balance metadata missing or duplicate",
-        ),
-        (
-            FixtureIssue::WrongWorldBalanceKey,
-            "world balance semantic key profile",
-        ),
-    ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
-        assert!(
-            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
-            "{issue:?}: {result:?}"
-        );
-    }
-
-    assert!(matches!(
-        verify(
-            &fixture_with_issue(true, Some(FixtureIssue::WrongWorldBalanceCodec)),
-            || false
-        ),
-        Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(_)))
-    ));
-}
-
-#[test]
-fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
-    let fixture = fixture(true);
-    let report = verify(&fixture, || false).unwrap();
-    assert_eq!(report.checked_module_instance_fields(), 8);
-
-    let empty = verify(
-        &fixture_with_issue(true, Some(FixtureIssue::EmptyModuleInstances)),
-        || false,
-    )
-    .unwrap();
-    assert_eq!(empty.checked_module_instance_fields(), 8);
-
-    for (issue, expected) in [
-        (
-            FixtureIssue::MissingModuleInstanceMetadata,
-            "required module instance metadata missing or duplicate",
-        ),
-        (
-            FixtureIssue::MissingModuleInstanceSibling,
-            "module instance sibling field missing",
-        ),
-        (
-            FixtureIssue::WrongModuleInstanceSemanticKey,
-            "module instance sibling field missing",
-        ),
-        (
-            FixtureIssue::WrongModuleInstanceCodec,
-            "module instance member payload profile",
-        ),
-    ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
-        assert!(
-            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
-            "{issue:?}: {result:?}"
-        );
-    }
-}
-
-#[test]
-fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() {
-    let fixture = fixture(true);
-    let report = verify(&fixture, || false).unwrap();
-    assert_eq!(report.checked_text_byte_fields(), 4);
-    assert!(report.unsupported_fields().contains(&"resources"));
-
-    for (issue, expected) in [
-        (
-            FixtureIssue::WrongTextKey,
-            "typed owner semantic key profile",
-        ),
-        (
-            FixtureIssue::InvalidTextPayload,
-            "typed owner text payload UTF-8",
-        ),
-        (
-            FixtureIssue::WrongTextCodec,
-            "typed owner text/bytes payload profile",
-        ),
-        (
-            FixtureIssue::MissingTextMetadata,
-            "required text/bytes metadata missing or duplicate",
-        ),
-    ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
-        assert!(
-            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
-            "{issue:?}: {result:?}"
-        );
-    }
-    assert!(matches!(
-        verify(
-            &fixture_with_issue(true, Some(FixtureIssue::WrongBytesCodec)),
-            || false
-        ),
-        Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(
-            "member key/payload kind"
-        )))
-    ));
-}
-
-#[test]
-fn owner_semantic_key_probe_handles_utf8_boundaries_and_rejects_wrong_tokens() {
-    let ascii_prefix_len = 64 * 1024 - (SEMANTIC_KEY_DOMAIN.len() + 9) - 1;
-    let text = format!("{}é-tail", "a".repeat(ascii_prefix_len));
-    let mut encoded = Vec::new();
-    crate::incremental_semantic_key::write_semantic_key_v1(text.as_str(), &mut encoded).unwrap();
-    let mut probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, encoded.len() as u64);
-    for byte in &encoded {
-        probe.write_all(std::slice::from_ref(byte)).unwrap();
-    }
-    assert!(probe.finish(), "split multi-byte UTF-8 key should validate");
-
-    let mut wrong_token = OwnerSemanticKeyProbe::new(OwnerKeyKind::Action, 128);
-    assert!(wrong_token.write_all(&encoded).is_err());
-    assert!(!wrong_token.finish());
-
-    let mut malformed = SEMANTIC_KEY_DOMAIN.to_vec();
-    malformed.push(1);
-    malformed.extend_from_slice(&1u64.to_be_bytes());
-    malformed.push(0xff);
-    let mut invalid_utf8 = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, 128);
-    assert!(invalid_utf8.write_all(&malformed).is_err());
-    assert!(!invalid_utf8.finish());
-}
-
-#[test]
-fn missing_required_u64_entry_fails_closed_even_when_all_metadata_is_present() {
-    let fixture = fixture(false);
-    assert!(matches!(
-        verify(&fixture, || false),
-        Err(WorldStateOwnerError::Invalid(
-            "required scalar-u64 metadata/entry missing or duplicate"
-        ))
-    ));
-}
-
-#[test]
-fn full_owner_scan_observes_cancellation() {
-    let fixture = fixture(true);
-    assert!(matches!(
-        verify(&fixture, || true),
-        Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled))
-    ));
-}
-
-#[test]
-fn text_byte_owner_scan_observes_late_cancellation() {
-    let fixture = fixture(true);
-    let calls = std::cell::Cell::new(0usize);
-    assert!(matches!(
-        verify(&fixture, || {
-            let next = calls.get() + 1;
-            calls.set(next);
-            next == 64
-        }),
-        Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled))
-    ));
-    assert_eq!(calls.get(), 64);
-}
+#[path = "incremental_owner_closure_marketplace_tests.rs"]
+mod marketplace_tests;
+#[path = "incremental_owner_closure_registry_tests.rs"]
+mod registry_tests;

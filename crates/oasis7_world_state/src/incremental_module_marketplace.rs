@@ -29,13 +29,16 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionWriteV1, PreparedGuard},
     incremental_record_root::RecordRootRefV1,
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StatePageWriter, StateRootV1},
-    incremental_value::{ValueNodeReader, ValueNodeWriter, ValueReadContext, ValueTreeError},
+    incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::io::{self, Write};
 
 #[path = "incremental_module_marketplace_bid_index.rs"]
 pub(crate) mod bid_index;
+#[path = "incremental_module_marketplace_bid_overlay.rs"]
+mod bid_overlay;
+pub use bid_overlay::{ModuleArtifactBidChangeV1, change_module_bid_overlay_v1};
 
 const RECORD_TREE_LABELS: RecordTreeLabelsV1 = RecordTreeLabelsV1 {
     read: "market record source read",
@@ -296,6 +299,10 @@ enum MarketplacePriceTarget {
     BidOrdinal(u64),
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The public wrapper forwards independent transaction, guard, live-fence, and resource inputs."
+)]
 fn change_price_amount_overlay_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -586,6 +593,10 @@ pub fn change_module_listing_price_amount_overlay_v1<
 /// Changes one bid's signed amount by ordinal. Scalar edits touch only its
 /// price leaf; insertion or deletion must separately reindex positions and is
 /// linear in the number of following bids in this ordinal representation.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The overlay boundary keeps transaction, authority guard, live fence, and resource budgets independent."
+)]
 pub fn change_module_bid_price_amount_overlay_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -871,8 +882,15 @@ fn append_bids<W: ValueNodeReader + ValueNodeWriter + StatePageWriter, C: FnMut(
             remaining,
         )?;
     }
-    let (sequence_root_id, summary) =
-        bid_index::append_balanced(descriptor, &mut root, 0, length, context, remaining)?;
+    let (sequence_root_id, summary) = bid_index::append_balanced(
+        descriptor,
+        &mut root,
+        0,
+        length,
+        bid_index::NO_BID_ID,
+        context,
+        remaining,
+    )?;
     if summary.size != length {
         return Err(MemberRecordError::Invalid("module bid AVL genesis count"));
     }

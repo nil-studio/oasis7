@@ -55,7 +55,7 @@ impl<R: MerkleNodeReader> ScheduleScanContext<'_, R> {
             class: self.class,
             nodes: Cell::from_mut(&mut self.io.nodes_remaining),
             bytes: Cell::from_mut(&mut self.io.read_bytes_remaining),
-            leaves: &leaves,
+            leaves,
             cancelled: &cancelled,
             stop: &stop,
         };

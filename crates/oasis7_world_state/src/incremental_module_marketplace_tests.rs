@@ -12,14 +12,23 @@ use oasis7_agent_api::{
     world_entity::{ModuleVisualAnchor, ModuleVisualEntity},
 };
 use oasis7_formal_protocol::{
-    incremental_execution::ExecutionWriteV1,
-    incremental_state::{MerkleNodeReader, StateNamespaceV1, StatePageWriter, StateRootV1},
+    incremental_execution::{
+        AuthorityBinding, ExecutionFence, ExecutionParent, ExecutionTransaction, ExecutionWriteV1,
+        PreparedGuard, RootSetV1, TransactionLimits, TransitionVerifier,
+    },
+    incremental_record_root::RecordRootRefV1,
+    incremental_state::{
+        MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1,
+    },
     incremental_value::{
         ValueIoBudget, ValueNodeReader, ValueNodeWriter, ValueReadContext, ValueTreeError,
     },
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 struct Values {
     memory: MemoryBudget,
@@ -70,6 +79,152 @@ impl ValueNodeReader for Values {
 }
 
 impl StatePageWriter for Values {}
+
+type TestValuePages = Arc<Mutex<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>>;
+
+#[derive(Clone)]
+struct SharedValues {
+    memory: MemoryBudget,
+    pages: TestValuePages,
+    puts: Arc<std::sync::atomic::AtomicUsize>,
+    value_reads: Arc<std::sync::atomic::AtomicUsize>,
+    state_reads: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl SharedValues {
+    fn new(memory: MemoryBudget) -> Self {
+        Self {
+            memory,
+            pages: Arc::new(Mutex::new(BTreeMap::new())),
+            puts: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            value_reads: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            state_reads: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    fn put_count(&self) -> usize {
+        self.puts.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn read_counts(&self) -> (usize, usize) {
+        (
+            self.value_reads.load(std::sync::atomic::Ordering::Relaxed),
+            self.state_reads.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+}
+
+impl ValueNodeWriter for SharedValues {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        if blake3::hash(bytes.as_slice()).as_bytes() != &id || !bytes.uses_budget(&self.memory) {
+            return Err(ValueTreeError::Invalid(
+                "marketplace shared test value hash/pool",
+            ));
+        }
+        self.pages
+            .lock()
+            .map_err(|_| ValueTreeError::Invalid("marketplace shared test lock"))?
+            .insert(id, Arc::new(bytes));
+        self.puts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+impl ValueNodeReader for SharedValues {
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        self.value_reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let page = self
+            .pages
+            .lock()
+            .map_err(|_| ValueTreeError::Invalid("marketplace shared test lock"))?
+            .get(id)
+            .cloned()
+            .ok_or(ValueTreeError::Invalid(
+                "marketplace shared test missing page",
+            ))?;
+        if class != MemoryClass::Ordinary
+            || !memory.same_pool(&self.memory)
+            || !page.uses_budget(memory)
+            || page.len() > max_bytes
+        {
+            return Err(ValueTreeError::Invalid(
+                "marketplace shared test pool/class/bound",
+            ));
+        }
+        Ok(page)
+    }
+}
+
+impl StatePageWriter for SharedValues {}
+
+impl MerkleNodeReader for SharedValues {
+    type Node = StatePage;
+
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        Some(&self.memory)
+    }
+
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        Some(MemoryClass::Ordinary)
+    }
+
+    fn read_node(&self, id: &str, max_bytes: usize) -> Result<Option<Self::Node>, String> {
+        self.state_reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if id.len() != 64 {
+            return Err("marketplace shared test state digest length".into());
+        }
+        let mut digest = [0; 32];
+        for (index, pair) in id.as_bytes().chunks_exact(2).enumerate() {
+            let hex = |byte| match byte {
+                b'0'..=b'9' => Some(byte - b'0'),
+                b'a'..=b'f' => Some(byte - b'a' + 10),
+                _ => None,
+            };
+            let (Some(high), Some(low)) = (hex(pair[0]), hex(pair[1])) else {
+                return Err("marketplace shared test state digest encoding".into());
+            };
+            digest[index] = (high << 4) | low;
+        }
+        let page = self
+            .pages
+            .lock()
+            .map_err(|_| "marketplace shared test lock")?
+            .get(&digest)
+            .cloned()
+            .ok_or("marketplace shared test state page missing")?;
+        if page.len() > max_bytes {
+            return Err("marketplace shared test state page bound".into());
+        }
+        Ok(Some(StatePage(page)))
+    }
+}
+
+#[derive(Default)]
+struct StatePages(BTreeMap<String, Vec<u8>>);
+
+impl MerkleNodeReader for StatePages {
+    type Node = Vec<u8>;
+
+    fn read_node(&self, id: &str, max_bytes: usize) -> Result<Option<Self::Node>, String> {
+        let bytes = self.0.get(id).ok_or("marketplace state page missing")?;
+        if bytes.len() > max_bytes {
+            return Err("marketplace state page bound".into());
+        }
+        Ok(Some(bytes.clone()))
+    }
+}
 
 struct StatePage(Arc<ReservedValue<Vec<u8>>>);
 impl AsRef<[u8]> for StatePage {
@@ -182,16 +337,16 @@ fn context<'a>(
     }
 }
 
-fn read_member(
+fn read_member<R: ValueNodeReader>(
     root: &[u8; 32],
     field_key: &WorldFieldKeyV1,
-    values: &Values,
+    values: &R,
     memory: &MemoryBudget,
 ) -> (MemberRecordInfoV1, Vec<u8>, Vec<u8>) {
     let mut io = ValueIoBudget {
         nodes_remaining: 100_000,
         read_bytes_remaining: 16 << 20,
-        write_bytes_remaining: 0,
+        write_bytes_remaining: 16 << 20,
     };
     let mut context = ValueReadContext {
         source: values,
@@ -218,11 +373,11 @@ fn read_member(
     (info, semantic, payload)
 }
 
-fn child_payload<K: SemanticKeyV1 + ?Sized>(
+fn child_payload<K: SemanticKeyV1 + ?Sized, R: ValueNodeReader + MerkleNodeReader>(
     root: &StateRootV1,
     descriptor: super::FieldDescriptor,
     key: &K,
-    values: &Values,
+    values: &R,
     memory: &MemoryBudget,
 ) -> (MemberPayloadCodecV1, Vec<u8>) {
     let mut semantic = Vec::new();
@@ -236,11 +391,11 @@ fn child_payload<K: SemanticKeyV1 + ?Sized>(
     (info.codec, payload)
 }
 
-fn outer_child(
+fn outer_child<R: ValueNodeReader>(
     owner: ModuleMarketplaceFieldV1,
     outer_key: &str,
     writes: &[ReservedValue<ExecutionWriteV1>],
-    values: &Values,
+    values: &R,
     memory: &MemoryBudget,
 ) -> StateRootV1 {
     let descriptor = owner.descriptor().unwrap();
@@ -509,24 +664,20 @@ fn borrowed_genesis_emits_registered_metadata_and_typed_original_map_entries() {
         (1u64, "bidder/β", i64::MAX, u64::MAX, 1u64),
     ] {
         let key = |field: &'static str| (("bid", ordinal), field);
-        let index = if ordinal == 0 {
-            [u64::MAX, u64::MAX, 0, 0, 0, 0]
+        let index_fields = if ordinal == 0 {
+            [u64::MAX, u64::MAX, 0, 0, 0, 0, 1]
         } else {
-            [0, u64::MAX, 1, 1, 0, 0]
+            [0, u64::MAX, 1, 1, 0, 0, u64::MAX]
         };
-        for (name, value) in [
-            ("index_left_id", index[0]),
-            ("index_right_id", index[1]),
-            ("index_left_size", index[2]),
-            ("index_left_height", index[3]),
-            ("index_right_size", index[4]),
-            ("index_right_height", index[5]),
-        ] {
-            assert_eq!(
-                child_payload(&bids_root, bids_field, &key(name), &values, &memory),
-                (MemberPayloadCodecV1::U64, value.to_be_bytes().to_vec())
-            );
+        let mut index_payload = [0; 7 * 8];
+        for (index, value) in index_fields.into_iter().enumerate() {
+            let start = index * 8;
+            index_payload[start..start + 8].copy_from_slice(&value.to_be_bytes());
         }
+        assert_eq!(
+            child_payload(&bids_root, bids_field, &key("index_node"), &values, &memory),
+            (MemberPayloadCodecV1::FixedU64x7, index_payload.to_vec())
+        );
         assert_eq!(
             child_payload(&bids_root, bids_field, &key("present"), &values, &memory),
             (MemberPayloadCodecV1::Unit, Vec::new())
@@ -606,3 +757,35 @@ fn first_sink_failure_stops_later_marketplace_fields_without_mutating_world() {
     );
     assert_eq!(world.module_artifact_bids, before.module_artifact_bids);
 }
+
+fn bid_overlay_world_with_count(count: u64) -> WorldState {
+    let mut world = WorldState::default();
+    let bids = (0..count)
+        .map(|ordinal| ModuleArtifactBidState {
+            order_id: if matches!(ordinal, 0 | 4 | 8) {
+                77
+            } else {
+                100 + ordinal
+            },
+            bidder_agent_id: if matches!(ordinal, 0 | 4 | 8) {
+                "duplicate/β".to_owned()
+            } else {
+                format!("bidder/{ordinal}")
+            },
+            price_kind: if ordinal % 2 == 0 {
+                ResourceKind::Electricity
+            } else {
+                ResourceKind::Data
+            },
+            price_amount: i64::try_from(ordinal).unwrap() - 4,
+            bid_at: 1000 + ordinal,
+        })
+        .collect();
+    world
+        .module_artifact_bids
+        .insert("bid-map-key".into(), bids);
+    world
+}
+
+#[path = "incremental_module_marketplace_bid_overlay_tests.rs"]
+mod bid_overlay_tests;
