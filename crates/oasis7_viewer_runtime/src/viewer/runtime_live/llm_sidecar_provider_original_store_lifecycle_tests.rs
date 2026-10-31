@@ -204,7 +204,7 @@ fn store_captured_attempt_with_response(
 fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
     const OWNER_MEMORY_BYTES: usize = 128 * 1024 * 1024;
     const RECOVERY_RESERVE_BYTES: usize = 8 * 1024 * 1024;
-    const VERIFY_ORDINARY_HEADROOM_BYTES: usize = 4 * 1024 * 1024;
+    const VERIFY_ORDINARY_HEADROOM_BYTES: usize = 8 * 1024 * 1024;
     const ARRAY_ITEMS: usize = 180_000;
     const LEGACY_CONTEXT_CHARGE_BYTES: usize = 1024 * 1024;
 
@@ -231,7 +231,13 @@ fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
     let wire_bytes = serde_json::to_vec(&response).expect("encode large original response");
     let decoded_value_lower_bound = ARRAY_ITEMS * std::mem::size_of::<serde_json::Value>();
     assert!(wire_bytes.len() < LEGACY_CONTEXT_CHARGE_BYTES);
-    assert!(decoded_value_lower_bound > VERIFY_ORDINARY_HEADROOM_BYTES);
+    assert!(
+        decoded_value_lower_bound
+            .checked_mul(2)
+            .expect("two decoded Value buffers fit usize")
+            > VERIFY_ORDINARY_HEADROOM_BYTES,
+        "the original response and verification decode coexist above the legacy headroom"
+    );
     assert!(
         wire_bytes.len() + LEGACY_CONTEXT_CHARGE_BYTES < VERIFY_ORDINARY_HEADROOM_BYTES,
         "the legacy raw body plus fixed decode charge fits the deliberately available pool"
