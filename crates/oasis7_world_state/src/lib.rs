@@ -233,6 +233,8 @@ pub mod incremental_installed_module_targets;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_material_records;
 #[cfg(not(target_arch = "wasm32"))]
+mod incremental_record_diff;
+#[cfg(not(target_arch = "wasm32"))]
 mod incremental_record_key_read;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_record_tree;

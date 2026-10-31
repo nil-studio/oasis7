@@ -252,3 +252,58 @@ pub fn qualify_material_family_v1<
         counts,
     }))
 }
+
+pub(super) fn mint(
+    roots: [u8; 32],
+    counts: [u64; 2],
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    class: oasis7_proto::memory_budget::MemoryClass,
+) -> Result<ReservedValue<MaterialFamilyQualificationV1>, ValueTreeError> {
+    Ok(memory
+        .reserve(512, class)?
+        .retain(MaterialFamilyQualificationV1 { roots, counts }))
+}
+
+/// Open one record under an already-qualified exact family RootSet.
+pub fn open_qualified_material_record_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    key: MaterialRecordKeyV1<'_>,
+    roots: &RootSetV1,
+    family: &ReservedValue<MaterialFamilyQualificationV1>,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<Option<ReservedValue<MaterialRecordQualificationV1>>, ValueTreeError> {
+    ctx.check()?;
+    if !family.uses_budget(ctx.values.memory) {
+        return Err(invalid());
+    }
+    family.validate_binding(&roots.digest().map_err(|_| invalid())?)?;
+    let top = roots
+        .state
+        .iter()
+        .find(|r| r.namespace == key.kind().namespace())
+        .ok_or_else(invalid)?;
+    if top != ctx.root {
+        return Err(invalid());
+    }
+    let Some(child) = inspect_material_record_root_v1(key, ctx)? else {
+        return Ok(None);
+    };
+    let outer = read::outer_key(key, &mut ctx.records())?;
+    let owner = WorldFieldKeyV1::from_bytes(outer.0.as_bytes())
+        .map_err(ValueTreeError::Invalid)?
+        .semantic_key
+        .ok_or_else(invalid)?;
+    let proof = closure::mint(
+        key.kind(),
+        owner,
+        (*child).clone(),
+        ctx.values.memory,
+        ctx.values.class,
+    )?;
+    ctx.check()?;
+    Ok(Some(proof))
+}

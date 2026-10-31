@@ -687,3 +687,5 @@ MaterialProfile 保留 kind、tier、category、stack_limit、transport_loss_cla
 GEN、完整 family 资格、本地列更新与接收端验证使用同一封闭 schema；本地变更必须绑定已验证原 record root、精确 expected 值与同一事务 guard。页传输在完整 typed 闭包与缓冲 sink finish 都成功后才可作为完整交付；这些能力不授予 authority、全 World 激活或全局 GC 资格。实现与物理验证仍须在当前 PR 提供，不由本节文字代签。
 
 原始家族恢复通过全部 top-level roots 的连续预算扫描，认证两个命名空间内的 Metadata、格式标记、原始外键类型及每个完整 child；返回资格仅绑定这两个家族和原 RootSet digest。它不授予其他 owner 的完整性。RecordRoot 点读中的原 Text/U64 键在同一次认证 member 读取中流式校验，固定前缀和 UTF-8 状态不保留完整原身份。
+
+普通事务的 Material 单列 setter 只认证指定原 expected 值并编辑该列；RouteId 同次编辑其 Bool presence，不能单独修改 flag 或删除必需列。创建绑定完整父家族资格和当前不存在的外键，原嵌入身份不替代外键；删除绑定当前完整 record 资格和相同事务 guard，不为移除外层引用重读大 sibling payload。接收端必须先完成通用重放，再从已资格父根按认证变化路径验证封闭列、必需 marker、Option 关系和家族计数，跳过相等子树。此片仍不授予完整 World 资格。

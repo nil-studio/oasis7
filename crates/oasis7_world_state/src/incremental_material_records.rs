@@ -167,4 +167,21 @@ pub use read::{
 
 #[path = "incremental_material_records_family.rs"]
 mod family;
-pub use family::{MaterialFamilyQualificationV1, qualify_material_family_v1};
+pub use family::{
+    MaterialFamilyQualificationV1, open_qualified_material_record_v1, qualify_material_family_v1,
+};
+
+#[path = "incremental_material_records_point.rs"]
+mod point;
+pub use point::{MaterialCellChangeV1, MaterialCellValueRefV1, change_qualified_material_cell_v1};
+
+#[path = "incremental_material_records_receiver.rs"]
+mod receiver;
+pub use receiver::accept_material_transition_v1;
+
+#[path = "incremental_material_records_lifecycle.rs"]
+mod lifecycle;
+pub use lifecycle::{
+    MaterialRecordCreateV1, MaterialRecordDeleteV1, create_qualified_material_record_v1,
+    delete_qualified_material_record_v1,
+};

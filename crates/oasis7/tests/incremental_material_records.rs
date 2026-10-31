@@ -414,3 +414,6 @@ fn material_family_cold_roots_qualify_both_namespaces() {
         }
     }
 }
+
+#[path = "support/incremental_material_points.rs"]
+mod points;

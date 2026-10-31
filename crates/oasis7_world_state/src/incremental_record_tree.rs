@@ -254,3 +254,26 @@ pub(crate) fn append<W: StatePageWriter + ValueNodeReader, C: FnMut() -> bool>(
     )?;
     Ok(delta.after.clone())
 }
+
+/// Charged authenticated point lookup over a record-local StateRoot.
+pub(crate) fn lookup<R: ValueNodeReader, C: FnMut() -> bool>(
+    root: &StateRootV1,
+    key: &WorldFieldKeyV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    labels: RecordTreeLabelsV1,
+) -> Result<Option<[u8; 32]>, ValueTreeError> {
+    let _point = records
+        .values
+        .memory
+        .reserve(8 << 10, records.values.class)?;
+    let source = Source {
+        source: records.values.source,
+        memory: records.values.memory,
+        class: records.values.class,
+        io: &RefCell::new(&mut *records.values.io),
+        cancelled: &RefCell::new(&mut *records.cancelled),
+        error: &RefCell::new(None),
+        labels,
+    };
+    source.finish(root.get(key.as_bytes(), &source))
+}

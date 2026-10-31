@@ -34,6 +34,21 @@ impl MaterialRecordQualificationV1 {
         Ok(())
     }
 }
+pub(super) fn mint(
+    kind: MaterialRecordKindV1,
+    owner: [u8; 32],
+    root: StateRootV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    class: oasis7_proto::memory_budget::MemoryClass,
+) -> Result<ReservedValue<MaterialRecordQualificationV1>, ValueTreeError> {
+    Ok(memory
+        .reserve(512, class)?
+        .retain(MaterialRecordQualificationV1 {
+            schema: kind.schema(),
+            owner,
+            root,
+        }))
+}
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("material record closure")
 }
