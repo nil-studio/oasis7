@@ -2059,5 +2059,59 @@ class Selection(unittest.TestCase):
         self.assertEqual(outputs['command_center_package'], 'true')
 
 
+
+class LocalStatementCfgOwners(unittest.TestCase):
+    PATH = 'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/qa_conformance/application_stream_boundaries.rs'
+    BEFORE = ('#[test] fn existing() {}\n'
+              '#[cfg(any(target_os = "macos", target_os = "linux"))]\n'
+              'fn small_buffers() {\n'
+              '  #[cfg(target_os = "macos")]\n'
+              '  let (level, send, receive) = (0xffff, 0x1001, 0x1002);\n'
+              '  #[cfg(target_os = "linux")]\n'
+              '  let (level, send, receive) = (1, 7, 8);\n}')
+
+    def policy(self, before, after):
+        def source(*args):
+            self.assertEqual(args[0], 'show')
+            ref, path = args[1].split(':', 1)
+            self.assertEqual(path, self.PATH)
+            return {'base': before, 'source': after}[ref].encode()
+        with patch.object(selector, 'git', side_effect=source):
+            return selector.changed_test_policy(
+                'base', 'source', [self.PATH], {self.PATH: {'oasis7_chain_runtime'}},
+                {'oasis7_chain_runtime'}, {'oasis7_chain_runtime': {'test_tier_required', 'test_tier_full'}})
+
+    def test_unchanged_local_cfg_is_stable_after_unrelated_tokens(self):
+        after = 'struct OrderedResponseProgress { complete: bool }\n' + self.BEFORE
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+        after = self.BEFORE.replace('fn small_buffers() {', 'fn small_buffers() { let unrelated = 7;')
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_changed_or_new_local_cfg_still_requires_validated_driver(self):
+        variants = [
+            self.BEFORE.replace('cfg(target_os = "macos")', 'cfg(target_os = "windows")'),
+            self.BEFORE.replace('fn small_buffers() {',
+                                'fn small_buffers() { #[cfg(target_os = "macos")] let extra = 1;'),
+            self.BEFORE.replace('(0xffff, 0x1001, 0x1002)', '(0xffff, 0x1001, 0x1003)'),
+        ]
+        for after in variants:
+            with self.subTest(after=after), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                self.policy(self.BEFORE, after)
+
+    def test_method_scopes_keep_conservative_handling(self):
+        body = self.BEFORE.split('fn small_buffers() ', 1)[1]
+        before = '#[test] fn existing() {}\nimpl First { fn small_buffers() ' + body + ' }'
+        after = 'struct NewItem;\n' + before.replace('impl First', 'impl Second')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            self.policy(before, after)
+
+    def test_moving_local_cfg_to_another_function_is_not_unchanged(self):
+        moved = self.BEFORE.replace(
+            '  #[cfg(target_os = "macos")]\n  let (level, send, receive) = (0xffff, 0x1001, 0x1002);\n', '')
+        moved += '\nfn other() { #[cfg(target_os = "macos")] let (level, send, receive) = (0xffff, 0x1001, 0x1002); }'
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            self.policy(self.BEFORE, moved)
+
 if __name__ == '__main__':
     unittest.main()
