@@ -7,7 +7,7 @@ use crate::{
     incremental_ledger_value::Utf8Output,
     incremental_module_instance_fields::ModuleInstanceFieldV1,
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
-    incremental_world_field_key::{WorldFieldKeyRefV1, WorldFieldRecordKindV1},
+    incremental_world_field_key::WorldFieldRecordKindV1,
 };
 use oasis7_formal_protocol::{
     incremental_state::{
@@ -172,7 +172,6 @@ pub(super) fn visit_entry<M, V, C>(
     coverage: &mut Coverage,
     root: &StateRootV1,
     entry: &StateEntryV1,
-    parsed: WorldFieldKeyRefV1<'_>,
     reader: &StateScanReader<'_, M, C>,
     values: &mut ValueReadContext<'_, V>,
     max_value_bytes: u64,
@@ -183,6 +182,7 @@ where
     V: ValueNodeReader,
     C: FnMut() -> bool,
 {
+    let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(WorldStateOwnerError::Invalid)?;
     let Some((index, field)) = field_for_name(parsed.name) else {
         return Ok(false);
     };
@@ -221,7 +221,7 @@ where
                     record_bytes: 512,
                 },
                 &mut io::sink(),
-                || cancelled(),
+                cancelled,
             )
             .map_err(WorldStateOwnerError::Value)?;
         }

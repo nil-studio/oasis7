@@ -127,6 +127,13 @@ enum FixtureIssue {
     WrongTextCodec,
     WrongBytesCodec,
     MissingTextMetadata,
+    MissingInstalledTargetMetadata,
+    WrongInstalledTargetKey,
+    WrongInstalledTargetCodec,
+    MissingWorldBalanceMetadata,
+    WrongWorldBalanceKey,
+    WrongWorldBalanceCodec,
+    EmptyTargetAndBalanceMaps,
     MissingModuleInstanceMetadata,
     MissingModuleInstanceSibling,
     WrongModuleInstanceSemanticKey,
@@ -269,8 +276,12 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
         let FieldDestination::State(namespace) = field.destination else {
             continue;
         };
-        let omit_metadata = issue == Some(FixtureIssue::MissingTextMetadata)
-            && field.name == "node_identity_bindings";
+        let omit_metadata = (issue == Some(FixtureIssue::MissingTextMetadata)
+            && field.name == "node_identity_bindings")
+            || (issue == Some(FixtureIssue::MissingInstalledTargetMetadata)
+                && field.name == "installed_module_targets")
+            || (issue == Some(FixtureIssue::MissingWorldBalanceMetadata)
+                && field.name == "main_token_balances");
         if !omit_metadata {
             let metadata = write_field_metadata_v1(
                 field,
@@ -420,6 +431,71 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                     before: None,
                     after: Some(entry.value_root),
                 });
+            }
+
+            if field.name == "installed_module_targets"
+                && issue != Some(FixtureIssue::EmptyTargetAndBalanceMaps)
+            {
+                match issue {
+                    Some(FixtureIssue::WrongInstalledTargetKey) => fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        &43u64,
+                        MemberPayloadRefV1::Unit,
+                    ),
+                    Some(FixtureIssue::WrongInstalledTargetCodec) => fixture_writer!()
+                        .append_member(
+                            field,
+                            WorldFieldRecordKindV1::Entry,
+                            "target-key",
+                            MemberPayloadRefV1::U64(1),
+                        ),
+                    _ => fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        "target-key",
+                        MemberPayloadRefV1::Text("infra/東京"),
+                    ),
+                }
+            }
+
+            if matches!(field.name, "main_token_balances" | "node_asset_balances")
+                && issue != Some(FixtureIssue::EmptyTargetAndBalanceMaps)
+            {
+                let main = field.name == "main_token_balances";
+                let identity = if main {
+                    "inner-account/雪"
+                } else {
+                    "inner-node/é"
+                };
+                if issue == Some(FixtureIssue::WrongWorldBalanceKey) && main {
+                    fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        &43u64,
+                        MemberPayloadRefV1::IdentityU64Triple {
+                            identity,
+                            amounts: [0, u64::MAX, 17],
+                        },
+                    );
+                } else if issue == Some(FixtureIssue::WrongWorldBalanceCodec) && main {
+                    fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        "main-map-key",
+                        MemberPayloadRefV1::U64(7),
+                    );
+                } else {
+                    fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        if main { "main-map-key" } else { "node-map-key" },
+                        MemberPayloadRefV1::IdentityU64Triple {
+                            identity,
+                            amounts: [0, u64::MAX, 17],
+                        },
+                    );
+                }
             }
         }
 
@@ -661,11 +737,71 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert_eq!(report.checked_id_set_fields(), 5);
     assert_eq!(report.checked_number_map_fields(), 11);
     assert_eq!(report.checked_text_byte_fields(), 4);
+    assert_eq!(report.checked_installed_target_fields(), 1);
+    assert_eq!(report.checked_world_balance_fields(), 2);
     assert_eq!(report.checked_module_instance_fields(), 8);
     assert!(report.unsupported_fields().contains(&"resources"));
+    assert!(
+        !report
+            .unsupported_fields()
+            .contains(&"installed_module_targets")
+    );
+    assert!(!report.unsupported_fields().contains(&"main_token_balances"));
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(!report.unsupported_fields().is_empty());
+}
+
+#[test]
+fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
+    let complete = verify(&fixture(true), || false).unwrap();
+    assert_eq!(complete.checked_installed_target_fields(), 1);
+    assert_eq!(complete.checked_world_balance_fields(), 2);
+
+    let empty = verify(
+        &fixture_with_issue(true, Some(FixtureIssue::EmptyTargetAndBalanceMaps)),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(empty.checked_installed_target_fields(), 1);
+    assert_eq!(empty.checked_world_balance_fields(), 2);
+
+    for (issue, expected) in [
+        (
+            FixtureIssue::MissingInstalledTargetMetadata,
+            "required installed-target metadata missing or duplicate",
+        ),
+        (
+            FixtureIssue::WrongInstalledTargetKey,
+            "installed target semantic key profile",
+        ),
+        (
+            FixtureIssue::WrongInstalledTargetCodec,
+            "installed target payload profile",
+        ),
+        (
+            FixtureIssue::MissingWorldBalanceMetadata,
+            "required world-balance metadata missing or duplicate",
+        ),
+        (
+            FixtureIssue::WrongWorldBalanceKey,
+            "world balance semantic key profile",
+        ),
+    ] {
+        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        assert!(
+            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
+            "{issue:?}: {result:?}"
+        );
+    }
+
+    assert!(matches!(
+        verify(
+            &fixture_with_issue(true, Some(FixtureIssue::WrongWorldBalanceCodec)),
+            || false
+        ),
+        Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(_)))
+    ));
 }
 
 #[test]

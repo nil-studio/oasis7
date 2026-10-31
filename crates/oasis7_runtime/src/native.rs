@@ -488,6 +488,9 @@ pub use oasis7_world_state::incremental_authenticated_nonces;
 
 pub use oasis7_world_state::incremental_authorization_mapsets;
 
+pub use oasis7_world_state::incremental_installed_module_targets;
+pub use oasis7_world_state::incremental_world_balances;
+
 pub use world::incremental_commit::{
     CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
 };

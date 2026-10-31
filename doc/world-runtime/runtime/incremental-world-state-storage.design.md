@@ -643,6 +643,8 @@ main_token_balances 与 node_asset_balances 均沿 WorldState/Map/Business 唯�
 
 余额共享事务入口以具名借用 view 同时表示原身份和三个量，view 由原结构无省略解构得到，创世与点更新复用同一映射。field 与 view 类型不符立即拒绝，不能把节点余额的三个数按主代币余额解释。一次 contribute 认证 Metadata 和当前成员，流式比较 expected 原身份，并精确比较原具名数值与缺失状态；不收集旧身份，不以 map key 回填。检查当前 guard/live fence、读写同池 Ordinary、有限原身份/record/key/I/O 与组合取消后，保存 owner 的最终 after 或成员 tombstone；Metadata 不删除。no-op 保留两项读取依赖，并在可能较长的 view 比较后再查取消。类型/预期/原记录/额度/取消或后续写入失败均 poison 整笔事务。view/存储 setter 不校验供给、业务余额约束、转账/铸造权限或全字段资格，原 owner 仍须在同一共享事务内接通这些规则。
 
+完整 WorldState owner 检查对 `installed_module_targets` 要求其 Artifacts descriptor、Metadata 和每个原键对应的 Unit/Text 成员；对 `main_token_balances` 与 `node_asset_balances` 要求 Business descriptor、Metadata 和每个原键对应的 tag 9 身份/三数值 payload。检查将记录数、原键摘要、记录 kind、namespace、codec 与原身份 UTF-8 绑定，缺项、额外或类型错配均拒绝。该检查只闭合这三个已覆盖字段，不取代剩余 WorldState、Runtime/Cognition owner 的资格验证，也不授予安装、余额业务权限、激活或完整 GC 标记资格。
+
 <a id="iws-factory-records-v1"></a>
 ### 12.28 工厂与待建造记录
 
