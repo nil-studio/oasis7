@@ -22,7 +22,7 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, STATE_ROOT_BYTES, StateWriteV1},
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
-use oasis7_proto::memory_budget::MemoryClass;
+use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
 pub enum InventoryChangeRefV1<'a> {
     Resource {
@@ -77,7 +77,7 @@ pub(crate) struct InventoryDependencyV1 {
     pub root: Option<[u8; 32]>,
     pub writable: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PreparedInventoryChangeV1 {
     pub(crate) before_root: [u8; STATE_ROOT_BYTES],
     pub(crate) records: u8,
@@ -184,7 +184,7 @@ pub fn prepare_inventory_change_v1<M, R, E, C, W, CW, S>(
     read: &mut InventoryReadContext<'_, M, R, E, C>,
     write: &mut MemberRecordWriteContext<'_, W, CW>,
     sink: &mut S,
-) -> Result<PreparedInventoryChangeV1, InventoryChangeError>
+) -> Result<ReservedValue<PreparedInventoryChangeV1>, InventoryChangeError>
 where
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -200,7 +200,7 @@ where
     if read.values.class != MemoryClass::Ordinary || !read.values.memory.same_pool(write.memory) {
         return Err(InventoryChangeError::Invalid("inventory change pool/class"));
     }
-    let _metadata = write
+    let mut metadata = write
         .memory
         .reserve(4096, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
@@ -347,10 +347,13 @@ where
     if usize::from(records) != capture.count {
         return Err(InventoryChangeError::Invalid("inventory output count"));
     }
-    Ok(PreparedInventoryChangeV1 {
+    let retained = metadata
+        .split(std::mem::size_of::<ReservedValue<PreparedInventoryChangeV1>>())
+        .map_err(ValueTreeError::Invalid)?;
+    Ok(retained.retain(PreparedInventoryChangeV1 {
         before_root,
         records,
         dependencies,
         write_digests: capture.digests,
-    })
+    }))
 }

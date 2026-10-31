@@ -9,7 +9,7 @@ use oasis7_formal_protocol::{
     },
     incremental_value::{ValueIoBudget, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::{
     incremental_field_member::*, incremental_inventory_change::*, incremental_inventory_read::*,
     types::MaterialLedgerId,
@@ -40,7 +40,7 @@ fn prepare(
     read_cancel: &Cell<bool>,
     write_cancel: &Cell<bool>,
 ) -> (
-    Result<PreparedInventoryChangeV1, InventoryChangeError>,
+    Result<ReservedValue<PreparedInventoryChangeV1>, InventoryChangeError>,
     ValueIoBudget,
 ) {
     let state = store

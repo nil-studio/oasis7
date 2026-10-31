@@ -34,7 +34,7 @@ impl std::error::Error for InventoryContributionError {}
 /// Every error poisons the complete transaction, including invalid input/guard.
 /// The caller retains the provisional pages and their closure obligations.
 pub fn contribute_inventory_change_v1<R: MerkleNodeReader>(
-    prepared: &PreparedInventoryChangeV1,
+    prepared: &ReservedValue<PreparedInventoryChangeV1>,
     writes: &[ReservedValue<StateWriteV1>],
     transaction: &mut ExecutionTransaction<'_, R>,
     guard: &PreparedGuard,
@@ -44,7 +44,7 @@ pub fn contribute_inventory_change_v1<R: MerkleNodeReader>(
 ) -> Result<(), InventoryContributionError> {
     transaction.contribute(|transaction| {
         transaction.validate_guard(guard, live)?;
-        if !transaction.uses_budget(memory) {
+        if !transaction.uses_budget(memory) || !prepared.uses_budget(memory) {
             return Err(InventoryContributionError::Invalid(
                 "inventory contribution pool",
             ));

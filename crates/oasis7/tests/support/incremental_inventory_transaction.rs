@@ -80,6 +80,12 @@ fn complete_point_dependencies_seal_to_an_independently_verified_cold_root() {
                 || false,
             )
             .unwrap();
+            let retained = memory.used();
+            drop(prepared);
+            assert!(
+                retained - memory.used() >= std::mem::size_of::<PreparedInventoryChangeV1>(),
+                "retained inventory dependencies must retain their admission charge"
+            );
             assert!(matches!(
                 transaction.validate_guard(&old_guard, &live),
                 Err(ExecutionError::StaleGuard)
@@ -341,7 +347,7 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
         if case == 3 {
             fence.authority.epoch += 1;
         }
-        let source = prepared.clone();
+        let source = &prepared;
         let rows = writes.rows.borrow();
         let _batch_charge = memory.reserve(4096, MemoryClass::Ordinary).unwrap();
         let mut altered = Vec::new();
@@ -398,7 +404,7 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
         };
         let mut calls = 0;
         let result = contribute_inventory_change_v1(
-            &source,
+            source,
             batch,
             &mut transaction,
             &guard,
@@ -447,4 +453,76 @@ fn partial_import_and_bad_guards_limits_or_batches_never_remain_sealable() {
             Err(ExecutionError::Aborted)
         ));
     }
+}
+
+#[test]
+fn retained_noop_preparations_are_admitted_and_release_their_budget() {
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
+    let _source = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
+    let store = IncrementalPageStore::create(
+        &directory.0.join("pages"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let (_, bytes) = build(&source(), &store, &memory);
+    let root = StateRootV1::from_canonical_bytes(&bytes).unwrap();
+    let _slots = memory
+        .reserve(
+            128 * std::mem::size_of::<ReservedValue<PreparedInventoryChangeV1>>(),
+            MemoryClass::Ordinary,
+        )
+        .unwrap();
+    let mut retained = Vec::with_capacity(128);
+    let _pressure = memory
+        .reserve(
+            (31 << 20) - memory.used() - (64 << 10),
+            MemoryClass::Ordinary,
+        )
+        .unwrap();
+    let initial = memory.used();
+    let no = Cell::new(false);
+    let mut limited = false;
+    for _ in 0..128 {
+        let mut writes = Writes::new(&memory);
+        let (prepared, _) = prepare(
+            InventoryChangeRefV1::Material {
+                key: "absent-noop-budget",
+                expected: None,
+                after: None,
+            },
+            &root,
+            &store,
+            &memory,
+            &mut writes,
+            &no,
+            &no,
+        );
+        match prepared {
+            Ok(prepared) => {
+                assert_eq!(prepared.records(), 0);
+                assert!(writes.rows.borrow().is_empty());
+                assert!(prepared.uses_budget(&memory));
+                retained.push(prepared);
+            }
+            Err(InventoryChangeError::Value(ValueTreeError::Memory(_)))
+            | Err(InventoryChangeError::Record(MemberRecordError::Value(
+                ValueTreeError::Memory(_),
+            ))) => {
+                limited = true;
+                break;
+            }
+            Err(error) => panic!("unexpected preparation failure: {error:?}"),
+        }
+    }
+    assert!(!retained.is_empty());
+    assert!(
+        limited,
+        "retained no-op outputs must exhaust finite admission"
+    );
+    let charged: usize = retained.iter().map(|value| value.reserved_bytes()).sum();
+    assert_eq!(memory.used() - initial, charged);
+    drop(retained);
+    assert_eq!(memory.used(), initial);
 }
