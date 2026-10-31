@@ -133,7 +133,11 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
     let cancelled = AtomicBool::new(false);
-    for (namespace, writes) in fields {
+    for (namespace, mut writes) in fields {
+        // Genesis emits in field traversal order; StateDelta requires unique
+        // canonical key order. This bounded fixture is the batch owner.
+        writes.sort_unstable_by(|a, b| a.key.cmp(&b.key));
+        assert!(writes.windows(2).all(|pair| pair[0].key != pair[1].key));
         let index = namespace as usize - 1;
         let delta =
             StateDeltaV1::build(parent.roots.state[index].clone(), writes, &source, 4 << 20)
