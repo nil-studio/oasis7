@@ -251,3 +251,6 @@ pub mod incremental_world_text_maps;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_family_page_tracking;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_fixed_economy_records;
