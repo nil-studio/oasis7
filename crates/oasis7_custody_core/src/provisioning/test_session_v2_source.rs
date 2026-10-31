@@ -54,6 +54,20 @@ impl AccountProvisionApprovalState {
         reservation: SessionSourceReservation<'_>,
         now: UnixMillis,
     ) -> Result<TestSessionSourceV2> {
+        if matches!(
+            reservation.funding,
+            SessionSourceFundingV1::ExecutionFactoryV2 { .. }
+        ) {
+            return Err(invalid());
+        }
+        self.reserve_test_session_v2_source_inner(id, reservation, now)
+    }
+    pub(in crate::provisioning) fn reserve_test_session_v2_source_inner(
+        &mut self,
+        id: &str,
+        reservation: SessionSourceReservation<'_>,
+        now: UnixMillis,
+    ) -> Result<TestSessionSourceV2> {
         let SessionSourceReservation {
             operation_id,
             nonce,

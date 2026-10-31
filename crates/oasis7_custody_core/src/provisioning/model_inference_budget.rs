@@ -5,6 +5,7 @@ use super::*;
 #[serde(rename_all = "snake_case")]
 pub enum ModelBudgetApprovalContractV1 {
     NativeCustodyModelBudgetV1,
+    NativeCustodyModelProxyV2,
 }
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

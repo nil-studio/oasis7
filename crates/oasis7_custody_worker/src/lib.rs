@@ -189,6 +189,13 @@ mod owner_test_session_v2_credential_entry;
 #[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
 mod test_session_v2_credential_rpc;
 
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "identity",
+    feature = "native-runtime-harness"
+))]
+#[path = "../tests/support/context_fullsigned_v2_harness.rs"]
+mod context_fullsigned_v2_harness;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_test_session_v2_control_entry;
 #[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]

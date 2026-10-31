@@ -1,5 +1,8 @@
 //! Closed Native summary contracts; expected values do not prove DOM execution.
 use super::*;
+#[path = "approval_model_proxy_basis.rs"]
+mod proxy_basis;
+pub use proxy_basis::{NativeModelProxyBasisV2, NativeModelProxyConnectionBindingV2};
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,6 +57,23 @@ where
 pub enum NativeCustodySummaryContractV1 {
     ModelBudgetV1(NativeModelBudgetSummaryContractV1),
     FullTestSessionV2(NativeFullSessionSummaryContractV2),
+    FullTestSessionProxyV2(Box<NativeFullSessionProxySummaryContractV2>),
+}
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeFullSessionProxyProfileV2 {
+    FullTestSessionProxyV2,
+}
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeFullSessionProxySummaryContractV2 {
+    pub api_version: u8,
+    pub contract: NativeFullSessionProxyProfileV2,
+    pub full_session: Box<NativeFullSessionSummaryContractV2>,
+    pub basis: Box<NativeModelProxyBasisV2>,
+    pub basis_digest: String,
 }
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +132,47 @@ impl ApprovalOptionsRequestV1 {
             }
             _ => Ok(None),
         }
+    }
+    /// Native-signed server basis is additional content, never caller expectation.
+    pub fn validate_native_summary_contract(
+        &self,
+        actual: Option<&NativeCustodySummaryContractV1>,
+        manager_account_id: &str,
+        native_public_key: Option<&str>,
+        now: u64,
+    ) -> Result<(), String> {
+        use crate::provisioning::ModelBudgetApprovalContractV1;
+        let proxy_budget = match &self.intent {
+            CustodyIntentV1::TestSessionV2 { plan, .. } => plan.model_budget.as_ref(),
+            CustodyIntentV1::OwnerSetupV2 { plan } => plan.model_budget.as_ref(),
+            _ => None,
+        }
+        .filter(|budget| {
+            budget.approval_contract == ModelBudgetApprovalContractV1::NativeCustodyModelProxyV2
+        });
+        let Some(budget) = proxy_budget else {
+            return if actual == self.expected_model_budget_summary_contract()?.as_ref() {
+                Ok(())
+            } else {
+                Err("Native summary contract mismatch".into())
+            };
+        };
+        let Some(NativeCustodySummaryContractV1::FullTestSessionProxyV2(actual)) = actual else {
+            return Err("Native proxy basis contract required".into());
+        };
+        let Some(NativeCustodySummaryContractV1::FullTestSessionV2(expected)) =
+            self.expected_model_budget_summary_contract()?
+        else {
+            return Err("unsupported Native proxy intent".into());
+        };
+        if actual.api_version != 2
+            || *actual.full_session != expected
+            || native_public_key != Some(budget.native_public_key.as_str())
+            || actual.basis_digest != actual.basis.digest()?
+        {
+            return Err("Native proxy contract mismatch".into());
+        }
+        actual.basis.validate_request(self, manager_account_id, now)
     }
     pub fn native_session_summary_v2(&self) -> Option<Box<NativeSessionApprovalSummaryV2>> {
         let CustodyIntentV1::TestSessionV2 { plan, scope } = &self.intent else {

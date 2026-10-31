@@ -86,6 +86,7 @@ impl AccountProvisionApprovalState {
             super::v2_control::validate_control_records_v2(self, s)?;
             super::v2_purpose_http::validate_purpose_http_v2(s)?;
             self.validate_session_v2_tool_nonce_persistence(s)?;
+            self.validate_execution_book_v2(s)?;
             super::v2_journal::validate(s)?;
             // These old V1 execution/control formats never become V2 execution authority.
             if s.context.is_some()
@@ -94,6 +95,10 @@ impl AccountProvisionApprovalState {
                     !s.tool_nonce_ingresses
                         .values()
                         .any(|n| n.owner_attempt == *key || n.account_attempt == *key)
+                        && !s
+                            .execution_book
+                            .as_ref()
+                            .is_some_and(|book| book.owns_lifetime_transport(key))
                 })
             {
                 return Err(invalid());
@@ -187,6 +192,16 @@ impl AccountProvisionApprovalState {
                                 .count() as u64,
                         )
                         .map_err(|_| invalid())?;
+                    if purpose == SessionPurposeV1::Execution {
+                        expected
+                            .requests
+                            .charge(
+                                s.execution_book
+                                    .as_ref()
+                                    .map_or(0, |book| book.execution_request_count()),
+                            )
+                            .map_err(|_| invalid())?;
+                    }
                     if purpose == SessionPurposeV1::TerminationPlan {
                         let allocations = s.termination_state.allocated_request_count();
                         expected

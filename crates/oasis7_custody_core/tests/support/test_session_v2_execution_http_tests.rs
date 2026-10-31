@@ -490,3 +490,6 @@ mod budget_tests;
 
 #[path = "test_session_v2_tool_nonce_capacity_tests.rs"]
 mod capacity_tests;
+
+#[path = "test_session_v2_execution_book_tests.rs"]
+mod book_tests;

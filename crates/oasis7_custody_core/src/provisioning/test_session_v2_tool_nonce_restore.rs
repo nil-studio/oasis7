@@ -114,7 +114,11 @@ impl AccountProvisionApprovalState {
                 || c.nonce != link.nonce
                 || c.created_at != link.created_at
                 || c.expires_at != link.expires_at
-                || c.consumed_by.is_some()
+                || c.consumed_by.as_ref().is_some_and(|request| {
+                    !s.execution_book
+                        .as_ref()
+                        .is_some_and(|book| book.consumed_nonce_is_exact(request, key))
+                })
                 || bytes.len() != 32
                 || URL_SAFE_NO_PAD.encode(bytes) != link.nonce
                 || link.expires_at.get()

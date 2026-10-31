@@ -214,3 +214,6 @@ fn emit_full_session_ui_contract_fixture() {
         std::fs::write(path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
     }
 }
+
+#[path = "native_model_proxy_basis_contract_tests.rs"]
+mod proxy_basis_tests;

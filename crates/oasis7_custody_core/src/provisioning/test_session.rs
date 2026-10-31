@@ -18,18 +18,19 @@ pub enum SessionPurposeV1 {
     TerminationPlan,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum SessionSourceFundingV1 {
     Control,
     Execution,
     ReconcileRead,
     TerminationPlan,
+    ExecutionFactoryV2 { nonce_salt: [u8; 32] },
 }
 impl SessionSourceFundingV1 {
     pub fn purpose(self) -> Option<SessionPurposeV1> {
         match self {
             Self::Control => None,
-            Self::Execution => Some(SessionPurposeV1::Execution),
+            Self::Execution | Self::ExecutionFactoryV2 { .. } => Some(SessionPurposeV1::Execution),
             Self::ReconcileRead => Some(SessionPurposeV1::ReconcileRead),
             Self::TerminationPlan => Some(SessionPurposeV1::TerminationPlan),
         }
@@ -501,3 +502,5 @@ mod v2_purpose_http;
 #[path = "test_session_v2_tool_nonce.rs"]
 mod v2_tool_nonce;
 pub use v2_action_http::SessionActionRequestV2;
+
+pub(in crate::provisioning) use v2_action_http::action_original_v2;

@@ -110,6 +110,11 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         s.sources.len(),
         s.client_http_admissions.len(),
         s.purpose_http_admissions.len(),
+        s.execution_book.as_ref().map_or(0, |book| {
+            let b = book.journal_record();
+            2 + usize::from(b.lifetime_archived_at.is_some())
+                + usize::from(b.lifetime_admitted_at.is_some())
+        }),
         s.control_transports
             .values()
             .filter(|h| **h == SessionControlHopV1::Identity)

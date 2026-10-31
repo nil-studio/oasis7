@@ -65,7 +65,7 @@ impl Replay<'_> {
                 self.issue_challenge(request_id, at)?;
             }
             // In particular, future execution stage events remain unsupported.
-            _ => return Err(invalid()),
+            _ => return self.apply_execution(event, at),
         }
         Ok(())
     }

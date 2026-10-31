@@ -2,6 +2,8 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 #[path = "test_session_v2_journal_replay_events.rs"]
 mod events;
+#[path = "test_session_v2_journal_replay_execution.rs"]
+mod execution;
 #[path = "test_session_v2_journal_replay_purpose.rs"]
 mod purpose;
 pub(super) struct Replay<'a> {
@@ -16,6 +18,11 @@ pub(super) struct Replay<'a> {
     source_verified: BTreeSet<String>,
     fees: BTreeSet<String>,
     purpose_fees: BTreeSet<String>,
+    execution_requests: BudgetLedger,
+    execution_started: bool,
+    execution_lifetime_claimed: bool,
+    execution_lifetime_archived: bool,
+    execution_lifetime_admitted: bool,
     lifetimes: BTreeSet<(SessionJournalProfileV2, String)>,
     issued: BTreeSet<String>,
     consumed: BTreeSet<String>,
@@ -57,6 +64,11 @@ impl<'a> Replay<'a> {
             source_verified: BTreeSet::new(),
             fees: BTreeSet::new(),
             purpose_fees: BTreeSet::new(),
+            execution_requests: BudgetLedger::new(p.request_limit.0),
+            execution_started: false,
+            execution_lifetime_claimed: false,
+            execution_lifetime_archived: false,
+            execution_lifetime_admitted: false,
             lifetimes: BTreeSet::new(),
             issued: BTreeSet::new(),
             consumed: BTreeSet::new(),
@@ -219,6 +231,23 @@ impl<'a> Replay<'a> {
     }
     fn finish(self) -> Result<()> {
         let s = self.s;
+
+        if let Some(book) = &s.execution_book {
+            let b = book.journal_record();
+            if !self.execution_started
+                || !self.execution_lifetime_claimed
+                || self.execution_lifetime_archived != b.lifetime_archived_at.is_some()
+                || self.execution_lifetime_admitted != b.lifetime_admitted_at.is_some()
+            {
+                return Err(invalid());
+            }
+        } else if self.execution_started
+            || self.execution_lifetime_claimed
+            || self.execution_lifetime_archived
+            || self.execution_lifetime_admitted
+        {
+            return Err(invalid());
+        }
         if !self.begun
             || self.verify_claimed != s.approval_verification_claimed_at.is_some()
             || self.approval_consumed != s.consumed_at.is_some()
@@ -280,6 +309,11 @@ impl<'a> Replay<'a> {
                 }
                 // Cleanup has its own independently restored Closing-only
                 // allocator/paid original book. It cannot change live phase.
+                if purpose == SessionPurposeV1::Execution
+                    && root.budgets.requests != self.execution_requests
+                {
+                    return Err(invalid());
+                }
                 if purpose != SessionPurposeV1::TerminationPlan
                     && self.root_transport.get(&purpose) != Some(&root.budgets.transport)
                 {

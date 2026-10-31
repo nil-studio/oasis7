@@ -102,7 +102,7 @@ impl TestSessionAuthorityV2 {
         {
             return Err(invalid());
         }
-        if self.context.is_some() || self.execution_book.is_some() {
+        if self.context.is_some() {
             return Err(invalid());
         }
         self.termination_state.validate_input_binding(&self.input)?;
@@ -283,6 +283,12 @@ impl AccountProvisionApprovalState {
                     .map(|claim| &claim.lifetime),
             )
             .chain(super::v2_control::stored_lifetimes_v2(session))
+            .chain(
+                session
+                    .execution_book
+                    .as_ref()
+                    .and_then(|book| book.archived_lifetime()),
+            )
         {
             let digest = super::super::types::digest(&(
                 "oasis7.custody.test-session-native-history.v2",
