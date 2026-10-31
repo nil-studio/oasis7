@@ -493,3 +493,7 @@ pub use world::incremental_commit::{
 };
 
 pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
+
+pub use oasis7_world_state::incremental_world_rule_effects;
+pub use oasis7_world_state::incremental_world_rule_lineages;
+pub use oasis7_world_state::incremental_world_rule_shipments;
