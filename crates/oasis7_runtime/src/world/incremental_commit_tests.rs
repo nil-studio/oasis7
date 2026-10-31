@@ -363,7 +363,3 @@ fn driver_rejects_foreign_or_partial_source_admission_before_node_or_runtime_rea
         assert_eq!(memory.used(), value_charge(&values));
     }
 }
-
-#[cfg(unix)]
-#[path = "incremental_commit_physical_tests.rs"]
-mod physical;

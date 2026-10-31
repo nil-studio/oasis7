@@ -47,6 +47,3 @@ test-support = []
 
 [dev-dependencies]
 oasis7_world_state = { path = "../oasis7_world_state", features = ["test-support"] }
-
-[target.'cfg(unix)'.dev-dependencies]
-oasis7_distfs = { path = "../oasis7_distfs" }

@@ -1,14 +1,27 @@
+#![cfg(all(unix, not(target_arch = "wasm32")))]
 //! Physical candidate persistence and body continuation, no canonical acceptance.
-use super::*;
 use oasis7_distfs::incremental_page_store::{
-    IncrementalPageStore, PageCompression, PageIoBudget,
+    IncrementalPageStore, PageCompression,
     objects::{IncrementalObjectStore, ObjectIo},
+};
+use oasis7_formal_protocol::{
+    incremental_execution::{ExecutionParent, TransactionLimits, TransitionVerifier},
+    incremental_history::{CatalogRootV1, GenesisConfigV1, HeaderPreparation, PreparedHistoryV1},
 };
 use oasis7_formal_protocol::{
     incremental_execution::{RootSetV1, TransitionRecordV1},
     incremental_history::{CommitBodyV1, HistoryPrefixV1},
 };
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_runtime::{
+    AgentEventContext, BodyMutationContext, BodyMutationError, CommitPreparationRequest,
+    ParentCommitView, PreparedRuntimeCommit, World, WorldEvent,
+};
 use std::sync::atomic::AtomicBool;
+#[allow(dead_code)]
+#[path = "support/incremental_agent_event.rs"]
+mod agent_fixture;
+use agent_fixture::{Directory, logical as logical_io, physical as physical_io};
 
 fn prepare(
     world: &World,
@@ -16,7 +29,7 @@ fn prepare(
     event: &WorldEvent,
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
-) -> ReservedValue<crate::PreparedRuntimeCommit> {
+) -> ReservedValue<PreparedRuntimeCommit> {
     let pages = store
         .state_session(physical_io(), MemoryClass::Ordinary)
         .unwrap();
@@ -85,15 +98,19 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         let path = dir.0.join(format!("{compression:?}"));
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let _fixture = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
-        let (world, parent, state, values, config, genesis, catalog) = setup(&memory);
+        let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
+        let (world, parent, config, genesis, catalog) = setup(&store, &memory);
         let second_event = event(&world, 2);
         let (expected, first_id, catalog_id, config_id) = {
-            let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
-            install_fixture_pages(&store, &memory, &state, &values);
             let mut physical = physical_io();
             let mut logical = logical_io();
-            let objects =
-                IncrementalObjectStore::create(&store, &mut physical, &cancelled).unwrap();
+            let objects = IncrementalObjectStore::open(
+                &store,
+                MemoryClass::Ordinary,
+                &mut physical,
+                &cancelled,
+            )
+            .unwrap();
             let mut io = ObjectIo {
                 physical: &mut physical,
                 logical: &mut logical,
@@ -178,8 +195,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         // Production readers and sources are closed. The retained expected
         // candidate is a charged reference oracle, never a recovery source.
         drop(genesis);
-        drop(state);
-        drop(values);
+        drop(store);
         let recovery = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let store =
             IncrementalPageStore::open(&path, recovery.clone(), compression, MemoryClass::Recovery)
@@ -240,6 +256,18 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         .verify(&transition)
         .unwrap();
         assert_eq!(transition.after, roots);
+        let original = objects
+            .read_object_owned(&transition.facts[0].id, 1 << 20, &mut io)
+            .unwrap();
+        let first_event = event(&world, 1);
+        assert_eq!(
+            original.as_slice(),
+            oasis7_wasm_abi::encode_canonical_cbor(&first_event).unwrap()
+        );
+        assert_eq!(
+            serde_cbor::from_slice::<WorldEvent>(&original).unwrap(),
+            first_event
+        );
         let next_parent = ExecutionParent {
             commit: first_id,
             roots,
@@ -269,64 +297,84 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
     }
 }
 
-pub(super) fn physical_io() -> PageIoBudget {
-    PageIoBudget {
-        reads_remaining: 100_000,
-        read_bytes_remaining: 128 << 20,
-        writes_remaining: 100_000,
-        write_bytes_remaining: 128 << 20,
+fn limits() -> TransactionLimits {
+    TransactionLimits {
+        max_reads: 16,
+        max_writes: 16,
+        max_facts: 16,
+        max_pending_node_bytes: 4 << 20,
     }
 }
-pub(super) fn logical_io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget {
-    oasis7_formal_protocol::incremental_value::ValueIoBudget {
-        nodes_remaining: 100_000,
-        read_bytes_remaining: 128 << 20,
-        write_bytes_remaining: 128 << 20,
-    }
+fn event(world: &World, id: u64) -> WorldEvent {
+    agent_fixture::event(world, id, false)
 }
-pub(super) struct Directory(pub(super) std::path::PathBuf);
-impl Directory {
-    pub(super) fn new() -> Self {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "oasis7-runtime-commit-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-impl Drop for Directory {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).unwrap();
-    }
-}
-
-pub(super) fn install_fixture_pages(
+fn setup(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
-    state: &Pages,
-    values: &Values,
+) -> (
+    World,
+    ExecutionParent,
+    GenesisConfigV1,
+    ReservedValue<PreparedHistoryV1>,
+    CatalogRootV1,
 ) {
-    let cancelled = AtomicBool::new(false);
-    for (id, bytes) in &state.0 {
-        let id: [u8; 32] = hex::decode(id).unwrap().try_into().unwrap();
-        let charge = memory.reserve(bytes.len(), MemoryClass::Ordinary).unwrap();
-        store
-            .put_page(
-                id,
-                &charge.retain(bytes.clone()),
-                &mut physical_io(),
-                &cancelled,
-            )
-            .unwrap();
+    let (world, mut parent) = agent_fixture::fixture(store, memory);
+    let config = GenesisConfigV1 {
+        world_id: parent.roots.world_id.clone(),
+        format_profile: [21; 32],
+        initial_content: [22; 32],
+        activation_config: [23; 32],
+        execution_environment: [24; 32],
+    };
+    let scope = config.scope().unwrap();
+    parent.roots.genesis_config = scope.genesis_config;
+    let empty = CatalogRootV1::empty(scope).unwrap();
+    let genesis = HeaderPreparation {
+        config: &config,
+        catalog: &empty,
+        roots: &parent.roots,
+        parent: None,
+        parent_history: None,
+        transition: None,
+        genesis_facts: &[],
+        operation: [25; 32],
+        authority: parent.authority,
+        execution_environment: config.execution_environment,
+        checkpoint: true,
     }
-    for (id, bytes) in values.pages.borrow().iter() {
-        store
-            .put_page(*id, bytes, &mut physical_io(), &cancelled)
-            .unwrap();
+    .prepare(memory)
+    .unwrap();
+    parent.commit = genesis.body.digest().unwrap();
+    let mut pages = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let delta = empty
+        .extend(&genesis.body, &pages, memory, 4 << 20)
+        .unwrap();
+    pages.persist_catalog_pages(&delta).unwrap();
+    let catalog = delta.after.clone();
+    (world, parent, config, genesis, catalog)
+}
+
+fn request<'a>(
+    parent: &'a ExecutionParent,
+    config: &'a GenesisConfigV1,
+    history: &'a PreparedHistoryV1,
+    catalog: &'a CatalogRootV1,
+) -> CommitPreparationRequest<'a> {
+    CommitPreparationRequest {
+        parent: ParentCommitView {
+            config,
+            roots: &parent.roots,
+            body: &history.body,
+            history: &history.prefix,
+            catalog,
+            authority: parent.authority,
+        },
+        operation: [4; 32],
+        next_tick: 0,
+        execution_environment: config.execution_environment,
+        checkpoint: true,
+        limits: limits(),
     }
 }
