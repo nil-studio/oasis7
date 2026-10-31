@@ -703,3 +703,5 @@ GEN、完整 family 资格、本地列更新与接收端验证使用同一封闭
 普通事务的 Material 单列 setter 只认证指定原 expected 值并编辑该列；RouteId 同次编辑其 Bool presence，不能单独修改 flag 或删除必需列。创建绑定完整父家族资格和当前不存在的外键，原嵌入身份不替代外键；删除绑定当前完整 record 资格和相同事务 guard，不为移除外层引用重读大 sibling payload。接收端必须先完成通用重放，再从已资格父根按认证变化路径验证封闭列、必需 marker、Option 关系和家族计数，跳过相等子树。此片仍不授予完整 World 资格。
 
 Material 的页标记与传输复用有界逐页追踪，在完整 typed 家族资格结束后返回原页 hash 集合；其他 owner 仍须独立贡献闭包。传输输出在所有缓冲 sink finish 成功前保持 provisional，最后物理批次发布后观察到取消也不得报告完成。恢复可另开操作从原认证根重新验证已经耐久的页。物理压缩沿用既有 codec 工作区准入，额度不足必须明确失败；不能通过省略压缩工作区计费获得成功。
+
+Material 的普通事务 getter 与 setter 共用经过 guard、同池 Ordinary、完整当前 record 资格绑定的 resolver，读取同一 ExecutionTransaction 的当前视图。resolver 在全部列与 Option 关系校验后检查取消；getter 据此返回暂态值。setter 在精确 expected 和借用 after 比较后还须独立检查读/写取消通道，NoOp 也不能跳过。任何查询或更新错误都使当前贡献不可 seal；getter 的独立读取边界可作为 NoOp 最后检查回归的基线。

@@ -422,3 +422,6 @@ mod points;
 mod pages;
 #[path = "support/incremental_material_boundaries.rs"]
 mod boundaries;
+
+#[path = "support/incremental_material_overlay.rs"]
+mod overlay_reads;

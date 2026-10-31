@@ -175,6 +175,9 @@ pub fn change_qualified_material_cell_v1<
         if matches!(cell, MaterialCellV1::Record | MaterialCellV1::RoutePresent)
             || !cell.accepts(kind)
             || !tx.uses_budget(write.memory)
+            || context.values.class != MemoryClass::Ordinary
+            || !tx.uses_budget(context.values.memory)
+            || !change.qualification.uses_budget(context.values.memory)
         {
             return Err(invalid().into());
         }
@@ -189,11 +192,12 @@ pub fn change_qualified_material_cell_v1<
             .memory
             .reserve(32 << 10, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
-        let mut paths = std::array::from_fn::<_, 2, _>(|_| None);
-        let mut roots = [None; 2];
         let mut new = [None; 2];
         new[0] = change.after.map(MaterialCellValueRefV1::payload);
-        let (outer, mut child) = {
+        if cell == MaterialCellV1::RouteId {
+            new[1] = Some(MemberPayloadRefV1::Bool(change.after.is_some()));
+        }
+        let resolved = {
             let mut combined = || cancel() || (write.cancelled)();
             let mut records = InventoryValueReader {
                 values: &mut context.values,
@@ -202,61 +206,41 @@ pub fn change_qualified_material_cell_v1<
                 record_bytes: context.record_bytes,
                 cancelled: &mut combined,
             };
-            let (outer, child) =
-                current(change.key, change.qualification, tx, &mut records, error)?;
-            let key = read::cell_key(kind, cell, &mut records)?;
-            let root = crate::incremental_record_tree::lookup(
-                &child,
-                &key.0,
+            let mut compare = Compare::new(
+                change
+                    .expected
+                    .map_or("", MaterialCellValueRefV1::text)
+                    .as_bytes(),
+            );
+            let resolved = overlay_read::resolve(
+                MaterialCellRequestV1 {
+                    key: change.key,
+                    cell,
+                    qualification: change.qualification,
+                },
+                tx,
                 &mut records,
-                genesis::LABELS,
+                error,
+                change.max_current_payload_bytes,
+                &mut compare,
             )?;
-            match (change.expected, root) {
-                (None, None) => {}
-                (Some(expected), Some(value)) => {
-                    let mut compare = Compare::new(expected.text().as_bytes());
-                    let actual = read::value(
-                        cell,
-                        &value,
-                        &key,
-                        &mut records,
-                        change.max_current_payload_bytes,
-                        &mut compare,
-                    )?;
-                    if !expected.matches(actual) || !compare.is_equal() {
-                        return Err(invalid().into());
-                    }
-                }
-                _ => return Err(invalid().into()),
+            let matches = match (change.expected, resolved.value) {
+                (None, None) => true,
+                (Some(expected), Some(actual)) => expected.matches(actual),
+                _ => false,
+            };
+            if !matches || !compare.is_equal() {
+                return Err(invalid().into());
             }
-            paths[0] = Some((cell, key));
-            roots[0] = root;
-            if cell == MaterialCellV1::RouteId {
-                let flag = read::cell_key(kind, MaterialCellV1::RoutePresent, &mut records)?;
-                let value = crate::incremental_record_tree::lookup(
-                    &child,
-                    &flag.0,
-                    &mut records,
-                    genesis::LABELS,
-                )?
-                .ok_or_else(invalid)?;
-                let actual = read::value(
-                    MaterialCellV1::RoutePresent,
-                    &value,
-                    &flag,
-                    &mut records,
-                    1,
-                    &mut std::io::sink(),
-                )?;
-                if actual != MaterialValueV1::Bool(change.expected.is_some()) {
-                    return Err(invalid().into());
-                }
-                new[1] = Some(MemberPayloadRefV1::Bool(change.after.is_some()));
-                paths[1] = Some((MaterialCellV1::RoutePresent, flag));
-                roots[1] = Some(value);
-            }
-            (outer, child)
+            resolved
         };
+        let overlay_read::Resolved {
+            outer,
+            mut child,
+            paths,
+            roots,
+            ..
+        } = resolved;
         let unchanged = change.expected == change.after;
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
