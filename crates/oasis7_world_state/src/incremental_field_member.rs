@@ -13,6 +13,7 @@ use crate::{
     },
     state::ProductValidationDeliveryCursor,
 };
+use oasis7_formal_protocol::incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1};
 use oasis7_formal_protocol::incremental_value::{
     ValueIoBudget, ValueNodeWriter, ValueStreamWriter, ValueTreeError,
 };
@@ -33,6 +34,7 @@ pub enum MemberPayloadCodecV1 {
     Ledger = 6,
     Bytes = 7,
     DeliveryCursor = 8,
+    RecordRoot = 10,
 }
 impl MemberPayloadCodecV1 {
     fn parse(tag: u8) -> Result<Self, &'static str> {
@@ -45,6 +47,7 @@ impl MemberPayloadCodecV1 {
             6 => Self::Ledger,
             7 => Self::Bytes,
             8 => Self::DeliveryCursor,
+            10 => Self::RecordRoot,
             _ => return Err("member payload codec"),
         })
     }
@@ -59,6 +62,7 @@ impl MemberPayloadCodecV1 {
             Self::U64 | Self::I64 => Some(8),
             Self::Bool => Some(1),
             Self::DeliveryCursor => Some(16),
+            Self::RecordRoot => Some(RECORD_ROOT_BYTES as u64),
             _ => None,
         };
         if fixed.is_some_and(|n| n != length) {
@@ -77,6 +81,7 @@ pub enum MemberPayloadRefV1<'a> {
     Ledger(&'a MaterialLedgerId),
     Bytes(&'a [u8]),
     DeliveryCursor(&'a ProductValidationDeliveryCursor),
+    RecordRoot(&'a RecordRootRefV1),
 }
 impl MemberPayloadRefV1<'_> {
     fn profile(self) -> Result<(MemberPayloadCodecV1, u64), &'static str> {
@@ -90,6 +95,7 @@ impl MemberPayloadRefV1<'_> {
             Self::Ledger(v) => (MemberPayloadCodecV1::Ledger, ledger_value_len_v1(v)?),
             Self::Bytes(b) => (MemberPayloadCodecV1::Bytes, length(b.len())?),
             Self::DeliveryCursor(_) => (MemberPayloadCodecV1::DeliveryCursor, 16),
+            Self::RecordRoot(_) => (MemberPayloadCodecV1::RecordRoot, RECORD_ROOT_BYTES as u64),
         })
     }
     fn write(self, output: &mut impl Write) -> io::Result<()> {
@@ -101,6 +107,9 @@ impl MemberPayloadRefV1<'_> {
             Self::Text(s) => output.write_all(s.as_bytes()),
             Self::Ledger(v) => write_ledger_value_v1(v, output).map(|_| ()),
             Self::Bytes(b) => output.write_all(b),
+            Self::RecordRoot(reference) => {
+                output.write_all(&reference.canonical_bytes().map_err(io::Error::other)?)
+            }
             Self::DeliveryCursor(cursor) => {
                 let ProductValidationDeliveryCursor {
                     event_id_era,
@@ -258,6 +267,7 @@ pub fn write_member_record_v1<K: SemanticKeyV1 + ?Sized, W: ValueNodeWriter, C: 
 
 #[path = "incremental_field_member_read.rs"]
 mod read;
+pub(crate) use read::read_member_record_header_v1;
 pub use read::{read_member_record_profile_v1, read_member_record_v1};
 
 #[cfg(test)]

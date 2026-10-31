@@ -21,7 +21,7 @@ pub fn read_member_record_v1<R: ValueNodeReader>(
         expected_root,
         expected_key,
         context,
-        (limits, None),
+        (limits, None, true),
         key_output,
         payload_output,
         cancelled,
@@ -45,9 +45,30 @@ pub fn read_member_record_profile_v1<R: ValueNodeReader>(
         (
             profile.limits,
             Some((profile.codec, profile.semantic_bytes)),
+            true,
         ),
         key_output,
         payload_output,
+        cancelled,
+    )
+}
+/// Authenticate framing, field and original-key binding without visiting the
+/// payload range. The caller must already have qualified an unchanged payload;
+/// this probe conveys no UTF-8/ledger/value semantic qualification by itself.
+pub(crate) fn read_member_record_header_v1<R: ValueNodeReader>(
+    expected_root: &[u8; 32],
+    expected_key: &WorldFieldKeyV1,
+    context: &mut ValueReadContext<'_, R>,
+    limits: MemberRecordLimitsV1,
+    cancelled: impl FnMut() -> bool,
+) -> Result<MemberRecordInfoV1, ValueTreeError> {
+    read_record(
+        expected_root,
+        expected_key,
+        context,
+        (limits, None, false),
+        &mut std::io::sink(),
+        &mut std::io::sink(),
         cancelled,
     )
 }
@@ -55,7 +76,11 @@ fn read_record<R: ValueNodeReader>(
     expected_root: &[u8; 32],
     expected_key: &WorldFieldKeyV1,
     context: &mut ValueReadContext<'_, R>,
-    admission: (MemberRecordLimitsV1, Option<(MemberPayloadCodecV1, u64)>),
+    admission: (
+        MemberRecordLimitsV1,
+        Option<(MemberPayloadCodecV1, u64)>,
+        bool,
+    ),
     key_output: &mut impl Write,
     payload_output: &mut impl Write,
     mut cancelled: impl FnMut() -> bool,
@@ -137,13 +162,15 @@ fn read_record<R: ValueNodeReader>(
     if checked.hash.finalize().as_bytes() != &digest {
         return Err(ValueTreeError::Invalid("member semantic digest"));
     }
-    context.read_range(
-        &root,
-        start + info.semantic_bytes,
-        info.payload_bytes,
-        payload_output,
-        &mut cancelled,
-    )?;
+    if admission.2 {
+        context.read_range(
+            &root,
+            start + info.semantic_bytes,
+            info.payload_bytes,
+            payload_output,
+            &mut cancelled,
+        )?;
+    }
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }
