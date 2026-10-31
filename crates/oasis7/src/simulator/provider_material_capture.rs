@@ -8,6 +8,8 @@ use std::io::Read;
 
 use oasis7_formal_protocol::incremental_state::StateRootV1;
 use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+use std::any::Any;
+use std::fmt;
 use std::sync::Arc;
 
 use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
@@ -86,11 +88,34 @@ pub struct ProviderDispositionEvidenceV1 {
 
 /// Opaque continuation for a single protected-roots snapshot. Callers can
 /// retain and return a cursor produced by the owner, but cannot choose an
-/// arbitrary lexical offset that skips unresolved attempts.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// arbitrary offset that skips unresolved attempts. Owner implementations must
+/// downcast to their private cursor type and bind it to the exact root snapshot.
 pub struct ProviderPendingRootsCursorV1 {
-    pub(crate) pending_root: [u8; 32],
-    pub(crate) after_operation_id: String,
+    state: Box<dyn Any + Send + Sync>,
+}
+
+impl ProviderPendingRootsCursorV1 {
+    /// Wrap a private owner cursor. The concrete type should remain private to
+    /// the owner crate; other implementations cannot fabricate that type.
+    #[doc(hidden)]
+    pub fn from_owner_state<T: Any + Send + Sync>(state: T) -> Self {
+        Self {
+            state: Box::new(state),
+        }
+    }
+
+    /// Access a cursor only when it has the concrete type owned by the caller.
+    #[doc(hidden)]
+    pub fn owner_state<T: Any + Send + Sync>(&self) -> Option<&T> {
+        self.state.downcast_ref::<T>()
+    }
+}
+
+impl fmt::Debug for ProviderPendingRootsCursorV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderPendingRootsCursorV1")
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +162,10 @@ pub struct ProviderPendingRootsPageV1 {
     pub attempts: Arc<ReservedValue<Vec<ProviderPendingAttemptSummaryV1>>>,
     /// Charged actual Merkle roots backing the independent pending ledger.
     pub state_roots: Arc<ReservedValue<ProviderPendingStateRootsV1>>,
+    /// A continuation exists only when this page has not reached the end of
+    /// the bound snapshot. Exhausting these pages proves this store-local root
+    /// enumeration is complete; it does not register the owner with a global
+    /// World or GC registry.
     pub next_cursor: Option<Arc<ReservedValue<ProviderPendingRootsCursorV1>>>,
 }
 
@@ -190,7 +219,8 @@ pub trait ProviderOriginalMaterialStore: Send + Sync {
 
     /// Bounded page over unresolved request/response material. A cursor is
     /// bound to one exact protected-root digest; callers must restart if the
-    /// root changes. This is store-local protection, not a global GC registry.
+    /// root changes and follow every returned cursor before treating the
+    /// store-local enumeration as complete. This is not a global GC registry.
     fn protected_roots_page(
         &self,
         cursor: Option<&ProviderPendingRootsCursorV1>,

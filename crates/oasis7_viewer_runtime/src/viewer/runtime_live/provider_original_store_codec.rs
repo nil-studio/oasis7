@@ -8,7 +8,7 @@ pub(super) const MAX_EVENT_BYTES: usize = 1024;
 pub(super) const MAX_HEAD_BYTES: usize = 1024;
 pub(super) const MAX_PENDING_ATTEMPTS: u64 = 16_384;
 pub(super) const MAX_EVENTS: u64 = 1_000_000;
-pub(super) const MAX_PROTECTED_ROOT_PAGE: usize = 128;
+pub(super) const MAX_PROTECTED_ROOT_PAGE: usize = 64;
 
 const HEAD_MAGIC: &[u8] = b"oasis7.iws.provider-pending-head.v1\0";
 const EVENT_MAGIC: &[u8] = b"oasis7.iws.provider-pending-event.v1\0";

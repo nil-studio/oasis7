@@ -4,7 +4,6 @@
 //! registry. The verified Runtime owner supplies the exact scope and the
 //! authority callbacks; this module never infers either from a legacy lineage.
 
-use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,6 +62,13 @@ fn finite_value_io() -> oasis7_formal_protocol::incremental_value::ValueIoBudget
 struct Inner {
     head: OwnerHead,
     poisoned: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ProtectedRootsCursorState {
+    pending_root: [u8; 32],
+    after_key_digest: Option<[u8; 32]>,
+    active_attempts_seen: u64,
 }
 
 /// A store-local pending owner. Dropping/reopening it preserves every root and
@@ -717,85 +723,44 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
             .reserve(64 * 1024, MemoryClass::Recovery)
             .map_err(|error| error.to_string())?;
         let root_digest = pending_root_digest(&self.owner, &inner.head)?;
-        let after = match cursor {
-            Some(cursor) if cursor.pending_root == root_digest => {
-                operation_key(cursor.after_operation_id.as_str())?;
-                Some(cursor.after_operation_id.as_str())
+        let cursor_state = match cursor {
+            Some(cursor) => {
+                let state = cursor
+                    .owner_state::<ProtectedRootsCursorState>()
+                    .ok_or("provider protected-root cursor owner/type")?;
+                if state.pending_root != root_digest {
+                    return Err("provider protected-root cursor root changed".into());
+                }
+                if state.after_key_digest.is_none()
+                    || state.active_attempts_seen > inner.head.pending.leaf_count
+                {
+                    return Err("provider protected-root cursor state".into());
+                }
+                *state
             }
-            Some(_) => return Err("provider protected-root cursor root changed".into()),
-            None => None,
-        };
-        let mut selected = BTreeMap::<String, [u8; 32]>::new();
-        let mut physical = finite_page_io();
-        let session = self
-            .pages
-            .state_session(physical.clone(), MemoryClass::Recovery)
-            .map_err(|error| error.to_string())?;
-        let mut scan_budget = oasis7_formal_protocol::incremental_state::StateScanBudget {
-            nodes_remaining: 100_000,
-            read_bytes_remaining: 256 * 1024 * 1024,
-            leaves_remaining: MAX_PENDING_ATTEMPTS,
-        };
-        let mut scan = oasis7_formal_protocol::incremental_state::StateScanContext {
-            source: &session,
-            memory: &self.memory,
-            class: MemoryClass::Recovery,
-            io: &mut scan_budget,
-        };
-        let prefix = b"oasis7.iws.provider-pending-operation-key.v1\0";
-        scan.visit_entries(
-            &inner.head.pending,
-            |entry| {
-                if !entry.key.starts_with(prefix) {
-                    return Err("provider pending key domain".to_owned());
-                }
-                let operation = std::str::from_utf8(&entry.key[prefix.len()..])
-                    .map_err(|_| "provider pending operation UTF-8".to_owned())?;
-                operation_key(operation).map_err(|error| error.to_string())?;
-                if after.is_some_and(|after| operation <= after) {
-                    return Ok(());
-                }
-                selected.insert(operation.to_owned(), entry.value);
-                while selected.len() > limit + 1 {
-                    if let Some(last) = selected.keys().next_back().cloned() {
-                        selected.remove(&last);
-                    }
-                }
-                Ok(())
+            None => ProtectedRootsCursorState {
+                pending_root: root_digest,
+                after_key_digest: None,
+                active_attempts_seen: 0,
             },
-            || self.cancelled(),
-        )
-        .map_err(|error| error.to_string())?;
-        drop(scan);
-        physical = session.remaining_io().map_err(|error| error.to_string())?;
-        let has_more = selected.len() > limit;
-        let mut entries: Vec<_> = selected.into_iter().collect();
-        if has_more {
-            entries.pop();
-        }
-        let next_cursor = if has_more {
-            let cursor_charge = self
-                .memory
-                .reserve(MAX_OPERATION_ID_BYTES + 64, MemoryClass::Recovery)
-                .map_err(|error| error.to_string())?;
-            let cursor = entries
-                .last()
-                .map(
-                    |(operation_id, _)| oasis7::simulator::ProviderPendingRootsCursorV1 {
-                        pending_root: root_digest,
-                        after_operation_id: operation_id.clone(),
-                    },
-                )
-                .ok_or("provider cursor missing last operation")?;
-            Some(Arc::new(cursor_charge.retain(cursor)))
-        } else {
-            None
         };
+
+        // Admit every retained page carrier before collecting indexed leaves.
+        // The Merkle path cursor avoids re-scanning prior leaves on each page.
+        let _row_charge = self
+            .memory
+            .reserve(
+                limit.saturating_mul(
+                    std::mem::size_of::<(String, [u8; 32])>()
+                        .saturating_add(MAX_OPERATION_ID_BYTES),
+                ),
+                MemoryClass::Recovery,
+            )
+            .map_err(|error| error.to_string())?;
         let object_charge = self
             .memory
             .reserve(
-                entries
-                    .len()
+                limit
                     .saturating_mul(6)
                     .saturating_mul(std::mem::size_of::<[u8; 32]>()),
                 MemoryClass::Recovery,
@@ -804,7 +769,7 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
         let attempt_charge = self
             .memory
             .reserve(
-                entries.len().saturating_mul(
+                limit.saturating_mul(
                     std::mem::size_of::<ProviderPendingAttemptSummaryV1>()
                         .saturating_add(MAX_OWNER_ID_BYTES)
                         .saturating_add(MAX_OPERATION_ID_BYTES),
@@ -829,8 +794,101 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
                 MemoryClass::Recovery,
             )
             .map_err(|error| error.to_string())?;
+        let mut selected = Vec::<(String, [u8; 32])>::new();
+        selected
+            .try_reserve_exact(limit)
+            .map_err(|_| "provider protected-root page allocation")?;
+        if selected.capacity() > limit {
+            return Err("provider protected-root page allocation exceeded admission".into());
+        }
+        let mut physical = finite_page_io();
+        let session = self
+            .pages
+            .state_session(physical.clone(), MemoryClass::Recovery)
+            .map_err(|error| error.to_string())?;
+        let mut scan_budget = oasis7_formal_protocol::incremental_state::StateScanBudget {
+            nodes_remaining: 100_000,
+            read_bytes_remaining: 256 * 1024 * 1024,
+            leaves_remaining: limit as u64,
+        };
+        let mut scan = oasis7_formal_protocol::incremental_state::StateScanContext {
+            source: &session,
+            memory: &self.memory,
+            class: MemoryClass::Recovery,
+            io: &mut scan_budget,
+        };
+        let prefix = b"oasis7.iws.provider-pending-operation-key.v1\0";
+        let page = scan
+            .visit_entries_page(
+                &inner.head.pending,
+                cursor_state.after_key_digest,
+                limit,
+                |entry| {
+                    if !entry.key.starts_with(prefix) {
+                        return Err("provider pending key domain".to_owned());
+                    }
+                    let operation = std::str::from_utf8(&entry.key[prefix.len()..])
+                        .map_err(|_| "provider pending operation UTF-8".to_owned())?;
+                    operation_key(operation).map_err(|error| error.to_string())?;
+                    let mut operation_owned = String::new();
+                    operation_owned
+                        .try_reserve_exact(operation.len())
+                        .map_err(|_| "provider protected-root operation allocation".to_owned())?;
+                    if operation_owned.capacity() > MAX_OPERATION_ID_BYTES {
+                        return Err(
+                            "provider protected-root operation allocation exceeded admission"
+                                .into(),
+                        );
+                    }
+                    operation_owned.push_str(operation);
+                    selected.push((operation_owned, entry.value));
+                    Ok(())
+                },
+                || self.cancelled(),
+            )
+            .map_err(|error| error.to_string());
+        drop(scan);
+        if let Some(error) = session.take_read_error() {
+            return Err(error.to_string());
+        }
+        let page = page?;
+        if page.visited as usize != selected.len() {
+            return Err("provider protected-root page count mismatch".into());
+        }
+        physical = session.remaining_io().map_err(|error| error.to_string())?;
+
+        let active_attempts_seen = cursor_state
+            .active_attempts_seen
+            .checked_add(page.visited)
+            .ok_or("provider pending page count overflow")?;
+        if !page.has_more && active_attempts_seen != inner.head.pending.leaf_count {
+            return Err("provider pending pages do not cover the root leaf count".into());
+        }
+        let next_cursor = if page.has_more {
+            let next_after = page
+                .last_key_digest
+                .ok_or("provider pending page lacks continuation path")?;
+            let cursor_charge = self
+                .memory
+                .reserve(
+                    std::mem::size_of::<oasis7::simulator::ProviderPendingRootsCursorV1>()
+                        + std::mem::size_of::<ProtectedRootsCursorState>(),
+                    MemoryClass::Recovery,
+                )
+                .map_err(|error| error.to_string())?;
+            let cursor = oasis7::simulator::ProviderPendingRootsCursorV1::from_owner_state(
+                ProtectedRootsCursorState {
+                    pending_root: root_digest,
+                    after_key_digest: Some(next_after),
+                    active_attempts_seen,
+                },
+            );
+            Some(Arc::new(cursor_charge.retain(cursor)))
+        } else {
+            None
+        };
         let mut object_ids = Vec::new();
-        let max_object_ids = entries.len().saturating_mul(6);
+        let max_object_ids = limit.saturating_mul(6);
         object_ids
             .try_reserve_exact(max_object_ids)
             .map_err(|_| "provider protected-root page allocation")?;
@@ -839,15 +897,33 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
         }
         let mut attempts = Vec::new();
         attempts
-            .try_reserve_exact(entries.len())
+            .try_reserve_exact(limit)
             .map_err(|_| "provider protected-attempt page allocation")?;
-        if attempts.capacity() > entries.len() {
+        if attempts.capacity() > limit {
             return Err("provider protected-attempt page allocation exceeded admission".into());
         }
-        for (_, event_id) in entries {
+        for (operation_id, event_id) in selected {
             let record = self.read_event_object(&event_id, MemoryClass::Recovery, &mut physical)?;
-            if !record.phase.is_pending() {
-                return Err("provider pending index references terminal event".into());
+            if !record.phase.is_pending()
+                || record.operation_id != operation_id
+                || record.sequence > inner.head.sequence
+            {
+                return Err("provider pending index/event identity mismatch".into());
+            }
+            let event_index = self.read_state_value(
+                &inner.head.events,
+                &event_key(record.sequence),
+                MemoryClass::Recovery,
+                &mut physical,
+            )?;
+            let seen_index = self.read_state_value(
+                &inner.head.seen,
+                &operation_key(&operation_id)?,
+                MemoryClass::Recovery,
+                &mut physical,
+            )?;
+            if event_index != Some(event_id) || seen_index != Some(event_id) {
+                return Err("provider pending event is not linked by owner roots".into());
             }
             let attempt = self.attempt_from_event(&record);
             let phase = match record.phase {

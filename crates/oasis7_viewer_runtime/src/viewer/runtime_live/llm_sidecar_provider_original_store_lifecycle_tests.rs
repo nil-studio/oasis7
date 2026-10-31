@@ -4,7 +4,7 @@ use oasis7::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialAuthority, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
-    ProviderPendingAttemptPhaseV1,
+    ProviderPendingAttemptPhaseV1, ProviderPendingRootsCursorV1,
 };
 use oasis7_distfs::incremental_page_store::PageCompression;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
@@ -131,6 +131,53 @@ fn captured_response(
         transport_attempt: request.transport_attempt,
         request_digest: request.request_digest.clone(),
     }
+}
+
+fn store_captured_attempt(
+    owner: &ProviderOriginalMaterialOwnerV1,
+    base: &ContinuousAgentRequestContextV1,
+    suffix: &str,
+) -> (
+    ContinuousAgentRequestContextV1,
+    ContinuousAgentResponseContextV1,
+    ProviderOriginalMaterialRefsV1,
+) {
+    let mut request = base.clone();
+    request.decision_request_id.push_str(suffix);
+    request.request_digest = request.request_digest();
+    request.validate().expect("validate synthetic page attempt");
+    let request_body = serde_json::to_vec(&request).expect("encode synthetic request");
+    let request_id = *blake3::hash(&request_body).as_bytes();
+    let mut request_reader = std::io::Cursor::new(request_body.as_slice());
+    let attempt = owner
+        .persist_request(
+            &request,
+            request_id,
+            &mut request_reader,
+            request_body.len() as u64,
+        )
+        .expect("persist synthetic request");
+    owner
+        .mark_dispatched(&attempt)
+        .expect("persist synthetic dispatch phase");
+
+    let response = captured_response(&request);
+    let response_body = serde_json::to_vec(&response).expect("encode synthetic response");
+    let response_id = *blake3::hash(&response_body).as_bytes();
+    let mut response_reader = std::io::Cursor::new(response_body.as_slice());
+    owner
+        .persist_response_body(
+            &attempt,
+            200,
+            response_id,
+            &mut response_reader,
+            response_body.len() as u64,
+        )
+        .expect("persist synthetic original response");
+    let refs = owner
+        .finish_response(&attempt, 200, response_id, &response)
+        .expect("persist synthetic response context");
+    (request, response, refs)
 }
 
 #[test]
@@ -351,34 +398,68 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
         .verify_commit_materials(&refs, &request, &response)
         .expect("original body and typed contexts are read back before consumption");
 
+    let (paged_request, paged_response, paged_refs) =
+        store_captured_attempt(owner.as_ref(), &request, "-page-continuation");
+
     let first_page = owner
-        .protected_roots_page(None, 8)
-        .expect("page unresolved identity and actual state roots");
+        .protected_roots_page(None, 1)
+        .expect("page first unresolved identity and actual state roots");
     assert_eq!(first_page.attempts.len(), 1);
-    let pending = &first_page.attempts[0];
-    assert_eq!(
-        pending.phase,
-        ProviderPendingAttemptPhaseV1::ResponseCaptured
+    let first_cursor: &ProviderPendingRootsCursorV1 = first_page
+        .next_cursor
+        .as_ref()
+        .expect("a second pending identity requires a continuation")
+        .as_ref();
+    let second_page = owner
+        .protected_roots_page(Some(first_cursor), 1)
+        .expect("continue the same protected-root snapshot");
+    assert_eq!(second_page.attempts.len(), 1);
+    assert!(second_page.next_cursor.is_none());
+    assert_eq!(first_page.pending_root, second_page.pending_root);
+    let summaries = first_page
+        .attempts
+        .iter()
+        .chain(second_page.attempts.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|pending| {
+        pending.phase == ProviderPendingAttemptPhaseV1::ResponseCaptured
+            && pending.attempt.parent_root_set == refs.parent_root_set
+            && pending.attempt.authority_snapshot == refs.authority_snapshot
+    }));
+    assert!(
+        summaries
+            .iter()
+            .any(|pending| pending.attempt.operation_id == refs.operation_id)
     );
-    assert_eq!(pending.attempt.operation_id, refs.operation_id);
-    assert_eq!(pending.attempt.parent_root_set, refs.parent_root_set);
-    assert_eq!(pending.attempt.authority_snapshot, refs.authority_snapshot);
+    assert!(
+        summaries
+            .iter()
+            .any(|pending| pending.attempt.operation_id == paged_refs.operation_id)
+    );
+    let all_page_object_ids = first_page
+        .object_ids
+        .iter()
+        .chain(second_page.object_ids.iter())
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
     for id in [
         refs.request_object_id,
         refs.request_context_object_id,
         refs.response_object_id,
         refs.response_context_object_id,
+        paged_refs.request_object_id,
+        paged_refs.request_context_object_id,
+        paged_refs.response_object_id,
+        paged_refs.response_context_object_id,
     ] {
-        assert!(first_page.object_ids.contains(&id));
+        assert!(all_page_object_ids.contains(&id));
     }
-    assert_eq!(
-        first_page.object_ids.len(),
-        5,
-        "the pending phase event is protected with the four request/response objects"
-    );
-    assert_eq!(first_page.state_roots.events.leaf_count, 6);
-    assert_eq!(first_page.state_roots.pending.leaf_count, 1);
-    assert_eq!(first_page.state_roots.seen.leaf_count, 1);
+    assert_eq!(first_page.state_roots.events.leaf_count, 12);
+    assert_eq!(first_page.state_roots.pending.leaf_count, 2);
+    assert_eq!(first_page.state_roots.seen.leaf_count, 2);
+    let forged_cursor = ProviderPendingRootsCursorV1::from_owner_state("not a viewer cursor");
+    assert!(owner.protected_roots_page(Some(&forged_cursor), 1).is_err());
     assert!(
         owner.close_ready().is_err(),
         "captured but unconsumed material stays protected"
@@ -406,8 +487,8 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
         pending_root_before_reopen
     );
     let reopened_page = reopened
-        .protected_roots_page(None, 8)
-        .expect("recovered pending attempt and original refs");
+        .protected_roots_page(None, 1)
+        .expect("recover the first page of pending attempts");
     assert_eq!(
         reopened_page.attempts.as_slice(),
         first_page.attempts.as_slice()
@@ -421,6 +502,18 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
         first_page.state_roots.pending
     );
     assert_eq!(reopened_page.state_roots.seen, first_page.state_roots.seen);
+    let reopened_second_page = reopened
+        .protected_roots_page(Some(first_cursor), 1)
+        .expect("resume the exact root-bound cursor after reopen");
+    assert_eq!(
+        reopened_second_page.attempts.as_slice(),
+        second_page.attempts.as_slice()
+    );
+    assert!(reopened_second_page.next_cursor.is_none());
+    assert_eq!(
+        reopened_second_page.pending_root,
+        reopened_page.pending_root
+    );
     assert!(reopened.close_ready().is_err());
     drop(ordinary_full);
     drop(reopened);
@@ -435,7 +528,9 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
     )
     .expect("reopen durable pending store for identity reconciliation");
     assert_eq!(
-        reopened.pending_protection_root().expect("writer reopen root"),
+        reopened
+            .pending_protection_root()
+            .expect("writer reopen root"),
         pending_root_before_reopen
     );
 
@@ -480,8 +575,20 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
         .verify_commit_materials(&refs, &request, &response)
         .expect("reopened owner revalidates exact original materials");
     reopened
+        .verify_commit_materials(&paged_refs, &paged_request, &paged_response)
+        .expect("reopened owner revalidates paged original materials");
+    reopened
         .mark_committed(&refs, "fixture-runtime-receipt", 7)
         .expect("fixture authority accepts matching consume disposition");
+    reopened
+        .mark_committed(&paged_refs, "fixture-runtime-receipt", 7)
+        .expect("fixture authority accepts the second matching disposition");
+    assert!(
+        reopened
+            .protected_roots_page(Some(first_cursor), 1)
+            .is_err(),
+        "a cursor cannot continue after its root snapshot changes"
+    );
     reopened
         .close_ready()
         .expect("terminally consumed owner is ready to close");
@@ -505,7 +612,7 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
         .protected_roots_page(None, 8)
         .expect("terminal owner page");
     assert!(terminal_page.attempts.is_empty());
-    assert_eq!(terminal_page.state_roots.events.leaf_count, 7);
+    assert_eq!(terminal_page.state_roots.events.leaf_count, 14);
     drop(terminal);
     std::fs::remove_dir_all(root).expect("remove provider owner fixture");
 }
