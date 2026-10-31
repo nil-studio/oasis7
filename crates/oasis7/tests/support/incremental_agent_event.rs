@@ -1,5 +1,5 @@
 use oasis7::AgentState;
-use oasis7_agent_api::world_action::GeoPos;
+use oasis7_agent_api::world_action::{BodyKernelView, GeoPos};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -61,10 +61,16 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         time: 11,
         ..WorldState::default()
     };
-    state.agents.insert(
-        "alice".into(),
-        AgentCell::new(AgentState::new("alice", GeoPos::new(0, 0, 0)), 3),
-    );
+    let mut agent = AgentState::new("alice", GeoPos::new(0, 0, 0));
+    agent.body_view = BodyKernelView {
+        mass_kg: 10,
+        radius_cm: 10,
+        thrust_limit: 10,
+        cross_section_cm2: 10,
+    };
+    state
+        .agents
+        .insert("alice".into(), AgentCell::new(agent, 3));
     let world = World::new_with_state(state);
     let mut fields = BTreeMap::<u8, Vec<StateWriteV1>>::new();
     let mut sink = store.value_session(physical());
