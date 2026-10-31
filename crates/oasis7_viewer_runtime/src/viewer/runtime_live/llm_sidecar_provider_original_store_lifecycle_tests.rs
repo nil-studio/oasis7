@@ -337,6 +337,9 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     stream
+                        .set_nonblocking(false)
+                        .expect("make accepted provider fixture stream blocking");
+                    stream
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .expect("set provider fixture read timeout");
                     stream
