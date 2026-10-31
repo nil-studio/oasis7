@@ -257,7 +257,8 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
         );
         let receipt_a = settled(&a, &root, &identity, "account-a", "register-a", &key_a);
         owner_view::exercise(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
-        resource_view::exercise(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
+        let resource_signer =
+            resource_view::prepare(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
         assert!(dropped.load(Ordering::SeqCst));
         let again = a
             .submit(request(
@@ -339,6 +340,17 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             original_created_at
         );
         node.lock().unwrap().stop().unwrap();
+        // The resource read requires one unchanged commit through delivery.
+        // Join the worker at this existing restart boundary; HTTP stays live.
+        resource_view::exercise(
+            &endpoint,
+            &root,
+            &identity,
+            &signer,
+            &receipt_a,
+            &key_a,
+            resource_signer,
+        );
         let mut driver = NodeRuntimeExecutionDriver::new(
             root.join("state.json"),
             root.join("world"),
