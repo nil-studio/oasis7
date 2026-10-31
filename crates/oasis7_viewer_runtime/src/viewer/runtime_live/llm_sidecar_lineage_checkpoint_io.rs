@@ -22,6 +22,11 @@ fn publish_observed(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    // Only newly created directories and their first existing parent have
+    // directory entries changed by this publication. Existing ancestors may
+    // be outside the configured filesystem authority (for example Landlock).
+    #[cfg(unix)]
+    let boundary = existing_parent(parent)?;
     fs::create_dir_all(parent)?;
     let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
     let temp = path.with_extension(format!("tmp-{}-{serial}", std::process::id()));
@@ -43,11 +48,11 @@ fn publish_observed(
         fs::rename(&temp, path)?;
         owns_temp = false;
         // Unix is the existing formal durable deployment profile. Sync the
-        // complete directory chain because create_dir_all may have created
+        // changed directory chain because create_dir_all may have created
         // several ancestors. Other platforms retain their existing directory
         // durability scope; this helper grants no cross-platform IWS receipt.
         #[cfg(unix)]
-        sync_directories(parent)?;
+        sync_directories(parent, &boundary)?;
         after_publication(&temp)?;
         let mut published = fs::File::open(path)?;
         if !published.metadata()?.is_file() || published.metadata()?.len() != bytes.len() as u64 {
@@ -81,9 +86,30 @@ fn publish_observed(
 }
 
 #[cfg(unix)]
-fn sync_directories(mut directory: &Path) -> io::Result<()> {
+fn existing_parent(directory: &Path) -> io::Result<std::path::PathBuf> {
+    let mut current = directory;
+    loop {
+        match fs::metadata(current) {
+            Ok(metadata) if metadata.is_dir() => return Ok(current.to_path_buf()),
+            Ok(_) => return Err(io::Error::other("checkpoint parent is not a directory")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                current = current
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new("."));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn sync_directories(mut directory: &Path, boundary: &Path) -> io::Result<()> {
     loop {
         fs::File::open(directory)?.sync_all()?;
+        if directory == boundary {
+            return Ok(());
+        }
         let Some(parent) = directory.parent().filter(|p| !p.as_os_str().is_empty()) else {
             // A relative single-component path was itself synced above; its
             // directory entry is owned by the current working directory.
@@ -121,6 +147,20 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_syncs_created_chain_with_existing_parent_boundary() {
+        let directory = Directory::new();
+        let nested = directory.0.join("new").join("child");
+        assert_eq!(existing_parent(&nested).unwrap(), directory.0);
+        let path = nested.join("lineage.json");
+        publish(&path, b"original").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert_eq!(existing_parent(&nested).unwrap(), nested);
+        publish(&path, b"replacement").unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"replacement");
     }
 
     #[test]
