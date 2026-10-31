@@ -89,6 +89,8 @@ pub(super) struct FormalEffectDeliveryStore {
     _process_lock: File,
     gate: Mutex<()>,
     poisoned: Mutex<Option<String>>,
+    #[cfg(test)]
+    attempt_publish_hook: Mutex<Option<fn(&Path)>>,
 }
 
 impl FormalEffectDeliveryStore {
@@ -117,6 +119,8 @@ impl FormalEffectDeliveryStore {
             _process_lock: lock,
             gate: Mutex::new(()),
             poisoned: Mutex::new(None),
+            #[cfg(test)]
+            attempt_publish_hook: Mutex::new(None),
         })
     }
 
@@ -217,6 +221,11 @@ impl FormalEffectDeliveryStore {
             };
             Ok(())
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn inject_attempt_publish_for_test(&self, hook: fn(&Path)) {
+        *self.attempt_publish_hook.lock().unwrap() = Some(hook);
     }
 
     /// Persist QueryStarted before the receiver query POST. A crash during a
@@ -476,6 +485,13 @@ impl FormalEffectDeliveryStore {
             let reason = format!("effect delivery state publication outcome unknown: {error}");
             self.poison(&reason);
             return Err(reason);
+        }
+        #[cfg(test)]
+        if matches!(record.phase, DeliveryPhaseV1::AttemptStarted { .. }) {
+            let hook = self.attempt_publish_hook.lock().unwrap().take();
+            if let Some(hook) = hook {
+                hook(&path);
+            }
         }
         Ok(())
     }
