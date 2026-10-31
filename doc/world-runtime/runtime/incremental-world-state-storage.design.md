@@ -617,6 +617,8 @@ module_artifact_owners 属于 Business；node_identity_bindings、node_main_toke
 
 文本映射事务点读与点更新在一次 contribute 中认证 Metadata 与当前原键成员，读取依赖进入同一 ExecutionTransaction。更新核对精确 guard/live fence、读写同池 Ordinary、原 expected 的 None/空字符串/完整 UTF-8 字节，随后保存 owner 决定的原 after 或 tombstone；不收集完整旧值，流式比较只借用 expected。no-op 仍保留两条读取依赖。旧值读取与新值写入分别受明确 payload/record 上限，读写取消组合检查直至 transaction.write 后；原键、namespace 或预期值不符、错误 UTF-8、预算/取消及任一后续错误均 poison 整笔事务，不能 seal 已有前缀。原 owner 仍负责账户/公钥/工件身份授权及跨字段业务规则，该 setter 不授予权限或完整字段族资格。
 
+完整 owner 检查还验证 `module_states` 的 WorldState/ByteMap/Business Metadata 与原键 Bytes 成员，并将上述三个文本映射纳入同一闭合检查；三项原键和值须按 Text codec 保留并验证。该报告仍只覆盖这些已实现的字段，不构成完整 WorldState、Runtime 或 Cognition owner qualification，也不授予激活或 GC 标记权限。
+
 
 ### 12.20 原已安装模块目标表
 

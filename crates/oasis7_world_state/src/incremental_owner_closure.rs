@@ -2,8 +2,8 @@
 //!
 //! Generic state/value verification proves the six trees and all referenced
 //! value bytes. This layer binds structural keys to the frozen WorldState
-//! registry and verifies the currently implemented scalar, set and number-map
-//! owner families.
+//! registry and verifies the currently implemented scalar, set, number-map,
+//! text-map and byte-map owner families.
 //! Other WorldState, Runtime, and Cognition owners remain explicit gaps; this
 //! report is never a receipt or an activation token.
 
@@ -13,6 +13,7 @@ use crate::{
         WorldFieldRecordKindV1, read_member_record_profile_v1, read_member_record_v1,
     },
     incremental_field_presence::{PresenceRecordLimitsV1, read_field_presence_v1},
+    incremental_ledger_value::Utf8Output,
     incremental_projection::{
         FieldDescriptor, FieldDestination, FieldOwner, FieldShape, WORLD_STATE_FIELDS,
     },
@@ -52,6 +53,7 @@ pub struct UnsupportedWorldStateOwnersV1 {
     checked_u64_fields: u8,
     checked_id_set_fields: u8,
     checked_number_map_fields: u8,
+    checked_text_byte_fields: u8,
 }
 
 impl UnsupportedWorldStateOwnersV1 {
@@ -81,6 +83,10 @@ impl UnsupportedWorldStateOwnersV1 {
 
     pub fn checked_number_map_fields(&self) -> u8 {
         self.checked_number_map_fields
+    }
+
+    pub fn checked_text_byte_fields(&self) -> u8 {
+        self.checked_text_byte_fields
     }
 }
 
@@ -145,6 +151,79 @@ fn number_map_field(field: FieldDescriptor) -> Option<WorldNumberMapFieldV1> {
     WorldNumberMapFieldV1::ALL
         .into_iter()
         .find(|candidate| candidate.name() == field.name)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextByteOwnerField {
+    ModuleStates,
+    ModuleArtifactOwners,
+    NodeIdentityBindings,
+    NodeMainTokenAccountBindings,
+}
+
+impl TextByteOwnerField {
+    fn from_descriptor(field: FieldDescriptor) -> Option<Self> {
+        match field.name {
+            "module_states" => Some(Self::ModuleStates),
+            "module_artifact_owners" => Some(Self::ModuleArtifactOwners),
+            "node_identity_bindings" => Some(Self::NodeIdentityBindings),
+            "node_main_token_account_bindings" => Some(Self::NodeMainTokenAccountBindings),
+            _ => None,
+        }
+    }
+
+    fn descriptor_matches(self, field: FieldDescriptor) -> bool {
+        let (name, shape, namespace) = match self {
+            Self::ModuleStates => (
+                "module_states",
+                FieldShape::ByteMap,
+                StateNamespaceV1::Business,
+            ),
+            Self::ModuleArtifactOwners => (
+                "module_artifact_owners",
+                FieldShape::Map,
+                StateNamespaceV1::Business,
+            ),
+            Self::NodeIdentityBindings => (
+                "node_identity_bindings",
+                FieldShape::Map,
+                StateNamespaceV1::Authorization,
+            ),
+            Self::NodeMainTokenAccountBindings => (
+                "node_main_token_account_bindings",
+                FieldShape::Map,
+                StateNamespaceV1::Authorization,
+            ),
+        };
+        field.owner == FieldOwner::WorldState
+            && field.name == name
+            && field.shape == shape
+            && field.destination == FieldDestination::State(namespace)
+    }
+
+    fn record_kind(self) -> WorldFieldRecordKindV1 {
+        if self == Self::ModuleStates {
+            WorldFieldRecordKindV1::Bytes
+        } else {
+            WorldFieldRecordKindV1::Entry
+        }
+    }
+
+    fn payload_codec(self) -> MemberPayloadCodecV1 {
+        if self == Self::ModuleStates {
+            MemberPayloadCodecV1::Bytes
+        } else {
+            MemberPayloadCodecV1::Text
+        }
+    }
+
+    fn payload_is_text(self) -> bool {
+        self != Self::ModuleStates
+    }
+}
+
+fn text_byte_field(field: FieldDescriptor) -> Option<TextByteOwnerField> {
+    TextByteOwnerField::from_descriptor(field)
 }
 
 #[derive(Clone, Copy)]
@@ -352,6 +431,94 @@ fn read_typed_member<R: ValueNodeReader>(
     Ok(())
 }
 
+fn read_text_byte_member<R: ValueNodeReader>(
+    owner: TextByteOwnerField,
+    field: FieldDescriptor,
+    key: &WorldFieldKeyV1,
+    value: &[u8; 32],
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), WorldStateOwnerError> {
+    if !owner.descriptor_matches(field) {
+        return Err(WorldStateOwnerError::Invalid(
+            "text/bytes owner descriptor mismatch",
+        ));
+    }
+    let parsed =
+        WorldFieldKeyV1::from_bytes(key.as_bytes()).map_err(WorldStateOwnerError::Invalid)?;
+    if parsed.kind != owner.record_kind() {
+        return Err(WorldStateOwnerError::Invalid(
+            "text/bytes owner record kind",
+        ));
+    }
+
+    let mut key_probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, max_value_bytes);
+    let mut discarded = io::sink();
+    let limits = MemberRecordLimitsV1 {
+        semantic_bytes: max_value_bytes,
+        payload_bytes: max_value_bytes,
+        record_bytes: max_value_bytes,
+    };
+    let info = if owner.payload_is_text() {
+        let mut payload_probe = Utf8Output::new(&mut discarded);
+        let result = read_member_record_v1(
+            value,
+            key,
+            values,
+            limits,
+            &mut key_probe,
+            &mut payload_probe,
+            cancelled,
+        );
+        if key_probe.invalid {
+            return Err(WorldStateOwnerError::Invalid(
+                "typed owner semantic key profile",
+            ));
+        }
+        if payload_probe.invalid() {
+            return Err(WorldStateOwnerError::Invalid(
+                "typed owner text payload UTF-8",
+            ));
+        }
+        let info = result.map_err(WorldStateOwnerError::Value)?;
+        if !payload_probe.complete() {
+            return Err(WorldStateOwnerError::Invalid(
+                "typed owner text payload UTF-8 framing",
+            ));
+        }
+        info
+    } else {
+        let result = read_member_record_v1(
+            value,
+            key,
+            values,
+            limits,
+            &mut key_probe,
+            &mut discarded,
+            cancelled,
+        );
+        if key_probe.invalid {
+            return Err(WorldStateOwnerError::Invalid(
+                "typed owner semantic key profile",
+            ));
+        }
+        result.map_err(WorldStateOwnerError::Value)?
+    };
+
+    if !key_probe.finish() {
+        return Err(WorldStateOwnerError::Invalid(
+            "typed owner semantic key framing",
+        ));
+    }
+    if info.codec != owner.payload_codec() {
+        return Err(WorldStateOwnerError::Invalid(
+            "typed owner text/bytes payload profile",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 struct OwnerMemberProfile {
     key_kind: OwnerKeyKind,
@@ -448,8 +615,9 @@ fn read_u64_entry<R: ValueNodeReader>(
 /// Scan all six namespaces and bind every encountered structural key to the
 /// frozen WorldState descriptor table. `verify_state_values` must already have
 /// established every value-tree closure. This function adds owner typing for
-/// the implemented scalar-u64, ID-set and number-map descriptors, checks
-/// required metadata/entry records, and returns explicit unsupported owners.
+/// the implemented scalar-u64, ID-set, number-map, text-map and byte-map
+/// descriptors, checks required metadata/member records, and returns explicit
+/// unsupported owners.
 /// Callers must reject the incomplete report before issuing a profile-3 receipt.
 pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader>(
     roots: &[StateRootV1; 6],
@@ -590,9 +758,25 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                             &mut cancel_now,
                         )?;
                     }
+                    WorldFieldRecordKindV1::Entry | WorldFieldRecordKindV1::Bytes
+                        if let Some(owner) = text_byte_field(field) =>
+                    {
+                        seen[index].entries = seen[index].entries.saturating_add(1);
+                        let mut cancel_now = || (cancelled.borrow_mut())();
+                        read_text_byte_member(
+                            owner,
+                            field,
+                            &key,
+                            &entry.value,
+                            values,
+                            max_value_bytes,
+                            &mut cancel_now,
+                        )?;
+                    }
                     _ if u64_field(field).is_some()
                         || id_set_field(field).is_some()
-                        || number_map_field(field).is_some() =>
+                        || number_map_field(field).is_some()
+                        || text_byte_field(field).is_some() =>
                     {
                         return Err(WorldStateOwnerError::Invalid(
                             "unexpected typed owner record kind",
@@ -653,6 +837,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     let mut checked_u64_fields = 0u8;
     let mut checked_id_set_fields = 0u8;
     let mut checked_number_map_fields = 0u8;
+    let mut checked_text_byte_fields = 0u8;
     for (index, field) in WORLD_STATE_FIELDS.iter().copied().enumerate() {
         let FieldDestination::State(_) = field.destination else {
             continue;
@@ -695,6 +880,16 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                 return Err(WorldStateOwnerError::Invalid("number-map descriptor"));
             }
             checked_number_map_fields = checked_number_map_fields.saturating_add(1);
+        } else if let Some(owner) = text_byte_field(field) {
+            if seen[index].metadata != 1 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "required text/bytes metadata missing or duplicate",
+                ));
+            }
+            if !owner.descriptor_matches(field) {
+                return Err(WorldStateOwnerError::Invalid("text/bytes owner descriptor"));
+            }
+            checked_text_byte_fields = checked_text_byte_fields.saturating_add(1);
         } else {
             if seen[index].metadata != 1 {
                 return Err(WorldStateOwnerError::Invalid(
@@ -729,6 +924,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_u64_fields,
         checked_id_set_fields,
         checked_number_map_fields,
+        checked_text_byte_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))

@@ -308,6 +308,7 @@ impl FileFormalEndpoint {
             || coverage.checked_u64_fields() != 7
             || coverage.checked_id_set_fields() != 5
             || coverage.checked_number_map_fields() != 11
+            || coverage.checked_text_byte_fields() != 4
             || !coverage.unsupported_fields().is_empty()
             || coverage.runtime_registry_missing()
             || coverage.cognition_registry_missing()

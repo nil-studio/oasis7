@@ -1,20 +1,23 @@
 use super::*;
 use crate::{
     incremental_field_member::{
-        MemberPayloadRefV1, MemberRecordLimitsV1, MemberRecordWriteContext, write_member_record_v1,
+        FIELD_MEMBER_DOMAIN, FIELD_MEMBER_HEADER_BYTES, MemberPayloadCodecV1, MemberPayloadRefV1,
+        MemberRecordLimitsV1, MemberRecordWriteContext, write_member_record_v1,
     },
     incremental_field_presence::{
         PresenceRecordLimitsV1, PresenceRecordWriteContext, write_field_metadata_v1,
     },
     incremental_projection::{FieldDestination, WORLD_STATE_FIELDS},
-    incremental_semantic_key::SemanticKeyBudget,
+    incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1, write_semantic_key_v1},
 };
 use oasis7_formal_protocol::{
     incremental_state::{
         MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StateRootV1, StateScanBudget,
         StateWriteV1,
     },
-    incremental_value::{ValueIoBudget, ValueNodeReader, ValueNodeWriter, ValueTreeError},
+    incremental_value::{
+        ValueIoBudget, ValueNodeReader, ValueNodeWriter, ValueStreamWriter, ValueTreeError,
+    },
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
@@ -117,7 +120,123 @@ struct Fixture {
     roots: [StateRootV1; 6],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FixtureIssue {
+    WrongTextKey,
+    InvalidTextPayload,
+    WrongTextCodec,
+    WrongBytesCodec,
+    MissingTextMetadata,
+}
+
+struct FixtureWriteContext<'a> {
+    values: &'a mut ValuePages,
+    memory: &'a MemoryBudget,
+    value_io: &'a mut ValueIoBudget,
+    key_work: &'a mut SemanticKeyBudget,
+    writes: &'a mut BTreeMap<StateNamespaceV1, Vec<StateWriteV1>>,
+}
+
+impl FixtureWriteContext<'_> {
+    fn append_member<K: SemanticKeyV1 + ?Sized>(
+        &mut self,
+        field: FieldDescriptor,
+        kind: WorldFieldRecordKindV1,
+        key: &K,
+        payload: MemberPayloadRefV1<'_>,
+    ) {
+        let member = write_member_record_v1(
+            field,
+            kind,
+            key,
+            payload,
+            &mut MemberRecordWriteContext {
+                sink: self.values,
+                memory: self.memory,
+                io: self.value_io,
+                key_work: self.key_work,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 1024,
+                    payload_bytes: 4096,
+                    record_bytes: 16 << 10,
+                },
+                cancelled: || false,
+            },
+        )
+        .unwrap();
+        let FieldDestination::State(namespace) = field.destination else {
+            unreachable!();
+        };
+        self.writes
+            .entry(namespace)
+            .or_default()
+            .push(StateWriteV1 {
+                key: member.field_key.as_bytes().to_vec(),
+                before: None,
+                after: Some(member.value_root),
+            });
+    }
+
+    fn append_raw_member(
+        &mut self,
+        field: FieldDescriptor,
+        kind: WorldFieldRecordKindV1,
+        key: &str,
+        codec: MemberPayloadCodecV1,
+        payload: &[u8],
+    ) {
+        let mut semantic = Vec::new();
+        write_semantic_key_v1(key, &mut semantic).unwrap();
+        let key_digest = *blake3::hash(&semantic).as_bytes();
+        let field_key = WorldFieldKeyV1::new(field, kind, Some(key_digest)).unwrap();
+        let total =
+            FIELD_MEMBER_HEADER_BYTES + field_key.as_bytes().len() + semantic.len() + payload.len();
+        let mut header = [0; FIELD_MEMBER_HEADER_BYTES];
+        let domain_len = FIELD_MEMBER_DOMAIN.len();
+        header[..domain_len].copy_from_slice(FIELD_MEMBER_DOMAIN);
+        header[domain_len..domain_len + 2]
+            .copy_from_slice(&(field_key.as_bytes().len() as u16).to_be_bytes());
+        header[domain_len + 2] = codec as u8;
+        header[domain_len + 3..domain_len + 11]
+            .copy_from_slice(&(semantic.len() as u64).to_be_bytes());
+        header[domain_len + 11..].copy_from_slice(&(payload.len() as u64).to_be_bytes());
+
+        let mut not_cancelled = || false;
+        let mut writer = ValueStreamWriter::new(
+            self.values,
+            self.memory,
+            self.value_io,
+            total as u64,
+            &mut not_cancelled,
+        )
+        .unwrap();
+        let writing = (|| {
+            writer.write_all(&header)?;
+            writer.write_all(field_key.as_bytes())?;
+            writer.write_all(&semantic)?;
+            writer.write_all(payload)
+        })();
+        let root = writer.finish().unwrap();
+        writing.unwrap();
+        let FieldDestination::State(namespace) = field.destination else {
+            unreachable!();
+        };
+        self.writes
+            .entry(namespace)
+            .or_default()
+            .push(StateWriteV1 {
+                key: field_key.as_bytes().to_vec(),
+                before: None,
+                after: Some(root.digest().unwrap()),
+            });
+    }
+}
+
 fn fixture(include_u64_entries: bool) -> Fixture {
+    fixture_with_issue(include_u64_entries, None)
+}
+
+fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) -> Fixture {
     let memory = MemoryBudget::new(96 << 20, 4 << 20).unwrap();
     let state = StatePages::new(memory.clone());
     let mut values = ValuePages::default();
@@ -130,30 +249,45 @@ fn fixture(include_u64_entries: bool) -> Fixture {
         bytes_remaining: 64 << 20,
     };
     let mut writes = BTreeMap::<StateNamespaceV1, Vec<StateWriteV1>>::new();
+    macro_rules! fixture_writer {
+        () => {
+            FixtureWriteContext {
+                values: &mut values,
+                memory: &memory,
+                value_io: &mut value_io,
+                key_work: &mut key_work,
+                writes: &mut writes,
+            }
+        };
+    }
     for field in WORLD_STATE_FIELDS.iter().copied() {
         let FieldDestination::State(namespace) = field.destination else {
             continue;
         };
-        let metadata = write_field_metadata_v1(
-            field,
-            &mut PresenceRecordWriteContext {
-                sink: &mut values,
-                memory: &memory,
-                io: &mut value_io,
-                key_work: &mut key_work,
-                limits: PresenceRecordLimitsV1 {
-                    semantic_bytes: 1024,
-                    record_bytes: 4096,
+        let omit_metadata = issue == Some(FixtureIssue::MissingTextMetadata)
+            && field.name == "node_identity_bindings";
+        if !omit_metadata {
+            let metadata = write_field_metadata_v1(
+                field,
+                &mut PresenceRecordWriteContext {
+                    sink: &mut values,
+                    memory: &memory,
+                    io: &mut value_io,
+                    key_work: &mut key_work,
+                    limits: PresenceRecordLimitsV1 {
+                        semantic_bytes: 1024,
+                        record_bytes: 4096,
+                    },
+                    cancelled: || false,
                 },
-                cancelled: || false,
-            },
-        )
-        .unwrap();
-        writes.entry(namespace).or_default().push(StateWriteV1 {
-            key: metadata.field_key.as_bytes().to_vec(),
-            before: None,
-            after: Some(metadata.value_root),
-        });
+            )
+            .unwrap();
+            writes.entry(namespace).or_default().push(StateWriteV1 {
+                key: metadata.field_key.as_bytes().to_vec(),
+                before: None,
+                after: Some(metadata.value_root),
+            });
+        }
 
         if include_u64_entries {
             if let Some(scalar) = u64_field(field) {
@@ -283,6 +417,61 @@ fn fixture(include_u64_entries: bool) -> Fixture {
                 });
             }
         }
+
+        if let Some(owner) = text_byte_field(field) {
+            if owner == TextByteOwnerField::ModuleStates {
+                if issue == Some(FixtureIssue::WrongBytesCodec) {
+                    fixture_writer!().append_raw_member(
+                        field,
+                        WorldFieldRecordKindV1::Bytes,
+                        "module/α",
+                        MemberPayloadCodecV1::Text,
+                        b"a byte map cannot use Text codec",
+                    );
+                } else {
+                    fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Bytes,
+                        "module/α",
+                        MemberPayloadRefV1::Bytes(&[0x00, 0xff, 0x80, 0x41]),
+                    );
+                }
+            } else {
+                let (key, value) = match owner {
+                    TextByteOwnerField::ModuleArtifactOwners => ("artifact/α\0", "owner/λ\0"),
+                    TextByteOwnerField::NodeIdentityBindings => ("node/東京", "identity/é"),
+                    TextByteOwnerField::NodeMainTokenAccountBindings => ("node/β", "account/🪙"),
+                    TextByteOwnerField::ModuleStates => unreachable!(),
+                };
+                match issue.filter(|_| owner == TextByteOwnerField::ModuleArtifactOwners) {
+                    Some(FixtureIssue::WrongTextKey) => fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        &17u64,
+                        MemberPayloadRefV1::Text(value),
+                    ),
+                    Some(FixtureIssue::InvalidTextPayload) => fixture_writer!().append_raw_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        key,
+                        MemberPayloadCodecV1::Text,
+                        b"\xff",
+                    ),
+                    Some(FixtureIssue::WrongTextCodec) => fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        key,
+                        MemberPayloadRefV1::U64(0),
+                    ),
+                    _ => fixture_writer!().append_member(
+                        field,
+                        WorldFieldRecordKindV1::Entry,
+                        key,
+                        MemberPayloadRefV1::Text(value),
+                    ),
+                }
+            }
+        }
     }
 
     let namespaces = [
@@ -355,10 +544,53 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert_eq!(report.checked_u64_fields(), 7);
     assert_eq!(report.checked_id_set_fields(), 5);
     assert_eq!(report.checked_number_map_fields(), 11);
+    assert_eq!(report.checked_text_byte_fields(), 4);
     assert!(report.unsupported_fields().contains(&"resources"));
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(!report.unsupported_fields().is_empty());
+}
+
+#[test]
+fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() {
+    let fixture = fixture(true);
+    let report = verify(&fixture, || false).unwrap();
+    assert_eq!(report.checked_text_byte_fields(), 4);
+    assert!(report.unsupported_fields().contains(&"resources"));
+
+    for (issue, expected) in [
+        (
+            FixtureIssue::WrongTextKey,
+            "typed owner semantic key profile",
+        ),
+        (
+            FixtureIssue::InvalidTextPayload,
+            "typed owner text payload UTF-8",
+        ),
+        (
+            FixtureIssue::WrongTextCodec,
+            "typed owner text/bytes payload profile",
+        ),
+        (
+            FixtureIssue::MissingTextMetadata,
+            "required text/bytes metadata missing or duplicate",
+        ),
+    ] {
+        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        assert!(
+            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
+            "{issue:?}: {result:?}"
+        );
+    }
+    assert!(matches!(
+        verify(
+            &fixture_with_issue(true, Some(FixtureIssue::WrongBytesCodec)),
+            || false
+        ),
+        Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(
+            "member key/payload kind"
+        )))
+    ));
 }
 
 #[test]
@@ -404,4 +636,19 @@ fn full_owner_scan_observes_cancellation() {
         verify(&fixture, || true),
         Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled))
     ));
+}
+
+#[test]
+fn text_byte_owner_scan_observes_late_cancellation() {
+    let fixture = fixture(true);
+    let calls = std::cell::Cell::new(0usize);
+    assert!(matches!(
+        verify(&fixture, || {
+            let next = calls.get() + 1;
+            calls.set(next);
+            next == 64
+        }),
+        Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled))
+    ));
+    assert_eq!(calls.get(), 64);
 }
