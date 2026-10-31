@@ -18,6 +18,7 @@ FILES = (
     'codeql_rust_evaluator_profile.py',
     'codeql_summary_schema_2_27_3.json',
     'codeql_rust_cfg_graph.py',
+    'codeql_rust_callee_diagnostic.py',
     'codeql-rust-capacity.py',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',

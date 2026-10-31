@@ -82,8 +82,9 @@ class CfgWorkflow(unittest.TestCase):
 
     def test_exclusion_verification_is_bound_to_new_source_everywhere(self):
         sha="c65098923e8d9aad6813d49ac48cc2540627c96d"
-        self.assertIn("ref: "+sha,TEXT)
-        self.assertEqual(TEXT.count("--source-sha "+sha),3)
+        self.assertIn(sha,TEXT)
+        self.assertIn("ref: ${{ env.DIAGNOSTIC_SOURCE }}",TEXT)
+        self.assertEqual(TEXT.count('--source-sha "$DIAGNOSTIC_SOURCE"'),3)
         self.assertEqual(TEXT.count("--verify-context-exclusion"),2)
         self.assertEqual(TEXT.count("--scope-identities"),2)
         self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
