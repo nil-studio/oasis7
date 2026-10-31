@@ -427,7 +427,7 @@ pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改�
 
 固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
 
-payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
 
 写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
 
@@ -607,3 +607,35 @@ Runtime 的 event、action、intent、proposal 四组 next/era 使用同一 allo
 WorldState.time 只使用字段登记的 WorldState / Value / Allocator profile：Metadata 存在标记和以 Unit 原键封装的 U64 Entry。Runtime 的 body、事件移动和 scheduler 检查同一 Metadata 与 Entry 的精确期望值；已知固定值可按该规范重新计算值 ID 后核对认证路径，不必读取或物化其他字段。完整创世对 time 只选择一个 owner 生产者，拒绝重复输出键；不得同时调用 WorldState 标量家族生产者和 Runtime 的分量时钟 helper。字段 visitor 只是借用分类接口，不作为任意 Serialize 落盘入口。创世生产与控制字段 setter 使用同一 profile，不再生成独立 world-time-key/value 副本，也不保留双写或旧键回退。该统一针对尚未正式启用的新格式组件，不承担旧世界导入。RootSet.simulation_tick 与 commit height 仍是独立语义。
 
 时钟不符、缺 Metadata/Entry、同池检查或最后取消失败均沿共享事务贡献传播，不能 seal 先前成功前缀。固定两项编码、比较、输出遵守 Ordinary 预先准入及调用方连续 I/O 预算；不为校验扫描 World、历史或所有字段。控制字段变化后的 Runtime 后继读取必须看同一 overlay，不能继续采用旧专用时钟。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+### 12.19 原文本映射
+
+<a id="iws-world-text-maps-v1"></a>
+
+module_artifact_owners 属于 Business；node_identity_bindings、node_main_token_account_bindings 属于 Authorization，三项均按 WorldState/Map 的唯一登记保留原 String 键和原 String 值。Metadata 必需，成员为原键 Entry/Text，不做裁剪、大小写转换、Unicode 归一化、别名替换或业务身份授权。创世借用原 map 流写，不 clone/收集整张 map。固定根点查先认证 Metadata 与目标原键，只在已认证字段中返回缺成员；空字符串返回 Some(0)，与 None 区分。Text payload 必须完整通过 UTF-8 验证，跨块仅保留最多三个未完成字节，并沿已有单次 write/accepted-prefix 取消规则输出；错误 codec、损坏/截断或非法文本不能作为业务值采用。输出在完整调用及最终取消检查成功前 provisional，调用方为保留输出预先准入。记录、语义键、payload/总长、I/O、同池/class 与取消均有限；不把该存储入口当公钥绑定、账户权限或完整字段族/World 资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+文本映射事务点读与点更新在一次 contribute 中认证 Metadata 与当前原键成员，读取依赖进入同一 ExecutionTransaction。更新核对精确 guard/live fence、读写同池 Ordinary、原 expected 的 None/空字符串/完整 UTF-8 字节，随后保存 owner 决定的原 after 或 tombstone；不收集完整旧值，流式比较只借用 expected。no-op 仍保留两条读取依赖。旧值读取与新值写入分别受明确 payload/record 上限，读写取消组合检查直至 transaction.write 后；原键、namespace 或预期值不符、错误 UTF-8、预算/取消及任一后续错误均 poison 整笔事务，不能 seal 已有前缀。原 owner 仍负责账户/公钥/工件身份授权及跨字段业务规则，该 setter 不授予权限或完整字段族资格。
+
+
+### 12.20 原已安装模块目标表
+
+<a id="iws-installed-module-targets-v1"></a>
+
+installed_module_targets 沿 WorldState/Map/Artifacts 唯一登记，保留原 String map key 及原 ModuleInstallTarget 变体。Metadata 必需；SelfAgent 为原键 Entry/Unit，LocationInfrastructure 为原键 Entry/Text，Text 保存原 location_id（包括空字符串），不裁剪、归一化或代换。复用现有封闭成员 codec，不将位置 ID 与 SelfAgent 混合；字段绑定和 codec 共同决定原类型，不重用文本值推断变体，不增加任意 Serialize 回退。
+
+创世借用原 map 逐条流写，每条共享有限 records、key-work、I/O、semantic/payload/record bytes、同池 Ordinary 与取消；分配前准入的写记录 charge 交给 sink，源对象与批次索引由调用方准入，失败整段丢弃。固定根读取认证 Metadata 与当前原键，返回 Absent、SelfAgent 或 LocationInfrastructure 的原 UTF-8 字节长度，位置文本流式输出；只在全调用及最终取消成功后采用输出。错误 codec、损坏文本、错误字段/namespace、取消或预算不足不当作缺失。点读只核对此原键，不签发完整字段族资格；目标与实际 module instance/工件的一致性、合法安装和权限仍由原 owner 在共享事务内验证，本入口不提供安装授权或完整 World 恢复资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+目标表共享事务入口在同一次 contribute 中认证 Metadata 与目标成员，以完整原变体及原位置字节核对 expected；Absent、SelfAgent 与空位置均不合并。旧位置流式比较，不收集完整字符串；复用文本映射的借用字节比较器，变体判断保留在各 owner adapter 中。更新核对当前 guard/live fence、读写同池 Ordinary、有限原位置/record/key/I/O 额度及组合取消，再写原 after 或成员 tombstone；不移除 Metadata。no-op 保留两项读取依赖，并在可能较长的原字符串比较后再次检查取消。任何错误使整笔事务不可 seal，暂存页/输出不因先前成功贡献取得资格。目标与模块实例、工件及原权限的一致性仍由 owner 接通，本 setter 不签发安装或完整 World 资格。
+
+
+### 12.21 原账户及节点余额记录
+
+<a id="iws-world-account-balances-v1"></a>
+
+main_token_balances 与 node_asset_balances 均沿 WorldState/Map/Business 唯一登记。各有必需 Metadata，以原 String map key 写 Entry；记录内部 account_id/node_id 独立保留，不能用 map key 回填、裁剪或归一化。主代币记录依次保存 liquid_balance、vested_balance、restricted_starter_claim_balance；节点记录依次保存 power_credit_balance、total_minted_credits、total_burned_credits，全部保留原 u64 位，零值不同于缺成员。三个量的业务含义及余额约束仍由各原 owner 验证，存储入口不授予转账、铸造或兑换权限。
+
+复用 field-member.v1 framing，新增封闭 payload codec IdentityU64Triple/tag9：u64 BE 原身份 UTF-8 字节数、原身份字节、三个按上述字段顺序的 u64 BE；最小长度32，且声明长度必须等于32加原身份字节数，不用 JSON/任意 Serialize 回退。此物理 codec 只复用两种实际记录的共同布局，字段绑定仍决定含义；未知 codec 的旧 reader 必须明确拒绝，不能猜测为旧字段，正式新格式激活仍要求完整 reader/字段族资格。
+
+创世借用原 map/记录逐条流写，不 clone 或收集整表；原记录用无省略的类型解构，新增成员必须明确处理。固定根点读先认证 Metadata 与原 map key，并校验 tag9/原键长度；原身份 UTF-8 流式输出，header 与三个数值仅保留固定缓冲，不构造完整旧身份。输出在完整记录、原身份长度/UTF-8、数值尾部与最终取消成功前保持暂态，成功返回原身份字节数和对应三个具名量。调用方准入源、查询键、保留输出和批次；records/key-work/I/O、原身份及总记录字节、同池/class 均有限，取消或预算错误不当作缺失。点读只证明该记录，不验证兄弟记录、完整字段族或 World/C<T 恢复资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+余额共享事务入口以具名借用 view 同时表示原身份和三个量，view 由原结构无省略解构得到，创世与点更新复用同一映射。field 与 view 类型不符立即拒绝，不能把节点余额的三个数按主代币余额解释。一次 contribute 认证 Metadata 和当前成员，流式比较 expected 原身份，并精确比较原具名数值与缺失状态；不收集旧身份，不以 map key 回填。检查当前 guard/live fence、读写同池 Ordinary、有限原身份/record/key/I/O 与组合取消后，保存 owner 的最终 after 或成员 tombstone；Metadata 不删除。no-op 保留两项读取依赖，并在可能较长的 view 比较后再查取消。类型/预期/原记录/额度/取消或后续写入失败均 poison 整笔事务。view/存储 setter 不校验供给、业务余额约束、转账/铸造权限或全字段资格，原 owner 仍须在同一共享事务内接通这些规则。
