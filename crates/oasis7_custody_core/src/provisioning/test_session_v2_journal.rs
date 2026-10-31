@@ -69,6 +69,12 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     ToolMetadataNonceIssued {
         request_id: String,
     },
+    ExecutionPrepareFactoryPaid {
+        request_id: String,
+    },
+    ExecutionPrepareAllocated {
+        request_id: String,
+    },
     ExecutionBookStarted {
         request_id: String,
     },
@@ -114,6 +120,8 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
             let b = book.journal_record();
             2 + usize::from(b.lifetime_archived_at.is_some())
                 + usize::from(b.lifetime_admitted_at.is_some())
+                + book.prepare_stage_count()
+                + book.prepare_paid_count()
         }),
         s.control_transports
             .values()

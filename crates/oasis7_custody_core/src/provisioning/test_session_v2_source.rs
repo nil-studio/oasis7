@@ -34,7 +34,8 @@ impl AccountProvisionApprovalState {
         attempt: &str,
     ) -> Result<()> {
         let s = self.test_session_v2_record(id)?;
-        if !id_nonempty(attempt) || s.sources.contains_key(attempt) || s.source_funding.contains_key(attempt)
+        if super::super::execution_book_v2::prepare_paid_id_in_use_v2(s, attempt)
+            || !id_nonempty(attempt) || s.sources.contains_key(attempt) || s.source_funding.contains_key(attempt)
             || s.purpose_transports.contains_key(attempt) || s.purpose_http_admissions.contains_key(attempt)
             || s.control_transports.contains_key(attempt) || s.client_http_admissions.contains_key(attempt)
             || super::v2_credentials::credential_claim_id_in_use_v2(s, attempt)

@@ -20,6 +20,8 @@ pub(super) struct Replay<'a> {
     purpose_fees: BTreeSet<String>,
     execution_requests: BudgetLedger,
     execution_started: bool,
+    execution_prepare_paid: bool,
+    execution_prepare_admitted: bool,
     execution_lifetime_claimed: bool,
     execution_lifetime_archived: bool,
     execution_lifetime_admitted: bool,
@@ -66,6 +68,8 @@ impl<'a> Replay<'a> {
             purpose_fees: BTreeSet::new(),
             execution_requests: BudgetLedger::new(p.request_limit.0),
             execution_started: false,
+            execution_prepare_paid: false,
+            execution_prepare_admitted: false,
             execution_lifetime_claimed: false,
             execution_lifetime_archived: false,
             execution_lifetime_admitted: false,
@@ -234,7 +238,9 @@ impl<'a> Replay<'a> {
 
         if let Some(book) = &s.execution_book {
             let b = book.journal_record();
-            if !self.execution_started
+            if self.execution_prepare_paid != (book.prepare_paid_count() == 1)
+                || self.execution_prepare_admitted != (book.prepare_stage_count() == 1)
+                || !self.execution_started
                 || !self.execution_lifetime_claimed
                 || self.execution_lifetime_archived != b.lifetime_archived_at.is_some()
                 || self.execution_lifetime_admitted != b.lifetime_admitted_at.is_some()
@@ -245,6 +251,8 @@ impl<'a> Replay<'a> {
             || self.execution_lifetime_claimed
             || self.execution_lifetime_archived
             || self.execution_lifetime_admitted
+            || self.execution_prepare_paid
+            || self.execution_prepare_admitted
         {
             return Err(invalid());
         }

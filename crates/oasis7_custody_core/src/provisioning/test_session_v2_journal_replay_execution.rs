@@ -13,6 +13,59 @@ impl Replay<'_> {
             .ok_or_else(invalid)?
             .journal_record();
         match event {
+            SessionEventKindV2::ExecutionPrepareFactoryPaid { request_id } => {
+                self.live(SessionPurposeV1::Execution, at)?;
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let (original, _, claimed) = book
+                    .prepare_paid_journal_record(self.s)
+                    .ok_or_else(invalid)?;
+                if !self.execution_lifetime_admitted
+                    || self.execution_prepare_paid
+                    || request_id != original
+                    || claimed != at
+                    || self
+                        .reads
+                        .get(b.source_operation_id)
+                        .is_none_or(|n| *n < 4 || *n > 8)
+                    || self.generations.get(&SessionPurposeV1::Execution)
+                        != Some(&b.credential_generation.0)
+                {
+                    return Err(invalid());
+                }
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::Execution)
+                    .ok_or_else(invalid)?
+                    .charge(1)
+                    .map_err(|_| invalid())?;
+                self.execution_prepare_paid = true;
+            }
+            SessionEventKindV2::ExecutionPrepareAllocated { request_id } => {
+                self.live(SessionPurposeV1::Execution, at)?;
+                let (original_request, paid_key, admitted_at) = self
+                    .s
+                    .execution_book
+                    .as_ref()
+                    .ok_or_else(invalid)?
+                    .prepare_journal_record()
+                    .ok_or_else(invalid)?;
+                if !self.execution_lifetime_admitted
+                    || self.execution_prepare_admitted
+                    || !self.execution_prepare_paid
+                    || request_id != original_request
+                    || admitted_at != at
+                    || !matches!(
+                        self.s.purpose_transports.get(paid_key),
+                        Some(SessionPurposeTransportV1::ExecutionFactoryCallbackV2(_))
+                    )
+                    || self.reads.get(b.source_operation_id) != Some(&5)
+                    || self.generations.get(&SessionPurposeV1::Execution)
+                        != Some(&b.credential_generation.0)
+                {
+                    return Err(invalid());
+                }
+                self.source_ready(b.source_operation_id, at)?;
+                self.execution_prepare_admitted = true;
+            }
             SessionEventKindV2::ExecutionBookStarted { request_id } => {
                 self.live(SessionPurposeV1::Execution, at)?;
                 if self.execution_started

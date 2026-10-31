@@ -29,11 +29,13 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV2,
     ) -> Result<()> {
         let Some(b) = s.execution_book.as_ref() else {
-            return if s
-                .purpose_transports
-                .values()
-                .any(|t| matches!(t, SessionPurposeTransportV1::ExecutionNativeLifetimeV2(_)))
-            {
+            return if s.purpose_transports.values().any(|t| {
+                matches!(
+                    t,
+                    SessionPurposeTransportV1::ExecutionNativeLifetimeV2(_)
+                        | SessionPurposeTransportV1::ExecutionFactoryCallbackV2(_)
+                )
+            }) {
                 Err(invalid())
             } else {
                 Ok(())
@@ -72,8 +74,6 @@ impl AccountProvisionApprovalState {
             || s.approved_at.is_none_or(|at| at.get() > b.started_at.get())
             || b.started_at != b.lifetime_claimed_at
             || b.started_at.get() >= root.deadline.get()
-            || b.last_allocation_sequence.0 != 0
-            || !b.stages.is_empty()
             || !b.context_slots.is_empty()
         {
             return Err(invalid());
@@ -197,6 +197,7 @@ impl AccountProvisionApprovalState {
             }
             _ => return Err(invalid()),
         }
+        self.validate_execution_prepare_v2(s, b)?;
         Ok(())
     }
 }

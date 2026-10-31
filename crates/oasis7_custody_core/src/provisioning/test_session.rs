@@ -504,3 +504,9 @@ mod v2_tool_nonce;
 pub use v2_action_http::SessionActionRequestV2;
 
 pub(in crate::provisioning) use v2_action_http::action_original_v2;
+
+// Pure occupancy/target checks shared by the fixed Account execution factory.
+// These return no grant and do not replace raw PoP or Current verification.
+pub(in crate::provisioning) use v2_control::id_in_use_v2 as execution_old_control_id_in_use_v2;
+pub(in crate::provisioning) use v2_credentials::credential_claim_id_in_use_v2 as execution_old_claim_id_in_use_v2;
+pub(in crate::provisioning) use v2_purpose_http::execution_target_v2;

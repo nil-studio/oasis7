@@ -8,7 +8,8 @@ pub(in crate::provisioning) fn purpose_http_occupied_except_self_v2(
     key: &str,
     nonce_self: bool,
 ) -> bool {
-    s.sources.contains_key(key)
+    super::super::execution_book_v2::prepare_paid_id_in_use_v2(s, key)
+        || s.sources.contains_key(key)
         || s.source_funding.contains_key(key)
         || s.purpose_transports.contains_key(key)
         || s.control_transports.contains_key(key)
@@ -24,7 +25,7 @@ pub(in crate::provisioning) fn purpose_http_occupied_except_self_v2(
             .is_some_and(|v| v.transport_id_in_use(key))
 }
 
-fn execution_target_v2(
+pub(in crate::provisioning) fn execution_target_v2(
     state: &AccountProvisionApprovalState,
     s: &TestSessionAuthorityV2,
     purpose: SessionPurposeV1,

@@ -40,6 +40,7 @@ struct MoveStageAllocationV2 {
     source_observed_at: UnixMillis,
     source_expires_at: UnixMillis,
     allocated_at: UnixMillis,
+    factory_ingress_id: String,
     // Only schemas which actually have a client nonce may allocate one.
     #[serde(deserialize_with = "required_option")]
     client_nonce: Option<String>,
@@ -76,6 +77,7 @@ struct MoveNativeTransportClaimV2 {
 struct MoveStageOutboxV2 {
     allocation: MoveStageAllocationV2,
     candidate_digest: String,
+    signing_admitted_at: UnixMillis,
     #[serde(deserialize_with = "required_option")]
     original: Option<PublicStageOriginalV2>,
     #[serde(deserialize_with = "required_option")]
@@ -160,9 +162,14 @@ impl SessionExecutionBookV2 {
         self.session_id == id
             || self.source_operation_id == id
             || self.lifetime_transport_id == id
+            || self
+                .archived_lifetime
+                .as_ref()
+                .is_some_and(|v| v.lifetime.status.nonce == id)
             || self.stages.values().any(|stage| {
                 let allocation = &stage.allocation;
                 allocation.operation_id == id
+                    || allocation.factory_ingress_id == id
                     || allocation.source_operation_id == id
                     || allocation.client_nonce.as_deref() == Some(id)
                     || allocation.observation_nonce.as_deref() == Some(id)
@@ -223,5 +230,62 @@ impl SessionExecutionBookV2 {
             lifetime_admitted_at: self.lifetime_admitted_at,
             credential_generation: self.credential_generation,
         }
+    }
+}
+
+#[path = "test_session_execution_prepare_allocation_v2.rs"]
+mod prepare_allocation;
+#[path = "test_session_execution_prepare_paid_v2.rs"]
+mod prepare_paid;
+#[path = "test_session_execution_prepare_restore_v2.rs"]
+mod prepare_restore;
+pub use prepare_allocation::{ExecutionPrepareAllocationV2, ExecutionPrepareSigningAuthorityV2};
+pub use prepare_paid::{
+    ExecutionPrepareFactoryKindV2, ExecutionPrepareFactoryTransportV2, ExecutionPreparePaidIntentV2,
+};
+pub(in crate::provisioning) use prepare_restore::prepare_paid_id_in_use_v2;
+
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn prepare_stage_count(&self) -> usize {
+        self.stages.len()
+    }
+    pub(in crate::provisioning) fn prepare_journal_record(
+        &self,
+    ) -> Option<(&str, &str, UnixMillis)> {
+        self.stages.get(&MoveExecutionStageV2::Prepare).map(|s| {
+            (
+                self.action_request_id.as_str(),
+                s.allocation.factory_ingress_id.as_str(),
+                s.signing_admitted_at,
+            )
+        })
+    }
+}
+
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn owns_prepare_factory_transport(
+        &self,
+        s: &TestSessionAuthorityV2,
+        key: &str,
+    ) -> bool {
+        matches!(s.purpose_transports.get(key), Some(SessionPurposeTransportV1::ExecutionFactoryCallbackV2(p)) if p.intent.action_request_id == self.action_request_id && p.intent.approved_input_digest == self.approved_input_digest)
+    }
+    pub(in crate::provisioning) fn prepare_paid_journal_record<'a>(
+        &self,
+        s: &'a TestSessionAuthorityV2,
+    ) -> Option<(&'a str, &'a str, UnixMillis)> {
+        s.purpose_transports
+            .iter()
+            .find_map(|(key, row)| match row {
+                SessionPurposeTransportV1::ExecutionFactoryCallbackV2(p) => Some((
+                    p.intent.action_request_id.as_str(),
+                    key.as_str(),
+                    p.claimed_at,
+                )),
+                _ => None,
+            })
+    }
+    pub(in crate::provisioning) fn prepare_paid_count(&self) -> usize {
+        usize::from(self.last_allocation_sequence.0 != 0)
     }
 }

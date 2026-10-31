@@ -95,10 +95,10 @@ impl AccountProvisionApprovalState {
                     !s.tool_nonce_ingresses
                         .values()
                         .any(|n| n.owner_attempt == *key || n.account_attempt == *key)
-                        && !s
-                            .execution_book
-                            .as_ref()
-                            .is_some_and(|book| book.owns_lifetime_transport(key))
+                        && !s.execution_book.as_ref().is_some_and(|book| {
+                            book.owns_lifetime_transport(key)
+                                || book.owns_prepare_factory_transport(s, key)
+                        })
                 })
             {
                 return Err(invalid());

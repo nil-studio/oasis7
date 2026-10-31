@@ -329,3 +329,6 @@ mod paid_binding_tests;
 
 #[path = "test_session_v2_execution_source_binding_tests.rs"]
 mod source_binding_tests;
+
+#[path = "test_session_v2_execution_prepare_factory_tests.rs"]
+mod prepare_factory_tests;
