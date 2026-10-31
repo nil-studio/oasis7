@@ -992,6 +992,8 @@ Trace refs: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c；O7-REQ-f98670c4-c1fd-4
 
 V1 的计划、原 domain、字节、恢复与 resource_refs 空集合/精确 Move0 守卫全部不变。V2 是独立 closed DTO/domain：`OwnerSetupPlanV2` 包含原固定 setup/provision/目标/goal/五个操作 ID、独立 nonce、Executor 与完整费用/期限字段及单一 `selection`，不含可自行授予的资源 refs；`PreparedResourceBasisV1` 必含 V2 plan digest、完整最终读取原件及强签响应关联、typed selection、as-of 完整 CommitRef/tick、唯一派生的 typed refs；`TestSessionPlanV2` 必含该 prepared digest、同 selection、完整批准 scope 与各费用/期限。三者使用独立 canonical domain，拒未知字段、非规范 decimal、缺必填关系、旧批准替用与任意 verified 标记。完整 quote/Prepared/Captured/ContextRef 或历史结果均不能替代本次当前资源准入。四个 canonical 写不安装资源 grant，缺真实 grant 继续 blocked。
 
+V2 凭据 challenge/claim 继续使用既有 `/v1/account-provisions/{provision}/accounts/{account}/client/…` 精确路径、原 closed body、原始 RFC 签名 target 和正文，不新造 `/v2` 兼容 URL，也不由客户端 header 声称版本。首次已有 Account Admit 在任何 V1 专属状态重验之前，按完整账号/环境/provision/session namespace 检查可信持久 V1/V2 两表；必须恰有一份对应记录，两表冲突或均无即拒绝，不能在任一版本验证失败后 fallback。V1 原返回结构和签名字节保持；V2 首 Admit 仅对 CredentialClaim challenge/claim 返回独立 closed routing-version 元数据，精确绑定原 ingress、操作、原正文及批准输入摘要。该内部版本响应使用独立类型/domain，只决定后续固定 callee，不是 Current、verified 标记或新授权。Identity 必须延续已经完成的同一次 Admit，不能为选择版本再发 Admit 或隐藏额外 Actor/RPC；其后每个 Account 阶段仍重验同一 raw PoP、版本/批准输入及持久 paid binding。两表创建、恢复及 claim 关联必须拒绝 namespace 碰撞；旧 V1 记录不能投影升级为 V2。任何新调用边按原 Control/Host/Native 账计费，缺实际先付费消费者时保持关闭。
+
 新增只由可信 Identity 服务签发的 `PaidResourceReadProofV1`，不是模型工具参数、Native 签名代理或可恢复 token。闭合签名 payload 字段固定为：`api_version=1`、`issuer_namespace`、`issuer_service_id`、`issuer_environment`、`issuer_key_id`、`issuer_epoch`、`issuer_config_generation`、`native_audience_origin`、`world_audience`、`native_path`、`world_path`、`stage`、`custody_account_id`、`manager_native_account_id`、`participant_native_account_id`、`provision_id`、`setup_id`、必填 nullable `test_session_id`、`approval_operation_id`、`approval_input_digest`、`plan_digest`、必填 nullable `prepared_resource_basis_digest`、`selection_digest`、`owner_public_key`、`owner_binding`、完整 `task_fence_digest`、完整 `signer_record_digest`、`native_request_digest`、`world_request_digest`、必填 nullable `preflight_world_request_digest`、`source_operation_id`、`source_record_digest`、`source_security_epoch`、`service_epoch`、`directory_generation`、`resource_flag_generation`、`paid_attempt_id`、`paid_record_digest`、`native_http_units`、`world_http_units`、`issued_at`、`expires_at`。`stage` 仅 `owner_setup_final` 或 `test_session_owner_read`；nullable 字段按阶段必须精确 Some/None，不能省略。金额/世代/时间使用规范十进制字符串；digest 均为完整原件的独立 domain digest。外层仅 `payload/signature_hex`，domain 固定 `oasis7.custody.paid-resource-read-proof.v1`，用既有规范签名 codec 对完整 payload 签名；不得从调用者公钥建立信任。
 
 Producer 在同一持久事务中核实对应 V2 custody 批准已经精确消费、当前账号/Source/管理 scope/配置与原期限有效、原件及 selection 匹配，先按原阶段账扣足全部物理端口并分配不可复用的 paid_attempt_id/记录，再允许签发该唯一原件的凭证。OwnerSetup final 此凭证的 units 精确为 Native1/World2，绑定原已有 OwnerControl 请求及其两次 Native→World（access 中已保存 owner-view 与最终资源读取）；preflight_world_request_digest 精确为 access 原件摘要。该凭证不是声称完整阶段全部只有一次 Native/两次 World；对应其它 Identity→Native 及 Root/preflight 仍按原阶段完整预扣。TestSession OwnerRead 的 units 精确为 Native1/World1，preflight_world_request_digest 必须为 None；原其他 Root/Source/LF 端口按既有账先扣，不由本凭证覆盖。`expires_at` 不晚于 `issued_at.checked_add(5000ms)（溢出拒绝）`、原 Source 保守有效截止、Native session 截止、批准/阶段/会话原期限及发行 key 有效期的最小值。签发时间不能刷新 Source；不重试签发以延长旧原件窗口。未知签发/发送保留原件、记录和已扣费用，不退款、不互借预算。Core 持久恢复必重验 stage、完整批准/原件/来源/paid record 对应、计数、冲突与所有 mandatory 字段，不能 default 补旧未知状态。
@@ -1064,6 +1066,11 @@ actor 另有固定 fact-only metadata 读取，只返回预期 scope/version、�
 
 <a id="cloud-custody-selftest"></a>
 ### 12.18 TestSession 生命周期与真实 Agent 自测
+
+新 TestSessionV2 的完整 `plan + scope`（包括永久 World Closed 终止条款）必须在同一次 Native custody fresh-MFA 中批准，即使 `model_budget` 为 null 也不能使用旧 opaque V2 记录。Native 仅为受支持的新 UI 合同创建 server-owned full-session summary contract，并将其与完整 top-level intent digest、配置目标和 scope 一起签入原 custody proof；原 Book 仍是唯一批准内核，不新增独立批准。浏览器在实际 get 前以用户可读摘要明确显示精确 Move0/真实资源限制、各独立预算、绝对期限与永久 Closed，model_budget Some 时还完整显示 N/preset/price/graph/whole-session 上限。server-owned contract 表示固定协议支持与已签摘要内容，不是自报 rendered bool，也不声称远程证明 DOM 或模型实际加载 Skill。
+
+合同采用闭合 versioned typed variant：原 OwnerV2 model-budget summary 的 wire/语义保持；新 TestSessionV2 使用独立 full-session V2 variant，仍保预算专属形状与价格上界强验。旧 V1 可选值 None 省略，签名字节不变；旧记录 None 在启用新服务配置后仍返回原 None，不静默重写或升级。缺新 full-session contract、错 scope/term/预算摘要或取消确认均在 usable V2 激活/能力产生前拒绝，unknown 重送仍用原正文和原 ceremony，不发新批准以掩盖未知结果。生产支持默认关闭，未完成真实消费者与 paid graph 资格时不签可用 N cap。
+
 
 新增持久 `TestSession`，并在同一次 `TestSessionApprovalV1` 中生成三个目的明确的授权记录：ExecutionGrant、ReconcileReadGrant、TerminationPlan。后两者是初次批准的 sibling authority，不是过期 execution grant 下新建更长 child。它们共享 session/account/manager/credential/security version/revocation lineage 和已有预算真值；任意 session/account/identity 撤销均能失效关联权限。保持普通 execution root 的绝对期限规则，不把 read/cleanup 的目的期限算成游戏执行延期。
 
@@ -1164,6 +1171,44 @@ nonce 原件须与首次 creating ingress、实际已付三次记录、完整原
 `GET /v1/test-sessions/{id}` 返回当前获准主体的非秘密 purpose 截止/余额、write_closed、Stop/Revoke 原件状态和 pending 引用。执行写期限后，登记客户端只能用独立 read 凭据做本次原件/close 查询，以及只会缩权的 finish/abort；普通工具包括 task/industry/context/quote/outcome 全部停止，不新读私有目标。只读 root 的读取上限是 100 次/300 次传输，Owner 查询不扣 execute 预算；预批 cleanup 原件由内部计划生成，客户端读凭据不能请求任意 Owner 签名。
 
 一次关闭依次记录 `closing`、`write_closed`、各自 stop_status/revoke_status、pending 原件核对和自有资源回收；不是第二套世界状态机。仅当 Stop/Revoke 已按当前权威证明、可能派发的 canonical 原件已核清、私有准备/纯读取按 §12.17 明确分类、业务预留已结算/有明确终态、客户端及本轮自有资源回收已记录，才标 `closed`。可能有世界效果而未核清的原件保持 `closing/recovery_required/cleanup_blocked`，保留原件/预留并报告下一步；不能要求 Owner 读取其协议不允许的私有准备结果才能关闭。未关闭测试阻止同账号再次起测；人工处理可以继续独立获准核对/收尾，不能清空记录开新会话。正常 closed 可保留剩余期限内的只读证据访问；显式全会话/账号/身份撤销则连读取也关闭。
+
+<a id="cloud-custody-n-inference-budget"></a>
+#### N 受限推理预算与实际费用图
+
+Trace refs: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede；O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb。
+
+**原件、摘要与 null**
+
+TestSessionPlanV2 和 OwnerSetupPlanV2 增加显式必填 nullable `model_budget`。Rust Option 必须使用 required_option 反序列化，缺字段拒绝，不能仅无 default（serde 的 Option 缺失仍会变 None）。null 只表示没有推理授权，任何 V1 或旧 V2 缺字段都不能升级。Some 必须通过 plan.validate/digest、实际 prepare→Native custody options/get/complete→Account approval 验证，Native 人可读批准摘要显示 N 身份、固定供应商/model、调用/token/价格上限、串行并发、绝对期限以及两次探测计入同预算；只把 opaque digest 塞入 JSON 不算完整摘要。
+
+同一既有 V2 的 action selection 明确分两类：精确 `Move { position_cm }` 的 business 0 分支，或原真实 ResourceBasis Transfer/Build/Schedule 分支。不是新增宽泛 ControlOnly 授权，也不将 Move 塞成 ResourceBasisSelection/空 Transfer。仅精确 Move0 要求 allowed_resource_refs=[]、business_limit=0、唯一 action 逐字段等于批准坐标，prepared_resource_basis_digest 显式 null；Resource 分支保持原非空 refs、真实 owner/grant/ledger/quote/basis 约束且该 digest 必须为真实 Some。missing nullable 字段拒绝，不以默认值升级既有 V1。
+
+两类均须真实 V2 OwnerSetup 四阶段原件/当前强验、独立 fresh-MFA、TestSession consume/preflight/三 sibling roots 激活。不能复制 V1 Prepared 状态当 V2；Move0 仅免除不存在的资源 business basis，不免当前 owner/goal/delegation/fence/Source/Native enrollment。模型在该获批 Move0 会话内只获得独立批准的推理/读取，不能扩 actions 或由推理预算获得执行权限。执行 Context prepared/captured projection 是 roots 激活后的付费阶段，不能循环用它当激活前提或免费创建 context。
+
+`ModelInferenceBudgetV1` 内的 mandatory `approval_contract=native_custody_model_budget_v1` 表示本版真实 UI 摘要与 Native custody UV 合同，并纳入签名原件；旧 opaque Some 记录缺失该标识时失败关闭，不能后补 UI 后静默升级。资格不是 caller rendered/verified bool。预算原件的版本标识本身也不构成 UI 资格：可用 N cap 还必须匹配 Native 独立签名 proof 中的 `model_budget_summary_contract`（固定版本与 exact intent/context/budget 的摘要）。该字段只能由 Native 已实现的固定摘要合同生成并持久在本次 ApprovalRecord；旧记录 None 重送不补，后续 UI 完成也不能静默升级。本版 Native 固定 UI 合同支持开关关闭时仍仅记录 setup 批准事实，Native proof 的该项为 None，不能升级为 Ncap。两次 probe 与每次 inference 的物理 HTTP 上界（各含 H→Account reserve 与所有授权边）也必须显式签入、实际匹配已知完整图；图摘要或用户输入数值本身不证明计费正确。真实 client 在 credentials.get 前必须呈现 target/固定 preset/N/预算/价格/图成本/绝对期限并取得显式确认，缺摘要/错绑定/账号代际变化不能调用 get/complete/approve。
+
+Native 的 `OASIS7_CUSTODY_MODEL_BUDGET_SUMMARY_V1_ENABLED` 默认关闭，仅声明该部署实现固定 Native/UI 摘要合同，不是请求方 `rendered=true` 或远端 DOM 遥测证明。仅新 ApprovalRecord 可固化精确 typed summary contract；旧 None 记录重送不补。实际账户 surface 提供显式 V2 原件入口，仍使用同源 CSRF、固定 endpoints、Rust 返回原件；预算摘要须与原件逐字段相同，显示 target/N/preset/calls/tokens/价格/全图物理 HTTP 上界/期限并显式确认之后才 `credentials.get`。取消、账号切换、摘要缺失/错配或确认时已过期在 get 前拒绝；complete/approve unknown 始终保原正文。该 UI 不自动构建/升级 V1 Move0 plan，不执行 continue，不产生 N capability；完整 graph/cap/activation 另行强验。
+
+`ModelInferenceBudgetV1` 最窄字段：api_version=1；独立 N Ed25519 public key、Native account binding、N process instance public key；preset id/revision/model；ledger_id；runtime/Skill/tool/context policy digests；physical_graph_digest；max_calls（包含两次真实 probe）、max_input_tokens、max_output_tokens、max_total_tokens；max_concurrent=1（其他明确 Unsupported，不能静默下调）；deadline<=write_deadline；price_policy。全数值采用 DecimalU64，checked 算术，禁止浮点。价格候选 `price_policy` 固定 currency、input/output 每百万 token 的最大整数微单位、max_total_micro_units、quote_digest/valid_until；该原件为用户批准的价格上界，不声称是真实账单。具体 preset 当前价格必须由可信 N 预设/运维固定报价产生，M 不得提供；实际服务若不能提供可验证 usage/单价映射，保守保留最大金额且不能宣权威货币结算。不同缓存价/工具费/批处理费等未枚举收费模型不支持；不能套通用 token 单价偷偷启用。预算的 all-in 供应商价若无法精确界定，该 profile 不出站。
+
+**N→H→Account 原子预付与远端 floor**
+
+新增 N 专用独立 IPC，不扩 M 五工具。serve 的 trusted H 配置固定 N peer、本次唯一 approved session/budget/ledger/preset，实际 kernel N UID 非 root 且与 H/M 互异；远端 N 使用独立固定认证协议而非比较跨机 uid。N 独立签名域 `oasis7.custody.model-graph-reservation.v1`，payload 固定 approval/plan/budget digest、N instance key、ledger id、strict next sequence、attempt id、phase(probe1/probe2/infer)、immutable request digest、graph digest、最大 token/价格预留及绝对 deadline；不接受 raw body、URL、H token/key 或 caller verified bool。
+
+H 核实际 N peer+签名和 root registry 后，用自己的 Host possession 调 Account 专用 reserve 路由。Account 验 H 现有权限及 N 签名、真实已批准 V2预算，原子扣本次整个已知图（包括此 H→Account reserve HTTP）到原 Exec400，同时扣 whole-session call/token/price 最大额，记录不可回退 sequence/floor 和 immutable original digest。相同 attempt+完全相同 payload 返回同已保存事实；不能因此再授一次 dispatch。不同 payload 冲突 whole-state 拒绝。floor 由 Account durable state 决定，N 新路径/request id/重启不能重置，H/M 无预算初始化权。
+
+Account 返回固定服务签名图收据（必须通过既有真实服务签名链核验，不另造布尔授权）；N 必须拥有 exact graph/receipt/floor 且 persist 本地预留后才能创建不可 Clone、不可 Deserialize 的 ActiveAttempt。本地 missing/corrupt/below floor/claimedunknown 不重建句柄；N process instance key 是附加防重启绑定，不是 VM rollback 锚。已在途 reserve 回复丢失只恢复原事实，不自动 provider dispatch；未知保留最大 call/token/price/并发占额。没有 finish(None) 释放外层额度。禁止以 N 自报 usage 退 token/金额。
+
+每 edge 在 actual dispatch 前本地 durable once claim，记录 exact canonical request digest/phase/ordinal/issuer/target/pins/deadline；reserved、claimed、observed、authenticated-result 分开。Account 图预付不是 actual HTTP observed。重复 edge/图外 target/不同 body/过期在出站前拒绝。无 retry/redirect/fallback/未知图出站；失败已扣不退、原期限不延。Account floor 与不可反序列化 ActiveAttempt 保障正常重启/N 文件系统回滚失败关闭；完整 VM 加内存快照回滚不在已 qualified 范围，不以 fsync 自证。若增加 recipient once API，其额外 HTTP 必须纳入图，不能递归隐藏。
+
+**真实费用图与实现前置**
+
+不能把 normal SessionModelProvider 五次 BindingAuthority + provider 简化成固定六。candidate/active_preset 在 provider send 之前已有 authorize，因此外层 gate 必须早于 candidate、connection create 和 probe。普通 Executors / SDK devices 不能作为新 custody authority。
+
+现 Core test_session_live_context.rs 是 paid component：IdentityNative、NativeWorldView、NativeWorldLive 三类 port；Descriptor 明确 unsigned/not dispatch permit，实际 trusted RNG/network consumer 尚缺。实际 Native `EntryExecutorOperationV1::ReadLiveContext` 已有接收验证与 World gateway bridge，但这不是 Worker paid NativeContext 的 mounted consumer。新的 CustodyCurrentAuthority 要实际接 Identity paid context source/history/lifetime/Current → Native gateway/cipher → World view/live → 回包验签/归档/准入；每实际服务 HTTP/网关/cipher RPC 都有唯一 edge。需先精确查此完整分支及 Account reservation issuer 的实际签名出口，不可先手填 graph digest 或把 incomplete profile 支持为 true。
+
+首支持图冻结 probe1、probe2、infer 三个 phase，各图具有明确 schema/边列表/有界可选分支，unknown branch 不发送。两次真实 probe 在同预算中预付 call/token/price+Exec400，再执行 create/probe/candidate；生产不能 skipprobe、mark ready 或 fixture ready=true。供应商固定 HTTPS origin/path/model/max output/no proxy/private DNS/no redirect/no retry，clip remaining deadline；截止禁止新 dispatch、迟到结果仅 archive，不承诺远端立即停止计费。
+
 
 #### prepared_world targeted Agent 自测
 

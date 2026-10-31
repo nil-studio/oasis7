@@ -521,3 +521,9 @@ impl RoleKeyStore {
 mod test_session_signing;
 #[cfg(feature = "owner")]
 pub(crate) use test_session_signing::{TestSessionSigningCurrent, test_session_signing_digest};
+
+#[cfg(feature = "owner")]
+#[path = "role_key_test_session_v2_signing.rs"]
+mod test_session_v2_signing;
+#[cfg(feature = "owner")]
+pub(crate) use test_session_v2_signing::test_session_v2_signing_digest;

@@ -183,3 +183,13 @@ mod management_metadata;
 mod management_metadata_abuse;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod management_metadata_policy;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_v2_credential_entry;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod test_session_v2_credential_rpc;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_v2_control_entry;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod test_session_v2_control_rpc;

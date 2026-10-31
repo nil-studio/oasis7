@@ -53,6 +53,21 @@ macro_rules! management {
             if raw.len() > 32768 {
                 return Err(denied());
             }
+            match session_management_version(raw).map_err(|_| denied())? {
+                1 => {}
+                2 => {
+                    return match stringify!($name) {
+                        "basis" => v2::basis_v2(env, raw).await,
+                        "prepare" => v2::prepare_v2(env, raw).await,
+                        "approve" => v2::approve_v2(env, raw).await,
+                        "continue_session" => v2::continue_v2(env, raw).await,
+                        // V2 activation has a separate full preflight graph; it is
+                        // not implicitly inherited from the V1 continue port.
+                        _ => Err(denied()),
+                    };
+                }
+                _ => return Err(denied()),
+            }
             let rpc: $rpc = serde_json::from_str(raw).map_err(|_| denied())?;
             rpc.request.validate().map_err(|_| denied())?;
             let lookup = serde_json::to_string(&ReadRpc {
@@ -118,6 +133,31 @@ pub(crate) async fn runtime(env: &Env, raw: &str, role: Role) -> Result<String, 
     if raw.len() > 128 * 1024 {
         return Err(denied());
     }
+    if session_management_version(raw).map_err(|_| denied())? == 2 {
+        if env
+            .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+        {
+            return Err(denied());
+        }
+        let rpc: TestSessionRuntimeRpcV2 = serde_json::from_str(raw).map_err(|_| denied())?;
+        let r = &rpc.request;
+        if [&r.custody_account_id, &r.provision_id, &r.session_id]
+            .iter()
+            .any(|v| v.is_empty() || v.len() > 256)
+        {
+            return Err(denied());
+        }
+        let path = match role {
+            Role::Identity => "/internal/test-session-identity",
+            Role::Owner => "/internal/test-session-owner",
+            _ => return Err(denied()),
+        };
+        return fetch_account(env, &r.custody_account_id, path, raw).await;
+    }
     let rpc: TestSessionRuntimeRpc = serde_json::from_str(raw).map_err(|_| denied())?;
     let r = &rpc.request;
     if r.api_version != 1
@@ -134,3 +174,6 @@ pub(crate) async fn runtime(env: &Env, raw: &str, role: Role) -> Result<String, 
     };
     fetch_account(env, &r.custody_account_id, path, raw).await
 }
+
+#[path = "owner_test_session_v2_entrypoints.rs"]
+mod v2;
