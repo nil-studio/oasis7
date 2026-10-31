@@ -4,8 +4,11 @@
 //! registry. The verified Runtime owner supplies the exact scope and the
 //! authority callbacks; this module never infers either from a legacy lineage.
 
+#[path = "provider_original_store/capture.rs"]
 mod capture;
+#[path = "provider_original_store/pending.rs"]
 mod pending;
+#[path = "provider_original_store/terminal.rs"]
 mod terminal;
 
 use std::io::{Read, Write};
