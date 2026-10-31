@@ -76,8 +76,39 @@ pub(super) fn outer<R: ValueNodeReader, C: FnMut() -> bool>(
     records: &mut InventoryValueReader<'_, '_, R, C>,
 ) -> Result<StateRootV1, ValueTreeError> {
     let _scratch = records.values.memory.reserve(8192, records.values.class)?;
-    let bytes: [u8; RECORD_ROOT_BYTES] =
-        records.fixed(root, &key.0, key.1, MemberPayloadCodecV1::RecordRoot)?;
+    use crate::incremental_record_key_read::{OriginalKeyKind, OriginalSemanticKeyProbe};
+    let mut bytes = [0; RECORD_ROOT_BYTES];
+    let mut sink = std::io::sink();
+    let key_kind = match kind {
+        MaterialRecordKindV1::Profile => OriginalKeyKind::Text,
+        MaterialRecordKindV1::Transfer => OriginalKeyKind::Unsigned,
+    };
+    let mut probe = OriginalSemanticKeyProbe::new(key_kind, &mut sink);
+    let result = read_member_record_profile_v1(
+        root,
+        &key.0,
+        records.values,
+        MemberReadProfileV1 {
+            codec: MemberPayloadCodecV1::RecordRoot,
+            semantic_bytes: key.1,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: records.semantic_bytes,
+                payload_bytes: RECORD_ROOT_BYTES as u64,
+                record_bytes: records.record_bytes,
+            },
+        },
+        &mut probe,
+        &mut std::io::Cursor::new(bytes.as_mut_slice()),
+        &mut *records.cancelled,
+    );
+    if let Some(reason) = probe.error() {
+        return Err(ValueTreeError::Invalid(reason));
+    }
+    result?;
+    probe.finish()?;
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
     let reference = RecordRootRefV1::from_canonical_bytes(&bytes)
         .map_err(|_| ValueTreeError::Invalid("material record root framing"))?;
     let binding = WorldFieldKeyV1::from_bytes(key.0.as_bytes()).map_err(ValueTreeError::Invalid)?;
