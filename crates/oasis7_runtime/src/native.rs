@@ -500,3 +500,5 @@ pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
 pub use oasis7_world_state::incremental_world_rule_organization;
 
 pub use oasis7_world_state::incremental_world_rule_supply_root;
+
+pub use oasis7_world_state::incremental_diplomacy;
