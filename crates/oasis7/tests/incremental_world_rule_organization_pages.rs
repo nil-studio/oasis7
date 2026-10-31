@@ -233,10 +233,65 @@ fn organization_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
             ));
             // Continue the same finite read/work budgets after the failed mark.
             work.max_pages = 32_768;
-            let mut sink = target.value_session(physical());
-            let pages =
-                transfer_organization_family_pages_v1(&roots, &mut context, &mut work, &mut sink)
-                    .unwrap();
+            let cancelled_directory = Directory::new();
+            let cancelled_store = IncrementalPageStore::create(
+                &cancelled_directory.0.join("pages"),
+                memory.clone(),
+                compression,
+            )
+            .unwrap();
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            let final_phase = Cell::new(false);
+            let baseline = Cell::new(0);
+            let mut after_final_publish = || {
+                final_phase.get()
+                    && std::fs::read_dir(cancelled_store.root().join("recipes"))
+                        .unwrap()
+                        .count()
+                        > baseline.get()
+            };
+            let mut cancelled_io = physical();
+            let mut cancelled_sink = cancelled_store
+                .buffered_page_writer(&mut cancelled_io, &cancel, &mut after_final_publish)
+                .unwrap();
+            let mut target_io = physical();
+            let mut never = || false;
+            let mut sink = target
+                .buffered_page_writer(&mut target_io, &cancel, &mut never)
+                .unwrap();
+            let pages = transfer_organization_family_pages_v1(
+                &roots,
+                &mut context,
+                &mut work,
+                &mut flush::MirroredPages {
+                    accepted: &mut sink,
+                    cancelled: &mut cancelled_sink,
+                    memory: &memory,
+                },
+            )
+            .unwrap();
+            assert!(sink.pending_reserved_bytes() > 0);
+            assert!(cancelled_sink.pending_reserved_bytes() > 0);
+            baseline.set(
+                std::fs::read_dir(cancelled_store.root().join("recipes"))
+                    .unwrap()
+                    .count(),
+            );
+            final_phase.set(true);
+            let rejected_acceptance = cancelled_sink.finish().map(|()| pages.qualification());
+            assert!(matches!(
+                rejected_acceptance,
+                Err(PageStoreError::Cancelled)
+            ));
+            assert!(
+                std::fs::read_dir(cancelled_store.root().join("recipes"))
+                    .unwrap()
+                    .count()
+                    > baseline.get()
+            );
+            // Qualification and every cold read below are used only after the
+            // positive sink's real final flush has completed successfully.
+            sink.finish().unwrap();
             assert_eq!(pages.qualification().record_counts(), [1, 1]);
             pages
                 .qualification()
@@ -493,3 +548,6 @@ fn organization_page_failures_never_return_a_completed_family() {
         "the actual typed child edge was traversed"
     );
 }
+
+#[path = "support/incremental_organization_flush.rs"]
+mod flush;
