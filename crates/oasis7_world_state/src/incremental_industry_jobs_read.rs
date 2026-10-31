@@ -1,11 +1,9 @@
 //! Bounded point reads via one bound outer reference and relative child keys.
 use super::*;
+pub use crate::incremental_record_value_read::RecordValueV1 as IndustryValueV1;
 use crate::{
     incremental_field_read::WorldFieldReadContextV1,
-    incremental_inventory_value_read::InventoryValueReader,
-    incremental_ledger_value::{LEDGER_VALUE_HEADER_BYTES, LedgerValueInfoV1, header_v1},
-    incremental_record_tree,
-    incremental_utf8_output::Utf8Output,
+    incremental_inventory_value_read::InventoryValueReader, incremental_record_tree,
     incremental_world_field_key::WorldFieldKeyV1,
 };
 use oasis7_formal_protocol::{
@@ -17,15 +15,6 @@ use std::{
     cell::RefCell,
     io::{self, Write},
 };
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IndustryValueV1 {
-    Unit,
-    Unsigned(u64),
-    Signed(i64),
-    Bool(bool),
-    Text { utf8_bytes: u64 },
-    Ledger(LedgerValueInfoV1),
-}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndustryCellReadV1 {
     RecordAbsent,
@@ -101,27 +90,6 @@ pub(super) fn inner_roots<R: ValueNodeReader, C: FnMut() -> bool>(
     }
     Ok(out)
 }
-struct LedgerOutput<'a, W> {
-    header: [u8; LEDGER_VALUE_HEADER_BYTES],
-    used: usize,
-    text: Utf8Output<'a, W>,
-}
-impl<W: Write> Write for LedgerOutput<'_, W> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let take = bytes.len().min(self.header.len() - self.used);
-        self.header[self.used..self.used + take].copy_from_slice(&bytes[..take]);
-        self.used += take;
-        // Report consumed header bytes before delegating to a fallible sink.
-        // Interrupted then retries only the ID slice, never an eaten header.
-        if take != 0 {
-            return Ok(take);
-        }
-        self.text.write(&bytes[take..]).map(|n| n + take)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.text.flush()
-    }
-}
 pub(super) fn value<R: ValueNodeReader, C: FnMut() -> bool>(
     cell: IndustryCellV1<'_>,
     root: &[u8; 32],
@@ -130,114 +98,31 @@ pub(super) fn value<R: ValueNodeReader, C: FnMut() -> bool>(
     max_payload_bytes: u64,
     output: &mut impl Write,
 ) -> Result<IndustryValueV1, ValueTreeError> {
+    use crate::incremental_record_value_read::{
+        RecordReadLabelsV1, RecordReadProfileV1, read_record_value_v1,
+    };
     let (codec, nullable) = cell.profile();
-    let limits = MemberRecordLimitsV1 {
-        semantic_bytes: records.semantic_bytes,
-        payload_bytes: max_payload_bytes,
-        record_bytes: records.record_bytes,
-    };
-    let mut fixed = [0u8; 8];
-    let (info, decoded) = match codec {
-        MemberPayloadCodecV1::Text => {
-            let mut checked = Utf8Output::new(output, "industry UTF-8");
-            let result = read_member_record_v1(
-                root,
-                &key.0,
-                records.values,
-                limits,
-                &mut io::sink(),
-                &mut checked,
-                &mut *records.cancelled,
-            );
-            if checked.is_invalid() {
-                return Err(ValueTreeError::Invalid("industry UTF-8"));
-            }
-            let info = result?;
-            if !checked.is_complete() {
-                return Err(ValueTreeError::Invalid("industry UTF-8"));
-            }
-            (
-                info,
-                IndustryValueV1::Text {
-                    utf8_bytes: info.payload_bytes,
-                },
-            )
-        }
-        MemberPayloadCodecV1::Ledger => {
-            let mut checked = LedgerOutput {
-                header: [0; LEDGER_VALUE_HEADER_BYTES],
-                used: 0,
-                text: Utf8Output::new(output, "industry ledger UTF-8"),
-            };
-            let result = read_member_record_v1(
-                root,
-                &key.0,
-                records.values,
-                limits,
-                &mut io::sink(),
-                &mut checked,
-                &mut *records.cancelled,
-            );
-            if checked.text.is_invalid() {
-                return Err(ValueTreeError::Invalid("industry ledger UTF-8"));
-            }
-            let info = result?;
-            let decoded = if info.codec == MemberPayloadCodecV1::Unit {
-                IndustryValueV1::Unit
-            } else {
-                if !checked.text.is_complete() || checked.used != LEDGER_VALUE_HEADER_BYTES {
-                    return Err(ValueTreeError::Invalid("industry ledger frame"));
-                }
-                IndustryValueV1::Ledger(
-                    header_v1(&checked.header, info.payload_bytes)
-                        .map_err(ValueTreeError::Invalid)?,
-                )
-            };
-            (info, decoded)
-        }
-        _ => {
-            let mut cursor = io::Cursor::new(fixed.as_mut_slice());
-            let info = read_member_record_v1(
-                root,
-                &key.0,
-                records.values,
-                MemberRecordLimitsV1 {
-                    payload_bytes: max_payload_bytes.min(8),
-                    ..limits
-                },
-                &mut io::sink(),
-                &mut cursor,
-                &mut *records.cancelled,
-            )?;
-            let decoded = match info.codec {
-                MemberPayloadCodecV1::Unit => IndustryValueV1::Unit,
-                MemberPayloadCodecV1::U64 => IndustryValueV1::Unsigned(u64::from_be_bytes(fixed)),
-                MemberPayloadCodecV1::I64 => IndustryValueV1::Signed(i64::from_be_bytes(fixed)),
-                MemberPayloadCodecV1::Bool => match fixed[0] {
-                    0 => IndustryValueV1::Bool(false),
-                    1 => IndustryValueV1::Bool(true),
-                    _ => return Err(ValueTreeError::Invalid("industry bool")),
-                },
-                _ => return Err(ValueTreeError::Invalid("industry fixed codec")),
-            };
-            (info, decoded)
-        }
-    };
-    if info.semantic_bytes != key.1
-        || !(info.codec == codec || nullable && info.codec == MemberPayloadCodecV1::Unit)
-    {
-        return Err(ValueTreeError::Invalid("industry expected profile"));
-    }
-    if (records.cancelled)() {
-        return Err(ValueTreeError::Cancelled);
-    }
-    if info.codec == MemberPayloadCodecV1::Unit {
-        return Ok(IndustryValueV1::Unit);
-    }
-    if matches!(decoded, IndustryValueV1::Unsigned(v) if v > cell.integer_max()) {
-        return Err(ValueTreeError::Invalid("industry integer range"));
-    }
-    Ok(decoded)
+    read_record_value_v1(
+        root,
+        key,
+        records,
+        max_payload_bytes,
+        output,
+        RecordReadProfileV1 {
+            codec,
+            nullable,
+            integer_max: cell.integer_max(),
+            labels: RecordReadLabelsV1 {
+                utf8: "industry UTF-8",
+                ledger_utf8: "industry ledger UTF-8",
+                ledger_frame: "industry ledger frame",
+                boolean: "industry bool",
+                fixed: "industry fixed codec",
+                profile: "industry expected profile",
+                integer: "industry integer range",
+            },
+        },
+    )
 }
 pub(super) fn outer<R: ValueNodeReader, C: FnMut() -> bool>(
     record: IndustryRecordKeyV1,
