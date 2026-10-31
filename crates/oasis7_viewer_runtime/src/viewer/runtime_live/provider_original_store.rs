@@ -21,13 +21,12 @@ use oasis7::simulator::{
     ProviderSpoolReservation,
 };
 use oasis7_distfs::incremental_page_store::{
-    IncrementalPageStore, PageCompression, PageIoBudget, ValuePageSession,
+    IncrementalPageStore, PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
 };
 use oasis7_formal_protocol::incremental_state::{
     MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
 };
-use oasis7_formal_protocol::incremental_value::ValueTreeError;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 
 use super::provider_original_store_codec::{
@@ -489,12 +488,8 @@ impl ProviderOriginalMaterialOwnerV1 {
             .map_err(|error| error.to_string())?
             .retain(delta);
         let mut writer = self.pages.value_session(physical.clone());
-        let mut cancel_writer = CancelWriter {
-            inner: &mut writer,
-            cancelled: &self.cancelled,
-        };
-        cancel_writer
-            .put_state_pages(&retained, &self.memory)
+        writer
+            .put_state_pages_cancelled(&retained, &self.memory, &mut || self.cancelled())
             .map_err(|error| error.to_string())?;
         *physical = writer.remaining_io().map_err(|error| error.to_string())?;
         if self.cancelled() {
@@ -691,24 +686,6 @@ impl<R: MerkleNodeReader> MerkleNodeReader for CancelReader<'_, R> {
         Ok(value)
     }
 }
-
-struct CancelWriter<'s, 'store> {
-    inner: &'s mut ValuePageSession<'store>,
-    cancelled: &'s AtomicBool,
-}
-impl oasis7_formal_protocol::incremental_value::ValueNodeWriter for CancelWriter<'_, '_> {
-    fn put_node(
-        &mut self,
-        id: [u8; 32],
-        bytes: oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
-    ) -> Result<(), ValueTreeError> {
-        if self.cancelled.load(Ordering::Acquire) {
-            return Err(ValueTreeError::Cancelled);
-        }
-        self.inner.put_node(id, bytes)
-    }
-}
-impl StatePageWriter for CancelWriter<'_, '_> {}
 
 impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
     fn owner_binding(&self) -> &ProviderMaterialOwnerBindingV1 {
