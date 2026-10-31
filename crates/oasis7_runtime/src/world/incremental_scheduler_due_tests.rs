@@ -27,16 +27,7 @@ fn due_fixture(memory: &MemoryBudget) -> (World, ExecutionParent, Pages, Values)
     .into();
     let mut values = Values::default();
     seed_schedules(&world, &mut parent, &mut state, &mut values, memory);
-    write_field_bytes(
-        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
-        &mut BodyMutationContext {
-            sink: &mut values,
-            memory,
-            io: &mut io(),
-            cancelled: || false,
-        },
-    )
-    .unwrap();
+
     (world, parent, state, values)
 }
 #[test]
@@ -76,7 +67,7 @@ fn due_batch_restores_original_id_order_from_index_not_legacy_map_and_retains_ch
     drop(alien);
     let sealed = txn.seal(batch.guard(), &live, 0).unwrap();
     assert!(sealed.record.writes.is_empty());
-    assert_eq!(sealed.record.reads.len(), 6); // clock, index and four scalar wakes
+    assert_eq!(sealed.record.reads.len(), 7); // clock metadata/entry, index, four wakes
     TransitionVerifier {
         parent: &parent,
         operation: [4; 32],
@@ -141,7 +132,7 @@ fn due_batch_failure_never_returns_a_prefix_or_seals_earlier_outer_work() {
                 )),
             )
             | (2, BodyMutationError::Value(ValueTreeError::ResourceLimited("module due scan")))
-            | (3, BodyMutationError::Invalid("scheduler clock precondition"))
+            | (3, BodyMutationError::Invalid("world clock precondition"))
             | (4, BodyMutationError::Value(ValueTreeError::Cancelled))
             | (5, BodyMutationError::Invalid("scheduler transaction pool")) => {}
             (case, error) => panic!("unexpected error {case}: {error:?}"),
@@ -297,16 +288,7 @@ fn due_batch_future_growth_does_not_increase_selected_index_reads() {
         }
         let mut values = Values::default();
         seed_schedules(&world, &mut parent, &mut pages, &mut values, &memory);
-        write_field_bytes(
-            &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
-            &mut BodyMutationContext {
-                sink: &mut values,
-                memory: &memory,
-                io: &mut io(),
-                cancelled: || false,
-            },
-        )
-        .unwrap();
+
         let source = values.clone();
         source.reads.set(0);
         let mut txn =
@@ -346,16 +328,7 @@ fn due_batch_empty_selection_and_mid_read_cancellation_are_explicit() {
     world.module_tick_schedule.insert("future".into(), 12);
     let mut values = Values::default();
     seed_schedules(&world, &mut parent, &mut pages, &mut values, &memory);
-    write_field_bytes(
-        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
-        &mut BodyMutationContext {
-            sink: &mut values,
-            memory: &memory,
-            io: &mut io(),
-            cancelled: || false,
-        },
-    )
-    .unwrap();
+
     let source = values.clone();
     let mut txn = ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, limits()).unwrap();
     let mut quota = scan_budget();

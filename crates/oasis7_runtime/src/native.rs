@@ -487,3 +487,9 @@ pub use oasis7_world_state::incremental_world_number_maps;
 pub use oasis7_world_state::incremental_authenticated_nonces;
 
 pub use oasis7_world_state::incremental_authorization_mapsets;
+
+pub use world::incremental_commit::{
+    CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
+};
+
+pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};

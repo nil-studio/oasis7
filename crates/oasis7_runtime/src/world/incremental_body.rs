@@ -9,9 +9,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueIoBudget, ValueNodeWriter, ValueStreamWriter, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
-use oasis7_world_state::incremental_agent_body::{
-    AgentBodyKeyV1, AgentBodyValueV1, WORLD_TIME_KEY_V1, world_time_bytes_v1,
-};
+use oasis7_world_state::incremental_agent_body::{AgentBodyKeyV1, AgentBodyValueV1};
 use std::io::Write;
 
 #[derive(Debug)]
@@ -61,7 +59,7 @@ pub struct BodyMutationContext<'a, W, C> {
     pub cancelled: C,
 }
 
-struct Discard;
+pub(super) struct Discard;
 impl ValueNodeWriter for Discard {
     fn put_node(&mut self, _: [u8; 32], _: ReservedValue<Vec<u8>>) -> Result<(), ValueTreeError> {
         Ok(())
@@ -149,18 +147,7 @@ impl PreparedBodyAttributesUpdate {
         context: &mut BodyMutationContext<'_, W, C>,
     ) -> Result<(), BodyMutationError> {
         let key = AgentBodyKeyV1::new(&self.agent_id).map_err(BodyMutationError::Invalid)?;
-        let clock_ref = write_field_bytes(
-            &world_time_bytes_v1(self.last_active),
-            &mut BodyMutationContext {
-                sink: &mut Discard,
-                memory: context.memory,
-                io: context.io,
-                cancelled: &mut context.cancelled,
-            },
-        )?;
-        if txn.read(StateNamespaceV1::Allocator, WORLD_TIME_KEY_V1)? != Some(clock_ref) {
-            return Err(BodyMutationError::Invalid("stale world clock cache"));
-        }
+        super::incremental_clock::check_clock(self.last_active, txn, context)?;
 
         let before = AgentBodyValueV1 {
             body_view: current_view.clone(),
@@ -186,6 +173,9 @@ impl PreparedBodyAttributesUpdate {
         };
         let after_ref = write_body_value(&after, context)?;
         txn.write(StateNamespaceV1::Business, key.as_bytes(), Some(after_ref))?;
+        if (context.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
         Ok(())
     }
 }
@@ -193,3 +183,7 @@ impl PreparedBodyAttributesUpdate {
 #[cfg(test)]
 #[path = "incremental_body_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "incremental_body_cancellation_tests.rs"]
+mod cancellation_tests;

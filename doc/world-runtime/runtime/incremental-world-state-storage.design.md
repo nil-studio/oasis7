@@ -582,3 +582,28 @@ authenticated_collect_data_last_nonces 沿唯一登记保持 WorldState/NestedMa
 <a id="iws-authorization-mapsets-v1"></a>
 
 data_access_permissions 与 module_release_role_bindings 沿 WorldState/MapSet/Authorization 唯一登记。必需 Metadata，每个原主体 String（包括空集合）有 Group；成员以规范二元语义键 (主体, 原成员 String) 写 Entry/Unit，不能拼接、规范化或重命名任一部分。创世借用原 map/set 逐条输出，不 clone 或收集全部成员。固定根点读分别返回 GroupAbsent、MemberAbsent、Present，只有认证 Metadata、目标 Group 与成员之后才返回；缺 Metadata、目标 orphan、错误 codec/namespace 均拒绝。GroupAbsent 只描述当前 Group 标记，不能证明所有兄弟成员无 orphan；业务授权仍要求 §12.2 的完整字段族资格及原 owner 校验。原角色或权限含义不由该存储入口授予。沿用有限记录数、语义键、I/O、同池/class 预算及取消；共享事务入口在同一次 contribute 中认证当前 Metadata/Group/成员并比较完整三态 expected，核对当前 guard/live fence、同池 Ordinary 及读写组合取消。新增组必须显式 create_group，允许单独建立空组；删除只移除目标成员，不能从点查推定空组并删除 Group。no-op 保留三条读取依赖，任何冲突、预算或取消失败使整笔不可 seal。原 owner 仍决定权限/角色变化，存储 setter 不提供业务授权或完整 World 激活。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+### Runtime 提交候选组合
+
+<a id="iws-runtime-commit-v1"></a>
+
+Runtime 组合入口将同一原 operation、parent、authority fence 和所有嵌套 owner 的变更约束在一个 ExecutionTransaction 内，再以 seal 后的完整 TransitionRecord 构建 HistoryPrefix、CommitBody 和 CommitCatalog 扩展。父材料必须同时绑定原 GenesisConfig、RootSet、CommitBody、HistoryPrefix 与 catalog 的 scope、height/count、尾项和 checkpoint 指针；还须从父 body 认证的 catalog-before 重现其精确扩展，不能只凭可读的最新目录项认可另一份 catalog-after。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+入口在执行前、seal 时及候选返回前核对原 owner 提供的 live fence；任一 owner、前置条件或 fence 失败都不返回完成候选。候选保留 transition、history、catalog 与规范根字节各自的同池 reservation，外层只读 carrier 也持续计费，不能凭持有候选获得 authority、接受回执、head 选择或缓存安装权限。RootSet digest 只用于本格式材料绑定，不替换原业务请求、结果、上下文或操作身份。
+
+候选的原协议绑定使用现行 CanonicalRecord、VerifiedAuthority 与适用 VerifiedFormalCommit parent；结构合法和物理持久化都不授予原协议接受。完整对象闭包、独立持久回执、Unknown writer 隔离、接受后的 head/运行态安装和维护恢复仍须由原 adapter 按§5、§7执行。回调式 prepare 不是普通 World step 已经切换的证明，不能以未接通的 owner 回调代替全字段写集或用完整 snapshot 补增量字段。
+
+局部分量测试分别核对原 parent 材料冲突、fence 各边界、同池预算、完整候选内容及 Raw/Zstd 原件/页持久后关闭重开与后继候选一致。该分量仍保留 fixture World 上下文，不能声称完整新世界激活、从认证根重建所有字段、C<T 非空 TransitionRecord 后缀恢复、J1/J2/provider oracle 或规模验收通过；这些整体交付要求继续适用。
+
+<a id="iws-runtime-rolling-allocators-v1"></a>
+### Runtime 滚动分配器
+
+Runtime 的 event、action、intent、proposal 四组 next/era 使用同一 allocator 根中的四个固定键，创世从原字段借用读取，不从已有最大 ID 推断。event 沿用原 EventSequenceV1 键与规范 bytes，不再写第二份通用字段；其余三组使用 `oasis7.iws.runtime-sequence-key.v1\0` 加 action=1、intent=2、proposal=3 单字节，值为 `oasis7.iws.runtime-sequence.v1\0`、同一单字节与 next/era 两个大端 u64。未知标签、跨组值、长度或 domain 错误拒绝。
+
+分配贡献从同一 ExecutionTransaction 的认证 overlay 读完整 next/era，与调用者的精确期望值核对，然后复用原滚动规则：零归一为 1、最大 ID 后 next=1，era 饱和加一。它返回原分配 ID 和新 next/era；不修改活 World，不单独授予事件或业务接受资格。事件 owner 已贡献分配时不得再次调用分配入口。重复分配读取本次 overlay，必须使用更新后的期望值。固定读与写必须同池 Ordinary、有限 I/O，错误或最后取消检查失败 poison 包括先前成功贡献的整笔事务。恢复只读这些原值，不另行分配。四组字段不代表预分配 provenance、其他计数器或完整 Runtime 控制覆盖。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+<a id="iws-world-clock-owner"></a>
+### 世界时钟的唯一字段表示
+
+WorldState.time 只使用字段登记的 WorldState / Value / Allocator profile：Metadata 存在标记和以 Unit 原键封装的 U64 Entry。Runtime 的 body、事件移动和 scheduler 检查同一 Metadata 与 Entry 的精确期望值；已知固定值可按该规范重新计算值 ID 后核对认证路径，不必读取或物化其他字段。完整创世对 time 只选择一个 owner 生产者，拒绝重复输出键；不得同时调用 WorldState 标量家族生产者和 Runtime 的分量时钟 helper。字段 visitor 只是借用分类接口，不作为任意 Serialize 落盘入口。创世生产与控制字段 setter 使用同一 profile，不再生成独立 world-time-key/value 副本，也不保留双写或旧键回退。该统一针对尚未正式启用的新格式组件，不承担旧世界导入。RootSet.simulation_tick 与 commit height 仍是独立语义。
+
+时钟不符、缺 Metadata/Entry、同池检查或最后取消失败均沿共享事务贡献传播，不能 seal 先前成功前缀。固定两项编码、比较、输出遵守 Ordinary 预先准入及调用方连续 I/O 预算；不为校验扫描 World、历史或所有字段。控制字段变化后的 Runtime 后继读取必须看同一 overlay，不能继续采用旧专用时钟。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。

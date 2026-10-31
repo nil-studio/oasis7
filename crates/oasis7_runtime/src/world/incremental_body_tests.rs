@@ -103,23 +103,28 @@ pub(in crate::world) fn fixture(memory: &MemoryBudget) -> (World, ExecutionParen
         pages.0.insert(page.digest, page.bytes);
     }
 
-    let clock_ref = write_field_bytes(
-        &world_time_bytes_v1(world.state.time),
-        &mut BodyMutationContext {
-            sink: &mut Discard,
-            memory,
-            io: &mut io(),
-            cancelled: || false,
-        },
-    )
-    .unwrap();
+    let mut clock_writes = Vec::new();
+    world
+        .write_iws_clock_genesis(
+            &mut BodyMutationContext {
+                sink: &mut Discard,
+                memory,
+                io: &mut io(),
+                cancelled: || false,
+            },
+            |key, id| {
+                clock_writes.push(StateWriteV1 {
+                    key: key.to_vec(),
+                    before: None,
+                    after: Some(id),
+                });
+                Ok(())
+            },
+        )
+        .unwrap();
     let delta = StateDeltaV1::build(
         parent.roots.state[1].clone(),
-        vec![StateWriteV1 {
-            key: WORLD_TIME_KEY_V1.to_vec(),
-            before: None,
-            after: Some(clock_ref),
-        }],
+        clock_writes,
         &pages,
         4 * 1024 * 1024,
     )
@@ -169,7 +174,7 @@ fn actual_prepared_body_updates_one_leaf_in_shared_transaction() {
     let guard = txn.guard();
     let prepared = txn.seal(&guard, &live, 0).unwrap();
     assert_eq!(prepared.record.writes.len(), 2);
-    assert_eq!(prepared.record.reads.len(), 3);
+    assert_eq!(prepared.record.reads.len(), 4);
     let expected = AgentBodyValueV1 {
         body_view: view,
         last_active: 11,

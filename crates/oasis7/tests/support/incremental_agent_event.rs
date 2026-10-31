@@ -13,7 +13,6 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueIoBudget, ValueStreamWriter},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::incremental_agent_body::{WORLD_TIME_KEY_V1, world_time_bytes_v1};
 use oasis7_runtime::{
     AgentCell, AgentEventContext, BodyMutationContext, BodyMutationError, CausedBy, DomainEvent,
     World, WorldEvent, WorldEventBody, WorldState,
@@ -97,15 +96,34 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
             },
         )
         .unwrap();
-    for (key, bytes) in [
-        (WORLD_TIME_KEY_V1, world_time_bytes_v1(11).to_vec()),
-        (
+    world
+        .write_iws_clock_genesis(
+            &mut BodyMutationContext {
+                sink: &mut sink,
+                memory,
+                io: &mut logical(),
+                cancelled: || false,
+            },
+            |key, id| {
+                fields
+                    .entry(Ns::Allocator as u8)
+                    .or_default()
+                    .push(StateWriteV1 {
+                        key: key.to_vec(),
+                        before: None,
+                        after: Some(id),
+                    });
+                Ok(())
+            },
+        )
+        .unwrap();
+    {
+        let (key, bytes) = (
             EVENT_SEQUENCE_KEY_V1,
             EventSequenceV1 { next: 1, era: 0 }
                 .canonical_bytes()
                 .to_vec(),
-        ),
-    ] {
+        );
         let mut quota = logical();
         let mut writer =
             ValueStreamWriter::new(&mut sink, memory, &mut quota, bytes.len() as u64, || false)

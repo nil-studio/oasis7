@@ -151,16 +151,7 @@ fn due_execution_reads_overlay_clears_first_and_schedules_absolute_stable_instan
     let mut values = Values::default();
     seed_schedules(&world, &mut parent, &mut pages, &mut values, &memory);
     // fixture's clock value was originally computed through a discard sink.
-    write_field_bytes(
-        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
-        &mut BodyMutationContext {
-            sink: &mut values,
-            memory: &memory,
-            io: &mut io(),
-            cancelled: || false,
-        },
-    )
-    .unwrap();
+
     world.module_tick_schedule.insert("m#1".into(), 999);
     let before = world.module_tick_schedule.clone();
     let source = values.clone();
@@ -288,16 +279,7 @@ fn suspension_absence_and_saturated_directives_preserve_existing_tick_rules() {
         world.module_tick_schedule.insert("m#1".into(), 11);
         let mut values = Values::default();
         seed_schedules(&world, &mut parent, &mut pages, &mut values, &memory);
-        write_field_bytes(
-            &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
-            &mut BodyMutationContext {
-                sink: &mut values,
-                memory: &memory,
-                io: &mut io(),
-                cancelled: || false,
-            },
-        )
-        .unwrap();
+
         let source = values.clone();
         let live = parent.fence().unwrap();
         let mut txn =
@@ -381,16 +363,7 @@ fn scheduler_failures_poison_preceding_work_and_leave_cached_schedules_unchanged
                 pages.0.insert(node.digest, node.bytes);
             }
         }
-        write_field_bytes(
-            &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(11),
-            &mut BodyMutationContext {
-                sink: &mut values,
-                memory: &memory,
-                io: &mut io(),
-                cancelled: || false,
-            },
-        )
-        .unwrap();
+
         if failure == 0 {
             world.state.time += 1;
         }
