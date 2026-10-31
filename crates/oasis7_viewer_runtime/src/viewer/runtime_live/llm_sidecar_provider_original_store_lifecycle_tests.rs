@@ -228,16 +228,23 @@ fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
             response
         },
     );
+    let pending_root_before = owner
+        .pending_protection_root()
+        .expect("capture attempt pending root");
     let wire_bytes = serde_json::to_vec(&response).expect("encode large original response");
-    let decoded_value_lower_bound = ARRAY_ITEMS * std::mem::size_of::<serde_json::Value>();
+    let decoded_values_bytes = ARRAY_ITEMS * std::mem::size_of::<serde_json::Value>();
     assert!(wire_bytes.len() < LEGACY_CONTEXT_CHARGE_BYTES);
     assert!(
-        decoded_value_lower_bound
+        decoded_values_bytes
             .checked_mul(2)
-            .expect("two decoded Value buffers fit usize")
+            .expect("the conservative Vec capacity estimate fits usize")
             > VERIFY_ORDINARY_HEADROOM_BYTES,
-        "the original response and verification decode coexist above the legacy headroom"
+        "the conservative 2x Vec-capacity estimate for one decode exceeds the legacy headroom"
     );
+    // The pre-admission verifier on the red 8fb baseline kept both decoded
+    // response-context and response-body Values in one function scope. This
+    // regression also requires the new admission helper to reserve its
+    // conservative per-decode Vec-capacity estimate before parsing.
     assert!(
         wire_bytes.len() + LEGACY_CONTEXT_CHARGE_BYTES < VERIFY_ORDINARY_HEADROOM_BYTES,
         "the legacy raw body plus fixed decode charge fits the deliberately available pool"
@@ -246,7 +253,7 @@ fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
 
     let _already_decoded_response_charge = memory
         .reserve(
-            decoded_value_lower_bound + std::mem::size_of::<ContinuousAgentResponseContextV1>(),
+            decoded_values_bytes + std::mem::size_of::<ContinuousAgentResponseContextV1>(),
             MemoryClass::Ordinary,
         )
         .expect("the upstream response was already admitted before commit verification");
@@ -273,6 +280,16 @@ fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
         "must reject at the JSON heap-admission boundary, not at an earlier read: {error}"
     );
     drop(_held_pressure);
+    owner
+        .verify_commit_materials(&refs, &request, &response)
+        .expect("the same durable attempt verifies after ordinary headroom is released");
+    assert_eq!(
+        owner
+            .pending_protection_root()
+            .expect("pending root remains readable"),
+        pending_root_before,
+        "admission refusal and successful verification must not change the unresolved attempt"
+    );
     drop(_already_decoded_response_charge);
     drop(owner);
     std::fs::remove_dir_all(&root).expect("remove bounded admission fixture store");

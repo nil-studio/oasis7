@@ -296,8 +296,9 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
         if let Ok(mut state) = self.control.0.lock() {
             state.production_results.insert(key, result);
         }
+        let response_digest = cognition_response_digest(&response);
         Ok(ApiResponseContext {
-            base_decision_response: response.clone(),
+            base_decision_response: response,
             context_discriminator: request.context_discriminator.clone(),
             context_version: request.context_version,
             agent_session_id: request.agent_session_id.clone(),
@@ -306,7 +307,7 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
             retry_seq: request.retry_seq,
             transport_attempt: request.transport_attempt,
             request_digest: request.request_digest.clone(),
-            response_digest: cognition_response_digest(&response),
+            response_digest,
         })
     }
 

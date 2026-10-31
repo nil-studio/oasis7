@@ -72,6 +72,8 @@ fn dynamic_json_heap_is_admitted_before_deserializer_runs() {
         MemoryClass::Ordinary,
         AllocationProfile {
             max_sequence_item_bytes: size_of::<serde_json::Value>(),
+            max_inline_variant_bytes: 0,
+            retained_sidecar_bytes: 0,
         },
         1,
         || false,
@@ -104,4 +106,23 @@ fn response_upstream_trace_array_is_not_charged_as_its_wire_length() {
     );
     assert!(matches!(result, Err(ProviderJsonAdmissionError::Memory(_))));
     assert_eq!(memory.used(), raw.bytes());
+}
+
+#[test]
+fn response_profile_bounds_actual_nested_variants_and_trace_sidecar() {
+    let profile = AllocationProfile::response();
+    assert!(
+        profile.max_sequence_item_bytes >= size_of::<MemoryWriteIntent>()
+            && profile.max_sequence_item_bytes >= size_of::<ProviderTranscriptEntry>()
+            && profile.max_sequence_item_bytes >= size_of::<serde_json::Value>()
+    );
+    assert!(
+        profile.max_inline_variant_bytes >= size_of::<ProviderModuleCommand>()
+            && profile.max_inline_variant_bytes >= size_of::<AgentCommandResponse>()
+    );
+    assert_eq!(RESPONSE_CONTEXT_COPY_BOUND, 4);
+    assert_eq!(
+        profile.retained_sidecar_bytes,
+        RESPONSE_TRACE_OVERHEAD_BYTES
+    );
 }

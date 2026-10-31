@@ -13,16 +13,17 @@ use std::sync::Arc;
 use oasis7_proto::memory_budget::{
     MemoryBudget, MemoryClass, MemoryLimitExceeded, MemoryReservation, ReservedValue,
 };
+use oasis7_wasm_abi::AgentCommandResponse;
 use serde::de::DeserializeOwned;
 
 use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
 };
 use super::decision_provider::{
-    ActionCatalogEntry, MemoryWriteIntent, ProviderInteractionTarget, ProviderNavigationNode,
-    ProviderNearbyEntity, ProviderRecentEvent, ProviderTranscriptEntry,
+    ActionCatalogEntry, MemoryWriteIntent, ProviderInteractionTarget, ProviderModuleCommand,
+    ProviderNavigationNode, ProviderNearbyEntity, ProviderRecentEvent, ProviderTranscriptEntry,
 };
-use super::{Action, AgentQuery};
+use super::{Action, AgentQuery, DecisionResponse, ProviderDecision};
 
 const SCAN_SCRATCH_BYTES: usize = 8 * 1024;
 const PARSER_SCRATCH_BYTES: usize = 16 * 1024;
@@ -30,7 +31,8 @@ const MAP_ENTRY_BYTES: usize = 128;
 const CONTAINER_BYTES: usize = 64;
 const MAX_JSON_DEPTH: usize = 128;
 const CANCEL_POLL_BYTES: usize = 64 * 1024;
-const RESPONSE_CONTEXT_COPY_BOUND: usize = 2;
+const RESPONSE_CONTEXT_COPY_BOUND: usize = 4;
+const RESPONSE_TRACE_OVERHEAD_BYTES: usize = 512 * 1024;
 
 /// Process-local accounting retained while a decoded native response context
 /// is copied through the behavior and Runtime outcome sidechannels. It is not
@@ -58,7 +60,9 @@ impl fmt::Debug for ProviderResponseContextLease {
 }
 
 // This sidecar is accounting metadata, not part of response identity or value
-// equality. Cloned Runtime outcomes share one lease through the Arc.
+// equality. Cloning the lease shares its reservation; it does not pay for
+// additional DTO copies, which must remain within the response profile's
+// explicit copy bound.
 impl PartialEq for ProviderResponseContextLease {
     fn eq(&self, _other: &Self) -> bool {
         true
@@ -95,6 +99,8 @@ impl std::error::Error for ProviderJsonAdmissionError {}
 #[derive(Clone, Copy)]
 struct AllocationProfile {
     max_sequence_item_bytes: usize,
+    max_inline_variant_bytes: usize,
+    retained_sidecar_bytes: usize,
 }
 
 impl AllocationProfile {
@@ -111,6 +117,8 @@ impl AllocationProfile {
                 size_of::<oasis7_wasm_abi::ModuleCommandCatalogEntry>(),
                 size_of::<oasis7_wasm_abi::CapabilityCatalogEntry>(),
             ]),
+            max_inline_variant_bytes: 0,
+            retained_sidecar_bytes: 0,
         }
     }
 
@@ -121,12 +129,21 @@ impl AllocationProfile {
                 size_of::<serde_json::Value>(),
                 size_of::<ProviderTranscriptEntry>(),
                 size_of::<MemoryWriteIntent>(),
-                // These typed payloads may contain their own small Vec/Map
-                // fields. Their sequence element types are all no larger than
-                // the complete enclosing action/query DTOs.
+            ]),
+            // These are actual response variants, not sequence elements. Keep
+            // their inline storage in the per-copy estimate without
+            // multiplying a response enum's size by an unrelated JSON array
+            // length. Their nested Vec/String payloads are counted by the
+            // structural scan above.
+            max_inline_variant_bytes: max_size(&[
+                size_of::<ProviderModuleCommand>(),
+                size_of::<AgentCommandResponse>(),
+                size_of::<ProviderDecision>(),
+                size_of::<DecisionResponse>(),
                 size_of::<Action>(),
                 size_of::<AgentQuery>(),
             ]),
+            retained_sidecar_bytes: RESPONSE_TRACE_OVERHEAD_BYTES,
         }
     }
 }
@@ -322,11 +339,13 @@ impl JsonShape {
             .checked_mul(CONTAINER_BYTES)
             .ok_or(ProviderJsonAdmissionError::SizeOverflow)?;
         size_of::<T>()
-            .checked_add(array_bytes)
+            .checked_add(profile.max_inline_variant_bytes)
+            .and_then(|bytes| bytes.checked_add(array_bytes))
             .and_then(|bytes| bytes.checked_add(map_bytes))
             .and_then(|bytes| bytes.checked_add(string_bytes))
             .and_then(|bytes| bytes.checked_add(container_bytes))
             .and_then(|bytes| bytes.checked_mul(retained_copies))
+            .and_then(|bytes| bytes.checked_add(profile.retained_sidecar_bytes))
             .ok_or(ProviderJsonAdmissionError::SizeOverflow)
     }
 }
@@ -482,9 +501,11 @@ pub fn decode_response_context<R: Read + Seek, F: Fn() -> bool>(
 }
 
 /// Decode a response context for the native provider pipeline. The lease
-/// includes two DTO-sized bounds: the moved decoded value and one retained
-/// downstream copy. Further copies share the same lease and remain bounded by
-/// the callchain's single-outcome ownership contract.
+/// includes four DTO-sized bounds for the decoded response, the provider
+/// behavior's inner response, its selected decision, and the retained trace
+/// decision. It also covers the bounded transcript/tool trace sidecar. Further
+/// ownership is carried by the same one-outcome sidechannel; any new path that
+/// clones another response DTO must increase this bound or share the DTO.
 pub fn decode_response_context_with_lease<R: Read + Seek, F: Fn() -> bool>(
     reader: &mut R,
     max_bytes: u64,
