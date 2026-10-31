@@ -44,7 +44,10 @@ pub struct InventoryGenesisSummaryV1 {
     pub groups: u64,
     pub entries: u64,
 }
-fn descriptor(name: &str, shape: FieldShape) -> Result<FieldDescriptor, InventoryGenesisError> {
+pub(crate) fn descriptor(
+    name: &str,
+    shape: FieldShape,
+) -> Result<FieldDescriptor, InventoryGenesisError> {
     WORLD_STATE_FIELDS
         .iter()
         .find(|field| field.name == name)

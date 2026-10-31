@@ -104,6 +104,13 @@ pub struct MemberRecordLimitsV1 {
     pub payload_bytes: u64,
     pub record_bytes: u64,
 }
+/// Expected declared profile; payload semantics remain the owner's job.
+#[derive(Debug, Clone, Copy)]
+pub struct MemberReadProfileV1 {
+    pub codec: MemberPayloadCodecV1,
+    pub semantic_bytes: u64,
+    pub limits: MemberRecordLimitsV1,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemberRecordInfoV1 {
     pub codec: MemberPayloadCodecV1,
@@ -237,7 +244,7 @@ pub fn write_member_record_v1<K: SemanticKeyV1 + ?Sized, W: ValueNodeWriter, C: 
 
 #[path = "incremental_field_member_read.rs"]
 mod read;
-pub use read::read_member_record_v1;
+pub use read::{read_member_record_profile_v1, read_member_record_v1};
 
 #[cfg(test)]
 #[path = "incremental_field_member_tests.rs"]

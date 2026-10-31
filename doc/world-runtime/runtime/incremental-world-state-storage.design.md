@@ -460,3 +460,16 @@ raw reader 不解析语义 token 或业务身份，不用结构合法或摘要�
 每条输出先消耗有限 record 额度，再进行有界 key hash/值写入；全部记录共享调用者提供的节点/读写及 key-work 额度、同进程内存池、取消回调和 semantic/record 字节上限。新的 owned StateWrite 键缓冲在分配前取得额度，并将 reservation 随记录交给 sink；sink 保留记录时须保留其 charge，并为自己的批次/索引元数据另行准入。每条写入均为该注册字段的原完整 field key、before=None 和暂存 value root。源对象及已有容器的驻留额度由调用者持有，不用“借用”掩盖源状态内存。
 
 输出顺序用于确定性创世遍历，不代替 StateDelta 的唯一、有序写集合同；实际 sink 在已准入的有界批次中整理写集并构建暂存树。错误、取消或额度耗尽不返回完成摘要，调用者丢弃整个未完成创世前缀，不能发布部分字段；已有暂存页也不因此取得 authority。成功摘要仅报告这三个字段的完整生产，不表示全部 World family 已覆盖、原始 genesis guard 已验证或新格式已可激活。普通提交必须由实际变更入口产生增量 write-set，不通过重扫这三个 map 模拟点更新。
+
+
+### 12.8 资源三字段的类型化点读
+
+<a id="iws-inventory-point-read-v1"></a>
+
+点读只适用于 §12.7 的三个已登记字段，输入为调用方资格化的 Business StateRoot 与实际页 reader，不扫描其他字段或历史。先认证该字段的 Metadata，再从原 ResourceKind、UTF-8 材料名或 `(MaterialLedgerId, material-name)` 生成规范预期键。原 key 的摘要与长度必须匹配，成员必须明确为 I64 且 payload 恰为 8 字节；未完成前不返回业务值。member profile 检查在认证总长自洽之后、操作字节额度及 payload 输出之前进行，错误类型不能因其大 payload 被掩盖为有效 I64。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+资源/材料返回认证的成员缺失或原 i64；账本查询分别表示 Group 缺失、Group 存在但材料缺失、数量存在。查询涉及的 member 若存在而 Group 缺失则拒绝；不能因此声称已检查同一字段的全部其他成员。缺 Metadata 是字段格式/覆盖错误，不是空集合。不存在与显式零值保持区别。
+
+状态页和 value reader 必须使用同一进程预算及同一 Ordinary/Recovery class。状态 lookup 前取得固定 query workspace，逐节点检查取消；语义键哈希、节点/读写和记录字节均有有限额度。状态 reader 的旧 String 错误边界由调用方提供原 typed-error carrier 恢复 Memory/ResourceLimited/Cancelled/I/O；没有原 typed error 的验证错误明确为 Invalid，不通过匹配错误文本猜测类型，任何失败都不返回合法缺失。输出按原 key digest 绑定到调用方的规范 typed key，不物化巨大原键。
+
+这提供指定根下的类型化点内容，不授予根 authority，也不证明完整 family 闭包、完整 World 恢复或可激活。原 root/物理代保护、完整 owner 登记、源身份和业务授权仍由外层负责。
