@@ -195,6 +195,22 @@ impl ProviderOriginalMaterialOwnerV1 {
         self.files.root()
     }
 
+    #[cfg(test)]
+    pub(super) fn diagnostic_head_state(&self) -> String {
+        match self.inner.try_lock() {
+            Ok(inner) => format!(
+                "owner_mutex=available sequence={} events={} pending={} seen={} poisoned={}",
+                inner.head.sequence,
+                inner.head.events.leaf_count,
+                inner.head.pending.leaf_count,
+                inner.head.seen.leaf_count,
+                inner.poisoned,
+            ),
+            Err(std::sync::TryLockError::WouldBlock) => "owner_mutex=busy".into(),
+            Err(std::sync::TryLockError::Poisoned(_)) => "owner_mutex=poisoned".into(),
+        }
+    }
+
     fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, Inner>, String> {
         self.inner
             .lock()

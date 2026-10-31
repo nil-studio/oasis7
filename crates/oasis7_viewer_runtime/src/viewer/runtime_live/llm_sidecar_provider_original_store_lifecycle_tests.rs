@@ -357,9 +357,23 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
                 panic!("provider sidecar returned before response capture: {error}");
             }
         }
+        let runner_status = server
+            .llm_sidecar
+            .runner
+            .as_ref()
+            .and_then(RuntimeDecisionRunner::async_runner)
+            .map(|runner| {
+                format!(
+                    "active_turns={} provider_in_flight={}",
+                    runner.active_turn_count(),
+                    runner.provider_is_still_in_flight(agent_id.as_str()),
+                )
+            })
+            .unwrap_or_else(|| "runner=unavailable".into());
         assert!(
             Instant::now() < deadline,
-            "provider response did not return"
+            "provider response did not return; {}; {runner_status}",
+            owner.diagnostic_head_state(),
         );
         thread::sleep(Duration::from_millis(3));
     };
