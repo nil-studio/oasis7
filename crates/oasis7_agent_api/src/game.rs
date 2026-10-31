@@ -22,11 +22,13 @@ mod goal_publish;
 pub use executor::*;
 mod json;
 mod task;
+mod task_cleanup_v2;
 pub use goal::*;
 pub use goal_prepare::*;
 pub use goal_publish::*;
 pub use json::{parse_bounded_json, parse_request};
 pub use task::*;
+pub use task_cleanup_v2::*;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 

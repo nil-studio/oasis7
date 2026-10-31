@@ -188,3 +188,8 @@ pub mod incremental_world_field_key;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_semantic_key;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod task_terminal_v2;
+#[cfg(not(target_arch = "wasm32"))]
+pub use task_terminal_v2::*;
