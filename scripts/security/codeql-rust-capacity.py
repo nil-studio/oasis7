@@ -442,14 +442,14 @@ def analysis_budget(mode,remaining):
     if mode not in ('capacity','official-default-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
-    budget=21600 if research else 3300
+    budget=21600 if research else 3600
     minutes=int((remaining-600)//60)
     if not research:minutes=min(45,minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
             'scope':'official-default research; not production capacity' if research else
-                'internal analysis allocation; not a measurement of the complete 55 minute assessment'}
+                'internal analysis allocation; not a measurement of the complete 60 minute assessment'}
 
 
 def main():

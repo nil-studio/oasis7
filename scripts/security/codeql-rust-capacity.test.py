@@ -474,9 +474,9 @@ class Capacity(unittest.TestCase):
         with self.assertRaises(ValueError):m.analysis_budget('unknown',21400)
 
     def test_capacity_45_minute_analysis_preserves_global_reserve(self):
-        for remaining,minutes in ((3300,45),(3110,41),(3059,40),(2999,39),(660,1),(600,0)):
+        for remaining,minutes in ((3600,45),(3435,45),(3300,45),(3299,44),(3110,41),(3059,40),(2999,39),(660,1),(600,0)):
             budget=m.analysis_budget('capacity',remaining)
-            self.assertEqual(budget['job_budget_seconds'],3300)
+            self.assertEqual(budget['job_budget_seconds'],3600)
             self.assertEqual(budget['analysis_allocated_minutes'],minutes)
             self.assertEqual(budget['post_analysis_reserve_seconds'],600)
             self.assertLessEqual(minutes*60+600,remaining)
@@ -485,7 +485,7 @@ class Capacity(unittest.TestCase):
         text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
         self.assertIn('default: capacity',text)
         self.assertIn('official-default-research',text)
-        self.assertIn("inputs.mode == 'official-default-research' && 360 || 55",text)
+        self.assertIn("inputs.mode == 'official-default-research' && 360 || 60",text)
         self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),3)
 
     def test_mode_specific_source_selection_preserves_research_pin(self):
@@ -646,14 +646,14 @@ assert value['found_manifests']==[]
         text=workflow.read_text()
         self.assertIn('default: false',text);self.assertIn('inputs.execute == true',text)
         self.assertNotIn('pull_request:',text);self.assertNotIn('schedule:',text)
-        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 55 }}",text)
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 60 }}",text)
         self.assertIn('source-root: ${{ github.workspace }}',text)
         self.assertIn('checkout_path: ${{ github.workspace }}',text)
         self.assertNotIn('/capacity-source',text)
         self.assertIn('upload: never',text);self.assertIn('upload-database: false',text)
         self.assertIn('trap-caching: false',text);self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none',text)
         self.assertNotIn('security-events: write',text);self.assertNotIn('upload-sarif@',text)
-        self.assertIn("budget=21600 if mode=='official-default-research' else 3300",text);self.assertIn('start+budget',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
+        self.assertIn("budget=21600 if mode=='official-default-research' else 3600",text);self.assertIn('start+budget',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
 def load_tests(loader, tests, pattern):
