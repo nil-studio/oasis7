@@ -420,7 +420,6 @@ fn durable_dispatch_cancellation_survives_reopen_and_blocks_same_identity_send()
     assert_eq!(summary.response_context_object_id, None);
     assert!(pending.object_ids.contains(&request_id));
     assert!(owner.close_ready().is_err());
-    drop(cancel_after_dispatch);
     drop(owner);
 
     let recovery_memory =
@@ -578,7 +577,7 @@ fn redirected_non_success_bodies_remain_pending_and_never_reach_second_endpoint(
         assert!(
             pending
                 .object_ids
-                .contains(&*blake3::hash(&response_body).as_bytes())
+                .contains(blake3::hash(&response_body).as_bytes())
         );
         assert!(owner.close_ready().is_err());
         drop(owner);
