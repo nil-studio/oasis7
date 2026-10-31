@@ -123,6 +123,8 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 | 普通 Rust/Web PR | 计划选择实际 crate/target/features 与必要消费者，保留适用正常/拒绝/边界/缺陷回归；日志证明编译闭包和行为用例均收窄，不能只用测试名过滤或零匹配证明提速 |
 | 准入与默认归属 | 按[准入规则](doc/testing/ci/ci-tiered-execution.prd.md#ci-pr-fast-selection)对照纯文档、普通逻辑、接口拒绝及恢复变更，分别得到可解释的基线/影响/风险集合；新增、改名、漏标或无耗时历史的回归不会消失 |
 | 候选变更测试分级 | required 改 full 必须在实际 owner/driver 上扩测；嵌套 cfg、跨 module 同名、缺 feature 声明、无扩展 driver 和新 ignore 均有负例。普通 case 删除/改名核对语义替代；Formal 的可信最低库存缺项必须失败 |
+| 新增测试与辅助模块 | 沿实际 Cargo target 和静态父模块链证明普通组合可执行；`any(test, feature = "test-support")` 不因另一分支未启用而误拒绝。新增 native item 保留受影响包与风险范围；full 门控、未知宏、不可达父模块、禁用 harness、删除/改名混合与既有门控替换仍有保守或失败负例 |
+| support 的扩展 target | 用普通 profile 只执行 library、且没有扩展 feature 的真实小包验证新增 integration：PR 选择扩展后及周期 full 都实际执行该用例；故意失败必须传播，不能因 feature 集合为空或只观察 library 通过而放行 |
 | 周期用例回到 PR | 修改历史裁剪、crash/retry、身份或平台行为时，即使相关 case 标 full 也触发真实验证；缺窄映射保留相关旧必要组，mock 或另一个平台成功不能代替 |
 | 超预算与不稳定 | 构造 case 很短但编译很重、整体预计超预算及已有 flaky 的情形；必要集合不被静默裁剪，普通样本不在运行后改类，首次失败不被重试覆盖 |
 | 关键边界与共享输入 | 身份/持久化/共识等命中必要定向加测；依赖/工具链或影响不确定时保守扩大并显示原因；未知路径仍失败 |

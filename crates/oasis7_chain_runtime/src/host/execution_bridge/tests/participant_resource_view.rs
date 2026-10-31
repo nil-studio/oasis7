@@ -29,14 +29,14 @@ fn apply(
     }
     panic!("resource component canonical operation did not settle");
 }
-pub(super) fn exercise(
+pub(super) fn prepare(
     endpoint: &str,
     root: &Path,
     identity: &WorldIdentity,
     signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
     receipt: &GameParticipantReceiptV1,
     key: &str,
-) {
+) -> AgentSignerDelegationChangeV1 {
     let client = client(endpoint, identity, signer, key);
     let before = pin(root, identity);
     let branch = before.commit.binding.branch_id.clone();
@@ -152,6 +152,18 @@ pub(super) fn exercise(
             .unwrap(),
         ),
     );
+    record
+}
+
+pub(super) fn exercise(
+    endpoint: &str,
+    root: &Path,
+    identity: &WorldIdentity,
+    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
+    receipt: &GameParticipantReceiptV1,
+    key: &str,
+    record: AgentSignerDelegationChangeV1,
+) {
     let now = pin(root, identity);
     let control = game_task::current_control(&now.world, &receipt.agent_id)
         .unwrap()
@@ -202,8 +214,14 @@ pub(super) fn exercise(
         .json(&q)
         .send()
         .unwrap();
-    assert_eq!(response.status().as_u16(), 200);
+    let status = response.status();
     let bytes = response.bytes().unwrap();
+    assert_eq!(
+        status.as_u16(),
+        200,
+        "participant resource read failed: {}",
+        String::from_utf8_lossy(&bytes)
+    );
     let reply: wire::SignedResourceResponseV1<wire::ParticipantOwnerResourceObservationV1> =
         serde_json::from_slice(&bytes).unwrap();
     wire::verify_owner_resource_response(&q, &reply, &signer.public_key_hex).unwrap();
