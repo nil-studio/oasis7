@@ -46,6 +46,7 @@ pub(in super::super) fn queued_wait_cognition(
         },
         cognition_lease: Some(lease),
         memory_write_intents: Vec::new(),
+        provider_original_material_refs: None,
     }
 }
 

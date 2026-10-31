@@ -713,6 +713,7 @@ impl RuntimeLlmSidecar {
             response: response_context,
             cognition_lease: None,
             memory_write_intents: Vec::new(),
+            provider_original_material_refs: None,
         })
         .map_err(|error| error.to_string())
     }

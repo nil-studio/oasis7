@@ -47,6 +47,7 @@ impl RuntimeLlmSidecar {
                     .ok_or("hosted provider outcome missing response artifact")?,
                 cognition_lease: Some(lease),
                 memory_write_intents: outcome.memory_write_intents.clone(),
+                provider_original_material_refs: outcome.provider_original_material_refs.clone(),
             };
             let decision = async_support::RuntimeLlmDecision {
                 agent_id: outcome.agent_id,

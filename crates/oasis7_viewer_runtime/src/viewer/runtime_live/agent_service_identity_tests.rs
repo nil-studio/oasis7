@@ -52,6 +52,7 @@ fn service_cognition() -> RuntimeProviderActionContext {
         },
         cognition_lease: None,
         memory_write_intents: Vec::new(),
+        provider_original_material_refs: None,
     }
 }
 

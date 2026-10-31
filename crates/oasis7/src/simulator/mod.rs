@@ -34,6 +34,7 @@ pub(crate) mod persist;
 mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_http;
+mod provider_material_capture;
 mod runner;
 pub(crate) mod runtime_perf;
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,6 +107,11 @@ pub use decision_provider::{
     ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage, ProviderTraceEnvelope,
     ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
+pub use provider_material_capture::{
+    ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use provider_material_capture::{ProviderOriginalMaterialStore, ProviderSpoolReservation};
 pub use oasis7_simulator::ChunkRuntimeConfig;
 pub use oasis7_simulator::generate_fragments;
 pub use oasis7_simulator::{

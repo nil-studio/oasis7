@@ -686,6 +686,7 @@ impl RuntimeLlmSidecar {
                 response,
                 cognition_lease: cognition_lease.clone(),
                 memory_write_intents: outcome.memory_write_intents.clone(),
+                provider_original_material_refs: outcome.provider_original_material_refs.clone(),
             });
         if let Some(context) = context.as_ref() {
             let Some(lease) = cognition_lease.as_ref() else {
@@ -839,6 +840,7 @@ impl RuntimeLlmSidecar {
         } else if decision_trace
             .as_ref()
             .is_some_and(provider_trace_retryable)
+            && !self.provider_original_material_capture_enabled()
         {
             if let Some(context) = context {
                 if context.request_context.transport_attempt < MAX_PROVIDER_TRANSPORT_ATTEMPTS {

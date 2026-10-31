@@ -72,6 +72,35 @@ impl PreparedHostedIdentity {
     }
 }
 impl ViewerRuntimeLiveServer {
+    /// Install a verified new-format owner for provider request/response
+    /// materials before the provider runner is created. This does not derive
+    /// a binding from the legacy lineage checkpoint and does not activate a
+    /// legacy World as an IWS owner.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_provider_original_material_store(
+        &mut self,
+        store: std::sync::Arc<dyn crate::simulator::ProviderOriginalMaterialStore>,
+    ) -> Result<(), String> {
+        if !matches!(
+            &self.config.decision_mode,
+            super::ViewerLiveDecisionMode::Llm
+        ) {
+            return Err("provider original material owner requires LLM decision mode".into());
+        }
+        if crate::viewer::runtime_live::control_plane::runtime_provider_settings_from_env()?
+            .is_none()
+        {
+            return Err("provider original material owner requires an explicit provider backend".into());
+        }
+        let owner = store.owner_binding();
+        owner.validate().map_err(|error| error.to_string())?;
+        if owner.world_id != self.config.world_id {
+            return Err("provider original material owner world does not match this Viewer runtime".into());
+        }
+        self.llm_sidecar
+            .install_provider_original_material_store(store)
+    }
+
     /// A stale capsule cannot clear a newer reservation or release any I/O.
     pub(in crate::viewer::runtime_live) fn finish_hosted_identity(
         &mut self,

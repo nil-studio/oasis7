@@ -168,6 +168,7 @@ fn service_test_queue_blocks_restored_session_fence_before_actor_or_lease_regist
         response,
         cognition_lease: None,
         memory_write_intents: Vec::new(),
+        provider_original_material_refs: None,
     };
     assert_eq!(
         cognition.request.request_context.agent_session_id, session,

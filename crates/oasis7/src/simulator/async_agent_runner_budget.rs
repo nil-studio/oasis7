@@ -37,6 +37,7 @@ pub(super) fn normalize_completion(
         prepared_context: completion.prepared_context,
         prepared_request_context: completion.prepared_request_context,
         prepared_response_context: completion.prepared_response_context,
+        provider_original_material_refs: completion.provider_original_material_refs,
         cognition_lease: None,
         memory_write_intents: Vec::new(),
     })

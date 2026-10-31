@@ -4,6 +4,9 @@ use super::*;
 mod legacy_wake_tests;
 #[path = "llm_sidecar_lineage_http_tests.rs"]
 mod lineage_http_tests;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "llm_sidecar_provider_material_capture_tests.rs"]
+mod provider_material_capture_tests;
 #[path = "llm_sidecar_lineage_tests.rs"]
 mod lineage_tests;
 #[path = "llm_sidecar_recovery_tests.rs"]

@@ -151,6 +151,10 @@ pub struct AsyncAgentTurnOutcome {
     pub prepared_request_context: Option<ContinuousAgentRequestContextV1>,
     #[serde(default)]
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
+    /// Original transport identities are carried beside typed cognition, not
+    /// added to the provider API response DTO.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
     /// Runtime-issued reservation carried through the provider outcome. The
     /// Agent runner may validate and retain this identity, but only Runtime
     /// can settle, release, or refund the lease.
@@ -230,6 +234,7 @@ struct ActorCompletion {
     prepared_context: Option<ContinuousAgentTurnContextV1>,
     prepared_request_context: Option<ContinuousAgentRequestContextV1>,
     prepared_response_context: Option<ContinuousAgentResponseContextV1>,
+    provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
     memory_write_intents: Vec<MemoryWriteIntent>,
     panicked: bool,
 }
@@ -269,6 +274,7 @@ fn production_outcome_from_harness(
         decision_trace: None,
         prepared_context: metadata.context.clone(),
         prepared_response_context: None,
+        provider_original_material_refs: None,
         memory_write_intents: Vec::new(),
     });
     let mut outcome = outcome_from_completion(ActorCompletion {
@@ -279,6 +285,7 @@ fn production_outcome_from_harness(
         prepared_context: result.prepared_context.or(metadata.context),
         prepared_request_context: metadata.request_context,
         prepared_response_context: result.prepared_response_context,
+        provider_original_material_refs: result.provider_original_material_refs,
         memory_write_intents: result.memory_write_intents,
         panicked,
     });

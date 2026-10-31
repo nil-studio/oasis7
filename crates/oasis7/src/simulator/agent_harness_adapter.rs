@@ -39,6 +39,8 @@ pub(super) struct BehaviorTurnResult {
     pub decision_trace: Option<AgentDecisionTrace>,
     pub prepared_context: Option<ContinuousAgentTurnContextV1>,
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
     pub memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
@@ -204,6 +206,8 @@ impl OasisBehaviorProvider {
             decision_trace: self.behavior.take_decision_trace(),
             prepared_context: turn_context.cloned(),
             prepared_response_context: self.behavior.take_continuous_response_context(),
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_original_material_refs: self.behavior.take_provider_original_material_refs(),
             memory_write_intents: self.behavior.take_memory_write_intents(),
         }
     }

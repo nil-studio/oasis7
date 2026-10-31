@@ -361,6 +361,13 @@ impl RuntimeLlmSidecar {
                         settings.provider_transport.as_str(),
                     )
                     .map_err(|err| format!("provider init failed for {}: {}", agent_id, err))?;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let adapter = if let Some(store) = self.provider_original_material_store.as_ref()
+                    {
+                        adapter.with_original_material_store(store.clone())
+                    } else {
+                        adapter
+                    };
                     let behavior = ProviderBackedAgentBehavior::new(
                         agent_id.clone(),
                         adapter,

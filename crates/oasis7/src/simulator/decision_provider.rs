@@ -146,6 +146,16 @@ pub trait DecisionProvider {
         Ok(response)
     }
 
+    /// Native provider adapters may expose the exact persisted transport
+    /// object references produced by their most recent request. The default
+    /// keeps every existing provider unchanged.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_original_material_refs(
+        &mut self,
+    ) -> Option<super::ProviderOriginalMaterialRefsV1> {
+        None
+    }
+
     fn push_feedback(&mut self, _feedback: &FeedbackEnvelope) -> Result<(), DecisionProviderError> {
         Ok(())
     }
@@ -335,6 +345,8 @@ pub struct ProviderBackedAgentBehavior<P: DecisionProvider> {
     continuous_request_context: Option<ContinuousAgentRequestContextV1>,
     require_continuous_request_context: bool,
     pending_response_context: Option<ContinuousAgentResponseContextV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
     pending_memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
@@ -368,6 +380,8 @@ impl<P: DecisionProvider> ProviderBackedAgentBehavior<P> {
             continuous_request_context: None,
             require_continuous_request_context: true,
             pending_response_context: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_provider_original_material_refs: None,
             pending_memory_write_intents: Vec::new(),
         }
     }
@@ -597,6 +611,10 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
     fn decide(&mut self, observation: &Observation) -> AgentDecision {
         self.pending_memory_write_intents.clear();
         self.pending_response_context = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pending_provider_original_material_refs = None;
+        }
         if self.require_continuous_request_context && self.continuous_request_context.is_none() {
             let mut trace = Self::provider_error_to_trace(&DecisionProviderError::new(
                 "continuous_context_required",
@@ -624,6 +642,11 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
                 turn_context,
                 request_context,
             );
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.pending_provider_original_material_refs =
+                    self.provider.take_provider_original_material_refs();
+            }
             let response = match response {
                 Ok(response) => response,
                 Err(error) => {
@@ -660,6 +683,11 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
                     false,
                 )),
             };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.pending_provider_original_material_refs =
+                    self.provider.take_provider_original_material_refs();
+            }
             let response = match response {
                 Ok(response) => response,
                 Err(error) => {
@@ -684,7 +712,13 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
             outer_response = Some(response);
             inner_response
         } else {
-            match self.provider.decide(&request) {
+            let result = self.provider.decide(&request);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.pending_provider_original_material_refs =
+                    self.provider.take_provider_original_material_refs();
+            }
+            match result {
                 Ok(response) => response,
                 Err(error) => {
                     let mut trace = Self::provider_error_to_trace(&error);
@@ -863,6 +897,13 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
 
     fn take_continuous_response_context(&mut self) -> Option<ContinuousAgentResponseContextV1> {
         self.pending_response_context.take()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_original_material_refs(
+        &mut self,
+    ) -> Option<super::ProviderOriginalMaterialRefsV1> {
+        self.pending_provider_original_material_refs.take()
     }
 
     fn take_memory_write_intents(&mut self) -> Vec<MemoryWriteIntent> {
