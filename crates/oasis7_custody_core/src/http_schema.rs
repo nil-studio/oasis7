@@ -503,6 +503,10 @@ pub(super) fn export(directory: &std::path::Path) {
         .as_object_mut()
         .unwrap()
         .extend(management_metadata::fixtures().as_object().unwrap().clone());
+    fixtures
+        .as_object_mut()
+        .unwrap()
+        .extend(resource_v2::fixtures().as_object().unwrap().clone());
     let decimal_fixtures = decimal_fixtures();
     let document: Value = json!({"metadata":schemars::schema_for!(ServiceMetadata),"error":schemars::schema_for!(ErrorResponse),
         "native":schemas,"fixtures":fixtures,"decimal_fixtures":decimal_fixtures});

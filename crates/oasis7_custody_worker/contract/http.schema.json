@@ -776,6 +776,60 @@
         "setup_id": "setup-one"
       }
     ],
+    "OwnerSetupPlanV2": [
+      {
+        "api_version": 2,
+        "bind_operation_id": "bind",
+        "bootstrap_config_version": "1",
+        "create_operation_id": "create",
+        "deadline": "100000",
+        "delegation_generation": "1",
+        "delegation_nonce": "1",
+        "delegation_operation_id": "delegation",
+        "executor_id": "executor",
+        "executor_key_ref": "executor",
+        "executor_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "goal_content": {
+          "goal_text": "private resource goal",
+          "soft_constraints": []
+        },
+        "owner_key_ref": "owner",
+        "participant_receipt_digest": "abababababababababababababababababababababababababababababababab",
+        "prepare_nonce": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "prepare_operation_id": "prepare",
+        "provision_id": "provision",
+        "publish_operation_id": "publish",
+        "request_limit": "6",
+        "selection": {
+          "amount": "5",
+          "distance_km": "0",
+          "from": {
+            "agent_id": "agent",
+            "kind": "agent"
+          },
+          "kind": "transfer",
+          "material": "iron_ore",
+          "priority": "standard",
+          "routing": {
+            "kind": "direct"
+          },
+          "to": {
+            "kind": "site",
+            "site_id": "site"
+          }
+        },
+        "setup_id": "setup",
+        "transport_limit": "584",
+        "world_identity": {
+          "branch_id": "main",
+          "genesis_digest": "genesis",
+          "reorg_epoch": "0",
+          "service_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "world_id": "world"
+        },
+        "write_limit": "4"
+      }
+    ],
     "OwnerSetupPrepareRequestV1": [
       {
         "api_version": 1,
@@ -1085,6 +1139,89 @@
         "transport_remaining": "0"
       }
     ],
+    "PaidResourceReadIssuerFloorV1": [
+      {
+        "config_generation": "3",
+        "issuer_epoch": "2"
+      }
+    ],
+    "PaidResourceReadIssuerPinV1": [
+      {
+        "allowed_stage": "test_session_owner_read",
+        "environment": "test",
+        "issuer_config_generation": "3",
+        "issuer_epoch": "2",
+        "key_id": "resource-issuer",
+        "namespace": "custody:test",
+        "native_audience_origin": "https://native.example",
+        "not_after": "10000",
+        "not_before": "1",
+        "public_key": "4508a07aa941707f3eb2db94c8897a80b2c1197476b6de213ac273df7d86c4ff",
+        "service_id": "identity",
+        "world_audience": {
+          "branch_id": "main",
+          "genesis_digest": "genesis",
+          "reorg_epoch": "0",
+          "service_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "world_id": "world"
+        }
+      }
+    ],
+    "PaidResourceReadProofV1": [
+      {
+        "payload": {
+          "api_version": 1,
+          "approval_input_digest": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+          "approval_operation_id": "approval-operation",
+          "custody_account_id": "custody-one",
+          "directory_generation": "4",
+          "expires_at": "6000",
+          "issued_at": "1000",
+          "issuer_config_generation": "3",
+          "issuer_environment": "test",
+          "issuer_epoch": "2",
+          "issuer_key_id": "resource-issuer",
+          "issuer_namespace": "custody:test",
+          "issuer_service_id": "identity",
+          "manager_native_account_id": "manager-one",
+          "native_audience_origin": "https://native.example",
+          "native_http_units": "1",
+          "native_path": "/api/public/hosted-account/v2/participant/owner-resource-view",
+          "native_request_digest": "a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8",
+          "owner_binding": "owner",
+          "owner_public_key": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "paid_attempt_id": "attempt",
+          "paid_record_digest": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "participant_native_account_id": "participant-one",
+          "plan_digest": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "preflight_world_request_digest": null,
+          "prepared_resource_basis_digest": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+          "provision_id": "provision",
+          "resource_flag_generation": "5",
+          "selection_digest": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4",
+          "service_epoch": "3",
+          "setup_id": "setup",
+          "signer_record_digest": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+          "source_operation_id": "source",
+          "source_record_digest": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+          "source_security_epoch": "2",
+          "stage": "test_session_owner_read",
+          "task_fence_digest": "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6",
+          "test_session_id": "session",
+          "world_audience": {
+            "branch_id": "main",
+            "genesis_digest": "genesis",
+            "reorg_epoch": "0",
+            "service_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "world_id": "world"
+          },
+          "world_http_units": "1",
+          "world_path": "/v1/world/participant-owner-resource-view-v1",
+          "world_request_digest": "a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9"
+        },
+        "signature_hex": "70bb11933bef2f29b4b71814b44e3b5238e63341ba2644a7a18434849a6551e2ca1e29c3a59de8641a2b1a0f03126eac599a03bc4b1b02207f166425728bdf09"
+      }
+    ],
     "PairingInviteCreateRequestV1": [
       {
         "api_version": 1,
@@ -1261,6 +1398,67 @@
         "provision_id": "provision-one",
         "stage": "approved",
         "transport_remaining": "128"
+      }
+    ],
+    "ResourceTestSessionScopeV2": [
+      {
+        "client_binding": {
+          "client_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "profile": "native-broker-custody-v1"
+        },
+        "client_pairing": {
+          "api_version": 1,
+          "client_key_id": "client-key",
+          "client_public_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "connector_public_key": null,
+          "descriptor_digest": "acacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac",
+          "enrollment_digest": "abababababababababababababababababababababababababababababababab",
+          "enrollment_id": "enrollment",
+          "host_instance_id": "host",
+          "target": {
+            "custody_account_id": "custody-one",
+            "invite_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "invite_id": "invite",
+            "provision_id": "provision"
+          }
+        },
+        "executor_key_ref": "executor",
+        "native_account_id": "native-one",
+        "runtime_ref": "codex",
+        "session_id": "session",
+        "skill_ref": "skill",
+        "source_ref": "source",
+        "task_fence": {
+          "active_goal_reference": null,
+          "active_goal_revision": "0",
+          "agent_id": "agent",
+          "branch_id": "main",
+          "executor_binding": {
+            "delegation_generation": "1",
+            "executor_epoch": "1",
+            "executor_id": "executor",
+            "executor_public_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          },
+          "executor_epoch": "1",
+          "genesis_digest": "genesis",
+          "latest_goal_revision": "0",
+          "owner_binding": "owner",
+          "owner_generation": "1",
+          "owner_public_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reorg_epoch": "0",
+          "task_id": "task",
+          "task_revision": "1",
+          "task_status": "active",
+          "world_id": "world"
+        },
+        "termination_plan_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "world_identity": {
+          "branch_id": "main",
+          "genesis_digest": "genesis",
+          "reorg_epoch": "0",
+          "service_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "world_id": "world"
+        }
       }
     ],
     "SignedApprovalVerificationV1": [
@@ -1892,6 +2090,75 @@
       {
         "api_version": 1,
         "session_id": "session-one"
+      }
+    ],
+    "TestSessionPlanV2": [
+      {
+        "actions": [
+          {
+            "amount": "5",
+            "distance_km": "0",
+            "from": "agent:agent",
+            "material": "iron_ore",
+            "priority": "standard",
+            "routing": {
+              "kind": "direct"
+            },
+            "to": "site:site",
+            "tool": "transfer"
+          }
+        ],
+        "allowed_resource_refs": [
+          "agent:agent",
+          "site:site",
+          "iron_ore"
+        ],
+        "api_version": 2,
+        "basis_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "business_limit": "100",
+        "cleanup_budget": {
+          "business": "0",
+          "requests": "2",
+          "transport": "24"
+        },
+        "cleanup_until": "200000",
+        "control_budget": {
+          "identity_transport": "160",
+          "requests": "80",
+          "transport_hops": 1,
+          "transport_per_hop": "240"
+        },
+        "enrollment_id": "enrollment",
+        "owner_setup_plan_digest": "a019722c9016319c93f15dc3013f1caf47319c1dc9cc952ae435df7d15792690",
+        "prepared_resource_basis_digest": "abababababababababababababababababababababababababababababababab",
+        "read_budget": {
+          "business": "0",
+          "requests": "100",
+          "transport": "300"
+        },
+        "read_until": "200000",
+        "request_id": "session-request",
+        "request_limit": "100",
+        "selection": {
+          "amount": "5",
+          "distance_km": "0",
+          "from": {
+            "agent_id": "agent",
+            "kind": "agent"
+          },
+          "kind": "transfer",
+          "material": "iron_ore",
+          "priority": "standard",
+          "routing": {
+            "kind": "direct"
+          },
+          "to": {
+            "kind": "site",
+            "site_id": "site"
+          }
+        },
+        "transport_limit": "400",
+        "write_deadline": "100000"
       }
     ],
     "TestSessionPrepareRequestV1": [

@@ -1,5 +1,10 @@
 //! Canonical exporter sources only; generated artifacts are not hand-edited.
 use super::*;
+#[path = "http_schema_resource_v2_fixtures.rs"]
+mod examples;
+pub(super) fn fixtures() -> Value {
+    examples::fixtures()
+}
 pub(super) fn schemas() -> Value {
     json!({
         "OwnerSetupPlanV2":schemars::schema_for!(OwnerSetupPlanV2),
@@ -30,6 +35,25 @@ fn resource_v2_paid_nullable_fields_are_required() {
         assert_eq!(
             payload["properties"][field]["type"],
             json!(["string", "null"])
+        );
+    }
+}
+
+#[test]
+fn resource_v2_schema_roots_all_have_nonempty_typed_examples() {
+    let schemas = schemas();
+    let fixtures = fixtures();
+    assert_eq!(
+        schemas.as_object().unwrap().len(),
+        fixtures.as_object().unwrap().len()
+    );
+    for name in schemas.as_object().unwrap().keys() {
+        assert!(
+            !fixtures[name]
+                .as_array()
+                .expect("typed root fixtures")
+                .is_empty(),
+            "{name}"
         );
     }
 }
