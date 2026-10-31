@@ -436,5 +436,9 @@ fn unsupported_platform_rejects_before_creating_store() {
 mod state_store;
 pub use state_store::{ChargedMerklePage, StatePageSession};
 
+#[path = "incremental_buffered_page_writer.rs"]
+mod buffered_writer;
+pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriter};
+
 #[path = "incremental_object_store.rs"]
 pub mod objects;
