@@ -2214,6 +2214,23 @@ class Selection(unittest.TestCase):
         with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
             selector.select(config, base, self.commit(), profile='pr-fast')
 
+    def test_fast_inherited_default_feature_uses_owning_package_manifest(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + '\ndefault=["transport"]\ntransport=["node-libp2p"]\nnode-libp2p=[]\noptional_lane=[]\n')
+        self.write('crates/core/src/lib.rs', '#[cfg(all(unix, feature="node-libp2p"))] mod native;\n')
+        path = 'crates/core/src/native.rs'
+        self.write(path, '#[test] fn original() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        for expression in ('feature="optional_lane"', 'not(feature="node-libp2p")'):
+            with self.subTest(expression=expression):
+                self.write(path, f'#[test] fn original() {{}}\n#[cfg({expression})] #[test] fn added() {{}}\n')
+                with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
     def test_fast_cross_module_same_function_name_cannot_hide_test_tier_move(self):
         config = self.fast_config()
         path = 'crates/core/src/lib.rs'
