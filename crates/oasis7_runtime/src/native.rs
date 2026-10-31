@@ -493,7 +493,8 @@ pub use world::incremental_commit::{
 };
 
 pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
-
 pub use oasis7_world_state::incremental_world_text_maps;
+pub use oasis7_world_state::incremental_factory_records;
+pub use oasis7_world_state::incremental_industry_jobs;
 pub use oasis7_world_state::incremental_installed_module_targets;
 pub use oasis7_world_state::incremental_world_balances;
