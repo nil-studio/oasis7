@@ -290,3 +290,199 @@ fn missing_page_with_reduced_positive_admission_still_reports_tree_error() {
         Err(StateScanError::Tree(_))
     ));
 }
+
+#[test]
+fn nested_lookup_uses_the_outer_scan_nodes_bytes_and_leaf_allowance() {
+    let keys: [&[u8]; 3] = [b"a", b"b", b"c"];
+    let (root, source) = source(&keys);
+
+    let mut scan_io = io();
+    let start_reads = source.reads.get();
+    scan(&root, &source, &mut scan_io, |_| Ok::<_, ()>(()), || false).unwrap();
+    let scan_reads = source.reads.get() - start_reads;
+    let scan_bytes = (1 << 24) - scan_io.read_bytes_remaining;
+
+    let start_reads = source.reads.get();
+    assert!(root.get(b"a", &source).unwrap().is_some());
+    let point_reads = source.reads.get() - start_reads;
+    assert!(point_reads > 0);
+
+    let exact_nodes = scan_reads + point_reads;
+    let mut exact_io = StateScanBudget {
+        nodes_remaining: exact_nodes,
+        read_bytes_remaining: scan_bytes + (1 << 16),
+        leaves_remaining: 3,
+    };
+    let before = source.reads.get();
+    let mut looked_up = false;
+    assert_eq!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut exact_io,
+        }
+        .visit_entries_with_reader(
+            &root,
+            |_, guarded| {
+                if !looked_up {
+                    looked_up = true;
+                    assert!(
+                        root.get(b"a", guarded)
+                            .map_err(|_| "nested lookup")?
+                            .is_some()
+                    );
+                }
+                Ok::<_, &'static str>(())
+            },
+            || false,
+        )
+        .unwrap(),
+        3
+    );
+    assert_eq!(source.reads.get() - before, exact_nodes);
+    assert_eq!(exact_io.nodes_remaining, 0);
+    assert_eq!(exact_io.leaves_remaining, 0);
+
+    let mut one_fewer_node = StateScanBudget {
+        nodes_remaining: exact_nodes - 1,
+        read_bytes_remaining: scan_bytes + (1 << 16),
+        leaves_remaining: 3,
+    };
+    let mut looked_up = false;
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut one_fewer_node,
+        }
+        .visit_entries_with_reader(
+            &root,
+            |_, guarded| {
+                if !looked_up {
+                    looked_up = true;
+                    root.get(b"a", guarded)
+                        .map(|_| ())
+                        .map_err(|_| "nested lookup")?;
+                }
+                Ok::<(), &'static str>(())
+            },
+            || false,
+        ),
+        Err(StateScanError::ResourceLimited)
+    ));
+
+    let mut one_fewer_byte = StateScanBudget {
+        nodes_remaining: exact_nodes,
+        read_bytes_remaining: scan_bytes + (1 << 16),
+        leaves_remaining: 3,
+    };
+    let mut looked_up = false;
+    // Measure the exact successful combined read first so that the failing
+    // budget differs by only one byte, independent of tree shape.
+    let initial = one_fewer_byte.read_bytes_remaining;
+    StateScanContext {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut one_fewer_byte,
+    }
+    .visit_entries_with_reader(
+        &root,
+        |_, guarded| {
+            if !looked_up {
+                looked_up = true;
+                root.get(b"a", guarded)
+                    .map(|_| ())
+                    .map_err(|_| "nested lookup")?;
+            }
+            Ok::<(), &'static str>(())
+        },
+        || false,
+    )
+    .unwrap();
+    let combined_bytes = initial - one_fewer_byte.read_bytes_remaining;
+    let mut short_bytes = StateScanBudget {
+        nodes_remaining: exact_nodes,
+        read_bytes_remaining: combined_bytes - 1,
+        leaves_remaining: 3,
+    };
+    let mut looked_up = false;
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut short_bytes,
+        }
+        .visit_entries_with_reader(
+            &root,
+            |_, guarded| {
+                if !looked_up {
+                    looked_up = true;
+                    root.get(b"a", guarded)
+                        .map(|_| ())
+                        .map_err(|_| "nested lookup")?;
+                }
+                Ok::<(), &'static str>(())
+            },
+            || false,
+        ),
+        Err(StateScanError::ResourceLimited)
+    ));
+}
+
+#[test]
+fn nested_lookup_errors_and_cancellation_are_not_treated_as_absence() {
+    let (root, source) = source(&[b"a"]);
+    let missing = StateRootV1 {
+        namespace: root.namespace,
+        node_root: "ff".repeat(32),
+        leaf_count: 1,
+    };
+    let mut missing_io = io();
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut missing_io,
+        }
+        .visit_entries_with_reader(
+            &root,
+            |_, guarded| {
+                missing
+                    .get(b"absent", guarded)
+                    .map(|_| ())
+                    .map_err(|_| "missing nested tree")
+            },
+            || false,
+        ),
+        Err(StateScanError::Visitor("missing nested tree"))
+    ));
+
+    let mut cancel_io = io();
+    let mut checks = 0;
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut cancel_io,
+        }
+        .visit_entries_with_reader(
+            &root,
+            |_, guarded| {
+                root.get(b"a", guarded)
+                    .map(|_| ())
+                    .map_err(|_| "nested cancelled lookup")
+            },
+            || {
+                checks += 1;
+                checks == 3
+            },
+        ),
+        Err(StateScanError::Cancelled)
+    ));
+}

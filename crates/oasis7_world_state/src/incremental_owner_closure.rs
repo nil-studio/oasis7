@@ -3,7 +3,7 @@
 //! Generic state/value verification proves the six trees and all referenced
 //! value bytes. This layer binds structural keys to the frozen WorldState
 //! registry and verifies the currently implemented scalar, set, number-map,
-//! text-map and byte-map owner families.
+//! text/byte-map and module-instance owner families.
 //! Other WorldState, Runtime, and Cognition owners remain explicit gaps; this
 //! report is never a receipt or an activation token.
 
@@ -32,6 +32,9 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::{cell::RefCell, io, io::Write};
 
+#[path = "incremental_owner_closure_module_instances.rs"]
+mod module_instances;
+
 const OWNER_SCAN_METADATA_BYTES: usize = 4096;
 const U64_SEMANTIC_BYTES: u64 = (SEMANTIC_KEY_DOMAIN.len() + 1) as u64;
 
@@ -54,6 +57,7 @@ pub struct UnsupportedWorldStateOwnersV1 {
     checked_id_set_fields: u8,
     checked_number_map_fields: u8,
     checked_text_byte_fields: u8,
+    checked_module_instance_fields: u8,
 }
 
 impl UnsupportedWorldStateOwnersV1 {
@@ -87,6 +91,10 @@ impl UnsupportedWorldStateOwnersV1 {
 
     pub fn checked_text_byte_fields(&self) -> u8 {
         self.checked_text_byte_fields
+    }
+
+    pub fn checked_module_instance_fields(&self) -> u8 {
+        self.checked_module_instance_fields
     }
 }
 
@@ -227,7 +235,7 @@ fn text_byte_field(field: FieldDescriptor) -> Option<TextByteOwnerField> {
 }
 
 #[derive(Clone, Copy)]
-enum OwnerKeyKind {
+pub(super) enum OwnerKeyKind {
     Text,
     Action,
 }
@@ -235,7 +243,7 @@ enum OwnerKeyKind {
 /// Validates closed text/action semantic-key tokens without materializing
 /// arbitrarily long original keys. The record reader separately hashes the
 /// full stream and binds it to the structural field-key digest.
-struct OwnerSemanticKeyProbe {
+pub(super) struct OwnerSemanticKeyProbe {
     expected: OwnerKeyKind,
     prefix: [u8; SEMANTIC_KEY_DOMAIN.len() + 9],
     prefix_len: usize,
@@ -248,7 +256,7 @@ struct OwnerSemanticKeyProbe {
 }
 
 impl OwnerSemanticKeyProbe {
-    fn new(expected: OwnerKeyKind, max_bytes: u64) -> Self {
+    pub(super) fn new(expected: OwnerKeyKind, max_bytes: u64) -> Self {
         Self {
             expected,
             prefix: [0; SEMANTIC_KEY_DOMAIN.len() + 9],
@@ -333,7 +341,7 @@ impl OwnerSemanticKeyProbe {
         }
     }
 
-    fn finish(&self) -> bool {
+    pub(super) fn finish(&self) -> bool {
         self.expected_total == Some(self.bytes_seen)
             && self.prefix_len == self.prefix.len()
             && (matches!(self.expected, OwnerKeyKind::Action) || self.utf8_pending_len == 0)
@@ -650,6 +658,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     if seen.capacity() * std::mem::size_of::<SeenField>() > schema_charge.bytes() {
         return Err(WorldStateOwnerError::Invalid("owner schema allocation"));
     }
+    let mut module_instance_coverage = module_instances::Coverage::default();
     let mut unknown_owner = false;
     for root in roots {
         let mut scan = StateScanContext {
@@ -658,9 +667,9 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
             class: values.class,
             io: state_io,
         };
-        let result = scan.visit_entries(
+        let result = scan.visit_entries_with_reader(
             root,
-            |entry| {
+            |entry, scan_reader| {
                 if (cancelled.borrow_mut())() {
                     return Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled));
                 }
@@ -672,6 +681,20 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                 let parsed =
                     crate::incremental_world_field_key::WorldFieldKeyV1::from_bytes(&entry.key)
                         .map_err(WorldStateOwnerError::Invalid)?;
+                if module_instances::handles_name(parsed.name)
+                    && module_instances::visit_entry(
+                        &mut module_instance_coverage,
+                        root,
+                        entry,
+                        parsed,
+                        scan_reader,
+                        values,
+                        max_value_bytes,
+                        &mut || (cancelled.borrow_mut())(),
+                    )?
+                {
+                    return Ok(());
+                }
                 let Some((index, field)) = registered_descriptor(
                     parsed.owner,
                     parsed.namespace,
@@ -810,6 +833,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
             }
         }
     }
+    module_instances::finish(&module_instance_coverage)?;
     if (cancelled.borrow_mut())() {
         return Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled));
     }
@@ -902,6 +926,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     if unknown_owner {
         unsupported.push("unregistered-owner-key");
     }
+    let checked_module_instance_fields = module_instances::FIELD_COUNT;
     // These registries are not yet joined to the WorldState descriptor table;
     // keep them explicit even if a particular root happens to contain no such
     // field. Absence is not proof of a complete Runtime/Cognition schema.
@@ -925,6 +950,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_id_set_fields,
         checked_number_map_fields,
         checked_text_byte_fields,
+        checked_module_instance_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))

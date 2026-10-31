@@ -41,14 +41,21 @@ pub(crate) enum Stop {
     Limited,
     Cancelled,
 }
-pub(crate) struct Guarded<'a, R, C> {
+/// Reader view that charges all tree access to the active state scan.
+///
+/// Visitors may use this to perform bounded point lookups related to the
+/// currently visited entry. Reads share the scan's node/byte allowance and
+/// cancellation source. A point lookup does not consume another leaf-visit
+/// allowance; `leaves_remaining` accounts only for the outer ordered scan.
+pub struct StateScanReader<'a, R, C> {
     pub(crate) source: &'a R,
     pub(crate) nodes: &'a Cell<u64>,
     pub(crate) bytes: &'a Cell<u64>,
     pub(crate) cancelled: &'a RefCell<C>,
     pub(crate) stop: &'a Cell<Option<Stop>>,
 }
-impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for Guarded<'_, R, C> {
+pub(crate) type Guarded<'a, R, C> = StateScanReader<'a, R, C>;
+impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanReader<'_, R, C> {
     type Node = R::Node;
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
         if (self.cancelled.borrow_mut())() {
@@ -92,6 +99,20 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
         mut visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
         cancelled: impl FnMut() -> bool,
     ) -> Result<u64, StateScanError<E>> {
+        self.visit_entries_with_reader(root, |entry, _reader| visit(entry), cancelled)
+    }
+
+    /// As [`Self::visit_entries`], while giving the visitor a guarded reader
+    /// for related point lookups. Every read through `reader` spends the same
+    /// node and byte allowances and observes the same cancellation callback
+    /// as the scan. Only entries yielded by the outer ordered walk consume
+    /// `leaves_remaining`.
+    pub fn visit_entries_with_reader<E, C: FnMut() -> bool>(
+        &mut self,
+        root: &StateRootV1,
+        mut visit: impl FnMut(&StateEntryV1, &StateScanReader<'_, R, C>) -> Result<(), E>,
+        cancelled: C,
+    ) -> Result<u64, StateScanError<E>> {
         let _workspace = self
             .memory
             .reserve(128 * 1024, self.class)
@@ -113,7 +134,7 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
             return Err(StateScanError::Cancelled);
         }
         let stop = Cell::new(None);
-        let source = Guarded {
+        let source = StateScanReader {
             source: self.source,
             nodes: Cell::from_mut(&mut self.io.nodes_remaining),
             bytes: Cell::from_mut(&mut self.io.read_bytes_remaining),
@@ -136,7 +157,7 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
                 return Err(StateScanError::ResourceLimited);
             }
             self.io.leaves_remaining -= 1;
-            visit(entry).map_err(StateScanError::Visitor)
+            visit(entry, &source).map_err(StateScanError::Visitor)
         });
         match stop.get() {
             Some(Stop::Limited) => return Err(StateScanError::ResourceLimited),

@@ -7,7 +7,7 @@ use crate::{
     incremental_field_presence::{
         PresenceRecordLimitsV1, PresenceRecordWriteContext, write_field_metadata_v1,
     },
-    incremental_projection::{FieldDestination, WORLD_STATE_FIELDS},
+    incremental_projection::{FieldDestination, FieldOwner, FieldShape, WORLD_STATE_FIELDS},
     incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1, write_semantic_key_v1},
 };
 use oasis7_formal_protocol::{
@@ -127,6 +127,11 @@ enum FixtureIssue {
     WrongTextCodec,
     WrongBytesCodec,
     MissingTextMetadata,
+    MissingModuleInstanceMetadata,
+    MissingModuleInstanceSibling,
+    WrongModuleInstanceSemanticKey,
+    WrongModuleInstanceCodec,
+    EmptyModuleInstances,
 }
 
 struct FixtureWriteContext<'a> {
@@ -474,6 +479,117 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
         }
     }
 
+    let instance = crate::ModuleInstanceState {
+        instance_id: "inner-id-does-not-replace-map-key".into(),
+        module_id: "module/α".into(),
+        module_version: "v2\0β".into(),
+        wasm_hash: "sha256:original".into(),
+        owner_agent_id: "owner/雪".into(),
+        install_target:
+            oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
+                location_id: "  site/東京  ".into(),
+            },
+        active: true,
+        installed_at: u64::MAX,
+    };
+    for field in crate::incremental_module_instance_fields::ModuleInstanceFieldV1::ALL {
+        let descriptor = FieldDescriptor {
+            owner: FieldOwner::WorldState,
+            name: field.name(),
+            destination: FieldDestination::State(StateNamespaceV1::Business),
+            shape: FieldShape::Map,
+        };
+        if issue != Some(FixtureIssue::MissingModuleInstanceMetadata)
+            || field != crate::incremental_module_instance_fields::ModuleInstanceFieldV1::Owner
+        {
+            let metadata = write_field_metadata_v1(
+                descriptor,
+                &mut PresenceRecordWriteContext {
+                    sink: &mut values,
+                    memory: &memory,
+                    io: &mut value_io,
+                    key_work: &mut key_work,
+                    limits: PresenceRecordLimitsV1 {
+                        semantic_bytes: 1024,
+                        record_bytes: 4096,
+                    },
+                    cancelled: || false,
+                },
+            )
+            .unwrap();
+            writes
+                .entry(StateNamespaceV1::Business)
+                .or_default()
+                .push(StateWriteV1 {
+                    key: metadata.field_key.as_bytes().to_vec(),
+                    before: None,
+                    after: Some(metadata.value_root),
+                });
+        }
+        if issue == Some(FixtureIssue::MissingModuleInstanceSibling)
+            && field == crate::incremental_module_instance_fields::ModuleInstanceFieldV1::WasmHash
+        {
+            continue;
+        }
+        if issue == Some(FixtureIssue::EmptyModuleInstances) {
+            continue;
+        }
+        crate::incremental_module_instance_fields::visit_module_instance_fields(
+            &instance,
+            |actual, value| {
+                if actual != field {
+                    return Ok::<_, ()>(());
+                }
+                let key = match issue {
+                    Some(FixtureIssue::WrongModuleInstanceSemanticKey)
+                        if field
+                            == crate::incremental_module_instance_fields::ModuleInstanceFieldV1::Active =>
+                    {
+                        "different-map-key"
+                    }
+                    _ => "outer-map-key",
+                };
+                let payload = match (field, value) {
+                    (
+                        crate::incremental_module_instance_fields::ModuleInstanceFieldV1::Active,
+                        crate::incremental_module_instance_fields::ModuleInstanceScalarRefV1::Bool(value),
+                    ) if issue == Some(FixtureIssue::WrongModuleInstanceCodec) => {
+                        MemberPayloadRefV1::U64(u64::from(value))
+                    }
+                    (_, crate::incremental_module_instance_fields::ModuleInstanceScalarRefV1::Text(value)) => {
+                        MemberPayloadRefV1::Text(value)
+                    }
+                    (
+                        _,
+                        crate::incremental_module_instance_fields::ModuleInstanceScalarRefV1::Target(
+                            crate::incremental_module_instance_fields::ModuleInstallTargetRefV1::SelfAgent,
+                        ),
+                    ) => MemberPayloadRefV1::Unit,
+                    (
+                        _,
+                        crate::incremental_module_instance_fields::ModuleInstanceScalarRefV1::Target(
+                            crate::incremental_module_instance_fields::ModuleInstallTargetRefV1::LocationInfrastructure(value),
+                        ),
+                    ) => MemberPayloadRefV1::Text(value),
+                    (_, crate::incremental_module_instance_fields::ModuleInstanceScalarRefV1::Bool(value)) => {
+                        MemberPayloadRefV1::Bool(value)
+                    }
+                    (_, crate::incremental_module_instance_fields::ModuleInstanceScalarRefV1::U64(value)) => {
+                        MemberPayloadRefV1::U64(value)
+                    }
+                };
+                fixture_writer!().append_member(
+                    descriptor,
+                    WorldFieldRecordKindV1::Entry,
+                    key,
+                    payload,
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+    }
+
     let namespaces = [
         StateNamespaceV1::Business,
         StateNamespaceV1::Allocator,
@@ -545,10 +661,50 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert_eq!(report.checked_id_set_fields(), 5);
     assert_eq!(report.checked_number_map_fields(), 11);
     assert_eq!(report.checked_text_byte_fields(), 4);
+    assert_eq!(report.checked_module_instance_fields(), 8);
     assert!(report.unsupported_fields().contains(&"resources"));
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(!report.unsupported_fields().is_empty());
+}
+
+#[test]
+fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
+    let fixture = fixture(true);
+    let report = verify(&fixture, || false).unwrap();
+    assert_eq!(report.checked_module_instance_fields(), 8);
+
+    let empty = verify(
+        &fixture_with_issue(true, Some(FixtureIssue::EmptyModuleInstances)),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(empty.checked_module_instance_fields(), 8);
+
+    for (issue, expected) in [
+        (
+            FixtureIssue::MissingModuleInstanceMetadata,
+            "required module instance metadata missing or duplicate",
+        ),
+        (
+            FixtureIssue::MissingModuleInstanceSibling,
+            "module instance sibling field missing",
+        ),
+        (
+            FixtureIssue::WrongModuleInstanceSemanticKey,
+            "module instance sibling field missing",
+        ),
+        (
+            FixtureIssue::WrongModuleInstanceCodec,
+            "module instance member payload profile",
+        ),
+    ] {
+        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        assert!(
+            matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
+            "{issue:?}: {result:?}"
+        );
+    }
 }
 
 #[test]
