@@ -115,6 +115,10 @@ pub(crate) struct NativePrivateReply<T> {
 pub(crate) struct NativeProvisionTransport {
     config: NativeIdentityConfig,
 }
+enum FixedNativeAuthorization<'a> {
+    Execution(&'a oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2),
+    Resource(&'a oasis7_custody_core::provisioning::OwnerSetupResourceFinalHttpV2),
+}
 impl NativeProvisionTransport {
     pub(crate) fn from_env(env: &Env) -> Result<Self> {
         checked(
@@ -178,7 +182,30 @@ impl NativeProvisionTransport {
             original_body,
             Some(cookie),
             Some(original_csrf),
-            Some(authorization),
+            Some(FixedNativeAuthorization::Execution(authorization)),
+        )
+        .await
+    }
+    /// Exact Account-prepaid Resource body and fixed proof header. Cookie and
+    /// CSRF stay in Identity; the receiver still verifies issuer/floor/Current.
+    pub(crate) async fn request_owner_resource_final_v2<T: DeserializeOwned>(
+        &self,
+        frame: &oasis7_custody_core::provisioning::OwnerSetupResourceFinalHttpV2,
+        cookie: &PrivateCookie,
+        original_csrf: &str,
+    ) -> Result<NativePrivateReply<T>> {
+        frame.validate_bindings().map_err(|_| rejected())?;
+        checked(frame.paid().payload.native_audience_origin == self.config.origin)?;
+        let raw = Zeroizing::new(
+            String::from_utf8(frame.body_bytes().map_err(|_| rejected())?)
+                .map_err(|_| rejected())?,
+        );
+        self.request_inner(
+            NativePrivateRoute::OwnerControl,
+            &raw,
+            Some(cookie),
+            Some(original_csrf),
+            Some(FixedNativeAuthorization::Resource(frame)),
         )
         .await
     }
@@ -188,9 +215,7 @@ impl NativeProvisionTransport {
         original_body: &str,
         cookie: Option<&PrivateCookie>,
         original_csrf: Option<&str>,
-        execution: Option<
-            &oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
-        >,
+        authorization: Option<FixedNativeAuthorization<'_>>,
     ) -> Result<NativePrivateReply<T>> {
         // The fixed owner gateway already bounds complete private goal requests
         // at 64 KiB. Other native protocols retain their existing smaller cap.
@@ -209,7 +234,10 @@ impl NativeProvisionTransport {
                     MAX_REQUEST
                 },
         )?;
-        checked((route == NativePrivateRoute::ExecutionPrepareFundedV2) == execution.is_some())?;
+        checked(
+            (route == NativePrivateRoute::ExecutionPrepareFundedV2)
+                == matches!(&authorization, Some(FixedNativeAuthorization::Execution(_))),
+        )?;
         let get = route == NativePrivateRoute::Capabilities;
         checked(if get {
             original_body.is_empty() && original_csrf.is_none()
@@ -226,7 +254,7 @@ impl NativeProvisionTransport {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::Preauth))?;
         }
         let headers = Headers::new();
-        if let Some(receipt) = execution {
+        if let Some(FixedNativeAuthorization::Execution(receipt)) = &authorization {
             use base64::Engine;
             let q:oasis7_custody_core::native_execution_prepare_v2::NativeExecutionPrepareRequestV2=
                 serde_json::from_str(original_body).map_err(|_| rejected())?;
@@ -241,6 +269,17 @@ impl NativeProvisionTransport {
             headers.set(
                 "Oasis7-Custody-Execution-Dispatch",
                 &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw),
+            )?;
+        }
+        if let Some(FixedNativeAuthorization::Resource(frame)) = &authorization {
+            checked(route == NativePrivateRoute::OwnerControl)?;
+            frame.validate_bindings().map_err(|_| rejected())?;
+            checked(
+                frame.body_bytes().map_err(|_| rejected())?.as_slice() == original_body.as_bytes(),
+            )?;
+            headers.set(
+                oasis7_custody_core::provisioning::RESOURCE_READ_PROOF_HEADER,
+                &frame.proof_header().map_err(|_| rejected())?,
             )?;
         }
         if let Some(cookie) = cookie {
@@ -307,7 +346,9 @@ impl NativeProvisionTransport {
             }
             raw.zeroize();
         }
-        let body = if route == NativePrivateRoute::ExecutionPrepareFundedV2 {
+        let body = if matches!(&authorization, Some(FixedNativeAuthorization::Resource(_))) {
+            super::read_native_body_limited(response, 65_536).await?
+        } else if route == NativePrivateRoute::ExecutionPrepareFundedV2 {
             super::read_native_body_limited(response,
                 oasis7_custody_core::native_execution_prepare_v2::MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2).await?
         } else if route == NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2 {

@@ -30,6 +30,26 @@ fn read_window(kind: u8) {
         claim.valid_until() <= bound.0,
         "resource read cannot outlive actual trusted Current window"
     );
+    let before_view = serde_json::to_value(&s).unwrap();
+    let view = s
+        .authorize_owner_setup_read(
+            "setup-one",
+            OwnerSetupReadTicket {
+                stage: OwnerSetupStageV1::FinalObservation,
+                ticket: 4,
+                purpose: OwnerSetupReadPurposeV1::Sign,
+            },
+            Role::Owner,
+            &trusted,
+            2106,
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    assert_eq!(serde_json::to_value(&s).unwrap(), before_view);
+    assert!(
+        view.expires_at.0 <= bound.0,
+        "actual Resource signer view must not outlive the same trusted handoff as its opaque original"
+    );
     let saved = serde_json::to_value(&s).unwrap();
     let restored: AccountProvisionApprovalState = serde_json::from_value(saved.clone()).unwrap();
     assert_eq!(serde_json::to_value(restored).unwrap(), saved);

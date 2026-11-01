@@ -214,9 +214,23 @@ impl OwnerProvisionApprovalStore {
     ) -> Result<OwnerSetupOutboxV1> {
         let nonce = crate::approval_crypto::verification_nonce().map_err(|_| rejected())?;
         self.local_reservation("owner_setup_stage_reserved", id, |state, time| {
-            state
-                .reserve_owner_setup_stage(id, stage, &nonce, time)
-                .map_err(|_| rejected())
+            if stage == OwnerSetupStageV1::FinalObservation
+                && state
+                    .owner_setup_v2_plan()
+                    .is_some_and(|p| p.setup_id == id && p.selection.resource().is_some())
+            {
+                state
+                    .reserve_owner_setup_resource_final_v2(id, &nonce, time)
+                    .map_err(|_| rejected())?;
+                state
+                    .owner_setup_outbox(id, stage)
+                    .cloned()
+                    .ok_or_else(rejected)
+            } else {
+                state
+                    .reserve_owner_setup_stage(id, stage, &nonce, time)
+                    .map_err(|_| rejected())
+            }
         })
     }
     pub fn reserve_owner_setup_read(
@@ -644,3 +658,6 @@ impl OwnerProvisionApprovalStore {
 
 #[path = "owner_setup_resource_store_v2.rs"]
 mod resource_final_v2;
+
+#[path = "owner_setup_resource_signing_store_v2.rs"]
+mod resource_signing_v2;

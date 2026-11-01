@@ -66,6 +66,25 @@ struct Observation {
 impl Observation {
     fn fingerprint(&self) -> JResult<String> {
         let v = &self.view;
+        if let Some(header) = &v.approved_plan_v2 {
+            let bytes = zeroize::Zeroizing::new(
+                oasis7_wasm_abi::encode_canonical_cbor(&(
+                    "oasis7.custody.owner-setup-private-scope.v2",
+                    header,
+                    &v.setup_id,
+                    v.stage,
+                    &v.plan,
+                    &v.participant,
+                    &v.source_revision,
+                    &v.authority_revision,
+                    v.service_epoch,
+                    v.target_security_epoch,
+                    v.expires_at,
+                ))
+                .map_err(|_| js_denied())?,
+            );
+            return Ok(bytes_digest(&bytes));
+        }
         let bytes = zeroize::Zeroizing::new(
             oasis7_wasm_abi::encode_canonical_cbor(&(
                 "oasis7.custody.owner-setup-private-scope.v1",
@@ -125,6 +144,30 @@ fn check(env: &Env, selector: &OwnerSetupStageRpc, observation: &Observation) ->
         return Err(js_denied());
     }
     v.plan.validate().map_err(|_| js_denied())?;
+    match (&v.approved_plan_v2, selector.request.api_version) {
+        (None, 1) => {}
+        (Some(header), 2) => {
+            if env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+            {
+                return Err(js_denied());
+            }
+            let projection = if header.selection.resource().is_some() {
+                oasis7_custody_core::provisioning::derive_owner_setup_resource_sdk_plan_v2(header)
+            } else {
+                oasis7_custody_core::provisioning::derive_owner_setup_move0_sdk_plan_v2(header)
+            }
+            .map_err(|_| js_denied())?;
+            if projection != v.plan {
+                return Err(js_denied());
+            }
+        }
+        _ => return Err(js_denied()),
+    }
     selector.request.validate().map_err(|_| js_denied())?;
     observation
         .fence
@@ -200,6 +243,7 @@ async fn refresh_access(
         &serde_json::json!({"observation_nonce":nonces.policy}),
     )
     .await?;
+    secrets.check_resource_generation()?;
     check(env, selector, view)?;
     let authorize_session =
         transport::session(env, selector, view, secrets, &nonces.authorize_session).await?;
@@ -223,6 +267,7 @@ async fn refresh_access(
         &view.view.participant_access.owner,
     )
     .await?;
+    secrets.check_resource_generation()?;
     check(env, selector, view)?;
     // The native authorizer has a separate response shape, never a World receipt.
     if reply.api_version != 2
@@ -421,13 +466,24 @@ async fn execute(
             access,
         })
         .map_err(|_| js_denied())?;
-        let published: OwnerSetupPublished = serde_json::from_str(&raw_text(
+        let signed_raw = raw_text(
             owner_sign(env, &raw)
                 .await
                 .map_err(|e| report("owner.sign", e))?,
             128 * 1024,
-        )?)
-        .map_err(|_| js_denied())?;
+        )?;
+        secrets.check_resource_generation()?;
+        if selector.stage == oasis7_custody_core::provisioning::OwnerSetupStageV1::FinalObservation
+            && second
+                .view
+                .approved_plan_v2
+                .as_ref()
+                .is_some_and(|p| p.selection.resource().is_some())
+        {
+            return resource_final_v2::finish(env, selector, &second, &secrets, &signed_raw).await;
+        }
+        let published: OwnerSetupPublished =
+            serde_json::from_str(&signed_raw).map_err(|_| js_denied())?;
         if published.permit.kind != OwnerSetupPermitKindV1::Preflight
             || published.permit.plan != second.view.plan
             || published.permit.participant != second.view.participant
@@ -559,6 +615,7 @@ async fn execute(
                 )
             }
         };
+        secrets.check_resource_generation()?;
         rpc(
             env,
             selector,
@@ -590,3 +647,8 @@ pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
         .map_err(|_| super::denied())?;
     Ok(serde_json::to_string(&progress)?)
 }
+
+#[path = "identity_owner_setup_resource_final_v2.rs"]
+mod resource_final_v2;
+#[path = "identity_owner_setup_resource_transport_v2.rs"]
+mod resource_transport_v2;

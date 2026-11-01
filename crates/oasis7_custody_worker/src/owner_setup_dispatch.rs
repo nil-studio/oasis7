@@ -128,7 +128,8 @@ fn role_allowed(action: &OwnerSetupRuntimeAction, role: Role) -> bool {
             purpose: OwnerSetupReadPurposeV1::Sign,
             ..
         }
-        | OwnerSetupRuntimeAction::PublishCandidate { .. } => role == Role::Owner,
+        | OwnerSetupRuntimeAction::PublishCandidate { .. }
+        | OwnerSetupRuntimeAction::PublishResourceCandidate { .. } => role == Role::Owner,
         _ => role == Role::Identity,
     }
 }
@@ -218,6 +219,21 @@ pub(super) async fn dispatch(
                 .reserve_owner_setup_read(id, stage, purpose, static_role)
                 .map_err(|_| denied())?;
             let observed = observe(state, env, id, Some(stage), false).await?;
+            if purpose == OwnerSetupReadPurposeV1::Sign
+                && stage == OwnerSetupStageV1::FinalObservation
+                && saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_some_and(|p| p.setup_id == *id && p.selection.resource().is_some())
+            {
+                let permit = store
+                    .owner_resource_signing_permit_v2(id, read, access.map(|v| *v), || {
+                        setup_authority::current(state, env, &observed, true)
+                    })
+                    .await
+                    .map_err(|_| denied())?;
+                return Ok(serde_json::to_string(&permit)?);
+            }
             if purpose == OwnerSetupReadPurposeV1::Sign {
                 let (permit, signing) = store
                     .owner_setup_signing_permit(id, read, access.map(|v| *v), || {
@@ -254,6 +270,27 @@ pub(super) async fn dispatch(
                 permit,
                 candidate: *candidate,
             })?)
+        }
+        OwnerSetupRuntimeAction::PublishResourceCandidate { candidate } => {
+            if stage != OwnerSetupStageV1::FinalObservation
+                || saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_none_or(|p| p.setup_id != *id || p.selection.resource().is_none())
+            {
+                return Err(denied());
+            }
+            let read = store
+                .reserve_owner_setup_read(id, stage, OwnerSetupReadPurposeV1::Sign, static_role)
+                .map_err(|_| denied())?;
+            let observed = observe(state, env, id, Some(stage), false).await?;
+            let published = store
+                .publish_owner_resource_original_v2(id, read, *candidate, || {
+                    setup_authority::current(state, env, &observed, true)
+                })
+                .await
+                .map_err(|_| denied())?;
+            Ok(serde_json::to_string(&published)?)
         }
         OwnerSetupRuntimeAction::Admit { evidence } => {
             let resource_final = stage == OwnerSetupStageV1::FinalObservation

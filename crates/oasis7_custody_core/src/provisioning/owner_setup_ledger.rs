@@ -348,7 +348,7 @@ impl AccountProvisionApprovalState {
         let v = self.owner_setup_engine_record(id)?;
         let o = self.owner_setup_engine_outbox(id, stage)?;
         let source = o.source.verification.as_ref().ok_or_else(invalid)?;
-        let expires = v.plan.deadline.0.min(
+        let mut expires = v.plan.deadline.0.min(
             source
                 .verification
                 .observed_at
@@ -356,6 +356,18 @@ impl AccountProvisionApprovalState {
                 .checked_add(5000)
                 .ok_or_else(invalid)?,
         );
+        if self
+            .owner_setup_approved_header_v2(id)
+            .is_some_and(|p| p.selection.resource().is_some())
+        {
+            expires = expires
+                .min(current.approval.handoff_until.0)
+                .min(current.approval.source.session_expires_at.0)
+                .min(current.approval.source.session_idle_expires_at.0);
+            if stage == OwnerSetupStageV1::FinalObservation {
+                expires = expires.min(self.owner_setup_resource_saved_deadline_v2(id)?);
+            }
+        }
         if now >= expires {
             return Err(invalid());
         }

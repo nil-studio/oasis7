@@ -20,6 +20,7 @@ pub(super) async fn session(
     secrets: &SessionSecrets,
     nonce: &str,
 ) -> Result<ParticipantSessionEvidenceV1, JsValue> {
+    secrets.check_resource_generation()?;
     check(env, selector, observation)?;
     let v = &observation.view;
     if nonce != v.preflight_session_observation_nonce
@@ -51,6 +52,7 @@ pub(super) async fn session(
             v.service_epoch,
         )
         .await?;
+    secrets.check_resource_generation()?;
     check(env, selector, observation)?;
     if status.status.session_ref != v.participant.session.session_ref {
         return Err(js_denied());
@@ -71,6 +73,7 @@ pub(super) async fn original<T: DeserializeOwned + Serialize, Q: Serialize>(
     route: NativePrivateRoute,
     request: &Q,
 ) -> Result<T, JsValue> {
+    secrets.check_resource_generation()?;
     check(env, selector, observation)?;
     if !matches!(
         route,

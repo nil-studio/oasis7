@@ -69,90 +69,108 @@ struct Observation {
     fence: RecoveryFence,
     fence_started: u64,
 }
+fn checked_role(
+    v: &oasis7_custody_core::provisioning::OwnerSetupPermitViewV1,
+    env: &Env,
+    selector: &OwnerSetupStageRpc,
+    fence: &RecoveryFence,
+    fence_started: u64,
+) -> JResult<RoleKeyCurrent> {
+    let scope = &v.participant.owner_scope;
+    let now = clock().map_err(|_| rejected())?;
+    let epoch: DecimalU64 = serde_json::from_value(
+        env.var("CUSTODY_SERVICE_EPOCH")
+            .map_err(|_| rejected())?
+            .to_string()
+            .into(),
+    )
+    .map_err(|_| rejected())?;
+    let environment = env
+        .var("CUSTODY_ROLE_KEY_ENVIRONMENT")
+        .map_err(|_| rejected())?
+        .to_string();
+    if env
+        .var("CUSTODY_OWNER_SETUP_ENABLED")
+        .ok()
+        .map(|v| v.to_string())
+        .as_deref()
+        != Some("true")
+        || v.kind != OwnerSetupPermitKindV1::Sign
+        || v.setup_id != selector.request.setup_id
+        || v.stage != selector.stage
+        || v.plan.provision_id != selector.request.provision_id
+        || scope.provision_id != selector.request.provision_id
+        || scope.context.identity.account_id != selector.request.custody_account_id
+        || scope.context.identity.environment != environment
+        || scope.context.identity.role != Role::Owner
+        || scope.context.identity.key_id != v.participant.owner_key.key_id
+        || scope.context.identity.key_version != v.participant.owner_key.key_version
+        || v.service_epoch != epoch
+        || v.target_security_epoch.0 == 0
+        || v.observed_at.0 > now
+        || now - v.observed_at.0 > 5000
+        || now >= v.expires_at.0
+        || fence_started > now
+        || now - fence_started > 5000
+    {
+        return Err(rejected());
+    }
+    v.plan.validate().map_err(|_| rejected())?;
+    match (&v.approved_plan_v2, selector.request.api_version) {
+        (None, 1) => {}
+        (Some(header), 2)
+            if env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                == Some("true") =>
+        {
+            let projected = if header.selection.resource().is_some() {
+                oasis7_custody_core::provisioning::derive_owner_setup_resource_sdk_plan_v2(header)
+            } else {
+                oasis7_custody_core::provisioning::derive_owner_setup_move0_sdk_plan_v2(header)
+            }
+            .map_err(|_| rejected())?;
+            if projected != v.plan {
+                return Err(rejected());
+            }
+        }
+        _ => return Err(rejected()),
+    }
+    scope.validate().map_err(|_| rejected())?;
+    fence.check_epoch(epoch.0).map_err(|_| rejected())?;
+    Ok(RoleKeyCurrent {
+        scope: v.participant.owner_scope.clone(),
+        approved: true,
+        frozen: false,
+        cancelled: false,
+        expires_at: v.expires_at,
+        authority_revision: v.authority_revision.clone(),
+    })
+}
 impl Observation {
     fn current(&self, env: &Env, selector: &OwnerSetupStageRpc) -> JResult<SetupSigningCurrent> {
-        let v = &self.view.permit;
-        let scope = &v.participant.owner_scope;
-        let now = clock().map_err(|_| rejected())?;
-        let epoch: DecimalU64 = serde_json::from_value(
-            env.var("CUSTODY_SERVICE_EPOCH")
-                .map_err(|_| rejected())?
-                .to_string()
-                .into(),
-        )
-        .map_err(|_| rejected())?;
-        let environment = env
-            .var("CUSTODY_ROLE_KEY_ENVIRONMENT")
-            .map_err(|_| rejected())?
-            .to_string();
-        if env
-            .var("CUSTODY_OWNER_SETUP_ENABLED")
-            .ok()
-            .map(|v| v.to_string())
-            .as_deref()
-            != Some("true")
-            || v.kind != OwnerSetupPermitKindV1::Sign
-            || v.setup_id != selector.request.setup_id
-            || v.stage != selector.stage
-            || v.plan.provision_id != selector.request.provision_id
-            || scope.provision_id != selector.request.provision_id
-            || scope.context.identity.account_id != selector.request.custody_account_id
-            || scope.context.identity.environment != environment
-            || scope.context.identity.role != Role::Owner
-            || scope.context.identity.key_id != v.participant.owner_key.key_id
-            || scope.context.identity.key_version != v.participant.owner_key.key_version
-            || v.service_epoch != epoch
-            || v.target_security_epoch.0 == 0
-            || v.observed_at.0 > now
-            || now - v.observed_at.0 > 5000
-            || now >= v.expires_at.0
-            || self.fence_started > now
-            || now - self.fence_started > 5000
-        {
-            return Err(rejected());
-        }
-        v.plan.validate().map_err(|_| rejected())?;
-        match (&v.approved_plan_v2, selector.request.api_version) {
-            (None, 1) => {}
-            (Some(header), 2)
-                if env
-                    .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
-                    .ok()
-                    .map(|v| v.to_string())
-                    .as_deref()
-                    == Some("true") =>
-            {
-                if oasis7_custody_core::provisioning::derive_owner_setup_move0_sdk_plan_v2(header)
-                    .map_err(|_| rejected())?
-                    != v.plan
-                {
-                    return Err(rejected());
-                }
-            }
-            _ => return Err(rejected()),
-        }
-        scope.validate().map_err(|_| rejected())?;
-        self.fence.check_epoch(epoch.0).map_err(|_| rejected())?;
+        let role = checked_role(
+            &self.view.permit,
+            env,
+            selector,
+            &self.fence,
+            self.fence_started,
+        )?;
         Ok(SetupSigningCurrent {
-            role: RoleKeyCurrent {
-                scope: scope.clone(),
-                approved: true,
-                frozen: false,
-                cancelled: false,
-                expires_at: v.expires_at,
-                authority_revision: v.authority_revision.clone(),
-            },
-            setup_id: v.setup_id.clone(),
+            role,
+            setup_id: self.view.permit.setup_id.clone(),
             bundle_digest: setup_bundle_digest(&self.view.signing).map_err(|_| rejected())?,
         })
     }
 }
-async fn observe(
+async fn observe_any(
     env: &Env,
     selector: &OwnerSetupStageRpc,
     access: Option<Box<oasis7_custody_core::provisioning::OwnerSetupAccessEvidenceV1>>,
-) -> JResult<Observation> {
-    let view = rpc(
+) -> JResult<(OwnerSetupSignerReply, RecoveryFence, u64)> {
+    let raw: serde_json::Value = rpc(
         env,
         selector,
         OwnerSetupRuntimeAction::GetPermit {
@@ -161,15 +179,17 @@ async fn observe(
         },
     )
     .await?;
-    let (fence, fence_started) = fence(env).await?;
-    let value = Observation {
-        view,
-        fence,
-        fence_started,
-    };
-    value.current(env, selector)?;
-    Ok(value)
+    let view: OwnerSetupSignerReply =
+        serde_json::from_value(raw.clone()).map_err(|_| rejected())?;
+    if matches!(&view, OwnerSetupSignerReply::Resource(_))
+        && serde_json::to_value(&view).map_err(|_| rejected())? != raw
+    {
+        return Err(rejected());
+    }
+    let (fence, started) = fence(env).await?;
+    Ok((view, fence, started))
 }
+
 fn decode(raw: &str) -> Result<OwnerSetupStageRpc> {
     if raw.len() > 4096 {
         return Err(denied());
@@ -191,9 +211,29 @@ pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
         .request
         .validate_sdk_selector()
         .map_err(|_| denied())?;
-    let observed = observe(env, &selector, Some(Box::new(request.access)))
+    let (view, fresh, started) = observe_any(env, &selector, Some(Box::new(request.access)))
         .await
         .map_err(|_| denied())?;
+    let observed = match view {
+        OwnerSetupSignerReply::Legacy(view) => Observation {
+            view: *view,
+            fence: fresh,
+            fence_started: started,
+        },
+        OwnerSetupSignerReply::Resource(view) => {
+            return resource::sign(
+                env,
+                &selector,
+                resource::ResourceObservationV2 {
+                    view: *view,
+                    fence: fresh,
+                    fence_started: started,
+                },
+            )
+            .await;
+        }
+    };
+    observed.current(env, &selector).map_err(|_| denied())?;
     let selector_raw = serde_json::to_string(&selector)?;
     let name = observed
         .view
@@ -238,7 +278,30 @@ pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
 }
 pub(crate) async fn sign_in_vault(state: JsValue, env: &Env, raw: &str) -> Result<Response> {
     let selector = decode(raw)?;
-    let observed = observe(env, &selector, None).await.map_err(|_| denied())?;
+    let (view, fresh, started) = observe_any(env, &selector, None)
+        .await
+        .map_err(|_| denied())?;
+    let observed = match view {
+        OwnerSetupSignerReply::Legacy(view) => Observation {
+            view: *view,
+            fence: fresh,
+            fence_started: started,
+        },
+        OwnerSetupSignerReply::Resource(view) => {
+            return resource::sign_in_vault(
+                state,
+                env,
+                &selector,
+                resource::ResourceObservationV2 {
+                    view: *view,
+                    fence: fresh,
+                    fence_started: started,
+                },
+            )
+            .await;
+        }
+    };
+    observed.current(env, &selector).map_err(|_| denied())?;
     let text = Zeroizing::new(env.secret("CUSTODY_ROLE_KEY_KEK")?.to_string());
     let mut kek = Zeroizing::new([0u8; 32]);
     if text.len() != 64 {
@@ -300,3 +363,6 @@ pub(crate) async fn sign_in_vault(state: JsValue, env: &Env, raw: &str) -> Resul
         .map_err(|_| denied())?;
     Response::from_json(&published.into_inner().ok_or_else(denied)?)
 }
+
+#[path = "owner_setup_resource_signing_v2.rs"]
+mod resource;

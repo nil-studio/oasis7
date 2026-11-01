@@ -10,6 +10,15 @@ pub fn derive_owner_setup_move0_sdk_plan_v2(p: &OwnerSetupPlanV2) -> Result<Owne
     }
     derive_owner_setup_write_projection_v2(p)
 }
+/// Fixed SDK first-five-stage projection for an actually selected Resource
+/// setup. It carries no V1 approval, final observation or execution grant.
+pub fn derive_owner_setup_resource_sdk_plan_v2(p: &OwnerSetupPlanV2) -> Result<OwnerSetupPlanV1> {
+    p.validate().map_err(|_| invalid())?;
+    if p.selection.resource().is_none() {
+        return Err(invalid());
+    }
+    derive_owner_setup_write_projection_v2(p)
+}
 // Pure SDK write projection. The enclosing actual V2 Book remains the only
 // approval authority; selection never becomes resource_refs or installs a grant.
 fn derive_owner_setup_write_projection_v2(p: &OwnerSetupPlanV2) -> Result<OwnerSetupPlanV1> {

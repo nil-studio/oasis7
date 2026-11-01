@@ -252,3 +252,93 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+impl AccountProvisionApprovalState {
+    /// Saved original windows constrain new metadata too; never refresh them
+    /// from a later Current. Ordinary V1/Move0 callers do not use this branch.
+    pub(in crate::provisioning) fn owner_setup_resource_saved_deadline_v2(
+        &self,
+        id: &str,
+    ) -> Result<u64> {
+        let v = self.owner_setup_v2.as_ref().ok_or_else(invalid)?;
+        if v.plan.setup_id != id || v.plan.selection.resource().is_none() {
+            return Err(invalid());
+        }
+        let f = v.resource_final.as_ref().ok_or_else(invalid)?;
+        let mut until = v.plan.deadline.0;
+        if let Some(window) = &f.signing_window {
+            until = until.min(window.deadline(&v.plan, &f.common.source)?);
+        }
+        if let Some(window) = &f.published_window {
+            until = until.min(window.deadline(&v.plan, &f.common.source)?);
+        }
+        Ok(until)
+    }
+}
+
+impl AccountProvisionApprovalState {
+    /// Same publication transaction, after its fifth paid oracle reservation.
+    /// This projection grants only the exact preflight read, never the final effect.
+    pub fn owner_setup_resource_published_permit_v2(
+        &self,
+        id: &str,
+        current: &OwnerSetupCurrent<'_, '_>,
+        now: u64,
+        verifier: &mut impl ApprovalSignatureVerifier,
+    ) -> Result<OwnerSetupPermitViewV1> {
+        self.validate_persistence()?;
+        verifier.verify(&self.owner_setup_access_current_checks(
+            id,
+            OwnerSetupStageV1::FinalObservation,
+            current,
+            now,
+        )?)?;
+        let v = self.owner_setup_v2.as_ref().ok_or_else(invalid)?;
+        if v.plan.setup_id != id || v.plan.selection.resource().is_none() {
+            return Err(invalid());
+        }
+        let f = v.resource_final.as_ref().ok_or_else(invalid)?;
+        if f.common.oracle_reads != OWNER_SETUP_MAX_ORACLE_READS
+            || f.published_at.is_none()
+            || f.original_bytes.is_none()
+            || f.common.observation.is_none()
+            || f.result.is_some()
+        {
+            return Err(invalid());
+        }
+        let mut view = self.owner_setup_view(
+            id,
+            OwnerSetupReadTicket {
+                stage: OwnerSetupStageV1::FinalObservation,
+                ticket: OWNER_SETUP_MAX_ORACLE_READS,
+                purpose: OwnerSetupReadPurposeV1::Sign,
+            },
+            current.provision,
+            now,
+        )?;
+        view.kind = OwnerSetupPermitKindV1::Preflight;
+        Ok(view)
+    }
+}
+
+impl AccountProvisionApprovalState {
+    /// Historical source-record commitment only; distinct from the live
+    /// permit source_revision domain and never a Current or crypto assertion.
+    pub fn owner_setup_resource_source_record_digest_v2(&self, id: &str) -> Result<String> {
+        self.validate_persistence()?;
+        let v = self.owner_setup_v2.as_ref().ok_or_else(invalid)?;
+        if v.plan.setup_id != id
+            || v.plan.selection.resource().is_none()
+            || v.book
+                .original(id)
+                .is_none_or(|r| r.stage() != ApprovalAdmissionStage::Consumed)
+        {
+            return Err(invalid());
+        }
+        let f = v.resource_final.as_ref().ok_or_else(invalid)?;
+        if f.common.source.verification.is_none() {
+            return Err(invalid());
+        }
+        digest(&f.common.source)
+    }
+}

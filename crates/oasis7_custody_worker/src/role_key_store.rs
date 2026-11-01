@@ -556,3 +556,11 @@ pub(crate) use execution_configuration_v2::ExecutionIssuerConfigurationV2;
 mod execution_prepare_harness;
 #[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
 pub use execution_prepare_harness::ExecutionPrepareSignerHarness;
+
+#[cfg(feature = "owner")]
+#[path = "role_key_owner_resource_signing_v2.rs"]
+mod owner_resource_signing_v2;
+#[cfg(feature = "owner")]
+pub(crate) use owner_resource_signing_v2::{
+    OwnerResourceSigningCurrentV2, owner_resource_bundle_digest_v2,
+};

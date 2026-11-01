@@ -231,6 +231,28 @@ pub(super) fn resource_published() -> (
         &mut StrictCrypto,
     )
     .unwrap();
+    let preflight = s
+        .owner_setup_resource_published_permit_v2("setup-one", &trusted, 2106, &mut StrictCrypto)
+        .unwrap();
+    assert_eq!(preflight.kind, OwnerSetupPermitKindV1::Preflight);
+    assert_eq!(
+        s.owner_setup_resource_source_record_digest_v2("setup-one")
+            .unwrap(),
+        claim.source_record_digest()
+    );
+    assert_ne!(
+        claim.source_record_digest(),
+        preflight.source_revision,
+        "historical source-record digest and live source revision are distinct domains"
+    );
+    assert!(
+        preflight.original.is_none(),
+        "new Resource original never enters legacy V1 original"
+    );
+    assert!(preflight.observation.as_ref() == Some(&candidate.observation));
+    let actual = s.owner_setup_v2_plan().unwrap();
+    assert!(derive_owner_setup_resource_sdk_plan_v2(actual).unwrap() == preflight.plan);
+    assert!(derive_owner_setup_move0_sdk_plan_v2(actual).is_err());
     s.reserve_owner_setup_resource_admission_callback_v2("setup-one", 2108)
         .unwrap();
     let mut control = s

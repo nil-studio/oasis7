@@ -62,6 +62,9 @@ pub(crate) enum OwnerSetupRuntimeAction {
     PublishCandidate {
         candidate: Box<OwnerSetupCandidateV1>,
     },
+    PublishResourceCandidate {
+        candidate: Box<oasis7_custody_core::provisioning::OwnerSetupResourceCandidateV2>,
+    },
     Admit {
         evidence: Box<OwnerSetupAdmissionEvidenceV1>,
     },
@@ -193,4 +196,63 @@ pub(crate) struct OwnerSetupApproveRpcV1 {
     pub manager_session: CustodySessionStatusV1,
     pub provision_id: String,
     pub request: OwnerSetupApproveRequestV1,
+}
+
+#[cfg(feature = "owner")]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OwnerSetupResourceSigningBundleV2 {
+    pub request: oasis7_client_api::world_service::resource_basis::OwnerSetupFinalResourceReadV2,
+    pub owner_public_key: String,
+    pub source_record_digest: String,
+    pub valid_until: oasis7_custody_core::DecimalU64,
+    pub observation: oasis7_client_api::world_service::ReadWorldViewRequest,
+    pub participant_access:
+        oasis7_client_api::world_service::participant_discovery::ParticipantOwnerViewRequestV1,
+}
+#[cfg(feature = "owner")]
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum OwnerSetupResourceSigningReadV2 {
+    OuterAccess,
+    VaultClaim {
+        bundle: Box<OwnerSetupResourceSigningBundleV2>,
+    },
+}
+#[cfg(feature = "owner")]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OwnerSetupResourceSignerPermitV2 {
+    pub permit: OwnerSetupPermitViewV1,
+    pub resource_signing: OwnerSetupResourceSigningReadV2,
+    pub resource_source_record_digest: String,
+}
+#[cfg(feature = "owner")]
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum OwnerSetupSignerReply {
+    Resource(Box<OwnerSetupResourceSignerPermitV2>),
+    Legacy(Box<OwnerSetupSignerPermit>),
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OwnerSetupResourcePublishedV2 {
+    pub permit: OwnerSetupPermitViewV1,
+    pub resource_source_record_digest: String,
+    pub candidate: oasis7_custody_core::provisioning::OwnerSetupResourceCandidateV2,
+}
+
+impl OwnerSetupResourcePublishedV2 {
+    pub(crate) fn from_exact_json(raw: &str) -> Result<Self, String> {
+        let value: serde_json::Value =
+            serde_json::from_str(raw).map_err(|_| "invalid Resource publication".to_string())?;
+        let typed: Self = serde_json::from_value(value.clone())
+            .map_err(|_| "invalid Resource publication".to_string())?;
+        if serde_json::to_value(&typed).map_err(|_| "invalid Resource publication".to_string())?
+            != value
+        {
+            return Err("invalid Resource publication".into());
+        }
+        Ok(typed)
+    }
 }

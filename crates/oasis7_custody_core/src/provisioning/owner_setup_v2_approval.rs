@@ -4,7 +4,7 @@ use super::*;
 mod phase;
 use super::owner_setup::OwnerSetupResourceFinalOutboxV2;
 use phase::OwnerSetupSdkPhaseProjectionV2;
-pub use phase::derive_owner_setup_move0_sdk_plan_v2;
+pub use phase::{derive_owner_setup_move0_sdk_plan_v2, derive_owner_setup_resource_sdk_plan_v2};
 fn invalid() -> ProvisionApprovalError {
     ProvisionApprovalError::BindingMismatch
 }
