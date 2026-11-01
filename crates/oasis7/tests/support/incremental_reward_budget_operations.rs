@@ -150,6 +150,16 @@ fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_ord
                 Some(RewardValueRefV1::U64(0)),
                 None,
             ),
+            (
+                RewardCellV1::Member(RewardCollectionV1::NodeCreditCaps, " Ω "),
+                Some(RewardValueRefV1::U64(u64::MAX)),
+                None,
+            ),
+            (
+                RewardCellV1::Member(RewardCollectionV1::NodeCreditAllocated, " retained "),
+                None,
+                Some(RewardValueRefV1::U64(0)),
+            ),
         ] {
             let guard = overlay.transaction.guard();
             proof = change_qualified_reward_cell_v1(
@@ -392,6 +402,39 @@ fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_ord
         .unwrap();
         assert_eq!(raw.record_counts(), [2, 5]);
         assert_eq!(raw.mint_length(), 5);
+        receiver.root = after
+            .state
+            .iter()
+            .find(|r| r.namespace == StateNamespaceV1::Business)
+            .unwrap();
+        let pool_after = open_qualified_reward_record_v1(pool, after, &raw, &mut receiver)
+            .unwrap()
+            .unwrap();
+        for (cell, expected) in [
+            (
+                RewardCellV1::Member(RewardCollectionV1::NodeCreditCaps, " Ω "),
+                None,
+            ),
+            (
+                RewardCellV1::Member(RewardCollectionV1::NodeCreditAllocated, " retained "),
+                Some(RewardValueV1::Unsigned(0)),
+            ),
+        ] {
+            assert_eq!(
+                read_qualified_reward_cell_v1(
+                    RewardCellRequestV1 {
+                        key: pool,
+                        cell,
+                        qualification: &pool_after
+                    },
+                    &mut receiver,
+                    8,
+                    &mut std::io::sink()
+                )
+                .unwrap(),
+                expected
+            );
+        }
         for (index, expected) in [(0, 0), (1, 0), (2, 0), (3, u64::MAX), (4, 0)] {
             let key = RewardRecordKeyV1 {
                 kind: RewardRecordKindV1::Mint,
