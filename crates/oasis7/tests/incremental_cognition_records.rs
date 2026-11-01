@@ -12,6 +12,8 @@ use oasis7_runtime::{
 mod cognition_controls;
 #[path = "support/incremental_cognition_missing_child.rs"]
 mod cognition_missing_child;
+#[path = "support/incremental_cognition_namespace.rs"]
+mod cognition_namespace;
 #[path = "support/incremental_cognition_pages.rs"]
 mod cognition_pages;
 #[path = "support/incremental_cognition_family_faults.rs"]
@@ -219,6 +221,7 @@ fn run_cognition(all_optional: bool) {
                 &mut full,
             )
             .unwrap();
+            cognition_namespace::reject_relabelled_member(&store, &memory, parent.root());
             {
                 // The original proof's retained carrier belongs to `memory`, not
                 // to a new writer/reader pool reopening the same authenticated pages.
