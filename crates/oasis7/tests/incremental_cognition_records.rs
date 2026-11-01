@@ -97,6 +97,7 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         StateNamespaceV1::Scheduler,
     ];
     let mut roots = [[0u8; STATE_ROOT_BYTES]; 5];
+    let expected_feedback;
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
@@ -249,6 +250,14 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
                 ),
                 "foreign parent carrier must fail before provisional success: {result:?}"
             );
+            assert_eq!(
+                other_writer.remaining_io().unwrap().writes_remaining,
+                physical().writes_remaining
+            );
+            assert_eq!(
+                other_reader.remaining_io().unwrap().reads_remaining,
+                physical().reads_remaining
+            );
         }
         let mut write_io = fixture::logical();
         let mut write_keys = SemanticKeyBudget {
@@ -289,6 +298,25 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         assert_eq!(changed.before(), parent.root());
         assert_ne!(changed.before(), changed.after());
         assert_eq!(changed.before().leaf_count, changed.after().leaf_count);
+        assert!(matches!(
+            advance_json_scalar_subtree_v1(
+                CognitionJsonFieldV1::FeedbackOutbox.profile(),
+                &parent,
+                changed.after(),
+                &mut read,
+                &mut JsonScalarChangeWorkV1 {
+                    json: JsonReadWorkV1 {
+                        cells_remaining: 0,
+                        json_nodes_remaining: 8,
+                        max_depth: 4,
+                        max_payload_bytes: 4096
+                    },
+                    paths_remaining: 4096,
+                    max_pending_pairs: 8
+                }
+            ),
+            Err(ValueTreeError::ResourceLimited("JSON scalar fixed cells"))
+        ));
         let advanced = advance_json_scalar_subtree_v1(
             CognitionJsonFieldV1::FeedbackOutbox.profile(),
             &parent,
@@ -330,6 +358,363 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         .unwrap();
         assert!(!noop.changed());
         assert_eq!(noop.before(), noop.after());
+        // Actual shared transaction: coalesced same-entry updates, ordinary
+        // JSON receiver, generic replay, then durable namespace pages.
+        use oasis7_formal_protocol::incremental_execution::*;
+        use oasis7_runtime::{
+            incremental_cognition_json_overlay::*, incremental_cognition_json_receiver::*,
+            incremental_field_overlay::WorldFieldOverlayContextV1,
+        };
+        let mut top = RootSetV1::empty("cognition-test".into(), [0x52; 32]).unwrap();
+        for (index, namespace) in namespaces.iter().enumerate() {
+            *top.state
+                .iter_mut()
+                .find(|r| r.namespace == *namespace)
+                .unwrap() = StateRootV1::from_canonical_bytes(&roots[index]).unwrap();
+        }
+        let execution_parent = ExecutionParent {
+            roots: top,
+            commit: [4; 32],
+            authority: AuthorityBinding {
+                token: [5; 32],
+                epoch: 7,
+            },
+        };
+        let live = execution_parent.fence().unwrap();
+        let mut tx = ExecutionTransaction::begin(
+            execution_parent.clone(),
+            [6; 32],
+            &state,
+            &memory,
+            TransactionLimits {
+                max_reads: 8,
+                max_writes: 2,
+                max_facts: 0,
+                max_pending_node_bytes: 2 << 20,
+            },
+        )
+        .unwrap();
+        let mut overlay_io = fixture::logical();
+        let mut overlay_keys = SemanticKeyBudget {
+            bytes_remaining: 16 << 20,
+        };
+        let mut overlay = WorldFieldOverlayContextV1 {
+            transaction: &mut tx,
+            values: ValueReadContext {
+                source: &reader,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut overlay_io,
+            },
+            key_work: &mut overlay_keys,
+            semantic_bytes: 4096,
+            record_bytes: 8192,
+            take_state_error: || state.take_read_error().map(state_error),
+            cancelled: || false,
+        };
+        let mut owner_work = CognitionJsonPointWorkV1 {
+            point: JsonWriteWorkV1 {
+                cells_remaining: 96,
+                json_nodes_remaining: 24,
+                max_json_depth: 4,
+                max_pending_node_bytes: 2 << 20,
+            },
+            changed: JsonScalarChangeWorkV1 {
+                json: JsonReadWorkV1 {
+                    cells_remaining: 128,
+                    json_nodes_remaining: 24,
+                    max_depth: 4,
+                    max_payload_bytes: 4096,
+                },
+                paths_remaining: 16384,
+                max_pending_pairs: 8,
+            },
+        };
+        let guard = overlay.transaction.guard();
+        let first = change_cognition_json_scalar_v1(
+            CognitionJsonScalarChangeV1 {
+                field: CognitionJsonFieldV1::FeedbackOutbox,
+                qualification: &entry,
+                path: &[JsonPathSegmentV1::Name("")],
+                change: (JsonScalarRefV1::Bool(true), JsonScalarRefV1::Unsigned(9)),
+            },
+            &mut overlay,
+            &mut write,
+            &mut owner_work,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap();
+        let guard = overlay.transaction.guard();
+        let second = change_cognition_json_scalar_v1(
+            CognitionJsonScalarChangeV1 {
+                field: CognitionJsonFieldV1::FeedbackOutbox,
+                qualification: &first,
+                path: &[JsonPathSegmentV1::Name("")],
+                change: (JsonScalarRefV1::Unsigned(9), JsonScalarRefV1::Text("同Txn")),
+            },
+            &mut overlay,
+            &mut write,
+            &mut owner_work,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap();
+        let guard = overlay.transaction.guard();
+        assert!(
+            change_cognition_json_scalar_v1(
+                CognitionJsonScalarChangeV1 {
+                    field: CognitionJsonFieldV1::FeedbackOutbox,
+                    qualification: &second,
+                    path: &[JsonPathSegmentV1::Name("")],
+                    change: (
+                        JsonScalarRefV1::Text("同Txn"),
+                        JsonScalarRefV1::Text("同Txn")
+                    )
+                },
+                &mut overlay,
+                &mut write,
+                &mut owner_work,
+                &guard,
+                &live
+            )
+            .unwrap()
+            .is_none()
+        );
+        let guard = tx.guard();
+        let sealed = tx.seal(&guard, &live, 1).unwrap();
+        assert_eq!(sealed.record.writes.len(), 1);
+        let verifier = TransitionVerifier {
+            parent: &execution_parent,
+            operation: [6; 32],
+            source: &state,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: 2 << 20,
+        };
+        let accepted = accept_cognition_json_entry_transition_v1(
+            CognitionJsonFieldV1::FeedbackOutbox,
+            &entry,
+            &verifier,
+            &sealed.record,
+            &mut read,
+            &mut JsonScalarChangeWorkV1 {
+                json: JsonReadWorkV1 {
+                    cells_remaining: 64,
+                    json_nodes_remaining: 8,
+                    max_depth: 4,
+                    max_payload_bytes: 4096,
+                },
+                paths_remaining: 4096,
+                max_pending_pairs: 8,
+            },
+        )
+        .unwrap();
+        assert_eq!(accepted.body_root(), second.body_root());
+        expected_feedback = accepted.body_root().canonical_bytes().unwrap();
+        let generic = verifier.verify(&sealed.record).unwrap();
+        assert!(generic.new_nodes.len() <= 257);
+        let phase = memory.reserve(640 << 10, MemoryClass::Ordinary).unwrap();
+        let delta = phase.retain(StateDeltaV1 {
+            before: root.clone(),
+            after: sealed
+                .record
+                .after
+                .state
+                .iter()
+                .find(|r| r.namespace == StateNamespaceV1::Effects)
+                .unwrap()
+                .clone(),
+            writes: vec![sealed.record.writes[0].mutation.clone()],
+            new_nodes: generic.new_nodes.clone(),
+        });
+        writer
+            .put_state_pages_cancelled(&delta, &memory, &mut || false)
+            .unwrap();
+        roots[2].copy_from_slice(&delta.after.canonical_bytes().unwrap());
+        // Independent read-only query determines N; the no-op setter must
+        // observe each channel's N+1 cancellation after its long equality.
+        for channel in [0, 1] {
+            use std::{cell::Cell, rc::Rc};
+            let _inputs = memory.reserve(16 << 10, MemoryClass::Ordinary).unwrap();
+            let prefix = "λ".repeat(1536);
+            let same = "λ".repeat(1536);
+            let failed_parent = ExecutionParent {
+                roots: sealed.record.after.clone(),
+                commit: [7; 32],
+                authority: execution_parent.authority,
+            };
+            let failed_live = failed_parent.fence().unwrap();
+            let mut failed_tx = ExecutionTransaction::begin(
+                failed_parent,
+                [8; 32],
+                &state,
+                &memory,
+                TransactionLimits {
+                    max_reads: 8,
+                    max_writes: 2,
+                    max_facts: 0,
+                    max_pending_node_bytes: 2 << 20,
+                },
+            )
+            .unwrap();
+            let read_count = Rc::new(Cell::new(0usize));
+            let write_count = Rc::new(Cell::new(0usize));
+            let read_limit = Rc::new(Cell::new(usize::MAX));
+            let write_limit = Rc::new(Cell::new(usize::MAX));
+            let poll =
+                |count: Rc<Cell<usize>>, limit: Rc<Cell<usize>>| -> Box<dyn FnMut() -> bool> {
+                    Box::new(move || {
+                        let next = count.get() + 1;
+                        count.set(next);
+                        next == limit.get()
+                    })
+                };
+            let mut input_io = fixture::logical();
+            let mut input_keys = SemanticKeyBudget {
+                bytes_remaining: 16 << 20,
+            };
+            let mut failure_overlay = WorldFieldOverlayContextV1 {
+                transaction: &mut failed_tx,
+                values: ValueReadContext {
+                    source: &reader,
+                    memory: &memory,
+                    class: MemoryClass::Ordinary,
+                    io: &mut input_io,
+                },
+                key_work: &mut input_keys,
+                semantic_bytes: 4096,
+                record_bytes: 8192,
+                take_state_error: || state.take_read_error().map(state_error),
+                cancelled: poll(read_count.clone(), read_limit.clone()),
+            };
+            let mut output_io = fixture::logical();
+            let mut output_keys = SemanticKeyBudget {
+                bytes_remaining: 16 << 20,
+            };
+            let mut failure_write = MemberRecordWriteContext {
+                sink: &mut writer,
+                memory: &memory,
+                io: &mut output_io,
+                key_work: &mut output_keys,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 4096,
+                    payload_bytes: 4096,
+                    record_bytes: 8192,
+                },
+                cancelled: poll(write_count.clone(), write_limit.clone()),
+            };
+            let mut failure_work = CognitionJsonPointWorkV1 {
+                point: JsonWriteWorkV1 {
+                    cells_remaining: 64,
+                    json_nodes_remaining: 16,
+                    max_json_depth: 4,
+                    max_pending_node_bytes: 2 << 20,
+                },
+                changed: JsonScalarChangeWorkV1 {
+                    json: JsonReadWorkV1 {
+                        cells_remaining: 64,
+                        json_nodes_remaining: 8,
+                        max_depth: 4,
+                        max_payload_bytes: 4096,
+                    },
+                    paths_remaining: 4096,
+                    max_pending_pairs: 8,
+                },
+            };
+            let guard = failure_overlay.transaction.guard();
+            let prefix_proof = change_cognition_json_scalar_v1(
+                CognitionJsonScalarChangeV1 {
+                    field: CognitionJsonFieldV1::FeedbackOutbox,
+                    qualification: &accepted,
+                    path: &[JsonPathSegmentV1::Name("")],
+                    change: (
+                        JsonScalarRefV1::Text("同Txn"),
+                        JsonScalarRefV1::Text(&prefix),
+                    ),
+                },
+                &mut failure_overlay,
+                &mut failure_write,
+                &mut failure_work,
+                &guard,
+                &failed_live,
+            )
+            .unwrap()
+            .unwrap();
+            read_count.set(0);
+            write_count.set(0);
+            check_cognition_json_scalar_overlay_v1(
+                CognitionJsonScalarReadV1 {
+                    field: CognitionJsonFieldV1::FeedbackOutbox,
+                    qualification: &prefix_proof,
+                    path: &[JsonPathSegmentV1::Name("")],
+                    expected: JsonScalarRefV1::Text(&prefix),
+                },
+                &mut failure_overlay,
+                &mut JsonScalarPathReadWorkV1 {
+                    cells_remaining: 16,
+                    json_nodes_remaining: 8,
+                    max_depth: 4,
+                },
+            )
+            .unwrap();
+            let n = read_count.get();
+            assert!(n > 0);
+            assert_eq!(write_count.get(), 0);
+            read_count.set(0);
+            write_count.set(0);
+            if channel == 0 {
+                read_limit.set(n + 1);
+            } else {
+                write_limit.set(n + 1);
+            }
+            let guard = failure_overlay.transaction.guard();
+            let result = change_cognition_json_scalar_v1(
+                CognitionJsonScalarChangeV1 {
+                    field: CognitionJsonFieldV1::FeedbackOutbox,
+                    qualification: &prefix_proof,
+                    path: &[JsonPathSegmentV1::Name("")],
+                    change: (JsonScalarRefV1::Text(&prefix), JsonScalarRefV1::Text(&same)),
+                },
+                &mut failure_overlay,
+                &mut failure_write,
+                &mut failure_work,
+                &guard,
+                &failed_live,
+            );
+            assert!(
+                matches!(
+                    result,
+                    Err(
+                        oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Member(
+                            MemberRecordError::Value(ValueTreeError::Cancelled)
+                        )
+                    )
+                ),
+                "channel={channel}, getter N={n}, read={}, write={}, result={result:?}",
+                read_count.get(),
+                write_count.get()
+            );
+            assert_eq!(
+                if channel == 0 {
+                    read_count.get()
+                } else {
+                    write_count.get()
+                },
+                n + 1
+            );
+            let guard = failed_tx.guard();
+            assert!(matches!(
+                failed_tx.seal(&guard, &failed_live, 2),
+                Err(ExecutionError::Aborted)
+            ));
+            eprintln!(
+                "Cognition independent read N={n} no-op cancellation channel={channel} N+1={} prefix=Aborted",
+                n + 1
+            );
+        }
     }
     drop(writes);
     drop(writer);
@@ -390,7 +775,14 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             assert!(proof.is_none());
         } else {
             let proof = proof.unwrap();
-            proof.validate_binding(field, &root).unwrap();
+            if field == CognitionJsonFieldV1::FeedbackOutbox {
+                assert_eq!(
+                    proof.body_root().canonical_bytes().unwrap(),
+                    expected_feedback
+                );
+            }
+
+            proof.validate_binding(field, proof.body_root()).unwrap();
             assert_eq!(
                 proof.body_root().leaf_count,
                 if matches!(field, CognitionJsonFieldV1::FeedbackOutbox) {

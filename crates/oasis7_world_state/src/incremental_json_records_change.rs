@@ -37,7 +37,20 @@ pub fn advance_json_scalar_subtree_v1<
     work: &mut JsonScalarChangeWorkV1,
 ) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
     context.check()?;
-    if context.values.class != MemoryClass::Ordinary || !parent.uses_budget(context.values.memory) {
+    advance_json_scalar_subtree_records_v1(profile, parent, after, &mut context.records(), work)
+}
+
+pub(crate) fn advance_json_scalar_subtree_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &ReservedValue<JsonSubtreeQualificationV1>,
+    after: &StateRootV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonScalarChangeWorkV1,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if records.values.class != MemoryClass::Ordinary || !parent.uses_budget(records.values.memory) {
         return Err(ValueTreeError::Invalid("JSON scalar parent pool/class"));
     }
     parent.validate_binding(profile, parent.root())?;
@@ -54,15 +67,14 @@ pub fn advance_json_scalar_subtree_v1<
         .ok_or(ValueTreeError::ResourceLimited(
             "JSON scalar queue admission",
         ))?;
-    let _queue = context.values.memory.reserve(bytes, context.values.class)?;
-    let retained = context.values.memory.reserve(1024, context.values.class)?;
+    let _queue = records.values.memory.reserve(bytes, records.values.class)?;
+    let retained = records.values.memory.reserve(1024, records.values.class)?;
     let mut pending = Vec::with_capacity(work.max_pending_pairs);
     pending.push(Pending {
         before: parent.root().clone(),
         after: after.clone(),
         depth: 0,
     });
-    let mut records = context.records();
     while let Some(pair) = pending.pop() {
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled);
@@ -73,8 +85,13 @@ pub fn advance_json_scalar_subtree_v1<
         if pair.depth > work.json.max_depth {
             return Err(ValueTreeError::ResourceLimited("JSON scalar changed depth"));
         }
-        let old = read::frame(profile, &pair.before, &mut records, &mut work.json)?;
-        let new = read::frame(profile, &pair.after, &mut records, &mut work.json)?;
+        work.json.cells_remaining = work
+            .json
+            .cells_remaining
+            .checked_sub(10)
+            .ok_or(ValueTreeError::ResourceLimited("JSON scalar fixed cells"))?;
+        let old = read::frame(profile, &pair.before, records, &mut work.json)?;
+        let new = read::frame(profile, &pair.after, records, &mut work.json)?;
         let container = old.kind.container();
         if container != new.kind.container()
             || old.length != new.length
@@ -87,7 +104,7 @@ pub fn advance_json_scalar_subtree_v1<
         incremental_record_diff::visit(
             &pair.before,
             &pair.after,
-            &mut records,
+            records,
             &mut work.paths_remaining,
             RecordDiffLabelsV1 {
                 invalid: "JSON scalar diff",
@@ -151,4 +168,36 @@ pub fn advance_json_scalar_subtree_v1<
         return Err(ValueTreeError::Cancelled);
     }
     Ok(output)
+}
+
+/// A concrete owner's root-container constraint, checked on a fully qualified
+/// JSON graph. This does not infer or validate that owner's business schema.
+pub(crate) fn require_json_container_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    proof: &ReservedValue<JsonSubtreeQualificationV1>,
+    array: bool,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    if !proof.uses_budget(records.values.memory) {
+        return Err(ValueTreeError::Invalid("JSON root-container pool"));
+    }
+    proof.validate_binding(profile, proof.root())?;
+    work.cells_remaining = work
+        .cells_remaining
+        .checked_sub(5)
+        .ok_or(ValueTreeError::ResourceLimited("JSON root-container cells"))?;
+    let frame = read::frame(profile, proof.root(), records, work)?;
+    let expected = if array {
+        read::Kind::Array
+    } else {
+        read::Kind::Object
+    };
+    if frame.kind != expected {
+        return Err(ValueTreeError::Invalid("JSON root-container kind"));
+    }
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(())
 }

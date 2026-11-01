@@ -76,6 +76,19 @@ fn compare<R: ValueNodeReader, C: FnMut() -> bool>(
     records: &mut InventoryValueReader<'_, '_, R, C>,
 ) -> Result<[u8; 32], ValueTreeError> {
     let id = required(root, &key.0, records)?;
+    let limits = MemberRecordLimitsV1 {
+        semantic_bytes: records.semantic_bytes,
+        payload_bytes: records.record_bytes,
+        record_bytes: records.record_bytes,
+    };
+    let header =
+        read_member_record_header_v1(&id, &key.0, records.values, limits, &mut *records.cancelled)?;
+    if header.codec != codec
+        || header.semantic_bytes != key.1
+        || header.payload_bytes != expected.len() as u64
+    {
+        return Err(ValueTreeError::Invalid("JSON point expected value"));
+    }
     let mut output = Compare::new(expected);
     read_member_record_profile_v1(
         &id,
@@ -181,8 +194,39 @@ pub fn prepare_json_scalar_path_change_v1<
     write: &mut MemberRecordWriteContext<'_, W, CW>,
     work: &mut JsonWriteWorkV1,
 ) -> Result<oasis7_proto::memory_budget::ReservedValue<JsonScalarPointWriteV1>, MemberRecordError> {
-    let (expected, after) = change;
     read.check()?;
+    if (write.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    prepare_json_scalar_path_change_records_v1(
+        profile,
+        parent,
+        path,
+        change,
+        &mut read.records(),
+        write,
+        work,
+    )
+}
+
+pub(crate) fn prepare_json_scalar_path_change_records_v1<
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+    W: StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    path: &[JsonPathSegmentV1<'_>],
+    change: (JsonScalarRefV1<'_>, JsonScalarRefV1<'_>),
+    read: &mut InventoryValueReader<'_, '_, R, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    work: &mut JsonWriteWorkV1,
+) -> Result<oasis7_proto::memory_budget::ReservedValue<JsonScalarPointWriteV1>, MemberRecordError> {
+    let (expected, after) = change;
+    if (read.cancelled)() || (write.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
     if !parent.uses_budget(read.values.memory) {
         return Err(ValueTreeError::Invalid("JSON point parent pool").into());
     }
@@ -190,25 +234,11 @@ pub fn prepare_json_scalar_path_change_v1<
     if read.values.class != MemoryClass::Ordinary || !read.values.memory.same_pool(write.memory) {
         return Err(ValueTreeError::Invalid("JSON point pool/class").into());
     }
-    if path.len() > work.max_json_depth {
-        return Err(ValueTreeError::ResourceLimited("JSON point depth").into());
-    }
-    let admitted = path
-        .len()
-        .checked_add(1)
-        .and_then(|n| n.checked_mul(1024))
-        .ok_or(ValueTreeError::ResourceLimited("JSON point path admission"))?;
-    let _stack = write
-        .memory
-        .reserve(admitted, MemoryClass::Ordinary)
-        .map_err(ValueTreeError::Memory)?;
     let retained = write
         .memory
         .reserve(1024, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
-    let mut parents = Vec::with_capacity(path.len());
     let original = parent.root().clone();
-    let mut root = original.clone();
     let cancels = RefCell::new((&mut read.cancelled, &mut write.cancelled));
     let mut read_cancel = || {
         let mut c = cancels.borrow_mut();
@@ -219,7 +249,7 @@ pub fn prepare_json_scalar_path_change_v1<
         (c.0)() || (c.1)()
     };
     let mut records = InventoryValueReader {
-        values: &mut read.values,
+        values: read.values,
         key_work: read.key_work,
         semantic_bytes: read.semantic_bytes,
         record_bytes: read.record_bytes,
@@ -233,54 +263,28 @@ pub fn prepare_json_scalar_path_change_v1<
         limits: write.limits,
         cancelled: &mut write_cancel,
     };
-    let expected_label = expected.label()?;
     let after_label = after.label()?;
-    for segment in path {
-        work.json_node()?;
-        work.cell()?;
-        let key = path_key(profile, *segment, &mut records)?;
-        let (id, next) = child(profile, &root, &key, &mut records)?;
-        parents.push((root, key.0, id, *segment));
-        root = next;
-    }
-    work.json_node()?;
-    work.cell()?;
-    let label = records.key(
-        profile.field,
-        WorldFieldRecordKindV1::Entry,
-        &((), "json.kind"),
-    )?;
-    let label_id = compare(
-        &root,
-        &label,
-        MemberPayloadCodecV1::Text,
-        expected_label.as_bytes(),
+    let Resolved {
+        mut root,
+        mut parents,
+        label,
+        label_id,
+        value,
+        value_id,
+        expected_label,
+        _admission,
+    } = resolve_expected(
+        profile,
+        parent.root(),
+        path,
+        expected,
         &mut records,
+        PathWork {
+            cells: &mut work.cells_remaining,
+            nodes: &mut work.json_nodes_remaining,
+            max_depth: work.max_json_depth,
+        },
     )?;
-    work.cell()?;
-    let value = records.key(
-        profile.field,
-        WorldFieldRecordKindV1::Entry,
-        &((), "json.value"),
-    )?;
-    let fixed;
-    let (codec, bytes): (_, &[u8]) = match expected {
-        JsonScalarRefV1::Null => (MemberPayloadCodecV1::Unit, &[]),
-        JsonScalarRefV1::Bool(v) => {
-            fixed = [u8::from(v); 8];
-            (MemberPayloadCodecV1::Bool, &fixed[..1])
-        }
-        JsonScalarRefV1::Signed(v) => {
-            fixed = v.to_be_bytes();
-            (MemberPayloadCodecV1::I64, &fixed)
-        }
-        JsonScalarRefV1::Unsigned(v) | JsonScalarRefV1::FloatBits(v) => {
-            fixed = v.to_be_bytes();
-            (MemberPayloadCodecV1::U64, &fixed)
-        }
-        JsonScalarRefV1::Text(v) => (MemberPayloadCodecV1::Text, v.as_bytes()),
-    };
-    let value_id = compare(&root, &value, codec, bytes, &mut records)?;
     let unchanged = expected == after;
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
@@ -360,4 +364,181 @@ pub fn prepare_json_scalar_path_change_v1<
 }
 fn root_for_noop(parent: &JsonSubtreeQualificationV1) -> StateRootV1 {
     parent.root().clone()
+}
+
+/// Read-only exact-value query. It does not mutate a transaction or mint any
+/// qualification; a mismatch is Invalid, not a successful approximate match.
+pub struct JsonScalarPathReadWorkV1 {
+    pub cells_remaining: u64,
+    pub json_nodes_remaining: u64,
+    pub max_depth: usize,
+}
+struct PathWork<'a> {
+    cells: &'a mut u64,
+    nodes: &'a mut u64,
+    max_depth: usize,
+}
+impl PathWork<'_> {
+    fn cell(&mut self) -> Result<(), MemberRecordError> {
+        *self.cells = self
+            .cells
+            .checked_sub(1)
+            .ok_or(ValueTreeError::ResourceLimited("JSON path cells"))?;
+        Ok(())
+    }
+    fn node(&mut self) -> Result<(), MemberRecordError> {
+        *self.nodes = self
+            .nodes
+            .checked_sub(1)
+            .ok_or(ValueTreeError::ResourceLimited("JSON path nodes"))?;
+        Ok(())
+    }
+}
+struct Resolved<'a> {
+    root: StateRootV1,
+    parents: Vec<(
+        StateRootV1,
+        WorldFieldKeyV1,
+        [u8; 32],
+        JsonPathSegmentV1<'a>,
+    )>,
+    label: (WorldFieldKeyV1, u64),
+    label_id: [u8; 32],
+    value: (WorldFieldKeyV1, u64),
+    value_id: [u8; 32],
+    expected_label: &'static str,
+    _admission: oasis7_proto::memory_budget::MemoryReservation,
+}
+fn resolve_expected<'a, R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &StateRootV1,
+    path: &[JsonPathSegmentV1<'a>],
+    expected: JsonScalarRefV1<'_>,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    mut work: PathWork<'_>,
+) -> Result<Resolved<'a>, MemberRecordError> {
+    if path.len() > work.max_depth {
+        return Err(ValueTreeError::ResourceLimited("JSON point depth").into());
+    }
+    let admitted = path
+        .len()
+        .checked_add(1)
+        .and_then(|n| n.checked_mul(1024))
+        .ok_or(ValueTreeError::ResourceLimited("JSON point path admission"))?;
+    let admission = records
+        .values
+        .memory
+        .reserve(admitted, records.values.class)
+        .map_err(ValueTreeError::Memory)?;
+    let mut parents = Vec::with_capacity(path.len());
+    let mut root = parent.clone();
+    let expected_label = expected.label()?;
+    for segment in path {
+        work.node()?;
+        work.cell()?;
+        let key = path_key(profile, *segment, records)?;
+        let (id, next) = child(profile, &root, &key, records)?;
+        parents.push((root, key.0, id, *segment));
+        root = next;
+    }
+    work.node()?;
+    work.cell()?;
+    let label = records.key(
+        profile.field,
+        WorldFieldRecordKindV1::Entry,
+        &((), "json.kind"),
+    )?;
+    let label_id = compare(
+        &root,
+        &label,
+        MemberPayloadCodecV1::Text,
+        expected_label.as_bytes(),
+        records,
+    )?;
+    work.cell()?;
+    let value = records.key(
+        profile.field,
+        WorldFieldRecordKindV1::Entry,
+        &((), "json.value"),
+    )?;
+    let fixed;
+    let (codec, bytes): (_, &[u8]) = match expected {
+        JsonScalarRefV1::Null => (MemberPayloadCodecV1::Unit, &[]),
+        JsonScalarRefV1::Bool(v) => {
+            fixed = [u8::from(v); 8];
+            (MemberPayloadCodecV1::Bool, &fixed[..1])
+        }
+        JsonScalarRefV1::Signed(v) => {
+            fixed = v.to_be_bytes();
+            (MemberPayloadCodecV1::I64, &fixed)
+        }
+        JsonScalarRefV1::Unsigned(v) | JsonScalarRefV1::FloatBits(v) => {
+            fixed = v.to_be_bytes();
+            (MemberPayloadCodecV1::U64, &fixed)
+        }
+        JsonScalarRefV1::Text(v) => (MemberPayloadCodecV1::Text, v.as_bytes()),
+    };
+    let value_id = compare(&root, &value, codec, bytes, records)?;
+    Ok(Resolved {
+        root,
+        parents,
+        label,
+        label_id,
+        value,
+        value_id,
+        expected_label,
+        _admission: admission,
+    })
+}
+pub fn check_json_scalar_path_expected_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    path: &[JsonPathSegmentV1<'_>],
+    expected: JsonScalarRefV1<'_>,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonScalarPathReadWorkV1,
+) -> Result<(), MemberRecordError> {
+    context.check()?;
+    check_json_scalar_path_expected_records_v1(
+        profile,
+        parent,
+        path,
+        expected,
+        &mut context.records(),
+        work,
+    )
+}
+pub(crate) fn check_json_scalar_path_expected_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    path: &[JsonPathSegmentV1<'_>],
+    expected: JsonScalarRefV1<'_>,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonScalarPathReadWorkV1,
+) -> Result<(), MemberRecordError> {
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    if !parent.uses_budget(records.values.memory) {
+        return Err(ValueTreeError::Invalid("JSON point parent pool").into());
+    }
+    parent.validate_binding(profile, parent.root())?;
+    resolve_expected(
+        profile,
+        parent.root(),
+        path,
+        expected,
+        records,
+        PathWork {
+            cells: &mut work.cells_remaining,
+            nodes: &mut work.json_nodes_remaining,
+            max_depth: work.max_depth,
+        },
+    )?;
+    Ok(())
 }

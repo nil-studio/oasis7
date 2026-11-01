@@ -12,7 +12,7 @@ use oasis7_formal_protocol::{
     incremental_execution::ExecutionWriteV1,
     incremental_record_root::RecordRootRefV1,
     incremental_state::{StateNamespaceV1 as Ns, StatePageWriter},
-    incremental_value::{ValueNodeReader, ValueTreeError},
+    incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,28 +148,39 @@ pub fn prepare_cognition_json_genesis_v1<
         )?;
         let child = prepare_json_subtree_v1(field.profile(), value, context, work)?;
         start(context, records)?;
-        let _scratch = context
-            .memory
-            .reserve(8192, MemoryClass::Ordinary)
-            .map_err(ValueTreeError::Memory)?;
-        let semantic = hash_semantic_key_v1(
-            &(),
-            context.memory,
-            MemoryClass::Ordinary,
-            context.key_work,
-            &mut context.cancelled,
-        )
-        .map_err(MemberRecordError::Key)?;
-        let reference = RecordRootRefV1::new(field.profile().schema, semantic.digest, child)
-            .map_err(|_| MemberRecordError::Invalid("cognition JSON root reference"))?;
-        let entry = write_member_record_v1(
-            field.descriptor(),
-            WorldFieldRecordKindV1::Entry,
-            &(),
-            MemberPayloadRefV1::RecordRoot(&reference),
-            context,
-        )?;
+        let entry = write_root(field, child, context)?;
         crate::incremental_field_write::emit(entry.field_key, entry.value_root, context, sink)?;
     }
     Ok(())
+}
+
+pub(crate) fn write_root<W: ValueNodeWriter, C: FnMut() -> bool>(
+    field: CognitionJsonFieldV1,
+    child: oasis7_formal_protocol::incremental_state::StateRootV1,
+    context: &mut MemberRecordWriteContext<'_, W, C>,
+) -> Result<MemberRecordV1, MemberRecordError> {
+    if field.descriptor().destination != FieldDestination::State(child.namespace) {
+        return Err(MemberRecordError::Invalid("cognition JSON namespace"));
+    }
+    let _scratch = context
+        .memory
+        .reserve(8192, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    let semantic = hash_semantic_key_v1(
+        &(),
+        context.memory,
+        MemoryClass::Ordinary,
+        context.key_work,
+        &mut context.cancelled,
+    )
+    .map_err(MemberRecordError::Key)?;
+    let reference = RecordRootRefV1::new(field.profile().schema, semantic.digest, child)
+        .map_err(|_| MemberRecordError::Invalid("cognition JSON root reference"))?;
+    write_member_record_v1(
+        field.descriptor(),
+        WorldFieldRecordKindV1::Entry,
+        &(),
+        MemberPayloadRefV1::RecordRoot(&reference),
+        context,
+    )
 }

@@ -7,8 +7,9 @@ use crate::{
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueNodeReader, ValueReadContext};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
+type PageMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
 struct Pages {
-    nodes: ReservedValue<RefCell<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>>,
+    nodes: ReservedValue<RefCell<PageMap>>,
 }
 impl ValueNodeWriter for Pages {
     fn put_node(
