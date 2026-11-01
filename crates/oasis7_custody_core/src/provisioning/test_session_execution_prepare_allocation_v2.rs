@@ -296,6 +296,7 @@ impl AccountProvisionApprovalState {
                 candidate_digest,
                 original: None,
                 signing_admitted_at: now,
+                service_record: None,
                 send_claim: None,
                 lookup_claims: BTreeMap::new(),
                 archived_fact_cbor_hex: None,

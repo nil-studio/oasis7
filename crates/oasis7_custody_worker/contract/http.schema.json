@@ -1676,7 +1676,7 @@
           "task_status": "active",
           "world_id": "world"
         },
-        "termination_plan_digest": "af7702dddc5e56b0fdd28857e7b803ef13da1ed2d68819f073f966a2bd4fb517",
+        "termination_plan_digest": "40d892ed885e5c1b10d588e4789d07bce746e7f9bec99117f19e18aef41b965f",
         "world_identity": {
           "branch_id": "main",
           "genesis_digest": "genesis",
@@ -2101,7 +2101,7 @@
               "expires_at": "31000",
               "identity_instance_epoch": "3",
               "identity_namespace": "identity:test",
-              "intent_digest": "5e13fcc2be46ddfee33f632868412fee79a55c2f94df37576a3e2e848445f911",
+              "intent_digest": "b1db5d6f200bb09c7397d0474371f5297c50f430b47783aa849d30f6f33fb860",
               "issued_at": "1000",
               "key_id": "schema-native-key",
               "manager_account_id": "manager-one",
@@ -2112,7 +2112,7 @@
                 "api_version": 2,
                 "contract": "full_test_session_v2",
                 "model_budget_contract": null,
-                "summary_digest": "a9a4355f4112672ebdfaab7797417a6a75e490624b795b4ad52f91aac4afb8d9"
+                "summary_digest": "e99f31e96bd3570f4f797af75087d15e3fc55fa47d15c9c0dccf0bad6af65661"
               },
               "nonce": "schema-session-native-uv-proof",
               "origin_credential_id": "schema-origin",
@@ -2121,7 +2121,7 @@
               "passkey_credential_version": "1",
               "version": 1
             },
-            "signature": "_Mbf7MAwCHmCSR-OOEohfFoTNzo-AfAvCTJ1PW8wWtE0pOsrg400dZqgPrHwqN6oL4_Wz2fwiem7wWK-00X_BQ"
+            "signature": "J80disuAbzpz3jvZB8DgW4kFCqmQssZ0_m9M0K0dggVjgjkDRJDj-18OM6P5yu5Si1nZzUUXLJ9BxA7q6934Bw"
           },
           "operation_id": "session",
           "request": {
@@ -2203,6 +2203,7 @@
                 },
                 "termination": {
                   "api_version": 2,
+                  "cleanup_transport_policy": "term_wide_five_second_owned_v2",
                   "cleanup_until": "200000",
                   "close_operation_id": "ed271ccbba69ce22532824ea27df797ad9deabdbd36f609fdab214c682543b3d",
                   "close_policy": "literal_persistent_closed_v2",
@@ -2256,6 +2257,7 @@
                   "session_id": "session",
                   "setup_id": "setup",
                   "stop_operation_id": "bbc8e851556bb707154fb68293a026312e0157ddc70973c382e4092a7d8841b3",
+                  "stop_policy": "guarded_committed_utc_stop_v2",
                   "transport_limit": "24",
                   "trigger": "closing_only_v1",
                   "world": {
@@ -2325,7 +2327,7 @@
                   "task_status": "active",
                   "world_id": "world"
                 },
-                "termination_plan_digest": "af7702dddc5e56b0fdd28857e7b803ef13da1ed2d68819f073f966a2bd4fb517",
+                "termination_plan_digest": "40d892ed885e5c1b10d588e4789d07bce746e7f9bec99117f19e18aef41b965f",
                 "world_identity": {
                   "branch_id": "main",
                   "genesis_digest": "genesis",
@@ -2661,7 +2663,7 @@
             "task_status": "active",
             "world_id": "world"
           },
-          "termination_plan_digest": "af7702dddc5e56b0fdd28857e7b803ef13da1ed2d68819f073f966a2bd4fb517",
+          "termination_plan_digest": "40d892ed885e5c1b10d588e4789d07bce746e7f9bec99117f19e18aef41b965f",
           "world_identity": {
             "branch_id": "main",
             "genesis_digest": "genesis",
@@ -2672,6 +2674,7 @@
         },
         "termination": {
           "api_version": 2,
+          "cleanup_transport_policy": "term_wide_five_second_owned_v2",
           "cleanup_until": "200000",
           "close_operation_id": "ed271ccbba69ce22532824ea27df797ad9deabdbd36f609fdab214c682543b3d",
           "close_policy": "literal_persistent_closed_v2",
@@ -2725,6 +2728,7 @@
           "session_id": "session",
           "setup_id": "setup",
           "stop_operation_id": "bbc8e851556bb707154fb68293a026312e0157ddc70973c382e4092a7d8841b3",
+          "stop_policy": "guarded_committed_utc_stop_v2",
           "transport_limit": "24",
           "trigger": "closing_only_v1",
           "world": {
@@ -2817,6 +2821,7 @@
         },
         "termination": {
           "api_version": 2,
+          "cleanup_transport_policy": "term_wide_five_second_owned_v2",
           "cleanup_until": "200000",
           "close_operation_id": "ed271ccbba69ce22532824ea27df797ad9deabdbd36f609fdab214c682543b3d",
           "close_policy": "literal_persistent_closed_v2",
@@ -2870,6 +2875,7 @@
           "session_id": "session",
           "setup_id": "setup",
           "stop_operation_id": "bbc8e851556bb707154fb68293a026312e0157ddc70973c382e4092a7d8841b3",
+          "stop_policy": "guarded_committed_utc_stop_v2",
           "transport_limit": "24",
           "trigger": "closing_only_v1",
           "world": {
@@ -3031,6 +3037,7 @@
           },
           "termination": {
             "api_version": 2,
+            "cleanup_transport_policy": "term_wide_five_second_owned_v2",
             "cleanup_until": "200000",
             "close_operation_id": "ed271ccbba69ce22532824ea27df797ad9deabdbd36f609fdab214c682543b3d",
             "close_policy": "literal_persistent_closed_v2",
@@ -3084,6 +3091,7 @@
             "session_id": "session",
             "setup_id": "setup",
             "stop_operation_id": "bbc8e851556bb707154fb68293a026312e0157ddc70973c382e4092a7d8841b3",
+            "stop_policy": "guarded_committed_utc_stop_v2",
             "transport_limit": "24",
             "trigger": "closing_only_v1",
             "world": {
@@ -3153,7 +3161,7 @@
             "task_status": "active",
             "world_id": "world"
           },
-          "termination_plan_digest": "af7702dddc5e56b0fdd28857e7b803ef13da1ed2d68819f073f966a2bd4fb517",
+          "termination_plan_digest": "40d892ed885e5c1b10d588e4789d07bce746e7f9bec99117f19e18aef41b965f",
           "world_identity": {
             "branch_id": "main",
             "genesis_digest": "genesis",
@@ -3716,9 +3724,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -3776,6 +3824,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -4094,6 +4226,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -4764,7 +4912,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -5426,6 +5575,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -5472,6 +5624,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -5501,6 +5656,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -5619,6 +5776,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -5891,6 +6054,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -6206,7 +6385,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -6358,9 +6538,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -6418,6 +6638,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -6759,6 +7063,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -6805,6 +7112,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -6834,6 +7144,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -6952,6 +7264,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -7176,9 +7494,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -7236,6 +7594,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -8287,6 +8729,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -9054,7 +9512,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -9206,9 +9665,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -9266,6 +9765,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -9802,6 +10385,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -9848,6 +10434,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -9877,6 +10466,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -9995,6 +10586,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -10510,6 +11107,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -11278,7 +11891,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -11430,9 +12044,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -11490,6 +12144,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -12136,6 +12874,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -12182,6 +12923,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -12211,6 +12955,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -12329,6 +13075,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -12667,6 +13419,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -13435,7 +14203,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -13587,9 +14356,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -13647,6 +14456,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -14183,6 +15076,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -14229,6 +15125,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -14258,6 +15157,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -14376,6 +15277,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -14679,7 +15586,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -15446,7 +16354,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -16209,6 +17118,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -16878,7 +17803,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -17540,6 +18466,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -17586,6 +18515,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -17615,6 +18547,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -17733,6 +18667,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -18181,6 +19121,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -18949,7 +19905,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -19101,9 +20058,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -19161,6 +20158,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -19697,6 +20778,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -19743,6 +20827,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -19772,6 +20859,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -19890,6 +20979,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -20519,6 +21614,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -21189,7 +22300,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -21851,6 +22963,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -21897,6 +23012,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -21926,6 +23044,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -22044,6 +23164,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -23021,6 +24147,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -23788,7 +24930,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -23940,9 +25083,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -24000,6 +25183,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -24536,6 +25803,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -24582,6 +25852,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -24611,6 +25884,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -24729,6 +26004,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -26400,6 +27681,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -27167,7 +28464,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -27319,9 +28617,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -27379,6 +28717,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -27915,6 +29337,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -27961,6 +29386,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -27990,6 +29418,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -28185,6 +29615,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -28524,6 +29960,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -29291,7 +30743,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -29443,9 +30896,49 @@
             },
             {
               "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            },
+            {
+              "$ref": "#/$defs/NativeFullSessionProxySummaryContractV2"
             }
           ],
           "description": "Legacy owner-budget wire remains unchanged; the new V2 variant has a fixed\nrequired contract tag and cannot deserialize as the legacy deny-unknown DTO."
+        },
+        "NativeFullSessionProxyProfileV2": {
+          "enum": [
+            "full_test_session_proxy_v2"
+          ],
+          "type": "string"
+        },
+        "NativeFullSessionProxySummaryContractV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "basis": {
+              "$ref": "#/$defs/NativeModelProxyBasisV2"
+            },
+            "basis_digest": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/NativeFullSessionProxyProfileV2"
+            },
+            "full_session": {
+              "$ref": "#/$defs/NativeFullSessionSummaryContractV2"
+            }
+          },
+          "required": [
+            "api_version",
+            "contract",
+            "full_session",
+            "basis",
+            "basis_digest"
+          ],
+          "type": "object"
         },
         "NativeFullSessionSummaryContractV2": {
           "additionalProperties": false,
@@ -29503,6 +30996,90 @@
           "required": [
             "api_version",
             "summary_digest"
+          ],
+          "type": "object"
+        },
+        "NativeModelProxyBasisV2": {
+          "additionalProperties": false,
+          "properties": {
+            "api_version": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "approval_request_id": {
+              "type": "string"
+            },
+            "budget_digest": {
+              "type": "string"
+            },
+            "connection_generation": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "connection_ref_digest": {
+              "description": "Opaque actual N-owned connection binding, never provider key or SID.",
+              "type": "string"
+            },
+            "context_digest": {
+              "type": "string"
+            },
+            "endpoint_policy_digest": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "intent_digest": {
+              "type": "string"
+            },
+            "issued_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "ledger_id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            },
+            "native_instance_public_key": {
+              "type": "string"
+            },
+            "physical_graph_digest": {
+              "type": "string"
+            },
+            "preset_id": {
+              "type": "string"
+            },
+            "preset_revision": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "price_policy_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "approval_request_id",
+            "intent_digest",
+            "context_digest",
+            "budget_digest",
+            "ledger_id",
+            "native_account_id",
+            "native_instance_public_key",
+            "connection_ref_digest",
+            "connection_generation",
+            "preset_id",
+            "preset_revision",
+            "model",
+            "endpoint_policy_digest",
+            "physical_graph_digest",
+            "price_policy_digest",
+            "issued_at",
+            "expires_at"
           ],
           "type": "object"
         },
@@ -30039,6 +31616,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -30085,6 +31665,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -30114,6 +31697,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -30234,6 +31819,12 @@
             "literal_persistent_closed_v2"
           ],
           "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
+          ],
+          "type": "string"
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -30295,6 +31886,22 @@
     },
     "TestSessionBasisRequestV2": {
       "$defs": {
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "DecimalU64": {
           "maxLength": 20,
           "minLength": 1,
@@ -30310,6 +31917,17 @@
           "maximum": 255,
           "minimum": 0,
           "type": "integer"
+        },
+        "cleanup_transport_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only explicit World3 selects the new metadata basis, never an authority."
         },
         "cleanup_until": {
           "$ref": "#/$defs/DecimalU64"
@@ -31466,6 +33084,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -31800,6 +33434,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -31846,6 +33483,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -31875,6 +33515,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -31888,6 +33530,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -32175,6 +33823,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ControlBudgetV1": {
           "additionalProperties": false,
           "properties": {
@@ -32440,7 +34104,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -32824,6 +34489,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -32870,6 +34538,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -32899,6 +34570,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -32912,6 +34585,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -33590,6 +35269,22 @@
           ],
           "type": "object"
         },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
+        },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
           "properties": {
@@ -33904,7 +35599,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -34364,6 +36060,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -34410,6 +36109,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -34439,6 +36141,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -34557,6 +36261,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }
@@ -34859,6 +36569,22 @@
             "service_public_key"
           ],
           "type": "object"
+        },
+        "CleanupTransportPolicyV2": {
+          "description": "Exact new authenticated profile; this is not an upgrade of slot-bound facts.",
+          "oneOf": [
+            {
+              "enum": [
+                "term_wide_five_second_owned_v2"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_world3_v2",
+              "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            }
+          ]
         },
         "ClientPairingBindingV1": {
           "additionalProperties": false,
@@ -35529,7 +37255,8 @@
         },
         "ModelBudgetApprovalContractV1": {
           "enum": [
-            "native_custody_model_budget_v1"
+            "native_custody_model_budget_v1",
+            "native_custody_model_proxy_v2"
           ],
           "type": "string"
         },
@@ -36191,6 +37918,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cleanup_transport_policy": {
+              "$ref": "#/$defs/CleanupTransportPolicyV2"
+            },
             "cleanup_until": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -36237,6 +37967,9 @@
               "description": "Stable planned ID is not an allocated Stop request, nonce or signature.",
               "type": "string"
             },
+            "stop_policy": {
+              "$ref": "#/$defs/WorldTaskStopPolicyV2"
+            },
             "transport_limit": {
               "$ref": "#/$defs/DecimalU64"
             },
@@ -36266,6 +37999,8 @@
             "transport_limit",
             "trigger",
             "nonce_policy",
+            "stop_policy",
+            "cleanup_transport_policy",
             "close_policy"
           ],
           "type": "object"
@@ -36384,6 +38119,12 @@
         "WorldTaskClosePolicyV2": {
           "enum": [
             "literal_persistent_closed_v2"
+          ],
+          "type": "string"
+        },
+        "WorldTaskStopPolicyV2": {
+          "enum": [
+            "guarded_committed_utc_stop_v2"
           ],
           "type": "string"
         }

@@ -22,6 +22,27 @@ function localMillis(now) {
   if (!Number.isSafeInteger(value) || value < 0) throw fail("custody_clock_invalid");
   return BigInt(value);
 }
+// Native owns canonical hashes. The browser keeps exact returned commitments
+// and checks their visible binding; it never reimplements Rust signing codecs.
+function proxyBasisMatches(contract, budget, prepared, started, time) {
+  if (!budget || budget.approval_contract !== "native_custody_model_proxy_v2"
+    || contract?.api_version !== 2 || contract.contract !== "full_test_session_proxy_v2"
+    || Object.keys(contract).sort().join(",") !== "api_version,basis,basis_digest,contract,full_session"
+    || !/^[0-9a-f]{64}$/.test(contract.basis_digest)) return false;
+  const b = contract.basis;
+  if (b?.api_version !== 2 || Object.keys(b).sort().join(",") !== "api_version,approval_request_id,budget_digest,connection_generation,connection_ref_digest,context_digest,endpoint_policy_digest,expires_at,intent_digest,issued_at,ledger_id,model,native_account_id,native_instance_public_key,physical_graph_digest,preset_id,preset_revision,price_policy_digest"
+    || b.approval_request_id !== prepared.approval_request_id || b.intent_digest !== started.intent_digest
+    || !expiryMillis(budget.deadline) || b.ledger_id !== budget.ledger_id || b.native_account_id !== budget.native_account_id
+    || b.native_instance_public_key !== budget.native_instance_public_key
+    || b.preset_id !== budget.preset_id || b.preset_revision !== budget.preset_revision
+    || b.model !== budget.model || b.physical_graph_digest !== budget.physical_graph_digest
+    || !(b.connection_generation === "0" || expiryMillis(b.connection_generation)) || !expiryMillis(b.expires_at)
+    || !(b.issued_at === "0" || expiryMillis(b.issued_at))
+    || BigInt(b.issued_at) > time || BigInt(b.expires_at) <= time
+    || BigInt(b.expires_at) > BigInt(budget.deadline)) return false;
+  return [b.budget_digest, b.connection_ref_digest, b.context_digest, b.endpoint_policy_digest,
+    b.native_instance_public_key, b.price_policy_digest, b.intent_digest].every(v => /^[0-9a-f]{64}$/.test(v));
+}
 function randomHex(crypto) { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); return [...bytes].map(b => b.toString(16).padStart(2, "0")).join(""); }
 export function custodyCapability(value) {
   return value?.api_version === 1 && value.available === true && id(value.audience) && id(value.environment)
@@ -215,19 +236,22 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
       const budget = pending.plan.api_version === 2 ? pending.plan.model_budget : null;
       const full = pending.kind === "session_v2";
       const fullContract = started.model_budget_summary_contract;
-      if (full && (fullContract?.api_version !== 2 || fullContract.contract !== "full_test_session_v2"
-        || Object.keys(fullContract).sort().join(",") !== "api_version,contract,model_budget_contract,summary_digest"
-        || !/^[0-9a-f]{64}$/.test(fullContract.summary_digest)
+      const proxy = full && fullContract?.contract === "full_test_session_proxy_v2";
+      const fullBase = proxy ? fullContract.full_session : fullContract;
+      if (proxy && !proxyBasisMatches(fullContract, budget, pending.prepared, started, localMillis(now))) throw fail("custody_budget_summary_required");
+      if (full && (fullBase?.api_version !== 2 || fullBase.contract !== "full_test_session_v2"
+        || Object.keys(fullBase).sort().join(",") !== "api_version,contract,model_budget_contract,summary_digest"
+        || !/^[0-9a-f]{64}$/.test(fullBase.summary_digest)
         || !same(started.custody_session_summary_v2, { api_version: 2, plan: pending.plan, scope: pending.sessionScope })
         || typeof confirmSession !== "function")) throw fail("custody_session_summary_required");
       if (budget !== null && budget !== undefined) {
-        const contract = full ? fullContract.model_budget_contract : started.model_budget_summary_contract;
+        const contract = full ? fullBase.model_budget_contract : started.model_budget_summary_contract;
         if ([budget.max_calls, budget.max_input_tokens, budget.max_output_tokens, budget.max_total_tokens,
           budget.max_concurrent, budget.inference_physical_http, budget.deadline, budget.preset_revision,
           budget.price_policy?.valid_until, budget.price_policy?.max_total_micro_units].some(v => !expiryMillis(v))
           || !Array.isArray(budget.probe_physical_http) || budget.probe_physical_http.length !== 2
           || budget.probe_physical_http.some(v => !expiryMillis(v))
-          || budget.max_concurrent !== "1" || budget.approval_contract !== "native_custody_model_budget_v1"
+          || budget.max_concurrent !== "1" || budget.approval_contract !== (proxy ? "native_custody_model_proxy_v2" : "native_custody_model_budget_v1")
           || !same(started.model_budget_summary, budget) || contract?.api_version !== 1
           || Object.keys(contract).sort().join(",") !== "api_version,summary_digest"
           || !/^[0-9a-f]{64}$/.test(contract.summary_digest) || !full && typeof confirmModelBudget !== "function") throw fail("custody_budget_summary_required");
@@ -241,7 +265,7 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
           pending.state = "prepared"; throw fail("custody_budget_summary_expired");
         }
         pending.nativeBudgetContract = clone(contract);
-      } else if (started.model_budget_summary != null || (full ? fullContract.model_budget_contract !== null : started.model_budget_summary_contract != null)) throw fail("custody_options_invalid");
+      } else if (started.model_budget_summary != null || (full ? fullBase.model_budget_contract !== null : started.model_budget_summary_contract != null)) throw fail("custody_options_invalid");
       if (full) {
         pending.state = "session_summary";
         try { await confirmSession(clone({ parent: pending.parent, plan: pending.plan, scope: pending.sessionScope,
@@ -249,6 +273,7 @@ export function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, cr
         catch (error) { check(revision); pending.state = "prepared"; throw error; }
         check(revision);
         if (BigInt(started.ceremony_expires_at) <= localMillis(now) || BigInt(pending.plan.write_deadline) <= localMillis(now)
+          || proxy && BigInt(fullContract.basis.expires_at) <= localMillis(now)
           || budget !== null && budget !== undefined && BigInt(budget.deadline) <= localMillis(now)) {
           pending.state = "prepared"; throw fail("custody_session_summary_expired");
         }

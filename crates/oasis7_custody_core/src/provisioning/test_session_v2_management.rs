@@ -9,6 +9,9 @@ pub struct TestSessionBasisRequestV2 {
     pub enrollment_id: String,
     pub setup_id: String,
     pub cleanup_until: UnixMillis,
+    /// Only explicit World3 selects the new metadata basis, never an authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
 }
 impl TestSessionBasisRequestV2 {
     pub fn validate(&self) -> Result<()> {
@@ -17,6 +20,9 @@ impl TestSessionBasisRequestV2 {
             || !id(&self.enrollment_id)
             || !id(&self.setup_id)
             || self.cleanup_until.get() == 0
+            || self
+                .cleanup_transport_policy
+                .is_some_and(|p| p != CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
         {
             return Err(invalid());
         }
@@ -127,11 +133,14 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         let prepared = self.owner_setup_prepared_v2(&request.setup_id)?;
-        let termination = self.test_session_termination_basis_v2(
+        let mut termination = self.test_session_termination_basis_v2(
             &request.setup_id,
             &session_id,
             request.cleanup_until,
         )?;
+        if let Some(profile) = request.cleanup_transport_policy {
+            termination.cleanup_transport_policy = profile;
+        }
         let pairing = ClientPairingBindingV1 {
             api_version: 1,
             target: r.request.target.clone(),
@@ -184,6 +193,12 @@ impl AccountProvisionApprovalState {
                 enrollment_id: request.plan.enrollment_id.clone(),
                 setup_id: request.plan.termination.setup_id.clone(),
                 cleanup_until: request.plan.termination.cleanup_until,
+                cleanup_transport_policy: match request.plan.termination.cleanup_transport_policy {
+                    CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2 => None,
+                    CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2 => {
+                        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+                    }
+                },
             },
             current,
             now,

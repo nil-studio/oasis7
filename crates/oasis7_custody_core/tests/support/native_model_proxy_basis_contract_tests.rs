@@ -1,6 +1,6 @@
 //! Real Native signatures validate server-basis semantics, not provider runtime qualification.
 use super::*;
-fn proxy_input() -> (ApprovalAdmissionInput, ApprovalAdmissionContext) {
+pub(super) fn proxy_input() -> (ApprovalAdmissionInput, ApprovalAdmissionContext) {
     let (mut input, current) = input_with_summary(true);
     let CustodyIntentV1::TestSessionV2 { plan, .. } = &mut input.request.intent else {
         panic!("fixture");
@@ -27,7 +27,7 @@ fn key_from_seed(seed: u8) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
-fn with_basis(
+pub(super) fn with_basis(
     mut input: ApprovalAdmissionInput,
     current: &ApprovalAdmissionContext,
 ) -> ApprovalAdmissionInput {

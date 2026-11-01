@@ -471,3 +471,62 @@ fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_r
     );
     assert_eq!(f.state, before);
 }
+
+#[test]
+fn machine_world3_profile_changes_full_basis_and_does_not_upgrade_saved_native_consent() {
+    let (f, _, _) = activation_tests::preactivated(9000);
+    let mut input = f
+        .state
+        .test_session_v2_snapshot(&f.session_id)
+        .unwrap()
+        .input()
+        .clone();
+    let native = scope(&f.pin);
+    let proof = input.approval.proof.clone();
+    input
+        .request
+        .validate_native_summary_contract(
+            proof.model_budget_summary_contract.as_ref(),
+            &proof.manager_account_id,
+            Some(native.native_root_public_key),
+            proof.issued_at.0,
+        )
+        .unwrap();
+    let old_request = input.request.clone();
+    let old_intent = old_request.intent_digest().unwrap();
+    assert_eq!(old_intent, proof.intent_digest);
+    let CustodyIntentV1::TestSessionV2 { plan, scope } = &mut input.request.intent else {
+        panic!("actual V2 fixture");
+    };
+    let old_term_bytes = oasis7_wasm_abi::encode_canonical_cbor(&plan.termination).unwrap();
+    plan.termination.cleanup_transport_policy =
+        CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2;
+    scope.termination_plan_digest = plan.termination.digest().unwrap();
+    assert_ne!(
+        old_term_bytes,
+        oasis7_wasm_abi::encode_canonical_cbor(&plan.termination).unwrap()
+    );
+    // Metadata remains a legitimate new request; it is not new consent.
+    input.request.validate(proof.issued_at.0).unwrap();
+    assert_ne!(input.request.intent_digest().unwrap(), old_intent);
+    assert_eq!(input.approval.proof, proof);
+    assert!(
+        input
+            .request
+            .validate_native_summary_contract(
+                proof.model_budget_summary_contract.as_ref(),
+                &proof.manager_account_id,
+                Some(native.native_root_public_key),
+                proof.issued_at.0,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_string(&CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2).unwrap(),
+        "\"term_wide_five_second_owned_v2\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2).unwrap(),
+        "\"term_wide_five_second_owned_world3_v2\""
+    );
+}

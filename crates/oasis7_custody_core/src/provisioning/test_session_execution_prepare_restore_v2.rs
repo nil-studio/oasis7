@@ -44,6 +44,9 @@ impl AccountProvisionApprovalState {
         b: &SessionExecutionBookV2,
     ) -> Result<()> {
         for (key, row) in &s.purpose_transports {
+            if let SessionPurposeTransportV1::ExecutionPrepareRkvV2(port) = row {
+                super::rkv_ports_v2::parent_valid(s, key, port)?;
+            }
             if let SessionPurposeTransportV1::ExecutionPrepareCurrentV2(port) = row {
                 super::execution_current_ports_v2::current_port_parent_valid(s, key, port)?;
             }
@@ -193,6 +196,27 @@ impl AccountProvisionApprovalState {
         let expected = b.prepare_bundle(s, a, self.test_session_v2_world_read(&s.input)?)?;
         if stage.candidate_digest != expected.digest()? {
             return Err(invalid());
+        }
+        if let Some(record) = &stage.service_record {
+            super::rkv_ports_v2::validate_ports(s, record)?;
+            if paid.current_read.is_none() {
+                return Err(invalid());
+            }
+            let scope = crate::role_key_slot::RoleKeySlotScopeV1::from_task(
+                self.role_key_tasks.get("executor").ok_or_else(invalid)?,
+            )
+            .map_err(|_| invalid())?;
+            let public = self
+                .provision
+                .role_key(Role::Executor)
+                .ok_or_else(invalid)?;
+            super::prepare_service_v2::service_shape(
+                record,
+                &expected,
+                &scope,
+                public,
+                stage.signing_admitted_at,
+            )?;
         }
         Ok(())
     }

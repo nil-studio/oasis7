@@ -4,6 +4,8 @@ use super::*;
 mod current_ports_tests;
 #[path = "test_session_v2_execution_prepare_lf_restore_tests.rs"]
 mod lf_restore_tests;
+#[path = "test_session_v2_execution_prepare_signer_tests.rs"]
+mod signer_tests;
 fn allocation() -> ExecutionPrepareAllocationV2 {
     ExecutionPrepareAllocationV2 {
         operation_id: "actual-book-prepare-op".into(),

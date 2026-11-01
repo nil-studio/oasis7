@@ -73,6 +73,8 @@ pub struct TestSessionAuthorityV2 {
     #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) execution_book: Option<SessionExecutionBookV2>,
     #[serde(deserialize_with = "required_nullable")]
+    pub(in crate::provisioning) native_model_budget: Option<SessionNativeModelBudgetV2>,
+    #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) native_machine_registration:
         Option<NativeMachineRegistrationRecordV2>,
 }
@@ -108,6 +110,7 @@ impl TestSessionAuthorityV2 {
         if self.context.is_some() {
             return Err(invalid());
         }
+        SessionNativeModelBudgetV2::validate_session_binding(self)?;
         if let Some(machine) = &self.native_machine_registration {
             machine.validate_session(self)?;
         }

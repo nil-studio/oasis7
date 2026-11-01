@@ -298,6 +298,7 @@ impl IdentityService {
     ) -> Result<Value, StoreError> {
         let request: ApprovalOptionsRequestV1 =
             serde_json::from_value(payload.clone()).map_err(|_| reject("invalid_request"))?;
+        guarded_consent::require_supported_profile(&request)?;
         let config = self
             .custody
             .as_ref()

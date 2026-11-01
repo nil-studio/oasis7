@@ -136,5 +136,7 @@ impl AccountServiceIssuer {
     }
 }
 
+#[path = "account_service_issuer_execution.rs"]
+mod execution;
 #[path = "account_service_issuer_native.rs"]
 mod native;

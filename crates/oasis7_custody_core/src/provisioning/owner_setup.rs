@@ -581,10 +581,19 @@ pub use prepared_v2::*;
 #[path = "test_session_execution_signing_bundle_v2.rs"]
 mod execution_signing_bundle_v2;
 pub use execution_book_v2::{
-    ExecutionPrepareAllocationV2, ExecutionPrepareCurrentPortV2, ExecutionPrepareCurrentPortsV2,
-    ExecutionPrepareCurrentReadV2, ExecutionPrepareCurrentTransportKindV2,
-    ExecutionPrepareCurrentTransportV2, ExecutionPrepareFactoryKindV2,
-    ExecutionPrepareFactoryTransportV2, ExecutionPreparePaidIntentV2,
-    ExecutionPrepareSigningAuthorityV2,
+    AccountExecutionPreparePermitV2, ExecutionPrepareAllocationV2, ExecutionPrepareCurrentPortV2,
+    ExecutionPrepareCurrentPortsV2, ExecutionPrepareCurrentReadV2,
+    ExecutionPrepareCurrentTransportKindV2, ExecutionPrepareCurrentTransportV2,
+    ExecutionPrepareDispatchV2, ExecutionPrepareFactoryKindV2, ExecutionPrepareFactoryTransportV2,
+    ExecutionPreparePaidIntentV2, ExecutionPreparePermitsV2, ExecutionPreparePhysicalAttemptV2,
+    ExecutionPrepareRecipientV2, ExecutionPrepareRkvGraphV2, ExecutionPrepareRkvHopV2,
+    ExecutionPrepareRkvTransportV2, ExecutionPrepareSignedOriginalV2,
+    ExecutionPrepareSignerOperationV2, ExecutionPrepareSigningAuthorityV2,
+    SignedAccountExecutionPreparePermitV2, SignedExecutionPreparePermitsV2,
+    VerifiedExecutionPreparePermitV2, execution_prepare_physical_port_id_v2,
 };
 pub use execution_signing_bundle_v2::*;
+
+#[path = "test_session_native_model_budget_v2.rs"]
+mod native_model_budget_v2;
+pub(in crate::provisioning) use native_model_budget_v2::SessionNativeModelBudgetV2;

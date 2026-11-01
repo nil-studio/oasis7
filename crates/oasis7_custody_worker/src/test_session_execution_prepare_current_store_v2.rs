@@ -59,3 +59,117 @@ impl OwnerProvisionApprovalStore {
             .map_err(|_| rejected())
     }
 }
+
+impl OwnerProvisionApprovalStore {
+    /// The private SID/LF caller is the existing fixed Identity coordinator,
+    /// never a serialized Current/proof flag. Source/LF/Actor fees remain its
+    /// separate already-paid graph; these three reads supply only Dir/RF.
+    pub(crate) async fn complete_execution_prepare_permits_v2<F>(
+        &self,
+        env: &Env,
+        request: &TestSessionSelectorV1,
+        factory_key: &str,
+        observed: &ExecutionPrepareObservationV2,
+        private_current: F,
+    ) -> Result<Option<oasis7_custody_core::provisioning::ExecutionPrepareSignedOriginalV2>>
+    where
+        F: Fn() -> Result<super::client::ClientLiveCurrent>,
+    {
+        if env
+            .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+        {
+            return Err(rejected());
+        }
+        let saved = self.snapshot()?;
+        let draft = saved.state.draft();
+        if request.api_version != 2
+            || request.custody_account_id != draft.entry.custody_account_id
+            || request.provision_id != draft.entry.provision_id
+        {
+            return Err(rejected());
+        }
+        if let Some(old) = saved
+            .state
+            .test_session_v2_prepare_service_permits(&request.session_id)
+        {
+            if old.sign.permit.physical_ingress_key != factory_key {
+                return Err(rejected());
+            }
+            observed
+                .check_service_history(old)
+                .map_err(|_| rejected())?;
+            // Exact public history only. No seed load, signature, timestamp
+            // refresh, Source request, RKV dispatch, or opaque reconstruction.
+            return Ok(None);
+        }
+        let current = || {
+            let mut value = private_current()?;
+            value.native = observed.current(&self.state, env)?;
+            Ok(value)
+        };
+        let paid = self
+            .native_verified(
+                &|| Ok(current()?.native),
+                "execution_prepare_service_permits",
+                &request.session_id,
+                |state, _, _, time| {
+                    let owned = current()?;
+                    let mut jobs = state
+                        .test_session_v2_native_restore_checks(
+                            &request.session_id,
+                            &owned.native.scope.as_core(),
+                        )
+                        .map_err(|_| rejected())?;
+                    jobs.push(owned.with_core(|c| {
+                        state
+                            .test_session_v2_live_scope(
+                                &request.session_id,
+                                oasis7_custody_core::provisioning::SessionPurposeV1::Execution,
+                                c,
+                                oasis7_custody_core::time_units::UnixMillis::new(time),
+                            )
+                            .map_err(|_| rejected())
+                    })?);
+                    Ok(jobs)
+                },
+                |state, _, _, time, cache| {
+                    let at = oasis7_custody_core::time_units::UnixMillis::new(time);
+                    let authority = current()?.with_core(|c| {
+                        state
+                            .allocate_test_session_v2_execution_prepare(
+                                &request.session_id,
+                                factory_key,
+                                c,
+                                at,
+                                cache,
+                            )
+                            .map_err(|_| rejected())
+                    })?;
+                    let issuer = crate::account_service_issuer::AccountServiceIssuer::load(env)
+                        .map_err(|_| rejected())?;
+                    issuer
+                        .execution_prepare_recorded(
+                            state,
+                            &request.session_id,
+                            authority,
+                            observed,
+                            at,
+                        )
+                        .map_err(|_| rejected())
+                },
+            )
+            .await?;
+        let Some(paid) = paid else {
+            return Ok(None);
+        };
+        // SQL and all four physical claims have committed before either service
+        // call. Failure/unknown never recreates this token or refunds a leaf.
+        crate::execution_prepare_rpc_v2::dispatch(env, paid)
+            .await
+            .map(Some)
+    }
+}

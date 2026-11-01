@@ -48,6 +48,21 @@ impl ExecutionPrepareObservationV2 {
         }
         Ok(())
     }
+    pub(crate) fn check_service_history(
+        &self,
+        pair: &oasis7_custody_core::provisioning::SignedExecutionPreparePermitsV2,
+    ) -> Result<()> {
+        let p = &pair.sign.permit;
+        if p.session_id != self.funding.session_id()
+            || p.physical_ingress_key != self.funding.factory_key()
+            || p.approved_input_digest != self.funding.approved_input_digest()
+            || p.source_operation_id != self.funding.read().source_operation_id
+            || p.source_nonce != self.funding.source_nonce()
+        {
+            return Err(denied());
+        }
+        Ok(())
+    }
     pub(crate) fn until(&self) -> UnixMillis {
         self.until
     }

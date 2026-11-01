@@ -173,8 +173,13 @@ fn termination_metadata_matches_the_exact_approved_parent_scope() {
 #[test]
 fn emit_full_session_ui_contract_fixture() {
     let mut cases = Vec::new();
-    for model in [false, true] {
-        let (input, current) = input_with_summary(model);
+    let (proxy, proxy_current) = proxy_basis_tests::proxy_input();
+    let proxy = proxy_basis_tests::with_basis(proxy, &proxy_current);
+    for (input, current) in [
+        input_with_summary(false),
+        input_with_summary(true),
+        (proxy, proxy_current),
+    ] {
         native_signature_is_valid(&input);
         ApprovalAdmissionBook::default()
             .begin(
@@ -199,7 +204,7 @@ fn emit_full_session_ui_contract_fixture() {
         cases.push(json!({
             "original": original,
             "prepared": input.request,
-            "contract": input.request.expected_model_budget_summary_contract().unwrap().unwrap(),
+            "contract": input.approval.proof.model_budget_summary_contract.as_ref().unwrap(),
             "summary": input.request.native_session_summary_v2().unwrap(),
             "budget": plan.model_budget,
             "input": input,

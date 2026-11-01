@@ -78,6 +78,8 @@ struct MoveStageOutboxV2 {
     allocation: MoveStageAllocationV2,
     candidate_digest: String,
     signing_admitted_at: UnixMillis,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service_record: Option<ExecutionPrepareServiceRecordV2>,
     #[serde(deserialize_with = "required_option")]
     original: Option<PublicStageOriginalV2>,
     #[serde(deserialize_with = "required_option")]
@@ -318,6 +320,52 @@ impl SessionExecutionBookV2 {
         match s.purpose_transports.get(key) {
             Some(SessionPurposeTransportV1::ExecutionPrepareCurrentV2(p)) => {
                 execution_current_ports_v2::current_port_parent_valid(s, key, p).is_ok()
+            }
+            _ => false,
+        }
+    }
+}
+
+#[path = "test_session_execution_signer_permit_v2.rs"]
+mod signer_permit_v2;
+pub use signer_permit_v2::{
+    AccountExecutionPreparePermitV2, ExecutionPreparePermitsV2, ExecutionPrepareRecipientV2,
+    ExecutionPrepareServiceRecordV2, ExecutionPrepareSignerOperationV2,
+    SignedAccountExecutionPreparePermitV2, SignedExecutionPreparePermitsV2,
+    VerifiedExecutionPreparePermitV2,
+};
+#[path = "test_session_execution_prepare_signed_v2.rs"]
+mod signed_prepare_v2;
+pub use signed_prepare_v2::ExecutionPrepareSignedOriginalV2;
+
+#[path = "test_session_execution_prepare_service_v2.rs"]
+mod prepare_service_v2;
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn prepare_service_record(
+        &self,
+    ) -> Option<&ExecutionPrepareServiceRecordV2> {
+        self.stages
+            .get(&MoveExecutionStageV2::Prepare)
+            .and_then(|s| s.service_record.as_ref())
+    }
+}
+
+#[path = "test_session_execution_rkv_ports_v2.rs"]
+mod rkv_ports_v2;
+pub use rkv_ports_v2::{
+    ExecutionPrepareDispatchV2, ExecutionPreparePhysicalAttemptV2, ExecutionPrepareRkvGraphV2,
+    ExecutionPrepareRkvHopV2, ExecutionPrepareRkvTransportV2,
+    execution_prepare_physical_port_id_v2,
+};
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn owns_prepare_rkv_transport(
+        &self,
+        s: &TestSessionAuthorityV2,
+        key: &str,
+    ) -> bool {
+        match s.purpose_transports.get(key) {
+            Some(SessionPurposeTransportV1::ExecutionPrepareRkvV2(p)) => {
+                rkv_ports_v2::parent_valid(s, key, p).is_ok()
             }
             _ => false,
         }

@@ -40,6 +40,8 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
       box.append(el("h4", "确认受限推理预算"));
       box.append(el("p", "此批准只约束同一原件与预算，不启动推理；仍须核验当前权限与完整费用图。供应商未知结果仍占最大额，不自动重试。"));
       const b = summary.budget, p = b?.price_policy;
+      const proxy = summary.contract?.contract === "full_test_session_proxy_v2" ? summary.contract : null;
+      const nativeSummary = proxy?.full_session ?? summary.contract;
       if (summary.scope) {
         box.querySelector("h4").textContent = "确认完整 TestSession V2 范围与永久关闭";
         for (const [label, value] of Object.entries({
@@ -47,7 +49,7 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
           "获批动作": JSON.stringify(summary.plan.actions), "允许资源引用": JSON.stringify(summary.plan.allowed_resource_refs),
           "业务上限": summary.plan.business_limit, "写 / 读 / 清理截止毫秒": `${summary.plan.write_deadline} / ${summary.plan.read_until} / ${summary.plan.cleanup_until}`,
           "永久关闭合同": JSON.stringify(summary.plan.termination), "获批完整范围": JSON.stringify(summary.scope),
-          "模型预算": b ? "按下列固定整会话预算批准" : "无模型推理权", "Native完整摘要": summary.contract.summary_digest,
+          "模型预算": b ? "按下列固定整会话预算批准" : "无模型推理权", "Native完整摘要": nativeSummary.summary_digest,
         })) detail(list, label, value);
       }
       if (b)
@@ -63,13 +65,23 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
         "两次探测物理 HTTP 上界":b.probe_physical_http.join(" / "),
         "每次推理物理 HTTP 上界（含授权与预付）":b.inference_physical_http,
         "声明的固定调用图摘要":b.physical_graph_digest,
-        "货币 / 最大微单位总额":`${p.currency} / ${p.max_total_micro_units}`,
+        "本地政策货币 / 最大微单位总额":`${p.currency} / ${p.max_total_micro_units}`,
         "每百万输入 / 输出 token 微单位费率":`${p.input_micro_units_per_million} / ${p.output_micro_units_per_million}`,
         "价格快照摘要 / 截止毫秒":`${p.quote_digest} / ${p.valid_until}`,
         "推理绝对截止毫秒":b.deadline, "批准原件截止毫秒":summary.plan.deadline ?? summary.plan.write_deadline,
         "Skill / 工具 / 上下文策略摘要":`${b.skill_digest} / ${b.tools_digest} / ${b.context_policy_digest}`,
-        "Native摘要合同":`${summary.contract.api_version} / ${summary.contract.summary_digest}`,
+        "Native摘要合同":`${nativeSummary.api_version} / ${nativeSummary.summary_digest}`,
       })) detail(list, label, value);
+      if (proxy) {
+        const basis = proxy.basis;
+        for (const [label, value] of Object.entries({
+          "本次 Native 注册摘要": proxy.basis_digest,
+          "本次连接引用 / 代际": `${basis.connection_ref_digest} / ${basis.connection_generation}`,
+          "Native 注册有效截止毫秒": basis.expires_at,
+          "Native 价格政策承诺": basis.price_policy_digest,
+        })) detail(list, label, value);
+        box.append(el("p", "所示金额是本地政策预算，不能视为供应商保证账单；缺少合格价格或完整调用图时不会启动推理。"));
+      }
       box.append(list);
       let settled = false;
       const settle = accepted => { if (settled) return; settled = true; cancelBudgetConfirmation = null; box.remove();

@@ -250,6 +250,10 @@ impl AccountProvisionApprovalState {
             || s.approved_at.is_some()
             || now.get() >= deadline
             || s.preflight_steps.contains_key(&step)
+            // The new fixed World3 lane requires its dedicated atomic producer.
+            // Ordinary calls cannot borrow that profile's not-yet-issued proof.
+            || s.header()?.0.termination.cleanup_transport_policy
+                == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
         {
             return Err(invalid());
         }

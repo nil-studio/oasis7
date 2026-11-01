@@ -203,7 +203,19 @@ mod test_session_v2_control_rpc;
 
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod account_service_issuer;
+
+#[cfg(all(feature = "execution-signer-harness", not(feature = "executor")))]
+compile_error!("execution-signer-harness requires executor and is not a deployment profile");
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "executor",
+    feature = "execution-signer-harness"
+))]
+pub use role_key_store::ExecutionPrepareSignerHarness;
 #[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
 mod native_http_bounded;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod native_machine_activation_transport;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "executor")))]
+mod execution_prepare_rpc_v2;

@@ -65,6 +65,19 @@ fn native_configuration_digest(
     .map_err(|_| unavailable())?;
     Ok(blake3::hash(&bytes).to_hex().to_string())
 }
+// World3 cannot fall through ordinary consent while its actual consumer is absent.
+pub(super) fn require_supported_profile(
+    request: &ApprovalOptionsRequestV1,
+) -> Result<(), StoreError> {
+    if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
+        if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+    {
+        return Err(StoreError::Rejected(
+            "cleanup_world3_profile_unavailable".into(),
+        ));
+    }
+    Ok(())
+}
 pub(super) fn options_binding(
     service: &IdentityService,
     request: &ApprovalOptionsRequestV1,
@@ -181,6 +194,7 @@ pub(super) fn verify_existing_guarded_consent_v2(
     identity: &super::super::config::IdentityConfig,
     record: &ApprovalRecord,
 ) -> Result<(), StoreError> {
+    require_supported_profile(&record.request)?;
     let Some(tag) = &record.guarded_consent_provenance else {
         return Ok(());
     };

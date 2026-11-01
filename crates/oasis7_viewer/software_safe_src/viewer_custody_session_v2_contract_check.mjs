@@ -4,12 +4,17 @@ import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { createOwnerSetupClient, CUSTODY_PATHS } from "./viewer_custody_owner_setup_client.js";
 let stage="fixture";
+let caseIndex=-1;
 const requireTrue = value => { if (!value) throw Error("contract_gate_failed"); };
 const same=isDeepStrictEqual;
 try {
   const exported=JSON.parse(readFileSync(process.argv[2],"utf8"));
-  requireTrue(exported.api_version===1&&exported.fixture_only===true&&exported.cases.length===2);
+  requireTrue(exported.api_version===1&&exported.fixture_only===true&&exported.cases.length===3);
+  requireTrue(exported.cases[0].budget===null
+    && exported.cases[1].budget.approval_contract==="native_custody_model_budget_v1"
+    && exported.cases[2].budget.approval_contract==="native_custody_model_proxy_v2");
   for(const item of exported.cases){
+    ++caseIndex;
     const {original,prepared,contract,summary,budget,input}=item;
     const approval=input.approval,approvalId=approval.proof.approval_id,intentDigest=approval.proof.intent_digest;
     requireTrue(same(input.request,prepared)&&same(approval.proof.model_budget_summary_contract,contract));
@@ -34,5 +39,5 @@ try {
     stage="confirm_get_complete_approve";const result=await client.approve({confirmSession:async actual=>{++confirms;requireTrue(gets===0&&same(actual.plan,original.plan)&&same(actual.scope,original.scope));}});
     requireTrue(gets===1&&options===1&&approves===1&&result.execution_started===false);
   }
-  console.log("typed_session_ui_contract_cases=2 passed=true browser_native_qualification=false");
-}catch{console.error(`typed_session_ui_contract_failed stage=${stage}`);process.exitCode=1;}
+  console.log("typed_session_ui_contract_cases=3 passed=true browser_native_qualification=false");
+}catch{console.error(`typed_session_ui_contract_failed case=${caseIndex} stage=${stage}`);process.exitCode=1;}

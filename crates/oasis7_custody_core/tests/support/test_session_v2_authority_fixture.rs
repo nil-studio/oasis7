@@ -14,6 +14,25 @@ fn pending_fixture() -> SessionFixture {
     pending_fixture_with_control_requests(80)
 }
 fn pending_fixture_with_control_requests(control_requests: u64) -> SessionFixture {
+    pending_fixture_with_model_budget(control_requests, None)
+}
+fn pending_fixture_with_model_budget(
+    control_requests: u64,
+    model_budget: Option<ModelInferenceBudgetV1>,
+) -> SessionFixture {
+    pending_fixture_with_model_budget_and_profile(control_requests, model_budget, None)
+}
+fn pending_fixture_with_profile(
+    control_requests: u64,
+    cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
+) -> SessionFixture {
+    pending_fixture_with_model_budget_and_profile(control_requests, None, cleanup_transport_policy)
+}
+fn pending_fixture_with_model_budget_and_profile(
+    control_requests: u64,
+    mut model_budget: Option<ModelInferenceBudgetV1>,
+    cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
+) -> SessionFixture {
     let (mut s, mut c, pin) = prepared_move0_v2_fixture();
     c.handoff_until = DecimalU64(80_000);
     let policy = Policy::new(s.draft());
@@ -75,6 +94,7 @@ fn pending_fixture_with_control_requests(control_requests: u64) -> SessionFixtur
                 enrollment_id: fact.registration.enrollment_id.clone(),
                 setup_id: "setup-one".into(),
                 cleanup_until: UnixMillis::new(60_000),
+                cleanup_transport_policy,
             },
             &TestSessionManagementCurrent {
                 management: &management,
@@ -89,9 +109,13 @@ fn pending_fixture_with_control_requests(control_requests: u64) -> SessionFixtur
     let session_id = session_scope.session_id.clone();
     let term = basis.termination;
     let owner = s.owner_setup_v2_plan().unwrap();
+    if let Some(budget) = &mut model_budget {
+        budget.native_account_id = c.source.manager_account_id.clone();
+        budget.native_public_key = c.native_key_pins.values().next().unwrap().clone();
+    }
     let plan = TestSessionPlanV2 {
         api_version: 2,
-        model_budget: None,
+        model_budget,
         termination: Box::new(term),
         request_id: "v2-session-request".into(),
         enrollment_id: fact.registration.enrollment_id.clone(),
@@ -155,10 +179,8 @@ fn pending_fixture_with_control_requests(control_requests: u64) -> SessionFixtur
     input.approval.proof.approval_request_id = input.request.approval_request_id.clone();
     input.approval.proof.issued_at = DecimalU64(8000);
     input.approval.proof.expires_at = DecimalU64(38_000);
-    input.approval.proof.model_budget_summary_contract = input
-        .request
-        .expected_model_budget_summary_contract()
-        .unwrap();
+    input.approval.proof.model_budget_summary_contract =
+        native_model_budget_tests::summary_contract(&input, &c);
     input.approval = sign_proof(input.approval.proof);
     let policy = Policy::new(s.draft());
     let p = policy.current(&c);
@@ -187,10 +209,8 @@ fn pending_fixture_with_control_requests(control_requests: u64) -> SessionFixtur
         plan.validate_scope(scope, 8002).unwrap();
     }
     wrong.approval.proof.intent_digest = wrong.request.intent_digest().unwrap();
-    wrong.approval.proof.model_budget_summary_contract = wrong
-        .request
-        .expected_model_budget_summary_contract()
-        .unwrap();
+    wrong.approval.proof.model_budget_summary_contract =
+        native_model_budget_tests::summary_contract(&wrong, &c);
     wrong.approval = sign_proof(wrong.approval.proof);
     StrictCrypto
         .verify(
@@ -315,3 +335,76 @@ mod credential_tests;
 
 #[path = "test_session_v2_machine_tests.rs"]
 mod machine_tests;
+#[path = "test_session_v2_native_model_budget_tests.rs"]
+mod native_model_budget_tests;
+
+#[test]
+fn world3_explicit_basis_produces_new_full_consumed_approval_without_execution_book_or_roots() {
+    let old = pending_fixture();
+    let new = pending_fixture_with_profile(
+        80,
+        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2),
+    );
+    let original = old.state.test_session_v2_snapshot(&old.session_id).unwrap();
+    let fresh = new.state.test_session_v2_snapshot(&new.session_id).unwrap();
+    let CustodyIntentV1::TestSessionV2 { plan: old_plan, .. } = &original.input().request.intent
+    else {
+        panic!("actual old V2");
+    };
+    let CustodyIntentV1::TestSessionV2 { plan: new_plan, .. } = &fresh.input().request.intent
+    else {
+        panic!("actual new V2");
+    };
+    assert_eq!(
+        old_plan.termination.cleanup_transport_policy,
+        CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
+    );
+    assert_eq!(
+        new_plan.termination.cleanup_transport_policy,
+        CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+    );
+    assert_ne!(old_plan.digest().unwrap(), new_plan.digest().unwrap());
+    assert_ne!(original.input().approval, fresh.input().approval);
+    assert_eq!(
+        new.state
+            .test_session_v2_original(&new.session_id)
+            .unwrap()
+            .stage(),
+        oasis7_custody_core::approval_admission::ApprovalAdmissionStage::Consumed
+    );
+    assert!(fresh.roots().is_empty());
+    let json = serde_json::to_value(&new.state).unwrap();
+    assert!(json["test_sessions_v2"][&new.session_id]["execution_book"].is_null());
+    assert!(new.state.test_sessions().is_empty());
+}
+#[test]
+fn world3_metadata_selector_preserves_none_wire_and_rejects_redundant_old_variant() {
+    let mut q = TestSessionBasisRequestV2 {
+        api_version: 2,
+        request_id: "r".into(),
+        enrollment_id: "e".into(),
+        setup_id: "s".into(),
+        cleanup_until: UnixMillis::new(60000),
+        cleanup_transport_policy: None,
+    };
+    let raw = serde_json::to_value(&q).unwrap();
+    assert_eq!(raw.as_object().unwrap().len(), 5);
+    assert_eq!(
+        serde_json::from_value::<TestSessionBasisRequestV2>(raw.clone()).unwrap(),
+        q
+    );
+    assert!(raw.get("cleanup_transport_policy").is_none());
+    q.cleanup_transport_policy = Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2);
+    assert!(q.validate().is_err());
+    q.cleanup_transport_policy = Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2);
+    q.validate().unwrap();
+    let fresh = serde_json::to_value(&q).unwrap();
+    assert_eq!(
+        fresh["cleanup_transport_policy"],
+        "term_wide_five_second_owned_world3_v2"
+    );
+    assert_eq!(
+        serde_json::from_value::<TestSessionBasisRequestV2>(fresh).unwrap(),
+        q
+    );
+}

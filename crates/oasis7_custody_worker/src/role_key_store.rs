@@ -135,7 +135,14 @@ fn inventory(raw: &str) -> Result<()> {
                     | "table:custody_audit"
                     | "table:sqlite_sequence"
                     | "table:_cf_METADATA"
-            )
+            ) && !(COMPILED_ROLE == Role::Executor
+                && matches!(
+                    name.as_str(),
+                    "table:custody_execution_signer_state_v2"
+                        | "table:custody_execution_signer_once_v2"
+                        | "table:custody_execution_signer_originals_v2"
+                        | "table:custody_execution_signer_initializations_v2"
+                ))
         })
     {
         return Err(rejected());
@@ -527,3 +534,25 @@ pub(crate) use test_session_signing::{TestSessionSigningCurrent, test_session_si
 mod test_session_v2_signing;
 #[cfg(feature = "owner")]
 pub(crate) use test_session_v2_signing::test_session_v2_signing_digest;
+
+#[cfg(feature = "executor")]
+#[path = "role_key_execution_once_v2.rs"]
+mod execution_once_v2;
+#[cfg(feature = "executor")]
+#[path = "role_key_execution_prepare_v2.rs"]
+mod execution_prepare_v2;
+#[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
+pub(crate) use execution_prepare_v2::{
+    ExecutionPrepareKeyV2, ExecutionPrepareSigningCurrentV2, execution_prepare_sealed_current_v2,
+};
+#[cfg(feature = "executor")]
+#[path = "role_key_execution_configuration_v2.rs"]
+mod execution_configuration_v2;
+#[cfg(feature = "executor")]
+pub(crate) use execution_configuration_v2::ExecutionIssuerConfigurationV2;
+
+#[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
+#[path = "../tests/support/execution_prepare_signer_harness_v2.rs"]
+mod execution_prepare_harness;
+#[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
+pub use execution_prepare_harness::ExecutionPrepareSignerHarness;

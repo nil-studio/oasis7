@@ -119,6 +119,7 @@ pub(super) fn fixtures() -> Value {
         enrollment_id: session.enrollment_id.clone(),
         setup_id: owner.setup_id.clone(),
         cleanup_until: crate::time_units::UnixMillis::new(session.cleanup_until.0),
+        cleanup_transport_policy: None,
     };
     basis_request.validate().unwrap();
     // Schema metadata only, sharing the already validated example plan's exact

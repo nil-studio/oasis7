@@ -62,6 +62,29 @@ impl Replay<'_> {
                     .map_err(|_| invalid())?;
                 self.execution_prepare_current_ports = true;
             }
+            SessionEventKindV2::ExecutionPreparePermitsRecorded { request_id } => {
+                self.live(SessionPurposeV1::Execution, at)?;
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let record = book.prepare_service_record().ok_or_else(invalid)?;
+                if !self.execution_prepare_current_ports
+                    || !self.execution_prepare_admitted
+                    || self.execution_prepare_permits_recorded
+                    || record.recorded_at != at
+                    || request_id != b.request_id
+                    || self.reads.get(b.source_operation_id) != Some(&5)
+                    || self.generations.get(&SessionPurposeV1::Execution)
+                        != Some(&b.credential_generation.0)
+                {
+                    return Err(invalid());
+                }
+                self.source_ready(b.source_operation_id, at)?;
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::Execution)
+                    .ok_or_else(invalid)?
+                    .charge(4)
+                    .map_err(|_| invalid())?;
+                self.execution_prepare_permits_recorded = true;
+            }
             SessionEventKindV2::ExecutionPrepareAllocated { request_id } => {
                 self.live(SessionPurposeV1::Execution, at)?;
                 let (original_request, paid_key, admitted_at) = self

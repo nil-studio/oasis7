@@ -257,6 +257,7 @@ impl AccountProvisionApprovalState {
                 actions: BTreeMap::new(),
                 termination_state: termination_state.clone(),
                 execution_book: None,
+                native_model_budget: None,
                 native_machine_registration: None,
             });
         if s.input != admission.input || s.enrollment != *current.enrollment.fact {
@@ -382,6 +383,7 @@ impl AccountProvisionApprovalState {
         if !hex64(&commit.source_nonce) {
             return Err(invalid());
         }
+        s.native_model_budget = SessionNativeModelBudgetV2::from_consumed_input(&s.input, now)?;
         s.consumed_at = Some(now);
         s.preflight_source_nonce = Some(commit.source_nonce);
         append_session_event_v2(s, SessionEventKindV2::ApprovalConsumed, now)?;

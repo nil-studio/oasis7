@@ -99,6 +99,7 @@ impl AccountProvisionApprovalState {
                             book.owns_lifetime_transport(key)
                                 || book.owns_prepare_factory_transport(s, key)
                                 || book.owns_prepare_current_transport(s, key)
+                                || book.owns_prepare_rkv_transport(s, key)
                         })
                 })
             {

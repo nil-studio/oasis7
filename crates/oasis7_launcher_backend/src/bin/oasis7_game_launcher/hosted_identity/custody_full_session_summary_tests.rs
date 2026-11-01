@@ -116,3 +116,6 @@ fn full_session_summary_is_required_with_no_model_and_old_records_stay_opaque() 
 
 #[path = "custody_guarded_consent_bootstrap_tests.rs"]
 mod guarded_consent_bootstrap_tests;
+
+#[path = "custody_model_draft_generation_tests.rs"]
+mod model_draft_generation_tests;

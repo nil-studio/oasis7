@@ -113,7 +113,6 @@ impl NativeModelProxyBasisV2 {
             || self.native_account_id != budget.native_account_id
             || self.native_account_id != manager_account_id
             || self.native_instance_public_key != budget.native_instance_public_key
-            || self.connection_generation.0 == 0
             || self.preset_id != budget.preset_id
             || self.preset_revision != budget.preset_revision
             || self.model != budget.model

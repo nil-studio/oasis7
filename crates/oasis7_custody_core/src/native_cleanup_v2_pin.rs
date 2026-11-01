@@ -7,6 +7,7 @@ pub enum AccountMachinePurposeV2 {
     NativeFinalCurrent,
     NativeCurrentAttempt,
     NativeTermCurrentAttempt,
+    ExecutionPrepareSignerV2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -1,6 +1,6 @@
 use super::*;
 
-fn model_v2_options(now: u64) -> Value {
+pub(super) fn model_v2_options(now: u64) -> Value {
     let mut request = options(now);
     request["approval_request_id"] = json!("model-summary-old");
     let price_policy = json!({"currency":"USD","input_micro_units_per_million":"1000000","output_micro_units_per_million":"2000000","max_total_micro_units":"600","quote_digest":"88".repeat(32),"valid_until":(now+100_000).to_string()});

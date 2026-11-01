@@ -25,6 +25,7 @@ pub(super) struct Replay<'a> {
     execution_prepare_paid: bool,
     execution_prepare_current_ports: bool,
     execution_prepare_admitted: bool,
+    execution_prepare_permits_recorded: bool,
     execution_lifetime_claimed: bool,
     execution_lifetime_archived: bool,
     execution_lifetime_admitted: bool,
@@ -76,6 +77,7 @@ impl<'a> Replay<'a> {
             execution_prepare_paid: false,
             execution_prepare_current_ports: false,
             execution_prepare_admitted: false,
+            execution_prepare_permits_recorded: false,
             execution_lifetime_claimed: false,
             execution_lifetime_archived: false,
             execution_lifetime_admitted: false,
@@ -246,7 +248,9 @@ impl<'a> Replay<'a> {
 
         if let Some(book) = &s.execution_book {
             let b = book.journal_record();
-            if self.execution_prepare_current_ports != book.prepare_current_read(self.s).is_some()
+            if self.execution_prepare_permits_recorded != book.prepare_service_record().is_some()
+                || self.execution_prepare_current_ports
+                    != book.prepare_current_read(self.s).is_some()
                 || self.execution_prepare_paid != (book.prepare_paid_count() == 1)
                 || self.execution_prepare_admitted != (book.prepare_stage_count() == 1)
                 || !self.execution_started
@@ -263,6 +267,7 @@ impl<'a> Replay<'a> {
             || self.execution_prepare_current_ports
             || self.execution_prepare_paid
             || self.execution_prepare_admitted
+            || self.execution_prepare_permits_recorded
         {
             return Err(invalid());
         }
