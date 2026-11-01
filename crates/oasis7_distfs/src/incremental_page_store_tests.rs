@@ -1,3 +1,6 @@
+#[path = "incremental_buffered_page_writer_tests.rs"]
+mod buffered_writer_tests;
+
 use super::*;
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext, write_value};
 use std::sync::atomic::AtomicU64;
