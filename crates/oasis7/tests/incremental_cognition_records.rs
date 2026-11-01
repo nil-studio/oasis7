@@ -406,6 +406,8 @@ fn run_cognition(all_optional: bool) {
                 .find(|r| r.namespace == *namespace)
                 .unwrap() = StateRootV1::from_canonical_bytes(&roots[index]).unwrap();
         }
+        let parent_family =
+            (!all_optional).then(|| family_faults::qualify_ordinary(&store, &memory, &top));
         let execution_parent = ExecutionParent {
             roots: top,
             commit: [4; 32],
@@ -547,6 +549,29 @@ fn run_cognition(all_optional: bool) {
         )
         .unwrap();
         assert_eq!(accepted.body_root(), second.body_root());
+        if let Some(parent_family) = &parent_family {
+            let family = oasis7_runtime::incremental_cognition_family::accept_cognition_current_scalar_transition_v1(
+                parent_family, &verifier, &sealed.record, &mut read,
+                &mut JsonScalarChangeWorkV1 {
+                    json:JsonReadWorkV1 {cells_remaining:64,json_nodes_remaining:8,max_depth:4,max_payload_bytes:4096},
+                    paths_remaining:4096,max_pending_pairs:8,
+                }).unwrap();
+            let id = sealed.record.after.digest().unwrap();
+            family.validate_binding(&id).unwrap();
+            assert_eq!(
+                family
+                    .json_entry(CognitionJsonFieldV1::FeedbackOutbox, &id)
+                    .unwrap()
+                    .unwrap()
+                    .body_root(),
+                second.body_root()
+            );
+            assert!(
+                family
+                    .validate_binding(&sealed.record.before.digest().unwrap())
+                    .is_err()
+            );
+        }
         expected_feedback = accepted.body_root().canonical_bytes().unwrap();
         let generic = verifier.verify(&sealed.record).unwrap();
         assert!(generic.new_nodes.len() <= 257);

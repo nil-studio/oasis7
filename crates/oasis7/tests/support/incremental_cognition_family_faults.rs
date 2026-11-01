@@ -118,3 +118,53 @@ pub fn reject_malformed_outer(
         );
     }
 }
+
+/// Explicit bootstrap scope, separate from normal incremental receiver work.
+pub fn qualify_ordinary(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    roots: &RootSetV1,
+) -> oasis7_proto::memory_budget::ReservedValue<
+    oasis7_runtime::incremental_cognition_family::CognitionCurrentStateQualificationV1,
+> {
+    let state = store
+        .state_session(physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let values = store.value_session(physical());
+    let mut io = fixture::logical();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 16 << 20,
+    };
+    let mut context = WorldFieldReadContextV1 {
+        root: &roots.state[0],
+        state: &state,
+        values: ValueReadContext {
+            source: &values,
+            memory,
+            class: MemoryClass::Ordinary,
+            io: &mut io,
+        },
+        key_work: &mut keys,
+        semantic_bytes: 4096,
+        record_bytes: 8192,
+        take_state_error: || state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    qualify_cognition_current_state_v1(
+        roots,
+        &mut context,
+        &mut StateScanBudget {
+            nodes_remaining: 100_000,
+            read_bytes_remaining: 64 << 20,
+            leaves_remaining: 1000,
+        },
+        &mut oasis7_runtime::incremental_json_records::JsonReadWorkV1 {
+            cells_remaining: 4096,
+            json_nodes_remaining: 512,
+            max_depth: 4,
+            max_payload_bytes: 4096,
+        },
+        &mut 1000,
+    )
+    .unwrap()
+}
