@@ -376,7 +376,12 @@ fn run_cognition(all_optional: bool) {
                 },
             )
             .unwrap();
-            assert_eq!(advanced.node_count(), parent.node_count());
+            assert_eq!(parent.exact_node_count(), Some(2));
+            assert_eq!(advanced.exact_node_count(), parent.exact_node_count());
+            assert_eq!(
+                advanced.node_count_upper_bound(),
+                parent.node_count_upper_bound()
+            );
             let after = qualify_json_subtree_v1(
                 CognitionJsonFieldV1::FeedbackOutbox.profile(),
                 changed.after(),

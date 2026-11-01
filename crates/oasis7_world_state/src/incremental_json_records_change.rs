@@ -178,7 +178,8 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
     let output = retained.retain(JsonSubtreeQualificationV1 {
         root: after.clone(),
         profile,
-        nodes: parent.node_count(),
+        nodes: parent.node_count_upper_bound(),
+        exact: parent.exact,
     });
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);

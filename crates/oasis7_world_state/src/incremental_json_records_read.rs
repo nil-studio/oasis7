@@ -52,7 +52,7 @@ pub struct JsonSubtreeQualificationV1 {
     pub(super) root: StateRootV1,
     pub(super) profile: JsonRecordProfileV1,
     pub(super) nodes: u64,
-    exact: bool,
+    pub(super) exact: bool,
 }
 impl JsonSubtreeQualificationV1 {
     pub fn root(&self) -> &StateRootV1 {
