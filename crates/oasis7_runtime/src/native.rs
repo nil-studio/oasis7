@@ -500,3 +500,7 @@ pub use oasis7_world_state::incremental_material_records;
 pub use oasis7_world_state::incremental_logistics_records;
 pub use oasis7_world_state::incremental_installed_module_targets;
 pub use oasis7_world_state::incremental_world_balances;
+
+pub use oasis7_world_state::incremental_fixed_economy_records;
+
+pub use oasis7_world_state::incremental_agent_authority_records;

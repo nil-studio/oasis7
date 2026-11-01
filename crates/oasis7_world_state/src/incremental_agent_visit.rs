@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AgentCell, AgentState, DomainEvent,
-    agent_cell::{AgentActivityStatus, AgentActivityV1, AgentIntentV2},
+    agent_cell::{AgentActivityStatus, AgentActivityV1},
     agent_state::{
         AgentBodyState, BodyModuleSlot, BodySlotType, CargoEntityEntry, CargoEntityKind,
     },
@@ -185,59 +185,44 @@ pub fn visit_agent_cell<S: AgentCellFieldVisitor>(
         );
     }
     emit!(IntentPresent, V::Bool(intent.is_some()));
-    if let Some(AgentIntentV2 {
-        schema_version,
-        agent_id,
-        intent_id,
-        kind,
-        summary,
-        target_id,
-        effect_intent_id,
-        intent_tick,
-        world_id,
-        reorg_epoch,
-        authority_scope,
-        status,
-        source,
-        logical_time,
-        event_seq,
-        updated_at,
-        receipt_ref,
-        reason_code,
-        reason_summary,
-        replaced_by,
-        actor_id,
-        request_digest,
-    }) = intent
-    {
-        emit!(IntentSchema, V::U32(*schema_version));
-        emit!(IntentAgent, V::Text(agent_id));
-        emit!(IntentId, V::Text(intent_id));
-        emit!(IntentKind, V::Text(kind));
-        emit!(IntentSummary, V::Text(summary));
-        emit!(IntentTarget, V::OptionalText(target_id.as_deref()));
-        emit!(IntentEffect, V::OptionalText(effect_intent_id.as_deref()));
-        emit!(IntentTick, V::OptionalU64(*intent_tick));
-        emit!(IntentWorld, V::OptionalText(world_id.as_deref()));
-        emit!(IntentReorg, V::OptionalU64(*reorg_epoch));
-        emit!(
-            IntentAuthorityScope,
-            V::OptionalText(authority_scope.as_deref())
-        );
-        emit!(IntentStatus, V::Text(status));
-        emit!(IntentSource, V::Text(source));
-        emit!(IntentLogicalTime, V::U64(*logical_time));
-        emit!(IntentEventSeq, V::U64(*event_seq));
-        emit!(IntentUpdated, V::U64(*updated_at));
-        emit!(IntentReceipt, V::OptionalText(receipt_ref.as_deref()));
-        emit!(IntentReasonCode, V::OptionalText(reason_code.as_deref()));
-        emit!(
-            IntentReasonSummary,
-            V::OptionalText(reason_summary.as_deref())
-        );
-        emit!(IntentReplacedBy, V::OptionalText(replaced_by.as_deref()));
-        emit!(IntentActor, V::Text(actor_id));
-        emit!(IntentRequestDigest, V::Text(request_digest));
+    if let Some(intent) = intent {
+        use crate::incremental_intent_fields::{
+            IntentFieldV1 as I, IntentScalarRefV1 as S, visit_intent_values_v1,
+        };
+        visit_intent_values_v1(intent, |field, value| {
+            let field = match field {
+                I::SchemaVersion => F::IntentSchema,
+                I::AgentId => F::IntentAgent,
+                I::IntentId => F::IntentId,
+                I::Kind => F::IntentKind,
+                I::Summary => F::IntentSummary,
+                I::TargetId => F::IntentTarget,
+                I::EffectIntentId => F::IntentEffect,
+                I::IntentTick => F::IntentTick,
+                I::WorldId => F::IntentWorld,
+                I::ReorgEpoch => F::IntentReorg,
+                I::AuthorityScope => F::IntentAuthorityScope,
+                I::Status => F::IntentStatus,
+                I::Source => F::IntentSource,
+                I::LogicalTime => F::IntentLogicalTime,
+                I::EventSeq => F::IntentEventSeq,
+                I::UpdatedAt => F::IntentUpdated,
+                I::ReceiptRef => F::IntentReceipt,
+                I::ReasonCode => F::IntentReasonCode,
+                I::ReasonSummary => F::IntentReasonSummary,
+                I::ReplacedBy => F::IntentReplacedBy,
+                I::ActorId => F::IntentActor,
+                I::RequestDigest => F::IntentRequestDigest,
+            };
+            let value = match value {
+                S::U32(v) => V::U32(v),
+                S::U64(v) => V::U64(v),
+                S::Text(v) => V::Text(v),
+                S::OptionalText(v) => V::OptionalText(v),
+                S::OptionalU64(v) => V::OptionalU64(v),
+            };
+            sink.scalar(field, 0, value).map_err(AgentVisitError::Sink)
+        })?;
     }
     sink.mailbox_frontier(mailbox.len() as u64)
         .map_err(AgentVisitError::Sink)?;
