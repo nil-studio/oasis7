@@ -408,7 +408,7 @@ fn marketplace_bid_pair_membership_survives_identity_migration_and_delete_cold_r
                 MemoryClass::Ordinary,
             )
             .unwrap();
-            verify_world_state_closure(&store, &moved.state, &memory);
+            verify_world_state_closure(&store, &moved, &memory);
             assert_eq!(
                 read_bid_identity(&store, &moved.state, &memory, "bids/组件", 0),
                 (8, "buyer/二".to_owned())
@@ -458,7 +458,7 @@ fn marketplace_bid_pair_membership_survives_identity_migration_and_delete_cold_r
         let store =
             IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
                 .unwrap();
-        verify_world_state_closure(&store, &deleted.state, &memory);
+        verify_world_state_closure(&store, &deleted, &memory);
         assert_eq!(
             read_bid_length(&store, &deleted.state, &memory, "bids/组件"),
             0

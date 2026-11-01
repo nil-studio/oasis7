@@ -722,7 +722,7 @@ fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
                 MemoryClass::Ordinary,
             )
             .unwrap();
-            verify_world_state_closure(&store, &committed.state, &memory);
+            verify_world_state_closure(&store, &committed, &memory);
             assert_eq!(
                 read_bid_price(&store, &committed.state, &memory, "bids/组件", 1),
                 27
