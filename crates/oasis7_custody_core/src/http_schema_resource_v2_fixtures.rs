@@ -121,6 +121,9 @@ fn termination_fixture(s: &ResourceTestSessionScopeV2) -> TerminationPlanV2 {
         transport_limit: DecimalU64(24),
         trigger: TerminationTriggerV1::ClosingOnlyV1,
         nonce_policy: TerminationNoncePolicyV1::AccountAllocatedHighWaterV1,
+        stop_policy: crate::provisioning::WorldTaskStopPolicyV2::GuardedCommittedUtcStopV2,
+        cleanup_transport_policy:
+            crate::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2,
         close_policy: WorldTaskClosePolicyV2::LiteralPersistentClosedV2,
     };
     term.stop_operation_id = term.expected_stop_operation_id().unwrap();

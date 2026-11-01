@@ -98,6 +98,7 @@ impl AccountProvisionApprovalState {
         let s = self.test_sessions_v2.get(id).ok_or_else(invalid)?;
         let d = self.test_session_v2_preflight_descriptor(id)?;
         if self.frozen()
+            || s.native_machine_registration.is_some()
             || s.consumed_at.is_none()
             || s.closing.is_some()
             || s.approved_at.is_some()
@@ -243,6 +244,7 @@ impl AccountProvisionApprovalState {
         let s = next.test_sessions_v2.get_mut(id).ok_or_else(invalid)?;
         let (_, _, deadline, _, _) = admission_v2::pairing_v2(&s.input.request.intent)?;
         if self.frozen()
+            || s.native_machine_registration.is_some()
             || s.closing.is_some()
             || s.preflight_claimed_at.is_none()
             || s.approved_at.is_some()

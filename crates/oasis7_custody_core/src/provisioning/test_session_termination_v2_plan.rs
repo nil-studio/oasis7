@@ -10,6 +10,19 @@ pub enum WorldTaskClosePolicyV2 {
     LiteralPersistentClosedV2,
 }
 #[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorldTaskStopPolicyV2 {
+    GuardedCommittedUtcStopV2,
+}
+/// Exact new authenticated profile; this is not an upgrade of slot-bound facts.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupTransportPolicyV2 {
+    TermWideFiveSecondOwnedV2,
+}
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TerminationPlanV2 {
@@ -37,6 +50,8 @@ pub struct TerminationPlanV2 {
     pub transport_limit: DecimalU64,
     pub trigger: TerminationTriggerV1,
     pub nonce_policy: TerminationNoncePolicyV1,
+    pub stop_policy: WorldTaskStopPolicyV2,
+    pub cleanup_transport_policy: CleanupTransportPolicyV2,
     pub close_policy: WorldTaskClosePolicyV2,
 }
 fn id_v2(v: &str) -> bool {

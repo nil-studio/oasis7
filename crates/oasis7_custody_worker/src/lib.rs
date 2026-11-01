@@ -200,3 +200,10 @@ mod context_fullsigned_v2_harness;
 mod owner_test_session_v2_control_entry;
 #[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
 mod test_session_v2_control_rpc;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod account_service_issuer;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod native_http_bounded;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod native_machine_activation_transport;

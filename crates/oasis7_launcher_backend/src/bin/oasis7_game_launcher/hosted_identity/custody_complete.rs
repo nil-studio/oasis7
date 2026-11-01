@@ -41,6 +41,8 @@ impl IdentityService {
         let epoch = self.config.rp.identity_instance_epoch;
         let complete_digest = complete_body_digest(&request).map_err(|_| StoreError::Corrupt)?;
         let secret = self.config.session_key;
+        let identity = self.config.clone();
+        let config = self.custody.as_ref().ok_or_else(|| reject("unavailable"))?;
         let saved = self.store.transaction(|tx| {
             consume_quota(
                 tx,
@@ -54,6 +56,12 @@ impl IdentityService {
             let mut saved = tx
                 .get::<ApprovalRecord>(&record_key)?
                 .ok_or_else(|| reject("approval_not_found"))?;
+            super::guarded_consent::verify_existing_guarded_consent_v2(
+                tx,
+                config,
+                &identity,
+                &saved.value,
+            )?;
             check_record(
                 &saved.value,
                 &account,
@@ -193,6 +201,7 @@ impl IdentityService {
             .custody
             .as_ref()
             .ok_or_else(|| reject("custody_disabled"))?;
+        super::model_proxy_basis::recheck_before_sign(self, &saved.value, now)?;
         let proof = CustodyApprovalProofV1 {
             model_budget_summary_contract: saved.value.model_budget_summary_contract.clone(),
             version: 1,
@@ -230,6 +239,12 @@ impl IdentityService {
             let mut current = tx
                 .get::<ApprovalRecord>(&record_key)?
                 .ok_or(StoreError::Corrupt)?;
+            super::guarded_consent::verify_existing_guarded_consent_v2(
+                tx,
+                config,
+                &identity,
+                &current.value,
+            )?;
             check_record(
                 &current.value,
                 &account,

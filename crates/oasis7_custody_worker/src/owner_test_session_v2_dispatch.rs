@@ -210,6 +210,57 @@ pub(crate) async fn dispatch(
                 .map_err(|_| denied())?;
             json(())
         }
+        TestSessionRuntimeActionV2::RecordLifetimeAndClaimMachineRead { original } => {
+            enabled_machine_v2(env)?;
+            // Same paid observation and source ticket as the old RecordLifetime.
+            // The issuer cannot sign caller bytes; only a Core-produced token.
+            let issuer = crate::account_service_issuer::AccountServiceIssuer::load(env)?;
+            let source_ticket = store
+                .reserve_test_session_v2_source_read(id, source)
+                .map_err(|_| denied())?;
+            let started = clock()?;
+            let observed =
+                session_authority::runtime_observe_v2(env, &saved, &rpc.request, source, false)
+                    .await?;
+            let request = store
+                .record_lifetime_and_claim_machine_read_v2(id, *original, &issuer, || {
+                    Ok(TestSessionPreflightOwned {
+                        native: session_authority::current_v2(state, env, &observed, true)?,
+                        source_operation_id: source.clone(),
+                        source_ticket,
+                        oracle_ticket: 5,
+                        observed_at: started,
+                    })
+                })
+                .await
+                .map_err(|_| denied())?;
+            json(request)
+        }
+        TestSessionRuntimeActionV2::ActivateRegisteredMachine {
+            reply,
+            private_sid_generation,
+        } => {
+            enabled_machine_v2(env)?;
+            let original = saved
+                .state
+                .test_session_v2_machine_read_original(id)
+                .map_err(|_| denied())?;
+            let world = OwnerSetupWorldEvidenceV1 {
+                request: original.owner_read,
+                response: reply.world_response.clone(),
+            };
+            activate(
+                state,
+                env,
+                &store,
+                &saved,
+                &rpc.request,
+                world,
+                private_sid_generation,
+                Some(*reply),
+            )
+            .await
+        }
         TestSessionRuntimeActionV2::Activate {
             world,
             private_sid_generation,
@@ -222,6 +273,7 @@ pub(crate) async fn dispatch(
                 &rpc.request,
                 *world,
                 private_sid_generation,
+                None,
             )
             .await
         }
@@ -249,6 +301,7 @@ async fn activate(
     request: &TestSessionSelectorV1,
     world: OwnerSetupWorldEvidenceV1,
     generation: DecimalU64,
+    registration: Option<oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterReplyV2>,
 ) -> Result<String> {
     let id = &request.session_id;
     let s = saved
@@ -313,6 +366,46 @@ async fn activate(
     {
         return Err(report("attestation.exact", denied()));
     }
+    if let Some(reply) = registration {
+        let issuer = crate::account_service_issuer::AccountServiceIssuer::load(env)?;
+        let dispatch = store
+            .claim_registered_native_activation_v2(
+                id,
+                reply,
+                lifetime.clone(),
+                world.clone(),
+                attestation.private_sid_generation,
+                descriptor.source_operation_id.clone(),
+                &issuer,
+                || {
+                    session_authority::approval_current_v2(
+                        state, env, &observed, &enrolled, started,
+                    )
+                },
+            )
+            .await
+            .map_err(|_| denied())?;
+        // Core has persisted the three inert Roots, Await gate and Native1601.
+        // No Identity/Owner frontend round trip or local self fetch occurs.
+        let ack = crate::native_machine_activation_transport::send(dispatch).await?;
+        store
+            .admit_native_activation_v2(
+                id,
+                ack,
+                lifetime,
+                world,
+                attestation.private_sid_generation,
+                descriptor.source_operation_id,
+                || {
+                    session_authority::approval_current_v2(
+                        state, env, &observed, &enrolled, started,
+                    )
+                },
+            )
+            .await
+            .map_err(|_| denied())?;
+        return progress(store, id);
+    }
     store
         .activate_test_session_v2(
             id,
@@ -374,4 +467,17 @@ fn input_v2(
         .test_session_v2_snapshot(&request.session_id)
         .map(|s| s.input().clone())
         .map_err(|_| denied())
+}
+
+fn enabled_machine_v2(env: &Env) -> Result<()> {
+    if env
+        .var("CUSTODY_CLEANUP_MACHINE_V2_ENABLED")
+        .ok()
+        .map(|v| v.to_string())
+        .as_deref()
+        != Some("true")
+    {
+        return Err(denied());
+    }
+    Ok(())
 }

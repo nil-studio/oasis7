@@ -147,6 +147,38 @@ async fn execute(state: JsValue, env: &Env, selector: &Selector) -> JResult<serd
         return Err(js_denied());
     }
     let lifetime = transport::lifetime(env, selector, &current, &secrets).await?;
+    if env
+        .var("CUSTODY_CLEANUP_MACHINE_V2_ENABLED")
+        .ok()
+        .map(|v| v.to_string())
+        .as_deref()
+        == Some("true")
+    {
+        let original: oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterRequestV2 = rpc(
+            env,
+            selector,
+            TestSessionRuntimeActionV2::RecordLifetimeAndClaimMachineRead {
+                original: Box::new(lifetime),
+            },
+        )
+        .await?;
+        if original.owner_read != published.original
+            || original.pending.session_id != selector.session_id
+        {
+            return Err(js_denied());
+        }
+        let reply =
+            transport::read_and_register(env, selector, &current, &secrets, &original).await?;
+        return rpc(
+            env,
+            selector,
+            TestSessionRuntimeActionV2::ActivateRegisteredMachine {
+                reply: Box::new(reply),
+                private_sid_generation: d.session.private_sid_generation,
+            },
+        )
+        .await;
+    }
     let _: serde_json::Value = rpc(
         env,
         selector,

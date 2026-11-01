@@ -34,6 +34,8 @@ fn session_options(now: u64) -> Value {
         transport_limit: DecimalU64(24),
         trigger: TerminationTriggerV1::ClosingOnlyV1,
         nonce_policy: TerminationNoncePolicyV1::AccountAllocatedHighWaterV1,
+        stop_policy: WorldTaskStopPolicyV2::GuardedCommittedUtcStopV2,
+        cleanup_transport_policy: CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2,
         close_policy: WorldTaskClosePolicyV2::LiteralPersistentClosedV2,
     };
     term.stop_operation_id = term.expected_stop_operation_id().unwrap();
@@ -111,3 +113,6 @@ fn full_session_summary_is_required_with_no_model_and_old_records_stay_opaque() 
         .unwrap();
     // Actual software UV/Native signer, not a browser, World or OS qualification.
 }
+
+#[path = "custody_guarded_consent_bootstrap_tests.rs"]
+mod guarded_consent_bootstrap_tests;

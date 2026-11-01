@@ -7,6 +7,8 @@ use oasis7_custody_core::{
 mod approval;
 #[path = "test_session_v2_store_approval.rs"]
 mod approval_v2;
+#[path = "test_session_v2_store_machine.rs"]
+mod machine_v2;
 #[path = "test_session_store_preflight.rs"]
 mod preflight;
 #[path = "test_session_v2_store_preflight.rs"]

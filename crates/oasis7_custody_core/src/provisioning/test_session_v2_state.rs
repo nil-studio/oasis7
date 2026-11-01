@@ -72,6 +72,9 @@ pub struct TestSessionAuthorityV2 {
     pub(in crate::provisioning) termination_state: TestSessionTerminationStateV2,
     #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) execution_book: Option<SessionExecutionBookV2>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub(in crate::provisioning) native_machine_registration:
+        Option<NativeMachineRegistrationRecordV2>,
 }
 impl core::fmt::Debug for TestSessionAuthorityV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -104,6 +107,9 @@ impl TestSessionAuthorityV2 {
         }
         if self.context.is_some() {
             return Err(invalid());
+        }
+        if let Some(machine) = &self.native_machine_registration {
+            machine.validate_session(self)?;
         }
         self.termination_state.validate_input_binding(&self.input)?;
         self.termination_state
@@ -205,7 +211,16 @@ impl TestSessionAuthorityV2 {
         &self.input
     }
     pub fn approved_at(&self) -> Option<UnixMillis> {
-        self.approved_at
+        // Internal birth is inert until the separate Native activation acknowledges.
+        if self
+            .native_machine_registration
+            .as_ref()
+            .is_some_and(|m| !m.ready())
+        {
+            None
+        } else {
+            self.approved_at
+        }
     }
     pub fn session(&self) -> &ParticipantSessionRefV1 {
         &self.session
@@ -270,6 +285,12 @@ impl AccountProvisionApprovalState {
     ) -> Result<Vec<ExactSignatureChecks>> {
         let session = self.test_session_v2_record(id)?;
         session.validate_header()?;
+        if let Some(machine) = &session.native_machine_registration {
+            machine.validate_native_history(session, native)?;
+            if machine.registered.is_some() {
+                self.test_session_v2_native_floor_scope(id, native)?;
+            }
+        }
         let mut checks = Vec::new();
         for lifetime in session
             .native_lifetime

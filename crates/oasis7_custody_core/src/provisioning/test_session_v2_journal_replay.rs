@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod events;
 #[path = "test_session_v2_journal_replay_execution.rs"]
 mod execution;
+#[path = "test_session_v2_journal_replay_machine.rs"]
+mod machine;
 #[path = "test_session_v2_journal_replay_purpose.rs"]
 mod purpose;
 pub(super) struct Replay<'a> {
@@ -43,6 +45,8 @@ pub(super) struct Replay<'a> {
     lifetime: bool,
     published: bool,
     active: bool,
+    machine_claimed: bool,
+    machine_ready: bool,
     lease: Option<UnixMillis>,
     heartbeat: Option<UnixMillis>,
     closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
@@ -92,6 +96,8 @@ impl<'a> Replay<'a> {
             lifetime: false,
             published: false,
             active: false,
+            machine_claimed: false,
+            machine_ready: false,
             lease: None,
             heartbeat: None,
             closing: None,
@@ -104,7 +110,7 @@ impl<'a> Replay<'a> {
         Ok(())
     }
     fn live(&self, purpose: SessionPurposeV1, at: UnixMillis) -> Result<()> {
-        if !self.active {
+        if !self.active || self.s.native_machine_registration.is_some() && !self.machine_ready {
             return Err(invalid());
         }
         let p = self.s.header()?.0;
@@ -260,7 +266,15 @@ impl<'a> Replay<'a> {
         {
             return Err(invalid());
         }
-        if !self.begun
+        if self.machine_claimed
+            != s.native_machine_registration
+                .as_ref()
+                .is_some_and(|m| m.active.is_some())
+            || self.machine_ready
+                != s.native_machine_registration
+                    .as_ref()
+                    .is_some_and(|m| m.ready())
+            || !self.begun
             || self.verify_claimed != s.approval_verification_claimed_at.is_some()
             || self.approval_consumed != s.consumed_at.is_some()
             || self.preflight_claimed != s.preflight_claimed_at.is_some()

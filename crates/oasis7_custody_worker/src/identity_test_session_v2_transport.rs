@@ -272,3 +272,32 @@ where
     })
     .await
 }
+
+/// Replaces exactly the paid OwnerRead Native hop; no extra World probe.
+pub(super) async fn read_and_register(
+    env: &Env,
+    selector: &TestSessionSelectorV1,
+    o: &Observation,
+    secrets: &SessionSecrets,
+    request: &oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterRequestV2,
+) -> JResult<oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterReplyV2> {
+    check(env, selector, o)?;
+    request.validate().map_err(|_| js_denied())?;
+    let transport = NativeProvisionTransport::from_env(env).map_err(|_| js_denied())?;
+    if transport.native_origin() != request.pending.issuer.native_audience_origin {
+        return Err(js_denied());
+    }
+    let raw = zeroize::Zeroizing::new(serde_json::to_string(request).map_err(|_| js_denied())?);
+    let reply = transport
+        .request::<serde_json::Value>(
+            NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2,
+            &raw,
+            Some(&secrets.cookie),
+            Some(std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| js_denied())?),
+        )
+        .await
+        .map_err(|_| js_denied())?
+        .body;
+    // Exact closed roundtrip precedes Account's actual fixed Node/Native checks.
+    exact(reply)
+}

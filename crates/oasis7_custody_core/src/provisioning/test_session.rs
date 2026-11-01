@@ -510,3 +510,17 @@ pub(in crate::provisioning) use v2_action_http::action_original_v2;
 pub(in crate::provisioning) use v2_control::id_in_use_v2 as execution_old_control_id_in_use_v2;
 pub(in crate::provisioning) use v2_credentials::credential_claim_id_in_use_v2 as execution_old_claim_id_in_use_v2;
 pub(in crate::provisioning) use v2_purpose_http::execution_target_v2;
+
+#[path = "test_session_v2_machine_registration.rs"]
+mod machine_registration_v2;
+pub use machine_registration_v2::*;
+
+#[path = "test_session_v2_machine_registered.rs"]
+mod machine_registered_v2;
+
+#[path = "test_session_v2_machine_active.rs"]
+mod machine_active_v2;
+pub(in crate::provisioning) use machine_active_v2::NativeMachineActiveRecordV2;
+pub use machine_active_v2::{NativeMachineActivationDispatchV2, PreparedNativeMachineActiveV2};
+#[path = "test_session_v2_machine_birth.rs"]
+mod machine_birth_v2;

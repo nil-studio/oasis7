@@ -76,7 +76,23 @@ pub(super) fn activated(start: u64) -> SessionFixture {
 pub(super) fn activated_with_control_requests(start: u64, requests: u64) -> SessionFixture {
     activate_fixture(pending_fixture_with_control_requests(requests), start)
 }
-fn activate_fixture(mut f: SessionFixture, start: u64) -> SessionFixture {
+pub(super) fn preactivated(
+    start: u64,
+) -> (
+    SessionFixture,
+    TestSessionPreflightDescriptorV2,
+    SignedManagedNativeSessionLifetimeV1,
+) {
+    preactivation_fixture(pending_fixture(), start)
+}
+fn preactivation_fixture(
+    mut f: SessionFixture,
+    start: u64,
+) -> (
+    SessionFixture,
+    TestSessionPreflightDescriptorV2,
+    SignedManagedNativeSessionLifetimeV1,
+) {
     let d = f
         .state
         .claim_test_session_v2_preflight(&f.session_id, UnixMillis::new(start))
@@ -363,6 +379,20 @@ fn activate_fixture(mut f: SessionFixture, start: u64) -> SessionFixture {
             SessionPreflightStepV1::OwnerRead,
             UnixMillis::new(start + 14),
         )
+        .unwrap();
+    (f, d, life)
+}
+fn activate_fixture(f: SessionFixture, start: u64) -> SessionFixture {
+    let (mut f, d, life) = preactivation_fixture(f, start);
+    let policy = Policy::new(f.state.draft());
+    let c = policy.current(&f.context);
+    let ns = scope(&f.pin);
+    let original = f
+        .state
+        .test_session_v2_snapshot(&f.session_id)
+        .unwrap()
+        .preflight_read()
+        .cloned()
         .unwrap();
     let Some(OwnerSetupResultV1::FinalObservation { owner, .. }) = f
         .state

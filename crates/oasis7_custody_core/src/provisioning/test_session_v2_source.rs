@@ -11,6 +11,12 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<&TestSessionAuthorityV2> {
         let s = self.test_session_v2_record(id)?;
+        if s.native_machine_registration
+            .as_ref()
+            .is_some_and(|m| !m.ready())
+        {
+            return Err(invalid());
+        }
         let root = s.roots.get(&purpose).ok_or_else(invalid)?;
         if self.session_inventory != SessionInventoryV1::Known
             || self.frozen()
@@ -34,16 +40,10 @@ impl AccountProvisionApprovalState {
         attempt: &str,
     ) -> Result<()> {
         let s = self.test_session_v2_record(id)?;
-        if super::super::execution_book_v2::prepare_paid_id_in_use_v2(s, attempt)
-            || !id_nonempty(attempt) || s.sources.contains_key(attempt) || s.source_funding.contains_key(attempt)
-            || s.purpose_transports.contains_key(attempt) || s.purpose_http_admissions.contains_key(attempt)
-            || s.control_transports.contains_key(attempt) || s.client_http_admissions.contains_key(attempt)
-            || super::v2_credentials::credential_claim_id_in_use_v2(s, attempt)
-            || super::v2_control::id_in_use_v2(s, attempt)
-            || s.sources.values().any(|source| source.source.verify_nonce == attempt)
-            || s.tool_nonce_ingresses.contains_key(attempt) || s.termination_state.transport_id_in_use(attempt)
-            // ExecutionBook supplies its exact occupancy method before any execution is mounted.
-            || s.execution_book.as_ref().is_some_and(|b|b.transport_id_in_use(attempt))
+        if transport_id_in_non_machine_state_v2(s, attempt)
+            || s.native_machine_registration
+                .as_ref()
+                .is_some_and(|m| m.transport_id_in_use(attempt))
         {
             return Err(ProvisionApprovalError::Conflict);
         }
@@ -347,4 +347,20 @@ pub(super) fn v2_purpose_exhausted(s: &TestSessionAuthorityV2) -> bool {
                 .get(p)
                 .is_some_and(|r| r.budgets.transport.remaining() == Ok(0))
         })
+}
+
+pub(in crate::provisioning) fn transport_id_in_non_machine_state_v2(
+    s: &TestSessionAuthorityV2,
+    attempt: &str,
+) -> bool {
+    super::super::execution_book_v2::prepare_paid_id_in_use_v2(s, attempt)
+            || !id_nonempty(attempt) || s.sources.contains_key(attempt) || s.source_funding.contains_key(attempt)
+            || s.purpose_transports.contains_key(attempt) || s.purpose_http_admissions.contains_key(attempt)
+            || s.control_transports.contains_key(attempt) || s.client_http_admissions.contains_key(attempt)
+            || super::v2_credentials::credential_claim_id_in_use_v2(s, attempt)
+            || super::v2_control::id_in_use_v2(s, attempt)
+            || s.sources.values().any(|source| source.source.verify_nonce == attempt)
+            || s.tool_nonce_ingresses.contains_key(attempt) || s.termination_state.transport_id_in_use(attempt)
+            // ExecutionBook supplies its exact occupancy method before any execution is mounted.
+            || s.execution_book.as_ref().is_some_and(|b|b.transport_id_in_use(attempt))
 }

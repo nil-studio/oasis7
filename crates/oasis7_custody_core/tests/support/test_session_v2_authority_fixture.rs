@@ -312,3 +312,6 @@ fn new_v2_source_cannot_reuse_another_source_nonce_or_restore_it() {
 
 #[path = "test_session_v2_credential_fixture.rs"]
 mod credential_tests;
+
+#[path = "test_session_v2_machine_tests.rs"]
+mod machine_tests;

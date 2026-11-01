@@ -38,6 +38,8 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
         step: SessionPreflightStepV1,
     },
     Activated,
+    NativeMachineActivationClaimed,
+    NativeMachineActivationAdmitted,
     ClientHttpCharged {
         ingress_attempt_id: String,
     },
@@ -116,6 +118,16 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         usize::from(s.preflight_claimed_at.is_some()),
         s.preflight_steps.len(),
         usize::from(s.approved_at.is_some()),
+        usize::from(
+            s.native_machine_registration
+                .as_ref()
+                .is_some_and(|m| m.active.is_some()),
+        ),
+        usize::from(
+            s.native_machine_registration
+                .as_ref()
+                .is_some_and(|m| m.ready()),
+        ),
         s.sources.len(),
         s.client_http_admissions.len(),
         s.purpose_http_admissions.len(),

@@ -493,7 +493,7 @@ impl Replay<'_> {
             }
             // Their actual independent consumers must extend this closed replay
             // before any future field or Book can carry an admissible event.
-            _ => return self.apply_purpose(event, at),
+            _ => return self.apply_machine(event, at),
         }
         Ok(())
     }

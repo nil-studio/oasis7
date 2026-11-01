@@ -32,6 +32,8 @@ mod public_payload;
 
 const MAX_HTTP_REQUEST_BYTES: usize = 64 * 1024;
 const HOSTED_TEST_LOGIN_ENABLED_ENV: &str = "OASIS7_HOSTED_TEST_LOGIN_ENABLED";
+#[path = "static_http_identity_cleanup_v2.rs"]
+mod identity_cleanup_v2;
 #[cfg(test)]
 #[path = "identity_request_security_tests.rs"]
 mod identity_request_security_tests;
@@ -180,6 +182,16 @@ pub(super) fn handle_http_connection(
             request,
             request_body,
         );
+        write_identity_response(&mut stream, &reply)?;
+        return Ok(());
+    }
+    if let Some(reply) = identity_cleanup_v2::handle(
+        runtime_config,
+        method,
+        target,
+        request,
+        request_body.as_bytes(),
+    ) {
         write_identity_response(&mut stream, &reply)?;
         return Ok(());
     }

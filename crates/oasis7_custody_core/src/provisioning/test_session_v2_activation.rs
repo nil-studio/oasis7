@@ -152,6 +152,12 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         self.test_session_v2_activation_scope(&s.input, current, now)?;
+        if let Some(machine) = &s.native_machine_registration {
+            machine.validate_native_history(s, current.approval.native_scope)?;
+            if machine.registered.is_some() {
+                self.test_session_v2_native_floor_scope(id, current.approval.native_scope)?;
+            }
+        }
         let wrapper = s
             .sources
             .get(current.source_operation_id)
@@ -202,7 +208,21 @@ impl AccountProvisionApprovalState {
             verifier.verify(&checks)?
         }
         let mut next = self.clone();
-        let s = next.test_sessions_v2.get_mut(id).ok_or_else(invalid)?;
+        let result = next.activate_test_session_v2_reducer(id, current, now)?;
+        next.validate_persistence()?;
+        *self = next;
+        Ok(result)
+    }
+    /// Internal reducer shared with the closed machine activation transaction.
+    /// Callers verify the full existing activation checks before entering it and
+    /// commit only after the complete Account candidate validates.
+    pub(in crate::provisioning) fn activate_test_session_v2_reducer(
+        &mut self,
+        id: &str,
+        current: &TestSessionCurrent<'_, '_>,
+        now: UnixMillis,
+    ) -> Result<TestSessionAuthorityV2> {
+        let s = self.test_sessions_v2.get_mut(id).ok_or_else(invalid)?;
         if s.approved_at.is_some() {
             return Ok(s.clone());
         }
@@ -280,16 +300,14 @@ impl AccountProvisionApprovalState {
         append_session_event_v2(s, SessionEventKindV2::Activated, now)?;
         super::v2_credential_http::close_if_control_exhausted(s, now);
         let invite = s.enrollment.registration.request.target.invite_id.clone();
-        for record in next
+        for record in self
             .pairing_invites
             .values_mut()
             .filter(|r| r.original.invite_id == invite)
         {
             record.consumed_session = Some(id.into())
         }
-        let result = next.test_sessions_v2.get(id).ok_or_else(invalid)?.clone();
-        next.validate_persistence()?;
-        *self = next;
+        let result = self.test_sessions_v2.get(id).ok_or_else(invalid)?.clone();
         Ok(result)
     }
 }

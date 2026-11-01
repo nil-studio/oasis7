@@ -257,6 +257,7 @@ impl AccountProvisionApprovalState {
                 actions: BTreeMap::new(),
                 termination_state: termination_state.clone(),
                 execution_book: None,
+                native_machine_registration: None,
             });
         if s.input != admission.input || s.enrollment != *current.enrollment.fact {
             return Err(ProvisionApprovalError::Conflict);

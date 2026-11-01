@@ -131,6 +131,8 @@ pub struct AccountProvisionApprovalState {
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     test_sessions_v2: BTreeMap<String, TestSessionAuthorityV2>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    native_machine_floor_v2: Option<crate::native_cleanup_v2::AccountNativeFloorStoreV2>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -176,6 +178,7 @@ struct RawAccountProvisionApprovalState {
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
     #[serde(default)]
     test_sessions_v2: BTreeMap<String, TestSessionAuthorityV2>,
+    native_machine_floor_v2: Option<crate::native_cleanup_v2::AccountNativeFloorStoreV2>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -204,6 +207,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             session_inventory: raw.session_inventory,
             test_sessions: raw.test_sessions,
             test_sessions_v2: raw.test_sessions_v2,
+            native_machine_floor_v2: raw.native_machine_floor_v2,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -237,6 +241,7 @@ impl AccountProvisionApprovalState {
             session_inventory: SessionInventoryV1::Known,
             test_sessions: BTreeMap::new(),
             test_sessions_v2: BTreeMap::new(),
+            native_machine_floor_v2: None,
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -573,6 +578,11 @@ impl AccountProvisionApprovalState {
     }
     fn validate_persistence(&self) -> Result<()> {
         validate_draft(&self.draft)?;
+        if let Some(floor) = &self.native_machine_floor_v2 {
+            floor
+                .validate_structure()
+                .map_err(|_| ProvisionApprovalError::InvalidPersistence)?;
+        }
         self.validate_managed_login_persistence()?;
         // Stack-local pure-crypto scope: never stored, returned or held over await.
         let mut setup_signatures = RestoreSignatureScope::default();
@@ -744,3 +754,6 @@ fn tasks(
     }
     Ok(tasks)
 }
+
+#[path = "native_machine_floor.rs"]
+mod native_machine_floor;

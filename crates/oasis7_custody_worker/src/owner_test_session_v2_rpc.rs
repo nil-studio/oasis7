@@ -76,8 +76,16 @@ pub(crate) enum TestSessionRuntimeActionV2 {
     RecordLifetime {
         original: Box<SignedManagedNativeSessionLifetimeV1>,
     },
+
+    RecordLifetimeAndClaimMachineRead {
+        original: Box<oasis7_custody_core::native_binding::SignedManagedNativeSessionLifetimeV1>,
+    },
     PublishOwnerRead {
         original: Box<ParticipantOwnerViewRequestV1>,
+    },
+    ActivateRegisteredMachine {
+        reply: Box<oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterReplyV2>,
+        private_sid_generation: DecimalU64,
     },
     Activate {
         world: Box<OwnerSetupWorldEvidenceV1>,
