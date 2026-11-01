@@ -38,11 +38,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<()> {
         self.owner_setup_local(id, now)?;
         let mut next = self.clone();
-        let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
-            .ok_or_else(invalid)?;
+        let o = next.owner_setup_engine_outbox_mut(id, stage)?;
         if o.oracle_reads != 2 || o.access_claimed_at.is_some() || o.original.is_some() {
             return Err(invalid());
         }
@@ -116,11 +112,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<()> {
         verifier.verify(&self.owner_setup_access_checks(id, stage, &evidence, current, now)?)?;
         let mut next = self.clone();
-        let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
-            .ok_or_else(invalid)?;
+        let o = next.owner_setup_engine_outbox_mut(id, stage)?;
         if let Some(old) = &o.access {
             return if old == &evidence {
                 Ok(())

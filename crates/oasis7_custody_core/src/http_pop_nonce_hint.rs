@@ -73,6 +73,7 @@ pub fn http_pop_nonce_hint(
         HttpPopProfileV1::CredentialClaim,
         HttpPopProfileV1::CustodyChallenge,
         HttpPopProfileV1::McpChallenge,
+        HttpPopProfileV1::NativeModelCustodyV2,
     ]
     .iter()
     .any(|p| p.tag() == tag)

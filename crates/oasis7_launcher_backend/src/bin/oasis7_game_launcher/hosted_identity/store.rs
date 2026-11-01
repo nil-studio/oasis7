@@ -52,13 +52,17 @@ pub struct Versioned<T> {
     pub row_version: u64,
     pub value: T,
 }
+#[path = "custody_cleanup_v2_store_guard.rs"]
+mod machine_guard;
 pub struct IdentityStore {
+    machine_guard: Option<machine_guard::Binding>,
     connection: Option<Connection>,
     remote: Option<tablestore::TablestoreStore>,
     namespace: String,
     source_revocations: Option<super::custody::revocation::RevocationSigner>,
 }
 pub struct IdentityTransaction<'a> {
+    machine_next_head: Option<oasis7_custody_core::native_cleanup_v2::NativeStorageHeadV2>,
     transaction: Option<Transaction<'a>>,
     remote: Option<tablestore::RemoteTransaction>,
     namespace: String,
@@ -253,6 +257,7 @@ impl IdentityStore {
                 .map_err(|_| StoreError::Unavailable("database permission setup failed".into()))?;
         }
         Ok(Self {
+            machine_guard: None,
             connection: Some(connection),
             remote: None,
             namespace: key,
@@ -283,6 +288,7 @@ impl IdentityStore {
             [],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        machine_guard::reject_offline_rotation_if_registered(&tx, &namespace.key())?;
         let mut old: RpConfig = serde_json::from_slice(&bytes).map_err(|_| StoreError::Corrupt)?;
         if schema != SCHEMA
             || key != namespace.key()
@@ -367,6 +373,7 @@ impl IdentityStore {
     ) -> Result<T, StoreError> {
         let mut tx = if let Some(remote) = &self.remote {
             IdentityTransaction {
+                machine_next_head: None,
                 transaction: None,
                 remote: Some(remote.begin()?),
                 namespace: self.namespace.clone(),
@@ -379,13 +386,31 @@ impl IdentityStore {
                 .ok_or(StoreError::Corrupt)?
                 .transaction_with_behavior(TransactionBehavior::Immediate)?;
             IdentityTransaction {
+                machine_next_head: None,
                 transaction: Some(transaction),
                 remote: None,
                 namespace: self.namespace.clone(),
                 source_revocations: self.source_revocations.clone(),
             }
         };
+        let snapshot = tx
+            .transaction
+            .as_ref()
+            .map(|transaction| {
+                machine_guard::before(transaction, &self.namespace, self.machine_guard.as_ref())
+            })
+            .transpose()?;
+        tx.machine_next_head = snapshot.as_ref().and_then(|s| s.next.clone());
         let result = operation(&mut tx)?;
+        let prepared = match (tx.transaction.as_ref(), snapshot.as_ref()) {
+            (Some(transaction), Some(snapshot)) => machine_guard::prepare(
+                transaction,
+                &self.namespace,
+                self.machine_guard.as_ref(),
+                snapshot,
+            )?,
+            _ => None,
+        };
         if let Some(remote) = &mut tx.remote {
             remote.commit()?;
         } else {
@@ -398,6 +423,9 @@ impl IdentityStore {
                     _ => StoreError::OutcomeUnknown,
                 })?;
         }
+        if let Some(head) = prepared {
+            machine_guard::committed(self.machine_guard.as_ref(), &head)?;
+        }
         Ok(result)
     }
     pub fn open_tablestore(
@@ -408,6 +436,7 @@ impl IdentityStore {
         let key = namespace.key();
         let remote = tablestore::TablestoreStore::open(config, namespace, rp)?;
         Ok(Self {
+            machine_guard: None,
             connection: None,
             remote: Some(remote),
             namespace: key,
@@ -451,6 +480,13 @@ impl IdentityStore {
     }
 }
 impl IdentityTransaction<'_> {
+    /// Proposed head for this transaction, available only while the independent
+    /// restore guard participates. It is not an Account rollback-floor grant.
+    pub(super) fn machine_storage_head(
+        &self,
+    ) -> Option<&oasis7_custody_core::native_cleanup_v2::NativeStorageHeadV2> {
+        self.machine_next_head.as_ref()
+    }
     fn sqlite(&self) -> &Transaction<'_> {
         self.transaction
             .as_ref()

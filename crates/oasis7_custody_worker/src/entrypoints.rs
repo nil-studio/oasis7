@@ -576,3 +576,124 @@ pub async fn owner_query_parents(env: Env, raw: String) -> std::result::Result<S
     .await
     .map_err(|_| rejected())
 }
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_credential_challenge(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_credential_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-credential-challenge",
+    )
+    .await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_credential_claim(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_credential_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-credential-claim",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_challenge(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-challenge",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_initialize(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-initialize",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_tools_list(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-tools-list",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_heartbeat(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-heartbeat",
+    )
+    .await
+}
+
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_attest_execution_private_current_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::execution_private_current_v2::read(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_execution_prepare_native_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::execution_prepare_native_v2::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_execution_prepare_context_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_execution_prepare_context_v2::forward(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_model_reservation_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_native_model_entry_v2::forward(&env, &raw).await
+}

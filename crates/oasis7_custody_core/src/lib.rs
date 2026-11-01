@@ -33,5 +33,17 @@ pub use oasis7_client_api::world_service::private_goal::signature_metrics;
 pub use oasis7_client_api::world_service::private_goal::with_owner_signature_verification_batch;
 
 pub mod context_body;
+pub mod context_body_v2;
 
 pub mod management_metadata;
+
+pub mod native_cleanup_v2;
+
+pub mod native_model_proxy_query_v2;
+pub mod native_model_proxy_v2;
+
+pub mod native_model_graph_v2;
+
+pub mod native_execution_prepare_v2;
+
+pub mod execution_private_current_v2;
