@@ -176,6 +176,80 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             &mut full,
         )
         .unwrap();
+        {
+            // The original proof's retained carrier belongs to `memory`, not
+            // to a new writer/reader pool reopening the same authenticated pages.
+            let other = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+            assert!(!parent.uses_budget(&other));
+            let other_store = IncrementalPageStore::open(
+                &path,
+                other.clone(),
+                PageCompression::Raw,
+                MemoryClass::Ordinary,
+            )
+            .unwrap();
+            let other_state = other_store
+                .state_session(physical(), MemoryClass::Ordinary)
+                .unwrap();
+            let other_reader = other_store.value_session(physical());
+            let mut other_writer = other_store.value_session(physical());
+            let mut read_io = fixture::logical();
+            let mut write_io = fixture::logical();
+            let mut read_keys = SemanticKeyBudget {
+                bytes_remaining: 16 << 20,
+            };
+            let mut write_keys = SemanticKeyBudget {
+                bytes_remaining: 16 << 20,
+            };
+            let mut other_read = WorldFieldReadContextV1 {
+                root: &root,
+                state: &other_state,
+                values: ValueReadContext {
+                    source: &other_reader,
+                    memory: &other,
+                    class: MemoryClass::Ordinary,
+                    io: &mut read_io,
+                },
+                key_work: &mut read_keys,
+                semantic_bytes: 4096,
+                record_bytes: 8192,
+                take_state_error: || other_state.take_read_error().map(state_error),
+                cancelled: || false,
+            };
+            let mut other_write = MemberRecordWriteContext {
+                sink: &mut other_writer,
+                memory: &other,
+                io: &mut write_io,
+                key_work: &mut write_keys,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 4096,
+                    payload_bytes: 4096,
+                    record_bytes: 8192,
+                },
+                cancelled: || false,
+            };
+            let result = prepare_json_scalar_path_change_v1(
+                CognitionJsonFieldV1::FeedbackOutbox.profile(),
+                &parent,
+                &[JsonPathSegmentV1::Name("")],
+                (JsonScalarRefV1::Bool(true), JsonScalarRefV1::Unsigned(7)),
+                &mut other_read,
+                &mut other_write,
+                &mut JsonWriteWorkV1 {
+                    cells_remaining: 32,
+                    json_nodes_remaining: 8,
+                    max_json_depth: 4,
+                    max_pending_node_bytes: 2 << 20,
+                },
+            );
+            assert!(
+                matches!(
+                    result,
+                    Err(MemberRecordError::Value(ValueTreeError::Invalid(_)))
+                ),
+                "foreign parent carrier must fail before provisional success: {result:?}"
+            );
+        }
         let mut write_io = fixture::logical();
         let mut write_keys = SemanticKeyBudget {
             bytes_remaining: 16 << 20,
