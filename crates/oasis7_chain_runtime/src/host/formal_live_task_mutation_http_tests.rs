@@ -55,26 +55,55 @@ fn wait_cut(
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+#[derive(Clone, Copy)]
+enum CloseReplyCase {
+    Bare,
+    Qualified,
+}
 #[test]
 fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_commit() {
-    let (initial, old_close, owner) = actual_task_fixture::fixture();
-    // Discard the legacy fixture signature. The actual second signature below
-    // is made only after this test verifies the first committed Stop witness.
-    let mut close_body = old_close.request;
-    close_body.client_operation_id = "actual-http-close".into();
+    mutation_case(CloseReplyCase::Bare)
+}
+#[test]
+fn formal_http_qualified_mutation_reply_requires_the_actual_new_profile() {
+    mutation_case(CloseReplyCase::Qualified)
+}
+fn mutation_case(reply_case: CloseReplyCase) {
+    let (mut initial, owner) = actual_task_fixture::world_before_task();
+    let delegate = sign_read_request("key", (), &"22".repeat(32))
+        .unwrap()
+        .subject_public_key;
+    initial
+        .apply_agent_signer_delegation(
+            &sign_read_request(
+                "delegation",
+                oasis7_runtime::service_admission::AgentSignerDelegationChangeV1 {
+                    world_id: "formal-fixture-world".into(),
+                    branch_id: "main".into(),
+                    agent_id: "agent".into(),
+                    owner_binding: "owner".into(),
+                    agent_identity_generation: 1,
+                    generation: 1,
+                    delegate_public_key: delegate.clone(),
+                    revoked: false,
+                    nonce: 1,
+                },
+                &owner,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        initial
+            .capability_revocation_state()
+            .world_service_results
+            .is_empty()
+    );
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "guarded-mutation-node-{}-{}",
         std::process::id(),
         now_unix_ms()
     ));
-    // FormalWriter::open initializes its journal lazily; the arm requires an
-    // already private-owned writer directory before any Node is started.
-    std::fs::create_dir(&root).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
     let (writer, trust) =
         crate::execution_bridge::formal_writer::tests::task_mutation_writer(initial, root.clone());
     let (world, anchor) = writer.committed_read_cut().unwrap();
@@ -126,7 +155,7 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
     let state = FormalLiveState::default();
     state.ready.store(true, Ordering::Release);
     let signer = fixtures::key(91);
-    let service = FormalLiveService::new(
+    let service = Arc::new(FormalLiveService::new(
         node_id,
         world_id.clone(),
         signer.clone(),
@@ -136,9 +165,26 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
         resolver,
         state,
         gate,
-    );
+    ));
+    let initial_control =
+        install_task_through_actual_http(&service, &publication, &owner, &delegate, &world_id);
     let deadline = now_unix_ms() + 30_000;
-    close_body.cleanup_until_ms = DecimalU64(deadline);
+    let mut close_body = GameTaskRevokeAndCloseV2 {
+        api_revision: 2,
+        client_operation_id: "actual-http-close".into(),
+        custody_account_id: "account".into(),
+        termination_plan_digest: "44".repeat(32),
+        permitted_branches: GameTaskCloseConditionsV2 {
+            exact_initial_active: GameTaskFenceV1::from_control(&initial_control),
+            own_stop_intent: None,
+        },
+        signer_public_key: delegate,
+        signer_generation: DecimalU64(1),
+        signer_nonce: DecimalU64(1),
+        revoke_generation: DecimalU64(2),
+        revoke_nonce: DecimalU64(2),
+        cleanup_until_ms: DecimalU64(deadline),
+    };
     let mut stop = GameTaskStopV2 {
         api_revision: 2,
         client_operation_id: "actual-http-stop".into(),
@@ -219,6 +265,7 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
         TASK_STOP_SUBMIT_V2,
         &serde_json::to_vec(&stop).unwrap(),
     );
+    diagnose_not_queued("stop", status, &raw);
     assert_eq!(status, 200);
     let ack: SignedServiceResponse<TaskMutationAdmissionV2> = serde_json::from_slice(&raw).unwrap();
     verify_service_response(
@@ -294,14 +341,145 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
             wait_until,
         )
         .unwrap();
-    let (status, raw) = exchange(
-        &service,
-        TASK_CLEANUP_SUBMIT_V2,
-        &serde_json::to_vec(&close).unwrap(),
-    );
-    assert_eq!(status, 200);
-    let close_ack: SignedServiceResponse<TaskMutationAdmissionV2> =
-        serde_json::from_slice(&raw).unwrap();
+    let mut qualified_effect = None;
+    let close_ack = match reply_case {
+        CloseReplyCase::Bare => {
+            let (status, raw) = exchange(
+                &service,
+                TASK_CLEANUP_SUBMIT_V2,
+                &serde_json::to_vec(&close).unwrap(),
+            );
+            diagnose_not_queued("close", status, &raw);
+            assert_eq!(status, 200);
+            serde_json::from_slice::<SignedServiceResponse<TaskMutationAdmissionV2>>(&raw).unwrap()
+        }
+        CloseReplyCase::Qualified => {
+            use oasis7_client_api::world_service::task_mutation_qualified_v2::*;
+            close.verify_owner_signature().unwrap();
+            let wrapper = TaskMutationWaitSubmitV2 {
+                api_revision: 2,
+                reply_profile: TaskMutationReplyProfileV2::QualifiedEffectV2,
+                submitted: TaskMutationSubmittedV2::RevokeAndClose(Box::new(close.clone())),
+                delivery_nonce: "cd".repeat(32),
+                delivery_until_ms: DecimalU64(
+                    now_unix_ms()
+                        .checked_add(5000)
+                        .unwrap()
+                        .min(close.original.request.cleanup_until_ms.0),
+                ),
+            };
+            wrapper.validate().unwrap();
+            let raw = serde_json::to_vec(&wrapper).unwrap();
+            let cloned = Arc::clone(&service);
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let worker = std::thread::spawn(move || {
+                let reply = exchange(&cloned, TASK_CLEANUP_SUBMIT_V2, &raw);
+                tx.send(reply).unwrap();
+            });
+            if let Ok((status, raw)) = rx.recv_timeout(Duration::from_millis(200)) {
+                control.release().unwrap();
+                worker.join().unwrap();
+                if status != 200 {
+                    let error: SignedServiceResponse<FormalServiceErrorV1> =
+                        serde_json::from_slice(&raw).unwrap();
+                    assert_eq!(
+                        error.payload.code, "invalid_request",
+                        "unexpected prerequisite refusal, not the old-profile target"
+                    );
+                }
+                assert_eq!(
+                    status, 200,
+                    "new qualified-effect wrapper must be supported after the genuine qualified Stop prefix"
+                );
+                panic!("qualified reply returned before the actual paused Close commit");
+            }
+            control.wait(wait_until).unwrap();
+            assert!(
+                service.admission_gate.try_lock().is_ok(),
+                "waiting HTTP retained admission gate"
+            );
+            assert!(
+                node.try_lock().is_ok(),
+                "waiting HTTP retained Node runtime mutex"
+            );
+            assert!(
+                publication.current.try_lock().is_ok(),
+                "waiting HTTP retained publication mutex"
+            );
+            assert!(
+                publication
+                    .current()
+                    .unwrap()
+                    .world
+                    .closed_game_task_v2(
+                        &close
+                            .original
+                            .request
+                            .permitted_branches
+                            .exact_initial_active
+                            .task_id
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+            control.release().unwrap();
+            let (status, raw) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            worker.join().unwrap();
+            assert_eq!(status, 200);
+            let reply: TaskMutationSubmitReplyV2 = serde_json::from_slice(&raw).unwrap();
+            let TaskMutationSubmitReplyV2::Qualified { admission, effect } = reply else {
+                panic!("actual qualified Close fact required")
+            };
+            verify_service_response(
+                CLOSE_QUALIFIED_EFFECT_DOMAIN_V2,
+                &wrapper.digest().unwrap(),
+                &effect,
+                &hex::encode(signer.verifying_key().to_bytes()),
+            )
+            .unwrap();
+            let bytes = oasis7_client_api::world_service::signing_bytes(
+                CLOSE_QUALIFIED_EFFECT_DOMAIN_V2,
+                &(&effect.request_digest, &effect.payload),
+            )
+            .unwrap();
+            let signature: [u8; 64] = hex::decode(&effect.signature_hex)
+                .unwrap()
+                .try_into()
+                .unwrap();
+            signer
+                .verifying_key()
+                .verify_strict(&bytes, &ed25519_dalek::Signature::from_bytes(&signature))
+                .unwrap();
+            assert_eq!(effect.payload.kind, TaskMutationKindV2::RevokeAndClose);
+            assert_eq!(effect.payload.path, TASK_CLEANUP_SUBMIT_V2);
+            assert_eq!(effect.payload.world, world_id);
+            assert_eq!(effect.payload.delivery_nonce, wrapper.delivery_nonce);
+            assert_eq!(
+                effect.payload.original_digest,
+                close.original_digest().unwrap()
+            );
+            let action_id = mutation_action_id_v2(
+                TaskMutationKindV2::RevokeAndClose,
+                &world_id,
+                &close.original_digest().unwrap(),
+            )
+            .unwrap();
+            let action = oasis7_node::NodeConsensusAction::from_payload(
+                action_id,
+                node.lock().unwrap().config().player_id.clone(),
+                correlation::encode_cleanup_consensus_v2(&close).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(effect.payload.action_id.0, action_id);
+            assert_eq!(effect.payload.canonical_catalog_digest, action.payload_hash);
+            assert_eq!(
+                effect.payload.execution.action_root,
+                oasis7_node::compute_consensus_action_root(&[action]).unwrap()
+            );
+            qualified_effect = Some(effect.payload);
+            admission
+        }
+    };
     verify_service_response(
         TASK_CLEANUP_SUBMIT_V2,
         &authority::request_digest(TASK_CLEANUP_SUBMIT_V2, &close).unwrap(),
@@ -322,25 +500,27 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
         ack.payload.original_digest,
         close_ack.payload.original_digest
     );
-    control.wait(wait_until).unwrap();
-    assert!(
-        publication
-            .current()
-            .unwrap()
-            .world
-            .closed_game_task_v2(
-                &close
-                    .original
-                    .request
-                    .permitted_branches
-                    .exact_initial_active
-                    .task_id
-            )
-            .unwrap()
-            .is_none(),
-        "queue ACK is not Closed"
-    );
-    control.release().unwrap();
+    if matches!(reply_case, CloseReplyCase::Bare) {
+        control.wait(wait_until).unwrap();
+        assert!(
+            publication
+                .current()
+                .unwrap()
+                .world
+                .closed_game_task_v2(
+                    &close
+                        .original
+                        .request
+                        .permitted_branches
+                        .exact_initial_active
+                        .task_id
+                )
+                .unwrap()
+                .is_none(),
+            "queue ACK is not Closed"
+        );
+        control.release().unwrap();
+    }
     let task = close
         .original
         .request
@@ -362,6 +542,60 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
         .unwrap();
     assert_eq!(record.original, close.original);
     assert!(record.stop_predecessor_canonical_cbor.is_some());
+    if let Some(effect) = qualified_effect {
+        use oasis7_client_api::world_service::task_mutation_qualified_v2::TaskMutationQualifiedResultV2;
+        assert_eq!(
+            effect.chain_id,
+            closed.world.chain_resource_manifest().chain_id
+        );
+        let tick = closed
+            .world
+            .tick_consensus_records()
+            .iter()
+            .find(|tick| tick.block.header.tick == record.committed_height)
+            .expect("actual resident committed Tick required");
+        assert_eq!(
+            tick.block.header.chain_height,
+            Some(effect.execution.height.0)
+        );
+        assert_eq!(tick.block.header.chain_slot, Some(effect.execution.slot.0));
+        assert_eq!(
+            tick.block.header.chain_epoch,
+            Some(effect.execution.epoch.0)
+        );
+        assert_eq!(
+            tick.block.header.node_block_hash.as_deref(),
+            Some(effect.execution.node_block_hash.as_str())
+        );
+        assert_eq!(
+            tick.block.header.action_root.as_deref(),
+            Some(effect.execution.action_root.as_str())
+        );
+        assert_eq!(effect.execution.height.0, record.committed_height);
+        assert_eq!(
+            effect.execution.committed_at_unix_ms.0,
+            record.committed_at_unix_ms
+        );
+        effect.witnessed_in_commit.validate().unwrap();
+        assert_eq!(effect.witnessed_in_commit.world, world_id);
+        let TaskMutationQualifiedResultV2::RevokeAndClose {
+            closed: fact,
+            stop_predecessor,
+        } = effect.result
+        else {
+            panic!("wrong effect kind")
+        };
+        assert_eq!(*fact, record.closed);
+        let predecessor = stop_predecessor.expect("actual own-Stop predecessor required");
+        assert_eq!(
+            *predecessor,
+            stopped
+                .world
+                .guarded_task_stop_v2(&stop.original)
+                .unwrap()
+                .unwrap()
+        );
+    }
     let delegation = &closed
         .world
         .capability_revocation_state()
@@ -374,4 +608,172 @@ fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_com
     drop(control);
     drop(publication);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn setup_envelope(
+    world: &WorldIdentity,
+    payload: WorldServicePayloadV1,
+) -> SubmitIntentRequest<WorldServicePayloadV1> {
+    SubmitIntentRequest {
+        contract_version: 1,
+        correlation: correlation::derive_correlation(world.clone(), &payload).unwrap(),
+        signed_payload: payload,
+        deadline_unix_ms: None,
+    }
+}
+fn submit_setup(service: &FormalLiveService, q: &SubmitIntentRequest<WorldServicePayloadV1>) {
+    let (status, raw) = exchange(service, SUBMIT_PATH, &serde_json::to_vec(q).unwrap());
+    assert_eq!(status, 200);
+    let response: SignedServiceResponse<IntentResponse<serde_json::Value>> =
+        serde_json::from_slice(&raw).unwrap();
+    verify_service_response(
+        SUBMIT_PATH,
+        &authority::request_digest(SUBMIT_PATH, q).unwrap(),
+        &response,
+        &hex::encode(service.signer.verifying_key().to_bytes()),
+    )
+    .unwrap();
+}
+fn actual_task(world: &World) -> Option<GameTaskControlV1> {
+    oasis7_runtime::service_admission::game_task::current_control(world, "agent").unwrap()
+}
+fn install_task_through_actual_http(
+    service: &FormalLiveService,
+    publication: &PublishedReadState,
+    owner: &str,
+    delegate: &str,
+    world: &WorldIdentity,
+) -> GameTaskControlV1 {
+    let create = setup_envelope(
+        world,
+        WorldServicePayloadV1::GameTaskCreate(
+            sign_read_request(
+                GAME_TASK_CREATE_DOMAIN,
+                GameTaskCreateV1 {
+                    api_rev: 1,
+                    client_operation_id: "actual-create".into(),
+                    world_id: world.world_id.clone(),
+                    genesis_digest: world.genesis_digest.clone(),
+                    branch_id: "main".into(),
+                    reorg_epoch: DecimalU64(0),
+                    agent_id: "agent".into(),
+                    owner_binding: "owner".into(),
+                    owner_generation: DecimalU64(1),
+                },
+                owner,
+            )
+            .unwrap(),
+        ),
+    );
+    submit_setup(service, &create);
+    let created = wait_cut(publication, |world| actual_task(world).is_some());
+    let control = actual_task(&created.world).unwrap();
+    let goal = GameGoalPublishV1 {
+        api_rev: 1,
+        world_id: control.world_id.clone(),
+        genesis_digest: control.genesis_digest.clone(),
+        task_id: control.task_id.clone(),
+        agent_id: control.agent_id.clone(),
+        owner_public_key: control.owner_public_key.clone(),
+        owner_binding: control.owner_binding.clone(),
+        owner_generation: control.owner_generation,
+        branch_id: control.branch_id.clone(),
+        reorg_epoch: control.reorg_epoch,
+        expected_task_revision: control.task_revision,
+        expected_latest_goal_revision: control.latest_goal_revision,
+        goal_revision: DecimalU64(1),
+        client_operation_id: "actual-goal".into(),
+        prepare_operation_id: "prepare".into(),
+        goal_ref: "33".repeat(32),
+    };
+    submit_setup(
+        service,
+        &setup_envelope(
+            world,
+            WorldServicePayloadV1::GameGoalPublish(
+                sign_read_request(GAME_GOAL_PUBLISH_DOMAIN, goal, owner).unwrap(),
+            ),
+        ),
+    );
+    let published = wait_cut(publication, |world| {
+        actual_task(world).is_some_and(|c| c.active_goal_revision.0 == 1)
+    });
+    let control = actual_task(&published.world).unwrap();
+    let bind = GameExecutorControlV1 {
+        api_rev: 1,
+        client_operation_id: "actual-bind".into(),
+        fence: GameTaskFenceV1::from_control(&control),
+        operation: GameExecutorOperationV1::Bind {
+            executor_id: "executor".into(),
+            executor_public_key: delegate.into(),
+            delegation_generation: DecimalU64(1),
+        },
+    };
+    submit_setup(
+        service,
+        &setup_envelope(
+            world,
+            WorldServicePayloadV1::GameExecutorControl(
+                sign_read_request(GAME_EXECUTOR_CONTROL_DOMAIN, bind, owner).unwrap(),
+            ),
+        ),
+    );
+    let bound = wait_cut(publication, |world| {
+        actual_task(world).is_some_and(|c| c.executor_binding.is_some())
+    });
+    actual_task(&bound.world).unwrap()
+}
+
+// Fixed classifications only; never log body, signature, request IDs or raw errors.
+fn diagnose_not_queued(kind: &'static str, status: u16, raw: &[u8]) {
+    if status == 200 {
+        return;
+    }
+    let parsed = serde_json::from_slice::<SignedServiceResponse<FormalServiceErrorV1>>(raw).ok();
+    let code = match parsed.as_ref().map(|v| v.payload.code.as_str()) {
+        Some("mutation_not_queued") => "mutation_not_queued",
+        Some("invalid_request") => "invalid_request",
+        _ => "other",
+    };
+    let message = parsed
+        .as_ref()
+        .map(|v| v.payload.message.as_str())
+        .unwrap_or("");
+    eprintln!(
+        "mutation refusal: kind={kind} status={status} code={code} busy={} target={} expiry={} history={} profile={} clock={} owner_sig={} qualified={} task_missing={} binding={}",
+        message.contains("busy"),
+        message.contains("target drift"),
+        message.contains("expired"),
+        message.contains("history") || message.contains("predecessor"),
+        message.contains("profile"),
+        message.contains("clock"),
+        message.contains("signature"),
+        message.contains("qualified"),
+        message.contains("task unavailable"),
+        message.contains("binding")
+    );
+    eprintln!(
+        "mutation refusal detail: consensus={} auth={} payload={} cbor={} local={} read={} support={} lock={} fence={} signer={} nonce={} revoke={} control={} task={} canonical={} root={} scope={} utc={} uncertain={} missing_file={} record_io={}",
+        message.contains("consensus"),
+        message.contains("auth"),
+        message.contains("payload"),
+        message.contains("CBOR") || message.contains("cbor"),
+        message.contains("local"),
+        message.contains("read"),
+        message.contains("support"),
+        message.contains("lock"),
+        message.contains("fence"),
+        message.contains("signer"),
+        message.contains("nonce"),
+        message.contains("revoke"),
+        message.contains("control"),
+        message.contains("task"),
+        message.contains("canonical"),
+        message.contains("root"),
+        message.contains("scope"),
+        message.contains("UTC"),
+        message.contains("uncertain") || message.contains("regressed"),
+        message.contains("No such file or directory"),
+        message.contains("execution bridge record")
+    );
 }

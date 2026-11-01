@@ -203,3 +203,6 @@ fn formal_http_stop_record_control_v2_genuine_current_then_actual_delivery_expir
 
 #[path = "formal_live_task_mutation_http_tests.rs"]
 mod mutation_http_tests;
+
+#[path = "formal_live_official_catalog_tests.rs"]
+mod official_catalog_tests;

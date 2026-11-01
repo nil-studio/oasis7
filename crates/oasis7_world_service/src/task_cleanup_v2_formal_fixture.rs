@@ -75,57 +75,7 @@ pub(crate) fn fixture() -> (
     oasis7_client_api::world_service::SignedReadRequest<GameTaskRevokeAndCloseV2>,
     String,
 ) {
-    let private = "11".repeat(32);
-    let public = sign_read_request("key", (), &private)
-        .unwrap()
-        .subject_public_key;
-    let mut world = World::new_with_state(WorldState::default())
-        .try_with_cognition_scheduler(
-            SchedulerPolicyV1 {
-                schema_version: SchedulerPolicyV1::SCHEMA_VERSION.into(),
-                max_total_wakes_per_tick: 1,
-                max_wakes_per_agent_per_tick: 1,
-                aging_after_ticks: 1,
-                max_starvation_ticks: 1,
-                initial_priority: 0,
-                comparator: SchedulerPolicyV1::COMPARATOR.into(),
-                service_order: SchedulerPolicyV1::SERVICE_ORDER.into(),
-            },
-            1,
-        )
-        .unwrap();
-    let snapshot = world.snapshot_with_chain_resource_context(
-        oasis7_runtime::ChainResourceDerivationContext {
-            world_id: "formal-fixture-world",
-            chain_id: "formal-fixture-chain",
-            genesis_ref: Some(&crate::formal_read_fixtures::h(8)),
-            created_at_height: 0,
-            manifest_height: 0,
-            commit_block_hash: None,
-            tick: 0,
-        },
-        crate::formal_read_fixtures::h(10),
-        crate::formal_read_fixtures::h(11),
-    );
-    world = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
-    world.initialize_empty_formal_history().unwrap();
-    world.submit_action(Action::RegisterAgent {
-        agent_id: "agent".into(),
-        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
-    });
-    world.step().unwrap();
-    world.submit_action(Action::ClaimStarterOc {
-        agent_id: "agent".into(),
-        player_id: "owner".into(),
-        public_key: Some(public),
-    });
-    world.step().unwrap();
-    world
-        .install_capability_agent_identity("agent", "owner", 1)
-        .unwrap();
-    world
-        .bind_cognition_runtime("formal-fixture-world", "main", 0, None, "pending", 0)
-        .unwrap();
+    let (mut world, private) = world_before_task();
     let create = envelope(admission::WorldServicePayloadV1::GameTaskCreate(
         sign_read_request(
             GAME_TASK_CREATE_DOMAIN,
@@ -244,4 +194,60 @@ pub(crate) fn fixture() -> (
     )
     .unwrap();
     (world, original, private)
+}
+
+/// Existing Owner/Agent initial state, with no task/result migration.
+pub(crate) fn world_before_task() -> (World, String) {
+    let private = "11".repeat(32);
+    let public = sign_read_request("key", (), &private)
+        .unwrap()
+        .subject_public_key;
+    let mut world = World::new_with_state(WorldState::default())
+        .try_with_cognition_scheduler(
+            SchedulerPolicyV1 {
+                schema_version: SchedulerPolicyV1::SCHEMA_VERSION.into(),
+                max_total_wakes_per_tick: 1,
+                max_wakes_per_agent_per_tick: 1,
+                aging_after_ticks: 1,
+                max_starvation_ticks: 1,
+                initial_priority: 0,
+                comparator: SchedulerPolicyV1::COMPARATOR.into(),
+                service_order: SchedulerPolicyV1::SERVICE_ORDER.into(),
+            },
+            1,
+        )
+        .unwrap();
+    let snapshot = world.snapshot_with_chain_resource_context(
+        oasis7_runtime::ChainResourceDerivationContext {
+            world_id: "formal-fixture-world",
+            chain_id: "formal-fixture-chain",
+            genesis_ref: Some(&crate::formal_read_fixtures::h(8)),
+            created_at_height: 0,
+            manifest_height: 0,
+            commit_block_hash: None,
+            tick: 0,
+        },
+        crate::formal_read_fixtures::h(10),
+        crate::formal_read_fixtures::h(11),
+    );
+    world = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    world.initialize_empty_formal_history().unwrap();
+    world.submit_action(Action::RegisterAgent {
+        agent_id: "agent".into(),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+    });
+    world.step().unwrap();
+    world.submit_action(Action::ClaimStarterOc {
+        agent_id: "agent".into(),
+        player_id: "owner".into(),
+        public_key: Some(public),
+    });
+    world.step().unwrap();
+    world
+        .install_capability_agent_identity("agent", "owner", 1)
+        .unwrap();
+    world
+        .bind_cognition_runtime("formal-fixture-world", "main", 0, None, "pending", 0)
+        .unwrap();
+    (world, private)
 }

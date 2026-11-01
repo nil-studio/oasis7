@@ -312,3 +312,6 @@ fn guarded_stop_v2_submit_and_lookup_signatures_are_not_interchangeable() {
 
 #[path = "task_stop_observation_grant_tests.rs"]
 mod observation_grant;
+
+#[path = "task_mutation_qualified_v2_tests.rs"]
+mod qualified_reply_tests;

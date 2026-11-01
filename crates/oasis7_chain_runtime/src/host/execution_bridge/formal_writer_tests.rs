@@ -640,37 +640,118 @@ mod attempt_tests;
 /// Actual writer/executor with explicit in-memory formal durability endpoints.
 /// The returned opaque writer does not expose fixture signing keys or endpoints.
 pub(crate) fn task_mutation_writer(
-    world: World,
+    original: World,
     root: std::path::PathBuf,
 ) -> (
     impl super::super::formal_node_hook::FormalNodeWriter,
     oasis7::world_service::client::FormalReadTrustConfigV1,
 ) {
+    use super::super::formal_initial::{InitialNodeBootstrapV1, InitialWorldClosure};
+    use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader;
+    #[derive(Default)]
+    struct Nodes(Mutex<BTreeMap<String, Vec<u8>>>);
+    impl BusinessIndexNodeReader for Nodes {
+        fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+            Ok(self
+                .0
+                .lock()
+                .map_err(|_| "fixture nodes poisoned")?
+                .get(digest)
+                .cloned())
+        }
+        fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
+            if blake3_hex(bytes) != digest {
+                return Err("fixture content digest mismatch".into());
+            }
+            let mut nodes = self.0.lock().map_err(|_| "fixture nodes poisoned")?;
+            if nodes.get(digest).is_some_and(|old| old.as_slice() != bytes) {
+                return Err("fixture content conflict".into());
+            }
+            nodes.insert(digest.into(), bytes.to_vec());
+            Ok(())
+        }
+    }
+    assert!(
+        original
+            .capability_revocation_state()
+            .world_service_results
+            .is_empty()
+    );
     let policy = ReleaseSecurityPolicy::default();
     let digest = formal_package::execution_policy_material(&policy)
         .unwrap()
         .2;
-    let (world, initial_trust, anchor, _) =
-        fixtures::actual_world_initial_fixture_from_world(world, digest);
+    let (world, mut trust, template, _) =
+        fixtures::actual_world_initial_fixture_from_world(original, digest);
+    let identity = template.authority().definition().world.clone();
+    let tick = world.latest_tick_consensus_record().unwrap();
+    let bootstrap = InitialNodeBootstrapV1 {
+        height: world.state().time,
+        consensus_block_hash: tick.block.block_hash(),
+        execution_block_hash: tick.block.block_hash(),
+        execution_state_root: blake3_hex(&to_cbor(world.snapshot()).unwrap()),
+    };
+    let closure = InitialWorldClosure::from_existing_world_with_node_bootstrap(
+        &world, &identity, &policy, bootstrap,
+    )
+    .unwrap();
+    let recovery = template.authority().policy().clone();
+    let mut definition = template.authority().definition().clone();
+    definition.profile_version = 2;
+    let body = closure
+        .activation_body(definition, recovery.clone())
+        .unwrap();
+    trust.world = identity;
+    trust.initial_state_root = body.initial_state_root.clone();
+    trust.governing_manifest_digest = body.governing_manifest_digest.clone();
+    trust.recovery_policy_digest = recovery.digest().unwrap();
+    let certificate = SignedInitialActivationV1 {
+        signature_hex: fixtures::sign(initial_activation_signing_bytes(&body).unwrap(), 9),
+        body,
+    };
+    let (authority, initial) = closure
+        .authorize(&certificate, &trust, &fixtures::key(4))
+        .unwrap();
+    let proof = fixtures::qualified_proof(
+        initial.candidate.record.clone(),
+        None,
+        &authority,
+        None,
+        None,
+        4,
+        5,
+        6,
+    );
+    let anchor = VerifiedFormalReadAnchorV1::from_initial(&certificate, &trust, &proof).unwrap();
+    let nodes = Arc::new(Nodes::default());
+    let envelope = super::super::formal_business_package::envelope(&initial.material, true)
+        .unwrap()
+        .unwrap();
+    for node in &envelope.delta.node_writes {
+        nodes.cache_content_node(&node.digest, &node.bytes).unwrap();
+    }
     let primary = endpoint(&anchor, EndpointRole::Primary, false);
     let replica = endpoint(&anchor, EndpointRole::Replica, false);
     primary.0.lock().unwrap().closure_readback = true;
     replica.0.lock().unwrap().closure_readback = true;
     let checkpoint = anchor.checkpoint();
     let trust = oasis7::world_service::client::FormalReadTrustConfigV1 {
-        initial_trust,
+        initial_trust: trust,
         checkpoint_digest: checkpoint.digest().unwrap(),
         checkpoint,
     };
-    let writer = FormalWriter::open(
+    let writer = FormalWriter::open_initial(
         root,
         fixtures::key(4),
         policy,
-        world,
         anchor,
+        initial,
+        proof,
         primary,
         replica,
     )
+    .unwrap()
+    .with_business_reader(nodes)
     .unwrap();
     (writer, trust)
 }

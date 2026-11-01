@@ -11,7 +11,7 @@ pub(super) fn decode_local_consensus_action_payload_envelope(
                 &envelope.body,
                 LocalConsensusActionPayloadBody::WorldCleanupV2 { .. }
                     | LocalConsensusActionPayloadBody::WorldGuardedStopV2 { .. }
-            ) && serde_cbor::to_vec(&envelope).map_err(|e| e.to_string())? != payload_cbor
+            ) && encode_closed_task_catalog(&envelope)? != payload_cbor
             {
                 return Err("noncanonical cleanup v2 catalog envelope".into());
             }
@@ -84,4 +84,35 @@ pub(crate) fn closed_task_deadline(
         }
         _ => Ok(None),
     }
+}
+
+/// Match the official closed-frame field set without changing legacy local
+/// RuntimeAction serialization (which historically emitted auth:null).
+pub(super) fn encode_closed_task_catalog(
+    envelope: &LocalConsensusActionPayloadEnvelope,
+) -> Result<Vec<u8>, String> {
+    if !matches!(
+        envelope.body,
+        LocalConsensusActionPayloadBody::WorldGuardedStopV2 { .. }
+            | LocalConsensusActionPayloadBody::WorldCleanupV2 { .. }
+    ) {
+        return Err("not a closed task catalog".into());
+    }
+    #[derive(serde::Serialize)]
+    struct ClosedFrame<'a> {
+        version: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        gameplay_submission_origin:
+            Option<&'a oasis7_proto::gameplay_submission_origin::GameplaySubmissionOrigin>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        auth: Option<&'a LocalConsensusActionAuthEnvelope>,
+        body: &'a LocalConsensusActionPayloadBody,
+    }
+    serde_cbor::to_vec(&ClosedFrame {
+        version: envelope.version,
+        gameplay_submission_origin: envelope.gameplay_submission_origin.as_ref(),
+        auth: envelope.auth.as_ref(),
+        body: &envelope.body,
+    })
+    .map_err(|e| e.to_string())
 }

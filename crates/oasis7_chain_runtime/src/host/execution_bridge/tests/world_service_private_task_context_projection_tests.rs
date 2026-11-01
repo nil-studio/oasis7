@@ -302,3 +302,6 @@ fn context_public_projection_v2_keeps_actual_delivery_drift_and_stop_gate() {
     drop(f.driver);
     fs::remove_dir_all(f.dir).unwrap();
 }
+
+#[path = "world_service_private_task_context_large_reply_tests.rs"]
+mod large_reply;
