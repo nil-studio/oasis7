@@ -9,10 +9,10 @@ use oasis7_formal_protocol::{
         AuthorityBinding, ExecutionParent, ExecutionTransaction, PreparedTransition, RootSetV1,
         TransactionLimits,
     },
-    incremental_state::{StateDeltaV1, StateNamespaceV1 as Ns, StateWriteV1},
+    incremental_state::{StateDeltaV1, StateNamespaceV1 as Ns, StatePageWriter, StateWriteV1},
     incremental_value::{ValueIoBudget, ValueStreamWriter},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::{
     AgentCell, AgentEventContext, AgentEventOriginalStreamV1, AgentEventOriginalV1,
     BodyMutationContext, BodyMutationError, CausedBy, DomainEvent, World, WorldEvent,
@@ -201,19 +201,19 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         writes.sort_unstable_by(|a, b| a.key.cmp(&b.key));
         assert!(writes.windows(2).all(|pair| pair[0].key != pair[1].key));
         let index = namespace as usize - 1;
-        let delta =
+        let charge = memory
+            .reserve(
+                writes.len() * (512 << 10) + (128 << 10),
+                MemoryClass::Ordinary,
+            )
+            .unwrap();
+        let delta = charge.retain(
             StateDeltaV1::build(parent.roots.state[index].clone(), writes, &source, 4 << 20)
-                .unwrap();
-        parent.roots.state[index] = delta.after;
-        for node in delta.new_nodes {
-            let id = hex::decode(node.digest).unwrap().try_into().unwrap();
-            let charge = memory
-                .reserve(node.bytes.len(), MemoryClass::Ordinary)
-                .unwrap();
-            store
-                .put_page(id, &charge.retain(node.bytes), &mut physical(), &cancelled)
-                .unwrap();
-        }
+                .unwrap(),
+        );
+        sink.put_state_pages_cancelled(&delta, memory, &mut || false)
+            .unwrap();
+        parent.roots.state[index] = delta.after.clone();
     }
     drop(IncrementalObjectStore::create(store, &mut physical(), &cancelled).unwrap());
     (world, parent)

@@ -781,3 +781,5 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 持久化回调接收不可自行构造完成状态的一次性 producer；返回 Ok 或只使用长度/ID 不能追加 fact。实际 sink 必须消费完整 canonical stream，核对第二次长度与 hash，并完成自己的 writer/flush/locator 屏障后才返回成功，producer 随后检查私有完成状态及最终取消。跳过 producer/stream、部分写、重复使用、IO/额度/finish 错误和最后实际 put/flush 后取消均使整个 ExecutionTxn 的既有成功前缀不可 seal。Canonical encoder 与真实页 writer 通过短借用共享同一 FnMut 取消源，ObjectIo 独立 AtomicBool 也保持贯穿物理路径；不能用成功物理前缀代表整个原件完成。
 
 ObjectStore push 路径复用现有 ValueStreamWriter、有限 BufferedPageWriter、原 locator 格式和获胜 locator 的完整原件回验，只有长度与原 flat ID 一致、各屏障成功才返回。body/move event 和 commit 的原公共消费者全部使用这条路径；测试仅可为小黄金向量收集已预收费 bytes，大 reason 必须以借用输入、有限小工作池与真实流式 sink 验证。本节证明原件生产/持久化与 fact 贡献边界，不代替 §12.42/§12.47 的真实接受历史/当前出现证明或完整 AgentReady。
+
+私有完成标记仅证明本次完整 canonical 消费及 sink 合同报告成功，不是任意自定义 Write/Sink 的外部耐久凭据。故意写入 io::sink 后自报成功仍可产生 provisional fact，但不能通过真实原件回读与 verify_fact_originals 门；不得据此 mint CheckedFactOriginals、Domain witness 或接受资格。具体生产 ObjectStore bridge 才实际完成发布与获胜原件全 hash 回读，后继 material/Fact 校验仍不可跳过。

@@ -1,5 +1,6 @@
-//! Borrowed concrete WorldEvent producer. A callback cannot acknowledge an
-//! original without consuming its canonical stream and finishing its sink.
+//! Borrowed concrete WorldEvent producer with private consumption state.
+//! Sink success is a contract report, not arbitrary external-IO attestation;
+//! actual ObjectStore finish/readback and the later fact-original gate remain.
 use super::BodyMutationError;
 use crate::WorldEvent;
 use oasis7_formal_protocol::{
@@ -49,8 +50,10 @@ pub trait AgentEventOriginalStreamV1 {
     fn original_bytes(&self) -> u64;
     fn write_to(&mut self, output: &mut dyn Write) -> Result<(), BodyMutationError>;
 }
-/// Callback-facing one-shot producer. `persist_to` checks stream completion
-/// after the sink's finish succeeds; returning Ok without calling it is rejected.
+/// Callback-facing one-shot producer. `persist_to` checks stream consumption
+/// after the sink reports finish success; skipping it is rejected. This cannot
+/// attest that an arbitrary user sink persisted bytes. Fact originals still
+/// require independent actual source verification before acceptance.
 pub trait AgentEventOriginalV1 {
     fn original_id(&self) -> [u8; 32];
     fn original_bytes(&self) -> u64;

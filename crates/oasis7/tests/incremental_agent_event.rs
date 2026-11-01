@@ -154,3 +154,6 @@ fn actual_agent_events_reopen_originals_and_continue_from_authenticated_pages() 
         }
     }
 }
+
+#[path = "support/incremental_agent_event_original.rs"]
+mod originals;

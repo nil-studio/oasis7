@@ -574,3 +574,6 @@ mod commit_driver;
 
 #[path = "incremental_agent_event_original_tests.rs"]
 mod originals;
+
+#[path = "incremental_agent_event_original_fact_tests.rs"]
+mod original_fact;
