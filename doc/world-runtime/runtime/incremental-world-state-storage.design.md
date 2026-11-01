@@ -427,7 +427,7 @@ pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改�
 
 固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
 
-payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）、RecordRoot=10（固定165字节 typed child root reference，模块记录用法见§12.22）、FixedU64x7=11（恰好七个大端 u64，共56字节）。tag 12 未分配；未发布原型中的 whole-value market codecs 不属于本格式。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）、RecordRoot=10（固定165字节 typed child root reference，模块记录用法见§12.44）、FixedU64x7=11（恰好七个大端 u64，共56字节）。tag 12 未分配；未发布原型中的 whole-value market codecs 不属于本格式。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
 
 写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
 
@@ -650,7 +650,7 @@ family qualifier 复扫需要的六个顶层根及各 child，八族顺序共享
 Owner 覆盖诊断直接扫描传入 `RootSetV1` 的六个有序根，并保存该完整 RootSet 的 canonical digest；它不接受调用方任意选择的 body ID 作为状态身份。调用方仍须验证 CommitBody 与该 RootSet 的绑定，并检查诊断 digest 与已验证的根集一致。该 digest 仅标识被扫描的世界、genesis、height、simulation tick 和六个根，不证明原 authority 接受、owner 覆盖完整、Runtime/Cognition 闭合或 World 可激活。RootSet 编码缓冲在摘要计算前按其最大长度从 reader 的同一池/class 预留。
 
 
-### 12.22 模块视觉实体与工件市场记录
+### 12.44 模块视觉实体与工件市场记录
 
 `module_visual_entities`、`module_artifact_listings` 与 `module_artifact_bids` 沿唯一 WorldState/Map/Business 登记；每个字段要求一个 Metadata，空 Map 有效。外层成员语义键保留源 BTreeMap 的完整 String key，不由嵌套值中的 entity/order ID 推导或替换。每个成员的值是固定165字节的 RecordRootRefV1（field-member.v1 tag 10），其 schema 区分视觉实体、上架与出价记录，其 owner key 等于该原 String 语义键的摘要，子 StateRoot 使用 Business namespace。出价记录使用新的 `bids-record.v2` schema；旧的 `bids-record.v1` 不得被新 reader 当成具有 membership closure 的记录。这里不定义旧原型 tag 10–12 的兼容导入。生产者逐字段借用源值，不 clone World、不序列化完整聚合值，也不授予显示、上架、出价、购买或安装权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
