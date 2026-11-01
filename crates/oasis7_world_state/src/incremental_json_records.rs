@@ -167,10 +167,14 @@ pub use point::{
 mod change;
 pub use change::{JsonScalarChangeWorkV1, advance_json_scalar_subtree_v1};
 
-pub(crate) use change::advance_json_scalar_subtree_records_v1;
 pub(crate) use point::prepare_json_scalar_path_change_records_v1;
 
 pub(crate) use point::check_json_scalar_path_expected_records_v1;
 pub use point::{JsonScalarPathReadWorkV1, check_json_scalar_path_expected_v1};
 
 pub(crate) use change::require_json_container_records_v1;
+
+pub(crate) use change::{
+    JsonImmediateShapeV1, advance_json_scalar_subtree_records_constrained_v1,
+    require_json_immediate_records_v1,
+};

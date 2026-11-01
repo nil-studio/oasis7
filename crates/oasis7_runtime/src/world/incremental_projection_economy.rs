@@ -63,6 +63,7 @@ macro_rules! field {
 macro_rules! schema {
     ($($name:ident => $mode:ident, $namespace:ident;)*) => {
         const KEYS: &[&str] = &[$(stringify!($name),)*];
+        const _: [(); oasis7_world_state::incremental_cognition_fields::COGNITION_ECONOMY_FIELDS.len()] = [(); KEYS.len()];
         // This checks field coverage without deserializing/cloning the ledger.
         const _: fn(&CognitionEconomyStateV1) = |state| {
             let CognitionEconomyStateV1 { $($name: _,)* } = state;

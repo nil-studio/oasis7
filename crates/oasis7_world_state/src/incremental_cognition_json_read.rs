@@ -69,7 +69,15 @@ pub fn qualify_cognition_json_entry_v1<
     let root = root.ok_or(ValueTreeError::Invalid("cognition JSON missing root"))?;
     let child = outer(field, &key, &root, &mut context.records())?;
     let body = qualify_json_subtree_v1(field.profile(), &child, context, work)?;
-    if field != CognitionJsonFieldV1::SchedulerState {
+    if let Some(shape) = field.immediate() {
+        crate::incremental_json_records::require_json_immediate_records_v1(
+            field.profile(),
+            &body,
+            shape,
+            &mut context.records(),
+            work,
+        )?;
+    } else if field != CognitionJsonFieldV1::SchedulerState {
         crate::incremental_json_records::require_json_container_records_v1(
             field.profile(),
             &body,

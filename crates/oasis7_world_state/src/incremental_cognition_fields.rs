@@ -29,6 +29,27 @@ pub const OPTIONAL_COGNITION_FIELDS: [&str; 8] = [
     "reorg_invalidation_epoch",
 ];
 
+pub const COGNITION_ECONOMY_FIELDS: [&str; 16] = [
+    "schema_version",
+    "balances",
+    "provisioned_balances",
+    "lease_binding_keys",
+    "provisions",
+    "provision_receipts",
+    "provision_journal",
+    "provision_head_seq",
+    "provision_head_digest",
+    "leases",
+    "receipts",
+    "idempotency",
+    "operations",
+    "journal",
+    "head_seq",
+    "head_digest",
+];
+pub const COGNITION_DELEGATION_FIELDS: [&str; 5] =
+    ["grants", "spent", "decisions", "receipts", "controls"];
+
 /// Borrow the original envelope without deserializing, cloning, normalizing IDs
 /// or reinterpreting side-owner records as current state.
 #[derive(Clone, Copy)]
@@ -94,6 +115,7 @@ impl<'a> CognitionEnvelopeRefV1<'a> {
         {
             return Err("reorg invalidation epoch shape");
         }
+        validate_optional_owners(object)?;
         Ok(Self { object, journal })
     }
     pub fn field(self, name: &str) -> Option<&'a Value> {
@@ -104,6 +126,67 @@ impl<'a> CognitionEnvelopeRefV1<'a> {
     }
 }
 
+fn validate_optional_owners(object: &Map<String, Value>) -> Result<(), &'static str> {
+    if let Some(value) = object.get("cognition_economy") {
+        let economy = value.as_object().ok_or("economy object")?;
+        if economy.len() != COGNITION_ECONOMY_FIELDS.len()
+            || COGNITION_ECONOMY_FIELDS
+                .iter()
+                .any(|key| !economy.contains_key(*key))
+        {
+            return Err("unclassified or missing economy field");
+        }
+        if economy["schema_version"].as_str() != Some("cognition-economy.v1") {
+            return Err("economy schema");
+        }
+        for key in [
+            "balances",
+            "provisioned_balances",
+            "lease_binding_keys",
+            "provisions",
+            "provision_receipts",
+            "leases",
+            "receipts",
+            "idempotency",
+            "operations",
+        ] {
+            if !economy[key].is_object() {
+                return Err("economy map shape");
+            }
+        }
+        for key in ["journal", "provision_journal"] {
+            if !economy[key].is_array() {
+                return Err("economy history shape");
+            }
+        }
+        for key in ["head_seq", "provision_head_seq"] {
+            if economy[key].as_u64().is_none() {
+                return Err("economy cursor shape");
+            }
+        }
+        for key in ["head_digest", "provision_head_digest"] {
+            if !economy[key].is_string() {
+                return Err("economy digest shape");
+            }
+        }
+    }
+    if let Some(value) = object.get("agent_delegation") {
+        let delegation = value.as_object().ok_or("delegation object")?;
+        if delegation.len() != COGNITION_DELEGATION_FIELDS.len()
+            || COGNITION_DELEGATION_FIELDS
+                .iter()
+                .any(|key| !delegation.contains_key(*key))
+        {
+            return Err("unclassified or missing delegation field");
+        }
+        for key in COGNITION_DELEGATION_FIELDS {
+            if !delegation[key].is_object() {
+                return Err("delegation map shape");
+            }
+        }
+    }
+    Ok(())
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CognitionControlFieldV1 {
     Schema,
@@ -111,6 +194,11 @@ pub enum CognitionControlFieldV1 {
     JournalHeadSeq,
     JournalHeadDigest,
     ReorgInvalidationEpoch,
+    EconomySchema,
+    EconomyProvisionHeadSeq,
+    EconomyProvisionHeadDigest,
+    EconomyHeadSeq,
+    EconomyHeadDigest,
 }
 impl CognitionControlFieldV1 {
     pub const REQUIRED: [Self; 4] = [
@@ -119,6 +207,18 @@ impl CognitionControlFieldV1 {
         Self::JournalHeadSeq,
         Self::JournalHeadDigest,
     ];
+    pub const ALL: [Self; 10] = [
+        Self::Schema,
+        Self::JournalSchema,
+        Self::JournalHeadSeq,
+        Self::JournalHeadDigest,
+        Self::ReorgInvalidationEpoch,
+        Self::EconomySchema,
+        Self::EconomyProvisionHeadSeq,
+        Self::EconomyProvisionHeadDigest,
+        Self::EconomyHeadSeq,
+        Self::EconomyHeadDigest,
+    ];
     pub fn descriptor(self) -> FieldDescriptor {
         let (name, namespace) = match self {
             Self::Schema => ("schema_version", Ns::Artifacts),
@@ -126,6 +226,11 @@ impl CognitionControlFieldV1 {
             Self::JournalHeadSeq => ("journal.head_seq", Ns::Allocator),
             Self::JournalHeadDigest => ("journal.head_digest", Ns::Allocator),
             Self::ReorgInvalidationEpoch => ("reorg_invalidation_epoch", Ns::Authorization),
+            Self::EconomySchema => ("economy.schema_version", Ns::Artifacts),
+            Self::EconomyProvisionHeadSeq => ("economy.provision_head_seq", Ns::Allocator),
+            Self::EconomyProvisionHeadDigest => ("economy.provision_head_digest", Ns::Allocator),
+            Self::EconomyHeadSeq => ("economy.head_seq", Ns::Allocator),
+            Self::EconomyHeadDigest => ("economy.head_digest", Ns::Allocator),
         };
         FieldDescriptor {
             owner: FieldOwner::Cognition,
@@ -134,13 +239,42 @@ impl CognitionControlFieldV1 {
             shape: FieldShape::Value,
         }
     }
+    pub fn optional(self) -> bool {
+        matches!(
+            self,
+            Self::ReorgInvalidationEpoch
+                | Self::EconomySchema
+                | Self::EconomyProvisionHeadSeq
+                | Self::EconomyProvisionHeadDigest
+                | Self::EconomyHeadSeq
+                | Self::EconomyHeadDigest
+        )
+    }
+    pub fn unsigned(self) -> bool {
+        matches!(
+            self,
+            Self::JournalHeadSeq
+                | Self::ReorgInvalidationEpoch
+                | Self::EconomyProvisionHeadSeq
+                | Self::EconomyHeadSeq
+        )
+    }
     pub fn value(self, source: CognitionEnvelopeRefV1<'_>) -> Option<&Value> {
         match self {
             Self::Schema => source.field("schema_version"),
-            Self::JournalSchema => source.journal_field("schema_version"),
-            Self::JournalHeadSeq => source.journal_field("head_seq"),
-            Self::JournalHeadDigest => source.journal_field("head_digest"),
+            Self::JournalSchema => source.field("cognition_journal")?.get("schema_version"),
+            Self::JournalHeadSeq => source.field("cognition_journal")?.get("head_seq"),
+            Self::JournalHeadDigest => source.field("cognition_journal")?.get("head_digest"),
             Self::ReorgInvalidationEpoch => source.field("reorg_invalidation_epoch"),
+            Self::EconomySchema => source.field("cognition_economy")?.get("schema_version"),
+            Self::EconomyProvisionHeadSeq => {
+                source.field("cognition_economy")?.get("provision_head_seq")
+            }
+            Self::EconomyProvisionHeadDigest => source
+                .field("cognition_economy")?
+                .get("provision_head_digest"),
+            Self::EconomyHeadSeq => source.field("cognition_economy")?.get("head_seq"),
+            Self::EconomyHeadDigest => source.field("cognition_economy")?.get("head_digest"),
         }
     }
 }

@@ -47,6 +47,19 @@ pub(crate) fn advance_json_scalar_subtree_records_v1<R: ValueNodeReader, C: FnMu
     records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
     work: &mut JsonScalarChangeWorkV1,
 ) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
+    advance_json_scalar_subtree_records_constrained_v1(profile, parent, after, records, work, None)
+}
+pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    profile: JsonRecordProfileV1,
+    parent: &ReservedValue<JsonSubtreeQualificationV1>,
+    after: &StateRootV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonScalarChangeWorkV1,
+    preserve_kind_depth: Option<usize>,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
@@ -92,6 +105,9 @@ pub(crate) fn advance_json_scalar_subtree_records_v1<R: ValueNodeReader, C: FnMu
             .ok_or(ValueTreeError::ResourceLimited("JSON scalar fixed cells"))?;
         let old = read::frame(profile, &pair.before, records, &mut work.json)?;
         let new = read::frame(profile, &pair.after, records, &mut work.json)?;
+        if preserve_kind_depth == Some(pair.depth) && old.kind != new.kind {
+            return Err(invalid());
+        }
         let container = old.kind.container();
         if container != new.kind.container()
             || old.length != new.length
@@ -195,6 +211,62 @@ pub(crate) fn require_json_container_records_v1<R: ValueNodeReader, C: FnMut() -
     };
     if frame.kind != expected {
         return Err(ValueTreeError::Invalid("JSON root-container kind"));
+    }
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum JsonImmediateShapeV1 {
+    Object,
+    Unsigned,
+}
+/// Validate a concrete owner's homogeneous immediate rows after full JSON
+/// closure. The private proof excludes unknown nodes; no business rule is added.
+pub(crate) fn require_json_immediate_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    proof: &ReservedValue<JsonSubtreeQualificationV1>,
+    shape: JsonImmediateShapeV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    if !proof.uses_budget(records.values.memory) {
+        return Err(ValueTreeError::Invalid("JSON immediate rows pool"));
+    }
+    proof.validate_binding(profile, proof.root())?;
+    work.cells_remaining = work
+        .cells_remaining
+        .checked_sub(5)
+        .ok_or(ValueTreeError::ResourceLimited("JSON immediate root cells"))?;
+    let mut root = read::frame(profile, proof.root(), records, work)?;
+    if root.kind != read::Kind::Object {
+        return Err(ValueTreeError::Invalid("JSON immediate root object"));
+    }
+    while let Some(entry) = root.cursor.next(records)? {
+        work.cells_remaining = work
+            .cells_remaining
+            .checked_sub(1)
+            .ok_or(ValueTreeError::ResourceLimited("JSON immediate rows"))?;
+        if root.keys.iter().any(|key| key.as_bytes() == entry.key) {
+            continue;
+        }
+        let child = read::child(profile, &entry, false, root.length, records)?;
+        work.cells_remaining =
+            work.cells_remaining
+                .checked_sub(5)
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "JSON immediate child cells",
+                ))?;
+        let child = read::frame(profile, &child, records, work)?;
+        let expected = match shape {
+            JsonImmediateShapeV1::Object => read::Kind::Object,
+            JsonImmediateShapeV1::Unsigned => read::Kind::U64,
+        };
+        if child.kind != expected {
+            return Err(ValueTreeError::Invalid("JSON immediate child kind"));
+        }
     }
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);

@@ -1,4 +1,4 @@
-//! Seven current-state Cognition cohorts. Each outer original field has an
+//! Current-state Cognition cohorts, including optional economy/delegation. Each outer original field has an
 //! explicit Unit RootRef into owner-selected JSON nodes, never a JSON blob.
 use crate::{
     incremental_cognition_fields::CognitionEnvelopeRefV1,
@@ -24,9 +24,22 @@ pub enum CognitionJsonFieldV1 {
     Continuations,
     ContinuationContexts,
     ContinuationEvaluations,
+    EconomyBalances,
+    EconomyProvisionedBalances,
+    EconomyLeaseBindingKeys,
+    EconomyProvisions,
+    EconomyProvisionReceipts,
+    EconomyLeases,
+    EconomyReceipts,
+    EconomyIdempotency,
+    EconomyOperations,
+    DelegationGrants,
+    DelegationSpent,
+    DelegationDecisions,
+    DelegationControls,
 }
 impl CognitionJsonFieldV1 {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 20] = [
         Self::FeedbackOutbox,
         Self::IdempotencyIndex,
         Self::StagedActions,
@@ -34,61 +47,272 @@ impl CognitionJsonFieldV1 {
         Self::Continuations,
         Self::ContinuationContexts,
         Self::ContinuationEvaluations,
+        Self::EconomyBalances,
+        Self::EconomyProvisionedBalances,
+        Self::EconomyLeaseBindingKeys,
+        Self::EconomyProvisions,
+        Self::EconomyProvisionReceipts,
+        Self::EconomyLeases,
+        Self::EconomyReceipts,
+        Self::EconomyIdempotency,
+        Self::EconomyOperations,
+        Self::DelegationGrants,
+        Self::DelegationSpent,
+        Self::DelegationDecisions,
+        Self::DelegationControls,
     ];
-    pub fn name(self) -> &'static str {
+    fn spec(
+        self,
+    ) -> (
+        &'static str,
+        Option<&'static str>,
+        &'static str,
+        Ns,
+        FieldShape,
+        u8,
+        &'static str,
+    ) {
         match self {
-            Self::FeedbackOutbox => "feedback_outbox",
-            Self::IdempotencyIndex => "idempotency_index",
-            Self::StagedActions => "staged_actions",
-            Self::SchedulerState => "scheduler_state",
-            Self::Continuations => "continuations",
-            Self::ContinuationContexts => "continuation_contexts",
-            Self::ContinuationEvaluations => "continuation_evaluations",
+            Self::FeedbackOutbox => (
+                "feedback_outbox",
+                None,
+                "feedback_outbox",
+                Ns::Effects,
+                FieldShape::Map,
+                0xc1,
+                "feedback_outbox.json.v1",
+            ),
+            Self::IdempotencyIndex => (
+                "idempotency_index",
+                None,
+                "idempotency_index",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xc2,
+                "idempotency_index.json.v1",
+            ),
+            Self::StagedActions => (
+                "staged_actions",
+                None,
+                "staged_actions",
+                Ns::Effects,
+                FieldShape::Map,
+                0xc3,
+                "staged_actions.json.v1",
+            ),
+            Self::SchedulerState => (
+                "scheduler_state",
+                None,
+                "scheduler_state",
+                Ns::Scheduler,
+                FieldShape::Value,
+                0xc4,
+                "scheduler_state.json.v1",
+            ),
+            Self::Continuations => (
+                "continuations",
+                None,
+                "continuations",
+                Ns::Effects,
+                FieldShape::Ordered,
+                0xc5,
+                "continuations.json.v1",
+            ),
+            Self::ContinuationContexts => (
+                "continuation_contexts",
+                None,
+                "continuation_contexts",
+                Ns::Effects,
+                FieldShape::Map,
+                0xc6,
+                "continuation_contexts.json.v1",
+            ),
+            Self::ContinuationEvaluations => (
+                "continuation_evaluations",
+                None,
+                "continuation_evaluations",
+                Ns::Scheduler,
+                FieldShape::Map,
+                0xc7,
+                "continuation_evaluations.json.v1",
+            ),
+            Self::EconomyBalances => (
+                "economy.balances",
+                Some("cognition_economy"),
+                "balances",
+                Ns::Business,
+                FieldShape::NestedMap,
+                0xd1,
+                "economy.balances.json.v1",
+            ),
+            Self::EconomyProvisionedBalances => (
+                "economy.provisioned_balances",
+                Some("cognition_economy"),
+                "provisioned_balances",
+                Ns::Business,
+                FieldShape::NestedMap,
+                0xd2,
+                "economy.provisioned_balances.json.v1",
+            ),
+            Self::EconomyLeaseBindingKeys => (
+                "economy.lease_binding_keys",
+                Some("cognition_economy"),
+                "lease_binding_keys",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xd3,
+                "economy.lease_binding_keys.json.v1",
+            ),
+            Self::EconomyProvisions => (
+                "economy.provisions",
+                Some("cognition_economy"),
+                "provisions",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xd4,
+                "economy.provisions.json.v1",
+            ),
+            Self::EconomyProvisionReceipts => (
+                "economy.provision_receipts",
+                Some("cognition_economy"),
+                "provision_receipts",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xd5,
+                "economy.provision_receipts.json.v1",
+            ),
+            Self::EconomyLeases => (
+                "economy.leases",
+                Some("cognition_economy"),
+                "leases",
+                Ns::Effects,
+                FieldShape::Map,
+                0xd6,
+                "economy.leases.json.v1",
+            ),
+            Self::EconomyReceipts => (
+                "economy.receipts",
+                Some("cognition_economy"),
+                "receipts",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xd7,
+                "economy.receipts.json.v1",
+            ),
+            Self::EconomyIdempotency => (
+                "economy.idempotency",
+                Some("cognition_economy"),
+                "idempotency",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xd8,
+                "economy.idempotency.json.v1",
+            ),
+            Self::EconomyOperations => (
+                "economy.operations",
+                Some("cognition_economy"),
+                "operations",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xd9,
+                "economy.operations.json.v1",
+            ),
+            Self::DelegationGrants => (
+                "delegation.grants",
+                Some("agent_delegation"),
+                "grants",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xe1,
+                "delegation.grants.json.v1",
+            ),
+            Self::DelegationSpent => (
+                "delegation.spent",
+                Some("agent_delegation"),
+                "spent",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xe2,
+                "delegation.spent.json.v1",
+            ),
+            Self::DelegationDecisions => (
+                "delegation.decisions",
+                Some("agent_delegation"),
+                "decisions",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xe3,
+                "delegation.decisions.json.v1",
+            ),
+            Self::DelegationControls => (
+                "delegation.controls",
+                Some("agent_delegation"),
+                "controls",
+                Ns::Authorization,
+                FieldShape::Map,
+                0xe4,
+                "delegation.controls.json.v1",
+            ),
         }
     }
+    pub fn name(self) -> &'static str {
+        self.spec().0
+    }
     pub fn optional(self) -> bool {
-        matches!(
+        !matches!(
             self,
-            Self::ContinuationContexts | Self::ContinuationEvaluations
+            Self::FeedbackOutbox
+                | Self::IdempotencyIndex
+                | Self::StagedActions
+                | Self::SchedulerState
+                | Self::Continuations
         )
     }
     pub fn descriptor(self) -> FieldDescriptor {
-        let ns = match self {
-            Self::IdempotencyIndex => Ns::Authorization,
-            Self::SchedulerState | Self::ContinuationEvaluations => Ns::Scheduler,
-            _ => Ns::Effects,
-        };
-        let shape = match self {
-            Self::SchedulerState => FieldShape::Value,
-            Self::Continuations => FieldShape::Ordered,
-            _ => FieldShape::Map,
-        };
+        let (name, _, _, namespace, shape, _, _) = self.spec();
         FieldDescriptor {
             owner: FieldOwner::Cognition,
-            name: self.name(),
-            destination: FieldDestination::State(ns),
+            name,
+            destination: FieldDestination::State(namespace),
             shape,
         }
     }
-    /// Closed schema identifiers, one per cohort. They are version identifiers,
-    /// not signatures or a claim about external cognition/business authority.
     pub fn profile(self) -> JsonRecordProfileV1 {
-        let (name, schema) = match self {
-            Self::FeedbackOutbox => ("feedback_outbox.json.v1", [0xc1; 32]),
-            Self::IdempotencyIndex => ("idempotency_index.json.v1", [0xc2; 32]),
-            Self::StagedActions => ("staged_actions.json.v1", [0xc3; 32]),
-            Self::SchedulerState => ("scheduler_state.json.v1", [0xc4; 32]),
-            Self::Continuations => ("continuations.json.v1", [0xc5; 32]),
-            Self::ContinuationContexts => ("continuation_contexts.json.v1", [0xc6; 32]),
-            Self::ContinuationEvaluations => ("continuation_evaluations.json.v1", [0xc7; 32]),
-        };
+        let (_, _, _, _, _, schema, name) = self.spec();
         JsonRecordProfileV1 {
             field: FieldDescriptor {
                 name,
                 shape: FieldShape::Map,
                 ..self.descriptor()
             },
-            schema,
+            schema: [schema; 32],
+        }
+    }
+    pub fn value(self, source: CognitionEnvelopeRefV1<'_>) -> Option<&serde_json::Value> {
+        let (_, container, key, _, _, _, _) = self.spec();
+        if let Some(container) = container {
+            source.field(container)?.get(key)
+        } else {
+            source.field(key)
+        }
+    }
+    pub(crate) fn immediate(self) -> Option<crate::incremental_json_records::JsonImmediateShapeV1> {
+        use crate::incremental_json_records::JsonImmediateShapeV1;
+        match self {
+            Self::EconomyBalances
+            | Self::EconomyProvisionedBalances
+            | Self::DelegationGrants
+            | Self::DelegationDecisions
+            | Self::DelegationControls => Some(JsonImmediateShapeV1::Object),
+            Self::DelegationSpent => Some(JsonImmediateShapeV1::Unsigned),
+            _ => None,
+        }
+    }
+    pub(crate) fn scalar_constraint_depth(self) -> Option<usize> {
+        if self == Self::DelegationSpent {
+            Some(1)
+        } else {
+            None
         }
     }
 }
@@ -118,13 +342,43 @@ pub fn prepare_cognition_json_genesis_v1<
     sink: &mut S,
 ) -> Result<(), MemberRecordError> {
     for field in CognitionJsonFieldV1::ALL {
-        let Some(value) = source.field(field.name()) else {
+        let Some(value) = field.value(source) else {
             if field.optional() {
                 continue;
             } else {
                 return Err(MemberRecordError::Invalid("missing cognition JSON field"));
             }
         };
+        if let Some(shape) = field.immediate() {
+            for child in value
+                .as_object()
+                .ok_or(MemberRecordError::Invalid("cognition JSON object source"))?
+                .values()
+            {
+                if (context.cancelled)() {
+                    return Err(ValueTreeError::Cancelled.into());
+                }
+                work.cells_remaining =
+                    work.cells_remaining
+                        .checked_sub(1)
+                        .ok_or(ValueTreeError::ResourceLimited(
+                            "cognition JSON source shape checks",
+                        ))?;
+                let valid = match shape {
+                    crate::incremental_json_records::JsonImmediateShapeV1::Object => {
+                        child.is_object()
+                    }
+                    crate::incremental_json_records::JsonImmediateShapeV1::Unsigned => {
+                        child.as_u64().is_some()
+                    }
+                };
+                if !valid {
+                    return Err(MemberRecordError::Invalid(
+                        "cognition JSON source child shape",
+                    ));
+                }
+            }
+        }
         start(context, records)?;
         let metadata = write_field_metadata_v1(
             field.descriptor(),

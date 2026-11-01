@@ -19,8 +19,22 @@ fn physical() -> PageIoBudget {
         write_bytes_remaining: 256 << 20,
     }
 }
-fn source() -> serde_json::Value {
-    serde_json::json!({"schema_version":"cognition-persistence.v1", "cognition_journal":{"schema_version":"cognition-journal.v1","head_seq":u64::MAX,"head_digest":"原digest","events":[]}, "responses":[],"commit_records":[],"receipt_registry":[],"receipt_lineage_registry":[],"feedback_outbox":{"":true},"idempotency_index":{},"staged_actions":{},"scheduler_state":{},"continuations":[null,""],"recovery":null,"continuation_contexts":{},"reorg_invalidation_epoch":0})
+fn source(all_optional: bool) -> serde_json::Value {
+    let mut value = serde_json::json!({"schema_version":"cognition-persistence.v1", "cognition_journal":{"schema_version":"cognition-journal.v1","head_seq":u64::MAX,"head_digest":"原digest","events":[]}, "responses":[],"commit_records":[],"receipt_registry":[],"receipt_lineage_registry":[],"feedback_outbox":{"":true},"idempotency_index":{},"staged_actions":{},"scheduler_state":{},"continuations":[null,""],"recovery":null,"continuation_contexts":{},"reorg_invalidation_epoch":0});
+    if all_optional {
+        value["cognition_economy"] =
+            serde_json::to_value(oasis7_runtime::CognitionEconomyStateV1::default()).unwrap();
+        value["cognition_economy"]["balances"] =
+            serde_json::json!({"":{}, "账户":{"unit":{"available":u64::MAX,"reserved":0}}});
+        value["cognition_economy"]["provisioned_balances"] = serde_json::json!({"原binding":{}});
+        value["cognition_economy"]["provision_head_seq"] = serde_json::json!(42);
+        value["cognition_economy"]["head_seq"] = serde_json::json!(u64::MAX);
+        value["cognition_economy"]["head_digest"] = serde_json::json!("原economic-digest");
+        value["cognition_economy"]["provision_head_digest"] = serde_json::json!("");
+        value["agent_delegation"] = serde_json::json!({"grants":{"outer-id":{"grant_id":"embedded-id"}},"spent":{"":u64::MAX},"decisions":{},"receipts":{},"controls":{}});
+        value["continuation_evaluations"] = serde_json::json!({"n":{"tick":u64::MAX}});
+    }
+    value
 }
 fn state_error(error: PageStoreError) -> ValueTreeError {
     match error {
@@ -32,20 +46,27 @@ fn state_error(error: PageStoreError) -> ValueTreeError {
 }
 #[test]
 fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old_pool() {
+    run_cognition(false);
+}
+#[test]
+fn cognition_optional_economy_and_delegation_keep_original_state_and_side_routing() {
+    run_cognition(true);
+}
+fn run_cognition(all_optional: bool) {
     let directory = fixture::Directory::new();
     let memory = MemoryBudget::new(32 << 20, 8 << 20).unwrap();
     let path = directory.0.join("cognition");
     let store = IncrementalPageStore::create(&path, memory.clone(), PageCompression::Raw).unwrap();
     let _input = memory.reserve(16 << 10, MemoryClass::Ordinary).unwrap();
-    let source = source();
+    let source = source(all_optional);
     let _batch = memory.reserve(32 << 10, MemoryClass::Ordinary).unwrap();
-    let mut writes = Vec::with_capacity(24);
+    let mut writes = Vec::with_capacity(64);
     let mut writer = store.value_session(physical());
     let mut io = fixture::logical();
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 16 << 20,
     };
-    let mut records = 24;
+    let mut records = 64;
     let mut ctx = MemberRecordWriteContext {
         sink: &mut writer,
         memory: &memory,
@@ -63,40 +84,48 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         &mut ctx,
         &mut records,
         &mut |write| {
-            assert!(writes.len() < 24);
+            assert!(writes.len() < 64);
             writes.push(write);
             Ok(())
         },
     )
     .unwrap();
     let mut json_work = oasis7_runtime::incremental_json_records::JsonWriteWorkV1 {
-        cells_remaining: 128,
-        json_nodes_remaining: 24,
+        cells_remaining: 4096,
+        json_nodes_remaining: 512,
         max_json_depth: 4,
         max_pending_node_bytes: 2 << 20,
     };
-    prepare_cognition_json_genesis_v1(
+    let generated = prepare_cognition_json_genesis_v1(
         CognitionEnvelopeRefV1::new(&source).unwrap(),
         &mut ctx,
         &mut records,
         &mut json_work,
         &mut |write| {
-            assert!(writes.len() < 24);
+            assert!(writes.len() < 64);
             writes.push(write);
             Ok(())
         },
-    )
-    .unwrap();
-    assert_eq!(writes.len(), 22);
-    assert_eq!(records, 2);
+    );
+    eprintln!(
+        "Cognition GEN all_optional={all_optional} records_left={records} cells_left={} json_nodes_left={} writer_remaining={:?} logical_remaining={:?}",
+        json_work.cells_remaining,
+        json_work.json_nodes_remaining,
+        writer.remaining_io().unwrap(),
+        io
+    );
+    generated.unwrap();
+    assert_eq!(writes.len(), if all_optional { 60 } else { 22 });
+    assert_eq!(records, if all_optional { 4 } else { 42 });
     let namespaces = [
         StateNamespaceV1::Artifacts,
         StateNamespaceV1::Allocator,
         StateNamespaceV1::Effects,
         StateNamespaceV1::Authorization,
         StateNamespaceV1::Scheduler,
+        StateNamespaceV1::Business,
     ];
-    let mut roots = [[0u8; STATE_ROOT_BYTES]; 5];
+    let mut roots = [[0u8; STATE_ROOT_BYTES]; 6];
     let expected_feedback;
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
@@ -741,8 +770,8 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         bytes_remaining: 16 << 20,
     };
     let mut work = oasis7_runtime::incremental_json_records::JsonReadWorkV1 {
-        cells_remaining: 128,
-        json_nodes_remaining: 24,
+        cells_remaining: 4096,
+        json_nodes_remaining: 512,
         max_depth: 4,
         max_payload_bytes: 4096,
     };
@@ -771,8 +800,8 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             cancelled: || false,
         };
         let proof = qualify_cognition_json_entry_v1(field, &mut context, &mut work).unwrap();
-        if field == CognitionJsonFieldV1::ContinuationEvaluations {
-            assert!(proof.is_none());
+        if proof.is_none() {
+            assert!(field.optional());
         } else {
             let proof = proof.unwrap();
             if field == CognitionJsonFieldV1::FeedbackOutbox {
@@ -783,16 +812,28 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             }
 
             proof.validate_binding(field, proof.body_root()).unwrap();
-            assert_eq!(
-                proof.body_root().leaf_count,
-                if matches!(field, CognitionJsonFieldV1::FeedbackOutbox) {
-                    6
-                } else if field == CognitionJsonFieldV1::Continuations {
-                    7
-                } else {
-                    5
-                }
-            );
+            if !all_optional
+                || matches!(
+                    field,
+                    CognitionJsonFieldV1::FeedbackOutbox
+                        | CognitionJsonFieldV1::IdempotencyIndex
+                        | CognitionJsonFieldV1::StagedActions
+                        | CognitionJsonFieldV1::SchedulerState
+                        | CognitionJsonFieldV1::Continuations
+                        | CognitionJsonFieldV1::ContinuationContexts
+                )
+            {
+                assert_eq!(
+                    proof.body_root().leaf_count,
+                    if field == CognitionJsonFieldV1::FeedbackOutbox {
+                        6
+                    } else if field == CognitionJsonFieldV1::Continuations {
+                        7
+                    } else {
+                        5
+                    }
+                );
+            }
             assert!(
                 proof
                     .validate_binding(CognitionJsonFieldV1::ContinuationEvaluations, &root)
@@ -800,10 +841,7 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             );
         }
     }
-    for field in CognitionControlFieldV1::REQUIRED
-        .into_iter()
-        .chain([CognitionControlFieldV1::ReorgInvalidationEpoch])
-    {
+    for field in CognitionControlFieldV1::ALL {
         let namespace = match field.descriptor().destination {
             FieldDestination::State(ns) => ns,
             _ => unreachable!(),
@@ -830,6 +868,10 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         let _out = cold.reserve(1024, MemoryClass::Recovery).unwrap();
         let mut output = Vec::with_capacity(1024);
         let actual = read_cognition_control_v1(field, &mut context, &mut output).unwrap();
+        if actual == CognitionControlReadV1::Absent {
+            assert!(field.optional() && !all_optional);
+            continue;
+        }
         match field {
             CognitionControlFieldV1::JournalHeadSeq => {
                 assert_eq!(actual, CognitionControlReadV1::Unsigned(u64::MAX))
@@ -840,6 +882,20 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             CognitionControlFieldV1::Schema => assert_eq!(output, b"cognition-persistence.v1"),
             CognitionControlFieldV1::JournalSchema => assert_eq!(output, b"cognition-journal.v1"),
             CognitionControlFieldV1::JournalHeadDigest => assert_eq!(output, "原digest".as_bytes()),
+            CognitionControlFieldV1::EconomySchema => assert_eq!(
+                output,
+                oasis7_runtime::COGNITION_ECONOMY_SCHEMA_VERSION.as_bytes()
+            ),
+            CognitionControlFieldV1::EconomyProvisionHeadSeq => {
+                assert_eq!(actual, CognitionControlReadV1::Unsigned(42))
+            }
+            CognitionControlFieldV1::EconomyHeadSeq => {
+                assert_eq!(actual, CognitionControlReadV1::Unsigned(u64::MAX))
+            }
+            CognitionControlFieldV1::EconomyHeadDigest => {
+                assert_eq!(output, "原economic-digest".as_bytes())
+            }
+            CognitionControlFieldV1::EconomyProvisionHeadDigest => assert!(output.is_empty()),
         }
     }
     eprintln!(

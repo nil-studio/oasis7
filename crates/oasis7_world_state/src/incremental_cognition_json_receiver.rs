@@ -5,7 +5,9 @@ use crate::{
     incremental_cognition_json_read::{self as read, CognitionJsonEntryQualificationV1},
     incremental_field_overlay::WorldFieldOverlayErrorV1,
     incremental_field_read::WorldFieldReadContextV1,
-    incremental_json_records::{JsonScalarChangeWorkV1, advance_json_scalar_subtree_records_v1},
+    incremental_json_records::{
+        JsonScalarChangeWorkV1, advance_json_scalar_subtree_records_constrained_v1,
+    },
     incremental_projection::FieldOwner,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
@@ -98,12 +100,13 @@ pub fn accept_cognition_json_entry_transition_v1<
         context.check()?;
     }
     let child = read::outer(field, &key, &after, &mut context.records())?;
-    let body = advance_json_scalar_subtree_records_v1(
+    let body = advance_json_scalar_subtree_records_constrained_v1(
         field.profile(),
         parent.json(),
         &child,
         &mut context.records(),
         work,
+        field.scalar_constraint_depth(),
     )?;
     let output = read::mint(field, body, context.values.memory, context.values.class)?;
     context.check()?;

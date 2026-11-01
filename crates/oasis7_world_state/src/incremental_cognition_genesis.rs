@@ -26,25 +26,22 @@ pub fn prepare_cognition_controls_genesis_v1<
     records_remaining: &mut u64,
     sink: &mut S,
 ) -> Result<(), MemberRecordError> {
-    for field in CognitionControlFieldV1::REQUIRED
-        .into_iter()
-        .chain([CognitionControlFieldV1::ReorgInvalidationEpoch])
-    {
+    for field in CognitionControlFieldV1::ALL {
         let Some(value) = field.value(source) else {
             continue;
         };
-        let payload = match field {
-            CognitionControlFieldV1::JournalHeadSeq
-            | CognitionControlFieldV1::ReorgInvalidationEpoch => MemberPayloadRefV1::U64(
+        let payload = if field.unsigned() {
+            MemberPayloadRefV1::U64(
                 value
                     .as_u64()
                     .ok_or(MemberRecordError::Invalid("cognition control u64"))?,
-            ),
-            _ => MemberPayloadRefV1::Text(
+            )
+        } else {
+            MemberPayloadRefV1::Text(
                 value
                     .as_str()
                     .ok_or(MemberRecordError::Invalid("cognition control text"))?,
-            ),
+            )
         };
         for metadata in [true, false] {
             if (context.cancelled)() {
@@ -84,6 +81,30 @@ pub fn prepare_cognition_controls_genesis_v1<
         }
     }
     Ok(())
+}
+
+/// Complete current-state GEN routing. History, ProofLedger and RetentionLedger
+/// remain their original independent owners and are never inserted here.
+pub fn prepare_cognition_state_genesis_v1<
+    W: oasis7_formal_protocol::incremental_state::StatePageWriter
+        + oasis7_formal_protocol::incremental_value::ValueNodeReader,
+    C: FnMut() -> bool,
+    S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+>(
+    source: CognitionEnvelopeRefV1<'_>,
+    context: &mut MemberRecordWriteContext<'_, W, C>,
+    records_remaining: &mut u64,
+    work: &mut crate::incremental_json_records::JsonWriteWorkV1,
+    sink: &mut S,
+) -> Result<(), MemberRecordError> {
+    prepare_cognition_controls_genesis_v1(source, context, records_remaining, sink)?;
+    crate::incremental_cognition_json::prepare_cognition_json_genesis_v1(
+        source,
+        context,
+        records_remaining,
+        work,
+        sink,
+    )
 }
 
 #[cfg(test)]

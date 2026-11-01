@@ -35,7 +35,7 @@ pub fn read_cognition_control_v1<
     let descriptor = field.descriptor();
     let metadata = WorldFieldKeyV1::new(descriptor, WorldFieldRecordKindV1::Metadata, None)
         .map_err(ValueTreeError::Invalid)?;
-    let optional = field == CognitionControlFieldV1::ReorgInvalidationEpoch;
+    let optional = field.optional();
     let metadata_root = context.lookup(&metadata)?;
     let (key, bytes) = context.key(descriptor, WorldFieldRecordKindV1::Entry, &())?;
     let root = context.lookup(&key)?;
@@ -50,31 +50,27 @@ pub fn read_cognition_control_v1<
     };
     context.records().presence(&metadata_root, &metadata, 0)?;
     let root = root.ok_or(ValueTreeError::Invalid("cognition control missing entry"))?;
-    let result = match field {
-        CognitionControlFieldV1::JournalHeadSeq
-        | CognitionControlFieldV1::ReorgInvalidationEpoch => {
-            CognitionControlReadV1::Unsigned(context.records().unsigned(&root, &key, bytes)?)
-        }
-        _ => {
-            let bytes = read_text_value(
-                &root,
-                &key,
-                &mut context.values,
-                MemberReadProfileV1 {
-                    codec: MemberPayloadCodecV1::Text,
-                    semantic_bytes: bytes,
-                    limits: MemberRecordLimitsV1 {
-                        semantic_bytes: context.semantic_bytes,
-                        payload_bytes: context.record_bytes,
-                        record_bytes: context.record_bytes,
-                    },
+    let result = if field.unsigned() {
+        CognitionControlReadV1::Unsigned(context.records().unsigned(&root, &key, bytes)?)
+    } else {
+        let bytes = read_text_value(
+            &root,
+            &key,
+            &mut context.values,
+            MemberReadProfileV1 {
+                codec: MemberPayloadCodecV1::Text,
+                semantic_bytes: bytes,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: context.semantic_bytes,
+                    payload_bytes: context.record_bytes,
+                    record_bytes: context.record_bytes,
                 },
-                output,
-                "cognition control UTF-8",
-                &mut context.cancelled,
-            )?;
-            CognitionControlReadV1::Text { bytes }
-        }
+            },
+            output,
+            "cognition control UTF-8",
+            &mut context.cancelled,
+        )?;
+        CognitionControlReadV1::Text { bytes }
     };
     context.check()?;
     Ok(result)

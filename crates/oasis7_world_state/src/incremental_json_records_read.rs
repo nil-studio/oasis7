@@ -127,7 +127,7 @@ fn get<R: ValueNodeReader, C: FnMut() -> bool>(
     tree::lookup(root, key, records, LABELS)?.ok_or_else(invalid)
 }
 pub(super) struct Frame {
-    cursor: cursor::Cursor,
+    pub(super) cursor: cursor::Cursor,
     pub(super) keys: [WorldFieldKeyV1; 5],
     pub(super) ids: [[u8; 32]; 5],
     pub(super) kind: Kind,

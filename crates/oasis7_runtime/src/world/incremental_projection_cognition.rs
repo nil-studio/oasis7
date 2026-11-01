@@ -23,6 +23,43 @@ impl World {
     }
 }
 
+impl World {
+    /// Borrow all current Cognition state cohorts. This produces provisional
+    /// writes only; independent history/proof/retention and owner acceptance
+    /// remain mandatory and are not replaced by the original JSON envelope.
+    pub fn prepare_iws_cognition_current_genesis_v1<
+        W: oasis7_formal_protocol::incremental_state::StatePageWriter
+            + oasis7_formal_protocol::incremental_value::ValueNodeReader,
+        C: FnMut() -> bool,
+        S: FnMut(
+            oasis7_proto::memory_budget::ReservedValue<
+                oasis7_formal_protocol::incremental_execution::ExecutionWriteV1,
+            >,
+        ) -> Result<(), oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        &self,
+        context: &mut oasis7_world_state::incremental_field_member::MemberRecordWriteContext<
+            '_,
+            W,
+            C,
+        >,
+        records_remaining: &mut u64,
+        work: &mut oasis7_world_state::incremental_json_records::JsonWriteWorkV1,
+        sink: &mut S,
+    ) -> Result<(), oasis7_world_state::incremental_field_member::MemberRecordError> {
+        let source = self
+            .borrow_iws_cognition_envelope_v1()
+            .map_err(oasis7_world_state::incremental_field_member::MemberRecordError::Invalid)?;
+        oasis7_world_state::incremental_cognition_genesis::prepare_cognition_state_genesis_v1(
+            source,
+            context,
+            records_remaining,
+            work,
+            sink,
+        )
+    }
+}
+
 pub(super) fn visit<S: GenesisFieldVisitor>(
     value: &Value,
     sink: &mut S,

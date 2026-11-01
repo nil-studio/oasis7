@@ -8,7 +8,8 @@ use crate::{
     incremental_inventory_value_read::InventoryValueReader,
     incremental_json_records::{
         JsonPathSegmentV1, JsonScalarChangeWorkV1, JsonScalarRefV1, JsonWriteWorkV1,
-        advance_json_scalar_subtree_records_v1, prepare_json_scalar_path_change_records_v1,
+        advance_json_scalar_subtree_records_constrained_v1,
+        prepare_json_scalar_path_change_records_v1,
     },
 };
 use oasis7_formal_protocol::{
@@ -96,7 +97,7 @@ pub fn change_cognition_json_scalar_v1<
         }
         let body = {
             let mut combined = || cancel() || (write.cancelled)();
-            advance_json_scalar_subtree_records_v1(
+            advance_json_scalar_subtree_records_constrained_v1(
                 change.field.profile(),
                 change.qualification.json(),
                 prepared.after(),
@@ -108,6 +109,7 @@ pub fn change_cognition_json_scalar_v1<
                     cancelled: &mut combined,
                 },
                 &mut work.changed,
+                change.field.scalar_constraint_depth(),
             )?
         };
         let row = write_root(

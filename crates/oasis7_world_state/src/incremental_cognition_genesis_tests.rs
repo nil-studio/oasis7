@@ -134,6 +134,7 @@ fn actual_gen_preserves_original_control_payloads_and_finite_record_allowance() 
             CognitionControlFieldV1::JournalHeadSeq => &u64::MAX.to_be_bytes(),
             CognitionControlFieldV1::JournalHeadDigest => "原digest".as_bytes(),
             CognitionControlFieldV1::ReorgInvalidationEpoch => &0u64.to_be_bytes(),
+            other => panic!("unexpected base control {other:?}"),
         };
         assert_eq!(payload.as_slice(), expected);
     }
