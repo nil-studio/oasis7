@@ -61,7 +61,10 @@ fn run_cognition(all_optional: bool) {
     let source = source(all_optional);
     let _batch = memory.reserve(32 << 10, MemoryClass::Ordinary).unwrap();
     let mut writes = Vec::with_capacity(64);
-    let mut writer = store.value_session(physical());
+    let mut writer = store.value_session(PageIoBudget {
+        writes_remaining: if all_optional { 200_000 } else { 100_000 },
+        ..physical()
+    });
     let mut io = fixture::logical();
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 16 << 20,
@@ -745,6 +748,10 @@ fn run_cognition(all_optional: bool) {
             );
         }
     }
+    eprintln!(
+        "Cognition final writer scope all_optional={all_optional} remaining={:?}",
+        writer.remaining_io().unwrap()
+    );
     drop(writes);
     drop(writer);
     drop(state);
@@ -761,11 +768,18 @@ fn run_cognition(all_optional: bool) {
         MemoryClass::Recovery,
     )
     .unwrap();
+    let cold_physical = PageIoBudget {
+        reads_remaining: if all_optional { 3_000_000 } else { 2_500_000 },
+        ..physical()
+    };
     let state = store
-        .state_session(physical(), MemoryClass::Recovery)
+        .state_session(cold_physical.clone(), MemoryClass::Recovery)
         .unwrap();
-    let values = store.value_session(physical());
-    let mut io = fixture::logical();
+    let values = store.value_session(cold_physical);
+    let mut io = ValueIoBudget {
+        nodes_remaining: if all_optional { 200_000 } else { 100_000 },
+        ..fixture::logical()
+    };
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 16 << 20,
     };
@@ -799,7 +813,17 @@ fn run_cognition(all_optional: bool) {
             take_state_error: || state.take_read_error().map(state_error),
             cancelled: || false,
         };
-        let proof = qualify_cognition_json_entry_v1(field, &mut context, &mut work).unwrap();
+        let result = qualify_cognition_json_entry_v1(field, &mut context, &mut work);
+        eprintln!(
+            "Cognition cold field={field:?} result_ok={} logical={:?} state={:?} values={:?} cells={} json_nodes={}",
+            result.is_ok(),
+            context.values.io,
+            state.remaining_io().unwrap(),
+            values.remaining_io().unwrap(),
+            work.cells_remaining,
+            work.json_nodes_remaining
+        );
+        let proof = result.unwrap();
         if proof.is_none() {
             assert!(field.optional());
         } else {
@@ -899,8 +923,9 @@ fn run_cognition(all_optional: bool) {
         }
     }
     eprintln!(
-        "Cognition entry cold physical state={:?} value={:?}",
+        "Cognition entry cold physical state={:?} value={:?} logical={:?}",
         state.remaining_io().unwrap(),
-        values.remaining_io().unwrap()
+        values.remaining_io().unwrap(),
+        io
     );
 }
