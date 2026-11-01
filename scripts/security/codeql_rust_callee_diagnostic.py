@@ -112,11 +112,12 @@ def run_diagnostic(args):
                 'stages': {n: 'NOT_REACHED' for n in ('Syntax', 'ResolutionCounts', 'TargetFunctions', 'OriginalCalls')},
                 'action_cleanup': 'UNKNOWN_RUNNER_OWNED'}
     checked = args.check_only
+    prefix = 'callee-check' if checked else 'callee-evaluate'
     try:
         if args.threads != 4 or args.ram <= 0 or end <= time.monotonic():
             raise RuntimeError('resource/deadline admission')
         capacity = load('callee_capacity_run', 'codeql-rust-capacity.py')
-        identity = capacity.evidence.capture_identity(args.source, out, end, SOURCE, prefix='callee')
+        identity = capacity.evidence.capture_identity(args.source, out, end, SOURCE, prefix=prefix)
         if identity.get('status') != 'PASS':
             raise RuntimeError('frozen source identity failed')
         model = capacity.bundle
@@ -127,8 +128,8 @@ def run_diagnostic(args):
         (query / 'qlpack.yml').write_text('name: oasis7/rust-callee-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.24\n')
         texts = queries(args.source)
         terminal['stages'] = {name: 'NOT_REACHED' for name in texts}
-        runtime.save(out / 'callee-query-inputs.json', texts, out)
-        runtime.save(out / 'callee-query-hashes.json',
+        runtime.save(out / (prefix + '-query-inputs.json'), texts, out)
+        runtime.save(out / (prefix + '-query-hashes.json'),
                      {n: hashlib.sha256(t.encode()).hexdigest() for n, t in texts.items()}, out)
         options = ['--additional-packs=' + additional]
         env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN')}
@@ -136,7 +137,7 @@ def run_diagnostic(args):
         def run(argv, name):
             # BQRS and evaluator spill remain private, not evidence artifacts.
             limit = None if list(map(str, argv[1:3])) == ['query', 'run'] else 8 * 1024**2
-            runtime.run(list(map(str, argv)), args.source, out / (name + '.log'), end,
+            runtime.run(list(map(str, argv)), args.source, out / (prefix + '-' + name + '.log'), end,
                         min(900, max(0, end - time.monotonic())), out, env, file_limit=limit)
 
         decoded = {}
@@ -145,25 +146,25 @@ def run_diagnostic(args):
             q = query / (name + '.ql')
             q.write_text(text)
             run([args.codeql, 'resolve', 'library-path', '--query=' + str(q),
-                 '--format=json', *options], 'callee-library-' + name)
-            model.verify_library_path(json.loads((out / ('callee-library-' + name + '.log')).read_text()),
+                 '--format=json', *options], 'library-' + name)
+            model.verify_library_path(json.loads((out / (prefix + '-library-' + name + '.log')).read_text()),
                                       query, name, closure, 'oasis7/rust-callee-diagnostic')
             if checked:
                 run([args.codeql, 'query', 'compile', '--check-only', q,
-                     '--threads=4', '--ram=' + str(args.ram), *options], 'callee-check-' + name)
+                     '--threads=4', '--ram=' + str(args.ram), *options], 'compile-' + name)
             else:
                 b = args.work / (name + '.bqrs')
                 run([args.codeql, 'query', 'run', q, '--database=' + str(args.database),
-                     '--output=' + str(b), '--threads=4', '--ram=' + str(args.ram), *options], 'callee-run-' + name)
-                run([args.codeql, 'bqrs', 'info', b, '--format=json'], 'callee-info-' + name)
-                info = json.loads((out / ('callee-info-' + name + '.log')).read_text())
+                     '--output=' + str(b), '--threads=4', '--ram=' + str(args.ram), *options], 'run-' + name)
+                run([args.codeql, 'bqrs', 'info', b, '--format=json'], 'info-' + name)
+                info = json.loads((out / (prefix + '-info-' + name + '.log')).read_text())
                 sets = info.get('result-sets')
                 if (not isinstance(sets, list) or len(sets) != 1 or
                         sets[0].get('name') != '#select' or type(sets[0].get('rows')) is not int or
                         not 0 <= sets[0]['rows'] <= ROW_CAP):
                     raise RuntimeError('callee BQRS schema or row cap')
                 dest = out / ('callee-' + name + '.json')
-                run([args.codeql, 'bqrs', 'decode', b, '--format=json', '--output=' + str(dest)], 'callee-decode-' + name)
+                run([args.codeql, 'bqrs', 'decode', b, '--format=json', '--output=' + str(dest)], 'decode-' + name)
                 from codeql_rust_cfg_graph import decode_rows
                 rows = decode_rows(dest, info)
                 if any(len(str(row)) > 8192 for row in rows):
