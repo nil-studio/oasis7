@@ -131,9 +131,6 @@ impl MemberPayloadRefV1<'_> {
             Self::Text(s) => output.write_all(s.as_bytes()),
             Self::Ledger(v) => write_ledger_value_v1(v, output).map(|_| ()),
             Self::Bytes(b) => output.write_all(b),
-            Self::RecordRoot(reference) => {
-                output.write_all(&reference.canonical_bytes().map_err(io::Error::other)?)
-            }
             Self::DeliveryCursor(cursor) => {
                 let ProductValidationDeliveryCursor {
                     event_id_era,
