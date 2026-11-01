@@ -28,6 +28,12 @@ SUPPORT_PROFILES = (
     'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
     'oasis7_client_launcher', 'wasm_build_suite', 'wasm_module_observe',
 )
+# The distfs group runs these lib harnesses with Cargo defaults on Ubuntu.
+# This proves native target predicates only, never expanded feature activation.
+# Keep synchronized with run_oasis7_distfs_tests and rust.yml's distfs runner.
+NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
+    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs',
+))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
            'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py')
@@ -1000,12 +1006,21 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             result.update(inherited_gates(parent, native, visiting | {path}))
         return result
 
+    def native_context(path):
+        owners = feature_owners.get(path, set())
+        if path in ordinary_roots or owners and owners.issubset(feature_packages):
+            return True
+        # A package-level default driver covers only its executed lib tree,
+        # not arbitrary bins/targets. Prove the literal module path to a known
+        # root under native predicates before granting target knowledge.
+        return bool(owners and owners.issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES)
+                    and ordinary_source_context(path, True))
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
         if before != after:
-            native = (path in ordinary_roots or bool(feature_owners.get(path))
-                      and feature_owners[path].issubset(feature_packages))
+            native = native_context(path)
             analyses.append((path, attributes(before, native), attributes(after, native)))
     # Keep both rename endpoints and removals in the review evidence. A new
     # marker is exempt only when this change contains no retiring test owner.
@@ -1015,8 +1030,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         after_attrs, new_ignored, new_test_owners, _, ordinary_owners = after[:5]
         test_owners = old_test_owners | new_test_owners
         changes = before_attrs ^ after_attrs
-        native = (path in ordinary_roots or bool(feature_owners.get(path))
-                  and feature_owners[path].issubset(feature_packages))
+        native = native_context(path)
         ordinary_source = ordinary_source_context(path, native)
         new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
@@ -1060,7 +1074,24 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             ordinary_gate = enabled_gate(attribute, native, set())
             if not ordinary_gate and features and not mapped_native_driver:
                 raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
-            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver):
+            actual_features = set(enabled_features)
+            defaults = []
+            for package in feature_owners.get(path, ()):
+                table = available_features.get(package, {})
+                # A set-only legacy caller provides declarations, not activation.
+                table = table if isinstance(table, dict) else {}
+                active, pending = set(), ['default']
+                while pending:
+                    feature = pending.pop()
+                    if feature in active or feature not in table:
+                        continue
+                    active.add(feature)
+                    pending.extend(table[feature])
+                defaults.append(active)
+            if defaults:
+                # Every source owner must execute the inherited condition.
+                actual_features.update(set.intersection(*defaults))
+            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver, actual_features):
                 raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
             if features and (not feature_owners.get(path) or any(
                     not features.issubset(available_features.get(package, set()))
@@ -1254,7 +1285,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         reasons.extend('uncertain Rust module input: ' + path
                                        for path in sorted(graph[2]['__uncertain_module_sources__']))
                     feature_manifests[resolve_commit(ref)] = {
-                        package: set(manifest.get('features', {}))
+                        package: manifest.get('features', {})
                         for package, (_, manifest) in graph[0].items()}
                     test_target_roots[resolve_commit(ref)] = {
                         path for path in sources for package, (directory, manifest) in graph[0].items()
