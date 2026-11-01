@@ -30,6 +30,15 @@ pub fn physical() -> PageIoBudget {
         write_bytes_remaining: 128 << 20,
     }
 }
+// Complete staging+seal over packed fixture pages: measured maximum107859
+// reads for the first move. Keep a finite128Ki operation /128MiB byte scope;
+// production/cold memory and per-field logical control-read limits are unchanged.
+pub fn state_physical() -> PageIoBudget {
+    PageIoBudget {
+        reads_remaining: 128 << 10,
+        ..physical()
+    }
+}
 pub fn logical() -> ValueIoBudget {
     ValueIoBudget {
         nodes_remaining: 100_000,
@@ -192,7 +201,7 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         },
     };
     let source = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let cancelled = AtomicBool::new(false);
     for (namespace, mut writes) in fields {
@@ -201,22 +210,72 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         writes.sort_unstable_by(|a, b| a.key.cmp(&b.key));
         assert!(writes.windows(2).all(|pair| pair[0].key != pair[1].key));
         let index = namespace as usize - 1;
-        let charge = memory
+        let mut charge = memory
             .reserve(
                 writes.len() * (512 << 10) + (128 << 10),
                 MemoryClass::Ordinary,
             )
             .unwrap();
-        let delta = charge.retain(
+        let delta =
             StateDeltaV1::build(parent.roots.state[index].clone(), writes, &source, 4 << 20)
-                .unwrap(),
-        );
+                .unwrap();
+        // Construction scratch is dead before physical encoding. Retain every
+        // actual owned capacity instead of overlapping its conservative build
+        // workspace with Zstd's independent16MiB encode workspace.
+        let heap = delta_heap(&delta);
+        let retained = charge.split(heap).unwrap();
+        drop(charge);
+        let delta = retained.retain(delta);
         sink.put_state_pages_cancelled(&delta, memory, &mut || false)
             .unwrap();
         parent.roots.state[index] = delta.after.clone();
     }
     drop(IncrementalObjectStore::create(store, &mut physical(), &cancelled).unwrap());
     (world, parent)
+}
+
+fn delta_heap(delta: &StateDeltaV1) -> usize {
+    use oasis7_formal_protocol::incremental_state::{StateNodeWriteV1, StateRootV1};
+    let StateDeltaV1 {
+        before,
+        after,
+        writes,
+        new_nodes,
+    } = delta;
+    let mut heap = std::mem::size_of::<StateDeltaV1>();
+    let mut add = |n: usize| {
+        heap = heap.checked_add(n).unwrap();
+    };
+    for root in [before, after] {
+        let StateRootV1 {
+            namespace: _,
+            node_root,
+            leaf_count: _,
+        } = root;
+        add(node_root.capacity());
+    }
+    add(writes
+        .capacity()
+        .checked_mul(std::mem::size_of::<StateWriteV1>())
+        .unwrap());
+    for write in writes {
+        let StateWriteV1 {
+            key,
+            before: _,
+            after: _,
+        } = write;
+        add(key.capacity());
+    }
+    add(new_nodes
+        .capacity()
+        .checked_mul(std::mem::size_of::<StateNodeWriteV1>())
+        .unwrap());
+    for node in new_nodes {
+        let StateNodeWriteV1 { digest, bytes } = node;
+        add(digest.capacity());
+        add(bytes.capacity());
+    }
+    heap
 }
 
 pub fn event(world: &World, id: u64, movement: bool) -> WorldEvent {
@@ -254,7 +313,7 @@ pub fn contribute(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedTransition> {
     let source = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let mut sink = store.value_session(physical());
     let values = store.value_session(physical());
@@ -277,6 +336,7 @@ pub fn contribute(
         },
     )
     .unwrap();
+    let before_contribute = source.remaining_io().unwrap();
     world
         .contribute_iws_agent_event(
             event,
@@ -306,6 +366,13 @@ pub fn contribute(
             },
         )
         .unwrap();
+    let after_contribute = source.remaining_io().unwrap();
     let guard = txn.guard();
-    txn.seal(&guard, &live, 0).unwrap()
+    let sealed = txn.seal(&guard, &live, 0);
+    eprintln!(
+        "Agent candidate State probe event={} before={before_contribute:?} afterContribute={after_contribute:?} afterSeal={:?}",
+        event.id,
+        source.remaining_io()
+    );
+    sealed.unwrap()
 }

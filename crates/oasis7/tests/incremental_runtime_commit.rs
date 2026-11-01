@@ -31,7 +31,7 @@ fn prepare(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedRuntimeCommit> {
     let pages = store
-        .state_session(physical_io(), MemoryClass::Ordinary)
+        .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let values = store.value_session(physical_io());
     let mut sink = store.value_session(physical_io());
@@ -141,7 +141,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
                 &memory,
             );
             let mut pages = store
-                .state_session(physical_io(), MemoryClass::Ordinary)
+                .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
                 .unwrap();
             pages.persist_transition_pages(first.transition()).unwrap();
             pages.persist_catalog_pages(first.catalog()).unwrap();
@@ -240,7 +240,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         )
         .unwrap();
         let pages = store
-            .state_session(physical_io(), MemoryClass::Recovery)
+            .state_session(agent_fixture::state_physical(), MemoryClass::Recovery)
             .unwrap();
         TransitionVerifier {
             parent: &parent,
@@ -343,7 +343,7 @@ fn setup(
     .unwrap();
     parent.commit = genesis.body.digest().unwrap();
     let mut pages = store
-        .state_session(physical_io(), MemoryClass::Ordinary)
+        .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let delta = empty
         .extend(&genesis.body, &pages, memory, 4 << 20)
