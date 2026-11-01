@@ -28,11 +28,18 @@ impl FormalLiveService {
                 .published
                 .current_for_read()
                 .map_err(|e| format!("{e:?}"))?;
-            let first = first_cut
-                .stop_publication
-                .as_deref()
-                .ok_or("qualified local Stop producer unavailable")?;
-            let prepared = task_stop_record_control_v2::prepare(body, first, received)?;
+            // World is Send but not Sync. Serialize this resident CPU-only
+            // read; no guard survives prepare or reaches a pause/network write.
+            let prepared = {
+                let cached = first_cut
+                    .stop_publication
+                    .as_ref()
+                    .ok_or("qualified local Stop producer unavailable")?;
+                let publication = cached
+                    .lock()
+                    .map_err(|_| "qualified local Stop cache poisoned")?;
+                task_stop_record_control_v2::prepare(body, &publication, received)?
+            };
             #[cfg(test)]
             if let Some(control) = self.published.test_control_state()? {
                 let position = self.published.position()?;
@@ -45,12 +52,15 @@ impl FormalLiveService {
                 .published
                 .current_for_read()
                 .map_err(|e| format!("{e:?}"))?;
-            let second = second_cut
+            let cached = second_cut
                 .stop_publication
-                .as_deref()
+                .as_ref()
                 .ok_or("qualified local Stop delivery producer unavailable")?;
+            let publication = cached
+                .lock()
+                .map_err(|_| "qualified local Stop cache poisoned")?;
             prepared.deliver(
-                second,
+                &publication,
                 &hex::encode(self.signer.to_bytes()),
                 self.stop_record_checked_now()?,
             )

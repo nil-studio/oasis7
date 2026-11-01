@@ -70,7 +70,8 @@ const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 pub(crate) struct PublishedReadCut {
     pub(crate) world: World,
     pub(crate) anchor: VerifiedFormalReadAnchorV1,
-    stop_publication: Option<Arc<oasis7::world_service::formal_read_service::LocalStopPublication>>,
+    stop_publication:
+        Option<Arc<Mutex<oasis7::world_service::formal_read_service::LocalStopPublication>>>,
 }
 
 /// Bounded immutable cut material for an in-flight or recently completed
@@ -166,12 +167,12 @@ impl PublishedReadState {
         // replaces World and anchor together, so a reader can never mix heads.
         let full = FormalReadPublication::new(anchor.clone(), world.clone())
             .map_err(|error| error.to_string())?;
-        let stop_publication = Some(Arc::new(
+        let stop_publication = Some(Arc::new(Mutex::new(
             oasis7::world_service::formal_read_service::LocalStopPublication::from_publication(
                 full,
             )
             .map_err(|error| error.to_string())?,
-        ));
+        )));
         let mut current = self
             .current
             .lock()
