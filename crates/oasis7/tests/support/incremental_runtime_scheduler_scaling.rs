@@ -2,6 +2,34 @@ use super::*;
 use oasis7_proto::memory_budget::ReservedValue;
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 use std::{cell::Cell, sync::Arc};
+// Count the complete logical State source, including generic replay. A sparse
+// path is at most257 nodes; each recorded read uses one path, and each write
+// performs at most one lookup plus one replace path (cached ancestors only reduce it).
+struct CountState<'a, 'b> {
+    source: &'a oasis7_distfs::incremental_page_store::StatePageSession<'b>,
+    calls: Cell<u64>,
+}
+impl CountState<'_, '_> {
+    fn take_read_error(&self) -> Option<PageStoreError> {
+        self.source.take_read_error()
+    }
+    fn remaining_io(&self) -> Result<PageIoBudget, PageStoreError> {
+        self.source.remaining_io()
+    }
+}
+impl MerkleNodeReader for CountState<'_, '_> {
+    type Node = oasis7_distfs::incremental_page_store::ChargedMerklePage;
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        self.source.allocation_budget()
+    }
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        self.source.allocation_class()
+    }
+    fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
+        self.calls.set(self.calls.get() + 1);
+        self.source.read_node(id, max)
+    }
+}
 struct Forbid<'a, R> {
     source: &'a R,
     old: [u8; 32],
@@ -99,9 +127,13 @@ fn unchanged_32m_cursor_is_not_read_by_scalar_sender_or_complete_receiver() {
             },
         };
         let live = parent.fence().unwrap();
-        let state = store
+        let state_backend = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        let state = CountState {
+            source: &state_backend,
+            calls: Cell::new(0),
+        };
         let values = store.value_session(physical());
         let hits = Cell::new(0);
         let max = Cell::new(0);
@@ -175,9 +207,13 @@ fn unchanged_32m_cursor_is_not_read_by_scalar_sender_or_complete_receiver() {
         let guard = overlay.transaction.guard();
         let sealed = tx.seal(&guard, &live, 1).unwrap();
         assert_eq!(sealed.record.writes.len(), 1);
-        let state2 = store
+        let state2_backend = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        let state2 = CountState {
+            source: &state2_backend,
+            calls: Cell::new(0),
+        };
         let values2 = store.value_session(physical());
         let forbid2 = Forbid {
             source: &values2,
@@ -224,6 +260,21 @@ fn unchanged_32m_cursor_is_not_read_by_scalar_sender_or_complete_receiver() {
         accepted
             .validate_binding(&sealed.record.after.digest().unwrap())
             .unwrap();
+        let structural_bound =
+            (sealed.record.reads.len() + 2 * sealed.record.writes.len()) as u64 * 257;
+        assert!(
+            state.calls.get() <= structural_bound,
+            "sender logical State paths"
+        );
+        assert!(
+            state2.calls.get() <= structural_bound,
+            "full generic+typed State paths"
+        );
+        eprintln!(
+            "scheduler logical State sender={} generic+typed={} structuralbound={structural_bound}",
+            state.calls.get(),
+            state2.calls.get()
+        );
         assert_eq!(hits.get(), 0);
         assert!(max.get() <= VALUE_MAX_NODE_BYTES);
         let sender = (

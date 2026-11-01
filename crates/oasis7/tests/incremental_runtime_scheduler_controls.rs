@@ -279,3 +279,9 @@ mod faults;
 
 #[path = "support/incremental_runtime_scheduler_scaling.rs"]
 mod scaling;
+
+#[path = "support/incremental_runtime_scheduler_literal.rs"]
+mod literal;
+
+#[path = "support/incremental_runtime_scheduler_genesis.rs"]
+mod genesis;

@@ -252,3 +252,247 @@ fn typed_runtime_scheduler_controls_pages_transfer_to_two_buffered_formats_then_
         assert_eq!(value, RuntimeSchedulerControlValueV1::Unsigned(0));
     }
 }
+struct AfterPut<'a, W> {
+    source: &'a mut W,
+    puts: &'a std::cell::Cell<usize>,
+    stop: &'a std::cell::Cell<bool>,
+    cancel: bool,
+    fail: bool,
+}
+impl<W: ValueNodeWriter> ValueNodeWriter for AfterPut<'_, W> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        self.source.put_node(id, bytes)?;
+        self.puts.set(self.puts.get() + 1);
+        if self.fail && self.puts.get() == 3 {
+            if self.cancel {
+                self.stop.set(true);
+            } else {
+                return Err(ValueTreeError::Io(std::io::Error::other(
+                    "scheduler controls third transferred put",
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+struct Missing<'a, R> {
+    source: &'a R,
+    id: [u8; 32],
+    hits: &'a std::cell::Cell<usize>,
+}
+impl<R: ValueNodeReader> ValueNodeReader for Missing<'_, R> {
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<std::sync::Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        if id == &self.id {
+            self.hits.set(self.hits.get() + 1);
+            return Err(ValueTreeError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "missing typed child",
+            )));
+        }
+        self.source.read_node(id, max, memory, class)
+    }
+}
+struct MissingState<'a, M> {
+    source: &'a M,
+    digest: Option<&'a str>,
+    hits: &'a std::cell::Cell<usize>,
+}
+impl<M: MerkleNodeReader> MerkleNodeReader for MissingState<'_, M> {
+    type Node = M::Node;
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        self.source.allocation_budget()
+    }
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        self.source.allocation_class()
+    }
+    fn read_node(&self, digest: &str, max: usize) -> Result<Option<Self::Node>, String> {
+        if self.digest == Some(digest) {
+            self.hits.set(self.hits.get() + 1);
+            return Err("scheduler controls missing typed state child".into());
+        }
+        self.source.read_node(digest, max)
+    }
+}
+#[test]
+fn runtime_scheduler_controls_page_collection_rejects_real_sink_faults_and_missing_typed_children()
+{
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    let source = IncrementalPageStore::create(
+        &directory.0.join("fault-source"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let roots = seed(&source, &memory);
+    let missing_id = {
+        let state = source
+            .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let values = source.value_session(physical());
+        let mut io = logical();
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut ctx = read_ctx!(
+            roots
+                .state
+                .iter()
+                .find(|r| r.namespace == StateNamespaceV1::Scheduler)
+                .unwrap(),
+            &state,
+            &values,
+            &memory,
+            MemoryClass::Ordinary,
+            &mut io,
+            &mut keys
+        );
+        let family = qualify_runtime_scheduler_controls_v1(
+            &roots,
+            &mut ctx,
+            &mut scan(),
+            &mut scan(),
+            &mut 1000,
+            32,
+        )
+        .unwrap();
+        let child = family.routing_root();
+        let raw = child.node_root.as_bytes();
+        let mut id = [0u8; 32];
+        for index in 0..32 {
+            id[index] = u8::from_str_radix(
+                std::str::from_utf8(&raw[index * 2..index * 2 + 2]).unwrap(),
+                16,
+            )
+            .unwrap();
+        }
+        id
+    };
+    for mode in 0..3 {
+        let target = IncrementalPageStore::create(
+            &directory.0.join(format!("fault-target-{mode}")),
+            memory.clone(),
+            PageCompression::Raw,
+        )
+        .unwrap();
+        let puts = std::cell::Cell::new(0);
+        let stop = std::cell::Cell::new(false);
+        let hits = std::cell::Cell::new(0);
+        let state_backend = source
+            .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let missing_digest = missing_id
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let state = MissingState {
+            source: &state_backend,
+            digest: if mode == 2 {
+                Some(&missing_digest)
+            } else {
+                None
+            },
+            hits: &hits,
+        };
+        let backend = source.value_session(physical());
+        let values = Missing {
+            source: &backend,
+            id: if mode == 2 { missing_id } else { [0; 32] },
+            hits: &hits,
+        };
+        let mut io = logical();
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut ctx = WorldFieldReadContextV1 {
+            root: &roots.state[0],
+            state: &state,
+            values: ValueReadContext {
+                source: &values,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut io,
+            },
+            key_work: &mut keys,
+            semantic_bytes: 1024,
+            record_bytes: 4096,
+            take_state_error: || {
+                if hits.get() > 0 {
+                    Some(ValueTreeError::Io(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "missing typed state child",
+                    )))
+                } else {
+                    state_backend.take_read_error().map(state_error)
+                }
+            },
+            cancelled: || stop.get(),
+        };
+        let mut sink = target.value_session(physical());
+        let result = if mode == 2 {
+            mark_runtime_scheduler_controls_family_pages_v1(
+                &roots,
+                &mut ctx,
+                &mut RuntimeSchedulerControlsPagesWorkV1 {
+                    outer_scan: &mut scan(),
+                    inner_scan: &mut scan(),
+                    cells: &mut 8192,
+                    max_cursor_bytes: 32,
+                    max_pages: 8192,
+                },
+            )
+        } else {
+            transfer_runtime_scheduler_controls_family_pages_v1(
+                &roots,
+                &mut ctx,
+                &mut RuntimeSchedulerControlsPagesWorkV1 {
+                    outer_scan: &mut scan(),
+                    inner_scan: &mut scan(),
+                    cells: &mut 8192,
+                    max_cursor_bytes: 32,
+                    max_pages: 8192,
+                },
+                &mut AfterPut {
+                    source: &mut sink,
+                    puts: &puts,
+                    stop: &stop,
+                    cancel: mode == 1,
+                    fail: mode < 2,
+                },
+            )
+        };
+        if let Err(error) = &result {
+            eprintln!(
+                "page fault mode={mode} puts={} missing_hits={} error={error:?}",
+                puts.get(),
+                hits.get()
+            );
+        }
+        if mode == 1 {
+            assert!(matches!(result, Err(ValueTreeError::Cancelled)));
+        } else {
+            assert!(matches!(result, Err(ValueTreeError::Io(_))));
+        }
+        if mode < 2 {
+            assert_eq!(puts.get(), 3);
+            assert!(
+                std::fs::read_dir(target.root().join("recipes"))
+                    .unwrap()
+                    .count()
+                    > 0
+            );
+        } else {
+            assert_eq!(hits.get(), 1);
+        }
+    }
+}
