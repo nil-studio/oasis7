@@ -3,7 +3,8 @@
 pub const EVENT_SEQUENCE_KEY_V1: &[u8] = b"oasis7.iws.event-sequence-key.v1\0";
 const SEQUENCE: &[u8] = b"oasis7.iws.event-sequence.v1\0";
 const FRONTIER: &[u8] = b"oasis7.iws.mailbox-frontier.v1\0";
-const KEY: &[u8] = b"oasis7.iws.mailbox-key.v1\0";
+pub const MAILBOX_KEY_DOMAIN_V1: &[u8] = b"oasis7.iws.mailbox-key.v1\0";
+const KEY: &[u8] = MAILBOX_KEY_DOMAIN_V1;
 pub const EVENT_SEQUENCE_BYTES: usize = SEQUENCE.len() + 16;
 pub const MAILBOX_FRONTIER_BYTES: usize = FRONTIER.len() + 16;
 
@@ -103,23 +104,44 @@ impl MailboxKeyV1 {
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.length]
     }
+    /// Original agent/position framing, independent of any history qualification.
+    pub fn from_bytes(bytes: &[u8]) -> Result<(&str, Option<u64>), &'static str> {
+        let payload = bytes.strip_prefix(KEY).ok_or("mailbox key domain")?;
+        let header = payload.get(..3).ok_or("mailbox key framing")?;
+        let indexed = match header[0] {
+            0 => false,
+            1 => true,
+            _ => return Err("mailbox key kind"),
+        };
+        let length = usize::from(u16::from_be_bytes(header[1..3].try_into().unwrap()));
+        if payload.len() != 3 + length + usize::from(indexed) * 8 {
+            return Err("mailbox key length");
+        }
+        let id = std::str::from_utf8(&payload[3..3 + length]).map_err(|_| "mailbox key UTF-8")?;
+        let ordinal =
+            indexed.then(|| u64::from_be_bytes(payload[3 + length..].try_into().unwrap()));
+        if Self::new(id, ordinal)?.as_bytes() != bytes {
+            return Err("mailbox key canonical");
+        }
+        Ok((id, ordinal))
+    }
 }
 /// Mailbox items reference original WorldEvent facts; delivery reads its Domain
 /// payload. The complete original is retained/verified by the history owner.
-pub fn mailbox_event_ref_v1(id: [u8; 32]) -> [u8; b"oasis7.iws.mailbox-event.v1\0".len() + 32] {
-    const DOMAIN: &[u8] = b"oasis7.iws.mailbox-event.v1\0";
-    let mut bytes = [0; b"oasis7.iws.mailbox-event.v1\0".len() + 32];
-    bytes[..DOMAIN.len()].copy_from_slice(DOMAIN);
-    bytes[DOMAIN.len()..].copy_from_slice(&id);
+const MAILBOX_EVENT_DOMAIN_V1: &[u8] = b"oasis7.iws.mailbox-event.v1\0";
+pub const MAILBOX_EVENT_REFERENCE_BYTES: usize = MAILBOX_EVENT_DOMAIN_V1.len() + 32;
+pub fn mailbox_event_ref_v1(id: [u8; 32]) -> [u8; MAILBOX_EVENT_REFERENCE_BYTES] {
+    let mut bytes = [0; MAILBOX_EVENT_REFERENCE_BYTES];
+    bytes[..MAILBOX_EVENT_DOMAIN_V1.len()].copy_from_slice(MAILBOX_EVENT_DOMAIN_V1);
+    bytes[MAILBOX_EVENT_DOMAIN_V1.len()..].copy_from_slice(&id);
     bytes
 }
 
 pub fn mailbox_event_id_v1(bytes: &[u8]) -> Result<[u8; 32], &'static str> {
-    const DOMAIN: &[u8] = b"oasis7.iws.mailbox-event.v1\0";
-    if bytes.len() != DOMAIN.len() + 32 || !bytes.starts_with(DOMAIN) {
+    if bytes.len() != MAILBOX_EVENT_REFERENCE_BYTES || !bytes.starts_with(MAILBOX_EVENT_DOMAIN_V1) {
         return Err("mailbox event reference domain/length");
     }
-    bytes[DOMAIN.len()..]
+    bytes[MAILBOX_EVENT_DOMAIN_V1.len()..]
         .try_into()
         .map_err(|_| "mailbox event reference ID")
 }

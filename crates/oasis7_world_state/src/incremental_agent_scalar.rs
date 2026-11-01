@@ -1,5 +1,6 @@
 use super::*;
-const DOMAIN: &[u8] = b"oasis7.iws.agent-scalar.v1\0";
+pub const AGENT_SCALAR_DOMAIN_V1: &[u8] = b"oasis7.iws.agent-scalar.v1\0";
+const DOMAIN: &[u8] = AGENT_SCALAR_DOMAIN_V1;
 pub const AGENT_I64_VALUE_BYTES: usize = DOMAIN.len() + 9;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum AgentScalarRefV1<'a> {
@@ -48,17 +49,7 @@ impl AgentScalarRefV1<'_> {
     }
     pub fn write_to(self, out: &mut impl Write) -> std::io::Result<()> {
         out.write_all(DOMAIN)?;
-        let tag = match self.kind() {
-            ScalarKindV1::U8 => 1,
-            ScalarKindV1::U16 => 2,
-            ScalarKindV1::U32 => 3,
-            ScalarKindV1::U64 => 4,
-            ScalarKindV1::I64 => 5,
-            ScalarKindV1::Bool => 6,
-            ScalarKindV1::Text => 7,
-            ScalarKindV1::OptionalText => 8,
-            ScalarKindV1::OptionalU64 => 9,
-        };
+        let tag = self.kind().wire_tag();
         out.write_all(&[tag])?;
         match self {
             Self::U8(v) => out.write_all(&[v]),
@@ -141,4 +132,21 @@ fn number(bytes: &mut &[u8]) -> Result<u64, &'static str> {
 fn text<'a>(bytes: &mut &'a [u8]) -> Result<&'a str, &'static str> {
     let len = usize::try_from(number(bytes)?).map_err(|_| "agent scalar text length")?;
     std::str::from_utf8(take(bytes, len)?).map_err(|_| "agent scalar UTF-8")
+}
+
+impl ScalarKindV1 {
+    /// Frozen original scalar tag, shared by the encoder and streaming reader.
+    pub fn wire_tag(self) -> u8 {
+        match self {
+            ScalarKindV1::U8 => 1,
+            ScalarKindV1::U16 => 2,
+            ScalarKindV1::U32 => 3,
+            ScalarKindV1::U64 => 4,
+            ScalarKindV1::I64 => 5,
+            ScalarKindV1::Bool => 6,
+            ScalarKindV1::Text => 7,
+            ScalarKindV1::OptionalText => 8,
+            ScalarKindV1::OptionalU64 => 9,
+        }
+    }
 }
