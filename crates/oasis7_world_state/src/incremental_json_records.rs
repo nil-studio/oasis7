@@ -162,3 +162,7 @@ mod point;
 pub use point::{
     JsonPathSegmentV1, JsonScalarPointWriteV1, JsonScalarRefV1, prepare_json_scalar_path_change_v1,
 };
+
+#[path = "incremental_json_records_change.rs"]
+mod change;
+pub use change::{JsonScalarChangeWorkV1, advance_json_scalar_subtree_v1};

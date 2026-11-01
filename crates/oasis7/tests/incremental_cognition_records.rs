@@ -289,6 +289,24 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
         assert_eq!(changed.before(), parent.root());
         assert_ne!(changed.before(), changed.after());
         assert_eq!(changed.before().leaf_count, changed.after().leaf_count);
+        let advanced = advance_json_scalar_subtree_v1(
+            CognitionJsonFieldV1::FeedbackOutbox.profile(),
+            &parent,
+            changed.after(),
+            &mut read,
+            &mut JsonScalarChangeWorkV1 {
+                json: JsonReadWorkV1 {
+                    cells_remaining: 64,
+                    json_nodes_remaining: 8,
+                    max_depth: 4,
+                    max_payload_bytes: 4096,
+                },
+                paths_remaining: 4096,
+                max_pending_pairs: 8,
+            },
+        )
+        .unwrap();
+        assert_eq!(advanced.node_count(), parent.node_count());
         let after = qualify_json_subtree_v1(
             CognitionJsonFieldV1::FeedbackOutbox.profile(),
             changed.after(),
@@ -296,9 +314,10 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             &mut full,
         )
         .unwrap();
+        assert_eq!(advanced.root(), after.root());
         let noop = prepare_json_scalar_path_change_v1(
             CognitionJsonFieldV1::FeedbackOutbox.profile(),
-            &after,
+            &advanced,
             &[JsonPathSegmentV1::Name("")],
             (
                 JsonScalarRefV1::Text("原changed"),
