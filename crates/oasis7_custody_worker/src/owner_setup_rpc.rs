@@ -73,6 +73,9 @@ pub(crate) enum OwnerSetupRuntimeAction {
         result: Box<OwnerSetupResultV1>,
         session: Box<ParticipantSessionEvidenceV1>,
     },
+    RecordResourceResult {
+        completed: Box<oasis7_custody_core::provisioning::CompleteOwnerSetupResourceFinalV2>,
+    },
     MarkUnknown,
 }
 

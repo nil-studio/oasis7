@@ -112,6 +112,27 @@ pub(super) async fn observe_paid_result(
     )
     .await
 }
+#[path = "owner_setup_resource_paid_result_material_v2.rs"]
+mod resource_paid_material_v2;
+
+/// The Resource-specific local reservation already committed before these
+/// existing paid Directory/Fence inputs. Historical bytes are not Current.
+pub(super) async fn observe_paid_resource_result_v2(
+    env: &Env,
+    saved: &ProvisionApprovalSnapshot,
+    id: &str,
+) -> Result<authority::Observations> {
+    let world = enabled(env)?;
+    let material = resource_paid_material_v2::material(&saved.state, id, &world, clock()?)
+        .map_err(|_| denied())?;
+    authority::observe_paid_owner_setup_result_v2(
+        env,
+        saved.state.draft(),
+        material.input,
+        &material.signed,
+    )
+    .await
+}
 pub(super) async fn observe_manager(
     env: &Env,
     saved: &ProvisionApprovalSnapshot,

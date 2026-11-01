@@ -352,6 +352,35 @@ pub(super) async fn dispatch(
                 .map_err(|_| denied())?;
             Ok(serde_json::to_string(&progress)?)
         }
+        OwnerSetupRuntimeAction::RecordResourceResult { completed } => {
+            if stage != OwnerSetupStageV1::FinalObservation
+                || saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_none_or(|p| p.setup_id != *id || p.selection.resource().is_none())
+            {
+                return Err(denied());
+            }
+            store
+                .reserve_owner_resource_result_callback_v2(id)
+                .map_err(|_| denied())?;
+            let paid = store.snapshot().map_err(|_| denied())?;
+            let observed = setup_authority::observe_paid_resource_result_v2(env, &paid, id).await?;
+            store
+                .complete_owner_resource_result_v2(id, *completed, || {
+                    setup_authority::current(state, env, &observed, true)
+                })
+                .await
+                .map_err(|_| denied())?;
+            Ok(serde_json::to_string(
+                &store
+                    .snapshot()
+                    .map_err(|_| denied())?
+                    .state
+                    .owner_setup_progress(id)
+                    .map_err(|_| denied())?,
+            )?)
+        }
         OwnerSetupRuntimeAction::MarkUnknown => {
             store
                 .mark_owner_setup_unknown(id, stage)

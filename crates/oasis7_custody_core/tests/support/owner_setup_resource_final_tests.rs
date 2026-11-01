@@ -200,6 +200,77 @@ fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() 
                 .clone(),
             2112,
         );
+        let unreserved = serde_json::to_value(&s).unwrap();
+        assert!(
+            actual_resource_paid_selector::material(
+                &s,
+                "setup-one",
+                &s.draft().world_identity,
+                2112
+            )
+            .is_err()
+        );
+        assert_eq!(serde_json::to_value(&s).unwrap(), unreserved);
+        s.reserve_owner_setup_resource_result_callback_v2("setup-one", 2112)
+            .unwrap();
+        let material = actual_resource_paid_selector::material(
+            &s,
+            "setup-one",
+            &s.draft().world_identity,
+            2112,
+        )
+        .unwrap();
+        assert!(matches!(
+            &material.input.request.intent,
+            CustodyIntentV1::OwnerSetupV2 { .. }
+        ));
+        assert!(material.signed.verification.observed_at.0 <= 2112);
+        let wrong_world = {
+            let mut w = s.draft().world_identity.clone();
+            w.world_id.push_str("-wrong");
+            w
+        };
+        assert!(
+            actual_resource_paid_selector::material(&s, "setup-one", &wrong_world, 2112).is_err()
+        );
+        let callback_state = serde_json::to_value(&s).unwrap();
+        assert!(
+            s.reserve_owner_setup_resource_result_callback_v2("setup-one", 2112)
+                .is_err()
+        );
+        assert_eq!(serde_json::to_value(&s).unwrap(), callback_state);
+        let cold: AccountProvisionApprovalState =
+            serde_json::from_value(callback_state.clone()).unwrap();
+        assert_eq!(serde_json::to_value(cold).unwrap(), callback_state);
+        let (input, source) = s
+            .owner_setup_resource_result_callback_source_v2("setup-one", 2112)
+            .unwrap();
+        assert!(matches!(
+            &input.request.intent,
+            CustodyIntentV1::OwnerSetupV2 { .. }
+        ));
+        assert!(source.verification.observed_at.0 <= 2112);
+        let common = s
+            .owner_setup_outbox("setup-one", OwnerSetupStageV1::FinalObservation)
+            .unwrap();
+        assert!(common.claimed_at.is_none() && common.callback_claimed_at.is_none());
+        // Restore must verify the full local once record, not its presence.
+        for field in [
+            "dispatch_record_digest",
+            "original_digest",
+            "source_record_digest",
+        ] {
+            let mut wrong = callback_state.clone();
+            wrong["owner_setup_v2"]["resource_final"]["result_callback"][field] =
+                serde_json::json!("00".repeat(32));
+            assert!(serde_json::from_value::<AccountProvisionApprovalState>(wrong).is_err());
+        }
+        for (field, value) in [("claimed_at", "2110"), ("expires_at", "2112")] {
+            let mut wrong = callback_state.clone();
+            wrong["owner_setup_v2"]["resource_final"]["result_callback"][field] =
+                serde_json::json!(value);
+            assert!(serde_json::from_value::<AccountProvisionApprovalState>(wrong).is_err());
+        }
         let before = serde_json::to_value(&s).unwrap();
         let mut bad = response.clone();
         bad.signature_hex = "00".repeat(64);
@@ -229,6 +300,16 @@ fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() 
         let restored: AccountProvisionApprovalState =
             serde_json::from_value(saved.clone()).unwrap();
         assert_eq!(serde_json::to_value(&restored).unwrap(), saved);
+        let mut missing = saved.clone();
+        missing["owner_setup_v2"]["resource_final"]
+            .as_object_mut()
+            .unwrap()
+            .remove("result_callback")
+            .unwrap();
+        assert!(serde_json::from_value::<AccountProvisionApprovalState>(missing).is_err());
+        let mut unclaimed = saved.clone();
+        unclaimed["owner_setup_v2"]["resource_final"]["result_callback"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<AccountProvisionApprovalState>(unclaimed).is_err());
         if ready {
             assert_eq!(s.provision().stage(), ProvisionStage::Prepared);
             let basis = s
@@ -288,3 +369,36 @@ mod window_tests;
 
 #[path = "owner_setup_resource_final_http_tests.rs"]
 mod http_tests;
+
+#[test]
+fn owner_resource_v2_result_callback_requires_real_dispatch_and_required_nullable_storage() {
+    let (mut s, _, _, _, _) = resource_published();
+    let saved = serde_json::to_value(&s).unwrap();
+    assert!(
+        s.reserve_owner_setup_resource_result_callback_v2("setup-one", 2111)
+            .is_err()
+    );
+    assert_eq!(serde_json::to_value(&s).unwrap(), saved);
+    assert!(
+        s.owner_setup_resource_result_callback_source_v2("setup-one", 2111)
+            .is_err()
+    );
+    let cold: AccountProvisionApprovalState = serde_json::from_value(saved.clone()).unwrap();
+    assert!(cold == s);
+    assert!(saved["owner_setup_v2"]["resource_final"]["result_callback"].is_null());
+    let mut missing = saved;
+    missing["owner_setup_v2"]["resource_final"]
+        .as_object_mut()
+        .unwrap()
+        .remove("result_callback")
+        .unwrap();
+    assert!(serde_json::from_value::<AccountProvisionApprovalState>(missing).is_err());
+}
+
+#[path = "owner_setup_resource_result_callback_tests.rs"]
+mod result_callback_tests;
+
+// This is the actual pure selector called immediately before the Worker's
+// existing paid Current I/O, not a copied approximation or Worker crate stub.
+#[path = "../../../oasis7_custody_worker/src/owner_setup_resource_paid_result_material_v2.rs"]
+mod actual_resource_paid_selector;

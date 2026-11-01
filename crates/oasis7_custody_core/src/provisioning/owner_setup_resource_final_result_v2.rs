@@ -86,14 +86,14 @@ impl AccountProvisionApprovalState {
             resource::ResourceBasisResolutionV1::Ready { .. }
         ))
     }
-    pub fn complete_owner_setup_resource_final_v2(
-        &mut self,
+    /// Typed signature work for the existing Worker two-pass verified SQL transaction.
+    pub fn owner_setup_resource_final_completion_checks_v2(
+        &self,
         id: &str,
-        completed: CompleteOwnerSetupResourceFinalV2,
+        completed: &CompleteOwnerSetupResourceFinalV2,
         current: &OwnerSetupCurrent<'_, '_>,
         now: u64,
-        verifier: &mut impl ApprovalSignatureVerifier,
-    ) -> Result<()> {
+    ) -> Result<ExactSignatureChecks> {
         self.validate_persistence()?;
         let checks = self.owner_setup_stored_admission_checks(
             id,
@@ -103,6 +103,10 @@ impl AccountProvisionApprovalState {
         )?;
         let v = self.owner_setup_v2.as_ref().ok_or_else(invalid)?;
         let final_outbox = v.resource_final.as_ref().ok_or_else(invalid)?;
+        let callback = final_outbox.result_callback.as_ref().ok_or_else(invalid)?;
+        if now < callback.claimed_at() {
+            return Err(invalid());
+        }
         if final_outbox.result.is_some() || final_outbox.dispatch.is_none() {
             return Err(ProvisionApprovalError::Conflict);
         }
@@ -130,6 +134,20 @@ impl AccountProvisionApprovalState {
             current.native_scope.native_root_public_key,
             &digest(&(id, "resource-final-v2"))?,
         )?;
+        Ok(checks)
+    }
+    pub fn complete_owner_setup_resource_final_v2(
+        &mut self,
+        id: &str,
+        completed: CompleteOwnerSetupResourceFinalV2,
+        current: &OwnerSetupCurrent<'_, '_>,
+        now: u64,
+        verifier: &mut impl ApprovalSignatureVerifier,
+    ) -> Result<()> {
+        let checks =
+            self.owner_setup_resource_final_completion_checks_v2(id, &completed, current, now)?;
+        let v = self.owner_setup_v2.as_ref().ok_or_else(invalid)?;
+        let final_outbox = v.resource_final.as_ref().ok_or_else(invalid)?;
         verifier.verify(&checks)?;
         let original = decode(final_outbox.original_bytes.as_ref().ok_or_else(invalid)?)?;
         let proof =

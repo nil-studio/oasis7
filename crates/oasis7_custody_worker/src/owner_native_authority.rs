@@ -509,3 +509,12 @@ pub(super) fn observed_custody_intent(
 mod execution_current_v2;
 pub(crate) use execution_current_v2::ExecutionPrepareObservationV2;
 pub(super) use execution_current_v2::observe_execution_prepare_v2;
+
+pub(super) async fn observe_paid_owner_setup_result_v2(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
+    v2::observe_paid_owner_setup_result_v2(env, draft, input, signed).await
+}

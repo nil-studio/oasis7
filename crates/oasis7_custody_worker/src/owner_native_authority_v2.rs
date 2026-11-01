@@ -72,3 +72,18 @@ pub(super) async fn observe_paid_factory_v2(
     result.custody_v2 = Some(profile);
     Ok(result)
 }
+
+pub(super) async fn observe_paid_owner_setup_result_v2(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
+    let actual = profile(env, &input)?;
+    if actual != Profile::OwnerSetup {
+        return Err(denied());
+    }
+    let mut result = super::observe_paid_owner_setup_result(env, draft, input, signed).await?;
+    result.custody_v2 = Some(actual);
+    Ok(result)
+}

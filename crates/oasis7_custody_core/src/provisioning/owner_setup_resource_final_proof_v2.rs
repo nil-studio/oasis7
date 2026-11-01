@@ -6,6 +6,9 @@ use oasis7_client_api::world_service::resource_basis as resource;
 #[path = "owner_setup_resource_final_window_v2.rs"]
 mod window;
 use window::ResourceFinalCurrentWindowV2;
+#[path = "owner_setup_resource_result_callback_v2.rs"]
+mod callback;
+use callback::ResourceFinalResultCallbackV2;
 #[path = "owner_setup_resource_final_request_v2.rs"]
 mod request;
 pub use request::{OwnerSetupResourceCandidateV2, PreparedOwnerSetupResourceReadV2};
@@ -153,6 +156,8 @@ pub(in crate::provisioning::approval) struct OwnerSetupResourceFinalOutboxV2 {
     published_window: Option<ResourceFinalCurrentWindowV2>,
     #[serde(deserialize_with = "required_final_result")]
     result: Option<OwnerSetupResourceFinalProofV2>,
+    #[serde(deserialize_with = "callback::required_callback")]
+    result_callback: Option<ResourceFinalResultCallbackV2>,
     #[serde(deserialize_with = "required_completed")]
     completed_at: Option<DecimalU64>,
     #[serde(deserialize_with = "required_dispatch")]
@@ -216,12 +221,21 @@ impl AccountProvisionApprovalState {
             || f.signing_claimed_at.is_some() != f.unsigned_request_bytes.is_some()
             || f.original_bytes.is_some() != f.published_at.is_some()
             || f.original_bytes.is_some() && f.signing_claimed_at.is_none()
+            || f.result.is_some() && f.result_callback.is_none()
             || f.completed_at.is_some() != f.result.is_some()
             || f.session.is_some() != f.result.is_some()
             || f.dispatch.is_some() && f.original_bytes.is_none()
             || f.result.is_some() && f.dispatch.is_none()
         {
             return Err(invalid());
+        }
+        if let Some(callback) = &f.result_callback {
+            callback.validate(f)?;
+            if f.completed_at
+                .is_some_and(|at| at.0 < callback.claimed_at())
+            {
+                return Err(invalid());
+            }
         }
         if let Some(window) = &f.signing_window {
             window.validate(
@@ -409,6 +423,7 @@ impl AccountProvisionApprovalState {
             common,
             original_bytes: None,
             result: None,
+            result_callback: None,
             completed_at: None,
             unsigned_request_bytes: None,
             signing_claimed_at: None,
