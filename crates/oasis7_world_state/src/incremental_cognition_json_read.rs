@@ -68,25 +68,7 @@ pub fn qualify_cognition_json_entry_v1<
     context.records().presence(&metadata_root, &metadata, 0)?;
     let root = root.ok_or(ValueTreeError::Invalid("cognition JSON missing root"))?;
     let child = outer(field, &key, &root, &mut context.records())?;
-    let body = qualify_json_subtree_v1(field.profile(), &child, context, work)?;
-    if let Some(shape) = field.immediate() {
-        crate::incremental_json_records::require_json_immediate_records_v1(
-            field.profile(),
-            &body,
-            shape,
-            &mut context.records(),
-            work,
-        )?;
-    } else if field != CognitionJsonFieldV1::SchedulerState {
-        crate::incremental_json_records::require_json_container_records_v1(
-            field.profile(),
-            &body,
-            field == CognitionJsonFieldV1::Continuations,
-            &mut context.records(),
-            work,
-        )?;
-    }
-    let proof = mint(field, body, context.values.memory, context.values.class)?;
+    let proof = qualify_body(field, &child, context, work)?;
     context.check()?;
     Ok(Some(proof))
 }
@@ -152,4 +134,36 @@ pub(crate) fn mint(
     body.validate_binding(field.profile(), body.root())?;
     let retained = memory.reserve(1024, class)?;
     Ok(retained.retain(CognitionJsonEntryQualificationV1 { field, body }))
+}
+
+pub(crate) fn qualify_body<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    field: CognitionJsonFieldV1,
+    child: &StateRootV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<ReservedValue<CognitionJsonEntryQualificationV1>, ValueTreeError> {
+    let body = qualify_json_subtree_v1(field.profile(), child, context, work)?;
+    if let Some(shape) = field.immediate() {
+        crate::incremental_json_records::require_json_immediate_records_v1(
+            field.profile(),
+            &body,
+            shape,
+            &mut context.records(),
+            work,
+        )?;
+    } else if field != CognitionJsonFieldV1::SchedulerState {
+        crate::incremental_json_records::require_json_container_records_v1(
+            field.profile(),
+            &body,
+            field == CognitionJsonFieldV1::Continuations,
+            &mut context.records(),
+            work,
+        )?;
+    }
+    mint(field, body, context.values.memory, context.values.class)
 }

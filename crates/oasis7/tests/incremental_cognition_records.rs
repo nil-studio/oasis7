@@ -922,6 +922,95 @@ fn run_cognition(all_optional: bool) {
             CognitionControlFieldV1::EconomyProvisionHeadDigest => assert!(output.is_empty()),
         }
     }
+    {
+        use oasis7_formal_protocol::incremental_execution::RootSetV1;
+        use oasis7_runtime::incremental_cognition_family::*;
+        let _root_metadata = cold.reserve(32 << 10, MemoryClass::Recovery).unwrap();
+        let mut root_set = RootSetV1::empty("cognition-test".into(), [0x52; 32]).unwrap();
+        for (index, namespace) in namespaces.iter().enumerate() {
+            *root_set
+                .state
+                .iter_mut()
+                .find(|root| root.namespace == *namespace)
+                .unwrap() = StateRootV1::from_canonical_bytes(&roots[index]).unwrap();
+        }
+        let scope = PageIoBudget {
+            reads_remaining: if all_optional { 3_000_000 } else { 2_500_000 },
+            ..physical()
+        };
+        let family_state = store
+            .state_session(scope.clone(), MemoryClass::Recovery)
+            .unwrap();
+        let family_values = store.value_session(scope);
+        let mut family_io = ValueIoBudget {
+            nodes_remaining: if all_optional { 200_000 } else { 100_000 },
+            ..fixture::logical()
+        };
+        let mut family_keys = SemanticKeyBudget {
+            bytes_remaining: 16 << 20,
+        };
+        let mut context = WorldFieldReadContextV1 {
+            root: &root_set.state[0],
+            state: &family_state,
+            values: ValueReadContext {
+                source: &family_values,
+                memory: &cold,
+                class: MemoryClass::Recovery,
+                io: &mut family_io,
+            },
+            key_work: &mut family_keys,
+            semantic_bytes: 4096,
+            record_bytes: 8192,
+            take_state_error: || family_state.take_read_error().map(state_error),
+            cancelled: || false,
+        };
+        let family = qualify_cognition_current_state_v1(
+            &root_set,
+            &mut context,
+            &mut StateScanBudget {
+                nodes_remaining: 100_000,
+                read_bytes_remaining: 64 << 20,
+                leaves_remaining: 1000,
+            },
+            &mut oasis7_runtime::incremental_json_records::JsonReadWorkV1 {
+                cells_remaining: 4096,
+                json_nodes_remaining: 512,
+                max_depth: 4,
+                max_payload_bytes: 4096,
+            },
+            &mut 1000,
+        )
+        .unwrap();
+        let id = root_set.digest().unwrap();
+        family.validate_binding(&id).unwrap();
+        assert!(family.validate_binding(&[0; 32]).is_err());
+        assert_eq!(
+            family.control_present(CognitionControlFieldV1::EconomySchema),
+            all_optional
+        );
+        for field in CognitionJsonFieldV1::ALL {
+            let proof = family.json_entry(field, &id).unwrap();
+            assert_eq!(
+                proof.is_some(),
+                all_optional
+                    || !field.optional()
+                    || field == CognitionJsonFieldV1::ContinuationContexts
+            );
+            if field == CognitionJsonFieldV1::FeedbackOutbox {
+                assert_eq!(
+                    proof.unwrap().body_root().canonical_bytes().unwrap(),
+                    expected_feedback
+                );
+            }
+        }
+        eprintln!(
+            "Cognition full current-state family Some={all_optional} physicalState={:?} values={:?} logical={:?}",
+            family_state.remaining_io().unwrap(),
+            family_values.remaining_io().unwrap(),
+            context.values.io
+        );
+    }
+
     eprintln!(
         "Cognition entry cold physical state={:?} value={:?} logical={:?}",
         state.remaining_io().unwrap(),
