@@ -195,6 +195,8 @@ mod task_terminal_v2;
 pub use task_terminal_v2::*;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_control_overlay;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_family;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_fields;

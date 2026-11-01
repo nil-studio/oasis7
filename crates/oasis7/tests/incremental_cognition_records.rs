@@ -8,6 +8,8 @@ use oasis7_runtime::{
     incremental_cognition_read::*, incremental_field_member::*,
     incremental_field_read::WorldFieldReadContextV1,
 };
+#[path = "support/incremental_cognition_controls.rs"]
+mod cognition_controls;
 #[path = "support/incremental_cognition_pages.rs"]
 mod cognition_pages;
 #[path = "support/incremental_cognition_family_faults.rs"]
@@ -420,6 +422,9 @@ fn run_cognition(all_optional: bool) {
                     epoch: 7,
                 },
             };
+            if let Some(parent_family) = &parent_family {
+                cognition_controls::exercise(&store, &memory, &execution_parent, parent_family);
+            }
             let live = execution_parent.fence().unwrap();
             let mut tx = ExecutionTransaction::begin(
                 execution_parent.clone(),
