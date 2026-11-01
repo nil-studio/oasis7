@@ -1,6 +1,6 @@
 //! A typed member must use the complete original canonical field-key tuple.
 use super::*;
-use oasis7_runtime::{incremental_json_records::*, incremental_semantic_key::hash_semantic_key_v1};
+use oasis7_runtime::incremental_json_records::*;
 pub fn reject_relabelled_member(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
@@ -14,28 +14,40 @@ pub fn reject_relabelled_member(
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 16 << 20,
     };
-    let semantic = hash_semantic_key_v1(
-        &(((), "members"), ""),
-        memory,
-        MemoryClass::Ordinary,
-        &mut keys,
-        &mut || false,
-    )
-    .unwrap();
     let profile = CognitionJsonFieldV1::FeedbackOutbox.profile();
-    let key = WorldFieldKeyV1::new(
+    let mut key_io = fixture::logical();
+    // Obtain the exact original semantic address from the public canonical
+    // producer. Its provisional Unit value is not inserted into any tree.
+    let key = write_member_record_v1(
         profile.field,
         WorldFieldRecordKindV1::Entry,
-        Some(semantic.digest),
+        &(((), "members"), ""),
+        MemberPayloadRefV1::Unit,
+        &mut MemberRecordWriteContext {
+            sink: &mut writer,
+            memory,
+            io: &mut key_io,
+            key_work: &mut keys,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 4096,
+                record_bytes: 8192,
+            },
+            cancelled: || false,
+        },
     )
-    .unwrap();
+    .unwrap()
+    .field_key;
+    let semantic = WorldFieldKeyV1::from_bytes(key.as_bytes())
+        .unwrap()
+        .semantic_key
+        .unwrap();
     let value = original.get(key.as_bytes(), &state).unwrap().unwrap();
     let other = FieldDescriptor {
         destination: FieldDestination::State(StateNamespaceV1::Authorization),
         ..profile.field
     };
-    let wrong =
-        WorldFieldKeyV1::new(other, WorldFieldRecordKindV1::Entry, Some(semantic.digest)).unwrap();
+    let wrong = WorldFieldKeyV1::new(other, WorldFieldRecordKindV1::Entry, Some(semantic)).unwrap();
     assert_ne!(key.as_bytes(), wrong.as_bytes());
     let charged = memory
         .reserve(2 * (512 << 10) + (128 << 10), MemoryClass::Ordinary)
