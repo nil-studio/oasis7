@@ -32,6 +32,11 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
     }); return button;
   }
   function detail(list, name, value) { list.append(el("dt", name), el("dd", String(value))); }
+  function world3Policy(container, plan) {
+    if (plan?.termination?.cleanup_transport_policy !== "term_wide_five_second_owned_world3_v2") return;
+    container.append(el("p", "本次完整批准明确包含激活阶段固定 3 次世界读取：读取参与者政策、授权时重读政策、读取 Owner 状态。该固定读取合同不增加世界写入。"));
+    container.append(el("p", "这 3 个固定端口各自预扣并且只用一次，不是可互借的额外请求余额。Native 请求仍使用原 Native 160 上限，清理仍为 2 次写入、24 次传输；各自预算不能互借。批准不代表这些路径已开放执行。"));
+  }
   function confirmModelBudget(summary) {
     if (!root || !active || cancelBudgetConfirmation) return Promise.reject(Object.assign(new Error("custody_session_changed"), {code:"custody_session_changed"}));
     return new Promise((resolve, reject) => {
@@ -44,6 +49,7 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
       const nativeSummary = proxy?.full_session ?? summary.contract;
       if (summary.scope) {
         box.querySelector("h4").textContent = "确认完整 TestSession V2 范围与永久关闭";
+        world3Policy(box, summary.plan);
         for (const [label, value] of Object.entries({
           "托管账号": summary.parent.custody_account_id, "Session": summary.scope.session_id,
           "获批动作": JSON.stringify(summary.plan.actions), "允许资源引用": JSON.stringify(summary.plan.allowed_resource_refs),
@@ -97,6 +103,7 @@ export function createOwnerSetupPanel({ client, browserPasskeyOptions, serialize
     const { plan, prepared } = summary;
     const session = summary.kind === "session_v2";
     root.append(el("h4", `确认同一份 ${session ? "TestSession" : "OwnerSetup"} V${plan.api_version} 原件`));
+    if (session) world3Policy(root, plan);
     root.append(el("p", plan.api_version === 1 ? "仅准备与批准：资源引用为空，仅支持 Move business 0；本页不启动任务、不继续执行、不写世界。" : "仅核对并批准同一份 V2 原件；目录和摘要不授资源资格，本页不继续执行，不以批准完成宣称模型或世界执行已开放。"));
     const list = el("dl"); list.className = "custody-approval-summary";
     for (const [name, value] of Object.entries(session ? { "托管账号": summary.parent.custody_account_id, "Session": summary.sessionScope.session_id, "动作": JSON.stringify(plan.actions), "资源约束": JSON.stringify(plan.allowed_resource_refs), "永久关闭": JSON.stringify(plan.termination), "范围": JSON.stringify(summary.sessionScope) } : { "托管账号": summary.parent.custody_account_id, "Provision": plan.provision_id,
