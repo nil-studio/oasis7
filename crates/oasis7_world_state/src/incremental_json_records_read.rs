@@ -17,7 +17,7 @@ fn invalid() -> ValueTreeError {
 }
 use super::cursor;
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(super) enum Kind {
     Null,
     Bool,
     I64,
@@ -28,7 +28,7 @@ enum Kind {
     Object,
 }
 impl Kind {
-    fn container(self) -> bool {
+    pub(super) fn container(self) -> bool {
         matches!(self, Self::Array | Self::Object)
     }
 }
@@ -49,9 +49,9 @@ impl JsonReadWorkV1 {
 }
 #[derive(Debug)]
 pub struct JsonSubtreeQualificationV1 {
-    root: StateRootV1,
-    profile: JsonRecordProfileV1,
-    nodes: u64,
+    pub(super) root: StateRootV1,
+    pub(super) profile: JsonRecordProfileV1,
+    pub(super) nodes: u64,
     exact: bool,
 }
 impl JsonSubtreeQualificationV1 {
@@ -126,15 +126,15 @@ fn get<R: ValueNodeReader, C: FnMut() -> bool>(
 ) -> Result<[u8; 32], ValueTreeError> {
     tree::lookup(root, key, records, LABELS)?.ok_or_else(invalid)
 }
-struct Frame {
+pub(super) struct Frame {
     cursor: cursor::Cursor,
-    keys: [WorldFieldKeyV1; 5],
-    ids: [[u8; 32]; 5],
-    kind: Kind,
-    length: u64,
+    pub(super) keys: [WorldFieldKeyV1; 5],
+    pub(super) ids: [[u8; 32]; 5],
+    pub(super) kind: Kind,
+    pub(super) length: u64,
     members: u64,
 }
-fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     root: &StateRootV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,
@@ -333,7 +333,7 @@ impl Write for Probe<'_> {
         self.text.flush()
     }
 }
-fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     entry: &oasis7_formal_protocol::incremental_state::StateEntryV1,
     index: bool,
