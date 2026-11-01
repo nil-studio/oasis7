@@ -319,3 +319,7 @@ pub fn qualify_cognition_current_state_v1<
 #[path = "incremental_cognition_receiver.rs"]
 mod receiver;
 pub use receiver::accept_cognition_current_scalar_transition_v1;
+
+#[path = "incremental_cognition_pages.rs"]
+mod pages;
+pub use pages::*;
