@@ -52,6 +52,7 @@ pub struct JsonSubtreeQualificationV1 {
     root: StateRootV1,
     profile: JsonRecordProfileV1,
     nodes: u64,
+    exact: bool,
 }
 impl JsonSubtreeQualificationV1 {
     pub fn root(&self) -> &StateRootV1 {
@@ -68,8 +69,13 @@ impl JsonSubtreeQualificationV1 {
             Err(invalid())
         }
     }
-    pub fn node_count(&self) -> u64 {
+    /// Diagnostic bound, never an allowance to reset or skip actual work.
+    pub fn node_count_upper_bound(&self) -> u64 {
         self.nodes
+    }
+    /// Raw qualification counts exactly; changed paths may retain only a bound.
+    pub fn exact_node_count(&self) -> Option<u64> {
+        self.exact.then_some(self.nodes)
     }
 }
 const READ_LABELS: RecordReadLabelsV1 = RecordReadLabelsV1 {
@@ -345,6 +351,9 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     }
     let key = WorldFieldKeyV1::new(profile.field, binding.kind, binding.semantic_key)
         .map_err(ValueTreeError::Invalid)?;
+    if entry.namespace != profile.namespace()? || entry.key != key.as_bytes() {
+        return Err(invalid());
+    }
     let limits = MemberRecordLimitsV1 {
         semantic_bytes: records.semantic_bytes,
         payload_bytes: 165,
@@ -480,5 +489,6 @@ pub fn qualify_json_subtree_v1<
         root: root.clone(),
         profile,
         nodes: before - work.json_nodes_remaining,
+        exact: true,
     }))
 }

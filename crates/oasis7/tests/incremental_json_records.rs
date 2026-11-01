@@ -106,7 +106,8 @@ fn neutral_json_profile_keeps_owner_namespace_schema_and_root_scopes_distinct() 
         "neutral JSON complete qualification physical remaining={:?}",
         reader.remaining_io().unwrap()
     );
-    assert_eq!(proof.node_count(), 2);
+    assert_eq!(proof.exact_node_count(), Some(2));
+    assert_eq!(proof.node_count_upper_bound(), 2);
     assert_eq!(work.cells_remaining, 0);
     assert_eq!(work.json_nodes_remaining, 0);
     proof.validate_binding(profile, &root).unwrap();

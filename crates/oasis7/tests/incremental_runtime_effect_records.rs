@@ -451,7 +451,7 @@ fn original_effect_collections_and_json_nodes_have_independent_literal_wire() {
             let proof =
                 inspect_runtime_effect_json_body_v1(&json, &mut read, &mut json_work).unwrap();
             assert_eq!(proof.root(), &json);
-            assert_eq!(proof.node_count(), if pending { 5 } else { 1 });
+            assert_eq!(proof.exact_node_count(), Some(if pending { 5 } else { 1 }));
             assert_eq!(json_work.cells_remaining, 0);
             assert_eq!(json_work.json_nodes_remaining, 0);
 
