@@ -156,14 +156,50 @@ impl ClosedRecord {
         crypto::hash_hex(&self.after_state_root)?;
         if !(ROLES.len()..=ROLES.len() + 1).contains(&self.roots.len())
             || ROLES.iter().any(|r| !self.roots.contains_key(r))
-            || self.objects.is_empty()
-            || self.objects.len() > MAX_OBJECTS
         {
             return Err(invalid(
                 "record requires all nine roles and bounded objects",
             ));
         }
         self.native_environment()?;
+        self.validate_object_closure()
+    }
+
+    /// Validate the exact IWS role set without interpreting it as the legacy
+    /// Snapshot/Journal package. Page trees are stored in the separate bounded
+    /// IWS page store and are verified by the endpoint owner.
+    pub fn validate_iws(&self) -> Result<(), ProtocolError> {
+        const IWS_ROLES: [ArtifactRole; 9] = [
+            ArtifactRole::Input,
+            ArtifactRole::IncrementalGenesisConfig,
+            ArtifactRole::IncrementalRootSet,
+            ArtifactRole::IncrementalCommitBody,
+            ArtifactRole::IncrementalHistoryPrefix,
+            ArtifactRole::ExecutionManifest,
+            ArtifactRole::Wasm,
+            ArtifactRole::Rules,
+            ArtifactRole::NativeExecutionEnvironment,
+        ];
+        crypto::hash_hex(&self.payload_digest)?;
+        crypto::hash_hex(&self.before_state_root)?;
+        crypto::hash_hex(&self.after_state_root)?;
+        if self.roots.len() != IWS_ROLES.len()
+            || IWS_ROLES.iter().any(|role| !self.roots.contains_key(role))
+            || self.roots.get(&ArtifactRole::Input) != Some(&self.payload_digest)
+        {
+            return Err(invalid("incremental record exact roles/input"));
+        }
+        for value in self.roots.values() {
+            crypto::hash_hex(value)?;
+        }
+        self.native_environment()?;
+        self.validate_object_closure()
+    }
+
+    fn validate_object_closure(&self) -> Result<(), ProtocolError> {
+        if self.objects.is_empty() || self.objects.len() > MAX_OBJECTS {
+            return Err(invalid("record bounded objects"));
+        }
         let mut total = 0usize;
         let mut objects = BTreeMap::new();
         let mut previous: Option<&str> = None;

@@ -26,6 +26,10 @@ fn record_root_literal_wire_and_typed_child_binding() {
     expected.extend_from_slice(&2u64.to_be_bytes());
     expected.extend_from_slice(&[0x11; 32]);
     assert_eq!(value.canonical_bytes().unwrap().as_slice(), expected);
+    assert_eq!(
+        value.root.canonical_bytes_fixed().unwrap().as_slice(),
+        &expected[MAGIC.len() + 4 + 64..]
+    );
     let decoded = RecordRootRefV1::from_canonical_bytes(&expected).unwrap();
     assert_eq!(decoded, value);
     assert_eq!(

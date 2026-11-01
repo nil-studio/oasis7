@@ -94,6 +94,7 @@ pub fn read_ledger_value_v1(bytes: &[u8]) -> Result<LedgerValueRefV1<'_>, &'stat
 
 #[path = "incremental_ledger_value_stream.rs"]
 mod stream;
+pub(crate) use crate::incremental_utf8_output::Utf8Output;
 pub use stream::read_ledger_value_tree_v1;
 
 #[cfg(test)]

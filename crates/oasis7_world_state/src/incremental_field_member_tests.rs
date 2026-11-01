@@ -1,7 +1,9 @@
 use super::*;
 use crate::incremental_projection::{FieldDestination, FieldOwner, FieldShape};
 use oasis7_formal_protocol::{
+    incremental_record_root::RecordRootRefV1,
     incremental_state::StateNamespaceV1 as Ns,
+    incremental_state::StateRootV1,
     incremental_value::{ValueNodeReader, ValueReadContext, write_value},
 };
 use oasis7_proto::memory_budget::ReservedValue;
@@ -265,6 +267,20 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
     let _output = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
     let ledger = MaterialLedgerId::Factory("甲".into());
+    let key = [
+        b"oasis7.iws.semantic-key.v1\0".as_slice(),
+        &[1],
+        &2_u64.to_be_bytes(),
+        "é".as_bytes(),
+    ]
+    .concat();
+    let record_root = RecordRootRefV1::new(
+        [7; 32],
+        *blake3::hash(&key).as_bytes(),
+        StateRootV1::empty(Ns::Business).unwrap(),
+    )
+    .unwrap();
+    let record_root_bytes = record_root.canonical_bytes().unwrap().to_vec();
     let cases = [
         (MemberPayloadRefV1::Unit, 1, Vec::new()),
         (
@@ -306,14 +322,20 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
             ]
             .concat(),
         ),
+        (
+            MemberPayloadRefV1::RecordRoot(&record_root),
+            10,
+            record_root_bytes,
+        ),
+        (
+            MemberPayloadRefV1::FixedU64x7([0, 1, 2, u64::MAX, 4, 5, 6]),
+            11,
+            [0, 1, 2, u64::MAX, 4, 5, 6]
+                .into_iter()
+                .flat_map(u64::to_be_bytes)
+                .collect(),
+        ),
     ];
-    let key = [
-        b"oasis7.iws.semantic-key.v1\0".as_slice(),
-        &[1],
-        &2_u64.to_be_bytes(),
-        "é".as_bytes(),
-    ]
-    .concat();
     for (payload, codec, payload_bytes) in cases {
         let mut pages = Pages::new(&memory);
         let kind = if codec == 7 {
@@ -361,6 +383,114 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
         assert_eq!(payload_out, payload_bytes);
     }
 }
+
+#[test]
+fn fixed_u64x7_is_entry_only_fixed_length_and_cancellable() {
+    let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
+    let _output = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
+
+    let mut wrong_kind_pages = Pages::new(&memory);
+    let wrong_kind = write_member_record_v1(
+        descriptor(WorldFieldRecordKindV1::Bytes),
+        WorldFieldRecordKindV1::Bytes,
+        "é",
+        MemberPayloadRefV1::FixedU64x7([1, 2, 3, 4, 5, 6, 7]),
+        &mut MemberRecordWriteContext {
+            sink: &mut wrong_kind_pages,
+            memory: &memory,
+            io: &mut quota(),
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 4096,
+            },
+            limits: limits(),
+            cancelled: || false,
+        },
+    );
+    assert!(matches!(
+        wrong_kind,
+        Err(MemberRecordError::Invalid("member key/payload kind"))
+    ));
+    assert!(wrong_kind_pages.nodes.borrow().is_empty());
+
+    let mut pages = Pages::new(&memory);
+    let mut record = write(
+        &mut pages,
+        &memory,
+        MemberPayloadRefV1::FixedU64x7([1, 2, 3, 4, 5, 6, 7]),
+        WorldFieldRecordKindV1::Entry,
+    );
+    let mut bytes = raw(&pages, &memory, &record.value_root);
+    let codec_at = FIELD_MEMBER_DOMAIN.len() + 2;
+    bytes[codec_at] = 12;
+    record.value_root = store(&mut pages, &memory, &bytes);
+    assert!(matches!(
+        read(
+            &record,
+            &pages,
+            &memory,
+            limits(),
+            &mut Vec::new(),
+            &mut Vec::new(),
+            || false,
+        ),
+        Err(ValueTreeError::Invalid("member payload codec"))
+    ));
+
+    let mut bytes = raw(&pages, &memory, &record.value_root);
+    bytes[codec_at] = 11;
+    let payload_length_at = FIELD_MEMBER_DOMAIN.len() + 11;
+    bytes[payload_length_at..payload_length_at + 8].copy_from_slice(&55u64.to_be_bytes());
+    bytes.pop();
+    record.value_root = store(&mut pages, &memory, &bytes);
+    let mut key = Vec::new();
+    let mut payload = Vec::new();
+    assert!(matches!(
+        read(
+            &record,
+            &pages,
+            &memory,
+            limits(),
+            &mut key,
+            &mut payload,
+            || false,
+        ),
+        Err(ValueTreeError::Invalid("member fixed payload length"))
+    ));
+    assert!(key.is_empty());
+    assert!(payload.is_empty());
+
+    let record = write(
+        &mut pages,
+        &memory,
+        MemberPayloadRefV1::FixedU64x7([1, 2, 3, 4, 5, 6, 7]),
+        WorldFieldRecordKindV1::Entry,
+    );
+    let cancelled = Cell::new(false);
+    struct CancelOutput<'a>(&'a Cell<bool>);
+    impl Write for CancelOutput<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.set(true);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    assert!(matches!(
+        read(
+            &record,
+            &pages,
+            &memory,
+            limits(),
+            &mut Vec::new(),
+            &mut CancelOutput(&cancelled),
+            || cancelled.get(),
+        ),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(cancelled.get());
+}
+
 #[test]
 fn framing_limits_wrong_fields_and_key_hash_fail_before_payload_output() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();

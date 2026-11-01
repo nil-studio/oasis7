@@ -103,6 +103,10 @@ pub struct CheckedCommitCore {
     original_execution_policy: [u8; 32],
     config: GenesisConfigV1,
     roots: RootSetV1,
+    candidate_record_id: [u8; 32],
+    parent_record_id: Option<[u8; 32]>,
+    parent_body: Option<CommitBodyV1>,
+    parent_roots: Option<RootSetV1>,
     body: CommitBodyV1,
     history: HistoryPrefixV1,
     segment: HistorySegmentV1,
@@ -127,6 +131,20 @@ impl CheckedCommitCore {
     }
     pub fn roots(&self) -> &RootSetV1 {
         &self.roots
+    }
+    pub fn candidate_record_id(&self) -> [u8; 32] {
+        self.candidate_record_id
+    }
+    /// Exact authenticated predecessor record and RootSet loaded from the
+    /// candidate's original material. `None` is reserved for genesis.
+    pub fn parent_record_id(&self) -> Option<[u8; 32]> {
+        self.parent_record_id
+    }
+    pub fn parent_roots(&self) -> Option<&RootSetV1> {
+        self.parent_roots.as_ref()
+    }
+    pub fn parent_body(&self) -> Option<&CommitBodyV1> {
+        self.parent_body.as_ref()
     }
     pub fn body(&self) -> &CommitBodyV1 {
         &self.body
@@ -444,7 +462,10 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
         if extension.after != body.catalog_before {
             return Err(CoreError::Invalid("parent certified catalog extension"));
         }
-        Some((parent_body, parent_history, parent_roots))
+        let parent_record_id = crate::incremental_history::wire::parse_hash(
+            &parent_record.record_id().map_err(BindingError::from)?,
+        )?;
+        Some((parent_body, parent_history, parent_roots, parent_record_id))
     } else {
         None
     };
@@ -546,6 +567,12 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
         rules: role(record, ArtifactRole::Rules)?,
         native: role(record, ArtifactRole::NativeExecutionEnvironment)?,
     };
+    let candidate_record_id = crate::incremental_history::wire::parse_hash(
+        &record.record_id().map_err(BindingError::from)?,
+    )?;
+    let (parent_body, parent_roots, parent_record_id) = parent
+        .map(|(body, _, roots, record_id)| (Some(body), Some(roots), Some(record_id)))
+        .unwrap_or((None, None, None));
     Ok(charge.retain(CheckedCommitCore {
         execution_artifacts,
         original_input: input_id,
@@ -554,6 +581,10 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
         )?,
         config,
         roots,
+        candidate_record_id,
+        parent_record_id,
+        parent_body,
+        parent_roots,
         body,
         history,
         segment,

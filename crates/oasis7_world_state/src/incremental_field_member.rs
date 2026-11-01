@@ -34,6 +34,7 @@ pub enum MemberPayloadCodecV1 {
     DeliveryCursor = 8,
     IdentityU64Triple = 9,
     RecordRoot = 10,
+    FixedU64x7 = 11,
 }
 impl MemberPayloadCodecV1 {
     fn parse(tag: u8) -> Result<Self, &'static str> {
@@ -48,6 +49,7 @@ impl MemberPayloadCodecV1 {
             8 => Self::DeliveryCursor,
             9 => Self::IdentityU64Triple,
             10 => Self::RecordRoot,
+            11 => Self::FixedU64x7,
             _ => return Err("member payload codec"),
         })
     }
@@ -66,6 +68,7 @@ impl MemberPayloadCodecV1 {
             Self::Bool => Some(1),
             Self::DeliveryCursor => Some(16),
             Self::RecordRoot => Some(RECORD_ROOT_BYTES as u64),
+            Self::FixedU64x7 => Some(7 * 8),
             _ => None,
         };
         if fixed.is_some_and(|n| n != length) {
@@ -84,17 +87,17 @@ pub enum MemberPayloadRefV1<'a> {
     Ledger(&'a MaterialLedgerId),
     Bytes(&'a [u8]),
     DeliveryCursor(&'a ProductValidationDeliveryCursor),
-    RecordRoot(&'a RecordRootRefV1),
     IdentityU64Triple {
         identity: &'a str,
         amounts: [u64; 3],
     },
+    RecordRoot(&'a RecordRootRefV1),
+    FixedU64x7([u64; 7]),
 }
 impl MemberPayloadRefV1<'_> {
     fn profile(self) -> Result<(MemberPayloadCodecV1, u64), &'static str> {
         let length = |n| u64::try_from(n).map_err(|_| "member payload length");
         Ok(match self {
-            Self::RecordRoot(_) => (MemberPayloadCodecV1::RecordRoot, RECORD_ROOT_BYTES as u64),
             Self::Unit => (MemberPayloadCodecV1::Unit, 0),
             Self::U64(_) => (MemberPayloadCodecV1::U64, 8),
             Self::I64(_) => (MemberPayloadCodecV1::I64, 8),
@@ -109,6 +112,11 @@ impl MemberPayloadRefV1<'_> {
                     .checked_add(32)
                     .ok_or("member identity triple overflow")?,
             ),
+            Self::RecordRoot(value) => {
+                value.canonical_bytes().map_err(|_| "member record root")?;
+                (MemberPayloadCodecV1::RecordRoot, RECORD_ROOT_BYTES as u64)
+            }
+            Self::FixedU64x7(_) => (MemberPayloadCodecV1::FixedU64x7, 7 * 8),
         })
     }
     fn write(self, output: &mut impl Write) -> io::Result<()> {
@@ -122,7 +130,16 @@ impl MemberPayloadRefV1<'_> {
                 Ok(())
             }
             Self::RecordRoot(reference) => {
-                output.write_all(&reference.canonical_bytes().map_err(io::Error::other)?)
+                let bytes = reference.canonical_bytes().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "member record root")
+                })?;
+                output.write_all(&bytes)
+            }
+            Self::FixedU64x7(values) => {
+                for value in values {
+                    output.write_all(&value.to_be_bytes())?;
+                }
+                Ok(())
             }
             Self::Unit => Ok(()),
             Self::U64(v) => output.write_all(&v.to_be_bytes()),

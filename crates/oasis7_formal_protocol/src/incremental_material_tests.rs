@@ -167,6 +167,15 @@ fn reads_exact_original_core_reproduces_history_and_retains_charges() {
     .unwrap();
     assert_eq!(checked.body(), &s.history.body);
     assert_eq!(checked.roots(), &s.roots);
+    assert_eq!(
+        checked.candidate_record_id(),
+        hex::decode(candidate.record().record_id().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    );
+    assert!(checked.parent_roots().is_none());
+    assert!(checked.parent_record_id().is_none());
     assert_eq!(checked.history(), &s.history.prefix);
     assert_eq!(
         checked.catalog().entry.commit,
@@ -604,6 +613,17 @@ fn nonempty_transition_is_rebuilt_from_parent_and_target_state_pages_are_require
     .unwrap();
     assert_eq!(checked.transition().unwrap(), &transition.record);
     assert_eq!(checked.roots(), &transition.record.after);
+    assert_eq!(checked.parent_body(), Some(&s.history.body));
+    assert_eq!(checked.parent_roots(), Some(&s.roots));
+    assert_eq!(
+        checked.parent_record_id(),
+        Some(
+            hex::decode(s.commit.record().record_id().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap()
+        )
+    );
     drop(checked);
     pages.values.remove(&transition.new_nodes[0].digest);
     assert!(

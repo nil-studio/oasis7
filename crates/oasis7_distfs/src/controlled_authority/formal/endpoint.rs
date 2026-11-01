@@ -36,6 +36,9 @@ mod archive_transfer;
 pub use archive_file::FileFormalArchiveSourceV1;
 #[path = "endpoint_business.rs"]
 mod business;
+#[path = "endpoint_incremental.rs"]
+mod incremental;
+pub use incremental::{IwsEndpointVerificationBudgetsV1, IwsPageStoreCapabilityV1};
 #[path = "endpoint_durable_set_install.rs"]
 mod durable_set_install;
 #[path = "endpoint_durable_set_seal.rs"]
@@ -97,6 +100,7 @@ pub struct FileFormalEndpoint {
         std::collections::BTreeMap<String, super::native_environment::EndpointVerificationJob>,
     published_closure_jobs:
         std::collections::BTreeMap<String, store::published_closure::ClosureJob>,
+    iws_page_store: Option<incremental::IwsPageStoreCapabilityV1>,
     #[cfg(test)]
     controlled: bool,
 }
@@ -202,6 +206,7 @@ impl FileFormalEndpoint {
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
+            iws_page_store: None,
             #[cfg(test)]
             controlled,
         };
@@ -690,18 +695,67 @@ impl FileFormalEndpoint {
         )?;
         Ok((context, closure))
     }
+
+    fn receipt_candidate_context<'a>(
+        &self,
+        candidate: &'a FormalCandidateMaterialV1,
+        retain_snapshot_bytes: bool,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<
+        (
+            VerifiedCandidateContextV1,
+            Option<super::business_material::VerifiedCandidateMaterialClosureV1<'a>>,
+        ),
+        FormalError,
+    > {
+        if self.authority.definition().profile_version
+            == oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION
+        {
+            let _context = self.verify_iws_candidate(candidate, cancelled)?;
+            // The current owner registry deliberately reports uncovered
+            // WorldState/Runtime/Cognition families. Never allow this path to
+            // reach an existing profile-2 persistence or receipt writer.
+            return Err(invalid("IWS typed owner coverage incomplete"));
+        }
+        let (context, closure) = self.candidate_context(candidate, retain_snapshot_bytes)?;
+        Ok((context, Some(closure)))
+    }
     pub fn prepare(
         &mut self,
         candidate: FormalCandidateMaterialV1,
     ) -> Result<FormalPrepareReceiptV1, FormalError> {
+        self.prepare_with_cancel(candidate, || false)
+    }
+
+    /// Prepare with an explicit local cancellation source. Existing callers
+    /// keep the synchronous compatibility wrapper above; local coordinators
+    /// that own a cancellation token must use this method for bounded IWS
+    /// page verification.
+    pub fn prepare_with_cancel(
+        &mut self,
+        candidate: FormalCandidateMaterialV1,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<FormalPrepareReceiptV1, FormalError> {
+        if cancelled() {
+            return Err(invalid("formal prepare cancelled before verification"));
+        }
         let mut guard = self.guard()?;
         let request = candidate.candidate.record.request_digest.clone();
-        let (context, material_closure) = self.candidate_context(&candidate, true)?;
+        let (context, material_closure) =
+            self.receipt_candidate_context(&candidate, true, &mut cancelled)?;
+        if cancelled() {
+            return Err(invalid("formal prepare cancelled before persistence"));
+        }
         drop(self.take_native_environment(&candidate.material)?);
         if context.finalizing_authority().authority_id()? != self.authority.authority_id()? {
             return Err(invalid("formal candidate finalizer endpoint"));
         }
-        self.persist_business_candidate(&candidate, &material_closure)?;
+        self.persist_business_candidate(
+            &candidate,
+            material_closure
+                .as_ref()
+                .ok_or_else(|| invalid("formal material closure missing"))?,
+        )?;
         let expected_receipt = context.receipt_body(self.role)?;
         if let Some(entry) = self.load(&request)? {
             match &entry {
@@ -774,6 +828,9 @@ impl FileFormalEndpoint {
             candidate.candidate.record.position,
             &candidate.candidate.record.parent_record_id,
         )?;
+        if cancelled() {
+            return Err(invalid("formal prepare cancelled before persistence"));
+        }
         self.write(
             FormalRequestStateV1::Prepared {
                 candidate: candidate.clone(),
@@ -810,6 +867,22 @@ impl FileFormalEndpoint {
         primary: FormalPrepareReceiptV1,
         replica: FormalPrepareReceiptV1,
     ) -> Result<FormalFinalReceiptV1, FormalError> {
+        self.decide_with_cancel(request, primary, replica, || false)
+    }
+
+    /// Decide with an explicit local cancellation source. A cancellation
+    /// before the decision write leaves the durable prepare available for
+    /// query and retry under the same request identity.
+    pub fn decide_with_cancel(
+        &mut self,
+        request: &str,
+        primary: FormalPrepareReceiptV1,
+        replica: FormalPrepareReceiptV1,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<FormalFinalReceiptV1, FormalError> {
+        if cancelled() {
+            return Err(invalid("formal decision cancelled before verification"));
+        }
         let mut guard = self.guard()?;
         let entry = self
             .load(request)?
@@ -836,7 +909,11 @@ impl FileFormalEndpoint {
         else {
             return Err(invalid("formal decision durable prepare receipt missing"));
         };
-        let (context, _material_closure) = self.candidate_context(&candidate, false)?;
+        let (context, _material_closure) =
+            self.receipt_candidate_context(&candidate, false, &mut cancelled)?;
+        if cancelled() {
+            return Err(invalid("formal decision cancelled before persistence"));
+        }
         verify_formal_prepare_receipt(&primary, &candidate, &context, EndpointRole::Primary)?;
         verify_formal_prepare_receipt(&replica, &candidate, &context, EndpointRole::Replica)?;
         let local = match self.role {
@@ -851,6 +928,9 @@ impl FileFormalEndpoint {
             candidate.candidate.record.position,
             &candidate.candidate.record.parent_record_id,
         )?;
+        if cancelled() {
+            return Err(invalid("formal decision cancelled before persistence"));
+        }
         let body = context.receipt_body(self.role)?;
         let receipt = FormalFinalReceiptV1 {
             signature_hex: self.sign_at_checkpoint(

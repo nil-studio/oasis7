@@ -6368,6 +6368,7 @@ dependencies = [
  "oasis7_formal_protocol",
  "oasis7_proto",
  "oasis7_wasm_build",
+ "oasis7_world_state",
  "polling",
  "serde",
  "serde_cbor_2",

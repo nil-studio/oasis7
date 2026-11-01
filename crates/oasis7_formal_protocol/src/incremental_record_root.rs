@@ -30,7 +30,7 @@ impl RecordRootRefV1 {
 
     /// Fixed-size encoding; no input-controlled allocation or opaque tail.
     pub fn canonical_bytes(&self) -> Result<[u8; RECORD_ROOT_BYTES], String> {
-        let child = self.root.canonical_bytes()?;
+        let child = self.root.canonical_bytes_fixed()?;
         let mut bytes = [0; RECORD_ROOT_BYTES];
         let start = MAGIC.len();
         bytes[..start].copy_from_slice(MAGIC);
