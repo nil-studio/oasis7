@@ -18,6 +18,17 @@ impl AccountProvisionApprovalState {
         id: &str,
         s: &TestSessionAuthorityV1,
     ) -> Result<()> {
+        if s.purpose_transports.values().any(|v| {
+            matches!(
+                v,
+                SessionPurposeTransportV1::ExecutionNativeLifetimeV2(_)
+                    | SessionPurposeTransportV1::ExecutionFactoryCallbackV2(_)
+                    | SessionPurposeTransportV1::ExecutionPrepareCurrentV2(_)
+                    | SessionPurposeTransportV1::ExecutionPrepareRkvV2(_)
+            )
+        }) {
+            return Err(invalid());
+        }
         let Some(c) = &s.context else {
             return if s.purpose_transports.values().any(|v| {
                 matches!(

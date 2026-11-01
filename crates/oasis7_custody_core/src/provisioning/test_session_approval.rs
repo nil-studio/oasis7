@@ -40,6 +40,30 @@ impl AccountProvisionApprovalState {
         if reserved.checked_add(3).ok_or_else(invalid)? > 4 {
             return Err(invalid());
         }
+        if self.test_sessions_v2.values().any(|v| v.closing.is_none()) {
+            return Err(ProvisionApprovalError::Conflict);
+        }
+        let v2_reserved = self
+            .test_sessions_v2
+            .values()
+            .map(|v| {
+                if v.approved_at.is_none() && v.closing.is_none() {
+                    3
+                } else {
+                    v.roots
+                        .values()
+                        .filter(|r| !r.revoked && now.get() < r.deadline.get())
+                        .count()
+                }
+            })
+            .sum::<usize>();
+        if reserved
+            .checked_add(v2_reserved)
+            .and_then(|v| v.checked_add(3))
+            .is_none_or(|v| v > 4)
+        {
+            return Err(invalid());
+        }
         let empty = ApprovalAdmissionBook::default();
         let book = self.test_sessions.get(id).map_or(&empty, |s| &s.book);
         let checks = book.begin_checks(

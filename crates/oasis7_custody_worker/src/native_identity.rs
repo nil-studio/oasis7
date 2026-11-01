@@ -5,12 +5,7 @@ pub(crate) mod source_revocation;
 // Fixed Identity-only native authority adapter. No caller chooses an upstream URL or headers.
 use oasis7_custody_core::{DecimalU64, approval::*};
 use serde::de::DeserializeOwned;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
-use worker::{
-    AbortSignal, Env, Error, Fetch, Headers, Method, Request, RequestInit, RequestRedirect, Result,
-    Url,
-};
+use worker::{Env, Error, Headers, Method, Request, RequestInit, RequestRedirect, Result, Url};
 
 const PREFIX: &str = "/api/public/hosted-account/v2/custody";
 const MAX_BYTES: usize = 32 * 1024;
@@ -288,7 +283,7 @@ impl NativeIdentityConfig {
     }
 }
 
-/// Manual redirect and bounded streaming body apply to both fixed routes.
+/// Existing fixed Identity routes retain their original five-second/32KiB bounds.
 async fn read_native<T: DeserializeOwned>(request: Request) -> Result<T> {
     read_native_body(send_native(request).await?).await
 }
@@ -296,75 +291,14 @@ async fn send_native(request: Request) -> Result<worker::Response> {
     send_native_status(request, false).await
 }
 async fn send_native_status(request: Request, allow_not_found: bool) -> Result<worker::Response> {
-    let constructor =
-        js_sys::Reflect::get(&js_sys::global(), &"AbortSignal".into()).map_err(|_| rejected())?;
-    let timeout: js_sys::Function = js_sys::Reflect::get(&constructor, &"timeout".into())
-        .map_err(|_| rejected())?
-        .dyn_into()
-        .map_err(|_| rejected())?;
-    let signal: web_sys::AbortSignal = timeout
-        .call1(&constructor, &5_000.into())
-        .map_err(|_| rejected())?
-        .dyn_into()
-        .map_err(|_| rejected())?;
-    let response = Fetch::Request(request)
-        .send_with_signal(&AbortSignal::from(signal))
-        .await
-        .map_err(|_| rejected())?;
-    checked(
-        (response.status_code() == 200 || (allow_not_found && response.status_code() == 404))
-            && response.headers().get("Content-Type")?.is_some_and(|v| {
-                v.split(';')
-                    .next()
-                    .is_some_and(|v| v.eq_ignore_ascii_case("application/json"))
-            }),
-    )?;
-    Ok(response)
+    crate::native_http_bounded::send_status(request, allow_not_found, 5000).await
 }
 async fn read_native_body<T: DeserializeOwned>(response: worker::Response) -> Result<T> {
-    let response: web_sys::Response = response.into();
-    let body = response.body().ok_or_else(rejected)?;
-    let reader_fn: js_sys::Function = js_sys::Reflect::get(body.as_ref(), &"getReader".into())
-        .map_err(|_| rejected())?
-        .dyn_into()
-        .map_err(|_| rejected())?;
-    let reader = reader_fn.call0(body.as_ref()).map_err(|_| rejected())?;
-    let read: js_sys::Function = js_sys::Reflect::get(&reader, &"read".into())
-        .map_err(|_| rejected())?
-        .dyn_into()
-        .map_err(|_| rejected())?;
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
-    loop {
-        let promise: js_sys::Promise = read
-            .call0(&reader)
-            .map_err(|_| rejected())?
-            .dyn_into()
-            .map_err(|_| rejected())?;
-        let part = JsFuture::from(promise).await.map_err(|_| rejected())?;
-        if js_sys::Reflect::get(&part, &"done".into())
-            .map_err(|_| rejected())?
-            .as_bool()
-            == Some(true)
-        {
-            break;
-        }
-        let value: js_sys::Uint8Array = js_sys::Reflect::get(&part, &"value".into())
-            .map_err(|_| rejected())?
-            .dyn_into()
-            .map_err(|_| rejected())?;
-        if bytes.len().saturating_add(value.length() as usize) > MAX_BYTES {
-            if let Ok(cancel) = js_sys::Reflect::get(&reader, &"cancel".into())
-                && let Ok(cancel) = cancel.dyn_into::<js_sys::Function>()
-                && let Ok(promise) = cancel.call0(&reader)
-                && let Ok(promise) = promise.dyn_into::<js_sys::Promise>()
-            {
-                let _ = JsFuture::from(promise).await;
-            }
-            return Err(rejected());
-        }
-        let part_bytes = zeroize::Zeroizing::new(value.to_vec());
-        bytes.extend_from_slice(part_bytes.as_slice());
-        value.fill(0, 0, value.length());
-    }
-    serde_json::from_slice(&bytes).map_err(|_| rejected())
+    read_native_body_limited(response, MAX_BYTES).await
+}
+async fn read_native_body_limited<T: DeserializeOwned>(
+    response: worker::Response,
+    limit: usize,
+) -> Result<T> {
+    crate::native_http_bounded::read_body(response, limit).await
 }

@@ -409,7 +409,7 @@ print(json.dumps(result))
 
 // Local browser harness only. It supplies the actual browser-created manager
 // before any directory/provision request; it does not patch signed payloads.
-export function browserUvRoleOptions(persist,data,bridge,manager,origin,adapterModule) {
+export function browserUvRoleOptions(persist,data,bridge,manager,origin,adapterModule,configureBrowserRoles) {
   assert.ok(typeof manager==='string' && manager.length>0);
   return options(persist,data,bridge,'native-participant-owner-setup-real-fence',raw=>{
     const identity=raw.workers.find(w=>w.name==='identity');
@@ -425,6 +425,6 @@ export function browserUvRoleOptions(persist,data,bridge,manager,origin,adapterM
     owner.bindings.CUSTODY_MANAGEMENT_METADATA_ENABLED='true';
     owner.bindings.CUSTODY_MANAGEMENT_METADATA_REALM='isolated-browser-uv';
     owner.bindings.CUSTODY_BOOTSTRAP_MANAGERS=JSON.stringify([{principal:{identity_namespace:data.namespace,native_account_id:manager},environments:['test']}]);
-    return raw;
+    return configureBrowserRoles?configureBrowserRoles(raw):raw;
   });
 }

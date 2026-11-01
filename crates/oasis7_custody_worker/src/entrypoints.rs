@@ -576,3 +576,86 @@ pub async fn owner_query_parents(env: Env, raw: String) -> std::result::Result<S
     .await
     .map_err(|_| rejected())
 }
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_credential_challenge(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_credential_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-credential-challenge",
+    )
+    .await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_credential_claim(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_credential_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-credential-claim",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_challenge(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-challenge",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_initialize(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-initialize",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_tools_list(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-tools-list",
+    )
+    .await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_client_v2_control_heartbeat(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_test_session_v2_control_entry::forward(
+        &env,
+        &raw,
+        "/internal/test-session-v2-control-heartbeat",
+    )
+    .await
+}

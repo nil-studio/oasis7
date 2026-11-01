@@ -124,7 +124,8 @@ fn prepare_stage(
         .unwrap();
     s.claim_owner_setup_stage_source("setup-one", stage, &current, now + 1)
         .unwrap();
-    let mut origin = verification(s.owner_setup_original("setup-one").unwrap(), c).verification;
+    let mut origin =
+        verification(s.owner_setup_phase_original("setup-one").unwrap(), c).verification;
     origin.purpose = VerificationPurposeV1::InspectOrigin;
     origin.verify_nonce = s
         .owner_setup_outbox("setup-one", stage)
@@ -341,7 +342,53 @@ fn finish_stage(
                 .unwrap(),
             )
         }
-        _ => unreachable!(),
+        OwnerSetupOriginalV1::FinalObservation { goal: request, .. } => {
+            let evidence = world_evidence(s, candidate, canonical, now + 12);
+            let OwnerSetupResultV1::PreparedGoal(prepared) = s
+                .owner_setup_outbox("setup-one", OwnerSetupStageV1::PrepareGoal)
+                .unwrap()
+                .result
+                .as_ref()
+                .unwrap()
+            else {
+                unreachable!()
+            };
+            let OwnerSetupResultV1::Canonical {
+                response: published,
+                ..
+            } = s
+                .owner_setup_outbox("setup-one", OwnerSetupStageV1::PublishGoal)
+                .unwrap()
+                .result
+                .as_ref()
+                .unwrap()
+            else {
+                unreachable!()
+            };
+            let ws::IntentOutcome::Committed {
+                commit: activation, ..
+            } = &published.payload.outcome
+            else {
+                unreachable!()
+            };
+            let goal = ws::sign_service_response(
+                ws::private_goal_read::GOAL_CURRENT_PATH,
+                ws::request_digest(ws::private_goal_read::GOAL_CURRENT_PATH, request).unwrap(),
+                ws::private_goal_read::CurrentGoalResponse {
+                    schema_revision: 1,
+                    control: canonical.task.clone().unwrap(),
+                    read_commit: canonical.commit.clone(),
+                    activation_commit: Some((**activation).clone()),
+                    active_goal: Some(prepared.payload.clone()),
+                },
+                &"3f".repeat(32),
+            )
+            .unwrap();
+            OwnerSetupResultV1::FinalObservation {
+                owner: Box::new(evidence.world.response),
+                goal: Box::new(goal),
+            }
+        }
     };
     s.reserve_owner_setup_callback("setup-one", stage, now + 12)
         .unwrap();
@@ -438,3 +485,6 @@ mod test_session_authority_tests;
 
 #[path = "owner_setup_restore_metrics_tests.rs"]
 mod restore_metrics_tests;
+
+#[path = "owner_setup_v2_phase_tests.rs"]
+mod v2_phase_tests;
