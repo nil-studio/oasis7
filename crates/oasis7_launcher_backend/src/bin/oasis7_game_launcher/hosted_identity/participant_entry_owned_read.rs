@@ -180,7 +180,7 @@ impl OwnedOwnerReadGateway {
     }
 }
 impl ParticipantEntry {
-    pub(super) fn owned_owner_read_gateway(&self) -> OwnedOwnerReadGateway {
+    pub(in super::super) fn owned_owner_read_gateway(&self) -> OwnedOwnerReadGateway {
         OwnedOwnerReadGateway {
             trust: self.trust.clone(),
             http: self.http.clone(),

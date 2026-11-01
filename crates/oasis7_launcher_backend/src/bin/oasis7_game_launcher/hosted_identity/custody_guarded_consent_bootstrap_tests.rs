@@ -151,7 +151,7 @@ fn guarded_full_mfa_revoke_then_database_restore_requires_external_lineage() {
         .unwrap();
     let verify = admitted.native_verify_request().unwrap();
     let headers = format!(
-        "POST / HTTP/1.1\r\nAuthorization: Bearer {}\r\n",
+        "POST / HTTP/1.1\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\n",
         hex::encode([52; 32])
     );
     let verification = f

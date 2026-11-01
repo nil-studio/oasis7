@@ -2,11 +2,10 @@
 //! Its fixed inner World port is not debited to Native160 or E/R/Cleanup.
 use super::*;
 use crate::native_cleanup_v2::{
-    registration_read_digest, registration_response_digest,
     AccountConsumedPendingV2, AccountMachineIssuerFloorV2, AccountMachineIssuerPinV2,
     AccountMachineIssuerV2, AccountMachinePurposeV2, NativeReadAndRegisterReplyV2,
     NativeRegistrationReadClaimV2, NativeRegistrationReadProfileV2, SignedAccountConsumedPendingV2,
-    SignedNativeRegistrationAckV2,
+    SignedNativeRegistrationAckV2, registration_read_digest, registration_response_digest,
 };
 fn required_signature<'de, D: serde::Deserializer<'de>, T: serde::Deserialize<'de>>(
     d: D,
@@ -36,6 +35,13 @@ impl core::fmt::Debug for NativeMachineRegistrationRecordV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("NativeMachineRegistrationRecordV2(<private>)")
     }
+}
+/// Borrowed, fixed issuer admission inputs for this one purpose only.
+/// Grouping does not validate them or confer signing authority.
+pub struct NativeMachinePendingIssuerV2<'a> {
+    pub issuer: AccountMachineIssuerV2,
+    pub pin: &'a AccountMachineIssuerPinV2,
+    pub floor: &'a AccountMachineIssuerFloorV2,
 }
 /// Only the Account-state factory can create this exact signing input. It has
 /// no Clone/serde/debug and cannot be reconstructed from a browser request.
@@ -251,13 +257,12 @@ impl AccountProvisionApprovalState {
     pub fn prepare_test_session_v2_machine_pending(
         &mut self,
         id: &str,
-        issuer: AccountMachineIssuerV2,
-        pin: &AccountMachineIssuerPinV2,
-        floor: &AccountMachineIssuerFloorV2,
+        issuer_scope: NativeMachinePendingIssuerV2<'_>,
         current: &TestSessionPreflightCurrent<'_, '_>,
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<PreparedNativeMachinePendingV2> {
+        let NativeMachinePendingIssuerV2 { issuer, pin, floor } = issuer_scope;
         verifier.verify(&self.test_session_v2_preflight_checks(id, current, now)?)?;
         let s = self.test_session_v2_record(id)?;
         let (plan, _) = s.header()?;

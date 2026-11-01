@@ -94,9 +94,11 @@ fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_r
         .state
         .prepare_test_session_v2_machine_pending(
             &f.session_id,
-            issuer(&pin),
-            &pin,
-            &floor(),
+            NativeMachinePendingIssuerV2 {
+                issuer: issuer(&pin),
+                pin: &pin,
+                floor: &floor(),
+            },
             &pre,
             UnixMillis::new(start + 14),
             &mut StrictCrypto,
@@ -131,9 +133,11 @@ fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_r
         f.state
             .prepare_test_session_v2_machine_pending(
                 &f.session_id,
-                issuer(&pin),
-                &pin,
-                &floor(),
+                NativeMachinePendingIssuerV2 {
+                    issuer: issuer(&pin),
+                    pin: &pin,
+                    floor: &floor()
+                },
                 &pre,
                 UnixMillis::new(start + 14),
                 &mut StrictCrypto

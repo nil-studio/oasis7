@@ -47,9 +47,11 @@ impl OwnerProvisionApprovalStore {
                     let prepared = s
                         .prepare_test_session_v2_machine_pending(
                             id,
-                            issuer.issuer().clone(),
-                            issuer.native_pending_pin()?,
-                            &issuer.native_pending_floor(),
+                            NativeMachinePendingIssuerV2 {
+                                issuer: issuer.issuer().clone(),
+                                pin: issuer.native_pending_pin()?,
+                                floor: &issuer.native_pending_floor(),
+                            },
                             c,
                             now,
                             v,

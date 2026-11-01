@@ -15,7 +15,7 @@ impl AccountProvisionApprovalState {
         let original = session
             .book
             .original(id)
-            .ok_or_else(|| ProvisionApprovalError::BindingMismatch)?;
+            .ok_or(ProvisionApprovalError::BindingMismatch)?;
         let (evidence_session, input_digest) = evidence.session_binding();
         if evidence_session != id
             || input_digest != session.input_digest()?

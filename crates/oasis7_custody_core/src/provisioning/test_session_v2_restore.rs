@@ -305,6 +305,9 @@ impl AccountProvisionApprovalState {
                     .filter(|f| **f == SessionSourceFundingV1::Control)
                     .count() as u64
                     + u64::from(s.approval_verification_claimed_at.is_some())
+                    // The separate machine Active HTTP is charged even while
+                    // Await/unsigned/unknown; registration replaces OwnerRead.
+                    + u64::from(s.native_machine_registration.as_ref().is_some_and(|m| m.active.is_some()))
                     + s.preflight_steps
                         .keys()
                         .map(|step| {

@@ -41,7 +41,7 @@ impl IdentityService {
         let epoch = self.config.rp.identity_instance_epoch;
         let complete_digest = complete_body_digest(&request).map_err(|_| StoreError::Corrupt)?;
         let secret = self.config.session_key;
-        let identity = self.config.clone();
+        let identity = &self.config;
         let config = self.custody.as_ref().ok_or_else(|| reject("unavailable"))?;
         let saved = self.store.transaction(|tx| {
             consume_quota(
@@ -59,7 +59,7 @@ impl IdentityService {
             super::guarded_consent::verify_existing_guarded_consent_v2(
                 tx,
                 config,
-                &identity,
+                identity,
                 &saved.value,
             )?;
             check_record(
@@ -242,7 +242,7 @@ impl IdentityService {
             super::guarded_consent::verify_existing_guarded_consent_v2(
                 tx,
                 config,
-                &identity,
+                identity,
                 &current.value,
             )?;
             check_record(

@@ -181,10 +181,11 @@ pub(super) fn claim(
         &pending_digest,
         "registration_world",
     )?;
+    let native_account_id = lifetime.status.receipt.native_account_id.clone();
     tx.create(
         &key,
         KIND,
-        Some(&lifetime.status.receipt.native_account_id),
+        Some(&native_account_id),
         None,
         &Registration {
             api_version: 2,
