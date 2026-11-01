@@ -2,6 +2,188 @@ use super::*;
 use crate::incremental_execution::ExecutionFactRefV1;
 use std::io::Write;
 
+fn observed_current_event(
+    s: &Setup,
+) -> (
+    VerifiedFormalCommitV1,
+    ReservedValue<CheckedCommitCore>,
+    ReservedValue<CheckedFactOriginals>,
+) {
+    observed_current_events(s, 1)
+}
+fn observed_current_events(
+    s: &Setup,
+    repetitions: usize,
+) -> (
+    VerifiedFormalCommitV1,
+    ReservedValue<CheckedCommitCore>,
+    ReservedValue<CheckedFactOriginals>,
+) {
+    let id = *blake3::hash(b"original Event fact bytes").as_bytes();
+    let history = event_history_repeated(s, id, repetitions);
+    let head = accepted(s, &history);
+    let candidate = candidate(s, head.record().clone());
+    let (mut objects, pages) = event_sources(s, &history, id);
+    let core = verify_commit_core(
+        &request(s, &candidate),
+        &mut objects,
+        &pages,
+        &s.memory,
+        &mut budget(),
+        || false,
+    )
+    .unwrap();
+    let cancelled = Cell::new(false);
+    let originals = verify_fact_originals(
+        &core,
+        &mut EventStream {
+            objects: &mut objects,
+            mode: 0,
+            final_cancel: &cancelled,
+        },
+        &s.memory,
+        &mut FactBudget {
+            facts_remaining: 8,
+            original_bytes_remaining: 1 << 20,
+            max_fact_bytes: 1 << 20,
+        },
+        || false,
+    )
+    .unwrap();
+    (head, core, originals)
+}
+
+#[test]
+fn current_observations_preserve_duplicate_event_ordinals() {
+    let s = setup();
+    let (head, core, originals) = observed_current_events(&s, 2);
+    assert_eq!(originals.counts(), [1, 0, 2]);
+    for ordinal in [1, 2] {
+        let proof = bind_checked_current_event_fact_v1(
+            &CurrentEventFactRequestV1 {
+                head: &head,
+                core: &core,
+                originals: &originals,
+                ordinal,
+            },
+            &s.memory,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(proof.location().ordinal, ordinal);
+        assert_eq!(
+            proof.location().original,
+            *blake3::hash(b"original Event fact bytes").as_bytes()
+        );
+        assert_eq!(proof.original_bytes(), 25);
+    }
+}
+
+#[test]
+fn current_event_binds_observed_original_after_sources_are_dropped() {
+    let s = setup();
+    let (head, core, originals) = observed_current_event(&s);
+    assert_eq!(originals.counts(), [1, 0, 1]);
+    // All object/page sessions were destroyed inside the helper. The only
+    // source of the per-occurrence length is actual prior stream verification.
+    let baseline = s.memory.used();
+    let proof = bind_checked_current_event_fact_v1(
+        &CurrentEventFactRequestV1 {
+            head: &head,
+            core: &core,
+            originals: &originals,
+            ordinal: 1,
+        },
+        &s.memory,
+        || false,
+    )
+    .unwrap();
+    assert_eq!(proof.original_bytes(), 25);
+    assert_eq!(
+        proof.location(),
+        EventFactLocationV1 {
+            height: 0,
+            ordinal: 1,
+            original: *blake3::hash(b"original Event fact bytes").as_bytes(),
+        }
+    );
+    assert_eq!(proof.roots_id(), core.roots().digest().unwrap());
+    assert_eq!(proof.head_body_id(), core.body().digest().unwrap());
+    assert_eq!(proof.event_body_id(), proof.head_body_id());
+    assert_eq!(s.memory.used(), baseline + proof.reserved_bytes());
+    drop(proof);
+    assert_eq!(s.memory.used(), baseline);
+}
+
+#[test]
+fn current_event_rejects_input_missing_observation_foreign_pool_and_cancellation() {
+    let s = setup();
+    let (head, core, originals) = observed_current_event(&s);
+    for ordinal in [0, 2, u64::MAX] {
+        assert!(matches!(
+            bind_checked_current_event_fact_v1(
+                &CurrentEventFactRequestV1 {
+                    head: &head,
+                    core: &core,
+                    originals: &originals,
+                    ordinal,
+                },
+                &s.memory,
+                || false
+            ),
+            Err(CoreError::Invalid(_))
+        ));
+    }
+    let foreign = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    assert!(matches!(
+        bind_checked_current_event_fact_v1(
+            &CurrentEventFactRequestV1 {
+                head: &head,
+                core: &core,
+                originals: &originals,
+                ordinal: 1,
+            },
+            &foreign,
+            || false
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    for stop in [1, 2] {
+        let calls = Cell::new(0);
+        assert!(matches!(
+            bind_checked_current_event_fact_v1(
+                &CurrentEventFactRequestV1 {
+                    head: &head,
+                    core: &core,
+                    originals: &originals,
+                    ordinal: 1,
+                },
+                &s.memory,
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                }
+            ),
+            Err(CoreError::Cancelled)
+        ));
+    }
+    // This head is cryptographically valid but names the original different
+    // body/facts, so an observation from the new Event cannot attach to it.
+    assert!(matches!(
+        bind_checked_current_event_fact_v1(
+            &CurrentEventFactRequestV1 {
+                head: &s.commit,
+                core: &core,
+                originals: &originals,
+                ordinal: 1,
+            },
+            &s.memory,
+            || false
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+}
+
 struct EventStream<'a> {
     objects: &'a mut Objects,
     mode: u8,
@@ -63,12 +245,21 @@ impl OriginalObjectStreamReader for EventStream<'_> {
     }
 }
 fn event_history(s: &Setup, id: [u8; 32]) -> ReservedValue<PreparedHistoryV1> {
+    event_history_repeated(s, id, 1)
+}
+fn event_history_repeated(
+    s: &Setup,
+    id: [u8; 32],
+    repetitions: usize,
+) -> ReservedValue<PreparedHistoryV1> {
     let _fixture = s.memory.reserve(64 << 10, MemoryClass::Ordinary).unwrap();
     let mut facts = s.history.facts.facts.clone();
-    facts.push(ExecutionFactRefV1 {
-        kind: ExecutionFactKindV1::Event,
-        id,
-    });
+    for _ in 0..repetitions {
+        facts.push(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Event,
+            id,
+        });
+    }
     HeaderPreparation {
         config: &s.config,
         catalog: &CatalogRootV1::empty(s.config.scope().unwrap()).unwrap(),
@@ -310,6 +501,12 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
             id: input,
         })
         .unwrap();
+    transaction
+        .append_fact(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Event,
+            id,
+        })
+        .unwrap();
     let guard = transaction.guard();
     let sealed = transaction.seal(&guard, &live, 1).unwrap();
     let next = HeaderPreparation {
@@ -422,6 +619,103 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
     assert_eq!(result.head_body_id(), next.body.digest().unwrap());
     assert_eq!(result.event_body_id(), old.body.digest().unwrap());
     assert!(pages.reads.get() > 0 && pages.reads.get() <= 257);
+
+    // The same raw Event can occur again in the genuinely signed Normal
+    // successor. Current binding must identify this occurrence at height one,
+    // not silently reuse its older occurrence at height zero.
+    let signed = formal::SignedCanonicalCandidateV1 {
+        record: proof.decision.record.clone(),
+        writer_signature_hex: proof.decision.writer_signature_hex.clone(),
+    };
+    let candidate = formal::verify_formal_candidate(
+        &signed,
+        proof.decision.frozen.as_ref(),
+        &s.authority,
+        Some(&s.commit),
+        None,
+        formal::FormalCompletionBranchV1::Normal,
+    )
+    .unwrap();
+    let next_catalog = next
+        .body
+        .catalog_before
+        .extend(&next.body, &pages, &s.memory, 4 << 20)
+        .unwrap();
+    for node in &next_catalog.new_nodes {
+        let charge = s
+            .memory
+            .reserve(node.bytes.capacity() + 128, MemoryClass::Ordinary)
+            .unwrap();
+        pages.values.insert(
+            node.digest.clone(),
+            Arc::new(charge.retain(node.bytes.clone())),
+        );
+    }
+    for bytes in [
+        sealed.record.after.canonical_bytes().unwrap(),
+        next.transition_bytes.as_ref().unwrap().to_vec(),
+        next_catalog.after.canonical_bytes().unwrap(),
+        b"next original input".to_vec(),
+    ] {
+        let id = *blake3::hash(&bytes).as_bytes();
+        let charge = s
+            .memory
+            .reserve(bytes.capacity(), MemoryClass::Ordinary)
+            .unwrap();
+        stream
+            .objects
+            .values
+            .insert(id, Arc::new(charge.retain(bytes)));
+    }
+    let checked = verify_commit_core(
+        &CoreRequest {
+            candidate: &candidate,
+            original_authority: &s.authority,
+            parent: Some(&s.commit),
+            max_pending_node_bytes: 4 << 20,
+        },
+        &mut stream,
+        &pages,
+        &s.memory,
+        &mut budget(),
+        || false,
+    )
+    .unwrap();
+    let observed = verify_fact_originals(
+        &checked,
+        &mut stream,
+        &s.memory,
+        &mut FactBudget {
+            facts_remaining: 2,
+            original_bytes_remaining: 1 << 20,
+            max_fact_bytes: 1 << 20,
+        },
+        || false,
+    )
+    .unwrap();
+    let current = bind_checked_current_event_fact_v1(
+        &CurrentEventFactRequestV1 {
+            head: &head,
+            core: &checked,
+            originals: &observed,
+            ordinal: 1,
+        },
+        &s.memory,
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        current.location(),
+        EventFactLocationV1 {
+            height: 1,
+            ordinal: 1,
+            original: id
+        }
+    );
+    assert_eq!(current.event_body_id(), next.body.digest().unwrap());
+    assert_eq!(current.original_bytes(), 25);
+    assert_ne!(current.event_body_id(), result.event_body_id());
+
     let mut exhausted = budget();
     exhausted.merkle_reads_remaining = 0;
     let result = verify_event_fact_occurrence_v1(
