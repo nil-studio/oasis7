@@ -254,3 +254,9 @@ mod incremental_family_page_tracking;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_fixed_economy_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_intent_fields;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_authority_records;

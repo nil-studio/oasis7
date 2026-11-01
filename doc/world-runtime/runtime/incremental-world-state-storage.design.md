@@ -706,6 +706,20 @@ Material 的页标记与传输复用有界逐页追踪，在完整 typed 家族�
 
 Material 的普通事务 getter 与 setter 共用经过 guard、同池 Ordinary、完整当前 record 资格绑定的 resolver，读取同一 ExecutionTransaction 的当前视图。resolver 在全部列与 Option 关系校验后检查取消；getter 据此返回暂态值。setter 在精确 expected 和借用 after 比较后还须独立检查读/写取消通道，NoOp 也不能跳过。任何查询或更新错误都使当前贡献不可 seal；getter 的独立读取边界可作为 NoOp 最后检查回归的基线。
 
+<a id="iws-agent-authority-records"></a>
+
+### 12.35 Agent 意图账本与位置身份原记录
+
+本节只覆盖 WorldState/Map/Authorization 的 agent_intent_ledger，以及 WorldState/Map/Business 的 agent_location_authorities、location_anchors。12.34 在独立外交交付分支固定，本节不复制或重排其内容。AgentCell.intent 的已有借用投影不是独立耐久 ledger 的生产或闭包证明；agents children、claims、starter OC、FactorySite/Power 与 Runtime/Cognition owner 不在本族范围。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+三族原 String outer key 和 DTO 内 intent_id/agent_id/location_id 分别保留，不回填、折叠、裁剪或归一化。AgentIntentV2 的22字段全部借用解构：schema_version 为原 u32 界内 unsigned；logical_time/event_seq/updated_at 与 Option intent_tick/reorg_epoch 为原 u64；其余字符串与八个 Option<Text> 保留原字节。status/kind/source 不转换为新 enum，schema_version 不替换为常量2。AgentLocationAuthorityV1 的5字段与 LocationAnchorV1 的4字段均为原 Text/Bool/U64；legacy false/0/default 原样保存。不存在动态 Vec/Map。Option 以固定必需列的 Unit 表示 None，以原 Text/U64 codec 表示 Some，包括 Some(empty)/Some(0)，不得省略为缺列。
+
+每族必须有 Metadata 与 (agent_authority_record_closure_v1, unit) Entry/Unit 格式标记。每条原 outer key 对应一个 tag10 RootRef，绑定原 semantic digest、namespace 和各自 ASCII oasis7.agent.intent-ledger.v1 / oasis7.agent.location.v1 / oasis7.location.anchor.v1 右补零至32字节 schema。子根有 Metadata、unit 记录 marker 和 ((unit, record), 原字段名) 固定列；每个 kind 仅接受自身封闭列集合，拒绝未知、重复、缺列、错误类型/范围、旧 flat 与缺页。借用 GEN 与初始/原始恢复 qualification 对明确完整范围负责，连续使用调用方有限预算和先准入后分配，不能靠整体 JSON/Serde blob 或 AgentCell/完整 DTO clone。
+
+正常创建要求同父 RootSet 的 opaque family 资格，显式完整删除绑定 exact qualified child；普通单列及 Option 更新必须有精确 expected、guard/live、同池 Ordinary 和组合取消，完整替换不是小变更唯一路径。后继接收端先通用 replay，再从 qualified parent 和全部 authenticated changed paths 推导闭包，不扫描未变 summary/reason 等长文本；必需列与 marker 不能删除。no-op、长文本相等返回前、实际 put 后及最终 buffered finish 的错误/取消均不可接受成功前缀。typed mark/transfer 显式追踪本族 child StateRoot 与 ValueTree，复制先准入，完成资格需等待 sink finish；原 pool/store 销毁后的有限小池根恢复须可验证。
+
+本族资格只证明存储完整性，不授玩家、意图替换或站点准入权限；Agent存在、active anchor、revision/effective_at、事件序号、receipt与principal绑定仍由原业务消费者裁定。共用 intent 借用 helper 必须有 AgentCell 与 ledger 两个真实消费者，保持旧 Agent 字段键、ordinal、值 codec 和输出顺序；公开 oracle 应覆盖31原字段、十个 Option 的 None/empty/0、outer/embedded 不等、原 Unicode/极值、同 TX 操作、固定 Δ 放大未变文本、来源/预算/取消/真实发布故障与冷恢复。不得把本族 token 代签完整 World 激活或 GC。
+
 ### 12.36 固定经济全局值的封闭记录
 
 <a id="iws-fixed-economy-records-v1"></a>
