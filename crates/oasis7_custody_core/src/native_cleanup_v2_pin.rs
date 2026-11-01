@@ -12,6 +12,7 @@ pub enum AccountMachinePurposeV2 {
     ExecutionPrepareSignerV2,
     NativeExecutionPrepareV2,
     ExecutionPrivateCurrentV2,
+    ExecutionDispatchClaimV2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

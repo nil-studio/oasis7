@@ -3,6 +3,10 @@ use super::*;
 fn id_nonempty(v: &str) -> bool {
     !v.is_empty() && v.len() <= 256 && !v.chars().any(char::is_control)
 }
+enum ExecutionPrepaidAnchorV2<'a> {
+    Prepare(&'a super::super::execution_book_v2::ExecutionPrepareServiceRecordV2),
+    NativeGate(&'a super::super::execution_book_v2::ExecutionNativeGateRecordV2),
+}
 impl AccountProvisionApprovalState {
     pub(in crate::provisioning) fn test_session_v2_local(
         &self,
@@ -41,19 +45,62 @@ impl AccountProvisionApprovalState {
         record: &super::super::execution_book_v2::ExecutionPrepareServiceRecordV2,
         now: UnixMillis,
     ) -> Result<&TestSessionAuthorityV2> {
+        self.test_session_v2_prepaid_execution_local(
+            id,
+            ExecutionPrepaidAnchorV2::Prepare(record),
+            now,
+        )
+    }
+    pub(in crate::provisioning) fn test_session_v2_prepaid_native_gate_local(
+        &self,
+        id: &str,
+        record: &super::super::execution_book_v2::ExecutionNativeGateRecordV2,
+        now: UnixMillis,
+    ) -> Result<&TestSessionAuthorityV2> {
+        self.test_session_v2_prepaid_execution_local(
+            id,
+            ExecutionPrepaidAnchorV2::NativeGate(record),
+            now,
+        )
+    }
+    fn test_session_v2_prepaid_execution_local(
+        &self,
+        id: &str,
+        anchor: ExecutionPrepaidAnchorV2<'_>,
+        now: UnixMillis,
+    ) -> Result<&TestSessionAuthorityV2> {
         let s = self.test_session_v2_record(id)?;
         let root = s
             .roots
             .get(&SessionPurposeV1::Execution)
             .ok_or_else(invalid)?;
-        let event = SessionEventKindV2::ExecutionPreparePermitsRecorded {
-            request_id: s
-                .execution_book
-                .as_ref()
-                .ok_or_else(invalid)?
-                .journal_record()
-                .request_id
-                .into(),
+        let book = s.execution_book.as_ref().ok_or_else(invalid)?;
+        let request_id = book.journal_record().request_id.into();
+        let (event, accepted_ordinal, recorded_at) = match anchor {
+            ExecutionPrepaidAnchorV2::Prepare(record) => {
+                if book.prepare_service_record() != Some(record) {
+                    return Err(invalid());
+                }
+                (
+                    SessionEventKindV2::ExecutionPreparePermitsRecorded { request_id },
+                    record.accepted_ordinal,
+                    record.recorded_at,
+                )
+            }
+            ExecutionPrepaidAnchorV2::NativeGate(record) => {
+                if book
+                    .native_prepare_record()
+                    .and_then(|r| r.dispatch_gate.as_ref())
+                    != Some(record)
+                {
+                    return Err(invalid());
+                }
+                (
+                    SessionEventKindV2::ExecutionNativeGateReserved { request_id },
+                    record.accepted_ordinal,
+                    record.reserved_at,
+                )
+            }
         };
         if self.session_inventory != SessionInventoryV1::Known
             || self.frozen()
@@ -69,17 +116,13 @@ impl AccountProvisionApprovalState {
             || s.roots
                 .get(&SessionPurposeV1::ReconcileRead)
                 .is_some_and(|r| r.budgets.transport.remaining() == Ok(0))
-            || session_event_ordinal_v2(s, &event)? != Some(record.accepted_ordinal)
-            || s.execution_book
-                .as_ref()
-                .and_then(|b| b.prepare_service_record())
-                != Some(record)
+            || session_event_ordinal_v2(s, &event)? != Some(accepted_ordinal)
         {
             return Err(invalid());
         }
         if let Some((reason, at)) = s.closing {
             if reason != TestSessionClosingReasonV1::BudgetExhausted
-                || at != record.recorded_at
+                || at != recorded_at
                 || root.budgets.transport.remaining().map_err(|_| invalid())? != 0
             {
                 return Err(invalid());
@@ -90,7 +133,7 @@ impl AccountProvisionApprovalState {
         for event in s
             .events
             .iter()
-            .skip(usize::try_from(record.accepted_ordinal).map_err(|_| invalid())?)
+            .skip(usize::try_from(accepted_ordinal).map_err(|_| invalid())?)
         {
             match &event.event {
                 SessionEventKindV2::Expired { .. } => return Err(invalid()),

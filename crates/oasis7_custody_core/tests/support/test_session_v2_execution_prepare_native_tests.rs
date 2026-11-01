@@ -464,3 +464,6 @@ mod private_source_collision_tests;
 
 #[path = "test_session_v2_execution_prepare_native_wire_tests.rs"]
 mod native_wire_tests;
+
+#[path = "test_session_v2_native_dispatch_gate_tests.rs"]
+mod dispatch_gate_tests;

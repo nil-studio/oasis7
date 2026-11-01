@@ -102,6 +102,7 @@ impl AccountProvisionApprovalState {
                                 || book.owns_prepare_current_transport(s, key)
                                 || book.owns_prepare_rkv_transport(s, key)
                                 || book.owns_prepare_private_transport(s, key)
+                                || book.owns_native_gate_transport(s, key)
                                 || book.owns_prepare_native_transport(s, key)
                         })
                 })
@@ -267,8 +268,10 @@ impl AccountProvisionApprovalState {
                             && book.transport_id_in_use(key))
                             || book.owns_native_prepare_id(key)
                             || book.owns_prepare_private_transport(s, key)
+                            || book.owns_native_gate_transport(s, key)
                             || book.transport_id_in_use(&source.verify_nonce)
                             || book.owns_prepare_private_transport(s, &source.verify_nonce)
+                            || book.owns_native_gate_transport(s, &source.verify_nonce)
                     })
                     || source.created_at.0 < s.consumed_at.ok_or_else(invalid)?.get()
                     || source.expires_at.0 <= source.created_at.0

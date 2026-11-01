@@ -15,6 +15,8 @@ pub struct ExecutionNativePrepareRecordV2 {
     pub ledger_keys: [String; 10],
     pub claimed_at: UnixMillis,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_gate: Option<ExecutionNativeGateRecordV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_original_cbor_hex: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_recorded_at: Option<UnixMillis>,
@@ -317,6 +319,7 @@ impl AccountProvisionApprovalState {
             proof: request.proof.clone(),
             ledger_keys: keys,
             claimed_at: now,
+            dispatch_gate: None,
             public_original_cbor_hex: None,
             public_recorded_at: None,
         });
@@ -375,10 +378,16 @@ impl AccountProvisionApprovalState {
             original: Box::new(original),
         };
         request.wire_bytes().map_err(|_| invalid())?;
+        self.validate_native_gate_v2(s, b, &request)?;
         if record.public_original_cbor_hex.is_some() != record.public_recorded_at.is_some() {
             return Err(invalid());
         }
         if let Some(raw) = &record.public_original_cbor_hex {
+            if record.dispatch_gate.as_ref().is_some_and(|g| {
+                g.claims.len() != 10 || g.claims.iter().any(|c| c.signature_hex.is_none())
+            }) {
+                return Err(invalid());
+            }
             let result = decode_public_result(raw)?;
             result.validate_public(&request).map_err(|_| invalid())?;
             let at = record.public_recorded_at.ok_or_else(invalid)?;
@@ -569,6 +578,11 @@ impl AccountProvisionApprovalState {
         }
         let bytes = oasis7_wasm_abi::encode_canonical_cbor(&result).map_err(|_| invalid())?;
         let encoded: String = bytes.iter().map(|v| format!("{v:02x}")).collect();
+        if record.dispatch_gate.as_ref().is_some_and(|g| {
+            g.claims.len() != 10 || g.claims.iter().any(|c| c.signature_hex.is_none())
+        }) {
+            return Err(invalid());
+        }
         if let Some(old) = &record.public_original_cbor_hex {
             return if old == &encoded {
                 Ok(())
@@ -663,3 +677,7 @@ impl AccountProvisionApprovalState {
             .map_err(|_| invalid())
     }
 }
+
+#[path = "test_session_execution_native_gate_v2.rs"]
+mod gate;
+pub use gate::*;

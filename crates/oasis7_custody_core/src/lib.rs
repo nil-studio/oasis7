@@ -47,3 +47,5 @@ pub mod native_model_graph_v2;
 pub mod native_execution_prepare_v2;
 
 pub mod execution_private_current_v2;
+
+pub mod execution_dispatch_gate_v2;

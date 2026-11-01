@@ -406,8 +406,10 @@ impl SessionExecutionBookV2 {
 #[path = "test_session_execution_native_prepare_v2.rs"]
 mod native_prepare_v2;
 pub use native_prepare_v2::{
-    ExecutionNativePrepareAuthorityV2, ExecutionNativePrepareDispatchV2,
-    ExecutionNativePrepareRecordV2, ExecutionNativePrepareTransportV2,
+    ExecutionDispatchIssueContextV2, ExecutionNativeGateRecordV2, ExecutionNativeGatedDispatchV2,
+    ExecutionNativeLeafSigningAuthorityV2, ExecutionNativePrepareAuthorityV2,
+    ExecutionNativePrepareDispatchV2, ExecutionNativePrepareRecordV2,
+    ExecutionNativePrepareTransportV2, ExecutionNativeReentryTransportV2,
 };
 impl SessionExecutionBookV2 {
     pub(in crate::provisioning) fn native_prepare_record(
@@ -420,7 +422,10 @@ impl SessionExecutionBookV2 {
     }
     pub(in crate::provisioning) fn owns_native_prepare_id(&self, id: &str) -> bool {
         self.native_prepare_record().is_some_and(|r| {
-            r.ledger_keys.iter().any(|k| k == id)
+            r.dispatch_gate.as_ref().is_some_and(|g| {
+                g.callback_ports.iter().any(|p| p.port.attempt_id == id)
+                    || g.native_callback_nonces.iter().any(|nonce| nonce == id)
+            }) || r.ledger_keys.iter().any(|k| k == id)
                 || r.proof.certificate.ports.iter().any(|p| p.attempt_id == id)
         })
     }

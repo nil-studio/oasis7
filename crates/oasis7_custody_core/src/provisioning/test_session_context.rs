@@ -26,6 +26,7 @@ pub enum SessionPurposeTransportV1 {
     ExecutionPrepareCurrentV2(Box<ExecutionPrepareCurrentTransportV2>),
     ExecutionPrepareRkvV2(Box<ExecutionPrepareRkvTransportV2>),
     ExecutionNativePrepareV2(Box<ExecutionNativePrepareTransportV2>),
+    ExecutionNativeReentryV2(Box<ExecutionNativeReentryTransportV2>),
     ExecutionPrivateCurrentV2(Box<ExecutionPrivateCurrentTransportV2>),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +82,7 @@ impl SessionPurposeTransportV1 {
             | Self::ExecutionFactoryCallbackV2(_)
             | Self::ExecutionPrepareCurrentV2(_)
             | Self::ExecutionPrepareRkvV2(_)
+            | Self::ExecutionNativeReentryV2(_)
             | Self::ExecutionNativePrepareV2(_)
             | Self::ExecutionPrivateCurrentV2(_) => SessionPurposeV1::Execution,
         }

@@ -122,6 +122,94 @@ impl Replay<'_> {
                     .map_err(|_| invalid())?;
                 self.execution_native_prepare_claimed = true;
             }
+            SessionEventKindV2::ExecutionNativeGateReserved { request_id } => {
+                self.live(SessionPurposeV1::Execution, at)?;
+                let gate = self
+                    .s
+                    .execution_book
+                    .as_ref()
+                    .and_then(|book| book.native_prepare_record())
+                    .and_then(|r| r.dispatch_gate.as_ref())
+                    .ok_or_else(invalid)?;
+                if !self.execution_native_prepare_claimed
+                    || self.execution_native_gate_reserved
+                    || request_id != b.request_id
+                    || gate.reserved_at != at
+                {
+                    return Err(invalid());
+                }
+                self.source_ready(b.source_operation_id, at)?;
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::Execution)
+                    .ok_or_else(invalid)?
+                    .charge(24)
+                    .map_err(|_| invalid())?;
+                self.execution_native_gate_reserved = true;
+            }
+            SessionEventKindV2::ExecutionNativeDispatchClaimed { request_id, edge } => {
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let record = book.native_prepare_record().ok_or_else(invalid)?;
+                let gate = record.dispatch_gate.as_ref().ok_or_else(invalid)?;
+                let claim = gate
+                    .claims
+                    .get(self.execution_native_gate_claims)
+                    .ok_or_else(invalid)?;
+                if !self.execution_native_gate_reserved
+                    || self.execution_native_gate_claims != self.execution_native_gate_receipts
+                    || request_id != b.request_id
+                    || claim.claim.leaf.edge != *edge
+                    || claim.claim.issued_at.0 != at.get()
+                    || at.get() >= claim.claim.expires_at.0
+                    || !self.active
+                    || self.s.native_machine_registration.is_some() && !self.machine_ready
+                    || at.get() >= self.s.header()?.0.write_deadline.0
+                    || self.lease.is_none_or(|v| at.get() >= v.get())
+                    || self.closing.is_some_and(|(reason, time)| {
+                        reason != TestSessionClosingReasonV1::BudgetExhausted
+                            || time != gate.reserved_at
+                    })
+                {
+                    return Err(invalid());
+                }
+                if self.closing.is_some()
+                    && self
+                        .root_transport
+                        .get(&SessionPurposeV1::Execution)
+                        .ok_or_else(invalid)?
+                        .remaining()
+                        .map_err(|_| invalid())?
+                        != 0
+                {
+                    return Err(invalid());
+                }
+                self.source_ready(b.source_operation_id, at)?;
+                self.execution_native_gate_claims += 1;
+            }
+            SessionEventKindV2::ExecutionNativeDispatchReceiptRecorded { request_id, edge } => {
+                let gate = self
+                    .s
+                    .execution_book
+                    .as_ref()
+                    .and_then(|b| b.native_prepare_record())
+                    .and_then(|r| r.dispatch_gate.as_ref())
+                    .ok_or_else(invalid)?;
+                let claim = gate
+                    .claims
+                    .get(self.execution_native_gate_receipts)
+                    .ok_or_else(invalid)?;
+                if self.execution_native_gate_claims != self.execution_native_gate_receipts + 1
+                    || request_id != b.request_id
+                    || claim.claim.leaf.edge != *edge
+                    || claim.signature_recorded_at != Some(at)
+                    || claim.signature_hex.is_none()
+                    || at.get() < claim.claim.issued_at.0
+                    || at.get() >= claim.claim.expires_at.0
+                {
+                    return Err(invalid());
+                }
+                // Already linearized leaf completion only; never claim the next leaf.
+                self.execution_native_gate_receipts += 1;
+            }
             SessionEventKindV2::ExecutionPreparedPublicArchived { request_id } => {
                 let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
                 let record = book.native_prepare_record().ok_or_else(invalid)?;

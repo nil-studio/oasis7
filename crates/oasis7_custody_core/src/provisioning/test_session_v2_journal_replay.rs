@@ -34,6 +34,9 @@ pub(super) struct Replay<'a> {
     execution_prepare_permits_recorded: bool,
     execution_prepare_original_archived: bool,
     execution_native_prepare_claimed: bool,
+    execution_native_gate_reserved: bool,
+    execution_native_gate_claims: usize,
+    execution_native_gate_receipts: usize,
     execution_prepared_public_archived: bool,
     execution_private_current_claimed: bool,
     execution_private_current_observed: bool,
@@ -95,6 +98,9 @@ impl<'a> Replay<'a> {
             execution_prepare_permits_recorded: false,
             execution_prepare_original_archived: false,
             execution_native_prepare_claimed: false,
+            execution_native_gate_reserved: false,
+            execution_native_gate_claims: 0,
+            execution_native_gate_receipts: 0,
             execution_prepared_public_archived: false,
             execution_private_current_claimed: false,
             execution_private_current_observed: false,
@@ -270,7 +276,26 @@ impl<'a> Replay<'a> {
 
         if let Some(book) = &s.execution_book {
             let b = book.journal_record();
-            if self.execution_native_prepare_claimed != book.native_prepare_record().is_some()
+            if self.execution_native_gate_reserved
+                != book
+                    .native_prepare_record()
+                    .is_some_and(|r| r.dispatch_gate.is_some())
+                || self.execution_native_gate_claims
+                    != book
+                        .native_prepare_record()
+                        .and_then(|r| r.dispatch_gate.as_ref())
+                        .map_or(0, |g| g.claims.len())
+                || self.execution_native_gate_receipts
+                    != book
+                        .native_prepare_record()
+                        .and_then(|r| r.dispatch_gate.as_ref())
+                        .map_or(0, |g| {
+                            g.claims
+                                .iter()
+                                .filter(|c| c.signature_recorded_at.is_some())
+                                .count()
+                        })
+                || self.execution_native_prepare_claimed != book.native_prepare_record().is_some()
                 || self.execution_prepared_public_archived
                     != book
                         .native_prepare_record()

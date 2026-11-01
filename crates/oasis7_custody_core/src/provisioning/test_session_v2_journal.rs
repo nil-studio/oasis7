@@ -91,6 +91,17 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     ExecutionPrivateCurrentObserved {
         request_id: String,
     },
+    ExecutionNativeGateReserved {
+        request_id: String,
+    },
+    ExecutionNativeDispatchReceiptRecorded {
+        request_id: String,
+        edge: crate::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2,
+    },
+    ExecutionNativeDispatchClaimed {
+        request_id: String,
+        edge: crate::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2,
+    },
     ExecutionNativePrepareClaimed {
         request_id: String,
     },
@@ -127,6 +138,11 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
 pub(in crate::provisioning) struct SessionEventV2 {
     pub(super) event: SessionEventKindV2,
     pub(super) at: UnixMillis,
+}
+impl SessionEventV2 {
+    pub(in crate::provisioning) fn event(&self) -> &SessionEventKindV2 {
+        &self.event
+    }
 }
 impl core::fmt::Debug for SessionEventV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -179,6 +195,16 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
                 + usize::from(book.prepare_service_record().is_some())
                 + usize::from(book.prepare_original_recorded_at().is_some())
                 + usize::from(book.native_prepare_record().is_some())
+                + book
+                    .native_prepare_record()
+                    .and_then(|r| r.dispatch_gate.as_ref())
+                    .map_or(0, |g| {
+                        1 + g.claims.len()
+                            + g.claims
+                                .iter()
+                                .filter(|c| c.signature_recorded_at.is_some())
+                                .count()
+                    })
                 + usize::from(
                     book.native_prepare_record()
                         .is_some_and(|r| r.public_recorded_at.is_some()),

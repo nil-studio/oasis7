@@ -596,8 +596,10 @@ pub use execution_book_v2::{
 pub use execution_signing_bundle_v2::*;
 
 pub use execution_book_v2::{
-    ExecutionNativePrepareAuthorityV2, ExecutionNativePrepareDispatchV2,
-    ExecutionNativePrepareRecordV2, ExecutionNativePrepareTransportV2,
+    ExecutionDispatchIssueContextV2, ExecutionNativeGatedDispatchV2,
+    ExecutionNativeLeafSigningAuthorityV2, ExecutionNativePrepareAuthorityV2,
+    ExecutionNativePrepareDispatchV2, ExecutionNativePrepareRecordV2,
+    ExecutionNativePrepareTransportV2, ExecutionNativeReentryTransportV2,
     ExecutionPrivateCurrentHopV2, ExecutionPrivateCurrentMetadataV2,
     ExecutionPrivateCurrentObservationV2, ExecutionPrivateCurrentPortV2,
     ExecutionPrivateCurrentPortsV2, ExecutionPrivateCurrentReadV2,

@@ -295,6 +295,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<Vec<ExactSignatureChecks>> {
         let session = self.test_session_v2_record(id)?;
         self.test_session_v2_execution_public_native_history(id, native)?;
+        self.test_session_v2_native_gate_native_history(id, native)?;
         if let Some(world) = &session.preflight_world_access {
             world.verify_native_history(session, native)?;
         }
