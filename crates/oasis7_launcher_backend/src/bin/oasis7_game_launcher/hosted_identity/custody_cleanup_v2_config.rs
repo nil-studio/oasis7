@@ -15,6 +15,10 @@ pub(super) struct MachineConfig {
     preflight_access_pin: Option<AccountMachineIssuerPinV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     execution_prepare_pin: Option<AccountMachineIssuerPinV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_dispatch_pin: Option<AccountMachineIssuerPinV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_identity_origin: Option<String>,
     native_origin: String,
 }
 fn unavailable() -> StoreError {
@@ -45,6 +49,16 @@ impl MachineConfig {
         {
             return Err(unavailable());
         }
+        if self.execution_dispatch_pin.is_some() != self.execution_identity_origin.is_some() {
+            return Err(unavailable());
+        }
+        if let Some(origin) = &self.execution_identity_origin {
+            if CanonicalHttpTarget::new(origin, HttpPopRoute::ProofChallenges).is_err()
+                || origin == &self.native_origin
+            {
+                return Err(unavailable());
+            }
+        }
         let pins = [
             (&self.pending_pin, AccountMachinePurposeV2::ConsumedPending),
             (&self.active_pin, AccountMachinePurposeV2::ActiveThreeRoots),
@@ -68,6 +82,11 @@ impl MachineConfig {
                 self.execution_prepare_pin
                     .as_ref()
                     .map(|pin| (pin, AccountMachinePurposeV2::NativeExecutionPrepareV2)),
+            )
+            .chain(
+                self.execution_dispatch_pin
+                    .as_ref()
+                    .map(|pin| (pin, AccountMachinePurposeV2::ExecutionDispatchClaimV2)),
             )
         {
             let identity = AccountMachineIssuerV2 {
@@ -110,6 +129,7 @@ impl MachineConfig {
             .into_iter()
             .chain(self.preflight_access_pin.iter())
             .chain(self.execution_prepare_pin.iter())
+            .chain(self.execution_dispatch_pin.iter())
             .any(|other| {
                 other.namespace != p.namespace
                     || other.service_id != p.service_id
@@ -131,6 +151,23 @@ impl MachineConfig {
     pub(super) fn execution_prepare_pin(&self) -> Result<&AccountMachineIssuerPinV2, StoreError> {
         self.validate()?;
         self.execution_prepare_pin.as_ref().ok_or_else(unavailable)
+    }
+    pub(super) fn execution_dispatch_pin(&self) -> Result<&AccountMachineIssuerPinV2, StoreError> {
+        if std::env::var("OASIS7_CUSTODY_EXECUTION_PREPARE_DISPATCH_V2_ENABLED")
+            .ok()
+            .as_deref()
+            != Some("true")
+        {
+            return Err(unavailable());
+        }
+        self.validate()?;
+        self.execution_dispatch_pin.as_ref().ok_or_else(unavailable)
+    }
+    pub(super) fn execution_identity_origin(&self) -> Result<&str, StoreError> {
+        self.validate()?;
+        self.execution_identity_origin
+            .as_deref()
+            .ok_or_else(unavailable)
     }
     pub(super) fn fingerprint(
         &self,

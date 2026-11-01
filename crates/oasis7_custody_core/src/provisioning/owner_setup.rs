@@ -610,7 +610,8 @@ pub use execution_book_v2::{
 pub(super) mod resource_final;
 pub(super) use resource_final::OwnerSetupResourceFinalOutboxV2;
 pub use resource_final::{
-    CompleteOwnerSetupResourceFinalV2, OwnerSetupResourceCandidateV2,
+    CompleteOwnerSetupResourceFinalV2, OwnerSetupResourceBodyDigestsV2,
+    OwnerSetupResourceCandidateV2, OwnerSetupResourceFinalHttpV2, OwnerSetupResourceWorldBodyV2,
     PreparedOwnerSetupResourceDispatchV2, PreparedOwnerSetupResourceReadV2,
-    ResourceFinalIssueContextV2,
+    RESOURCE_READ_PROOF_HEADER, ResourceFinalIssueContextV2,
 };

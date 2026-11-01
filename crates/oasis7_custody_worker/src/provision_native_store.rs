@@ -1011,3 +1011,6 @@ mod execution_prepare_pipeline_v2;
 mod execution_private_current_v2;
 #[path = "test_session_native_model_store_v2.rs"]
 mod native_model_v2;
+
+#[path = "test_session_execution_dispatch_store_v2.rs"]
+mod execution_dispatch_v2;

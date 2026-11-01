@@ -641,3 +641,6 @@ impl OwnerProvisionApprovalStore {
         returned.ok_or_else(rejected)
     }
 }
+
+#[path = "owner_setup_resource_store_v2.rs"]
+mod resource_final_v2;

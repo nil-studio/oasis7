@@ -528,3 +528,15 @@ mod preflight_world_registry;
 
 #[path = "custody_execution_prepare_adapter_v2.rs"]
 mod execution_prepare_adapter;
+
+#[path = "custody_resource_final_adapter_v2.rs"]
+mod resource_final_adapter;
+#[path = "custody_resource_final_config_v2.rs"]
+mod resource_final_config;
+#[path = "custody_resource_final_consent_v2.rs"]
+mod resource_final_consent;
+#[path = "custody_resource_final_registry_v2.rs"]
+mod resource_final_registry;
+
+#[path = "custody_execution_dispatch_adapter_v2.rs"]
+mod execution_dispatch_adapter;

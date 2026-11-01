@@ -163,6 +163,35 @@ impl NativeProvisionTransport {
         cookie: Option<&PrivateCookie>,
         original_csrf: Option<&str>,
     ) -> Result<NativePrivateReply<T>> {
+        self.request_inner(route, original_body, cookie, original_csrf, None)
+            .await
+    }
+    pub(crate) async fn request_gated_execution_prepare<T: DeserializeOwned>(
+        &self,
+        original_body: &str,
+        cookie: &PrivateCookie,
+        original_csrf: &str,
+        authorization: &oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
+    ) -> Result<NativePrivateReply<T>> {
+        self.request_inner(
+            NativePrivateRoute::ExecutionPrepareFundedV2,
+            original_body,
+            Some(cookie),
+            Some(original_csrf),
+            Some(authorization),
+        )
+        .await
+    }
+    async fn request_inner<T: DeserializeOwned>(
+        &self,
+        route: NativePrivateRoute,
+        original_body: &str,
+        cookie: Option<&PrivateCookie>,
+        original_csrf: Option<&str>,
+        execution: Option<
+            &oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
+        >,
+    ) -> Result<NativePrivateReply<T>> {
         // The fixed owner gateway already bounds complete private goal requests
         // at 64 KiB. Other native protocols retain their existing smaller cap.
         checked(
@@ -180,6 +209,7 @@ impl NativeProvisionTransport {
                     MAX_REQUEST
                 },
         )?;
+        checked((route == NativePrivateRoute::ExecutionPrepareFundedV2) == execution.is_some())?;
         let get = route == NativePrivateRoute::Capabilities;
         checked(if get {
             original_body.is_empty() && original_csrf.is_none()
@@ -196,6 +226,23 @@ impl NativeProvisionTransport {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::Preauth))?;
         }
         let headers = Headers::new();
+        if let Some(receipt) = execution {
+            use base64::Engine;
+            let q:oasis7_custody_core::native_execution_prepare_v2::NativeExecutionPrepareRequestV2=
+                serde_json::from_str(original_body).map_err(|_| rejected())?;
+            receipt
+                .claim
+                .validate_relative(&q)
+                .map_err(|_| rejected())?;
+            checked(receipt.claim.leaf.edge==oasis7_custody_core::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2::IdentityActorToNative
+                && receipt.claim.body_digest==oasis7_custody_core::approval::bytes_digest(original_body.as_bytes()))?;
+            let raw = serde_json::to_vec(receipt).map_err(|_| rejected())?;
+            checked(raw.len() <= 16384)?;
+            headers.set(
+                "Oasis7-Custody-Execution-Dispatch",
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw),
+            )?;
+        }
         if let Some(cookie) = cookie {
             let header = Zeroizing::new(format!("{}={}", cookie.kind.name(), cookie.token()));
             headers.set("Cookie", &header)?;

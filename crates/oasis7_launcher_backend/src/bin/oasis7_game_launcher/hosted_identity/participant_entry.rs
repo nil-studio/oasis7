@@ -51,6 +51,10 @@ pub(super) struct ParticipantEntry {
     http: reqwest::blocking::Client,
 }
 impl ParticipantEntry {
+    pub(super) fn admission_issuer_public_key(&self) -> &str {
+        &self.issuer_public_key
+    }
+
     pub(super) fn from_env() -> Result<Option<Self>, String> {
         match std::env::var("OASIS7_HOSTED_PARTICIPANT_ENTRY_ENABLED").as_deref() {
             Err(std::env::VarError::NotPresent) | Ok("0") => return Ok(None),
@@ -498,3 +502,7 @@ mod resource_component;
 
 #[path = "participant_entry_authorize_policy.rs"]
 mod authorize_policy;
+
+#[cfg(test)]
+#[path = "resource_component_fixture.rs"]
+pub(super) mod resource_fixture;

@@ -256,6 +256,17 @@ pub(super) async fn dispatch(
             })?)
         }
         OwnerSetupRuntimeAction::Admit { evidence } => {
+            let resource_final = stage == OwnerSetupStageV1::FinalObservation
+                && saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_some_and(|p| p.setup_id == *id && p.selection.resource().is_some());
+            if resource_final {
+                store
+                    .reserve_owner_resource_admission_callback_v2(id)
+                    .map_err(|_| denied())?;
+                return resource_final_v2::admit(state, env, &store, id, *evidence).await;
+            }
             store
                 .reserve_owner_setup_admission_callback(id, stage)
                 .map_err(|_| denied())?;
@@ -355,3 +366,6 @@ pub(super) async fn dispatch(
         }
     }
 }
+
+#[path = "owner_setup_resource_dispatch_v2.rs"]
+mod resource_final_v2;

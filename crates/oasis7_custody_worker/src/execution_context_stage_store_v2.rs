@@ -22,9 +22,18 @@ extern "C" {
     #[wasm_bindgen(catch,js_name=completeExecutionPrivateCurrentV2)]
     fn complete_private(state: &JsValue, op: &str, proof: &str, result: &str) -> Result<String>;
     #[wasm_bindgen(catch,js_name=claimExecutionContextEdgeV2)]
-    fn claim_edge(state: &JsValue, op: &str, proof: &str, edge: u8, attempt: &str) -> Result<()>;
+    fn claim_edge(
+        state: &JsValue,
+        op: &str,
+        proof: &str,
+        edge: u8,
+        attempt: &str,
+        receipt: &str,
+    ) -> Result<()>;
     #[wasm_bindgen(catch,js_name=recordExecutionNativeCompletionV2)]
-    fn native_complete(state: &JsValue, op: &str, proof: &str) -> Result<()>;
+    fn native_complete(state: &JsValue, op: &str, proof: &str, receipts: &JsValue) -> Result<()>;
+    #[wasm_bindgen(catch,js_name=readExecutionDispatchReceiptsV2)]
+    fn read_receipts(state: &JsValue, op: &str) -> Result<String>;
     #[wasm_bindgen(catch,js_name=persistExecutionContextPutV2)]
     fn persist_put(
         state: &JsValue,
@@ -32,6 +41,7 @@ extern "C" {
         proof: &str,
         attempt: &str,
         sealed: &str,
+        receipt: &str,
     ) -> Result<()>;
     #[wasm_bindgen(catch,js_name=completeExecutionContextPutV2)]
     fn complete_put(state: &JsValue, op: &str, proof: &str, result: &str) -> Result<String>;
@@ -185,7 +195,7 @@ pub(crate) fn validate_snapshot(state: &JsValue) -> Result<()> {
                     hash(&p.certificate.session.scope)?,
                 )
             }
-            "prepare_context_v2" => {
+            "prepare_context_v2" | "prepare_context_gated_v2" => {
                 let q: NativeExecutionPrepareRequestV2 =
                     serde_json::from_str(&r.payload).map_err(|_| rejected())?;
                 q.wire_bytes().map_err(|_| rejected())?;
@@ -196,6 +206,9 @@ pub(crate) fn validate_snapshot(state: &JsValue) -> Result<()> {
                 )?;
                 if q.proof.digest().map_err(|_| rejected())? != r.proof_digest {
                     return Err(rejected());
+                }
+                if r.profile == "prepare_context_gated_v2" {
+                    gated::validate_receipts(state, &q, &r)?;
                 }
                 let expected_indices: Vec<usize> = match r.next_edge {
                     2..=7 => (0..usize::from(r.next_edge)).collect(),
@@ -285,6 +298,8 @@ struct Claim<'a, T: Serialize> {
     issuer_epoch: String,
     config_generation: String,
     first_ports: T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dispatch_receipt: Option<String>,
 }
 fn actor_tag(
     session: &oasis7_custody_core::provisioning::ParticipantSessionRefV1,
@@ -328,6 +343,7 @@ pub(crate) fn claim_private_read(
         issuer_epoch: c.issuer.issuer_epoch.0.to_string(),
         config_generation: c.issuer.config_generation.0.to_string(),
         first_ports: [&c.ports[0].physical_id, &c.ports[1].physical_id],
+        dispatch_receipt: None,
     })
     .map_err(|_| rejected())?;
     if claim(state, &raw)? != op {
@@ -353,162 +369,9 @@ pub(crate) fn finish_private_read(
     validate_snapshot(state)
 }
 
-/// First-only handler ownership. This is never reconstructed from a SQL row.
-pub(crate) struct NativePrepareClaim {
-    operation: String,
-    proof: String,
-    request: NativeExecutionPrepareRequestV2,
-}
-pub(crate) fn claim_native_prepare(
-    state: &JsValue,
-    q: NativeExecutionPrepareRequestV2,
-) -> Result<NativePrepareClaim> {
-    validate_snapshot(state)?;
-    q.wire_bytes().map_err(|_| rejected())?;
-    let c = &q.proof.certificate;
-    let op = operation(
-        "prepare_context_v2",
-        &c.session_id,
-        &c.approved_input_digest,
-        &c.stage_operation_id,
-    )?;
-    let proof = q.proof.digest().map_err(|_| rejected())?;
-    let raw = serde_json::to_string(&Claim {
-        operation_id: &op,
-        profile: "prepare_context_v2",
-        proof_digest: &proof,
-        scope_digest: hash(&c.session.scope)?,
-        payload: serde_json::to_string(&q).map_err(|_| rejected())?,
-        actor_tag: actor_tag(&c.session)?,
-        issuer_namespace: &c.issuer.namespace,
-        issuer_service: &c.issuer.service_id,
-        environment: &c.issuer.environment,
-        issuer_epoch: c.issuer.issuer_epoch.0.to_string(),
-        config_generation: c.issuer.config_generation.0.to_string(),
-        first_ports: [&c.ports[0].attempt_id, &c.ports[1].attempt_id],
-    })
-    .map_err(|_| rejected())?;
-    if claim(state, &raw)? != op {
-        return Err(rejected());
-    }
-    Ok(NativePrepareClaim {
-        operation: op,
-        proof,
-        request: q,
-    })
-}
-impl NativePrepareClaim {
-    pub(crate) fn request(&self) -> &NativeExecutionPrepareRequestV2 {
-        &self.request
-    }
-    pub(crate) fn claim_before_io(
-        &self,
-        state: &JsValue,
-        edge: ExecutionPreparePhysicalEdgeV2,
-    ) -> Result<()> {
-        let index = self
-            .request
-            .proof
-            .certificate
-            .ports
-            .iter()
-            .position(|p| p.edge == edge)
-            .ok_or_else(rejected)?;
-        if !(2..=6).contains(&index) {
-            return Err(rejected());
-        }
-        let port = &self.request.proof.certificate.ports[index];
-        claim_edge(
-            state,
-            &self.operation,
-            &self.proof,
-            index as u8,
-            &port.attempt_id,
-        )?;
-        validate_snapshot(state)
-    }
-}
-
-impl NativePrepareClaim {
-    /// Called only after the fixed Native pin and full SDK signed delivery
-    /// checks. This advances no HTTP leaf: World7/8 were consumed in Native DB.
-    pub(crate) fn native_completed(&self, state: &JsValue) -> Result<()> {
-        native_complete(state, &self.operation, &self.proof)?;
-        validate_snapshot(state)
-    }
-    pub(crate) fn persist_sealed_put(
-        &self,
-        state: &JsValue,
-        record: &oasis7_custody_core::context_body_v2::ContextBodyRecordV2,
-        reference: &oasis7_custody_core::context_body_v2::AttestedSlotRefV2,
-        receipt: &SignedNativeExecutionPrepareReceiptV2,
-    ) -> Result<()> {
-        let raw = serde_json::to_string(&(record, reference, receipt)).map_err(|_| rejected())?;
-        persist_put(
-            state,
-            &self.operation,
-            &self.proof,
-            &self.request.proof.certificate.ports[9].attempt_id,
-            &raw,
-        )?;
-        validate_snapshot(state)
-    }
-    pub(crate) fn finish_put(
-        self,
-        state: &JsValue,
-        result: &ExecutionPreparedPublicResultV2,
-    ) -> Result<()> {
-        if result.proof_digest != self.proof {
-            return Err(rejected());
-        }
-        let raw = serde_json::to_string(result).map_err(|_| rejected())?;
-        if complete_put(state, &self.operation, &self.proof, &raw)? != raw {
-            return Err(rejected());
-        }
-        validate_snapshot(state)
-    }
-}
-
-impl NativePrepareClaim {
-    /// Existing same-manifest private2 result is a fresh local witness only
-    /// while its original signed window remains valid. No extra RPC occurs.
-    pub(crate) fn private_current_proof(
-        &self,
-        state: &JsValue,
-    ) -> Result<SignedAccountExecutionPrivateCurrentV2> {
-        validate_snapshot(state)?;
-        let snapshot: Snapshot = serde_json::from_str(&read(state)?).map_err(|_| rejected())?;
-        let c = &self.request.proof.certificate;
-        let row = snapshot
-            .records
-            .iter()
-            .find(|r| {
-                r.profile == "private_current_v2"
-                    && r.proof_digest == c.private_current_proof_digest
-            })
-            .ok_or_else(rejected)?;
-        let row: Row =
-            serde_json::from_str(&read_row(state, &row.operation_id)?).map_err(|_| rejected())?;
-        let p: SignedAccountExecutionPrivateCurrentV2 =
-            serde_json::from_str(&row.payload).map_err(|_| rejected())?;
-        let reply: ExecutionPrivateCurrentReplyV2 =
-            serde_json::from_str(row.completed.as_deref().ok_or_else(rejected)?)
-                .map_err(|_| rejected())?;
-        if p.certificate.session_id != c.session_id
-            || p.certificate.approved_input_digest != c.approved_input_digest
-            || p.certificate.action_request_id != c.action_request_id
-            || p.certificate.stage_operation_id != c.stage_operation_id
-            || p.certificate.factory_key != c.factory_record_key
-            || p.certificate.source_operation_id != c.source_operation_id
-            || p.certificate.session != c.session
-            || p.certificate.expires_at.0 < c.expires_at.0
-            || reply.proof_digest != c.private_current_proof_digest
-        {
-            return Err(rejected());
-        }
-        Ok(p)
-    }
-}
+#[path = "execution_context_gated_stage_store_v2.rs"]
+mod gated;
+pub(crate) use gated::claim_native_prepare_gated;
 
 fn mode_matches(
     mode: Option<&Mode>,

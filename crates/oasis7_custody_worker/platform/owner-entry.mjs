@@ -1,6 +1,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import RustWorker from './index.js';
 export class OwnerNativePermits extends WorkerEntrypoint {
+  async nativeExecutionDispatchClaimV2(raw) { return new RustWorker(this.ctx,this.env).owner_native_execution_dispatch_claim_v2(this.env,raw); }
+  async executionDispatchClaimV2(raw) { return new RustWorker(this.ctx,this.env).owner_execution_dispatch_claim_v2(this.env,raw); }
   async executionPrepareContextV2(raw) { return new RustWorker(this.ctx,this.env).owner_execution_prepare_context_v2(this.env,raw); }
   async nativeModelReservationV2(raw) { return new RustWorker(this.ctx,this.env).owner_native_model_reservation_v2(this.env,raw); }
   async clientV2ControlChallenge(raw) { return new RustWorker(this.ctx,this.env).owner_client_v2_control_challenge(this.env,raw); }

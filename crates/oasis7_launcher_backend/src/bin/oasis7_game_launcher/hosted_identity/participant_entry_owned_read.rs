@@ -202,7 +202,10 @@ impl OwnedOwnerReadGateway {
     pub(in super::super) fn execution_prepare_funded_v2(
         &self,
         original: &oasis7_custody_core::provisioning::ExecutionPrepareSignedOriginalV2,
-        mut before_send: impl FnMut() -> Result<(), StoreError>,
+        mut before_send: impl FnMut(
+            oasis7_custody_core::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2,
+            &[u8],
+        ) -> Result<(), StoreError>,
     ) -> Result<WorldContextAttestationV2<TaskContextPreparedDeliveryV2>, StoreError> {
         use oasis7_agent_api::game::{GameTaskControlV1, GameTaskFenceV1, GameTaskStatusV1};
         use oasis7_client_api::world_service::private_goal::verify_owner_signature_strict;
@@ -233,7 +236,10 @@ impl OwnedOwnerReadGateway {
         .map_err(|_| reject("authentication_failed"))?;
         validate_prepare_attestation_request_v2(&original.request)
             .map_err(|_| reject("authentication_failed"))?;
-        before_send()?;
+        before_send(
+            oasis7_custody_core::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2::NativeToWorldCurrent,
+            &serde_json::to_vec(&access.read).map_err(|_|reject("invalid_request"))?,
+        )?;
         let value = forward_bounded(
             &self.trust,
             &self.http,
@@ -265,7 +271,10 @@ impl OwnedOwnerReadGateway {
         {
             return Err(reject("executor_context_mismatch"));
         }
-        before_send()?;
+        before_send(
+            oasis7_custody_core::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2::NativeToWorldPrepare,
+            &serde_json::to_vec(&original.request).map_err(|_|reject("invalid_request"))?,
+        )?;
         let value = forward_bounded(
             &self.trust,
             &self.http,
@@ -322,6 +331,23 @@ impl ParticipantEntry {
         )
         .map_err(|_| reject("participant_unavailable"))
     }
+    /// Execution45 physical attempts never inherit an HTTP retry policy.
+    pub(in super::super) fn owned_execution_read_gateway(
+        &self,
+    ) -> Result<OwnedOwnerReadGateway, StoreError> {
+        let http = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .timeout(std::time::Duration::from_secs(3))
+            .connect_timeout(std::time::Duration::from_secs(1))
+            .build()
+            .map_err(|_| reject("participant_unavailable"))?;
+        Ok(OwnedOwnerReadGateway {
+            trust: self.trust.clone(),
+            http,
+        })
+    }
     pub(in super::super) fn owned_owner_read_gateway(&self) -> OwnedOwnerReadGateway {
         OwnedOwnerReadGateway {
             trust: self.trust.clone(),
@@ -329,3 +355,6 @@ impl ParticipantEntry {
         }
     }
 }
+
+#[path = "participant_entry_resource_owned_v2.rs"]
+mod resource_final;

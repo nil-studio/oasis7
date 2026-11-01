@@ -8,32 +8,63 @@ use ed25519_dalek::Signer;
 use oasis7_client_api::world_service::task_context_projection::{
     TaskContextPreparedDeliveryV2, WorldContextAttestationV2,
 };
-use oasis7_custody_core::native_execution_prepare_v2::*;
+use oasis7_custody_core::{
+    execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2, native_execution_prepare_v2::*,
+};
+/// Borrowed only from the original owned work. The static dispatcher can pass
+/// this back under its real mutex but cannot construct it from wire/history.
+pub(in super::super::super) struct ExecutionWorldReentryContextV2<'a> {
+    pub(super) stage: &'a ObservedExecutionPrepare,
+    pub(super) storage_key: &'a str,
+    pub(super) configuration_digest: &'a str,
+}
 pub(in super::super::super) struct OwnedExecutionPrepareWorkV2 {
     stage: ObservedExecutionPrepare,
     storage_key: String,
     configuration_digest: String,
     gateway: OwnedOwnerReadGateway,
+    authorization: SignedExecutionDispatchClaimV2,
 }
 pub(in super::super::super) struct CompletedExecutionPrepareWorkV2 {
     stage: ObservedExecutionPrepare,
     storage_key: String,
     configuration_digest: String,
     response: WorldContextAttestationV2<TaskContextPreparedDeliveryV2>,
+    world_claims: [SignedExecutionDispatchClaimV2; 2],
 }
 impl OwnedExecutionPrepareWorkV2 {
     pub(in super::super::super) fn send(
         self,
+        mut reentry: impl FnMut(
+            ExecutionPreparePhysicalEdgeV2,
+            &[u8],
+            &ExecutionWorldReentryContextV2<'_>,
+            &SignedExecutionDispatchClaimV2,
+        ) -> Result<SignedExecutionDispatchClaimV2, StoreError>,
     ) -> Result<CompletedExecutionPrepareWorkV2, StoreError> {
         let original = self.stage.request().original.as_ref();
-        let response = self.gateway.execution_prepare_funded_v2(original, || {
-            self.stage.require_dispatch_window(now_ms())
-        })?;
+        let current = ExecutionWorldReentryContextV2 {
+            stage: &self.stage,
+            storage_key: &self.storage_key,
+            configuration_digest: &self.configuration_digest,
+        };
+        let mut previous = self.authorization;
+        let mut receipts = Vec::with_capacity(2);
+        let response = self
+            .gateway
+            .execution_prepare_funded_v2(original, |edge, body| {
+                self.stage.require_dispatch_window(now_ms())?;
+                let signed = reentry(edge, body, &current, &previous)?;
+                previous = signed.clone();
+                receipts.push(signed);
+                self.stage.require_dispatch_window(now_ms())
+            })?;
         Ok(CompletedExecutionPrepareWorkV2 {
             stage: self.stage,
             storage_key: self.storage_key,
             configuration_digest: self.configuration_digest,
             response,
+            world_claims: receipts.try_into().map_err(|_| unavailable())?,
         })
     }
 }
@@ -55,6 +86,8 @@ impl IdentityService {
         {
             return Err(unavailable());
         }
+        // New mode is explicit: receipt-less legacy Native10 never enters it.
+        let authorization = dispatch_header(headers)?;
         let now = now_ms();
         if !self.clock.observe(now) {
             self.email.clock_healthy = false;
@@ -86,7 +119,7 @@ impl IdentityService {
             .as_ref()
             .filter(|v| v.executor_control_enabled)
             .ok_or_else(unavailable)?;
-        let gateway = entry.owned_owner_read_gateway();
+        let gateway = entry.owned_execution_read_gateway()?;
         gateway.require_approved_world(&request.proof.certificate.world)?;
         let machine = MachineConfig::from_env()?;
         let config = self
@@ -119,9 +152,9 @@ impl IdentityService {
             ),
         )
         .map_err(|_| unavailable())?;
-        let claimed = self
-            .store
-            .transaction(|tx| execution_identity::claim_execution_prepare(tx, &scope, request))?;
+        let claimed = self.store.transaction(|tx| {
+            execution_identity::claim_execution_prepare(tx, &scope, request, authorization.clone())
+        })?;
         let stage = self.store.transaction(|tx| {
             consume_quota(
                 tx,
@@ -142,6 +175,7 @@ impl IdentityService {
             storage_key: key,
             configuration_digest: fingerprint,
             gateway,
+            authorization,
         })
     }
     pub(in super::super::super) fn finish_execution_funded_v2(
@@ -164,7 +198,7 @@ impl IdentityService {
             .as_ref()
             .filter(|v| v.executor_control_enabled)
             .ok_or_else(unavailable)?
-            .owned_owner_read_gateway();
+            .owned_execution_read_gateway()?;
         let fingerprint = machine.fingerprint(config, &self.config, &gateway.fingerprint()?)?;
         if fingerprint != completed.configuration_digest {
             return Err(unavailable());
@@ -212,6 +246,40 @@ impl IdentityService {
             },
         };
         reply.wire_bytes().map_err(|_| unavailable())?;
+        let reply = NativeExecutionPrepareGatedReplyV2 {
+            api_version: 2,
+            reply,
+            world_claims: completed.world_claims,
+        };
+        reply.wire_bytes().map_err(|_| unavailable())?;
         serde_json::to_value(reply).map_err(|_| unavailable())
     }
+}
+
+fn dispatch_header(headers: &str) -> Result<SignedExecutionDispatchClaimV2, StoreError> {
+    use base64::Engine;
+    let mut values = headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.eq_ignore_ascii_case("Oasis7-Custody-Execution-Dispatch"))
+        .map(|(_, value)| value.trim());
+    let value = values
+        .next()
+        .filter(|v| v.len() <= 22000)
+        .ok_or_else(unavailable)?;
+    if values.next().is_some() {
+        return Err(unavailable());
+    }
+    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| unavailable())?;
+    if raw.len() > 16384 || base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&raw) != value {
+        return Err(unavailable());
+    }
+    let signed: SignedExecutionDispatchClaimV2 =
+        serde_json::from_slice(&raw).map_err(|_| unavailable())?;
+    if serde_json::to_vec(&signed).map_err(|_| unavailable())? != raw {
+        return Err(unavailable());
+    }
+    Ok(signed)
 }

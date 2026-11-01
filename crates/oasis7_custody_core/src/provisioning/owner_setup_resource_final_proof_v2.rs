@@ -12,7 +12,10 @@ pub use request::{OwnerSetupResourceCandidateV2, PreparedOwnerSetupResourceReadV
 #[path = "owner_setup_resource_final_dispatch_v2.rs"]
 mod dispatch;
 use dispatch::ResourceFinalDispatchRecordV2;
-pub use dispatch::{PreparedOwnerSetupResourceDispatchV2, ResourceFinalIssueContextV2};
+pub use dispatch::{
+    OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceFinalHttpV2, OwnerSetupResourceWorldBodyV2,
+    PreparedOwnerSetupResourceDispatchV2, RESOURCE_READ_PROOF_HEADER, ResourceFinalIssueContextV2,
+};
 #[path = "owner_setup_resource_final_result_v2.rs"]
 mod result;
 pub use result::CompleteOwnerSetupResourceFinalV2;

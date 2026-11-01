@@ -3,6 +3,8 @@ use super::super::hosted_identity::{IdentityReply, store::StoreError};
 use super::*;
 #[path = "static_http_identity_execution_prepare_v2.rs"]
 mod execution_prepare_v2;
+#[path = "static_http_identity_resource_final_v2.rs"]
+mod resource_final;
 fn unavailable() -> IdentityReply {
     IdentityReply::error(StoreError::Rejected(
         "cleanup_registration_unavailable".into(),
@@ -153,6 +155,11 @@ pub(super) fn handle(
         NATIVE_ACTIVATE_V2_PATH, NATIVE_CURRENT_V2_PATH, NATIVE_PREFLIGHT_AUTHORIZE_V2_PATH,
         NATIVE_PREFLIGHT_POLICY_V2_PATH, NATIVE_REGISTER_V2_PATH, NATIVE_TERM_CURRENT_V2_PATH,
     };
+    if target == "/api/public/hosted-account/v2/entry-owner/control"
+        && resource_final::present(headers)
+    {
+        return Some(resource_final::handle(runtime, method, headers, body));
+    }
     Some(match target {
         oasis7_custody_core::native_execution_prepare_v2::NATIVE_EXECUTION_PREPARE_PATH_V2 => {
             execution_prepare_v2::run(runtime, method, target, headers, body)

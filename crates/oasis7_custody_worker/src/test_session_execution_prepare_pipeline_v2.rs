@@ -110,9 +110,18 @@ impl OwnerProvisionApprovalStore {
         let dispatch = self
             .execution_native_prepare_dispatch_v2(env, &rpc.http.selector, &prefix)
             .await?;
-        let q = dispatch.into_request();
-        let raw =
-            String::from_utf8(q.wire_bytes().map_err(|_| rejected())?).map_err(|_| rejected())?;
+        let q = dispatch.request().clone();
+        let authorization = self
+            .execution_native_first_leaf_v2(env, &rpc.http.selector.session_id, dispatch)
+            .await?;
+        let frame = crate::execution_dispatch_rpc_v2::ExecutionDispatchFrameV2 {
+            api_version: 2,
+            format: crate::execution_dispatch_rpc_v2::ExecutionDispatchFormatV2::PerLeafDispatchV2,
+            request: Box::new(q.clone()),
+            authorization,
+        };
+        let raw = String::from_utf8(frame.wire_bytes().map_err(|_| rejected())?)
+            .map_err(|_| rejected())?;
         // Ten typed physical leaves and their exact original committed before
         // this first service RPC. There is no retry or history-token rebuild.
         let response = run_native_prepare(env, &raw)

@@ -21,6 +21,7 @@ fn denied() -> JsValue {
     JsValue::from_str("execution context unavailable")
 }
 fn enabled(env: &Env) -> Result<(), JsValue> {
+    crate::execution_dispatch_rpc_v2::require_enabled(env)?;
     for flag in [
         "CUSTODY_TEST_SESSION_ENABLED",
         "CUSTODY_TEST_SESSION_V2_ENABLED",

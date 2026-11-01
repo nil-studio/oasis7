@@ -3,22 +3,22 @@ use super::*;
 use crate::owner_provision::native::test_session::ExecutionPrepareObservationV2;
 use oasis7_custody_core::{
     native_execution_prepare_v2::SignedAccountNativeExecutionPrepareV2,
-    provisioning::{
-        AccountProvisionApprovalState, ExecutionNativePrepareAuthorityV2,
-        ExecutionNativePrepareDispatchV2,
-    },
+    provisioning::{AccountProvisionApprovalState, ExecutionNativePrepareAuthorityV2},
     time_units::UnixMillis,
 };
 impl AccountServiceIssuer {
-    pub(crate) fn execution_native_prepare_recorded(
-        &self,
-        state: &mut AccountProvisionApprovalState,
+    pub(super) fn execution_native_prepare_proof<'a>(
+        &'a self,
         id: &str,
-        authority: ExecutionNativePrepareAuthorityV2,
+        authority: &ExecutionNativePrepareAuthorityV2,
         observed: &ExecutionPrepareObservationV2,
         now: UnixMillis,
-    ) -> Result<ExecutionNativePrepareDispatchV2> {
-        observed.check_native_prepare_authority(&authority, now)?;
+    ) -> Result<(
+        SignedAccountNativeExecutionPrepareV2,
+        &'a AccountMachineIssuerPinV2,
+        AccountMachineIssuerFloorV2,
+    )> {
+        observed.check_native_prepare_authority(authority, now)?;
         let c = authority.certificate();
         if c.issuer != self.issuer || c.session_id != id {
             return Err(denied());
@@ -43,11 +43,7 @@ impl AccountServiceIssuer {
             issuer_epoch: self.issuer.issuer_epoch,
             config_generation: self.issuer.config_generation,
         };
-        // The store caller must return this token only after the containing
-        // real SQL transaction commits. An error cannot leak a dispatch handle.
-        state
-            .record_test_session_v2_native_prepare(id, authority, proof, pin, &floor, now)
-            .map_err(|_| denied())
+        Ok((proof, pin, floor))
     }
     pub(crate) fn execution_private_current_recorded(
         &self,

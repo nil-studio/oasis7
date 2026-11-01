@@ -4,6 +4,8 @@ const MODE = "custody_execution_context_mode_v2";
 const MARKER = "execution-context-stage-mode-v2";
 const ONCE = "custody_execution_context_once_v2";
 const EDGES = "custody_execution_context_edges_v2";
+const GATES = "custody_execution_dispatch_receipts_v2";
+const GATE_MARKER = "execution-context-per-leaf-mode-v2";
 const MAX_ROWS = 512; // Account's 256 sessions x the two explicit Prepare profiles.
 const MAX_EDGES = 4096;
 const MAX_PUBLIC = 65536;
@@ -12,7 +14,7 @@ const MAX_SEALED = 262144;
 // original payload. This does not change either public request/storage bound.
 const MAX_CLAIM = 7 * MAX_PUBLIC;
 const LEGACY = new Set(["table:custody_records", "table:custody_audit", "table:sqlite_sequence", "table:_cf_METADATA"]);
-const OWN = new Set([`table:${MODE}`, `table:${ONCE}`, `table:${EDGES}`]);
+const OWN = new Set([`table:${MODE}`, `table:${ONCE}`, `table:${EDGES}`, `table:${GATES}`]);
 function denied() { throw new Error("execution stage storage rejected"); }
 function text(value, max) { if (typeof value !== "string" || value.length === 0 || new TextEncoder().encode(value).length > max) denied(); return value; }
 function decimal(value) { if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,19})$/.test(value) || BigInt(value) > 18446744073709551615n) denied(); return BigInt(value); }
@@ -20,8 +22,9 @@ function tables(state) {
   const all = state.storage.sql.exec("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'trigger', 'view') LIMIT 33").toArray().map(r => `${r.type}:${r.name}`);
   if (all.length > 32 || all.some(v => !LEGACY.has(v) && !OWN.has(v))) denied();
   const own = all.filter(v => OWN.has(v));
-  if (own.length !== 0 && own.length !== 3) denied();
-  return own.length === 3;
+  if (own.length !== 0 && own.length !== 3 && own.length !== 4) denied();
+  if (own.length !== 0 && ![MODE,ONCE,EDGES].every(v=>own.includes(`table:${v}`))) denied();
+  return own.length >= 3;
 }
 function columns(state, table, expected) {
   const actual = state.storage.sql.exec(`PRAGMA table_info(${table})`).toArray().map(r => r.name);
@@ -36,6 +39,16 @@ function read(state) {
     return { mode: null, records: [], edges: [] };
   }
   if (markers.length !== 1 || markers[0].sequence !== "1" || markers[0].payload !== "oasis7.custody.execution-context.mode.v2") denied();
+  const gateTables=state.storage.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name=?",GATES).toArray();
+  const gateMarkers=state.storage.sql.exec("SELECT sequence,payload FROM custody_audit WHERE record_id=? LIMIT 2",GATE_MARKER).toArray();
+  if (gateTables.length!==gateMarkers.length || gateTables.length>1) denied();
+  let gateRows=[];
+  if (gateTables.length===1) {
+    if(gateMarkers[0].sequence!=="1" || gateMarkers[0].payload!=="oasis7.custody.execution-context.per-leaf.v2") denied();
+    columns(state,GATES,["operation_id","edge","receipt"]);
+    gateRows=state.storage.sql.exec(`SELECT operation_id,edge,length(CAST(receipt AS BLOB)) AS bytes FROM ${GATES} LIMIT 4097`).toArray();
+    if(gateRows.length>4096) denied();
+  }
   columns(state, MODE, ["id", "payload"]);
   columns(state, ONCE, ["operation_id", "profile", "proof_digest", "scope_digest", "payload", "next_edge", "sealed", "completed"]);
   columns(state, EDGES, ["attempt_id", "operation_id", "edge"]);
@@ -56,10 +69,14 @@ function read(state) {
     r.payload="";r.sealed=r.sealed_bytes===null?null:"";r.completed=r.completed_bytes===null?null:"";
     delete r.payload_bytes;delete r.sealed_bytes;delete r.completed_bytes;
     if (!/^[a-f0-9]{64}$/.test(r.proof_digest) || !/^[a-f0-9]{64}$/.test(r.scope_digest)) denied();
-    if (r.profile !== "private_current_v2" && r.profile !== "prepare_context_v2") denied();
+    if (r.profile !== "private_current_v2" && r.profile !== "prepare_context_v2" && r.profile !== "prepare_context_gated_v2") denied();
     if (!Number.isInteger(r.next_edge) || r.next_edge < 2 || r.next_edge > (r.profile === "private_current_v2" ? 2 : 10)) denied();
     if (r.profile === "private_current_v2" && r.sealed !== null) denied();
     seen.set(r.operation_id,r);
+  }
+  for(const g of gateRows) {
+    if(!records.some(r=>r.operation_id===g.operation_id && r.profile==="prepare_context_gated_v2")
+        || !Number.isInteger(g.edge) || g.edge<1 || g.edge>9 || !Number.isInteger(g.bytes) || g.bytes<=0 || g.bytes>32768) denied();
   }
   const byOperation = new Map();
   for (const e of edges) {
@@ -72,7 +89,13 @@ function read(state) {
     const list = byOperation.get(r.operation_id) ?? [];
     if (!list.includes(0) || !list.includes(1)) denied();
     if (r.profile === "private_current_v2" && (list.length !== 2 || list.some(v => v > 1))) denied();
-    if (r.profile === "prepare_context_v2") {
+    if ((r.profile === "prepare_context_v2" || r.profile === "prepare_context_gated_v2")) {
+      if(r.profile==="prepare_context_gated_v2") {
+        if(gateTables.length!==1) denied();
+        const receipts=state.storage.sql.exec(`SELECT edge,length(CAST(receipt AS BLOB)) AS bytes FROM ${GATES} WHERE operation_id=? LIMIT 11`,r.operation_id).toArray();
+        const expectedReceipts=r.next_edge<=7 ? [...Array(r.next_edge-1).keys()].map(i=>i+1) : r.next_edge===9 ? [1,2,3,4,5,6,7,8] : [1,2,3,4,5,6,7,8,9];
+        if(receipts.length!==expectedReceipts.length || receipts.some(v=>v.bytes<=0||v.bytes>32768) || expectedReceipts.some(edge=>!receipts.some(v=>v.edge===edge))) denied();
+      }
       const expected = r.next_edge <= 7 ? [...Array(r.next_edge).keys()] : r.next_edge === 9 ? [0,1,2,3,4,5,6] : r.next_edge === 10 ? [0,1,2,3,4,5,6,9] : null;
       if (expected === null || list.length !== expected.length || expected.some(v => !list.includes(v))) denied();
       if ((r.next_edge === 10) !== (r.sealed !== null)) denied();
@@ -102,7 +125,7 @@ export function claimExecutionContextStageV2(state, raw) {
   return state.storage.transactionSync(() => {
     const before = read(state);
     if (before.records.length >= MAX_ROWS || before.edges.length + 2 > MAX_EDGES) denied();
-    if (q.profile !== "private_current_v2" && q.profile !== "prepare_context_v2") denied();
+    if (q.profile !== "private_current_v2" && q.profile !== "prepare_context_v2" && q.profile !== "prepare_context_gated_v2") denied();
     text(q.operation_id,256);text(q.proof_digest,64);text(q.scope_digest,64);text(q.payload,MAX_PUBLIC);text(q.actor_tag,256);
     if (!Array.isArray(q.first_ports) || q.first_ports.length !== 2 || q.first_ports[0] === q.first_ports[1]) denied();
     q.first_ports.forEach(v => text(v,256));
@@ -120,6 +143,14 @@ export function claimExecutionContextStageV2(state, raw) {
     state.storage.sql.exec(`INSERT OR REPLACE INTO ${MODE} (id,payload) VALUES (1,?)`,mode);
     state.storage.sql.exec(`INSERT INTO ${ONCE} (operation_id,profile,proof_digest,scope_digest,payload,next_edge,sealed,completed) VALUES (?,?,?,?,?,2,NULL,NULL)`,q.operation_id,q.profile,q.proof_digest,q.scope_digest,q.payload);
     for (let i=0;i<2;i++) state.storage.sql.exec(`INSERT INTO ${EDGES} (attempt_id,operation_id,edge) VALUES (?,?,?)`,q.first_ports[i],q.operation_id,i);
+    if(q.profile==="prepare_context_gated_v2") {
+      text(q.dispatch_receipt,32768);
+      if(!before.records.some(r=>r.profile==="prepare_context_gated_v2") && state.storage.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name=?",GATES).toArray().length===0) {
+        state.storage.sql.exec(`CREATE TABLE ${GATES} (operation_id TEXT NOT NULL, edge INTEGER NOT NULL, receipt TEXT NOT NULL CHECK(length(CAST(receipt AS BLOB))<=32768), PRIMARY KEY(operation_id,edge))`);
+        state.storage.sql.exec("INSERT INTO custody_audit(record_id,sequence,payload) VALUES(?, '1', 'oasis7.custody.execution-context.per-leaf.v2')",GATE_MARKER);
+      }
+      state.storage.sql.exec(`INSERT INTO ${GATES}(operation_id,edge,receipt) VALUES(?,1,?)`,q.operation_id,q.dispatch_receipt);
+    }
     read(state); return q.operation_id;
   });
 }
@@ -132,29 +163,38 @@ export function completeExecutionPrivateCurrentV2(state, operation, proof, resul
     read(state); return result;
   });
 }
-export function claimExecutionContextEdgeV2(state, operation, proof, edge, attempt) {
+export function claimExecutionContextEdgeV2(state, operation, proof, edge, attempt, receipt) {
   text(attempt,256);
   return state.storage.transactionSync(() => {
     const snapshot=read(state); const row=snapshot.records.find(r=>r.operation_id===operation);
-    if (!row || row.profile!=="prepare_context_v2" || row.proof_digest!==proof || row.next_edge!==edge || edge<2 || edge>6 || snapshot.edges.some(e=>e.attempt_id===attempt)) denied();
+    if (!row || (row.profile!=="prepare_context_v2" && row.profile!=="prepare_context_gated_v2") || row.proof_digest!==proof || row.next_edge!==edge || edge<2 || edge>6 || snapshot.edges.some(e=>e.attempt_id===attempt)) denied();
     state.storage.sql.exec(`INSERT INTO ${EDGES} (attempt_id,operation_id,edge) VALUES (?,?,?)`,attempt,operation,edge);
+    if(row.profile==="prepare_context_gated_v2") {
+      text(receipt,32768);
+      state.storage.sql.exec(`INSERT INTO ${GATES}(operation_id,edge,receipt) VALUES(?,?,?)`,operation,edge,receipt);
+    }
     state.storage.sql.exec(`UPDATE ${ONCE} SET next_edge=? WHERE operation_id=?`,edge+1,operation);
     read(state);
   });
 }
-export function recordExecutionNativeCompletionV2(state, operation, proof) {
+export function recordExecutionNativeCompletionV2(state, operation, proof, worldReceipts) {
   return state.storage.transactionSync(() => {
     const row=read(state).records.find(r=>r.operation_id===operation);
-    if (!row || row.profile!=="prepare_context_v2" || row.proof_digest!==proof || row.next_edge!==7) denied();
+    if (!row || (row.profile!=="prepare_context_v2" && row.profile!=="prepare_context_gated_v2") || row.proof_digest!==proof || row.next_edge!==7) denied();
+    if(row.profile==="prepare_context_gated_v2") {
+      if(!Array.isArray(worldReceipts)||worldReceipts.length!==2) denied();
+      for(let i=0;i<2;i++) { text(worldReceipts[i],32768);state.storage.sql.exec(`INSERT INTO ${GATES}(operation_id,edge,receipt) VALUES(?,?,?)`,operation,7+i,worldReceipts[i]); }
+    }
     state.storage.sql.exec(`UPDATE ${ONCE} SET next_edge=9 WHERE operation_id=?`,operation); read(state);
   });
 }
-export function persistExecutionContextPutV2(state, operation, proof, attempt, sealed) {
+export function persistExecutionContextPutV2(state, operation, proof, attempt, sealed, receipt) {
   text(attempt,256);text(sealed,MAX_SEALED);
   return state.storage.transactionSync(() => {
     const snapshot=read(state);const row=snapshot.records.find(r=>r.operation_id===operation);
-    if (!row || row.profile!=="prepare_context_v2" || row.proof_digest!==proof || row.next_edge!==9 || row.sealed!==null || snapshot.edges.some(e=>e.attempt_id===attempt)) denied();
+    if (!row || (row.profile!=="prepare_context_v2" && row.profile!=="prepare_context_gated_v2") || row.proof_digest!==proof || row.next_edge!==9 || row.sealed!==null || snapshot.edges.some(e=>e.attempt_id===attempt)) denied();
     state.storage.sql.exec(`INSERT INTO ${EDGES} (attempt_id,operation_id,edge) VALUES (?,?,9)`,attempt,operation);
+    if(row.profile==="prepare_context_gated_v2") {text(receipt,32768);state.storage.sql.exec(`INSERT INTO ${GATES}(operation_id,edge,receipt) VALUES(?,9,?)`,operation,receipt);}
     state.storage.sql.exec(`UPDATE ${ONCE} SET sealed=?, next_edge=10 WHERE operation_id=?`,sealed,operation); read(state);
   });
 }
@@ -162,7 +202,7 @@ export function completeExecutionContextPutV2(state, operation, proof, result) {
   text(result,131072);
   return state.storage.transactionSync(() => {
     const row=read(state).records.find(r=>r.operation_id===operation);
-    if (!row || row.profile!=="prepare_context_v2" || row.proof_digest!==proof || row.next_edge!==10 || row.completed!==null) denied();
+    if (!row || (row.profile!=="prepare_context_v2" && row.profile!=="prepare_context_gated_v2") || row.proof_digest!==proof || row.next_edge!==10 || row.completed!==null) denied();
     state.storage.sql.exec(`UPDATE ${ONCE} SET completed=? WHERE operation_id=?`,result,operation); read(state); return result;
   });
 }
@@ -170,4 +210,12 @@ export function completeExecutionContextPutV2(state, operation, proof, result) {
 export function executionContextActorMatchesV2(state, env, name) {
   text(name,2048);
   return state.id.toString() === env.NATIVE_SESSIONS.idFromName(name).toString();
+}
+
+export function readExecutionDispatchReceiptsV2(state,operation) {
+  text(operation,256);
+  return state.storage.transactionSync(()=>{
+    read(state);
+    return JSON.stringify(state.storage.sql.exec(`SELECT edge,receipt FROM ${GATES} WHERE operation_id=? ORDER BY edge LIMIT 11`,operation).toArray());
+  });
 }

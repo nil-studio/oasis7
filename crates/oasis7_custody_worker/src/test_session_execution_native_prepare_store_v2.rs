@@ -3,7 +3,7 @@
 use super::execution_prepare_pipeline_v2::ExecutionPreparePrefixV2;
 use super::*;
 use crate::owner_test_session_rpc::TestSessionSelectorV1;
-use oasis7_custody_core::{provisioning::ExecutionNativePrepareDispatchV2, time_units::UnixMillis};
+use oasis7_custody_core::{provisioning::ExecutionNativeGatedDispatchV2, time_units::UnixMillis};
 use worker::Env;
 impl OwnerProvisionApprovalStore {
     pub(crate) async fn execution_native_prepare_dispatch_v2(
@@ -11,7 +11,7 @@ impl OwnerProvisionApprovalStore {
         env: &Env,
         request: &TestSessionSelectorV1,
         prefix: &ExecutionPreparePrefixV2,
-    ) -> Result<ExecutionNativePrepareDispatchV2> {
+    ) -> Result<ExecutionNativeGatedDispatchV2> {
         let saved = self.snapshot()?;
         if request.api_version != 2
             || request.custody_account_id != saved.state.draft().entry.custody_account_id
@@ -67,7 +67,7 @@ impl OwnerProvisionApprovalStore {
                         .map_err(|_| rejected())
                 })?;
                 issuer
-                    .execution_native_prepare_recorded(
+                    .execution_native_gated_recorded(
                         state,
                         &request.session_id,
                         authority,

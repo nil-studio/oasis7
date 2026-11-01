@@ -21,6 +21,7 @@ pub struct ResourceFinalIssueContextV2<'a> {
 struct ResourceFinalNativeOriginalV2 {
     api_version: u8,
     input: ApprovalAdmissionInput,
+    participant: ParticipantDescriptorV1,
     request: EntryOwnerControlRequestV1,
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,10 +40,20 @@ pub(super) struct ResourceFinalDispatchRecordV2 {
 /// Issuer child can sign only this actual committed typed producer, never bytes
 /// supplied by a client. It must recheck its configured identity/purpose/window.
 pub struct PreparedOwnerSetupResourceDispatchV2 {
+    issuer_pin: PaidResourceReadIssuerPinV1,
     payload: PaidResourceReadPayloadV1,
     original: ResourceFinalNativeOriginalV2,
 }
+#[path = "owner_setup_resource_final_http_v2.rs"]
+mod http;
+pub use http::{
+    OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceFinalHttpV2, OwnerSetupResourceWorldBodyV2,
+    RESOURCE_READ_PROOF_HEADER,
+};
 impl PreparedOwnerSetupResourceDispatchV2 {
+    pub fn issuer_pin(&self) -> &PaidResourceReadIssuerPinV1 {
+        &self.issuer_pin
+    }
     pub fn payload(&self) -> &PaidResourceReadPayloadV1 {
         &self.payload
     }
@@ -123,9 +134,22 @@ impl AccountProvisionApprovalState {
         if now >= expires {
             return Err(invalid());
         }
+        let mut participant_descriptor = self
+            .participant_provisions
+            .values()
+            .find(|p| p.result.is_some())
+            .ok_or_else(invalid)?
+            .descriptor
+            .clone();
+        participant_descriptor.session = self
+            .owner_setup_engine_record(id)?
+            .session
+            .clone()
+            .ok_or_else(invalid)?;
         let original = ResourceFinalNativeOriginalV2 {
             api_version: 2,
             input: r.input().clone(),
+            participant: participant_descriptor,
             request: EntryOwnerControlRequestV1 {
                 access: common.observation.clone().ok_or_else(invalid)?,
                 operation: EntryOwnerOperationV1::ReadResourceGoal(q.clone()),
@@ -236,7 +260,11 @@ impl AccountProvisionApprovalState {
             .dispatch = Some(record);
         next.validate_persistence()?;
         *self = next;
-        Ok(PreparedOwnerSetupResourceDispatchV2 { payload, original })
+        Ok(PreparedOwnerSetupResourceDispatchV2 {
+            payload,
+            original,
+            issuer_pin: configured.issuer.clone(),
+        })
     }
 }
 
@@ -249,9 +277,22 @@ impl ResourceFinalDispatchRecordV2 {
         let q: resource::SignedResourceReadV1<resource::OwnerSetupFinalResourceReadV2> =
             decode(f.original_bytes.as_ref().ok_or_else(invalid)?)?;
         resource::verify_resource_goal_request(&q).map_err(|_| invalid())?;
+        let mut participant_descriptor = state
+            .participant_provisions
+            .values()
+            .find(|p| p.result.is_some())
+            .ok_or_else(invalid)?
+            .descriptor
+            .clone();
+        participant_descriptor.session = state
+            .owner_setup_engine_record(id)?
+            .session
+            .clone()
+            .ok_or_else(invalid)?;
         let original = ResourceFinalNativeOriginalV2 {
             api_version: 2,
             input: r.input().clone(),
+            participant: participant_descriptor,
             request: EntryOwnerControlRequestV1 {
                 access: common.observation.clone().ok_or_else(invalid)?,
                 operation: EntryOwnerOperationV1::ReadResourceGoal(q),

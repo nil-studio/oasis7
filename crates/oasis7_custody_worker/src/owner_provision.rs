@@ -303,3 +303,7 @@ pub(crate) async fn approve(
         stage: snapshot.state.provision().stage(),
     })
 }
+
+#[path = "owner_execution_dispatch_config_v2.rs"]
+mod execution_dispatch_config;
+pub(crate) use execution_dispatch_config::execution_dispatch_static_config_v2;

@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     execution_context_stage_store_v2 as stage,
-    native_identity::provision_transport::{NativePrivateRoute, NativeProvisionTransport},
+    native_identity::provision_transport::NativeProvisionTransport,
     owner_test_session_rpc::TestSessionSelectorV1,
 };
 use oasis7_custody_core::{
@@ -24,8 +24,17 @@ fn check(env: &Env, q: &NativeExecutionPrepareRequestV2) -> JResult<()> {
     Ok(())
 }
 pub(super) async fn response(state: JsValue, env: &Env, raw: &str) -> worker::Result<Response> {
-    let q: NativeExecutionPrepareRequestV2 = serde_json::from_str(raw).map_err(|_| denied())?;
-    check(env, &q).map_err(|_| denied())?;
+    let frame: crate::execution_dispatch_rpc_v2::ExecutionDispatchFrameV2 =
+        serde_json::from_str(raw).map_err(|_| denied())?;
+    frame
+        .check(
+            env,
+            ExecutionPreparePhysicalEdgeV2::IdentityServiceToNativeActor,
+            clock()?,
+        )
+        .map_err(|_| denied())?;
+    let q = frame.request.as_ref();
+    check(env, q).map_err(|_| denied())?;
     let transport = NativeProvisionTransport::from_env(env).map_err(|_| denied())?;
     if transport.native_origin() != q.proof.certificate.issuer.native_audience_origin {
         return Err(denied());
@@ -36,7 +45,7 @@ pub(super) async fn response(state: JsValue, env: &Env, raw: &str) -> worker::Re
     let role = &q.proof.certificate.session.scope.role_scope;
     let name = manifest_name_parts(env, &role.context.identity.account_id, &role.provision_id)?;
     stage::require_manifest_recipient(&state, env, &name).map_err(|_| denied())?;
-    let token = stage::claim_native_prepare(&state, q).map_err(|_| denied())?;
+    let token = stage::claim_native_prepare_gated(&state, env, frame).map_err(|_| denied())?;
     let q = token.request();
     let c = &q.proof.certificate;
     let private = token.private_current_proof(&state).map_err(|_| denied())?;
@@ -68,38 +77,59 @@ pub(super) async fn response(state: JsValue, env: &Env, raw: &str) -> worker::Re
         provision_id: role.provision_id.clone(),
         session_id: c.session_id.clone(),
     };
-    let secrets = super::private_session_read_v2::read_with(
+    let secrets = super::private_session_read_v2::read_with_async(
         state.clone(),
         env,
         &selector,
         &c.session,
-        || current_private(),
-        |edge, _| token.claim_before_io(&state, edge),
+        &current_private,
+        |edge, scope| {
+            let token = &token;
+            let state = &state;
+            async move {
+                let body = serde_json::to_vec(&CipherRead { scope }).map_err(|_| js_denied())?;
+                token
+                    .claim_before_io(
+                        state,
+                        env,
+                        edge,
+                        oasis7_custody_core::approval::bytes_digest(&body),
+                    )
+                    .await?;
+                Ok(())
+            }
+        },
     )
     .await
     .map_err(|_| denied())?;
     current_private().map_err(|_| denied())?;
-    token
+    let native_authorization = token
         .claim_before_io(
             &state,
+            env,
             ExecutionPreparePhysicalEdgeV2::IdentityActorToNative,
+            oasis7_custody_core::approval::bytes_digest(&q.wire_bytes().map_err(|_| denied())?),
         )
+        .await
         .map_err(|_| denied())?;
+    current_private().map_err(|_| denied())?;
     let csrf = std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| denied())?;
     let raw = String::from_utf8(q.wire_bytes().map_err(|_| denied())?).map_err(|_| denied())?;
     let reply = transport
-        .request::<NativeExecutionPrepareReplyV2>(
-            NativePrivateRoute::ExecutionPrepareFundedV2,
+        .request_gated_execution_prepare::<NativeExecutionPrepareGatedReplyV2>(
             &raw,
-            Some(&secrets.cookie),
-            Some(csrf),
+            &secrets.cookie,
+            csrf,
+            &native_authorization,
         )
         .await
         .map_err(|_| denied())?;
     if reply.http_status != 200 || reply.cookie.is_some() {
         return Err(denied());
     }
-    let reply = reply.body;
+    let gated_reply = reply.body;
+    gated_reply.wire_bytes().map_err(|_| denied())?;
+    let reply = gated_reply.reply;
     reply.wire_bytes().map_err(|_| denied())?;
     let pin = transport.fact_pin();
     let result_digest = prepared_response_digest_v2(&reply.world_response).map_err(|_| denied())?;
@@ -149,7 +179,24 @@ pub(super) async fn response(state: JsValue, env: &Env, raw: &str) -> worker::Re
         .await
         .map_err(|_| denied())?;
     current_private().map_err(|_| denied())?;
-    token.native_completed(&state).map_err(|_| denied())?;
+    token
+        .native_completed(&state, env, &gated_reply.world_claims, clock()?)
+        .map_err(|_| denied())?;
+    token
+        .claim_before_io(
+            &state,
+            env,
+            ExecutionPreparePhysicalEdgeV2::IdentityActorToContextBody,
+            oasis7_custody_core::approval::bytes_digest(
+                &sealed
+                    .original_record()
+                    .wire_bytes()
+                    .map_err(|_| denied())?,
+            ),
+        )
+        .await
+        .map_err(|_| denied())?;
+    current_private().map_err(|_| denied())?;
     token
         .persist_sealed_put(
             &state,
@@ -218,11 +265,40 @@ async fn put(env: &Env, record: &ContextBodyRecordV2) -> JResult<ContextBodyStor
     serde_json::from_str(&raw).map_err(|_| js_denied())
 }
 pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
-    let q: NativeExecutionPrepareRequestV2 = serde_json::from_str(raw).map_err(|_| denied())?;
-    check(env, &q).map_err(|_| denied())?;
+    // Old Native10 requests deliberately do not deserialize as this explicit
+    // per-leaf mode. No receipt-less request can enter the new receiver.
+    let frame: crate::execution_dispatch_rpc_v2::ExecutionDispatchFrameV2 =
+        serde_json::from_str(raw).map_err(|_| denied())?;
+    frame
+        .check(
+            env,
+            ExecutionPreparePhysicalEdgeV2::AccountToIdentityService,
+            clock()?,
+        )
+        .map_err(|_| denied())?;
+    let q = frame.request.as_ref();
+    check(env, q).map_err(|_| denied())?;
     let role = &q.proof.certificate.session.scope.role_scope;
     let name = manifest_name_parts(env, &role.context.identity.account_id, &role.provision_id)?;
-    let public = funded_actor(env, &name, &q).await.map_err(|_| denied())?;
+    let body = oasis7_custody_core::approval::bytes_digest(&q.wire_bytes().map_err(|_| denied())?);
+    let authorization = crate::identity_execution_dispatch_client_v2::claim(
+        env,
+        q,
+        &frame.authorization,
+        ExecutionPreparePhysicalEdgeV2::IdentityServiceToNativeActor,
+        body,
+    )
+    .await
+    .map_err(|_| denied())?;
+    let next = crate::execution_dispatch_rpc_v2::ExecutionDispatchFrameV2 {
+        api_version: 2,
+        format: frame.format,
+        request: Box::new(q.clone()),
+        authorization,
+    };
+    let public = funded_actor(env, &name, &next)
+        .await
+        .map_err(|_| denied())?;
     if public.api_version != 2 || public.proof_digest != q.proof.digest().map_err(|_| denied())? {
         return Err(denied());
     }
@@ -232,10 +308,10 @@ pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
 async fn funded_actor(
     env: &Env,
     name: &str,
-    q: &NativeExecutionPrepareRequestV2,
+    frame: &crate::execution_dispatch_rpc_v2::ExecutionDispatchFrameV2,
 ) -> JResult<ExecutionPreparedPublicResultV2> {
     let raw =
-        String::from_utf8(q.wire_bytes().map_err(|_| js_denied())?).map_err(|_| js_denied())?;
+        String::from_utf8(frame.wire_bytes().map_err(|_| js_denied())?).map_err(|_| js_denied())?;
     let stub = env
         .durable_object("NATIVE_SESSIONS")
         .map_err(|_| js_denied())?

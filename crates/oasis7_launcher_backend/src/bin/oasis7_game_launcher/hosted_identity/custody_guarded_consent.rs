@@ -9,6 +9,7 @@ use oasis7_custody_core::native_cleanup_v2::{
 pub(super) enum GuardedConsentUseV2 {
     TermWideCleanup,
     NativeModelProxy,
+    OwnerSetupResourceFinal,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +26,8 @@ pub(super) struct GuardedConsentProvenanceV2 {
     native_configuration_digest: String,
     #[serde(deserialize_with = "required_nullable")]
     pub(super) cleanup_configuration_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) owner_resource_configuration_digest: Option<String>,
 }
 fn required_nullable<'de, D: serde::Deserializer<'de>, T: serde::Deserialize<'de>>(
     d: D,
@@ -35,6 +38,8 @@ fn unavailable() -> StoreError {
     reject("guarded_consent_unavailable")
 }
 pub(super) struct GuardedConsentOptionsV2 {
+    owner_resource: Option<super::resource_final_config::ResourceFinalConfigV2>,
+    owner_resource_configuration_digest: Option<String>,
     uses: Vec<GuardedConsentUseV2>,
     native_configuration_digest: String,
     cleanup_configuration_digest: Option<String>,
@@ -80,6 +85,10 @@ pub(super) fn require_supported_profile(
         // the same protected options-before-MFA lineage as the old owned mode.
         super::cleanup_config::MachineConfig::from_env()?.preflight_access_pin()?;
     }
+    if matches!(&request.intent,CustodyIntentV1::OwnerSetupV2 {plan} if plan.selection.resource().is_some())
+    {
+        super::resource_final_config::ResourceFinalConfigV2::from_env()?;
+    }
     Ok(())
 }
 pub(super) fn options_binding(
@@ -99,7 +108,8 @@ pub(super) fn options_binding(
         summary,
         Some(NativeCustodySummaryContractV1::FullTestSessionProxyV2(_))
     );
-    if !cleanup && !proxy {
+    let resource = matches!(&request.intent,CustodyIntentV1::OwnerSetupV2 {plan} if plan.selection.resource().is_some());
+    if !cleanup && !proxy && !resource {
         return Ok(None);
     }
     let config = service.custody.as_ref().ok_or_else(unavailable)?;
@@ -118,7 +128,31 @@ pub(super) fn options_binding(
     if proxy {
         uses.push(GuardedConsentUseV2::NativeModelProxy);
     }
+    let owner_resource = if resource {
+        Some(super::resource_final_config::ResourceFinalConfigV2::from_env()?)
+    } else {
+        None
+    };
+    let owner_resource_configuration_digest = if let Some(resource) = &owner_resource {
+        resource.require_context(config, &service.config)?;
+        let entry = service
+            .participant_entry
+            .as_ref()
+            .filter(|e| e.owner_control_enabled)
+            .ok_or_else(unavailable)?;
+        let gateway = entry.owned_owner_read_gateway();
+        let CustodyIntentV1::OwnerSetupV2 { plan } = &request.intent else {
+            return Err(unavailable());
+        };
+        gateway.require_approved_world(&plan.world_identity)?;
+        uses.push(GuardedConsentUseV2::OwnerSetupResourceFinal);
+        Some(resource.fingerprint(&gateway.fingerprint()?)?)
+    } else {
+        None
+    };
     Ok(Some(GuardedConsentOptionsV2 {
+        owner_resource,
+        owner_resource_configuration_digest,
         uses,
         cleanup_configuration_digest,
         native_configuration_digest: native_configuration_digest(config, &service.config)?,
@@ -127,9 +161,16 @@ pub(super) fn options_binding(
 impl GuardedConsentOptionsV2 {
     pub(super) fn provenance(
         &self,
-        tx: &IdentityTransaction<'_>,
+        tx: &mut IdentityTransaction<'_>,
         record: &ApprovalRecord,
     ) -> Result<GuardedConsentProvenanceV2, StoreError> {
+        if let Some(resource) = &self.owner_resource {
+            super::cleanup_registry::admit_issuer_floor(
+                tx,
+                &resource.issuer_pin,
+                &resource.issuer_floor,
+            )?;
+        }
         let head = tx.machine_storage_head().ok_or_else(unavailable)?.clone();
         head.validate().map_err(|_| unavailable())?;
         Ok(GuardedConsentProvenanceV2 {
@@ -143,6 +184,7 @@ impl GuardedConsentOptionsV2 {
             .map_err(|_| unavailable())?,
             native_configuration_digest: self.native_configuration_digest.clone(),
             cleanup_configuration_digest: self.cleanup_configuration_digest.clone(),
+            owner_resource_configuration_digest: self.owner_resource_configuration_digest.clone(),
         })
     }
 }
@@ -180,6 +222,11 @@ pub(super) fn require_guarded_consent_v2(
         || matches!(required, GuardedConsentUseV2::TermWideCleanup)
             && (cleanup_configuration.is_none()
                 || tag.cleanup_configuration_digest.as_deref() != cleanup_configuration)
+        || matches!(required, GuardedConsentUseV2::OwnerSetupResourceFinal)
+            && (cleanup_configuration.is_none()
+                || tag.owner_resource_configuration_digest.as_deref() != cleanup_configuration
+                || tag.uses != [GuardedConsentUseV2::OwnerSetupResourceFinal]
+                || !matches!(&record.request.intent,CustodyIntentV1::OwnerSetupV2 {plan} if plan.selection.resource().is_some()))
         || matches!(required, GuardedConsentUseV2::NativeModelProxy)
             && !matches!(
                 record.model_budget_summary_contract,
@@ -205,6 +252,10 @@ pub(super) fn verify_existing_guarded_consent_v2(
         {
             return Err(unavailable());
         }
+        if matches!(&record.request.intent,CustodyIntentV1::OwnerSetupV2 {plan} if plan.selection.resource().is_some())
+        {
+            return Err(unavailable());
+        }
         return Ok(());
     };
     if !(1..=2).contains(&tag.uses.len()) || tag.uses.len() == 2 && tag.uses[0] == tag.uses[1] {
@@ -217,7 +268,11 @@ pub(super) fn verify_existing_guarded_consent_v2(
             identity,
             record,
             *use_case,
-            tag.cleanup_configuration_digest.as_deref(),
+            if *use_case == GuardedConsentUseV2::OwnerSetupResourceFinal {
+                tag.owner_resource_configuration_digest.as_deref()
+            } else {
+                tag.cleanup_configuration_digest.as_deref()
+            },
         )?;
     }
     Ok(())

@@ -312,3 +312,6 @@ mod cold_start_tests;
 
 #[path = "test_session_v2_native_dispatch_last_paid_tests.rs"]
 mod last_paid_tests;
+
+#[path = "test_session_v2_native_dispatch_caller_tests.rs"]
+mod caller_tests;

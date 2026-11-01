@@ -697,3 +697,21 @@ pub async fn owner_native_model_reservation_v2(
 ) -> std::result::Result<String, JsValue> {
     crate::owner_native_model_entry_v2::forward(&env, &raw).await
 }
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_execution_dispatch_claim_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_execution_dispatch_v2::forward(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_execution_dispatch_claim_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_execution_dispatch_v2::forward_native(&env, &raw).await
+}

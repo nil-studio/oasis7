@@ -1051,7 +1051,7 @@ impl DurableObject for NativeSession {
             return Response::error("not found", 404);
         }
         let body_limit = if url.path() == "/internal/execution-prepare-native-v2" {
-            oasis7_custody_core::native_execution_prepare_v2::MAX_NATIVE_EXECUTION_PREPARE_WIRE_BYTES_V2
+            crate::execution_dispatch_rpc_v2::MAX_FRAME
         } else {
             MAX
         };

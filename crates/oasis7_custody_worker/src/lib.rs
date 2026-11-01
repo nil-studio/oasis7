@@ -220,7 +220,7 @@ mod native_machine_activation_transport;
 #[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "executor")))]
 mod execution_prepare_rpc_v2;
 
-#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
 mod execution_context_issuer_pin_v2;
 #[cfg(all(target_arch = "wasm32", feature = "identity"))]
 mod execution_context_stage_store_v2;
@@ -230,3 +230,17 @@ mod identity_native_model_runtime_v2;
 mod owner_execution_prepare_context_v2;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod owner_native_model_entry_v2;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod execution_dispatch_native_pins_v2;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod execution_dispatch_rpc_v2;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod identity_execution_dispatch_client_v2;
+
+#[cfg(feature = "owner")]
+mod owner_execution_dispatch_v2;
+
+#[cfg(feature = "identity")]
+mod identity_execution_native_callback_v2;

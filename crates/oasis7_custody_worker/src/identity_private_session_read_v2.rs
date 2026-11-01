@@ -33,6 +33,22 @@ pub(super) async fn read_with(
         &NativePrivateScope,
     ) -> Result<(), JsValue>,
 ) -> Result<SessionSecrets, JsValue> {
+    read_with_async(state, env, selector, session, check, |edge, scope| {
+        std::future::ready(before_cipher(edge, &scope))
+    })
+    .await
+}
+pub(super) async fn read_with_async<Fut>(
+    state: JsValue,
+    env: &Env,
+    selector: &TestSessionSelectorV1,
+    session: &ParticipantSessionRefV1,
+    check: impl Fn() -> Result<(), JsValue>,
+    mut before_cipher: impl FnMut(ExecutionPreparePhysicalEdgeV2, NativePrivateScope) -> Fut,
+) -> Result<SessionSecrets, JsValue>
+where
+    Fut: std::future::Future<Output = Result<(), JsValue>>,
+{
     check()?;
     let snapshot = NativeManifestStore::new(state)
         .read_completed_history(&NativeHistoryLookup {
@@ -84,7 +100,8 @@ pub(super) async fn read_with(
         {
             return Err(js_denied());
         }
-        before_cipher(before_edge, scope)?;
+        before_cipher(before_edge, scope.clone()).await?;
+        check()?;
         let envelope: Option<KeyEnvelopeV1> = actor(
             env,
             &record_name(scope)?,
@@ -106,7 +123,8 @@ pub(super) async fn read_with(
         if bytes_digest(secret.as_bytes()) != *digest || secret.as_bytes().len() > 12 * 1024 {
             return Err(js_denied());
         }
-        before_cipher(after_edge, scope)?;
+        before_cipher(after_edge, scope.clone()).await?;
+        check()?;
         let after: Option<KeyEnvelopeV1> = actor(
             env,
             &record_name(scope)?,

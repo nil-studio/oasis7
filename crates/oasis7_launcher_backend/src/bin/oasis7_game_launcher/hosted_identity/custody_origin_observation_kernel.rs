@@ -22,6 +22,14 @@ pub(super) fn observe_origin_current(
     if original != request.approval {
         return Err(reject("approval_original_mismatch"));
     }
+    // A new Resource consume cannot arm from an older unprotected metadata ceremony.
+    // InspectOrigin remains available to independently authorized original-history paths.
+    if request.purpose == VerificationPurposeV1::ConsumeApproval
+        && matches!(&saved.request.intent,
+        CustodyIntentV1::OwnerSetupV2 {plan} if plan.selection.resource().is_some())
+    {
+        super::guarded_consent::verify_existing_guarded_consent_v2(tx, config, identity, &saved)?;
+    }
     let source_session = tx.get::<AccountSession>(&saved.session_storage_key)?;
     let passkey = tx.get::<CredentialRecord>(&credential_key(&proof.passkey_credential_id))?;
     let account = tx.get::<AccountRecord>(&format!("account:{}", proof.manager_account_id))?;

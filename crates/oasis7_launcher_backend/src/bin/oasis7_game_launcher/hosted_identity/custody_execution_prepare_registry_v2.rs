@@ -4,7 +4,7 @@ use super::*;
 use oasis7_custody_core::native_execution_prepare_v2::{
     ExecutionPreparePhysicalEdgeV2, NativeExecutionPrepareRequestV2,
 };
-const EXECUTION_KIND: &str = "custody_execution_prepare_v2";
+const EXECUTION_KIND: &str = "custody_execution_prepare_gated_v2";
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExecutionClaim {
@@ -12,6 +12,7 @@ struct ExecutionClaim {
     request: NativeExecutionPrepareRequestV2,
     storage_key: String,
     configuration_digest: String,
+    authorization: oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
 }
 /// First-commit-only token. A stored row/history cannot recreate this value.
 pub(in super::super) struct ClaimedExecutionPrepare {
@@ -62,6 +63,7 @@ pub(in super::super) fn claim_execution_prepare(
     tx: &mut IdentityTransaction<'_>,
     scope: &ExecutionScope<'_>,
     request: NativeExecutionPrepareRequestV2,
+    authorization: oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
 ) -> Result<ClaimedExecutionPrepare, StoreError> {
     request.wire_bytes().map_err(|_| unavailable())?;
     let pin = scope.machine.execution_prepare_pin()?;
@@ -70,6 +72,19 @@ pub(in super::super) fn claim_execution_prepare(
         .proof
         .verify_issuer(pin, &floor, scope.now)
         .map_err(|_| unavailable())?;
+    let dispatch_pin = scope.machine.execution_dispatch_pin()?;
+    let dispatch_floor = admit_issuer_floor(tx, dispatch_pin, &scope.machine.issuer_floor)?;
+    authorization
+        .verify_issuer(&request, dispatch_pin, &dispatch_floor, scope.now)
+        .map_err(|_| unavailable())?;
+    if authorization.claim.leaf.edge != ExecutionPreparePhysicalEdgeV2::IdentityActorToNative
+        || authorization.claim.body_digest
+            != oasis7_custody_core::approval::bytes_digest(
+                &request.wire_bytes().map_err(|_| unavailable())?,
+            )
+    {
+        return Err(unavailable());
+    }
     let key = execution_key(&request)?;
     if tx.get::<ExecutionClaim>(&key)?.is_some() {
         return Err(unavailable());
@@ -114,6 +129,7 @@ pub(in super::super) fn claim_execution_prepare(
             request: request.clone(),
             storage_key: scope.storage_key.into(),
             configuration_digest: scope.configuration_digest.into(),
+            authorization,
         },
     )?;
     Ok(ClaimedExecutionPrepare { key, request })
@@ -134,6 +150,12 @@ fn current_execution_identity(
     {
         return Err(unavailable());
     }
+    let dispatch_pin = scope.machine.execution_dispatch_pin()?;
+    let dispatch_floor = admit_issuer_floor(tx, dispatch_pin, &scope.machine.issuer_floor)?;
+    stored
+        .authorization
+        .verify_issuer(&claimed.request, dispatch_pin, &dispatch_floor, scope.now)
+        .map_err(|_| unavailable())?;
     let c = &claimed.request.proof.certificate;
     let pin = scope.machine.execution_prepare_pin()?;
     let floor = admit_issuer_floor(tx, pin, &scope.machine.issuer_floor)?;
@@ -283,6 +305,7 @@ fn current_execution_identity(
     let dispatch_until = c
         .expires_at
         .0
+        .min(stored.authorization.claim.expires_at.0)
         .min(observed.status.expires_at.0)
         .min(observed.session_expires_at.0)
         .min(observed.session_idle_expires_at.0)
@@ -318,4 +341,105 @@ pub(in super::super) fn finish_execution_prepare(
         return Err(unavailable());
     }
     Ok(())
+}
+
+pub(in super::super) fn recheck_execution_prepare(
+    tx: &mut IdentityTransaction<'_>,
+    scope: &ExecutionScope<'_>,
+    observed: &ObservedExecutionPrepare,
+) -> Result<(), StoreError> {
+    observed.require_dispatch_window(scope.now)?;
+    let (current, until) = current_execution_identity(tx, scope, &observed.claimed)?;
+    if !same_security(&observed.lifetime, &current) || scope.now >= until {
+        return Err(unavailable());
+    }
+    Ok(())
+}
+
+pub(in super::super) fn claim_execution_world_callback(
+    tx: &mut IdentityTransaction<'_>,
+    scope: &ExecutionScope<'_>,
+    observed: &ObservedExecutionPrepare,
+    previous: &oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
+    edge: ExecutionPreparePhysicalEdgeV2,
+    body_digest: String,
+) -> Result<
+    oasis7_custody_core::execution_dispatch_gate_v2::NativeExecutionDispatchCallbackV2,
+    StoreError,
+> {
+    use ed25519_dalek::Signer;
+    use oasis7_custody_core::execution_dispatch_gate_v2::*;
+    recheck_execution_prepare(tx, scope, observed)?;
+    let request = observed.request();
+    let pin = scope.machine.execution_dispatch_pin()?;
+    let floor = admit_issuer_floor(tx, pin, &scope.machine.issuer_floor)?;
+    previous
+        .verify_issuer(request, pin, &floor, scope.now)
+        .map_err(|_| unavailable())?;
+    let previous_edge = match edge {
+        ExecutionPreparePhysicalEdgeV2::NativeToWorldCurrent => {
+            ExecutionPreparePhysicalEdgeV2::IdentityActorToNative
+        }
+        ExecutionPreparePhysicalEdgeV2::NativeToWorldPrepare => {
+            ExecutionPreparePhysicalEdgeV2::NativeToWorldCurrent
+        }
+        _ => return Err(unavailable()),
+    };
+    if previous.claim.leaf.edge != previous_edge {
+        return Err(unavailable());
+    }
+    let inventory = execution_reentry_inventory(request).map_err(|_| unavailable())?;
+    let ids: Vec<_> = inventory
+        .into_iter()
+        .filter(|p| p.edge == edge)
+        .map(|p| p.port.attempt_id)
+        .collect();
+    let query = NativeExecutionReentryQueryV2 {
+        api_version: 2,
+        native_key_id: scope.config.key_id.clone(),
+        identity_origin: scope.machine.execution_identity_origin()?.into(),
+        native_proof_digest: request.proof.digest().map_err(|_| unavailable())?,
+        leaf: request
+            .proof
+            .certificate
+            .ports
+            .iter()
+            .find(|p| p.edge == edge)
+            .ok_or_else(unavailable)?
+            .clone(),
+        body_digest,
+        callback_attempt_ids: ids.try_into().map_err(|_| unavailable())?,
+        nonce: native_reentry_nonce(request, edge).map_err(|_| unavailable())?,
+        issued_at: DecimalU64(scope.now),
+        expires_at: DecimalU64(observed.dispatch_until.min(previous.claim.expires_at.0)),
+    };
+    let bytes = query.signing_bytes(request).map_err(|_| unavailable())?;
+    let signed = SignedNativeExecutionReentryQueryV2 {
+        signature_hex: hex::encode(scope.config.key.sign(&bytes).to_bytes()),
+        query,
+    };
+    let q = NativeExecutionDispatchCallbackV2 {
+        api_version: 2,
+        request: Box::new(request.clone()),
+        previous: previous.clone(),
+        query: signed,
+    };
+    let bytes = q.wire_bytes().map_err(|_| unavailable())?;
+    let digest = blake3::hash(&bytes).to_hex().to_string();
+    let attempt = &q.query.query.callback_attempt_ids[0];
+    claim_physical_attempt(
+        tx,
+        &request.proof.certificate.issuer,
+        attempt,
+        &digest,
+        "execution-world-reentry",
+    )?;
+    tx.create(
+        &format!("custody_execution_world_reentry_v2:{attempt}"),
+        "custody_execution_world_reentry_v2",
+        None,
+        None,
+        &q,
+    )?;
+    Ok(q)
 }

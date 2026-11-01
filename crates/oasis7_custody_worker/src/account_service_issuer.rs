@@ -166,3 +166,9 @@ mod preflight;
 
 #[path = "account_service_issuer_execution_native.rs"]
 mod execution_native;
+
+#[path = "account_service_issuer_resource_final.rs"]
+mod resource_final;
+
+#[path = "account_service_issuer_execution_dispatch.rs"]
+mod execution_dispatch;

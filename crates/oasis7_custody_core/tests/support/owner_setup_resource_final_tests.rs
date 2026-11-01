@@ -285,3 +285,6 @@ use flow_fixture::{prepare_resource_access, resource_prefix, resource_published}
 
 #[path = "owner_setup_resource_final_window_tests.rs"]
 mod window_tests;
+
+#[path = "owner_setup_resource_final_http_tests.rs"]
+mod http_tests;

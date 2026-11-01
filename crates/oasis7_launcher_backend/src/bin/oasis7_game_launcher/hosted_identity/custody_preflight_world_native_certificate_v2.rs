@@ -65,10 +65,16 @@ pub(super) fn approve_and_consume(
                 started,
             )
             .unwrap();
-    assert_eq!(
-        options["custody_session_summary_v2"]["plan"],
-        serde_json::to_value(&request.intent).unwrap()["plan"]
-    );
+    if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { .. }) {
+        assert_eq!(
+            options["custody_session_summary_v2"]["plan"],
+            serde_json::to_value(&request.intent).unwrap()["plan"]
+        );
+    }
+    let operation_id = match &request.intent {
+        CustodyIntentV1::OwnerSetupV2 { plan } => plan.setup_id.clone(),
+        _ => "session".into(),
+    };
     let completed =
         f.f.service
             .custody_complete(
@@ -83,7 +89,7 @@ pub(super) fn approve_and_consume(
     let (_, manager) = f.f.service.session(Some(&f.f.token), now_ms()).unwrap();
     let proof = &approval.proof;
     let input = ApprovalAdmissionInput {
-        operation_id: "session".into(),
+        operation_id: operation_id.clone(),
         request,
         approval: approval.clone(),
     };
@@ -143,7 +149,7 @@ pub(super) fn approve_and_consume(
     let consumed_at = now_ms();
     let consumed = book
         .commit(
-            "session",
+            &operation_id,
             serde_json::from_value(checked).unwrap(),
             &context,
             consumed_at,
@@ -305,3 +311,6 @@ pub(super) fn certificate(
         signature_hex,
     }
 }
+
+#[path = "custody_resource_final_native_tests_v2.rs"]
+mod resource_final_tests;

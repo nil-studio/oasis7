@@ -69,7 +69,10 @@ fn record_key(pending: &SignedAccountConsumedPendingV2) -> Result<String, StoreE
         pending.digest().map_err(|_| unavailable())?
     ))
 }
-fn same_security(a: &ManagedNativeSessionLifetimeV1, b: &ManagedNativeSessionLifetimeV1) -> bool {
+pub(super) fn same_security(
+    a: &ManagedNativeSessionLifetimeV1,
+    b: &ManagedNativeSessionLifetimeV1,
+) -> bool {
     let a_status = &a.status;
     let b_status = &b.status;
     a_status.receipt == b_status.receipt

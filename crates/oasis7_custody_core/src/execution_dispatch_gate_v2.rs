@@ -336,3 +336,29 @@ pub fn execution_reentry_inventory(
     }
     Ok(out)
 }
+
+/// New fixed Native callback wire. No Cookie, private body or caller-selected
+/// callback path is carried; the previous receipt is an exact causal witness.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeExecutionDispatchCallbackV2 {
+    pub api_version: u8,
+    pub request: Box<NativeExecutionPrepareRequestV2>,
+    pub previous: SignedExecutionDispatchClaimV2,
+    pub query: SignedNativeExecutionReentryQueryV2,
+}
+impl NativeExecutionDispatchCallbackV2 {
+    pub fn wire_bytes(&self) -> Result<Vec<u8>, String> {
+        if self.api_version != 2 {
+            return Err(invalid());
+        }
+        self.request.wire_bytes()?;
+        self.previous.claim.validate_relative(&self.request)?;
+        self.query.query.validate_relative(&self.request)?;
+        let raw = serde_json::to_vec(self).map_err(|_| invalid())?;
+        if raw.len() > 128 * 1024 {
+            return Err(invalid());
+        }
+        Ok(raw)
+    }
+}

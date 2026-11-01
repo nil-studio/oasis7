@@ -129,20 +129,20 @@ fn inventory(raw: &str) -> Result<()> {
         || inventory.records[0].id != KEY
         || inventory.records[0].payload.len() > MAX_BYTES
         || inventory.table_names.iter().any(|name| {
-            !matches!(
+            !(matches!(
                 name.as_str(),
                 "table:custody_records"
                     | "table:custody_audit"
                     | "table:sqlite_sequence"
                     | "table:_cf_METADATA"
-            ) && !(COMPILED_ROLE == Role::Executor
+            ) || (COMPILED_ROLE == Role::Executor
                 && matches!(
                     name.as_str(),
                     "table:custody_execution_signer_state_v2"
                         | "table:custody_execution_signer_once_v2"
                         | "table:custody_execution_signer_originals_v2"
                         | "table:custody_execution_signer_initializations_v2"
-                ))
+                )))
         })
     {
         return Err(rejected());

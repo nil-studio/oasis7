@@ -23,7 +23,32 @@ pub(super) fn run(
         }
     };
     // No service, signing key, SID or mutex guard crosses this owned send.
-    let completed = match work.send() {
+    let completed = match work.send(|edge, body, current, previous| {
+        let callback = {
+            let mut guard = runtime
+                .identity
+                .lock()
+                .map_err(|_| StoreError::Rejected("execution_prepare_unavailable".into()))?;
+            let service = guard
+                .as_mut()
+                .ok_or_else(|| StoreError::Rejected("execution_prepare_unavailable".into()))?;
+            service.prepare_execution_world_reentry_v2(current, previous, edge, body)?
+        };
+        // Actual HTTPS callback is outside the lock; no Native key or SID is
+        // in this work. It performs its real limiter/service/Actor five edges.
+        let (callback, signed) = callback.send()?;
+        {
+            let mut guard = runtime
+                .identity
+                .lock()
+                .map_err(|_| StoreError::Rejected("execution_prepare_unavailable".into()))?;
+            let service = guard
+                .as_mut()
+                .ok_or_else(|| StoreError::Rejected("execution_prepare_unavailable".into()))?;
+            service.finish_execution_world_reentry_v2(current, &callback, &signed)?;
+        }
+        Ok(signed)
+    }) {
         Ok(v) => v,
         Err(e) => return IdentityReply::error(e),
     };

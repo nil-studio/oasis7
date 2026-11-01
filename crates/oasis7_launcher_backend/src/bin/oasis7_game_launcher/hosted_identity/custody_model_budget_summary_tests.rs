@@ -15,7 +15,7 @@ pub(super) fn model_v2_options(now: u64) -> Value {
         "goal_content":{"goal_text":"private model budget goal","soft_constraints":[]},
         "create_operation_id":"create","prepare_operation_id":"prepare","prepare_nonce":"ef".repeat(32),"publish_operation_id":"publish",
         "delegation_operation_id":"delegate","bind_operation_id":"bind","executor_id":"executor","delegation_generation":"1","delegation_nonce":"1",
-        "selection":{"kind":"build","site":"site","factory":"factory","factory_kind":"factory.smelter.mk1"},
+        "selection":{"kind":"move","position_cm":["1","2","3"]},
         "deadline":(now+100_000).to_string(),"request_limit":"6","transport_limit":"584","write_limit":"4",
         "model_budget":model_budget
     }});

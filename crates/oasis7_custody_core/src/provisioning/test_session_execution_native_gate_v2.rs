@@ -771,3 +771,6 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+#[path = "test_session_execution_native_gate_caller_v2.rs"]
+mod caller;

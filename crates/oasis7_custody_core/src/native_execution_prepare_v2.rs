@@ -451,3 +451,26 @@ pub fn prepared_response_digest_v2(
 ) -> Result<String, String> {
     oasis7_wasm_abi::canonical_hash(value).map_err(|_| invalid())
 }
+
+/// Explicit per-leaf delivery. The legacy Native10 reply is not upgraded by
+/// attaching caller metadata; both World claims come from Account SQL.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeExecutionPrepareGatedReplyV2 {
+    pub api_version: u8,
+    pub reply: NativeExecutionPrepareReplyV2,
+    pub world_claims: [crate::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2; 2],
+}
+impl NativeExecutionPrepareGatedReplyV2 {
+    pub fn wire_bytes(&self) -> Result<Vec<u8>, String> {
+        if self.api_version != 2 {
+            return Err(invalid());
+        }
+        self.reply.wire_bytes()?;
+        let bytes = serde_json::to_vec(self).map_err(|_| invalid())?;
+        if bytes.len() > MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2 {
+            return Err(invalid());
+        }
+        Ok(bytes)
+    }
+}
