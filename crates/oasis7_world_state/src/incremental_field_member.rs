@@ -289,6 +289,7 @@ pub fn write_member_record_v1<K: SemanticKeyV1 + ?Sized, W: ValueNodeWriter, C: 
 #[path = "incremental_field_member_read.rs"]
 mod read;
 pub(crate) use read::read_member_record_header_v1;
+pub(crate) use read::read_member_record_key_v1;
 pub use read::{read_member_record_profile_v1, read_member_record_v1};
 
 #[cfg(test)]
