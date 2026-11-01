@@ -89,11 +89,11 @@ pub fn change_cognition_json_scalar_v1<
             write,
             &mut work.point,
         )?;
-        if !prepared.changed() {
-            return Ok(None);
-        }
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
+        }
+        if !prepared.changed() {
+            return Ok(None);
         }
         let body = {
             let mut combined = || cancel() || (write.cancelled)();
