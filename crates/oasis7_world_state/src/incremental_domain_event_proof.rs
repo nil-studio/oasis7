@@ -9,6 +9,10 @@ use oasis7_wasm_abi::{
 };
 use std::io::{self, Write};
 
+#[path = "incremental_candidate_domain_event_proof.rs"]
+mod candidate;
+pub use candidate::*;
+
 struct Allocator<'a> {
     memory: &'a MemoryBudget,
     class: MemoryClass,
@@ -139,32 +143,48 @@ pub fn verify_domain_event_occurrence_v1<'a, C: FnMut() -> bool>(
     if !matches!(&request.event.body, WorldEventBody::Domain(_)) {
         return Err(Error::Invalid("Event original is not Domain"));
     }
-    let allocator = Allocator {
-        memory: context.memory,
-        class: context.class,
-    };
-    let _scratch = allocator.reserve(8 << 10)?;
-    let charge = allocator.reserve(std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'a>>())?;
-    let work = context.work.take().ok_or(Error::Poisoned)?;
-    let mut encoding = CanonicalCborStreamContextV1::new(&allocator, work, &mut context.cancelled);
-    let mut sink = HashSink(blake3::Hasher::new());
-    let result = stream_canonical_cbor_v1(request.event, &mut encoding, &mut sink);
-    context.work = Some(encoding.work);
-    let summary = result?;
-    if summary.encoded_bytes != request.occurrence.original_bytes()
-        || sink.0.finalize().as_bytes() != &request.occurrence.location().original
-    {
-        return Err(Error::Invalid("Domain canonical original mismatch"));
-    }
-    if (context.cancelled)() {
-        return Err(Error::Cancelled);
-    }
+    let charge = check_domain_canonical(
+        request.event,
+        request.occurrence.location().original,
+        request.occurrence.original_bytes(),
+        std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'a>>(),
+        context,
+    )?;
     let witness = charge.retain(VerifiedDomainEventOccurrenceV1 {
         event: request.event,
         occurrence: request.occurrence,
     });
     context.poisoned = false;
     Ok(witness)
+}
+
+fn check_domain_canonical<C: FnMut() -> bool>(
+    event: &WorldEvent,
+    original: [u8; 32],
+    original_bytes: u64,
+    retained_bytes: usize,
+    context: &mut DomainEventProofContextV1<'_, C>,
+) -> Result<MemoryReservation, CanonicalCborStreamError> {
+    use CanonicalCborStreamError as Error;
+    let allocator = Allocator {
+        memory: context.memory,
+        class: context.class,
+    };
+    let _scratch = allocator.reserve(8 << 10)?;
+    let charge = allocator.reserve(retained_bytes)?;
+    let work = context.work.take().ok_or(Error::Poisoned)?;
+    let mut encoding = CanonicalCborStreamContextV1::new(&allocator, work, &mut context.cancelled);
+    let mut sink = HashSink(blake3::Hasher::new());
+    let result = stream_canonical_cbor_v1(event, &mut encoding, &mut sink);
+    context.work = Some(encoding.work);
+    let summary = result?;
+    if summary.encoded_bytes != original_bytes || sink.0.finalize().as_bytes() != &original {
+        return Err(Error::Invalid("Domain canonical original mismatch"));
+    }
+    if (context.cancelled)() {
+        return Err(Error::Cancelled);
+    }
+    Ok(charge)
 }
 
 pub struct MailboxDomainProofRequestV1<'a, 'event> {

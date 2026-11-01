@@ -89,6 +89,148 @@ fn current_fact_observations_feed_the_same_concrete_domain_and_mailbox_consumer(
 }
 
 #[test]
+fn candidate_domain_is_checked_before_acceptance_and_only_exact_head_promotes() {
+    use oasis7_formal_protocol::{
+        controlled_authority::formal, incremental_material::promote_candidate_event_fact_v1,
+    };
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let event = event();
+    // No verify_formal_qualified has run on this Event's candidate record.
+    let pending = test_support::candidate_provenance(&event, &memory);
+    let req = CandidateDomainEventProofRequestV1 {
+        event: &event,
+        occurrence: &pending.raw,
+        expected_candidate_record: pending.raw.candidate_record_id(),
+        expected_roots: pending.raw.roots_id(),
+    };
+    let mut context =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    let checked = check_candidate_domain_event_occurrence_v1(&req, &mut context).unwrap();
+    assert!(std::ptr::eq(checked.event(), &event));
+    assert_eq!(
+        checked.occurrence().candidate_record_id(),
+        pending.raw.candidate_record_id()
+    );
+    // Acceptance and promotion happen only after candidate semantic verification.
+    let head =
+        formal::verify_formal_qualified(&pending.proof, &pending.authority, None, None).unwrap();
+    let accepted_raw =
+        promote_candidate_event_fact_v1(&pending.raw, &head, &memory, || false).unwrap();
+    let promote = CandidateDomainPromotionRequestV1 {
+        checked: &checked,
+        accepted_occurrence: &accepted_raw,
+        expected_head_record: accepted_raw.head_record_id(),
+        expected_roots: accepted_raw.roots_id(),
+    };
+    context.work.as_mut().unwrap().bytes_remaining = 0;
+    context.work.as_mut().unwrap().visits_remaining = 1;
+    let baseline = memory.used();
+    let accepted = promote_candidate_domain_event_occurrence_v1(&promote, &mut context).unwrap();
+    assert!(std::ptr::eq(accepted.event(), &event));
+    assert_eq!(
+        accepted.occurrence().head_record_id(),
+        pending.raw.candidate_record_id()
+    );
+    assert_eq!(context.work.as_ref().unwrap().visits_remaining, 0);
+    assert_eq!(context.work.as_ref().unwrap().bytes_remaining, 0);
+    assert_eq!(memory.used(), baseline + accepted.reserved_bytes());
+    let mut mailbox =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert_eq!(
+        verified_mailbox_domain_original_v1(
+            &MailboxDomainProofRequestV1 {
+                domain: checked.domain(),
+                proof: &accepted,
+                expected_original: pending.raw.location().original,
+                expected_head_record: accepted_raw.head_record_id(),
+                expected_roots: accepted_raw.roots_id(),
+            },
+            &mut mailbox
+        )
+        .unwrap(),
+        pending.raw.location().original
+    );
+    drop(accepted);
+    assert_eq!(memory.used(), baseline);
+    assert!(matches!(
+        promote_candidate_domain_event_occurrence_v1(&promote, &mut context),
+        Err(CanonicalCborStreamError::ResourceLimited(_))
+    ));
+    assert!(context.is_poisoned());
+
+    let mut changed = event.clone();
+    changed.id -= 1;
+    let mut wrong_bytes =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        check_candidate_domain_event_occurrence_v1(
+            &CandidateDomainEventProofRequestV1 {
+                event: &changed,
+                ..req
+            },
+            &mut wrong_bytes
+        ),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    assert!(wrong_bytes.is_poisoned());
+    let mut wrong_record =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        check_candidate_domain_event_occurrence_v1(
+            &CandidateDomainEventProofRequestV1 {
+                expected_candidate_record: [91; 32],
+                ..req
+            },
+            &mut wrong_record
+        ),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let mut wrong_pool =
+        DomainEventProofContextV1::new(&foreign, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        check_candidate_domain_event_occurrence_v1(&req, &mut wrong_pool),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let mut wrong_pool =
+        DomainEventProofContextV1::new(&foreign, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        promote_candidate_domain_event_occurrence_v1(&promote, &mut wrong_pool),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let other_raw = test_support::inherited_provenance(&event, &memory);
+    let mut other_head =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        promote_candidate_domain_event_occurrence_v1(
+            &CandidateDomainPromotionRequestV1 {
+                checked: &checked,
+                accepted_occurrence: &other_raw,
+                expected_head_record: other_raw.head_record_id(),
+                expected_roots: other_raw.roots_id(),
+            },
+            &mut other_head
+        ),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    for final_boundary in [false, true] {
+        let mut calls = 0;
+        let mut cancel =
+            DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || {
+                calls += 1;
+                calls == if final_boundary { 2 } else { 1 }
+            });
+        let used = memory.used();
+        assert!(matches!(
+            promote_candidate_domain_event_occurrence_v1(&promote, &mut cancel),
+            Err(CanonicalCborStreamError::Cancelled)
+        ));
+        assert!(cancel.is_poisoned());
+        assert_eq!(memory.used(), used);
+    }
+}
+
+#[test]
 fn inherited_domain_reuses_exact_immutable_semantics_across_signed_successor() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
     let event = event();

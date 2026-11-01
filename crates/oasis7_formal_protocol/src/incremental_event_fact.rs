@@ -6,6 +6,10 @@ use super::*;
 mod extension;
 pub use extension::*;
 
+#[path = "incremental_candidate_event_fact.rs"]
+mod candidate;
+pub use candidate::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventFactLocationV1 {
     pub height: u64,
@@ -62,7 +66,13 @@ fn event_head_binding<E>(
     head: &VerifiedFormalCommitV1,
     roots: &RootSetV1,
 ) -> Result<([u8; 32], [u8; 32]), CoreError<E>> {
-    let record = head.record();
+    event_record_binding(head.record(), roots)
+}
+
+fn event_record_binding<E>(
+    record: &formal::CanonicalRecordV1,
+    roots: &RootSetV1,
+) -> Result<([u8; 32], [u8; 32]), CoreError<E>> {
     record.validate().map_err(BindingError::from)?;
     if !incremental::is_iws_record(record.schema_version) {
         return Err(CoreError::Invalid(
@@ -97,47 +107,86 @@ pub fn bind_checked_current_event_fact_v1(
     memory: &MemoryBudget,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<VerifiedEventFactOccurrenceV1>, CoreError<std::convert::Infallible>> {
+    let (mut workspace, binding) = checked_current_event_fact_binding(
+        request.head.record(),
+        request.core,
+        request.originals,
+        request.ordinal,
+        memory,
+        &mut cancelled,
+    )?;
+    let charge = workspace
+        .split(std::mem::size_of::<VerifiedEventFactOccurrenceV1>())
+        .map_err(|_| CoreError::Invalid("current event summary accounting"))?;
+    Ok(charge.retain(VerifiedEventFactOccurrenceV1 {
+        head_record: binding.record,
+        roots: binding.roots,
+        head_body: binding.body,
+        event_body: binding.body,
+        location: binding.location,
+        original_bytes: binding.original_bytes,
+    }))
+}
+
+struct CurrentEventFactBinding {
+    record: [u8; 32],
+    roots: [u8; 32],
+    body: [u8; 32],
+    location: EventFactLocationV1,
+    original_bytes: u64,
+}
+fn checked_current_event_fact_binding(
+    record: &formal::CanonicalRecordV1,
+    core: &ReservedValue<CheckedCommitCore>,
+    originals: &ReservedValue<CheckedFactOriginals>,
+    ordinal: u64,
+    memory: &MemoryBudget,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<
+    (
+        oasis7_proto::memory_budget::MemoryReservation,
+        CurrentEventFactBinding,
+    ),
+    CoreError<std::convert::Infallible>,
+> {
     if cancelled() {
         return Err(CoreError::Cancelled);
     }
-    if !request.core.uses_budget(memory)
-        || !request.originals.uses_budget(memory)
-        || !request.core.facts.uses_budget(memory)
-        || request.core.reserved_bytes() < std::mem::size_of::<CheckedCommitCore>()
-        || request.originals.reserved_bytes() < std::mem::size_of::<CheckedFactOriginals>()
+    if !core.uses_budget(memory)
+        || !originals.uses_budget(memory)
+        || !core.facts.uses_budget(memory)
+        || core.reserved_bytes() < std::mem::size_of::<CheckedCommitCore>()
+        || originals.reserved_bytes() < std::mem::size_of::<CheckedFactOriginals>()
     {
         return Err(CoreError::Invalid("current event observation pool/charge"));
     }
-    let mut workspace = memory
+    let workspace = memory
         .reserve(128 << 10, MemoryClass::Ordinary)
         .map_err(ExecutionError::Memory)?;
-    let core = &request.core;
-    let (roots_id, body_id) = event_head_binding(request.head, &core.roots)?;
-    let record = request.head.record();
+    let (roots_id, body_id) = event_record_binding(record, &core.roots)?;
     if core.body.digest()? != body_id
         || core.body.roots != roots_id
         || !core.body.scope.matches(&core.roots)
         || core.body.height != core.roots.height
         || hex::encode(core.body.operation) != record.request_digest
         || core.body.history != role(record, ArtifactRole::IncrementalHistoryPrefix)?
-        || request.originals.body_id() != body_id
-        || request.originals.fact_set_id() != core.body.facts
+        || originals.body_id() != body_id
+        || originals.fact_set_id() != core.body.facts
     {
         return Err(CoreError::Invalid(
             "current event observation head/body/facts",
         ));
     }
-    let ordinal = usize::try_from(request.ordinal)
+    let ordinal_index = usize::try_from(ordinal)
         .map_err(|_| CoreError::Invalid("current event ordinal overflow"))?;
     let fact = core
         .facts
         .facts
-        .get(ordinal)
+        .get(ordinal_index)
         .filter(|fact| fact.kind == ExecutionFactKindV1::Event)
         .ok_or(CoreError::Invalid("current event fact occurrence"))?;
-    let observed = request
-        .originals
-        .checked_occurrence(ordinal, memory)
+    let observed = originals
+        .checked_occurrence(ordinal_index, memory)
         .map_err(CoreError::Invalid)?
         .ok_or(CoreError::Invalid("current event observation missing"))?;
     if observed.kind != fact.kind || observed.id != fact.id {
@@ -146,24 +195,26 @@ pub fn bind_checked_current_event_fact_v1(
     let head_record = crate::incremental_history::wire::parse_hash(
         &record.record_id().map_err(BindingError::from)?,
     )?;
+    if head_record != core.candidate_record_id() {
+        return Err(CoreError::Invalid("current event core record identity"));
+    }
     if cancelled() {
         return Err(CoreError::Cancelled);
     }
-    let charge = workspace
-        .split(std::mem::size_of::<VerifiedEventFactOccurrenceV1>())
-        .map_err(|_| CoreError::Invalid("current event summary accounting"))?;
-    Ok(charge.retain(VerifiedEventFactOccurrenceV1 {
-        head_record,
-        roots: roots_id,
-        head_body: body_id,
-        event_body: body_id,
-        location: EventFactLocationV1 {
-            height: core.roots.height,
-            ordinal: request.ordinal,
-            original: fact.id,
+    Ok((
+        workspace,
+        CurrentEventFactBinding {
+            record: head_record,
+            roots: roots_id,
+            body: body_id,
+            location: EventFactLocationV1 {
+                height: core.roots.height,
+                ordinal,
+                original: fact.id,
+            },
+            original_bytes: observed.bytes,
         },
-        original_bytes: observed.bytes,
-    }))
+    ))
 }
 
 /// The height/ordinal is only an untrusted lookup hint. In-prefix missing

@@ -11,9 +11,10 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFactKindV1, ExecutionFactRefV1},
     incremental_history::{CatalogRootV1, HeaderPreparation},
     incremental_material::{
-        CoreBudget, CoreRequest, CurrentEventFactRequestV1, EventFactLocationV1,
-        EventFactReadContextV1, EventFactRequestV1, FactBudget, OriginalObjectReader,
-        OriginalObjectStreamReader, bind_checked_current_event_fact_v1, verify_commit_core,
+        CandidateEventFactRequestV1, CheckedCandidateEventFactOccurrenceV1, CoreBudget,
+        CoreRequest, CurrentEventFactRequestV1, EventFactLocationV1, EventFactReadContextV1,
+        EventFactRequestV1, FactBudget, OriginalObjectReader, OriginalObjectStreamReader,
+        bind_checked_current_event_fact_v1, check_candidate_event_fact_v1, verify_commit_core,
         verify_event_fact_occurrence_v1, verify_fact_originals,
     },
     incremental_state::MerkleNodeReader,
@@ -103,30 +104,53 @@ impl MerkleNodeReader for Pages {
     }
 }
 
+enum ProvenanceFixture {
+    Accepted(ReservedValue<VerifiedEventFactOccurrenceV1>),
+    Candidate(Box<PendingCandidateFixture>),
+}
+pub struct PendingCandidateFixture {
+    pub raw: ReservedValue<CheckedCandidateEventFactOccurrenceV1>,
+    pub proof: formal::FormalQualifiedCommitProofV1,
+    pub authority: formal::VerifiedAuthorityV1,
+    _metadata: MemoryReservation,
+}
+pub fn candidate_provenance(event: &WorldEvent, memory: &MemoryBudget) -> PendingCandidateFixture {
+    match provenance_with_current(event, memory, false, false, true) {
+        ProvenanceFixture::Candidate(fixture) => *fixture,
+        _ => unreachable!(),
+    }
+}
+fn accepted_fixture(value: ProvenanceFixture) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
+    match value {
+        ProvenanceFixture::Accepted(raw) => raw,
+        _ => unreachable!(),
+    }
+}
 pub fn provenance(
     event: &WorldEvent,
     memory: &MemoryBudget,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
-    provenance_with_current(event, memory, false, false)
+    accepted_fixture(provenance_with_current(event, memory, false, false, false))
 }
 pub fn current_provenance(
     event: &WorldEvent,
     memory: &MemoryBudget,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
-    provenance_with_current(event, memory, true, false)
+    accepted_fixture(provenance_with_current(event, memory, true, false, false))
 }
 pub fn inherited_provenance(
     event: &WorldEvent,
     memory: &MemoryBudget,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
-    provenance_with_current(event, memory, false, true)
+    accepted_fixture(provenance_with_current(event, memory, false, true, false))
 }
 fn provenance_with_current(
     event: &WorldEvent,
     memory: &MemoryBudget,
     current: bool,
     inherit: bool,
-) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
+    candidate_only: bool,
+) -> ProvenanceFixture {
     let s = incremental::setup_with_memory(memory.clone());
     // The original, unchanged encoder is the independent byte oracle.
     let mut oracle = memory.reserve(1 << 20, MemoryClass::Ordinary).unwrap();
@@ -174,7 +198,8 @@ fn provenance_with_current(
         5,
         6,
     );
-    let head = formal::verify_formal_qualified(&proof, &s.authority, None, None).unwrap();
+    let head = (!candidate_only)
+        .then(|| formal::verify_formal_qualified(&proof, &s.authority, None, None).unwrap());
     let (objects, catalog) = incremental::core_objects(&s, &history);
     let metadata = memory.reserve(64 << 10, MemoryClass::Ordinary).unwrap();
     let mut pages = Pages {
@@ -200,11 +225,11 @@ fn provenance_with_current(
         id,
         _metadata: metadata,
     };
-    if current {
+    if current || candidate_only {
         let signed = formal::SignedCanonicalCandidateV1 {
-            record: head.record().clone(),
+            record: proof.decision.record.clone(),
             writer_signature_hex: fixture::sign(
-                formal::canonical_candidate_signing_bytes(head.record()).unwrap(),
+                formal::canonical_candidate_signing_bytes(&proof.decision.record).unwrap(),
                 4,
             ),
         };
@@ -248,21 +273,43 @@ fn provenance_with_current(
             || false,
         )
         .unwrap();
-        return bind_checked_current_event_fact_v1(
-            &CurrentEventFactRequestV1 {
-                head: &head,
-                core: &core,
-                originals: &observed,
-                ordinal: 1,
-            },
-            memory,
-            || false,
-        )
-        .unwrap();
+        if candidate_only {
+            let raw = check_candidate_event_fact_v1(
+                &CandidateEventFactRequestV1 {
+                    candidate: &candidate,
+                    core: &core,
+                    originals: &observed,
+                    ordinal: 1,
+                },
+                memory,
+                || false,
+            )
+            .unwrap();
+            let metadata = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
+            return ProvenanceFixture::Candidate(Box::new(PendingCandidateFixture {
+                raw,
+                proof,
+                authority: s.authority,
+                _metadata: metadata,
+            }));
+        }
+        return ProvenanceFixture::Accepted(
+            bind_checked_current_event_fact_v1(
+                &CurrentEventFactRequestV1 {
+                    head: head.as_ref().unwrap(),
+                    core: &core,
+                    originals: &observed,
+                    ordinal: 1,
+                },
+                memory,
+                || false,
+            )
+            .unwrap(),
+        );
     }
     let raw = verify_event_fact_occurrence_v1(
         &EventFactRequestV1 {
-            head: &head,
+            head: head.as_ref().unwrap(),
             roots: &s.roots,
             location: EventFactLocationV1 {
                 height: 0,
@@ -290,9 +337,17 @@ fn provenance_with_current(
         },
     )
     .unwrap();
-    if inherit {
-        inheritance::extend(&s, &history, &head, &mut source, &mut pages, &raw, memory)
+    ProvenanceFixture::Accepted(if inherit {
+        inheritance::extend(
+            &s,
+            &history,
+            head.as_ref().unwrap(),
+            &mut source,
+            &mut pages,
+            &raw,
+            memory,
+        )
     } else {
         raw
-    }
+    })
 }

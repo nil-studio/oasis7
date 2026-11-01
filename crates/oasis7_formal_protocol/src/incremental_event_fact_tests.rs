@@ -53,137 +53,6 @@ fn observed_current_events(
     (head, core, originals)
 }
 
-#[test]
-fn current_observations_preserve_duplicate_event_ordinals() {
-    let s = setup();
-    let (head, core, originals) = observed_current_events(&s, 2);
-    assert_eq!(originals.counts(), [1, 0, 2]);
-    for ordinal in [1, 2] {
-        let proof = bind_checked_current_event_fact_v1(
-            &CurrentEventFactRequestV1 {
-                head: &head,
-                core: &core,
-                originals: &originals,
-                ordinal,
-            },
-            &s.memory,
-            || false,
-        )
-        .unwrap();
-        assert_eq!(proof.location().ordinal, ordinal);
-        assert_eq!(
-            proof.location().original,
-            *blake3::hash(b"original Event fact bytes").as_bytes()
-        );
-        assert_eq!(proof.original_bytes(), 25);
-    }
-}
-
-#[test]
-fn current_event_binds_observed_original_after_sources_are_dropped() {
-    let s = setup();
-    let (head, core, originals) = observed_current_event(&s);
-    assert_eq!(originals.counts(), [1, 0, 1]);
-    // All object/page sessions were destroyed inside the helper. The only
-    // source of the per-occurrence length is actual prior stream verification.
-    let baseline = s.memory.used();
-    let proof = bind_checked_current_event_fact_v1(
-        &CurrentEventFactRequestV1 {
-            head: &head,
-            core: &core,
-            originals: &originals,
-            ordinal: 1,
-        },
-        &s.memory,
-        || false,
-    )
-    .unwrap();
-    assert_eq!(proof.original_bytes(), 25);
-    assert_eq!(
-        proof.location(),
-        EventFactLocationV1 {
-            height: 0,
-            ordinal: 1,
-            original: *blake3::hash(b"original Event fact bytes").as_bytes(),
-        }
-    );
-    assert_eq!(proof.roots_id(), core.roots().digest().unwrap());
-    assert_eq!(proof.head_body_id(), core.body().digest().unwrap());
-    assert_eq!(proof.event_body_id(), proof.head_body_id());
-    assert_eq!(s.memory.used(), baseline + proof.reserved_bytes());
-    drop(proof);
-    assert_eq!(s.memory.used(), baseline);
-}
-
-#[test]
-fn current_event_rejects_input_missing_observation_foreign_pool_and_cancellation() {
-    let s = setup();
-    let (head, core, originals) = observed_current_event(&s);
-    for ordinal in [0, 2, u64::MAX] {
-        assert!(matches!(
-            bind_checked_current_event_fact_v1(
-                &CurrentEventFactRequestV1 {
-                    head: &head,
-                    core: &core,
-                    originals: &originals,
-                    ordinal,
-                },
-                &s.memory,
-                || false
-            ),
-            Err(CoreError::Invalid(_))
-        ));
-    }
-    let foreign = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
-    assert!(matches!(
-        bind_checked_current_event_fact_v1(
-            &CurrentEventFactRequestV1 {
-                head: &head,
-                core: &core,
-                originals: &originals,
-                ordinal: 1,
-            },
-            &foreign,
-            || false
-        ),
-        Err(CoreError::Invalid(_))
-    ));
-    for stop in [1, 2] {
-        let calls = Cell::new(0);
-        assert!(matches!(
-            bind_checked_current_event_fact_v1(
-                &CurrentEventFactRequestV1 {
-                    head: &head,
-                    core: &core,
-                    originals: &originals,
-                    ordinal: 1,
-                },
-                &s.memory,
-                || {
-                    calls.set(calls.get() + 1);
-                    calls.get() >= stop
-                }
-            ),
-            Err(CoreError::Cancelled)
-        ));
-    }
-    // This head is cryptographically valid but names the original different
-    // body/facts, so an observation from the new Event cannot attach to it.
-    assert!(matches!(
-        bind_checked_current_event_fact_v1(
-            &CurrentEventFactRequestV1 {
-                head: &s.commit,
-                core: &core,
-                originals: &originals,
-                ordinal: 1,
-            },
-            &s.memory,
-            || false
-        ),
-        Err(CoreError::Invalid(_))
-    ));
-}
-
 struct EventStream<'a> {
     objects: &'a mut Objects,
     mode: u8,
@@ -244,6 +113,7 @@ impl OriginalObjectStreamReader for EventStream<'_> {
         }
     }
 }
+
 fn event_history(s: &Setup, id: [u8; 32]) -> ReservedValue<PreparedHistoryV1> {
     event_history_repeated(s, id, 1)
 }
@@ -1033,86 +903,6 @@ impl OriginalObjectStreamReader for PatternStream<'_> {
 }
 
 #[test]
-fn current_observation_binding_streams_large_events_under_an_eight_mib_pool() {
-    for length in [(32 << 20) + 17, (64 << 20) + 17] {
-        let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
-        let s = fixture::incremental::setup_with_memory(memory);
-        let charge = s
-            .memory
-            .reserve(
-                crate::incremental_value::VALUE_CHUNK_BYTES,
-                MemoryClass::Ordinary,
-            )
-            .unwrap();
-        let chunk = charge.retain(vec![b'x'; crate::incremental_value::VALUE_CHUNK_BYTES]);
-        let mut hash = blake3::Hasher::new();
-        let mut remaining = length;
-        while remaining != 0 {
-            let n = remaining.min(chunk.len());
-            hash.update(&chunk[..n]);
-            remaining -= n;
-        }
-        let id = *hash.finalize().as_bytes();
-        let history = event_history(&s, id);
-        let head = accepted(&s, &history);
-        let candidate = candidate(&s, head.record().clone());
-        let (mut objects, pages) = sources(&s, &history);
-        let peak = Cell::new(s.memory.used());
-        let full_reads = Cell::new(0);
-        let mut stream = PatternStream {
-            objects: &mut objects,
-            original: id,
-            length,
-            chunk,
-            peak: &peak,
-            full_reads: &full_reads,
-        };
-        let core = verify_commit_core(
-            &request(&s, &candidate),
-            &mut stream,
-            &pages,
-            &s.memory,
-            &mut budget(),
-            || false,
-        )
-        .unwrap();
-        let observed = verify_fact_originals(
-            &core,
-            &mut stream,
-            &s.memory,
-            &mut FactBudget {
-                facts_remaining: 2,
-                original_bytes_remaining: length as u64 + (1 << 20),
-                max_fact_bytes: length as u64,
-            },
-            || false,
-        )
-        .unwrap();
-        drop(stream);
-        drop(objects);
-        drop(pages);
-        let proof = bind_checked_current_event_fact_v1(
-            &CurrentEventFactRequestV1 {
-                head: &head,
-                core: &core,
-                originals: &observed,
-                ordinal: 1,
-            },
-            &s.memory,
-            || false,
-        )
-        .unwrap();
-        assert_eq!(proof.original_bytes(), length as u64);
-        assert_eq!(proof.location().original, id);
-        assert_eq!(full_reads.get(), 0);
-        eprintln!(
-            "current raw Event bytes={length} pool_limit={} stream_observed_reserved_peak={}",
-            8 << 20,
-            peak.get()
-        );
-    }
-}
-#[test]
 fn event_fact_raw_stream_crosses_32_and_64mib_without_whole_event_reads() {
     let mut observed = Vec::new();
     for length in [64, 1 << 20, (32 << 20) + 17, (64 << 20) + 17] {
@@ -1251,3 +1041,6 @@ fn event_fact_source_contract_and_returned_original_credit_are_checked() {
         }
     }
 }
+
+#[path = "incremental_current_event_fact_tests.rs"]
+mod current_tests;
