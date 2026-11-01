@@ -202,6 +202,10 @@ pub mod incremental_cognition_fields;
 pub mod incremental_cognition_genesis;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_read;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_json;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_json_read;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_field_read;
