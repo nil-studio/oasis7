@@ -50,40 +50,38 @@ fn execution_native_ready_uses_real_registration_and_activation_apis() {
         );
         return;
     }
-    let (ready, server) = ready_registry();
-    assert_eq!(
-        ready.active.certificate.opaque_registration_ref,
-        ready.registration.ack.opaque_registration_ref
-    );
-    assert_eq!(
-        ready.activation.ack.active_certificate_digest,
-        ready.active.digest().unwrap()
-    );
-    assert_eq!(
-        ready.activation.ack.pending_certificate_digest,
-        ready.pending.digest().unwrap()
-    );
-    assert!(!ready.headers.is_empty());
-    let q = NativeActivateRequestV2 {
-        api_version: 2,
-        opaque_registration_ref: ready.active.certificate.opaque_registration_ref.clone(),
-        active: ready.active.clone(),
-    };
-    assert!(
-        exchange(&ready.service, NATIVE_ACTIVATE_V2_PATH, &ready.headers, &q).is_err(),
-        "actual Active cannot activate twice"
-    );
-    assert_eq!(
-        server.finish(),
-        3,
-        "two actual preflight reads plus original registration read; activation adds no World HTTP"
-    );
+    with_ready_registry(3, |ready, server| {
+        assert_eq!(
+            ready.active.certificate.opaque_registration_ref,
+            ready.registration.ack.opaque_registration_ref
+        );
+        assert_eq!(
+            ready.activation.ack.active_certificate_digest,
+            ready.active.digest().unwrap()
+        );
+        assert_eq!(
+            ready.activation.ack.pending_certificate_digest,
+            ready.pending.digest().unwrap()
+        );
+        assert!(!ready.headers.is_empty());
+        let q = NativeActivateRequestV2 {
+            api_version: 2,
+            opaque_registration_ref: ready.active.certificate.opaque_registration_ref.clone(),
+            active: ready.active.clone(),
+        };
+        assert!(
+            exchange(&ready.service, NATIVE_ACTIVATE_V2_PATH, &ready.headers, &q).is_err(),
+            "actual Active cannot activate twice"
+        );
+        assert_eq!(
+            server.finish(),
+            3,
+            "two actual preflight reads plus original registration read; activation adds no World HTTP"
+        );
+    });
 }
 
-fn ready_registry() -> (ReadyNativeRegistryV2, ready_world::Server) {
-    ready_registry_with_world_limit(3)
-}
-fn ready_registry_with_world_limit(limit: usize) -> (ReadyNativeRegistryV2, ready_world::Server) {
+fn with_ready_registry(limit: usize, run: impl FnOnce(ReadyNativeRegistryV2, ready_world::Server)) {
     let mut f = native_fixture::managed_fixture();
     let mut data = identity::participant_entry::resource_fixture::Data::new();
     data.owner = hex::encode([11; 32]);
@@ -205,8 +203,42 @@ fn ready_registry_with_world_limit(limit: usize) -> (ReadyNativeRegistryV2, read
         ),
     };
     let ready = register_and_activate(service, proof, owner_read, &f.sid);
-    (ready, server)
+    // The original fixture owns a Directory guard. Keep its remaining fields
+    // alive while the socket handlers and cold SQLite reader use the service.
+    // Returning only service/ready would delete this real database too early.
+    run(ready, server)
 }
 
 #[path = "custody_execution_callback_tls_cases_v2.rs"]
 mod callback_tls;
+
+#[test]
+fn execution_native_ready_scoped_fixture_persists_actual_sqlite() {
+    if std::env::var("OASIS7_EXECUTION_READY_CHILD")
+        .ok()
+        .as_deref()
+        != Some("true")
+    {
+        child_for(
+            "execution_native_ready_scoped_fixture_persists_actual_sqlite",
+            "https://identity.fixture",
+            &[],
+        );
+        return;
+    }
+    with_ready_registry(3, |ready, server| {
+        let (path, namespace, rp) = {
+            let lock = ready.service.lock().unwrap();
+            let c = &lock.as_ref().unwrap().config;
+            (c.sqlite_path.clone(), c.namespace.clone(), c.rp.clone())
+        };
+        assert!(
+            path.is_file(),
+            "actual Ready SQLite lives through caller and cold verification"
+        );
+        let mut cold = identity::store::IdentityStore::open(&path, namespace, rp).unwrap();
+        cold.attach_machine_restore_guard_from_env(&path).unwrap();
+        assert!(cold.require_guarded_machine_storage().is_ok());
+        assert_eq!(server.finish(), 3);
+    });
+}

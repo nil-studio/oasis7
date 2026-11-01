@@ -11,7 +11,10 @@ use openssl::{
     ssl::{SslAcceptor, SslFiletype, SslMethod},
     x509::{
         X509, X509NameBuilder,
-        extension::{BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName},
+        extension::{
+            AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage,
+            SubjectAlternativeName, SubjectKeyIdentifier,
+        },
     },
 };
 use std::{
@@ -66,6 +69,10 @@ impl Certificates {
                 .unwrap(),
         )
         .unwrap();
+        let ski = SubjectKeyIdentifier::new()
+            .build(&ca.x509v3_context(None, None))
+            .unwrap();
+        ca.append_extension(ski).unwrap();
         ca.sign(&ca_key, MessageDigest::sha256()).unwrap();
         let ca = ca.build();
         let leaf_key = key();
@@ -96,9 +103,36 @@ impl Certificates {
             .build(&leaf.x509v3_context(Some(&ca), None))
             .unwrap();
         leaf.append_extension(san).unwrap();
+        let aki = AuthorityKeyIdentifier::new()
+            .keyid(true)
+            .issuer(true)
+            .build(&leaf.x509v3_context(Some(&ca), None))
+            .unwrap();
+        leaf.append_extension(aki).unwrap();
         leaf.sign(&ca_key, MessageDigest::sha256()).unwrap();
         std::fs::write(directory.join("ca.pem"), ca.to_pem().unwrap()).unwrap();
-        std::fs::write(directory.join("leaf.pem"), leaf.build().to_pem().unwrap()).unwrap();
+        let leaf = leaf.build();
+        let mut anchors = openssl::x509::store::X509StoreBuilder::new().unwrap();
+        anchors.add_cert(ca.clone()).unwrap();
+        anchors
+            .set_purpose(openssl::x509::X509PurposeId::SSL_SERVER)
+            .unwrap();
+        let mut hostname = openssl::x509::verify::X509VerifyParam::new().unwrap();
+        hostname.set_host("localhost").unwrap();
+        anchors.set_param(&hostname).unwrap();
+        let anchors = anchors.build();
+        let chain = openssl::stack::Stack::new().unwrap();
+        let mut verify = openssl::x509::X509StoreContext::new().unwrap();
+        assert!(
+            verify
+                .init(&anchors, &leaf, &chain, |context| context.verify_cert())
+                .unwrap(),
+            "fixture CA/leaf/time/EKU/localhost verification"
+        );
+        assert!(leaf.public_key().unwrap().public_eq(&leaf_key));
+        let mut chain = leaf.to_pem().unwrap();
+        chain.extend(ca.to_pem().unwrap());
+        std::fs::write(directory.join("leaf.pem"), chain).unwrap();
         let key_path = directory.join("leaf.key");
         std::fs::write(&key_path, leaf_key.private_key_to_pem_pkcs8().unwrap()).unwrap();
         #[cfg(unix)]
@@ -175,6 +209,7 @@ impl TlsServer {
                     counts.tls_connections <= 8,
                     "unexpected transport retry loop"
                 );
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(1)))
                     .unwrap();
@@ -184,7 +219,21 @@ impl TlsServer {
                 let stream = match tls.accept(stream) {
                     Ok(v) => v,
                     Err(_) if scenario == "untrusted" => continue,
-                    Err(_) => panic!("trusted callback TLS handshake must succeed"),
+                    Err(openssl::ssl::HandshakeError::Failure(mid)) => {
+                        let reasons: Vec<_> = mid
+                            .error()
+                            .ssl_error()
+                            .into_iter()
+                            .flat_map(|s| s.errors())
+                            .filter_map(|e| e.reason())
+                            .collect();
+                        panic!(
+                            "fixture TLS handshake code {:?}; static reasons {:?}",
+                            mid.error().code(),
+                            reasons
+                        );
+                    }
+                    Err(_) => panic!("fixture TLS handshake setup/nonblocking category"),
                 };
                 let mut incoming = BufReader::new(stream);
                 let mut line = String::new();

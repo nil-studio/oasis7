@@ -33,86 +33,96 @@ fn run(name: &str, scenario: &str) {
         );
         return;
     }
-    let (ready, world) =
-        ready_registry_with_world_limit(if scenario == "second_denied" { 4 } else { 3 });
-    let q = request_fixture::request(&ready);
-    let raw = q.wire_bytes().unwrap();
-    let previous = request_fixture::claim(&q, Edge::IdentityActorToNative, &raw, 107);
-    let directory =
-        std::path::PathBuf::from(std::env::var("OASIS7_EXECUTION_CALLBACK_CERT_DIR").unwrap());
-    let port = std::env::var("OASIS7_EXECUTION_CALLBACK_PORT")
-        .unwrap()
-        .parse()
-        .unwrap();
-    let server =
-        tls_fixture::TlsServer::start(&directory, port, &ready, q.clone(), scenario.to_owned());
-    // Old receipt-less Native10 never silently becomes the funded profile.
-    assert!(
-        exchange(
-            &ready.service,
-            NATIVE_EXECUTION_PREPARE_PATH_V2,
-            &ready.headers,
-            &q
-        )
-        .is_err()
-    );
-    let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(serde_json::to_vec(&previous).unwrap());
-    let headers = format!(
-        "{}\r\nOasis7-Custody-Execution-Dispatch: {}\r\n\r\n",
-        ready.headers.strip_suffix("\r\n\r\n").unwrap(),
-        header
-    );
-    let root = if scenario == "untrusted" {
-        None
-    } else {
-        Some(std::fs::read(directory.join("ca.pem")).unwrap())
-    };
-    let result = crate::static_http::cleanup_dispatch_with_root_for_test(
-        ready.service.clone(),
-        NATIVE_EXECUTION_PREPARE_PATH_V2,
-        &headers,
-        &raw,
-        root,
-    );
-    assert_ne!(
-        result.status, 200,
-        "denied, unknown or changed Current must not return a prepared context"
-    );
-    // Replay uses the same real dispatcher and immutable signed originals.
-    // The independent Native claim remains consumed after transport failure.
-    assert!(
-        exchange(
-            &ready.service,
-            NATIVE_EXECUTION_PREPARE_PATH_V2,
-            &headers,
-            &q
-        )
-        .is_err()
-    );
-    let expected_callbacks = if scenario == "second_denied" { 2 } else { 1 };
-    verify_sql_callback_history(&ready, &q, expected_callbacks);
-    let counts = server.finish();
-    assert_eq!(
-        counts.tls_connections,
-        if scenario == "second_denied" { 2 } else { 1 },
-        "all accepted TLS connections, including failed trust, no retry"
-    );
-    assert_eq!(
-        counts.http_requests,
-        match scenario {
-            "second_denied" => 2,
-            "untrusted" => 0,
-            _ => 1,
-        },
-        "exact callback HTTP count"
-    );
-    assert_eq!(
-        world.finish(),
+    with_ready_registry(
         if scenario == "second_denied" { 4 } else { 3 },
-        "no unclaimed World subtree; Ready prefix contains exactly three reads"
+        |ready, world| {
+            let q = request_fixture::request(&ready);
+            let raw = q.wire_bytes().unwrap();
+            let previous = request_fixture::claim(&q, Edge::IdentityActorToNative, &raw, 107);
+            let directory = std::path::PathBuf::from(
+                std::env::var("OASIS7_EXECUTION_CALLBACK_CERT_DIR").unwrap(),
+            );
+            let port = std::env::var("OASIS7_EXECUTION_CALLBACK_PORT")
+                .unwrap()
+                .parse()
+                .unwrap();
+            let server = tls_fixture::TlsServer::start(
+                &directory,
+                port,
+                &ready,
+                q.clone(),
+                scenario.to_owned(),
+            );
+            // Old receipt-less Native10 never silently becomes the funded profile.
+            assert!(
+                exchange(
+                    &ready.service,
+                    NATIVE_EXECUTION_PREPARE_PATH_V2,
+                    &ready.headers,
+                    &q
+                )
+                .is_err()
+            );
+            let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&previous).unwrap());
+            let headers = format!(
+                "{}\r\nOasis7-Custody-Execution-Dispatch: {}\r\n\r\n",
+                ready.headers.strip_suffix("\r\n\r\n").unwrap(),
+                header
+            );
+            let root = if scenario == "untrusted" {
+                None
+            } else {
+                Some(std::fs::read(directory.join("ca.pem")).unwrap())
+            };
+            let result = crate::static_http::cleanup_dispatch_with_root_for_test(
+                ready.service.clone(),
+                NATIVE_EXECUTION_PREPARE_PATH_V2,
+                &headers,
+                &raw,
+                root,
+            );
+            assert_ne!(
+                result.status, 200,
+                "denied, unknown or changed Current must not return a prepared context"
+            );
+            // Replay uses the same real dispatcher and immutable signed originals.
+            // The independent Native claim remains consumed after transport failure.
+            assert!(
+                exchange(
+                    &ready.service,
+                    NATIVE_EXECUTION_PREPARE_PATH_V2,
+                    &headers,
+                    &q
+                )
+                .is_err()
+            );
+            let expected_callbacks = if scenario == "second_denied" { 2 } else { 1 };
+            verify_sql_callback_history(&ready, &q, expected_callbacks);
+            let counts = server.finish();
+            assert_eq!(
+                counts.tls_connections,
+                if scenario == "second_denied" { 2 } else { 1 },
+                "all accepted TLS connections, including failed trust, no retry"
+            );
+            assert_eq!(
+                counts.http_requests,
+                match scenario {
+                    "second_denied" => 2,
+                    "untrusted" => 0,
+                    _ => 1,
+                },
+                "exact callback HTTP count"
+            );
+            assert_eq!(
+                world.finish(),
+                if scenario == "second_denied" { 4 } else { 3 },
+                "no unclaimed World subtree; Ready prefix contains exactly three reads"
+            );
+        },
     );
 }
+
 #[test]
 fn native45_callback_tls_second_denial_stops_before_prepare() {
     run(
@@ -163,6 +173,10 @@ fn verify_sql_callback_history(
             config.rp.clone(),
         )
     };
+    assert!(
+        path.is_file(),
+        "scoped Native fixture must retain actual SQLite file"
+    );
     let mut cold = identity::store::IdentityStore::open(&path, namespace, rp).unwrap();
     cold.attach_machine_restore_guard_from_env(&path).unwrap();
     for edge in [Edge::NativeToWorldCurrent, Edge::NativeToWorldPrepare]

@@ -41,7 +41,12 @@ impl OwnedExecutionWorldReentryV2 {
             .timeout(Duration::from_millis(remaining))
             .body(raw)
             .send()
-            .map_err(|_| StoreError::OutcomeUnknown)?;
+            .map_err(|error| {
+                #[cfg(test)]
+                fixture_tls::report_failure(&error);
+                let _ = error;
+                StoreError::OutcomeUnknown
+            })?;
         if response.status().as_u16() != 200 {
             return Err(StoreError::OutcomeUnknown);
         }
@@ -212,6 +217,45 @@ pub(in super::super) mod fixture_tls {
                 builder.tls_certs_only([reqwest::Certificate::from_pem(pem).expect("fixture CA")])
             }
         })
+    }
+    pub(super) fn report_failure(error: &reqwest::Error) {
+        ROOT.with_borrow(|root| {
+            if root.is_none() {
+                return;
+            }
+            use std::error::Error;
+            let mut cause: Option<&(dyn Error + 'static)> = Some(error);
+            let mut categories = std::collections::BTreeSet::new();
+            while let Some(error) = cause {
+                let text = error.to_string().to_ascii_lowercase();
+                for (needle, category) in [
+                    ("unknownissuer", "unknown_issuer"),
+                    ("unknown issuer", "unknown_issuer"),
+                    ("notvalidforname", "hostname"),
+                    ("not valid for name", "hostname"),
+                    ("hostname", "hostname"),
+                    ("authority key identifier", "authority_key_identifier"),
+                    ("authoritykeyidentifier", "authority_key_identifier"),
+                    ("causedasendentity", "ca_used_as_end_entity"),
+                    ("expired", "expired"),
+                    ("notvalidyet", "not_valid_yet"),
+                    ("certificate", "certificate"),
+                    ("eof", "eof"),
+                    ("reset", "reset"),
+                    ("connection refused", "connection_refused"),
+                ] {
+                    if text.contains(needle) {
+                        categories.insert(category);
+                    }
+                }
+                cause = error.source();
+            }
+            eprintln!(
+                "fixture TLS categories={categories:?} connect={} timeout={}",
+                error.is_connect(),
+                error.is_timeout()
+            );
+        });
     }
     pub(in super::super::super) fn with_root<T>(pem: &[u8], run: impl FnOnce() -> T) -> T {
         struct Restore(Option<Vec<u8>>);
