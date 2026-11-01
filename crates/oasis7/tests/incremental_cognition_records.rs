@@ -612,9 +612,12 @@ fn run_cognition(all_optional: bool) {
                 .put_state_pages_cancelled(&delta, &memory, &mut || false)
                 .unwrap();
             roots[2].copy_from_slice(&delta.after.canonical_bytes().unwrap());
-            // Independent read-only query determines N; the no-op setter must
-            // observe each channel's N+1 cancellation after its long equality.
-            for channel in [0, 1] {
+            // Independent query determines N. N+1 is the core's post-equality
+            // check; N+2 closes the public overlay after its core returns.
+            let mut cancelled_boundaries = [false; 4];
+            for (boundary, (offset, channel)) in
+                [(1, 0), (1, 1), (2, 0), (2, 1)].into_iter().enumerate()
+            {
                 use std::{cell::Cell, rc::Rc};
                 let _inputs = memory.reserve(16 << 10, MemoryClass::Ordinary).unwrap();
                 let prefix = "λ".repeat(1536);
@@ -744,9 +747,9 @@ fn run_cognition(all_optional: bool) {
                 read_count.set(0);
                 write_count.set(0);
                 if channel == 0 {
-                    read_limit.set(n + 1);
+                    read_limit.set(n + offset);
                 } else {
-                    write_limit.set(n + 1);
+                    write_limit.set(n + offset);
                 }
                 let guard = failure_overlay.transaction.guard();
                 let result = change_cognition_json_scalar_v1(
@@ -762,37 +765,36 @@ fn run_cognition(all_optional: bool) {
                     &guard,
                     &failed_live,
                 );
-                assert!(
-                    matches!(
+                let was_cancelled = matches!(
                     result,
                     Err(
                         oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Member(
                             MemberRecordError::Value(ValueTreeError::Cancelled)
                         )
+                    ) | Err(
+                        oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
+                            ValueTreeError::Cancelled
+                        )
                     )
-                ),
-                    "channel={channel}, getter N={n}, read={}, write={}, result={result:?}",
-                    read_count.get(),
+                );
+                let polls = if channel == 0 {
+                    read_count.get()
+                } else {
                     write_count.get()
-                );
-                assert_eq!(
-                    if channel == 0 {
-                        read_count.get()
-                    } else {
-                        write_count.get()
-                    },
-                    n + 1
-                );
+                };
                 let guard = failed_tx.guard();
-                assert!(matches!(
-                    failed_tx.seal(&guard, &failed_live, 2),
-                    Err(ExecutionError::Aborted)
-                ));
+                let sealed_prefix = failed_tx.seal(&guard, &failed_live, 2);
+                let aborted = matches!(sealed_prefix, Err(ExecutionError::Aborted));
+                cancelled_boundaries[boundary] = was_cancelled && polls == n + offset && aborted;
                 eprintln!(
-                    "Cognition independent read N={n} no-op cancellation channel={channel} N+1={} prefix=Aborted",
-                    n + 1
+                    "Cognition independent getter N={n} offset={offset} channel={channel} polls={polls} cancelled={was_cancelled} sealable={} result={result:?}",
+                    sealed_prefix.is_ok()
                 );
             }
+            assert!(
+                cancelled_boundaries.into_iter().all(|passed| passed),
+                "core/overlay NoOp boundaries={cancelled_boundaries:?}"
+            );
         }
         eprintln!(
             "Cognition final writer scope all_optional={all_optional} remaining={:?}",
