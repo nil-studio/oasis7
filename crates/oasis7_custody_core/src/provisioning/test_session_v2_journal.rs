@@ -31,6 +31,8 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     PreflightReadReserved {
         ticket: u8,
     },
+    PreflightWorldAccessReserved,
+    PreflightWorldAccessAdmitted,
     PreflightAccessRecorded,
     PreflightLifetimeRecorded,
     PreflightReadPublished,
@@ -77,6 +79,9 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     ExecutionPrepareCurrentPortsClaimed {
         request_id: String,
     },
+    ExecutionPrepareOriginalArchived {
+        request_id: String,
+    },
     ExecutionPreparePermitsRecorded {
         request_id: String,
     },
@@ -119,6 +124,12 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         usize::from(s.approval_verification_claimed_at.is_some()),
         usize::from(s.consumed_at.is_some()),
         usize::from(s.preflight_claimed_at.is_some()),
+        usize::from(s.preflight_world_access.is_some()),
+        usize::from(
+            s.preflight_world_access
+                .as_ref()
+                .is_some_and(|w| w.admitted()),
+        ),
         s.preflight_steps.len(),
         usize::from(s.approved_at.is_some()),
         usize::from(
@@ -142,6 +153,7 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
                 + book.prepare_paid_count()
                 + usize::from(book.prepare_current_read(s).is_some())
                 + usize::from(book.prepare_service_record().is_some())
+                + usize::from(book.prepare_original_recorded_at().is_some())
         }),
         s.control_transports
             .values()

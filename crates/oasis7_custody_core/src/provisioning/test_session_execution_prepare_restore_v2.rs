@@ -165,7 +165,6 @@ impl AccountProvisionApprovalState {
             || s.source_oracle_reads
                 .get(&b.source_operation_id)
                 .is_none_or(|n| *n < 5)
-            || stage.original.is_some()
             || stage.send_claim.is_some()
             || !stage.lookup_claims.is_empty()
             || stage.archived_fact_cbor_hex.is_some()
@@ -197,8 +196,18 @@ impl AccountProvisionApprovalState {
         if stage.candidate_digest != expected.digest()? {
             return Err(invalid());
         }
+        b.validate_prepare_original(s, &expected)?;
         if let Some(record) = &stage.service_record {
             super::rkv_ports_v2::validate_ports(s, record)?;
+            if super::super::test_session::session_event_ordinal_v2(
+                s,
+                &super::super::test_session::SessionEventKindV2::ExecutionPreparePermitsRecorded {
+                    request_id: b.action_request_id.clone(),
+                },
+            )? != Some(record.accepted_ordinal)
+            {
+                return Err(invalid());
+            }
             if paid.current_read.is_none() {
                 return Err(invalid());
             }

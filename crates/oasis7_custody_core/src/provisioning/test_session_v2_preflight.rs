@@ -22,6 +22,8 @@ pub struct TestSessionPreflightDescriptorV2 {
     pub access_nonces: OwnerSetupAccessNoncesV1,
     pub owner_read: ws::ReadWorldViewRequest,
     pub expires_at: UnixMillis,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
 }
 impl core::fmt::Debug for TestSessionPreflightDescriptorV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -87,6 +89,12 @@ impl AccountProvisionApprovalState {
             },
             owner_read: self.test_session_v2_world_read(&s.input)?,
             expires_at: UnixMillis::new(write),
+            cleanup_transport_policy: match s.header()?.0.termination.cleanup_transport_policy {
+                CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2 => None,
+                CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2 => {
+                    Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+                }
+            },
         })
     }
     /// Once-only workflow reservation; its descriptor is read-only, never a purpose grant.
@@ -240,20 +248,39 @@ impl AccountProvisionApprovalState {
         step: SessionPreflightStepV1,
         now: UnixMillis,
     ) -> Result<TestSessionPreflightDescriptorV2> {
+        let session = self.test_session_v2_record(id)?;
+        if session.header()?.0.termination.cleanup_transport_policy
+            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            && (step == SessionPreflightStepV1::FreshAccessPair
+                || !session
+                    .preflight_world_access
+                    .as_ref()
+                    .is_some_and(|w| w.admitted()))
+        {
+            return Err(invalid());
+        }
         let mut next = self.clone();
-        let s = next.test_sessions_v2.get_mut(id).ok_or_else(invalid)?;
+        let d = next.reserve_preflight_step_fixed_v2(id, step, now)?;
+        next.validate_persistence()?;
+        *self = next;
+        Ok(d)
+    }
+    pub(in crate::provisioning) fn reserve_preflight_step_fixed_v2(
+        &mut self,
+        id: &str,
+        step: SessionPreflightStepV1,
+        now: UnixMillis,
+    ) -> Result<TestSessionPreflightDescriptorV2> {
+        let frozen = self.frozen();
+        let s = self.test_sessions_v2.get_mut(id).ok_or_else(invalid)?;
         let (_, _, deadline, _, _) = admission_v2::pairing_v2(&s.input.request.intent)?;
-        if self.frozen()
+        if frozen
             || s.native_machine_registration.is_some()
             || s.closing.is_some()
             || s.preflight_claimed_at.is_none()
             || s.approved_at.is_some()
             || now.get() >= deadline
             || s.preflight_steps.contains_key(&step)
-            // The new fixed World3 lane requires its dedicated atomic producer.
-            // Ordinary calls cannot borrow that profile's not-yet-issued proof.
-            || s.header()?.0.termination.cleanup_transport_policy
-                == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
         {
             return Err(invalid());
         }
@@ -277,10 +304,7 @@ impl AccountProvisionApprovalState {
             .map_err(|_| invalid())?;
         s.preflight_steps.insert(step, now);
         append_session_event_v2(s, SessionEventKindV2::PreflightStep { step }, now)?;
-        let d = next.test_session_v2_preflight_descriptor(id)?;
-        next.validate_persistence()?;
-        *self = next;
-        Ok(d)
+        self.test_session_v2_preflight_descriptor(id)
     }
     pub fn test_session_v2_preflight_access_checks(
         &self,
@@ -291,6 +315,15 @@ impl AccountProvisionApprovalState {
     ) -> Result<ExactSignatureChecks> {
         let checks = self.test_session_v2_preflight_checks(id, current, now)?;
         let s = self.test_sessions_v2.get(id).ok_or_else(invalid)?;
+        if s.header()?.0.termination.cleanup_transport_policy
+            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            && !s
+                .preflight_world_access
+                .as_ref()
+                .is_some_and(|w| w.admitted())
+        {
+            return Err(invalid());
+        }
         let claimed = s
             .preflight_steps
             .get(&SessionPreflightStepV1::FreshAccessPair)

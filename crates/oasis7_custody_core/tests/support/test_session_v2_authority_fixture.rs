@@ -408,3 +408,6 @@ fn world3_metadata_selector_preserves_none_wire_and_rejects_redundant_old_varian
         q
     );
 }
+
+#[path = "test_session_v2_preflight_world_tests.rs"]
+mod preflight_world_tests;

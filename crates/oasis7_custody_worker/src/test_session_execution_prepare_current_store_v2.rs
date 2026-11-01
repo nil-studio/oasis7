@@ -168,8 +168,63 @@ impl OwnerProvisionApprovalStore {
         };
         // SQL and all four physical claims have committed before either service
         // call. Failure/unknown never recreates this token or refunds a leaf.
-        crate::execution_prepare_rpc_v2::dispatch(env, paid)
+        let expected = paid.permits().clone();
+        let accepted_ordinal = paid.accepted_ordinal();
+        let expected_ref = &expected;
+        let current_ref = &current;
+        let id = request.session_id.as_str();
+        let before_send = move || async move {
+            self.native_verified(
+                &|| Ok(current_ref()?.native),
+                "execution_prepare_prepaid_reentry",
+                id,
+                |state, _, _, time| {
+                    let owned = current_ref()?;
+                    let mut jobs = state
+                        .test_session_v2_native_restore_checks(id, &owned.native.scope.as_core())
+                        .map_err(|_| rejected())?;
+                    jobs.push(owned.with_core(|c| {
+                        state
+                            .test_session_v2_prepare_dispatch_checks(
+                                id,
+                                expected_ref,
+                                accepted_ordinal,
+                                c,
+                                oasis7_custody_core::time_units::UnixMillis::new(time),
+                            )
+                            .map_err(|_| rejected())
+                    })?);
+                    Ok(jobs)
+                },
+                |state, _, _, time, cache| {
+                    current_ref()?.with_core(|c| {
+                        state
+                            .continue_test_session_v2_prepare_dispatch(
+                                id,
+                                expected_ref,
+                                accepted_ordinal,
+                                c,
+                                oasis7_custody_core::time_units::UnixMillis::new(time),
+                                cache,
+                            )
+                            .map_err(|_| rejected())
+                    })
+                },
+            )
             .await
-            .map(Some)
+        };
+        let original = crate::execution_prepare_rpc_v2::dispatch(env, paid, before_send).await?;
+        // Local immutable fact commit only, even if Current changed while the
+        // already-sent Actor response was in flight. No new grant or dispatch.
+        self.local_reservation("execution_prepare_original_archived", id, |state, time| {
+            state
+                .archive_test_session_v2_prepare_original(
+                    id,
+                    original.clone(),
+                    oasis7_custody_core::time_units::UnixMillis::new(time),
+                )
+                .map_err(|_| rejected())
+        })?;
+        Ok(Some(original))
     }
 }

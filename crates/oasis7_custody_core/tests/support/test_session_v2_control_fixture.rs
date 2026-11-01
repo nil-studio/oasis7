@@ -23,7 +23,7 @@ fn claimed() -> SessionFixture {
     );
     f
 }
-fn control_pop(
+pub(super) fn control_pop(
     f: &SessionFixture,
     body: &[u8],
     route_profile: (HttpPopRoute, HttpPopProfileV1),
@@ -111,7 +111,12 @@ fn control_pop(
         .unwrap();
     verify_http_possession(prepared, UnixMillis::new(now), &mut StrictCrypto).unwrap()
 }
-fn control_paid(f: &mut SessionFixture, pop: &HttpPossessionReceipt, ingress: &str, now: u64) {
+pub(super) fn control_paid(
+    f: &mut SessionFixture,
+    pop: &HttpPossessionReceipt,
+    ingress: &str,
+    now: u64,
+) {
     f.state
         .charge_test_session_v2_control_http_attempt(
             &f.session_id,
@@ -246,7 +251,7 @@ fn control_source(
     );
     life
 }
-fn challenge(
+pub(super) fn challenge(
     f: &mut SessionFixture,
     q: &SessionControlRequestV1,
     purpose: SessionPurposeV1,

@@ -8,6 +8,8 @@ mod execution;
 mod machine;
 #[path = "test_session_v2_journal_replay_purpose.rs"]
 mod purpose;
+#[path = "test_session_v2_journal_replay_world_preflight.rs"]
+mod world_preflight;
 pub(super) struct Replay<'a> {
     s: &'a TestSessionAuthorityV2,
     control: OperationBudgets,
@@ -26,6 +28,7 @@ pub(super) struct Replay<'a> {
     execution_prepare_current_ports: bool,
     execution_prepare_admitted: bool,
     execution_prepare_permits_recorded: bool,
+    execution_prepare_original_archived: bool,
     execution_lifetime_claimed: bool,
     execution_lifetime_archived: bool,
     execution_lifetime_admitted: bool,
@@ -48,6 +51,8 @@ pub(super) struct Replay<'a> {
     active: bool,
     machine_claimed: bool,
     machine_ready: bool,
+    world_preflight_reserved: bool,
+    world_preflight_admitted: bool,
     lease: Option<UnixMillis>,
     heartbeat: Option<UnixMillis>,
     closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
@@ -78,6 +83,7 @@ impl<'a> Replay<'a> {
             execution_prepare_current_ports: false,
             execution_prepare_admitted: false,
             execution_prepare_permits_recorded: false,
+            execution_prepare_original_archived: false,
             execution_lifetime_claimed: false,
             execution_lifetime_archived: false,
             execution_lifetime_admitted: false,
@@ -100,6 +106,8 @@ impl<'a> Replay<'a> {
             active: false,
             machine_claimed: false,
             machine_ready: false,
+            world_preflight_reserved: false,
+            world_preflight_admitted: false,
             lease: None,
             heartbeat: None,
             closing: None,
@@ -248,7 +256,10 @@ impl<'a> Replay<'a> {
 
         if let Some(book) = &s.execution_book {
             let b = book.journal_record();
-            if self.execution_prepare_permits_recorded != book.prepare_service_record().is_some()
+            if self.execution_prepare_original_archived
+                != book.prepare_original_recorded_at().is_some()
+                || self.execution_prepare_permits_recorded
+                    != book.prepare_service_record().is_some()
                 || self.execution_prepare_current_ports
                     != book.prepare_current_read(self.s).is_some()
                 || self.execution_prepare_paid != (book.prepare_paid_count() == 1)
@@ -268,6 +279,15 @@ impl<'a> Replay<'a> {
             || self.execution_prepare_paid
             || self.execution_prepare_admitted
             || self.execution_prepare_permits_recorded
+            || self.execution_prepare_original_archived
+        {
+            return Err(invalid());
+        }
+        if self.world_preflight_reserved != s.preflight_world_access.is_some()
+            || self.world_preflight_admitted
+                != s.preflight_world_access
+                    .as_ref()
+                    .is_some_and(|w| w.admitted())
         {
             return Err(invalid());
         }

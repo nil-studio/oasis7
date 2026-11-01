@@ -5,18 +5,24 @@ fn hexbytes(bytes: &[u8]) -> String {
     bytes.iter().map(|v| format!("{v:02x}")).collect()
 }
 use oasis7_custody_core::native_cleanup_v2::*;
-fn packet() -> (
-    SignedExecutionPreparePermitsV2,
-    ExecutionSigningBundleV2,
-    AccountMachineIssuerPinV2,
-    AccountMachineIssuerFloorV2,
-) {
+struct PreparedService {
+    f: SessionFixture,
+    proofs: SignedExecutionPreparePermitsV2,
+    bundle: ExecutionSigningBundleV2,
+    pin: AccountMachineIssuerPinV2,
+    floor: AccountMachineIssuerFloorV2,
+    fact: SignedManagedNativeSessionLifetimeV1,
+}
+fn prepared_service(
+    remaining: Option<u64>,
+    before_source: impl FnOnce(&mut SessionFixture),
+) -> PreparedService {
     let ReadyPrepare {
         mut f,
         body,
         pop,
         fact,
-    } = ready_with_current_ticket(None, None, false);
+    } = ready_with_current_ticket_and_hook(None, None, false, before_source);
     let paid = prepay(&mut f, &body, &pop);
     let ports = f
         .state
@@ -80,6 +86,118 @@ fn packet() -> (
         initialize: sign_one(permits.initialize),
         sign: sign_one(permits.sign),
     };
+    if let Some(remaining) = remaining {
+        spend_to(&mut f, &body, &pop, remaining);
+    }
+    PreparedService {
+        f,
+        proofs,
+        bundle,
+        pin,
+        floor,
+        fact,
+    }
+}
+fn spend_to(
+    f: &mut SessionFixture,
+    action_bytes: &[u8],
+    action_pop: &oasis7_custody_core::http_pop::HttpPossessionReceipt,
+    remaining: u64,
+) {
+    let action: SessionActionRequestV2 = serde_json::from_slice(action_bytes).unwrap();
+    let metadata = SessionChallengeRequestV1 {
+        api_version: 1,
+        session_id: f.session_id.clone(),
+        request_id: "rkv-threshold-metadata".into(),
+        purpose: SessionPurposeV1::Execution,
+        kind: SessionChallengeKindV1::Tool,
+        logical_request_id: action.request_id.clone(),
+        operation_request_digest: action.digest().unwrap(),
+    };
+    let metadata_bytes = serde_json::to_vec(&metadata).unwrap();
+    let http = signed_http(
+        f,
+        &metadata_bytes,
+        &metadata.request_id,
+        (
+            HttpPopRoute::ProofChallenges,
+            HttpPopProfileV1::CustodyChallenge,
+        ),
+        None,
+        SessionPurposeV1::Execution,
+        14_007,
+    );
+    let c = SessionClientHttpContext {
+        public_origin: &f.fact.registration.public_origin,
+        custody_account_id: &f.state.draft().entry.custody_account_id,
+        provision_id: &f.state.draft().entry.provision_id,
+        operation: SessionClientOperation::ToolNonce,
+        representation: HttpHeaderRepresentation::RawInstances,
+    };
+    let prepared = f
+        .state
+        .prepare_test_session_v2_tool_nonce_http(&http, &c, UnixMillis::new(14_007))
+        .unwrap();
+    let metadata_pop =
+        verify_http_possession(prepared, UnixMillis::new(14_007), &mut StrictCrypto).unwrap();
+    let left = |f: &SessionFixture| {
+        f.state
+            .test_session_v2_snapshot(&f.session_id)
+            .unwrap()
+            .roots()[&SessionPurposeV1::Execution]
+            .budgets
+            .transport
+            .remaining()
+            .unwrap()
+    };
+    let mut i = 0u64;
+    while left(f) > remaining {
+        let before = left(f);
+        let ingress = format!("rkv-threshold-physical-{i}");
+        let units = if before - remaining >= 3 {
+            // This is a genuine metadata ingress, not an Actions original.
+            f.state
+                .charge_test_session_v2_tool_nonce_http_attempt(
+                    SessionProofRequest {
+                        ingress_attempt_id: &ingress,
+                        original_bytes: &metadata_bytes,
+                        possession: &metadata_pop,
+                    },
+                    UnixMillis::new(14_007),
+                )
+                .unwrap();
+            3
+        } else {
+            charge(
+                f,
+                action_bytes,
+                action_pop,
+                &ingress,
+                SessionPurposeV1::Execution,
+                14_007,
+            )
+            .unwrap();
+            1
+        };
+        assert_eq!(left(f), before - units);
+        i = i.checked_add(1).unwrap();
+    }
+    assert_eq!(left(f), remaining);
+}
+fn packet() -> (
+    SignedExecutionPreparePermitsV2,
+    ExecutionSigningBundleV2,
+    AccountMachineIssuerPinV2,
+    AccountMachineIssuerFloorV2,
+) {
+    let PreparedService {
+        mut f,
+        proofs,
+        bundle,
+        pin,
+        floor,
+        ..
+    } = prepared_service(None, |_| {});
     let before = f.state.clone();
     let mut invalid = proofs.clone();
     invalid.sign.signature_hex = "00".repeat(64);
@@ -351,3 +469,9 @@ fn session_v2_prepare_signer_complete_sdk_signatures_and_fixture_export() {
         std::fs::write(path, serde_json::to_vec(&public).unwrap()).unwrap();
     }
 }
+
+#[path = "test_session_v2_execution_prepare_last_paid_tests.rs"]
+mod last_paid_tests;
+
+#[path = "test_session_v2_prepare_original_archive_tests.rs"]
+mod original_archive_tests;

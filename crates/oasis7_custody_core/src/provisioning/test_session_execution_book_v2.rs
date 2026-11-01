@@ -26,6 +26,7 @@ pub(in crate::provisioning) enum MoveExecutionStageV2 {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PublicStageOriginalV2 {
+    recorded_at: UnixMillis,
     stage: MoveExecutionStageV2,
     canonical_cbor_hex: String,
 }
@@ -371,3 +372,9 @@ impl SessionExecutionBookV2 {
         }
     }
 }
+
+#[path = "test_session_execution_prepare_continue_v2.rs"]
+mod prepare_continue_v2;
+
+#[path = "test_session_execution_prepare_original_v2.rs"]
+mod prepare_original_v2;

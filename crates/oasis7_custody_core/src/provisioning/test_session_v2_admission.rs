@@ -257,6 +257,7 @@ impl AccountProvisionApprovalState {
                 actions: BTreeMap::new(),
                 termination_state: termination_state.clone(),
                 execution_book: None,
+                preflight_world_access: None,
                 native_model_budget: None,
                 native_machine_registration: None,
             });

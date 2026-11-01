@@ -271,11 +271,24 @@ impl AccountProvisionApprovalState {
             || s.approved_at.is_some()
             || !s.roots.is_empty()
             || s.native_machine_registration.is_some()
-            || plan.termination.cleanup_transport_policy
-                != CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
+            || !matches!(
+                plan.termination.cleanup_transport_policy,
+                CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
+                    | CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            )
             || pin.native_audience_origin != current.native_scope.http_origin
         {
             return Err(invalid());
+        }
+        if plan.termination.cleanup_transport_policy
+            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+        {
+            let world = s
+                .preflight_world_access
+                .as_ref()
+                .filter(|w| w.admitted())
+                .ok_or_else(invalid)?;
+            world.verify_native_history(s, current.native_scope)?;
         }
         s.input
             .request

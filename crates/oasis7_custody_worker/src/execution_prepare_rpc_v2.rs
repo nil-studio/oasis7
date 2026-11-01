@@ -316,14 +316,21 @@ async fn dispatch_one(
     Ok(check_reply(&wire, &raw)?.original)
 }
 #[cfg(feature = "owner")]
-pub(crate) async fn dispatch(
+pub(crate) async fn dispatch<F, Fut>(
     env: &Env,
     paid: ExecutionPrepareDispatchV2,
-) -> std::result::Result<ExecutionPrepareSignedOriginalV2, JsValue> {
+    before_send: F,
+) -> std::result::Result<ExecutionPrepareSignedOriginalV2, JsValue>
+where
+    F: Fn() -> Fut,
+    Fut: core::future::Future<Output = std::result::Result<(), JsValue>>,
+{
     let [initialize, sign] = paid.into_attempts();
+    before_send().await?;
     if dispatch_one(env, initialize).await?.is_some() {
         return Err(denied());
     }
+    before_send().await?;
     dispatch_one(env, sign)
         .await?
         .map(|v| *v)

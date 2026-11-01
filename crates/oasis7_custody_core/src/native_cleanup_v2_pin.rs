@@ -7,6 +7,7 @@ pub enum AccountMachinePurposeV2 {
     NativeFinalCurrent,
     NativeCurrentAttempt,
     NativeTermCurrentAttempt,
+    NativePreflightAccessV2,
     ExecutionPrepareSignerV2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

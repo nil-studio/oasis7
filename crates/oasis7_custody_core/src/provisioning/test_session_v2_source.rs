@@ -34,6 +34,77 @@ impl AccountProvisionApprovalState {
         }
         Ok(s)
     }
+    /// Existing dispatch only: no new Source, grant or token is constructed.
+    pub(in crate::provisioning) fn test_session_v2_prepaid_prepare_local(
+        &self,
+        id: &str,
+        record: &super::super::execution_book_v2::ExecutionPrepareServiceRecordV2,
+        now: UnixMillis,
+    ) -> Result<&TestSessionAuthorityV2> {
+        let s = self.test_session_v2_record(id)?;
+        let root = s
+            .roots
+            .get(&SessionPurposeV1::Execution)
+            .ok_or_else(invalid)?;
+        let event = SessionEventKindV2::ExecutionPreparePermitsRecorded {
+            request_id: s
+                .execution_book
+                .as_ref()
+                .ok_or_else(invalid)?
+                .journal_record()
+                .request_id
+                .into(),
+        };
+        if self.session_inventory != SessionInventoryV1::Known
+            || self.frozen()
+            || s.approved_at.is_none()
+            || root.revoked
+            || now.get() >= root.deadline.get()
+            || s.lease_until.is_none_or(|t| now.get() >= t.get())
+            || s.input.request.context.security_version != self.provision.security_epoch()
+            || s.native_machine_registration
+                .as_ref()
+                .is_some_and(|m| !m.ready())
+            || v2_control_exhausted(s)
+            || s.roots
+                .get(&SessionPurposeV1::ReconcileRead)
+                .is_some_and(|r| r.budgets.transport.remaining() == Ok(0))
+            || session_event_ordinal_v2(s, &event)? != Some(record.accepted_ordinal)
+            || s.execution_book
+                .as_ref()
+                .and_then(|b| b.prepare_service_record())
+                != Some(record)
+        {
+            return Err(invalid());
+        }
+        if let Some((reason, at)) = s.closing {
+            if reason != TestSessionClosingReasonV1::BudgetExhausted
+                || at != record.recorded_at
+                || root.budgets.transport.remaining().map_err(|_| invalid())? != 0
+            {
+                return Err(invalid());
+            }
+        } else if root.budgets.transport.remaining().map_err(|_| invalid())? == 0 {
+            return Err(invalid());
+        }
+        for event in s
+            .events
+            .iter()
+            .skip(usize::try_from(record.accepted_ordinal).map_err(|_| invalid())?)
+        {
+            match &event.event {
+                SessionEventKindV2::Expired { .. } => return Err(invalid()),
+                SessionEventKindV2::ControlAcknowledged { request_id } => {
+                    if matches!(s.control_records.get(request_id),Some(SessionControlRecordV2::Control{request,..}) if matches!(request.kind,SessionControlKindV1::Finish|SessionControlKindV1::Abort))
+                    {
+                        return Err(invalid());
+                    }
+                }
+                _ => (),
+            }
+        }
+        Ok(s)
+    }
     pub(in crate::provisioning) fn test_session_v2_transport_id_available(
         &self,
         id: &str,
@@ -350,6 +421,15 @@ pub(super) fn v2_purpose_exhausted(s: &TestSessionAuthorityV2) -> bool {
 }
 
 pub(in crate::provisioning) fn transport_id_in_non_machine_state_v2(
+    s: &TestSessionAuthorityV2,
+    attempt: &str,
+) -> bool {
+    s.preflight_world_access
+        .as_ref()
+        .is_some_and(|w| w.transport_id_in_use(attempt))
+        || transport_id_in_non_world2_state_v2(s, attempt)
+}
+pub(in crate::provisioning) fn transport_id_in_non_world2_state_v2(
     s: &TestSessionAuthorityV2,
     attempt: &str,
 ) -> bool {

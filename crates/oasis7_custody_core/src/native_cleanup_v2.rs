@@ -86,3 +86,10 @@ pub use term_request::*;
 #[path = "native_cleanup_v2_term_fact.rs"]
 mod term_fact;
 pub use term_fact::*;
+
+#[path = "native_cleanup_v2_preflight_access.rs"]
+mod preflight_access;
+pub use preflight_access::*;
+#[path = "native_cleanup_v2_preflight_receipt.rs"]
+mod preflight_receipt;
+pub use preflight_receipt::*;

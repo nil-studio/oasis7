@@ -43,6 +43,14 @@ fn ready_with_current_ticket(
     manager_window: Option<ManagerWindow>,
     reserve_current: bool,
 ) -> ReadyPrepare {
+    ready_with_current_ticket_and_hook(status_window_ms, manager_window, reserve_current, |_| {})
+}
+fn ready_with_current_ticket_and_hook(
+    status_window_ms: Option<u64>,
+    manager_window: Option<ManagerWindow>,
+    reserve_current: bool,
+    before_source: impl FnOnce(&mut SessionFixture),
+) -> ReadyPrepare {
     let mut f = claimed_execution();
     // Existing consumed record is left intact. A new real Native Source below
     // is strongly signed with these tighter current Manager natural versions.
@@ -62,6 +70,7 @@ fn ready_with_current_ticket(
         13_002,
     )
     .unwrap();
+    before_source(&mut f);
     let source = "actual-prepare-factory-source";
     execution_source(&mut f, source, (&body, &pop, ingress), 14_000);
     let policy = Policy::new(f.state.draft());

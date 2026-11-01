@@ -22,7 +22,18 @@ impl AccountProvisionApprovalState {
         current: &TestSessionLiveCurrent<'_, '_>,
         now: UnixMillis,
     ) -> Result<ExactSignatureChecks> {
-        let s = self.test_session_v2_local(id, purpose, now)?;
+        self.test_session_v2_local(id, purpose, now)?;
+        self.test_session_v2_live_scope_after_local(id, purpose, current, now)
+    }
+    /// Only closed prepaid consumers may perform their own exact local gate.
+    pub(in crate::provisioning) fn test_session_v2_live_scope_after_local(
+        &self,
+        id: &str,
+        purpose: SessionPurposeV1,
+        current: &TestSessionLiveCurrent<'_, '_>,
+        now: UnixMillis,
+    ) -> Result<ExactSignatureChecks> {
+        let s = self.test_session_v2_record(id)?;
         let c = current.provision.approval;
         let r = s
             .book

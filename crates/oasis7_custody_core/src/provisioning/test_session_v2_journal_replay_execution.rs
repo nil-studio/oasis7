@@ -62,6 +62,18 @@ impl Replay<'_> {
                     .map_err(|_| invalid())?;
                 self.execution_prepare_current_ports = true;
             }
+            SessionEventKindV2::ExecutionPrepareOriginalArchived { request_id } => {
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                if !self.execution_prepare_permits_recorded
+                    || self.execution_prepare_original_archived
+                    || request_id != b.request_id
+                    || book.prepare_original_recorded_at() != Some(at)
+                {
+                    return Err(invalid());
+                }
+                // A late historical signature is not a live admission.
+                self.execution_prepare_original_archived = true;
+            }
             SessionEventKindV2::ExecutionPreparePermitsRecorded { request_id } => {
                 self.live(SessionPurposeV1::Execution, at)?;
                 let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;

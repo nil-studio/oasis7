@@ -109,7 +109,13 @@ impl AccountProvisionApprovalState {
                 ExecutionPrepareRkvHopV2::ExecutorServiceToActor,
             )?,
         ];
+        let accepted_ordinal = stage
+            .service_record
+            .as_ref()
+            .map(|r| r.accepted_ordinal)
+            .unwrap_or(super::super::test_session::next_session_ordinal_v2(s)?);
         let record = ExecutionPrepareServiceRecordV2 {
+            accepted_ordinal,
             port_ids,
             permits,
             recorded_at: now,

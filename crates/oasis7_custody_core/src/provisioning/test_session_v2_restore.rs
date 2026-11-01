@@ -13,6 +13,7 @@ impl AccountProvisionApprovalState {
         }
         for (id, s) in &self.test_sessions_v2 {
             s.validate_header()?;
+            self.validate_session_v2_preflight_world(id, s)?;
             let (plan, scope) = s.header()?;
             let pair = &scope.client_pairing;
             let (write, read, cleanup) = (

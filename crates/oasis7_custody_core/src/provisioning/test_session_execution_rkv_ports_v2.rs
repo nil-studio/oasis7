@@ -38,8 +38,12 @@ pub struct ExecutionPrepareDispatchV2 {
     permits: SignedExecutionPreparePermitsV2,
     port_ids: [String; 4],
     bundle: ExecutionSigningBundleV2,
+    accepted_ordinal: u64,
 }
 impl ExecutionPrepareDispatchV2 {
+    pub fn accepted_ordinal(&self) -> u64 {
+        self.accepted_ordinal
+    }
     pub fn permits(&self) -> &SignedExecutionPreparePermitsV2 {
         &self.permits
     }
@@ -69,6 +73,7 @@ impl ExecutionPrepareDispatchV2 {
             permits: record.permits.clone(),
             port_ids: record.port_ids.clone(),
             bundle,
+            accepted_ordinal: record.accepted_ordinal,
         }
     }
 }

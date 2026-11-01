@@ -310,6 +310,7 @@ impl VerifiedExecutionPreparePermitV2 {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionPrepareServiceRecordV2 {
+    pub accepted_ordinal: u64,
     pub port_ids: [String; 4],
     pub permits: SignedExecutionPreparePermitsV2,
     pub recorded_at: UnixMillis,

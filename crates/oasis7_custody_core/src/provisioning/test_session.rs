@@ -524,3 +524,14 @@ pub(in crate::provisioning) use machine_active_v2::NativeMachineActiveRecordV2;
 pub use machine_active_v2::{NativeMachineActivationDispatchV2, PreparedNativeMachineActiveV2};
 #[path = "test_session_v2_machine_birth.rs"]
 mod machine_birth_v2;
+
+#[path = "test_session_v2_preflight_world.rs"]
+mod preflight_world_v2;
+pub use preflight_world_v2::{
+    NativePreflightAccessIssuerV2, PreparedNativePreflightAccessV2, TestSessionPreflightWorldV2,
+};
+#[path = "test_session_v2_preflight_world_restore.rs"]
+mod preflight_world_restore_v2;
+
+#[path = "test_session_v2_preflight_world_admission.rs"]
+mod preflight_world_admission_v2;

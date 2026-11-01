@@ -45,7 +45,7 @@ impl Replay<'_> {
                 }
                 self.machine_ready = true;
             }
-            _ => return self.apply_purpose(event, at),
+            _ => return self.apply_world_preflight(event, at),
         }
         Ok(())
     }

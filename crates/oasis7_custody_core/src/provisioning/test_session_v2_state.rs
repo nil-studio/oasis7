@@ -73,6 +73,8 @@ pub struct TestSessionAuthorityV2 {
     #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) execution_book: Option<SessionExecutionBookV2>,
     #[serde(deserialize_with = "required_nullable")]
+    pub(in crate::provisioning) preflight_world_access: Option<TestSessionPreflightWorldV2>,
+    #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) native_model_budget: Option<SessionNativeModelBudgetV2>,
     #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) native_machine_registration:
@@ -111,6 +113,9 @@ impl TestSessionAuthorityV2 {
             return Err(invalid());
         }
         SessionNativeModelBudgetV2::validate_session_binding(self)?;
+        if let Some(world) = &self.preflight_world_access {
+            world.validate_session(self)?;
+        }
         if let Some(machine) = &self.native_machine_registration {
             machine.validate_session(self)?;
         }
@@ -287,6 +292,9 @@ impl AccountProvisionApprovalState {
         native: &NativeStageScope<'_>,
     ) -> Result<Vec<ExactSignatureChecks>> {
         let session = self.test_session_v2_record(id)?;
+        if let Some(world) = &session.preflight_world_access {
+            world.verify_native_history(session, native)?;
+        }
         session.validate_header()?;
         if let Some(machine) = &session.native_machine_registration {
             machine.validate_native_history(session, native)?;
@@ -337,6 +345,19 @@ impl AccountProvisionApprovalState {
 }
 
 impl TestSessionAuthorityV2 {
+    /// Historical evidence only; every use still verifies fixed Native pins and Current.
+    pub fn preflight_world_receipts(
+        &self,
+    ) -> Option<[crate::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2]> {
+        let world = self.preflight_world_access.as_ref()?;
+        if !world.admitted() {
+            return None;
+        }
+        Some([
+            world.receipts[0].as_ref()?.clone(),
+            world.receipts[1].as_ref()?.clone(),
+        ])
+    }
     pub fn preflight_access(&self) -> Option<&OwnerSetupAccessEvidenceV1> {
         self.preflight_access.as_ref()
     }

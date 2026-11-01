@@ -1,6 +1,6 @@
 use super::*;
 use oasis7_custody_core::http::Role;
-fn fresh_access(
+pub(super) fn fresh_access(
     s: &AccountProvisionApprovalState,
     d: &TestSessionPreflightDescriptorV2,
     now: u64,
@@ -26,7 +26,11 @@ fn lifetime(
         lifetime,
     }
 }
-fn source_current(f: &mut SessionFixture, d: &TestSessionPreflightDescriptorV2, now: u64) {
+pub(super) fn source_current(
+    f: &mut SessionFixture,
+    d: &TestSessionPreflightDescriptorV2,
+    now: u64,
+) {
     let p = Policy::new(f.state.draft());
     let c = p.current(&f.context);
     f.state
