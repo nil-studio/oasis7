@@ -31,8 +31,8 @@ use oasis7_runtime::{
         PresenceRecordLimitsV1, PresenceRecordWriteContext, write_field_metadata_v1,
     },
     incremental_module_marketplace::{
-        ModuleMarketplaceFieldV1, change_module_bid_price_amount_overlay_v1,
-        prepare_module_marketplace_genesis_v1,
+        ModuleArtifactBidChangeV1, ModuleMarketplaceFieldV1, change_module_bid_overlay_v1,
+        change_module_bid_price_amount_overlay_v1, prepare_module_marketplace_genesis_v1,
     },
     incremental_owner_closure::verify_world_state_owner_coverage,
     incremental_projection::{FieldDestination, FieldOwner, FieldShape, WORLD_STATE_FIELDS},
@@ -410,6 +410,10 @@ fn literal_text_semantic(value: &str) -> Vec<u8> {
 }
 
 fn literal_bid_price_semantic(ordinal: u64) -> Vec<u8> {
+    literal_bid_member_semantic(ordinal, "price_amount")
+}
+
+fn literal_bid_member_semantic(ordinal: u64, name: &str) -> Vec<u8> {
     let mut bytes = b"oasis7.iws.semantic-key.v1\0".to_vec();
     bytes.push(5); // ("bid", ordinal)
     bytes.push(5);
@@ -419,8 +423,8 @@ fn literal_bid_price_semantic(ordinal: u64) -> Vec<u8> {
     bytes.push(2);
     bytes.extend_from_slice(&ordinal.to_be_bytes());
     bytes.push(1); // pair's right side: "price_amount"
-    bytes.extend_from_slice(&12u64.to_be_bytes());
-    bytes.extend_from_slice(b"price_amount");
+    bytes.extend_from_slice(&(name.len() as u64).to_be_bytes());
+    bytes.extend_from_slice(name.as_bytes());
     bytes
 }
 
@@ -478,7 +482,7 @@ fn read_bid_price(
     let reference = RecordRootRefV1::from_canonical_bytes(&root_bytes).unwrap();
     let child = reference
         .validate_binding(
-            blake3::hash(b"oasis7.iws.market.bids-record.v1\0").as_bytes(),
+            blake3::hash(b"oasis7.iws.market.bids-record.v2\0").as_bytes(),
             blake3::hash(&outer_semantic).as_bytes(),
             StateNamespaceV1::Business,
         )
@@ -816,3 +820,6 @@ fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
         );
     }
 }
+
+#[path = "support/incremental_module_marketplace_bid_membership_physical.rs"]
+mod bid_membership_physical_tests;
