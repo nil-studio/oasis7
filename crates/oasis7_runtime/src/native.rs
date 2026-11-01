@@ -62,16 +62,16 @@ pub use snapshot_delta::{
     resolve_snapshot_artifact_with_depth,
 };
 mod state;
-pub use oasis7_world_state::types;
-pub use oasis7_world_state::incremental_ledger_value;
 pub use oasis7_world_state::incremental_field_member;
 pub use oasis7_world_state::incremental_field_presence;
-pub use oasis7_world_state::incremental_inventory_genesis;
-pub use oasis7_world_state::incremental_inventory_read;
 pub use oasis7_world_state::incremental_inventory_change;
-pub use oasis7_world_state::incremental_inventory_transaction;
-pub use oasis7_world_state::incremental_inventory_overlay_read;
+pub use oasis7_world_state::incremental_inventory_genesis;
 pub use oasis7_world_state::incremental_inventory_overlay_change;
+pub use oasis7_world_state::incremental_inventory_overlay_read;
+pub use oasis7_world_state::incremental_inventory_read;
+pub use oasis7_world_state::incremental_inventory_transaction;
+pub use oasis7_world_state::incremental_ledger_value;
+pub use oasis7_world_state::types;
 pub use oasis7_world_state::util;
 mod world;
 pub use oasis7_world_state::world_event;
@@ -133,11 +133,11 @@ pub(crate) use formal_retained_history::{
 pub use formal_retained_history::{
     FormalRetainedHistoryRootV1, RetainedHistoryReadError, VerifiedFormalRetainedHistoryParentV1,
 };
+pub use oasis7_world_state::incremental_agent_body;
 pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields};
 pub use world::incremental_agent_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
 pub use world::incremental_body_event::AgentEventContext;
-pub use oasis7_world_state::incremental_agent_body;
 pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
@@ -515,3 +515,7 @@ pub use oasis7_world_state::incremental_main_token_policy_records;
 pub use oasis7_world_state::incremental_world_rule_effects;
 pub use oasis7_world_state::incremental_world_rule_lineages;
 pub use oasis7_world_state::incremental_world_rule_shipments;
+
+pub use oasis7_world_state::incremental_world_rule_organization;
+
+pub use oasis7_world_state::incremental_world_rule_supply_root;

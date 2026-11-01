@@ -281,3 +281,10 @@ mod incremental_world_rule_parent;
 mod incremental_world_rule_record;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rule_shipments;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_organization;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_supply_root;
+
